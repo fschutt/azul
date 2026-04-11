@@ -1,4 +1,11 @@
-//! Text input (demonstrates two-way data binding)
+//! Single-line text input widget with cursor, placeholder, and two-way data binding.
+//!
+//! The main entry point is [`TextInput`], which holds the editable state
+//! ([`TextInputState`]) together with per-platform default styles.  Call
+//! [`TextInput::dom()`] to obtain a renderable [`Dom`] node.
+//!
+//! For higher-level text-input management (IME, clipboard, undo) see
+//! `layout/src/managers/text_input.rs`.
 
 use alloc::{string::String, vec::Vec};
 
@@ -278,7 +285,6 @@ static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
     CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
     CssPropertyWithConditions::simple(CssProperty::const_justify_content(
         LayoutJustifyContent::Center,
     )),
@@ -523,6 +529,11 @@ static TEXT_INPUT_PLACEHOLDER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_opacity(StyleOpacity::const_new(100))),
 ];
 
+/// Single-line text input widget with platform-native styling.
+///
+/// Use [`TextInput::create()`] to build an instance, configure it with the
+/// `with_*` / `set_*` builder methods, and call [`TextInput::dom()`] to
+/// obtain a renderable DOM tree.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct TextInput {
@@ -532,6 +543,7 @@ pub struct TextInput {
     pub label_style: CssPropertyWithConditionsVec,
 }
 
+/// Editable state of a text input (text buffer, cursor position, selection).
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct TextInputState {
@@ -542,6 +554,7 @@ pub struct TextInputState {
     pub cursor_pos: usize,
 }
 
+/// [`TextInputState`] together with optional user callbacks and cursor animation state.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct TextInputStateWrapper {
@@ -554,6 +567,8 @@ pub struct TextInputStateWrapper {
     pub cursor_animation: OptionTimerId,
 }
 
+/// Return value from a text-input callback indicating whether the framework
+/// should update and whether the input was valid.
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C)]
 pub struct OnTextInputReturn {
@@ -561,6 +576,7 @@ pub struct OnTextInputReturn {
     pub valid: TextInputValid,
 }
 
+/// Whether the text input accepted or rejected the most recent edit.
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C)]
 pub enum TextInputValid {
@@ -943,21 +959,17 @@ extern "C" fn default_on_focus_lost(mut text_input: RefAny, mut info: CallbackIn
         );
     }
 
-    let result = {
-        // rustc doesn't understand the borrowing lifetime here
-        let text_input = &mut *text_input;
-        let onfocuslost = &mut text_input.on_focus_lost;
-        let inner = text_input.inner.clone();
+    // rustc doesn't understand the borrowing lifetime here
+    let text_input = &mut *text_input;
+    let onfocuslost = &mut text_input.on_focus_lost;
+    let inner = text_input.inner.clone();
 
-        match onfocuslost.as_mut() {
-            Some(TextInputOnFocusLost { callback, refany }) => {
-                (callback.cb)(refany.clone(), info.clone(), inner)
-            }
-            None => Update::DoNothing,
+    match onfocuslost.as_mut() {
+        Some(TextInputOnFocusLost { callback, refany }) => {
+            (callback.cb)(refany.clone(), info.clone(), inner)
         }
-    };
-
-    result
+        None => Update::DoNothing,
+    }
 }
 
 extern "C" fn default_on_text_input(text_input: RefAny, info: CallbackInfo) -> Update {
@@ -1066,8 +1078,6 @@ extern "C" fn default_on_mouse_hover(mut text_input: RefAny, _info: CallbackInfo
         Some(s) => s,
         None => return Update::DoNothing,
     };
-
-    // println!("default_on_mouse_hover");
 
     Update::DoNothing
 }
