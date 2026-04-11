@@ -175,11 +175,15 @@ build-dll = [
 # Link Modes (for consumers of the library)
 # -----------------------------------------------------------------------------
 
-# Static linking: Include transmute-based implementations
-# Uses: target/codegen/dll_api_internal.rs (without #[no_mangle])
+# Static linking: C-ABI function bodies + #[no_mangle] exports
+# Uses: target/codegen/dll_api_internal.rs (with #[no_mangle] via cabi_export)
 # Requires the full azul stack to be compiled in
+# NOTE: link-static now exports C-ABI symbols (same as build-dll) so that
+# remill can discover function names via dlsym when AZ_BACKEND=web is used.
+# Trait impls also route through C-ABI functions (not raw transmute) so that
+# the call graph is visible to the x86→WASM lifter.
 link-static = [
-    "cabi_internal",
+    "cabi_export",
     "rust_api",
     "_internal_deps",
 ]

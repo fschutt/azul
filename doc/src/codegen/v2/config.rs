@@ -458,8 +458,12 @@ impl CodegenConfig {
     /// Generates types + C-ABI function bodies (via transmute) + trait impls.
     /// The `#[no_mangle]` attribute is gated behind `#[cfg_attr(feature = "cabi_export", no_mangle)]`
     /// so the same generated file works for both static linking and DLL export.
-    /// Trait functions (_delete, _deepCopy, etc.) are gated behind `#[cfg(feature = "cabi_export")]`
-    /// since they're only needed when exporting for C/C++/Python.
+    ///
+    /// Trait impls use `UsingCAPI` — they call the C-ABI wrapper functions
+    /// (e.g. `AzDom_delete(self)`) instead of doing raw transmute. This ensures
+    /// every operation goes through a named C-ABI function, which is critical for
+    /// the web backend: remill traces the call graph and needs to see calls like
+    /// `AzDom_addChild` to rewrite them as WASM imports into azul-mini.wasm.
     pub fn dll_internal() -> Self {
         Self {
             target_lang: TargetLang::Rust,
@@ -467,9 +471,7 @@ impl CodegenConfig {
                 export_feature: "cabi_export".into(),
             },
             struct_mode: StructMode::Prefixed,
-            trait_impl_mode: TraitImplMode::UsingTransmute {
-                external_crate: "azul_core".into(),
-            },
+            trait_impl_mode: TraitImplMode::UsingCAPI,
             type_prefix: "Az".into(),
             module_wrapper: Some("dll".into()),
             imports: vec![
@@ -649,7 +651,7 @@ impl CodegenConfig {
 
     /// Memtest configuration (for testing the generated API)
     ///
-    /// Similar to dll_static but with generate_tests: true.
+    /// Similar to dll_internal but with generate_tests: true.
     /// Generates #[test] functions for type size/layout verification.
     /// Included via include!() in dll/src/lib.rs.
     pub fn memtest() -> Self {
@@ -657,9 +659,7 @@ impl CodegenConfig {
             target_lang: TargetLang::Rust,
             cabi_functions: CAbiFunctionMode::InternalBindings { export_feature: "cabi_export".into() },
             struct_mode: StructMode::Prefixed,
-            trait_impl_mode: TraitImplMode::UsingTransmute {
-                external_crate: "azul_core".into(),
-            },
+            trait_impl_mode: TraitImplMode::UsingCAPI,
             type_prefix: "Az".into(),
             module_wrapper: Some("dll".into()),
             imports: vec![
