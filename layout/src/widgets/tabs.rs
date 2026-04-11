@@ -1,3 +1,7 @@
+//! Native-styled tab widget consisting of a [`TabHeader`] (the clickable tab bar)
+//! and [`TabContent`] (the panel shown for the active tab). Styling emulates
+//! the Windows-native tab control appearance via inline CSS constants.
+
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
     dom::{Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec},
@@ -544,11 +548,6 @@ const CSS_MATCH_18014909903571752977_PROPERTIES: &[CssPropertyWithConditions] = 
             inner: PixelValue::const_px(1),
         }),
     )),
-    CssPropertyWithConditions::simple(CssProperty::BorderTopWidth(
-        LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
     CssPropertyWithConditions::simple(CssProperty::BorderBottomStyle(
         StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
             inner: BorderStyle::Solid,
@@ -561,11 +560,6 @@ const CSS_MATCH_18014909903571752977_PROPERTIES: &[CssPropertyWithConditions] = 
     )),
     CssPropertyWithConditions::simple(CssProperty::BorderRightStyle(
         StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderTopStyle(
-        StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
             inner: BorderStyle::Solid,
         }),
     )),
@@ -591,16 +585,6 @@ const CSS_MATCH_18014909903571752977_PROPERTIES: &[CssPropertyWithConditions] = 
     )),
     CssPropertyWithConditions::simple(CssProperty::BorderRightColor(
         StyleBorderRightColorValue::Exact(StyleBorderRightColor {
-            inner: ColorU {
-                r: 172,
-                g: 172,
-                b: 172,
-                a: 255,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderTopColor(
-        StyleBorderTopColorValue::Exact(StyleBorderTopColor {
             inner: ColorU {
                 r: 172,
                 g: 172,
@@ -1165,11 +1149,15 @@ const CSS_MATCH_11510695043643111367_PROPERTIES: &[CssPropertyWithConditions] = 
 const CSS_MATCH_11510695043643111367: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_11510695043643111367_PROPERTIES);
 
+/// Header bar for a tab widget, containing the clickable tab labels.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct TabHeader {
+    /// Labels for each tab.
     pub tabs: StringVec,
+    /// Zero-based index of the currently active tab.
     pub active_tab: usize,
+    /// Optional callback invoked when a tab is clicked.
     pub on_click: OptionTabOnClick,
 }
 
@@ -1183,12 +1171,15 @@ impl Default for TabHeader {
     }
 }
 
+/// State passed to the tab-click callback, indicating which tab was selected.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct TabHeaderState {
+    /// Zero-based index of the newly selected tab.
     pub active_tab: usize,
 }
 
+/// Signature for the tab-click callback function.
 pub type TabOnClickCallbackType = extern "C" fn(RefAny, CallbackInfo, TabHeaderState) -> Update;
 impl_widget_callback!(
     TabOnClick,
@@ -1368,10 +1359,13 @@ impl TabHeader {
     }
 }
 
+/// Content panel displayed beneath the active tab in a tab widget.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct TabContent {
+    /// The DOM subtree shown as the tab's content area.
     pub content: Dom,
+    /// Whether the content area includes default padding.
     pub has_padding: bool,
 }
 
@@ -1435,14 +1429,14 @@ struct TabLocalDataset {
 }
 
 extern "C" fn on_tab_click(mut refany: RefAny, mut info: CallbackInfo) -> Update {
-    fn select_new_tab_inner(mut refany: RefAny, info: &mut CallbackInfo) -> Option<()> {
+    fn select_new_tab_inner(mut refany: RefAny, info: &mut CallbackInfo) -> Option<Update> {
         let mut tab_local_dataset = refany.downcast_mut::<TabLocalDataset>()?;
         let tab_idx = tab_local_dataset.tab_idx;
         let tab_header_state = TabHeaderState {
             active_tab: tab_idx,
         };
 
-        let _result = {
+        let result = {
             // rustc doesn't understand the borrowing lifetime here
             let tab_local_dataset = &mut *tab_local_dataset;
             let onclick = &mut tab_local_dataset.on_click;
@@ -1455,10 +1449,8 @@ extern "C" fn on_tab_click(mut refany: RefAny, mut info: CallbackInfo) -> Update
             }
         };
 
-        Some(())
+        Some(result)
     }
 
-    let _ = select_new_tab_inner(refany, &mut info);
-
-    Update::RefreshDom
+    select_new_tab_inner(refany, &mut info).unwrap_or(Update::RefreshDom)
 }
