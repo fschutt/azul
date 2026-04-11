@@ -423,10 +423,10 @@ impl ::core::fmt::Debug for StyleFontFamilyHash {
 impl StyleFontFamilyHash {
     /// Computes a 64-bit hash of a font family for cache lookups.
     pub fn new(family: &StyleFontFamily) -> Self {
-        use highway::{HighwayHash, HighwayHasher, Key};
-        let mut hasher = HighwayHasher::new(Key([0; 4]));
+        use std::hash::Hasher;
+        let mut hasher = std::hash::DefaultHasher::new();
         family.hash(&mut hasher);
-        Self(hasher.finalize64())
+        Self(hasher.finish())
     }
 }
 
@@ -443,12 +443,12 @@ impl ::core::fmt::Debug for StyleFontFamiliesHash {
 impl StyleFontFamiliesHash {
     /// Computes a 64-bit hash of multiple font families for cache lookups.
     pub fn new(families: &[StyleFontFamily]) -> Self {
-        use highway::{HighwayHash, HighwayHasher, Key};
-        let mut hasher = HighwayHasher::new(Key([0; 4]));
+        use std::hash::Hasher;
+        let mut hasher = std::hash::DefaultHasher::new();
         for f in families.iter() {
             f.hash(&mut hasher);
         }
-        Self(hasher.finalize64())
+        Self(hasher.finish())
     }
 }
 

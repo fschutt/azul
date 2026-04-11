@@ -190,12 +190,11 @@ pub fn compute_node_changes(
         (NodeType::Image(old_img), NodeType::Image(new_img)) => {
             // Use Hash-based comparison (pointer identity for decoded images,
             // callback identity for callback images)
-            use core::hash::Hasher;
-            use highway::{HighwayHash, HighwayHasher, Key};
+            use std::hash::Hasher;
             let hash_img = |img: &crate::resources::ImageRef| -> u64 {
-                let mut h = HighwayHasher::new(Key([0; 4]));
+                let mut h = std::hash::DefaultHasher::new();
                 img.hash(&mut h);
-                h.finalize64()
+                h.finish()
             };
             if hash_img(old_img) != hash_img(new_img) {
                 changes.insert(NodeChangeSet::IMAGE_CHANGED);
@@ -360,7 +359,7 @@ pub fn calculate_reconciliation_key(
     hierarchy: &[NodeHierarchyItem],
     node_id: NodeId,
 ) -> u64 {
-    use highway::{HighwayHash, HighwayHasher, Key};
+    use std::hash::Hasher;
     
     let node = &node_data[node_id.index()];
     
@@ -372,14 +371,14 @@ pub fn calculate_reconciliation_key(
     // Priority 2: CSS ID
     for attr in node.attributes().as_ref().iter() {
         if let Some(id) = attr.as_id() {
-            let mut hasher = HighwayHasher::new(Key([0; 4]));
+            let mut hasher = std::hash::DefaultHasher::new();
             id.hash(&mut hasher);
-            return hasher.finalize64();
+            return hasher.finish();
         }
     }
     
     // Priority 3: Structural key = nth-of-type-within-parent + parent key
-    let mut hasher = HighwayHasher::new(Key([0; 4]));
+    let mut hasher = std::hash::DefaultHasher::new();
     
     // Hash node type discriminant and classes (nth-of-type logic)
     core::mem::discriminant(node.get_node_type()).hash(&mut hasher);
@@ -420,7 +419,7 @@ pub fn calculate_reconciliation_key(
         }
     }
     
-    hasher.finalize64()
+    hasher.finish()
 }
 
 /// Precompute reconciliation keys for all nodes in a DOM tree.
@@ -839,7 +838,7 @@ pub fn calculate_contenteditable_key(
     hierarchy: &[crate::styled_dom::NodeHierarchyItem],
     node_id: NodeId,
 ) -> u64 {
-    use highway::{HighwayHash, HighwayHasher, Key};
+    use std::hash::Hasher;
     
     let node = &node_data[node_id.index()];
     
@@ -851,14 +850,14 @@ pub fn calculate_contenteditable_key(
     // Priority 2: CSS ID
     for attr in node.attributes().as_ref().iter() {
         if let Some(id) = attr.as_id() {
-            let mut hasher = HighwayHasher::new(Key([1; 4])); // Different seed for ID keys
-            hasher.append(id.as_bytes());
-            return hasher.finalize64();
+            let mut hasher = std::hash::DefaultHasher::new(); // Different seed for ID keys
+            hasher.write(id.as_bytes());
+            return hasher.finish();
         }
     }
     
     // Priority 3: Structural key = (nth-of-type, classes, parent_key)
-    let mut hasher = HighwayHasher::new(Key([2; 4])); // Different seed for structural keys
+    let mut hasher = std::hash::DefaultHasher::new(); // Different seed for structural keys
     
     // Get parent and calculate its key recursively
     let parent_key = if let Some(parent_id) = hierarchy.get(node_id.index()).and_then(|h| h.parent_id()) {
@@ -866,7 +865,7 @@ pub fn calculate_contenteditable_key(
     } else {
         0u64 // Root node
     };
-    hasher.append(&parent_key.to_le_bytes());
+    hasher.write(&parent_key.to_le_bytes());
     
     // Calculate nth-of-type (count siblings of same node type before this one)
     // We compare discriminants directly without hashing
@@ -890,7 +889,7 @@ pub fn calculate_contenteditable_key(
         0
     };
     
-    hasher.append(&nth_of_type.to_le_bytes());
+    hasher.write(&nth_of_type.to_le_bytes());
     
     // Hash the node type discriminant (Discriminant<T> implements Hash)
     node_discriminant.hash(&mut hasher);
@@ -898,11 +897,11 @@ pub fn calculate_contenteditable_key(
     // Also hash the classes for additional stability
     for attr in node.attributes().as_ref().iter() {
         if let Some(class) = attr.as_class() {
-            hasher.append(class.as_bytes());
+            hasher.write(class.as_bytes());
         }
     }
     
-    hasher.finalize64()
+    hasher.finish()
 }
 
 /// Reconcile cursor byte position when text content changes.
@@ -1429,37 +1428,37 @@ impl Default for NodeDataFingerprint {
 impl NodeDataFingerprint {
     /// Compute a fingerprint from a node's data and styled state.
     pub fn compute(node: &NodeData, styled_state: Option<&StyledNodeState>) -> Self {
-        use highway::{HighwayHash, HighwayHasher, Key};
+        use std::hash::Hasher;
         use core::hash::Hash;
 
         // Content hash
         let content_hash = {
-            let mut h = HighwayHasher::new(Key([1; 4]));
+            let mut h = std::hash::DefaultHasher::new();
             node.get_node_type().hash(&mut h);
-            h.finalize64()
+            h.finish()
         };
 
         // State hash
         let state_hash = {
-            let mut h = HighwayHasher::new(Key([2; 4]));
+            let mut h = std::hash::DefaultHasher::new();
             if let Some(state) = styled_state {
                 state.hash(&mut h);
             }
-            h.finalize64()
+            h.finish()
         };
 
         // Inline CSS hash
         let inline_css_hash = {
-            let mut h = HighwayHasher::new(Key([3; 4]));
+            let mut h = std::hash::DefaultHasher::new();
             for prop in node.css_props.as_ref().iter() {
                 prop.hash(&mut h);
             }
-            h.finalize64()
+            h.finish()
         };
 
         // IDs and classes hash (now stored in attributes)
         let ids_classes_hash = {
-            let mut h = HighwayHasher::new(Key([4; 4]));
+            let mut h = std::hash::DefaultHasher::new();
             for attr in node.attributes().as_ref().iter() {
                 match attr {
                     crate::dom::AttributeType::Id(s) => {
@@ -1471,26 +1470,26 @@ impl NodeDataFingerprint {
                     _ => {}
                 }
             }
-            h.finalize64()
+            h.finish()
         };
 
         // Callbacks hash
         let callbacks_hash = {
-            let mut h = HighwayHasher::new(Key([5; 4]));
+            let mut h = std::hash::DefaultHasher::new();
             for cb in node.callbacks.as_ref().iter() {
                 cb.event.hash(&mut h);
                 cb.callback.hash(&mut h);
             }
-            h.finalize64()
+            h.finish()
         };
 
         // Attributes hash
         let attrs_hash = {
-            let mut h = HighwayHasher::new(Key([6; 4]));
+            let mut h = std::hash::DefaultHasher::new();
             node.is_contenteditable().hash(&mut h);
             node.flags.hash(&mut h);
             node.get_dataset().hash(&mut h);
-            h.finalize64()
+            h.finish()
         };
 
         Self {

@@ -5522,13 +5522,13 @@ impl CssMatcher {
     fn get_hash(&self) -> u64 {
         use core::hash::Hash;
 
-        use highway::{HighwayHash, HighwayHasher, Key};
+        use std::hash::Hasher;
 
-        let mut hasher = HighwayHasher::new(Key([0; 4]));
+        let mut hasher = std::hash::DefaultHasher::new();
         for p in self.path.iter() {
             p.hash(&mut hasher);
         }
-        hasher.finalize64()
+        hasher.finish()
     }
 }
 

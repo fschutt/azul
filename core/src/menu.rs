@@ -85,10 +85,10 @@ impl Menu {
     /// This is used to detect changes in menu structure for caching and optimization.
     #[must_use]
     pub fn get_hash(&self) -> u64 {
-        use highway::{HighwayHash, HighwayHasher, Key};
-        let mut hasher = HighwayHasher::new(Key([0; 4]));
+        use std::hash::Hasher;
+        let mut hasher = std::hash::DefaultHasher::new();
         self.hash(&mut hasher);
-        hasher.finalize64()
+        hasher.finish()
     }
 }
 

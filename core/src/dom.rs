@@ -2421,12 +2421,12 @@ impl NodeData {
     /// ```
     #[inline]
     pub fn set_key<K: core::hash::Hash>(&mut self, key: K) {
-        use highway::{HighwayHash, HighwayHasher, Key};
-        let mut hasher = HighwayHasher::new(Key([0; 4]));
+        use std::hash::Hasher;
+        let mut hasher = std::hash::DefaultHasher::new();
         key.hash(&mut hasher);
         self.extra
             .get_or_insert_with(|| Box::new(NodeDataExt::default()))
-            .key = Some(hasher.finalize64());
+            .key = Some(hasher.finish());
     }
 
     /// Gets the key for this node, if set.
@@ -2557,10 +2557,10 @@ impl NodeData {
 
     /// Calculates a deterministic node hash for this node.
     pub fn calculate_node_data_hash(&self) -> DomNodeHash {
-        use highway::{HighwayHash, HighwayHasher, Key};
-        let mut hasher = HighwayHasher::new(Key([0; 4]));
+        use std::hash::Hasher;
+        let mut hasher = std::hash::DefaultHasher::new();
         self.hash(&mut hasher);
-        let h = hasher.finalize64();
+        let h = hasher.finish();
         DomNodeHash { inner: h }
     }
 
@@ -2576,10 +2576,10 @@ impl NodeData {
     /// This allows a Text("Hello") node to match Text("Hello World") during reconciliation,
     /// preserving cursor position and selection state.
     pub fn calculate_structural_hash(&self) -> DomNodeHash {
-        use highway::{HighwayHash, HighwayHasher, Key};
+        use std::hash::Hasher;
         use core::hash::Hasher as StdHasher;
         
-        let mut hasher = HighwayHasher::new(Key([0; 4]));
+        let mut hasher = std::hash::DefaultHasher::new();
         
         // Hash node type discriminant only, not content
         // This means Text("A") and Text("B") have the same structural hash
@@ -2637,7 +2637,7 @@ impl NodeData {
             callback.event.hash(&mut hasher);
         }
         
-        let h = hasher.finalize64();
+        let h = hasher.finish();
         DomNodeHash { inner: h }
     }
 
