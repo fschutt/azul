@@ -53,7 +53,6 @@ use spin::Mutex;
 use azul_css::{AzString, system::SystemStyle};
 
 use crate::{
-    debug::DebugLog,
     dom::{Dom, NodeType},
     refany::{OptionRefAny, RefAny},
     styled_dom::StyledDom,
@@ -549,66 +548,30 @@ pub fn resolve_icons_in_styled_dom(
     provider: &SharedIconProvider,
     system_style: &SystemStyle,
 ) {
-    resolve_icons_in_styled_dom_with_log(styled_dom, provider, system_style, None)
-}
-
-/// Same as `resolve_icons_in_styled_dom` but with optional debug logging
-pub fn resolve_icons_in_styled_dom_with_log(
-    styled_dom: &mut StyledDom,
-    provider: &SharedIconProvider,
-    system_style: &SystemStyle,
-    mut debug_log: Option<&mut DebugLog>,
-) {
-    use crate::log_debug;
-    
     // Step 1: Collect all icon nodes
     let icons = collect_icon_nodes(styled_dom);
-    
+
     if icons.is_empty() {
-        if let Some(ref mut log) = debug_log {
-            log_debug!(log, Icon, "No icon nodes found in StyledDom");
-        }
         return;
     }
-    
-    if let Some(ref mut log) = debug_log {
-        log_debug!(log, Icon, "Found {} icon nodes to resolve", icons.len());
-        for icon in &icons {
-            let has_icon = provider.has_icon(icon.icon_name.as_str());
-            log_debug!(log, Icon, "  - Icon '{}' at node {}: registered={}", 
-                icon.icon_name.as_str(), icon.node_idx, has_icon);
-        }
-    }
-    
+
     // Step 2: Resolve all icons to their StyledDom representations
     // Note: We pass styled_dom to extract each icon's original node
     let replacements = resolve_collected_icons(&icons, styled_dom, provider, system_style);
-    
-    if let Some(ref mut log) = debug_log {
-        for replacement in &replacements {
-            let node_count = replacement.replacement.node_data.as_ref().len();
-            let node_type = replacement.replacement.node_data.as_ref()
-                .first()
-                .map(|n| format!("{:?}", n.get_node_type()))
-                .unwrap_or_else(|| "empty".to_string());
-            log_debug!(log, Icon, "  - Replacement at {}: {} nodes, root type: {}", 
-                replacement.node_idx, node_count, node_type);
-        }
-    }
-    
+
     // Step 3: Apply replacements (reverse order to preserve indices)
     for replacement in replacements.into_iter().rev() {
-        if is_single_node_replacement(&replacement.replacement) || 
+        if is_single_node_replacement(&replacement.replacement) ||
            replacement.replacement.node_data.as_ref().is_empty() {
             apply_single_node_replacement(
-                styled_dom, 
-                replacement.node_idx, 
+                styled_dom,
+                replacement.node_idx,
                 &replacement.replacement
             );
         } else {
             apply_multi_node_replacement(
-                styled_dom, 
-                replacement.node_idx, 
+                styled_dom,
+                replacement.node_idx,
                 replacement.replacement
             );
         }
