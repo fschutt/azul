@@ -8,11 +8,9 @@ use azul_css::props::{
 
 use crate::geom::{LogicalPosition, LogicalSize};
 
-/// Default font size in pixels (as `isize` for use in `PixelValue::const_px`).
-pub const DEFAULT_FONT_SIZE_PX: isize = 16;
 /// Default font size (`16px`) used when no explicit size is specified.
 pub const DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize {
-    inner: PixelValue::const_px(DEFAULT_FONT_SIZE_PX),
+    inner: PixelValue::const_px(16),
 };
 /// Default font family identifier used as a fallback.
 pub const DEFAULT_FONT_ID: &str = "serif";
@@ -25,15 +23,6 @@ pub const DEFAULT_TEXT_COLOR: StyleTextColor = StyleTextColor {
         a: 255,
     },
 };
-/// Default line height multiplier.
-pub const DEFAULT_LINE_HEIGHT: f32 = 1.0;
-/// Default word spacing multiplier.
-pub const DEFAULT_WORD_SPACING: f32 = 1.0;
-/// Default letter spacing in pixels.
-pub const DEFAULT_LETTER_SPACING: f32 = 0.0;
-/// Default tab width in space-character units.
-pub const DEFAULT_TAB_WIDTH: f32 = 4.0;
-
 /// Resolved top/right/bottom/left offsets in logical pixels (used for
 /// margins, padding, and borders after CSS resolution).
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
@@ -65,7 +54,7 @@ impl ResolvedOffsets {
 }
 
 /// Index into a font's glyph table.
-pub type GlyphIndex = u32;
+type GlyphIndex = u32;
 
 /// A single positioned glyph with its index, screen position, and size.
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
