@@ -8,17 +8,14 @@ use alloc::{
     vec::Vec,
 };
 
-use azul_css::AzString;
-
 use crate::{
     callbacks::Update,
     dom::{DomId, DomNodeId, On},
     geom::{LogicalPosition, LogicalRect},
     hit_test::{FullHitTest, HitTestItem},
     id::NodeId,
-    styled_dom::{ChangedCssProperty, NodeHierarchyItemId},
+    styled_dom::NodeHierarchyItemId,
     task::Instant,
-    FastHashMap,
 };
 
 /// Easing functions for smooth scroll animations
@@ -29,21 +26,10 @@ pub enum EasingFunction {
     EaseOut,
 }
 
-pub type RestyleNodes = BTreeMap<NodeId, Vec<ChangedCssProperty>>;
-pub type RelayoutNodes = BTreeMap<NodeId, Vec<ChangedCssProperty>>;
-pub type RelayoutWords = BTreeMap<NodeId, AzString>;
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct FocusChange {
     pub old: Option<DomNodeId>,
     pub new: Option<DomNodeId>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct CallbackToCall {
-    pub node_id: NodeId,
-    pub hit_test_item: Option<HitTestItem>,
-    pub event_filter: EventFilter,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -87,12 +73,6 @@ impl PartialOrd for ProcessEventResult {
 impl Ord for ProcessEventResult {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.order().cmp(&other.order())
-    }
-}
-
-impl ProcessEventResult {
-    pub fn max_self(self, other: Self) -> Self {
-        self.max(other)
     }
 }
 
@@ -984,47 +964,6 @@ impl DefaultActionResult {
     }
 }
 
-/// Trait for elements that have activation behavior (can be "clicked" via keyboard).
-///
-/// Per HTML5 spec, elements with activation behavior include:
-/// - `<button>` elements
-/// - `<input type="submit">`, `<input type="button">`, `<input type="reset">`
-/// - `<a>` elements with href
-/// - `<area>` elements with href
-/// - Any element with a click handler (implicit activation)
-///
-/// When an element with activation behavior is focused and the user presses
-/// Enter or Space, a synthetic click event is generated.
-pub trait ActivationBehavior {
-    /// Returns true if this element can be activated via keyboard (Enter/Space)
-    fn has_activation_behavior(&self) -> bool;
-
-    /// Returns true if this element is currently activatable
-    /// (e.g., not disabled, not aria-disabled="true")
-    fn is_activatable(&self) -> bool;
-}
-
-/// Trait to query if a node is focusable for tab navigation
-pub trait Focusable {
-    /// Returns the tabindex value for this element (-1, 0, or positive)
-    fn get_tabindex(&self) -> Option<i32>;
-
-    /// Returns true if this element can receive focus
-    fn is_focusable(&self) -> bool;
-
-    /// Returns true if this element should be in the tab order
-    fn is_in_tab_order(&self) -> bool {
-        match self.get_tabindex() {
-            None => self.is_naturally_focusable(),
-            Some(i) => i >= 0,
-        }
-    }
-
-    /// Returns true if this element type is naturally focusable
-    /// (button, input, select, textarea, a[href])
-    fn is_naturally_focusable(&self) -> bool;
-}
-
 /// Check if an event filter matches the given event in the current phase.
 ///
 /// This is used during event propagation to determine which callbacks
@@ -1058,6 +997,15 @@ fn matches_filter_phase(
     }
 }
 
+/// Check if the event data contains a mouse event with the expected button.
+fn check_mouse_button(data: &EventData, expected: MouseButton) -> bool {
+    if let EventData::Mouse(mouse_data) = data {
+        mouse_data.button == expected
+    } else {
+        false
+    }
+}
+
 /// Check if a hover filter matches the event.
 fn matches_hover_filter(
     filter: &HoverEventFilter,
@@ -1069,50 +1017,13 @@ fn matches_hover_filter(
     match (filter, &event.event_type) {
         (MouseOver, EventType::MouseOver) => true,
         (MouseDown, EventType::MouseDown) => true,
-        (LeftMouseDown, EventType::MouseDown) => {
-            // Check if it's left button
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Left
-            } else {
-                false
-            }
-        }
-        (RightMouseDown, EventType::MouseDown) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Right
-            } else {
-                false
-            }
-        }
-        (MiddleMouseDown, EventType::MouseDown) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Middle
-            } else {
-                false
-            }
-        }
+        (LeftMouseDown, EventType::MouseDown) => check_mouse_button(&event.data, MouseButton::Left),
+        (RightMouseDown, EventType::MouseDown) => check_mouse_button(&event.data, MouseButton::Right),
+        (MiddleMouseDown, EventType::MouseDown) => check_mouse_button(&event.data, MouseButton::Middle),
         (MouseUp, EventType::MouseUp) => true,
-        (LeftMouseUp, EventType::MouseUp) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Left
-            } else {
-                false
-            }
-        }
-        (RightMouseUp, EventType::MouseUp) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Right
-            } else {
-                false
-            }
-        }
-        (MiddleMouseUp, EventType::MouseUp) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Middle
-            } else {
-                false
-            }
-        }
+        (LeftMouseUp, EventType::MouseUp) => check_mouse_button(&event.data, MouseButton::Left),
+        (RightMouseUp, EventType::MouseUp) => check_mouse_button(&event.data, MouseButton::Right),
+        (MiddleMouseUp, EventType::MouseUp) => check_mouse_button(&event.data, MouseButton::Middle),
         (MouseEnter, EventType::MouseEnter) => true,
         (MouseLeave, EventType::MouseLeave) => true,
         (Scroll, EventType::Scroll) => true,
@@ -1151,49 +1062,13 @@ fn matches_focus_filter(
     match (filter, &event.event_type) {
         (MouseOver, EventType::MouseOver) => true,
         (MouseDown, EventType::MouseDown) => true,
-        (LeftMouseDown, EventType::MouseDown) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Left
-            } else {
-                false
-            }
-        }
-        (RightMouseDown, EventType::MouseDown) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Right
-            } else {
-                false
-            }
-        }
-        (MiddleMouseDown, EventType::MouseDown) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Middle
-            } else {
-                false
-            }
-        }
+        (LeftMouseDown, EventType::MouseDown) => check_mouse_button(&event.data, MouseButton::Left),
+        (RightMouseDown, EventType::MouseDown) => check_mouse_button(&event.data, MouseButton::Right),
+        (MiddleMouseDown, EventType::MouseDown) => check_mouse_button(&event.data, MouseButton::Middle),
         (MouseUp, EventType::MouseUp) => true,
-        (LeftMouseUp, EventType::MouseUp) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Left
-            } else {
-                false
-            }
-        }
-        (RightMouseUp, EventType::MouseUp) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Right
-            } else {
-                false
-            }
-        }
-        (MiddleMouseUp, EventType::MouseUp) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Middle
-            } else {
-                false
-            }
-        }
+        (LeftMouseUp, EventType::MouseUp) => check_mouse_button(&event.data, MouseButton::Left),
+        (RightMouseUp, EventType::MouseUp) => check_mouse_button(&event.data, MouseButton::Right),
+        (MiddleMouseUp, EventType::MouseUp) => check_mouse_button(&event.data, MouseButton::Middle),
         (MouseEnter, EventType::MouseEnter) => true,
         (MouseLeave, EventType::MouseLeave) => true,
         (Scroll, EventType::Scroll) => true,
@@ -1226,49 +1101,13 @@ fn matches_window_filter(
     match (filter, &event.event_type) {
         (MouseOver, EventType::MouseOver) => true,
         (MouseDown, EventType::MouseDown) => true,
-        (LeftMouseDown, EventType::MouseDown) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Left
-            } else {
-                false
-            }
-        }
-        (RightMouseDown, EventType::MouseDown) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Right
-            } else {
-                false
-            }
-        }
-        (MiddleMouseDown, EventType::MouseDown) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Middle
-            } else {
-                false
-            }
-        }
+        (LeftMouseDown, EventType::MouseDown) => check_mouse_button(&event.data, MouseButton::Left),
+        (RightMouseDown, EventType::MouseDown) => check_mouse_button(&event.data, MouseButton::Right),
+        (MiddleMouseDown, EventType::MouseDown) => check_mouse_button(&event.data, MouseButton::Middle),
         (MouseUp, EventType::MouseUp) => true,
-        (LeftMouseUp, EventType::MouseUp) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Left
-            } else {
-                false
-            }
-        }
-        (RightMouseUp, EventType::MouseUp) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Right
-            } else {
-                false
-            }
-        }
-        (MiddleMouseUp, EventType::MouseUp) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Middle
-            } else {
-                false
-            }
-        }
+        (LeftMouseUp, EventType::MouseUp) => check_mouse_button(&event.data, MouseButton::Left),
+        (RightMouseUp, EventType::MouseUp) => check_mouse_button(&event.data, MouseButton::Right),
+        (MiddleMouseUp, EventType::MouseUp) => check_mouse_button(&event.data, MouseButton::Middle),
         (MouseEnter, EventType::MouseEnter) => true,
         (MouseLeave, EventType::MouseLeave) => true,
         (Scroll, EventType::Scroll) => true,
@@ -1416,7 +1255,7 @@ fn create_unmount_event(
         dom_id,
         timestamp,
         LifecycleEventData {
-            reason: LifecycleReason::InitialMount,
+            reason: LifecycleReason::Unmount,
             previous_bounds: Some(previous_bounds),
             current_bounds: LogicalRect::zero(),
         },
@@ -1448,95 +1287,6 @@ fn create_resize_event(
             current_bounds: new_bounds,
         },
     ))
-}
-
-/// Result of lifecycle event detection with reconciliation.
-///
-/// Contains both the generated lifecycle events and a mapping from old to new
-/// node IDs for state migration (focus, scroll, etc.).
-#[derive(Debug, Clone, Default)]
-pub struct LifecycleEventResult {
-    /// Lifecycle events (Mount, Unmount, Resize, Update)
-    pub events: Vec<SyntheticEvent>,
-    /// Maps old NodeId -> new NodeId for matched nodes.
-    /// Use this to migrate focus, scroll state, and other node-specific state.
-    pub node_id_mapping: crate::FastHashMap<NodeId, NodeId>,
-}
-
-/// Detect lifecycle events using reconciliation with stable keys and content hashing.
-///
-/// This is the advanced lifecycle detection that can correctly identify:
-/// - **Moves**: When a node changes position but keeps its identity (via key or hash)
-/// - **Mounts**: When a new node appears
-/// - **Unmounts**: When an existing node disappears
-/// - **Resizes**: When a node's layout bounds change
-/// - **Updates**: When a keyed node's content changes
-///
-/// The reconciliation strategy is:
-/// 1. **Stable Key Match:** Nodes with `.with_reconciliation_key()` are matched by key (O(1))
-/// 2. **Hash Match:** Nodes without keys are matched by content hash (enables reorder detection)
-/// 3. **Fallback:** Unmatched nodes generate Mount/Unmount events
-///
-/// # Arguments
-/// * `dom_id` - The DOM identifier
-/// * `old_node_data` - Node data from the previous frame
-/// * `new_node_data` - Node data from the current frame
-/// * `old_layout` - Layout bounds from the previous frame
-/// * `new_layout` - Layout bounds from the current frame
-/// * `timestamp` - Current timestamp for events
-///
-/// # Returns
-/// A `LifecycleEventResult` containing:
-/// - `events`: Lifecycle events to dispatch
-/// - `node_id_mapping`: Mapping from old to new NodeIds for state migration
-///
-/// # Example
-/// ```rust,ignore
-/// let result = detect_lifecycle_events_with_reconciliation(
-///     dom_id,
-///     &old_node_data,
-///     &new_node_data,
-///     &old_layout,
-///     &new_layout,
-///     timestamp,
-/// );
-///
-/// // Dispatch lifecycle events
-/// for event in result.events {
-///     dispatch_event(event);
-/// }
-///
-/// // Migrate focus to new node ID
-/// if let Some(focused) = focus_manager.focused_node {
-///     if let Some(&new_id) = result.node_id_mapping.get(&focused) {
-///         focus_manager.focused_node = Some(new_id);
-///     } else {
-///         // Focused node was unmounted
-///         focus_manager.focused_node = None;
-///     }
-/// }
-/// ```
-pub fn detect_lifecycle_events_with_reconciliation(
-    dom_id: DomId,
-    old_node_data: &[crate::dom::NodeData],
-    new_node_data: &[crate::dom::NodeData],
-    old_layout: &crate::FastHashMap<NodeId, LogicalRect>,
-    new_layout: &crate::FastHashMap<NodeId, LogicalRect>,
-    timestamp: Instant,
-) -> LifecycleEventResult {
-    let diff_result = crate::diff::reconcile_dom(
-        old_node_data,
-        new_node_data,
-        old_layout,
-        new_layout,
-        dom_id,
-        timestamp,
-    );
-
-    LifecycleEventResult {
-        events: diff_result.events,
-        node_id_mapping: crate::diff::create_migration_map(&diff_result.node_moves),
-    }
 }
 
 /// Event filter that only fires when an element is hovered over.
@@ -2624,31 +2374,6 @@ pub type PostFilterFn = fn(
     new_focus: Option<DomNodeId>,
 ) -> Vec<SystemChange>;
 
-/// Mouse button state for drag tracking
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MouseButtonState {
-    pub left_down: bool,
-    pub right_down: bool,
-    pub middle_down: bool,
-}
-
-/// Arrow key / cursor navigation directions
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ArrowDirection {
-    Left,
-    Right,
-    Up,
-    Down,
-    /// Home key: move to start of current line
-    LineStart,
-    /// End key: move to end of current line
-    LineEnd,
-    /// Ctrl+Home: move to start of document
-    DocumentStart,
-    /// Ctrl+End: move to end of document
-    DocumentEnd,
-}
-
 /// Direction of cursor movement or selection expansion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(C)]
@@ -2714,17 +2439,6 @@ impl SelectionOp {
     pub fn new(direction: SelectionDirection, step: SelectionStep, mode: SelectionMode) -> Self {
         Self { direction, step, mode, repeat: 1 }
     }
-}
-
-/// Keyboard shortcuts for text editing
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum KeyboardShortcut {
-    Copy,      // Ctrl+C
-    Cut,       // Ctrl+X
-    Paste,     // Ctrl+V
-    SelectAll, // Ctrl+A
-    Undo,      // Ctrl+Z
-    Redo,      // Ctrl+Y or Ctrl+Shift+Z
 }
 
 /// Default input interpreter: standard desktop keybindings.
