@@ -292,9 +292,24 @@ impl MacOSWindow {
 
     /// Process a scroll wheel event.
     pub fn handle_scroll_wheel(&mut self, event: &NSEvent) -> EventProcessResult {
-        let delta_x = unsafe { event.scrollingDeltaX() };
-        let delta_y = unsafe { event.scrollingDeltaY() };
-        let has_precise = unsafe { event.hasPreciseScrollingDeltas() };
+        // scrollingDeltaX/Y and hasPreciseScrollingDeltas are macOS 10.7+.
+        // On pre-10.7, fall back to deltaX/Y (which return discrete wheel ticks).
+        let has_modern_scroll = unsafe {
+            use objc2::sel;
+            let sel = sel!(scrollingDeltaX);
+            objc2::msg_send![event, respondsToSelector: sel]
+        };
+        let (delta_x, delta_y, has_precise) = if has_modern_scroll {
+            let dx = unsafe { event.scrollingDeltaX() };
+            let dy = unsafe { event.scrollingDeltaY() };
+            let precise = unsafe { event.hasPreciseScrollingDeltas() };
+            (dx, dy, precise)
+        } else {
+            // Pre-10.7: use legacy deltaX/deltaY (discrete wheel events)
+            let dx = unsafe { event.deltaX() };
+            let dy = unsafe { event.deltaY() };
+            (dx, dy, false)
+        };
 
         let location = unsafe { event.locationInWindow() };
         let window_height = self.common.current_window_state.size.dimensions.height;

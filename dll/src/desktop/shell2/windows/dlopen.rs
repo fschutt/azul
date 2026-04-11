@@ -644,12 +644,18 @@ impl Win32Libraries {
                     .ok_or_else(|| "InvalidateRect not found".to_string())?,
 
                 // Window properties
+                // SetWindowLongPtrW/GetWindowLongPtrW are 64-bit-aware wrappers
+                // that only exist as real exports on 64-bit Windows. On 32-bit
+                // Windows (including Win9x/XP), they're #defines to SetWindowLongW/
+                // GetWindowLongW. Fall back to the non-Ptr versions for compat.
                 SetWindowLongPtrW: user32_dll
                     .get_symbol("SetWindowLongPtrW")
-                    .ok_or_else(|| "SetWindowLongPtrW not found".to_string())?,
+                    .or_else(|| user32_dll.get_symbol("SetWindowLongW"))
+                    .ok_or_else(|| "SetWindowLongPtrW/SetWindowLongW not found".to_string())?,
                 GetWindowLongPtrW: user32_dll
                     .get_symbol("GetWindowLongPtrW")
-                    .ok_or_else(|| "GetWindowLongPtrW not found".to_string())?,
+                    .or_else(|| user32_dll.get_symbol("GetWindowLongW"))
+                    .ok_or_else(|| "GetWindowLongPtrW/GetWindowLongW not found".to_string())?,
                 SetWindowTextW: user32_dll
                     .get_symbol("SetWindowTextW")
                     .ok_or_else(|| "SetWindowTextW not found".to_string())?,

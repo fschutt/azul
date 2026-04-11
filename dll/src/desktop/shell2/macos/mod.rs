@@ -4354,6 +4354,12 @@ impl MacOSWindow {
         self.window.setStyleMask(style_mask);
     }
 
+    /// Check if NSVisualEffectView is available (macOS 10.10+).
+    /// Returns false on older macOS versions where the class doesn't exist.
+    fn has_visual_effect_view() -> bool {
+        objc2::runtime::AnyClass::get(c"NSVisualEffectView").is_some()
+    }
+
     /// Apply window background material
     fn apply_background_material(&mut self, material: WindowBackgroundMaterial) {
         use objc2_app_kit::{
@@ -4367,16 +4373,18 @@ impl MacOSWindow {
                 if let Some(content_view) = self.window.contentView() {
                     // Check if content view is an effect view
                     unsafe {
-                        let content_ptr = Retained::as_ptr(&content_view);
-                        let is_effect_view: bool =
-                            msg_send![content_ptr, isKindOfClass: NSVisualEffectView::class()];
+                        if Self::has_visual_effect_view() {
+                            let content_ptr = Retained::as_ptr(&content_view);
+                            let is_effect_view: bool =
+                                msg_send![content_ptr, isKindOfClass: NSVisualEffectView::class()];
 
-                        if is_effect_view {
-                            // Get the original view (first subview)
-                            let subviews = content_view.subviews();
-                            if subviews.count() > 0 {
-                                let original_view = subviews.objectAtIndex(0);
-                                self.window.setContentView(Some(&original_view));
+                            if is_effect_view {
+                                // Get the original view (first subview)
+                                let subviews = content_view.subviews();
+                                if subviews.count() > 0 {
+                                    let original_view = subviews.objectAtIndex(0);
+                                    self.window.setContentView(Some(&original_view));
+                                }
                             }
                         }
 
@@ -4398,6 +4406,13 @@ impl MacOSWindow {
             | WindowBackgroundMaterial::HUD
             | WindowBackgroundMaterial::Titlebar
             | WindowBackgroundMaterial::MicaAlt => {
+                // NSVisualEffectView requires macOS 10.10+. On older versions,
+                // the blur material is unavailable — leave the window opaque
+                // (same behavior as Windows without dwmapi.dll).
+                if !Self::has_visual_effect_view() {
+                    return;
+                }
+
                 // Create or update NSVisualEffectView
                 let content_view = match self.window.contentView() {
                     Some(view) => view,
