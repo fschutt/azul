@@ -1,4 +1,9 @@
-//! Same as TextInput, but only allows a number
+//! Numeric input widget that wraps `TextInput` with numeric validation.
+//!
+//! Exports `NumberInput`, `NumberInputState`, and callback types
+//! (`NumberInputOnValueChangeCallbackType`, `NumberInputOnFocusLostCallbackType`).
+//! Internally delegates to `TextInput` and validates that the entered text
+//! parses as an `f32` within the configured `min`/`max` range.
 
 use std::string::String;
 
@@ -28,6 +33,7 @@ use crate::{
     },
 };
 
+/// Callback type invoked when the numeric value changes.
 pub type NumberInputOnValueChangeCallbackType =
     extern "C" fn(RefAny, CallbackInfo, NumberInputState) -> Update;
 impl_widget_callback!(
@@ -37,6 +43,7 @@ impl_widget_callback!(
     NumberInputOnValueChangeCallbackType
 );
 
+/// Callback type invoked when the number input loses focus.
 pub type NumberInputOnFocusLostCallbackType =
     extern "C" fn(RefAny, CallbackInfo, NumberInputState) -> Update;
 impl_widget_callback!(
@@ -46,6 +53,7 @@ impl_widget_callback!(
     NumberInputOnFocusLostCallbackType
 );
 
+/// A numeric input widget that wraps `TextInput` with `f32` validation.
 #[derive(Debug, Default, Clone, PartialEq)]
 #[repr(C)]
 pub struct NumberInput {
@@ -54,6 +62,7 @@ pub struct NumberInput {
     pub style: CssPropertyWithConditionsVec,
 }
 
+/// Wraps `NumberInputState` together with its value-change and focus-lost callbacks.
 #[derive(Debug, Default, Clone, PartialEq)]
 #[repr(C)]
 pub struct NumberInputStateWrapper {
@@ -62,12 +71,17 @@ pub struct NumberInputStateWrapper {
     pub on_focus_lost: OptionNumberInputOnFocusLost,
 }
 
+/// State of a `NumberInput`: the current and previous value, plus allowed range.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct NumberInputState {
+    /// The value before the most recent change.
     pub previous: f32,
+    /// The current numeric value.
     pub number: f32,
+    /// Minimum allowed value (inclusive).
     pub min: f32,
+    /// Maximum allowed value (inclusive).
     pub max: f32,
 }
 
@@ -76,13 +90,14 @@ impl Default for NumberInputState {
         Self {
             previous: 0.0,
             number: 0.0,
-            min: 0.0,
+            min: core::f32::MIN,
             max: core::f32::MAX,
         }
     }
 }
 
 impl NumberInput {
+    /// Creates a new `NumberInput` with the given initial value.
     pub fn create(input: f32) -> Self {
         Self {
             number_input_state: NumberInputStateWrapper {
@@ -236,20 +251,16 @@ extern "C" fn on_focus_lost(
         None => return Update::DoNothing,
     };
 
-    let result = {
-        let number_input = &mut *refany;
-        let onfocuslost = &mut number_input.on_focus_lost;
-        let inner = number_input.inner.clone();
+    let number_input = &mut *refany;
+    let onfocuslost = &mut number_input.on_focus_lost;
+    let inner = number_input.inner.clone();
 
-        match onfocuslost.as_mut() {
-            Some(NumberInputOnFocusLost { callback, refany }) => {
-                (callback.cb)(refany.clone(), info.clone(), inner)
-            }
-            None => Update::DoNothing,
+    match onfocuslost.as_mut() {
+        Some(NumberInputOnFocusLost { callback, refany }) => {
+            (callback.cb)(refany.clone(), info.clone(), inner)
         }
-    };
-
-    result
+        None => Update::DoNothing,
+    }
 }
 
 extern "C" fn validate_text_input(
@@ -286,25 +297,24 @@ extern "C" fn validate_text_input(
         }
     };
 
-    let result = {
-        let number_input = &mut *refany;
-        let onvaluechange = &mut number_input.on_value_change;
-        let inner = &mut number_input.inner;
+    let number_input = &mut *refany;
+    let onvaluechange = &mut number_input.on_value_change;
+    let inner = &mut number_input.inner;
 
-        inner.previous = inner.number;
-        inner.number = validated_f32;
-        let inner_clone = inner.clone();
+    inner.previous = inner.number;
+    let clamped = validated_f32.clamp(inner.min, inner.max);
+    inner.number = clamped;
+    let inner_clone = inner.clone();
 
-        match onvaluechange.as_mut() {
-            Some(NumberInputOnValueChange { callback, refany }) => {
-                (callback.cb)(refany.clone(), info.clone(), inner_clone)
-            }
-            None => Update::DoNothing,
+    let update = match onvaluechange.as_mut() {
+        Some(NumberInputOnValueChange { callback, refany }) => {
+            (callback.cb)(refany.clone(), info.clone(), inner_clone)
         }
+        None => Update::DoNothing,
     };
 
     OnTextInputReturn {
-        update: result,
+        update,
         valid: TextInputValid::Yes,
     }
 }
