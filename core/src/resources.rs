@@ -1123,7 +1123,7 @@ pub fn font_ref_get_hash(fr: &FontRef) -> u64 {
     fr.get_hash()
 }
 
-/// Stores the resources for the application, souch as fonts, images and cached
+/// Stores the resources for the application, such as fonts, images and cached
 /// texts, also clipboard strings
 ///
 /// Images and fonts can be references across window contexts (not yet tested,
@@ -1284,7 +1284,7 @@ pub struct RendererResources {
     /// whether the font will actually be successfully loaded
     pub last_frame_registered_fonts:
         FastHashMap<FontKey, FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>>,
-    /// Map from the calculated families vec (["Arial", "Helvectia"])
+    /// Map from the calculated families vec (["Arial", "Helvetica"])
     /// to the final loaded font that could be loaded
     /// (in this case "Arial" on Windows and "Helvetica" on Mac,
     /// because the fonts are loaded in fallback-order)
@@ -1736,7 +1736,6 @@ impl RawImage {
 
                 let mut px = vec![0; expected_len * FOUR_BPP];
 
-                // TODO: premultiply alpha!
                 // TODO: check that this function is SIMD optimized
                 for (pixel_index, greyalpha) in
                     pixels.as_ref().chunks_exact(TWO_CHANNELS).enumerate()
@@ -1752,6 +1751,12 @@ impl RawImage {
                     px[(pixel_index * FOUR_BPP) + 1] = grey;
                     px[(pixel_index * FOUR_BPP) + 2] = grey;
                     px[(pixel_index * FOUR_BPP) + 3] = alpha;
+
+                    if !premultiplied_alpha {
+                        premultiply_alpha(
+                            &mut px[(pixel_index * FOUR_BPP)..((pixel_index * FOUR_BPP) + FOUR_BPP)],
+                        );
+                    }
                 }
 
                 data_format = RawImageFormat::BGRA8;
