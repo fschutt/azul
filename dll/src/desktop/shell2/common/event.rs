@@ -1949,7 +1949,10 @@ pub trait PlatformWindow {
 
                             // Append to the parent
                             match position {
-                                Some(pos) => layout_result.styled_dom.append_child_with_index(styled, *pos),
+                                Some(pos) => {
+                                    layout_result.styled_dom.append_child_with_index(styled, *pos);
+                                    layout_result.styled_dom.finalize_non_leaf_nodes();
+                                },
                                 None => layout_result.styled_dom.append_child(styled),
                             }
                         }

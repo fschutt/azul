@@ -15,7 +15,7 @@ use core::{
 };
 
 use azul_css::{
-    css::{Css, CssPath},
+    css::Css,
     props::{
         basic::{StyleFontFamily, StyleFontFamilyVec, StyleFontSize},
         property::{
@@ -180,13 +180,6 @@ impl RestyleResult {
     }
 }
 
-#[repr(C, u8)]
-#[derive(Debug, Clone, PartialEq, Hash, PartialOrd, Eq, Ord)]
-pub enum CssPropertySource {
-    Css(CssPath),
-    Inline,
-}
-
 /// NOTE: multiple states can be active at the same time
 ///
 /// Tracks all CSS pseudo-class states for a node.
@@ -305,23 +298,7 @@ impl StyledNodeState {
             && !self.drag_over
     }
 
-    /// Convert to PseudoStateFlags for use with dynamic selectors
-    pub fn to_pseudo_state_flags(&self) -> azul_css::dynamic_selector::PseudoStateFlags {
-        azul_css::dynamic_selector::PseudoStateFlags {
-            hover: self.hover,
-            active: self.active,
-            focused: self.focused,
-            disabled: self.disabled,
-            checked: self.checked,
-            focus_within: self.focus_within,
-            visited: self.visited,
-            backdrop: self.backdrop,
-            dragging: self.dragging,
-            drag_over: self.drag_over,
-        }
-    }
-
-    /// Create from PseudoStateFlags (reverse of to_pseudo_state_flags)
+    /// Create from PseudoStateFlags
     pub fn from_pseudo_state_flags(flags: &azul_css::dynamic_selector::PseudoStateFlags) -> Self {
         StyledNodeState {
             hover: flags.hover,
@@ -1081,104 +1058,13 @@ impl StyledDom {
 
     /// Appends another `StyledDom` as a child to the `self.root`
     /// without re-styling the DOM itself
-    pub fn append_child(&mut self, mut other: Self) {
-        // shift all the node ids in other by self.len()
-        let self_len = self.node_hierarchy.as_ref().len();
-        let other_len = other.node_hierarchy.as_ref().len();
+    pub fn append_child(&mut self, other: Self) {
         let self_root_id = self.root.into_crate_internal().unwrap_or(NodeId::ZERO);
-        let other_root_id = other.root.into_crate_internal().unwrap_or(NodeId::ZERO);
-
-        // iterate through the direct root children and adjust the cascade_info
         let current_root_children_count = self_root_id
             .az_children(&self.node_hierarchy.as_container())
             .count();
-
-        other.cascade_info.as_mut()[other_root_id.index()].index_in_parent =
-            current_root_children_count as u32;
-        other.cascade_info.as_mut()[other_root_id.index()].is_last_child = true;
-
-        self.cascade_info.append(&mut other.cascade_info);
-
-        // adjust node hierarchy
-        // Note: 0 means "no node" (None) in the 1-based encoding used by from_usize/into_usize
-        for other in other.node_hierarchy.as_mut().iter_mut() {
-            if other.parent != 0 {
-                other.parent += self_len;
-            }
-            if other.previous_sibling != 0 {
-                other.previous_sibling += self_len;
-            }
-            if other.next_sibling != 0 {
-                other.next_sibling += self_len;
-            }
-            if other.last_child != 0 {
-                other.last_child += self_len;
-            }
-        }
-
-        other.node_hierarchy.as_container_mut()[other_root_id].parent =
-            NodeId::into_raw(&Some(self_root_id));
-        let current_last_child = self.node_hierarchy.as_container()[self_root_id].last_child_id();
-        other.node_hierarchy.as_container_mut()[other_root_id].previous_sibling =
-            NodeId::into_raw(&current_last_child);
-        if let Some(current_last) = current_last_child {
-            if self.node_hierarchy.as_container_mut()[current_last]
-                .next_sibling_id()
-                .is_some()
-            {
-                self.node_hierarchy.as_container_mut()[current_last].next_sibling +=
-                    other_root_id.index() + other_len;
-            } else {
-                self.node_hierarchy.as_container_mut()[current_last].next_sibling =
-                    NodeId::into_raw(&Some(NodeId::new(self_len + other_root_id.index())));
-            }
-        }
-        self.node_hierarchy.as_container_mut()[self_root_id].last_child =
-            NodeId::into_raw(&Some(NodeId::new(self_len + other_root_id.index())));
-
-        self.node_hierarchy.append(&mut other.node_hierarchy);
-        self.node_data.append(&mut other.node_data);
-        self.styled_nodes.append(&mut other.styled_nodes);
-        self.get_css_property_cache_mut()
-            .append(other.get_css_property_cache_mut());
-
-        // Tag IDs are globally unique (AtomicUsize counter) and never collide,
-        // so we only shift node_id (which changes when DOMs are merged).
-        for tag_id_node_id in other.tag_ids_to_node_ids.iter_mut() {
-            tag_id_node_id.node_id.inner += self_len;
-        }
-
-        self.tag_ids_to_node_ids
-            .append(&mut other.tag_ids_to_node_ids);
-
-        for nid in other.nodes_with_window_callbacks.iter_mut() {
-            nid.inner += self_len;
-        }
-        self.nodes_with_window_callbacks
-            .append(&mut other.nodes_with_window_callbacks);
-
-        for nid in other.nodes_with_not_callbacks.iter_mut() {
-            nid.inner += self_len;
-        }
-        self.nodes_with_not_callbacks
-            .append(&mut other.nodes_with_not_callbacks);
-
-        for nid in other.nodes_with_datasets.iter_mut() {
-            nid.inner += self_len;
-        }
-        self.nodes_with_datasets
-            .append(&mut other.nodes_with_datasets);
-
-        // edge case: if the other StyledDom consists of only one node
-        // then it is not a parent itself
-        if other_len != 1 {
-            for other_non_leaf_node in other.non_leaf_nodes.iter_mut() {
-                other_non_leaf_node.node_id.inner += self_len;
-                other_non_leaf_node.depth += 1;
-            }
-            self.non_leaf_nodes.append(&mut other.non_leaf_nodes);
-            self.non_leaf_nodes.sort_by(|a, b| a.depth.cmp(&b.depth));
-        }
+        self.append_child_with_index(other, current_root_children_count);
+        self.finalize_non_leaf_nodes();
     }
 
     /// Optimized version of `append_child` that takes the child index directly
@@ -1419,87 +1305,6 @@ impl StyledDom {
             .clone()
     }
 
-    /// Scans the display list for all image keys
-    pub fn scan_for_image_keys(&self, css_image_cache: &ImageCache) -> FastBTreeSet<ImageRef> {
-        use azul_css::props::style::StyleBackgroundContentVec;
-
-        use crate::{dom::NodeType::*, resources::OptionImageMask};
-
-        #[derive(Default)]
-        struct ScanImageVec {
-            node_type_image: Option<ImageRef>,
-            background_image: Vec<ImageRef>,
-            clip_mask: Option<ImageRef>,
-        }
-
-        let default_backgrounds: StyleBackgroundContentVec = Vec::new().into();
-
-        let images = self
-            .node_data
-            .as_container()
-            .internal
-            .iter()
-            .enumerate()
-            .map(|(node_id, node_data)| {
-                let node_id = NodeId::new(node_id);
-                let mut v = ScanImageVec::default();
-
-                // If the node has an image content, it needs to be uploaded
-                if let Image(id) = node_data.get_node_type() {
-                    v.node_type_image = Some(id.as_ref().clone());
-                }
-
-                // If the node has a CSS background image, it needs to be uploaded
-                let opt_background_image = self.get_css_property_cache().get_background_content(
-                    &node_data,
-                    &node_id,
-                    &self.styled_nodes.as_container()[node_id].styled_node_state,
-                );
-
-                if let Some(style_backgrounds) = opt_background_image {
-                    let bos_default = azul_css::css::BoxOrStatic::heap(default_backgrounds.clone());
-                    v.background_image = style_backgrounds
-                        .get_property()
-                        .unwrap_or(&bos_default)
-                        .iter()
-                        .filter_map(|bg| {
-                            use azul_css::props::style::StyleBackgroundContent::*;
-                            let css_image_id = match bg {
-                                Image(i) => i,
-                                _ => return None,
-                            };
-                            let image_ref = css_image_cache.get_css_image_id(css_image_id)?;
-                            Some(image_ref.clone())
-                        })
-                        .collect();
-                }
-
-                // If the node has a raster clip mask, it needs to be uploaded
-                if let Some(clip_mask) = node_data.get_image_clip_mask() {
-                    v.clip_mask = Some(clip_mask.image.clone());
-                }
-
-                v
-            })
-            .collect::<Vec<_>>();
-
-        let mut set = FastBTreeSet::new();
-
-        for scan_image in images.into_iter() {
-            if let Some(n) = scan_image.node_type_image {
-                set.insert(n);
-            }
-            if let Some(n) = scan_image.clip_mask {
-                set.insert(n);
-            }
-            for bg in scan_image.background_image {
-                set.insert(bg);
-            }
-        }
-
-        set
-    }
-
     /// Updates hover state for nodes and returns changed CSS properties.
     #[must_use]
     pub fn restyle_nodes_hover(
@@ -1507,114 +1312,12 @@ impl StyledDom {
         nodes: &[NodeId],
         new_hover_state: bool,
     ) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
-        // save the old node state
-        let old_node_states = nodes
-            .iter()
-            .map(|nid| {
-                self.styled_nodes.as_container()[*nid]
-                    .styled_node_state
-                    .clone()
-            })
-            .collect::<Vec<_>>();
-
-        for nid in nodes.iter() {
-            self.styled_nodes.as_container_mut()[*nid]
-                .styled_node_state
-                .hover = new_hover_state;
-        }
-
-        let css_property_cache = self.get_css_property_cache();
-        let styled_nodes = self.styled_nodes.as_container();
-        let node_data = self.node_data.as_container();
-
-        // scan all properties that could have changed because of addition / removal
-        let v = nodes
-            .iter()
-            .zip(old_node_states.iter())
-            .filter_map(|(node_id, old_node_state)| {
-                let mut keys_normal: Vec<_> = CssPropertyCache::prop_types_for_state(
-                    css_property_cache.css_props.get_slice(node_id.index()),
-                    azul_css::dynamic_selector::PseudoStateType::Hover,
-                ).collect();
-                let mut keys_inherited: Vec<_> = CssPropertyCache::prop_types_for_state(
-                    css_property_cache.cascaded_props.get_slice(node_id.index()),
-                    azul_css::dynamic_selector::PseudoStateType::Hover,
-                ).collect();
-                let keys_inline: Vec<CssPropertyType> = {
-                    use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
-                    node_data[*node_id]
-                        .css_props
-                        .iter()
-                        .filter_map(|prop| {
-                            let is_hover = prop.apply_if.as_slice().iter().any(|c| {
-                                matches!(c, DynamicSelector::PseudoState(PseudoStateType::Hover))
-                            });
-                            if is_hover {
-                                Some(prop.property.get_type())
-                            } else {
-                                None
-                            }
-                        })
-                        .collect()
-                };
-                let mut keys_inline_ref: Vec<_> = keys_inline.iter().collect();
-
-                keys_normal.append(&mut keys_inherited);
-                keys_normal.append(&mut keys_inline_ref);
-
-                let node_properties_that_could_have_changed = keys_normal;
-
-                if node_properties_that_could_have_changed.is_empty() {
-                    return None;
-                }
-
-                let new_node_state = &styled_nodes[*node_id].styled_node_state;
-                let node_data = &node_data[*node_id];
-
-                let changes = node_properties_that_could_have_changed
-                    .into_iter()
-                    .filter_map(|prop| {
-                        // calculate both the old and the new state
-                        let old = css_property_cache.get_property_slow(
-                            node_data,
-                            node_id,
-                            old_node_state,
-                            prop,
-                        );
-                        let new = css_property_cache.get_property_slow(
-                            node_data,
-                            node_id,
-                            new_node_state,
-                            prop,
-                        );
-                        if old == new {
-                            None
-                        } else {
-                            Some(ChangedCssProperty {
-                                previous_state: old_node_state.clone(),
-                                previous_prop: match old {
-                                    None => CssProperty::auto(*prop),
-                                    Some(s) => s.clone(),
-                                },
-                                current_state: new_node_state.clone(),
-                                current_prop: match new {
-                                    None => CssProperty::auto(*prop),
-                                    Some(s) => s.clone(),
-                                },
-                            })
-                        }
-                    })
-                    .collect::<Vec<_>>();
-
-                if changes.is_empty() {
-                    None
-                } else {
-                    Some((*node_id, changes))
-                }
-            })
-            .collect::<Vec<_>>();
-
-        v.into_iter().collect()
+        self.restyle_nodes_state(
+            nodes,
+            new_hover_state,
+            |state, val| state.hover = val,
+            azul_css::dynamic_selector::PseudoStateType::Hover,
+        )
     }
 
     /// Updates active state for nodes and returns changed CSS properties.
@@ -1624,116 +1327,12 @@ impl StyledDom {
         nodes: &[NodeId],
         new_active_state: bool,
     ) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
-        // save the old node state
-        let old_node_states = nodes
-            .iter()
-            .map(|nid| {
-                self.styled_nodes.as_container()[*nid]
-                    .styled_node_state
-                    .clone()
-            })
-            .collect::<Vec<_>>();
-
-        for nid in nodes.iter() {
-            self.styled_nodes.as_container_mut()[*nid]
-                .styled_node_state
-                .active = new_active_state;
-        }
-
-        let css_property_cache = self.get_css_property_cache();
-        let styled_nodes = self.styled_nodes.as_container();
-        let node_data = self.node_data.as_container();
-
-        // scan all properties that could have changed because of addition / removal
-        let v = nodes
-            .iter()
-            .zip(old_node_states.iter())
-            .filter_map(|(node_id, old_node_state)| {
-                let mut keys_normal: Vec<_> = CssPropertyCache::prop_types_for_state(
-                    css_property_cache.css_props.get_slice(node_id.index()),
-                    azul_css::dynamic_selector::PseudoStateType::Active,
-                ).collect();
-
-                let mut keys_inherited: Vec<_> = CssPropertyCache::prop_types_for_state(
-                    css_property_cache.cascaded_props.get_slice(node_id.index()),
-                    azul_css::dynamic_selector::PseudoStateType::Active,
-                ).collect();
-
-                let keys_inline: Vec<CssPropertyType> = {
-                    use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
-                    node_data[*node_id]
-                        .css_props
-                        .iter()
-                        .filter_map(|prop| {
-                            let is_active = prop.apply_if.as_slice().iter().any(|c| {
-                                matches!(c, DynamicSelector::PseudoState(PseudoStateType::Active))
-                            });
-                            if is_active {
-                                Some(prop.property.get_type())
-                            } else {
-                                None
-                            }
-                        })
-                        .collect()
-                };
-                let mut keys_inline_ref: Vec<_> = keys_inline.iter().collect();
-
-                keys_normal.append(&mut keys_inherited);
-                keys_normal.append(&mut keys_inline_ref);
-
-                let node_properties_that_could_have_changed = keys_normal;
-
-                if node_properties_that_could_have_changed.is_empty() {
-                    return None;
-                }
-
-                let new_node_state = &styled_nodes[*node_id].styled_node_state;
-                let node_data = &node_data[*node_id];
-
-                let changes = node_properties_that_could_have_changed
-                    .into_iter()
-                    .filter_map(|prop| {
-                        // calculate both the old and the new state
-                        let old = css_property_cache.get_property_slow(
-                            node_data,
-                            node_id,
-                            old_node_state,
-                            prop,
-                        );
-                        let new = css_property_cache.get_property_slow(
-                            node_data,
-                            node_id,
-                            new_node_state,
-                            prop,
-                        );
-                        if old == new {
-                            None
-                        } else {
-                            Some(ChangedCssProperty {
-                                previous_state: old_node_state.clone(),
-                                previous_prop: match old {
-                                    None => CssProperty::auto(*prop),
-                                    Some(s) => s.clone(),
-                                },
-                                current_state: new_node_state.clone(),
-                                current_prop: match new {
-                                    None => CssProperty::auto(*prop),
-                                    Some(s) => s.clone(),
-                                },
-                            })
-                        }
-                    })
-                    .collect::<Vec<_>>();
-
-                if changes.is_empty() {
-                    None
-                } else {
-                    Some((*node_id, changes))
-                }
-            })
-            .collect::<Vec<_>>();
-
-        v.into_iter().collect()
+        self.restyle_nodes_state(
+            nodes,
+            new_active_state,
+            |state, val| state.active = val,
+            azul_css::dynamic_selector::PseudoStateType::Active,
+        )
     }
 
     /// Updates focus state for nodes and returns changed CSS properties.
@@ -1742,6 +1341,22 @@ impl StyledDom {
         &mut self,
         nodes: &[NodeId],
         new_focus_state: bool,
+    ) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
+        self.restyle_nodes_state(
+            nodes,
+            new_focus_state,
+            |state, val| state.focused = val,
+            azul_css::dynamic_selector::PseudoStateType::Focus,
+        )
+    }
+
+    /// Generic restyle method parameterized by the state field and pseudo-state type.
+    fn restyle_nodes_state(
+        &mut self,
+        nodes: &[NodeId],
+        new_state_value: bool,
+        set_state: impl Fn(&mut StyledNodeState, bool),
+        pseudo_state_type: azul_css::dynamic_selector::PseudoStateType,
     ) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
         // save the old node state
         let old_node_states = nodes
@@ -1754,9 +1369,10 @@ impl StyledDom {
             .collect::<Vec<_>>();
 
         for nid in nodes.iter() {
-            self.styled_nodes.as_container_mut()[*nid]
-                .styled_node_state
-                .focused = new_focus_state;
+            set_state(
+                &mut self.styled_nodes.as_container_mut()[*nid].styled_node_state,
+                new_state_value,
+            );
         }
 
         let css_property_cache = self.get_css_property_cache();
@@ -1770,24 +1386,22 @@ impl StyledDom {
             .filter_map(|(node_id, old_node_state)| {
                 let mut keys_normal: Vec<_> = CssPropertyCache::prop_types_for_state(
                     css_property_cache.css_props.get_slice(node_id.index()),
-                    azul_css::dynamic_selector::PseudoStateType::Focus,
+                    pseudo_state_type,
                 ).collect();
-
                 let mut keys_inherited: Vec<_> = CssPropertyCache::prop_types_for_state(
                     css_property_cache.cascaded_props.get_slice(node_id.index()),
-                    azul_css::dynamic_selector::PseudoStateType::Focus,
+                    pseudo_state_type,
                 ).collect();
-
                 let keys_inline: Vec<CssPropertyType> = {
-                    use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
+                    use azul_css::dynamic_selector::DynamicSelector;
                     node_data[*node_id]
                         .css_props
                         .iter()
                         .filter_map(|prop| {
-                            let is_focus = prop.apply_if.as_slice().iter().any(|c| {
-                                matches!(c, DynamicSelector::PseudoState(PseudoStateType::Focus))
+                            let matches = prop.apply_if.as_slice().iter().any(|c| {
+                                matches!(c, DynamicSelector::PseudoState(pst) if *pst == pseudo_state_type)
                             });
-                            if is_focus {
+                            if matches {
                                 Some(prop.property.get_type())
                             } else {
                                 None
@@ -1968,122 +1582,6 @@ impl StyledDom {
         result
     }
 
-    /// Overrides CSS properties for a node and returns changed properties.
-    // Inserts a property into the self.user_overridden_properties
-    #[must_use]
-    pub fn restyle_user_property(
-        &mut self,
-        node_id: &NodeId,
-        new_properties: &[CssProperty],
-    ) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
-        let mut map = BTreeMap::default();
-
-        if new_properties.is_empty() {
-            return map;
-        }
-
-        let node_data = self.node_data.as_container();
-        let node_data = &node_data[*node_id];
-
-        let node_states = &self.styled_nodes.as_container();
-        let old_node_state = &node_states[*node_id].styled_node_state;
-
-        let changes: Vec<ChangedCssProperty> = {
-            let css_property_cache = self.get_css_property_cache();
-
-            new_properties
-                .iter()
-                .filter_map(|new_prop| {
-                    let old_prop = css_property_cache.get_property_slow(
-                        node_data,
-                        node_id,
-                        old_node_state,
-                        &new_prop.get_type(),
-                    );
-
-                    let old_prop = match old_prop {
-                        None => CssProperty::auto(new_prop.get_type()),
-                        Some(s) => s.clone(),
-                    };
-
-                    if old_prop == *new_prop {
-                        None
-                    } else {
-                        Some(ChangedCssProperty {
-                            previous_state: old_node_state.clone(),
-                            previous_prop: old_prop,
-                            // overriding a user property does not change the state
-                            current_state: old_node_state.clone(),
-                            current_prop: new_prop.clone(),
-                        })
-                    }
-                })
-                .collect()
-        };
-
-        let css_property_cache_mut = self.get_css_property_cache_mut();
-
-        for new_prop in new_properties.iter() {
-            let prop_type = new_prop.get_type();
-            let vec = &mut css_property_cache_mut
-                .user_overridden_properties[node_id.index()];
-            if new_prop.is_initial() {
-                // CssProperty::Initial = remove overridden property
-                if let Ok(idx) = vec.binary_search_by_key(&prop_type, |(k, _)| *k) {
-                    vec.remove(idx);
-                }
-            } else {
-                match vec.binary_search_by_key(&prop_type, |(k, _)| *k) {
-                    Ok(idx) => vec[idx].1 = new_prop.clone(),
-                    Err(idx) => vec.insert(idx, (prop_type, new_prop.clone())),
-                }
-            }
-        }
-
-        if !changes.is_empty() {
-            map.insert(*node_id, changes);
-        }
-
-        map
-    }
-
-    /// Scans the `StyledDom` for virtualized view callbacks
-    pub fn scan_for_virtual_view_callbacks(&self) -> Vec<NodeId> {
-        use crate::dom::NodeType;
-        self.node_data
-            .as_ref()
-            .iter()
-            .enumerate()
-            .filter_map(|(node_id, node_data)| match node_data.get_node_type() {
-                NodeType::VirtualView => Some(NodeId::new(node_id)),
-                _ => None,
-            })
-            .collect()
-    }
-
-    /// Scans the `StyledDom` for OpenGL callbacks
-    pub fn scan_for_gltexture_callbacks(&self) -> Vec<NodeId> {
-        use crate::dom::NodeType;
-        self.node_data
-            .as_ref()
-            .iter()
-            .enumerate()
-            .filter_map(|(node_id, node_data)| {
-                use crate::resources::DecodedImage;
-                match node_data.get_node_type() {
-                    NodeType::Image(image_ref) => {
-                        if let DecodedImage::Callback(_) = image_ref.get_data() {
-                            Some(NodeId::new(node_id))
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
-                }
-            })
-            .collect()
-    }
-
     /// Returns a HTML-formatted version of the DOM for easier debugging.
     ///
     /// For example, a DOM with a parent div containing a child div would return:
@@ -2194,39 +1692,6 @@ impl StyledDom {
             )
         } else {
             output
-        }
-    }
-
-    /// Returns the node ID of all sub-children of a node
-    pub fn get_subtree(&self, parent: NodeId) -> Vec<NodeId> {
-        let mut total_last_child = None;
-        recursive_get_last_child(parent, &self.node_hierarchy.as_ref(), &mut total_last_child);
-        if let Some(last) = total_last_child {
-            (parent.index()..=last.index())
-                .map(|id| NodeId::new(id))
-                .collect()
-        } else {
-            Vec::new()
-        }
-    }
-
-    /// Returns node IDs of all parent nodes in the subtree (nodes with children).
-    // Same as get_subtree, but only returns parents
-    pub fn get_subtree_parents(&self, parent: NodeId) -> Vec<NodeId> {
-        let mut total_last_child = None;
-        recursive_get_last_child(parent, &self.node_hierarchy.as_ref(), &mut total_last_child);
-        if let Some(last) = total_last_child {
-            (parent.index()..=last.index())
-                .filter_map(|id| {
-                    if self.node_hierarchy.as_ref()[id].last_child_id().is_some() {
-                        Some(NodeId::new(id))
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        } else {
-            Vec::new()
         }
     }
 
