@@ -3202,7 +3202,7 @@ where
             return self.paint_table_items(builder, node_index);
         }
 
-        let border_radius = if let Some(dom_id) = node.dom_node_id {
+        if let Some(dom_id) = node.dom_node_id {
             let styled_node_state = self.get_styled_node_state(dom_id);
             let background_contents =
                 get_background_contents(self.ctx.styled_dom, dom_id, &styled_node_state);

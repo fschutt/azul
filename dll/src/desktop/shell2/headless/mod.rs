@@ -288,7 +288,7 @@ impl CpuBackend {
                 Some(&layout_window.font_manager), &mut self.glyph_cache,
             ) {
                 log_error!(
-                    LogCategory::Render,
+                    LogCategory::Rendering,
                     "[CpuBackend] render_layers error: {}",
                     e
                 );
