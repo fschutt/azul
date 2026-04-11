@@ -28,10 +28,10 @@ pub trait GetHash {
 
 impl<T: Hash> GetHash for T {
     fn get_hash(&self) -> u64 {
-        use highway::{HighwayHash, HighwayHasher, Key};
-        let mut hasher = HighwayHasher::new(Key([0; 4]));
+        use core::hash::Hasher;
+        let mut hasher = std::hash::DefaultHasher::new();
         self.hash(&mut hasher);
-        hasher.finalize64()
+        hasher.finish()
     }
 }
 
