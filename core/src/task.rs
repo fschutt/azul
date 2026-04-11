@@ -69,13 +69,8 @@ pub const CURSOR_BLINK_TIMER_ID: TimerId = TimerId { id: 0x0001 };
 pub const SCROLL_MOMENTUM_TIMER_ID: TimerId = TimerId { id: 0x0002 };
 /// Timer ID for auto-scroll during drag operations near edges
 pub const DRAG_AUTOSCROLL_TIMER_ID: TimerId = TimerId { id: 0x0003 };
-/// Timer ID for tooltip show delay
-pub const TOOLTIP_DELAY_TIMER_ID: TimerId = TimerId { id: 0x0004 };
-/// Timer ID for double-click detection timeout
-pub const DOUBLE_CLICK_TIMER_ID: TimerId = TimerId { id: 0x0005 };
-
 /// First available ID for user-defined timers
-pub const USER_TIMER_ID_START: usize = 0x0100;
+pub(crate) const USER_TIMER_ID_START: usize = 0x0100;
 
 // User timers start at 0x0100 to avoid conflicts with reserved system timer IDs
 static MAX_TIMER_ID: AtomicUsize = AtomicUsize::new(USER_TIMER_ID_START);
@@ -229,15 +224,6 @@ impl Instant {
                 }
             },
             None => self.clone(),
-        }
-    }
-
-    /// Converts to std::time::Instant (panics if Tick variant).
-    #[cfg(feature = "std")]
-    pub fn into_std_instant(self) -> StdInstant {
-        match self {
-            Instant::System(s) => s.into(),
-            Instant::Tick(_) => unreachable!(),
         }
     }
 
@@ -495,20 +481,6 @@ impl From<StdDuration> for Duration {
 }
 
 impl Duration {
-    /// Returns the maximum possible duration.
-    pub fn max() -> Self {
-        #[cfg(feature = "std")]
-        {
-            Duration::System(StdDuration::new(core::u64::MAX, NANOS_PER_SEC - 1).into())
-        }
-        #[cfg(not(feature = "std"))]
-        {
-            Duration::Tick(SystemTickDiff {
-                tick_diff: u64::MAX,
-            })
-        }
-    }
-
     /// Divides this duration by another, returning the ratio as f32.
     pub fn div(&self, other: &Self) -> f32 {
         use self::Duration::*;
