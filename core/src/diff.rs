@@ -339,110 +339,6 @@ impl Default for DiffResult {
     }
 }
 
-/// Calculate the reconciliation key for a node using the priority hierarchy:
-/// 1. Explicit key (set via `.with_key()`)
-/// 2. CSS ID (set via `.with_id("my-id")`)
-/// 3. Structural key: nth-of-type-within-parent + parent's reconciliation key
-///
-/// The structural key prevents incorrect matching when nodes are inserted
-/// before existing nodes (e.g., prepending items to a list).
-///
-/// # Arguments
-/// * `node_data` - Slice of all node data
-/// * `hierarchy` - Slice of node hierarchy (parent/child relationships)
-/// * `node_id` - The node to calculate the key for
-///
-/// # Returns
-/// A 64-bit key that uniquely identifies this node's logical position in the tree.
-pub fn calculate_reconciliation_key(
-    node_data: &[NodeData],
-    hierarchy: &[NodeHierarchyItem],
-    node_id: NodeId,
-) -> u64 {
-    use std::hash::Hasher;
-    
-    let node = &node_data[node_id.index()];
-    
-    // Priority 1: Explicit key
-    if let Some(key) = node.get_key() {
-        return key;
-    }
-    
-    // Priority 2: CSS ID
-    for attr in node.attributes().as_ref().iter() {
-        if let Some(id) = attr.as_id() {
-            let mut hasher = std::hash::DefaultHasher::new();
-            id.hash(&mut hasher);
-            return hasher.finish();
-        }
-    }
-    
-    // Priority 3: Structural key = nth-of-type-within-parent + parent key
-    let mut hasher = std::hash::DefaultHasher::new();
-    
-    // Hash node type discriminant and classes (nth-of-type logic)
-    core::mem::discriminant(node.get_node_type()).hash(&mut hasher);
-    for attr in node.attributes().as_ref().iter() {
-        if let Some(class) = attr.as_class() {
-            class.hash(&mut hasher);
-        }
-    }
-    
-    // Calculate sibling index (nth-of-type within parent)
-    if let Some(hierarchy_item) = hierarchy.get(node_id.index()) {
-        if let Some(parent_id) = hierarchy_item.parent_id() {
-            // Count siblings of same type before this node
-            let mut sibling_index: usize = 0;
-            let parent_hierarchy = &hierarchy[parent_id.index()];
-            
-            // Walk siblings from first child to this node
-            let mut current = parent_hierarchy.first_child_id(parent_id);
-            while let Some(sibling_id) = current {
-                if sibling_id == node_id {
-                    break;
-                }
-                // Check if sibling has same type/classes
-                let sibling = &node_data[sibling_id.index()];
-                if core::mem::discriminant(sibling.get_node_type()) 
-                    == core::mem::discriminant(node.get_node_type()) 
-                {
-                    sibling_index += 1;
-                }
-                current = hierarchy[sibling_id.index()].next_sibling_id();
-            }
-            
-            sibling_index.hash(&mut hasher);
-            
-            // Recursively include parent's key
-            let parent_key = calculate_reconciliation_key(node_data, hierarchy, parent_id);
-            parent_key.hash(&mut hasher);
-        }
-    }
-    
-    hasher.finish()
-}
-
-/// Precompute reconciliation keys for all nodes in a DOM tree.
-///
-/// This should be called once before reconciliation to compute stable keys
-/// for all nodes. Keys are computed using the hierarchy:
-/// 1. Explicit key → 2. CSS ID → 3. Structural key (nth-of-type + parent key)
-///
-/// # Returns
-/// A map from NodeId to its reconciliation key.
-pub fn precompute_reconciliation_keys(
-    node_data: &[NodeData],
-    hierarchy: &[NodeHierarchyItem],
-) -> FastHashMap<NodeId, u64> {
-    let mut keys = FastHashMap::default();
-    for idx in 0..node_data.len() {
-        let node_id = NodeId::new(idx);
-        let key = calculate_reconciliation_key(node_data, hierarchy, node_id);
-        keys.insert(node_id, key);
-    }
-    keys
-}
-
 /// Calculates the difference between two DOM frames and generates lifecycle events.
 ///
 /// This is the main entry point for DOM reconciliation. It compares the old and new
@@ -636,7 +532,7 @@ pub fn reconcile_dom(
                     dom_id,
                     &timestamp,
                     LifecycleEventData {
-                        reason: LifecycleReason::InitialMount, // Context implies unmount
+                        reason: LifecycleReason::Unmount,
                         previous_bounds: Some(bounds),
                         current_bounds: LogicalRect::zero(),
                     },
@@ -706,12 +602,10 @@ fn has_resize_callback(node: &NodeData) -> bool {
 
 /// Check if the node has any lifecycle callback that would respond to updates.
 fn has_update_callback(node: &NodeData) -> bool {
-    // For now, we use Selected as a placeholder for "update" events
-    // This could be extended to a dedicated UpdateCallback in the future
     node.get_callbacks().iter().any(|cb| {
         matches!(
             cb.event,
-            EventFilter::Component(ComponentEventFilter::Selected)
+            EventFilter::Component(ComponentEventFilter::Updated)
         )
     })
 }

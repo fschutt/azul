@@ -284,6 +284,8 @@ pub enum LifecycleReason {
     Resize,
     /// Props or state changed
     Update,
+    /// Node was removed from DOM
+    Unmount,
 }
 
 /// Keyboard modifier keys state.
@@ -2062,6 +2064,8 @@ pub enum ComponentEventFilter {
     DefaultAction,
     /// Fired when the component becomes selected.
     Selected,
+    /// Fired when a keyed component's content has changed (props/state update).
+    Updated,
 }
 
 /// Defines application-level events not tied to a specific window or node.

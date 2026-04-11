@@ -82723,7 +82723,8 @@
                                 "BeforeUnmount": {},
                                 "NodeResized": {},
                                 "DefaultAction": {},
-                                "Selected": {}
+                                "Selected": {},
+                                "Updated": {}
                             }
                         ],
                         "repr": "C"
