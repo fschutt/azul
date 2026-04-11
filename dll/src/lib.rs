@@ -43,9 +43,11 @@
     unused_mut,
     unused_unsafe,                         // objc2 macro expansions
     non_snake_case,                        // Win32 API naming (DwmSetWindowAttribute etc.)
+    unused_doc_comments,                   // doc on macro invocations
     mismatched_lifetime_syntaxes,
     unexpected_cfgs,
-    deprecated,                            // we're removing deprecated fns in this release
+    static_mut_refs,                       // TODO: migrate to OnceLock for Rust 2024
+    deprecated,                            // objc2 NSOpenGL*, msg_send_id, PanicInfo
 )]
 
 #[macro_use]

@@ -27,9 +27,12 @@
     unused_parens,
     dead_code,
     unused_doc_comments,
+    unused_assignments,                    // compact_cache_builder incremental updates
     mismatched_lifetime_syntaxes,
     unexpected_cfgs,
-    deprecated,                            // removing deprecated fns in this release
+    unpredictable_function_pointer_comparisons, // intentional in dom callback comparison
+    improper_ctypes_definitions,           // xml component fns use Rust fn pointers internally
+    static_mut_refs,                       // TODO: migrate to OnceLock for Rust 2024
 )]
 
 // `extern crate` + `#[macro_use]` required for `no_std` support:

@@ -26,8 +26,16 @@
     dead_code,
     unused_parens,
     unused_doc_comments,                   // doc comments before macro invocations
+    unused_assignments,                    // layout solver incremental updates
+    unused_labels,
+    dropping_references,                   // intentional scope markers in layout solver
+    private_interfaces,                    // internal solver types exposed for testing
+    function_casts_as_integer,             // widget callback pointer identity
+    improper_ctypes_definitions,           // node_graph extern fn returns ()
     mismatched_lifetime_syntaxes,
+    unreachable_patterns,                  // exhaustive match in generated property code
     unexpected_cfgs,
+    deprecated,                            // image crate tiff encoder
 )]
 
 #[macro_use]

@@ -214,16 +214,6 @@ define_border_side_property!(LayoutBorderBottomWidth, PixelValue, MEDIUM_BORDER_
 /// CSS `border-left-width` property. Defaults to `MEDIUM_BORDER_THICKNESS` (3px).
 define_border_side_property!(LayoutBorderLeftWidth, PixelValue, MEDIUM_BORDER_THICKNESS);
 
-macro_rules! impl_border_width_interpolate {
-    ($($t:ty),+) => { $(
-        impl $t {
-            pub fn interpolate(&self, other: &Self, t: f32) -> Self {
-                Self { inner: self.inner.interpolate(&other.inner, t) }
-            }
-        }
-    )+ };
-}
-
 macro_rules! impl_border_width_helpers {
     ($($t:ty),+) => { $(
         impl $t {

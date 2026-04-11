@@ -131,8 +131,8 @@ const CM_TO_PX: f32 = 37.7952755906;
 const MM_TO_PX: f32 = 3.7795275591;
 const DEFAULT_FONT_SIZE_PX: f32 = 16.0;
 
-/// Macro to match on any CssProperty variant and access the inner CssPropertyValue<T>.
-/// This allows generic operations on cascade keywords without writing 190+ match arms.
+/// Match on any CssProperty variant and access the inner CssPropertyValue<T>.
+#[allow(unused_macros)]
 macro_rules! match_property_value {
     ($property:expr, $value:ident, $expr:expr) => {
         match $property {

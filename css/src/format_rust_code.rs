@@ -7,9 +7,7 @@
 //!
 //! Primary consumer: `core::xml` uses this for CSS-to-Rust code generation.
 
-#[cfg(not(feature = "std"))]
-use alloc::string::ToString;
-use alloc::{collections::btree_map::BTreeMap, format, string::String, vec::Vec};
+use alloc::{collections::btree_map::BTreeMap, format, string::String, string::ToString, vec::Vec};
 use core::hash::Hash;
 
 use crate::{
