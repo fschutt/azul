@@ -197,7 +197,7 @@ impl IconProviderHandle {
     pub fn register_icon(&mut self, pack_name: &str, icon_name: &str, data: RefAny) {
         let pack = self.inner.icons
             .entry(pack_name.to_string())
-            .or_insert_with(BTreeMap::new);
+            .or_default();
         pack.insert(icon_name.to_lowercase(), data);
     }
 
@@ -290,7 +290,7 @@ impl IconProviderHandle {
                 }
             }
             _ => {
-                result.push_str(&format!("\n  NOT FOUND in any pack\n"));
+                result.push_str("\n  NOT FOUND in any pack\n");
             }
         }
         
