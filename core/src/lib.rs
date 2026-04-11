@@ -61,8 +61,6 @@ pub mod dom;
 pub mod drag;
 /// Icon provider system for loading icons from fonts, images, or zip packs.
 pub mod icon;
-/// Glyph types: advance metrics, variation selectors, and placement data.
-pub mod glyph;
 /// Resource management: font/image loading, caching, and garbage collection.
 pub mod resources;
 /// Text selection and cursor positioning for inline content.
