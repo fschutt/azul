@@ -156,6 +156,8 @@ build-dll = [
     "serde-json",
     "backtrace",
     "font_loading",
+    "font_loading_multithreaded",
+    "font_async_registry",
     "text_layout",
     "svg",
     "xml",
@@ -331,6 +333,7 @@ xml = ["azul-layout", "azul-layout/xml"]
 cpurender = ["azul-layout", "azul-layout/cpurender"]
 font_loading = ["azul-layout", "azul-layout/font_loading"]
 font_loading_multithreaded = ["font_loading", "azul-layout/font_loading_multithreaded"]
+font_async_registry = ["font_loading", "azul-layout/font_async_registry"]
 text_layout = ["azul-layout", "azul-layout/text_layout"]
 
 # ICU4X internationalization support
