@@ -739,7 +739,7 @@ impl CssPropertyCache {
                 ($pseudo:expr, $state:expr, $has_any:expr) => {
                     if $has_any {
                         let rules: NodeDataContainer<(NodeId, Vec<CssProperty>)> = node_data
-                            .transform_nodeid_multithreaded_optional(|node_id| {
+                            .transform_nodeid_optional(|node_id| {
                                 let r = filter_rules!($pseudo, node_id);
                                 if r.is_empty() { None } else { Some((node_id, r)) }
                             });
