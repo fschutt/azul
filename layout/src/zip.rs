@@ -75,6 +75,7 @@ impl ZipWriteConfig {
     pub fn store() -> Self {
         Self {
             compression_method: 0,
+            compression_level: 0,
             ..Default::default()
         }
     }
@@ -410,6 +411,7 @@ impl ZipFile {
         
         let options = SimpleFileOptions::default()
             .compression_method(compression)
+            .compression_level(Some(config.compression_level as i64))
             .unix_permissions(config.unix_permissions);
         
         for entry in &self.entries {
