@@ -170,10 +170,6 @@ impl SelectionState {
         self.selections = selections.into();
     }
 
-    /// Clears all selections and replaces them with a single cursor.
-    pub fn set_cursor(&mut self, cursor: TextCursor) {
-        self.selections = vec![Selection::Cursor(cursor)].into();
-    }
 }
 
 impl_option!(
@@ -567,25 +563,6 @@ pub struct SelectionFocus {
     pub mouse_position: LogicalPosition,
 }
 
-/// Type of selection for a specific node within a multi-node selection.
-///
-/// This helps the renderer determine how to highlight each node:
-/// - `Anchor`: Selection starts in this node
-/// - `Focus`: Selection ends in this node  
-/// - `InBetween`: Entire node is selected (between anchor and focus)
-/// - `AnchorAndFocus`: Both anchor and focus are in this single node
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum NodeSelectionType {
-    /// This is the anchor node (selection started here) - partial selection from anchor to end
-    Anchor,
-    /// This is the focus node (selection ends here) - partial selection from start to focus
-    Focus,
-    /// This node is between anchor and focus - fully selected
-    InBetween,
-    /// Anchor and focus are in the same node - partial selection between cursors
-    AnchorAndFocus,
-}
-
 /// Complete selection state spanning potentially multiple DOM nodes.
 ///
 /// This implements the W3C Selection API model with anchor/focus endpoints.
@@ -676,27 +653,6 @@ impl TextSelection {
         self.affected_nodes.get(ifc_root_node_id)
     }
     
-    /// Check if a specific IFC root node is part of this selection.
-    pub fn contains_node(&self, ifc_root_node_id: &NodeId) -> bool {
-        self.affected_nodes.contains_key(ifc_root_node_id)
-    }
-    
-    /// Get the selection type for a specific node.
-    pub fn get_node_selection_type(&self, ifc_root_node_id: &NodeId) -> Option<NodeSelectionType> {
-        if !self.affected_nodes.contains_key(ifc_root_node_id) {
-            return None;
-        }
-        
-        let is_anchor = *ifc_root_node_id == self.anchor.ifc_root_node_id;
-        let is_focus = *ifc_root_node_id == self.focus.ifc_root_node_id;
-        
-        Some(match (is_anchor, is_focus) {
-            (true, true) => NodeSelectionType::AnchorAndFocus,
-            (true, false) => NodeSelectionType::Anchor,
-            (false, true) => NodeSelectionType::Focus,
-            (false, false) => NodeSelectionType::InBetween,
-        })
-    }
 }
 
 impl_option!(
