@@ -282,10 +282,6 @@ pub fn format_pixel_value(p: &PixelValue) -> String {
     let post_comma = libm::roundf((abs_val - libm::floorf(abs_val)) * 100.0) as isize;
 
     match p.metric {
-        SizeMetric::Px => format!(
-            "PixelValue::const_from_metric_fractional(SizeMetric::Px, {}, {})",
-            pre_comma, post_comma
-        ),
         SizeMetric::Pt => format!(
             "PixelValue::const_pt_fractional({}, {})",
             pre_comma, post_comma
@@ -294,41 +290,9 @@ pub fn format_pixel_value(p: &PixelValue) -> String {
             "PixelValue::const_em_fractional({}, {})",
             pre_comma, post_comma
         ),
-        SizeMetric::Rem => format!(
-            "PixelValue::const_from_metric_fractional(SizeMetric::Rem, {}, {})",
-            pre_comma, post_comma
-        ),
-        SizeMetric::Percent => format!(
-            "PixelValue::const_from_metric_fractional(SizeMetric::Percent, {}, {})",
-            pre_comma, post_comma
-        ),
-        SizeMetric::In => format!(
-            "PixelValue::const_from_metric_fractional(SizeMetric::In, {}, {})",
-            pre_comma, post_comma
-        ),
-        SizeMetric::Cm => format!(
-            "PixelValue::const_from_metric_fractional(SizeMetric::Cm, {}, {})",
-            pre_comma, post_comma
-        ),
-        SizeMetric::Mm => format!(
-            "PixelValue::const_from_metric_fractional(SizeMetric::Mm, {}, {})",
-            pre_comma, post_comma
-        ),
-        SizeMetric::Vw => format!(
-            "PixelValue::const_from_metric_fractional(SizeMetric::Vw, {}, {})",
-            pre_comma, post_comma
-        ),
-        SizeMetric::Vh => format!(
-            "PixelValue::const_from_metric_fractional(SizeMetric::Vh, {}, {})",
-            pre_comma, post_comma
-        ),
-        SizeMetric::Vmin => format!(
-            "PixelValue::const_from_metric_fractional(SizeMetric::Vmin, {}, {})",
-            pre_comma, post_comma
-        ),
-        SizeMetric::Vmax => format!(
-            "PixelValue::const_from_metric_fractional(SizeMetric::Vmax, {}, {})",
-            pre_comma, post_comma
+        other => format!(
+            "PixelValue::const_from_metric_fractional(SizeMetric::{:?}, {}, {})",
+            other, pre_comma, post_comma
         ),
     }
 }
@@ -343,22 +307,40 @@ pub fn format_pixel_value_no_percent(p: &PixelValueNoPercent) -> String {
 
 /// Formats a `FloatValue` as a const-compatible Rust constructor call.
 pub fn format_float_value(f: &FloatValue) -> String {
-    format!("FloatValue::const_new({})", libm::roundf(f.get()) as isize)
+    let value = f.get();
+    let abs_val = libm::fabsf(value);
+    let sign: isize = if value < 0.0 { -1 } else { 1 };
+    let pre_comma = libm::floorf(abs_val) as isize * sign;
+    let post_comma = libm::roundf((abs_val - libm::floorf(abs_val)) * 100.0) as isize;
+    format!(
+        "FloatValue::const_new_fractional({}, {})",
+        pre_comma, post_comma
+    )
 }
 
 /// Formats a `PercentageValue` as a const-compatible Rust constructor call.
 pub fn format_percentage_value(f: &PercentageValue) -> String {
+    let value = f.normalized() * 100.0;
+    let abs_val = libm::fabsf(value);
+    let sign: isize = if value < 0.0 { -1 } else { 1 };
+    let pre_comma = libm::floorf(abs_val) as isize * sign;
+    let post_comma = libm::roundf((abs_val - libm::floorf(abs_val)) * 100.0) as isize;
     format!(
-        "PercentageValue::const_new({})",
-        libm::roundf(f.normalized() * 100.0) as isize
+        "PercentageValue::const_new_fractional({}, {})",
+        pre_comma, post_comma
     )
 }
 
 /// Formats an `AngleValue` as a const-compatible Rust constructor call.
 pub fn format_angle_value(f: &AngleValue) -> String {
+    let value = f.number.get();
+    let abs_val = libm::fabsf(value);
+    let sign: isize = if value < 0.0 { -1 } else { 1 };
+    let pre_comma = libm::floorf(abs_val) as isize * sign;
+    let post_comma = libm::roundf((abs_val - libm::floorf(abs_val)) * 100.0) as isize;
     format!(
-        "AngleValue::const_deg({})",
-        libm::roundf(f.to_degrees()) as isize
+        "AngleValue::const_from_metric_fractional(AngleMetric::{:?}, {}, {})",
+        f.metric, pre_comma, post_comma
     )
 }
 
