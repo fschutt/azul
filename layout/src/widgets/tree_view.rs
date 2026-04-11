@@ -1,3 +1,8 @@
+//! Tree view widget with expandable/collapsible nodes.
+//!
+//! Provides [`TreeView`] and [`TreeViewNode`] for building hierarchical
+//! tree structures with click callbacks and recursive DOM rendering.
+
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
     dom::{
@@ -27,6 +32,10 @@ use crate::callbacks::{Callback, CallbackInfo};
 
 // -- Callback type via macro --
 
+/// Callback invoked when a tree node is clicked.
+///
+/// The `usize` parameter is the depth-first index of the clicked node
+/// (0 = root, then incremented in pre-order traversal).
 pub type TreeViewOnNodeClickCallbackType = extern "C" fn(RefAny, CallbackInfo, usize) -> Update;
 impl_widget_callback!(
     TreeViewOnNodeClick,
@@ -78,6 +87,9 @@ static ROW_STYLE: &[CssPropertyWithConditions] = &[
 ];
 
 // -- Selected row style --
+// NOTE: Intentionally duplicates base properties from ROW_STYLE because
+// const-slice styling does not support runtime composition. If you change
+// padding/layout in ROW_STYLE, update ROW_SELECTED_STYLE to match.
 
 static ROW_SELECTED_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
@@ -103,6 +115,8 @@ static CHILDREN_STYLE: &[CssPropertyWithConditions] = &[
 ];
 
 // -- Disclosure icon style --
+// NOTE: Icon font-size (16px) must match LEAF_SPACER_STYLE width so that
+// leaf nodes align with parent nodes that have a disclosure icon.
 
 static ICON_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(16))),
@@ -128,16 +142,22 @@ static LABEL_STYLE: &[CssPropertyWithConditions] = &[
 // Data structures
 // ============================================================================
 
+/// A single node in a tree hierarchy, with optional children.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct TreeViewNode {
+    /// Display text for this node.
     pub label: AzString,
+    /// Child nodes nested under this node.
     pub children: TreeViewNodeVec,
+    /// Whether children are visible (only meaningful when `children` is non-empty).
     pub is_expanded: bool,
+    /// Whether this node is visually selected.
     pub is_selected: bool,
 }
 
 impl TreeViewNode {
+    /// Creates a new collapsed, unselected leaf node with the given label.
     pub fn new<S: Into<AzString>>(label: S) -> Self {
         Self {
             label: label.into(),
@@ -147,20 +167,24 @@ impl TreeViewNode {
         }
     }
 
+    /// Appends a child node.
     pub fn add_child(&mut self, child: TreeViewNode) {
         self.children.push(child);
     }
 
+    /// Builder method: appends a child node.
     pub fn with_child(mut self, child: TreeViewNode) -> Self {
         self.children.push(child);
         self
     }
 
+    /// Builder method: sets the expanded state.
     pub fn with_expanded(mut self, expanded: bool) -> Self {
         self.is_expanded = expanded;
         self
     }
 
+    /// Builder method: sets the selected state.
     pub fn with_selected(mut self, selected: bool) -> Self {
         self.is_selected = selected;
         self
@@ -174,14 +198,18 @@ impl_vec_debug!(TreeViewNode, TreeViewNodeVec);
 impl_vec_partialeq!(TreeViewNode, TreeViewNodeVec);
 impl_vec_mut!(TreeViewNode, TreeViewNodeVec);
 
+/// Hierarchical tree view widget with expandable/collapsible nodes.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct TreeView {
+    /// Root node of the tree hierarchy.
     pub root: TreeViewNode,
+    /// Optional callback fired when any node is clicked.
     pub on_node_click: OptionTreeViewOnNodeClick,
 }
 
 impl TreeView {
+    /// Creates a new tree view with the given root node and no click callback.
     pub fn new(root: TreeViewNode) -> Self {
         Self {
             root,
@@ -189,6 +217,7 @@ impl TreeView {
         }
     }
 
+    /// Sets the callback invoked when any tree node is clicked.
     pub fn set_on_node_click<C: Into<TreeViewOnNodeClickCallback>>(
         &mut self,
         data: RefAny,
@@ -201,6 +230,7 @@ impl TreeView {
         .into();
     }
 
+    /// Builder method: sets the node-click callback.
     pub fn with_on_node_click<C: Into<TreeViewOnNodeClickCallback>>(
         mut self,
         data: RefAny,
@@ -210,6 +240,7 @@ impl TreeView {
         self
     }
 
+    /// Renders the tree view into a [`Dom`] subtree.
     pub fn dom(self) -> Dom {
         let on_node_click = self.on_node_click;
         let root = self.root;
