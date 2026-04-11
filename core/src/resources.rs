@@ -51,7 +51,7 @@ use crate::{
         ComponentDef, ComponentDefVec, ComponentId, ComponentLibrary, ComponentLibraryVec,
         ComponentSource, RegisterComponentFn, RegisterComponentLibraryFn,
     },
-    FastBTreeSet, FastHashMap,
+    FastBTreeSet, OrderedMap,
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1135,13 +1135,13 @@ pub struct ImageCache {
     /// NOTE: This is the only map that is modifiable by the user and that has to be manually
     /// managed all other maps are library-internal only and automatically delete their
     /// resources once they aren't needed anymore
-    pub image_id_map: FastHashMap<AzString, ImageRef>,
+    pub image_id_map: OrderedMap<AzString, ImageRef>,
 }
 
 impl Default for ImageCache {
     fn default() -> Self {
         Self {
-            image_id_map: FastHashMap::default(),
+            image_id_map: OrderedMap::default(),
         }
     }
 }
@@ -1214,7 +1214,7 @@ pub trait RendererResourcesTrait: core::fmt::Debug {
     fn get_registered_font(
         &self,
         font_key: &FontKey,
-    ) -> Option<&(FontRef, FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>)>;
+    ) -> Option<&(FontRef, OrderedMap<(Au, DpiScaleFactor), FontInstanceKey>)>;
 
     /// Get image information from an image hash
     fn get_image(&self, hash: &ImageRefHash) -> Option<&ResolvedImage>;
@@ -1243,7 +1243,7 @@ impl RendererResourcesTrait for RendererResources {
     fn get_registered_font(
         &self,
         font_key: &FontKey,
-    ) -> Option<&(FontRef, FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>)> {
+    ) -> Option<&(FontRef, OrderedMap<(Au, DpiScaleFactor), FontInstanceKey>)> {
         self.currently_registered_fonts.get(font_key)
     }
 
@@ -1270,12 +1270,12 @@ impl RendererResourcesTrait for RendererResources {
 /// (signified by start_frame_gc and end_frame_gc)
 pub struct RendererResources {
     /// All image keys currently active in the RenderApi
-    pub currently_registered_images: FastHashMap<ImageRefHash, ResolvedImage>,
+    pub currently_registered_images: OrderedMap<ImageRefHash, ResolvedImage>,
     /// Reverse lookup: ImageKey -> ImageRefHash for display list translation
-    pub image_key_map: FastHashMap<ImageKey, ImageRefHash>,
+    pub image_key_map: OrderedMap<ImageKey, ImageRefHash>,
     /// All font keys currently active in the RenderApi
     pub currently_registered_fonts:
-        FastHashMap<FontKey, (FontRef, FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>)>,
+        OrderedMap<FontKey, (FontRef, OrderedMap<(Au, DpiScaleFactor), FontInstanceKey>)>,
     /// Fonts registered on the last frame
     ///
     /// Fonts differ from images in that regard that we can't immediately
@@ -1283,17 +1283,17 @@ pub struct RendererResources {
     /// This is because when the frame is being built, we do not know
     /// whether the font will actually be successfully loaded
     pub last_frame_registered_fonts:
-        FastHashMap<FontKey, FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>>,
+        OrderedMap<FontKey, OrderedMap<(Au, DpiScaleFactor), FontInstanceKey>>,
     /// Map from the calculated families vec (["Arial", "Helvetica"])
     /// to the final loaded font that could be loaded
     /// (in this case "Arial" on Windows and "Helvetica" on Mac,
     /// because the fonts are loaded in fallback-order)
-    pub font_families_map: FastHashMap<StyleFontFamiliesHash, StyleFontFamilyHash>,
+    pub font_families_map: OrderedMap<StyleFontFamiliesHash, StyleFontFamilyHash>,
     /// Same as AzString -> ImageId, but for fonts, i.e. "Roboto" -> FontId(9)
-    pub font_id_map: FastHashMap<StyleFontFamilyHash, FontKey>,
+    pub font_id_map: OrderedMap<StyleFontFamilyHash, FontKey>,
     /// Direct mapping from font hash (from FontRef) to FontKey
     /// TODO: This should become part of SharedFontRegistry
-    pub font_hash_map: FastHashMap<u64, FontKey>,
+    pub font_hash_map: OrderedMap<u64, FontKey>,
 }
 
 impl fmt::Debug for RendererResources {
@@ -1317,13 +1317,13 @@ impl fmt::Debug for RendererResources {
 impl Default for RendererResources {
     fn default() -> Self {
         Self {
-            currently_registered_images: FastHashMap::default(),
-            image_key_map: FastHashMap::default(),
-            currently_registered_fonts: FastHashMap::default(),
-            last_frame_registered_fonts: FastHashMap::default(),
-            font_families_map: FastHashMap::default(),
-            font_id_map: FastHashMap::default(),
-            font_hash_map: FastHashMap::default(),
+            currently_registered_images: OrderedMap::default(),
+            image_key_map: OrderedMap::default(),
+            currently_registered_fonts: OrderedMap::default(),
+            last_frame_registered_fonts: OrderedMap::default(),
+            font_families_map: OrderedMap::default(),
+            font_id_map: OrderedMap::default(),
+            font_hash_map: OrderedMap::default(),
         }
     }
 }
@@ -1364,7 +1364,7 @@ impl RendererResources {
     pub fn get_registered_font(
         &self,
         font_key: &FontKey,
-    ) -> Option<&(FontRef, FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>)> {
+    ) -> Option<&(FontRef, OrderedMap<(Au, DpiScaleFactor), FontInstanceKey>)> {
         self.currently_registered_fonts.get(font_key)
     }
 
@@ -2724,7 +2724,7 @@ pub fn build_add_font_resource_updates(
     dpi: DpiScaleFactor,
     fc_cache: &FcFontCache,
     id_namespace: IdNamespace,
-    fonts_in_dom: &FastHashMap<ImmediateFontId, FastBTreeSet<Au>>,
+    fonts_in_dom: &OrderedMap<ImmediateFontId, FastBTreeSet<Au>>,
     font_source_load_fn: LoadFontFn,
     parse_font_fn: ParseFontFn,
 ) -> Vec<(StyleFontFamilyHash, AddFontMsg)> {
@@ -2999,7 +2999,7 @@ pub fn add_resources(
                 renderer_resources
                     .currently_registered_fonts
                     .entry(fk)
-                    .or_insert_with(|| (font_ref.clone(), FastHashMap::default()));
+                    .or_insert_with(|| (font_ref.clone(), OrderedMap::default()));
 
                 // CRITICAL: Map font_hash to FontKey so we can look it up during rendering
                 renderer_resources

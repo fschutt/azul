@@ -32,7 +32,7 @@ use azul_core::{
     gl::Texture,
     hit_test::DocumentId,
     resources::{Epoch, ExternalImageId},
-    FastHashMap,
+    OrderedMap,
 };
 
 /// A stable key for identifying textures across frames.
@@ -78,10 +78,10 @@ struct TextureEntry {
 
 /// Storage for OpenGL textures, organized by stable node identity.
 /// Structure: DocumentId -> TextureSlotKey -> TextureEntry
-type GlTextureStorage = FastHashMap<TextureSlotKey, TextureEntry>;
+type GlTextureStorage = OrderedMap<TextureSlotKey, TextureEntry>;
 
 /// Global texture cache. Not thread-safe, but textures are inherently single-threaded.
-static mut TEXTURE_CACHE: Option<FastHashMap<DocumentId, GlTextureStorage>> = None;
+static mut TEXTURE_CACHE: Option<OrderedMap<DocumentId, GlTextureStorage>> = None;
 
 /// Insert or update a texture in the cache for a specific DOM node.
 ///
@@ -99,7 +99,7 @@ pub fn insert_texture_for_node(
 
     unsafe {
         if TEXTURE_CACHE.is_none() {
-            TEXTURE_CACHE = Some(FastHashMap::new());
+            TEXTURE_CACHE = Some(OrderedMap::new());
         }
 
         let cache = TEXTURE_CACHE.as_mut().unwrap();
@@ -119,7 +119,7 @@ pub fn insert_texture(document_id: DocumentId, epoch: Epoch, texture: Texture) -
 
     unsafe {
         if TEXTURE_CACHE.is_none() {
-            TEXTURE_CACHE = Some(FastHashMap::new());
+            TEXTURE_CACHE = Some(OrderedMap::new());
         }
 
         let cache = TEXTURE_CACHE.as_mut().unwrap();
@@ -139,7 +139,7 @@ pub fn insert_texture(document_id: DocumentId, epoch: Epoch, texture: Texture) -
 /// We keep textures from the current and previous epoch for double-buffering safety.
 pub fn remove_old_epochs(document_id: &DocumentId, current_epoch: Epoch) {
     unsafe {
-        let cache: &mut FastHashMap<DocumentId, GlTextureStorage> = match TEXTURE_CACHE.as_mut() {
+        let cache: &mut OrderedMap<DocumentId, GlTextureStorage> = match TEXTURE_CACHE.as_mut() {
             Some(c) => c,
             None => return,
         };

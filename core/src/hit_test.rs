@@ -15,7 +15,7 @@ use crate::{
     id::NodeId,
     resources::IdNamespace,
     window::MouseCursorType,
-    FastHashMap,
+    OrderedMap,
 };
 
 /// Result of a hit test against a single DOM, containing all nodes hit
@@ -223,7 +223,7 @@ pub struct ScrollHitTestItem {
 
 /// Map of active scroll states, keyed by their external scroll ID.
 #[derive(Debug, Default)]
-pub struct ScrollStates(pub FastHashMap<ExternalScrollId, ScrollState>);
+pub struct ScrollStates(pub OrderedMap<ExternalScrollId, ScrollState>);
 
 impl ScrollStates {
     pub fn new() -> ScrollStates {

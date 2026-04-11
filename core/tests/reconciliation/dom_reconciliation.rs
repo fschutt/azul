@@ -14,13 +14,13 @@ use azul_core::dom::{NodeData, DomId};
 use azul_core::id::NodeId;
 use azul_core::geom::LogicalRect;
 use azul_core::task::Instant;
-use azul_core::FastHashMap;
+use azul_core::OrderedMap;
 use azul_css::AzString;
 use azul_css::props::property::RelayoutScope;
 
 /// Helper: create a layout map with zero-rect entries for N nodes
-fn make_layout(n: usize) -> FastHashMap<NodeId, LogicalRect> {
-    let mut m = FastHashMap::default();
+fn make_layout(n: usize) -> OrderedMap<NodeId, LogicalRect> {
+    let mut m = OrderedMap::default();
     for i in 0..n {
         m.insert(NodeId::new(i), LogicalRect::zero());
     }
@@ -532,8 +532,8 @@ fn empty_to_empty_no_changes() {
     let old: Vec<NodeData> = vec![];
     let new: Vec<NodeData> = vec![];
     
-    let old_layout = FastHashMap::default();
-    let new_layout = FastHashMap::default();
+    let old_layout = OrderedMap::default();
+    let new_layout = OrderedMap::default();
     
     let extended = reconcile_dom_with_changes(
         &old, &new, None, None,
@@ -550,7 +550,7 @@ fn empty_to_populated() {
     let old: Vec<NodeData> = vec![];
     let new = vec![NodeData::create_div(), NodeData::create_text("hello")];
     
-    let old_layout = FastHashMap::default();
+    let old_layout = OrderedMap::default();
     let new_layout = make_layout(2);
     
     let extended = reconcile_dom_with_changes(
@@ -574,7 +574,7 @@ fn populated_to_empty() {
     let new: Vec<NodeData> = vec![];
     
     let old_layout = make_layout(2);
-    let new_layout = FastHashMap::default();
+    let new_layout = OrderedMap::default();
     
     let extended = reconcile_dom_with_changes(
         &old, &new, None, None,

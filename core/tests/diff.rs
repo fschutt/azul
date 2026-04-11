@@ -1,7 +1,7 @@
 
 extern crate alloc;
 
-use azul_core::FastHashMap;
+use azul_core::OrderedMap;
 use azul_core::dom::{NodeData, DomId};
 use azul_core::id::NodeId;
 use azul_core::geom::LogicalRect;
@@ -13,8 +13,8 @@ fn test_simple_mount() {
     let old_data: Vec<NodeData> = vec![];
     let new_data = vec![NodeData::create_div()];
     
-    let old_layout = FastHashMap::default();
-    let mut new_layout = FastHashMap::default();
+    let old_layout = OrderedMap::default();
+    let mut new_layout = OrderedMap::default();
     new_layout.insert(NodeId::new(0), LogicalRect::zero());
     
     let result = reconcile_dom(
@@ -37,9 +37,9 @@ fn test_identical_nodes_match() {
     let old_data = vec![div.clone()];
     let new_data = vec![div.clone()];
     
-    let mut old_layout = FastHashMap::default();
+    let mut old_layout = OrderedMap::default();
     old_layout.insert(NodeId::new(0), LogicalRect::zero());
-    let mut new_layout = FastHashMap::default();
+    let mut new_layout = OrderedMap::default();
     new_layout.insert(NodeId::new(0), LogicalRect::zero());
     
     let result = reconcile_dom(
@@ -71,11 +71,11 @@ fn test_reorder_by_hash() {
     let old_data = vec![div_a.clone(), div_b.clone()];
     let new_data = vec![div_b.clone(), div_a.clone()];
     
-    let mut old_layout = FastHashMap::default();
+    let mut old_layout = OrderedMap::default();
     old_layout.insert(NodeId::new(0), LogicalRect::zero());
     old_layout.insert(NodeId::new(1), LogicalRect::zero());
     
-    let mut new_layout = FastHashMap::default();
+    let mut new_layout = OrderedMap::default();
     new_layout.insert(NodeId::new(0), LogicalRect::zero());
     new_layout.insert(NodeId::new(1), LogicalRect::zero());
     
@@ -112,8 +112,8 @@ fn test_empty_to_empty() {
     let result = reconcile_dom(
         &old_data,
         &new_data,
-        &FastHashMap::default(),
-        &FastHashMap::default(),
+        &OrderedMap::default(),
+        &OrderedMap::default(),
         DomId { inner: 0 },
         Instant::now(),
     );
@@ -131,7 +131,7 @@ fn test_all_nodes_removed() {
     ];
     let new_data: Vec<NodeData> = vec![];
     
-    let mut old_layout = FastHashMap::default();
+    let mut old_layout = OrderedMap::default();
     for i in 0..3 {
         old_layout.insert(NodeId::new(i), LogicalRect::zero());
     }
@@ -140,7 +140,7 @@ fn test_all_nodes_removed() {
         &old_data,
         &new_data,
         &old_layout,
-        &FastHashMap::default(),
+        &OrderedMap::default(),
         DomId { inner: 0 },
         Instant::now(),
     );
@@ -159,7 +159,7 @@ fn test_all_nodes_added() {
         NodeData::create_div(),
     ];
     
-    let mut new_layout = FastHashMap::default();
+    let mut new_layout = OrderedMap::default();
     for i in 0..3 {
         new_layout.insert(NodeId::new(i), LogicalRect::zero());
     }
@@ -167,7 +167,7 @@ fn test_all_nodes_added() {
     let result = reconcile_dom(
         &old_data,
         &new_data,
-        &FastHashMap::default(),
+        &OrderedMap::default(),
         &new_layout,
         DomId { inner: 0 },
         Instant::now(),
@@ -191,9 +191,9 @@ fn test_keyed_node_match() {
     let old_data = vec![old_node];
     let new_data = vec![new_node];
     
-    let mut old_layout = FastHashMap::default();
+    let mut old_layout = OrderedMap::default();
     old_layout.insert(NodeId::new(0), LogicalRect::zero());
-    let mut new_layout = FastHashMap::default();
+    let mut new_layout = OrderedMap::default();
     new_layout.insert(NodeId::new(0), LogicalRect::zero());
     
     let result = reconcile_dom(
@@ -224,8 +224,8 @@ fn test_keyed_reorder() {
     let old_data = vec![node_a.clone(), node_b.clone(), node_c.clone()];
     let new_data = vec![node_c.clone(), node_b.clone(), node_a.clone()];
     
-    let mut old_layout = FastHashMap::default();
-    let mut new_layout = FastHashMap::default();
+    let mut old_layout = OrderedMap::default();
+    let mut new_layout = OrderedMap::default();
     for i in 0..3 {
         old_layout.insert(NodeId::new(i), LogicalRect::zero());
         new_layout.insert(NodeId::new(i), LogicalRect::zero());
@@ -263,8 +263,8 @@ fn test_identical_nodes_fifo() {
     let old_data = vec![div.clone(), div.clone(), div.clone()];
     let new_data = vec![div.clone(), div.clone()]; // Remove last one
     
-    let mut old_layout = FastHashMap::default();
-    let mut new_layout = FastHashMap::default();
+    let mut old_layout = OrderedMap::default();
+    let mut new_layout = OrderedMap::default();
     for i in 0..3 {
         old_layout.insert(NodeId::new(i), LogicalRect::zero());
     }
@@ -306,8 +306,8 @@ fn test_insert_at_beginning() {
     let old_data = vec![div_a.clone(), div_b.clone()];
     let new_data = vec![div_new.clone(), div_a.clone(), div_b.clone()];
     
-    let mut old_layout = FastHashMap::default();
-    let mut new_layout = FastHashMap::default();
+    let mut old_layout = OrderedMap::default();
+    let mut new_layout = OrderedMap::default();
     for i in 0..2 {
         old_layout.insert(NodeId::new(i), LogicalRect::zero());
     }
@@ -352,8 +352,8 @@ fn test_insert_in_middle() {
     let old_data = vec![div_a.clone(), div_b.clone()];
     let new_data = vec![div_a.clone(), div_new.clone(), div_b.clone()];
     
-    let mut old_layout = FastHashMap::default();
-    let mut new_layout = FastHashMap::default();
+    let mut old_layout = OrderedMap::default();
+    let mut new_layout = OrderedMap::default();
     for i in 0..2 {
         old_layout.insert(NodeId::new(i), LogicalRect::zero());
     }
@@ -397,8 +397,8 @@ fn test_remove_from_middle() {
     let old_data = vec![div_a.clone(), div_b.clone(), div_c.clone()];
     let new_data = vec![div_a.clone(), div_c.clone()];
     
-    let mut old_layout = FastHashMap::default();
-    let mut new_layout = FastHashMap::default();
+    let mut old_layout = OrderedMap::default();
+    let mut new_layout = OrderedMap::default();
     for i in 0..3 {
         old_layout.insert(NodeId::new(i), LogicalRect::zero());
     }
@@ -443,8 +443,8 @@ fn test_mixed_keyed_and_unkeyed() {
     let old_data = vec![keyed.clone(), unkeyed.clone()];
     let new_data = vec![unkeyed.clone(), keyed.clone()];
     
-    let mut old_layout = FastHashMap::default();
-    let mut new_layout = FastHashMap::default();
+    let mut old_layout = OrderedMap::default();
+    let mut new_layout = OrderedMap::default();
     for i in 0..2 {
         old_layout.insert(NodeId::new(i), LogicalRect::zero());
         new_layout.insert(NodeId::new(i), LogicalRect::zero());
@@ -485,9 +485,9 @@ fn test_duplicate_keys() {
     let old_data = vec![node1.clone()];
     let new_data = vec![node2.clone()];
     
-    let mut old_layout = FastHashMap::default();
+    let mut old_layout = OrderedMap::default();
     old_layout.insert(NodeId::new(0), LogicalRect::zero());
-    let mut new_layout = FastHashMap::default();
+    let mut new_layout = OrderedMap::default();
     new_layout.insert(NodeId::new(0), LogicalRect::zero());
     
     let result = reconcile_dom(
@@ -514,9 +514,9 @@ fn test_key_not_in_old() {
     let old_data = vec![old_div];
     let new_data = vec![new_div];
     
-    let mut old_layout = FastHashMap::default();
+    let mut old_layout = OrderedMap::default();
     old_layout.insert(NodeId::new(0), LogicalRect::zero());
-    let mut new_layout = FastHashMap::default();
+    let mut new_layout = OrderedMap::default();
     new_layout.insert(NodeId::new(0), LogicalRect::zero());
     
     let result = reconcile_dom(
@@ -548,8 +548,8 @@ fn test_large_list_reorder() {
     let old_data = nodes.clone();
     let new_data: Vec<NodeData> = nodes.into_iter().rev().collect();
     
-    let mut old_layout = FastHashMap::default();
-    let mut new_layout = FastHashMap::default();
+    let mut old_layout = OrderedMap::default();
+    let mut new_layout = OrderedMap::default();
     for i in 0..100 {
         old_layout.insert(NodeId::new(i), LogicalRect::zero());
         new_layout.insert(NodeId::new(i), LogicalRect::zero());
@@ -581,8 +581,8 @@ fn test_migration_map() {
     let old_data = vec![div_a.clone(), div_b.clone()];
     let new_data = vec![div_b.clone(), div_a.clone()];
     
-    let mut old_layout = FastHashMap::default();
-    let mut new_layout = FastHashMap::default();
+    let mut old_layout = OrderedMap::default();
+    let mut new_layout = OrderedMap::default();
     for i in 0..2 {
         old_layout.insert(NodeId::new(i), LogicalRect::zero());
         new_layout.insert(NodeId::new(i), LogicalRect::zero());
@@ -614,9 +614,9 @@ fn test_different_node_types() {
     let old_data = vec![div];
     let new_data = vec![span];
     
-    let mut old_layout = FastHashMap::default();
+    let mut old_layout = OrderedMap::default();
     old_layout.insert(NodeId::new(0), LogicalRect::zero());
-    let mut new_layout = FastHashMap::default();
+    let mut new_layout = OrderedMap::default();
     new_layout.insert(NodeId::new(0), LogicalRect::zero());
     
     let result = reconcile_dom(
@@ -644,8 +644,8 @@ fn test_text_nodes() {
     let old_data = vec![text_a.clone(), text_b.clone()];
     let new_data = vec![text_b.clone(), text_a_copy.clone()];
     
-    let mut old_layout = FastHashMap::default();
-    let mut new_layout = FastHashMap::default();
+    let mut old_layout = OrderedMap::default();
+    let mut new_layout = OrderedMap::default();
     for i in 0..2 {
         old_layout.insert(NodeId::new(i), LogicalRect::zero());
         new_layout.insert(NodeId::new(i), LogicalRect::zero());
@@ -679,8 +679,8 @@ fn test_shuffle_three() {
     let old_data = vec![a.clone(), b.clone(), c.clone()];
     let new_data = vec![b.clone(), c.clone(), a.clone()];
     
-    let mut old_layout = FastHashMap::default();
-    let mut new_layout = FastHashMap::default();
+    let mut old_layout = OrderedMap::default();
+    let mut new_layout = OrderedMap::default();
     for i in 0..3 {
         old_layout.insert(NodeId::new(i), LogicalRect::zero());
         new_layout.insert(NodeId::new(i), LogicalRect::zero());
@@ -1187,9 +1187,9 @@ fn test_reconcile_then_transfer_integration() {
     let mut old_data = vec![old_node];
     let mut new_data = vec![new_node];
     
-    let mut old_layout = FastHashMap::default();
+    let mut old_layout = OrderedMap::default();
     old_layout.insert(NodeId::new(0), LogicalRect::zero());
-    let mut new_layout = FastHashMap::default();
+    let mut new_layout = OrderedMap::default();
     new_layout.insert(NodeId::new(0), LogicalRect::zero());
     
     // Step 1: Reconcile
@@ -1313,9 +1313,9 @@ fn test_text_nodes_match_by_structural_hash() {
     let old_data = vec![NodeData::create_text(AzString::from("Hello"))];
     let new_data = vec![NodeData::create_text(AzString::from("Hello World"))];
     
-    let mut old_layout = FastHashMap::default();
+    let mut old_layout = OrderedMap::default();
     old_layout.insert(NodeId::new(0), LogicalRect::zero());
-    let mut new_layout = FastHashMap::default();
+    let mut new_layout = OrderedMap::default();
     new_layout.insert(NodeId::new(0), LogicalRect::zero());
     
     let result = reconcile_dom(

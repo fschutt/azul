@@ -78,7 +78,7 @@ use crate::{
         construct_html_cascade_tree, matches_html_element, rule_ends_with, CascadeInfo,
         CascadeInfoVec,
     },
-    FastBTreeSet, FastHashMap,
+    FastBTreeSet, OrderedMap,
 };
 
 #[repr(C)]

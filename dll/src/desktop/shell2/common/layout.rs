@@ -242,8 +242,8 @@ pub fn regenerate_layout(
         let mut new_node_data: Vec<azul_core::dom::NodeData> = styled_dom.node_data.as_ref().to_vec();
 
         // Build layout maps for reconciliation (empty for now - we just need node moves)
-        let old_layout_map = azul_core::FastHashMap::default();
-        let new_layout_map = azul_core::FastHashMap::default();
+        let old_layout_map = azul_core::OrderedMap::default();
+        let new_layout_map = azul_core::OrderedMap::default();
 
         // Run reconciliation to find matched nodes
         let diff_result = azul_core::diff::reconcile_dom(

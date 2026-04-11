@@ -68,7 +68,7 @@ use crate::{
         AzStringPair, KeyboardState, MouseState, OptionChar, RawWindowHandle, UpdateFocusWarning,
         WindowFlags, WindowSize, WindowTheme,
     },
-    FastBTreeSet, FastHashMap,
+    FastBTreeSet, OrderedMap,
 };
 
 /// Specifies if the screen should be updated after the callback function has returned

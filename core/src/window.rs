@@ -58,7 +58,7 @@ use crate::{
     selection::SelectionState,
     styled_dom::NodeHierarchyItemId,
     task::{Instant, ThreadId, TimerId},
-    FastBTreeSet, FastHashMap,
+    FastBTreeSet, OrderedMap,
 };
 
 pub const DEFAULT_TITLE: &str = "Azul App";
