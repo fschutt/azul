@@ -303,7 +303,7 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                         let mut s = s.split(":");
                         let key = match s.next() { Some(s) => s, None => continue };
                         let val = match s.next() { Some(s) => s, None => continue };
-                        azul_css::parser2::parse_css_declaration(
+                        let _ = azul_css::parser2::parse_css_declaration(
                             key.trim(), val.trim(),
                             azul_css::parser2::ErrorLocationRange::default(),
                             css_key_map, &mut Vec::new(), &mut css_attrs,

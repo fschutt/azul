@@ -334,75 +334,45 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
         }
     }
 
-    // DEPRECATED: Use debug_*!() macros instead for lazy evaluation
-    // These methods always evaluate format!() arguments even when debug is disabled
+    // Convenience wrappers (prefer debug_*! macros for lazy evaluation)
 
     #[inline]
-    #[deprecated(note = "Use debug_info! macro for lazy evaluation")]
-    #[allow(deprecated)]
     pub fn debug_info(&mut self, message: impl Into<String>) {
         self.debug_info_inner(message.into());
     }
-
     #[inline]
-    #[deprecated(note = "Use debug_warning! macro for lazy evaluation")]
-    #[allow(deprecated)]
     pub fn debug_warning(&mut self, message: impl Into<String>) {
         self.debug_warning_inner(message.into());
     }
-
     #[inline]
-    #[deprecated(note = "Use debug_error! macro for lazy evaluation")]
-    #[allow(deprecated)]
     pub fn debug_error(&mut self, message: impl Into<String>) {
         self.debug_error_inner(message.into());
     }
-
     #[inline]
-    #[deprecated(note = "Use debug_log! macro for lazy evaluation")]
-    #[allow(deprecated)]
     pub fn debug_log(&mut self, message: &str) {
         self.debug_log_inner(message.to_string());
     }
-
     #[inline]
-    #[deprecated(note = "Use debug_box_props! macro for lazy evaluation")]
-    #[allow(deprecated)]
     pub fn debug_box_props(&mut self, message: impl Into<String>) {
         self.debug_box_props_inner(message.into());
     }
-
     #[inline]
-    #[deprecated(note = "Use debug_css_getter! macro for lazy evaluation")]
-    #[allow(deprecated)]
     pub fn debug_css_getter(&mut self, message: impl Into<String>) {
         self.debug_css_getter_inner(message.into());
     }
-
     #[inline]
-    #[deprecated(note = "Use debug_bfc_layout! macro for lazy evaluation")]
-    #[allow(deprecated)]
     pub fn debug_bfc_layout(&mut self, message: impl Into<String>) {
         self.debug_bfc_layout_inner(message.into());
     }
-
     #[inline]
-    #[deprecated(note = "Use debug_ifc_layout! macro for lazy evaluation")]
-    #[allow(deprecated)]
     pub fn debug_ifc_layout(&mut self, message: impl Into<String>) {
         self.debug_ifc_layout_inner(message.into());
     }
-
     #[inline]
-    #[deprecated(note = "Use debug_table_layout! macro for lazy evaluation")]
-    #[allow(deprecated)]
     pub fn debug_table_layout(&mut self, message: impl Into<String>) {
         self.debug_table_layout_inner(message.into());
     }
-
     #[inline]
-    #[deprecated(note = "Use debug_display_type! macro for lazy evaluation")]
-    #[allow(deprecated)]
     pub fn debug_display_type(&mut self, message: impl Into<String>) {
         self.debug_display_type_inner(message.into());
     }

@@ -2992,7 +2992,7 @@ impl LayoutWindow {
                         first.selection = azul_core::selection::Selection::Range(word_range);
                     }
                 }
-                mc.add_selection(new_range);
+                let _ = mc.add_selection(new_range);
                 self.text_edit_manager.mark_dirty();
                 return true;
             } else if last_end_byte > 0 {
@@ -3024,7 +3024,7 @@ impl LayoutWindow {
                             first.selection = azul_core::selection::Selection::Range(word_range);
                         }
                     }
-                    mc.add_selection(new_range);
+                    let _ = mc.add_selection(new_range);
                     self.text_edit_manager.mark_dirty();
                     return true;
                 }

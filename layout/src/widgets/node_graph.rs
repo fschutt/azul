@@ -2754,7 +2754,7 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
 
                         children.push(
                             Dom::create_div()
-                                .with_inline_style(
+                                .with_css(
                                     "flex-grow: 1; position: absolute; overflow: hidden;",
                                 )
                                 .with_children(vec![connection_div].into()),
