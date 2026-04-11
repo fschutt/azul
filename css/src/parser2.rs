@@ -1665,10 +1665,12 @@ fn new_from_str_inner<'a>(
                     }
                 }
             }
-            Token::AttributeSelector(attr) => {
-                // Parse attribute selector - for now just store as-is
-                // TODO: properly parse attribute selectors
-                last_path.push(CssPathSelector::Class(format!("[{}]", attr).into()));
+            Token::AttributeSelector(_attr) => {
+                // Attribute selectors (e.g. [data-foo], [type="text"]) are not yet supported.
+                // Skip with a warning instead of silently misrepresenting as a class selector.
+                warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
+                    message: "Attribute selectors are not yet supported, rule skipped",
+                });
             }
             Token::Declaration(key, val) => {
                 current_declarations.insert(
