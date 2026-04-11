@@ -918,8 +918,7 @@ impl DynamicSelector {
             PseudoStateType::CheckedFalse => !node_state.checked,
             PseudoStateType::FocusWithin => node_state.focus_within,
             PseudoStateType::Visited => node_state.visited,
-            // :backdrop is true when window is NOT focused (opposite of window_focused)
-            PseudoStateType::Backdrop => !ctx.window_focused,
+            PseudoStateType::Backdrop => node_state.backdrop,
             PseudoStateType::Dragging => node_state.dragging,
             PseudoStateType::DragOver => node_state.drag_over,
         }
@@ -1274,7 +1273,7 @@ impl CssPropertyWithConditionsVec {
     #[cfg(feature = "parser")]
     fn parse_selector_to_conditions(selector: &str) -> Option<Vec<DynamicSelector>> {
         let selector = selector.trim();
-        
+
         // Handle pseudo-selectors
         if let Some(pseudo) = selector.strip_prefix(':') {
             match pseudo {
@@ -1291,134 +1290,17 @@ impl CssPropertyWithConditionsVec {
                 _ => return None,
             }
         }
-        
+
         // Handle @-rules
         if let Some(rule_content) = selector.strip_prefix('@') {
-            // @os-version windows >= win-11
-            // @os-version macos >= monterey
-            // @os-version macos = sonoma
-            // @os-version linux de gnome
-            if rule_content.starts_with("os-version ") {
-                let version_query = rule_content[11..].trim();
-                if let Some(cond) = Self::parse_os_version_condition(version_query) {
-                    return Some(vec![DynamicSelector::OsVersion(cond)]);
-                }
-            }
-
-            // @os linux, @os windows, etc.
-            if rule_content.starts_with("os ") {
-                let os_name = rule_content[3..].trim();
-                if let Some(os_cond) = Self::parse_os_name(os_name) {
-                    return Some(vec![DynamicSelector::Os(os_cond)]);
-                }
-            }
-            
-            // @media (min-width: 800px), etc.
-            if rule_content.starts_with("media ") {
-                let media_query = rule_content[6..].trim();
-                if let Some(media_conds) = Self::parse_media_query(media_query) {
-                    return Some(media_conds);
-                }
-            }
-            
-            // @theme dark, @theme light
-            if rule_content.starts_with("theme ") {
-                let theme = rule_content[6..].trim();
-                match theme {
-                    "dark" => return Some(vec![DynamicSelector::Theme(ThemeCondition::Dark)]),
-                    "light" => return Some(vec![DynamicSelector::Theme(ThemeCondition::Light)]),
-                    _ => return None,
-                }
-            }
-
-            // @lang("de-DE") or @lang de-DE
-            if rule_content.starts_with("lang ") || rule_content.starts_with("lang(") {
-                let lang_str = if rule_content.starts_with("lang(") {
-                    rule_content[5..].trim_end_matches(')').trim()
-                } else {
-                    rule_content[5..].trim()
-                };
-                let lang_str = lang_str
-                    .strip_prefix('"').and_then(|s| s.strip_suffix('"'))
-                    .or_else(|| lang_str.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
-                    .unwrap_or(lang_str);
-                if !lang_str.is_empty() {
-                    return Some(vec![DynamicSelector::Language(
-                        LanguageCondition::Prefix(AzString::from(lang_str.to_string()))
-                    )]);
-                }
-            }
-
-            // @container (min-width: 400px) or @container sidebar (min-width: 400px)
-            if rule_content.starts_with("container ") || rule_content.starts_with("container(") {
-                let container_str = if rule_content.starts_with("container(") {
-                    &rule_content[9..] // keep the '(' for parsing
-                } else {
-                    rule_content[10..].trim()
-                };
-                let mut conds = Vec::new();
-                // Check for named container: "sidebar (min-width: 400px)"
-                let (name_part, query_part) = if container_str.starts_with('(') {
-                    (None, container_str)
-                } else if let Some(paren_idx) = container_str.find('(') {
-                    let name = container_str[..paren_idx].trim();
-                    if !name.is_empty() {
-                        (Some(name), &container_str[paren_idx..])
-                    } else {
-                        (None, container_str)
-                    }
-                } else {
-                    if !container_str.is_empty() {
-                        return Some(vec![DynamicSelector::ContainerName(
-                            AzString::from(container_str.to_string())
-                        )]);
-                    }
-                    return None;
-                };
-                if let Some(name) = name_part {
-                    conds.push(DynamicSelector::ContainerName(
-                        AzString::from(name.to_string())
-                    ));
-                }
-                // Parse (min-width: 400px) style conditions
-                if let Some(inner) = query_part.strip_prefix('(').and_then(|s| s.strip_suffix(')')) {
-                    if let Some((key, value)) = inner.split_once(':') {
-                        let key = key.trim();
-                        let value = value.trim();
-                        let px_value = value.strip_suffix("px")
-                            .and_then(|v| v.trim().parse::<f32>().ok());
-                        match key {
-                            "min-width" => { if let Some(px) = px_value { conds.push(DynamicSelector::ContainerWidth(MinMaxRange::with_min(px))); } }
-                            "max-width" => { if let Some(px) = px_value { conds.push(DynamicSelector::ContainerWidth(MinMaxRange::with_max(px))); } }
-                            "min-height" => { if let Some(px) = px_value { conds.push(DynamicSelector::ContainerHeight(MinMaxRange::with_min(px))); } }
-                            "max-height" => { if let Some(px) = px_value { conds.push(DynamicSelector::ContainerHeight(MinMaxRange::with_max(px))); } }
-                            _ => {}
-                        }
-                    }
-                }
-                if !conds.is_empty() {
-                    return Some(conds);
-                }
-            }
-
-            // @prefers-reduced-motion or @reduced-motion
-            if rule_content == "prefers-reduced-motion" || rule_content == "reduced-motion" {
-                return Some(vec![DynamicSelector::PrefersReducedMotion(BoolCondition::True)]);
-            }
-
-            // @prefers-high-contrast or @high-contrast
-            if rule_content == "prefers-high-contrast" || rule_content == "high-contrast" {
-                return Some(vec![DynamicSelector::PrefersHighContrast(BoolCondition::True)]);
-            }
-
-            return None;
+            return Self::parse_at_rule(rule_content);
         }
-        
+
         // Handle universal selector * (treat as unconditional)
         if selector == "*" {
             return Some(vec![]);
         }
-        
+
         // Empty selector means unconditional
         if selector.is_empty() {
             return Some(vec![]);
@@ -1426,7 +1308,132 @@ impl CssPropertyWithConditionsVec {
         
         None
     }
-    
+
+    /// Parse an @-rule (the content after '@') into DynamicSelector conditions.
+    /// Handles @os, @os-version, @media, @theme, @lang, @container,
+    /// @prefers-reduced-motion, and @prefers-high-contrast.
+    #[cfg(feature = "parser")]
+    fn parse_at_rule(rule_content: &str) -> Option<Vec<DynamicSelector>> {
+        // @os-version windows >= win-11
+        // @os-version macos >= monterey
+        // @os-version macos = sonoma
+        // @os-version linux de gnome
+        if rule_content.starts_with("os-version ") {
+            let version_query = rule_content[11..].trim();
+            if let Some(cond) = Self::parse_os_version_condition(version_query) {
+                return Some(vec![DynamicSelector::OsVersion(cond)]);
+            }
+        }
+
+        // @os linux, @os windows, etc.
+        if rule_content.starts_with("os ") {
+            let os_name = rule_content[3..].trim();
+            if let Some(os_cond) = Self::parse_os_name(os_name) {
+                return Some(vec![DynamicSelector::Os(os_cond)]);
+            }
+        }
+
+        // @media (min-width: 800px), etc.
+        if rule_content.starts_with("media ") {
+            let media_query = rule_content[6..].trim();
+            if let Some(media_conds) = Self::parse_media_query(media_query) {
+                return Some(media_conds);
+            }
+        }
+
+        // @theme dark, @theme light
+        if rule_content.starts_with("theme ") {
+            let theme = rule_content[6..].trim();
+            match theme {
+                "dark" => return Some(vec![DynamicSelector::Theme(ThemeCondition::Dark)]),
+                "light" => return Some(vec![DynamicSelector::Theme(ThemeCondition::Light)]),
+                _ => return None,
+            }
+        }
+
+        // @lang("de-DE") or @lang de-DE
+        if rule_content.starts_with("lang ") || rule_content.starts_with("lang(") {
+            let lang_str = if rule_content.starts_with("lang(") {
+                rule_content[5..].trim_end_matches(')').trim()
+            } else {
+                rule_content[5..].trim()
+            };
+            let lang_str = lang_str
+                .strip_prefix('"').and_then(|s| s.strip_suffix('"'))
+                .or_else(|| lang_str.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
+                .unwrap_or(lang_str);
+            if !lang_str.is_empty() {
+                return Some(vec![DynamicSelector::Language(
+                    LanguageCondition::Prefix(AzString::from(lang_str.to_string()))
+                )]);
+            }
+        }
+
+        // @container (min-width: 400px) or @container sidebar (min-width: 400px)
+        if rule_content.starts_with("container ") || rule_content.starts_with("container(") {
+            let container_str = if rule_content.starts_with("container(") {
+                &rule_content[9..] // keep the '(' for parsing
+            } else {
+                rule_content[10..].trim()
+            };
+            let mut conds = Vec::new();
+            // Check for named container: "sidebar (min-width: 400px)"
+            let (name_part, query_part) = if container_str.starts_with('(') {
+                (None, container_str)
+            } else if let Some(paren_idx) = container_str.find('(') {
+                let name = container_str[..paren_idx].trim();
+                if !name.is_empty() {
+                    (Some(name), &container_str[paren_idx..])
+                } else {
+                    (None, container_str)
+                }
+            } else {
+                if !container_str.is_empty() {
+                    return Some(vec![DynamicSelector::ContainerName(
+                        AzString::from(container_str.to_string())
+                    )]);
+                }
+                return None;
+            };
+            if let Some(name) = name_part {
+                conds.push(DynamicSelector::ContainerName(
+                    AzString::from(name.to_string())
+                ));
+            }
+            // Parse (min-width: 400px) style conditions
+            if let Some(inner) = query_part.strip_prefix('(').and_then(|s| s.strip_suffix(')')) {
+                if let Some((key, value)) = inner.split_once(':') {
+                    let key = key.trim();
+                    let value = value.trim();
+                    let px_value = value.strip_suffix("px")
+                        .and_then(|v| v.trim().parse::<f32>().ok());
+                    match key {
+                        "min-width" => { if let Some(px) = px_value { conds.push(DynamicSelector::ContainerWidth(MinMaxRange::with_min(px))); } }
+                        "max-width" => { if let Some(px) = px_value { conds.push(DynamicSelector::ContainerWidth(MinMaxRange::with_max(px))); } }
+                        "min-height" => { if let Some(px) = px_value { conds.push(DynamicSelector::ContainerHeight(MinMaxRange::with_min(px))); } }
+                        "max-height" => { if let Some(px) = px_value { conds.push(DynamicSelector::ContainerHeight(MinMaxRange::with_max(px))); } }
+                        _ => {}
+                    }
+                }
+            }
+            if !conds.is_empty() {
+                return Some(conds);
+            }
+        }
+
+        // @prefers-reduced-motion or @reduced-motion
+        if rule_content == "prefers-reduced-motion" || rule_content == "reduced-motion" {
+            return Some(vec![DynamicSelector::PrefersReducedMotion(BoolCondition::True)]);
+        }
+
+        // @prefers-high-contrast or @high-contrast
+        if rule_content == "prefers-high-contrast" || rule_content == "high-contrast" {
+            return Some(vec![DynamicSelector::PrefersHighContrast(BoolCondition::True)]);
+        }
+
+        None
+    }
+
     /// Parse OS name to OsCondition
     #[cfg(feature = "parser")]
     fn parse_os_name(name: &str) -> Option<OsCondition> {
