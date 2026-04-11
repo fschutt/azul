@@ -1,6 +1,13 @@
+//! Logical and physical coordinate types for the GUI toolkit.
+//!
+//! Provides DPI-independent (`Logical*`) and pixel-level (`Physical*`) geometry
+//! types used throughout layout, rendering, windowing, and hit testing.
+//! Logical coordinates are scaled by a DPI factor to produce physical coordinates.
+
 // Re-export DragDelta from drag module (moved in code reorganization)
 pub use crate::drag::{DragDelta, OptionDragDelta};
 
+/// An axis-aligned rectangle in logical (DPI-independent) coordinates.
 #[derive(Copy, Default, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub struct LogicalRect {
@@ -28,6 +35,7 @@ impl LogicalRect {
         Self { origin, size }
     }
 
+    /// Scales all coordinates in-place by the given DPI scale factor.
     #[inline]
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
         self.origin.x *= scale_factor;
@@ -36,18 +44,22 @@ impl LogicalRect {
         self.size.height *= scale_factor;
     }
 
+    /// Returns the maximum x coordinate (origin.x + width).
     #[inline(always)]
     pub fn max_x(&self) -> f32 {
         self.origin.x + self.size.width
     }
+    /// Returns the minimum x coordinate (origin.x).
     #[inline(always)]
     pub fn min_x(&self) -> f32 {
         self.origin.x
     }
+    /// Returns the maximum y coordinate (origin.y + height).
     #[inline(always)]
     pub fn max_y(&self) -> f32 {
         self.origin.y + self.size.height
     }
+    /// Returns the minimum y coordinate (origin.y).
     #[inline(always)]
     pub fn min_y(&self) -> f32 {
         self.origin.y
@@ -125,6 +137,7 @@ impl LogicalRect {
         }
     }
 
+    /// Converts to an integer-based `LayoutRect`, rounding coordinates.
     pub fn to_layout_rect(&self) -> LayoutRect {
         LayoutRect {
             origin: LayoutPoint::new(
@@ -159,6 +172,7 @@ use azul_css::props::{
     layout::LayoutWritingMode,
 };
 
+/// A 2D position in logical (DPI-independent) coordinates.
 #[derive(Default, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct LogicalPosition {
@@ -167,6 +181,7 @@ pub struct LogicalPosition {
 }
 
 impl LogicalPosition {
+    /// Scales the position in-place by the given DPI scale factor.
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
         self.x *= scale_factor;
         self.y *= scale_factor;
@@ -258,6 +273,7 @@ impl Hash for LogicalPosition {
 }
 
 impl LogicalPosition {
+    /// Returns the main-axis component for the given writing mode.
     pub fn main(&self, wm: LayoutWritingMode) -> f32 {
         match wm {
             LayoutWritingMode::HorizontalTb => self.y,
@@ -265,6 +281,7 @@ impl LogicalPosition {
         }
     }
 
+    /// Returns the cross-axis component for the given writing mode.
     pub fn cross(&self, wm: LayoutWritingMode) -> f32 {
         match wm {
             LayoutWritingMode::HorizontalTb => self.x,
@@ -272,7 +289,7 @@ impl LogicalPosition {
         }
     }
 
-    // Creates a LogicalPosition from main and cross axis dimensions.
+    /// Creates a `LogicalPosition` from main and cross axis dimensions.
     pub fn from_main_cross(main: f32, cross: f32, wm: LayoutWritingMode) -> Self {
         match wm {
             LayoutWritingMode::HorizontalTb => Self::new(cross, main),
@@ -281,6 +298,7 @@ impl LogicalPosition {
     }
 }
 
+/// A 2D size in logical (DPI-independent) coordinates.
 #[derive(Default, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct LogicalSize {
@@ -289,13 +307,14 @@ pub struct LogicalSize {
 }
 
 impl LogicalSize {
+    /// Scales the size in-place by the given DPI scale factor and returns self.
     pub fn scale_for_dpi(&mut self, scale_factor: f32) -> Self {
         self.width *= scale_factor;
         self.height *= scale_factor;
         *self
     }
 
-    // Creates a LogicalSize from main and cross axis dimensions.
+    /// Creates a `LogicalSize` from main and cross axis dimensions.
     pub fn from_main_cross(main: f32, cross: f32, wm: LayoutWritingMode) -> Self {
         match wm {
             LayoutWritingMode::HorizontalTb => Self::new(cross, main),
@@ -355,6 +374,7 @@ impl Hash for LogicalSize {
 }
 
 impl LogicalSize {
+    /// Returns the main-axis dimension for the given writing mode.
     pub fn main(&self, wm: LayoutWritingMode) -> f32 {
         match wm {
             LayoutWritingMode::HorizontalTb => self.height,
@@ -362,6 +382,7 @@ impl LogicalSize {
         }
     }
 
+    /// Returns the cross-axis dimension for the given writing mode.
     pub fn cross(&self, wm: LayoutWritingMode) -> f32 {
         match wm {
             LayoutWritingMode::HorizontalTb => self.width,
@@ -369,7 +390,7 @@ impl LogicalSize {
         }
     }
 
-    // Returns a new LogicalSize with the main-axis dimension updated.
+    /// Returns a new `LogicalSize` with the main-axis dimension updated.
     pub fn with_main(self, wm: LayoutWritingMode, value: f32) -> Self {
         match wm {
             LayoutWritingMode::HorizontalTb => Self {
@@ -383,6 +404,7 @@ impl LogicalSize {
         }
     }
 
+    /// Returns a new `LogicalSize` with the cross-axis dimension updated.
     pub fn with_cross(self, wm: LayoutWritingMode, value: f32) -> Self {
         match wm {
             LayoutWritingMode::HorizontalTb => Self {
@@ -397,6 +419,7 @@ impl LogicalSize {
     }
 }
 
+/// A 2D position in physical (pixel) coordinates.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct PhysicalPosition<T> {
@@ -417,6 +440,7 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, PartialOrd]
 );
 
+/// A 2D size in physical (pixel) coordinates.
 #[derive(Ord, Hash, Eq, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct PhysicalSize<T> {
@@ -452,6 +476,7 @@ impl LogicalPosition {
     pub const fn zero() -> Self {
         Self::new(0.0, 0.0)
     }
+    /// Converts to physical pixel coordinates by multiplying by the DPI factor.
     #[inline(always)]
     pub fn to_physical(self, hidpi_factor: f32) -> PhysicalPosition<u32> {
         PhysicalPosition {
@@ -473,6 +498,7 @@ impl PhysicalPosition<i32> {
     pub const fn zero() -> Self {
         Self::new(0, 0)
     }
+    /// Converts to logical coordinates by dividing by the DPI factor.
     #[inline(always)]
     pub fn to_logical(self, hidpi_factor: f32) -> LogicalPosition {
         LogicalPosition {
@@ -487,6 +513,7 @@ impl PhysicalPosition<f64> {
     pub const fn zero() -> Self {
         Self::new(0.0, 0.0)
     }
+    /// Converts to logical coordinates by dividing by the DPI factor.
     #[inline(always)]
     pub fn to_logical(self, hidpi_factor: f32) -> LogicalPosition {
         LogicalPosition {
@@ -505,6 +532,7 @@ impl LogicalSize {
     pub const fn zero() -> Self {
         Self::new(0.0, 0.0)
     }
+    /// Converts to physical pixel size by multiplying by the DPI factor.
     #[inline(always)]
     pub fn to_physical(self, hidpi_factor: f32) -> PhysicalSize<u32> {
         PhysicalSize {
@@ -526,6 +554,7 @@ impl PhysicalSize<u32> {
     pub const fn zero() -> Self {
         Self::new(0, 0)
     }
+    /// Converts to logical coordinates by dividing by the DPI factor.
     #[inline(always)]
     pub fn to_logical(self, hidpi_factor: f32) -> LogicalSize {
         LogicalSize {
@@ -535,51 +564,15 @@ impl PhysicalSize<u32> {
     }
 }
 
-// =============================================================================
-// CoordinateSpace - Debug marker for documenting coordinate system contexts
-// =============================================================================
-//
-// This enum serves as DOCUMENTATION for which coordinate space a value is in.
-// It does NOT enforce type-safety at compile time (no PhantomData generics).
-// The purpose is to help developers understand and debug coordinate transformations.
-//
-// COORDINATE SPACES IN AZUL:
-//
-// 1. Window (absolute coordinates from window top-left)
-//    - All layout primitives are initially computed in this space
-//    - Origin: (0, 0) = top-left corner of the window content area
-//    - Used by: Layout engine output, display list items before compositor
-//
-// 2. ScrollFrame (relative to scroll container origin)
-//    - Used for primitives inside a WebRender scroll frame
-//    - Origin: (0, 0) = top-left of scrollable content area
-//    - Transformation: scroll_pos = window_pos - scroll_frame_origin
-//    - The scroll_frame_origin is the Window-space position of the scroll frame
-//
-// 3. Parent (relative to parent node origin)  
-//    - Used for relative positioning within a parent container
-//    - Origin: (0, 0) = top-left of parent's content box
-//
-// 4. ReferenceFrame (relative to a CSS transform origin)
-//    - Used for primitives inside a WebRender reference frame (transforms)
-//    - Origin: Defined by the transform-origin property
-//
-// COMMON BUG PATTERN:
-//
-// The Y-offset bug in text areas was caused by passing Window-space coordinates
-// to WebRender when it expected ScrollFrame-space coordinates. The scroll frame
-// creates a new spatial node, so primitives must be offset by the frame origin.
-//
-// WRONG:  Push same offset for scroll frames (content appears at window position)
-// RIGHT:  Push frame_origin as new offset (content positioned relative to frame)
-
 /// Marker enum documenting which coordinate space a geometric value is in.
-/// 
-/// This is for documentation and debugging purposes only - it does not enforce
+///
+/// This is for documentation and debugging purposes only — it does not enforce
 /// type safety at compile time. Use comments like `[CoordinateSpace::Window]`
 /// or `[CoordinateSpace::ScrollFrame]` in code to document coordinate contexts.
-/// 
-/// See the module-level documentation above for details on each space.
+///
+/// **Common bug pattern:** passing `Window`-space coordinates where
+/// `ScrollFrame`-space is expected (or vice versa). The scroll frame creates a
+/// new spatial node, so primitives must be offset by the frame origin.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(C)]
 pub enum CoordinateSpace {
