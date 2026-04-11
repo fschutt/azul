@@ -58,6 +58,10 @@ use crate::{
     styled_dom::StyledDom,
 };
 
+// Type name constants for RefAny-based icon type detection in debug output
+const IMAGE_ICON_DATA_TYPE_NAME: &str = "ImageIconData";
+const FONT_ICON_DATA_TYPE_NAME: &str = "FontIconData";
+
 // Icon Resolver Callback
 
 /// Callback type for resolving icon data to a StyledDom.
@@ -178,10 +182,10 @@ impl IconProviderHandle {
     }
     
     /// Convert this handle into an Arc<Mutex<IconProviderInner>> for use in windows.
-    /// 
+    ///
     /// This consumes the Box and creates an Arc. Called by App::run() to create
     /// the shared icon provider that gets cloned to each window.
-    pub fn into_shared(self) -> Arc<Mutex<IconProviderInner>> {
+    pub(crate) fn into_shared(self) -> Arc<Mutex<IconProviderInner>> {
         Arc::new(Mutex::new(*self.inner))
     }
 
@@ -215,15 +219,20 @@ impl IconProviderHandle {
         self.inner.icons.remove(pack_name);
     }
 
-    /// Look up an icon across all packs (first match wins)
-    pub fn lookup(&self, icon_name: &str) -> Option<RefAny> {
+    /// Look up an icon across all packs, returning the pack name and data reference (first match wins)
+    fn lookup_with_pack(&self, icon_name: &str) -> Option<(&str, &RefAny)> {
         let icon_name_lower = icon_name.to_lowercase();
-        for pack in self.inner.icons.values() {
+        for (pack_name, pack) in self.inner.icons.iter() {
             if let Some(data) = pack.get(&icon_name_lower) {
-                return Some(data.clone());
+                return Some((pack_name.as_str(), data));
             }
         }
         None
+    }
+
+    /// Look up an icon across all packs (first match wins)
+    pub fn lookup(&self, icon_name: &str) -> Option<RefAny> {
+        self.lookup_with_pack(icon_name).map(|(_, data)| data.clone())
     }
 
     /// Check if an icon exists in any pack
@@ -247,9 +256,9 @@ impl IconProviderHandle {
     /// Debug lookup: returns detailed info about an icon's RefAny contents
     pub fn debug_lookup(&self, icon_name: &str) -> AzString {
         let icon_name_lower = icon_name.to_lowercase();
-        
+
         let mut result = format!("Debug lookup for icon '{}' (normalized: '{}'):\n", icon_name, icon_name_lower);
-        
+
         // Report registered packs
         result.push_str(&format!("  Total packs: {}\n", self.inner.icons.len()));
         for (pack_name, pack) in self.inner.icons.iter() {
@@ -258,41 +267,31 @@ impl IconProviderHandle {
                 result.push_str(&format!("      - {}\n", name));
             }
         }
-        
-        // Find the icon
-        let mut found_in_pack: Option<&str> = None;
-        let mut refany: Option<&RefAny> = None;
-        for (pack_name, pack) in self.inner.icons.iter() {
-            if let Some(data) = pack.get(&icon_name_lower) {
-                found_in_pack = Some(pack_name);
-                refany = Some(data);
-                break;
-            }
-        }
-        
-        match (found_in_pack, refany) {
-            (Some(pack), Some(data)) => {
+
+        // Find the icon using shared lookup helper
+        match self.lookup_with_pack(icon_name) {
+            Some((pack, data)) => {
                 result.push_str(&format!("\n  FOUND in pack '{}'\n", pack));
                 let type_name = data.get_type_name();
                 result.push_str(&format!("  RefAny type_name: '{}'\n", type_name.as_str()));
-                
+
                 let debug_info = data.sharing_info.debug_get_refcount_copied();
                 result.push_str(&format!("  RefAny size: {} bytes\n", debug_info._internal_layout_size));
-                
+
                 let type_str = type_name.as_str();
-                if type_str.contains("ImageIconData") {
+                if type_str.contains(IMAGE_ICON_DATA_TYPE_NAME) {
                     result.push_str("  RefAny type: ImageIconData (image-based icon)\n");
-                } else if type_str.contains("FontIconData") {
+                } else if type_str.contains(FONT_ICON_DATA_TYPE_NAME) {
                     result.push_str("  RefAny type: FontIconData (font-based icon)\n");
                 } else {
                     result.push_str(&format!("  RefAny type: UNKNOWN ('{}')\n", type_str));
                 }
             }
-            _ => {
+            None => {
                 result.push_str("\n  NOT FOUND in any pack\n");
             }
         }
-        
+
         AzString::from(result)
     }
 }
