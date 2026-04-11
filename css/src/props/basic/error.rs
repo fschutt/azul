@@ -31,7 +31,7 @@ pub enum ParseFloatError {
 
 impl ParseFloatError {
     /// Convert from `core::num::ParseFloatError` by comparing against known error instances.
-    pub fn from_std(e: &core::num::ParseFloatError) -> Self {
+    fn from_std(e: &core::num::ParseFloatError) -> Self {
         // Compare against the known Empty error instance to avoid
         // relying on Display message wording or allocating a format string.
         let empty_err = "".parse::<f32>().unwrap_err();
@@ -87,7 +87,7 @@ pub enum ParseIntError {
 
 impl ParseIntError {
     /// Convert from `core::num::ParseIntError` using the stable `kind()` method.
-    pub fn from_std(e: &core::num::ParseIntError) -> Self {
+    fn from_std(e: &core::num::ParseIntError) -> Self {
         use core::num::IntErrorKind;
         match e.kind() {
             IntErrorKind::Empty => ParseIntError::Empty,
