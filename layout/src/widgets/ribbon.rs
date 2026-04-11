@@ -199,9 +199,10 @@ impl Ribbon {
         Self { tabs, active_tab: 0, on_tab_click: None.into() }
     }
 
-    /// Sets the active tab by index.
+    /// Sets the active tab by index, clamping to the last valid tab.
     pub fn set_active_tab(&mut self, index: usize) {
-        self.active_tab = index;
+        let max = self.tabs.len().saturating_sub(1);
+        self.active_tab = if index > max { max } else { index };
     }
 
     /// Registers a callback invoked when a tab is clicked.
