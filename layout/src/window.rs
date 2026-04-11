@@ -7,6 +7,16 @@
 //! The main entry point is `LayoutWindow`, which encapsulates all
 //! the state needed to perform layout and maintain consistency
 //! across window resizes and DOM updates.
+//!
+//! Key subsystems managed by `LayoutWindow`:
+//! - **Text editing**: cursor/selection management, IME preedit,
+//!   undo/redo, and incremental text relayout
+//! - **Accessibility**: tree construction and incremental updates
+//!   for screen readers via accesskit
+//! - **VirtualView**: callback invocation and recursive layout for
+//!   virtualized scrollable content
+//! - **Scrolling**: scroll state, scrollbar opacity, and
+//!   scroll-into-view for cursors and selections
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
@@ -2235,13 +2245,6 @@ impl LayoutWindow {
         crate::hit_test::CursorTypeHitTest::new(hit_test, self)
     }
 
-    // TODO: Implement compute_hit_test() once we have the actual hit-testing logic
-    // This would involve:
-    // 1. Converting screen coordinates to layout coordinates
-    // 2. Traversing the layout tree to find nodes under the cursor
-    // 3. Handling z-index and stacking contexts
-    // 4. Building the FullHitTest structure
-
     /// Synchronize scrollbar opacity values with the GPU value cache.
     ///
     /// This method updates GPU opacity keys for all scrollbars based on scroll activity
@@ -3339,20 +3342,10 @@ impl LayoutWindow {
         }
     }
 
-    /// Automatically scrolls the focused cursor into view after layout.
+    /// Scrolls the focused cursor into view after layout.
     ///
-    /// **DEPRECATED**: Use `scroll_selection_into_view(SelectionScrollType::Cursor,
-    /// ScrollMode::Instant)` instead. This method is kept for compatibility but redirects to
-    /// the unified scroll system.
-    ///
-    /// This is called after `layout_and_generate_display_list()` to ensure that
-    /// text cursors remain visible after text input or cursor movement.
-    ///
-    /// Algorithm:
-    /// 1. Get the focused cursor rect (if any)
-    /// 2. Find the scrollable ancestor container
-    /// 3. Calculate scroll delta to bring cursor into view
-    /// 4. Apply instant scroll (no animation for text input responsiveness)
+    /// Delegates to `scroll_selection_into_view` with cursor mode.
+    /// Called internally from `layout_and_generate_display_list()`.
     fn scroll_focused_cursor_into_view(&mut self) {
         // Redirect to unified scroll system
         self.scroll_selection_into_view(SelectionScrollType::Cursor, ScrollMode::Instant);
@@ -4345,26 +4338,6 @@ impl LayoutWindow {
             AccessibilityAction::ScrollIntoView => {
                 self.scroll_to_node_if_needed(dom_id, node_id, now);
             }
-            AccessibilityAction::ScrollUp => {
-                self.scroll_manager.scroll_by(
-                    dom_id,
-                    node_id,
-                    LogicalPosition { x: 0.0, y: -100.0 },
-                    std::time::Duration::from_millis(200).into(),
-                    azul_core::events::EasingFunction::EaseOut,
-                    now.into(),
-                );
-            }
-            AccessibilityAction::ScrollDown => {
-                self.scroll_manager.scroll_by(
-                    dom_id,
-                    node_id,
-                    LogicalPosition { x: 0.0, y: 100.0 },
-                    std::time::Duration::from_millis(200).into(),
-                    azul_core::events::EasingFunction::EaseOut,
-                    now.into(),
-                );
-            }
             AccessibilityAction::ScrollLeft |
             AccessibilityAction::ScrollRight |
             AccessibilityAction::ScrollUp |
@@ -4432,31 +4405,8 @@ impl LayoutWindow {
                     node: hierarchy_id,
                 };
 
-                // Check if node has a Default callback, otherwise fallback to Click
-                let event_filter = if let Some(layout_result) = self.layout_results.get(&dom_id) {
-                    if let Some(styled_node) = layout_result
-                        .styled_dom
-                        .node_data
-                        .as_ref()
-                        .get(node_id.index())
-                    {
-                        let has_default_callback =
-                            styled_node.callbacks.as_ref().iter().any(|cb| {
-                                // On::Default converts to HoverEventFilter::MouseUp
-                                matches!(cb.event, EventFilter::Hover(HoverEventFilter::MouseUp))
-                            });
-
-                        if has_default_callback {
-                            EventFilter::Hover(HoverEventFilter::MouseUp)
-                        } else {
-                            EventFilter::Hover(HoverEventFilter::MouseUp)
-                        }
-                    } else {
-                        EventFilter::Hover(HoverEventFilter::MouseUp)
-                    }
-                } else {
-                    EventFilter::Hover(HoverEventFilter::MouseUp)
-                };
+                // Default action maps to a synthetic MouseUp (click) event
+                let event_filter = EventFilter::Hover(HoverEventFilter::MouseUp);
 
                 affected_nodes.insert(dom_node_id, (vec![event_filter], false));
             }
@@ -5430,15 +5380,6 @@ impl LayoutWindow {
         let byte_pos = cursor.cluster_id.start_byte_in_run as usize;
         if let Some(crate::text3::cache::InlineContent::Text(run)) = content.get_mut(run_idx) {
             let clamped_pos = byte_pos.min(run.text.len());
-            eprintln!(
-                "[PREEDIT inject] run_idx={} byte_pos={} preedit='{}' original_len={} result='{}'",
-                run_idx, clamped_pos, preedit, run.text.len(),
-                {
-                    let mut preview = run.text.clone();
-                    preview.insert_str(clamped_pos, &preedit);
-                    preview.chars().take(80).collect::<String>()
-                }
-            );
             run.text.insert_str(clamped_pos, &preedit);
         }
 
@@ -6378,13 +6319,6 @@ impl LayoutWindow {
             y: current_position.y - node_pos.y,
         };
         let focus = cached.layout.hittest_cursor(local_pos)?;
-
-        eprintln!(
-            "[DRAG SELECT] anchor=({},{}) focus=({},{}) local_pos=({:.1},{:.1})",
-            anchor.cluster_id.source_run, anchor.cluster_id.start_byte_in_run,
-            focus.cluster_id.source_run, focus.cluster_id.start_byte_in_run,
-            local_pos.x, local_pos.y,
-        );
 
         // Update primary selection: Cursor → Range(anchor, focus)
         let mc = self.text_edit_manager.multi_cursor.as_mut()?;
