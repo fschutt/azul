@@ -129,30 +129,6 @@ impl SvgRect {
             && point.y < self.y + self.height
     }
 
-    /// Expands the rect with a certain amount of padding
-    pub fn expand(
-        &self,
-        padding_top: f32,
-        padding_bottom: f32,
-        padding_left: f32,
-        padding_right: f32,
-    ) -> SvgRect {
-        SvgRect {
-            width: self.width + padding_left + padding_right,
-            height: self.height + padding_top + padding_bottom,
-            x: self.x - padding_left,
-            y: self.y - padding_top,
-            ..*self
-        }
-    }
-
-    /// Returns the center point of the rect.
-    pub fn get_center(&self) -> SvgPoint {
-        SvgPoint {
-            x: self.x + (self.width / 2.0),
-            y: self.y + (self.height / 2.0),
-        }
-    }
 }
 
 const STEP_SIZE: usize = 20;
@@ -336,12 +312,6 @@ impl SvgCubicCurve {
 }
 
 impl SvgVector {
-    /// Returns the angle of the vector in degrees
-    #[inline]
-    pub fn angle_degrees(&self) -> f64 {
-        (-self.y).atan2(self.x).to_degrees()
-    }
-
     /// Returns a unit-length vector in the same direction, or zero if the length is zero.
     #[inline]
     #[must_use = "returns a new vector"]
@@ -356,15 +326,6 @@ impl SvgVector {
         }
     }
 
-    /// Rotate the vector 90 degrees counter-clockwise
-    #[must_use = "returns a new vector"]
-    #[inline]
-    pub fn rotate_90deg_ccw(&self) -> Self {
-        Self {
-            x: -self.y,
-            y: self.x,
-        }
-    }
 }
 
 impl SvgQuadraticCurve {
