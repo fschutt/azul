@@ -68,13 +68,6 @@ impl PrintAsCssValue for AngleValue {
 }
 
 impl AngleValue {
-    /// Returns an angle of zero degrees.
-    #[inline]
-    pub const fn zero() -> Self {
-        const ZERO_DEG: AngleValue = AngleValue::const_deg(0);
-        ZERO_DEG
-    }
-
     /// Creates a const angle value in degrees from an integer.
     #[inline]
     pub const fn const_deg(value: isize) -> Self {
