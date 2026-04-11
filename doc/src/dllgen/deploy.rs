@@ -243,6 +243,63 @@ impl BinaryAsset {
         },
     ];
 
+    /// Cross-architecture assets (experimental, optional — only shown if present)
+    pub const CROSS_ARCH_ASSETS: &'static [BinaryAsset] = &[
+        // Linux cross-arch
+        BinaryAsset {
+            filename: "libazul.linux-i686.so",
+            description: "Linux 32-bit x86 .so",
+            platform: Platform::Linux,
+        },
+        BinaryAsset {
+            filename: "libazul.linux-i686.a",
+            description: "Linux 32-bit x86 .a",
+            platform: Platform::Linux,
+        },
+        BinaryAsset {
+            filename: "libazul.linux-aarch64.so",
+            description: "Linux ARM64 .so",
+            platform: Platform::Linux,
+        },
+        BinaryAsset {
+            filename: "libazul.linux-aarch64.a",
+            description: "Linux ARM64 .a",
+            platform: Platform::Linux,
+        },
+        BinaryAsset {
+            filename: "libazul.linux-armv7.so",
+            description: "Linux ARMv7 .so (Raspberry Pi)",
+            platform: Platform::Linux,
+        },
+        BinaryAsset {
+            filename: "libazul.linux-armv7.a",
+            description: "Linux ARMv7 .a (Raspberry Pi)",
+            platform: Platform::Linux,
+        },
+        // Windows cross-arch
+        BinaryAsset {
+            filename: "azul.i686.dll",
+            description: "Windows 32-bit x86 DLL (Win7+/XP)",
+            platform: Platform::Windows,
+        },
+        BinaryAsset {
+            filename: "azul.i686.lib",
+            description: "Windows 32-bit x86 import library",
+            platform: Platform::Windows,
+        },
+        // macOS cross-arch
+        BinaryAsset {
+            filename: "libazul.x86_64.dylib",
+            description: "macOS Intel x86_64 .dylib",
+            platform: Platform::MacOS,
+        },
+        BinaryAsset {
+            filename: "libazul.macos-x86_64.a",
+            description: "macOS Intel x86_64 .a",
+            platform: Platform::MacOS,
+        },
+    ];
+
     pub fn all() -> Vec<&'static BinaryAsset> {
         Self::WINDOWS_ASSETS
             .iter()
@@ -308,6 +365,8 @@ pub struct ReleaseAssets {
     pub windows: Vec<AssetInfo>,
     pub linux: Vec<AssetInfo>,
     pub macos: Vec<AssetInfo>,
+    /// Cross-architecture binaries (optional, only shown if files exist)
+    pub cross_arch: Vec<AssetInfo>,
     pub c_header: AssetInfo,
     pub cpp_headers: Vec<AssetInfo>,
     pub api_json: AssetInfo,
@@ -350,10 +409,18 @@ impl ReleaseAssets {
             AssetInfo::from_path(&version_dir.join("azul23.hpp"), "C++23 Header"),
         ];
 
+        // Cross-arch assets: only include those that actually exist on disk
+        let cross_arch: Vec<AssetInfo> = BinaryAsset::CROSS_ARCH_ASSETS
+            .iter()
+            .map(|asset| AssetInfo::from_path(&version_dir.join(asset.filename), asset.description))
+            .filter(|a| a.is_present)
+            .collect();
+
         ReleaseAssets {
             windows,
             linux,
             macos,
+            cross_arch,
             c_header: AssetInfo::from_path(&version_dir.join("azul.h"), "C Header"),
             cpp_headers,
             api_json: AssetInfo::from_path(&version_dir.join("api.json"), "API Description"),
@@ -863,6 +930,14 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
         .collect::<Vec<_>>()
         .join("\n                ");
 
+    // Generate cross-architecture asset list (only present files)
+    let cross_arch_assets: String = assets
+        .cross_arch
+        .iter()
+        .map(|a| generate_asset_li(version, a))
+        .collect::<Vec<_>>()
+        .join("\n                ");
+
     // Generate C header link
     let c_header_link = generate_asset_li(version, &assets.c_header);
 
@@ -890,6 +965,18 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
         })
         .collect::<Vec<_>>()
         .join("\n                ");
+
+    // Generate cross-arch section (only shown if any cross-arch artifacts exist)
+    let cross_arch_section = if cross_arch_assets.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\n              <br/>\n              \
+             <strong>Additional Architectures (experimental):</strong>\n              \
+             <ul>\n                {}\n              </ul>",
+            cross_arch_assets
+        )
+    };
 
     // Generate API/examples links
     let api_json_link = generate_asset_li(version, &assets.api_json);
@@ -957,6 +1044,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               <ul>
                 {macos_assets}
               </ul>
+              {cross_arch_section}
 
               <br/>
 
