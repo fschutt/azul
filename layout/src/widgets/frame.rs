@@ -1,8 +1,8 @@
-use azul_core::{
-    callbacks::{CoreCallbackData, Update},
-    dom::{Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec},
-    refany::RefAny,
-};
+//! Frame widget — a titled border container similar to an HTML `<fieldset>`
+//! or a Windows group box. Renders a header with a centered title flanked by
+//! horizontal border lines, and a bordered content area below.
+
+use azul_core::dom::{Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec};
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
@@ -14,16 +14,14 @@ use azul_css::{
     *,
 };
 
-use crate::callbacks::Callback;
+const BORDER_COLOR: ColorU = ColorU {
+    r: 221,
+    g: 221,
+    b: 221,
+    a: 255,
+};
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("system:ui");
-const STYLE_BACKGROUND_CONTENT_11062356617965867290_ITEMS: &[StyleBackgroundContent] =
-    &[StyleBackgroundContent::Color(ColorU {
-        r: 240,
-        g: 240,
-        b: 240,
-        a: 255,
-    })];
 const STYLE_FONT_FAMILY_8122988506401935406_ITEMS: &[StyleFontFamily] =
     &[StyleFontFamily::System(STRING_16146701490593874959)];
 
@@ -44,12 +42,7 @@ const CSS_MATCH_15775557796860201720_PROPERTIES: &[CssPropertyWithConditions] = 
     )),
     CssPropertyWithConditions::simple(CssProperty::BorderTopColor(
         StyleBorderTopColorValue::Exact(StyleBorderTopColor {
-            inner: ColorU {
-                r: 221,
-                g: 221,
-                b: 221,
-                a: 255,
-            },
+            inner: BORDER_COLOR,
         }),
     )),
     CssPropertyWithConditions::simple(CssProperty::BorderLeftWidth(
@@ -64,12 +57,7 @@ const CSS_MATCH_15775557796860201720_PROPERTIES: &[CssPropertyWithConditions] = 
     )),
     CssPropertyWithConditions::simple(CssProperty::BorderLeftColor(
         StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
-            inner: ColorU {
-                r: 221,
-                g: 221,
-                b: 221,
-                a: 255,
-            },
+            inner: BORDER_COLOR,
         }),
     )),
     // .__azul-native-frame .__azul-native-frame-header .__azul-native-frame-header-before
@@ -125,11 +113,6 @@ const CSS_MATCH_4236783900531286611_PROPERTIES: &[CssPropertyWithConditions] = &
     ))),
     CssPropertyWithConditions::simple(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
         LayoutPaddingRight {
-            inner: PixelValue::const_px(1),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
-        LayoutPaddingLeft {
             inner: PixelValue::const_px(1),
         },
     ))),
@@ -190,12 +173,7 @@ const CSS_MATCH_9156589477016488419_PROPERTIES: &[CssPropertyWithConditions] = &
     )),
     CssPropertyWithConditions::simple(CssProperty::BorderTopColor(
         StyleBorderTopColorValue::Exact(StyleBorderTopColor {
-            inner: ColorU {
-                r: 221,
-                g: 221,
-                b: 221,
-                a: 255,
-            },
+            inner: BORDER_COLOR,
         }),
     )),
     CssPropertyWithConditions::simple(CssProperty::BorderRightWidth(
@@ -210,12 +188,7 @@ const CSS_MATCH_9156589477016488419_PROPERTIES: &[CssPropertyWithConditions] = &
     )),
     CssPropertyWithConditions::simple(CssProperty::BorderRightColor(
         StyleBorderRightColorValue::Exact(StyleBorderRightColor {
-            inner: ColorU {
-                r: 221,
-                g: 221,
-                b: 221,
-                a: 255,
-            },
+            inner: BORDER_COLOR,
         }),
     )),
     // .__azul-native-frame .__azul-native-frame-header .__azul-native-frame-header-after
@@ -236,6 +209,9 @@ const CSS_MATCH_9156589477016488419_PROPERTIES: &[CssPropertyWithConditions] = &
 const CSS_MATCH_9156589477016488419: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_9156589477016488419_PROPERTIES);
 
+/// A titled border container widget, similar to an HTML `<fieldset>` or
+/// a Windows group box. Displays a header with a centered title and a
+/// bordered content area below.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct Frame {
@@ -245,6 +221,7 @@ pub struct Frame {
 }
 
 impl Frame {
+    /// Creates a new `Frame` with the given title and content DOM.
     pub fn create(title: AzString, content: Dom) -> Self {
         Self {
             title,
@@ -253,16 +230,19 @@ impl Frame {
         }
     }
 
+    /// Replaces `self` with a default frame and returns the original.
     pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(AzString::from_const_str(""), Dom::create_div());
         core::mem::swap(&mut s, self);
         s
     }
 
+    /// Sets the flex-grow factor for the content area.
     pub fn set_flex_grow(&mut self, flex_grow: f32) {
         self.flex_grow = flex_grow;
     }
 
+    /// Builder-style setter for the flex-grow factor.
     pub fn with_flex_grow(mut self, flex_grow: f32) -> Self {
         self.set_flex_grow(flex_grow);
         self
@@ -345,15 +325,6 @@ impl Frame {
                                 STYLE_FONT_FAMILY_8122988506401935406_ITEMS,
                             )),
                         )),
-                        CssPropertyWithConditions::simple(CssProperty::BorderTopWidth(
-                            LayoutBorderTopWidthValue::None,
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BorderTopStyle(
-                            StyleBorderTopStyleValue::None,
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BorderTopColor(
-                            StyleBorderTopColorValue::None,
-                        )),
                         CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
                             LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
                                 inner: PixelValue::const_px(1),
@@ -396,42 +367,22 @@ impl Frame {
                         )),
                         CssPropertyWithConditions::simple(CssProperty::BorderBottomColor(
                             StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
-                                inner: ColorU {
-                                    r: 221,
-                                    g: 221,
-                                    b: 221,
-                                    a: 255,
-                                },
+                                inner: BORDER_COLOR,
                             }),
                         )),
                         CssPropertyWithConditions::simple(CssProperty::BorderLeftColor(
                             StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
-                                inner: ColorU {
-                                    r: 221,
-                                    g: 221,
-                                    b: 221,
-                                    a: 255,
-                                },
+                                inner: BORDER_COLOR,
                             }),
                         )),
                         CssPropertyWithConditions::simple(CssProperty::BorderRightColor(
                             StyleBorderRightColorValue::Exact(StyleBorderRightColor {
-                                inner: ColorU {
-                                    r: 221,
-                                    g: 221,
-                                    b: 221,
-                                    a: 255,
-                                },
+                                inner: BORDER_COLOR,
                             }),
                         )),
                         CssPropertyWithConditions::simple(CssProperty::BorderTopColor(
                             StyleBorderTopColorValue::Exact(StyleBorderTopColor {
-                                inner: ColorU {
-                                    r: 221,
-                                    g: 221,
-                                    b: 221,
-                                    a: 255,
-                                },
+                                inner: BORDER_COLOR,
                             }),
                         )),
                     ]))
