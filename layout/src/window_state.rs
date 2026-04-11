@@ -25,11 +25,17 @@ use crate::callbacks::OptionCallback;
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct WindowCreateOptions {
+    /// Initial state for the new window
     pub window_state: FullWindowState,
+    /// Optional callback invoked after the window is created
     pub create_callback: OptionCallback,
+    /// Optional renderer configuration (e.g., VSync, SRGB)
     pub renderer: azul_core::window::OptionRendererOptions,
+    /// Optional window theme override (light/dark)
     pub theme: azul_core::window::OptionWindowTheme,
+    /// If true, the window is resized to fit its content after the first layout
     pub size_to_content: bool,
+    /// If true, enables hot-reloading of CSS and resources
     pub hot_reload: bool,
 }
 
@@ -72,26 +78,40 @@ impl_vec_mut!(WindowCreateOptions, WindowCreateOptionsVec);
 pub struct FullWindowState {
     /// Platform-specific window options
     pub platform_specific_options: PlatformSpecificOptions,
+    /// Current keyboard state (pressed keys, modifiers)
     pub keyboard_state: KeyboardState,
-    /// Semantic window identifier for multi-window debugging
+    /// Semantic window identifier for multi-window debugging.
     /// Can be set by the user to identify specific windows (e.g., "main", "settings", "popup-1")
     pub window_id: AzString,
+    /// Window title bar text
     pub title: AzString,
+    /// Optional callback invoked when the user requests the window to close
     pub close_callback: OptionCallback,
+    /// Callback that returns the DOM for this window
     pub layout_callback: LayoutCallback,
+    /// Window position on screen
     pub position: WindowPosition,
+    /// Current touch/gesture input state
     pub touch_state: TouchState,
+    /// Window dimensions (logical and physical)
     pub size: WindowSize,
+    /// Window flags (minimized, maximized, fullscreen, etc.)
     pub flags: WindowFlags,
+    /// Current mouse cursor state (position, buttons)
     pub mouse_state: MouseState,
+    /// Active window theme (light/dark)
     pub theme: WindowTheme,
+    /// Position of the IME candidate window
     pub ime_position: ImePosition,
+    /// GPU renderer options (VSync, SRGB, hardware acceleration)
     pub renderer_options: RendererOptions,
     /// Monitor ID (not the full Monitor struct - just the identifier)
     pub monitor_id: OptionU32,
+    /// Debug visualization state (layout borders, repaints, etc.)
     pub debug_state: DebugState,
     /// Window background color. If None, uses system window background color.
     pub background_color: OptionColorU,
+    /// Whether this window currently has input focus
     pub window_focused: bool,
     /// Active route match (pattern + extracted parameters).
     /// Set by `CallbackInfo::switch_route()` or by the web server on URL match.
