@@ -9,10 +9,10 @@ use core::fmt;
 #[cfg(feature = "parser")]
 use crate::props::basic::{
     error::{InvalidValueErr, InvalidValueErrOwned},
-    image::{parse_image, CssImageParseError, CssImageParseErrorOwned},
     parse::{
-        parse_parentheses, split_string_respect_comma, ParenthesisParseError,
-        ParenthesisParseErrorOwned,
+        parse_parentheses, parse_image, split_string_respect_comma,
+        CssImageParseError, CssImageParseErrorOwned,
+        ParenthesisParseError, ParenthesisParseErrorOwned,
     },
     color::parse_color_or_system,
 };

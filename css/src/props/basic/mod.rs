@@ -10,7 +10,6 @@
 //! - `error` — CSS-parsing error types
 //! - `font` — font-family, font-weight, and related types
 //! - `geometry` — geometric primitives (points, sizes, rects)
-//! - `image` — CSS image values (`url()`, gradients)
 //! - `length` — CSS length units (`px`, `em`, `%`, …)
 //! - `parse` — shared low-level parsing helpers (not glob-re-exported;
 //!   use qualified paths, e.g. `basic::parse::parse_pixel_value`)
@@ -24,7 +23,6 @@ pub mod direction;
 pub mod error;
 pub mod font;
 pub mod geometry;
-pub mod image;
 pub mod length;
 /// Shared low-level parsing helpers — not glob-re-exported because its
 /// items are meant to be used via qualified paths.
@@ -33,6 +31,7 @@ pub mod pixel;
 pub mod time;
 
 pub use self::{
-    angle::*, animation::*, color::*, direction::*, error::*, font::*, geometry::*, image::*,
+    angle::*, animation::*, color::*, direction::*, error::*, font::*, geometry::*,
     length::*, pixel::*, time::*,
+    parse::{CssImageParseError, CssImageParseErrorOwned, parse_image},
 };
