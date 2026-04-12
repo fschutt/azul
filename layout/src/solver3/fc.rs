@@ -20,7 +20,7 @@ use azul_css::{
             ColorU, PhysicalSize, PropertyContext, ResolutionContext, SizeMetric,
         },
         layout::{
-            ColumnCount, LayoutBorderSpacing, LayoutClear, LayoutDisplay, LayoutFloat,
+            ColumnCount, ColumnWidth, LayoutBorderSpacing, LayoutClear, LayoutDisplay, LayoutFloat,
             LayoutHeight, LayoutJustifyContent, LayoutOverflow, LayoutPosition, LayoutTableLayout,
             LayoutTextJustify, LayoutWidth, LayoutWritingMode, ShapeInside, ShapeOutside,
             StyleBorderCollapse, StyleCaptionSide, StyleEmptyCells,
@@ -3298,18 +3298,6 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     let text_indent_each_line = text_indent_prop.map(|ti| ti.each_line).unwrap_or(false);
     let text_indent_hanging = text_indent_prop.map(|ti| ti.hanging).unwrap_or(false);
 
-    // Get column-count for multi-column layout (default: 1 = no columns)
-    let columns = styled_dom
-        .css_property_cache
-        .ptr
-        .get_column_count(node_data, &id, node_state)
-        .and_then(|s| s.get_property())
-        .map(|cc| match cc {
-            ColumnCount::Integer(n) => *n,
-            ColumnCount::Auto => 1,
-        })
-        .unwrap_or(1);
-
     // Get column-gap for multi-column layout (default: normal = 1em)
     let column_gap = styled_dom
         .css_property_cache
@@ -3332,6 +3320,46 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             // Default: 1em
             get_element_font_size(styled_dom, id, node_state)
         });
+
+    // Get column-width for multi-column layout
+    let column_width = styled_dom
+        .css_property_cache
+        .ptr
+        .get_column_width(node_data, &id, node_state)
+        .and_then(|s| s.get_property())
+        .and_then(|cw| match cw {
+            ColumnWidth::Auto => None,
+            ColumnWidth::Length(px) => {
+                let context = ResolutionContext {
+                    element_font_size: get_element_font_size(styled_dom, id, node_state),
+                    parent_font_size: get_parent_font_size(styled_dom, id, node_state),
+                    root_font_size: get_root_font_size(styled_dom, node_state),
+                    containing_block_size: PhysicalSize::new(0.0, 0.0),
+                    element_size: None,
+                    viewport_size: PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
+                };
+                Some(px.resolve_with_context(&context, PropertyContext::Other))
+            }
+        });
+
+    // Get column-count for multi-column layout (default: 1 = no columns)
+    let explicit_column_count = styled_dom
+        .css_property_cache
+        .ptr
+        .get_column_count(node_data, &id, node_state)
+        .and_then(|s| s.get_property())
+        .copied();
+
+    // CSS multi-column: derive column count from column-width when column-count is auto
+    // Per spec: N = max(1, floor((available-width + column-gap) / (column-width + column-gap)))
+    let columns = match (explicit_column_count, column_width) {
+        (Some(ColumnCount::Integer(n)), _) => n,
+        (_, Some(cw)) if cw > 0.0 => {
+            let avail = constraints.available_size.width;
+            ((avail + column_gap) / (cw + column_gap)).floor().max(1.0) as u32
+        }
+        _ => 1,
+    };
 
     // +spec:line-breaking:b4928e - white-space values mapped to wrap/whitespace processing rules
     // Map white-space CSS property to TextWrap
