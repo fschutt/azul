@@ -72,12 +72,7 @@ impl LayoutDisplay {
         )
     }
 
-    /// Returns true if this display type establishes a flex formatting context.
-    pub fn creates_flex_context(&self) -> bool {
-        matches!(self, LayoutDisplay::Flex | LayoutDisplay::InlineFlex)
-    }
-
-    // +spec:display-property:798b4f - table box establishes table formatting context (CSS 2.2 §17.4)
+// +spec:display-property:798b4f - table box establishes table formatting context (CSS 2.2 §17.4)
     /// Returns true if this display type establishes a table formatting context.
     pub fn creates_table_context(&self) -> bool {
         matches!(self, LayoutDisplay::Table | LayoutDisplay::InlineTable)
