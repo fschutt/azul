@@ -400,59 +400,6 @@ pub fn parse_style_overflow_clip_margin<'a>(
     })
 }
 
-// -- StyleClipRect --
-
-/// Represents the deprecated CSS `clip` property value `rect(top, right, bottom, left)`.
-///
-/// Each edge can be a length or `auto`. When `auto`, the edge matches the
-/// element's generated border box edge:
-/// - `auto` for top/left = 0
-/// - `auto` for bottom = used height + vertical padding + vertical border
-/// - `auto` for right = used width + horizontal padding + horizontal border
-///
-/// Negative lengths are permitted.
-// +spec:overflow:297dc3 - clip rect() auto values resolve to border box edges
-#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
-#[repr(C)]
-pub struct StyleClipRect {
-    /// Top edge offset. `None` means `auto` (= 0).
-    pub top: Option<f32>,
-    /// Right edge offset. `None` means `auto` (= used width + horiz padding + horiz border).
-    pub right: Option<f32>,
-    /// Bottom edge offset. `None` means `auto` (= used height + vert padding + vert border).
-    pub bottom: Option<f32>,
-    /// Left edge offset. `None` means `auto` (= 0).
-    pub left: Option<f32>,
-}
-
-impl StyleClipRect {
-    /// Resolves `auto` values to border box edges given the element's
-    /// used width/height and padding/border sizes.
-    pub fn resolve(
-        &self,
-        used_width: f32,
-        used_height: f32,
-        padding_left: f32,
-        padding_right: f32,
-        padding_top: f32,
-        padding_bottom: f32,
-        border_left: f32,
-        border_right: f32,
-        border_top: f32,
-        border_bottom: f32,
-    ) -> (f32, f32, f32, f32) {
-        let top = self.top.unwrap_or(0.0);
-        let left = self.left.unwrap_or(0.0);
-        let bottom = self
-            .bottom
-            .unwrap_or(used_height + padding_top + padding_bottom + border_top + border_bottom);
-        let right = self
-            .right
-            .unwrap_or(used_width + padding_left + padding_right + border_left + border_right);
-        (top, right, bottom, left)
-    }
-}
-
 #[cfg(all(test, feature = "parser"))]
 mod tests {
     use super::*;
