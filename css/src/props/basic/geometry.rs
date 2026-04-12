@@ -4,10 +4,7 @@
 
 use core::fmt;
 
-use crate::{
-    impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut, impl_vec_partialeq,
-    impl_vec_partialord,
-};
+use crate::impl_option;
 
 /// Only used for calculations: Point coordinate (x, y) in layout space.
 #[derive(Copy, Default, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
@@ -101,13 +98,6 @@ impl_option!(
     OptionLayoutRect,
     [Debug, Copy, Clone, PartialEq, PartialOrd]
 );
-impl_vec!(LayoutRect, LayoutRectVec, LayoutRectVecDestructor, LayoutRectVecDestructorType, LayoutRectVecSlice, OptionLayoutRect);
-impl_vec_clone!(LayoutRect, LayoutRectVec, LayoutRectVecDestructor);
-impl_vec_debug!(LayoutRect, LayoutRectVec);
-impl_vec_mut!(LayoutRect, LayoutRectVec);
-impl_vec_partialeq!(LayoutRect, LayoutRectVec);
-impl_vec_partialord!(LayoutRect, LayoutRectVec);
-
 impl fmt::Debug for LayoutRect {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self)
@@ -160,13 +150,6 @@ impl LayoutRect {
             && other.y < self.max_y()
     }
 
-    pub fn contains_f32(&self, other_x: f32, other_y: f32) -> bool {
-        self.min_x() as f32 <= other_x
-            && other_x < self.max_x() as f32
-            && self.min_y() as f32 <= other_y
-            && other_y < self.max_y() as f32
-    }
-
     /// Like `contains()`, but returns the (x, y) offset of the hit point
     /// relative to the rectangle origin. Unlike `contains()`, points exactly
     /// on the boundary are excluded (returns `None`).
@@ -183,61 +166,4 @@ impl LayoutRect {
         }
     }
 
-    /// Faster union for a Vec<LayoutRect>
-    #[inline]
-    pub fn union<I: Iterator<Item = Self>>(mut rects: I) -> Option<Self> {
-        let first = rects.next()?;
-
-        let mut max_x = first.origin.x + first.size.width;
-        let mut max_y = first.origin.y + first.size.height;
-        let mut min_x = first.origin.x;
-        let mut min_y = first.origin.y;
-
-        while let Some(Self {
-            origin: LayoutPoint { x, y },
-            size: LayoutSize { width, height },
-        }) = rects.next()
-        {
-            max_x = max_x.max(x + width);
-            max_y = max_y.max(y + height);
-            min_x = min_x.min(x);
-            min_y = min_y.min(y);
-        }
-
-        Some(Self {
-            origin: LayoutPoint { x: min_x, y: min_y },
-            size: LayoutSize {
-                width: max_x - min_x,
-                height: max_y - min_y,
-            },
-        })
-    }
-
-    // Returns the scroll rect (not the union rect) of the parent / children
-    #[inline]
-    pub fn get_scroll_rect<I: Iterator<Item = Self>>(&self, children: I) -> Option<Self> {
-        let children_union = Self::union(children)?;
-        Self::union([*self, children_union].iter().copied())
-    }
-
-    // Returns if b overlaps a
-    #[inline(always)]
-    pub const fn contains_rect(&self, b: &LayoutRect) -> bool {
-        let a = self;
-
-        let a_x = a.origin.x;
-        let a_y = a.origin.y;
-        let a_width = a.size.width;
-        let a_height = a.size.height;
-
-        let b_x = b.origin.x;
-        let b_y = b.origin.y;
-        let b_width = b.size.width;
-        let b_height = b.size.height;
-
-        b_x >= a_x
-            && b_y >= a_y
-            && b_x + b_width <= a_x + a_width
-            && b_y + b_height <= a_y + a_height
-    }
 }
