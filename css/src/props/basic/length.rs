@@ -12,7 +12,7 @@ use crate::corety::AzString;
 /// hash-able: Css has a relatively low precision here, roughly 3 digits, i.e
 /// `1.001 == 1.0`
 pub const FP_PRECISION_MULTIPLIER: f32 = 1000.0;
-pub const FP_PRECISION_MULTIPLIER_CONST: isize = FP_PRECISION_MULTIPLIER as isize;
+const FP_PRECISION_MULTIPLIER_CONST: isize = FP_PRECISION_MULTIPLIER as isize;
 
 /// Wrapper around FloatValue, represents a percentage instead
 /// of just being a regular floating-point value, i.e `5` = `5%`
@@ -89,7 +89,7 @@ impl PercentageValue {
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct FloatValue {
-    pub number: isize,
+    pub(crate) number: isize,
 }
 
 impl fmt::Display for FloatValue {
