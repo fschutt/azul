@@ -76,6 +76,9 @@ impl DurationParseErrorOwned {
 #[cfg(feature = "parser")]
 pub fn parse_duration<'a>(input: &'a str) -> Result<CssDuration, DurationParseError<'a>> {
     let trimmed = input.trim().to_lowercase();
+    if trimmed == "0" {
+        return Ok(CssDuration { inner: 0 });
+    }
     if let Some(num_str) = trimmed.strip_suffix("ms") {
         let ms = num_str
             .parse::<f32>()
