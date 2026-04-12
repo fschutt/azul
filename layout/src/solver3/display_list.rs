@@ -982,10 +982,10 @@ impl DisplayListItem {
             Self::BoxShadow { bounds, shadow, .. } => {
                 let b = *bounds.inner();
                 // Shadow can extend beyond element bounds by offset + spread + blur
-                let ox = shadow.offset_x.to_pixels_internal(16.0).abs();
-                let oy = shadow.offset_y.to_pixels_internal(16.0).abs();
-                let blur = shadow.blur_radius.to_pixels_internal(16.0).abs();
-                let spread = shadow.spread_radius.to_pixels_internal(16.0).abs();
+                let ox = shadow.offset_x.to_pixels_internal(16.0, 16.0).abs();
+                let oy = shadow.offset_y.to_pixels_internal(16.0, 16.0).abs();
+                let blur = shadow.blur_radius.to_pixels_internal(16.0, 16.0).abs();
+                let spread = shadow.spread_radius.to_pixels_internal(16.0, 16.0).abs();
                 let expand = ox + oy + blur + spread;
                 Some(LogicalRect {
                     origin: LogicalPosition {
@@ -4605,7 +4605,7 @@ fn apply_overflow_clip_margin(
     let Some(margin_val) = clip_margin.exact() else {
         return;
     };
-    let m = margin_val.inner.to_pixels_internal(0.0, 0.0).max(0.0);
+    let m = margin_val.inner.to_pixels_internal(0.0, 0.0, 0.0).max(0.0);
     if m <= 0.0 {
         return;
     }

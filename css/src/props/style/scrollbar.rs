@@ -1233,7 +1233,7 @@ pub fn resolve_scrollbar_style(
         let width_pixels = match info.width {
             LayoutWidth::Px(px) => {
                 use crate::props::basic::pixel::DEFAULT_FONT_SIZE;
-                px.to_pixels_internal(0.0, DEFAULT_FONT_SIZE)
+                px.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
             }
             _ => 8.0, // Default for min-content/max-content
         };

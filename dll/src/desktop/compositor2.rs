@@ -1701,7 +1701,7 @@ pub fn translate_displaylist_to_wr(
                     BackgroundPositionHorizontal::Center => scaled_width / 2.0,
                     BackgroundPositionHorizontal::Right => scaled_width,
                     BackgroundPositionHorizontal::Exact(px) => {
-                        scale_px(px.to_pixels_internal(bounds.0.size.width, 16.0), dpi_scale)
+                        scale_px(px.to_pixels_internal(bounds.0.size.width, 16.0, 16.0), dpi_scale)
                     }
                 };
                 let center_y = match &gradient.position.vertical {
@@ -1709,7 +1709,7 @@ pub fn translate_displaylist_to_wr(
                     BackgroundPositionVertical::Center => scaled_height / 2.0,
                     BackgroundPositionVertical::Bottom => scaled_height,
                     BackgroundPositionVertical::Exact(px) => {
-                        scale_px(px.to_pixels_internal(bounds.0.size.height, 16.0), dpi_scale)
+                        scale_px(px.to_pixels_internal(bounds.0.size.height, 16.0, 16.0), dpi_scale)
                     }
                 };
                 let center = LayoutPoint::new(center_x, center_y);
@@ -1888,7 +1888,7 @@ pub fn translate_displaylist_to_wr(
                     BackgroundPositionHorizontal::Center => scaled_width / 2.0,
                     BackgroundPositionHorizontal::Right => scaled_width,
                     BackgroundPositionHorizontal::Exact(px) => {
-                        scale_px(px.to_pixels_internal(bounds.0.size.width, 16.0), dpi_scale)
+                        scale_px(px.to_pixels_internal(bounds.0.size.width, 16.0, 16.0), dpi_scale)
                     }
                 };
                 let center_y = match &gradient.center.vertical {
@@ -1896,7 +1896,7 @@ pub fn translate_displaylist_to_wr(
                     BackgroundPositionVertical::Center => scaled_height / 2.0,
                     BackgroundPositionVertical::Bottom => scaled_height,
                     BackgroundPositionVertical::Exact(px) => {
-                        scale_px(px.to_pixels_internal(bounds.0.size.height, 16.0), dpi_scale)
+                        scale_px(px.to_pixels_internal(bounds.0.size.height, 16.0, 16.0), dpi_scale)
                     }
                 };
                 let center = LayoutPoint::new(center_x, center_y);
@@ -2000,17 +2000,17 @@ pub fn translate_displaylist_to_wr(
                 let scaled_height = scale_px(bounds.0.size.height, dpi_scale);
 
                 let offset = LayoutVector2D::new(
-                    scale_px(shadow.offset_x.inner.to_pixels_internal(0.0, 16.0), dpi_scale),
-                    scale_px(shadow.offset_y.inner.to_pixels_internal(0.0, 16.0), dpi_scale),
+                    scale_px(shadow.offset_x.inner.to_pixels_internal(0.0, 16.0, 16.0), dpi_scale),
+                    scale_px(shadow.offset_y.inner.to_pixels_internal(0.0, 16.0, 16.0), dpi_scale),
                 );
                 let color_f =
                     wr_translate_color_f(azul_css::props::basic::color::ColorF::from(shadow.color));
                 let blur_radius = scale_px(
-                    shadow.blur_radius.inner.to_pixels_internal(0.0, 16.0),
+                    shadow.blur_radius.inner.to_pixels_internal(0.0, 16.0, 16.0),
                     dpi_scale,
                 );
                 let spread_radius = scale_px(
-                    shadow.spread_radius.inner.to_pixels_internal(0.0, 16.0),
+                    shadow.spread_radius.inner.to_pixels_internal(0.0, 16.0, 16.0),
                     dpi_scale,
                 );
 
@@ -2144,9 +2144,9 @@ pub fn translate_displaylist_to_wr(
                 log_debug!(LogCategory::DisplayList, "[compositor2] PushTextShadow: {:?}", shadow);
                 let current_spatial_id = current_spatial!();
                 let current_clip_chain = current_clip!();
-                let offset_x = shadow.offset_x.inner.to_pixels_internal(0.0, 16.0) * dpi_scale;
-                let offset_y = shadow.offset_y.inner.to_pixels_internal(0.0, 16.0) * dpi_scale;
-                let blur_radius = shadow.blur_radius.inner.to_pixels_internal(0.0, 16.0) * dpi_scale;
+                let offset_x = shadow.offset_x.inner.to_pixels_internal(0.0, 16.0, 16.0) * dpi_scale;
+                let offset_y = shadow.offset_y.inner.to_pixels_internal(0.0, 16.0, 16.0) * dpi_scale;
+                let blur_radius = shadow.blur_radius.inner.to_pixels_internal(0.0, 16.0, 16.0) * dpi_scale;
                 let wr_shadow = WrShadow {
                     offset: LayoutVector2D::new(offset_x, offset_y),
                     color: ColorF::new(
@@ -2343,8 +2343,8 @@ fn translate_style_filters_to_wr(
         .iter()
         .filter_map(|f| match f {
             StyleFilter::Blur(blur) => {
-                let w = scale_px(blur.width.to_pixels_internal(0.0, 16.0), dpi_scale);
-                let h = scale_px(blur.height.to_pixels_internal(0.0, 16.0), dpi_scale);
+                let w = scale_px(blur.width.to_pixels_internal(0.0, 16.0, 16.0), dpi_scale);
+                let h = scale_px(blur.height.to_pixels_internal(0.0, 16.0, 16.0), dpi_scale);
                 Some(WrFilterOp::Blur(w, h))
             }
             StyleFilter::Opacity(o) => {
@@ -2368,14 +2368,14 @@ fn translate_style_filters_to_wr(
             }
             StyleFilter::DropShadow(s) => {
                 let offset = LayoutVector2D::new(
-                    scale_px(s.offset_x.inner.to_pixels_internal(0.0, 16.0), dpi_scale),
-                    scale_px(s.offset_y.inner.to_pixels_internal(0.0, 16.0), dpi_scale),
+                    scale_px(s.offset_x.inner.to_pixels_internal(0.0, 16.0, 16.0), dpi_scale),
+                    scale_px(s.offset_y.inner.to_pixels_internal(0.0, 16.0, 16.0), dpi_scale),
                 );
                 let color = wr_translate_color_f(
                     azul_css::props::basic::color::ColorF::from(s.color),
                 );
                 let blur_radius = scale_px(
-                    s.blur_radius.inner.to_pixels_internal(0.0, 16.0),
+                    s.blur_radius.inner.to_pixels_internal(0.0, 16.0, 16.0),
                     dpi_scale,
                 );
                 Some(WrFilterOp::DropShadow(WrShadow {

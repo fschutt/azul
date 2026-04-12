@@ -376,10 +376,10 @@ impl ComputedTransform3D {
                 Self::new_translation(
                     trans2d
                         .x
-                        .to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE),
+                        .to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
                     trans2d
                         .y
-                        .to_pixels_internal(percent_resolve_y, DEFAULT_FONT_SIZE),
+                        .to_pixels_internal(percent_resolve_y, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
                     0.0,
                 )
             }
@@ -388,20 +388,20 @@ impl ComputedTransform3D {
                 Self::new_translation(
                     trans3d
                         .x
-                        .to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE),
+                        .to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
                     trans3d
                         .y
-                        .to_pixels_internal(percent_resolve_y, DEFAULT_FONT_SIZE),
+                        .to_pixels_internal(percent_resolve_y, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
                     trans3d
                         .z
                         // CSS has no containing block for Z-axis percentages; use X as fallback
-                        .to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE),
+                        .to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
                 )
             }
             TranslateX(trans_x) => {
 
                 Self::new_translation(
-                    trans_x.to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE),
+                    trans_x.to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
                     0.0,
                     0.0,
                 )
@@ -410,7 +410,7 @@ impl ComputedTransform3D {
 
                 Self::new_translation(
                     0.0,
-                    trans_y.to_pixels_internal(percent_resolve_y, DEFAULT_FONT_SIZE),
+                    trans_y.to_pixels_internal(percent_resolve_y, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
                     0.0,
                 )
             }
@@ -419,7 +419,7 @@ impl ComputedTransform3D {
                 Self::new_translation(
                     0.0,
                     0.0,
-                    trans_z.to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE),
+                    trans_z.to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
                 )
             } // CSS has no containing block for Z-axis percentages; use X as fallback
             Rotate3D(rot3d) => {
@@ -427,10 +427,10 @@ impl ComputedTransform3D {
                 let rotation_origin = (
                     transform_origin
                         .x
-                        .to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE),
+                        .to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
                     transform_origin
                         .y
-                        .to_pixels_internal(percent_resolve_y, DEFAULT_FONT_SIZE),
+                        .to_pixels_internal(percent_resolve_y, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
                 );
                 Self::make_rotation(
                     rotation_origin,
@@ -446,10 +446,10 @@ impl ComputedTransform3D {
                 let rotation_origin = (
                     transform_origin
                         .x
-                        .to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE),
+                        .to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
                     transform_origin
                         .y
-                        .to_pixels_internal(percent_resolve_y, DEFAULT_FONT_SIZE),
+                        .to_pixels_internal(percent_resolve_y, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
                 );
                 Self::make_rotation(
                     rotation_origin,
@@ -465,10 +465,10 @@ impl ComputedTransform3D {
                 let rotation_origin = (
                     transform_origin
                         .x
-                        .to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE),
+                        .to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
                     transform_origin
                         .y
-                        .to_pixels_internal(percent_resolve_y, DEFAULT_FONT_SIZE),
+                        .to_pixels_internal(percent_resolve_y, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
                 );
                 Self::make_rotation(
                     rotation_origin,
@@ -484,10 +484,10 @@ impl ComputedTransform3D {
                 let rotation_origin = (
                     transform_origin
                         .x
-                        .to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE),
+                        .to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
                     transform_origin
                         .y
-                        .to_pixels_internal(percent_resolve_y, DEFAULT_FONT_SIZE),
+                        .to_pixels_internal(percent_resolve_y, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
                 );
                 Self::make_rotation(
                     rotation_origin,
@@ -508,7 +508,7 @@ impl ComputedTransform3D {
             SkewY(skew_y) => Self::new_skew(0.0, skew_y.to_degrees()),
             Perspective(px) => {
 
-                Self::new_perspective(px.to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE))
+                Self::new_perspective(px.to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
             }
         }
     }

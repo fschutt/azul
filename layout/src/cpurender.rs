@@ -742,8 +742,8 @@ fn apply_layer_filters(pixmap: &mut AzulPixmap, filters: &[StyleFilter], dpi_fac
     for filter in filters {
         match filter {
             StyleFilter::Blur(blur) => {
-                let rx = blur.width.to_pixels_internal(0.0, 16.0) * dpi_factor;
-                let ry = blur.height.to_pixels_internal(0.0, 16.0) * dpi_factor;
+                let rx = blur.width.to_pixels_internal(0.0, 16.0, 16.0) * dpi_factor;
+                let ry = blur.height.to_pixels_internal(0.0, 16.0, 16.0) * dpi_factor;
                 let radius = ((rx + ry) / 2.0).ceil() as u32;
                 if radius > 0 {
                     let w = pixmap.width;
@@ -1436,7 +1436,7 @@ fn resolve_background_position(
         BackgroundPositionHorizontal::Center => 0.5,
         BackgroundPositionHorizontal::Right => 1.0,
         BackgroundPositionHorizontal::Exact(px) => {
-            let val = px.to_pixels_internal(width, 16.0);
+            let val = px.to_pixels_internal(width, 16.0, 16.0);
             if width > 0.0 { val / width } else { 0.5 }
         }
     };
@@ -1445,7 +1445,7 @@ fn resolve_background_position(
         BackgroundPositionVertical::Center => 0.5,
         BackgroundPositionVertical::Bottom => 1.0,
         BackgroundPositionVertical::Exact(px) => {
-            let val = px.to_pixels_internal(height, 16.0);
+            let val = px.to_pixels_internal(height, 16.0, 16.0);
             if height > 0.0 { val / height } else { 0.5 }
         }
     };
@@ -1663,10 +1663,10 @@ fn render_box_shadow(
         None => return Ok(()),
     };
 
-    let offset_x = shadow.offset_x.inner.to_pixels_internal(0.0, 16.0) * dpi_factor;
-    let offset_y = shadow.offset_y.inner.to_pixels_internal(0.0, 16.0) * dpi_factor;
-    let blur_r = (shadow.blur_radius.inner.to_pixels_internal(0.0, 16.0) * dpi_factor).max(0.0);
-    let spread = shadow.spread_radius.inner.to_pixels_internal(0.0, 16.0) * dpi_factor;
+    let offset_x = shadow.offset_x.inner.to_pixels_internal(0.0, 16.0, 16.0) * dpi_factor;
+    let offset_y = shadow.offset_y.inner.to_pixels_internal(0.0, 16.0, 16.0) * dpi_factor;
+    let blur_r = (shadow.blur_radius.inner.to_pixels_internal(0.0, 16.0, 16.0) * dpi_factor).max(0.0);
+    let spread = shadow.spread_radius.inner.to_pixels_internal(0.0, 16.0, 16.0) * dpi_factor;
 
     let color = shadow.color;
     if color.a == 0 {
@@ -2459,13 +2459,13 @@ fn render_single_item(
                 let default_color = ColorU { r: 0, g: 0, b: 0, a: 255 };
 
                 let w_top = widths.top.and_then(|w| w.get_property().cloned())
-                    .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
+                    .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
                 let w_right = widths.right.and_then(|w| w.get_property().cloned())
-                    .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
+                    .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
                 let w_bottom = widths.bottom.and_then(|w| w.get_property().cloned())
-                    .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
+                    .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
                 let w_left = widths.left.and_then(|w| w.get_property().cloned())
-                    .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
+                    .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)).unwrap_or(0.0);
 
                 let c_top = colors.top.and_then(|c| c.get_property().cloned())
                     .map(|c| c.inner).unwrap_or(default_color);
@@ -2488,13 +2488,13 @@ fn render_single_item(
 
                 let simple_radius = BorderRadius {
                     top_left: border_radius.top_left
-                        .to_pixels_internal(bounds.0.size.width, DEFAULT_FONT_SIZE),
+                        .to_pixels_internal(bounds.0.size.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
                     top_right: border_radius.top_right
-                        .to_pixels_internal(bounds.0.size.width, DEFAULT_FONT_SIZE),
+                        .to_pixels_internal(bounds.0.size.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
                     bottom_left: border_radius.bottom_left
-                        .to_pixels_internal(bounds.0.size.width, DEFAULT_FONT_SIZE),
+                        .to_pixels_internal(bounds.0.size.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
                     bottom_right: border_radius.bottom_right
-                        .to_pixels_internal(bounds.0.size.width, DEFAULT_FONT_SIZE),
+                        .to_pixels_internal(bounds.0.size.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
                 };
 
                 let clip = *clip_stack.last().unwrap();
