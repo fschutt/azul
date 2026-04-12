@@ -143,180 +143,55 @@ define_position_property!(LayoutInsetBottom);
 /// Represents the CSS `left` offset property for positioned elements.
 define_position_property!(LayoutLeft);
 
-// -- Parser for LayoutTop
+// -- Parse error types and parsers for offset properties (top, right, bottom, left)
 
-#[derive(Clone, PartialEq)]
-pub enum LayoutTopParseError<'a> {
-    PixelValue(CssPixelValueParseError<'a>),
-}
-impl_debug_as_display!(LayoutTopParseError<'a>);
-impl_display! { LayoutTopParseError<'a>, { PixelValue(e) => format!("{}", e), }}
-impl_from!(CssPixelValueParseError<'a>, LayoutTopParseError::PixelValue);
+macro_rules! define_offset_parse_error {
+    ($struct_name:ident, $error_name:ident, $error_owned_name:ident, $parse_fn:ident) => {
+        #[derive(Clone, PartialEq)]
+        pub enum $error_name<'a> {
+            PixelValue(CssPixelValueParseError<'a>),
+        }
+        impl_debug_as_display!($error_name<'a>);
+        impl_display! { $error_name<'a>, { PixelValue(e) => format!("{}", e), }}
+        impl_from!(CssPixelValueParseError<'a>, $error_name::PixelValue);
 
-#[derive(Debug, Clone, PartialEq)]
-#[repr(C, u8)]
-pub enum LayoutTopParseErrorOwned {
-    PixelValue(CssPixelValueParseErrorOwned),
-}
-impl<'a> LayoutTopParseError<'a> {
-    pub fn to_contained(&self) -> LayoutTopParseErrorOwned {
-        match self {
-            LayoutTopParseError::PixelValue(e) => {
-                LayoutTopParseErrorOwned::PixelValue(e.to_contained())
+        #[derive(Debug, Clone, PartialEq)]
+        #[repr(C, u8)]
+        pub enum $error_owned_name {
+            PixelValue(CssPixelValueParseErrorOwned),
+        }
+        impl<'a> $error_name<'a> {
+            pub fn to_contained(&self) -> $error_owned_name {
+                match self {
+                    $error_name::PixelValue(e) => {
+                        $error_owned_name::PixelValue(e.to_contained())
+                    }
+                }
             }
         }
-    }
-}
-impl LayoutTopParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> LayoutTopParseError<'a> {
-        match self {
-            LayoutTopParseErrorOwned::PixelValue(e) => {
-                LayoutTopParseError::PixelValue(e.to_shared())
+        impl $error_owned_name {
+            pub fn to_shared<'a>(&'a self) -> $error_name<'a> {
+                match self {
+                    $error_owned_name::PixelValue(e) => {
+                        $error_name::PixelValue(e.to_shared())
+                    }
+                }
             }
         }
-    }
-}
 
-#[cfg(feature = "parser")]
-pub fn parse_layout_top<'a>(input: &'a str) -> Result<LayoutTop, LayoutTopParseError<'a>> {
-    parse_pixel_value(input)
-        .map(|v| LayoutTop { inner: v })
-        .map_err(Into::into)
-}
-
-// -- Parser for LayoutRight
-
-#[derive(Clone, PartialEq)]
-pub enum LayoutRightParseError<'a> {
-    PixelValue(CssPixelValueParseError<'a>),
-}
-impl_debug_as_display!(LayoutRightParseError<'a>);
-impl_display! { LayoutRightParseError<'a>, { PixelValue(e) => format!("{}", e), }}
-impl_from!(
-    CssPixelValueParseError<'a>,
-    LayoutRightParseError::PixelValue
-);
-
-#[derive(Debug, Clone, PartialEq)]
-#[repr(C, u8)]
-pub enum LayoutRightParseErrorOwned {
-    PixelValue(CssPixelValueParseErrorOwned),
-}
-impl<'a> LayoutRightParseError<'a> {
-    pub fn to_contained(&self) -> LayoutRightParseErrorOwned {
-        match self {
-            LayoutRightParseError::PixelValue(e) => {
-                LayoutRightParseErrorOwned::PixelValue(e.to_contained())
-            }
+        #[cfg(feature = "parser")]
+        pub fn $parse_fn<'a>(input: &'a str) -> Result<$struct_name, $error_name<'a>> {
+            parse_pixel_value(input)
+                .map(|v| $struct_name { inner: v })
+                .map_err(Into::into)
         }
-    }
-}
-impl LayoutRightParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> LayoutRightParseError<'a> {
-        match self {
-            LayoutRightParseErrorOwned::PixelValue(e) => {
-                LayoutRightParseError::PixelValue(e.to_shared())
-            }
-        }
-    }
+    };
 }
 
-#[cfg(feature = "parser")]
-pub fn parse_layout_right<'a>(input: &'a str) -> Result<LayoutRight, LayoutRightParseError<'a>> {
-    parse_pixel_value(input)
-        .map(|v| LayoutRight { inner: v })
-        .map_err(Into::into)
-}
-
-// -- Parser for LayoutInsetBottom
-
-#[derive(Clone, PartialEq)]
-pub enum LayoutInsetBottomParseError<'a> {
-    PixelValue(CssPixelValueParseError<'a>),
-}
-impl_debug_as_display!(LayoutInsetBottomParseError<'a>);
-impl_display! { LayoutInsetBottomParseError<'a>, { PixelValue(e) => format!("{}", e), }}
-impl_from!(
-    CssPixelValueParseError<'a>,
-    LayoutInsetBottomParseError::PixelValue
-);
-
-#[derive(Debug, Clone, PartialEq)]
-#[repr(C, u8)]
-pub enum LayoutInsetBottomParseErrorOwned {
-    PixelValue(CssPixelValueParseErrorOwned),
-}
-impl<'a> LayoutInsetBottomParseError<'a> {
-    pub fn to_contained(&self) -> LayoutInsetBottomParseErrorOwned {
-        match self {
-            LayoutInsetBottomParseError::PixelValue(e) => {
-                LayoutInsetBottomParseErrorOwned::PixelValue(e.to_contained())
-            }
-        }
-    }
-}
-impl LayoutInsetBottomParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> LayoutInsetBottomParseError<'a> {
-        match self {
-            LayoutInsetBottomParseErrorOwned::PixelValue(e) => {
-                LayoutInsetBottomParseError::PixelValue(e.to_shared())
-            }
-        }
-    }
-}
-
-#[cfg(feature = "parser")]
-pub fn parse_layout_bottom<'a>(
-    input: &'a str,
-) -> Result<LayoutInsetBottom, LayoutInsetBottomParseError<'a>> {
-    parse_pixel_value(input)
-        .map(|v| LayoutInsetBottom { inner: v })
-        .map_err(Into::into)
-}
-
-// -- Parser for LayoutLeft
-
-#[derive(Clone, PartialEq)]
-pub enum LayoutLeftParseError<'a> {
-    PixelValue(CssPixelValueParseError<'a>),
-}
-impl_debug_as_display!(LayoutLeftParseError<'a>);
-impl_display! { LayoutLeftParseError<'a>, { PixelValue(e) => format!("{}", e), }}
-impl_from!(
-    CssPixelValueParseError<'a>,
-    LayoutLeftParseError::PixelValue
-);
-
-#[derive(Debug, Clone, PartialEq)]
-#[repr(C, u8)]
-pub enum LayoutLeftParseErrorOwned {
-    PixelValue(CssPixelValueParseErrorOwned),
-}
-impl<'a> LayoutLeftParseError<'a> {
-    pub fn to_contained(&self) -> LayoutLeftParseErrorOwned {
-        match self {
-            LayoutLeftParseError::PixelValue(e) => {
-                LayoutLeftParseErrorOwned::PixelValue(e.to_contained())
-            }
-        }
-    }
-}
-impl LayoutLeftParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> LayoutLeftParseError<'a> {
-        match self {
-            LayoutLeftParseErrorOwned::PixelValue(e) => {
-                LayoutLeftParseError::PixelValue(e.to_shared())
-            }
-        }
-    }
-}
-
-#[cfg(feature = "parser")]
-pub fn parse_layout_left<'a>(input: &'a str) -> Result<LayoutLeft, LayoutLeftParseError<'a>> {
-    parse_pixel_value(input)
-        .map(|v| LayoutLeft { inner: v })
-        .map_err(Into::into)
-}
+define_offset_parse_error!(LayoutTop, LayoutTopParseError, LayoutTopParseErrorOwned, parse_layout_top);
+define_offset_parse_error!(LayoutRight, LayoutRightParseError, LayoutRightParseErrorOwned, parse_layout_right);
+define_offset_parse_error!(LayoutInsetBottom, LayoutInsetBottomParseError, LayoutInsetBottomParseErrorOwned, parse_layout_bottom);
+define_offset_parse_error!(LayoutLeft, LayoutLeftParseError, LayoutLeftParseErrorOwned, parse_layout_left);
 
 // --- LayoutZIndex ---
 

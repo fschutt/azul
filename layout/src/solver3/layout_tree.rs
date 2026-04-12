@@ -1100,7 +1100,7 @@ impl LayoutTreeBuilder {
                             let pos = self.nodes.get(idx)
                                 .map(|n| n.computed_style.position)
                                 .unwrap_or_default();
-                            if pos != LayoutPosition::Static {
+                            if pos.is_positioned() {
                                 break Some(idx);
                             }
                             ancestor = self.nodes.get(idx).and_then(|n| n.parent);
