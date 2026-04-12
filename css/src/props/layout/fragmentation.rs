@@ -310,12 +310,14 @@ pub mod parser {
             #[derive(Clone, PartialEq)]
             pub enum $error_name<'a> {
                 ParseInt(ParseIntError, &'a str),
+                ParseIntOwned(&'a str, &'a str),
                 NegativeValue(&'a str),
             }
 
             impl_debug_as_display!($error_name<'a>);
             impl_display! { $error_name<'a>, {
                 ParseInt(e, s) => format!("Invalid integer for {}: \"{}\". Reason: {}", $prop_name, s, e),
+                ParseIntOwned(e, s) => format!("Invalid integer for {}: \"{}\". Reason: {}", $prop_name, s, e),
                 NegativeValue(s) => format!("Invalid value for {}: \"{}\". Value cannot be negative.", $prop_name, s),
             }}
 
@@ -330,6 +332,7 @@ pub mod parser {
                 pub fn to_contained(&self) -> $error_owned_name {
                     match self {
                         Self::ParseInt(e, s) => $error_owned_name::ParseInt(ParseIntErrorWithInput { error: e.to_string().into(), input: s.to_string().into() }),
+                        Self::ParseIntOwned(e, s) => $error_owned_name::ParseInt(ParseIntErrorWithInput { error: e.to_string().into(), input: s.to_string().into() }),
                         Self::NegativeValue(s) => $error_owned_name::NegativeValue(s.to_string().into()),
                     }
                 }
@@ -338,8 +341,7 @@ pub mod parser {
             impl $error_owned_name {
                 pub fn to_shared<'a>(&'a self) -> $error_name<'a> {
                      match self {
-                        // Can't reconstruct ParseIntError
-                        Self::ParseInt(e) => $error_name::NegativeValue(e.input.as_str()),
+                        Self::ParseInt(e) => $error_name::ParseIntOwned(e.error.as_str(), e.input.as_str()),
                         Self::NegativeValue(s) => $error_name::NegativeValue(s),
                     }
                 }
