@@ -54,6 +54,17 @@ use crate::{
     },
 };
 
+const DEFAULT_EM_SIZE: f32 = 16.0;
+const DEFAULT_CARET_WIDTH_PX: f32 = 2.0;
+const DEFAULT_CARET_BLINK_MS: u32 = 500;
+const DEFAULT_TAB_SIZE: f32 = 8.0;
+const SCROLLBAR_WIDTH_THIN: f32 = 8.0;
+const SCROLLBAR_WIDTH_AUTO: f32 = 12.0;
+const SCROLLBAR_HOVER_EXPAND_PX: f32 = 4.0;
+const THUMB_HOVER_LIGHTEN: u8 = 30;
+const THUMB_HOVER_ALPHA_ADD: u8 = 40;
+const THUMB_ACTIVE_DARKEN: u8 = 15;
+
 // Font-size resolution helper functions
 
 /// Helper function to get element's computed font-size
@@ -1801,7 +1812,7 @@ pub fn get_border_info(
 ///
 /// This resolves the CSS property values to concrete pixel values and colors
 /// that can be used during text rendering.
-pub fn get_inline_border_info(
+fn get_inline_border_info(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -1809,104 +1820,22 @@ pub fn get_inline_border_info(
 ) -> Option<crate::text3::cache::InlineBorderInfo> {
     use crate::text3::cache::InlineBorderInfo;
 
-    // Helper to extract pixel value from border width
-    fn get_border_width_px(
-        width: &Option<
-            azul_css::css::CssPropertyValue<azul_css::props::style::border::LayoutBorderTopWidth>,
-        >,
-    ) -> f32 {
-        width
-            .as_ref()
-            .and_then(|v| v.get_property())
-            .map(|w| w.inner.number.get())
-            .unwrap_or(0.0)
+    macro_rules! border_width_px {
+        ($field:expr) => {
+            $field.as_ref()
+                .and_then(|v| v.get_property())
+                .map(|w| w.inner.number.get())
+                .unwrap_or(0.0)
+        };
     }
 
-    fn get_border_width_px_right(
-        width: &Option<
-            azul_css::css::CssPropertyValue<azul_css::props::style::border::LayoutBorderRightWidth>,
-        >,
-    ) -> f32 {
-        width
-            .as_ref()
-            .and_then(|v| v.get_property())
-            .map(|w| w.inner.number.get())
-            .unwrap_or(0.0)
-    }
-
-    fn get_border_width_px_bottom(
-        width: &Option<
-            azul_css::css::CssPropertyValue<
-                azul_css::props::style::border::LayoutBorderBottomWidth,
-            >,
-        >,
-    ) -> f32 {
-        width
-            .as_ref()
-            .and_then(|v| v.get_property())
-            .map(|w| w.inner.number.get())
-            .unwrap_or(0.0)
-    }
-
-    fn get_border_width_px_left(
-        width: &Option<
-            azul_css::css::CssPropertyValue<azul_css::props::style::border::LayoutBorderLeftWidth>,
-        >,
-    ) -> f32 {
-        width
-            .as_ref()
-            .and_then(|v| v.get_property())
-            .map(|w| w.inner.number.get())
-            .unwrap_or(0.0)
-    }
-
-    // Helper to extract color from border color
-    fn get_border_color_top(
-        color: &Option<
-            azul_css::css::CssPropertyValue<azul_css::props::style::border::StyleBorderTopColor>,
-        >,
-    ) -> ColorU {
-        color
-            .as_ref()
-            .and_then(|v| v.get_property())
-            .map(|c| c.inner)
-            .unwrap_or(ColorU::BLACK)
-    }
-
-    fn get_border_color_right(
-        color: &Option<
-            azul_css::css::CssPropertyValue<azul_css::props::style::border::StyleBorderRightColor>,
-        >,
-    ) -> ColorU {
-        color
-            .as_ref()
-            .and_then(|v| v.get_property())
-            .map(|c| c.inner)
-            .unwrap_or(ColorU::BLACK)
-    }
-
-    fn get_border_color_bottom(
-        color: &Option<
-            azul_css::css::CssPropertyValue<azul_css::props::style::border::StyleBorderBottomColor>,
-        >,
-    ) -> ColorU {
-        color
-            .as_ref()
-            .and_then(|v| v.get_property())
-            .map(|c| c.inner)
-            .unwrap_or(ColorU::BLACK)
-    }
-
-    fn get_border_color_left(
-        color: &Option<
-            azul_css::css::CssPropertyValue<azul_css::props::style::border::StyleBorderLeftColor>,
-        >,
-    ) -> ColorU {
-        color
-            .as_ref()
-            .and_then(|v| v.get_property())
-            .map(|c| c.inner)
-            .unwrap_or(ColorU::BLACK)
+    macro_rules! border_color {
+        ($field:expr) => {
+            $field.as_ref()
+                .and_then(|v| v.get_property())
+                .map(|c| c.inner)
+                .unwrap_or(ColorU::BLACK)
+        };
     }
 
     // Extract border-radius (simplified - uses the average of all corners if uniform)
@@ -1958,10 +1887,10 @@ pub fn get_inline_border_info(
         }
     }
 
-    let top = get_border_width_px(&border_info.widths.top);
-    let right = get_border_width_px_right(&border_info.widths.right);
-    let bottom = get_border_width_px_bottom(&border_info.widths.bottom);
-    let left = get_border_width_px_left(&border_info.widths.left);
+    let top = border_width_px!(&border_info.widths.top);
+    let right = border_width_px!(&border_info.widths.right);
+    let bottom = border_width_px!(&border_info.widths.bottom);
+    let left = border_width_px!(&border_info.widths.left);
 
     // Fetch padding values for inline elements
     fn resolve_padding(mv: MultiValue<PixelValue>) -> f32 {
@@ -1996,10 +1925,10 @@ pub fn get_inline_border_info(
         right,
         bottom,
         left,
-        top_color: get_border_color_top(&border_info.colors.top),
-        right_color: get_border_color_right(&border_info.colors.right),
-        bottom_color: get_border_color_bottom(&border_info.colors.bottom),
-        left_color: get_border_color_left(&border_info.colors.left),
+        top_color: border_color!(&border_info.colors.top),
+        right_color: border_color!(&border_info.colors.right),
+        bottom_color: border_color!(&border_info.colors.bottom),
+        left_color: border_color!(&border_info.colors.left),
         radius: get_border_radius_px(styled_dom, node_id, node_state),
         padding_top: p_top,
         padding_right: p_right,
@@ -2072,7 +2001,7 @@ pub fn get_selection_style(
         .ptr
         .get_selection_radius(node_data, &node_id, node_state)
         .and_then(|r| r.get_property().cloned())
-        .map(|r| r.inner.to_pixels_internal(0.0, 16.0, 16.0)) // percent=0, em=16px default font size
+        .map(|r| r.inner.to_pixels_internal(0.0, DEFAULT_EM_SIZE, DEFAULT_EM_SIZE))
         .unwrap_or(0.0);
 
     SelectionStyle {
@@ -2097,8 +2026,8 @@ impl Default for CaretStyle {
     fn default() -> Self {
         Self {
             color: ColorU::BLACK,
-            width: 2.0,
-            animation_duration: 500,
+            width: DEFAULT_CARET_WIDTH_PX,
+            animation_duration: DEFAULT_CARET_BLINK_MS,
         }
     }
 }
@@ -2125,16 +2054,16 @@ pub fn get_caret_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> Caret
         .ptr
         .get_caret_width(node_data, &node_id, node_state)
         .and_then(|w| w.get_property().cloned())
-        .map(|w| w.inner.to_pixels_internal(0.0, 16.0, 16.0)) // 16.0 as default em size
-        .unwrap_or(2.0); // 2px width by default
+        .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_EM_SIZE, DEFAULT_EM_SIZE))
+        .unwrap_or(DEFAULT_CARET_WIDTH_PX);
 
     let animation_duration = styled_dom
         .css_property_cache
         .ptr
         .get_caret_animation_duration(node_data, &node_id, node_state)
         .and_then(|d| d.get_property().cloned())
-        .map(|d| d.inner.inner) // Duration.inner is the u32 milliseconds value
-        .unwrap_or(500); // 500ms blink by default
+        .map(|d| d.inner.inner)
+        .unwrap_or(DEFAULT_CARET_BLINK_MS);
 
     CaretStyle {
         color,
@@ -2519,10 +2448,7 @@ pub fn get_style_properties(
     let fc_weight = super::fc::convert_font_weight(font_weight);
     let fc_style = super::fc::convert_font_style(font_style);
 
-    // Check if any font family is a FontRef - if so, use FontStack::Ref
-    // This allows embedded fonts (like Material Icons) to bypass fontconfig
     let font_stack = {
-        // Look for a Ref in the font families
         let font_ref = (0..font_families.len())
             .find_map(|i| {
                 match font_families.get(i).unwrap() {
@@ -2530,79 +2456,12 @@ pub fn get_style_properties(
                     _ => None,
                 }
             });
-        
-        // Get platform for resolving system font types
-        let platform = system_style.map(|ss| &ss.platform);
 
         if let Some(font_ref) = font_ref {
-            // Use FontStack::Ref for embedded fonts
             FontStack::Ref(font_ref)
         } else {
-            // Build regular font stack from all font families
-            let mut stack = Vec::with_capacity(font_families.len() + 3);
-
-            for i in 0..font_families.len() {
-                let family = font_families.get(i).unwrap();
-
-                // Handle SystemFontType specially - resolve to actual OS font names
-                // (e.g., "system:ui" → ["System Font", "Helvetica Neue", "Lucida Grande"] on macOS)
-                if let azul_css::props::basic::font::StyleFontFamily::SystemType(system_type) = family {
-                    if let Some(platform) = platform {
-                        let font_names = system_type.get_fallback_chain(platform);
-                        let system_weight = if system_type.is_bold() {
-                            rust_fontconfig::FcWeight::Bold
-                        } else {
-                            fc_weight
-                        };
-                        let system_style_val = if system_type.is_italic() {
-                            crate::text3::cache::FontStyle::Italic
-                        } else {
-                            fc_style
-                        };
-                        for font_name in font_names {
-                            stack.push(crate::text3::cache::FontSelector {
-                                family: font_name.to_string(),
-                                weight: system_weight,
-                                style: system_style_val,
-                                unicode_ranges: Vec::new(),
-                            });
-                        }
-                    } else {
-                        // No platform info - fall back to generic sans-serif
-                        stack.push(crate::text3::cache::FontSelector {
-                            family: "sans-serif".to_string(),
-                            weight: fc_weight,
-                            style: fc_style,
-                            unicode_ranges: Vec::new(),
-                        });
-                    }
-                } else {
-                    stack.push(crate::text3::cache::FontSelector {
-                        family: family.as_string(),
-                        weight: fc_weight,
-                        style: fc_style,
-                        unicode_ranges: Vec::new(),
-                    });
-                }
-            }
-
-            // Add generic fallbacks (serif/sans-serif will be resolved based on Unicode ranges later)
-            let generic_fallbacks = ["sans-serif", "serif", "monospace"];
-            for fallback in &generic_fallbacks {
-                if !stack
-                    .iter()
-                    .any(|f| f.family.to_lowercase() == fallback.to_lowercase())
-                {
-                    stack.push(crate::text3::cache::FontSelector {
-                        family: fallback.to_string(),
-                        weight: rust_fontconfig::FcWeight::Normal,
-                        style: crate::text3::cache::FontStyle::Normal,
-                        unicode_ranges: Vec::new(),
-                    });
-                }
-            }
-
-            FontStack::Stack(stack)
+            let platform = system_style.map(|ss| &ss.platform);
+            FontStack::Stack(build_font_selector_stack(&font_families, platform, fc_weight, fc_style))
         }
     };
 
@@ -2676,7 +2535,7 @@ pub fn get_style_properties(
                 .get_tab_size(node_data, &dom_id, node_state)
                 .and_then(|v| v.get_property().cloned())
                 .map(|v| v.inner.number.get())
-                .unwrap_or(8.0)
+                .unwrap_or(DEFAULT_TAB_SIZE)
         })
     };
 
@@ -3012,6 +2871,64 @@ use rust_fontconfig::{FcFontCache, FcWeight, FontFallbackChain, PatternMatch};
 
 use crate::text3::cache::{FontChainKey, FontChainKeyOrRef, FontSelector, FontStack, FontStyle};
 
+fn build_font_selector_stack(
+    font_families: &StyleFontFamilyVec,
+    platform: Option<&azul_css::system::Platform>,
+    fc_weight: FcWeight,
+    fc_style: FontStyle,
+) -> Vec<FontSelector> {
+    let mut stack = Vec::with_capacity(font_families.len() + 3);
+
+    for i in 0..font_families.len() {
+        let family = font_families.get(i).unwrap();
+        if matches!(family, StyleFontFamily::Ref(_)) {
+            continue;
+        }
+        if let StyleFontFamily::SystemType(system_type) = family {
+            if let Some(platform) = platform {
+                let font_names = system_type.get_fallback_chain(platform);
+                let system_weight = if system_type.is_bold() { FcWeight::Bold } else { fc_weight };
+                let system_style = if system_type.is_italic() { FontStyle::Italic } else { fc_style };
+                for font_name in font_names {
+                    stack.push(FontSelector {
+                        family: font_name.to_string(),
+                        weight: system_weight,
+                        style: system_style,
+                        unicode_ranges: Vec::new(),
+                    });
+                }
+            } else {
+                stack.push(FontSelector {
+                    family: "sans-serif".to_string(),
+                    weight: fc_weight,
+                    style: fc_style,
+                    unicode_ranges: Vec::new(),
+                });
+            }
+        } else {
+            stack.push(FontSelector {
+                family: family.as_string(),
+                weight: fc_weight,
+                style: fc_style,
+                unicode_ranges: Vec::new(),
+            });
+        }
+    }
+
+    for fallback in &["sans-serif", "serif", "monospace"] {
+        if !stack.iter().any(|f| f.family.eq_ignore_ascii_case(fallback)) {
+            stack.push(FontSelector {
+                family: fallback.to_string(),
+                weight: FcWeight::Normal,
+                style: FontStyle::Normal,
+                unicode_ranges: Vec::new(),
+            });
+        }
+    }
+
+    stack
+}
+
 /// Result of collecting font stacks from a StyledDom
 /// Contains all unique font stacks and the mapping from StyleFontFamiliesHash to FontChainKey
 #[derive(Debug, Clone)]
@@ -3186,46 +3103,7 @@ pub fn collect_font_stacks_from_styled_dom(
         let fc_weight = super::fc::convert_font_weight(font_weight);
         let fc_style = super::fc::convert_font_style(font_style);
 
-        let mut font_stack = Vec::with_capacity(font_families.len() + 3);
-
-        for i in 0..font_families.len() {
-            let family = font_families.get(i).unwrap();
-            if matches!(family, StyleFontFamily::Ref(_)) {
-                continue;
-            }
-            if let StyleFontFamily::SystemType(system_type) = family {
-                let font_names = system_type.get_fallback_chain(platform);
-                let system_weight = if system_type.is_bold() { FcWeight::Bold } else { fc_weight };
-                let system_style = if system_type.is_italic() { FontStyle::Italic } else { fc_style };
-                for font_name in font_names {
-                    font_stack.push(FontSelector {
-                        family: font_name.to_string(),
-                        weight: system_weight,
-                        style: system_style,
-                        unicode_ranges: Vec::new(),
-                    });
-                }
-            } else {
-                font_stack.push(FontSelector {
-                    family: family.as_string(),
-                    weight: fc_weight,
-                    style: fc_style,
-                    unicode_ranges: Vec::new(),
-                });
-            }
-        }
-
-        // Add generic fallbacks
-        for fallback in &["sans-serif", "serif", "monospace"] {
-            if !font_stack.iter().any(|f| f.family.eq_ignore_ascii_case(fallback)) {
-                font_stack.push(FontSelector {
-                    family: fallback.to_string(),
-                    weight: FcWeight::Normal,
-                    style: FontStyle::Normal,
-                    unicode_ranges: Vec::new(),
-                });
-            }
-        }
+        let font_stack = build_font_selector_stack(&font_families, Some(platform), fc_weight, fc_style);
 
         if font_stack.is_empty() {
             continue;
@@ -3637,22 +3515,13 @@ impl ComputedScrollbarStyle {
         let fade_duration_ms = ua.fade_duration.ms;
 
         let visual_width_px = match width_mode {
-            LayoutScrollbarWidth::Thin => 8.0,
-            LayoutScrollbarWidth::Auto => 12.0,
+            LayoutScrollbarWidth::Thin => SCROLLBAR_WIDTH_THIN,
+            LayoutScrollbarWidth::Auto => SCROLLBAR_WIDTH_AUTO,
             LayoutScrollbarWidth::None => 0.0,
         };
 
-        // Overlay scrollbars don't reserve layout space.
-        let reserve_width_px = if visibility == ScrollbarVisibilityMode::WhenScrolling {
-            0.0
-        } else {
-            visual_width_px
-        };
-
-        let clip = visibility == ScrollbarVisibilityMode::WhenScrolling;
-
-        // Overlay scrollbars hide buttons and corner by default.
         let is_overlay = visibility == ScrollbarVisibilityMode::WhenScrolling;
+        let reserve_width_px = if is_overlay { 0.0 } else { visual_width_px };
         let show_scroll_buttons = !is_overlay;
         let scroll_button_size_px = if is_overlay { 0.0 } else { visual_width_px };
         let show_corner_rect = !is_overlay;
@@ -3662,29 +3531,26 @@ impl ComputedScrollbarStyle {
             _ => (ColorU::TRANSPARENT, ColorU::TRANSPARENT),
         };
 
-        // Compute hover / active variants:
-        // Hover: lighten thumb by ~20%, widen by +4px
-        // Active: darken thumb by ~10%, widen by +4px
         let thumb_hover = ColorU {
-            r: thumb_color.r.saturating_add(30),
-            g: thumb_color.g.saturating_add(30),
-            b: thumb_color.b.saturating_add(30),
-            a: thumb_color.a.saturating_add(40).min(255),
+            r: thumb_color.r.saturating_add(THUMB_HOVER_LIGHTEN),
+            g: thumb_color.g.saturating_add(THUMB_HOVER_LIGHTEN),
+            b: thumb_color.b.saturating_add(THUMB_HOVER_LIGHTEN),
+            a: thumb_color.a.saturating_add(THUMB_HOVER_ALPHA_ADD).min(255),
         };
         let thumb_active = ColorU {
-            r: thumb_color.r.saturating_sub(15),
-            g: thumb_color.g.saturating_sub(15),
-            b: thumb_color.b.saturating_sub(15),
-            a: 255,  // fully opaque when pressed
+            r: thumb_color.r.saturating_sub(THUMB_ACTIVE_DARKEN),
+            g: thumb_color.g.saturating_sub(THUMB_ACTIVE_DARKEN),
+            b: thumb_color.b.saturating_sub(THUMB_ACTIVE_DARKEN),
+            a: 255,
         };
         let track_hover = ColorU {
             r: track_color.r,
             g: track_color.g,
             b: track_color.b,
-            a: track_color.a.saturating_add(40).min(255),
+            a: track_color.a.saturating_add(THUMB_HOVER_ALPHA_ADD).min(255),
         };
-        let hover_width = visual_width_px + 4.0;
-        let active_width = visual_width_px + 4.0;
+        let hover_width = visual_width_px + SCROLLBAR_HOVER_EXPAND_PX;
+        let active_width = visual_width_px + SCROLLBAR_HOVER_EXPAND_PX;
 
         Self {
             width_mode,
@@ -3694,7 +3560,7 @@ impl ComputedScrollbarStyle {
             track_color,
             button_color: ColorU::TRANSPARENT,
             corner_color: ColorU::TRANSPARENT,
-            clip_to_container_border: clip,
+            clip_to_container_border: is_overlay,
             fade_delay_ms,
             fade_duration_ms,
             visibility,
@@ -3785,8 +3651,8 @@ pub fn get_scrollbar_style(
     {
         result.width_mode = *scrollbar_width;
         let w = match scrollbar_width {
-            LayoutScrollbarWidth::Auto => 12.0,
-            LayoutScrollbarWidth::Thin => 8.0,
+            LayoutScrollbarWidth::Auto => SCROLLBAR_WIDTH_AUTO,
+            LayoutScrollbarWidth::Thin => SCROLLBAR_WIDTH_THIN,
             LayoutScrollbarWidth::None => 0.0,
         };
         result.visual_width_px = w;
