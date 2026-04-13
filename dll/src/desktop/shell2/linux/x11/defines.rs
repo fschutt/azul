@@ -503,11 +503,21 @@ pub type XMoveResizeWindow =
 pub type XDestroyWindow = unsafe extern "C" fn(*mut Display, Window) -> c_int;
 pub type XSendEvent =
     unsafe extern "C" fn(*mut Display, Window, c_int, c_long, *mut XEvent) -> c_int;
-pub type XCreateGC = unsafe extern "C" fn(*mut Display, Drawable, c_ulong, *mut XGCValues) -> GC;
+pub type XCreateGC = unsafe extern "C" fn(*mut Display, Drawable, c_ulong, *mut c_void) -> GC;
 pub type XFreeGC = unsafe extern "C" fn(*mut Display, GC) -> c_int;
 pub type XSetForeground = unsafe extern "C" fn(*mut Display, GC, c_ulong) -> c_int;
 pub type XFillRectangle =
     unsafe extern "C" fn(*mut Display, Drawable, GC, c_int, c_int, c_uint, c_uint) -> c_int;
+pub type XClearWindow = unsafe extern "C" fn(*mut Display, Window) -> c_int;
+pub type XDrawString = unsafe extern "C" fn(
+    *mut Display,
+    Drawable,
+    GC,
+    c_int,
+    c_int,
+    *const c_char,
+    c_int,
+) -> c_int;
 pub type XFlush = unsafe extern "C" fn(*mut Display) -> c_int;
 pub type XSync = unsafe extern "C" fn(*mut Display, c_int) -> c_int;
 pub type XConnectionNumber = unsafe extern "C" fn(*mut Display) -> c_int;
@@ -667,6 +677,33 @@ pub type XFreeColormap = unsafe extern "C" fn(*mut Display, Colormap) -> c_int;
 // XRender function types
 pub type XRenderFindVisualFormat =
     unsafe extern "C" fn(*mut Display, *const Visual) -> *mut XRenderPictFormat;
+
+// XImage function types for CPU rendering
+pub type XCreateImage = unsafe extern "C" fn(
+    *mut Display,
+    *mut c_void,
+    c_uint,
+    c_int,
+    c_int,
+    *mut c_char,
+    c_uint,
+    c_uint,
+    c_int,
+    c_int,
+) -> *mut XImage;
+pub type XPutImage = unsafe extern "C" fn(
+    *mut Display,
+    Drawable,
+    GC,
+    *mut XImage,
+    c_int,
+    c_int,
+    c_int,
+    c_int,
+    c_uint,
+    c_uint,
+) -> c_int;
+pub type XDestroyImage = unsafe extern "C" fn(*mut XImage) -> c_int;
 
 // Additional CW (change window) attribute flags for XCreateWindow
 pub const CWBackPixmap: c_ulong = 1 << 0;
