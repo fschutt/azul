@@ -11,19 +11,14 @@
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
 
 use azul_core::{
-    callbacks::{LayoutCallback, LayoutCallbackInfo, Update},
-    dom::Dom,
+    callbacks::{LayoutCallback, LayoutCallbackInfo},
     geom::{LogicalPosition, LogicalRect, LogicalSize, PhysicalPosition},
     menu::{Menu, MenuPopupPosition},
     refany::RefAny,
-    styled_dom::StyledDom,
-    window::{WindowFlags, WindowPosition, WindowType},
+    window::{WindowPosition, WindowType},
 };
 use azul_css::system::SystemStyle;
-use azul_layout::{
-    callbacks::CallbackInfo,
-    window_state::{FullWindowState, WindowCreateOptions},
-};
+use azul_layout::window_state::{FullWindowState, WindowCreateOptions};
 
 use crate::desktop::display::{get_display_at_point, get_primary_display};
 use crate::desktop::shell2::common::debug_server::LogCategory;
@@ -55,7 +50,7 @@ pub struct MenuWindowData {
 /// Algorithm depends on the position strategy:
 /// - AutoCursor/AutoHitRect: Tries right-bottom, then flips on overflow
 /// - Explicit positions: Uses specified direction, clamps on overflow
-pub fn calculate_menu_position(
+pub(crate) fn calculate_menu_position(
     position_strategy: MenuPopupPosition,
     cursor_pos: Option<LogicalPosition>,
     trigger_rect: Option<LogicalRect>,
@@ -74,9 +69,10 @@ pub fn calculate_menu_position(
         })
         .unwrap_or(parent_window_pos);
 
-    let display = get_display_at_point(reference_point)
-        .or_else(get_primary_display)
-        .expect("No display found");
+    let display = match get_display_at_point(reference_point).or_else(get_primary_display) {
+        Some(d) => d,
+        None => return LogicalPosition::new(0.0, 0.0),
+    };
 
     let work_area = display.work_area;
 
@@ -354,65 +350,8 @@ fn clamp_to_work_area(
     )
 }
 
-/// Create a menu window
-///
-/// The menu will be positioned optimally based on the MenuPopupPosition strategy,
-/// trigger rectangle, and available screen space.
-pub fn create_menu_window(
-    menu: Menu,
-    system_style: Arc<SystemStyle>,
-    parent_window_position: LogicalPosition,
-    trigger_rect: Option<LogicalRect>,
-    cursor_position: Option<LogicalPosition>,
-    parent_menu_id: Option<u64>,
-) -> WindowCreateOptions {
-    let menu_data = MenuWindowData {
-        menu,
-        system_style,
-        parent_window_position,
-        trigger_rect,
-        cursor_position,
-        parent_menu_id,
-        menu_window_id: None, // Will be set after window creation
-        child_menu_ids: Arc::new(std::sync::Mutex::new(Vec::new())),
-    };
-
-    let mut window_state = FullWindowState::default();
-
-    // Configure as menu window
-    window_state.flags.window_type = WindowType::Menu;
-    window_state.flags.is_always_on_top = true;
-    window_state.flags.is_visible = true;
-    window_state.flags.decorations = azul_core::window::WindowDecorations::None;
-    window_state.flags.is_resizable = false;
-    window_state.title = "Menu".into();
-    window_state.window_id = "azul-menu".into();
-
-    // Position will be calculated after size is known (via size_to_content)
-    // The actual positioning happens in the layout callback after measuring
-    window_state.position = WindowPosition::Initialized(PhysicalPosition::new(0, 0));
-
-    // Set layout callback that renders the menu
-    window_state.layout_callback = LayoutCallback {
-        cb: menu_layout_callback,
-        ctx: azul_core::refany::OptionRefAny::None,
-    };
-
-    WindowCreateOptions {
-        window_state,
-        size_to_content: true, // Auto-size to menu content
-        renderer: None.into(),
-        theme: None.into(),
-        create_callback: None.into(),
-        hot_reload: false,
-    }
-}
-
 /// Layout callback for menu windows
-///
-/// Renders the menu as a Dom with deferred CSS and updates window position based on measured size
 extern "C" fn menu_layout_callback(mut data: RefAny, info: LayoutCallbackInfo) -> azul_core::dom::Dom {
-    // Clone data BEFORE downcasting to avoid borrow conflicts
     let data_clone = data.clone();
 
     let menu_data = match data.downcast_ref::<MenuWindowData>() {
@@ -426,14 +365,12 @@ extern "C" fn menu_layout_callback(mut data: RefAny, info: LayoutCallbackInfo) -
         }
     };
 
-    // Get SystemStyle from LayoutCallbackInfo (Arc-based, safe)
     let system_style = &*info.get_system_style();
 
-    // Use menu_renderer to create the Dom with deferred CSS
     crate::desktop::menu_renderer::create_menu_dom_with_css(
         &menu_data.menu,
         system_style,
-        data_clone, // Pass cloned MenuWindowData to item callbacks
+        data_clone,
     )
 }
 
@@ -449,58 +386,41 @@ pub fn show_menu(
     cursor_position: Option<LogicalPosition>,
     parent_menu_id: Option<u64>,
 ) -> WindowCreateOptions {
-    create_menu_window(
+    let menu_data = MenuWindowData {
         menu,
         system_style,
         parent_window_position,
         trigger_rect,
         cursor_position,
         parent_menu_id,
-    )
-}
-
-/// Convenience function to spawn a menu from a callback
-///
-/// This is the recommended way to spawn menus from callbacks. It automatically
-/// extracts the necessary information from CallbackInfo.
-pub fn spawn_menu_from_callback(
-    info: &mut azul_layout::callbacks::CallbackInfo,
-    menu: Menu,
-    _position: MenuPopupPosition,
-) {
-    use azul_core::{geom::LogicalPosition, window::WindowPosition};
-
-    // Get parent window position in logical coordinates
-    let full_window_state = info.get_current_window_state();
-
-    // Convert window position to logical coordinates
-    let parent_window_pos = match full_window_state.position {
-        WindowPosition::Initialized(phys_pos) => {
-            let hidpi_factor = full_window_state.size.get_hidpi_factor().inner.get();
-            LogicalPosition::new(
-                phys_pos.x as f32 / hidpi_factor,
-                phys_pos.y as f32 / hidpi_factor,
-            )
-        }
-        WindowPosition::Uninitialized => LogicalPosition::new(0.0, 0.0),
+        menu_window_id: None,
+        child_menu_ids: Arc::new(std::sync::Mutex::new(Vec::new())),
     };
 
-    // Get trigger rect and cursor position
-    let trigger_rect = info.get_hit_node_layout_rect();
-    let cursor_pos = info.get_cursor_position();
+    let mut window_state = FullWindowState::default();
 
-    // Create menu window
-    let menu_window = show_menu(
-        menu,
-        info.get_system_style(),
-        parent_window_pos,
-        trigger_rect,
-        cursor_pos,
-        None, // parent_menu_id
-    );
+    window_state.flags.window_type = WindowType::Menu;
+    window_state.flags.is_always_on_top = true;
+    window_state.flags.is_visible = true;
+    window_state.flags.decorations = azul_core::window::WindowDecorations::None;
+    window_state.flags.is_resizable = false;
+    window_state.title = "Menu".into();
+    window_state.window_id = "azul-menu".into();
+    window_state.position = WindowPosition::Initialized(PhysicalPosition::new(0, 0));
 
-    // Spawn the window
-    info.create_window(menu_window);
+    window_state.layout_callback = LayoutCallback {
+        cb: menu_layout_callback,
+        ctx: azul_core::refany::OptionRefAny::None,
+    };
+
+    WindowCreateOptions {
+        window_state,
+        size_to_content: true,
+        renderer: None.into(),
+        theme: None.into(),
+        create_callback: None.into(),
+        hot_reload: false,
+    }
 }
 
 #[cfg(test)]
