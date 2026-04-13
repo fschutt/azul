@@ -15,6 +15,7 @@ pub mod compositor;
 pub mod cpu_compositor;
 pub mod dlopen;
 pub mod error;
+pub mod gl_loader;
 
 // Unified cross-platform modules
 pub mod debug_server;
