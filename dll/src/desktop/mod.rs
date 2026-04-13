@@ -42,7 +42,13 @@ pub mod compositor2;
 /// Client-Side Decorations (CSD) - Custom window titlebar
 pub mod csd;
 /// CSS type definitions / CSS parsing functions
-pub mod css;
+pub mod css {
+    pub use azul_css::*;
+    pub mod css_parser {
+        pub use azul_css::parser2::*;
+    }
+    pub use azul_css::css::Css;
+}
 /// Bindings to the native file-chooser, color picker, etc. dialogs
 pub mod dialogs;
 /// Display/Monitor management for menu positioning
