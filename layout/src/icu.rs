@@ -137,6 +137,178 @@ impl From<IcuPluralCategory> for PluralCategory {
     }
 }
 
+// ─── CLDR plural rules ───────────────────────────────────────────────────────
+//
+// Shared between macOS and Windows backends. Covers the major plural-rule
+// groups defined in CLDR without bundling any data file.
+
+#[cfg(any(
+    all(target_os = "macos", feature = "icu_macos"),
+    all(target_os = "windows", feature = "icu_windows"),
+))]
+pub(crate) fn plural_for(n: i64, lang: &str) -> PluralCategory {
+    let lang = lang.split(['-', '_']).next().unwrap_or(lang);
+    match lang {
+        // Arabic: six categories
+        "ar" | "arz" | "ckb" => {
+            let n100 = n.abs() % 100;
+            if n == 0 {
+                PluralCategory::Zero
+            } else if n == 1 {
+                PluralCategory::One
+            } else if n == 2 {
+                PluralCategory::Two
+            } else if (3..=10).contains(&n100) {
+                PluralCategory::Few
+            } else if (11..=99).contains(&n100) {
+                PluralCategory::Many
+            } else {
+                PluralCategory::Other
+            }
+        }
+        // Welsh: six categories
+        "cy" => match n {
+            0 => PluralCategory::Zero,
+            1 => PluralCategory::One,
+            2 => PluralCategory::Two,
+            3 => PluralCategory::Few,
+            6 => PluralCategory::Many,
+            _ => PluralCategory::Other,
+        },
+        // East Slavic (Russian, Ukrainian, Belarusian, Serbian, Croatian, Bosnian)
+        "ru" | "uk" | "be" | "sr" | "hr" | "bs" | "sh" => {
+            let n10 = n.abs() % 10;
+            let n100 = n.abs() % 100;
+            if n10 == 1 && n100 != 11 {
+                PluralCategory::One
+            } else if (2..=4).contains(&n10) && !(12..=14).contains(&n100) {
+                PluralCategory::Few
+            } else {
+                PluralCategory::Many
+            }
+        }
+        // Polish
+        "pl" => {
+            let n10 = n.abs() % 10;
+            let n100 = n.abs() % 100;
+            if n == 1 {
+                PluralCategory::One
+            } else if (2..=4).contains(&n10) && !(12..=14).contains(&n100) {
+                PluralCategory::Few
+            } else {
+                PluralCategory::Many
+            }
+        }
+        // Czech, Slovak
+        "cs" | "sk" => {
+            if n == 1 {
+                PluralCategory::One
+            } else if (2..=4).contains(&n) {
+                PluralCategory::Few
+            } else {
+                PluralCategory::Other
+            }
+        }
+        // Slovenian
+        "sl" => {
+            let n100 = n.abs() % 100;
+            if n100 == 1 {
+                PluralCategory::One
+            } else if n100 == 2 {
+                PluralCategory::Two
+            } else if (3..=4).contains(&n100) {
+                PluralCategory::Few
+            } else {
+                PluralCategory::Other
+            }
+        }
+        // Lithuanian
+        "lt" => {
+            let n10 = n.abs() % 10;
+            let n100 = n.abs() % 100;
+            if n10 == 1 && !(11..=19).contains(&n100) {
+                PluralCategory::One
+            } else if (2..=9).contains(&n10) && !(11..=19).contains(&n100) {
+                PluralCategory::Few
+            } else {
+                PluralCategory::Other
+            }
+        }
+        // Latvian
+        "lv" => {
+            let n10 = n.abs() % 10;
+            let n100 = n.abs() % 100;
+            if n == 0 {
+                PluralCategory::Zero
+            } else if n10 == 1 && n100 != 11 {
+                PluralCategory::One
+            } else {
+                PluralCategory::Other
+            }
+        }
+        // Romanian
+        "ro" | "mo" => {
+            let n100 = n.abs() % 100;
+            if n == 1 {
+                PluralCategory::One
+            } else if n == 0 || (1..=19).contains(&n100) {
+                PluralCategory::Few
+            } else {
+                PluralCategory::Other
+            }
+        }
+        // Maltese
+        "mt" => {
+            let n100 = n.abs() % 100;
+            if n == 1 {
+                PluralCategory::One
+            } else if n == 0 || (2..=10).contains(&n100) {
+                PluralCategory::Few
+            } else if (11..=19).contains(&n100) {
+                PluralCategory::Many
+            } else {
+                PluralCategory::Other
+            }
+        }
+        // Hebrew / Yiddish
+        "he" | "yi" | "iw" => {
+            if n == 1 {
+                PluralCategory::One
+            } else if n == 2 {
+                PluralCategory::Two
+            } else if n != 0 && n % 10 == 0 {
+                PluralCategory::Many
+            } else {
+                PluralCategory::Other
+            }
+        }
+        // Irish (Gaelic)
+        "ga" => match n {
+            1 => PluralCategory::One,
+            2 => PluralCategory::Two,
+            3..=6 => PluralCategory::Few,
+            7..=10 => PluralCategory::Many,
+            _ => PluralCategory::Other,
+        },
+        // French, Kabyle: 0 and 1 are "one"
+        "fr" | "ff" | "kab" => {
+            if n == 0 || n == 1 {
+                PluralCategory::One
+            } else {
+                PluralCategory::Other
+            }
+        }
+        // Default: English-style (exactly 1 → one, everything else → other)
+        _ => {
+            if n == 1 {
+                PluralCategory::One
+            } else {
+                PluralCategory::Other
+            }
+        }
+    }
+}
+
 /// List formatting type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]

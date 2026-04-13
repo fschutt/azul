@@ -15,7 +15,7 @@ use std::sync::OnceLock;
 
 use azul_css::AzString;
 
-use super::{FormatLength, IcuDate, IcuDateTime, IcuResult, IcuTime, ListType, PluralCategory};
+use super::{FormatLength, IcuDate, IcuDateTime, IcuResult, IcuTime, ListType, PluralCategory, plural_for};
 
 // ─── Win32 inline types (no winapi dep needed) ───────────────────────────────
 
@@ -176,104 +176,6 @@ const TIME_NOSECONDS:  u32 = 0x0000_0002;
 const CSTR_LESS_THAN:    i32 = 1;
 const CSTR_EQUAL:        i32 = 2;
 const CSTR_GREATER_THAN: i32 = 3;
-
-// ─── CLDR plural rules ────────────────────────────────────────────────────────
-//
-// Identical to the table in icu_macos.rs — covers major plural-rule groups
-// without bundling any data file.
-
-fn plural_for(n: i64, lang: &str) -> PluralCategory {
-    let lang = lang.split(['-', '_']).next().unwrap_or(lang);
-    match lang {
-        "ar" | "arz" | "ckb" => {
-            let n100 = n.abs() % 100;
-            if n == 0 { PluralCategory::Zero }
-            else if n == 1 { PluralCategory::One }
-            else if n == 2 { PluralCategory::Two }
-            else if (3..=10).contains(&n100) { PluralCategory::Few }
-            else if (11..=99).contains(&n100) { PluralCategory::Many }
-            else { PluralCategory::Other }
-        }
-        "cy" => match n {
-            0 => PluralCategory::Zero,
-            1 => PluralCategory::One,
-            2 => PluralCategory::Two,
-            3 => PluralCategory::Few,
-            6 => PluralCategory::Many,
-            _ => PluralCategory::Other,
-        },
-        "ru" | "uk" | "be" | "sr" | "hr" | "bs" | "sh" => {
-            let n10  = n.abs() % 10;
-            let n100 = n.abs() % 100;
-            if n10 == 1 && n100 != 11 { PluralCategory::One }
-            else if (2..=4).contains(&n10) && !(12..=14).contains(&n100) { PluralCategory::Few }
-            else { PluralCategory::Many }
-        }
-        "pl" => {
-            let n10  = n.abs() % 10;
-            let n100 = n.abs() % 100;
-            if n == 1 { PluralCategory::One }
-            else if (2..=4).contains(&n10) && !(12..=14).contains(&n100) { PluralCategory::Few }
-            else { PluralCategory::Many }
-        }
-        "cs" | "sk" => {
-            if n == 1 { PluralCategory::One }
-            else if (2..=4).contains(&n) { PluralCategory::Few }
-            else { PluralCategory::Other }
-        }
-        "sl" => {
-            let n100 = n.abs() % 100;
-            if n100 == 1 { PluralCategory::One }
-            else if n100 == 2 { PluralCategory::Two }
-            else if (3..=4).contains(&n100) { PluralCategory::Few }
-            else { PluralCategory::Other }
-        }
-        "lt" => {
-            let n10  = n.abs() % 10;
-            let n100 = n.abs() % 100;
-            if n10 == 1 && !(11..=19).contains(&n100) { PluralCategory::One }
-            else if (2..=9).contains(&n10) && !(11..=19).contains(&n100) { PluralCategory::Few }
-            else { PluralCategory::Other }
-        }
-        "lv" => {
-            let n10  = n.abs() % 10;
-            let n100 = n.abs() % 100;
-            if n == 0 { PluralCategory::Zero }
-            else if n10 == 1 && n100 != 11 { PluralCategory::One }
-            else { PluralCategory::Other }
-        }
-        "ro" | "mo" => {
-            let n100 = n.abs() % 100;
-            if n == 1 { PluralCategory::One }
-            else if n == 0 || (1..=19).contains(&n100) { PluralCategory::Few }
-            else { PluralCategory::Other }
-        }
-        "mt" => {
-            let n100 = n.abs() % 100;
-            if n == 1 { PluralCategory::One }
-            else if n == 0 || (2..=10).contains(&n100) { PluralCategory::Few }
-            else if (11..=19).contains(&n100) { PluralCategory::Many }
-            else { PluralCategory::Other }
-        }
-        "he" | "yi" | "iw" => {
-            if n == 1 { PluralCategory::One }
-            else if n == 2 { PluralCategory::Two }
-            else if n != 0 && n % 10 == 0 { PluralCategory::Many }
-            else { PluralCategory::Other }
-        }
-        "ga" => match n {
-            1 => PluralCategory::One,
-            2 => PluralCategory::Two,
-            3..=6 => PluralCategory::Few,
-            7..=10 => PluralCategory::Many,
-            _ => PluralCategory::Other,
-        },
-        "fr" | "ff" | "kab" => {
-            if n <= 1 { PluralCategory::One } else { PluralCategory::Other }
-        }
-        _ => if n == 1 { PluralCategory::One } else { PluralCategory::Other },
-    }
-}
 
 // ─── List formatting helpers ──────────────────────────────────────────────────
 //
