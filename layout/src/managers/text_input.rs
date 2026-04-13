@@ -35,7 +35,6 @@
 use azul_core::{
     dom::DomNodeId,
     events::{EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent},
-    selection::TextCursor,
     task::Instant,
 };
 use azul_css::corety::AzString;
@@ -53,22 +52,13 @@ pub struct PendingTextEdit {
 }
 
 impl PendingTextEdit {
-    /// Compute the resulting text after applying the edit
+    /// Preview the resulting text by appending inserted_text to old_text.
     ///
-    /// This is a pure function that applies the inserted_text to old_text
-    /// using the current cursor position.
-    ///
-    /// NOTE: Actual text application is handled by apply_text_changeset() in window.rs
-    /// which uses text3::edit::insert_text() for proper cursor-based insertion.
-    /// This method is for preview/inspection purposes only.
-    pub fn resulting_text(&self, cursor: Option<&TextCursor>) -> AzString {
-        // For preview: append the inserted text
-        // Actual insertion at cursor is done by text3::edit::insert_text()
+    /// NOTE: Actual cursor-based insertion is handled by apply_text_changeset()
+    /// in window.rs via text3::edit::insert_text().
+    pub fn resulting_text(&self) -> AzString {
         let mut result = self.old_text.as_str().to_string();
         result.push_str(self.inserted_text.as_str());
-
-        let _ = cursor; // Preview doesn't need cursor - actual insert does
-
         result.into()
     }
 }
@@ -186,10 +176,6 @@ impl TextInputManager {
         self.input_source = None;
     }
 
-    /// Check if there's a pending changeset that needs to be applied
-    pub fn has_pending_changeset(&self) -> bool {
-        self.pending_changeset.is_some()
-    }
 }
 
 impl Default for TextInputManager {
