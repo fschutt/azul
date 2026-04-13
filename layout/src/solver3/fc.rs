@@ -3501,13 +3501,24 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         });
 
     // Get exclusion-margin for shape exclusions
-    let exclusion_margin = styled_dom
+    let exclusion_margin_base = styled_dom
         .css_property_cache
         .ptr
         .get_exclusion_margin(node_data, &id, node_state)
         .and_then(|s| s.get_property())
         .map(|em| em.inner.get() as f32)
         .unwrap_or(0.0);
+
+    // shape-margin expands the shape-outside exclusion area (CSS Shapes L1)
+    let shape_margin = styled_dom
+        .css_property_cache
+        .ptr
+        .get_shape_margin(node_data, &id, node_state)
+        .and_then(|s| s.get_property())
+        .map(|sm| sm.inner.number.get() as f32)
+        .unwrap_or(0.0);
+
+    let exclusion_margin = exclusion_margin_base + shape_margin;
 
     // Get hyphenation-language for language-specific hyphenation
     let hyphenation_language = styled_dom

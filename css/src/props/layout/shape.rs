@@ -60,7 +60,7 @@ impl PrintAsCssValue for ShapeOutside {
     fn print_as_css_value(&self) -> String {
         match self {
             Self::None => "none".to_string(),
-            Self::Shape(shape) => format!("{:?}", shape), // TODO: Proper CSS formatting
+            Self::Shape(shape) => shape.print_as_css_value(),
         }
     }
 }
@@ -105,7 +105,7 @@ impl PrintAsCssValue for ShapeInside {
     fn print_as_css_value(&self) -> String {
         match self {
             Self::None => "none".to_string(),
-            Self::Shape(shape) => format!("{:?}", shape), // TODO: Proper CSS formatting
+            Self::Shape(shape) => shape.print_as_css_value(),
         }
     }
 }
@@ -150,7 +150,7 @@ impl PrintAsCssValue for ClipPath {
     fn print_as_css_value(&self) -> String {
         match self {
             Self::None => "none".to_string(),
-            Self::Shape(shape) => format!("{:?}", shape), // TODO: Proper CSS formatting
+            Self::Shape(shape) => shape.print_as_css_value(),
         }
     }
 }
@@ -202,7 +202,12 @@ impl crate::format_rust_code::FormatAsRustCode for ShapeOutside {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
             ShapeOutside::None => String::from("ShapeOutside::None"),
-            ShapeOutside::Shape(_s) => String::from("ShapeOutside::Shape(/* ... */)"), // TODO
+            ShapeOutside::Shape(s) => {
+                let mut r = String::from("ShapeOutside::Shape(");
+                r.push_str(&s.format_as_rust_code());
+                r.push(')');
+                r
+            }
         }
     }
 }
@@ -211,7 +216,12 @@ impl crate::format_rust_code::FormatAsRustCode for ShapeInside {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
             ShapeInside::None => String::from("ShapeInside::None"),
-            ShapeInside::Shape(_s) => String::from("ShapeInside::Shape(/* ... */)"), // TODO
+            ShapeInside::Shape(s) => {
+                let mut r = String::from("ShapeInside::Shape(");
+                r.push_str(&s.format_as_rust_code());
+                r.push(')');
+                r
+            }
         }
     }
 }
@@ -220,7 +230,12 @@ impl crate::format_rust_code::FormatAsRustCode for ClipPath {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
             ClipPath::None => String::from("ClipPath::None"),
-            ClipPath::Shape(_s) => String::from("ClipPath::Shape(/* ... */)"), // TODO
+            ClipPath::Shape(s) => {
+                let mut r = String::from("ClipPath::Shape(");
+                r.push_str(&s.format_as_rust_code());
+                r.push(')');
+                r
+            }
         }
     }
 }
