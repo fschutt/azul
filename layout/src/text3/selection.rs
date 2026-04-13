@@ -17,33 +17,33 @@ pub fn select_word_at_cursor(
     // Find the item containing this cursor
     let (item_idx, _cluster) = find_cluster_at_cursor(cursor, layout)?;
 
-    // Get the text from this cluster and surrounding clusters on the same line
-    let line_text = extract_line_text_at_item(item_idx, layout);
-    let cursor_byte_offset = cursor.cluster_id.start_byte_in_run as usize;
+    // Get text and cluster mapping for this line
+    let (line_text, cluster_map) = extract_line_text_and_clusters(item_idx, layout);
 
-    // Find word boundaries
+    // Compute byte offset within concatenated line text
+    let cursor_byte_offset = cluster_map
+        .iter()
+        .take_while(|(id, _)| *id != cursor.cluster_id)
+        .map(|(_, len)| len)
+        .sum::<usize>();
+
+    // Find word boundaries in the concatenated text
     let (word_start, word_end) = find_word_boundaries(&line_text, cursor_byte_offset);
 
-    // Convert byte offsets to cursors
-    let start_cursor = TextCursor {
-        cluster_id: GraphemeClusterId {
-            source_run: cursor.cluster_id.source_run,
-            start_byte_in_run: word_start as u32,
-        },
-        affinity: CursorAffinity::Leading,
-    };
-
-    let end_cursor = TextCursor {
-        cluster_id: GraphemeClusterId {
-            source_run: cursor.cluster_id.source_run,
-            start_byte_in_run: word_end as u32,
-        },
-        affinity: CursorAffinity::Trailing,
-    };
+    // Map byte offsets back to cluster IDs
+    let start_cluster_id = byte_offset_to_cluster_id(&cluster_map, word_start)?;
+    let end_cluster_id = byte_offset_to_cluster_id(&cluster_map, word_end.saturating_sub(1))
+        .unwrap_or(start_cluster_id);
 
     Some(SelectionRange {
-        start: start_cursor,
-        end: end_cursor,
+        start: TextCursor {
+            cluster_id: start_cluster_id,
+            affinity: CursorAffinity::Leading,
+        },
+        end: TextCursor {
+            cluster_id: end_cluster_id,
+            affinity: CursorAffinity::Trailing,
+        },
     })
 }
 
@@ -112,15 +112,46 @@ fn find_cluster_at_cursor<'a>(
     })
 }
 
-/// Extract text from all clusters on the same line as the given item
-fn extract_line_text_at_item(item_idx: usize, layout: &UnifiedLayout) -> String {
+/// Extract text and cluster ID mapping from all clusters on the same line.
+///
+/// Returns concatenated text and a vec of (cluster_id, byte_length) pairs
+/// so byte offsets can be mapped back to cluster IDs.
+fn extract_line_text_and_clusters(
+    item_idx: usize,
+    layout: &UnifiedLayout,
+) -> (String, Vec<(GraphemeClusterId, usize)>) {
     let line_index = layout.items[item_idx].line_index;
 
-    layout.items.iter()
-        .filter(|item| item.line_index == line_index)
-        .filter_map(|item| item.item.as_cluster())
-        .map(|c| c.text.as_str())
-        .collect()
+    let mut text = String::new();
+    let mut cluster_map = Vec::new();
+
+    for item in layout.items.iter() {
+        if item.line_index != line_index {
+            continue;
+        }
+        if let Some(c) = item.item.as_cluster() {
+            let s = c.text.as_str();
+            cluster_map.push((c.source_cluster_id, s.len()));
+            text.push_str(s);
+        }
+    }
+
+    (text, cluster_map)
+}
+
+/// Map a byte offset in concatenated line text back to a cluster ID.
+fn byte_offset_to_cluster_id(
+    cluster_map: &[(GraphemeClusterId, usize)],
+    byte_offset: usize,
+) -> Option<GraphemeClusterId> {
+    let mut cumulative = 0;
+    for (id, len) in cluster_map {
+        if byte_offset < cumulative + len {
+            return Some(*id);
+        }
+        cumulative += len;
+    }
+    cluster_map.last().map(|(id, _)| *id)
 }
 
 /// Find word boundaries around the given byte offset
@@ -193,4 +224,84 @@ fn find_word_boundaries(text: &str, cursor_offset: usize) -> (usize, usize) {
 #[inline]
 fn is_word_char(ch: char) -> bool {
     ch.is_alphanumeric() || ch == '_'
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_word_boundaries_simple() {
+        let text = "Hello World";
+        let (start, end) = find_word_boundaries(text, 2);
+        assert_eq!(&text[start..end], "Hello");
+
+        let (start, end) = find_word_boundaries(text, 7);
+        assert_eq!(&text[start..end], "World");
+
+        let (start, end) = find_word_boundaries(text, 5);
+        assert_eq!(&text[start..end], " ");
+    }
+
+    #[test]
+    fn test_word_boundaries_start_end() {
+        let text = "Hello";
+        let (start, end) = find_word_boundaries(text, 0);
+        assert_eq!(&text[start..end], "Hello");
+
+        let (start, end) = find_word_boundaries(text, 5);
+        assert_eq!(&text[start..end], "Hello");
+    }
+
+    #[test]
+    fn test_word_boundaries_punctuation() {
+        let text = "Hello, World!";
+        let (start, end) = find_word_boundaries(text, 2);
+        assert_eq!(&text[start..end], "Hello");
+
+        let (start, end) = find_word_boundaries(text, 5);
+        assert_eq!(&text[start..end], ", ");
+
+        let (start, end) = find_word_boundaries(text, 8);
+        assert_eq!(&text[start..end], "World");
+    }
+
+    #[test]
+    fn test_word_boundaries_underscore() {
+        let text = "hello_world";
+        let (start, end) = find_word_boundaries(text, 5);
+        assert_eq!(&text[start..end], "hello_world");
+    }
+
+    #[test]
+    fn test_is_word_char() {
+        assert!(is_word_char('a'));
+        assert!(is_word_char('Z'));
+        assert!(is_word_char('0'));
+        assert!(is_word_char('_'));
+        assert!(!is_word_char(' '));
+        assert!(!is_word_char(','));
+        assert!(!is_word_char('!'));
+    }
+
+    #[test]
+    fn test_word_boundaries_empty() {
+        let (start, end) = find_word_boundaries("", 0);
+        assert_eq!(start, 0);
+        assert_eq!(end, 0);
+    }
+
+    #[test]
+    fn test_byte_offset_to_cluster_id_basic() {
+        let id0 = GraphemeClusterId { source_run: 0, start_byte_in_run: 0 };
+        let id1 = GraphemeClusterId { source_run: 0, start_byte_in_run: 5 };
+        let id2 = GraphemeClusterId { source_run: 0, start_byte_in_run: 6 };
+        let map = vec![(id0, 5), (id1, 1), (id2, 5)];
+
+        assert_eq!(byte_offset_to_cluster_id(&map, 0), Some(id0));
+        assert_eq!(byte_offset_to_cluster_id(&map, 4), Some(id0));
+        assert_eq!(byte_offset_to_cluster_id(&map, 5), Some(id1));
+        assert_eq!(byte_offset_to_cluster_id(&map, 6), Some(id2));
+        assert_eq!(byte_offset_to_cluster_id(&map, 100), Some(id2));
+    }
 }
