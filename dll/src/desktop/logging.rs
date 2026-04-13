@@ -90,25 +90,17 @@ pub fn set_up_panic_hooks() {
             backtrace_str
         );
 
-        #[cfg(target_os = "linux")]
-        let mut error_str_clone = error_str.clone();
-        #[cfg(target_os = "linux")]
-        {
-            error_str_clone = error_str_clone.replace("<", "&lt;");
-            error_str_clone = error_str_clone.replace(">", "&gt;");
-        }
-
         // TODO: invoke external app crash handler with the location to the log file
         log::error!("{}", error_str);
 
         if SHOULD_ENABLE_PANIC_HOOK.load(Ordering::SeqCst) {
             #[cfg(not(target_os = "linux"))]
-            tfd::MessageBox::new("Unexpected fatal error", &error_str)
-                .with_icon(tfd::MessageBoxIcon::Info)
-                .run_modal();
+            let dialog_str = &error_str;
 
             #[cfg(target_os = "linux")]
-            tfd::MessageBox::new("Unexpected fatal error", &error_str_clone)
+            let dialog_str = error_str.replace("<", "&lt;").replace(">", "&gt;");
+
+            tfd::MessageBox::new("Unexpected fatal error", &dialog_str)
                 .with_icon(tfd::MessageBoxIcon::Info)
                 .run_modal();
         }
