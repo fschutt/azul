@@ -75,18 +75,6 @@ impl FluentError {
     }
 }
 
-/// A syntax error found in a .fluent file
-#[derive(Debug, Clone, PartialEq)]
-#[repr(C)]
-pub struct FluentSyntaxError {
-    /// The error message
-    pub message: AzString,
-    /// Line number (1-based)
-    pub line: u32,
-    /// Column number (1-based)
-    pub column: u32,
-}
-
 /// Result of syntax checking a .fluent file
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
@@ -112,38 +100,6 @@ impl FluentSyntaxCheckResult {
         match self {
             FluentSyntaxCheckResult::Ok => OptionStringVec::None,
             FluentSyntaxCheckResult::Errors(e) => OptionStringVec::Some(e.clone()),
-        }
-    }
-}
-
-/// Result type for Fluent operations
-#[derive(Debug, Clone, PartialEq)]
-#[repr(C, u8)]
-pub enum FluentResult {
-    Ok(AzString),
-    Err(FluentError),
-}
-
-impl FluentResult {
-    pub fn ok(s: impl Into<String>) -> Self {
-        FluentResult::Ok(AzString::from(s.into()))
-    }
-
-    pub fn err(msg: impl Into<String>) -> Self {
-        FluentResult::Err(FluentError::new(msg))
-    }
-
-    pub fn into_option(self) -> Option<AzString> {
-        match self {
-            FluentResult::Ok(s) => Some(s),
-            FluentResult::Err(_) => None,
-        }
-    }
-
-    pub fn unwrap_or(self, default: AzString) -> AzString {
-        match self {
-            FluentResult::Ok(s) => s,
-            FluentResult::Err(_) => default,
         }
     }
 }
@@ -279,10 +235,17 @@ impl FluentLocaleBundle {
     }
 
     fn get_message_ids(&self) -> Vec<String> {
-        // FluentBundle doesn't provide iteration over message IDs directly
-        // We'd need to parse the sources to get them
-        // For now, return empty - this could be improved
-        Vec::new()
+        let mut ids = Vec::new();
+        for source in &self.sources {
+            if let Ok(resource) = parser::parse(source.as_str()) {
+                for entry in resource.body {
+                    if let fluent_syntax::ast::Entry::Message(msg) = entry {
+                        ids.push(msg.id.name.to_string());
+                    }
+                }
+            }
+        }
+        ids
     }
 }
 
@@ -558,19 +521,6 @@ impl FluentLocalizerHandle {
         self.load_from_zip_with_locale(data.as_slice(), Some(locale))
     }
 
-    /// Load a single .fluent file with explicit locale.
-    pub fn load_fluent_file(&self, locale: &str, content: &str) -> bool {
-        self.add_resource(locale, content)
-    }
-
-    /// Load a single .fluent file from bytes with explicit locale.
-    pub fn load_fluent_file_bytes(&self, locale: &str, data: &[u8]) -> bool {
-        match std::str::from_utf8(data) {
-            Ok(source) => self.add_resource(locale, source),
-            Err(_) => false,
-        }
-    }
-
     /// Load translations from a local file path.
     ///
     /// # Arguments
@@ -724,10 +674,11 @@ impl FluentLocalizerHandle {
     pub fn get_language_info(&self) -> FluentLanguageInfoVec {
         self.inner().bundles.lock().ok().map(|bundles| {
             bundles.iter().map(|(locale, bundle)| {
+                let ids: Vec<AzString> = bundle.get_message_ids().into_iter().map(AzString::from).collect();
                 FluentLanguageInfo {
                     locale: AzString::from(locale.clone()),
-                    message_count: bundle.sources.len(), // Approximate
-                    message_ids: bundle.get_message_ids().into_iter().map(AzString::from).collect(),
+                    message_count: ids.len(),
+                    message_ids: ids,
                 }
             }).collect()
         }).unwrap_or_default()
@@ -903,16 +854,6 @@ fn looks_like_locale(s: &str) -> bool {
     true
 }
 
-// ============================================================================
-// Extension trait for LayoutCallbackInfo (like ICU)
-// ============================================================================
-
-/// Extension trait for accessing Fluent localizer from callbacks.
-pub trait LayoutCallbackInfoFluentExt {
-    /// Get the Fluent localizer handle for translations.
-    fn get_fluent_localizer(&self) -> Option<FluentLocalizerHandle>;
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -929,14 +870,14 @@ greeting = Hello, { $name }!
         assert!(localizer.add_resource("en-US", ftl));
 
         let empty_args = FmtArgVec::new();
-        let result = localizer.translate("en-US", "hello", &empty_args);
+        let result = localizer.translate(AzString::from("en-US"), AzString::from("hello"), empty_args);
         assert_eq!(result.as_str(), "Hello, world!");
 
         let args = FmtArgVec::from_vec(vec![FmtArg {
             key: AzString::from("name"),
             value: FmtValue::Str(AzString::from("Alice")),
         }]);
-        let result = localizer.translate("en-US", "greeting", &args);
+        let result = localizer.translate(AzString::from("en-US"), AzString::from("greeting"), args);
         assert_eq!(result.as_str(), "Hello, Alice!");
     }
 

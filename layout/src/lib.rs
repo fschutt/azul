@@ -97,8 +97,8 @@ pub use fluent::{
     check_fluent_syntax, check_fluent_syntax_bytes, create_fluent_zip,
     create_fluent_zip_from_strings, export_to_zip, FluentError,
     FluentLanguageInfo, FluentLanguageInfoVec,
-    FluentLocalizerHandle, FluentResult, FluentSyntaxCheckResult,
-    FluentSyntaxError, FluentZipLoadResult, LayoutCallbackInfoFluentExt,
+    FluentLocalizerHandle, FluentSyntaxCheckResult,
+    FluentZipLoadResult,
 };
 
 /// URL parsing (RFC 3986 compliant).
