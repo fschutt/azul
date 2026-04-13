@@ -666,53 +666,10 @@ impl Win32Window {
         Ok(result)
     }
 
-    /// Start or stop timers based on changes
-    pub fn start_stop_timers(
-        &mut self,
-        added: HashMap<usize, azul_layout::timer::Timer>,
-        removed: std::collections::BTreeSet<usize>,
-    ) {
-        // Start new timers
-        for (id, timer) in added {
-            let interval_ms = timer.tick_millis().min(u32::MAX as u64) as u32;
-            let timer_id =
-                unsafe { (self.win32.user32.SetTimer)(self.hwnd, id, interval_ms, ptr::null()) };
-            self.timers.insert(id, timer_id);
-        }
-
-        // Stop removed timers
-        for id in removed {
-            if let Some(timer_id) = self.timers.remove(&id) {
-                unsafe { (self.win32.user32.KillTimer)(self.hwnd, timer_id) };
-            }
-        }
-    }
-
     /// Win32 timer ID reserved for thread-polling (~60 FPS tick).
     const THREAD_POLL_TIMER_ID: usize = 0xFFFF;
     /// Interval in milliseconds for the thread-polling timer (~60 FPS).
     const THREAD_POLL_INTERVAL_MS: u32 = 16;
-
-    /// Start or stop threads based on changes
-    pub fn start_thread_tick_timer(&mut self) {
-        if self.thread_timer_running.is_none() {
-            let timer_id = unsafe {
-                (self.win32.user32.SetTimer)(
-                    self.hwnd,
-                    Self::THREAD_POLL_TIMER_ID,
-                    Self::THREAD_POLL_INTERVAL_MS,
-                    ptr::null(),
-                )
-            };
-            self.thread_timer_running = Some(timer_id);
-        }
-    }
-
-    pub fn stop_thread_tick_timer(&mut self) {
-        if let Some(timer_id) = self.thread_timer_running.take() {
-            unsafe { (self.win32.user32.KillTimer)(self.hwnd, timer_id) };
-        }
-    }
 
     /// Render and present a frame.
     ///
@@ -1957,6 +1914,13 @@ unsafe fn default_window_proc(
     }
 }
 
+// Cached function pointers for window_proc — set once during WM_NCCREATE,
+// avoiding a full Win32Libraries::load() (multiple dlopen calls) on every message.
+static CACHED_GET_WINDOW_LONG_PTR_W: std::sync::atomic::AtomicPtr<core::ffi::c_void> =
+    std::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static CACHED_DEF_WINDOW_PROC_W: std::sync::atomic::AtomicPtr<core::ffi::c_void> =
+    std::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+
 // Win32 message handler
 unsafe extern "system" fn window_proc(
     hwnd: HWND,
@@ -2040,24 +2004,40 @@ unsafe extern "system" fn window_proc(
         let createstruct = lparam as *mut CREATESTRUCTW;
         let data_ptr = (*createstruct).lpCreateParams;
         (win32.user32.SetWindowLongPtrW)(hwnd, GWLP_USERDATA, data_ptr as isize);
+
+        // Cache these function pointers so subsequent messages avoid a full dlopen
+        CACHED_GET_WINDOW_LONG_PTR_W.store(
+            win32.user32.GetWindowLongPtrW as *mut core::ffi::c_void,
+            std::sync::atomic::Ordering::Release,
+        );
+        CACHED_DEF_WINDOW_PROC_W.store(
+            win32.user32.DefWindowProcW as *mut core::ffi::c_void,
+            std::sync::atomic::Ordering::Release,
+        );
+
         return (win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam);
     }
 
-    // Get window user data (Win32Window pointer) - need temporary Win32 libs for this lookup
-    let temp_win32 = match dlopen::Win32Libraries::load() {
-        Ok(w) => w,
-        Err(_) => return default_window_proc(hwnd, msg, wparam, lparam),
-    };
+    // Use cached function pointers (set during WM_NCCREATE) to avoid full Win32Libraries::load()
+    let get_wlp = CACHED_GET_WINDOW_LONG_PTR_W.load(std::sync::atomic::Ordering::Acquire);
+    let def_wp = CACHED_DEF_WINDOW_PROC_W.load(std::sync::atomic::Ordering::Acquire);
 
-    let window_ptr = (temp_win32.user32.GetWindowLongPtrW)(hwnd, GWLP_USERDATA) as *mut Win32Window;
+    if get_wlp.is_null() || def_wp.is_null() {
+        return default_window_proc(hwnd, msg, wparam, lparam);
+    }
+
+    let get_window_long_ptr_w: unsafe extern "system" fn(HWND, i32) -> isize =
+        core::mem::transmute(get_wlp);
+    let def_window_proc_w: unsafe extern "system" fn(HWND, u32, dlopen::WPARAM, dlopen::LPARAM) -> dlopen::LRESULT =
+        core::mem::transmute(def_wp);
+
+    let window_ptr = get_window_long_ptr_w(hwnd, GWLP_USERDATA) as *mut Win32Window;
 
     if window_ptr.is_null() {
-        // No user data yet, use default processing
-        return (temp_win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam);
+        return def_window_proc_w(hwnd, msg, wparam, lparam);
     }
 
     let window = &mut *window_ptr;
-    // Now we can use window.win32 instead of temp_win32 for the rest of the function
 
     // Handle messages
     match msg {
@@ -3412,30 +3392,6 @@ unsafe extern "system" fn window_proc(
     }
 }
 
-// Helper functions for string encoding
-
-/// Encode a string as null-terminated ASCII bytes
-fn encode_ascii(s: &str) -> Vec<u8> {
-    let mut bytes = s.as_bytes().to_vec();
-    bytes.push(0);
-    bytes
-}
-
-
-/// Load a DLL by name, returns None if loading fails
-fn load_dll(name: &str) -> Option<HINSTANCE> {
-    use winapi::um::libloaderapi::LoadLibraryA;
-
-    let mut dll_name = encode_ascii(name);
-    let handle = unsafe { LoadLibraryA(dll_name.as_mut_ptr() as *const i8) };
-
-    if handle.is_null() {
-        None
-    } else {
-        Some(handle as *mut c_void)
-    }
-}
-
 /// Returns a default PIXELFORMATDESCRIPTOR for OpenGL context creation
 fn get_default_pfd() -> winapi::um::wingdi::PIXELFORMATDESCRIPTOR {
     use winapi::um::wingdi::*;
@@ -3965,21 +3921,53 @@ impl PlatformWindow for Win32Window {
 }
 
 impl Win32Window {
-    /// Show a native Win32 menu at the given position
+    /// Show a native Win32 menu at the given position using TrackPopupMenu
     fn show_native_menu_at_position(
         &mut self,
         menu: &azul_core::menu::Menu,
         position: azul_core::geom::LogicalPosition,
     ) {
-        // TODO: Implement native Win32 TrackPopupMenu
-        // For now, fall back to window-based menu
-        log_debug!(
-            LogCategory::Window,
-            "Native menu at ({}, {}) - not yet implemented, using fallback",
-            position.x,
-            position.y
+        let mut hmenu = unsafe { (self.win32.user32.CreatePopupMenu)() };
+        if hmenu.is_null() {
+            self.show_fallback_menu(menu, position);
+            return;
+        }
+
+        let mut callbacks = BTreeMap::new();
+        menu::WindowsMenuBar::recursive_construct_menu(
+            &mut hmenu,
+            menu.items.as_ref(),
+            &mut callbacks,
+            &self.win32,
         );
-        self.show_fallback_menu(menu, position);
+
+        let dpi_factor = self.dpi.hwnd_dpi(self.hwnd as _) as f32 / 96.0;
+        let screen_x = (position.x * dpi_factor) as i32;
+        let screen_y = (position.y * dpi_factor) as i32;
+
+        let mut pt = dlopen::POINT {
+            x: screen_x,
+            y: screen_y,
+        };
+        unsafe {
+            (self.win32.user32.ClientToScreen)(self.hwnd, &mut pt);
+        }
+
+        self.context_menu = Some(callbacks);
+
+        unsafe {
+            (self.win32.user32.SetForegroundWindow)(self.hwnd);
+            (self.win32.user32.TrackPopupMenu)(
+                hmenu,
+                dlopen::constants::TPM_RIGHTBUTTON | dlopen::constants::TPM_LEFTALIGN,
+                pt.x,
+                pt.y,
+                0,
+                self.hwnd,
+                ptr::null(),
+            );
+            (self.win32.user32.DestroyMenu)(hmenu);
+        }
     }
 
     /// Show a fallback window-based menu at the given position
