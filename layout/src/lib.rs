@@ -195,11 +195,8 @@ pub mod font;
 pub mod headless;
 // Re-export allsorts types needed by printpdf
 #[cfg(feature = "text_layout")]
-pub use allsorts::subset::CmapTarget;
-#[cfg(feature = "text_layout")]
 pub use font::parsed::{
-    FontParseWarning, FontParseWarningSeverity, FontType, OwnedGlyph, ParsedFont, PdfFontMetrics,
-    SubsetFont,
+    FontParseWarning, FontParseWarningSeverity, OwnedGlyph, ParsedFont, PdfFontMetrics,
 };
 // Re-export hyphenation for external crates (like printpdf)
 #[cfg(feature = "text_layout_hyphenation")]

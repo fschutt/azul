@@ -130,7 +130,7 @@ pub mod parsed {
         layout::{GDEFTable, LayoutCache, LayoutCacheData, GPOS, GSUB},
         outline::{OutlineBuilder, OutlineSink},
         pathfinder_geometry::{line_segment::LineSegment2F, vector::Vector2F},
-        subset::{subset as allsorts_subset, whole_font, CmapTarget, SubsetProfile},
+        subset::whole_font,
         tables::{
             cmap::owned::CmapSubtable as OwnedCmapSubtable,
             glyf::{
@@ -279,18 +279,10 @@ pub mod parsed {
         pub cmap_subtable: Option<OwnedCmapSubtable>,
         /// Mock font data for testing (replaces real font behavior).
         pub mock: Option<Box<MockFont>>,
-        /// Reverse mapping: glyph_id -> cluster text (handles ligatures like "fi").
-        pub reverse_glyph_cache: std::collections::BTreeMap<u16, String>,
         /// Original font bytes (needed for subsetting and reconstruction).
         pub original_bytes: Vec<u8>,
         /// Font index within collection (0 for single-font files).
         pub original_index: usize,
-        /// GID to CID mapping for CFF fonts (required for PDF embedding).
-        pub index_to_cid: BTreeMap<u16, u16>,
-        /// Font type (TrueType outlines or OpenType CFF).
-        pub font_type: FontType,
-        /// PostScript font name from the NAME table.
-        pub font_name: Option<String>,
         /// TrueType bytecode hinting instance (mutable interpreter state).
         /// Wrapped in Mutex because hinting mutates internal state.
         /// None for CFF fonts or fonts without hinting data.
@@ -317,30 +309,13 @@ pub mod parsed {
                 space_width: self.space_width,
                 cmap_subtable: self.cmap_subtable.clone(),
                 mock: self.mock.clone(),
-                reverse_glyph_cache: self.reverse_glyph_cache.clone(),
                 original_bytes: self.original_bytes.clone(),
                 original_index: self.original_index,
-                index_to_cid: self.index_to_cid.clone(),
-                font_type: self.font_type.clone(),
-                font_name: self.font_name.clone(),
                 // HintInstance has mutable interpreter state and is not Clone.
                 // Clones are used for PDF/serialization where hinting isn't needed.
                 hint_instance: None,
             }
         }
-    }
-
-    /// Distinguishes TrueType fonts from OpenType CFF fonts.
-    ///
-    /// This affects how glyph outlines are extracted and how the font
-    /// is embedded in PDF documents.
-    #[derive(Debug, Clone, PartialEq)]
-    pub enum FontType {
-        /// TrueType font with quadratic Bézier outlines in glyf table.
-        TrueType,
-        /// OpenType font with cubic Bézier outlines in CFF table.
-        /// Contains the serialized CFF data for PDF embedding.
-        OpenTypeCFF(Vec<u8>),
     }
 
     /// PDF-specific font metrics from HEAD, HHEA, and OS/2 tables.
@@ -420,37 +395,6 @@ pub mod parsed {
                 y_strikeout_size: 0,
                 y_strikeout_position: 0,
             }
-        }
-    }
-
-    /// Result of font subsetting operation.
-    ///
-    /// Contains the subsetted font bytes and a mapping from original
-    /// glyph IDs to new glyph IDs in the subset.
-    #[derive(Debug, Clone)]
-    pub struct SubsetFont {
-        /// The subsetted font file bytes (smaller than original).
-        pub bytes: Vec<u8>,
-        /// Mapping: original glyph ID -> (new subset glyph ID, source character).
-        pub glyph_mapping: BTreeMap<u16, (u16, char)>,
-    }
-
-    impl SubsetFont {
-        /// Return the changed text so that when rendering with the subset font (instead of the
-        /// original) the renderer will end up at the same glyph IDs as if we used the original text
-        /// on the original font
-        pub fn subset_text(&self, text: &str) -> String {
-            text.chars()
-                .filter_map(|c| {
-                    self.glyph_mapping.values().find_map(|(ngid, ch)| {
-                        if *ch == c {
-                            char::from_u32(*ngid as u32)
-                        } else {
-                            None
-                        }
-                    })
-                })
-                .collect()
         }
     }
 
@@ -619,16 +563,6 @@ pub mod parsed {
                     return None;
                 }
             };
-
-            // Extract font name from NAME table early (before provider is moved)
-            let font_name = provider.table_data(tag::NAME).ok().and_then(|name_data| {
-                ReadScope::new(&name_data?)
-                    .read::<allsorts::tables::NameTable>()
-                    .ok()
-                    .and_then(|name_table| {
-                        name_table.string_for_id(allsorts::tables::NameTable::POSTSCRIPT_NAME)
-                    })
-            });
 
             let head_table = provider
                 .table_data(tag::HEAD)
@@ -865,12 +799,8 @@ pub mod parsed {
                 glyph_records_decoded,
                 space_width: None,
                 mock: None,
-                reverse_glyph_cache: BTreeMap::new(),
                 original_bytes: font_bytes.to_vec(),
                 original_index: font_index,
-                index_to_cid: BTreeMap::new(), // Will be filled for CFF fonts
-                font_type: FontType::TrueType, // Default, will be updated if CFF
-                font_name,
                 hint_instance,
             };
 
@@ -1158,98 +1088,10 @@ pub mod parsed {
             whole_font(&provider, tags_to_use).map_err(|e| e.to_string())
         }
 
-        /// Create a subset font containing only the specified glyph IDs
-        /// Returns the subset font bytes and a mapping from old to new glyph IDs
-        ///
-        /// # Arguments
-        /// * `glyph_ids` - The glyph IDs to include in the subset (glyph 0/.notdef is always
-        ///   included)
-        /// * `cmap_target` - Target cmap format (Unicode for web, MacRoman for compatibility)
-        ///
-        /// # Returns
-        /// A tuple of (subset_font_bytes, glyph_mapping) where glyph_mapping maps
-        /// original_glyph_id -> (new_glyph_id, original_char)
-        pub fn subset(
-            &self,
-            glyph_ids: &[(u16, char)],
-            cmap_target: CmapTarget,
-        ) -> Result<(Vec<u8>, BTreeMap<u16, (u16, char)>), String> {
-            let scope = ReadScope::new(&self.original_bytes);
-            let font_file = scope.read::<FontData<'_>>().map_err(|e| e.to_string())?;
-            let provider = font_file
-                .table_provider(self.original_index)
-                .map_err(|e| e.to_string())?;
-
-            // Build glyph mapping: original_id -> (new_id, char)
-            let glyph_mapping: BTreeMap<u16, (u16, char)> = glyph_ids
-                .iter()
-                .enumerate()
-                .map(|(new_id, &(original_id, ch))| (original_id, (new_id as u16, ch)))
-                .collect();
-
-            // Extract just the glyph IDs for subsetting
-            let ids: Vec<u16> = glyph_ids.iter().map(|(id, _)| *id).collect();
-
-            // Use PDF profile for embedding fonts in PDFs
-            let font_bytes = allsorts_subset(&provider, &ids, &SubsetProfile::Pdf, cmap_target)
-                .map_err(|e| format!("Subset error: {:?}", e))?;
-
-            Ok((font_bytes, glyph_mapping))
-        }
-
-        /// Get the width of a glyph in font units (internal, unscaled)
-        pub fn get_glyph_width_internal(&self, glyph_index: u16) -> Option<usize> {
-            allsorts::glyph_info::advance(
-                &self.maxp_table,
-                &self.hhea_table,
-                &self.hmtx_data,
-                glyph_index,
-            )
-            .ok()
-            .map(|s| s as usize)
-        }
-
         /// Get the width of the space character (unscaled font units)
         #[inline]
         pub const fn get_space_width(&self) -> Option<usize> {
             self.space_width
-        }
-
-        /// Add glyph-to-text mapping to reverse cache
-        /// This should be called during text shaping when we know both the source text and
-        /// resulting glyphs
-        pub fn cache_glyph_mapping(&mut self, glyph_id: u16, cluster_text: &str) {
-            self.reverse_glyph_cache
-                .insert(glyph_id, cluster_text.to_string());
-        }
-
-        /// Get the cluster text that produced a specific glyph ID
-        /// Returns the original text that was shaped into this glyph (handles ligatures correctly)
-        pub fn get_glyph_cluster_text(&self, glyph_id: u16) -> Option<&str> {
-            self.reverse_glyph_cache.get(&glyph_id).map(|s| s.as_str())
-        }
-
-        /// Get the first character from the cluster text for a glyph ID
-        /// This is useful for PDF ToUnicode CMap generation which requires single character
-        /// mappings
-        pub fn get_glyph_primary_char(&self, glyph_id: u16) -> Option<char> {
-            self.reverse_glyph_cache
-                .get(&glyph_id)
-                .and_then(|text| text.chars().next())
-        }
-
-        /// Clear the reverse glyph cache (useful for memory management)
-        pub fn clear_glyph_cache(&mut self) {
-            self.reverse_glyph_cache.clear();
-        }
-
-        /// Get the bounding box size of a glyph (unscaled units) - for PDF
-        /// Returns (width, height) in font units
-        pub fn get_glyph_bbox_size(&self, glyph_index: u16) -> Option<(i32, i32)> {
-            let g = self.glyph_records_decoded.get(&glyph_index)?;
-            let glyph_width = g.horz_advance as i32;
-            let glyph_height = g.bounding_box.max_y as i32 - g.bounding_box.min_y as i32;
-            Some((glyph_width, glyph_height))
         }
     }
 
