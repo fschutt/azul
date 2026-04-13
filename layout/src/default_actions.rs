@@ -38,7 +38,7 @@ use alloc::vec::Vec;
 use azul_core::{
     callbacks::FocusTarget,
     dom::{DomId, DomNodeId, NodeId},
-    events::{DefaultAction, DefaultActionResult, EventType, ScrollAmount, ScrollDirection, SyntheticEvent},
+    events::{DefaultAction, DefaultActionResult, ScrollAmount, ScrollDirection},
     window::{KeyboardState, VirtualKeyCode},
 };
 use crate::window::DomLayoutResult;
@@ -244,26 +244,6 @@ pub fn default_action_to_focus_target(action: &DefaultAction) -> Option<FocusTar
         DefaultAction::ClearFocus => Some(FocusTarget::NoFocus),
         _ => None,
     }
-}
-
-/// Create a synthetic click event for element activation.
-///
-/// When Enter or Space is pressed on an activatable element, we generate
-/// a synthetic click event that will be dispatched through the normal
-/// event system.
-pub fn create_activation_click_event(
-    target: &DomNodeId,
-    timestamp: azul_core::task::Instant,
-) -> SyntheticEvent {
-    use azul_core::events::{EventData, EventSource};
-    
-    SyntheticEvent::new(
-        EventType::Click,
-        EventSource::Synthetic,
-        target.clone(),
-        timestamp,
-        EventData::None,
-    )
 }
 
 #[cfg(test)]
