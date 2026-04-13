@@ -336,8 +336,6 @@ pub struct HeadlessWindow {
     is_open: bool,
     /// Event queue for programmatic event injection.
     event_queue: VecDeque<HeadlessEvent>,
-    /// Timer storage (timer_id -> Timer).
-    stub_timers: BTreeMap<usize, azul_layout::timer::Timer>,
     /// Thread poll timer running flag.
     thread_poll_timer_running: bool,
     /// Pending window creation requests (for popup menus, dialogs, etc.).
@@ -413,7 +411,6 @@ impl HeadlessWindow {
             cpu_backend: CpuBackend::new(),
             is_open: true,
             event_queue: VecDeque::new(),
-            stub_timers: BTreeMap::new(),
             thread_poll_timer_running: false,
             pending_window_creates: Vec::new(),
             config,
@@ -544,7 +541,8 @@ impl HeadlessWindow {
 
     /// Check if any timers are currently active.
     pub fn has_active_timers(&self) -> bool {
-        !self.stub_timers.is_empty()
+        self.common.layout_window.as_ref()
+            .map_or(false, |lw| !lw.timers.is_empty())
     }
 
     /// Get the number of pending window creation requests.
@@ -598,15 +596,114 @@ impl HeadlessWindow {
 
         while self.is_open() {
             // ── Phase 1: Process injected events ─────────────────
+            let mut events_need_redraw = false;
             while let Some(event) = self.poll_event() {
                 match event {
                     HeadlessEvent::Close => {
                         self.close();
                     }
-                    // TODO: wire mouse/keyboard events into
-                    // PlatformWindow::process_window_events() once the
-                    // shared event-dispatch code is ready.
-                    _ => {}
+                    HeadlessEvent::MouseMove { x, y } => {
+                        use azul_core::window::CursorPosition;
+                        self.common.previous_window_state =
+                            Some(self.common.current_window_state.clone());
+                        let pos = LogicalPosition { x, y };
+                        self.common.current_window_state.mouse_state.cursor_position =
+                            CursorPosition::InWindow(pos);
+                        self.update_hit_test_at(pos);
+                        let r = self.process_window_events(0);
+                        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                            events_need_redraw = true;
+                        }
+                    }
+                    HeadlessEvent::MouseDown { button } => {
+                        self.common.previous_window_state =
+                            Some(self.common.current_window_state.clone());
+                        match button {
+                            azul_core::events::MouseButton::Left => {
+                                self.common.current_window_state.mouse_state.left_down = true;
+                            }
+                            azul_core::events::MouseButton::Right => {
+                                self.common.current_window_state.mouse_state.right_down = true;
+                            }
+                            azul_core::events::MouseButton::Middle => {
+                                self.common.current_window_state.mouse_state.middle_down = true;
+                            }
+                            _ => {}
+                        }
+                        let r = self.process_window_events(0);
+                        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                            events_need_redraw = true;
+                        }
+                    }
+                    HeadlessEvent::MouseUp { button } => {
+                        self.common.previous_window_state =
+                            Some(self.common.current_window_state.clone());
+                        match button {
+                            azul_core::events::MouseButton::Left => {
+                                self.common.current_window_state.mouse_state.left_down = false;
+                            }
+                            azul_core::events::MouseButton::Right => {
+                                self.common.current_window_state.mouse_state.right_down = false;
+                            }
+                            azul_core::events::MouseButton::Middle => {
+                                self.common.current_window_state.mouse_state.middle_down = false;
+                            }
+                            _ => {}
+                        }
+                        let r = self.process_window_events(0);
+                        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                            events_need_redraw = true;
+                        }
+                    }
+                    HeadlessEvent::KeyDown { virtual_keycode } => {
+                        self.common.previous_window_state =
+                            Some(self.common.current_window_state.clone());
+                        self.common.current_window_state.keyboard_state.current_virtual_keycode =
+                            azul_core::window::OptionVirtualKeyCode::Some(virtual_keycode);
+                        self.common.current_window_state.keyboard_state
+                            .pressed_virtual_keycodes.insert_hm_item(virtual_keycode);
+                        let r = self.process_window_events(0);
+                        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                            events_need_redraw = true;
+                        }
+                    }
+                    HeadlessEvent::KeyUp { virtual_keycode } => {
+                        self.common.previous_window_state =
+                            Some(self.common.current_window_state.clone());
+                        self.common.current_window_state.keyboard_state.current_virtual_keycode =
+                            azul_core::window::OptionVirtualKeyCode::None;
+                        self.common.current_window_state.keyboard_state
+                            .pressed_virtual_keycodes.remove_hm_item(&virtual_keycode);
+                        let r = self.process_window_events(0);
+                        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                            events_need_redraw = true;
+                        }
+                    }
+                    HeadlessEvent::TextInput { .. } => {
+                        // Text input requires IME / text composition pipeline;
+                        // state-diff picks up keyboard events automatically.
+                    }
+                    HeadlessEvent::Resize { width, height } => {
+                        self.common.previous_window_state =
+                            Some(self.common.current_window_state.clone());
+                        self.common.current_window_state.size.dimensions.width = width;
+                        self.common.current_window_state.size.dimensions.height = height;
+                        events_need_redraw = true;
+                    }
+                    HeadlessEvent::Scroll { .. } => {
+                        // Scroll requires the physics-based scroll momentum
+                        // timer system (ScrollInputQueue + ScrollPhysicsState).
+                        // Not yet wired for headless.
+                    }
+                }
+            }
+            if events_need_redraw {
+                if let Err(e) = self.regenerate_layout() {
+                    log_error!(
+                        LogCategory::Layout,
+                        "[Headless] Layout regeneration after event failed: {}",
+                        e
+                    );
                 }
             }
 
@@ -665,7 +762,8 @@ impl HeadlessWindow {
             });
 
             // ── Phase 5: Condvar-based wait ──────────────────────
-            let has_timers = !self.stub_timers.is_empty();
+            let has_timers = self.common.layout_window.as_ref()
+                .map_or(false, |lw| !lw.timers.is_empty());
             let has_wake_sources = has_timers
                 || self.thread_poll_timer_running
                 || debug_enabled
@@ -757,9 +855,8 @@ impl PlatformWindow for HeadlessWindow {
         if let Some(layout_window) = self.common.layout_window.as_mut() {
             layout_window
                 .timers
-                .insert(azul_core::task::TimerId { id: timer_id }, timer.clone());
+                .insert(azul_core::task::TimerId { id: timer_id }, timer);
         }
-        self.stub_timers.insert(timer_id, timer);
         self.wake(); // transition condvar from indefinite to timed wait
     }
 
@@ -769,7 +866,6 @@ impl PlatformWindow for HeadlessWindow {
                 .timers
                 .remove(&azul_core::task::TimerId { id: timer_id });
         }
-        self.stub_timers.remove(&timer_id);
     }
 
     fn start_thread_poll_timer(&mut self) {
@@ -892,10 +988,13 @@ mod tests {
         let mut window = make_stub();
         assert!(!window.has_active_timers());
 
-        let timer = azul_layout::timer::Timer::new(
+        let get_time = azul_core::task::GetSystemTimeCallback {
+            cb: azul_core::task::get_system_time_libstd,
+        };
+        let timer = azul_layout::timer::Timer::create(
             RefAny::new(()),
-            test_timer_callback,
-            azul_core::task::TimerInterval::from_millis(100),
+            test_timer_callback as azul_layout::timer::TimerCallbackType,
+            get_time,
         );
         window.start_timer(1, timer);
         assert!(window.has_active_timers());
