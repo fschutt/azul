@@ -8,9 +8,9 @@ use azul_css::AzString;
 #[derive(Debug, Clone, PartialEq)]
 pub struct FileDropManager {
     /// File being hovered during drag-and-drop operation
-    pub hovered_file: Option<AzString>,
+    hovered_file: Option<AzString>,
     /// File that was dropped (cleared after one frame)
-    pub dropped_file: Option<AzString>,
+    dropped_file: Option<AzString>,
 }
 
 impl Default for FileDropManager {
@@ -38,19 +38,13 @@ impl FileDropManager {
         self.hovered_file.as_ref()
     }
 
+    /// Get the currently dropped file
+    pub fn get_dropped_file(&self) -> Option<&AzString> {
+        self.dropped_file.as_ref()
+    }
+
     /// Set the dropped file (should be cleared after one frame)
     pub fn set_dropped_file(&mut self, file: Option<AzString>) {
         self.dropped_file = file;
-    }
-
-    /// Get and clear the dropped file (one-shot event)
-    pub fn take_dropped_file(&mut self) -> Option<AzString> {
-        self.dropped_file.take()
-    }
-
-    /// Clear all state
-    pub fn clear(&mut self) {
-        self.hovered_file = None;
-        self.dropped_file = None;
     }
 }
