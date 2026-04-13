@@ -34,25 +34,7 @@ const COLOR_4C4C4C: ColorU = ColorU {
     a: 255,
 };
 
-static LABEL_STYLE_WINDOWS: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-        LayoutFlexDirection::Column,
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_justify_content(
-        LayoutJustifyContent::Center,
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
-    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
-        inner: COLOR_4C4C4C,
-    })),
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
-    CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
-    CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
-];
-
-static LABEL_STYLE_LINUX: &[CssPropertyWithConditions] = &[
+static LABEL_STYLE_DEFAULT: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
         LayoutFlexDirection::Column,
@@ -99,9 +81,9 @@ impl Label {
         Self {
             string,
             #[cfg(target_os = "windows")]
-            label_style: CssPropertyWithConditionsVec::from_const_slice(LABEL_STYLE_WINDOWS),
+            label_style: CssPropertyWithConditionsVec::from_const_slice(LABEL_STYLE_DEFAULT),
             #[cfg(target_os = "linux")]
-            label_style: CssPropertyWithConditionsVec::from_const_slice(LABEL_STYLE_LINUX),
+            label_style: CssPropertyWithConditionsVec::from_const_slice(LABEL_STYLE_DEFAULT),
             #[cfg(target_os = "macos")]
             label_style: CssPropertyWithConditionsVec::from_const_slice(LABEL_STYLE_MAC),
             #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
