@@ -13,7 +13,7 @@
 
 use std::{
     ffi::{c_char, c_int, c_uint, c_void},
-    rc::Rc,
+    sync::Arc,
 };
 
 use crate::desktop::shell2::common::{
@@ -194,11 +194,11 @@ impl DBusLib {
     ///
     /// Returns an error if the library cannot be loaded or if any required
     /// function symbol cannot be found.
-    pub fn new() -> Result<Rc<Self>, DlError> {
+    pub fn new() -> Result<Arc<Self>, DlError> {
         let lib =
             load_first_available::<Library>(&["libdbus-1.so.3", "libdbus-1.so", "libdbus-1.so.0"])?;
 
-        Ok(Rc::new(Self {
+        Ok(Arc::new(Self {
             // Connection management
             dbus_bus_get: load_symbol!(
                 lib,

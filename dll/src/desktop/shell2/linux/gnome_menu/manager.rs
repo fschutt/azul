@@ -6,7 +6,6 @@
 
 use std::{
     collections::HashMap,
-    rc::Rc,
     sync::{Arc, Mutex},
 };
 
@@ -26,7 +25,7 @@ pub struct GnomeMenuManager {
     object_path: String,
 
     // Shared DBus library instance (can be shared across windows)
-    dbus_lib: Rc<DBusLib>,
+    dbus_lib: Arc<DBusLib>,
 
     // Raw DBus connection (NOT wrapped in Arc to keep it simple)
     connection: *mut crate::desktop::shell2::linux::dbus::DBusConnection,
@@ -62,7 +61,7 @@ impl GnomeMenuManager {
     /// # Returns
     ///
     /// Returns `Err` if DBus connection fails or GNOME menus not available.
-    pub fn new(app_name: &str, dbus_lib: Rc<DBusLib>) -> Result<Self, GnomeMenuError> {
+    pub fn new(app_name: &str, dbus_lib: Arc<DBusLib>) -> Result<Self, GnomeMenuError> {
         debug_log(&format!(
             "Creating GNOME menu manager V2 for app: {}",
             app_name
