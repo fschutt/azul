@@ -7,7 +7,7 @@
 //! ## Architecture
 //!
 //! - Textures are stored by stable node identity: DocumentId -> (DomId, NodeId) -> TextureEntry
-//! - ExternalImageId is generated deterministically from (DomId, NodeId) 
+//! - ExternalImageId is generated deterministically from (DomId, NodeId)
 //! - This ensures WebRender's cached display lists always find the correct texture
 //! - Old textures are cleaned up when their epoch is outdated
 //!
@@ -22,10 +22,11 @@
 //!
 //! ## Safety
 //!
-//! The static mut TEXTURE_CACHE is safe because:
-//! 1. Texture itself is not thread-safe (requires OpenGL context)
-//! 2. All texture operations happen on the main/render thread
-//! 3. The cache is only accessed during rendering, which is single-threaded
+//! The TEXTURE_CACHE uses `thread_local!` to enforce single-thread access at
+//! the type level. Textures require an OpenGL context, which is inherently
+//! single-threaded.
+
+use std::cell::RefCell;
 
 use azul_core::{
     dom::{DomId, NodeId},
@@ -35,10 +36,13 @@ use azul_core::{
     OrderedMap,
 };
 
+/// Flag set on dom_id to distinguish legacy (counter-based) keys from real (DomId, NodeId) keys.
+const LEGACY_DOM_ID_FLAG: usize = 1 << (usize::BITS - 1);
+
 /// A stable key for identifying textures across frames.
 /// Using (DomId, NodeId) ensures the same DOM node always maps to the same texture slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct TextureSlotKey {
+pub(crate) struct TextureSlotKey {
     pub dom_id: DomId,
     pub node_id: NodeId,
 }
@@ -47,7 +51,7 @@ impl TextureSlotKey {
     pub fn new(dom_id: DomId, node_id: NodeId) -> Self {
         Self { dom_id, node_id }
     }
-    
+
     /// Generate a deterministic ExternalImageId from this key.
     /// This ensures the same DOM node always gets the same ExternalImageId.
     pub fn to_external_image_id(&self) -> ExternalImageId {
@@ -68,6 +72,17 @@ impl TextureSlotKey {
             node_id: NodeId::new((id.inner & 0xFFFFFFFF) as usize),
         }
     }
+
+    /// Decode a TextureSlotKey from a legacy ExternalImageId (from `ExternalImageId::new()`).
+    /// Sets LEGACY_DOM_ID_FLAG on dom_id to avoid collisions with real (DomId, NodeId) keys.
+    pub fn from_external_image_id_legacy(id: &ExternalImageId) -> Self {
+        let dom = (id.inner >> 32) as usize | LEGACY_DOM_ID_FLAG;
+        let node = (id.inner & 0xFFFFFFFF) as usize;
+        Self {
+            dom_id: DomId { inner: dom },
+            node_id: NodeId::new(node),
+        }
+    }
 }
 
 /// Entry for a texture in the cache, tracking the texture and when it was last updated.
@@ -80,8 +95,9 @@ struct TextureEntry {
 /// Structure: DocumentId -> TextureSlotKey -> TextureEntry
 type GlTextureStorage = OrderedMap<TextureSlotKey, TextureEntry>;
 
-/// Global texture cache. Not thread-safe, but textures are inherently single-threaded.
-static mut TEXTURE_CACHE: Option<OrderedMap<DocumentId, GlTextureStorage>> = None;
+thread_local! {
+    static TEXTURE_CACHE: RefCell<Option<OrderedMap<DocumentId, GlTextureStorage>>> = RefCell::new(None);
+}
 
 /// Insert or update a texture in the cache for a specific DOM node.
 ///
@@ -97,17 +113,12 @@ pub fn insert_texture_for_node(
     let key = TextureSlotKey::new(dom_id, node_id);
     let external_image_id = key.to_external_image_id();
 
-    unsafe {
-        if TEXTURE_CACHE.is_none() {
-            TEXTURE_CACHE = Some(OrderedMap::new());
-        }
-
-        let cache = TEXTURE_CACHE.as_mut().unwrap();
+    TEXTURE_CACHE.with(|cell| {
+        let mut cache_opt = cell.borrow_mut();
+        let cache = cache_opt.get_or_insert_with(OrderedMap::new);
         let document_storage = cache.entry(document_id).or_default();
-
-        // Insert or update the texture entry
         document_storage.insert(key, TextureEntry { texture, epoch });
-    }
+    });
 
     external_image_id
 }
@@ -117,18 +128,13 @@ pub fn insert_texture_for_node(
 pub fn insert_texture(document_id: DocumentId, epoch: Epoch, texture: Texture) -> ExternalImageId {
     let external_image_id = ExternalImageId::new();
 
-    unsafe {
-        if TEXTURE_CACHE.is_none() {
-            TEXTURE_CACHE = Some(OrderedMap::new());
-        }
-
-        let cache = TEXTURE_CACHE.as_mut().unwrap();
+    TEXTURE_CACHE.with(|cell| {
+        let mut cache_opt = cell.borrow_mut();
+        let cache = cache_opt.get_or_insert_with(OrderedMap::new);
         let document_storage = cache.entry(document_id).or_default();
-        
-        // Use a pseudo-key based on the external_image_id (not stable, but backwards compatible)
-        let pseudo_key = TextureSlotKey::from_external_image_id(&external_image_id);
+        let pseudo_key = TextureSlotKey::from_external_image_id_legacy(&external_image_id);
         document_storage.insert(pseudo_key, TextureEntry { texture, epoch });
-    }
+    });
 
     external_image_id
 }
@@ -138,18 +144,18 @@ pub fn insert_texture(document_id: DocumentId, epoch: Epoch, texture: Texture) -
 /// This is called after rendering to clean up textures from previous frames.
 /// We keep textures from the current and previous epoch for double-buffering safety.
 pub fn remove_old_epochs(document_id: &DocumentId, current_epoch: Epoch) {
-    unsafe {
-        let cache: &mut OrderedMap<DocumentId, GlTextureStorage> = match TEXTURE_CACHE.as_mut() {
+    TEXTURE_CACHE.with(|cell| {
+        let mut cache_opt = cell.borrow_mut();
+        let cache = match cache_opt.as_mut() {
             Some(c) => c,
             None => return,
         };
 
-        let document_storage: &mut GlTextureStorage = match cache.get_mut(document_id) {
+        let document_storage = match cache.get_mut(document_id) {
             Some(s) => s,
             None => return,
         };
 
-        // Keep at least the previous epoch for double-buffering safety
         let current = current_epoch.into_u32();
         let min_epoch_to_keep = if current >= 2 {
             Epoch::from(current - 1)
@@ -157,18 +163,16 @@ pub fn remove_old_epochs(document_id: &DocumentId, current_epoch: Epoch) {
             Epoch::new()
         };
 
-        // Collect keys to remove (can't modify while iterating)
         let keys_to_remove: Vec<TextureSlotKey> = document_storage
             .iter()
             .filter(|(_, entry)| entry.epoch < min_epoch_to_keep)
             .map(|(key, _)| *key)
             .collect();
 
-        // Remove old textures
         for key in keys_to_remove {
             document_storage.remove(&key);
         }
-    }
+    });
 }
 
 /// Remove a specific texture from the cache by its slot key.
@@ -178,52 +182,56 @@ pub fn remove_texture_for_node(
     node_id: NodeId,
 ) -> Option<()> {
     let key = TextureSlotKey::new(dom_id, node_id);
-    unsafe {
-        let cache = TEXTURE_CACHE.as_mut()?;
+    TEXTURE_CACHE.with(|cell| {
+        let mut cache_opt = cell.borrow_mut();
+        let cache = cache_opt.as_mut()?;
         let document_storage = cache.get_mut(document_id)?;
         document_storage.remove(&key);
         Some(())
-    }
+    })
 }
 
 /// Remove all textures for a document.
 pub fn remove_document(document_id: &DocumentId) {
-    unsafe {
-        if let Some(cache) = TEXTURE_CACHE.as_mut() {
+    TEXTURE_CACHE.with(|cell| {
+        let mut cache_opt = cell.borrow_mut();
+        if let Some(cache) = cache_opt.as_mut() {
             let _: Option<GlTextureStorage> = cache.remove(document_id);
         }
-    }
+    });
 }
 
 /// Look up a texture by its ExternalImageId.
 ///
 /// Since ExternalImageId is deterministically generated from (DomId, NodeId),
-/// we decode the key from the ID and look it up directly.
+/// we decode the key from the ID and look it up directly. Also checks the
+/// legacy namespace for textures inserted via `insert_texture`.
 pub fn get_texture(external_image_id: &ExternalImageId) -> Option<(u32, (f32, f32))> {
     let key = TextureSlotKey::from_external_image_id(external_image_id);
-    
-    unsafe {
-        let cache = TEXTURE_CACHE.as_ref()?;
-        
-        // Search all documents for this key
+    let legacy_key = TextureSlotKey::from_external_image_id_legacy(external_image_id);
+
+    TEXTURE_CACHE.with(|cell| {
+        let cache_opt = cell.borrow();
+        let cache = cache_opt.as_ref()?;
+
         for (_doc_id, doc_storage) in cache.iter() {
-            if let Some(entry) = doc_storage.get(&key) {
+            if let Some(entry) = doc_storage.get(&key).or_else(|| doc_storage.get(&legacy_key)) {
                 return Some((
                     entry.texture.texture_id,
                     (entry.texture.size.width as f32, entry.texture.size.height as f32),
                 ));
             }
         }
-        
+
         None
-    }
+    })
 }
 
 /// Clear the entire texture cache.
 pub fn clear_all() {
-    unsafe {
-        TEXTURE_CACHE = None;
-    }
+    TEXTURE_CACHE.with(|cell| {
+        *cell.borrow_mut() = None;
+    });
 }
 
 #[cfg(test)]
@@ -240,28 +248,33 @@ mod tests {
 
     #[test]
     fn test_stable_external_image_id() {
-        // Same (DomId, NodeId) should always produce the same ExternalImageId
         let key1 = TextureSlotKey::new(DomId { inner: 0 }, NodeId::new(1));
         let key2 = TextureSlotKey::new(DomId { inner: 0 }, NodeId::new(1));
         let key3 = TextureSlotKey::new(DomId { inner: 0 }, NodeId::new(2));
-        
+
         assert_eq!(key1.to_external_image_id(), key2.to_external_image_id());
         assert_ne!(key1.to_external_image_id(), key3.to_external_image_id());
     }
 
     #[test]
     fn test_external_image_id_reversible() {
-        // ExternalImageId should decode back to the original key
         let dom_id = DomId { inner: 42 };
         let node_id = NodeId::new(123);
         let key = TextureSlotKey::new(dom_id, node_id);
         let ext_id = key.to_external_image_id();
-        
-        // Decode
+
         let decoded = TextureSlotKey::from_external_image_id(&ext_id);
 
         assert_eq!(decoded.dom_id, dom_id);
         assert_eq!(decoded.node_id, node_id);
+    }
+
+    #[test]
+    fn test_legacy_keys_dont_collide_with_real_keys() {
+        let ext_id = ExternalImageId { inner: 1 };
+        let real_key = TextureSlotKey::from_external_image_id(&ext_id);
+        let legacy_key = TextureSlotKey::from_external_image_id_legacy(&ext_id);
+        assert_ne!(real_key, legacy_key);
     }
 
     #[test]
