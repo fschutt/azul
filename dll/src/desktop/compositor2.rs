@@ -112,6 +112,53 @@ fn scale_px(val: f32, dpi: f32) -> f32 {
     val * dpi
 }
 
+const DEFAULT_ROOT_FONT_SIZE_PX: f32 = 16.0;
+
+#[inline]
+fn color_u_to_wr(c: &ColorU) -> ColorF {
+    ColorF::new(
+        c.r as f32 / 255.0,
+        c.g as f32 / 255.0,
+        c.b as f32 / 255.0,
+        c.a as f32 / 255.0,
+    )
+}
+
+#[inline]
+fn push_text_decoration_rect(
+    builder: &mut WrDisplayListBuilder,
+    bounds: &azul_layout::solver3::display_list::WindowLogicalRect,
+    color: &ColorU,
+    thickness: f32,
+    dpi_scale: f32,
+    offset: (f32, f32),
+    clip_chain_id: WrClipChainId,
+    spatial_id: SpatialId,
+) {
+    let raw_rect = LayoutRect::from_origin_and_size(
+        LayoutPoint::new(
+            scale_px(bounds.0.origin.x, dpi_scale),
+            scale_px(bounds.0.origin.y, dpi_scale),
+        ),
+        LayoutSize::new(
+            scale_px(bounds.0.size.width, dpi_scale),
+            scale_px(thickness, dpi_scale),
+        ),
+    );
+    let rect = LayoutRect::from_origin_and_size(
+        LayoutPoint::new(raw_rect.min.x - offset.0, raw_rect.min.y - offset.1),
+        LayoutSize::new(raw_rect.width(), raw_rect.height()),
+    );
+    let color_f = color_u_to_wr(color);
+    let info = CommonItemProperties {
+        clip_rect: rect,
+        clip_chain_id,
+        spatial_id,
+        flags: Default::default(),
+    };
+    builder.push_rect(&info, rect, color_f);
+}
+
 /// Translate an Azul DisplayList to WebRender DisplayList and resources
 /// Returns (resources, display_list, nested_pipelines) tuple that can be added to a transaction
 /// by caller. nested_pipelines contains all child virtualized view pipelines that were recursively built.
@@ -227,12 +274,7 @@ pub fn translate_displaylist_to_wr(
             } => {
                 let rect = resolve_rect(bounds, dpi_scale, current_offset!());
 
-                let color_f = ColorF::new(
-                    color.r as f32 / 255.0,
-                    color.g as f32 / 255.0,
-                    color.b as f32 / 255.0,
-                    color.a as f32 / 255.0,
-                );
+                let color_f = color_u_to_wr(color);
 
                 let current_clip_chain = current_clip!();
                 let current_spatial = current_spatial!();
@@ -314,12 +356,7 @@ pub fn translate_displaylist_to_wr(
                 color,
             } => {
                 let rect = resolve_rect(bounds, dpi_scale, current_offset!());
-                let color_f = ColorF::new(
-                    color.r as f32 / 255.0,
-                    color.g as f32 / 255.0,
-                    color.b as f32 / 255.0,
-                    color.a as f32 / 255.0,
-                );
+                let color_f = color_u_to_wr(color);
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
@@ -333,12 +370,7 @@ pub fn translate_displaylist_to_wr(
 
             DisplayListItem::CursorRect { bounds, color } => {
                 let rect = resolve_rect(bounds, dpi_scale, current_offset!());
-                let color_f = ColorF::new(
-                    color.r as f32 / 255.0,
-                    color.g as f32 / 255.0,
-                    color.b as f32 / 255.0,
-                    color.a as f32 / 255.0,
-                );
+                let color_f = color_u_to_wr(color);
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
@@ -418,12 +450,7 @@ pub fn translate_displaylist_to_wr(
                     );
                 }
 
-                let color_f = ColorF::new(
-                    color.r as f32 / 255.0,
-                    color.g as f32 / 255.0,
-                    color.b as f32 / 255.0,
-                    color.a as f32 / 255.0,
-                );
+                let color_f = color_u_to_wr(color);
 
                 log_debug!(
                     LogCategory::DisplayList,
@@ -545,12 +572,7 @@ pub fn translate_displaylist_to_wr(
                 // Render track (background)
                 if info.track_color.a > 0 {
                     let track_rect = resolve_rect(&info.track_bounds, dpi_scale, current_offset);
-                    let track_color = ColorF::new(
-                        info.track_color.r as f32 / 255.0,
-                        info.track_color.g as f32 / 255.0,
-                        info.track_color.b as f32 / 255.0,
-                        info.track_color.a as f32 / 255.0,
-                    );
+                    let track_color = color_u_to_wr(&info.track_color);
                     let track_info = CommonItemProperties {
                         clip_rect: track_rect,
                         clip_chain_id,
@@ -591,12 +613,7 @@ pub fn translate_displaylist_to_wr(
                 if let Some(btn_bounds) = &info.button_decrement_bounds {
                     if info.button_color.a > 0 {
                         let btn_rect = resolve_rect(btn_bounds, dpi_scale, current_offset);
-                        let btn_color = ColorF::new(
-                            info.button_color.r as f32 / 255.0,
-                            info.button_color.g as f32 / 255.0,
-                            info.button_color.b as f32 / 255.0,
-                            info.button_color.a as f32 / 255.0,
-                        );
+                        let btn_color = color_u_to_wr(&info.button_color);
                         let btn_info = CommonItemProperties {
                             clip_rect: btn_rect,
                             clip_chain_id,
@@ -611,12 +628,7 @@ pub fn translate_displaylist_to_wr(
                 if let Some(btn_bounds) = &info.button_increment_bounds {
                     if info.button_color.a > 0 {
                         let btn_rect = resolve_rect(btn_bounds, dpi_scale, current_offset);
-                        let btn_color = ColorF::new(
-                            info.button_color.r as f32 / 255.0,
-                            info.button_color.g as f32 / 255.0,
-                            info.button_color.b as f32 / 255.0,
-                            info.button_color.a as f32 / 255.0,
-                        );
+                        let btn_color = color_u_to_wr(&info.button_color);
                         let btn_info = CommonItemProperties {
                             clip_rect: btn_rect,
                             clip_chain_id,
@@ -666,12 +678,7 @@ pub fn translate_displaylist_to_wr(
                 // Render thumb (the draggable part)
                 if info.thumb_color.a > 0 {
                     let thumb_rect = resolve_rect(&info.thumb_bounds, dpi_scale, current_offset);
-                    let thumb_color = ColorF::new(
-                        info.thumb_color.r as f32 / 255.0,
-                        info.thumb_color.g as f32 / 255.0,
-                        info.thumb_color.b as f32 / 255.0,
-                        info.thumb_color.a as f32 / 255.0,
-                    );
+                    let thumb_color = color_u_to_wr(&info.thumb_color);
 
                     // Handle rounded thumb corners
                     if !info.thumb_border_radius.is_zero() {
@@ -1089,99 +1096,27 @@ pub fn translate_displaylist_to_wr(
                 bounds,
                 color,
                 thickness,
-            } => {
-                let raw_rect = LayoutRect::from_origin_and_size(
-                    LayoutPoint::new(
-                        scale_px(bounds.0.origin.x, dpi_scale),
-                        scale_px(bounds.0.origin.y, dpi_scale),
-                    ),
-                    LayoutSize::new(
-                        scale_px(bounds.0.size.width, dpi_scale),
-                        scale_px(*thickness, dpi_scale),
-                    ),
-                );
-                let rect = apply_offset(raw_rect, current_offset!());
-                let color_f = ColorF::new(
-                    color.r as f32 / 255.0,
-                    color.g as f32 / 255.0,
-                    color.b as f32 / 255.0,
-                    color.a as f32 / 255.0,
-                );
-
-                let info = CommonItemProperties {
-                    clip_rect: rect,
-                    clip_chain_id: current_clip!(),
-                    spatial_id: current_spatial!(),
-                    flags: Default::default(),
-                };
-
-                builder.push_rect(&info, rect, color_f);
             }
-
-            DisplayListItem::Strikethrough {
+            | DisplayListItem::Strikethrough {
+                bounds,
+                color,
+                thickness,
+            }
+            | DisplayListItem::Overline {
                 bounds,
                 color,
                 thickness,
             } => {
-                let raw_rect = LayoutRect::from_origin_and_size(
-                    LayoutPoint::new(
-                        scale_px(bounds.0.origin.x, dpi_scale),
-                        scale_px(bounds.0.origin.y, dpi_scale),
-                    ),
-                    LayoutSize::new(
-                        scale_px(bounds.0.size.width, dpi_scale),
-                        scale_px(*thickness, dpi_scale),
-                    ),
+                push_text_decoration_rect(
+                    &mut builder,
+                    bounds,
+                    color,
+                    *thickness,
+                    dpi_scale,
+                    current_offset!(),
+                    current_clip!(),
+                    current_spatial!(),
                 );
-                let rect = apply_offset(raw_rect, current_offset!());
-                let color_f = ColorF::new(
-                    color.r as f32 / 255.0,
-                    color.g as f32 / 255.0,
-                    color.b as f32 / 255.0,
-                    color.a as f32 / 255.0,
-                );
-
-                let info = CommonItemProperties {
-                    clip_rect: rect,
-                    clip_chain_id: current_clip!(),
-                    spatial_id: current_spatial!(),
-                    flags: Default::default(),
-                };
-
-                builder.push_rect(&info, rect, color_f);
-            }
-
-            DisplayListItem::Overline {
-                bounds,
-                color,
-                thickness,
-            } => {
-                let raw_rect = LayoutRect::from_origin_and_size(
-                    LayoutPoint::new(
-                        scale_px(bounds.0.origin.x, dpi_scale),
-                        scale_px(bounds.0.origin.y, dpi_scale),
-                    ),
-                    LayoutSize::new(
-                        scale_px(bounds.0.size.width, dpi_scale),
-                        scale_px(*thickness, dpi_scale),
-                    ),
-                );
-                let rect = apply_offset(raw_rect, current_offset!());
-                let color_f = ColorF::new(
-                    color.r as f32 / 255.0,
-                    color.g as f32 / 255.0,
-                    color.b as f32 / 255.0,
-                    color.a as f32 / 255.0,
-                );
-
-                let info = CommonItemProperties {
-                    clip_rect: rect,
-                    clip_chain_id: current_clip!(),
-                    spatial_id: current_spatial!(),
-                    flags: Default::default(),
-                };
-
-                builder.push_rect(&info, rect, color_f);
             }
 
             DisplayListItem::Text {
@@ -2000,17 +1935,17 @@ pub fn translate_displaylist_to_wr(
                 let scaled_height = scale_px(bounds.0.size.height, dpi_scale);
 
                 let offset = LayoutVector2D::new(
-                    scale_px(shadow.offset_x.inner.to_pixels_internal(0.0, 16.0, 16.0), dpi_scale),
-                    scale_px(shadow.offset_y.inner.to_pixels_internal(0.0, 16.0, 16.0), dpi_scale),
+                    scale_px(shadow.offset_x.inner.to_pixels_internal(0.0, DEFAULT_ROOT_FONT_SIZE_PX, DEFAULT_ROOT_FONT_SIZE_PX), dpi_scale),
+                    scale_px(shadow.offset_y.inner.to_pixels_internal(0.0, DEFAULT_ROOT_FONT_SIZE_PX, DEFAULT_ROOT_FONT_SIZE_PX), dpi_scale),
                 );
                 let color_f =
                     wr_translate_color_f(azul_css::props::basic::color::ColorF::from(shadow.color));
                 let blur_radius = scale_px(
-                    shadow.blur_radius.inner.to_pixels_internal(0.0, 16.0, 16.0),
+                    shadow.blur_radius.inner.to_pixels_internal(0.0, DEFAULT_ROOT_FONT_SIZE_PX, DEFAULT_ROOT_FONT_SIZE_PX),
                     dpi_scale,
                 );
                 let spread_radius = scale_px(
-                    shadow.spread_radius.inner.to_pixels_internal(0.0, 16.0, 16.0),
+                    shadow.spread_radius.inner.to_pixels_internal(0.0, DEFAULT_ROOT_FONT_SIZE_PX, DEFAULT_ROOT_FONT_SIZE_PX),
                     dpi_scale,
                 );
 
@@ -2144,17 +2079,12 @@ pub fn translate_displaylist_to_wr(
                 log_debug!(LogCategory::DisplayList, "[compositor2] PushTextShadow: {:?}", shadow);
                 let current_spatial_id = current_spatial!();
                 let current_clip_chain = current_clip!();
-                let offset_x = shadow.offset_x.inner.to_pixels_internal(0.0, 16.0, 16.0) * dpi_scale;
-                let offset_y = shadow.offset_y.inner.to_pixels_internal(0.0, 16.0, 16.0) * dpi_scale;
-                let blur_radius = shadow.blur_radius.inner.to_pixels_internal(0.0, 16.0, 16.0) * dpi_scale;
+                let offset_x = shadow.offset_x.inner.to_pixels_internal(0.0, DEFAULT_ROOT_FONT_SIZE_PX, DEFAULT_ROOT_FONT_SIZE_PX) * dpi_scale;
+                let offset_y = shadow.offset_y.inner.to_pixels_internal(0.0, DEFAULT_ROOT_FONT_SIZE_PX, DEFAULT_ROOT_FONT_SIZE_PX) * dpi_scale;
+                let blur_radius = shadow.blur_radius.inner.to_pixels_internal(0.0, DEFAULT_ROOT_FONT_SIZE_PX, DEFAULT_ROOT_FONT_SIZE_PX) * dpi_scale;
                 let wr_shadow = WrShadow {
                     offset: LayoutVector2D::new(offset_x, offset_y),
-                    color: ColorF::new(
-                        shadow.color.r as f32 / 255.0,
-                        shadow.color.g as f32 / 255.0,
-                        shadow.color.b as f32 / 255.0,
-                        shadow.color.a as f32 / 255.0,
-                    ),
+                    color: color_u_to_wr(&shadow.color),
                     blur_radius,
                 };
                 let space_and_clip = SpaceAndClipInfo {
@@ -2343,8 +2273,8 @@ fn translate_style_filters_to_wr(
         .iter()
         .filter_map(|f| match f {
             StyleFilter::Blur(blur) => {
-                let w = scale_px(blur.width.to_pixels_internal(0.0, 16.0, 16.0), dpi_scale);
-                let h = scale_px(blur.height.to_pixels_internal(0.0, 16.0, 16.0), dpi_scale);
+                let w = scale_px(blur.width.to_pixels_internal(0.0, DEFAULT_ROOT_FONT_SIZE_PX, DEFAULT_ROOT_FONT_SIZE_PX), dpi_scale);
+                let h = scale_px(blur.height.to_pixels_internal(0.0, DEFAULT_ROOT_FONT_SIZE_PX, DEFAULT_ROOT_FONT_SIZE_PX), dpi_scale);
                 Some(WrFilterOp::Blur(w, h))
             }
             StyleFilter::Opacity(o) => {
@@ -2368,14 +2298,14 @@ fn translate_style_filters_to_wr(
             }
             StyleFilter::DropShadow(s) => {
                 let offset = LayoutVector2D::new(
-                    scale_px(s.offset_x.inner.to_pixels_internal(0.0, 16.0, 16.0), dpi_scale),
-                    scale_px(s.offset_y.inner.to_pixels_internal(0.0, 16.0, 16.0), dpi_scale),
+                    scale_px(s.offset_x.inner.to_pixels_internal(0.0, DEFAULT_ROOT_FONT_SIZE_PX, DEFAULT_ROOT_FONT_SIZE_PX), dpi_scale),
+                    scale_px(s.offset_y.inner.to_pixels_internal(0.0, DEFAULT_ROOT_FONT_SIZE_PX, DEFAULT_ROOT_FONT_SIZE_PX), dpi_scale),
                 );
                 let color = wr_translate_color_f(
                     azul_css::props::basic::color::ColorF::from(s.color),
                 );
                 let blur_radius = scale_px(
-                    s.blur_radius.inner.to_pixels_internal(0.0, 16.0, 16.0),
+                    s.blur_radius.inner.to_pixels_internal(0.0, DEFAULT_ROOT_FONT_SIZE_PX, DEFAULT_ROOT_FONT_SIZE_PX),
                     dpi_scale,
                 );
                 Some(WrFilterOp::DropShadow(WrShadow {
