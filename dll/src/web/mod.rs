@@ -21,7 +21,6 @@ pub mod server;
 pub mod html_render;
 pub mod loader_js;
 pub mod classify;
-pub mod transpiler;
 
 
 use std::collections::HashMap;
