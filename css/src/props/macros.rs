@@ -452,7 +452,7 @@ macro_rules! css_property_from_type {
             }
             // Fragmentation / Columns / Flow / Shape / Content
             CssPropertyType::TextJustify => {
-                CssProperty::LayoutTextJustify(CssPropertyValue::$content_type)
+                CssProperty::TextJustify(CssPropertyValue::$content_type)
             }
             CssPropertyType::BreakBefore => {
                 CssProperty::BreakBefore(CssPropertyValue::$content_type)
