@@ -15,8 +15,7 @@ use azul_layout::window_state::{WindowCreateOptions, WindowCreateOptionsVec};
 use rust_fontconfig::FcFontCache;
 use rust_fontconfig::registry::FcFontRegistry;
 
-use crate::desktop::shell2::common::debug_server::{self, LogCategory};
-use crate::log_error;
+use crate::desktop::shell2::common::debug_server;
 
 /// Primary public handle for creating and running an Azul application.
 ///
@@ -67,11 +66,11 @@ impl App {
     }
 
     pub fn add_window(&mut self, create_options: WindowCreateOptions) {
-        self.ptr.add_window(create_options);
+        self.ptr.windows.push(create_options);
     }
 
     pub fn get_monitors(&self) -> MonitorVec {
-        self.ptr.get_monitors()
+        crate::desktop::display::get_monitors()
     }
 
     pub fn run(&self, root_window: WindowCreateOptions) {
@@ -122,10 +121,9 @@ pub struct AppInternal {
 }
 
 impl AppInternal {
-    /// Creates a new, empty application using a specified callback.
+    /// Creates a new, empty application.
     ///
-    /// This does not open any windows, but it starts the event loop
-    /// to the display server
+    /// Does not open any windows — call `App::run` to enter the event loop.
     pub fn create(initial_data: RefAny, app_config: AppConfig) -> Self {
 
         debug_server::log(
@@ -135,25 +133,8 @@ impl AppInternal {
             None,
         );
 
-        debug_server::log(
-            debug_server::LogLevel::Debug,
-            debug_server::LogCategory::General,
-            format!(
-                "initial_data sharing_info: {:?}",
-                initial_data.sharing_info
-            ),
-            None,
-        );
-
         #[cfg(not(miri))]
         let (fc_cache, font_registry) = {
-            debug_server::log(
-                debug_server::LogLevel::Info,
-                debug_server::LogCategory::Resources,
-                "Starting async font registry...",
-                None,
-            );
-
             // Create the async font registry (returns immediately)
             let registry = FcFontRegistry::new();
 
@@ -170,13 +151,6 @@ impl AppInternal {
 
             // Spawn Scout + Builder threads (returns immediately)
             registry.spawn_scout_and_builders();
-
-            debug_server::log(
-                debug_server::LogLevel::Info,
-                debug_server::LogCategory::Resources,
-                "Font registry spawned (background threads scanning)",
-                None,
-            );
 
             // Start with an empty FcFontCache; it will be populated at first layout
             // from the registry via request_fonts() + into_fc_font_cache()
@@ -227,38 +201,6 @@ impl AppInternal {
             config: app_config,
             fc_cache: Box::new(fc_cache),
             font_registry,
-        }
-    }
-
-    /// Spawn a new window on the screen. Note that this should only be used to
-    /// create extra windows, the default window will be the window submitted to
-    /// the `.run` method.
-    pub fn add_window(&mut self, create_options: WindowCreateOptions) {
-        self.windows.push(create_options);
-    }
-
-    /// Returns a list of monitors available on the system
-    pub fn get_monitors(&self) -> MonitorVec {
-        crate::desktop::display::get_monitors()
-    }
-
-    /// Start the rendering loop for the currently added windows. The run() function
-    /// takes one `WindowCreateOptions` as an argument, which is the "root" window, i.e.
-    /// the main application window.
-    #[cfg(feature = "std")]
-    pub fn run(self, root_window: WindowCreateOptions) {
-        // Use shell2 for new implementation
-        let err = crate::desktop::shell2::run(
-            self.data,
-            self.config.clone(),
-            (*self.fc_cache).clone(),
-            self.font_registry.clone(),
-            root_window,
-        );
-
-        if let Err(e) = err {
-            crate::desktop::dialogs::msg_box(&format!("Error: {:?}", e));
-            crate::log_error!(LogCategory::General, "Application error: {:?}", e);
         }
     }
 }
