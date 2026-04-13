@@ -21,188 +21,6 @@ use std::collections::BTreeSet;
 
 use crate::window_state::FullWindowState;
 
-/// Unified event determination from all sources.
-///
-/// This is the **single source of truth** for what events occurred in a frame.
-///
-/// It combines:
-///
-/// 1. Window state changes (resize, move, theme, etc.)
-/// 2. Manager-reported events (scroll, text input, focus, hover)
-/// 3. Deduplicates by node + event type
-///
-/// ## Architecture
-///
-/// ```text
-/// Platform Input
-///     ↓
-/// Update Window State + Managers (record_sample, record_input, etc.)
-///     ↓
-/// determine_events_from_managers() ← Query all managers (immutable)
-///     ↓
-/// Vec<SyntheticEvent> (deduplicated)
-///     ↓
-/// dispatch_events() ← Route to callbacks
-///     ↓
-/// Invoke callbacks
-/// ```
-///
-/// ## Arguments
-///
-/// All arguments are **immutable** references - no state is modified here.
-/// State changes happen earlier via `record_sample()`, `record_input()`, etc.
-///
-/// - `current_state` - Current window state (after platform updates)
-/// - `previous_state` - Window state from previous frame
-/// - `managers` - All managers that can provide events
-/// - `timestamp` - Current time for event timestamps
-///
-/// ## Returns
-///
-/// - Vector of SyntheticEvents, deduplicated and ready for dispatch.
-pub fn determine_events_from_managers<'a>(
-    current_state: &FullWindowState,
-    previous_state: &FullWindowState,
-    managers: &[&'a dyn EventProvider],
-    timestamp: Instant,
-) -> Vec<SyntheticEvent> {
-    let mut events = Vec::new();
-
-    // 1. Detect window state changes (simple diffing)
-    events.extend(detect_window_state_events(
-        current_state,
-        previous_state,
-        timestamp.clone(),
-    ));
-
-    // 2. Query all managers for their pending events
-    for manager in managers {
-        events.extend(manager.get_pending_events(timestamp.clone()));
-    }
-
-    // 3. Deduplicate by (node, event_type)
-    deduplicate_synthetic_events(events)
-}
-
-/// Detect window-level events by comparing states.
-///
-/// This is a simple sub-function that only handles window-level changes:
-///
-/// - Window resized
-/// - Window moved
-/// - Theme changed
-/// - Mouse entered/left window
-/// - Window focus changed
-///
-/// Node-level events (hover, focus, scroll, text) come from managers.
-fn detect_window_state_events(
-    current: &FullWindowState,
-    previous: &FullWindowState,
-    timestamp: Instant,
-) -> Vec<SyntheticEvent> {
-    let mut events = Vec::new();
-
-    // Window resized
-    if current.size != previous.size {
-        events.push(SyntheticEvent::new(
-            EventType::WindowResize,
-            EventSource::User,
-            DomNodeId {
-                dom: DomId { inner: 0 },
-                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
-            },
-            timestamp.clone(),
-            EventData::Window(WindowEventData {
-                size: Some(LogicalRect {
-                    origin: LogicalPosition { x: 0.0, y: 0.0 },
-                    size: current.size.dimensions.clone(),
-                }),
-                position: None,
-            }),
-        ));
-    }
-
-    // Window moved
-    if current.position != previous.position {
-        let position = match current.position {
-            WindowPosition::Initialized(phys_pos) => Some(LogicalPosition {
-                x: phys_pos.x as f32,
-                y: phys_pos.y as f32,
-            }),
-            WindowPosition::Uninitialized => None,
-        };
-
-        if let Some(pos) = position {
-            events.push(SyntheticEvent::new(
-                EventType::WindowMove,
-                EventSource::User,
-                DomNodeId {
-                    dom: DomId { inner: 0 },
-                    node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
-                },
-                timestamp.clone(),
-                EventData::Window(WindowEventData {
-                    size: None,
-                    position: Some(pos),
-                }),
-            ));
-        }
-    }
-
-    // Theme changed
-    if current.theme != previous.theme {
-        events.push(SyntheticEvent::new(
-            EventType::ThemeChange,
-            EventSource::User,
-            DomNodeId {
-                dom: DomId { inner: 0 },
-                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
-            },
-            timestamp.clone(),
-            EventData::None,
-        ));
-    }
-
-    // Mouse entered window
-    let prev_mouse_in_window = matches!(
-        previous.mouse_state.cursor_position,
-        CursorPosition::InWindow(_)
-    );
-    let curr_mouse_in_window = matches!(
-        current.mouse_state.cursor_position,
-        CursorPosition::InWindow(_)
-    );
-
-    if curr_mouse_in_window && !prev_mouse_in_window {
-        events.push(SyntheticEvent::new(
-            EventType::MouseEnter,
-            EventSource::User,
-            DomNodeId {
-                dom: DomId { inner: 0 },
-                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
-            },
-            timestamp.clone(),
-            EventData::None,
-        ));
-    }
-
-    // Mouse left window
-    if !curr_mouse_in_window && prev_mouse_in_window {
-        events.push(SyntheticEvent::new(
-            EventType::MouseLeave,
-            EventSource::User,
-            DomNodeId {
-                dom: DomId { inner: 0 },
-                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
-            },
-            timestamp.clone(),
-            EventData::None,
-        ));
-    }
-
-    events
-}
-
 /// Get all hovered node IDs from the hover manager for a given frame.
 ///
 /// frame_index 0 = current frame, 1 = previous frame, etc.
@@ -310,67 +128,29 @@ pub fn determine_all_events(
     let current_mouse_down = current_state.mouse_state.mouse_down();
     let previous_mouse_down = previous_state.mouse_state.mouse_down();
 
-    // Left mouse button down
-    if current_state.mouse_state.left_down && !previous_state.mouse_state.left_down {
-        events.push(SyntheticEvent::new(
-            EventType::MouseDown,
-            EventSource::User,
-            mouse_target.clone(),
-            timestamp.clone(),
-            make_mouse_data(MouseButton::Left),
-        ));
-    }
-    // Left mouse button up
-    if !current_state.mouse_state.left_down && previous_state.mouse_state.left_down {
-        events.push(SyntheticEvent::new(
-            EventType::MouseUp,
-            EventSource::User,
-            mouse_target.clone(),
-            timestamp.clone(),
-            make_mouse_data(MouseButton::Left),
-        ));
-    }
-
-    // Right mouse button down
-    if current_state.mouse_state.right_down && !previous_state.mouse_state.right_down {
-        events.push(SyntheticEvent::new(
-            EventType::MouseDown,
-            EventSource::User,
-            mouse_target.clone(),
-            timestamp.clone(),
-            make_mouse_data(MouseButton::Right),
-        ));
-    }
-    // Right mouse button up
-    if !current_state.mouse_state.right_down && previous_state.mouse_state.right_down {
-        events.push(SyntheticEvent::new(
-            EventType::MouseUp,
-            EventSource::User,
-            mouse_target.clone(),
-            timestamp.clone(),
-            make_mouse_data(MouseButton::Right),
-        ));
-    }
-
-    // Middle mouse button down
-    if current_state.mouse_state.middle_down && !previous_state.mouse_state.middle_down {
-        events.push(SyntheticEvent::new(
-            EventType::MouseDown,
-            EventSource::User,
-            mouse_target.clone(),
-            timestamp.clone(),
-            make_mouse_data(MouseButton::Middle),
-        ));
-    }
-    // Middle mouse button up
-    if !current_state.mouse_state.middle_down && previous_state.mouse_state.middle_down {
-        events.push(SyntheticEvent::new(
-            EventType::MouseUp,
-            EventSource::User,
-            mouse_target.clone(),
-            timestamp.clone(),
-            make_mouse_data(MouseButton::Middle),
-        ));
+    for (curr_down, prev_down, button) in [
+        (current_state.mouse_state.left_down, previous_state.mouse_state.left_down, MouseButton::Left),
+        (current_state.mouse_state.right_down, previous_state.mouse_state.right_down, MouseButton::Right),
+        (current_state.mouse_state.middle_down, previous_state.mouse_state.middle_down, MouseButton::Middle),
+    ] {
+        if curr_down && !prev_down {
+            events.push(SyntheticEvent::new(
+                EventType::MouseDown,
+                EventSource::User,
+                mouse_target.clone(),
+                timestamp.clone(),
+                make_mouse_data(button),
+            ));
+        }
+        if !curr_down && prev_down {
+            events.push(SyntheticEvent::new(
+                EventType::MouseUp,
+                EventSource::User,
+                mouse_target.clone(),
+                timestamp.clone(),
+                make_mouse_data(button),
+            ));
+        }
     }
 
     // ========================================================================
@@ -427,8 +207,6 @@ pub fn determine_all_events(
     // Compare FULL hover chains between current and previous frames.
     // Nodes that gained hover get MouseEnter, nodes that lost hover get MouseLeave.
     {
-        let dom_id = DomId { inner: 0 };
-
         let current_hovered = get_all_hovered_nodes(hover_manager, 0);
         let previous_hovered = get_all_hovered_nodes(hover_manager, 1);
 
@@ -438,7 +216,7 @@ pub fn determine_all_events(
                 EventType::MouseLeave,
                 EventSource::User,
                 DomNodeId {
-                    dom: dom_id,
+                    dom: root_node.dom,
                     node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
                 },
                 timestamp.clone(),
@@ -452,7 +230,7 @@ pub fn determine_all_events(
                 EventType::MouseEnter,
                 EventSource::User,
                 DomNodeId {
-                    dom: dom_id,
+                    dom: root_node.dom,
                     node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
                 },
                 timestamp.clone(),
@@ -721,7 +499,6 @@ pub fn determine_all_events(
         // Detect DragEnter/DragOver/DragLeave events on drop targets
         // W3C: These fire ON the drop target node (the node UNDER the cursor)
         if manager.is_node_drag_active() && current_mouse_down {
-            let dom_id = DomId { inner: 0 };
             let current_hover = hover_manager.current_hover_node();
             let previous_hover = hover_manager.previous_hover_node();
 
@@ -732,7 +509,7 @@ pub fn determine_all_events(
                         EventType::DragLeave,
                         EventSource::User,
                         DomNodeId {
-                            dom: dom_id,
+                            dom: root_node.dom,
                             node: NodeHierarchyItemId::from_crate_internal(Some(prev_node)),
                         },
                         timestamp.clone(),
@@ -744,7 +521,7 @@ pub fn determine_all_events(
                         EventType::DragEnter,
                         EventSource::User,
                         DomNodeId {
-                            dom: dom_id,
+                            dom: root_node.dom,
                             node: NodeHierarchyItemId::from_crate_internal(Some(curr_node)),
                         },
                         timestamp.clone(),
@@ -759,7 +536,7 @@ pub fn determine_all_events(
                     EventType::DragOver,
                     EventSource::User,
                     DomNodeId {
-                        dom: dom_id,
+                        dom: root_node.dom,
                         node: NodeHierarchyItemId::from_crate_internal(Some(curr_node)),
                     },
                     timestamp.clone(),
