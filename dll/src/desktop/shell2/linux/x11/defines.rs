@@ -224,45 +224,6 @@ pub struct XComposeStatus {
     pub chars_matched: c_int,
 }
 
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct XGCValues {
-    pub function: c_int,
-    pub plane_mask: c_ulong,
-    pub foreground: c_ulong,
-    pub background: c_ulong,
-    pub line_width: c_int,
-    pub line_style: c_int,
-    pub cap_style: c_int,
-    pub join_style: c_int,
-    pub fill_style: c_int,
-    pub fill_rule: c_int,
-    pub arc_mode: c_int,
-    pub tile: c_ulong,
-    pub stipple: c_ulong,
-    pub ts_x_origin: c_int,
-    pub ts_y_origin: c_int,
-    pub font: c_ulong,
-    pub subwindow_mode: c_int,
-    pub graphics_exposures: c_int,
-    pub clip_x_origin: c_int,
-    pub clip_y_origin: c_int,
-    pub clip_mask: c_ulong,
-    pub dash_offset: c_int,
-    pub dashes: c_char,
-}
-
-#[repr(C)]
-pub struct XkbDescRec {
-    pub dpy: *mut Display,
-    pub flags: c_uint,
-    pub device_spec: c_uint,
-    pub min_key_code: c_uchar,
-    pub max_key_code: c_uchar,
-    // NOTE: intentionally incomplete — the real XkbDescRec has many more fields.
-    // Do not pass to XkbGetMap without completing the layout first.
-}
-
 // Event masks
 pub const KeyPressMask: c_long = 1 << 0;
 pub const KeyReleaseMask: c_long = 1 << 1;
@@ -302,7 +263,6 @@ pub const ClientMessage: c_int = 33;
 
 // Window classes and attributes
 pub const InputOutput: c_uint = 1;
-pub const InputOnly: c_uint = 2;
 pub const CopyFromParent: c_int = 0;
 pub const CWBackPixel: c_ulong = 1 << 1;
 pub const CWBorderPixel: c_ulong = 1 << 3;
@@ -426,7 +386,6 @@ pub type EGLContext = *mut c_void;
 pub type EGLSurface = *mut c_void;
 pub type EGLNativeDisplayType = *mut c_void;
 pub type EGLNativeWindowType = c_ulong;
-pub const EGL_DEFAULT_DISPLAY: EGLNativeDisplayType = std::ptr::null_mut();
 
 // EGL constants
 pub const EGL_RED_SIZE: u32 = 0x3024;
@@ -460,7 +419,7 @@ pub type eglMakeCurrent =
     unsafe extern "C" fn(EGLDisplay, EGLSurface, EGLSurface, EGLContext) -> u32;
 pub type eglSwapBuffers = unsafe extern "C" fn(EGLDisplay, EGLSurface) -> u32;
 pub type eglSwapInterval = unsafe extern "C" fn(EGLDisplay, i32) -> u32;
-pub type eglGetError = unsafe extern "C" fn() -> u32;
+pub type eglGetError = unsafe extern "C" fn() -> i32;
 pub type eglGetProcAddress = unsafe extern "C" fn(*const c_char) -> *const c_void;
 pub type eglDestroySurface = unsafe extern "C" fn(EGLDisplay, EGLSurface) -> u32;
 pub type eglDestroyContext = unsafe extern "C" fn(EGLDisplay, EGLContext) -> u32;
@@ -604,8 +563,6 @@ pub type XFreeCursor = unsafe extern "C" fn(*mut Display, Cursor) -> c_int;
 pub type XUndefineCursor = unsafe extern "C" fn(*mut Display, Window) -> c_int;
 pub type XkbSetDetectableAutoRepeat =
     unsafe extern "C" fn(*mut Display, c_int, *mut c_int) -> c_int;
-pub type XkbGetMap = unsafe extern "C" fn(*mut Display, c_uint, c_uint) -> *mut XkbDescRec;
-pub type XkbFreeKeyboard = unsafe extern "C" fn(*mut XkbDescRec, c_uint, c_int);
 
 // X11 Standard Cursor Font Constants (from cursorfont.h)
 pub const XC_left_ptr: c_uint = 68;
@@ -645,13 +602,8 @@ pub struct XRectangle {
 }
 
 // XIM style constants
-pub const XIMPreeditArea: c_ulong = 0x0001;
-pub const XIMPreeditCallbacks: c_ulong = 0x0002;
-pub const XIMPreeditPosition: c_ulong = 0x0004;
 pub const XIMPreeditNothing: c_ulong = 0x0008;
 pub const XIMPreeditNone: c_ulong = 0x0010;
-pub const XIMStatusArea: c_ulong = 0x0100;
-pub const XIMStatusCallbacks: c_ulong = 0x0200;
 pub const XIMStatusNothing: c_ulong = 0x0400;
 pub const XIMStatusNone: c_ulong = 0x0800;
 
@@ -750,7 +702,6 @@ pub struct XImage {
 
 // Colormap allocation modes
 pub const AllocNone: c_int = 0;
-pub const AllocAll: c_int = 1;
 
 // Visual class for XMatchVisualInfo
 pub const TrueColor: c_int = 4;
