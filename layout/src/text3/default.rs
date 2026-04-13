@@ -15,13 +15,11 @@ use allsorts::{
 };
 use azul_core::geom::LogicalSize;
 use azul_css::props::basic::FontRef;
-use rust_fontconfig::FcFontCache;
-
 use crate::{
     font::parsed::ParsedFont,
     text3::{
         cache::{
-            BidiDirection, BidiLevel, FontManager, FontSelector, FontVariantCaps,
+            BidiDirection, BidiLevel, FontSelector, FontVariantCaps,
             FontVariantLigatures, FontVariantNumeric, Glyph, GlyphOrientation, GlyphSource,
             LayoutError, LayoutFontMetrics, ParsedFontTrait, Point, ShallowClone, StyleProperties,
             TextCombineUpright, TextDecoration, TextOrientation, VerticalMetrics, WritingMode,
@@ -42,7 +40,7 @@ use crate::{
 /// - `font_bytes` - The raw font file data
 /// - `font_index` - Index of the font in a font collection (0 for single fonts)
 /// - `parse_outlines` - Whether to parse glyph outlines (expensive, usually false for layout)
-pub fn font_ref_from_bytes(
+fn font_ref_from_bytes(
     font_bytes: &[u8],
     font_index: usize,
     parse_outlines: bool,
@@ -69,7 +67,7 @@ impl PathLoader {
 
     /// A helper method to read a font from a path and delegate to the trait's `load_font`.
     /// Note: This is a convenience and not part of the `FontLoaderTrait`.
-    pub fn load_from_path(&self, path: &Path, font_index: usize) -> Result<FontRef, LayoutError> {
+    pub(crate) fn load_from_path(&self, path: &Path, font_index: usize) -> Result<FontRef, LayoutError> {
         let font_bytes = std::fs::read(path).map_err(|e| {
             LayoutError::FontNotFound(FontSelector {
                 family: path.to_string_lossy().into_owned(),
@@ -79,12 +77,6 @@ impl PathLoader {
             })
         })?;
         self.load_font(&font_bytes, font_index)
-    }
-}
-
-impl FontManager<FontRef> {
-    pub fn new_with_fc_cache(fc_cache: FcFontCache) -> Result<Self, LayoutError> {
-        FontManager::new(fc_cache)
     }
 }
 
@@ -110,11 +102,7 @@ impl crate::text3::cache::ShallowClone for FontRef {
     }
 }
 
-// Helper to get the inner ParsedFont from FontRef
-#[inline]
-fn get_parsed_font(font_ref: &FontRef) -> &ParsedFont {
-    unsafe { &*(font_ref.get_parsed() as *const ParsedFont) }
-}
+// Use crate::font_ref_to_parsed_font instead of a local duplicate
 
 impl ParsedFontTrait for FontRef {
     // +spec:block-formatting-context:21ec9a - bidi direction handled during text shaping for vertical writing modes
@@ -127,143 +115,44 @@ impl ParsedFontTrait for FontRef {
         style: &StyleProperties,
     ) -> Result<Vec<Glyph>, LayoutError> {
         // Delegate to the inner ParsedFont's shape_text, passing self as font_ref
-        let parsed = get_parsed_font(self);
+        let parsed = crate::font_ref_to_parsed_font(self);
         parsed.shape_text_for_font_ref(self, text, script, language, direction, style)
     }
 
     fn get_hash(&self) -> u64 {
-        get_parsed_font(self).hash
+        crate::font_ref_to_parsed_font(self).hash
     }
 
     fn get_glyph_size(&self, glyph_id: u16, font_size: f32) -> Option<LogicalSize> {
-        get_parsed_font(self).get_glyph_size(glyph_id, font_size)
+        crate::font_ref_to_parsed_font(self).get_glyph_size(glyph_id, font_size)
     }
 
     fn get_hyphen_glyph_and_advance(&self, font_size: f32) -> Option<(u16, f32)> {
-        get_parsed_font(self).get_hyphen_glyph_and_advance(font_size)
+        crate::font_ref_to_parsed_font(self).get_hyphen_glyph_and_advance(font_size)
     }
 
     fn get_kashida_glyph_and_advance(&self, font_size: f32) -> Option<(u16, f32)> {
-        get_parsed_font(self).get_kashida_glyph_and_advance(font_size)
+        crate::font_ref_to_parsed_font(self).get_kashida_glyph_and_advance(font_size)
     }
 
     fn has_glyph(&self, codepoint: u32) -> bool {
-        get_parsed_font(self).has_glyph(codepoint)
+        crate::font_ref_to_parsed_font(self).has_glyph(codepoint)
     }
 
     fn get_vertical_metrics(&self, glyph_id: u16) -> Option<VerticalMetrics> {
-        get_parsed_font(self).get_vertical_metrics(glyph_id)
+        crate::font_ref_to_parsed_font(self).get_vertical_metrics(glyph_id)
     }
 
     fn get_font_metrics(&self) -> LayoutFontMetrics {
-        get_parsed_font(self).font_metrics.clone()
+        crate::font_ref_to_parsed_font(self).font_metrics.clone()
     }
 
     fn num_glyphs(&self) -> u16 {
-        get_parsed_font(self).num_glyphs
+        crate::font_ref_to_parsed_font(self).num_glyphs
     }
 
     fn get_space_width(&self) -> Option<usize> {
-        get_parsed_font(self).get_space_width()
-    }
-}
-
-/// Extension trait for FontRef to provide access to font bytes and metrics
-///
-/// This trait provides methods that require access to the inner ParsedFont data.
-pub trait FontRefExt {
-    /// Get the original font bytes
-    fn get_bytes(&self) -> &[u8];
-    /// Get the full font metrics (PDF-style metrics from HEAD, HHEA, OS/2 tables)
-    fn get_full_font_metrics(&self) -> azul_css::props::basic::FontMetrics;
-}
-
-impl FontRefExt for FontRef {
-    fn get_bytes(&self) -> &[u8] {
-        &get_parsed_font(self).original_bytes
-    }
-
-    fn get_full_font_metrics(&self) -> azul_css::props::basic::FontMetrics {
-        use azul_css::{OptionI16, OptionU16, OptionU32};
-
-        let parsed = get_parsed_font(self);
-        let pdf = &parsed.pdf_font_metrics;
-
-        // PdfFontMetrics only has a subset of fields; fill others with defaults
-        azul_css::props::basic::FontMetrics {
-            // OS/2 version 1 fields (u32 - align 4, placed first)
-            ul_code_page_range1: OptionU32::None,
-            ul_code_page_range2: OptionU32::None,
-
-            // OS/2 table (u32 fields)
-            ul_unicode_range1: 0,   // Not in PdfFontMetrics
-            ul_unicode_range2: 0,   // Not in PdfFontMetrics
-            ul_unicode_range3: 0,   // Not in PdfFontMetrics
-            ul_unicode_range4: 0,   // Not in PdfFontMetrics
-            ach_vend_id: 0,         // Not in PdfFontMetrics
-
-            // OS/2 version 0 fields (optional)
-            s_typo_ascender: OptionI16::None,
-            s_typo_descender: OptionI16::None,
-            s_typo_line_gap: OptionI16::None,
-            us_win_ascent: OptionU16::None,
-            us_win_descent: OptionU16::None,
-
-            // OS/2 version 2 fields (optional)
-            sx_height: OptionI16::None,
-            s_cap_height: OptionI16::None,
-            us_default_char: OptionU16::None,
-            us_break_char: OptionU16::None,
-            us_max_context: OptionU16::None,
-
-            // OS/2 version 3 fields (optional)
-            us_lower_optical_point_size: OptionU16::None,
-            us_upper_optical_point_size: OptionU16::None,
-
-            // HEAD table fields
-            units_per_em: pdf.units_per_em,
-            font_flags: pdf.font_flags,
-            x_min: pdf.x_min,
-            y_min: pdf.y_min,
-            x_max: pdf.x_max,
-            y_max: pdf.y_max,
-
-            // HHEA table fields
-            ascender: pdf.ascender,
-            descender: pdf.descender,
-            line_gap: pdf.line_gap,
-            advance_width_max: pdf.advance_width_max,
-            min_left_side_bearing: 0,  // Not in PdfFontMetrics
-            min_right_side_bearing: 0, // Not in PdfFontMetrics
-            x_max_extent: 0,           // Not in PdfFontMetrics
-            caret_slope_rise: pdf.caret_slope_rise,
-            caret_slope_run: pdf.caret_slope_run,
-            caret_offset: 0,  // Not in PdfFontMetrics
-            num_h_metrics: 0, // Not in PdfFontMetrics
-
-            // OS/2 table fields
-            x_avg_char_width: pdf.x_avg_char_width,
-            us_weight_class: pdf.us_weight_class,
-            us_width_class: pdf.us_width_class,
-            fs_type: 0,                // Not in PdfFontMetrics
-            y_subscript_x_size: 0,     // Not in PdfFontMetrics
-            y_subscript_y_size: 0,     // Not in PdfFontMetrics
-            y_subscript_x_offset: 0,   // Not in PdfFontMetrics
-            y_subscript_y_offset: 0,   // Not in PdfFontMetrics
-            y_superscript_x_size: 0,   // Not in PdfFontMetrics
-            y_superscript_y_size: 0,   // Not in PdfFontMetrics
-            y_superscript_x_offset: 0, // Not in PdfFontMetrics
-            y_superscript_y_offset: 0, // Not in PdfFontMetrics
-            y_strikeout_size: pdf.y_strikeout_size,
-            y_strikeout_position: pdf.y_strikeout_position,
-            s_family_class: 0, // Not in PdfFontMetrics
-            fs_selection: 0,        // Not in PdfFontMetrics
-            us_first_char_index: 0, // Not in PdfFontMetrics
-            us_last_char_index: 0,  // Not in PdfFontMetrics
-
-            // Panose (align 1 - last)
-            panose: azul_css::props::basic::Panose::zero(),
-        }
+        crate::font_ref_to_parsed_font(self).get_space_width()
     }
 }
 
@@ -279,51 +168,14 @@ impl ParsedFont {
     /// Delegates to shape_text_internal and converts the font reference.
     fn shape_text_for_font_ref(
         &self,
-        font_ref: &FontRef,
+        _font_ref: &FontRef,
         text: &str,
         script: Script,
         language: crate::text3::script::Language,
         direction: BidiDirection,
         style: &StyleProperties,
     ) -> Result<Vec<Glyph>, LayoutError> {
-        // Use the common shaping implementation
-        let shaped = shape_text_internal(self, text, script, language, direction, style)?;
-
-        // Convert Glyph - now using font_hash and font_metrics instead of font reference
-        let font_hash = font_ref.get_hash();
-        let font_metrics = LayoutFontMetrics {
-            ascent: self.font_metrics.ascent,
-            descent: self.font_metrics.descent,
-            line_gap: self.font_metrics.line_gap,
-            units_per_em: self.font_metrics.units_per_em,
-            x_height: self.font_metrics.x_height,
-            cap_height: self.font_metrics.cap_height,
-        };
-
-        Ok(shaped
-            .into_iter()
-            .map(|g| Glyph {
-                glyph_id: g.glyph_id,
-                codepoint: g.codepoint,
-                font_hash,
-                font_metrics: font_metrics.clone(),
-                style: g.style,
-                source: g.source,
-                logical_byte_index: g.logical_byte_index,
-                logical_byte_len: g.logical_byte_len,
-                content_index: g.content_index,
-                cluster: g.cluster,
-                advance: g.advance,
-                kerning: g.kerning,
-                offset: g.offset,
-                vertical_advance: g.vertical_advance,
-                vertical_origin_y: g.vertical_origin_y,
-                vertical_bearing: g.vertical_bearing,
-                orientation: g.orientation,
-                script: g.script,
-                bidi_level: g.bidi_level,
-            })
-            .collect())
+        shape_text_internal(self, text, script, language, direction, style)
     }
 
     fn get_hash(&self) -> u64 {
