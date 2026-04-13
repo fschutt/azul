@@ -2338,7 +2338,7 @@ unsafe extern "system" fn window_proc(
                     // Update cursor type if changed
                     if window.common.current_window_state.mouse_state.mouse_cursor_type != new {
                         window.common.current_window_state.mouse_state.mouse_cursor_type = new;
-                        win_event::set_cursor(new_cursor_type, &window.win32);
+                        window.set_cursor(new_cursor_type);
                     }
                 }
             }
