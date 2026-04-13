@@ -1534,8 +1534,7 @@ pub trait PlatformWindow {
                     if let Some(cursor) = lw.text_edit_manager.get_primary_cursor() {
                         let content = lw.get_text_before_textinput(*dom_id, *node_id);
                         use azul_layout::text3::edit::delete_backward;
-                        let mut new_content = content.clone();
-                        let (updated_content, new_cursor) = delete_backward(&mut new_content, &cursor);
+                        let (updated_content, new_cursor) = delete_backward(&content, &cursor);
                         if let Some(ref mut mc) = lw.text_edit_manager.multi_cursor { mc.set_single_cursor(new_cursor); }
                         lw.update_text_cache_after_edit(*dom_id, *node_id, updated_content);
                     } 
@@ -1548,8 +1547,7 @@ pub trait PlatformWindow {
                     if let Some(cursor) = lw.text_edit_manager.get_primary_cursor() {
                         let content = lw.get_text_before_textinput(*dom_id, *node_id);
                         use azul_layout::text3::edit::delete_forward;
-                        let mut new_content = content.clone();
-                        let (updated_content, new_cursor) = delete_forward(&mut new_content, &cursor);
+                        let (updated_content, new_cursor) = delete_forward(&content, &cursor);
                         if let Some(ref mut mc) = lw.text_edit_manager.multi_cursor { mc.set_single_cursor(new_cursor); }
                         lw.update_text_cache_after_edit(*dom_id, *node_id, updated_content);
                     }
