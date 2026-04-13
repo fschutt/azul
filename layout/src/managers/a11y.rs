@@ -17,10 +17,9 @@ use accesskit::{Action, ActionRequest, Node, NodeId as A11yNodeId, Rect, Role, T
 use azul_core::{
     dom::{
         AccessibilityAction, AccessibilityInfo, AccessibilityRole, AccessibilityState, DomId,
-        DomNodeId, NodeData, NodeId, NodeType, TextSelectionStartEnd,
+        NodeData, NodeId, NodeType, TextSelectionStartEnd,
     },
     geom::{LogicalPosition, LogicalSize},
-    styled_dom::NodeHierarchyItemId,
 };
 use azul_css::AzString;
 
@@ -678,41 +677,28 @@ impl A11yManager {
         }
     }
 
-    /// Handles an action request from an assistive technology.
-    ///
-    /// Translates the accesskit ActionRequest into a (DomNodeId, Action) pair
-    /// that can be used to generate synthetic events in the Azul event system.
-    pub fn handle_action_request(
-        &self,
-        request: ActionRequest,
-    ) -> Option<(DomNodeId, AccessibilityAction)> {
-        // Decode the A11yNodeId back into DomId + NodeId.
-        //
-        // The A11yNodeId encodes both values in a single u64:
-        //
-        //   - Upper 32 bits: DomId (which DOM tree the node belongs to)
-        //   - Lower 32 bits: NodeId (index within that DOM tree)
-        //
-        // This encoding matches the format used in update_tree().
-        let dom_id = DomId {
-            inner: (request.target_node.0 >> 32) as usize,
-        };
-        let node_id = NodeId::new(((request.target_node.0 & 0xFFFF_FFFF) - 1) as usize);
-        let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
-        let dom_node_id = DomNodeId {
-            dom: dom_id,
-            node: hierarchy_id,
-        };
-
-        Some((dom_node_id, map_accesskit_action(request)?))
-    }
 }
 
-/// Maps an accesskit `Action` and optional `ActionData` to an Azul `AccessibilityAction`.
+/// Decodes an A11yNodeId back into (DomId, NodeId).
+///
+/// The A11yNodeId encodes both values in a single u64:
+/// - Upper 32 bits: DomId (which DOM tree the node belongs to)
+/// - Lower 32 bits: NodeId + 1 (index within that DOM tree, offset by 1 to avoid root collision)
+#[cfg(feature = "a11y")]
+pub fn decode_a11y_node_id(a11y_node_id: A11yNodeId) -> (DomId, NodeId) {
+    let raw = a11y_node_id.0;
+    let dom_id = DomId {
+        inner: (raw >> 32) as usize,
+    };
+    let node_id = NodeId::new(((raw & 0xFFFF_FFFF).wrapping_sub(1)) as usize);
+    (dom_id, node_id)
+}
+
+/// Maps an accesskit `ActionRequest` to an Azul `AccessibilityAction`.
 ///
 /// Returns `None` if the action requires data that was not provided or is invalid.
 #[cfg(feature = "a11y")]
-fn map_accesskit_action(request: ActionRequest) -> Option<AccessibilityAction> {
+pub fn map_accesskit_action(request: ActionRequest) -> Option<AccessibilityAction> {
     use azul_css::{props::basic::FloatValue, AzString};
 
     let action = match request.action {
