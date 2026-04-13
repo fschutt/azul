@@ -25,6 +25,40 @@ use azul_core::{
 
 use crate::callbacks::CallbackInfo;
 
+macro_rules! impl_callback_traits {
+    ($name:ident) => {
+        impl core::fmt::Debug for $name {
+            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+                write!(f, concat!(stringify!($name), " {{ cb: {:p} }}"), self.cb as *const ())
+            }
+        }
+        impl Clone for $name {
+            fn clone(&self) -> Self { Self { cb: self.cb } }
+        }
+        impl PartialEq for $name {
+            fn eq(&self, other: &Self) -> bool {
+                self.cb as *const () as usize == other.cb as *const () as usize
+            }
+        }
+        impl Eq for $name {}
+        impl PartialOrd for $name {
+            fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+                Some(self.cmp(other))
+            }
+        }
+        impl Ord for $name {
+            fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+                (self.cb as *const () as usize).cmp(&(other.cb as *const () as usize))
+            }
+        }
+        impl core::hash::Hash for $name {
+            fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+                (self.cb as *const () as usize).hash(state);
+            }
+        }
+    };
+}
+
 // Types that need to be defined locally (not in azul-core)
 
 /// Message that is sent back from the running thread to the main thread
@@ -216,37 +250,7 @@ pub struct ThreadSendCallback {
     pub cb: ThreadSendCallbackType,
 }
 
-impl core::fmt::Debug for ThreadSendCallback {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        write!(f, "ThreadSendCallback {{ cb: {:p} }}", self.cb as *const ())
-    }
-}
-
-impl Clone for ThreadSendCallback {
-    fn clone(&self) -> Self {
-        Self { cb: self.cb }
-    }
-}
-
-impl PartialEq for ThreadSendCallback {
-    fn eq(&self, other: &Self) -> bool {
-        self.cb as usize == other.cb as usize
-    }
-}
-
-impl Eq for ThreadSendCallback {}
-
-impl PartialOrd for ThreadSendCallback {
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for ThreadSendCallback {
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        (self.cb as usize).cmp(&(other.cb as usize))
-    }
-}
+impl_callback_traits!(ThreadSendCallback);
 
 /// Destructor callback for ThreadSender
 pub type ThreadSenderDestructorCallbackType = extern "C" fn(*mut ThreadSenderInner);
@@ -256,41 +260,7 @@ pub struct ThreadSenderDestructorCallback {
     pub cb: ThreadSenderDestructorCallbackType,
 }
 
-impl core::fmt::Debug for ThreadSenderDestructorCallback {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        write!(
-            f,
-            "ThreadSenderDestructorCallback {{ cb: {:p} }}",
-            self.cb as *const ()
-        )
-    }
-}
-
-impl Clone for ThreadSenderDestructorCallback {
-    fn clone(&self) -> Self {
-        Self { cb: self.cb }
-    }
-}
-
-impl PartialEq for ThreadSenderDestructorCallback {
-    fn eq(&self, other: &Self) -> bool {
-        self.cb as usize == other.cb as usize
-    }
-}
-
-impl Eq for ThreadSenderDestructorCallback {}
-
-impl PartialOrd for ThreadSenderDestructorCallback {
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for ThreadSenderDestructorCallback {
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        (self.cb as usize).cmp(&(other.cb as usize))
-    }
-}
+impl_callback_traits!(ThreadSenderDestructorCallback);
 
 /// Callback that runs when a thread receives a `WriteBack` message
 ///
@@ -359,7 +329,7 @@ impl From<WriteBackCallbackType> for WriteBackCallback {
 
 impl PartialEq for WriteBackCallback {
     fn eq(&self, other: &Self) -> bool {
-        self.cb as usize == other.cb as usize
+        self.cb as *const () as usize == other.cb as *const () as usize
     }
 }
 
@@ -367,19 +337,19 @@ impl Eq for WriteBackCallback {}
 
 impl PartialOrd for WriteBackCallback {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        (self.cb as usize).partial_cmp(&(other.cb as usize))
+        Some(self.cmp(other))
     }
 }
 
 impl Ord for WriteBackCallback {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        (self.cb as usize).cmp(&(other.cb as usize))
+        (self.cb as *const () as usize).cmp(&(other.cb as *const () as usize))
     }
 }
 
 impl core::hash::Hash for WriteBackCallback {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        (self.cb as usize).hash(state);
+        (self.cb as *const () as usize).hash(state);
     }
 }
 
@@ -430,7 +400,7 @@ impl From<ThreadCallbackType> for ThreadCallback {
 
 impl PartialEq for ThreadCallback {
     fn eq(&self, other: &Self) -> bool {
-        self.cb as usize == other.cb as usize
+        self.cb as *const () as usize == other.cb as *const () as usize
     }
 }
 
@@ -438,19 +408,19 @@ impl Eq for ThreadCallback {}
 
 impl PartialOrd for ThreadCallback {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        (self.cb as usize).partial_cmp(&(other.cb as usize))
+        Some(self.cmp(other))
     }
 }
 
 impl Ord for ThreadCallback {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        (self.cb as usize).cmp(&(other.cb as usize))
+        (self.cb as *const () as usize).cmp(&(other.cb as *const () as usize))
     }
 }
 
 impl core::hash::Hash for ThreadCallback {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        (self.cb as usize).hash(state);
+        (self.cb as *const () as usize).hash(state);
     }
 }
 
@@ -463,21 +433,7 @@ pub struct LibraryReceiveThreadMsgCallback {
     pub cb: LibraryReceiveThreadMsgCallbackType,
 }
 
-impl core::fmt::Debug for LibraryReceiveThreadMsgCallback {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        write!(
-            f,
-            "LibraryReceiveThreadMsgCallback {{ cb: {:p} }}",
-            self.cb as *const ()
-        )
-    }
-}
-
-impl Clone for LibraryReceiveThreadMsgCallback {
-    fn clone(&self) -> Self {
-        Self { cb: self.cb }
-    }
-}
+impl_callback_traits!(LibraryReceiveThreadMsgCallback);
 
 /// Callback type for the destructor that cleans up a `ThreadInner`
 pub type ThreadDestructorCallbackType = extern "C" fn(*mut ThreadInner);
@@ -487,21 +443,7 @@ pub struct ThreadDestructorCallback {
     pub cb: ThreadDestructorCallbackType,
 }
 
-impl core::fmt::Debug for ThreadDestructorCallback {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        write!(
-            f,
-            "ThreadDestructorCallback {{ cb: {:p} }}",
-            self.cb as *const ()
-        )
-    }
-}
-
-impl Clone for ThreadDestructorCallback {
-    fn clone(&self) -> Self {
-        Self { cb: self.cb }
-    }
-}
+impl_callback_traits!(ThreadDestructorCallback);
 
 /// Wrapper around Thread because Thread needs to be clone-able
 #[derive(Debug)]
@@ -763,49 +705,8 @@ pub struct CreateThreadCallback {
     pub cb: CreateThreadCallbackType,
 }
 
-impl core::fmt::Debug for CreateThreadCallback {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        write!(
-            f,
-            "CreateThreadCallback {{ cb: {:p} }}",
-            self.cb as *const ()
-        )
-    }
-}
-
-impl Clone for CreateThreadCallback {
-    fn clone(&self) -> Self {
-        Self { cb: self.cb }
-    }
-}
-
+impl_callback_traits!(CreateThreadCallback);
 impl Copy for CreateThreadCallback {}
-
-impl PartialEq for CreateThreadCallback {
-    fn eq(&self, other: &Self) -> bool {
-        self.cb as usize == other.cb as usize
-    }
-}
-
-impl Eq for CreateThreadCallback {}
-
-impl PartialOrd for CreateThreadCallback {
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        (self.cb as usize).partial_cmp(&(other.cb as usize))
-    }
-}
-
-impl Ord for CreateThreadCallback {
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        (self.cb as usize).cmp(&(other.cb as usize))
-    }
-}
-
-impl core::hash::Hash for CreateThreadCallback {
-    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        (self.cb as usize).hash(state);
-    }
-}
 
 /// Create a new thread using the standard library
 #[cfg(feature = "std")]
@@ -906,7 +807,7 @@ mod tests {
     #[test]
     fn test_writeback_callback_creation() {
         let callback = WriteBackCallback::new(test_writeback_callback);
-        assert_eq!(callback.cb as usize, test_writeback_callback as usize);
+        assert_eq!(callback.cb as *const () as usize, test_writeback_callback as *const () as usize);
     }
 
     #[test]
