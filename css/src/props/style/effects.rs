@@ -527,6 +527,70 @@ mod tests {
         assert_eq!(parse_style_cursor("  text  ").unwrap(), StyleCursor::Text);
         assert!(parse_style_cursor("hand").is_err()); // "hand" is a legacy IE value
     }
+
+    #[test]
+    fn test_parse_object_fit() {
+        assert_eq!(parse_style_object_fit("fill").unwrap(), StyleObjectFit::Fill);
+        assert_eq!(parse_style_object_fit("contain").unwrap(), StyleObjectFit::Contain);
+        assert_eq!(parse_style_object_fit("cover").unwrap(), StyleObjectFit::Cover);
+        assert_eq!(parse_style_object_fit("none").unwrap(), StyleObjectFit::None);
+        assert_eq!(parse_style_object_fit("scale-down").unwrap(), StyleObjectFit::ScaleDown);
+        assert_eq!(parse_style_object_fit("  cover  ").unwrap(), StyleObjectFit::Cover);
+        assert!(parse_style_object_fit("stretch").is_err());
+        assert!(parse_style_object_fit("").is_err());
+    }
+
+    #[test]
+    fn test_parse_text_orientation() {
+        assert_eq!(parse_style_text_orientation("mixed").unwrap(), StyleTextOrientation::Mixed);
+        assert_eq!(parse_style_text_orientation("upright").unwrap(), StyleTextOrientation::Upright);
+        assert_eq!(parse_style_text_orientation("sideways").unwrap(), StyleTextOrientation::Sideways);
+        assert_eq!(parse_style_text_orientation("  mixed  ").unwrap(), StyleTextOrientation::Mixed);
+        assert!(parse_style_text_orientation("vertical").is_err());
+    }
+
+    #[test]
+    fn test_parse_object_position() {
+        let centered = parse_style_object_position("center").unwrap();
+        assert_eq!(centered, parse_style_object_position("center center").unwrap());
+
+        let lt = parse_style_object_position("left top").unwrap();
+        use crate::props::style::background::{BackgroundPositionHorizontal, BackgroundPositionVertical};
+        assert_eq!(lt.horizontal, BackgroundPositionHorizontal::Left);
+        assert_eq!(lt.vertical, BackgroundPositionVertical::Top);
+
+        let rb = parse_style_object_position("right bottom").unwrap();
+        assert_eq!(rb.horizontal, BackgroundPositionHorizontal::Right);
+        assert_eq!(rb.vertical, BackgroundPositionVertical::Bottom);
+
+        assert!(parse_style_object_position("left top center").is_err());
+        assert!(parse_style_object_position("invalid").is_err());
+    }
+
+    #[test]
+    fn test_parse_aspect_ratio() {
+        assert_eq!(parse_style_aspect_ratio("auto").unwrap(), StyleAspectRatio::Auto);
+        assert_eq!(
+            parse_style_aspect_ratio("16 / 9").unwrap(),
+            StyleAspectRatio::Ratio(AspectRatioValue { width: 16000, height: 9000 })
+        );
+        assert_eq!(
+            parse_style_aspect_ratio("16/9").unwrap(),
+            StyleAspectRatio::Ratio(AspectRatioValue { width: 16000, height: 9000 })
+        );
+        assert_eq!(
+            parse_style_aspect_ratio("1.5").unwrap(),
+            StyleAspectRatio::Ratio(AspectRatioValue { width: 1500, height: 1000 })
+        );
+        assert_eq!(
+            parse_style_aspect_ratio("  4 / 3  ").unwrap(),
+            StyleAspectRatio::Ratio(AspectRatioValue { width: 4000, height: 3000 })
+        );
+        assert!(parse_style_aspect_ratio("0 / 1").is_err());
+        assert!(parse_style_aspect_ratio("1 / 0").is_err());
+        assert!(parse_style_aspect_ratio("-1 / 1").is_err());
+        assert!(parse_style_aspect_ratio("abc").is_err());
+    }
 }
 
 // -- StyleObjectFit --
