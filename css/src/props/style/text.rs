@@ -1160,13 +1160,23 @@ pub fn parse_style_line_clamp<'a>(
 }
 
 /// hanging-punctuation property for hanging punctuation marks
+///
+/// CSS Text 3 §8: `none | [ first || [ force-end | allow-end ] || last ]`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 #[derive(Default)]
 pub struct StyleHangingPunctuation {
-    pub enabled: bool,
+    pub first: bool,
+    pub force_end: bool,
+    pub allow_end: bool,
+    pub last: bool,
 }
 
+impl StyleHangingPunctuation {
+    pub fn is_enabled(&self) -> bool {
+        self.first || self.force_end || self.allow_end || self.last
+    }
+}
 
 impl FormatAsRustCode for StyleHangingPunctuation {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
@@ -1176,11 +1186,15 @@ impl FormatAsRustCode for StyleHangingPunctuation {
 
 impl PrintAsCssValue for StyleHangingPunctuation {
     fn print_as_css_value(&self) -> String {
-        if self.enabled {
-            "first allow-end last force-end".to_string()
-        } else {
-            "none".to_string()
+        if !self.is_enabled() {
+            return "none".to_string();
         }
+        let mut parts = alloc::vec::Vec::new();
+        if self.first { parts.push("first"); }
+        if self.force_end { parts.push("force-end"); }
+        if self.allow_end { parts.push("allow-end"); }
+        if self.last { parts.push("last"); }
+        parts.join(" ")
     }
 }
 
@@ -1239,13 +1253,32 @@ impl_display! { StyleHangingPunctuationParseErrorOwned, {
 pub fn parse_style_hanging_punctuation<'a>(
     input: &'a str,
 ) -> Result<StyleHangingPunctuation, StyleHangingPunctuationParseError<'a>> {
-    let input = input.trim().to_lowercase();
+    let input = input.trim();
 
-    // For simplicity: "none" = disabled, anything else = enabled
-    // Full spec supports: first, last, force-end, allow-end
-    let enabled = input != "none";
+    if input.eq_ignore_ascii_case("none") {
+        return Ok(StyleHangingPunctuation::default());
+    }
 
-    Ok(StyleHangingPunctuation { enabled })
+    let mut first = false;
+    let mut force_end = false;
+    let mut allow_end = false;
+    let mut last = false;
+
+    for token in input.split_whitespace() {
+        match token.to_lowercase().as_str() {
+            "first" => first = true,
+            "force-end" => force_end = true,
+            "allow-end" => allow_end = true,
+            "last" => last = true,
+            _ => return Err(StyleHangingPunctuationParseError::InvalidValue(input)),
+        }
+    }
+
+    if force_end && allow_end {
+        return Err(StyleHangingPunctuationParseError::InvalidValue(input));
+    }
+
+    Ok(StyleHangingPunctuation { first, force_end, allow_end, last })
 }
 
 /// text-combine-upright property for combining horizontal text in vertical layout

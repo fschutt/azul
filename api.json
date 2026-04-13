@@ -25932,7 +25932,22 @@
                         ],
                         "struct_fields": [
                             {
-                                "enabled": {
+                                "first": {
+                                    "type": "bool"
+                                }
+                            },
+                            {
+                                "force_end": {
+                                    "type": "bool"
+                                }
+                            },
+                            {
+                                "allow_end": {
+                                    "type": "bool"
+                                }
+                            },
+                            {
+                                "last": {
                                     "type": "bool"
                                 }
                             }
