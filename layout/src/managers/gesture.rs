@@ -13,32 +13,24 @@
 //! - Window drag/resize
 //! - File drop from OS
 
-use alloc::{collections::btree_map::BTreeMap, vec::Vec};
+use alloc::vec::Vec;
 #[cfg(feature = "std")]
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use azul_core::{
-    dom::{DomId, NodeId, OptionDomNodeId},
+    dom::{DomId, NodeId},
     drag::{
-        ActiveDragType, AutoScrollDirection, DragContext, DragData, DragEffect, DropEffect,
-        FileDropDrag, NodeDrag, ScrollbarAxis, ScrollbarThumbDrag, TextSelectionDrag,
-        WindowMoveDrag, WindowResizeDrag, WindowResizeEdge,
+        ActiveDragType, AutoScrollDirection, DragContext, DragData,
+        ScrollbarAxis,
     },
     geom::{LogicalPosition, PhysicalPositionI32},
     hit_test::HitTest,
-    selection::TextCursor,
     task::{Duration as CoreDuration, Instant as CoreInstant},
     window::WindowPosition,
 };
 use azul_css::AzString;
-use azul_css::{impl_option, impl_option_inner, StringVec};
+use azul_css::{impl_option, impl_option_inner};
 
-// Re-export drag types for convenience
-pub use azul_core::drag::{
-    ActiveDragType as DragType, AutoScrollDirection as AutoScroll, DragContext as UnifiedDragContext,
-    DragData as UnifiedDragData, DragEffect as UnifiedDragEffect, DropEffect as UnifiedDropEffect,
-    ScrollbarAxis as ScrollAxis, ScrollbarThumbDrag as ScrollbarDrag,
-};
 
 #[cfg(feature = "std")]
 static NEXT_EVENT_ID: AtomicU64 = AtomicU64::new(1);
@@ -313,21 +305,6 @@ pub struct DetectedRotation {
     pub duration_ms: u64,
 }
 
-// NOTE: NodeDragState, WindowDragState, FileDropState, DropEffect, DragData, DragEffect
-// are now defined in azul_core::drag and imported above.
-// The old types are kept as type aliases for backwards compatibility.
-
-/// State of an active node drag (after detection)
-/// DEPRECATED: Use `DragContext` with `ActiveDragType::Node` instead.
-pub type NodeDragState = NodeDrag;
-
-/// State of window being dragged (titlebar drag)
-/// DEPRECATED: Use `DragContext` with `ActiveDragType::WindowMove` instead.
-pub type WindowDragState = WindowMoveDrag;
-
-/// State of file(s) being dragged from OS over the window
-/// DEPRECATED: Use `DragContext` with `ActiveDragType::FileDrop` instead.
-pub type FileDropState = FileDropDrag;
 
 /// State of pen/stylus input
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -397,8 +374,6 @@ pub struct GestureAndDragManager {
     next_session_id: u64,
 }
 
-/// Type alias for backwards compatibility
-pub type GestureManager = GestureAndDragManager;
 
 impl Default for GestureAndDragManager {
     fn default() -> Self {
@@ -1264,13 +1239,8 @@ impl GestureAndDragManager {
     }
 
     /// Check if a node drag is active
-    pub fn is_node_dragging_any(&self) -> bool {
-        self.active_drag.as_ref().is_some_and(|d| d.is_node_drag())
-    }
-
-    /// Check if a node drag is active (alias for event determination)
     pub fn is_node_drag_active(&self) -> bool {
-        self.is_node_dragging_any()
+        self.active_drag.as_ref().is_some_and(|d| d.is_node_drag())
     }
 
     /// Check if a specific node is being dragged
@@ -1302,66 +1272,6 @@ impl GestureAndDragManager {
     /// Get current session ID (if any)
     pub fn current_session_id(&self) -> Option<u64> {
         self.get_current_session().map(|s| s.session_id)
-    }
-
-    // ========================================================================
-    // BACKWARDS COMPATIBILITY (DEPRECATED)
-    // ========================================================================
-
-    /// Get current node drag state (if any)
-    /// DEPRECATED: Use `get_drag_context()` and check for `ActiveDragType::Node`
-    pub fn get_node_drag(&self) -> Option<&NodeDrag> {
-        self.active_drag.as_ref().and_then(|d| d.as_node_drag())
-    }
-
-    /// Get current window drag state (if any)
-    /// DEPRECATED: Use `get_drag_context()` and check for `ActiveDragType::WindowMove`
-    pub fn get_window_drag(&self) -> Option<&WindowMoveDrag> {
-        self.active_drag.as_ref().and_then(|d| d.as_window_move())
-    }
-
-    /// Get current file drop state (if any)
-    /// DEPRECATED: Use `get_drag_context()` and check for `ActiveDragType::FileDrop`
-    pub fn get_file_drop(&self) -> Option<&FileDropDrag> {
-        self.active_drag.as_ref().and_then(|d| d.as_file_drop())
-    }
-
-    /// End node drag (returns None - use end_drag() instead)
-    /// DEPRECATED: Use `end_drag()` instead
-    pub fn end_node_drag(&mut self) -> Option<DragContext> {
-        if self.active_drag.as_ref().is_some_and(|d| d.is_node_drag()) {
-            self.end_drag()
-        } else {
-            None
-        }
-    }
-
-    /// End window drag (returns None - use end_drag() instead)
-    /// DEPRECATED: Use `end_drag()` instead
-    pub fn end_window_drag(&mut self) -> Option<DragContext> {
-        if self.active_drag.as_ref().is_some_and(|d| d.is_window_move()) {
-            self.end_drag()
-        } else {
-            None
-        }
-    }
-
-    /// End file drop (returns None - use end_drag() instead)
-    /// DEPRECATED: Use `end_drag()` instead
-    pub fn end_file_drop(&mut self) -> Option<DragContext> {
-        if self.active_drag.as_ref().is_some_and(|d| d.is_file_drop()) {
-            self.end_drag()
-        } else {
-            None
-        }
-    }
-
-    /// Cancel file drop
-    /// DEPRECATED: Use `cancel_drag()` instead
-    pub fn cancel_file_drop(&mut self) {
-        if self.active_drag.as_ref().is_some_and(|d| d.is_file_drop()) {
-            self.cancel_drag();
-        }
     }
 
     // ========================================================================
