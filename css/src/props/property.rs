@@ -1591,7 +1591,7 @@ impl CssPropertyType {
 pub enum CssParsingError<'a> {
     // Shorthand properties
     Border(CssBorderParseError<'a>),
-    BorderRadius(CssStyleBorderRadiusParseError<'a>),
+    BorderRadius(CssBorderRadiusParseError<'a>),
     Padding(LayoutPaddingParseError<'a>),
     Margin(LayoutMarginParseError<'a>),
     Overflow(InvalidValueErr<'a>),
@@ -2063,7 +2063,7 @@ impl_from!(
 );
 impl_from!(CssBorderParseError<'a>, CssParsingError::Border);
 impl_from!(
-    CssStyleBorderRadiusParseError<'a>,
+    CssBorderRadiusParseError<'a>,
     CssParsingError::BorderRadius
 );
 impl_from!(LayoutPaddingParseError<'a>, CssParsingError::Padding);
