@@ -30364,6 +30364,15 @@
                                 "Opacity": {
                                     "type": "PercentageParseError"
                                 },
+                                "Brightness": {
+                                    "type": "PercentageParseError"
+                                },
+                                "Contrast": {
+                                    "type": "PercentageParseError"
+                                },
+                                "Saturate": {
+                                    "type": "PercentageParseError"
+                                },
                                 "Blur": {
                                     "type": "CssStyleBlurParseErrorOwned"
                                 },

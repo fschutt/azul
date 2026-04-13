@@ -2359,7 +2359,7 @@ fn translate_style_filters_to_wr(
             StyleFilter::Saturate(v) => Some(WrFilterOp::Saturate(v.normalized())),
             StyleFilter::Sepia(v) => Some(WrFilterOp::Sepia(v.normalized())),
             StyleFilter::ColorMatrix(m) => {
-                let vals = m.as_slice();
+                let vals = m.to_array();
                 let mut arr = [0.0f32; 20];
                 for (i, v) in vals.iter().enumerate() {
                     arr[i] = v.get();

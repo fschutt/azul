@@ -823,7 +823,29 @@ fn apply_layer_filters(pixmap: &mut AzulPixmap, filters: &[StyleFilter], dpi_fac
                     chunk[2] = (gray + (b - gray) * s).clamp(0.0, 255.0) as u8;
                 }
             }
-            _ => {} // Other filters not yet implemented
+            StyleFilter::HueRotate(angle) => {
+                let rad = angle.to_degrees().to_radians();
+                let cos_a = rad.cos();
+                let sin_a = rad.sin();
+                for chunk in pixmap.data.chunks_exact_mut(4) {
+                    let r = chunk[0] as f32;
+                    let g = chunk[1] as f32;
+                    let b = chunk[2] as f32;
+                    let nr = (0.213 + 0.787 * cos_a - 0.213 * sin_a) * r
+                           + (0.715 - 0.715 * cos_a - 0.715 * sin_a) * g
+                           + (0.072 - 0.072 * cos_a + 0.928 * sin_a) * b;
+                    let ng = (0.213 - 0.213 * cos_a + 0.143 * sin_a) * r
+                           + (0.715 + 0.285 * cos_a + 0.140 * sin_a) * g
+                           + (0.072 - 0.072 * cos_a - 0.283 * sin_a) * b;
+                    let nb = (0.213 - 0.213 * cos_a - 0.787 * sin_a) * r
+                           + (0.715 - 0.715 * cos_a + 0.715 * sin_a) * g
+                           + (0.072 + 0.928 * cos_a + 0.072 * sin_a) * b;
+                    chunk[0] = nr.clamp(0.0, 255.0) as u8;
+                    chunk[1] = ng.clamp(0.0, 255.0) as u8;
+                    chunk[2] = nb.clamp(0.0, 255.0) as u8;
+                }
+            }
+            _ => {} // Blend, Flood, ColorMatrix, DropShadow, ComponentTransfer, Offset, Composite not yet implemented
         }
     }
 }
