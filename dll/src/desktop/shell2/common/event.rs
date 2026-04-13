@@ -162,6 +162,7 @@ use azul_layout::{
     },
     event_determination::determine_all_events,
     hit_test::FullHitTest,
+    managers::selection::{ClipboardContent, StyledTextRunVec},
     window::{LayoutWindow, ScrollbarDragState},
     window_state::{self, FullWindowState},
 };
@@ -2168,6 +2169,10 @@ pub trait PlatformWindow {
             SystemChange::PasteFromClipboard => {
                 if let Some(layout_window) = self.get_layout_window_mut() {
                     if let Some(clipboard_text) = get_system_clipboard() {
+                        layout_window.clipboard_manager.set_paste_content(ClipboardContent {
+                            plain_text: clipboard_text.as_str().into(),
+                            styled_runs: StyledTextRunVec::from_const_slice(&[]),
+                        });
                         // Smart paste: if N lines == N cursors, paste one line per cursor
                         let cursor_count = layout_window.text_edit_manager.multi_cursor
                             .as_ref().map(|mc| mc.len()).unwrap_or(0);
