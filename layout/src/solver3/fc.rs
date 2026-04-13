@@ -2754,10 +2754,9 @@ fn resolve_size_metric(
         SizeMetric::Vh => value / 100.0 * viewport_size.height,
         SizeMetric::Vmin => value / 100.0 * viewport_size.width.min(viewport_size.height),
         SizeMetric::Vmax => value / 100.0 * viewport_size.width.max(viewport_size.height),
-        // In, Cm, Mm: convert to pixels using standard DPI (96)
-        SizeMetric::In => value * 96.0,
-        SizeMetric::Cm => value * 96.0 / 2.54,
-        SizeMetric::Mm => value * 96.0 / 25.4,
+        SizeMetric::In => value * super::calc::PX_PER_INCH,
+        SizeMetric::Cm => value * super::calc::PX_PER_INCH / super::calc::CM_PER_INCH,
+        SizeMetric::Mm => value * super::calc::PX_PER_INCH / super::calc::MM_PER_INCH,
     }
 }
 
@@ -3006,9 +3005,9 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
                     match v.metric {
                         SizeMetric::Px => Some(v.number.get()),
                         SizeMetric::Pt => Some(v.number.get() * PT_TO_PX),
-                        SizeMetric::In => Some(v.number.get() * 96.0),
-                        SizeMetric::Cm => Some(v.number.get() * 96.0 / 2.54),
-                        SizeMetric::Mm => Some(v.number.get() * 96.0 / 25.4),
+                        SizeMetric::In => Some(v.number.get() * super::calc::PX_PER_INCH),
+                        SizeMetric::Cm => Some(v.number.get() * super::calc::PX_PER_INCH / super::calc::CM_PER_INCH),
+                        SizeMetric::Mm => Some(v.number.get() * super::calc::PX_PER_INCH / super::calc::MM_PER_INCH),
                         _ => None, // Ignore %, em, rem
                     }
                 }
