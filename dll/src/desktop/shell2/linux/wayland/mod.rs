@@ -389,10 +389,14 @@ fn translate_keysym_to_virtual_keycode(keysym: u32) -> azul_core::window::Virtua
         XKB_KEY_F12 => VirtualKeyCode::F12,
 
         // Modifier keys
-        XKB_KEY_Shift_L | XKB_KEY_Shift_R => VirtualKeyCode::LShift,
-        XKB_KEY_Control_L | XKB_KEY_Control_R => VirtualKeyCode::LControl,
-        XKB_KEY_Alt_L | XKB_KEY_Alt_R => VirtualKeyCode::LAlt,
-        XKB_KEY_Super_L | XKB_KEY_Super_R => VirtualKeyCode::LWin,
+        XKB_KEY_Shift_L => VirtualKeyCode::LShift,
+        XKB_KEY_Shift_R => VirtualKeyCode::RShift,
+        XKB_KEY_Control_L => VirtualKeyCode::LControl,
+        XKB_KEY_Control_R => VirtualKeyCode::RControl,
+        XKB_KEY_Alt_L => VirtualKeyCode::LAlt,
+        XKB_KEY_Alt_R => VirtualKeyCode::RAlt,
+        XKB_KEY_Super_L => VirtualKeyCode::LWin,
+        XKB_KEY_Super_R => VirtualKeyCode::RWin,
 
         // Punctuation
         XKB_KEY_space => VirtualKeyCode::Space,
@@ -1082,7 +1086,7 @@ impl WaylandWindow {
                         let app_id = None; // TODO: Extract from x11_wm_classes if needed
 
                         if let Err(e) = manager.set_window_properties_wayland(
-                            window.surface as u32, // Use surface pointer as window ID
+                            window.surface as usize, // Use surface pointer as window ID
                             &app_id,
                         ) {
                             log_warn!(
@@ -1607,6 +1611,31 @@ impl WaylandWindow {
         }
     }
 
+    fn handle_process_event_result(&mut self, result: ProcessEventResult) {
+        match result {
+            ProcessEventResult::ShouldRegenerateDomCurrentWindow
+            | ProcessEventResult::ShouldRegenerateDomAllWindows => {
+                if let Err(e) = self.regenerate_layout() {
+                    log_error!(
+                        LogCategory::Layout,
+                        "[Wayland] Layout regeneration error: {}",
+                        e
+                    );
+                }
+            }
+            ProcessEventResult::ShouldIncrementalRelayout
+            | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
+                self.common.frame_needs_regeneration = true;
+                self.request_redraw();
+            }
+            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            | ProcessEventResult::ShouldReRenderCurrentWindow => {
+                self.request_redraw();
+            }
+            ProcessEventResult::DoNothing => {}
+        }
+    }
+
     /// Handle pointer motion event
     pub fn handle_pointer_motion(&mut self, x: f64, y: f64) {
         let logical_pos = LogicalPosition::new(x as f32, y as f32);
@@ -1664,33 +1693,7 @@ impl WaylandWindow {
 
         // V2: Process events through state-diffing system
         let result = self.process_window_events(0);
-
-        // Process the result
-        match result {
-            ProcessEventResult::ShouldRegenerateDomCurrentWindow
-            | ProcessEventResult::ShouldRegenerateDomAllWindows => {
-                if let Err(e) = self.regenerate_layout() {
-                    log_error!(
-                        LogCategory::Layout,
-                        "[Wayland] Layout regeneration error: {}",
-                        e
-                    );
-                }
-            }
-            ProcessEventResult::ShouldIncrementalRelayout
-            | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
-                self.common.frame_needs_regeneration = true;
-                self.request_redraw();
-            }
-            // ShouldUpdateDisplayListCurrentWindow: pending VirtualView updates are
-            // queued in layout_window.pending_virtual_view_updates and will be processed
-            // in the render path — no full layout regeneration needed.
-            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
-            | ProcessEventResult::ShouldReRenderCurrentWindow => {
-                self.request_redraw();
-            }
-            ProcessEventResult::DoNothing => {}
-        }
+        self.handle_process_event_result(result);
     }
 
     /// Handle pointer button event
@@ -1774,33 +1777,7 @@ impl WaylandWindow {
 
         // V2: Process events through state-diffing system
         let result = self.process_window_events(0);
-
-        // Process the result
-        match result {
-            ProcessEventResult::ShouldRegenerateDomCurrentWindow
-            | ProcessEventResult::ShouldRegenerateDomAllWindows => {
-                if let Err(e) = self.regenerate_layout() {
-                    log_error!(
-                        LogCategory::Layout,
-                        "[Wayland] Layout regeneration error: {}",
-                        e
-                    );
-                }
-            }
-            ProcessEventResult::ShouldIncrementalRelayout
-            | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
-                self.common.frame_needs_regeneration = true;
-                self.request_redraw();
-            }
-            // ShouldUpdateDisplayListCurrentWindow: pending VirtualView updates are
-            // queued in layout_window.pending_virtual_view_updates and will be processed
-            // in the render path — no full layout regeneration needed.
-            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
-            | ProcessEventResult::ShouldReRenderCurrentWindow => {
-                self.request_redraw();
-            }
-            ProcessEventResult::DoNothing => {}
-        }
+        self.handle_process_event_result(result);
     }
 
     /// Handle pointer axis (scroll) event
@@ -1879,33 +1856,7 @@ impl WaylandWindow {
 
         // V2: Process events through state-diffing system
         let result = self.process_window_events(0);
-
-        // Process the result
-        match result {
-            ProcessEventResult::ShouldRegenerateDomCurrentWindow
-            | ProcessEventResult::ShouldRegenerateDomAllWindows => {
-                if let Err(e) = self.regenerate_layout() {
-                    log_error!(
-                        LogCategory::Layout,
-                        "[Wayland] Layout regeneration error: {}",
-                        e
-                    );
-                }
-            }
-            ProcessEventResult::ShouldIncrementalRelayout
-            | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
-                self.common.frame_needs_regeneration = true;
-                self.request_redraw();
-            }
-            // ShouldUpdateDisplayListCurrentWindow: pending VirtualView updates are
-            // queued in layout_window.pending_virtual_view_updates and will be processed
-            // in the render path — no full layout regeneration needed.
-            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
-            | ProcessEventResult::ShouldReRenderCurrentWindow => {
-                self.request_redraw();
-            }
-            ProcessEventResult::DoNothing => {}
-        }
+        self.handle_process_event_result(result);
     }
 
     /// Handle pointer enter event
@@ -3308,14 +3259,23 @@ impl WaylandWindow {
             RenderMode::Gpu(gl_context, _gl_functions) => {
                 gl_context.resize(&self.wayland, width, height);
             }
-            RenderMode::Cpu(Some(cpu_state)) => {
-                // For CPU rendering, we need to recreate the buffer with new size
-                // This is a simplified approach - in practice, you might want to
-                // recreate the entire CpuFallbackState
-                let _ = (cpu_state, width, height);
-                // TODO: Implement CPU buffer resizing if needed
+            RenderMode::Cpu(cpu_opt) => {
+                if !self.shm.is_null() {
+                    drop(cpu_opt.take());
+                    match CpuFallbackState::new(&self.wayland, self.shm, width, height) {
+                        Ok(new_state) => {
+                            *cpu_opt = Some(new_state);
+                        }
+                        Err(e) => {
+                            log_error!(
+                                LogCategory::Rendering,
+                                "[Wayland] CPU buffer resize failed: {:?}",
+                                e
+                            );
+                        }
+                    }
+                }
             }
-            RenderMode::Cpu(None) => {}
         }
     }
 
@@ -3332,19 +3292,19 @@ impl WaylandWindow {
     }
 
     /// Returns the logical size of the window's surface.
-    pub fn get_window_size_logical(&self) -> (i32, i32) {
+    pub(crate) fn get_window_size_logical(&self) -> (i32, i32) {
         let size = self.common.current_window_state.size.get_logical_size();
         (size.width as i32, size.height as i32)
     }
 
     /// Returns the physical size of the window by applying the scale factor.
-    pub fn get_window_size_physical(&self) -> (i32, i32) {
+    pub(crate) fn get_window_size_physical(&self) -> (i32, i32) {
         let size = self.common.current_window_state.size.get_physical_size();
         (size.width as i32, size.height as i32)
     }
 
     /// Returns the DPI scale factor for the window.
-    pub fn get_scale_factor(&self) -> f32 {
+    pub(crate) fn get_scale_factor(&self) -> f32 {
         self.common.current_window_state
             .size
             .get_hidpi_factor()
@@ -3374,7 +3334,7 @@ impl WaylandWindow {
     ///
     /// Note: Wayland doesn't expose absolute positioning information to clients.
     /// This returns an approximation based on the window's size and scale.
-    pub fn get_window_display_info(&self) -> Option<crate::desktop::display::DisplayInfo> {
+    pub(crate) fn get_window_display_info(&self) -> Option<crate::desktop::display::DisplayInfo> {
         use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 
         let scale_factor = self.get_scale_factor();
@@ -3436,7 +3396,7 @@ impl WaylandWindow {
     ///
     /// Returns the first monitor if the window is on multiple monitors,
     /// or the primary monitor if tracking hasn't been initialized yet.
-    pub fn get_current_monitor(&self) -> Option<crate::desktop::display::DisplayInfo> {
+    pub(crate) fn get_current_monitor(&self) -> Option<crate::desktop::display::DisplayInfo> {
         let all_displays = crate::desktop::display::get_displays();
 
         if all_displays.is_empty() {
