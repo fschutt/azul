@@ -87,7 +87,14 @@ impl NativeScreenshotExt for CallbackInfo {
     }
 
     fn take_native_screenshot_bytes(&self) -> Result<Vec<u8>, AzString> {
-        let temp_path = std::env::temp_dir().join("azul_screenshot_temp.png");
+        let temp_path = std::env::temp_dir().join(format!(
+            "azul_screenshot_{}_{}.png",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
         let temp_path_str = temp_path.to_string_lossy().to_string();
 
         // Explicitly call the trait method, not the inherent method on CallbackInfo
@@ -270,66 +277,62 @@ fn take_native_screenshot_windows(
 
         let old_bitmap = SelectObject(mem_dc, bitmap);
 
-        const PW_RENDERFULLCONTENT: u32 = 2;
-        if PrintWindow(hwnd, mem_dc, PW_RENDERFULLCONTENT) == 0 {
-            SelectObject(mem_dc, old_bitmap);
-            DeleteObject(bitmap);
-            DeleteDC(mem_dc);
-            ReleaseDC(hwnd, window_dc);
-            return Err(AzString::from("PrintWindow failed"));
-        }
+        let result = (|| -> Result<(), AzString> {
+            const PW_RENDERFULLCONTENT: u32 = 2;
+            if PrintWindow(hwnd, mem_dc, PW_RENDERFULLCONTENT) == 0 {
+                return Err(AzString::from("PrintWindow failed"));
+            }
 
-        let mut bmi = BITMAPINFOHEADER {
-            biSize: core::mem::size_of::<BITMAPINFOHEADER>() as u32,
-            biWidth: width,
-            biHeight: -height, // Top-down DIB
-            biPlanes: 1,
-            biBitCount: 32,
-            biCompression: 0, // BI_RGB
-            biSizeImage: 0,
-            biXPelsPerMeter: 0,
-            biYPelsPerMeter: 0,
-            biClrUsed: 0,
-            biClrImportant: 0,
-        };
+            let mut bmi = BITMAPINFOHEADER {
+                biSize: core::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: width,
+                biHeight: -height, // Top-down DIB
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: 0, // BI_RGB
+                biSizeImage: 0,
+                biXPelsPerMeter: 0,
+                biYPelsPerMeter: 0,
+                biClrUsed: 0,
+                biClrImportant: 0,
+            };
 
-        let row_bytes = (width * 4) as usize;
-        let mut pixels: Vec<u8> = vec![0u8; row_bytes * height as usize];
+            let row_bytes = (width * 4) as usize;
+            let mut pixels: Vec<u8> = vec![0u8; row_bytes * height as usize];
 
-        if GetDIBits(
-            mem_dc,
-            bitmap,
-            0,
-            height as u32,
-            pixels.as_mut_ptr(),
-            &mut bmi,
-            0,
-        ) == 0
-        {
-            SelectObject(mem_dc, old_bitmap);
-            DeleteObject(bitmap);
-            DeleteDC(mem_dc);
-            ReleaseDC(hwnd, window_dc);
-            return Err(AzString::from("GetDIBits failed"));
-        }
+            if GetDIBits(
+                mem_dc,
+                bitmap,
+                0,
+                height as u32,
+                pixels.as_mut_ptr(),
+                &mut bmi,
+                0,
+            ) == 0
+            {
+                return Err(AzString::from("GetDIBits failed"));
+            }
+
+            // Convert BGRA to RGBA
+            for chunk in pixels.chunks_exact_mut(4) {
+                chunk.swap(0, 2);
+            }
+
+            let png_data = encode_rgba_png(pixels, width as u32, height as u32)
+                .map_err(|e| AzString::from(e))?;
+
+            std::fs::write(path, png_data)
+                .map_err(|e| AzString::from(format!("Failed to write file: {}", e)))?;
+
+            Ok(())
+        })();
 
         SelectObject(mem_dc, old_bitmap);
         DeleteObject(bitmap);
         DeleteDC(mem_dc);
         ReleaseDC(hwnd, window_dc);
 
-        // Convert BGRA to RGBA
-        for chunk in pixels.chunks_exact_mut(4) {
-            chunk.swap(0, 2);
-        }
-
-        let png_data = encode_rgba_png(pixels, width as u32, height as u32)
-            .map_err(|e| AzString::from(e))?;
-
-        std::fs::write(path, png_data)
-            .map_err(|e| AzString::from(format!("Failed to write file: {}", e)))?;
-
-        Ok(())
+        result
     }
 }
 
@@ -346,20 +349,38 @@ fn take_native_screenshot_xlib(
         return Err(AzString::from("Invalid display handle"));
     }
 
+    use core::ffi::{c_int, c_long, c_ulong, c_void};
+
     // X11 types
-    type Display = core::ffi::c_void;
+    type Display = c_void;
     type Window = u64;
-    type XImage = core::ffi::c_void;
+    type XImage = c_void;
 
     #[repr(C)]
     struct XWindowAttributes {
-        x: i32,
-        y: i32,
-        width: i32,
-        height: i32,
-        border_width: i32,
-        depth: i32,
-        _padding: [u8; 256],
+        x: c_int,
+        y: c_int,
+        width: c_int,
+        height: c_int,
+        border_width: c_int,
+        depth: c_int,
+        visual: *mut c_void,
+        root: c_ulong,
+        class: c_int,
+        bit_gravity: c_int,
+        win_gravity: c_int,
+        backing_store: c_int,
+        backing_planes: c_ulong,
+        backing_pixel: c_ulong,
+        save_under: c_int,
+        colormap: c_ulong,
+        map_installed: c_int,
+        map_state: c_int,
+        all_event_masks: c_long,
+        your_event_masks: c_long,
+        do_not_propagate_mask: c_long,
+        override_redirect: c_int,
+        screen: *mut c_void,
     }
 
     #[repr(C)]
@@ -403,100 +424,91 @@ fn take_native_screenshot_xlib(
         ));
     }
 
-    // Load function pointers
-    let get_window_attrs: XGetWindowAttributesFn = unsafe {
+    let result = unsafe {
+        // Load function pointers
         let sym_name = CString::new("XGetWindowAttributes").unwrap();
         let sym = libc::dlsym(lib, sym_name.as_ptr());
         if sym.is_null() {
             libc::dlclose(lib);
             return Err(AzString::from("Failed to find XGetWindowAttributes"));
         }
-        std::mem::transmute(sym)
-    };
+        let get_window_attrs: XGetWindowAttributesFn = std::mem::transmute(sym);
 
-    let get_image: XGetImageFn = unsafe {
         let sym_name = CString::new("XGetImage").unwrap();
         let sym = libc::dlsym(lib, sym_name.as_ptr());
         if sym.is_null() {
             libc::dlclose(lib);
             return Err(AzString::from("Failed to find XGetImage"));
         }
-        std::mem::transmute(sym)
-    };
+        let get_image: XGetImageFn = std::mem::transmute(sym);
 
-    let destroy_image: XDestroyImageFn = unsafe {
         let sym_name = CString::new("XDestroyImage").unwrap();
         let sym = libc::dlsym(lib, sym_name.as_ptr());
         if sym.is_null() {
             libc::dlclose(lib);
             return Err(AzString::from("Failed to find XDestroyImage"));
         }
-        std::mem::transmute(sym)
-    };
+        let destroy_image: XDestroyImageFn = std::mem::transmute(sym);
 
-    let result = unsafe {
-        let mut attr: XWindowAttributes = core::mem::zeroed();
-        if get_window_attrs(display, window, &mut attr) == 0 {
-            libc::dlclose(lib);
-            return Err(AzString::from("Failed to get window attributes"));
-        }
-
-        let width = attr.width as u32;
-        let height = attr.height as u32;
-
-        if width == 0 || height == 0 {
-            libc::dlclose(lib);
-            return Err(AzString::from("Invalid window dimensions"));
-        }
-
-        // ZPixmap = 2, AllPlanes = !0
-        let image = get_image(display, window, 0, 0, width, height, !0u64, 2);
-        if image.is_null() {
-            libc::dlclose(lib);
-            return Err(AzString::from("XGetImage failed"));
-        }
-
-        let img = &*(image as *const XImageData);
-
-        // Extract pixel data
-        let mut pixels: Vec<u8> = Vec::with_capacity((width * height * 4) as usize);
-
-        for y in 0..height {
-            for x in 0..width {
-                let offset =
-                    (y as i32 * img.bytes_per_line + x as i32 * (img.bits_per_pixel / 8)) as isize;
-                let pixel_ptr = img.data.offset(offset) as *const u8;
-
-                // BGRA format (common on X11 with 32-bit depth)
-                let b = *pixel_ptr;
-                let g = *pixel_ptr.offset(1);
-                let r = *pixel_ptr.offset(2);
-                let a = if img.bits_per_pixel == 32 {
-                    *pixel_ptr.offset(3)
-                } else {
-                    255
-                };
-
-                pixels.push(r);
-                pixels.push(g);
-                pixels.push(b);
-                pixels.push(a);
+        (|| -> Result<(), AzString> {
+            let mut attr: XWindowAttributes = core::mem::zeroed();
+            if get_window_attrs(display, window, &mut attr) == 0 {
+                return Err(AzString::from("Failed to get window attributes"));
             }
-        }
 
-        destroy_image(image);
+            let width = attr.width as u32;
+            let height = attr.height as u32;
 
-        // Create PNG using png crate
-        let png_data = encode_rgba_png(pixels, width, height)
-            .map_err(|e| AzString::from(e))?;
+            if width == 0 || height == 0 {
+                return Err(AzString::from("Invalid window dimensions"));
+            }
 
-        std::fs::write(path, png_data)
-            .map_err(|e| AzString::from(format!("Failed to write file: {}", e)))?;
+            // ZPixmap = 2, AllPlanes = !0
+            let image = get_image(display, window, 0, 0, width, height, !0u64, 2);
+            if image.is_null() {
+                return Err(AzString::from("XGetImage failed"));
+            }
 
-        Ok(())
+            let img = &*(image as *const XImageData);
+
+            // Extract pixel data
+            let mut pixels: Vec<u8> = Vec::with_capacity((width * height * 4) as usize);
+
+            for y in 0..height {
+                for x in 0..width {
+                    let offset = (y as i32 * img.bytes_per_line
+                        + x as i32 * (img.bits_per_pixel / 8))
+                        as isize;
+                    let pixel_ptr = img.data.offset(offset) as *const u8;
+
+                    let b = *pixel_ptr;
+                    let g = *pixel_ptr.offset(1);
+                    let r = *pixel_ptr.offset(2);
+                    let a = if img.bits_per_pixel == 32 {
+                        *pixel_ptr.offset(3)
+                    } else {
+                        255
+                    };
+
+                    pixels.push(r);
+                    pixels.push(g);
+                    pixels.push(b);
+                    pixels.push(a);
+                }
+            }
+
+            destroy_image(image);
+
+            let png_data =
+                encode_rgba_png(pixels, width, height).map_err(|e| AzString::from(e))?;
+
+            std::fs::write(path, png_data)
+                .map_err(|e| AzString::from(format!("Failed to write file: {}", e)))?;
+
+            Ok(())
+        })()
     };
 
-    // Close library
     unsafe {
         libc::dlclose(lib);
     }
