@@ -8,12 +8,9 @@
 //! whose `active_drag` field is populated by event-processing code in
 //! `event.rs`.
 
-use azul_core::dom::{DomNodeId, NodeId, OptionDomNodeId};
+use azul_core::dom::{DomNodeId, OptionDomNodeId};
 use azul_core::drag::{ActiveDragType, DragContext};
-use azul_css::{impl_option, impl_option_inner, AzString, OptionString};
-
-/// Re-exported for the C API (`api.json` / `drag-drop-test.c`).
-pub use azul_core::drag::DragData;
+use azul_css::{impl_option, impl_option_inner, OptionString};
 
 /// Type of drag operation
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,35 +83,6 @@ impl DragDropManager {
         Self { active_drag: None }
     }
 
-    /// Start a node drag operation
-    pub fn start_node_drag(&mut self, source_node: DomNodeId) {
-        self.active_drag = Some(DragContext::node_drag(
-            source_node.dom,
-            source_node.node.into_crate_internal().unwrap_or(NodeId::ZERO),
-            azul_core::geom::LogicalPosition::zero(),
-            DragData::default(),
-            0,
-        ));
-    }
-
-    /// Start a file drag operation
-    pub fn start_file_drag(&mut self, file_path: AzString) {
-        self.active_drag = Some(DragContext::file_drop(
-            vec![file_path],
-            azul_core::geom::LogicalPosition::zero(),
-            0,
-        ));
-    }
-
-    /// Update the current drop target
-    pub fn set_drop_target(&mut self, target: Option<DomNodeId>) {
-        if let Some(ref mut drag) = self.active_drag {
-            if let Some(node_drag) = drag.as_node_drag_mut() {
-                node_drag.current_drop_target = target.into();
-            }
-        }
-    }
-
     /// End the drag operation and return the final context
     pub fn end_drag(&mut self) -> Option<DragContext> {
         self.active_drag.take()
@@ -145,8 +113,4 @@ impl DragDropManager {
         self.active_drag.as_ref().and_then(DragState::from_context)
     }
 
-    /// Cancel the current drag operation
-    pub fn cancel_drag(&mut self) {
-        self.active_drag = None;
-    }
 }
