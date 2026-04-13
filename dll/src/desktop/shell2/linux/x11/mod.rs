@@ -355,6 +355,12 @@ impl X11Window {
         // Check timers and threads before processing X11 events
         self.check_timers_and_threads();
 
+        // Process GNOME menu DBus messages (non-blocking)
+        if let Some(ref manager) = self.gnome_menu {
+            manager.process_messages();
+        }
+        self.process_pending_menu_callbacks();
+
         while unsafe { (self.xlib.XPending)(self.display) } > 0 {
             let mut event: XEvent = unsafe { std::mem::zeroed() };
             unsafe { (self.xlib.XNextEvent)(self.display, &mut event) };
@@ -655,6 +661,35 @@ impl X11Window {
 }
 
 impl X11Window {
+    fn ensure_layout_window_initialized(&mut self) -> Result<(), WindowError> {
+        if self.common.layout_window.is_some() {
+            return Ok(());
+        }
+        let mut layout_window =
+            azul_layout::window::LayoutWindow::new((*self.resources.fc_cache).clone())
+                .map_err(|e| {
+                    WindowError::PlatformError(format!(
+                        "Failed to create LayoutWindow: {:?}",
+                        e
+                    ))
+                })?;
+
+        if let Some(doc_id) = self.common.document_id {
+            layout_window.document_id = doc_id;
+        }
+        if let Some(ns_id) = self.common.id_namespace {
+            layout_window.id_namespace = ns_id;
+        }
+        layout_window.current_window_state = self.common.current_window_state.clone();
+        layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
+        layout_window.routes = self.resources.config.routes.clone();
+        if let Ok(mut guard) = layout_window.monitors.lock() {
+            *guard = crate::desktop::display::get_monitors();
+        }
+        self.common.layout_window = Some(layout_window);
+        Ok(())
+    }
+
     /// Create a new X11 window with shared resources
     ///
     /// This is the preferred way to create X11 windows, as it allows
@@ -1065,32 +1100,7 @@ impl X11Window {
                 display: window.display as *mut _,
             });
 
-            // Initialize LayoutWindow if not already done
-            if window.common.layout_window.is_none() {
-                let mut layout_window =
-                    azul_layout::window::LayoutWindow::new((*window.resources.fc_cache).clone())
-                        .map_err(|e| {
-                            WindowError::PlatformError(format!(
-                                "Failed to create LayoutWindow: {:?}",
-                                e
-                            ))
-                        })?;
-
-                if let Some(doc_id) = window.common.document_id {
-                    layout_window.document_id = doc_id;
-                }
-                if let Some(ns_id) = window.common.id_namespace {
-                    layout_window.id_namespace = ns_id;
-                }
-                layout_window.current_window_state = window.common.current_window_state.clone();
-                layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
-                layout_window.routes = window.resources.config.routes.clone();
-                // Initialize monitor cache once at window creation
-                if let Ok(mut guard) = layout_window.monitors.lock() {
-                    *guard = crate::desktop::display::get_monitors();
-                }
-                window.common.layout_window = Some(layout_window);
-            }
+            window.ensure_layout_window_initialized()?;
 
             // Get mutable references needed for invoke_single_callback
             let layout_window = window
@@ -1122,33 +1132,7 @@ impl X11Window {
             }
         }
 
-        // CRITICAL: Always initialize LayoutWindow if not already done
-        // This is needed for rendering even without callbacks or debug mode
-        if window.common.layout_window.is_none() {
-            let mut layout_window =
-                azul_layout::window::LayoutWindow::new((*window.resources.fc_cache).clone())
-                    .map_err(|e| {
-                        WindowError::PlatformError(format!(
-                            "Failed to create LayoutWindow: {:?}",
-                            e
-                        ))
-                    })?;
-
-            if let Some(doc_id) = window.common.document_id {
-                layout_window.document_id = doc_id;
-            }
-            if let Some(ns_id) = window.common.id_namespace {
-                layout_window.id_namespace = ns_id;
-            }
-            layout_window.current_window_state = window.common.current_window_state.clone();
-            layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
-            layout_window.routes = window.resources.config.routes.clone();
-            // Initialize monitor cache once at window creation
-            if let Ok(mut guard) = layout_window.monitors.lock() {
-                *guard = crate::desktop::display::get_monitors();
-            }
-            window.common.layout_window = Some(layout_window);
-        }
+        window.ensure_layout_window_initialized()?;
 
         // Register debug timer is now done from run() with explicit channel + component map
 
@@ -1229,21 +1213,6 @@ impl X11Window {
         unsafe {
             (self.xlib.XMoveWindow)(self.display, self.window, x, y);
             (self.xlib.XFlush)(self.display);
-        }
-    }
-
-    fn process_events(&mut self) {
-        // Process GNOME menu DBus messages (non-blocking)
-        if let Some(ref manager) = self.gnome_menu {
-            manager.process_messages();
-        }
-
-        // Process any pending menu callbacks from DBus
-        self.process_pending_menu_callbacks();
-
-        let result = self.process_window_events(0);
-        if result != ProcessEventResult::DoNothing {
-            self.request_redraw();
         }
     }
 
@@ -1446,6 +1415,88 @@ impl X11Window {
         let result = match unsafe { event.type_ } {
             defines::Expose => {
                 self.request_redraw();
+                ProcessEventResult::DoNothing
+            }
+            defines::FocusIn => {
+                self.common.current_window_state.window_focused = true;
+                self.dynamic_selector_context.window_focused = true;
+                self.sync_ime_position_to_os();
+                ProcessEventResult::DoNothing
+            }
+            defines::FocusOut => {
+                self.common.current_window_state.window_focused = false;
+                self.dynamic_selector_context.window_focused = false;
+                ProcessEventResult::DoNothing
+            }
+            defines::ConfigureNotify => {
+                let ev = unsafe { &event.configure };
+                let (new_width, new_height) = (ev.width as u32, ev.height as u32);
+
+                let old_context = self.dynamic_selector_context.clone();
+                let size_changed = self.common.current_window_state.size.get_physical_size()
+                    != PhysicalSize::new(new_width, new_height);
+                let position_changed = match self.common.current_window_state.position {
+                    azul_core::window::WindowPosition::Initialized(pos) => {
+                        pos.x != ev.x || pos.y != ev.y
+                    }
+                    _ => true,
+                };
+
+                if size_changed {
+                    self.common.current_window_state.size.dimensions =
+                        LogicalSize::new(new_width as f32, new_height as f32);
+                    self.dynamic_selector_context.viewport_width = new_width as f32;
+                    self.dynamic_selector_context.viewport_height = new_height as f32;
+                    self.dynamic_selector_context.orientation = if new_width > new_height {
+                        azul_css::dynamic_selector::OrientationType::Landscape
+                    } else {
+                        azul_css::dynamic_selector::OrientationType::Portrait
+                    };
+                    if old_context.viewport_breakpoint_changed(
+                        &self.dynamic_selector_context,
+                        CSS_BREAKPOINTS,
+                    ) {
+                        log_debug!(
+                            LogCategory::Layout,
+                            "[X11 Resize] Breakpoint crossed: {}x{} -> {}x{}",
+                            old_context.viewport_width,
+                            old_context.viewport_height,
+                            self.dynamic_selector_context.viewport_width,
+                            self.dynamic_selector_context.viewport_height
+                        );
+                    }
+                    self.regenerate_layout().ok();
+                }
+
+                self.common.current_window_state.position =
+                    azul_core::window::WindowPosition::Initialized(
+                        azul_core::geom::PhysicalPositionI32::new(ev.x, ev.y),
+                    );
+
+                if position_changed && !size_changed {
+                    use azul_core::geom::LogicalPosition;
+                    let window_center = LogicalPosition::new(
+                        ev.x as f32 + new_width as f32 / 2.0,
+                        ev.y as f32 + new_height as f32 / 2.0,
+                    );
+                    if let Some(display) =
+                        crate::desktop::display::get_display_at_point(window_center)
+                    {
+                        let new_dpi = (display.scale_factor * 96.0) as u32;
+                        let old_dpi = self.common.current_window_state.size.dpi;
+                        if (new_dpi as i32 - old_dpi as i32).abs() > 1 {
+                            log_debug!(
+                                LogCategory::Window,
+                                "[X11 DPI Change] {} -> {} (moved to different monitor)",
+                                old_dpi,
+                                new_dpi
+                            );
+                            self.common.current_window_state.size.dpi = new_dpi;
+                            self.regenerate_layout().ok();
+                        }
+                    }
+                }
+
                 ProcessEventResult::DoNothing
             }
             defines::ClientMessage => {
@@ -2042,104 +2093,25 @@ impl X11Window {
         // Must be done AFTER XMapWindow since _NET_WM_STATE messages go to the root window
         match self.common.current_window_state.flags.frame {
             WindowFrame::Maximized => unsafe {
-                let screen = (self.xlib.XDefaultScreen)(self.display);
-                let root = (self.xlib.XRootWindow)(self.display, screen);
-
-                let mut event: defines::XClientMessageEvent = std::mem::zeroed();
-                event.type_ = defines::ClientMessage;
-                event.window = self.window;
-                event.message_type = (self.xlib.XInternAtom)(
-                    self.display,
-                    b"_NET_WM_STATE\0".as_ptr() as *const i8,
-                    0,
-                );
-                event.format = 32;
-                event.data.l[0] = 1; // _NET_WM_STATE_ADD
-                event.data.l[1] = (self.xlib.XInternAtom)(
-                    self.display,
-                    b"_NET_WM_STATE_MAXIMIZED_VERT\0".as_ptr() as *const i8,
-                    0,
-                ) as i64;
-                event.data.l[2] = (self.xlib.XInternAtom)(
-                    self.display,
-                    b"_NET_WM_STATE_MAXIMIZED_HORZ\0".as_ptr() as *const i8,
-                    0,
-                ) as i64;
-                event.data.l[3] = 1;
-
-                (self.xlib.XSendEvent)(
-                    self.display,
-                    root,
-                    0,
-                    defines::SubstructureNotifyMask | defines::SubstructureRedirectMask,
-                    &mut event as *mut _ as *mut defines::XEvent,
+                self.send_wm_state_change(
+                    1,
+                    b"_NET_WM_STATE_MAXIMIZED_VERT\0",
+                    Some(b"_NET_WM_STATE_MAXIMIZED_HORZ\0"),
                 );
             },
             WindowFrame::Fullscreen => unsafe {
-                let screen = (self.xlib.XDefaultScreen)(self.display);
-                let root = (self.xlib.XRootWindow)(self.display, screen);
-
-                let mut event: defines::XClientMessageEvent = std::mem::zeroed();
-                event.type_ = defines::ClientMessage;
-                event.window = self.window;
-                event.message_type = (self.xlib.XInternAtom)(
-                    self.display,
-                    b"_NET_WM_STATE\0".as_ptr() as *const i8,
-                    0,
-                );
-                event.format = 32;
-                event.data.l[0] = 1; // _NET_WM_STATE_ADD
-                event.data.l[1] = (self.xlib.XInternAtom)(
-                    self.display,
-                    b"_NET_WM_STATE_FULLSCREEN\0".as_ptr() as *const i8,
-                    0,
-                ) as i64;
-                event.data.l[3] = 1;
-
-                (self.xlib.XSendEvent)(
-                    self.display,
-                    root,
-                    0,
-                    defines::SubstructureNotifyMask | defines::SubstructureRedirectMask,
-                    &mut event as *mut _ as *mut defines::XEvent,
-                );
+                self.send_wm_state_change(1, b"_NET_WM_STATE_FULLSCREEN\0", None);
             },
             WindowFrame::Minimized => unsafe {
                 (self.xlib.XUnmapWindow)(self.display, self.window);
             },
-            WindowFrame::Normal => {} // Already in normal state
+            WindowFrame::Normal => {}
         }
 
         // Always-on-top
         if self.common.current_window_state.flags.is_always_on_top {
             unsafe {
-                let screen = (self.xlib.XDefaultScreen)(self.display);
-                let root = (self.xlib.XRootWindow)(self.display, screen);
-
-                let mut event: defines::XClientMessageEvent = std::mem::zeroed();
-                event.type_ = defines::ClientMessage;
-                event.window = self.window;
-                event.message_type = (self.xlib.XInternAtom)(
-                    self.display,
-                    b"_NET_WM_STATE\0".as_ptr() as *const i8,
-                    0,
-                );
-                event.format = 32;
-                event.data.l[0] = 1; // _NET_WM_STATE_ADD
-                event.data.l[1] = (self.xlib.XInternAtom)(
-                    self.display,
-                    b"_NET_WM_STATE_ABOVE\0".as_ptr() as *const i8,
-                    0,
-                ) as i64;
-                event.data.l[3] = 1;
-
-                (self.xlib.XSendEvent)(
-                    self.display,
-                    root,
-                    0,
-                    defines::SubstructureNotifyMask | defines::SubstructureRedirectMask,
-                    &mut event as *mut _ as *mut defines::XEvent,
-                );
+                self.send_wm_state_change(1, b"_NET_WM_STATE_ABOVE\0", None);
             }
         }
 
@@ -2217,211 +2189,52 @@ impl X11Window {
                 WindowFrame::Minimized => unsafe {
                     (self.xlib.XUnmapWindow)(self.display, self.window);
                 },
-                WindowFrame::Maximized => {
-                    // Maximize via _NET_WM_STATE
-                    unsafe {
-                        let screen = (self.xlib.XDefaultScreen)(self.display);
-                        let root = (self.xlib.XRootWindow)(self.display, screen);
-
-                        let mut event: defines::XClientMessageEvent = std::mem::zeroed();
-                        event.type_ = defines::ClientMessage;
-                        event.window = self.window;
-                        event.message_type = (self.xlib.XInternAtom)(
-                            self.display,
-                            b"_NET_WM_STATE\0".as_ptr() as *const i8,
-                            0,
-                        );
-                        event.format = 32;
-                        event.data.l[0] = 1; // _NET_WM_STATE_ADD
-                        event.data.l[1] = (self.xlib.XInternAtom)(
-                            self.display,
-                            b"_NET_WM_STATE_MAXIMIZED_VERT\0".as_ptr() as *const i8,
-                            0,
-                        ) as i64;
-                        event.data.l[2] = (self.xlib.XInternAtom)(
-                            self.display,
-                            b"_NET_WM_STATE_MAXIMIZED_HORZ\0".as_ptr() as *const i8,
-                            0,
-                        ) as i64;
-                        event.data.l[3] = 1; // Source indication
-
-                        (self.xlib.XSendEvent)(
-                            self.display,
-                            root,
-                            0,
-                            defines::SubstructureNotifyMask | defines::SubstructureRedirectMask,
-                            &mut event as *mut _ as *mut defines::XEvent,
-                        );
-                    }
-                }
+                WindowFrame::Maximized => unsafe {
+                    self.send_wm_state_change(
+                        1,
+                        b"_NET_WM_STATE_MAXIMIZED_VERT\0",
+                        Some(b"_NET_WM_STATE_MAXIMIZED_HORZ\0"),
+                    );
+                },
                 WindowFrame::Normal => {
-                    // Restore to normal - remove maximize and fullscreen states
                     unsafe {
-                        let screen = (self.xlib.XDefaultScreen)(self.display);
-                        let root = (self.xlib.XRootWindow)(self.display, screen);
-
                         if previous.flags.frame == WindowFrame::Maximized {
-                            let mut event: defines::XClientMessageEvent = std::mem::zeroed();
-                            event.type_ = defines::ClientMessage;
-                            event.window = self.window;
-                            event.message_type = (self.xlib.XInternAtom)(
-                                self.display,
-                                b"_NET_WM_STATE\0".as_ptr() as *const i8,
+                            self.send_wm_state_change(
                                 0,
-                            );
-                            event.format = 32;
-                            event.data.l[0] = 0; // _NET_WM_STATE_REMOVE
-                            event.data.l[1] = (self.xlib.XInternAtom)(
-                                self.display,
-                                b"_NET_WM_STATE_MAXIMIZED_VERT\0".as_ptr() as *const i8,
-                                0,
-                            ) as i64;
-                            event.data.l[2] = (self.xlib.XInternAtom)(
-                                self.display,
-                                b"_NET_WM_STATE_MAXIMIZED_HORZ\0".as_ptr() as *const i8,
-                                0,
-                            ) as i64;
-                            event.data.l[3] = 1; // Source indication
-
-                            (self.xlib.XSendEvent)(
-                                self.display,
-                                root,
-                                0,
-                                defines::SubstructureNotifyMask | defines::SubstructureRedirectMask,
-                                &mut event as *mut _ as *mut defines::XEvent,
+                                b"_NET_WM_STATE_MAXIMIZED_VERT\0",
+                                Some(b"_NET_WM_STATE_MAXIMIZED_HORZ\0"),
                             );
                         }
-
                         if previous.flags.frame == WindowFrame::Fullscreen {
-                            let mut event: defines::XClientMessageEvent = std::mem::zeroed();
-                            event.type_ = defines::ClientMessage;
-                            event.window = self.window;
-                            event.message_type = (self.xlib.XInternAtom)(
-                                self.display,
-                                b"_NET_WM_STATE\0".as_ptr() as *const i8,
+                            self.send_wm_state_change(
                                 0,
-                            );
-                            event.format = 32;
-                            event.data.l[0] = 0; // _NET_WM_STATE_REMOVE
-                            event.data.l[1] = (self.xlib.XInternAtom)(
-                                self.display,
-                                b"_NET_WM_STATE_FULLSCREEN\0".as_ptr() as *const i8,
-                                0,
-                            ) as i64;
-                            event.data.l[3] = 1; // Source indication
-
-                            (self.xlib.XSendEvent)(
-                                self.display,
-                                root,
-                                0,
-                                defines::SubstructureNotifyMask | defines::SubstructureRedirectMask,
-                                &mut event as *mut _ as *mut defines::XEvent,
+                                b"_NET_WM_STATE_FULLSCREEN\0",
+                                None,
                             );
                         }
-
                         if previous.flags.frame == WindowFrame::Minimized {
                             (self.xlib.XMapWindow)(self.display, self.window);
                         }
                     }
                 }
-                WindowFrame::Fullscreen => {
-                    // Set fullscreen via _NET_WM_STATE
-                    unsafe {
-                        let screen = (self.xlib.XDefaultScreen)(self.display);
-                        let root = (self.xlib.XRootWindow)(self.display, screen);
-
-                        // If previously maximized, remove maximize first
-                        if previous.flags.frame == WindowFrame::Maximized {
-                            let mut event: defines::XClientMessageEvent = std::mem::zeroed();
-                            event.type_ = defines::ClientMessage;
-                            event.window = self.window;
-                            event.message_type = (self.xlib.XInternAtom)(
-                                self.display,
-                                b"_NET_WM_STATE\0".as_ptr() as *const i8,
-                                0,
-                            );
-                            event.format = 32;
-                            event.data.l[0] = 0; // _NET_WM_STATE_REMOVE
-                            event.data.l[1] = (self.xlib.XInternAtom)(
-                                self.display,
-                                b"_NET_WM_STATE_MAXIMIZED_VERT\0".as_ptr() as *const i8,
-                                0,
-                            ) as i64;
-                            event.data.l[2] = (self.xlib.XInternAtom)(
-                                self.display,
-                                b"_NET_WM_STATE_MAXIMIZED_HORZ\0".as_ptr() as *const i8,
-                                0,
-                            ) as i64;
-                            event.data.l[3] = 1;
-
-                            (self.xlib.XSendEvent)(
-                                self.display,
-                                root,
-                                0,
-                                defines::SubstructureNotifyMask | defines::SubstructureRedirectMask,
-                                &mut event as *mut _ as *mut defines::XEvent,
-                            );
-                        }
-
-                        let mut event: defines::XClientMessageEvent = std::mem::zeroed();
-                        event.type_ = defines::ClientMessage;
-                        event.window = self.window;
-                        event.message_type = (self.xlib.XInternAtom)(
-                            self.display,
-                            b"_NET_WM_STATE\0".as_ptr() as *const i8,
+                WindowFrame::Fullscreen => unsafe {
+                    if previous.flags.frame == WindowFrame::Maximized {
+                        self.send_wm_state_change(
                             0,
-                        );
-                        event.format = 32;
-                        event.data.l[0] = 1; // _NET_WM_STATE_ADD
-                        event.data.l[1] = (self.xlib.XInternAtom)(
-                            self.display,
-                            b"_NET_WM_STATE_FULLSCREEN\0".as_ptr() as *const i8,
-                            0,
-                        ) as i64;
-                        event.data.l[3] = 1; // Source indication
-
-                        (self.xlib.XSendEvent)(
-                            self.display,
-                            root,
-                            0,
-                            defines::SubstructureNotifyMask | defines::SubstructureRedirectMask,
-                            &mut event as *mut _ as *mut defines::XEvent,
+                            b"_NET_WM_STATE_MAXIMIZED_VERT\0",
+                            Some(b"_NET_WM_STATE_MAXIMIZED_HORZ\0"),
                         );
                     }
-                }
+                    self.send_wm_state_change(1, b"_NET_WM_STATE_FULLSCREEN\0", None);
+                },
             }
         }
 
         // Always-on-top changed?
         if previous.flags.is_always_on_top != current.flags.is_always_on_top {
+            let action = if current.flags.is_always_on_top { 1 } else { 0 };
             unsafe {
-                let screen = (self.xlib.XDefaultScreen)(self.display);
-                let root = (self.xlib.XRootWindow)(self.display, screen);
-
-                let mut event: defines::XClientMessageEvent = std::mem::zeroed();
-                event.type_ = defines::ClientMessage;
-                event.window = self.window;
-                event.message_type = (self.xlib.XInternAtom)(
-                    self.display,
-                    b"_NET_WM_STATE\0".as_ptr() as *const i8,
-                    0,
-                );
-                event.format = 32;
-                event.data.l[0] = if current.flags.is_always_on_top { 1 } else { 0 };
-                event.data.l[1] = (self.xlib.XInternAtom)(
-                    self.display,
-                    b"_NET_WM_STATE_ABOVE\0".as_ptr() as *const i8,
-                    0,
-                ) as i64;
-                event.data.l[3] = 1; // Source indication
-
-                (self.xlib.XSendEvent)(
-                    self.display,
-                    root,
-                    0,
-                    defines::SubstructureNotifyMask | defines::SubstructureRedirectMask,
-                    &mut event as *mut _ as *mut defines::XEvent,
-                );
+                self.send_wm_state_change(action, b"_NET_WM_STATE_ABOVE\0", None);
             }
         }
 
@@ -2586,11 +2399,6 @@ impl X11Window {
             (self.xlib.XDefineCursor)(self.display, self.window, cursor);
             (self.xlib.XFreeCursor)(self.display, cursor);
         }
-    }
-
-    /// Calculates the DPI of the screen the window is on.
-    pub fn get_screen_dpi(&self) -> Option<f32> {
-        Some(96.0)
     }
 
     /// Get display information for the screen this window is on
@@ -2961,6 +2769,47 @@ impl X11Window {
 }
 
 impl X11Window {
+    /// Send a `_NET_WM_STATE` client message to add or remove a window manager state atom.
+    ///
+    /// `action`: 0 = remove, 1 = add.
+    /// `atom1_name`: null-terminated atom name (e.g. `b"_NET_WM_STATE_ABOVE\0"`).
+    /// `atom2_name`: optional second atom (used for maximize vert+horz).
+    unsafe fn send_wm_state_change(
+        &self,
+        action: i64,
+        atom1_name: &[u8],
+        atom2_name: Option<&[u8]>,
+    ) {
+        let screen = (self.xlib.XDefaultScreen)(self.display);
+        let root = (self.xlib.XRootWindow)(self.display, screen);
+
+        let mut event: defines::XClientMessageEvent = std::mem::zeroed();
+        event.type_ = defines::ClientMessage;
+        event.window = self.window;
+        event.message_type = (self.xlib.XInternAtom)(
+            self.display,
+            b"_NET_WM_STATE\0".as_ptr() as *const i8,
+            0,
+        );
+        event.format = 32;
+        event.data.l[0] = action;
+        event.data.l[1] =
+            (self.xlib.XInternAtom)(self.display, atom1_name.as_ptr() as *const i8, 0) as i64;
+        if let Some(a2) = atom2_name {
+            event.data.l[2] =
+                (self.xlib.XInternAtom)(self.display, a2.as_ptr() as *const i8, 0) as i64;
+        }
+        event.data.l[3] = 1;
+
+        (self.xlib.XSendEvent)(
+            self.display,
+            root,
+            0,
+            defines::SubstructureNotifyMask | defines::SubstructureRedirectMask,
+            &mut event as *mut _ as *mut defines::XEvent,
+        );
+    }
+
     /// Check timers and threads, trigger callbacks if needed.
     /// This is called on every poll_event() to simulate timer ticks.
     /// If any timer/thread callback requested a visual update, trigger a redraw
@@ -2972,88 +2821,40 @@ impl X11Window {
         }
     }
 
-    /// Set the window to always be on top (X11 implementation using _NET_WM_STATE_ABOVE)
+    /// Set the window type to normal (top-level) or dialog via `_NET_WM_WINDOW_TYPE`.
     fn set_is_top_level(&mut self, is_top_level: bool) {
         unsafe {
-            // Get _NET_WM_STATE atom
-            let net_wm_state =
-                (self.xlib.XInternAtom)(self.display, b"_NET_WM_STATE\0".as_ptr() as *const i8, 0);
-
-            // Get _NET_WM_STATE_ABOVE atom
-            let net_wm_state_above = (self.xlib.XInternAtom)(
+            let wm_window_type = (self.xlib.XInternAtom)(
                 self.display,
-                b"_NET_WM_STATE_ABOVE\0".as_ptr() as *const i8,
+                b"_NET_WM_WINDOW_TYPE\0".as_ptr() as *const i8,
                 0,
             );
 
-            if is_top_level {
-                // Add _NET_WM_STATE_ABOVE to window properties
-                // Convert to u32 for X11 protocol compliance (format=32 means 32-bit values)
-                let atom_u32 = net_wm_state_above as u32;
-                (self.xlib.XChangeProperty)(
+            let type_atom = if is_top_level {
+                (self.xlib.XInternAtom)(
                     self.display,
-                    self.window,
-                    net_wm_state,
-                    defines::XA_ATOM,
-                    32,
-                    defines::PropModeAppend,
-                    &atom_u32 as *const _ as *const u8,
-                    1,
-                );
+                    b"_NET_WM_WINDOW_TYPE_NORMAL\0".as_ptr() as *const i8,
+                    0,
+                )
             } else {
-                // Remove _NET_WM_STATE_ABOVE from window properties
-                // First, get current state
-                let mut actual_type: Atom = 0;
-                let mut actual_format: i32 = 0;
-                let mut nitems: u64 = 0;
-                let mut bytes_after: u64 = 0;
-                let mut prop: *mut u8 = std::ptr::null_mut();
-
-                let result = (self.xlib.XGetWindowProperty)(
+                (self.xlib.XInternAtom)(
                     self.display,
-                    self.window,
-                    net_wm_state,
+                    b"_NET_WM_WINDOW_TYPE_DIALOG\0".as_ptr() as *const i8,
                     0,
-                    1024,
-                    0,
-                    defines::XA_ATOM,
-                    &mut actual_type,
-                    &mut actual_format,
-                    &mut nitems,
-                    &mut bytes_after,
-                    &mut prop,
-                );
+                )
+            };
 
-                if result == 0
-                    && !prop.is_null()
-                    && actual_type == defines::XA_ATOM
-                    && actual_format == 32
-                {
-                    // Read atoms as u32 (protocol uses 32-bit values even on 64-bit systems)
-                    let atoms = std::slice::from_raw_parts(prop as *const u32, nitems as usize);
-                    let net_wm_state_above_u32 = net_wm_state_above as u32;
-
-                    let mut new_atoms: Vec<u32> = atoms
-                        .iter()
-                        .filter(|&&atom| atom != net_wm_state_above_u32)
-                        .copied()
-                        .collect();
-
-                    // Replace property with filtered list
-                    (self.xlib.XChangeProperty)(
-                        self.display,
-                        self.window,
-                        net_wm_state,
-                        defines::XA_ATOM,
-                        32,
-                        defines::PropModeReplace,
-                        new_atoms.as_mut_ptr() as *const u8,
-                        new_atoms.len() as i32,
-                    );
-
-                    (self.xlib.XFree)(prop as *mut c_void);
-                }
-            }
+            let type_atom_u32 = type_atom as u32;
+            (self.xlib.XChangeProperty)(
+                self.display,
+                self.window,
+                wm_window_type,
+                defines::XA_ATOM,
+                32,
+                defines::PropModeReplace,
+                &type_atom_u32 as *const _ as *const u8,
+                1,
+            );
 
             (self.xlib.XFlush)(self.display);
         }
