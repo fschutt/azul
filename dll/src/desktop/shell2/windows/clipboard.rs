@@ -14,17 +14,19 @@ use azul_layout::managers::clipboard::ClipboardManager;
 /// If the clipboard manager has pending copy content, it's written to
 /// the Windows clipboard via clipboard-win.
 pub fn sync_clipboard(clipboard_manager: &mut ClipboardManager) {
-    use clipboard_win::{formats, set_clipboard};
-
-    // Check if there's pending content to copy
     if let Some(content) = clipboard_manager.get_copy_content() {
-        // Write plain text to clipboard, only clear on success
-        if set_clipboard(formats::Unicode, &content.plain_text).is_ok() {
+        if write_to_clipboard(&content.plain_text).is_ok() {
             clipboard_manager.clear();
         }
     } else {
         clipboard_manager.clear();
     }
+}
+
+/// Write text to the Windows system clipboard
+pub fn write_to_clipboard(text: &str) -> Result<(), ()> {
+    use clipboard_win::{formats, set_clipboard};
+    set_clipboard(formats::Unicode, text).map_err(|_| ())
 }
 
 /// Read content from Windows system clipboard
