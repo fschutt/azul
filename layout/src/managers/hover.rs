@@ -117,7 +117,7 @@ impl HoverManager {
     }
 
     /// Clear history for a specific input point
-    pub fn clear_input_point(&mut self, input_id: &InputPointId) {
+    pub(crate) fn clear_input_point(&mut self, input_id: &InputPointId) {
         if let Some(history) = self.hover_histories.get_mut(input_id) {
             history.clear();
         }
