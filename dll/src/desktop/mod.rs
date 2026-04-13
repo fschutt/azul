@@ -40,9 +40,9 @@ pub mod app;
 /// New compositor integration for shell2 - WebRender bridge
 pub mod compositor2;
 /// Client-Side Decorations (CSD) - Custom window titlebar
-pub mod csd;
+pub(crate) mod csd;
 /// CSS type definitions / CSS parsing functions
-pub mod css {
+pub(crate) mod css {
     pub use azul_css::*;
     pub mod css_parser {
         pub use azul_css::parser2::*;
@@ -115,7 +115,7 @@ pub mod zip {
 /// Native screenshot extension trait using dlopen
 pub mod native_screenshot;
 /// Re-exports of errors
-pub mod errors {
+pub(crate) mod errors {
     #[cfg(all(feature = "font_loading", feature = "std"))]
     pub use azul_layout::font::loading::FontReloadError;
 }
