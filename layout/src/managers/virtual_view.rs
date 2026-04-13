@@ -11,7 +11,6 @@ use azul_core::{
     callbacks::{EdgeType, VirtualViewCallbackReason},
     dom::{DomId, NodeId},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
-    hit_test::PipelineId,
 };
 
 use crate::managers::scroll_state::ScrollManager;
@@ -28,8 +27,6 @@ const EDGE_THRESHOLD: f32 = 200.0;
 pub struct VirtualViewManager {
     /// Per-VirtualView state keyed by (parent DomId, NodeId of virtualized view element)
     states: BTreeMap<(DomId, NodeId), VirtualViewState>,
-    /// WebRender PipelineId for each VirtualView
-    pipeline_ids: BTreeMap<(DomId, NodeId), PipelineId>,
     /// Counter for generating unique nested DOM IDs
     next_dom_id: usize,
 }
@@ -63,15 +60,11 @@ struct VirtualViewState {
 /// Used to prevent repeated edge-scroll callbacks for the same edge
 /// until the user scrolls away and back.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct EdgeFlags {
-    /// Near top edge
-    pub top: bool,
-    /// Near bottom edge
-    pub bottom: bool,
-    /// Near left edge
-    pub left: bool,
-    /// Near right edge
-    pub right: bool,
+struct EdgeFlags {
+    top: bool,
+    bottom: bool,
+    left: bool,
+    right: bool,
 }
 
 impl VirtualViewManager {
@@ -81,11 +74,6 @@ impl VirtualViewManager {
             next_dom_id: 1, // 0 is root
             ..Default::default()
         }
-    }
-
-    /// Called at the start of each frame (currently a no-op)
-    pub fn begin_frame(&mut self) {
-        // Nothing to do here for now, but good practice for stateful managers
     }
 
     /// Gets or creates a unique nested DOM ID for a VirtualView
@@ -115,36 +103,12 @@ impl VirtualViewManager {
         self.states.get(&(dom_id, node_id)).map(|s| s.nested_dom_id)
     }
 
-    /// Gets or creates a WebRender PipelineId for a VirtualView
-    ///
-    /// PipelineIds are used by WebRender to identify distinct rendering contexts.
-    pub fn get_or_create_pipeline_id(&mut self, dom_id: DomId, node_id: NodeId) -> PipelineId {
-        *self
-            .pipeline_ids
-            .entry((dom_id, node_id))
-            .or_insert_with(|| PipelineId(dom_id.inner as u32, node_id.index() as u32))
-    }
-
     /// Returns whether the VirtualView has ever been invoked
     pub fn was_virtual_view_invoked(&self, dom_id: DomId, node_id: NodeId) -> bool {
         self.states
             .get(&(dom_id, node_id))
             .map(|s| s.virtual_view_was_invoked)
             .unwrap_or(false)
-    }
-
-    /// Returns the virtual scroll size for a VirtualView (if set by the callback)
-    pub fn get_virtual_scroll_size(&self, dom_id: DomId, node_id: NodeId) -> Option<LogicalSize> {
-        self.states
-            .get(&(dom_id, node_id))
-            .and_then(|s| s.virtual_view_virtual_scroll_size)
-    }
-
-    /// Returns the scroll size for a VirtualView (actual content size, if set by the callback)
-    pub fn get_scroll_size(&self, dom_id: DomId, node_id: NodeId) -> Option<LogicalSize> {
-        self.states
-            .get(&(dom_id, node_id))
-            .and_then(|s| s.virtual_view_scroll_size)
     }
 
     /// Updates the VirtualView's content size information
@@ -375,6 +339,12 @@ impl VirtualViewState {
             }
             if current_edges.right && !self.last_edge_triggered.right {
                 return Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Right));
+            }
+            if current_edges.top && !self.last_edge_triggered.top {
+                return Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Top));
+            }
+            if current_edges.left && !self.last_edge_triggered.left {
+                return Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Left));
             }
         }
 
