@@ -2693,7 +2693,7 @@ impl MacOSWindow {
             if let Some(ref cg_funcs) = self.cg_functions {
                 cg_funcs.main_display_id()
             } else {
-                0 // CG_MAIN_DISPLAY_ID constant
+                coregraphics::CG_MAIN_DISPLAY_ID
             }
         });
 

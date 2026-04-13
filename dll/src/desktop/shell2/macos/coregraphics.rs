@@ -17,8 +17,6 @@ pub const CG_MAIN_DISPLAY_ID: CGDirectDisplayID = 0;
 pub struct CoreGraphicsFunctions {
     /// Function pointer to `CGMainDisplayID()` — returns the display ID of the main display
     cg_main_display_id: unsafe extern "C" fn() -> CGDirectDisplayID,
-    /// Function pointer to `CGDisplayBounds()` — returns the bounding rectangle of a display
-    cg_display_bounds: unsafe extern "C" fn(display: CGDirectDisplayID) -> objc2_foundation::NSRect,
     /// Loaded library handle — kept alive to prevent unloading the function pointers
     #[allow(dead_code)]
     lib: libloading::Library,
@@ -39,13 +37,8 @@ impl CoreGraphicsFunctions {
                 .get(b"CGMainDisplayID\0")
                 .map_err(|e| format!("CGMainDisplayID not found: {}", e))?;
 
-            let cg_display_bounds = *lib
-                .get(b"CGDisplayBounds\0")
-                .map_err(|e| format!("CGDisplayBounds not found: {}", e))?;
-
             Ok(Arc::new(Self {
                 cg_main_display_id,
-                cg_display_bounds,
                 lib,
             }))
         }
@@ -56,10 +49,6 @@ impl CoreGraphicsFunctions {
         unsafe { (self.cg_main_display_id)() }
     }
 
-    /// Get the bounds of a display
-    pub fn display_bounds(&self, display: CGDirectDisplayID) -> objc2_foundation::NSRect {
-        unsafe { (self.cg_display_bounds)(display) }
-    }
 }
 
 /// Extract CGDirectDisplayID from NSScreen's deviceDescription
