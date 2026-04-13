@@ -17,7 +17,6 @@
 //!     → Phase E: start HTTP server, serve pages + /az/img/ + /az/font/
 //! ```
 
-pub mod config;
 pub mod server;
 pub mod html_render;
 pub mod loader_js;
@@ -27,6 +26,21 @@ pub mod mini_gen;
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
+
+/// Parse a `web://ip:port` URL string into a `SocketAddr`.
+pub fn parse_web_url(s: &str) -> Option<SocketAddr> {
+    let s = s.trim();
+
+    let addr_str = if s.get(..6).map_or(false, |p| p.eq_ignore_ascii_case("web://")) {
+        &s[6..]
+    } else {
+        return None;
+    };
+
+    let addr_str = addr_str.split('?').next().unwrap_or(addr_str);
+
+    addr_str.parse::<SocketAddr>().ok()
+}
 use std::sync::{Arc, Mutex};
 
 use azul_core::refany::RefAny;
@@ -215,4 +229,56 @@ pub fn run_web(
 
     server::run_server(bind_addr, state)
         .map_err(|e| WindowError::PlatformError(format!("Web server error: {}", e)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::{Ipv4Addr, Ipv6Addr, SocketAddrV4, SocketAddrV6};
+
+    #[test]
+    fn parse_ipv4() {
+        assert_eq!(
+            parse_web_url("web://127.0.0.1:8080"),
+            Some(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 8080)))
+        );
+    }
+
+    #[test]
+    fn parse_ipv4_all_interfaces() {
+        assert_eq!(
+            parse_web_url("web://0.0.0.0:3000"),
+            Some(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 3000)))
+        );
+    }
+
+    #[test]
+    fn parse_ipv6() {
+        assert_eq!(
+            parse_web_url("web://[::1]:8080"),
+            Some(SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::LOCALHOST, 8080, 0, 0)))
+        );
+    }
+
+    #[test]
+    fn parse_with_query_string() {
+        assert_eq!(
+            parse_web_url("web://0.0.0.0:443?tls=cert.pem"),
+            Some(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 443)))
+        );
+    }
+
+    #[test]
+    fn parse_case_insensitive() {
+        assert!(parse_web_url("WEB://127.0.0.1:8080").is_some());
+        assert!(parse_web_url("Web://127.0.0.1:8080").is_some());
+    }
+
+    #[test]
+    fn parse_invalid() {
+        assert_eq!(parse_web_url("headless"), None);
+        assert_eq!(parse_web_url("web://"), None);
+        assert_eq!(parse_web_url("web://not-an-address"), None);
+        assert_eq!(parse_web_url("http://127.0.0.1:8080"), None);
+    }
 }

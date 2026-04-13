@@ -109,7 +109,7 @@ impl AzBackend {
                 _ => {
                     // Try parsing web://ip:port
                     #[cfg(feature = "web")]
-                    if let Some(addr) = crate::web::config::parse_web_url(&val) {
+                    if let Some(addr) = crate::web::parse_web_url(&val) {
                         return AzBackend::Web(addr);
                     }
                     log_warn!(
