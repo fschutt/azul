@@ -1706,7 +1706,6 @@ pub enum CssParsingError<'a> {
     AlignSelf(AlignSelfParseError<'a>),
 
     // Layout wrapping
-    LayoutWrap(LayoutWrapParseError<'a>),
     LayoutWritingMode(LayoutWritingModeParseError<'a>),
     LayoutClear(LayoutClearParseError<'a>),
 
@@ -1875,7 +1874,6 @@ pub enum CssParsingErrorOwned {
     AlignSelf(AlignSelfParseErrorOwned),
 
     // Layout wrapping
-    LayoutWrap(LayoutWrapParseErrorOwned),
     LayoutWritingMode(LayoutWritingModeParseErrorOwned),
     LayoutClear(LayoutClearParseErrorOwned),
 
@@ -1983,7 +1981,6 @@ impl_display! { CssParsingError<'a>, {
     JustifyItems(e) => format!("Invalid justify-items value: {}", e),
     AlignSelf(e) => format!("Invalid align-self value: {}", e),
     Grid(e) => format!("Invalid grid value: {}", e),
-    LayoutWrap(e) => format!("Invalid wrap value: {}", e),
     LayoutWritingMode(e) => format!("Invalid writing-mode value: {}", e),
     LayoutClear(e) => format!("Invalid clear value: {}", e),
     LayoutOverflow(e) => format!("Invalid overflow value: {}", e),
@@ -2241,7 +2238,6 @@ impl_from!(JustifyItemsParseError<'a>, CssParsingError::JustifyItems);
 impl_from!(AlignSelfParseError<'a>, CssParsingError::AlignSelf);
 
 // Layout wrapping
-impl_from!(LayoutWrapParseError<'a>, CssParsingError::LayoutWrap);
 impl_from!(
     LayoutWritingModeParseError<'a>,
     CssParsingError::LayoutWritingMode
@@ -2489,7 +2485,6 @@ impl<'a> CssParsingError<'a> {
                 CssParsingErrorOwned::AlignContent(e.to_contained())
             }
             CssParsingError::Grid(e) => CssParsingErrorOwned::Grid(e.to_contained()),
-            CssParsingError::LayoutWrap(e) => CssParsingErrorOwned::LayoutWrap(e.to_contained()),
             CssParsingError::LayoutWritingMode(e) => {
                 CssParsingErrorOwned::LayoutWritingMode(e.to_contained())
             }
@@ -2713,7 +2708,6 @@ impl CssParsingErrorOwned {
             CssParsingErrorOwned::JustifySelf(e) => CssParsingError::JustifySelf(e.to_shared()),
             CssParsingErrorOwned::JustifyItems(e) => CssParsingError::JustifyItems(e.to_shared()),
             CssParsingErrorOwned::AlignSelf(e) => CssParsingError::AlignSelf(e.to_shared()),
-            CssParsingErrorOwned::LayoutWrap(e) => CssParsingError::LayoutWrap(e.to_shared()),
             CssParsingErrorOwned::LayoutWritingMode(e) => {
                 CssParsingError::LayoutWritingMode(e.to_shared())
             }

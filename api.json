@@ -13848,30 +13848,6 @@
                         ],
                         "repr": "C"
                     },
-                    "SmallAriaInfo": {
-                        "external": "azul_core::a11y::SmallAriaInfo",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "Hash"
-                        ],
-                        "struct_fields": [
-                            {
-                                "label": {
-                                    "type": "OptionString"
-                                },
-                                "role": {
-                                    "type": "OptionAccessibilityRole"
-                                },
-                                "description": {
-                                    "type": "OptionString"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "IdOrClass": {
                         "external": "azul_core::dom::IdOrClass",
                         "derive": [
@@ -19955,36 +19931,6 @@
                         ],
                         "repr": "C"
                     },
-                    "LayoutHeight": {
-                        "external": "azul_css::props::layout::dimensions::LayoutHeight",
-                        "derive": [
-                            "Clone",
-                            "Eq",
-                            "Ord",
-                            "PartialEq",
-                            "PartialOrd",
-                            "Hash",
-                            "Debug",
-                            "Default"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Auto": {},
-                                "Px": {
-                                    "type": "PixelValue"
-                                },
-                                "MinContent": {},
-                                "MaxContent": {},
-                                "FitContent": {
-                                    "type": "PixelValue"
-                                },
-                                "Calc": {
-                                    "type": "CalcAstItemVec"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
                     "LayoutJustifyContent": {
                         "doc": [
                             "Represents a `justify-content` attribute, which defines the alignment along the main axis. Default: `Start` (flex-start)"
@@ -20055,9 +20001,6 @@
                             "Layout margin bottom value"
                         ],
                         "external": "azul_css::props::layout::spacing::LayoutMarginBottom",
-                        "custom_impls": [
-                            "Debug"
-                        ],
                         "derive": [
                             "Copy",
                             "PartialEq",
@@ -20082,9 +20025,6 @@
                             "Layout margin left value"
                         ],
                         "external": "azul_css::props::layout::spacing::LayoutMarginLeft",
-                        "custom_impls": [
-                            "Debug"
-                        ],
                         "derive": [
                             "Copy",
                             "Hash",
@@ -20109,9 +20049,6 @@
                             "Layout margin right value"
                         ],
                         "external": "azul_css::props::layout::spacing::LayoutMarginRight",
-                        "custom_impls": [
-                            "Debug"
-                        ],
                         "derive": [
                             "Copy",
                             "Clone",
@@ -20136,9 +20073,6 @@
                             "Layout margin top value"
                         ],
                         "external": "azul_css::props::layout::spacing::LayoutMarginTop",
-                        "custom_impls": [
-                            "Debug"
-                        ],
                         "derive": [
                             "Copy",
                             "PartialEq",
@@ -20247,9 +20181,6 @@
                             "Layout padding bottom value"
                         ],
                         "external": "azul_css::props::layout::spacing::LayoutPaddingBottom",
-                        "custom_impls": [
-                            "Debug"
-                        ],
                         "derive": [
                             "Copy",
                             "PartialEq",
@@ -20271,9 +20202,6 @@
                     },
                     "LayoutPaddingLeft": {
                         "external": "azul_css::props::layout::spacing::LayoutPaddingLeft",
-                        "custom_impls": [
-                            "Debug"
-                        ],
                         "derive": [
                             "Copy",
                             "Default",
@@ -20298,9 +20226,6 @@
                             "Layout padding right value"
                         ],
                         "external": "azul_css::props::layout::spacing::LayoutPaddingRight",
-                        "custom_impls": [
-                            "Debug"
-                        ],
                         "derive": [
                             "Copy",
                             "Clone",
@@ -20325,9 +20250,6 @@
                             "Layout padding top value"
                         ],
                         "external": "azul_css::props::layout::spacing::LayoutPaddingTop",
-                        "custom_impls": [
-                            "Debug"
-                        ],
                         "derive": [
                             "Copy",
                             "PartialOrd",
@@ -20423,36 +20345,6 @@
                             }
                         ],
                         "repr": "C"
-                    },
-                    "LayoutWidth": {
-                        "external": "azul_css::props::layout::dimensions::LayoutWidth",
-                        "derive": [
-                            "Eq",
-                            "Ord",
-                            "PartialOrd",
-                            "PartialEq",
-                            "Hash",
-                            "Debug",
-                            "Clone",
-                            "Default"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Auto": {},
-                                "Px": {
-                                    "type": "PixelValue"
-                                },
-                                "MinContent": {},
-                                "MaxContent": {},
-                                "FitContent": {
-                                    "type": "PixelValue"
-                                },
-                                "Calc": {
-                                    "type": "CalcAstItemVec"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
                     },
                     "LayoutFlexWrap": {
                         "doc": [
@@ -25444,9 +25336,6 @@
                     },
                     "LayoutPaddingInlineStart": {
                         "external": "azul_css::props::layout::spacing::LayoutPaddingInlineStart",
-                        "custom_impls": [
-                            "Debug"
-                        ],
                         "derive": [
                             "Clone",
                             "Copy",
@@ -25596,9 +25485,6 @@
                     },
                     "LayoutColumnGap": {
                         "external": "azul_css::props::layout::spacing::LayoutColumnGap",
-                        "custom_impls": [
-                            "Debug"
-                        ],
                         "derive": [
                             "Clone",
                             "Default",
@@ -25620,9 +25506,6 @@
                     },
                     "LayoutPaddingInlineEnd": {
                         "external": "azul_css::props::layout::spacing::LayoutPaddingInlineEnd",
-                        "custom_impls": [
-                            "Debug"
-                        ],
                         "derive": [
                             "PartialEq",
                             "Clone",
@@ -26015,9 +25898,6 @@
                     },
                     "LayoutRowGap": {
                         "external": "azul_css::props::layout::spacing::LayoutRowGap",
-                        "custom_impls": [
-                            "Debug"
-                        ],
                         "derive": [
                             "Copy",
                             "Ord",
@@ -29985,22 +29865,6 @@
                         ],
                         "repr": "C"
                     },
-                    "LayoutInsetBottomParseErrorOwned": {
-                        "external": "azul_css::props::layout::position::LayoutInsetBottomParseErrorOwned",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq"
-                        ],
-                        "enum_fields": [
-                            {
-                                "PixelValue": {
-                                    "type": "CssPixelValueParseErrorOwned"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
                     "CssColorParseErrorOwned": {
                         "external": "azul_css::props::basic::color::CssColorParseErrorOwned",
                         "derive": [
@@ -30101,22 +29965,6 @@
                             {
                                 "FloatValue": {
                                     "type": "String"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
-                    "LayoutTopParseErrorOwned": {
-                        "external": "azul_css::props::layout::position::LayoutTopParseErrorOwned",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq"
-                        ],
-                        "enum_fields": [
-                            {
-                                "PixelValue": {
-                                    "type": "CssPixelValueParseErrorOwned"
                                 }
                             }
                         ],
@@ -30296,22 +30144,6 @@
                         ],
                         "repr": "C"
                     },
-                    "LayoutWrapParseErrorOwned": {
-                        "external": "azul_css::props::layout::wrapping::LayoutWrapParseErrorOwned",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq"
-                        ],
-                        "enum_fields": [
-                            {
-                                "InvalidValue": {
-                                    "type": "String"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
                     "CssStylePerspectiveOriginParseErrorOwned": {
                         "external": "azul_css::props::style::transform::CssStylePerspectiveOriginParseErrorOwned",
                         "derive": [
@@ -30443,22 +30275,6 @@
                     },
                     "StyleTextIndentParseErrorOwned": {
                         "external": "azul_css::props::style::text::StyleTextIndentParseErrorOwned",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq"
-                        ],
-                        "enum_fields": [
-                            {
-                                "PixelValue": {
-                                    "type": "CssPixelValueParseErrorOwned"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
-                    "LayoutRightParseErrorOwned": {
-                        "external": "azul_css::props::layout::position::LayoutRightParseErrorOwned",
                         "derive": [
                             "Debug",
                             "Clone",
@@ -31176,22 +30992,6 @@
                         ],
                         "repr": "C, u8"
                     },
-                    "LayoutLeftParseErrorOwned": {
-                        "external": "azul_css::props::layout::position::LayoutLeftParseErrorOwned",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq"
-                        ],
-                        "enum_fields": [
-                            {
-                                "PixelValue": {
-                                    "type": "CssPixelValueParseErrorOwned"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
                     "LayoutWritingModeParseErrorOwned": {
                         "external": "azul_css::props::layout::wrapping::LayoutWritingModeParseErrorOwned",
                         "derive": [
@@ -31257,25 +31057,6 @@
                                 },
                                 "ColorParseError": {
                                     "type": "CssColorParseErrorOwned"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
-                    "LayoutHeightParseErrorOwned": {
-                        "external": "azul_css::props::layout::dimensions::parser::LayoutHeightParseErrorOwned",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq"
-                        ],
-                        "enum_fields": [
-                            {
-                                "PixelValue": {
-                                    "type": "CssPixelValueParseErrorOwned"
-                                },
-                                "InvalidKeyword": {
-                                    "type": "String"
                                 }
                             }
                         ],
@@ -31527,25 +31308,6 @@
                                     "type": "String"
                                 },
                                 "UnclosedQuotes": {
-                                    "type": "String"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
-                    "LayoutWidthParseErrorOwned": {
-                        "external": "azul_css::props::layout::dimensions::parser::LayoutWidthParseErrorOwned",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq"
-                        ],
-                        "enum_fields": [
-                            {
-                                "PixelValue": {
-                                    "type": "CssPixelValueParseErrorOwned"
-                                },
-                                "InvalidKeyword": {
                                     "type": "String"
                                 }
                             }
@@ -69708,219 +69470,6 @@
                         },
                         "repr": "C"
                     },
-                    "CalcAstItemVec": {
-                        "external": "azul_css::props::layout::dimensions::CalcAstItemVec",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug",
-                            "Eq",
-                            "Hash",
-                            "Ord",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "derive": [
-                            "Debug"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "CalcAstItem",
-                                    "ref_kind": "constptr"
-                                },
-                                "len": {
-                                    "type": "usize"
-                                },
-                                "cap": {
-                                    "type": "usize"
-                                },
-                                "destructor": {
-                                    "type": "CalcAstItemVecDestructor"
-                                }
-                            }
-                        ],
-                        "functions": {
-                            "create": {
-                                "doc": [
-                                    "Creates an empty `CalcAstItemVec`"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "CalcAstItemVec"
-                                },
-                                "fn_body": "Self::new()"
-                            },
-                            "with_capacity": {
-                                "doc": [
-                                    "Creates a `CalcAstItemVec` with a given capacity"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "cap": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "CalcAstItemVec"
-                                },
-                                "fn_body": "Self::with_capacity(cap)"
-                            },
-                            "len": {
-                                "doc": [
-                                    "Returns the number of elements in the Vec"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "calc_ast_item_vec.len()"
-                            },
-                            "capacity": {
-                                "doc": [
-                                    "Returns the capacity of the Vec"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "calc_ast_item_vec.capacity()"
-                            },
-                            "is_empty": {
-                                "doc": [
-                                    "Returns whether the Vec is empty"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "calc_ast_item_vec.is_empty()"
-                            },
-                            "from_item": {
-                                "doc": [
-                                    "Creates a `CalcAstItemVec` containing a single element"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "item": "CalcAstItem"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "CalcAstItemVec"
-                                },
-                                "fn_body": "Self::from_item(item)"
-                            },
-                            "copy_from_ptr": {
-                                "doc": [
-                                    "Copies elements from a C array into a `CalcAstItemVec`. The array must be valid for `len` elements."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "ptr": "*const CalcAstItem"
-                                    },
-                                    {
-                                        "len": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "CalcAstItemVec"
-                                },
-                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
-                            },
-                            "c_get": {
-                                "doc": [
-                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "index": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "OptionCalcAstItem"
-                                },
-                                "fn_body": "calc_ast_item_vec.c_get(index).into()"
-                            },
-                            "as_c_slice": {
-                                "doc": [
-                                    "Returns a C-compatible slice of the entire Vec as a `CalcAstItemVecSlice`."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "CalcAstItemVecSlice"
-                                },
-                                "fn_body": "calc_ast_item_vec.as_c_slice()"
-                            },
-                            "as_c_slice_range": {
-                                "doc": [
-                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "start": "usize"
-                                    },
-                                    {
-                                        "end": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "CalcAstItemVecSlice"
-                                },
-                                "fn_body": "calc_ast_item_vec.as_c_slice_range(start, end)"
-                            }
-                        },
-                        "repr": "C"
-                    },
-                    "CalcAstItemVecDestructorType": {
-                        "external": "azul_css::props::layout::dimensions::CalcAstItemVecDestructorType",
-                        "callback_typedef": {
-                            "fn_args": [
-                                {
-                                    "type": "CalcAstItemVec",
-                                    "ref_kind": "mutptr"
-                                }
-                            ],
-                            "returns": null
-                        },
-                        "repr": "C"
-                    },
-                    "CalcAstItemVecDestructor": {
-                        "external": "azul_css::props::layout::dimensions::CalcAstItemVecDestructor",
-                        "derive": [
-                            "Debug"
-                        ],
-                        "enum_fields": [
-                            {
-                                "DefaultRust": {},
-                                "NoDestructor": {},
-                                "External": {
-                                    "type": "CalcAstItemVecDestructorType"
-                                },
-                                "AlreadyDestroyed": {}
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
                     "GridAreaDefinitionVec": {
                         "external": "azul_css::props::layout::grid::GridAreaDefinitionVec",
                         "custom_impls": [
@@ -74636,28 +74185,6 @@
                         ],
                         "repr": "C, u8"
                     },
-                    "OptionAccessibilityRole": {
-                        "external": "azul_core::a11y::OptionAccessibilityRole",
-                        "derive": [
-                            "Debug",
-                            "Copy",
-                            "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash"
-                        ],
-                        "enum_fields": [
-                            {
-                                "None": {},
-                                "Some": {
-                                    "type": "AccessibilityRole"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
                     "OptionGlContextPtr": {
                         "external": "azul_core::gl::OptionGlContextPtr",
                         "derive": [
@@ -76473,34 +76000,6 @@
                                 "None": {},
                                 "Some": {
                                     "type": "ThemeCondition"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
-                    "OptionCalcAstItem": {
-                        "external": "azul_css::props::layout::dimensions::OptionCalcAstItem",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Eq",
-                            "Hash",
-                            "Ord",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "enum_fields": [
-                            {
-                                "None": {
-                                    "doc": [
-                                        "No value"
-                                    ]
-                                },
-                                "Some": {
-                                    "type": "CalcAstItem",
-                                    "doc": [
-                                        "Some value of type CalcAstItem"
-                                    ]
                                 }
                             }
                         ],
@@ -79179,9 +78678,6 @@
                                 },
                                 "AlignSelf": {
                                     "type": "AlignSelfParseErrorOwned"
-                                },
-                                "LayoutWrap": {
-                                    "type": "LayoutWrapParseErrorOwned"
                                 },
                                 "LayoutWritingMode": {
                                     "type": "LayoutWritingModeParseErrorOwned"
