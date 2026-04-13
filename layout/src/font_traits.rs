@@ -86,37 +86,6 @@ pub trait FontLoaderTrait<T>: Send + core::fmt::Debug {
     fn load_font(&self, font_bytes: &[u8], font_index: usize) -> Result<T, LayoutError>;
 }
 
-/// Opaque font identifier - wraps the underlying font system's ID type
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct FontId(pub u64);
-
-/// Trait for font system abstraction (font discovery, fallback chains).
-///
-/// This abstracts over the underlying font system (e.g., rust_fontconfig, fontdb)
-/// allowing text3 to work with or without system font discovery.
-pub trait FontSystemTrait: Send + Sync {
-    /// The type of font fallback chain this system uses
-    type FallbackChain: FontFallbackChainTrait;
-
-    /// Resolve a character to a font ID using the fallback chain
-    fn resolve_char(&self, chain: &Self::FallbackChain, c: char) -> Option<FontId>;
-
-    /// Get the font data (bytes) for a font ID
-    fn get_font_data(&self, font_id: FontId) -> Option<alloc::vec::Vec<u8>>;
-
-    /// Get the font index within the font file
-    fn get_font_index(&self, font_id: FontId) -> usize;
-}
-
-/// Trait for font fallback chains
-pub trait FontFallbackChainTrait: Clone + Send + Sync {
-    /// Check if the chain is empty
-    fn is_empty(&self) -> bool;
-
-    /// Get the primary font ID (if any)
-    fn primary_font_id(&self) -> Option<FontId>;
-}
-
 // When text_layout or font_loading is disabled, provide minimal stub types
 #[cfg(not(all(feature = "text_layout", feature = "font_loading")))]
 pub use stub::*;
