@@ -159,6 +159,9 @@ pub use icon::{
     // Data types for RefAny
     ImageIconData, FontIconData,
     // Helpers
+    register_image_icon,
+    register_font_icon,
+    register_icons_from_zip,
     create_default_icon_provider,
     register_material_icons,
     register_embedded_material_icons,
