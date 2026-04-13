@@ -216,6 +216,11 @@ impl Wayland {
                 .get_symbol::<*const c_void>("wl_proxy_add_listener")?
         };
 
+        let lib_cursor = load_first_available::<Library>(&[
+            "libwayland-cursor.so.0",
+            "libwayland-cursor.so",
+        ]).ok();
+
         Ok(Rc::new(Self {
             wl_display_connect: load_symbol!(lib_client, _, "wl_display_connect"),
             wl_display_disconnect: load_symbol!(lib_client, _, "wl_display_disconnect"),
@@ -349,58 +354,25 @@ impl Wayland {
             wl_egl_window_destroy: load_symbol!(lib_egl, _, "wl_egl_window_destroy"),
             wl_egl_window_resize: load_symbol!(lib_egl, _, "wl_egl_window_resize"),
 
-            // Try to load wayland-cursor library (optional)
-            wl_cursor_theme_load: {
-                let lib_cursor_result = load_first_available::<Library>(&[
-                    "libwayland-cursor.so.0",
-                    "libwayland-cursor.so",
-                ]);
-                if let Ok(lib_cursor) = &lib_cursor_result {
-                    unsafe { lib_cursor.get_symbol("wl_cursor_theme_load").ok() }
-                } else {
-                    None
-                }
-            },
-            wl_cursor_theme_destroy: {
-                let lib_cursor_result = load_first_available::<Library>(&[
-                    "libwayland-cursor.so.0",
-                    "libwayland-cursor.so",
-                ]);
-                if let Ok(lib_cursor) = &lib_cursor_result {
-                    unsafe { lib_cursor.get_symbol("wl_cursor_theme_destroy").ok() }
-                } else {
-                    None
-                }
-            },
-            wl_cursor_theme_get_cursor: {
-                let lib_cursor_result = load_first_available::<Library>(&[
-                    "libwayland-cursor.so.0",
-                    "libwayland-cursor.so",
-                ]);
-                if let Ok(lib_cursor) = &lib_cursor_result {
-                    unsafe { lib_cursor.get_symbol("wl_cursor_theme_get_cursor").ok() }
-                } else {
-                    None
-                }
-            },
-            wl_cursor_image_get_buffer: {
-                let lib_cursor_result = load_first_available::<Library>(&[
-                    "libwayland-cursor.so.0",
-                    "libwayland-cursor.so",
-                ]);
-                if let Ok(lib_cursor) = &lib_cursor_result {
-                    unsafe { lib_cursor.get_symbol("wl_cursor_image_get_buffer").ok() }
-                } else {
-                    None
-                }
-            },
+            // wl_pointer_set_cursor is a core Wayland protocol request (via wl_proxy_marshal),
+            // not a cursor-library function
             wl_pointer_set_cursor: Some(unsafe { std::mem::transmute(wl_proxy_marshal_ptr) }),
 
-            _lib_cursor: load_first_available::<Library>(&[
-                "libwayland-cursor.so.0",
-                "libwayland-cursor.so",
-            ])
-            .ok(),
+            // Try to load wayland-cursor library once (optional)
+            wl_cursor_theme_load: lib_cursor.as_ref().and_then(|lc| unsafe {
+                lc.get_symbol("wl_cursor_theme_load").ok()
+            }),
+            wl_cursor_theme_destroy: lib_cursor.as_ref().and_then(|lc| unsafe {
+                lc.get_symbol("wl_cursor_theme_destroy").ok()
+            }),
+            wl_cursor_theme_get_cursor: lib_cursor.as_ref().and_then(|lc| unsafe {
+                lc.get_symbol("wl_cursor_theme_get_cursor").ok()
+            }),
+            wl_cursor_image_get_buffer: lib_cursor.as_ref().and_then(|lc| unsafe {
+                lc.get_symbol("wl_cursor_image_get_buffer").ok()
+            }),
+
+            _lib_cursor: lib_cursor,
             _lib_client: lib_client,
             _lib_egl: lib_egl,
         }))
