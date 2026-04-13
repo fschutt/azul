@@ -76,6 +76,16 @@ use crate::{
     },
 };
 
+const APPROX_ASCENT_RATIO: f32 = 0.8;
+const APPROX_UNDERLINE_THICKNESS_RATIO: f32 = 0.08;
+const APPROX_UNDERLINE_OFFSET_RATIO: f32 = 0.12;
+const APPROX_STRIKETHROUGH_OFFSET_RATIO: f32 = 0.3;
+const APPROX_OVERLINE_OFFSET_RATIO: f32 = 0.85;
+const APPROX_MONOSPACE_CHAR_WIDTH_RATIO: f32 = 0.5;
+const APPROX_ELLIPSIS_WIDTH_RATIO: f32 = 0.6;
+const DEFAULT_A4_WIDTH_PT: f32 = 595.0;
+const DEFAULT_SHADOW_FONT_SIZE_PX: f32 = 16.0;
+
 /// Border widths for all four sides.
 ///
 /// Each field is optional to allow partial border specifications.
@@ -322,7 +332,7 @@ impl DisplayList {
     ///
     /// Used for GlyphSwap incremental relayout: glyphs changed but
     /// positions are identical, so only the glyph IDs need updating.
-    pub fn patch_text_glyphs(
+    pub(crate) fn patch_text_glyphs(
         &mut self,
         node_index: usize,
         new_glyphs_by_run: &[Vec<GlyphInstance>],
@@ -356,7 +366,7 @@ impl DisplayList {
 
     /// Compute a damage rect from the difference between old and new text
     /// layout results, starting from a given line index.
-    pub fn compute_text_damage_rect(
+    pub(crate) fn compute_text_damage_rect(
         old_items: &[super::super::text3::cache::PositionedItem],
         new_items: &[super::super::text3::cache::PositionedItem],
         container_origin: LogicalPosition,
@@ -400,7 +410,7 @@ impl DisplayList {
 
     /// Generates a JSON representation of the display list for debugging.
     /// This includes clip chain analysis showing how clips are stacked.
-    pub fn to_debug_json(&self) -> String {
+    pub(crate) fn to_debug_json(&self) -> String {
         use std::fmt::Write;
         let mut json = String::new();
         writeln!(json, "{{").unwrap();
@@ -982,10 +992,10 @@ impl DisplayListItem {
             Self::BoxShadow { bounds, shadow, .. } => {
                 let b = *bounds.inner();
                 // Shadow can extend beyond element bounds by offset + spread + blur
-                let ox = shadow.offset_x.to_pixels_internal(16.0, 16.0).abs();
-                let oy = shadow.offset_y.to_pixels_internal(16.0, 16.0).abs();
-                let blur = shadow.blur_radius.to_pixels_internal(16.0, 16.0).abs();
-                let spread = shadow.spread_radius.to_pixels_internal(16.0, 16.0).abs();
+                let ox = shadow.offset_x.to_pixels_internal(DEFAULT_SHADOW_FONT_SIZE_PX, DEFAULT_SHADOW_FONT_SIZE_PX).abs();
+                let oy = shadow.offset_y.to_pixels_internal(DEFAULT_SHADOW_FONT_SIZE_PX, DEFAULT_SHADOW_FONT_SIZE_PX).abs();
+                let blur = shadow.blur_radius.to_pixels_internal(DEFAULT_SHADOW_FONT_SIZE_PX, DEFAULT_SHADOW_FONT_SIZE_PX).abs();
+                let spread = shadow.spread_radius.to_pixels_internal(DEFAULT_SHADOW_FONT_SIZE_PX, DEFAULT_SHADOW_FONT_SIZE_PX).abs();
                 let expand = ox + oy + blur + spread;
                 Some(LogicalRect {
                     origin: LogicalPosition {
@@ -1071,7 +1081,7 @@ pub type LocalScrollId = u64;
 /// The u16 field is used as a namespace marker:
 /// - 0x0100 = DOM Node (regular interactive elements)
 /// - 0x0200 = Scrollbar component
-pub type DisplayListTagId = (u64, u16);
+pub(crate) type DisplayListTagId = (u64, u16);
 
 /// Internal builder to accumulate display list items during generation.
 #[derive(Debug, Default)]
@@ -4093,7 +4103,7 @@ where
                 // Approximate height based on font size (baseline is at glyph.point.y)
                 let baseline_y = container_rect.origin.y + first_glyph.point.y;
                 let font_size = glyph_run.font_size_px;
-                let ascent = font_size * 0.8; // Approximate ascent
+                let ascent = font_size * APPROX_ASCENT_RATIO;
 
                 let mut run_bounds = LogicalRect::new(
                     LogicalPosition::new(run_start_x, baseline_y - ascent),
@@ -4171,7 +4181,7 @@ where
                     // Use font metrics to determine decoration positions
                     // Standard ratios based on CSS specification
                     let font_size = glyph_run.font_size_px;
-                    let thickness = (font_size * 0.08).max(1.0); // ~8% of font size, min 1px
+                    let thickness = (font_size * APPROX_UNDERLINE_THICKNESS_RATIO).max(1.0);
 
                     // Baseline is at glyph.point.y
                     let baseline_y = container_rect.origin.y + first_glyph.point.y;
@@ -4179,7 +4189,7 @@ where
                     if needs_underline {
                         // Underline is typically 10-15% below baseline
                         // IME composition always gets underlined
-                        let underline_y = baseline_y + (font_size * 0.12);
+                        let underline_y = baseline_y + (font_size * APPROX_UNDERLINE_OFFSET_RATIO);
                         let underline_bounds = LogicalRect::new(
                             LogicalPosition::new(decoration_start_x, underline_y),
                             LogicalSize::new(decoration_width, thickness),
@@ -4189,7 +4199,7 @@ where
 
                     if needs_strikethrough {
                         // Strikethrough is typically 40% above baseline (middle of x-height)
-                        let strikethrough_y = baseline_y - (font_size * 0.3);
+                        let strikethrough_y = baseline_y - (font_size * APPROX_STRIKETHROUGH_OFFSET_RATIO);
                         let strikethrough_bounds = LogicalRect::new(
                             LogicalPosition::new(decoration_start_x, strikethrough_y),
                             LogicalSize::new(decoration_width, thickness),
@@ -4203,7 +4213,7 @@ where
 
                     if needs_overline {
                         // Overline is typically at cap-height (75% above baseline)
-                        let overline_y = baseline_y - (font_size * 0.85);
+                        let overline_y = baseline_y - (font_size * APPROX_OVERLINE_OFFSET_RATIO);
                         let overline_bounds = LogicalRect::new(
                             LogicalPosition::new(decoration_start_x, overline_y),
                             LogicalSize::new(decoration_width, thickness),
@@ -4238,7 +4248,7 @@ where
                 // Calculate run bounds using font metrics
                 let baseline_y = container_rect.origin.y + first_glyph.point.y;
                 let font_size = glyph_run.font_size_px;
-                let ascent = font_size * 0.8; // Approximate ascent
+                let ascent = font_size * APPROX_ASCENT_RATIO;
 
                 let run_bounds = LogicalRect::new(
                     LogicalPosition::new(run_start_x, baseline_y - ascent),
@@ -4480,63 +4490,6 @@ where
     }
 }
 
-/// Standalone predicate: does this element establish a new stacking context?
-///
-/// Centralizes the CSS 2.1 §9.9.1 and CSS3 rules for stacking context creation.
-/// Checks: position + z-index, opacity < 1, transform != none.
-///
-/// This is the canonical check used by display list generation and can also
-/// be called from other phases that need to reason about stacking contexts.
-pub fn node_establishes_stacking_context(
-    styled_dom: &StyledDom,
-    dom_id: NodeId,
-) -> bool {
-    let position = crate::solver3::positioning::get_position_type(styled_dom, Some(dom_id));
-    let z_auto = crate::solver3::getters::is_z_index_auto(styled_dom, Some(dom_id));
-
-    // +spec:position-sticky:66ba22 - fixed and sticky positioned boxes form a stacking context
-    if position == LayoutPosition::Fixed || position == LayoutPosition::Sticky {
-        return true;
-    }
-    // Absolute with explicit z-index creates stacking context
-    if position == LayoutPosition::Absolute && !z_auto {
-        return true;
-    }
-    // Relative with explicit z-index creates stacking context
-    if position == LayoutPosition::Relative && !z_auto {
-        return true;
-    }
-
-    let node_data = &styled_dom.node_data.as_container()[dom_id];
-    let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
-
-    // Opacity < 1
-    let opacity = styled_dom
-        .css_property_cache
-        .ptr
-        .get_opacity(node_data, &dom_id, node_state)
-        .and_then(|v| v.get_property())
-        .map(|v| v.inner.normalized())
-        .unwrap_or(1.0);
-    if opacity < 1.0 {
-        return true;
-    }
-
-    // Transform != none
-    let has_transform = styled_dom
-        .css_property_cache
-        .ptr
-        .get_transform(node_data, &dom_id, node_state)
-        .and_then(|v| v.get_property())
-        .map(|v| !v.is_empty())
-        .unwrap_or(false);
-    if has_transform {
-        return true;
-    }
-
-    false
-}
-
 /// Helper struct to pass layout results to the display list generator.
 ///
 /// Combines the layout tree with pre-calculated absolute positions for each node.
@@ -4547,43 +4500,6 @@ pub struct PositionedTree<'a> {
     pub tree: &'a LayoutTree,
     /// Map from node index to its absolute position in the document
     pub calculated_positions: &'a super::PositionVec,
-}
-
-/// Describes how overflow content should be handled for an element.
-///
-/// This maps to the CSS `overflow-x` and `overflow-y` properties and determines
-/// whether content that exceeds the element's bounds should be visible, clipped,
-/// or scrollable.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OverflowBehavior {
-    /// Content is not clipped and may render outside the element's box (default)
-    Visible,
-    /// Content is clipped to the padding box, no scrollbars provided
-    Hidden,
-    /// Content is clipped to the padding box (CSS `overflow: clip`)
-    Clip,
-    /// Content is clipped and scrollbars are always shown
-    Scroll,
-    /// Content is clipped and scrollbars appear only when needed
-    Auto,
-}
-
-impl OverflowBehavior {
-    /// Returns `true` if this overflow behavior clips content.
-    ///
-    /// All behaviors except `Visible` result in content being clipped
-    /// to the element's padding box.
-    pub fn is_clipped(&self) -> bool {
-        matches!(self, Self::Hidden | Self::Clip | Self::Scroll | Self::Auto)
-    }
-
-    /// Returns `true` if this overflow behavior enables scrolling.
-    ///
-    /// Only `Scroll` and `Auto` allow the user to scroll to see
-    /// overflowing content.
-    pub fn is_scroll(&self) -> bool {
-        matches!(self, Self::Scroll | Self::Auto)
-    }
 }
 
 /// Expands `clip_rect` outward by the `overflow-clip-margin` value on axes that use `overflow: clip`.
@@ -4685,28 +4601,9 @@ fn get_image_ref_for_image_source(
     }
 }
 
-/// Get the bounds of a display list item, if it has spatial extent.
+/// Get the bounds of a display list item in window-logical coordinates.
 fn get_display_item_bounds(item: &DisplayListItem) -> Option<WindowLogicalRect> {
-    match item {
-        DisplayListItem::Rect { bounds, .. } => Some(*bounds),
-        DisplayListItem::SelectionRect { bounds, .. } => Some(*bounds),
-        DisplayListItem::CursorRect { bounds, .. } => Some(*bounds),
-        DisplayListItem::Border { bounds, .. } => Some(*bounds),
-        DisplayListItem::TextLayout { bounds, .. } => Some(*bounds),
-        DisplayListItem::Text { clip_rect, .. } => Some(*clip_rect),
-        DisplayListItem::Underline { bounds, .. } => Some(*bounds),
-        DisplayListItem::Strikethrough { bounds, .. } => Some(*bounds),
-        DisplayListItem::Overline { bounds, .. } => Some(*bounds),
-        DisplayListItem::Image { bounds, .. } => Some(*bounds),
-        DisplayListItem::ScrollBar { bounds, .. } => Some(*bounds),
-        DisplayListItem::ScrollBarStyled { info } => Some(info.bounds),
-        DisplayListItem::PushClip { bounds, .. } => Some(*bounds),
-        DisplayListItem::PushScrollFrame { clip_bounds, .. } => Some(*clip_bounds),
-        DisplayListItem::HitTestArea { bounds, .. } => Some(*bounds),
-        DisplayListItem::PushStackingContext { bounds, .. } => Some(*bounds),
-        DisplayListItem::VirtualView { bounds, .. } => Some(*bounds),
-        _ => None,
-    }
+    item.bounds().map(WindowLogicalRect::from)
 }
 
 /// Clip a display list item to page bounds and offset to page-relative coordinates.
@@ -5437,7 +5334,7 @@ impl SlicerConfig {
             page_gap: 0.0,
             allow_clipping: true,
             header_footer: HeaderFooterConfig::default(),
-            page_width: 595.0, // Default A4 width in points
+            page_width: DEFAULT_A4_WIDTH_PT, // Default A4 width in points
             table_headers: TableHeaderTracker::default(),
         }
     }
@@ -5449,7 +5346,7 @@ impl SlicerConfig {
             page_gap: gap,
             allow_clipping: true,
             header_footer: HeaderFooterConfig::default(),
-            page_width: 595.0,
+            page_width: DEFAULT_A4_WIDTH_PT,
             table_headers: TableHeaderTracker::default(),
         }
     }
@@ -5779,7 +5676,7 @@ fn calculate_page_break_positions(
 
 /// Text alignment for generated header/footer text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TextAlignment {
+enum TextAlignment {
     Left,
     Center,
     Right,
@@ -6084,7 +5981,7 @@ fn generate_text_display_items(
 
     // Calculate approximate text position based on alignment
     // For now, we estimate character width as 0.5 * font_size (monospace approximation)
-    let char_width = font_size * 0.5;
+    let char_width = font_size * APPROX_MONOSPACE_CHAR_WIDTH_RATIO;
     let text_width = text.len() as f32 * char_width;
 
     let x_offset = match alignment {
@@ -6149,10 +6046,10 @@ fn calculate_display_list_height(display_list: &DisplayList) -> f32 {
 
 /// Break property information for pagination decisions.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct BreakProperties {
-    pub break_before: PageBreak,
-    pub break_after: PageBreak,
-    pub break_inside: BreakInside,
+struct BreakProperties {
+    break_before: PageBreak,
+    break_after: PageBreak,
+    break_inside: BreakInside,
 }
 
 // ============================================================================
@@ -6190,7 +6087,7 @@ pub struct BreakProperties {
 /// need access to font metrics to measure the exact ellipsis glyph width and
 /// to look up the correct glyph index for the ellipsis in each font.
 // +spec:overflow:f175b9 - bidi ellipsis: characters visually at the end edge of the line are hidden for ellipsis
-pub fn apply_text_overflow_ellipsis(
+pub(crate) fn apply_text_overflow_ellipsis(
     display_list: &mut DisplayList,
     container_bounds: LogicalRect,
     _ellipsis: &str,
@@ -6220,7 +6117,7 @@ pub fn apply_text_overflow_ellipsis(
                 }
 
                 // Estimate ellipsis width
-                let ellipsis_width = *font_size_px * 0.6;
+                let ellipsis_width = *font_size_px * APPROX_ELLIPSIS_WIDTH_RATIO;
                 let truncation_edge = container_right - ellipsis_width;
 
                 // Find the last glyph that fits before the truncation edge
@@ -6294,7 +6191,7 @@ pub fn apply_text_overflow_ellipsis(
 /// Note: Circle, ellipse, and polygon shapes are approximated as axis-aligned
 /// bounding boxes. A full implementation would use path-based clipping in the
 /// renderer, but rectangular clips work for the most common use cases.
-pub fn resolve_clip_path(
+pub(crate) fn resolve_clip_path(
     clip_path: &azul_css::props::layout::shape::ClipPath,
     node_bounds: LogicalRect,
 ) -> Option<(LogicalRect, f32)> {
@@ -6389,7 +6286,7 @@ pub fn resolve_clip_path(
 /// - `start_index`: The index of the first item belonging to this node
 /// - `clip_rect`: The resolved clip rectangle
 /// - `border_radius`: The border radius for the clip (from inset round, or circle)
-pub fn apply_clip_path(
+pub(crate) fn apply_clip_path(
     display_list: &mut DisplayList,
     start_index: usize,
     clip_rect: LogicalRect,
