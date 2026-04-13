@@ -228,7 +228,6 @@ impl RenderContext {
         let az_id = self.node_counter;
         self.node_counter += 1;
 
-        // Text nodes → escaped text (no wrapper element)
         if let NodeType::Text(ref text) = nd.node_type {
             return html_escape(text.as_str());
         }
@@ -239,7 +238,21 @@ impl RenderContext {
         };
         let is_void = is_void_element(tag);
 
-        // ── Build attributes ──
+        let mut attrs = self.build_node_attrs(nd, az_id);
+        self.collect_image(nd, &mut attrs);
+        self.emit_css_from_cache(cache, idx, az_id);
+        self.emit_callback_attrs(nd, az_id, &mut attrs);
+
+        if is_void {
+            return format!("<{}{}/>", tag, attrs);
+        }
+
+        let children_html = self.render_children(nd, node_id, idx, node_data, hierarchy, cache);
+        format!("<{}{}>{}</{}>", tag, attrs, children_html, tag)
+    }
+
+    /// Build the HTML attribute string from a node's DOM attributes.
+    fn build_node_attrs(&self, nd: &NodeData, az_id: usize) -> String {
         let mut classes = Vec::new();
         let mut html_attrs = Vec::new();
 
@@ -271,8 +284,11 @@ impl RenderContext {
             attrs.push(' ');
             attrs.push_str(a);
         }
+        attrs
+    }
 
-        // ── Handle image nodes → /az/img/{id} ──
+    /// If the node is an image, collect it and append the `src` attribute.
+    fn collect_image(&mut self, nd: &NodeData, attrs: &mut String) {
         if let NodeType::Image(ref img_ref) = nd.node_type {
             let image_ref: &ImageRef = img_ref.as_ref();
             if let Some(raw_image) = image_ref.get_rawimage() {
@@ -288,11 +304,10 @@ impl RenderContext {
                 attrs.push_str(&format!(" src=\"/az/img/{}\"", img_id));
             }
         }
+    }
 
-        // ── CSS from computed styles (Azul cascade already resolved) ──
-        self.emit_css_from_cache(cache, idx, az_id);
-
-        // ── Callback data attributes (Phase 0 server-side execution) ──
+    /// Append callback data attributes for Phase 0 server-side execution.
+    fn emit_callback_attrs(&mut self, nd: &NodeData, az_id: usize, attrs: &mut String) {
         if !nd.callbacks.as_ref().is_empty() {
             self.callback_count += 1;
             attrs.push_str(&format!(" data-az-cb=\"{}\"", az_id));
@@ -301,19 +316,24 @@ impl RenderContext {
                 attrs.push_str(&format!(" data-az-ev=\"{}\"", ev_name));
             }
         }
+    }
 
-        if is_void {
-            return format!("<{}{}/>", tag, attrs);
-        }
-
-        // ── Children (walk the arena hierarchy) ──
+    /// Render inline text and child nodes.
+    fn render_children(
+        &mut self,
+        nd: &NodeData,
+        node_id: NodeId,
+        idx: usize,
+        node_data: &[NodeData],
+        hierarchy: &[azul_core::styled_dom::NodeHierarchyItem],
+        cache: &CssPropertyCache,
+    ) -> String {
         let mut children_html = String::new();
 
         if let Some(text) = node_type_inline_text(&nd.node_type) {
             children_html.push_str(&html_escape(text));
         }
 
-        // Walk children via first_child / next_sibling in the flat hierarchy
         if let Some(first_child) = hierarchy.get(idx).and_then(|h| h.first_child_id(node_id)) {
             let mut child_id = first_child;
             loop {
@@ -327,7 +347,7 @@ impl RenderContext {
             }
         }
 
-        format!("<{}{}>{}</{}>", tag, attrs, children_html, tag)
+        children_html
     }
 
     /// Emit CSS rules for a node from the property cache.
@@ -470,19 +490,9 @@ fn generate_preload_hints(mini_wasm: &[u8], cb_wasms: &[CallbackWasm]) -> String
     hints
 }
 
-/// FNV-1a 64-bit offset basis.
-const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
-/// FNV-1a 64-bit prime.
-const FNV_PRIME: u64 = 0x100000001b3;
-
 /// Simple FNV-1a content hash for cache-busting URLs.
 fn content_hash(data: &[u8]) -> String {
-    let mut hash: u64 = FNV_OFFSET_BASIS;
-    for byte in data {
-        hash ^= *byte as u64;
-        hash = hash.wrapping_mul(FNV_PRIME);
-    }
-    format!("{:016x}", hash)
+    super::fnv1a_hash(data)
 }
 
 /// Map NodeType to HTML tag name.

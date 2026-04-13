@@ -51,6 +51,19 @@ use rust_fontconfig::registry::FcFontRegistry;
 
 use crate::desktop::shell2::common::WindowError;
 
+const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+const FNV_PRIME: u64 = 0x100000001b3;
+
+/// FNV-1a 64-bit hash of a byte slice, returned as a 16-char hex string.
+pub(crate) fn fnv1a_hash(data: &[u8]) -> String {
+    let mut hash: u64 = FNV_OFFSET_BASIS;
+    for &byte in data {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    format!("{:016x}", hash)
+}
+
 /// A discovered callback and its WASM module (if transpiled).
 #[derive(Debug, Clone)]
 pub struct CallbackWasm {

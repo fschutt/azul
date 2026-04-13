@@ -112,12 +112,5 @@ if (document.readyState === 'loading') {
 
 /// Content hash for the loader JS (for cache-busting).
 pub fn loader_js_hash(content: &str) -> String {
-    const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
-    const FNV_PRIME: u64 = 0x100000001b3;
-    let mut hash: u64 = FNV_OFFSET_BASIS;
-    for byte in content.as_bytes() {
-        hash ^= *byte as u64;
-        hash = hash.wrapping_mul(FNV_PRIME);
-    }
-    format!("{:016x}", hash)
+    super::fnv1a_hash(content.as_bytes())
 }
