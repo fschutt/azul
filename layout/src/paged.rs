@@ -15,14 +15,6 @@
 
 use azul_core::geom::LogicalSize;
 
-#[cfg(all(feature = "text_layout", feature = "font_loading"))]
-use crate::solver3::display_list::DisplayList;
-
-// Stub type when text_layout or font_loading is disabled
-#[cfg(not(all(feature = "text_layout", feature = "font_loading")))]
-#[derive(Debug, Clone, Default)]
-pub struct DisplayList;
-
 /// Represents a series of containers that content flows into during layout.
 ///
 /// This is the core abstraction for fragmentation support. Different media types
@@ -96,14 +88,6 @@ pub struct Fragmentainer {
     /// grow (false for continuous)
     pub is_fixed_size: bool,
 
-    /// Content that has been placed in this fragmentainer (populated during layout).
-    pub content: Vec<LayoutBox>,
-}
-
-/// Layout box content placed within a fragmentainer.
-#[derive(Debug, Clone)]
-pub struct LayoutBox {
-    // Fields to be defined when fragmentation content tracking is implemented
 }
 
 impl Fragmentainer {
@@ -113,7 +97,6 @@ impl Fragmentainer {
             size,
             used_block_size: 0.0,
             is_fixed_size,
-            content: Vec::new(),
         }
     }
 
@@ -276,78 +259,5 @@ impl FragmentationContext {
     /// Check if this is paged media.
     pub fn is_paged(&self) -> bool {
         matches!(self, Self::Paged { .. })
-    }
-}
-
-// Fragmentation State - Tracked During Layout
-
-/// State tracked during layout for fragmentation.
-/// This is created at the start of paged layout and updated as nodes are laid out.
-#[derive(Debug, Clone)]
-pub struct FragmentationState {
-    /// Current page being laid out (0-indexed)
-    pub current_page: usize,
-    /// Y position on current page (relative to page content area)
-    pub current_page_y: f32,
-    /// Available height remaining on current page
-    pub available_height: f32,
-    /// Full page content height
-    pub page_content_height: f32,
-    /// Page margins (not yet used, but needed for future)
-    pub margins_top: f32,
-    pub margins_bottom: f32,
-    /// Total number of pages so far
-    pub total_pages: usize,
-}
-
-impl FragmentationState {
-    /// Create a new fragmentation state for paged layout.
-    pub fn new(page_content_height: f32, margins_top: f32, margins_bottom: f32) -> Self {
-        Self {
-            current_page: 0,
-            current_page_y: 0.0,
-            available_height: page_content_height,
-            page_content_height,
-            margins_top,
-            margins_bottom,
-            total_pages: 1,
-        }
-    }
-
-    /// Check if content of the given height can fit on the current page.
-    pub fn can_fit(&self, height: f32) -> bool {
-        self.available_height >= height
-    }
-
-    /// Check if content would fit on an empty page.
-    pub fn would_fit_on_empty_page(&self, height: f32) -> bool {
-        height <= self.page_content_height
-    }
-
-    /// Use space on the current page.
-    pub fn use_space(&mut self, height: f32) {
-        self.current_page_y += height;
-        self.available_height = (self.page_content_height - self.current_page_y).max(0.0);
-    }
-
-    /// Advance to the next page.
-    pub fn advance_page(&mut self) {
-        self.current_page += 1;
-        self.current_page_y = 0.0;
-        self.available_height = self.page_content_height;
-        self.total_pages = self.total_pages.max(self.current_page + 1);
-    }
-
-    /// Calculate which page a Y position belongs to.
-    pub fn page_for_y(&self, y: f32) -> usize {
-        if self.page_content_height <= 0.0 {
-            return 0;
-        }
-        (y / self.page_content_height).floor() as usize
-    }
-
-    /// Calculate the Y offset for a given page (to convert to page-relative coordinates).
-    pub fn page_y_offset(&self, page: usize) -> f32 {
-        page as f32 * self.page_content_height
     }
 }

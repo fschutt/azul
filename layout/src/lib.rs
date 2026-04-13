@@ -241,7 +241,6 @@ pub use fragmentation::{
 };
 #[cfg(feature = "text_layout")]
 pub use hit_test::{CursorTypeHitTest, FullHitTest};
-pub use paged::FragmentationState;
 #[cfg(feature = "text_layout")]
 pub use solver3::cache::LayoutCache as Solver3LayoutCache;
 #[cfg(feature = "text_layout")]
