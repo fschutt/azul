@@ -90,7 +90,7 @@ struct ScrollableAncestor {
 ///
 /// A vector of scroll adjustments for each scroll container in the ancestry chain.
 /// The adjustments are ordered from innermost (closest to target) to outermost.
-pub fn scroll_rect_into_view(
+pub(crate) fn scroll_rect_into_view(
     target_rect: LogicalRect,
     target_dom_id: DomId,
     target_node_id: NodeId,
