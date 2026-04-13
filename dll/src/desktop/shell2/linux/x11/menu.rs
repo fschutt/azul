@@ -10,7 +10,7 @@
 //! - Events are handled through normal Azul callback system
 
 use azul_core::{
-    callbacks::{LayoutCallback, LayoutCallbackInfo},
+    callbacks::LayoutCallback,
     geom::LogicalSize,
     menu::Menu,
     refany::RefAny,
@@ -19,51 +19,12 @@ use azul_core::{
 use azul_css::system::SystemStyle;
 use azul_layout::window_state::WindowCreateOptions;
 
-use super::super::super::common::debug_server::LogCategory;
-use crate::log_error;
+use super::super::menu_common::{MenuLayoutData, menu_layout_callback};
 
 /// Default height of a single menu item in logical pixels
 const MENU_ITEM_HEIGHT: usize = 25;
 /// Default width of the menu popup in logical pixels
 const MENU_WIDTH: u32 = 200;
-
-/// Data passed to the menu layout callback
-#[derive(Debug, Clone)]
-struct MenuLayoutData {
-    /// Menu structure to render
-    menu: Menu,
-    /// System style for native look
-    system_style: SystemStyle,
-}
-
-/// Layout callback for menu popup windows
-///
-/// This callback uses menu_renderer to create a StyledDom from the Menu structure.
-/// It's called by Azul's normal layout system, so rendering happens through the
-/// standard WebRender pipeline.
-extern "C" fn menu_layout_callback(mut data: RefAny, _info: LayoutCallbackInfo) -> azul_core::dom::Dom {
-    // Clone data early to avoid borrow issues
-    let data_clone = data.clone();
-
-    // Extract menu data from RefAny
-    let menu_data = match data.downcast_ref::<MenuLayoutData>() {
-        Some(d) => d,
-        None => {
-            log_error!(
-                LogCategory::Layout,
-                "[Menu Layout] Failed to downcast menu data"
-            );
-            return azul_core::dom::Dom::create_body();
-        }
-    };
-
-    // Use menu_renderer to create Dom with deferred CSS
-    crate::desktop::menu_renderer::create_menu_dom_with_css(
-        &menu_data.menu,
-        &menu_data.system_style,
-        data_clone, // Pass cloned RefAny for menu window data
-    )
-}
 
 /// Create a menu popup window using Azul's window system
 ///

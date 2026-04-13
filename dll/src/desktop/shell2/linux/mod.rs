@@ -16,6 +16,9 @@ pub mod dbus;
 /// GNOME native menu integration (DBus with dlopen)
 pub mod gnome_menu;
 
+/// Shared menu layout types for X11 and Wayland
+pub(crate) mod menu_common;
+
 /// Wayland implementation
 pub mod wayland;
 /// X11 implementation
