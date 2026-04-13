@@ -715,7 +715,7 @@ impl PlatformWindow for WaylandWindow {
         let x = position.x as i32;
         let y = position.y as i32;
 
-        self.show_tooltip(text.to_string(), x, y);
+        self.show_tooltip(text, x, y);
     }
 
     fn hide_tooltip_from_callback(&mut self) {
@@ -3986,7 +3986,7 @@ impl WaylandWindow {
     }
 
     /// Show a tooltip at the given position (Wayland implementation using subsurface)
-    fn show_tooltip(&mut self, text: String, x: i32, y: i32) {
+    fn show_tooltip(&mut self, text: &str, x: i32, y: i32) {
         // Create tooltip if needed
         if self.tooltip.is_none() {
             let subcompositor = match self.subcompositor {
