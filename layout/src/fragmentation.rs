@@ -385,7 +385,7 @@ pub enum KeepTogetherPriority {
 
 /// Information about a potential break point
 #[derive(Debug, Clone)]
-pub struct BreakPoint {
+pub(crate) struct BreakPoint {
     /// Y position of this break point (in content coordinates)
     pub y_position: f32,
     /// Type of break point (Class A, B, or C)
@@ -404,7 +404,7 @@ pub struct BreakPoint {
 
 /// CSS Fragmentation break point class
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BreakClass {
+pub(crate) enum BreakClass {
     /// Between sibling block-level boxes
     ClassA,
     // +spec:block-formatting-context:a019b9 - break opportunities only between line boxes, not inside them
