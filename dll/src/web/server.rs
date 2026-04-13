@@ -23,7 +23,7 @@ use azul_layout::window_state::FullWindowState;
 use rust_fontconfig::FcFontCache;
 use rust_fontconfig::registry::FcFontRegistry;
 
-use super::cb_gen::CallbackWasm;
+use super::CallbackWasm;
 use super::html_render::{CollectedImage, CollectedFont};
 use super::loader_js;
 

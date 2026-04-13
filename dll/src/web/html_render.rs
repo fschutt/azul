@@ -25,7 +25,7 @@ use azul_layout::window_state::FullWindowState;
 use rust_fontconfig::FcFontCache;
 use rust_fontconfig::registry::FcFontRegistry;
 
-use super::cb_gen::CallbackWasm;
+use super::CallbackWasm;
 
 /// Collected image to serve at `/az/img/{id}`.
 #[derive(Debug, Clone)]

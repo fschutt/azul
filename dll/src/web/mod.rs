@@ -23,7 +23,6 @@ pub mod html_render;
 pub mod loader_js;
 pub mod classify;
 pub mod transpiler;
-pub mod cb_gen;
 pub mod mini_gen;
 
 use std::collections::HashMap;
@@ -37,6 +36,28 @@ use rust_fontconfig::FcFontCache;
 use rust_fontconfig::registry::FcFontRegistry;
 
 use crate::desktop::shell2::common::WindowError;
+
+/// A discovered callback and its WASM module (if transpiled).
+#[derive(Debug, Clone)]
+pub struct CallbackWasm {
+    /// Callback name (derived from symbol name via dladdr).
+    pub name: String,
+    /// Content hash for cache-busting.
+    pub content_hash: String,
+    /// WASM bytes. Empty if transpilation failed / stubbed.
+    pub wasm_bytes: Vec<u8>,
+    /// Whether this callback can run client-side (transpiled to WASM)
+    /// or must fall back to server-side execution.
+    pub is_client_side: bool,
+}
+
+/// Discover all user callbacks and attempt transpilation.
+///
+/// Not yet implemented — returns an empty vec; all callbacks
+/// execute server-side via POST requests.
+fn discover_and_transpile_callbacks() -> Vec<CallbackWasm> {
+    Vec::new()
+}
 
 /// Run the web backend — called from `run()` when `AzBackend::Web(addr)`.
 ///
@@ -70,7 +91,7 @@ pub fn run_web(
     );
 
     // Phase C: Discover + transpile user callbacks (stubbed)
-    let cb_wasms = cb_gen::discover_and_transpile_callbacks();
+    let cb_wasms = discover_and_transpile_callbacks();
     eprintln!(
         "[azul-web] Discovered {} user callbacks (server-side execution mode)",
         cb_wasms.len()

@@ -7,7 +7,7 @@
 //! Includes routing support: intercepts `<a>` clicks with `data-az-route`
 //! and handles browser back/forward via `popstate`.
 
-use super::cb_gen::CallbackWasm;
+use super::CallbackWasm;
 
 /// Generate the loader JavaScript for the current phase.
 pub fn generate_loader_js(
