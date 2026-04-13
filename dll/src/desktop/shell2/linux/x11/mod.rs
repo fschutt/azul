@@ -1087,7 +1087,7 @@ impl X11Window {
 
         // Register window in global registry for multi-window support
         unsafe {
-            super::registry::register_x11_window(window.window, &mut window as *mut _);
+            super::registry::register_window(window.window, &mut window as *mut _ as *mut super::LinuxWindow);
         }
 
         // Invoke create_callback if provided (for GL resource upload, config loading, etc.)
@@ -2702,7 +2702,7 @@ impl Drop for X11Window {
         }
 
         // Unregister from global registry before closing
-        super::registry::unregister_x11_window(self.window);
+        super::registry::unregister_window(self.window);
         self.close();
     }
 }

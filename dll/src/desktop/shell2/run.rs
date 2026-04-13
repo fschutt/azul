@@ -212,6 +212,43 @@ fn run_headless(
     window.run()
 }
 
+/// Set up debug server and E2E test runner infrastructure.
+///
+/// Returns the debug request receiver and component map needed by the
+/// debug timer, or `(None, None)` when neither debug nor E2E is active.
+fn setup_debug_and_e2e(
+    config: &AppConfig,
+) -> (
+    Option<spmc::Receiver<debug_server::DebugRequest>>,
+    Option<Arc<Mutex<azul_core::xml::ComponentMap>>>,
+) {
+    let debug_port = debug_server::get_debug_port();
+    let e2e_file = e2e_test_file();
+    let needs_debug = debug_port.is_some() || e2e_file.is_some();
+
+    let (debug_request_rx, component_map) = if needs_debug {
+        let cm = Arc::new(Mutex::new(
+            azul_core::xml::ComponentMap::from_libraries(&config.component_libraries),
+        ));
+        let rx = if let Some(port) = debug_port {
+            let (_handle, rx) = debug_server::start_debug_server(port);
+            rx
+        } else {
+            let (_handle, rx) = debug_server::create_debug_channel();
+            rx
+        };
+        (Some(rx), Some(cm))
+    } else {
+        (None, None)
+    };
+
+    if let Some(ref test_file) = e2e_file {
+        setup_e2e_runner(test_file);
+    }
+
+    (debug_request_rx, component_map)
+}
+
 /// Run the application with the given root window configuration
 ///
 /// This function:
@@ -242,32 +279,7 @@ pub fn run(
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
 
-    // -- Debug / E2E infrastructure (channels, component map) --
-    // Must happen before headless check: E2E tests need the channel even in headless mode.
-    let debug_port = debug_server::get_debug_port();
-    let e2e_file = e2e_test_file();
-    let needs_debug = debug_port.is_some() || e2e_file.is_some();
-
-    let (debug_request_rx, component_map) = if needs_debug {
-        let cm = Arc::new(Mutex::new(
-            azul_core::xml::ComponentMap::from_libraries(&config.component_libraries)
-        ));
-        let rx = if let Some(port) = debug_port {
-            let (_handle, rx) = debug_server::start_debug_server(port);
-            rx
-        } else {
-            let (_handle, rx) = debug_server::create_debug_channel();
-            rx
-        };
-        (Some(rx), Some(cm))
-    } else {
-        (None, None)
-    };
-
-    // Set up E2E runner AFTER channel is ready (queue_e2e_tests accesses DEBUG_SERVER)
-    if let Some(ref test_file) = e2e_file {
-        setup_e2e_runner(test_file);
-    }
+    let (debug_request_rx, component_map) = setup_debug_and_e2e(&config);
 
     // Resolve rendering backend from AZ_BACKEND env / config
     let backend = resolve_backend(&root_window);
@@ -606,33 +618,13 @@ pub fn run(
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
-    let debug_port = debug_server::get_debug_port();
-    let e2e_file = e2e_test_file();
-    let needs_debug = debug_port.is_some() || e2e_file.is_some();
-    let (debug_request_rx, component_map) = if needs_debug {
-        let cm = Arc::new(Mutex::new(
-            azul_core::xml::ComponentMap::from_libraries(&config.component_libraries)
-        ));
-        let rx = if let Some(port) = debug_port {
-            let (_handle, rx) = debug_server::start_debug_server(port);
-            rx
-        } else {
-            let (_handle, rx) = debug_server::create_debug_channel();
-            rx
-        };
-        (Some(rx), Some(cm))
-    } else {
-        (None, None)
-    };
-    if let Some(ref test_file) = e2e_file {
-        setup_e2e_runner(test_file);
-    }
+    let (_debug_request_rx, _component_map) = setup_debug_and_e2e(&config);
     #[cfg(feature = "web")]
     if let super::AzBackend::Web(bind_addr) = resolve_backend(&root_window) {
         return crate::web::run_web(app_data, config, fc_cache, font_registry, root_window, bind_addr);
     }
     if resolve_backend(&root_window) == super::AzBackend::Headless {
-        return run_headless(app_data, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
+        return run_headless(app_data, config, fc_cache, font_registry, root_window, _debug_request_rx, _component_map);
     }
     unsafe {
         INITIAL_OPTIONS = Some((app_data, config, fc_cache, font_registry, root_window));
@@ -649,27 +641,7 @@ pub fn run(
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
-    let debug_port = debug_server::get_debug_port();
-    let e2e_file = e2e_test_file();
-    let needs_debug = debug_port.is_some() || e2e_file.is_some();
-    let (debug_request_rx, component_map) = if needs_debug {
-        let cm = Arc::new(Mutex::new(
-            azul_core::xml::ComponentMap::from_libraries(&config.component_libraries)
-        ));
-        let rx = if let Some(port) = debug_port {
-            let (_handle, rx) = debug_server::start_debug_server(port);
-            rx
-        } else {
-            let (_handle, rx) = debug_server::create_debug_channel();
-            rx
-        };
-        (Some(rx), Some(cm))
-    } else {
-        (None, None)
-    };
-    if let Some(ref test_file) = e2e_file {
-        setup_e2e_runner(test_file);
-    }
+    let (debug_request_rx, component_map) = setup_debug_and_e2e(&config);
     #[cfg(feature = "web")]
     if let super::AzBackend::Web(bind_addr) = resolve_backend(&root_window) {
         return crate::web::run_web(app_data, config, fc_cache, font_registry, root_window, bind_addr);
@@ -938,27 +910,7 @@ pub fn run(
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
-    let debug_port = debug_server::get_debug_port();
-    let e2e_file = e2e_test_file();
-    let needs_debug = debug_port.is_some() || e2e_file.is_some();
-    let (debug_request_rx, component_map) = if needs_debug {
-        let cm = Arc::new(Mutex::new(
-            azul_core::xml::ComponentMap::from_libraries(&config.component_libraries)
-        ));
-        let rx = if let Some(port) = debug_port {
-            let (_handle, rx) = debug_server::start_debug_server(port);
-            rx
-        } else {
-            let (_handle, rx) = debug_server::create_debug_channel();
-            rx
-        };
-        (Some(rx), Some(cm))
-    } else {
-        (None, None)
-    };
-    if let Some(ref test_file) = e2e_file {
-        setup_e2e_runner(test_file);
-    }
+    let (debug_request_rx, component_map) = setup_debug_and_e2e(&config);
     #[cfg(feature = "web")]
     if let super::AzBackend::Web(bind_addr) = resolve_backend(&root_window) {
         return crate::web::run_web(app_data, config, fc_cache, font_registry, root_window, bind_addr);
@@ -997,15 +949,15 @@ pub fn run(
     // Box and register window in global registry
     let window_ptr = Box::into_raw(Box::new(window));
 
-    // Get window ID and display for registration
+    // Get window ID for registration
     let (window_id, display_ptr) = unsafe {
         match &*window_ptr {
             LinuxWindow::X11(x11_window) => (x11_window.window, x11_window.display),
             LinuxWindow::Wayland(wayland_window) => {
-                // For Wayland, we use the wl_display pointer as the window ID
-                // This is safe because display pointers are unique per window
+                // Use wl_surface pointer as window ID (unique per window).
+                // wl_display is a process-global singleton and would collide.
                 (
-                    wayland_window.display as u64,
+                    wayland_window.surface as u64,
                     wayland_window.display as *mut c_void,
                 )
             }
@@ -1014,7 +966,7 @@ pub fn run(
 
     // Register the window
     unsafe {
-        registry::register_x11_window(window_id, window_ptr as *mut _);
+        registry::register_window(window_id, window_ptr);
     }
 
     log_debug!(
@@ -1026,7 +978,7 @@ pub fn run(
     // Main event loop with multi-window support
     loop {
         // Get all active window IDs
-        let window_ids = registry::get_all_x11_window_ids();
+        let window_ids = registry::get_all_window_ids();
 
         if window_ids.is_empty() {
             log_info!(
@@ -1040,8 +992,8 @@ pub fn run(
 
         // Process events for all windows
         for wid in &window_ids {
-            if let Some(win_ptr) = unsafe { registry::get_x11_window(*wid) } {
-                let window = unsafe { &mut *(win_ptr as *mut LinuxWindow) };
+            if let Some(win_ptr) = unsafe { registry::get_window(*wid) } {
+                let window = unsafe { &mut *win_ptr };
 
                 // Poll all pending events (non-blocking)
                 while window.poll_event().is_some() {
@@ -1058,8 +1010,8 @@ pub fn run(
 
         // --- Check for closed windows and unregister them ---
         for wid in &window_ids {
-            if let Some(win_ptr) = unsafe { registry::get_x11_window(*wid) } {
-                let window = unsafe { &mut *(win_ptr as *mut LinuxWindow) };
+            if let Some(win_ptr) = unsafe { registry::get_window(*wid) } {
+                let window = unsafe { &mut *win_ptr };
 
                 if !window.is_open() {
                     log_info!(
@@ -1068,9 +1020,9 @@ pub fn run(
                         wid
                     );
                     // Unregister and drop the window
-                    if let Some(win_ptr) = registry::unregister_x11_window(*wid) {
+                    if let Some(win_ptr) = registry::unregister_window(*wid) {
                         unsafe {
-                            drop(Box::from_raw(win_ptr as *mut LinuxWindow));
+                            drop(Box::from_raw(win_ptr));
                         }
                     }
                 }
@@ -1080,8 +1032,8 @@ pub fn run(
         // --- Process pending window creates for all windows ---
         // This processes the queue populated by callbacks (context menus, dialogs, etc.)
         for wid in &window_ids {
-            if let Some(win_ptr) = unsafe { registry::get_x11_window(*wid) } {
-                let window = unsafe { &mut *(win_ptr as *mut LinuxWindow) };
+            if let Some(win_ptr) = unsafe { registry::get_window(*wid) } {
+                let window = unsafe { &mut *win_ptr };
 
                 match window {
                     LinuxWindow::X11(x11_window) => {
@@ -1111,9 +1063,9 @@ pub fn run(
 
                                     // Register in global registry
                                     unsafe {
-                                        registry::register_x11_window(
+                                        registry::register_window(
                                             new_window_id,
-                                            new_window_ptr as *mut _,
+                                            new_window_ptr,
                                         );
                                     }
 
@@ -1154,10 +1106,10 @@ pub fn run(
                                     let new_window_ptr =
                                         Box::into_raw(Box::new(new_wayland_window));
 
-                                    // Get the Wayland display pointer for registration
+                                    // Use wl_surface pointer as unique window ID
                                     let new_window_id = unsafe {
                                         if let LinuxWindow::Wayland(ref w) = *new_window_ptr {
-                                            w.display as u64
+                                            w.surface as u64
                                         } else {
                                             unreachable!()
                                         }
@@ -1165,9 +1117,9 @@ pub fn run(
 
                                     // Register in global registry
                                     unsafe {
-                                        registry::register_x11_window(
+                                        registry::register_window(
                                             new_window_id,
-                                            new_window_ptr as *mut _,
+                                            new_window_ptr,
                                         );
                                     }
 
@@ -1197,8 +1149,8 @@ pub fn run(
         // Wait strategy based on number of windows
         if !is_multi_window {
             // Single window: Block on XNextEvent (efficient)
-            if let Some(win_ptr) = unsafe { registry::get_x11_window(window_ids[0]) } {
-                let window = unsafe { &mut *(win_ptr as *mut LinuxWindow) };
+            if let Some(win_ptr) = unsafe { registry::get_window(window_ids[0]) } {
+                let window = unsafe { &mut *win_ptr };
                 window.wait_for_events()?;
             }
         } else {
@@ -1213,11 +1165,11 @@ pub fn run(
         debug_server::LogCategory::EventLoop,
         "[Linux] Cleaning up windows"
     );
-    let window_ids = registry::get_all_x11_window_ids();
+    let window_ids = registry::get_all_window_ids();
     for wid in window_ids {
-        if let Some(win_ptr) = registry::unregister_x11_window(wid) {
+        if let Some(win_ptr) = registry::unregister_window(wid) {
             unsafe {
-                drop(Box::from_raw(win_ptr as *mut LinuxWindow));
+                drop(Box::from_raw(win_ptr));
             }
         }
     }
