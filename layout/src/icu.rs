@@ -111,7 +111,7 @@ impl IcuResult {
 }
 
 /// The plural category for a number (used for translations)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(C)]
 pub enum PluralCategory {
     Zero,
@@ -119,6 +119,7 @@ pub enum PluralCategory {
     Two,
     Few,
     Many,
+    #[default]
     Other,
 }
 
@@ -164,24 +165,6 @@ pub enum DateTimeFieldSet {
     HourMinuteSecond,
     /// Full date and time
     Full,
-}
-
-/// Collation strength for string comparison
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[repr(C)]
-pub enum CollationStrength {
-    /// Only primary differences (base letters) matter.
-    /// e.g., "a" vs "b", but "a" == "A" and "a" == "à"
-    Primary,
-    /// Primary and secondary (accents) differences matter.
-    /// e.g., "a" vs "à", but "a" == "A"
-    Secondary,
-    /// Primary, secondary, and tertiary (case) differences matter.
-    /// e.g., "a" vs "A"
-    #[default]
-    Tertiary,
-    /// All differences matter, including punctuation/whitespace.
-    Quaternary,
 }
 
 /// Length/style for formatting
@@ -560,7 +543,8 @@ impl IcuLocalizer {
     /// - Arabic: 0 → Zero, 1 → One, 2 → Two, 3-10 → Few, 11-99 → Many
     pub fn get_plural_category(&mut self, value: i64) -> PluralCategory {
         let rules = self.get_plural_rules_cardinal();
-        rules.category_for(value as usize).into()
+        let abs_value = value.unsigned_abs() as usize;
+        rules.category_for(abs_value).into()
     }
 
     /// Select the appropriate string based on plural category.
@@ -914,6 +898,8 @@ pub struct IcuLocalizerInner {
     cache: Mutex<BTreeMap<String, IcuLocalizer>>,
     /// Default locale to use when none is specified
     default_locale: Mutex<AzString>,
+    /// Stored data blob for creating new localizers with custom data
+    data_blob: Mutex<Option<Vec<u8>>>,
 }
 
 /// A thread-safe cache of ICU localizers for multiple locales.
@@ -979,6 +965,7 @@ impl Default for IcuLocalizerHandle {
             ptr: Box::into_raw(Box::new(IcuLocalizerInner {
                 cache: Mutex::new(BTreeMap::new()),
                 default_locale: Mutex::new(AzString::from("en-US")),
+                data_blob: Mutex::new(None),
             })),
             copies: Box::into_raw(Box::new(AtomicUsize::new(1))),
             run_destructor: true,
@@ -993,6 +980,7 @@ impl IcuLocalizerHandle {
             ptr: Box::into_raw(Box::new(IcuLocalizerInner {
                 cache: Mutex::new(BTreeMap::new()),
                 default_locale: Mutex::new(AzString::from(default_locale)),
+                data_blob: Mutex::new(None),
             })),
             copies: Box::into_raw(Box::new(AtomicUsize::new(1))),
             run_destructor: true,
@@ -1036,11 +1024,14 @@ impl IcuLocalizerHandle {
     ///
     /// Returns `true` if the data was successfully loaded.
     pub fn load_data_blob(&self, data: &[u8]) -> bool {
-        if let Ok(mut cache) = self.inner().cache.lock() {
-            // Clear the cache so all localizers will be recreated with new data
-            cache.clear();
-            // Note: The actual blob needs to be stored somewhere accessible to new localizers
-            // For now, we just clear the cache so they'll be recreated with default data
+        let inner = self.inner();
+        if let Ok(mut blob) = inner.data_blob.lock() {
+            *blob = Some(data.to_vec());
+            if let Ok(mut cache) = inner.cache.lock() {
+                for localizer in cache.values_mut() {
+                    localizer.load_data_blob(data.to_vec());
+                }
+            }
             true
         } else {
             false
@@ -1049,20 +1040,36 @@ impl IcuLocalizerHandle {
 
     /// Get or create a localizer for the given locale.
     /// This is an internal helper that handles cache access.
+    fn with_localizer_or<F, R, E>(&self, locale: &str, f: F, fallback: E) -> R
+    where
+        F: FnOnce(&mut IcuLocalizer) -> R,
+        E: FnOnce() -> R,
+    {
+        let inner = self.inner();
+        let blob = inner.data_blob.lock().ok().and_then(|b| b.clone());
+        inner.cache
+            .lock()
+            .map(|mut cache| {
+                let localizer = cache
+                    .entry(locale.to_string())
+                    .or_insert_with(|| {
+                        let mut l = IcuLocalizer::new(locale);
+                        if let Some(data) = blob {
+                            l.load_data_blob(data);
+                        }
+                        l
+                    });
+                f(localizer)
+            })
+            .unwrap_or_else(|_| fallback())
+    }
+
     fn with_localizer<F, R>(&self, locale: &str, f: F) -> R
     where
         F: FnOnce(&mut IcuLocalizer) -> R,
         R: Default,
     {
-        self.inner().cache
-            .lock()
-            .map(|mut cache| {
-                let localizer = cache
-                    .entry(locale.to_string())
-                    .or_insert_with(|| IcuLocalizer::new(locale));
-                f(localizer)
-            })
-            .unwrap_or_default()
+        self.with_localizer_or(locale, f, R::default)
     }
 
     /// Get the language part of a locale (e.g., "en" from "en-US").
@@ -1099,15 +1106,7 @@ impl IcuLocalizerHandle {
     /// cache.get_plural_category("pl", 5)  // → PluralCategory::Many
     /// ```
     pub fn get_plural_category(&self, locale: &str, value: i64) -> PluralCategory {
-        self.inner().cache
-            .lock()
-            .map(|mut cache| {
-                let localizer = cache
-                    .entry(locale.to_string())
-                    .or_insert_with(|| IcuLocalizer::new(locale));
-                localizer.get_plural_category(value)
-            })
-            .unwrap_or(PluralCategory::Other)
+        self.with_localizer(locale, |l| l.get_plural_category(value))
     }
 
     /// Select a string based on plural rules.
@@ -1127,15 +1126,11 @@ impl IcuLocalizerHandle {
         many: &str,
         other: &str,
     ) -> AzString {
-        self.inner().cache
-            .lock()
-            .map(|mut cache| {
-                let localizer = cache
-                    .entry(locale.to_string())
-                    .or_insert_with(|| IcuLocalizer::new(locale));
-                localizer.pluralize(value, zero, one, two, few, many, other)
-            })
-            .unwrap_or_else(|_| AzString::from(other))
+        self.with_localizer_or(
+            locale,
+            |l| l.pluralize(value, zero, one, two, few, many, other),
+            || AzString::from(other),
+        )
     }
 
     /// Format a list of items with locale-appropriate conjunctions.
@@ -1146,18 +1141,14 @@ impl IcuLocalizerHandle {
     /// cache.format_list("de-DE", &items, ListType::And) // → "A, B und C"
     /// ```
     pub fn format_list(&self, locale: &str, items: &[AzString], list_type: ListType) -> AzString {
-        self.inner().cache
-            .lock()
-            .map(|mut cache| {
-                let localizer = cache
-                    .entry(locale.to_string())
-                    .or_insert_with(|| IcuLocalizer::new(locale));
-                localizer.format_list(items, list_type)
-            })
-            .unwrap_or_else(|_| {
+        self.with_localizer_or(
+            locale,
+            |l| l.format_list(items, list_type),
+            || {
                 let strs: Vec<&str> = items.iter().map(|s| s.as_str()).collect();
                 AzString::from(strs.join(", "))
-            })
+            },
+        )
     }
 
     /// Format a date according to the specified locale.
@@ -1169,15 +1160,11 @@ impl IcuLocalizerHandle {
     /// cache.format_date("de-DE", today, FormatLength::Medium) // → "15.01.2025"
     /// ```
     pub fn format_date(&self, locale: &str, date: IcuDate, length: FormatLength) -> IcuResult {
-        self.inner().cache
-            .lock()
-            .map(|mut cache| {
-                let localizer = cache
-                    .entry(locale.to_string())
-                    .or_insert_with(|| IcuLocalizer::new(locale));
-                localizer.format_date(date, length)
-            })
-            .unwrap_or_else(|e| IcuResult::err(format!("Lock error: {:?}", e)))
+        self.with_localizer_or(
+            locale,
+            |l| l.format_date(date, length),
+            || IcuResult::err("Lock error".to_string()),
+        )
     }
 
     /// Format a time according to the specified locale.
@@ -1189,28 +1176,20 @@ impl IcuLocalizerHandle {
     /// cache.format_time("de-DE", now, false) // → "16:30"
     /// ```
     pub fn format_time(&self, locale: &str, time: IcuTime, include_seconds: bool) -> IcuResult {
-        self.inner().cache
-            .lock()
-            .map(|mut cache| {
-                let localizer = cache
-                    .entry(locale.to_string())
-                    .or_insert_with(|| IcuLocalizer::new(locale));
-                localizer.format_time(time, include_seconds)
-            })
-            .unwrap_or_else(|e| IcuResult::err(format!("Lock error: {:?}", e)))
+        self.with_localizer_or(
+            locale,
+            |l| l.format_time(time, include_seconds),
+            || IcuResult::err("Lock error".to_string()),
+        )
     }
 
     /// Format a date and time according to the specified locale.
     pub fn format_datetime(&self, locale: &str, datetime: IcuDateTime, length: FormatLength) -> IcuResult {
-        self.inner().cache
-            .lock()
-            .map(|mut cache| {
-                let localizer = cache
-                    .entry(locale.to_string())
-                    .or_insert_with(|| IcuLocalizer::new(locale));
-                localizer.format_datetime(datetime, length)
-            })
-            .unwrap_or_else(|e| IcuResult::err(format!("Lock error: {:?}", e)))
+        self.with_localizer_or(
+            locale,
+            |l| l.format_datetime(datetime, length),
+            || IcuResult::err("Lock error".to_string()),
+        )
     }
 
     // =========================================================================
@@ -1227,19 +1206,13 @@ impl IcuLocalizerHandle {
     /// cache.compare_strings("sv-SE", "Äpple", "Öl")     // → -1 (Swedish: Ä before Ö)
     /// ```
     pub fn compare_strings(&self, locale: &str, a: &str, b: &str) -> i32 {
-        self.inner().cache
-            .lock()
-            .map(|mut cache| {
-                let localizer = cache
-                    .entry(locale.to_string())
-                    .or_insert_with(|| IcuLocalizer::new(locale));
-                match localizer.compare(a, b) {
-                    core::cmp::Ordering::Less => -1,
-                    core::cmp::Ordering::Equal => 0,
-                    core::cmp::Ordering::Greater => 1,
-                }
-            })
-            .unwrap_or(0)
+        self.with_localizer(locale, |l| {
+            match l.compare(a, b) {
+                core::cmp::Ordering::Less => -1,
+                core::cmp::Ordering::Equal => 0,
+                core::cmp::Ordering::Greater => 1,
+            }
+        })
     }
 
     /// Sort a vector of strings using locale-aware collation.
@@ -1252,41 +1225,25 @@ impl IcuLocalizerHandle {
     /// // Result: ["Ägypten", "Andorra", "Österreich"] (Ä sorts with A, Ö with O)
     /// ```
     pub fn sort_strings(&self, locale: &str, strings: &[AzString]) -> IcuStringVec {
-        self.inner().cache
-            .lock()
-            .map(|mut cache| {
-                let localizer = cache
-                    .entry(locale.to_string())
-                    .or_insert_with(|| IcuLocalizer::new(locale));
-                IcuStringVec::from(localizer.sorted_strings(strings))
-            })
-            .unwrap_or_else(|_| IcuStringVec::from(strings.to_vec()))
+        self.with_localizer_or(
+            locale,
+            |l| IcuStringVec::from(l.sorted_strings(strings)),
+            || IcuStringVec::from(strings.to_vec()),
+        )
     }
 
     /// Check if two strings are equal according to locale collation rules.
     pub fn strings_equal(&self, locale: &str, a: &str, b: &str) -> bool {
-        self.inner().cache
-            .lock()
-            .map(|mut cache| {
-                let localizer = cache
-                    .entry(locale.to_string())
-                    .or_insert_with(|| IcuLocalizer::new(locale));
-                localizer.strings_equal(a, b)
-            })
-            .unwrap_or_else(|_| a == b)
+        self.with_localizer_or(
+            locale,
+            |l| l.strings_equal(a, b),
+            || a == b,
+        )
     }
 
     /// Get the sort key for a string (for efficient bulk sorting).
     pub fn get_sort_key(&self, locale: &str, s: &str) -> Vec<u8> {
-        self.inner().cache
-            .lock()
-            .map(|mut cache| {
-                let localizer = cache
-                    .entry(locale.to_string())
-                    .or_insert_with(|| IcuLocalizer::new(locale));
-                localizer.get_sort_key(s)
-            })
-            .unwrap_or_default()
+        self.with_localizer(locale, |l| l.get_sort_key(s))
     }
 
     /// Convenience function to format a localized message with plural support.
