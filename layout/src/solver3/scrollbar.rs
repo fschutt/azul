@@ -144,15 +144,13 @@ pub fn compute_scrollbar_geometry_with_button_size(
     has_other_scrollbar: bool,
     button_size: f32,
 ) -> ScrollbarGeometry {
-    match orientation {
+    let (track_total, viewport_length, content_length, track_rect) = match orientation {
         ScrollbarOrientation::Vertical => {
-            // Track runs along the right edge of inner_rect
             let track_total = if has_other_scrollbar {
                 inner_rect.size.height - scrollbar_width_px
             } else {
                 inner_rect.size.height
             };
-
             let track_rect = LogicalRect {
                 origin: LogicalPosition::new(
                     inner_rect.origin.x + inner_rect.size.width - scrollbar_width_px,
@@ -160,50 +158,14 @@ pub fn compute_scrollbar_geometry_with_button_size(
                 ),
                 size: LogicalSize::new(scrollbar_width_px, track_total),
             };
-
-            let usable_track_length = (track_total - 2.0 * button_size).max(0.0);
-            let viewport_length = inner_rect.size.height;
-            let content_length = content_size.height;
-
-            let thumb_size_ratio = if content_length > 0.0 {
-                (viewport_length / content_length).min(1.0)
-            } else {
-                1.0
-            };
-            let thumb_length = (usable_track_length * thumb_size_ratio)
-                .max(scrollbar_width_px * 2.0)
-                .min(usable_track_length);
-
-            let max_scroll = (content_length - viewport_length).max(0.0);
-            let scroll_ratio = if max_scroll > 0.0 {
-                (scroll_offset.abs() / max_scroll).clamp(0.0, 1.0)
-            } else {
-                0.0
-            };
-
-            let thumb_offset = (usable_track_length - thumb_length) * scroll_ratio;
-
-            ScrollbarGeometry {
-                orientation,
-                track_rect,
-                button_size,
-                usable_track_length,
-                thumb_length,
-                thumb_size_ratio,
-                scroll_ratio,
-                thumb_offset,
-                max_scroll,
-                width_px: scrollbar_width_px,
-            }
+            (track_total, inner_rect.size.height, content_size.height, track_rect)
         }
         ScrollbarOrientation::Horizontal => {
-            // Track runs along the bottom edge of inner_rect
             let track_total = if has_other_scrollbar {
                 inner_rect.size.width - scrollbar_width_px
             } else {
                 inner_rect.size.width
             };
-
             let track_rect = LogicalRect {
                 origin: LogicalPosition::new(
                     inner_rect.origin.x,
@@ -211,41 +173,62 @@ pub fn compute_scrollbar_geometry_with_button_size(
                 ),
                 size: LogicalSize::new(track_total, scrollbar_width_px),
             };
-
-            let usable_track_length = (track_total - 2.0 * button_size).max(0.0);
-            let viewport_length = inner_rect.size.width;
-            let content_length = content_size.width;
-
-            let thumb_size_ratio = if content_length > 0.0 {
-                (viewport_length / content_length).min(1.0)
-            } else {
-                1.0
-            };
-            let thumb_length = (usable_track_length * thumb_size_ratio)
-                .max(scrollbar_width_px * 2.0)
-                .min(usable_track_length);
-
-            let max_scroll = (content_length - viewport_length).max(0.0);
-            let scroll_ratio = if max_scroll > 0.0 {
-                (scroll_offset.abs() / max_scroll).clamp(0.0, 1.0)
-            } else {
-                0.0
-            };
-
-            let thumb_offset = (usable_track_length - thumb_length) * scroll_ratio;
-
-            ScrollbarGeometry {
-                orientation,
-                track_rect,
-                button_size,
-                usable_track_length,
-                thumb_length,
-                thumb_size_ratio,
-                scroll_ratio,
-                thumb_offset,
-                max_scroll,
-                width_px: scrollbar_width_px,
-            }
+            (track_total, inner_rect.size.width, content_size.width, track_rect)
         }
+    };
+
+    compute_thumb_geometry(
+        orientation,
+        track_rect,
+        track_total,
+        viewport_length,
+        content_length,
+        button_size,
+        scrollbar_width_px,
+        scroll_offset,
+    )
+}
+
+fn compute_thumb_geometry(
+    orientation: ScrollbarOrientation,
+    track_rect: LogicalRect,
+    track_total: f32,
+    viewport_length: f32,
+    content_length: f32,
+    button_size: f32,
+    scrollbar_width_px: f32,
+    scroll_offset: f32,
+) -> ScrollbarGeometry {
+    let usable_track_length = (track_total - 2.0 * button_size).max(0.0);
+
+    let thumb_size_ratio = if content_length > 0.0 {
+        (viewport_length / content_length).min(1.0)
+    } else {
+        1.0
+    };
+    let thumb_length = (usable_track_length * thumb_size_ratio)
+        .max(scrollbar_width_px * 2.0)
+        .min(usable_track_length);
+
+    let max_scroll = (content_length - viewport_length).max(0.0);
+    let scroll_ratio = if max_scroll > 0.0 {
+        (scroll_offset.abs() / max_scroll).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+
+    let thumb_offset = (usable_track_length - thumb_length) * scroll_ratio;
+
+    ScrollbarGeometry {
+        orientation,
+        track_rect,
+        button_size,
+        usable_track_length,
+        thumb_length,
+        thumb_size_ratio,
+        scroll_ratio,
+        thumb_offset,
+        max_scroll,
+        width_px: scrollbar_width_px,
     }
 }

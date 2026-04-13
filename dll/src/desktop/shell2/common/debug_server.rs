@@ -1182,10 +1182,10 @@ pub struct ScrollbarInfoResponse {
     pub orientation: String,
     /// Horizontal scrollbar info (if available)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub horizontal: Option<ScrollbarGeometry>,
+    pub horizontal: Option<ScrollbarGeometryJson>,
     /// Vertical scrollbar info (if available)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub vertical: Option<ScrollbarGeometry>,
+    pub vertical: Option<ScrollbarGeometryJson>,
     /// Current scroll position
     pub scroll_x: f32,
     pub scroll_y: f32,
@@ -1201,7 +1201,7 @@ pub struct ScrollbarInfoResponse {
 /// Detailed scrollbar geometry for hit-testing and automation
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
-pub struct ScrollbarGeometry {
+pub struct ScrollbarGeometryJson {
     /// Is this scrollbar visible?
     pub visible: bool,
     /// The full track rect (includes buttons at each end)
@@ -7731,10 +7731,9 @@ fn process_debug_event(
                 }
             };
 
-            // Helper function to build ScrollbarGeometry from ScrollbarState
             fn build_scrollbar_geometry(
                 state: &azul_layout::managers::scroll_state::ScrollbarState,
-            ) -> ScrollbarGeometry {
+            ) -> ScrollbarGeometryJson {
                 let track = state.track_rect;
                 let button_size = state.base_size;
 
@@ -7812,7 +7811,7 @@ fn process_debug_event(
                     }
                 };
 
-                ScrollbarGeometry {
+                ScrollbarGeometryJson {
                     visible: state.visible,
                     track_rect: LogicalRectJson {
                         x: track.origin.x,
