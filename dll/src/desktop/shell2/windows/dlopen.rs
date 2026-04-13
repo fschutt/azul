@@ -217,6 +217,17 @@ pub mod constants {
     pub const HWND_TOPMOST: *mut core::ffi::c_void = -1isize as *mut core::ffi::c_void;
     pub const HWND_NOTOPMOST: *mut core::ffi::c_void = -2isize as *mut core::ffi::c_void;
 
+    // Menu flags
+    pub const MF_STRING: u32 = 0x00000000;
+    pub const MF_POPUP: u32 = 0x00000010;
+    pub const MF_SEPARATOR: u32 = 0x00000800;
+    pub const MF_MENUBREAK: u32 = 0x00000040;
+
+    // TrackPopupMenu flags
+    pub const TPM_LEFTALIGN: u32 = 0x0000;
+    pub const TPM_TOPALIGN: u32 = 0x0000;
+    pub const TPM_RIGHTBUTTON: u32 = 0x0008;
+
 }
 
 #[cfg(target_os = "windows")]

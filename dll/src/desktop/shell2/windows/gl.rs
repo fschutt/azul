@@ -118,8 +118,8 @@ impl ExtraWglFunctions {
         use self::ExtraWglFunctionsLoadError::*;
 
         unsafe {
-            let mut hidden_class_name = super::encode_wide(CLASS_NAME);
-            let mut hidden_window_title = super::encode_wide("Dummy Window");
+            let mut hidden_class_name = dlopen::encode_wide(CLASS_NAME);
+            let mut hidden_window_title = dlopen::encode_wide("Dummy Window");
 
             let dummy_window = CreateWindowExW(
                 0,

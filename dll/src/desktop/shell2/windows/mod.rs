@@ -1870,7 +1870,7 @@ impl Win32Window {
             (self.win32.user32.SetForegroundWindow)(self.hwnd);
             (self.win32.user32.TrackPopupMenu)(
                 hmenu,
-                0x0008 | 0x0000, // TPM_RIGHTBUTTON | TPM_LEFTALIGN
+                dlopen::constants::TPM_RIGHTBUTTON | dlopen::constants::TPM_LEFTALIGN,
                 pt.x,
                 pt.y,
                 0,
@@ -3421,10 +3421,6 @@ fn encode_ascii(s: &str) -> Vec<u8> {
     bytes
 }
 
-/// Encode a string as null-terminated UTF-16 (wide) bytes
-fn encode_wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(std::iter::once(0)).collect()
-}
 
 /// Load a DLL by name, returns None if loading fails
 fn load_dll(name: &str) -> Option<HINSTANCE> {
