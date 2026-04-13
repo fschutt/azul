@@ -76,9 +76,11 @@ fn write_to_pasteboard(text: &str) -> Result<(), ClipboardError> {
 fn read_from_pasteboard() -> Result<String, ClipboardError> {
     let pasteboard = get_general_pasteboard()?;
 
-    let string_class: Id<NSObject> = {
-        let cls: Id<Class> = unsafe { Id::from_ptr(class("NSString")) };
-        unsafe { transmute(cls) }
+    let cls = Class::get("NSString").ok_or(ClipboardError::PasteboardNotFound)?;
+    let string_class: Id<NSObject> = unsafe {
+        let cls_ptr: *mut Object = transmute(cls as *const Class);
+        let _: () = msg_send![cls_ptr, retain];
+        Id::from_ptr(cls_ptr as *mut NSObject)
     };
 
     let classes: Id<NSArray<NSObject, Owned>> = NSArray::from_vec(vec![string_class]);
@@ -107,13 +109,8 @@ fn get_general_pasteboard() -> Result<Id<Object>, ClipboardError> {
     if pasteboard.is_null() {
         return Err(ClipboardError::NullPasteboard);
     }
+    let _: () = unsafe { msg_send![pasteboard, retain] };
     Ok(unsafe { Id::from_ptr(pasteboard) })
-}
-
-/// Get class by name
-#[inline]
-fn class(name: &str) -> *mut Class {
-    unsafe { transmute(Class::get(name)) }
 }
 
 /// Errors that can occur during macOS clipboard operations
