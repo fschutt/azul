@@ -69,7 +69,7 @@ use self::{
 };
 use crate::desktop::{
     shell2::common::{
-        event::{self, HitTestNode, PlatformWindow},
+        event::{self, HitTestNode, PlatformWindow, BUTTON_STATE_LEFT, BUTTON_STATE_NONE},
         Compositor, WindowError,
     },
     wr_translate2::{
@@ -2309,9 +2309,9 @@ unsafe extern "system" fn window_proc(
 
             // Record input sample for gesture detection (movement during button press)
             let button_state = if window.common.current_window_state.mouse_state.left_down {
-                0x01
+                BUTTON_STATE_LEFT
             } else {
-                0x00
+                BUTTON_STATE_NONE
             };
 
             // Use GetCursorPos for accurate screen-absolute position (physical pixels → logical)
@@ -2451,7 +2451,7 @@ unsafe extern "system" fn window_proc(
                 let hf = hidpi_factor.inner.get();
                 azul_core::geom::LogicalPosition::new(pt.x as f32 / hf, pt.y as f32 / hf)
             };
-            window.record_input_sample(logical_pos, 0x01, true, false, Some(screen_pos));
+            window.record_input_sample(logical_pos, BUTTON_STATE_LEFT, true, false, Some(screen_pos));
 
             // Update hit test (GPU mode only — CPU mode uses cpu_hit_tester)
             if let Some(ref mut layout_window) = window.common.layout_window {
@@ -2529,7 +2529,7 @@ unsafe extern "system" fn window_proc(
                 let hf = hidpi_factor.inner.get();
                 azul_core::geom::LogicalPosition::new(pt.x as f32 / hf, pt.y as f32 / hf)
             };
-            window.record_input_sample(logical_pos, 0x00, false, true, Some(screen_pos));
+            window.record_input_sample(logical_pos, BUTTON_STATE_NONE, false, true, Some(screen_pos));
 
             // Update hit test (GPU mode only — CPU mode uses cpu_hit_tester)
             if let Some(ref mut layout_window) = window.common.layout_window {

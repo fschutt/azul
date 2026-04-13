@@ -485,6 +485,12 @@ fn apply_focus_restyle(
     }
 }
 
+// Button state bitfield constants for `record_input_sample`.
+pub const BUTTON_STATE_NONE: u8 = 0x00;
+pub const BUTTON_STATE_LEFT: u8 = 0x01;
+pub const BUTTON_STATE_RIGHT: u8 = 0x02;
+pub const BUTTON_STATE_MIDDLE: u8 = 0x04;
+
 // Platform-Specific Timer Management
 
 /// Hit test node structure for event routing.
@@ -3207,7 +3213,7 @@ pub trait PlatformWindow {
     ///
     /// ## Parameters
     /// - `position`: Current mouse position in logical coordinates
-    /// - `button_state`: Button state bitfield (0x01=left, 0x02=right, 0x04=middle)
+    /// - `button_state`: Button state bitfield (BUTTON_STATE_LEFT / RIGHT / MIDDLE)
     /// - `is_button_down`: Whether a button was just pressed (starts new session)
     /// - `is_button_up`: Whether a button was just released (ends session)
     fn record_input_sample(

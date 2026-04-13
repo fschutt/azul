@@ -24,6 +24,9 @@ use azul_core::{
     hit_test::FullHitTest,
     window::{CursorPosition, VirtualKeyCode},
 };
+use crate::desktop::shell2::common::event::{
+    HitTestNode, BUTTON_STATE_LEFT, BUTTON_STATE_RIGHT, BUTTON_STATE_MIDDLE, BUTTON_STATE_NONE,
+};
 use azul_layout::{
     managers::hover::InputPointId,
 };
@@ -153,13 +156,6 @@ impl Drop for ImeManager {
 
 // Event Handler - Main Implementation
 
-/// Hit test node structure for event routing.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct HitTestNode {
-    pub dom_id: u64,
-    pub node_id: u64,
-}
-
 impl X11Window {
     // V2 Cross-Platform Event Processing (from macOS/Windows)
 
@@ -221,10 +217,10 @@ impl X11Window {
         // Record input sample for gesture detection
         // X11 provides x_root/y_root as native screen-absolute coordinates
         let button_state = match button {
-            MouseButton::Left => 0x01,
-            MouseButton::Right => 0x02,
-            MouseButton::Middle => 0x04,
-            _ => 0x00,
+            MouseButton::Left => BUTTON_STATE_LEFT,
+            MouseButton::Right => BUTTON_STATE_RIGHT,
+            MouseButton::Middle => BUTTON_STATE_MIDDLE,
+            _ => BUTTON_STATE_NONE,
         };
         let screen_pos = LogicalPosition::new(event.x_root as f32, event.y_root as f32);
         self.record_input_sample(position, button_state, is_down, !is_down, Some(screen_pos));
