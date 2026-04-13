@@ -18,7 +18,6 @@ use crate::desktop::shell2::common::gl_loader::load_gl_context;
 extern "C" {
     fn dlopen(filename: *const c_char, flag: i32) -> *mut c_void;
     fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
-    fn dlclose(handle: *mut c_void) -> i32;
 }
 
 // Wrapper to get access to the GL function pointers
@@ -78,11 +77,10 @@ impl GlFunctions {
 
 impl Drop for GlFunctions {
     fn drop(&mut self) {
-        // On drop, close the handle.
-        if !self._opengl_lib_handle.is_null() {
-            unsafe {
-                dlclose(self._opengl_lib_handle);
-            }
-        }
+        // Intentionally do NOT call dlclose here.
+        // The Rc<GenericGlContext> returned by get_context() may outlive this
+        // struct (e.g. in GLView ivars via prepare_opengl), and closing the
+        // handle would invalidate those function pointers.
+        // On macOS, dlclose on system frameworks is a no-op anyway.
     }
 }
