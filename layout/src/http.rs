@@ -352,14 +352,6 @@ pub fn http_get(url: &str) -> HttpResult<HttpResponse> {
     http_get_with_config(url, &HttpRequestConfig::default())
 }
 
-/// HTTP GET request with TLS verification disabled
-#[cfg(feature = "http")]
-pub fn http_get_no_verify(url: &str) -> HttpResult<HttpResponse> {
-    let mut config = HttpRequestConfig::default();
-    config.disable_tls_cert_verification = true;
-    http_get_with_config(url, &config)
-}
-
 /// HTTP GET request with custom configuration
 /// 
 /// # Arguments
@@ -431,9 +423,6 @@ pub fn http_get_with_config(url: &str, config: &HttpRequestConfig) -> HttpResult
             ),
             ureq::Error::Tls(msg) => HttpError::tls_error(
                 format!("TLS error: {}", msg).into(),
-            ),
-            ureq::Error::StatusCode(code) => HttpError::http_status(
-                *code, format!("HTTP {}", code).into(),
             ),
             // Catch-all for feature-gated variants (Rustls, Pem, etc.)
             _ => {

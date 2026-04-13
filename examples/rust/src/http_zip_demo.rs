@@ -7,7 +7,7 @@
 //! 4. Use multiple translation sources (builtin, path, network)
 
 use azul::desktop::fluent::{FluentLocalizerHandle, FluentFormatArg};
-use azul::desktop::http::{download_bytes, download_cached, HttpRequestConfig, http_get_with_config, HttpError};
+use azul::desktop::http::{download_bytes, HttpRequestConfig, http_get_with_config, HttpError};
 use azul::desktop::zip::{zip_list_contents, zip_extract_all, zip_create_from_files, ZipEntry};
 use std::path::PathBuf;
 
