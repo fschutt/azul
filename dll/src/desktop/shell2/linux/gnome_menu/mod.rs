@@ -30,8 +30,8 @@
 //!     │   └── Session bus, service registration
 //!     ├── MenuProtocol (menu_protocol.rs)
 //!     │   └── org.gtk.Menus interface
-//!     ├── ActionsProtocol (actions_protocol.rs)
-//!     │   └── org.gtk.Actions interface
+//!     ├── actions_protocol.rs
+//!     │   └── org.gtk.Actions types and callback queue
 //!     ├── ProtocolImpl (protocol_impl.rs)
 //!     │   └── dlopen-based interface registration
 //!     └── MenuConversion (menu_conversion.rs)
@@ -53,7 +53,7 @@ use super::super::common::debug_server::LogCategory;
 use crate::log_debug;
 
 pub use actions_protocol::{
-    drain_pending_menu_callbacks, queue_menu_callback, ActionsProtocol, DbusAction,
+    drain_pending_menu_callbacks, queue_menu_callback, DbusAction,
     PendingMenuCallback,
 };
 pub use dbus_connection::DbusConnection;
