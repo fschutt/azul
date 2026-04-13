@@ -103,7 +103,7 @@ impl ScrollPhysicsState {
     }
 
     /// Returns true if any node has non-zero velocity or there are pending inputs
-    pub fn is_active(&self) -> bool {
+    fn is_active(&self) -> bool {
         let threshold = self.scroll_physics.min_velocity_threshold;
         self.input_queue.has_pending()
             || self.node_velocities.values().any(|v| {
@@ -245,8 +245,8 @@ pub extern "C" fn scroll_physics_timer_callback(
         };
 
         // Determine if this node allows rubber-banding
-        let rubber_band_x = node_allows_rubber_band_x(&info, overscroll_elasticity);
-        let rubber_band_y = node_allows_rubber_band_y(&info, overscroll_elasticity);
+        let rubber_band_x = node_allows_rubber_band(info.max_scroll_x, info.overscroll_behavior_x, info.overflow_scrolling, overscroll_elasticity);
+        let rubber_band_y = node_allows_rubber_band(info.max_scroll_y, info.overscroll_behavior_y, info.overflow_scrolling, overscroll_elasticity);
 
         // Calculate current overshoot amounts
         let overshoot_x = calculate_overshoot(info.current_offset.x, 0.0, info.max_scroll_x);
@@ -372,8 +372,8 @@ pub extern "C" fn scroll_physics_timer_callback(
     for ((dom_id, node_id), position) in trackpad_positions {
         let clamped = match timer_info.get_scroll_node_info(dom_id, node_id) {
             Some(info) => {
-                let rubber_x = node_allows_rubber_band_x(&info, physics.scroll_physics.overscroll_elasticity);
-                let rubber_y = node_allows_rubber_band_y(&info, physics.scroll_physics.overscroll_elasticity);
+                let rubber_x = node_allows_rubber_band(info.max_scroll_x, info.overscroll_behavior_x, info.overflow_scrolling, physics.scroll_physics.overscroll_elasticity);
+                let rubber_y = node_allows_rubber_band(info.max_scroll_y, info.overscroll_behavior_y, info.overflow_scrolling, physics.scroll_physics.overscroll_elasticity);
                 let max_over = physics.scroll_physics.max_overscroll_distance;
                 let elasticity = physics.scroll_physics.overscroll_elasticity;
                 LogicalPosition {
@@ -419,34 +419,24 @@ pub extern "C" fn scroll_physics_timer_callback(
 // Rubber-banding Helper Functions
 // ============================================================================
 
-/// Determines if a node allows rubber-banding on the X axis based on:
-/// 1. Whether the axis actually has overflow (max_scroll_x > 0)
+/// Determines if a node allows rubber-banding on a given axis based on:
+/// 1. Whether the axis actually has overflow (max_scroll > 0)
 /// 2. Per-node `overflow_scrolling` CSS property (-azul-overflow-scrolling)
-/// 3. Per-node `overscroll_behavior_x` CSS property (overscroll-behavior-x)
+/// 3. Per-node `overscroll_behavior` CSS property (overscroll-behavior-x/y)
 /// 4. Global `overscroll_elasticity` from ScrollPhysics
-fn node_allows_rubber_band_x(info: &ScrollNodeInfo, global_elasticity: f32) -> bool {
-    // No rubber-banding on an axis that doesn't scroll
-    if info.max_scroll_x <= 0.0 {
+fn node_allows_rubber_band(
+    max_scroll: f32,
+    overscroll_behavior: OverscrollBehavior,
+    overflow_scrolling: OverflowScrolling,
+    global_elasticity: f32,
+) -> bool {
+    if max_scroll <= 0.0 {
         return false;
     }
-    if info.overscroll_behavior_x == OverscrollBehavior::None {
+    if overscroll_behavior == OverscrollBehavior::None {
         return false;
     }
-    if info.overflow_scrolling == OverflowScrolling::Touch {
-        return true;
-    }
-    global_elasticity > 0.0
-}
-
-/// Determines if a node allows rubber-banding on the Y axis
-fn node_allows_rubber_band_y(info: &ScrollNodeInfo, global_elasticity: f32) -> bool {
-    if info.max_scroll_y <= 0.0 {
-        return false;
-    }
-    if info.overscroll_behavior_y == OverscrollBehavior::None {
-        return false;
-    }
-    if info.overflow_scrolling == OverflowScrolling::Touch {
+    if overflow_scrolling == OverflowScrolling::Touch {
         return true;
     }
     global_elasticity > 0.0
