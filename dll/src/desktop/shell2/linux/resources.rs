@@ -74,11 +74,4 @@ impl AppResources {
             icon_provider,
         }
     }
-
-    /// Create default resources for testing
-    pub fn default_for_testing() -> Self {
-        let config = AppConfig::default();
-        let fc_cache = Arc::new(FcFontCache::default());
-        Self::new(config, fc_cache, None)
-    }
 }
