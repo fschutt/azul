@@ -30,6 +30,8 @@ use crate::desktop::native_screenshot::NativeScreenshotExt;
 #[cfg(feature = "std")]
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
 
+const ROOT_DOM_ID: azul_core::dom::DomId = azul_core::dom::DomId { inner: 0 };
+
 // ==================== Types ====================
 
 /// Request from HTTP thread to timer callback
@@ -2031,7 +2033,7 @@ fn resolve_node_target(
     use azul_core::dom::DomId;
     use azul_core::id::NodeId;
 
-    let dom_id = DomId { inner: 0 };
+    let dom_id = ROOT_DOM_ID;
 
     // Direct node ID
     if let Some(nid) = node_id {
@@ -2103,7 +2105,7 @@ fn resolve_all_matching_nodes(
     use azul_core::style::matches_html_element;
     use azul_css::parser2::parse_css_path;
 
-    let dom_id = DomId { inner: 0 };
+    let dom_id = ROOT_DOM_ID;
     let layout_window = callback_info.get_layout_window();
 
     let layout_result = match layout_window.layout_results.get(&dom_id) {
@@ -2203,7 +2205,7 @@ fn resolve_node_center(
     use azul_core::dom::{DomId, DomNodeId};
     use azul_core::id::NodeId;
 
-    let dom_id = DomId { inner: 0 };
+    let dom_id = ROOT_DOM_ID;
 
     if let Some(nid) = resolve_node_target(callback_info, selector, node_id, text) {
         let dom_node_id = DomNodeId {
@@ -2723,6 +2725,20 @@ fn serialize_http_response(response: &DebugHttpResponse) -> String {
 // ==================== HTTP Server ====================
 
 #[cfg(feature = "std")]
+fn serve_response(stream: &mut std::net::TcpStream, header: &str, body: &[u8]) {
+    use std::io::{Read, Write};
+    stream.set_nodelay(true).ok();
+    if stream.write_all(header.as_bytes()).is_err() { return; }
+    for chunk in body.chunks(8192) {
+        if stream.write_all(chunk).is_err() { return; }
+    }
+    let _ = stream.flush();
+    let _ = stream.shutdown(std::net::Shutdown::Write);
+    let mut drain = [0u8; 512];
+    while let Ok(n) = stream.read(&mut drain) { if n == 0 { break; } }
+}
+
+#[cfg(feature = "std")]
 fn handle_http_connection(stream: &mut std::net::TcpStream, request_tx: &Arc<Mutex<spmc::Sender<DebugRequest>>>) {
     use std::io::{Read, Write};
 
@@ -2756,27 +2772,14 @@ fn handle_http_connection(stream: &mut std::net::TcpStream, request_tx: &Arc<Mut
                 "HTTP/1.0 200 OK\r\nContent-Type: font/ttf\r\nCache-Control: public, max-age=31536000\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                 font_bytes.len()
             );
-            stream.set_nodelay(true).ok();
-            let _ = stream.write_all(header.as_bytes());
-            for chunk in font_bytes.chunks(8192) {
-                if stream.write_all(chunk).is_err() { return; }
-            }
-            let _ = stream.flush();
-            let _ = stream.shutdown(std::net::Shutdown::Write);
-            let mut drain = [0u8; 64];
-            while let Ok(n) = stream.read(&mut drain) { if n == 0 { break; } }
+            serve_response(stream, &header, font_bytes);
         } else {
-            let body = "Material Icons font not available (icons feature not enabled)";
+            let body = b"Material Icons font not available (icons feature not enabled)";
             let header = format!(
                 "HTTP/1.0 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                 body.len()
             );
-            let _ = stream.write_all(header.as_bytes());
-            let _ = stream.write_all(body.as_bytes());
-            let _ = stream.flush();
-            let _ = stream.shutdown(std::net::Shutdown::Write);
-            let mut drain = [0u8; 64];
-            while let Ok(n) = stream.read(&mut drain) { if n == 0 { break; } }
+            serve_response(stream, &header, body);
         }
         return;
     }
@@ -2787,57 +2790,33 @@ fn handle_http_connection(stream: &mut std::net::TcpStream, request_tx: &Arc<Mut
     static DEBUGGER_JS_BR: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/debugger.js.br"));
     static DEBUGGER_HTML_BR: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/debugger.html.br"));
 
-    // ── Route: GET /debugger.css → serve gzip-compressed CSS ──
+    // ── Route: GET /debugger.css → serve brotli-compressed CSS ──
     if method == "GET" && path == "/debugger.css" {
         let header = format!(
             "HTTP/1.0 200 OK\r\nContent-Type: text/css; charset=utf-8\r\nContent-Encoding: br\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
             DEBUGGER_CSS_BR.len()
         );
-        stream.set_nodelay(true).ok();
-        let _ = stream.write_all(header.as_bytes());
-        for chunk in DEBUGGER_CSS_BR.chunks(8192) {
-            if stream.write_all(chunk).is_err() { return; }
-        }
-        let _ = stream.flush();
-        let _ = stream.shutdown(std::net::Shutdown::Write);
-        let mut drain = [0u8; 64];
-        while let Ok(n) = stream.read(&mut drain) { if n == 0 { break; } }
+        serve_response(stream, &header, DEBUGGER_CSS_BR);
         return;
     }
 
-    // ── Route: GET /debugger.js → serve gzip-compressed JS ──
+    // ── Route: GET /debugger.js → serve brotli-compressed JS ──
     if method == "GET" && path == "/debugger.js" {
         let header = format!(
             "HTTP/1.0 200 OK\r\nContent-Type: application/javascript; charset=utf-8\r\nContent-Encoding: br\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
             DEBUGGER_JS_BR.len()
         );
-        stream.set_nodelay(true).ok();
-        let _ = stream.write_all(header.as_bytes());
-        for chunk in DEBUGGER_JS_BR.chunks(8192) {
-            if stream.write_all(chunk).is_err() { return; }
-        }
-        let _ = stream.flush();
-        let _ = stream.shutdown(std::net::Shutdown::Write);
-        let mut drain = [0u8; 64];
-        while let Ok(n) = stream.read(&mut drain) { if n == 0 { break; } }
+        serve_response(stream, &header, DEBUGGER_JS_BR);
         return;
     }
 
-    // ── Route: GET / → serve gzip-compressed debugger HTML ──
+    // ── Route: GET / → serve brotli-compressed debugger HTML ──
     if method == "GET" && (path == "/" || path == "/index.html") {
         let header = format!(
             "HTTP/1.0 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Encoding: br\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
             DEBUGGER_HTML_BR.len()
         );
-        stream.set_nodelay(true).ok();
-        let _ = stream.write_all(header.as_bytes());
-        for chunk in DEBUGGER_HTML_BR.chunks(8192) {
-            if stream.write_all(chunk).is_err() { return; }
-        }
-        let _ = stream.flush();
-        let _ = stream.shutdown(std::net::Shutdown::Write);
-        let mut drain = [0u8; 64];
-        while let Ok(n) = stream.read(&mut drain) { if n == 0 { break; } }
+        serve_response(stream, &header, DEBUGGER_HTML_BR);
         return;
     }
 
@@ -2890,48 +2869,12 @@ fn handle_http_connection(stream: &mut std::net::TcpStream, request_tx: &Arc<Mut
         })),
     };
 
-    // Calculate length for Content-Length header
     let body_bytes = response_json.as_bytes();
     let header = format!(
         "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body_bytes.len()
     );
-
-    // Set NoDelay to push packets immediately
-    stream.set_nodelay(true).ok();
-
-    // 1. Write Header (Small, safe to write all at once)
-    if stream.write_all(header.as_bytes()).is_err() {
-        return;
-    }
-
-    // 2. Write Body in Chunks (Safer for large data like screenshots)
-    for chunk in body_bytes.chunks(8192) {
-        if stream.write_all(chunk).is_err() {
-            return;
-        }
-    }
-
-    // 3. Flush ensures data is in the kernel buffer
-    if stream.flush().is_err() {
-        return;
-    }
-
-    // Graceful Shutdown Pattern
-    // 1. Shutdown WRITE side only. This sends TCP FIN to the client.
-    if stream.shutdown(std::net::Shutdown::Write).is_err() {
-        return;
-    }
-
-    // 2. Read until EOF. This keeps the socket alive until the client
-    //    confirms receipt and closes their end. This prevents the OS
-    //    from destroying the socket while data is still in flight (RST).
-    let mut buffer = [0u8; 512];
-    while let Ok(n) = stream.read(&mut buffer) {
-        if n == 0 {
-            break;
-        } // EOF received, client closed connection
-    }
+    serve_response(stream, &header, body_bytes);
 }
 
 #[cfg(feature = "std")]
@@ -3246,7 +3189,7 @@ fn eval_assert_text(
 
     // Get text content: try callback_info first, fall back to raw NodeType::Text
     use azul_core::dom::{DomId, DomNodeId};
-    let dom_id = DomId { inner: 0 };
+    let dom_id = ROOT_DOM_ID;
     let dom_node_id = DomNodeId {
         dom: dom_id,
         node: Some(node_id).into(),
@@ -3388,7 +3331,7 @@ fn eval_assert_layout(
 
     use azul_core::dom::{DomId, DomNodeId};
     let dom_node_id = DomNodeId {
-        dom: DomId { inner: 0 },
+        dom: ROOT_DOM_ID,
         node: Some(node_id).into(),
     };
 
@@ -3454,7 +3397,7 @@ fn eval_assert_css(
     use azul_css::props::property::{CssPropertyType, get_css_key_map};
 
     let dom_node_id = DomNodeId {
-        dom: DomId { inner: 0 },
+        dom: ROOT_DOM_ID,
         node: Some(node_id).into(),
     };
 
@@ -3595,7 +3538,7 @@ fn eval_assert_scroll(
     };
 
     use azul_core::dom::{DomId, DomNodeId};
-    let dom_id = DomId { inner: 0 };
+    let dom_id = ROOT_DOM_ID;
     let dom_node_id = DomNodeId {
         dom: dom_id,
         node: Some(node_id).into(),
@@ -3670,7 +3613,7 @@ fn eval_assert_screenshot(
         let save_actual = params.get("save_actual").and_then(|v| v.as_str());
 
         // Take a screenshot of the current frame
-        let dom_id = azul_core::dom::DomId { inner: 0 };
+        let dom_id = ROOT_DOM_ID;
         let png_bytes = match callback_info.take_screenshot(dom_id) {
             Ok(bytes) => bytes,
             Err(e) => return AssertionResult::fail(
@@ -5997,7 +5940,7 @@ fn process_debug_event(
                 Some((*x, *y))
             } else if let Some(nid) = node_id {
                 // Click by node ID - use hit test bounds from display list
-                let dom_id = DomId { inner: 0 };
+                let dom_id = ROOT_DOM_ID;
                 let dom_node_id = DomNodeId {
                     dom: dom_id,
                     node: Some(NodeId::new(*nid as usize)).into(),
@@ -6011,7 +5954,7 @@ fn process_debug_event(
                 use azul_core::style::matches_html_element;
                 use azul_css::parser2::parse_css_path;
 
-                let dom_id = DomId { inner: 0 };
+                let dom_id = ROOT_DOM_ID;
                 let layout_window = callback_info.get_layout_window();
                 let mut found = None;
 
@@ -6056,7 +5999,7 @@ fn process_debug_event(
                 found
             } else if let Some(txt) = text {
                 // Click by text content
-                let dom_id = DomId { inner: 0 };
+                let dom_id = ROOT_DOM_ID;
                 let layout_window = callback_info.get_layout_window();
                 let mut found = None;
 
@@ -6354,7 +6297,7 @@ fn process_debug_event(
             // Iterate all nodes and find the deepest one whose bounds contain (x, y).
             // Later nodes in the tree (higher NodeId) that are nested deeper will
             // naturally be the "topmost" rendered element at that point.
-            let dom_id = DomId { inner: 0 };
+            let dom_id = ROOT_DOM_ID;
             let layout_window = callback_info.get_layout_window();
 
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
@@ -6419,7 +6362,7 @@ fn process_debug_event(
                 None,
             );
             // Use DomId(0) as default - first DOM in the window
-            let dom_id = azul_core::dom::DomId { inner: 0 };
+            let dom_id = ROOT_DOM_ID;
             match callback_info.take_screenshot_base64(dom_id) {
                 Ok(data_uri) => {
                     let data = ScreenshotData {
@@ -6461,7 +6404,7 @@ fn process_debug_event(
                 "Getting HTML string",
                 None,
             );
-            let dom_id = azul_core::dom::DomId { inner: 0 };
+            let dom_id = ROOT_DOM_ID;
             let layout_window = callback_info.get_layout_window();
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
                 let html = layout_result.styled_dom.get_html_string("", "", true);
@@ -6506,7 +6449,7 @@ fn process_debug_event(
             );
 
             let dom_node_id = DomNodeId {
-                dom: DomId { inner: 0 },
+                dom: ROOT_DOM_ID,
                 node: Some(NodeId::new(nid as usize)).into(),
             };
 
@@ -6563,7 +6506,7 @@ fn process_debug_event(
             );
 
             let dom_node_id = DomNodeId {
-                dom: DomId { inner: 0 },
+                dom: ROOT_DOM_ID,
                 node: Some(NodeId::new(nid as usize)).into(),
             };
 
@@ -6597,7 +6540,7 @@ fn process_debug_event(
             );
             use azul_core::dom::{DomId, DomNodeId, NodeId};
 
-            let dom_id = DomId { inner: 0 };
+            let dom_id = ROOT_DOM_ID;
             let layout_window = callback_info.get_layout_window();
 
             let mut nodes = Vec::new();
@@ -6650,7 +6593,7 @@ fn process_debug_event(
             );
             use azul_core::dom::DomId;
 
-            let dom_id = DomId { inner: 0 };
+            let dom_id = ROOT_DOM_ID;
             let layout_window = callback_info.get_layout_window();
 
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
@@ -6686,7 +6629,7 @@ fn process_debug_event(
             use azul_core::dom::DomId;
             use azul_core::id::NodeId;
 
-            let dom_id = DomId { inner: 0 };
+            let dom_id = ROOT_DOM_ID;
             let layout_window = callback_info.get_layout_window();
 
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
@@ -6823,7 +6766,7 @@ fn process_debug_event(
             );
             use azul_core::dom::DomId;
 
-            let dom_id = DomId { inner: 0 };
+            let dom_id = ROOT_DOM_ID;
             let layout_window = callback_info.get_layout_window();
 
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
@@ -6881,7 +6824,7 @@ fn process_debug_event(
             );
             use azul_core::dom::DomId;
 
-            let dom_id = DomId { inner: 0 };
+            let dom_id = ROOT_DOM_ID;
             let layout_window = callback_info.get_layout_window();
 
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
@@ -7310,7 +7253,7 @@ fn process_debug_event(
             );
             use azul_core::dom::DomId;
 
-            let dom_id = DomId { inner: 0 };
+            let dom_id = ROOT_DOM_ID;
             let layout_window = callback_info.get_layout_window();
 
             // Get scroll states from the scroll manager
@@ -7356,7 +7299,7 @@ fn process_debug_event(
             );
             use azul_core::dom::DomId;
 
-            let dom_id = DomId { inner: 0 };
+            let dom_id = ROOT_DOM_ID;
             let layout_window = callback_info.get_layout_window();
 
             // Get scrollable nodes from layout tree
@@ -7424,7 +7367,7 @@ fn process_debug_event(
                 None,
             );
 
-            let dom_id = DomId { inner: 0 };
+            let dom_id = ROOT_DOM_ID;
             let node = NodeId::new(nid as usize);
             let hierarchy_id = NodeHierarchyItemId::from(Some(node));
 
@@ -7482,7 +7425,7 @@ fn process_debug_event(
                 None,
             );
 
-            let dom_id = DomId { inner: 0 };
+            let dom_id = ROOT_DOM_ID;
             let node = NodeId::new(nid as usize);
             let hierarchy_id = NodeHierarchyItemId::from(Some(node));
 
@@ -7564,7 +7507,7 @@ fn process_debug_event(
                 None,
             );
 
-            let dom_id = DomId { inner: 0 };
+            let dom_id = ROOT_DOM_ID;
             let node = NodeId::new(nid as usize);
             let dom_node_id = DomNodeId {
                 dom: dom_id,
@@ -7596,7 +7539,7 @@ fn process_debug_event(
             use azul_core::dom::{DomId, DomNodeId};
             use azul_core::id::NodeId;
 
-            let dom_id = DomId { inner: 0 };
+            let dom_id = ROOT_DOM_ID;
             let layout_window = callback_info.get_layout_window();
 
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
@@ -7669,7 +7612,7 @@ fn process_debug_event(
             use azul_core::dom::{DomId, DomNodeId};
             use azul_core::id::NodeId;
 
-            let dom_id = DomId { inner: 0 };
+            let dom_id = ROOT_DOM_ID;
             let dom_node_id = DomNodeId {
                 dom: dom_id,
                 node: Some(NodeId::new(*node_id as usize)).into(),
@@ -7748,7 +7691,7 @@ fn process_debug_event(
                 }
             };
 
-            let dom_id = DomId { inner: 0 };
+            let dom_id = ROOT_DOM_ID;
             let node = NodeId::new(nid as usize);
             let layout_window = callback_info.get_layout_window();
 
@@ -8006,7 +7949,7 @@ fn process_debug_event(
             let nested_dom_id = if let Some(did) = dom_id {
                 Some(DomId { inner: *did })
             } else if let Some(nid) = node_id {
-                let parent_dom = DomId { inner: 0 };
+                let parent_dom = ROOT_DOM_ID;
                 layout_window
                     .virtual_view_manager
                     .get_nested_dom_id(parent_dom, NodeId::new(*nid))
@@ -8017,7 +7960,7 @@ fn process_debug_event(
             if let Some(nested_dom_id) = nested_dom_id {
                 // Get scroll state for the VirtualView container from parent DOM
                 let scroll_state = if let Some(nid) = node_id {
-                    let parent_dom = DomId { inner: 0 };
+                    let parent_dom = ROOT_DOM_ID;
                     let parent_node = NodeId::new(*nid);
 
                     // Get scroll offset from scroll manager
@@ -8396,7 +8339,7 @@ fn process_debug_event(
             use azul_core::dom::{DomId, NodeId};
             use azul_layout::json::serialize_refany_to_json;
 
-            let dom_id = DomId { inner: 0 };
+            let dom_id = ROOT_DOM_ID;
             let layout_window = callback_info.get_layout_window();
 
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
@@ -8723,7 +8666,7 @@ fn process_debug_event(
             use azul_core::dom::DomId;
             use azul_core::id::NodeId;
 
-            let dom_id = DomId { inner: 0 };
+            let dom_id = ROOT_DOM_ID;
             let parent_node_id = NodeId::new(*parent_id as usize);
 
             // Validate parent exists
@@ -8767,7 +8710,7 @@ fn process_debug_event(
             use azul_core::dom::DomId;
             use azul_core::id::NodeId;
 
-            let dom_id = DomId { inner: 0 };
+            let dom_id = ROOT_DOM_ID;
             let target_node_id = NodeId::new(*node_id as usize);
 
             let layout_window = callback_info.get_layout_window();
@@ -8797,7 +8740,7 @@ fn process_debug_event(
             use azul_core::styled_dom::NodeHierarchyItemId;
             use azul_core::id::NodeId;
 
-            let dom_id = DomId { inner: 0 };
+            let dom_id = ROOT_DOM_ID;
             let target_node_id = NodeId::new(*node_id as usize);
 
             let layout_window = callback_info.get_layout_window();
@@ -8833,7 +8776,7 @@ fn process_debug_event(
             use azul_core::dom::{DomId, IdOrClass};
             use azul_core::id::NodeId;
 
-            let dom_id = DomId { inner: 0 };
+            let dom_id = ROOT_DOM_ID;
             let target_node_id = NodeId::new(*node_id as usize);
 
             let layout_window = callback_info.get_layout_window();
@@ -8876,7 +8819,7 @@ fn process_debug_event(
             use azul_core::id::NodeId;
             use azul_css::props::property::{CssPropertyType, get_css_key_map};
 
-            let dom_id = DomId { inner: 0 };
+            let dom_id = ROOT_DOM_ID;
             let target_node_id = NodeId::new(*node_id as usize);
 
             let layout_window = callback_info.get_layout_window();
@@ -8953,7 +8896,7 @@ fn process_debug_event(
         }
 
         DebugEvent::GetComponentRegistry => {
-            let map_guard = component_map.lock().unwrap();
+            let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
             let registry = build_component_registry(&map_guard);
             drop(map_guard);
             send_ok(
@@ -8964,7 +8907,7 @@ fn process_debug_event(
         }
 
         DebugEvent::GetLibraries => {
-            let map_guard = component_map.lock().unwrap();
+            let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
             let registry = build_component_registry(&map_guard);
             drop(map_guard);
             let libraries = registry.libraries.iter().map(|lib| LibrarySummary {
@@ -8983,7 +8926,7 @@ fn process_debug_event(
         }
 
         DebugEvent::GetLibraryComponents { library } => {
-            let map_guard = component_map.lock().unwrap();
+            let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
             let registry = build_component_registry(&map_guard);
             drop(map_guard);
             if let Some(lib) = registry.libraries.iter().find(|l| l.name == *library) {
@@ -9004,7 +8947,7 @@ fn process_debug_event(
         }
 
         DebugEvent::ExportCode { language } => {
-            let map_guard = component_map.lock().unwrap();
+            let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
             let result = build_exported_code(language, &map_guard);
             drop(map_guard);
             match result {
@@ -9023,7 +8966,7 @@ fn process_debug_event(
 
         DebugEvent::ExportCodeZip { language, library: _lib_filter } => {
             // G1/G3: Package exported code into a downloadable ZIP
-            let map_guard = component_map.lock().unwrap();
+            let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
             let result = build_exported_code(language, &map_guard);
 
             // Also collect component CSS
@@ -9158,7 +9101,7 @@ fn process_debug_event(
                 };
 
                 // Insert or replace in the component map
-                let mut map_guard = component_map.lock().unwrap();
+                let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
                 let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
                 let mut libs = core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
                 let was_update = if let Some(existing) = libs.iter_mut().find(|l| l.name.as_str() == lib_name) {
@@ -9181,7 +9124,7 @@ fn process_debug_event(
         }
 
         DebugEvent::ExportComponentLibrary { library: lib_name_opt } => {
-            let map_guard = component_map.lock().unwrap();
+            let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
             let registry = build_component_registry(&map_guard);
             drop(map_guard);
 
@@ -9240,7 +9183,7 @@ fn process_debug_event(
             use azul_core::xml::{ComponentLibrary, ComponentDefVec, ComponentLibraryVec, ComponentDataModelVec};
             use azul_css::corety::AzString;
 
-            let mut map_guard = component_map.lock().unwrap();
+            let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
             // Check if library already exists
             if map_guard.libraries.iter().any(|l| l.name.as_str() == name.as_str()) {
                 drop(map_guard);
@@ -9268,7 +9211,7 @@ fn process_debug_event(
         DebugEvent::DeleteLibrary { name } => {
             use azul_core::xml::ComponentLibraryVec;
 
-            let mut map_guard = component_map.lock().unwrap();
+            let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
             let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
             let mut libs = core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
             let original_len = libs.len();
@@ -9296,7 +9239,7 @@ fn process_debug_event(
             use azul_core::xml::{ComponentDef, ComponentId, ComponentSource, ComponentLibraryVec, ComponentDataModel, ComponentDataFieldVec};
             use azul_css::corety::AzString;
 
-            let mut map_guard = component_map.lock().unwrap();
+            let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
             let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
             let mut libs = core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
 
@@ -9340,7 +9283,7 @@ fn process_debug_event(
         DebugEvent::DeleteComponent { library, name } => {
             use azul_core::xml::ComponentLibraryVec;
 
-            let mut map_guard = component_map.lock().unwrap();
+            let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
             let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
             let mut libs = core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
 
@@ -9368,7 +9311,7 @@ fn process_debug_event(
             use azul_core::xml::ComponentLibraryVec;
             use azul_css::corety::AzString;
 
-            let mut map_guard = component_map.lock().unwrap();
+            let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
             let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
             let mut libs = core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
 
@@ -9439,7 +9382,7 @@ fn process_debug_event(
             override_lang,
         } => {
             // --- 1. Look up the component ---
-            let map_guard = component_map.lock().unwrap();
+            let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
             let comp_found = map_guard.libraries.iter().find_map(|lib| {
                 if lib.name.as_str() == library.as_str() {
                     lib.components.iter().find(|c| c.id.name.as_str() == name.as_str())
@@ -9474,7 +9417,7 @@ fn process_debug_event(
             };
 
             // --- 3. Render the component to a StyledDom ---
-            let map_guard = component_map.lock().unwrap();
+            let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
             let styled_dom = match (comp.render_fn)(&comp, &render_data_model, &map_guard) {
                 azul_core::xml::ResultStyledDomRenderDomError::Ok(sd) => sd,
                 azul_core::xml::ResultStyledDomRenderDomError::Err(e) => {
@@ -9556,7 +9499,7 @@ fn process_debug_event(
 
         DebugEvent::GetComponentRenderTree { library, name } => {
             // Look up the component
-            let map_guard = component_map.lock().unwrap();
+            let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
             let comp_found = map_guard.libraries.iter().find_map(|lib| {
                 if lib.name.as_str() == library.as_str() {
                     lib.components.iter().find(|c| c.id.name.as_str() == name.as_str())
@@ -9607,7 +9550,7 @@ fn process_debug_event(
 
         DebugEvent::GetComponentSource { library, name, source_type, language } => {
             // E4: Return the source code of render_fn or compile_fn
-            let map_guard = component_map.lock().unwrap();
+            let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
             let comp_found = map_guard.libraries.iter().find_map(|lib| {
                 if lib.name.as_str() == library.as_str() {
                     lib.components.iter().find(|c| c.id.name.as_str() == name.as_str())
@@ -9634,7 +9577,7 @@ fn process_debug_event(
                             "python" => azul_core::xml::CompileTarget::Python,
                             _ => azul_core::xml::CompileTarget::Rust,
                         };
-                        let map_guard = component_map.lock().unwrap();
+                        let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
                         let result = (comp.compile_fn)(&comp, &target, &comp.data_model, 0);
                         drop(map_guard);
                         match result {
@@ -9656,7 +9599,7 @@ fn process_debug_event(
 
         DebugEvent::UpdateComponentRenderFn { library, name, source } => {
             // E4: Store the render_fn source code (hot-replacement not yet supported)
-            let mut map_guard = component_map.lock().unwrap();
+            let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
             let empty_libs = azul_core::xml::ComponentLibraryVec::from_const_slice(&[]);
             let mut libs = core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
 
@@ -9690,7 +9633,7 @@ fn process_debug_event(
 
         DebugEvent::UpdateComponentCompileFn { library, name, source, language } => {
             // E4: Store compile_fn source for a specific language
-            let mut map_guard = component_map.lock().unwrap();
+            let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
             let empty_libs = azul_core::xml::ComponentLibraryVec::from_const_slice(&[]);
             let mut libs = core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
 
