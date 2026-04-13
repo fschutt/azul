@@ -13,16 +13,7 @@ pub use super::defines::{Atom, Display, Drawable, Window, XSetWindowAttributes, 
 use crate::desktop::shell2::common::{
     dlopen::load_first_available, DlError, DynamicLibrary as DynamicLibraryTrait,
 };
-
-// Helper for loading symbols and casting them to function pointers
-macro_rules! load_symbol {
-    ($lib:expr, $t:ty, $s:expr) => {
-        match unsafe { $lib.get_symbol::<$t>($s) } {
-            Ok(f) => f,
-            Err(e) => return Err(e),
-        }
-    };
-}
+use crate::load_symbol;
 
 /// Wrapper for dlopen, dlsym, dlclose.
 pub struct Library {

@@ -12,69 +12,16 @@
 //! Callers must ensure proper error handling and null pointer checks.
 
 use std::{
-    ffi::{c_char, c_int, c_uint, c_void, CStr, CString},
+    ffi::{c_char, c_int, c_uint, c_void},
     rc::Rc,
 };
 
 use crate::desktop::shell2::common::{
     dlopen::load_first_available, DlError, DynamicLibrary as DynamicLibraryTrait,
 };
+use crate::load_symbol;
 
-// Helper for loading symbols and casting them to function pointers
-macro_rules! load_symbol {
-    ($lib:expr, $t:ty, $s:expr) => {
-        match unsafe { $lib.get_symbol::<$t>($s) } {
-            Ok(f) => f,
-            Err(e) => return Err(e),
-        }
-    };
-}
-
-/// Wrapper for dlopen, dlsym, dlclose
-pub struct Library {
-    handle: *mut c_void,
-}
-
-impl DynamicLibraryTrait for Library {
-    fn load(name: &str) -> Result<Self, DlError> {
-        let c_name = CString::new(name).unwrap();
-        let handle = unsafe { libc::dlopen(c_name.as_ptr(), libc::RTLD_LAZY) };
-        if handle.is_null() {
-            let error = unsafe { CStr::from_ptr(libc::dlerror()).to_string_lossy() };
-            Err(DlError::LibraryNotFound {
-                name: name.to_string(),
-                tried: vec![name.to_string()],
-                suggestion: format!("dlopen failed: {}", error),
-            })
-        } else {
-            Ok(Self { handle })
-        }
-    }
-
-    unsafe fn get_symbol<T>(&self, name: &str) -> Result<T, DlError> {
-        let c_name = CString::new(name).unwrap();
-        let sym = libc::dlsym(self.handle, c_name.as_ptr());
-        if sym.is_null() {
-            Err(DlError::SymbolNotFound {
-                symbol: name.to_string(),
-                library: "unknown".to_string(),
-                suggestion: "Symbol not found in library".to_string(),
-            })
-        } else {
-            Ok(std::mem::transmute_copy::<*mut c_void, T>(&sym))
-        }
-    }
-
-    fn unload(&mut self) {
-        // Drop implementation already handles cleanup
-    }
-}
-
-impl Drop for Library {
-    fn drop(&mut self) {
-        unsafe { libc::dlclose(self.handle) };
-    }
-}
+pub use super::super::x11::dlopen::Library;
 
 /// DBus library handle with function pointers
 pub struct DBusLib {

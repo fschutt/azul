@@ -6,6 +6,16 @@
 
 use super::error::DlError;
 
+#[macro_export]
+macro_rules! load_symbol {
+    ($lib:expr, $t:ty, $s:expr) => {
+        match unsafe { $lib.get_symbol::<$t>($s) } {
+            Ok(f) => f,
+            Err(e) => return Err(e),
+        }
+    };
+}
+
 /// Dynamic library loading trait.
 pub trait DynamicLibrary {
     /// Load a system library by name.
