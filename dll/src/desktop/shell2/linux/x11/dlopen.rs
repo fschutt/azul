@@ -249,6 +249,7 @@ pub struct Egl {
     pub eglGetProcAddress: eglGetProcAddress,
     pub eglDestroySurface: eglDestroySurface,
     pub eglDestroyContext: eglDestroyContext,
+    pub eglTerminate: eglTerminate,
 }
 
 impl Egl {
@@ -268,6 +269,7 @@ impl Egl {
             eglGetProcAddress: load_symbol!(lib, _, "eglGetProcAddress"),
             eglDestroySurface: load_symbol!(lib, _, "eglDestroySurface"),
             eglDestroyContext: load_symbol!(lib, _, "eglDestroyContext"),
+            eglTerminate: load_symbol!(lib, _, "eglTerminate"),
             _lib: lib,
         }))
     }
