@@ -22,7 +22,7 @@ pub mod html_render;
 pub mod loader_js;
 pub mod classify;
 pub mod transpiler;
-pub mod mini_gen;
+
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -86,6 +86,19 @@ fn discover_and_transpile_callbacks() -> Vec<CallbackWasm> {
     Vec::new()
 }
 
+/// Minimal valid WASM module: `\0asm` magic + version 1.
+const WASM_HEADER: [u8; 8] = [
+    0x00, 0x61, 0x73, 0x6D, // \0asm magic
+    0x01, 0x00, 0x00, 0x00, // version 1
+];
+
+/// Generate azul-mini.wasm.
+///
+/// Phase 0: Returns a minimal valid WASM module (~8 bytes).
+fn generate_mini_wasm(_classification: &classify::ApiClassification) -> Vec<u8> {
+    WASM_HEADER.to_vec()
+}
+
 /// Run the web backend — called from `run()` when `AzBackend::Web(addr)`.
 ///
 /// This function blocks (like `run_headless`) serving HTTP requests until
@@ -111,7 +124,7 @@ pub fn run_web(
     );
 
     // Phase B: Generate azul-mini.wasm (stubbed)
-    let mini_wasm = mini_gen::generate_mini_wasm(&classification);
+    let mini_wasm = generate_mini_wasm(&classification);
     eprintln!(
         "[azul-web] azul-mini.wasm: {} bytes (stub)",
         mini_wasm.len()
