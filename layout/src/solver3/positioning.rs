@@ -64,6 +64,7 @@ fn resolve_position_offsets(
     styled_dom: &StyledDom,
     dom_id: Option<NodeId>,
     cb_size: LogicalSize,
+    viewport_size: LogicalSize,
 ) -> PositionOffsets {
     use azul_css::props::basic::pixel::{PhysicalSize, PropertyContext, ResolutionContext};
 
@@ -89,7 +90,7 @@ fn resolve_position_offsets(
         root_font_size,
         containing_block_size,
         element_size: None, // Not needed for position offsets
-        viewport_size: PhysicalSize::new(0.0, 0.0),
+        viewport_size: PhysicalSize::new(viewport_size.width, viewport_size.height),
     };
 
     let mut offsets = PositionOffsets::default();
@@ -252,7 +253,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
             // +spec:positioning:623e45 - inset properties reduce the containing block into the inset-modified containing block
             // Resolve offsets using the now-known containing block size.
             let offsets =
-                resolve_position_offsets(ctx.styled_dom, Some(dom_id), containing_block_rect.size);
+                resolve_position_offsets(ctx.styled_dom, Some(dom_id), containing_block_rect.size, viewport.size);
 
             // +spec:box-model:ae3899 - static position is the margin-edge position from normal flow
             // +spec:positioning:9a90a3 - static position: the position the element would have had in normal flow
@@ -664,7 +665,7 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
 
         // +spec:positioning:418c74 - inset percentages resolve against containing block size per axis; auto is unconstrained
         let offsets =
-            resolve_position_offsets(ctx.styled_dom, node.dom_node_id, containing_block_size);
+            resolve_position_offsets(ctx.styled_dom, node.dom_node_id, containing_block_size, viewport.size);
 
         // Get a mutable reference to the position and apply the offsets.
         let Some(current_pos) = calculated_positions.get_mut(node_index) else {
@@ -778,27 +779,7 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
     Ok(())
 }
 
-/// Sticky positioning constraints computed at layout time.
-/// At scroll time, the sticky box's position is clamped so that
-/// it remains within the sticky view rectangle (scrollport inset by these values).
 // +spec:overflow:bac4e5 - sticky view rectangle from inset properties relative to nearest scrollport
-#[derive(Debug, Clone)]
-pub struct StickyConstraints {
-    /// Inset from the top edge of the nearest scrollport (0 if auto).
-    pub top_inset: f32,
-    /// Inset from the right edge of the nearest scrollport (0 if auto).
-    pub right_inset: f32,
-    /// Inset from the bottom edge of the nearest scrollport (0 if auto).
-    pub bottom_inset: f32,
-    /// Inset from the left edge of the nearest scrollport (0 if auto).
-    pub left_inset: f32,
-    /// Normal-flow position of the sticky element (border-box origin).
-    pub normal_flow_position: LogicalPosition,
-    /// Border-box size of the sticky element.
-    pub border_box_size: LogicalSize,
-    /// The scrollport rect (content-box of nearest scroll container).
-    pub scrollport: LogicalRect,
-}
 
 /// Finds the nearest scrollport (ancestor with overflow: scroll or auto) for a node.
 /// Returns the content-box rect of the scrollport, or the viewport if none found.
@@ -967,7 +948,7 @@ pub fn adjust_sticky_positions<T: ParsedFontTrait>(
             .unwrap_or(viewport);
 
         // Resolve inset properties (top, right, bottom, left)
-        let offsets = resolve_position_offsets(ctx.styled_dom, Some(dom_id), scrollport.size);
+        let offsets = resolve_position_offsets(ctx.styled_dom, Some(dom_id), scrollport.size, viewport.size);
 
         // Get the scroll offset from the nearest scroll container
         let scroll_offset = find_nearest_scroll_offset(tree, node_index, scroll_offsets);
@@ -1091,7 +1072,7 @@ pub fn adjust_sticky_positions<T: ParsedFontTrait>(
 // +spec:positioning:882e67 - containing block for abs pos is nearest positioned ancestor or initial CB
 // +spec:positioning:292c5c - relative parent serves as containing block for absolute descendants
 // +spec:positioning:00ce38 - CB for absolute is padding edge of nearest positioned ancestor
-pub fn find_absolute_containing_block_rect(
+pub(crate) fn find_absolute_containing_block_rect(
     tree: &LayoutTree,
     node_index: usize,
     styled_dom: &StyledDom,
