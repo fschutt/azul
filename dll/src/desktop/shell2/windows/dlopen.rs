@@ -123,10 +123,7 @@ pub struct COMPOSITIONFORM {
 }
 
 // IME Composition Form Styles
-pub const CFS_DEFAULT: u32 = 0x0000;
 pub const CFS_RECT: u32 = 0x0001;
-pub const CFS_POINT: u32 = 0x0002;
-pub const CFS_FORCE_POSITION: u32 = 0x0020;
 
 /// Helper to encode ASCII string for GetProcAddress
 pub fn encode_ascii(input: &str) -> Vec<i8> {
@@ -220,9 +217,6 @@ pub mod constants {
     pub const HWND_TOPMOST: *mut core::ffi::c_void = -1isize as *mut core::ffi::c_void;
     pub const HWND_NOTOPMOST: *mut core::ffi::c_void = -2isize as *mut core::ffi::c_void;
 
-    // Window Messages
-    pub const WM_CLOSE: u32 = 0x0010;
-    pub const WM_PAINT: u32 = 0x000F;
 }
 
 #[cfg(target_os = "windows")]
@@ -306,6 +300,11 @@ impl DynamicLibrary {
     where
         T: Copy,
     {
+        debug_assert_eq!(
+            std::mem::size_of::<T>(),
+            std::mem::size_of::<*mut core::ffi::c_void>(),
+            "get_symbol: T must be pointer-sized"
+        );
         let handle = self.handle?;
         let addr = windows_impl::get_proc_address(handle, name)?;
         Some(std::mem::transmute_copy(&addr))
@@ -577,7 +576,6 @@ pub struct Win32Libraries {
     pub shell32: Option<Shell32Functions>,
     pub kernel32_dll: Option<DynamicLibrary>,
     pub kernel32: Option<Kernel32Functions>,
-    pub opengl32: Option<DynamicLibrary>,
     pub dwmapi: Option<DynamicLibrary>,
     /// DWM functions for Windows 11 transparency effects (Mica, Acrylic)
     pub dwmapi_funcs: Option<DwmapiFunctions>,
@@ -873,7 +871,6 @@ impl Win32Libraries {
             shell32,
             kernel32_dll,
             kernel32,
-            opengl32: DynamicLibrary::load("opengl32.dll").ok(),
             dwmapi,
             dwmapi_funcs,
         })
@@ -893,7 +890,6 @@ impl Clone for Win32Libraries {
             shell32: self.shell32,
             kernel32_dll: None,
             kernel32: self.kernel32,
-            opengl32: None,
             dwmapi: None,
             dwmapi_funcs: self.dwmapi_funcs,
         }

@@ -3547,7 +3547,7 @@ impl Win32Window {
     pub fn close(&mut self) {
         // Close the window by posting WM_CLOSE
         unsafe {
-            use self::dlopen::constants::WM_CLOSE;
+            const WM_CLOSE: u32 = 0x0010;
             (self.win32.user32.PostMessageW)(self.hwnd, WM_CLOSE, 0, 0);
         }
         self.is_open = false;
