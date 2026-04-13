@@ -346,17 +346,7 @@ impl NormalizedLinearColorStop {
     pub const fn new(offset: PercentageValue, color: ColorU) -> Self {
         Self { offset, color: ColorOrSystem::color(color) }
     }
-    
-    /// Create a new normalized linear color stop with a system color.
-    pub const fn system(offset: PercentageValue, system_ref: crate::props::basic::color::SystemColorRef) -> Self {
-        Self { offset, color: ColorOrSystem::system(system_ref) }
-    }
-    
-    /// Create a normalized linear color stop with a ColorOrSystem directly.
-    pub const fn with_color_or_system(offset: PercentageValue, color: ColorOrSystem) -> Self {
-        Self { offset, color }
-    }
-    
+
     /// Resolve the color against system colors.
     pub fn resolve(&self, system_colors: &crate::system::SystemColors, fallback: ColorU) -> ColorU {
         self.color.resolve(system_colors, fallback)
@@ -403,17 +393,7 @@ impl NormalizedRadialColorStop {
     pub const fn new(angle: AngleValue, color: ColorU) -> Self {
         Self { angle, color: ColorOrSystem::color(color) }
     }
-    
-    /// Create a new normalized radial color stop with a system color.
-    pub const fn system(angle: AngleValue, system_ref: crate::props::basic::color::SystemColorRef) -> Self {
-        Self { angle, color: ColorOrSystem::system(system_ref) }
-    }
-    
-    /// Create a normalized radial color stop with a ColorOrSystem directly.
-    pub const fn with_color_or_system(angle: AngleValue, color: ColorOrSystem) -> Self {
-        Self { angle, color }
-    }
-    
+
     /// Resolve the color against system colors.
     pub fn resolve(&self, system_colors: &crate::system::SystemColors, fallback: ColorU) -> ColorU {
         self.color.resolve(system_colors, fallback)
@@ -1062,9 +1042,8 @@ impl CssBackgroundPositionParseErrorOwned {
 pub mod parser {
     use super::*;
 
-    /// Internal enum to help dispatch parsing logic within the `parse_gradient` function.
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-    pub enum GradientType {
+    enum GradientType {
         LinearGradient,
         RepeatingLinearGradient,
         RadialGradient,
@@ -1516,225 +1495,131 @@ pub mod parser {
 
     // -- Normalization Functions --
 
-    /// Normalize linear color stops according to W3C CSS Images Level 3 spec.
-    ///
-    /// This handles:
-    /// 1. Multi-position stops (e.g., "red 10% 30%" creates two stops)
-    /// 2. Default positions (first=0%, last=100%)
-    /// 3. Enforcing ascending order (positions < previous are clamped)
-    /// 4. Distributing unpositioned stops evenly between neighbors
-    /// 
-    /// System colors (like `system:accent`) are preserved and resolved later at render time.
-    fn get_normalized_linear_stops(stops: &[LinearColorStop]) -> Vec<NormalizedLinearColorStop> {
-        if stops.is_empty() {
-            return Vec::new();
-        }
+    macro_rules! impl_get_normalized_stops {
+        (
+            fn $fn_name:ident($input_stop:ty) -> Vec<$output_stop:ident>,
+            pos_type = $pos_ty:ty,
+            default_start = $default_start:expr,
+            default_end = $default_end:expr,
+            pos_ctor = $pos_ctor:expr,
+            pos_to_f32 = $pos_to_f32:expr,
+            output_field = $out_field:ident,
+        ) => {
+            fn $fn_name(stops: &[$input_stop]) -> Vec<$output_stop> {
+                if stops.is_empty() {
+                    return Vec::new();
+                }
 
-        // Phase 1: Expand multi-position stops and create intermediate list
-        // Each entry is (color, Option<percentage>)
-        let mut expanded: Vec<(ColorOrSystem, Option<PercentageValue>)> = Vec::new();
+                let mut expanded: Vec<(ColorOrSystem, Option<$pos_ty>)> = Vec::new();
 
-        for stop in stops {
-            match (stop.offset1.into_option(), stop.offset2.into_option()) {
-                (None, _) => {
-                    // No position specified
-                    expanded.push((stop.color, None));
+                for stop in stops {
+                    match (stop.offset1.into_option(), stop.offset2.into_option()) {
+                        (None, _) => {
+                            expanded.push((stop.color, None));
+                        }
+                        (Some(pos1), None) => {
+                            expanded.push((stop.color, Some(pos1)));
+                        }
+                        (Some(pos1), Some(pos2)) => {
+                            expanded.push((stop.color, Some(pos1)));
+                            expanded.push((stop.color, Some(pos2)));
+                        }
+                    }
                 }
-                (Some(pos1), None) => {
-                    // Single position
-                    expanded.push((stop.color, Some(pos1)));
+
+                if expanded.is_empty() {
+                    return Vec::new();
                 }
-                (Some(pos1), Some(pos2)) => {
-                    // Two positions - create two stops at the same color
-                    expanded.push((stop.color, Some(pos1)));
-                    expanded.push((stop.color, Some(pos2)));
+
+                let pos_ctor: fn(f32) -> $pos_ty = $pos_ctor;
+                let pos_to_f32: fn(&$pos_ty) -> f32 = $pos_to_f32;
+
+                if expanded[0].1.is_none() {
+                    expanded[0].1 = Some(pos_ctor($default_start));
                 }
+                let last_idx = expanded.len() - 1;
+                if expanded[last_idx].1.is_none() {
+                    expanded[last_idx].1 = Some(pos_ctor($default_end));
+                }
+
+                let mut max_so_far: f32 = 0.0;
+                for (_, pos) in expanded.iter_mut() {
+                    if let Some(p) = pos {
+                        let val = pos_to_f32(p);
+                        if val < max_so_far {
+                            *p = pos_ctor(max_so_far);
+                        } else {
+                            max_so_far = val;
+                        }
+                    }
+                }
+
+                let mut i = 0;
+                while i < expanded.len() {
+                    if expanded[i].1.is_none() {
+                        let run_start = i;
+                        let mut run_end = i;
+                        while run_end < expanded.len() && expanded[run_end].1.is_none() {
+                            run_end += 1;
+                        }
+
+                        let prev_pos = if run_start > 0 {
+                            pos_to_f32(&expanded[run_start - 1].1.unwrap())
+                        } else {
+                            $default_start
+                        };
+
+                        let next_pos = if run_end < expanded.len() {
+                            pos_to_f32(&expanded[run_end].1.unwrap())
+                        } else {
+                            $default_end
+                        };
+
+                        let run_len = run_end - run_start;
+                        let step = (next_pos - prev_pos) / (run_len + 1) as f32;
+
+                        for j in 0..run_len {
+                            expanded[run_start + j].1 =
+                                Some(pos_ctor(prev_pos + step * (j + 1) as f32));
+                        }
+
+                        i = run_end;
+                    } else {
+                        i += 1;
+                    }
+                }
+
+                expanded
+                    .into_iter()
+                    .map(|(color, pos)| {
+                        $output_stop {
+                            $out_field: pos.unwrap_or(pos_ctor($default_start)),
+                            color,
+                        }
+                    })
+                    .collect()
             }
-        }
-
-        if expanded.is_empty() {
-            return Vec::new();
-        }
-
-        // Phase 2: Apply W3C fixup rules
-        // Rule 1: If first stop has no position, default to 0%
-        if expanded[0].1.is_none() {
-            expanded[0].1 = Some(PercentageValue::new(0.0));
-        }
-
-        // Rule 1: If last stop has no position, default to 100%
-        let last_idx = expanded.len() - 1;
-        if expanded[last_idx].1.is_none() {
-            expanded[last_idx].1 = Some(PercentageValue::new(100.0));
-        }
-
-        // Rule 2: Clamp positions to be at least as large as any previous position
-        let mut max_so_far: f32 = 0.0;
-        for (_, pos) in expanded.iter_mut() {
-            if let Some(p) = pos {
-                let val = p.normalized() * 100.0;
-                if val < max_so_far {
-                    *p = PercentageValue::new(max_so_far);
-                } else {
-                    max_so_far = val;
-                }
-            }
-        }
-
-        // Rule 3: Distribute unpositioned stops evenly between positioned neighbors
-        let mut i = 0;
-        while i < expanded.len() {
-            if expanded[i].1.is_none() {
-                // Find the run of unpositioned stops
-                let run_start = i;
-                let mut run_end = i;
-                while run_end < expanded.len() && expanded[run_end].1.is_none() {
-                    run_end += 1;
-                }
-
-                // Find the previous positioned stop (must exist due to Rule 1)
-                let prev_pos = if run_start > 0 {
-                    expanded[run_start - 1].1.unwrap().normalized() * 100.0
-                } else {
-                    0.0
-                };
-
-                // Find the next positioned stop (must exist due to Rule 1)
-                let next_pos = if run_end < expanded.len() {
-                    expanded[run_end].1.unwrap().normalized() * 100.0
-                } else {
-                    100.0
-                };
-
-                // Distribute evenly
-                let run_len = run_end - run_start;
-                let step = (next_pos - prev_pos) / (run_len + 1) as f32;
-
-                for j in 0..run_len {
-                    expanded[run_start + j].1 =
-                        Some(PercentageValue::new(prev_pos + step * (j + 1) as f32));
-                }
-
-                i = run_end;
-            } else {
-                i += 1;
-            }
-        }
-
-        // Phase 3: Convert to final normalized stops
-        expanded
-            .into_iter()
-            .map(|(color, pos)| NormalizedLinearColorStop {
-                offset: pos.unwrap_or(PercentageValue::new(0.0)),
-                color,
-            })
-            .collect()
+        };
     }
 
-    /// Normalize radial/conic color stops according to W3C CSS Images Level 3 spec.
-    ///
-    /// This handles:
-    /// 1. Multi-position stops (e.g., "red 45deg 90deg" creates two stops)
-    /// 2. Default positions (first=0deg, last=360deg for conic)
-    /// 3. Enforcing ascending order (positions < previous are clamped)
-    /// 4. Distributing unpositioned stops evenly between neighbors
-    /// 
-    /// System colors (like `system:accent`) are preserved and resolved later at render time.
-    fn get_normalized_radial_stops(stops: &[RadialColorStop]) -> Vec<NormalizedRadialColorStop> {
-        if stops.is_empty() {
-            return Vec::new();
-        }
+    impl_get_normalized_stops! {
+        fn get_normalized_linear_stops(LinearColorStop) -> Vec<NormalizedLinearColorStop>,
+        pos_type = PercentageValue,
+        default_start = 0.0,
+        default_end = 100.0,
+        pos_ctor = (|v| PercentageValue::new(v)),
+        pos_to_f32 = (|p: &PercentageValue| p.normalized() * 100.0),
+        output_field = offset,
+    }
 
-        // Phase 1: Expand multi-position stops
-        let mut expanded: Vec<(ColorOrSystem, Option<AngleValue>)> = Vec::new();
-
-        for stop in stops {
-            match (stop.offset1.into_option(), stop.offset2.into_option()) {
-                (None, _) => {
-                    expanded.push((stop.color, None));
-                }
-                (Some(pos1), None) => {
-                    expanded.push((stop.color, Some(pos1)));
-                }
-                (Some(pos1), Some(pos2)) => {
-                    expanded.push((stop.color, Some(pos1)));
-                    expanded.push((stop.color, Some(pos2)));
-                }
-            }
-        }
-
-        if expanded.is_empty() {
-            return Vec::new();
-        }
-
-        // Phase 2: Apply fixup rules
-        // Rule 1: Default first to 0deg, last to 360deg
-        if expanded[0].1.is_none() {
-            expanded[0].1 = Some(AngleValue::deg(0.0));
-        }
-        let last_idx = expanded.len() - 1;
-        if expanded[last_idx].1.is_none() {
-            expanded[last_idx].1 = Some(AngleValue::deg(360.0));
-        }
-
-        // Rule 2: Clamp to ascending order
-        // Use to_degrees_raw() to preserve 360deg as distinct from 0deg
-        let mut max_so_far: f32 = 0.0;
-        for (_, pos) in expanded.iter_mut() {
-            if let Some(p) = pos {
-                let val = p.to_degrees_raw();
-                if val < max_so_far {
-                    *p = AngleValue::deg(max_so_far);
-                } else {
-                    max_so_far = val;
-                }
-            }
-        }
-
-        // Rule 3: Distribute unpositioned stops evenly
-        let mut i = 0;
-        while i < expanded.len() {
-            if expanded[i].1.is_none() {
-                let run_start = i;
-                let mut run_end = i;
-                while run_end < expanded.len() && expanded[run_end].1.is_none() {
-                    run_end += 1;
-                }
-
-                let prev_pos = if run_start > 0 {
-                    expanded[run_start - 1].1.unwrap().to_degrees_raw()
-                } else {
-                    0.0
-                };
-
-                let next_pos = if run_end < expanded.len() {
-                    expanded[run_end].1.unwrap().to_degrees_raw()
-                } else {
-                    360.0
-                };
-
-                let run_len = run_end - run_start;
-                let step = (next_pos - prev_pos) / (run_len + 1) as f32;
-
-                for j in 0..run_len {
-                    expanded[run_start + j].1 =
-                        Some(AngleValue::deg(prev_pos + step * (j + 1) as f32));
-                }
-
-                i = run_end;
-            } else {
-                i += 1;
-            }
-        }
-
-        // Phase 3: Convert to final normalized stops
-        expanded
-            .into_iter()
-            .map(|(color, pos)| NormalizedRadialColorStop {
-                angle: pos.unwrap_or(AngleValue::deg(0.0)),
-                color,
-            })
-            .collect()
+    impl_get_normalized_stops! {
+        fn get_normalized_radial_stops(RadialColorStop) -> Vec<NormalizedRadialColorStop>,
+        pos_type = AngleValue,
+        default_start = 0.0,
+        default_end = 360.0,
+        pos_ctor = (|v| AngleValue::deg(v)),
+        pos_to_f32 = (|p: &AngleValue| p.to_degrees_raw()),
+        output_field = angle,
     }
 
     // -- Other Background Helpers --
