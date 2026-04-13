@@ -143,7 +143,12 @@ impl PageGeometer {
     /// Check if a range [start_y, end_y) crosses a page boundary.
     pub fn crosses_page_break(&self, start_y: f32, end_y: f32) -> bool {
         let start_page = self.page_for_y(start_y);
-        let end_page = self.page_for_y(end_y - 0.01); // Subtract epsilon for exclusive end
+        let full_page_slot = self.content_height() + self.dead_zone_height();
+        let end_page = if end_y <= 0.0 {
+            0
+        } else {
+            ((end_y / full_page_slot).ceil() as usize).saturating_sub(1)
+        };
         start_page != end_page
     }
 
@@ -176,7 +181,11 @@ impl PageGeometer {
         if total_content_height <= 0.0 {
             return 1;
         }
-        self.page_for_y(total_content_height - 0.01) + 1
+        let full_page_slot = self.content_height() + self.dead_zone_height();
+        if full_page_slot <= 0.0 {
+            return 1;
+        }
+        (total_content_height / full_page_slot).ceil() as usize
     }
 }
 
@@ -362,8 +371,8 @@ pub fn calculate_pagination_offset(
     }
 
     // 5. Splittable content - check orphans/widows constraints
-    // For now, just ensure we have at least some minimum space
-    let min_before_break = 20.0; // ~1-2 lines minimum
+    let estimated_line_height = 14.0; // approximate line height in px at default font size
+    let min_before_break = break_eval.orphans as f32 * estimated_line_height;
     if remaining < min_before_break && remaining < geometer.content_height() {
         // Not enough space for even a small amount - move to next page
         return geometer.page_break_offset(main_pen, child_height);
