@@ -45,14 +45,11 @@ pub struct DBusLib {
         *const DBusObjectPathVTable,
         *mut c_void,
     ) -> c_int,
-    pub dbus_connection_unregister_object_path:
-        unsafe extern "C" fn(*mut DBusConnection, *const c_char) -> c_int,
 
     // Message handling
     pub dbus_message_new_method_return: unsafe extern "C" fn(*mut DBusMessage) -> *mut DBusMessage,
     pub dbus_message_new_error:
         unsafe extern "C" fn(*mut DBusMessage, *const c_char, *const c_char) -> *mut DBusMessage,
-    pub dbus_message_ref: unsafe extern "C" fn(*mut DBusMessage) -> *mut DBusMessage,
     pub dbus_message_unref: unsafe extern "C" fn(*mut DBusMessage),
     pub dbus_message_get_member: unsafe extern "C" fn(*mut DBusMessage) -> *const c_char,
     pub dbus_message_get_interface: unsafe extern "C" fn(*mut DBusMessage) -> *const c_char,
@@ -243,12 +240,6 @@ impl DBusLib {
                 ) -> c_int,
                 "dbus_connection_register_object_path"
             ),
-            dbus_connection_unregister_object_path: load_symbol!(
-                lib,
-                unsafe extern "C" fn(*mut DBusConnection, *const c_char) -> c_int,
-                "dbus_connection_unregister_object_path"
-            ),
-
             // Message handling
             dbus_message_new_method_return: load_symbol!(
                 lib,
@@ -263,11 +254,6 @@ impl DBusLib {
                     *const c_char,
                 ) -> *mut DBusMessage,
                 "dbus_message_new_error"
-            ),
-            dbus_message_ref: load_symbol!(
-                lib,
-                unsafe extern "C" fn(*mut DBusMessage) -> *mut DBusMessage,
-                "dbus_message_ref"
             ),
             dbus_message_unref: load_symbol!(
                 lib,
