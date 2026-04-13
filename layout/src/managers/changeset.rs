@@ -267,6 +267,17 @@ impl TextChangeset {
     }
 }
 
+/// Returns the first active selection range from the multi-cursor state.
+fn get_first_selection_range(
+    layout_window: &crate::window::LayoutWindow,
+) -> Option<azul_core::selection::SelectionRange> {
+    layout_window.text_edit_manager.multi_cursor.as_ref()
+        .and_then(|mc| mc.selections.iter().find_map(|s| match &s.selection {
+            azul_core::selection::Selection::Range(r) => Some(*r),
+            _ => None,
+        }))
+}
+
 /// Creates a copy changeset from the current selection.
 ///
 /// Extracts the selected text content and creates a `TextChangeset` with a `Copy`
@@ -276,22 +287,14 @@ pub fn create_copy_changeset(
     timestamp: Instant,
     layout_window: &crate::window::LayoutWindow,
 ) -> Option<TextChangeset> {
-    // Extract clipboard content from current selection
     let dom_id = &target.dom;
     let content = layout_window.get_selected_content_for_clipboard(dom_id)?;
-
-    // Get selection range for changeset
-    let ranges: Vec<azul_core::selection::SelectionRange> = layout_window.text_edit_manager.multi_cursor.as_ref()
-        .map(|mc| mc.selections.iter().filter_map(|s| match &s.selection {
-            azul_core::selection::Selection::Range(r) => Some(*r),
-            _ => None,
-        }).collect()).unwrap_or_default();
-    let range = ranges.first()?;
+    let range = get_first_selection_range(layout_window)?;
 
     Some(TextChangeset::new(
         target,
         TextOperation::Copy(TextOpCopy {
-            range: *range,
+            range,
             content,
         }),
         timestamp,
@@ -308,17 +311,9 @@ pub fn create_cut_changeset(
     timestamp: Instant,
     layout_window: &crate::window::LayoutWindow,
 ) -> Option<TextChangeset> {
-    // Extract clipboard content from current selection
     let dom_id = &target.dom;
     let content = layout_window.get_selected_content_for_clipboard(dom_id)?;
-
-    // Get selection range for changeset
-    let ranges: Vec<azul_core::selection::SelectionRange> = layout_window.text_edit_manager.multi_cursor.as_ref()
-        .map(|mc| mc.selections.iter().filter_map(|s| match &s.selection {
-            azul_core::selection::Selection::Range(r) => Some(*r),
-            _ => None,
-        }).collect()).unwrap_or_default();
-    let range = ranges.first()?;
+    let range = get_first_selection_range(layout_window)?;
 
     // The logical cursor will be at the start of the deleted range
     // SelectionManager will map this to physical coordinates
@@ -327,28 +322,12 @@ pub fn create_cut_changeset(
     Some(TextChangeset::new(
         target,
         TextOperation::Cut(TextOpCut {
-            range: *range,
+            range,
             content,
             new_cursor: new_cursor_position,
         }),
         timestamp,
     ))
-}
-
-/// Creates a paste changeset at the current cursor position.
-///
-/// Note: The actual clipboard content must be provided by the caller (typically
-/// `event_v2.rs`), as clipboard access is platform-specific and not available
-/// in the layout engine. This function currently returns `None` and paste
-/// operations are initiated from `event_v2.rs` with pre-read clipboard content.
-pub fn create_paste_changeset(
-    target: DomNodeId,
-    timestamp: Instant,
-    layout_window: &crate::window::LayoutWindow,
-) -> Option<TextChangeset> {
-    // Paste is handled by event_v2.rs with clipboard content parameter.
-    // This stub exists for API consistency with other changeset creators.
-    None
 }
 
 /// Creates a select-all changeset for the target node.
@@ -428,15 +407,11 @@ pub fn create_delete_selection_changeset(
     let node_id = target.node.into_crate_internal()?;
 
     // Get current selection/cursor
-    let ranges: Vec<azul_core::selection::SelectionRange> = layout_window.text_edit_manager.multi_cursor.as_ref()
-        .map(|mc| mc.selections.iter().filter_map(|s| match &s.selection {
-            azul_core::selection::Selection::Range(r) => Some(*r),
-            _ => None,
-        }).collect()).unwrap_or_default();
+    let first_range = get_first_selection_range(layout_window);
     let cursor = layout_window.text_edit_manager.get_primary_cursor();
 
     // Determine what to delete
-    let (delete_range, deleted_text) = if let Some(range) = ranges.first() {
+    let (delete_range, deleted_text) = if let Some(range) = first_range {
         // Selection exists - delete the selection
         let content = layout_window.get_text_before_textinput(*dom_id, node_id);
         let text = layout_window.extract_text_from_inline_content(&content);
@@ -446,7 +421,7 @@ pub fn create_delete_selection_changeset(
         // TODO: Actually extract text between range.start and range.end
         let deleted = String::new(); // Placeholder
 
-        (*range, deleted)
+        (range, deleted)
     } else if let Some(cursor_pos) = cursor {
         // No selection - delete one character
         let content = layout_window.get_text_before_textinput(*dom_id, node_id);
@@ -508,7 +483,7 @@ pub fn create_delete_selection_changeset(
         target,
         TextOperation::DeleteText(TextOpDeleteText {
             range: delete_range,
-            deleted_text: deleted_text.into(),
+            deleted_text: AzString::from(deleted_text),
             new_cursor,
         }),
         timestamp,
