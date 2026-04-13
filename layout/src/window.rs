@@ -209,11 +209,11 @@ pub extern "C" fn cursor_blink_timer_callback(
     // The actual state modification happens in apply_user_change
 
     // Check if we should blink or stay solid
-    // This is done by checking CursorManager.should_blink(now) in the layout window
+    // This is done by checking TextEditManager.blink.should_blink(now) in the layout window
 
     // Since we can't access LayoutWindow directly here (it's not passed to timer callbacks),
     // we use a different approach: the timer callback always toggles, and the visibility
-    // check is done in display_list.rs based on CursorManager state.
+    // check is done in display_list.rs based on BlinkState.
 
     // Simply toggle cursor visibility
     info.set_cursor_visibility_toggle();
@@ -2149,10 +2149,8 @@ impl LayoutWindow {
 
     /// Helper: Handle cursor movement with optional selection extension.
     ///
-    /// When multi-cursor is active, `new_cursor` is used as the movement applied
-    /// to the primary cursor; all other cursors are moved by the same `move_fn`
-    /// via `MultiCursorState::move_all_cursors`. For single-cursor mode, falls
-    /// back to the legacy CursorManager + SelectionManager path.
+    /// Updates the primary cursor in `TextEditManager.multi_cursor` to the given
+    /// position and triggers a display list regeneration.
     pub fn handle_cursor_movement(
         &mut self,
         dom_id: DomId,

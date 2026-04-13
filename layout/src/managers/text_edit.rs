@@ -148,13 +148,6 @@ impl TextEditManager {
 
     // === Dirty flag ===
 
-    /// Check and clear the display_list_dirty flag.
-    pub fn take_display_list_dirty(&mut self) -> bool {
-        let v = self.display_list_dirty;
-        self.display_list_dirty = false;
-        v
-    }
-
     /// Mark that the display list needs regeneration.
     pub fn mark_dirty(&mut self) {
         self.display_list_dirty = true;
