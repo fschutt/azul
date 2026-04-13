@@ -700,7 +700,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
 // +spec:containing-block:e8fdb2 - Containing block resolution (CSS2 §9.1.2, §10.1)
 // +spec:overflow:9a2b11 - containing block is content-box of parent; boxes may overflow it
 // +spec:positioning:acc663 - containing block definition: element boxes positioned relative to containing block
-fn get_containing_block_for_node(
+pub(super) fn get_containing_block_for_node(
     tree: &LayoutTree,
     styled_dom: &StyledDom,
     node_idx: usize,
