@@ -17,26 +17,22 @@ use crate::font::parsed::{build_glyph_path, OwnedGlyph, ParsedFont};
 /// Cache key for a glyph path.
 /// ppem = 0 means unhinted (font-unit path), ppem > 0 means hinted at that size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct GlyphPathKey {
-    pub font_hash: u64,
-    pub glyph_id: u16,
-    pub ppem: u16,
+struct GlyphPathKey {
+    font_hash: u64,
+    glyph_id: u16,
+    ppem: u16,
 }
 
 /// Cache key for pre-rasterized glyph cells.
 /// Includes sub-pixel x/y fractional position quantized to 1/4 pixel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct GlyphCellKey {
-    pub font_hash: u64,
-    pub glyph_id: u16,
-    pub ppem: u16,
-    /// Scale factor encoded as fixed-point (scale * 65536) for unhinted glyphs.
-    /// 0 for hinted glyphs (already in pixel coords).
-    pub scale_fixed: u32,
-    /// Sub-pixel x position quantized to 1/4 pixel (0..3).
-    pub subpx_x: u8,
-    /// Sub-pixel y position quantized to 1/4 pixel (0..3).
-    pub subpx_y: u8,
+struct GlyphCellKey {
+    font_hash: u64,
+    glyph_id: u16,
+    ppem: u16,
+    scale_fixed: u32,
+    subpx_x: u8,
+    subpx_y: u8,
 }
 
 /// Result of a cache lookup: the path plus whether it's hinted (pixel coords) or not.
@@ -48,8 +44,8 @@ pub struct CachedGlyph<'a> {
 /// Pre-rasterized glyph cells at a canonical position.
 /// Contains the rasterizer's cell output for a glyph at sub-pixel position (subpx_x, subpx_y).
 /// To render at actual position (x, y), add integer pixel offset to each cell.
-pub struct CachedCells {
-    pub cells: Vec<CellAa>,
+struct CachedCells {
+    cells: Vec<CellAa>,
 }
 
 /// Maximum number of glyph path entries before eviction.
@@ -183,38 +179,6 @@ impl GlyphCache {
         entry.as_ref().map(|cc| (cc.cells.as_slice(), int_x, int_y))
     }
 
-    /// Evict all cached paths and cells.
-    pub fn clear(&mut self) {
-        self.paths.clear();
-        self.cells.clear();
-    }
-
-    /// Evict caches if they exceed size limits.
-    /// Called automatically by get_or_build / get_or_build_cells, but can
-    /// also be called manually between frames to enforce bounds.
-    pub fn evict_if_needed(&mut self) {
-        if self.paths.len() >= MAX_PATH_ENTRIES {
-            self.paths.clear();
-        }
-        if self.cells.len() >= MAX_CELL_ENTRIES {
-            self.cells.clear();
-        }
-    }
-
-    /// Returns `true` if the path cache is empty.
-    pub fn is_empty(&self) -> bool {
-        self.paths.is_empty()
-    }
-
-    /// Number of cached path entries.
-    pub fn len(&self) -> usize {
-        self.paths.len()
-    }
-
-    /// Number of cached cell entries.
-    pub fn cell_cache_len(&self) -> usize {
-        self.cells.len()
-    }
 }
 
 /// Build a hinted glyph path using TrueType bytecode hinting.
