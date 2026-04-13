@@ -7,13 +7,8 @@
 //! Includes routing support: intercepts `<a>` clicks with `data-az-route`
 //! and handles browser back/forward via `popstate`.
 
-use super::CallbackWasm;
-
 /// Generate the loader JavaScript for the current phase.
-pub fn generate_loader_js(
-    _mini_wasm_hash: &str,
-    _callbacks: &[CallbackWasm],
-) -> String {
+pub fn generate_loader_js() -> String {
     generate_phase0_loader()
 }
 
@@ -110,7 +105,3 @@ if (document.readyState === 'loading') {
 "#.to_string()
 }
 
-/// Content hash for the loader JS (for cache-busting).
-pub fn loader_js_hash(content: &str) -> String {
-    super::fnv1a_hash(content.as_bytes())
-}

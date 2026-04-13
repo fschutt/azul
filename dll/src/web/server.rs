@@ -74,7 +74,7 @@ pub fn run_server(
     let state = Arc::new(state);
 
     // Generate loader JS once
-    let loader_js = loader_js::generate_loader_js("stub", &state.cb_wasms);
+    let loader_js = loader_js::generate_loader_js();
     let loader_js = Arc::new(loader_js);
 
     for stream in listener.incoming() {

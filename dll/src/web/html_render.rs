@@ -91,7 +91,7 @@ pub fn render_initial_page(
 
     // 3. Generate preload hints
     let preload_hints = generate_preload_hints(mini_wasm, cb_wasms);
-    let loader_js_content = super::loader_js::generate_loader_js("stub", cb_wasms);
+    let loader_js_content = super::loader_js::generate_loader_js();
 
     // 4. Walk the StyledDom: generate HTML structure + CSS rules from computed styles
     let mut ctx = RenderContext::new();
