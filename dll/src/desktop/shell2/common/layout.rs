@@ -37,6 +37,75 @@ const SCROLLBAR_FADE_DELAY_MS: u64 = 500;
 /// Duration in ms of the scrollbar fade-out animation.
 const SCROLLBAR_FADE_DURATION_MS: u64 = 200;
 
+fn register_scroll_nodes(layout_window: &mut LayoutWindow) {
+    let now: azul_core::task::Instant = std::time::Instant::now().into();
+    for (dom_id, layout_result) in &layout_window.layout_results {
+        for (node_idx, node) in layout_result.layout_tree.nodes.iter().enumerate() {
+            let scrollbar_info = layout_result.layout_tree.warm(node_idx)
+                .and_then(|w| w.scrollbar_info.as_ref());
+            if let Some(scrollbar_info) = scrollbar_info {
+                if scrollbar_info.needs_vertical || scrollbar_info.needs_horizontal {
+                    if let Some(dom_node_id) = node.dom_node_id {
+                        // CSS spec: scrolling occurs within the padding box, so the
+                        // viewport for scroll clamp must be padding-box, not content-box.
+                        // This must match compute_scrollbar_geometry() which also uses
+                        // padding-box (inner_rect = paint_rect - borders).
+                        let border_box_size = node.used_size.unwrap_or_default();
+                        let resolved = node.box_props.unpack();
+                        let border = &resolved.border;
+                        let container_size = azul_core::geom::LogicalSize {
+                            width: (border_box_size.width
+                                    - border.left - border.right).max(0.0),
+                            height: (border_box_size.height
+                                     - border.top - border.bottom).max(0.0),
+                        };
+
+                        // container_rect must use absolute window coordinates,
+                        // not (0,0), so scroll_into_view calculations are correct.
+                        let container_origin = layout_result
+                            .calculated_positions
+                            .get(node_idx)
+                            .copied()
+                            .unwrap_or_else(azul_core::geom::LogicalPosition::zero);
+
+                        let container_rect = azul_core::geom::LogicalRect {
+                            origin: container_origin,
+                            size: container_size,
+                        };
+
+                        let content_size = layout_result.layout_tree.get_content_size(node_idx);
+
+                        // Use the layout-computed scrollbar width, not the
+                        // hardcoded default. On macOS with overlay scrollbars,
+                        // scrollbar_width is 0.0 (no layout space reserved).
+                        // The scroll_manager falls back to DEFAULT_SCROLLBAR_WIDTH_PX
+                        // when thickness is 0 for hit-test geometry.
+                        let scrollbar_thickness = scrollbar_info.scrollbar_width
+                            .max(scrollbar_info.scrollbar_height);
+
+                        layout_window.scroll_manager.register_or_update_scroll_node(
+                            *dom_id,
+                            dom_node_id,
+                            container_rect,
+                            content_size,
+                            now.clone(),
+                            scrollbar_thickness,
+                            scrollbar_info.visual_width_px,
+                            scrollbar_info.needs_horizontal,
+                            scrollbar_info.needs_vertical,
+                        );
+
+                        log_debug!(LogCategory::Layout,
+                            "[register_scroll_nodes] Registered scroll node: dom={:?} node={:?} container={:?} content={:?}",
+                            dom_id, dom_node_id, container_size, content_size);
+                    }
+                }
+            }
+        }
+    }
+    layout_window.scroll_manager.calculate_scrollbar_states();
+}
+
 /// Result of `regenerate_layout()` indicating whether the DOM structure changed.
 ///
 /// When the DOM is structurally unchanged (same node types, hierarchy, classes,
@@ -446,85 +515,8 @@ pub fn regenerate_layout(
         layout_window.layout_results.len()
     );
 
-    // 5. Register scrollable nodes with scroll_manager
-    // This must happen AFTER layout but BEFORE calculate_scrollbar_states
-    let now: azul_core::task::Instant = std::time::Instant::now().into();
-    for (dom_id, layout_result) in &layout_window.layout_results {
-        for (node_idx, node) in layout_result.layout_tree.nodes.iter().enumerate() {
-            // Check if this node needs scrollbars (has scrollbar_info with needs_v or needs_h)
-            // scrollbar_info is in the warm tier
-            let scrollbar_info = layout_result.layout_tree.warm(node_idx)
-                .and_then(|w| w.scrollbar_info.as_ref());
-            if let Some(scrollbar_info) = scrollbar_info {
-                if scrollbar_info.needs_vertical || scrollbar_info.needs_horizontal {
-                    if let Some(dom_node_id) = node.dom_node_id {
-                        // Get container size from used_size (border-box)
-                        // Convert to padding-box by subtracting border only.
-                        // CSS spec: scrolling occurs within the padding box, so the
-                        // viewport for scroll clamp must be padding-box, not content-box.
-                        // This must match compute_scrollbar_geometry() which also uses
-                        // padding-box (inner_rect = paint_rect - borders).
-                        let border_box_size = node.used_size.unwrap_or_default();
-                        let resolved = node.box_props.unpack();
-                        let border = &resolved.border;
-                        let container_size = azul_core::geom::LogicalSize {
-                            width: (border_box_size.width
-                                    - border.left - border.right).max(0.0),
-                            height: (border_box_size.height
-                                     - border.top - border.bottom).max(0.0),
-                        };
-
-                        // Get absolute position from calculated_positions map
-                        // IMPORTANT: container_rect must use absolute window coordinates,
-                        // not (0,0), so scroll_into_view calculations are correct.
-                        // All rects in the scroll system use absolute window coordinates
-                        // in logical pixels.
-                        let container_origin = layout_result
-                            .calculated_positions
-                            .get(node_idx)
-                            .copied()
-                            .unwrap_or_else(azul_core::geom::LogicalPosition::zero);
-
-                        let container_rect = azul_core::geom::LogicalRect {
-                            origin: container_origin,
-                            size: container_size,
-                        };
-
-                        // Get content size using the tree's method
-                        let content_size = layout_result.layout_tree.get_content_size(node_idx);
-
-                        // Use the layout-computed scrollbar width, not the
-                        // hardcoded default. On macOS with overlay scrollbars,
-                        // scrollbar_width is 0.0 (no layout space reserved).
-                        // The scroll_manager falls back to DEFAULT_SCROLLBAR_WIDTH_PX
-                        // when thickness is 0 for hit-test geometry.
-                        let scrollbar_thickness = scrollbar_info.scrollbar_width
-                            .max(scrollbar_info.scrollbar_height);
-
-                        layout_window.scroll_manager.register_or_update_scroll_node(
-                            *dom_id,
-                            dom_node_id,
-                            container_rect,
-                            content_size,
-                            now.clone(),
-                            scrollbar_thickness,
-                            scrollbar_info.visual_width_px,
-                            scrollbar_info.needs_horizontal,
-                            scrollbar_info.needs_vertical,
-                        );
-
-                        log_debug!(LogCategory::Layout,
-                            "[regenerate_layout] Registered scroll node: dom={:?} node={:?} container={:?} content={:?}",
-                            dom_id, dom_node_id, container_size, content_size);
-                    }
-                }
-            }
-        }
-    }
-
-    // 5. Calculate scrollbar states based on new layout
-    // This updates scrollbar geometry (thumb position/size ratios, visibility)
-    layout_window.scroll_manager.calculate_scrollbar_states();
+    // 5. Register scrollable nodes and calculate scrollbar states
+    register_scroll_nodes(layout_window);
 
     // 6. Synchronize scrollbar opacity with GPU cache
     // Note: Display list translation happens in generate_frame(), not here
@@ -596,56 +588,7 @@ pub fn incremental_relayout(
             .map_err(|e| format!("Incremental layout error: {:?}", e))?;
     }
 
-    // Re-register scrollable nodes
-    let now: azul_core::task::Instant = std::time::Instant::now().into();
-    for (dom_id, layout_result) in &layout_window.layout_results {
-        for (node_idx, node) in layout_result.layout_tree.nodes.iter().enumerate() {
-            let scrollbar_info = layout_result.layout_tree.warm(node_idx)
-                .and_then(|w| w.scrollbar_info.as_ref());
-            if let Some(scrollbar_info) = scrollbar_info {
-                if scrollbar_info.needs_vertical || scrollbar_info.needs_horizontal {
-                    if let Some(dom_node_id) = node.dom_node_id {
-                        let border_box_size = node.used_size.unwrap_or_default();
-                        let resolved = node.box_props.unpack();
-                        let border = &resolved.border;
-                        // padding-box: subtract only border (not padding) from border-box
-                        // This matches compute_scrollbar_geometry()'s inner_rect
-                        let container_size = azul_core::geom::LogicalSize {
-                            width: (border_box_size.width
-                                    - border.left - border.right).max(0.0),
-                            height: (border_box_size.height
-                                     - border.top - border.bottom).max(0.0),
-                        };
-                        let container_origin = layout_result
-                            .calculated_positions
-                            .get(node_idx)
-                            .copied()
-                            .unwrap_or_else(azul_core::geom::LogicalPosition::zero);
-                        let container_rect = azul_core::geom::LogicalRect {
-                            origin: container_origin,
-                            size: container_size,
-                        };
-                        let content_size = layout_result.layout_tree.get_content_size(node_idx);
-                        let scrollbar_thickness = scrollbar_info.scrollbar_width
-                            .max(scrollbar_info.scrollbar_height);
-                        layout_window.scroll_manager.register_or_update_scroll_node(
-                            *dom_id,
-                            dom_node_id,
-                            container_rect,
-                            content_size,
-                            now.clone(),
-                            scrollbar_thickness,
-                            scrollbar_info.visual_width_px,
-                            scrollbar_info.needs_horizontal,
-                            scrollbar_info.needs_vertical,
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    layout_window.scroll_manager.calculate_scrollbar_states();
+    register_scroll_nodes(layout_window);
 
     log_debug!(LogCategory::Layout, "[incremental_relayout] COMPLETE");
 
@@ -857,14 +800,13 @@ pub fn generate_frame(
     let system_callbacks = ExternalSystemCallbacks::rust_internal();
     let current_window_state = layout_window.current_window_state.clone();
 
-    // Need to use unsafe pointer cast to work around borrow checker
-    // This is safe because process_pending_virtual_view_updates doesn't modify renderer_resources
-    let renderer_resources_ptr = &layout_window.renderer_resources as *const _;
+    let renderer_resources = std::mem::take(&mut layout_window.renderer_resources);
     layout_window.process_pending_virtual_view_updates(
         &current_window_state,
-        unsafe { &*renderer_resources_ptr },
+        &renderer_resources,
         &system_callbacks,
     );
+    layout_window.renderer_resources = renderer_resources;
 
     let mut txn = WrTransaction::new();
 
