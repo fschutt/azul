@@ -61,6 +61,57 @@ impl PointerState {
     }
 }
 
+// -- Static listener tables --
+// These must be `static` because wl_proxy_add_listener stores the pointer
+// without copying. A stack-local struct would become a dangling pointer.
+
+static XDG_WM_BASE_LISTENER: xdg_wm_base_listener = xdg_wm_base_listener {
+    ping: xdg_wm_base_ping_handler,
+};
+
+static WL_SEAT_LISTENER: wl_seat_listener = wl_seat_listener {
+    capabilities: seat_capabilities_handler,
+    name: seat_name_handler,
+};
+
+static WL_OUTPUT_LISTENER: wl_output_listener = wl_output_listener {
+    geometry: wl_output_geometry_handler,
+    mode: wl_output_mode_handler,
+    done: wl_output_done_handler,
+    scale: wl_output_scale_handler,
+};
+
+static WL_POINTER_LISTENER: wl_pointer_listener = wl_pointer_listener {
+    enter: pointer_enter_handler,
+    leave: pointer_leave_handler,
+    motion: pointer_motion_handler,
+    button: pointer_button_handler,
+    axis: pointer_axis_handler,
+    frame: pointer_frame_handler,
+    axis_source: pointer_axis_source_handler,
+    axis_stop: pointer_axis_stop_handler,
+    axis_discrete: pointer_axis_discrete_handler,
+};
+
+static WL_KEYBOARD_LISTENER: wl_keyboard_listener = wl_keyboard_listener {
+    keymap: keyboard_keymap_handler,
+    enter: keyboard_enter_handler,
+    leave: keyboard_leave_handler,
+    key: keyboard_key_handler,
+    modifiers: keyboard_modifiers_handler,
+    repeat_info: keyboard_repeat_info_handler,
+};
+
+static ZWP_TEXT_INPUT_V3_LISTENER: defines::zwp_text_input_v3_listener =
+    defines::zwp_text_input_v3_listener {
+        enter: text_input_enter_handler,
+        leave: text_input_leave_handler,
+        preedit_string: text_input_preedit_string_handler,
+        commit_string: text_input_commit_string_handler,
+        delete_surrounding_text: text_input_delete_surrounding_text_handler,
+        done: text_input_done_handler,
+    };
+
 // -- Listener Implementations --
 
 // wl_output listener handlers
@@ -244,11 +295,12 @@ pub(super) extern "C" fn registry_global_handler(
                     1,
                 ) as *mut _
             };
-            let listener = xdg_wm_base_listener {
-                ping: xdg_wm_base_ping_handler,
-            };
             unsafe {
-                (window.wayland.xdg_wm_base_add_listener)(window.xdg_wm_base, &listener, data)
+                (window.wayland.xdg_wm_base_add_listener)(
+                    window.xdg_wm_base,
+                    &XDG_WM_BASE_LISTENER,
+                    data,
+                )
             };
         }
         "wl_seat" => {
@@ -261,11 +313,7 @@ pub(super) extern "C" fn registry_global_handler(
                 ) as *mut wl_seat
             };
             window.seat = seat;
-            let listener = wl_seat_listener {
-                capabilities: seat_capabilities_handler,
-                name: seat_name_handler,
-            };
-            unsafe { (window.wayland.wl_seat_add_listener)(seat, &listener, data) };
+            unsafe { (window.wayland.wl_seat_add_listener)(seat, &WL_SEAT_LISTENER, data) };
         }
         "wl_output" => {
             let output = unsafe {
@@ -291,13 +339,9 @@ pub(super) extern "C" fn registry_global_handler(
                 model: String::new(),
             });
 
-            let listener = wl_output_listener {
-                geometry: wl_output_geometry_handler,
-                mode: wl_output_mode_handler,
-                done: wl_output_done_handler,
-                scale: wl_output_scale_handler,
+            unsafe {
+                (window.wayland.wl_output_add_listener)(output, &WL_OUTPUT_LISTENER, data)
             };
-            unsafe { (window.wayland.wl_output_add_listener)(output, &listener, data) };
         }
         "zwp_text_input_manager_v3" => {
             // Bind text-input v3 manager using the same raw approach as KDE blur
@@ -347,18 +391,10 @@ pub(super) extern "C" fn registry_global_handler(
 
                     if !text_input.is_null() {
                         // Register event listener for text-input events
-                        let listener = defines::zwp_text_input_v3_listener {
-                            enter: text_input_enter_handler,
-                            leave: text_input_leave_handler,
-                            preedit_string: text_input_preedit_string_handler,
-                            commit_string: text_input_commit_string_handler,
-                            delete_surrounding_text: text_input_delete_surrounding_text_handler,
-                            done: text_input_done_handler,
-                        };
                         unsafe {
                             (window.wayland.wl_proxy_add_listener)(
                                 text_input as *mut wl_proxy,
-                                &listener as *const _ as *const c_void,
+                                &ZWP_TEXT_INPUT_V3_LISTENER as *const _ as *const c_void,
                                 data,
                             )
                         };
@@ -429,31 +465,16 @@ pub(super) extern "C" fn seat_capabilities_handler(
     if capabilities & WL_SEAT_CAPABILITY_POINTER != 0 {
         let pointer = unsafe { (window.wayland.wl_seat_get_pointer)(seat) };
         window.pointer_state.pointer = pointer;
-        let listener = wl_pointer_listener {
-            enter: pointer_enter_handler,
-            leave: pointer_leave_handler,
-            motion: pointer_motion_handler,
-            button: pointer_button_handler,
-            axis: pointer_axis_handler,
-            frame: pointer_frame_handler,
-            axis_source: pointer_axis_source_handler,
-            axis_stop: pointer_axis_stop_handler,
-            axis_discrete: pointer_axis_discrete_handler,
+        unsafe {
+            (window.wayland.wl_pointer_add_listener)(pointer, &WL_POINTER_LISTENER, data)
         };
-        unsafe { (window.wayland.wl_pointer_add_listener)(pointer, &listener, data) };
     }
 
     if capabilities & WL_SEAT_CAPABILITY_KEYBOARD != 0 {
         let keyboard = unsafe { (window.wayland.wl_seat_get_keyboard)(seat) };
-        let listener = wl_keyboard_listener {
-            keymap: keyboard_keymap_handler,
-            enter: keyboard_enter_handler,
-            leave: keyboard_leave_handler,
-            key: keyboard_key_handler,
-            modifiers: keyboard_modifiers_handler,
-            repeat_info: keyboard_repeat_info_handler,
+        unsafe {
+            (window.wayland.wl_keyboard_add_listener)(keyboard, &WL_KEYBOARD_LISTENER, data)
         };
-        unsafe { (window.wayland.wl_keyboard_add_listener)(keyboard, &listener, data) };
     }
 }
 
@@ -611,9 +632,11 @@ pub(super) extern "C" fn xdg_toplevel_configure_handler(
             };
 
             // Check if any CSS breakpoints were crossed
-            let breakpoints = [320.0, 480.0, 640.0, 768.0, 1024.0, 1280.0, 1440.0, 1920.0];
             if old_context
-                .viewport_breakpoint_changed(&window.dynamic_selector_context, &breakpoints)
+                .viewport_breakpoint_changed(
+                    &window.dynamic_selector_context,
+                    super::super::super::common::CSS_BREAKPOINTS,
+                )
             {
                 log_debug!(
                     LogCategory::Layout,
@@ -951,7 +974,22 @@ pub(super) extern "C" fn text_input_done_handler(
     }
 
     if needs_process {
-        let _ = window.process_window_events(0);
+        use azul_core::events::ProcessEventResult;
+        match window.process_window_events(0) {
+            ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
+                if let Err(e) = window.regenerate_layout() {
+                    log_error!(
+                        LogCategory::Layout,
+                        "[Wayland] IME layout regeneration error: {}",
+                        e
+                    );
+                }
+            }
+            ProcessEventResult::ShouldReRenderCurrentWindow => {
+                window.request_redraw();
+            }
+            _ => {}
+        }
     }
 
     // Step 3: Update preedit display + request redraw

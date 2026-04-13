@@ -2146,9 +2146,11 @@ unsafe extern "system" fn window_proc(
                     };
 
                 // Check if any CSS breakpoints were crossed
-                let breakpoints = [320.0, 480.0, 640.0, 768.0, 1024.0, 1280.0, 1440.0, 1920.0];
                 if old_context
-                    .viewport_breakpoint_changed(&window.dynamic_selector_context, &breakpoints)
+                    .viewport_breakpoint_changed(
+                        &window.dynamic_selector_context,
+                        crate::desktop::shell2::common::CSS_BREAKPOINTS,
+                    )
                 {
                     log_debug!(
                         LogCategory::Layout,
