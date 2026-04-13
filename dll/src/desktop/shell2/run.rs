@@ -831,6 +831,17 @@ pub fn run(
             }
         }
 
+        // --- Process accessibility actions from screen readers (e.g. Narrator) ---
+        for hwnd in &window_handles {
+            if let Some(window_ptr_from_registry) = registry::get_window(*hwnd) {
+                unsafe {
+                    let window = &mut *window_ptr_from_registry;
+                    #[cfg(feature = "a11y")]
+                    window.process_accessibility_actions();
+                }
+            }
+        }
+
         // --- Render all windows that need updates ---
         for hwnd in &window_handles {
             if let Some(window_ptr_from_registry) = registry::get_window(*hwnd) {
