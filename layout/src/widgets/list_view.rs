@@ -3,8 +3,8 @@
 use alloc::vec::Vec;
 
 use azul_core::{
-    callbacks::{CoreCallbackData, Update},
-    dom::{Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
+    callbacks::{CoreCallback, CoreCallbackData, CoreCallbackDataVec, Update},
+    dom::{Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
     geom::{LogicalPosition, LogicalSize},
     menu::{Menu, OptionMenu},
     refany::RefAny,
@@ -1327,54 +1327,6 @@ const CSS_MATCH_7894335449545988724_PROPERTIES: &[CssPropertyWithConditions] = &
 const CSS_MATCH_7894335449545988724: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_7894335449545988724_PROPERTIES);
 
-const CSS_MATCH_7937682281721781688_PROPERTIES: &[CssPropertyWithConditions] = &[
-    // .__azul_native-list-rows-row-cell
-    CssPropertyWithConditions::simple(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
-        LayoutPaddingLeft {
-            inner: PixelValue::const_px(7),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::MinWidth(LayoutMinWidthValue::Exact(
-        LayoutMinWidth {
-            inner: PixelValue::const_px(100),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::FontSize(StyleFontSizeValue::Exact(
-        StyleFontSize {
-            inner: PixelValue::const_px(11),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::FontFamily(StyleFontFamilyVecValue::Exact(
-        StyleFontFamilyVec::from_const_slice(STYLE_FONT_FAMILY_8122988506401935406_ITEMS),
-    ))),
-];
-const CSS_MATCH_7937682281721781688: CssPropertyWithConditionsVec =
-    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_7937682281721781688_PROPERTIES);
-
-const CSS_MATCH_8793836789597026811_PROPERTIES: &[CssPropertyWithConditions] = &[
-    // .__azul_native-list-rows-row-cell
-    CssPropertyWithConditions::simple(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
-        LayoutPaddingLeft {
-            inner: PixelValue::const_px(7),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::MinWidth(LayoutMinWidthValue::Exact(
-        LayoutMinWidth {
-            inner: PixelValue::const_px(100),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::FontSize(StyleFontSizeValue::Exact(
-        StyleFontSize {
-            inner: PixelValue::const_px(11),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::FontFamily(StyleFontFamilyVecValue::Exact(
-        StyleFontFamilyVec::from_const_slice(STYLE_FONT_FAMILY_8122988506401935406_ITEMS),
-    ))),
-];
-const CSS_MATCH_8793836789597026811: CssPropertyWithConditionsVec =
-    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_8793836789597026811_PROPERTIES);
-
 const IDS_AND_CLASSES_790316832563530605: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul_native-list-rows-row",
 ))];
@@ -1629,58 +1581,181 @@ impl ListView {
     }
 
     pub fn dom(self) -> Dom {
+
+        let row_count = self.rows.len();
+
+        let header = {
+            let mut header_div = Dom::create_div()
+                .with_css_props(CSS_MATCH_15315949193378715186)
+                .with_ids_and_classes(HEADER_CONTAINER_CLASS);
+
+            if let Some(ctx_menu) = self.column_context_menu.into_option() {
+                header_div = header_div.with_context_menu(ctx_menu);
+            }
+
+            header_div.with_children(
+                self.columns
+                    .iter()
+                    .enumerate()
+                    .map(|(col_idx, col)| {
+                        let mut col_div = Dom::create_div()
+                            .with_css_props(CSS_MATCH_12498280255863106397)
+                            .with_ids_and_classes(COLUMN_NAME_CLASS)
+                            .with_child({
+                                Dom::create_text(col.clone())
+                                    .with_css_props(CSS_MATCH_15673486787900743642)
+                            });
+
+                        if let Some(on_col_click) = self.on_column_click.as_ref() {
+                            let wrapper = ColumnClickWrapper {
+                                callback: (*on_col_click).clone(),
+                                column_index: col_idx,
+                                columns: self.columns.clone(),
+                                sorted_by: self.sorted_by,
+                                row_count,
+                                scroll_offset: self.scroll_offset,
+                            };
+                            col_div = col_div.with_callbacks(
+                                vec![CoreCallbackData {
+                                    event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                                    callback: CoreCallback {
+                                        cb: input::on_column_clicked as usize,
+                                        ctx: azul_core::refany::OptionRefAny::None,
+                                    },
+                                    refany: RefAny::new(wrapper),
+                                }]
+                                .into(),
+                            );
+                        }
+
+                        col_div
+                    })
+                    .collect::<Vec<_>>()
+                    .into(),
+            )
+        };
+
+        let rows = Dom::create_div()
+            .with_css_props(CSS_MATCH_4852927511892172364)
+            .with_ids_and_classes(ROW_CONTAINER_CLASS)
+            .with_children(
+                self.rows
+                    .into_iter()
+                    .enumerate()
+                    .map(|(row_idx, row)| {
+                        let mut row_div = Dom::create_div()
+                            .with_css_props(CSS_MATCH_7894335449545988724)
+                            .with_ids_and_classes(ROW_CLASS.clone())
+                            .with_tab_index(TabIndex::Auto)
+                            .with_children(
+                                row.cells
+                                    .as_ref()
+                                    .iter()
+                                    .map(|cell| {
+                                        Dom::create_div()
+                                            .with_css_props(CSS_MATCH_12980082330151137475)
+                                            .with_ids_and_classes(CELL_CLASS)
+                                            .with_child(cell.clone())
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .into(),
+                            );
+
+                        if let Some(on_row_click) = self.on_row_click.as_ref() {
+                            let wrapper = RowClickWrapper {
+                                callback: (*on_row_click).clone(),
+                                row_index: row_idx,
+                                columns: self.columns.clone(),
+                                sorted_by: self.sorted_by,
+                                row_count,
+                                scroll_offset: self.scroll_offset,
+                            };
+                            row_div = row_div.with_callbacks(
+                                vec![CoreCallbackData {
+                                    event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                                    callback: CoreCallback {
+                                        cb: input::on_row_clicked as usize,
+                                        ctx: azul_core::refany::OptionRefAny::None,
+                                    },
+                                    refany: RefAny::new(wrapper),
+                                }]
+                                .into(),
+                            );
+                        }
+
+                        row_div
+                    })
+                    .collect::<Vec<_>>()
+                    .into(),
+            );
+
         Dom::create_div()
             .with_css_props(CSS_MATCH_17553577885456905601)
             .with_ids_and_classes(LIST_VIEW_CONTAINER_CLASS)
-            .with_children(DomVec::from_vec(vec![
-                // header
-                Dom::create_div()
-                    .with_css_props(CSS_MATCH_15315949193378715186)
-                    .with_ids_and_classes(HEADER_CONTAINER_CLASS)
-                    .with_children(
-                        self.columns
-                            .iter()
-                            .map(|col| {
-                                Dom::create_div()
-                                    .with_css_props(CSS_MATCH_12498280255863106397)
-                                    .with_ids_and_classes(COLUMN_NAME_CLASS)
-                                    .with_child({
-                                        Dom::create_text(col.clone())
-                                            .with_css_props(CSS_MATCH_15673486787900743642)
-                                    })
-                            })
-                            .collect::<Vec<_>>()
-                            .into(),
-                    ),
-                // rows
-                Dom::create_div()
-                    .with_css_props(CSS_MATCH_4852927511892172364)
-                    .with_ids_and_classes(ROW_CONTAINER_CLASS)
-                    .with_children(
-                        self.rows
-                            .into_iter()
-                            .map(|row| {
-                                Dom::create_div()
-                                    .with_css_props(CSS_MATCH_7894335449545988724)
-                                    .with_ids_and_classes(ROW_CLASS.clone())
-                                    .with_tab_index(TabIndex::Auto)
-                                    .with_children(
-                                        row.cells
-                                            .as_ref()
-                                            .iter()
-                                            .map(|cell| {
-                                                Dom::create_div()
-                                                    .with_css_props(CSS_MATCH_12980082330151137475)
-                                                    .with_ids_and_classes(CELL_CLASS)
-                                                    .with_child(cell.clone())
-                                            })
-                                            .collect::<Vec<_>>()
-                                            .into(),
-                                    )
-                            })
-                            .collect::<Vec<_>>()
-                            .into(),
-                    ),
-            ]))
+            .with_children(DomVec::from_vec(vec![header, rows]))
+    }
+}
+
+struct ColumnClickWrapper {
+    callback: ListViewOnColumnClick,
+    column_index: usize,
+    columns: StringVec,
+    sorted_by: OptionUsize,
+    row_count: usize,
+    scroll_offset: PixelValueNoPercent,
+}
+
+struct RowClickWrapper {
+    callback: ListViewOnRowClick,
+    row_index: usize,
+    columns: StringVec,
+    sorted_by: OptionUsize,
+    row_count: usize,
+    scroll_offset: PixelValueNoPercent,
+}
+
+mod input {
+    use azul_core::{callbacks::Update, geom::{LogicalPosition, LogicalSize}, refany::RefAny};
+    use crate::callbacks::CallbackInfo;
+    use super::{ColumnClickWrapper, ListViewState, RowClickWrapper};
+
+    pub(super) extern "C" fn on_column_clicked(
+        mut data: RefAny,
+        info: CallbackInfo,
+    ) -> Update {
+        let mut data = match data.downcast_mut::<ColumnClickWrapper>() {
+            Some(s) => s,
+            None => return Update::DoNothing,
+        };
+        let data = &mut *data;
+        let state = ListViewState {
+            columns: data.columns.clone(),
+            sorted_by: data.sorted_by,
+            current_row_count: data.row_count,
+            scroll_offset: data.scroll_offset,
+            current_scroll_position: LogicalPosition { x: 0.0, y: 0.0 },
+            current_content_height: LogicalSize { width: 0.0, height: 0.0 },
+        };
+        (data.callback.callback.cb)(data.callback.refany.clone(), info, state, data.column_index)
+    }
+
+    pub(super) extern "C" fn on_row_clicked(
+        mut data: RefAny,
+        info: CallbackInfo,
+    ) -> Update {
+        let mut data = match data.downcast_mut::<RowClickWrapper>() {
+            Some(s) => s,
+            None => return Update::DoNothing,
+        };
+        let data = &mut *data;
+        let state = ListViewState {
+            columns: data.columns.clone(),
+            sorted_by: data.sorted_by,
+            current_row_count: data.row_count,
+            scroll_offset: data.scroll_offset,
+            current_scroll_position: LogicalPosition { x: 0.0, y: 0.0 },
+            current_content_height: LogicalSize { width: 0.0, height: 0.0 },
+        };
+        (data.callback.callback.cb)(data.callback.refany.clone(), info, state, data.row_index)
     }
 }
