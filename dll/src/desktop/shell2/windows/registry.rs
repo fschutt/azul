@@ -19,22 +19,6 @@ thread_local! {
     static WINDOW_REGISTRY: RefCell<WindowRegistry> = RefCell::new(WindowRegistry::new());
 }
 
-/// Window ID wrapper for type safety
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct WindowId {
-    pub hwnd: HWND,
-}
-
-impl WindowId {
-    pub fn from_hwnd(hwnd: HWND) -> Self {
-        Self { hwnd }
-    }
-
-    pub fn as_i64(&self) -> i64 {
-        self.hwnd as i64
-    }
-}
-
 /// Registry of active windows for the current thread
 struct WindowRegistry {
     /// Map of HWND to raw window pointer

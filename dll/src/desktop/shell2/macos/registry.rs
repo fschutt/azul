@@ -3,8 +3,6 @@
 //! This module provides a centralized registry for managing multiple macOS windows.
 //! Uses thread-local storage for simplicity and to avoid complex Rc<RefCell> patterns.
 //! Based on the Windows registry implementation.
-//!
-//! Also defines [`WindowId`] as a type-safe wrapper around `NSWindow` pointers.
 
 use std::{cell::RefCell, collections::BTreeMap};
 
@@ -19,23 +17,6 @@ thread_local! {
     /// SAFETY: Pointers are valid for the lifetime of the window.
     /// Windows are created and destroyed on the same thread (main thread).
     static WINDOW_REGISTRY: RefCell<WindowRegistry> = RefCell::new(WindowRegistry::new());
-}
-
-/// Window ID wrapper for type safety
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct WindowId {
-    /// Pointer to NSWindow object (used as unique identifier)
-    pub ns_window: *mut AnyObject,
-}
-
-impl WindowId {
-    pub fn from_ns_window(ns_window: *mut AnyObject) -> Self {
-        Self { ns_window }
-    }
-
-    pub fn as_i64(&self) -> i64 {
-        self.ns_window as usize as i64
-    }
 }
 
 /// Registry of active windows for the current thread (main thread)
@@ -62,10 +43,6 @@ impl WindowRegistry {
 
     fn get(&self, ns_window: *mut AnyObject) -> Option<*mut super::MacOSWindow> {
         self.windows.get(&ns_window).copied()
-    }
-
-    fn get_all_ns_windows(&self) -> Vec<*mut AnyObject> {
-        self.windows.keys().copied().collect()
     }
 
     fn get_all_window_ptrs(&self) -> Vec<*mut super::MacOSWindow> {
@@ -114,11 +91,6 @@ pub fn unregister_window(ns_window: *mut AnyObject) -> Option<*mut super::MacOSW
 /// Returns None if window is not registered
 pub fn get_window(ns_window: *mut AnyObject) -> Option<*mut super::MacOSWindow> {
     WINDOW_REGISTRY.with(|registry| registry.borrow().get(ns_window))
-}
-
-/// Get all registered NSWindow pointers
-pub fn get_all_ns_window_handles() -> Vec<*mut AnyObject> {
-    WINDOW_REGISTRY.with(|registry| registry.borrow().get_all_ns_windows())
 }
 
 /// Get all registered MacOSWindow pointers
