@@ -808,7 +808,7 @@ impl LayoutTree {
         self.cold.get_mut(index)
     }
 
-    pub fn root_node(&self) -> &LayoutNodeHot {
+    fn root_node(&self) -> &LayoutNodeHot {
         &self.nodes[self.root]
     }
 
@@ -851,7 +851,7 @@ impl LayoutTree {
     }
 
     /// Re-resolve box properties for a node with the actual containing block size.
-    pub fn resolve_box_props(
+    fn resolve_box_props(
         &mut self,
         node_index: usize,
         containing_block: LogicalSize,
@@ -891,7 +891,7 @@ impl LayoutTree {
     }
 
     /// Marks a node and its entire subtree of descendants with the given dirty flag.
-    pub fn mark_subtree_dirty(&mut self, start_index: usize, flag: DirtyFlag) {
+    fn mark_subtree_dirty(&mut self, start_index: usize, flag: DirtyFlag) {
         if flag == DirtyFlag::None {
             return;
         }
@@ -909,7 +909,7 @@ impl LayoutTree {
     }
 
     /// Resets the dirty flags of all nodes in the tree to `None` after layout is complete.
-    pub fn clear_all_dirty_flags(&mut self) {
+    fn clear_all_dirty_flags(&mut self) {
         for cold in &mut self.cold {
             cold.dirty_flag = DirtyFlag::None;
         }
@@ -1026,7 +1026,7 @@ impl LayoutTreeBuilder {
     /// Main entry point for recursively building the layout tree.
     /// This function dispatches to specialized handlers based on the node's
     /// `display` property to correctly generate anonymous boxes.
-    pub fn process_node(
+    fn process_node(
         &mut self,
         styled_dom: &StyledDom,
         dom_id: NodeId,
@@ -1363,44 +1363,7 @@ impl LayoutTreeBuilder {
                 // away according to the 'white-space' property does not generate any anonymous
                 // inline boxes."
                 if !inline_run.is_empty() {
-                    let all_whitespace = inline_run
-                        .iter()
-                        .all(|id| is_whitespace_only_text(styled_dom, *id));
-                    if all_whitespace {
-                        if let Some(msgs) = debug_messages.as_mut() {
-                            msgs.push(LayoutDebugMessage::info(format!(
-                                "[process_block_children] Skipping whitespace-only inline run between blocks: {:?}",
-                                inline_run.iter().map(|c: &NodeId| c.index()).collect::<Vec<_>>()
-                            )));
-                        }
-                        inline_run.clear();
-                    } else {
-                        if let Some(msgs) = debug_messages.as_mut() {
-                            msgs.push(LayoutDebugMessage::info(format!(
-                                "[process_block_children] Creating anon wrapper for inline run: {:?}",
-                                inline_run
-                                    .iter()
-                                    .map(|c: &NodeId| c.index())
-                                    .collect::<Vec<_>>()
-                            )));
-                        }
-                        let anon_idx = self.create_anonymous_node(
-                            parent_idx,
-                            AnonymousBoxType::InlineWrapper,
-                            FormattingContext::Block {
-                                // Anonymous wrappers are BFC roots
-                                establishes_new_context: true,
-                            },
-                        );
-                        for inline_child_id in inline_run.drain(..) {
-                            self.process_node(
-                                styled_dom,
-                                inline_child_id,
-                                Some(anon_idx),
-                                debug_messages,
-                            )?;
-                        }
-                    }
+                    self.flush_inline_run(styled_dom, parent_idx, &mut inline_run, debug_messages)?;
                 }
                 // Process the block-level child directly
                 if let Some(msgs) = debug_messages.as_mut() {
@@ -1416,39 +1379,7 @@ impl LayoutTreeBuilder {
         }
         // Process any remaining inline children at the end — skip if all whitespace
         if !inline_run.is_empty() {
-            let all_whitespace = inline_run
-                .iter()
-                .all(|id| is_whitespace_only_text(styled_dom, *id));
-            if all_whitespace {
-                if let Some(msgs) = debug_messages.as_mut() {
-                    msgs.push(LayoutDebugMessage::info(format!(
-                        "[process_block_children] Skipping trailing whitespace-only inline run: {:?}",
-                        inline_run.iter().map(|c| c.index()).collect::<Vec<_>>()
-                    )));
-                }
-            } else {
-                if let Some(msgs) = debug_messages.as_mut() {
-                    msgs.push(LayoutDebugMessage::info(format!(
-                        "[process_block_children] Creating anon wrapper for remaining inline run: {:?}",
-                        inline_run.iter().map(|c| c.index()).collect::<Vec<_>>()
-                    )));
-                }
-                let anon_idx = self.create_anonymous_node(
-                    parent_idx,
-                    AnonymousBoxType::InlineWrapper,
-                    FormattingContext::Block {
-                        establishes_new_context: true, // Anonymous wrappers are BFC roots
-                    },
-                );
-                for inline_child_id in inline_run {
-                    self.process_node(
-                        styled_dom,
-                        inline_child_id,
-                        Some(anon_idx),
-                        debug_messages,
-                    )?;
-                }
-            }
+            self.flush_inline_run(styled_dom, parent_idx, &mut inline_run, debug_messages)?;
         }
 
         Ok(())
@@ -1457,14 +1388,58 @@ impl LayoutTreeBuilder {
     // +spec:table-layout:6bb84e - Anonymous table object generation (stages 1-3: remove irrelevant boxes, generate missing child wrappers, generate missing parents)
     // +spec:table-layout:77974f - Stage 2: generate missing child wrappers for table/inline-table
     // +spec:table-layout:c8dc69 - Stage 2: wrap non-proper children in anonymous table-row
-    /// CSS 2.2 Section 17.2.1 - Anonymous box generation for tables:
-    /// "If a child C of a 'table' or 'inline-table' box is not a proper table child,
-    /// then generate an anonymous 'table-row' box around C and all consecutive
-    /// siblings of C that are not proper table children."
-    ///
     // +spec:display-property:6f8f13 - anonymous table object generation (§17.2.1): suppress table-column/table-column-group children, wrap non-proper children in anonymous rows/cells
-    /// Proper table children are: table-row-group, table-header-group,
-    /// table-footer-group, table-row, table-column-group, table-column, table-caption.
+    fn process_table_level_children(
+        &mut self,
+        styled_dom: &StyledDom,
+        parent_dom_id: NodeId,
+        parent_idx: usize,
+        is_expected_child: fn(LayoutDisplay) -> bool,
+        anon_type: AnonymousBoxType,
+        anon_fc: FormattingContext,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ) -> Result<()> {
+        let parent_display = get_display_type(styled_dom, parent_dom_id);
+        let mut non_matching_children = Vec::new();
+
+        for child_id in parent_dom_id.az_children(&styled_dom.node_hierarchy.as_container()) {
+            if should_skip_for_table_structure(styled_dom, child_id, parent_display) {
+                continue;
+            }
+
+            let child_display = get_display_type(styled_dom, child_id);
+
+            if is_expected_child(child_display) {
+                if !non_matching_children.is_empty() {
+                    let anon_idx = self.create_anonymous_node(
+                        parent_idx,
+                        anon_type,
+                        anon_fc.clone(),
+                    );
+                    for np_id in non_matching_children.drain(..) {
+                        self.process_node(styled_dom, np_id, Some(anon_idx), debug_messages)?;
+                    }
+                }
+                self.process_node(styled_dom, child_id, Some(parent_idx), debug_messages)?;
+            } else {
+                non_matching_children.push(child_id);
+            }
+        }
+
+        if !non_matching_children.is_empty() {
+            let anon_idx = self.create_anonymous_node(
+                parent_idx,
+                anon_type,
+                anon_fc,
+            );
+            for np_id in non_matching_children {
+                self.process_node(styled_dom, np_id, Some(anon_idx), debug_messages)?;
+            }
+        }
+
+        Ok(())
+    }
+
     fn process_table_children(
         &mut self,
         styled_dom: &StyledDom,
@@ -1472,59 +1447,15 @@ impl LayoutTreeBuilder {
         parent_idx: usize,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<()> {
-        let parent_display = get_display_type(styled_dom, parent_dom_id);
-        let mut non_proper_children = Vec::new();
-
-        for child_id in parent_dom_id.az_children(&styled_dom.node_hierarchy.as_container()) {
-            // CSS 2.2 Section 17.2.1, Stage 1: Skip whitespace-only text nodes
-            if should_skip_for_table_structure(styled_dom, child_id, parent_display) {
-                continue;
-            }
-
-            let child_display = get_display_type(styled_dom, child_id);
-
-            if is_proper_table_child(child_display) {
-                // Flush any accumulated non-proper children into an anonymous table-row
-                if !non_proper_children.is_empty() {
-                    let anon_row_idx = self.create_anonymous_node(
-                        parent_idx,
-                        AnonymousBoxType::TableRow,
-                        FormattingContext::TableRow,
-                    );
-
-                    for np_id in non_proper_children.drain(..) {
-                        self.process_node(styled_dom, np_id, Some(anon_row_idx), debug_messages)?;
-                    }
-                }
-
-                // Process proper table child directly (row, row-group, caption, etc.)
-                self.process_node(styled_dom, child_id, Some(parent_idx), debug_messages)?;
-            } else {
-                // Non-proper table child: accumulate for wrapping
-                non_proper_children.push(child_id);
-            }
-        }
-
-        // Flush any remaining accumulated non-proper children
-        if !non_proper_children.is_empty() {
-            let anon_row_idx = self.create_anonymous_node(
-                parent_idx,
-                AnonymousBoxType::TableRow,
-                FormattingContext::TableRow,
-            );
-
-            for np_id in non_proper_children {
-                self.process_node(styled_dom, np_id, Some(anon_row_idx), debug_messages)?;
-            }
-        }
-
-        Ok(())
+        self.process_table_level_children(
+            styled_dom, parent_dom_id, parent_idx,
+            is_proper_table_child,
+            AnonymousBoxType::TableRow,
+            FormattingContext::TableRow,
+            debug_messages,
+        )
     }
 
-    /// CSS 2.2 Section 17.2.1 - Anonymous box generation:
-    /// "If a child C of a row group box is not a 'table-row' box, then generate
-    /// an anonymous 'table-row' box around C and all consecutive siblings of C
-    /// that are not 'table-row' boxes."
     fn process_table_row_group_children(
         &mut self,
         styled_dom: &StyledDom,
@@ -1532,54 +1463,15 @@ impl LayoutTreeBuilder {
         parent_idx: usize,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<()> {
-        let parent_display = get_display_type(styled_dom, parent_dom_id);
-        let mut non_row_children = Vec::new();
-
-        for child_id in parent_dom_id.az_children(&styled_dom.node_hierarchy.as_container()) {
-            if should_skip_for_table_structure(styled_dom, child_id, parent_display) {
-                continue;
-            }
-
-            let child_display = get_display_type(styled_dom, child_id);
-
-            if child_display == LayoutDisplay::TableRow {
-                // Flush accumulated non-row children into anonymous row
-                if !non_row_children.is_empty() {
-                    let anon_row_idx = self.create_anonymous_node(
-                        parent_idx,
-                        AnonymousBoxType::TableRow,
-                        FormattingContext::TableRow,
-                    );
-                    for nr_id in non_row_children.drain(..) {
-                        self.process_node(styled_dom, nr_id, Some(anon_row_idx), debug_messages)?;
-                    }
-                }
-                // Process table-row child directly
-                self.process_node(styled_dom, child_id, Some(parent_idx), debug_messages)?;
-            } else {
-                non_row_children.push(child_id);
-            }
-        }
-
-        // Flush remaining
-        if !non_row_children.is_empty() {
-            let anon_row_idx = self.create_anonymous_node(
-                parent_idx,
-                AnonymousBoxType::TableRow,
-                FormattingContext::TableRow,
-            );
-            for nr_id in non_row_children {
-                self.process_node(styled_dom, nr_id, Some(anon_row_idx), debug_messages)?;
-            }
-        }
-
-        Ok(())
+        self.process_table_level_children(
+            styled_dom, parent_dom_id, parent_idx,
+            |d| d == LayoutDisplay::TableRow,
+            AnonymousBoxType::TableRow,
+            FormattingContext::TableRow,
+            debug_messages,
+        )
     }
 
-    /// CSS 2.2 Section 17.2.1 - Anonymous box generation:
-    /// "If a child C of a 'table-row' box is not a 'table-cell', then generate an
-    /// anonymous 'table-cell' box around C and all consecutive siblings of C that
-    /// are not 'table-cell' boxes."
     fn process_table_row_children(
         &mut self,
         styled_dom: &StyledDom,
@@ -1587,54 +1479,55 @@ impl LayoutTreeBuilder {
         parent_idx: usize,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<()> {
-        let parent_display = get_display_type(styled_dom, parent_dom_id);
-        let mut non_cell_children = Vec::new();
-
-        for child_id in parent_dom_id.az_children(&styled_dom.node_hierarchy.as_container()) {
-            if should_skip_for_table_structure(styled_dom, child_id, parent_display) {
-                continue;
+        self.process_table_level_children(
+            styled_dom, parent_dom_id, parent_idx,
+            |d| d == LayoutDisplay::TableCell,
+            AnonymousBoxType::TableCell,
+            FormattingContext::Block { establishes_new_context: true },
+            debug_messages,
+        )
+    }
+    // +spec:display-property:7d1570 - whitespace-only text that would be collapsed does not generate anonymous inline boxes
+    // +spec:white-space-processing:b32f69 - whitespace-only inline runs between blocks don't generate anonymous inline boxes
+    fn flush_inline_run(
+        &mut self,
+        styled_dom: &StyledDom,
+        parent_idx: usize,
+        inline_run: &mut Vec<NodeId>,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ) -> Result<()> {
+        let all_whitespace = inline_run
+            .iter()
+            .all(|id| is_whitespace_only_text(styled_dom, *id));
+        if all_whitespace {
+            if let Some(msgs) = debug_messages.as_mut() {
+                msgs.push(LayoutDebugMessage::info(format!(
+                    "[process_block_children] Skipping whitespace-only inline run: {:?}",
+                    inline_run.iter().map(|c: &NodeId| c.index()).collect::<Vec<_>>()
+                )));
             }
-
-            let child_display = get_display_type(styled_dom, child_id);
-
-            if child_display == LayoutDisplay::TableCell {
-                // Flush accumulated non-cell children into one anonymous table-cell
-                if !non_cell_children.is_empty() {
-                    let anon_cell_idx = self.create_anonymous_node(
-                        parent_idx,
-                        AnonymousBoxType::TableCell,
-                        FormattingContext::Block {
-                            establishes_new_context: true,
-                        },
-                    );
-                    for nc_id in non_cell_children.drain(..) {
-                        self.process_node(styled_dom, nc_id, Some(anon_cell_idx), debug_messages)?;
-                    }
-                }
-                // Process table-cell child directly
-                self.process_node(styled_dom, child_id, Some(parent_idx), debug_messages)?;
-            } else {
-                // Accumulate consecutive non-cell children
-                non_cell_children.push(child_id);
+            inline_run.clear();
+        } else {
+            if let Some(msgs) = debug_messages.as_mut() {
+                msgs.push(LayoutDebugMessage::info(format!(
+                    "[process_block_children] Creating anon wrapper for inline run: {:?}",
+                    inline_run.iter().map(|c: &NodeId| c.index()).collect::<Vec<_>>()
+                )));
             }
-        }
-
-        // Flush remaining non-cell children
-        if !non_cell_children.is_empty() {
-            let anon_cell_idx = self.create_anonymous_node(
+            let anon_idx = self.create_anonymous_node(
                 parent_idx,
-                AnonymousBoxType::TableCell,
+                AnonymousBoxType::InlineWrapper,
                 FormattingContext::Block {
                     establishes_new_context: true,
                 },
             );
-            for nc_id in non_cell_children {
-                self.process_node(styled_dom, nc_id, Some(anon_cell_idx), debug_messages)?;
+            for inline_child_id in inline_run.drain(..) {
+                self.process_node(styled_dom, inline_child_id, Some(anon_idx), debug_messages)?;
             }
         }
-
         Ok(())
     }
+
     // +spec:display-property:52f497 - anonymous inline boxes inherit inheritable properties from block parent; non-inherited properties use initial values (dom_node_id: None + BoxProps::default())
     /// CSS 2.2 Section 17.2.1 - Anonymous box generation:
     /// "In this process, inline-level boxes are wrapped in anonymous boxes as needed
@@ -2347,7 +2240,6 @@ fn collect_box_props(
     // Resolve to get initial box_props
     let resolved = unresolved.resolve(&params);
 
-    // Debug ALL node box props (padding, margin, border) for cascade debugging
     if let Some(msgs) = debug_messages.as_mut() {
         msgs.push(LayoutDebugMessage::box_props(format!(
             "[BOX] node[{}] {:?} pad=[{:.1} {:.1} {:.1} {:.1}] mar=[{:.1} {:.1} {:.1} {:.1}] bor=[{:.1} {:.1} {:.1} {:.1}]",
@@ -2356,11 +2248,7 @@ fn collect_box_props(
             resolved.margin.top, resolved.margin.right, resolved.margin.bottom, resolved.margin.left,
             resolved.border.top, resolved.border.right, resolved.border.bottom, resolved.border.left,
         )));
-    }
 
-    // Debug nodes with non-zero margins or vh units
-    if let Some(msgs) = debug_messages.as_mut() {
-        // Check if any margin uses vh
         let has_vh = match &unresolved_margin.top {
             UnresolvedMargin::Length(pv) => pv.metric == azul_css::props::basic::SizeMetric::Vh,
             _ => false,
@@ -2374,10 +2262,7 @@ fn collect_box_props(
                 viewport_size
             )));
         }
-    }
 
-    // Debug margin_auto detection
-    if let Some(msgs) = debug_messages.as_mut() {
         msgs.push(LayoutDebugMessage::box_props(format!(
             "NodeId {:?} ({:?}): margin_auto: left={}, right={}, top={}, bottom={} | margin_left={:?}",
             dom_id, node_data.node_type,
@@ -2385,11 +2270,8 @@ fn collect_box_props(
             resolved.margin_auto.top, resolved.margin_auto.bottom,
             unresolved_margin.left
         )));
-    }
 
-    // Debug for Body nodes
-    if matches!(node_data.node_type, azul_core::dom::NodeType::Body) {
-        if let Some(msgs) = debug_messages.as_mut() {
+        if matches!(node_data.node_type, azul_core::dom::NodeType::Body) {
             msgs.push(LayoutDebugMessage::box_props(format!(
                 "Body margin resolved: top={:.2}, right={:.2}, bottom={:.2}, left={:.2}",
                 resolved.margin.top, resolved.margin.right,
