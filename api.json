@@ -16424,13 +16424,13 @@
                                 ],
                                 "fn_body": "azul_css::props::property::CssProperty::perspective_origin(input)"
                             },
-                            "backface_visiblity": {
+                            "backface_visibility": {
                                 "fn_args": [
                                     {
                                         "input": "StyleBackfaceVisibility"
                                     }
                                 ],
-                                "fn_body": "azul_css::props::property::CssProperty::backface_visiblity(input)"
+                                "fn_body": "azul_css::props::property::CssProperty::backface_visibility(input)"
                             },
                             "break_before": {
                                 "fn_args": [
@@ -17272,13 +17272,13 @@
                                 ],
                                 "fn_body": "azul_css::props::property::CssProperty::const_perspective_origin(input)"
                             },
-                            "const_backface_visiblity": {
+                            "const_backface_visibility": {
                                 "fn_args": [
                                     {
                                         "input": "StyleBackfaceVisibility"
                                     }
                                 ],
-                                "fn_body": "azul_css::props::property::CssProperty::const_backface_visiblity(input)"
+                                "fn_body": "azul_css::props::property::CssProperty::const_backface_visibility(input)"
                             },
                             "const_break_before": {
                                 "fn_args": [
