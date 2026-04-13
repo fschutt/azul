@@ -23,8 +23,8 @@ pub mod layout;
 
 // Re-exports for convenience
 pub use compositor::{
-    select_compositor_mode, AzBackend, Compositor, CompositorMode, GpuCheckResult, GpuInfo,
-    RenderContext, SystemCapabilities,
+    AzBackend, Compositor, CompositorMode, GpuCheckResult, GpuInfo,
+    RenderContext,
 };
 pub use cpu_compositor::CpuCompositor;
 pub use dlopen::DynamicLibrary;

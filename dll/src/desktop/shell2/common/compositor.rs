@@ -39,8 +39,8 @@ pub enum CompositorMode {
 
 
 impl CompositorMode {
-    /// Parse compositor mode from string (for environment variable).
-    pub fn from_str(s: &str) -> Option<Self> {
+    /// Parse compositor mode from environment variable string.
+    pub fn from_env_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "cpu" => Some(CompositorMode::CPU),
             "gpu" => Some(CompositorMode::GPU),
@@ -134,38 +134,6 @@ impl AzBackend {
         AzBackend::Auto
     }
 
-    /// Whether this backend needs a native platform window.
-    pub fn needs_native_window(self) -> bool {
-        match self {
-            AzBackend::Headless => false,
-            #[cfg(feature = "web")]
-            AzBackend::Web(_) => false,
-            AzBackend::Cpu | AzBackend::Gpu | AzBackend::Auto => true,
-        }
-    }
-
-    /// Whether this backend uses GPU rendering.
-    /// Returns `None` for `Auto` (needs runtime probe).
-    pub fn uses_gpu(self) -> Option<bool> {
-        match self {
-            AzBackend::Gpu => Some(true),
-            AzBackend::Cpu | AzBackend::Headless => Some(false),
-            #[cfg(feature = "web")]
-            AzBackend::Web(_) => Some(false),
-            AzBackend::Auto => None,
-        }
-    }
-
-    /// Convert to CompositorMode (for the rendering pipeline).
-    pub fn to_compositor_mode(self) -> CompositorMode {
-        match self {
-            AzBackend::Gpu => CompositorMode::GPU,
-            AzBackend::Cpu | AzBackend::Headless => CompositorMode::CPU,
-            #[cfg(feature = "web")]
-            AzBackend::Web(_) => CompositorMode::CPU,
-            AzBackend::Auto => CompositorMode::Auto,
-        }
-    }
 }
 
 // ============================================================================
@@ -337,65 +305,6 @@ pub trait Compositor {
     fn present(&mut self) -> Result<(), CompositorError>;
 }
 
-/// System capabilities for compositor selection.
-#[derive(Debug, Clone, Default)]
-pub struct SystemCapabilities {
-    pub has_opengl: bool,
-    pub has_metal: bool,
-    pub has_d3d11: bool,
-    pub has_vulkan: bool,
-    pub opengl_version: Option<String>,
-}
-
-impl SystemCapabilities {
-    /// Check if any GPU rendering is available.
-    pub fn has_any_gpu(&self) -> bool {
-        self.has_opengl || self.has_metal || self.has_d3d11 || self.has_vulkan
-    }
-
-    /// Detect system capabilities.
-    pub fn detect() -> Self {
-        // TODO: Implement actual detection
-        // For now, assume OpenGL is available on all platforms
-        Self {
-            has_opengl: true,
-            has_metal: cfg!(target_os = "macos"),
-            has_d3d11: cfg!(target_os = "windows"),
-            has_vulkan: false, // TODO: Detect Vulkan
-            opengl_version: Some("3.3".into()),
-        }
-    }
-}
-
-/// Select appropriate compositor mode based on capabilities and request.
-pub fn select_compositor_mode(
-    requested: CompositorMode,
-    capabilities: &SystemCapabilities,
-) -> CompositorMode {
-    match requested {
-        CompositorMode::Auto => {
-            // Prefer GPU if available, fallback to CPU
-            if capabilities.has_any_gpu() {
-                CompositorMode::GPU
-            } else {
-                CompositorMode::CPU
-            }
-        }
-        CompositorMode::GPU => {
-            // Request GPU, fallback to CPU if not available
-            if capabilities.has_any_gpu() {
-                CompositorMode::GPU
-            } else {
-                log_warn!(
-                    LogCategory::Rendering,
-                    "GPU requested but not available, using CPU fallback"
-                );
-                CompositorMode::CPU
-            }
-        }
-        CompositorMode::CPU => CompositorMode::CPU,
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -403,34 +312,9 @@ mod tests {
 
     #[test]
     fn test_compositor_mode_parsing() {
-        assert_eq!(CompositorMode::from_str("cpu"), Some(CompositorMode::CPU));
-        assert_eq!(CompositorMode::from_str("GPU"), Some(CompositorMode::GPU));
-        assert_eq!(CompositorMode::from_str("Auto"), Some(CompositorMode::Auto));
-        assert_eq!(CompositorMode::from_str("invalid"), None);
-    }
-
-    #[test]
-    fn test_capabilities_detection() {
-        let caps = SystemCapabilities::detect();
-        assert!(caps.has_opengl); // Should always have OpenGL as fallback
-    }
-
-    #[test]
-    fn test_compositor_selection() {
-        let caps = SystemCapabilities {
-            has_opengl: true,
-            ..Default::default()
-        };
-
-        assert_eq!(
-            select_compositor_mode(CompositorMode::Auto, &caps),
-            CompositorMode::GPU
-        );
-
-        let caps_no_gpu = SystemCapabilities::default();
-        assert_eq!(
-            select_compositor_mode(CompositorMode::Auto, &caps_no_gpu),
-            CompositorMode::CPU
-        );
+        assert_eq!(CompositorMode::from_env_str("cpu"), Some(CompositorMode::CPU));
+        assert_eq!(CompositorMode::from_env_str("GPU"), Some(CompositorMode::GPU));
+        assert_eq!(CompositorMode::from_env_str("Auto"), Some(CompositorMode::Auto));
+        assert_eq!(CompositorMode::from_env_str("invalid"), None);
     }
 }

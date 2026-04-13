@@ -48,9 +48,9 @@ pub mod run;
 
 // Re-export common types
 pub use common::{
-    select_compositor_mode, AzBackend, Compositor, CompositorError, CompositorMode,
+    AzBackend, Compositor, CompositorError, CompositorMode,
     CpuCompositor, DlError, DynamicLibrary, GpuCheckResult, GpuInfo, RenderContext,
-    SystemCapabilities, WindowError,
+    WindowError,
 };
 // Re-export run function
 pub use run::run;
