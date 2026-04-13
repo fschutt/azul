@@ -128,15 +128,17 @@ impl GnomeMenuManager {
             )
         };
 
-        if result < 0 {
+        const DBUS_REQUEST_NAME_REPLY_PRIMARY_OWNER: i32 = 1;
+
+        if result != DBUS_REQUEST_NAME_REPLY_PRIMARY_OWNER {
             let error_msg = unsafe { dbus_error_message(&error) };
             unsafe {
                 (dbus_lib.dbus_error_free)(&mut error);
                 (dbus_lib.dbus_connection_unref)(connection);
             }
             return Err(GnomeMenuError::ServiceRegistrationFailed(format!(
-                "Failed to register service name: {}",
-                error_msg
+                "Failed to register service name (result={}): {}",
+                result, error_msg
             )));
         }
 
@@ -178,11 +180,6 @@ impl GnomeMenuManager {
     /// Get the DBus object path
     pub fn get_object_path(&self) -> &str {
         &self.object_path
-    }
-
-    /// Get the app menu object path
-    pub fn get_app_menu_path(&self) -> String {
-        format!("{}/menus/AppMenu", self.object_path)
     }
 
     /// Get the menu bar object path
@@ -309,6 +306,3 @@ impl Drop for GnomeMenuManager {
     }
 }
 
-// Safety: DBus connections are thread-safe according to libdbus docs
-// (as long as we don't share the connection pointer directly)
-unsafe impl Send for GnomeMenuManager {}
