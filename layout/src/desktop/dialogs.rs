@@ -1,34 +1,8 @@
 //! Native OS dialog wrappers (message boxes, file open/save, color picker)
 //! built on top of the `tfd` (tiny-file-dialogs) crate.
 
-#![allow(missing_copy_implementations)]
-
-use core::ffi::c_void;
-
-use azul_core::window::AzStringPair;
 use azul_css::{impl_option, impl_option_inner, props::basic::color::ColorU, AzString, StringVec};
 use tfd::{DefaultColorValue, MessageBoxIcon};
-
-/// Button dialog wrapper for reserved integration purposes
-#[derive(Debug)]
-pub struct MsgBox {
-    /// reserved pointer (currently nullptr) for potential C extension
-    pub _reserved: *mut c_void,
-}
-
-/// File dialog wrapper for reserved integration purposes
-#[derive(Debug)]
-pub struct FileDialog {
-    /// reserved pointer (currently nullptr) for potential C extension
-    pub _reserved: *mut c_void,
-}
-
-/// Color picker dialog wrapper for reserved integration purposes
-#[derive(Debug)]
-pub struct ColorPickerDialog {
-    /// reserved pointer (currently nullptr) for potential C extension
-    pub _reserved: *mut c_void,
-}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(C)]
@@ -179,6 +153,14 @@ impl_option!(
     [Debug, Clone, PartialEq, PartialOrd]
 );
 
+/// Apply a [`FileTypeList`] filter to a `tfd::FileDialog`.
+fn apply_filter(mut dialog: tfd::FileDialog, filter: FileTypeList) -> tfd::FileDialog {
+    let v = filter.document_types.clone().into_library_owned_vec();
+    let patterns: Vec<&str> = v.iter().map(|s| s.as_str()).collect();
+    dialog = dialog.with_filter(&patterns, filter.document_descriptor.as_str());
+    dialog
+}
+
 /// Open a single file, returns `None` if the user canceled the dialog.
 ///
 /// Filters are the file extensions, i.e. `Some(&["doc", "docx"])` to only allow
@@ -195,11 +177,7 @@ pub fn open_file_dialog(
     }
 
     if let Some(filter) = filter_list {
-        let v = filter.document_types.clone().into_library_owned_vec();
-
-        let patterns: Vec<&str> = v.iter().map(|s| s.as_str()).collect();
-
-        dialog = dialog.with_filter(&patterns, filter.document_descriptor.as_str());
+        dialog = apply_filter(dialog, filter);
     }
 
     dialog.open_file().map(|s| s.into())
@@ -233,11 +211,7 @@ pub fn open_multiple_files_dialog(
     }
 
     if let Some(filter) = filter_list {
-        let v = filter.document_types.clone().into_library_owned_vec();
-
-        let patterns: Vec<&str> = v.iter().map(|s| s.as_str()).collect();
-
-        dialog = dialog.with_filter(&patterns, filter.document_descriptor.as_str());
+        dialog = apply_filter(dialog, filter);
     }
 
     dialog.open_files().map(|s| s.into())
