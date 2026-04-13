@@ -6,7 +6,8 @@
 use azul_core::geom::PhysicalSizeU32;
 use azul_layout::solver3::display_list::DisplayList;
 
-use crate::desktop::shell2::common::{Compositor, CompositorError, CompositorMode, RenderContext};
+use crate::desktop::shell2::common::compositor::{Compositor, CompositorMode, RenderContext};
+use crate::desktop::shell2::common::error::CompositorError;
 
 /// CPU-based software compositor.
 pub struct CpuCompositor {

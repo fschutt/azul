@@ -23,10 +23,9 @@ pub mod layout;
 
 // Re-exports for convenience
 pub use compositor::{
-    AzBackend, Compositor, CompositorMode, GpuCheckResult, GpuInfo,
-    RenderContext,
+    AzBackend, Compositor,
 };
-pub use cpu_compositor::CpuCompositor;
+
 pub use dlopen::DynamicLibrary;
 pub use error::{CompositorError, DlError, WindowError};
 pub use event::{CommonWindowState, HitTestNode, PlatformWindow};
