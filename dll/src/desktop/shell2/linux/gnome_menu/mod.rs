@@ -48,16 +48,15 @@ use std::env;
 use super::super::common::debug_server::LogCategory;
 use crate::log_debug;
 
-pub use actions_protocol::{
-    drain_pending_menu_callbacks, queue_menu_callback, DbusAction,
-    PendingMenuCallback,
-};
+pub use actions_protocol::drain_pending_menu_callbacks;
+pub(crate) use actions_protocol::{queue_menu_callback, DbusAction, PendingMenuCallback};
 pub use manager::GnomeMenuManager;
-pub use menu_conversion::MenuConversion;
-pub use menu_protocol::{DbusMenuGroup, DbusMenuItem};
-pub use protocol_impl::{register_actions_interface, register_menus_interface};
-pub use shared_dbus::{get_shared_dbus_lib, is_dbus_available};
-pub use x11_properties::X11Properties;
+pub(crate) use menu_conversion::MenuConversion;
+pub(crate) use menu_protocol::{DbusMenuGroup, DbusMenuItem};
+pub(crate) use protocol_impl::{register_actions_interface, register_menus_interface};
+pub use shared_dbus::get_shared_dbus_lib;
+pub(crate) use shared_dbus::is_dbus_available;
+pub(crate) use x11_properties::X11Properties;
 
 /// Check if GNOME native menus should be used
 ///
