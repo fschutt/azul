@@ -232,6 +232,17 @@ pub fn parse_style_hyphenation_language(
         trimmed
     };
 
+    // Basic BCP 47 validation: non-empty, ASCII alphanumeric + hyphens, no leading/trailing hyphens
+    if unquoted.is_empty()
+        || !unquoted.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        || unquoted.starts_with('-')
+        || unquoted.ends_with('-')
+    {
+        return Err(StyleHyphenationLanguageParseError::InvalidString(
+            unquoted.to_string(),
+        ));
+    }
+
     Ok(StyleHyphenationLanguage {
         inner: AzString::from_string(unquoted.to_string()),
     })
