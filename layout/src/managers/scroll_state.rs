@@ -40,7 +40,7 @@
 //! - Smooth scroll animations with easing
 //! - Event source classification for scroll events
 //! - Scrollbar geometry and hit-testing
-//! - ExternalScrollId mapping for WebRender integration
+//! - Scrollbar geometry and hit-testing
 //! - Virtual scroll bounds for VirtualView nodes
 
 use alloc::collections::BTreeMap;
@@ -51,7 +51,7 @@ use azul_core::{
     dom::{DomId, NodeId, ScrollbarOrientation},
     events::EasingFunction,
     geom::{LogicalPosition, LogicalRect, LogicalSize},
-    hit_test::{ExternalScrollId, ScrollPosition},
+    hit_test::ScrollPosition,
     styled_dom::NodeHierarchyItemId,
     task::{Duration, Instant},
 };
@@ -297,10 +297,6 @@ pub struct ScrollbarHit {
 pub struct ScrollManager {
     /// Maps (DomId, NodeId) to their scroll state
     states: BTreeMap<(DomId, NodeId), AnimatedScrollState>,
-    /// Maps (DomId, NodeId) to WebRender ExternalScrollId
-    external_scroll_ids: BTreeMap<(DomId, NodeId), ExternalScrollId>,
-    /// Counter for generating unique ExternalScrollId values
-    next_external_scroll_id: u64,
     /// Scrollbar geometry states (calculated per frame)
     scrollbar_states: BTreeMap<(DomId, NodeId, ScrollbarOrientation), ScrollbarState>,
     /// Thread-safe queue for scroll inputs (shared with timer callbacks)
@@ -406,7 +402,7 @@ impl ScrollManager {
 
     /// Returns `true` if any scroll position changed since the last
     /// `clear_scroll_dirty()` call.
-    pub fn has_pending_scroll_changes(&self) -> bool {
+    pub(crate) fn has_pending_scroll_changes(&self) -> bool {
         self.scroll_dirty
     }
 
@@ -865,47 +861,6 @@ impl ScrollManager {
         }
     }
 
-    // ExternalScrollId Management
-
-    /// Register a scroll node and get its ExternalScrollId for WebRender.
-    /// If the node already has an ID, returns the existing one.
-    pub fn register_scroll_node(&mut self, dom_id: DomId, node_id: NodeId) -> ExternalScrollId {
-        use azul_core::hit_test::PipelineId;
-
-        let key = (dom_id, node_id);
-        if let Some(&existing_id) = self.external_scroll_ids.get(&key) {
-            return existing_id;
-        }
-
-        // Generate new ExternalScrollId (id, pipeline_id)
-        // PipelineId = (PipelineSourceId: u32, u32)
-        // Use dom_id.inner for PipelineSourceId, node_id.index() for second part
-        let pipeline_id = PipelineId(
-            dom_id.inner as u32, // PipelineSourceId is just u32
-            node_id.index() as u32,
-        );
-        let new_id = ExternalScrollId(self.next_external_scroll_id, pipeline_id);
-        self.next_external_scroll_id += 1;
-        self.external_scroll_ids.insert(key, new_id);
-        new_id
-    }
-
-    /// Get the ExternalScrollId for a node (returns None if not registered)
-    pub fn get_external_scroll_id(
-        &self,
-        dom_id: DomId,
-        node_id: NodeId,
-    ) -> Option<ExternalScrollId> {
-        self.external_scroll_ids.get(&(dom_id, node_id)).copied()
-    }
-
-    /// Iterate over all registered external scroll IDs
-    pub fn iter_external_scroll_ids(
-        &self,
-    ) -> impl Iterator<Item = ((DomId, NodeId), ExternalScrollId)> + '_ {
-        self.external_scroll_ids.iter().map(|(k, v)| (*k, *v))
-    }
-
     // Scrollbar State Management
 
     /// Calculate scrollbar states for all visible scrollbars.
@@ -914,52 +869,34 @@ impl ScrollManager {
     pub fn calculate_scrollbar_states(&mut self) {
         self.scrollbar_states.clear();
 
-        // Collect vertical scrollbar states
-        // Uses virtual_scroll_size (when set) for the overflow check and thumb ratio,
-        // so VirtualView nodes with large virtual content show correct scrollbar geometry.
-        let vertical_states: Vec<_> = self
-            .states
-            .iter()
-            .filter(|(_, s)| {
-                let effective_height = s.virtual_scroll_size
-                    .map(|vs| vs.height)
-                    .unwrap_or(s.content_rect.size.height);
-                effective_height > s.container_rect.size.height
-            })
-            .map(|((dom_id, node_id), scroll_state)| {
-                let v_state = Self::calculate_scrollbar_state_from_geometry(
-                    scroll_state,
-                    ScrollbarOrientation::Vertical,
-                );
-                ((*dom_id, *node_id, ScrollbarOrientation::Vertical), v_state)
-            })
-            .collect();
+        for orientation in [ScrollbarOrientation::Vertical, ScrollbarOrientation::Horizontal] {
+            let states: Vec<_> = self
+                .states
+                .iter()
+                .filter(|(_, s)| {
+                    let (effective, container) = match orientation {
+                        ScrollbarOrientation::Vertical => (
+                            s.virtual_scroll_size.map(|vs| vs.height).unwrap_or(s.content_rect.size.height),
+                            s.container_rect.size.height,
+                        ),
+                        ScrollbarOrientation::Horizontal => (
+                            s.virtual_scroll_size.map(|vs| vs.width).unwrap_or(s.content_rect.size.width),
+                            s.container_rect.size.width,
+                        ),
+                    };
+                    effective > container
+                })
+                .map(|((dom_id, node_id), scroll_state)| {
+                    let state = Self::calculate_scrollbar_state_from_geometry(
+                        scroll_state,
+                        orientation,
+                    );
+                    ((*dom_id, *node_id, orientation), state)
+                })
+                .collect();
 
-        // Collect horizontal scrollbar states
-        let horizontal_states: Vec<_> = self
-            .states
-            .iter()
-            .filter(|(_, s)| {
-                let effective_width = s.virtual_scroll_size
-                    .map(|vs| vs.width)
-                    .unwrap_or(s.content_rect.size.width);
-                effective_width > s.container_rect.size.width
-            })
-            .map(|((dom_id, node_id), scroll_state)| {
-                let h_state = Self::calculate_scrollbar_state_from_geometry(
-                    scroll_state,
-                    ScrollbarOrientation::Horizontal,
-                );
-                (
-                    (*dom_id, *node_id, ScrollbarOrientation::Horizontal),
-                    h_state,
-                )
-            })
-            .collect();
-
-        // Insert all states
-        self.scrollbar_states.extend(vertical_states);
-        self.scrollbar_states.extend(horizontal_states);
+            self.scrollbar_states.extend(states);
+        }
     }
 
     /// Calculate scrollbar state using the shared `compute_scrollbar_geometry()`.
@@ -1038,7 +975,7 @@ impl ScrollManager {
     }
 
     /// Iterate over all visible scrollbar states
-    pub fn iter_scrollbar_states(
+    pub(crate) fn iter_scrollbar_states(
         &self,
     ) -> impl Iterator<Item = ((DomId, NodeId, ScrollbarOrientation), &ScrollbarState)> + '_ {
         self.scrollbar_states.iter().map(|(k, v)| (*k, v))
@@ -1048,7 +985,7 @@ impl ScrollManager {
 
     /// Hit-test scrollbars for a specific node at the given position.
     /// Returns Some if the position is inside a scrollbar for this node.
-    pub fn hit_test_scrollbar(
+    pub(crate) fn hit_test_scrollbar(
         &self,
         dom_id: DomId,
         node_id: NodeId,
@@ -1142,7 +1079,7 @@ impl ScrollManager {
 impl AnimatedScrollState {
     // +spec:overflow:60f6a1 - scroll origin defaults to block-start inline-start corner (0,0)
     /// Create a new scroll state initialized at offset (0, 0).
-    pub fn new(now: Instant) -> Self {
+    pub(crate) fn new(now: Instant) -> Self {
         Self {
             current_offset: LogicalPosition::zero(),
             animation: None,
@@ -1165,7 +1102,7 @@ impl AnimatedScrollState {
     ///
     /// When `virtual_scroll_size` is set (for VirtualView nodes), the max bounds
     /// are computed from the virtual size instead of content_rect.
-    pub fn clamp(&self, position: LogicalPosition) -> LogicalPosition {
+    pub(crate) fn clamp(&self, position: LogicalPosition) -> LogicalPosition {
         let effective_width = self.virtual_scroll_size
             .map(|s| s.width)
             .unwrap_or(self.content_rect.size.width);
@@ -1185,7 +1122,7 @@ impl AnimatedScrollState {
 
 /// Apply an easing function to a normalized time value (0.0 to 1.0).
 /// Used by ScrollAnimation::tick() for smooth scroll animations.
-pub fn apply_easing(t: f32, easing: EasingFunction) -> f32 {
+pub(crate) fn apply_easing(t: f32, easing: EasingFunction) -> f32 {
     match easing {
         EasingFunction::Linear => t,
         EasingFunction::EaseOut => 1.0 - (1.0 - t).powi(3),
@@ -1199,8 +1136,6 @@ pub fn apply_easing(t: f32, easing: EasingFunction) -> f32 {
     }
 }
 
-// Legacy type alias
-pub type ScrollStates = ScrollManager;
 
 impl ScrollManager {
     /// Remap NodeIds after DOM reconciliation
@@ -1222,15 +1157,6 @@ impl ScrollManager {
             if old_node_id != new_node_id {
                 if let Some(state) = self.states.remove(&(dom_id, old_node_id)) {
                     self.states.insert((dom_id, new_node_id), state);
-                }
-            }
-        }
-        
-        // Remap external_scroll_ids
-        for (&old_node_id, &new_node_id) in node_id_map.iter() {
-            if old_node_id != new_node_id {
-                if let Some(scroll_id) = self.external_scroll_ids.remove(&(dom_id, old_node_id)) {
-                    self.external_scroll_ids.insert((dom_id, new_node_id), scroll_id);
                 }
             }
         }

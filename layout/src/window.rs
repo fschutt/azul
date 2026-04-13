@@ -76,7 +76,7 @@ use crate::{
     managers::{
         gpu_state::GpuStateManager,
         virtual_view::VirtualViewManager,
-        scroll_state::{ScrollManager, ScrollStates},
+        scroll_state::ScrollManager,
     },
     solver3::{
         self, cache::LayoutCache as Solver3LayoutCache, display_list::DisplayList,
@@ -1639,7 +1639,7 @@ impl LayoutWindow {
         images
     }
 
-    /// Helper function to convert ScrollStates to nested format for CallbackInfo
+    /// Helper function to convert ScrollManager to nested format for CallbackInfo
     fn get_nested_scroll_states(
         &self,
         dom_id: DomId,
