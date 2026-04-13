@@ -1941,7 +1941,13 @@ impl WaylandWindow {
                 .common.layout_window
                 .as_ref()
                 .and_then(|lw| lw.focus_manager.get_focused_node().copied());
-            let hit_test = wr_translate2::translate_hit_test_result(hit_test_result, focused_node);
+            let layout_results_ref = self.common.layout_window.as_ref().map(|lw| &lw.layout_results);
+            let empty_map = alloc::collections::BTreeMap::new();
+            let hit_test = wr_translate2::translate_hit_test_result(
+                hit_test_result,
+                focused_node,
+                layout_results_ref.unwrap_or(&empty_map),
+            );
             if let Some(ref mut layout_window) = self.common.layout_window {
                 layout_window
                     .hover_manager

@@ -64,17 +64,23 @@ pub enum AsyncHitTester {
 
 impl AsyncHitTester {
     pub fn resolve(&mut self) -> Arc<dyn WrApiHitTester> {
-        let mut _swap: Self = unsafe { mem::zeroed() };
-        mem::swap(self, &mut _swap);
-        let new = match _swap {
-            AsyncHitTester::Requested(r) => r.resolve(),
+        match self {
             AsyncHitTester::Resolved(r) => r.clone(),
-        };
-        let r = new.clone();
-        let mut swap_back = AsyncHitTester::Resolved(new.clone());
-        mem::swap(self, &mut swap_back);
-        mem::forget(swap_back);
-        r
+            AsyncHitTester::Requested(_) => {
+                // Safety: we read out the old value and immediately write back the
+                // resolved replacement. No intermediate drop can observe invalid state
+                // because we hold &mut self (exclusive access) and the write happens
+                // before returning.
+                let taken = unsafe { core::ptr::read(self) };
+                let arc = match taken {
+                    AsyncHitTester::Requested(r) => r.resolve(),
+                    AsyncHitTester::Resolved(_) => unreachable!(),
+                };
+                let ret = arc.clone();
+                unsafe { core::ptr::write(self, AsyncHitTester::Resolved(arc)); }
+                ret
+            }
+        }
     }
 }
 
@@ -373,7 +379,7 @@ pub fn wr_translate_external_scroll_id(
 }
 
 /// Translate LogicalPosition from azul-core to WebRender LayoutPoint
-pub fn wr_translate_logical_position(
+fn wr_translate_logical_position(
     pos: azul_core::geom::LogicalPosition,
 ) -> webrender::api::units::LayoutPoint {
     webrender::api::units::LayoutPoint::new(pos.x, pos.y)
@@ -399,6 +405,7 @@ pub fn translate_world_point(
 pub fn translate_hit_test_result(
     wr_result: webrender::api::HitTestResult,
     _focused_node: Option<azul_core::dom::DomNodeId>,
+    layout_results: &alloc::collections::BTreeMap<azul_core::dom::DomId, azul_layout::window::DomLayoutResult>,
 ) -> azul_core::hit_test::FullHitTest {
     use alloc::collections::BTreeMap;
 
@@ -411,12 +418,8 @@ pub fn translate_hit_test_result(
     let mut hovered_nodes: BTreeMap<DomId, HitTest> = BTreeMap::new();
 
     for (depth, item) in wr_result.items.into_iter().enumerate() {
-        // Extract DomId and NodeId from tag
-        // Tag encoding: (tag_value, tag_type)
-        // For DOM nodes, we encode: (dom_id << 32) | node_id
         let (tag_value, _tag_type) = item.tag;
 
-        // Decode DomId and NodeId from tag
         let dom_id_value = ((tag_value >> 32) & 0xFFFFFFFF) as usize;
         let node_id_value = (tag_value & 0xFFFFFFFF) as usize;
 
@@ -425,18 +428,26 @@ pub fn translate_hit_test_result(
         };
         let node_id = NodeId::new(node_id_value);
 
-        // WebRender changed: point_in_viewport is now point_relative_to_item
         let point_in_viewport =
             LogicalPosition::new(item.point_relative_to_item.x, item.point_relative_to_item.y);
 
         let point_relative_to_item =
             LogicalPosition::new(item.point_relative_to_item.x, item.point_relative_to_item.y);
 
+        let is_focusable = if let Some(lr) = layout_results.get(&dom_id) {
+            let container = lr.styled_dom.node_data.as_container();
+            container.get(node_id)
+                .and_then(|nd| nd.get_tab_index())
+                .is_some()
+        } else {
+            false
+        };
+
         let hit_test_item = HitTestItem {
             point_in_viewport,
             point_relative_to_item,
-            is_focusable: false, // TODO: Determine from node data
-            is_virtual_view_hit: None, // VirtualViews handled via DisplayListItem (WR iframe)
+            is_focusable,
+            is_virtual_view_hit: None,
             hit_depth: depth as u32,
         };
 
@@ -481,43 +492,6 @@ pub fn wr_translate_scrollbar_hit_id(
 
     // Return tag as (u64, u16) tuple
     ((tag_value, tag_type), webrender::api::units::LayoutPoint::zero())
-}
-
-/// Translate WebRender ItemTag back to ScrollbarHitId
-///
-/// Returns None if the tag doesn't represent a scrollbar hit.
-/// Scrollbar tags are identified by tag.1 having TAG_TYPE_SCROLLBAR (0x0200) in upper byte.
-pub fn translate_item_tag_to_scrollbar_hit_id(
-    tag: webrender::api::ItemTag,
-) -> Option<azul_core::hit_test::ScrollbarHitId> {
-    use azul_core::{dom::DomId, hit_test::ScrollbarHitId, id::NodeId};
-
-    let (tag_value, tag_type) = tag;
-    
-    // Check if this is a scrollbar tag by examining the upper byte of tag.1
-    if (tag_type & 0xFF00) != TAG_TYPE_SCROLLBAR {
-        // Not a scrollbar tag - it's a DOM node or other type
-        return None;
-    }
-    
-    // Extract component type from lower byte of tag.1
-    let component_type = tag_type & 0x00FF;
-    // Extract DomId and NodeId from tag.0
-    let dom_id_value = ((tag_value >> 32) & 0xFFFFFFFF) as usize;
-    let node_id_value = (tag_value & 0xFFFFFFFF) as usize;
-
-    let dom_id = DomId {
-        inner: dom_id_value,
-    };
-    let node_id = NodeId::new(node_id_value);
-
-    match component_type {
-        0 => Some(ScrollbarHitId::VerticalTrack(dom_id, node_id)),
-        1 => Some(ScrollbarHitId::VerticalThumb(dom_id, node_id)),
-        2 => Some(ScrollbarHitId::HorizontalTrack(dom_id, node_id)),
-        3 => Some(ScrollbarHitId::HorizontalThumb(dom_id, node_id)),
-        _ => None,
-    }
 }
 
 /// Perform WebRender-based hit testing
@@ -2054,7 +2028,7 @@ use webrender::api::{
 };
 
 #[inline(always)]
-pub const fn wr_translate_color_u(input: CssColorU) -> WrColorU {
+const fn wr_translate_color_u(input: CssColorU) -> WrColorU {
     WrColorU {
         r: input.r,
         g: input.g,
@@ -2129,7 +2103,7 @@ pub fn wr_translate_font_instance_key(key: FontInstanceKey) -> WrFontInstanceKey
 }
 
 #[inline]
-pub fn wr_translate_glyph_options(opts: GlyphOptions) -> WrGlyphOptions {
+fn wr_translate_glyph_options(opts: GlyphOptions) -> WrGlyphOptions {
     WrGlyphOptions {
         render_mode: wr_translate_font_render_mode(opts.render_mode),
         flags: wr_translate_font_instance_flags(opts.flags),
@@ -2179,7 +2153,7 @@ fn wr_translate_font_instance_flags(
 }
 
 #[inline]
-pub fn wr_translate_layouted_glyphs(glyphs: &[GlyphInstance]) -> Vec<WrGlyphInstance> {
+fn wr_translate_layouted_glyphs(glyphs: &[GlyphInstance]) -> Vec<WrGlyphInstance> {
     glyphs
         .iter()
         .map(|g| WrGlyphInstance {
