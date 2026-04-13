@@ -1,5 +1,6 @@
 //! Intrinsic and used size calculations for layout nodes
 
+use crate::debug_log;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -82,10 +83,10 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
         return Ok(());
     }
 
-    ctx.debug_log("Starting intrinsic size calculation");
+    debug_log!(ctx, "Starting intrinsic size calculation");
     let mut calculator = IntrinsicSizeCalculator::new(ctx);
     calculator.calculate_intrinsic_recursive(tree, tree.root)?;
-    ctx.debug_log("Finished intrinsic size calculation");
+    debug_log!(ctx, "Finished intrinsic size calculation");
     Ok(())
 }
 
@@ -820,21 +821,14 @@ fn collect_inline_content_for_sizing<T: ParsedFontTrait>(
     tree: &LayoutTree,
     ifc_root_index: usize,
 ) -> Result<Vec<InlineContent>> {
-    ctx.debug_log(&format!(
-        "Collecting inline content from node {} for intrinsic sizing",
-        ifc_root_index
-    ));
+    debug_log!(ctx, "Collecting inline content from node {} for intrinsic sizing", ifc_root_index);
 
     let mut content = Vec::new();
 
     // Recursively collect inline content from this node and its inline descendants
     collect_inline_content_recursive(ctx, tree, ifc_root_index, &mut content)?;
 
-    ctx.debug_log(&format!(
-        "Collected {} inline content items from node {}",
-        content.len(),
-        ifc_root_index
-    ));
+    debug_log!(ctx, "Collected {} inline content items from node {}", content.len(), ifc_root_index);
 
     Ok(content)
 }
@@ -867,7 +861,7 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
     // First check if THIS node is a text node
     if let Some(text) = extract_text_from_node(ctx.styled_dom, dom_id) {
         let style_props = Arc::new(get_style_properties(ctx.styled_dom, dom_id, ctx.system_style.as_ref(), azul_css::props::basic::PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height)));
-        ctx.debug_log(&format!("Found text in node {}: '{}'", node_index, text));
+        debug_log!(ctx, "Found text in node {}: '{}'", node_index, text);
         // Use split_text_for_whitespace to correctly handle white-space: pre with \n
         let text_items = split_text_for_whitespace(
             ctx.styled_dom,
@@ -896,10 +890,7 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
         if let NodeType::Text(text_data) = child_dom_node.get_node_type() {
             let text = text_data.as_str().to_string();
             let style_props = Arc::new(get_style_properties(ctx.styled_dom, child_id, ctx.system_style.as_ref(), azul_css::props::basic::PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height)));
-            ctx.debug_log(&format!(
-                "Found text in DOM child of node {}: '{}'",
-                node_index, text
-            ));
+            debug_log!(ctx, "Found text in DOM child of node {}: '{}'", node_index, text);
             // Use split_text_for_whitespace to correctly handle white-space: pre with \n
             let text_items = split_text_for_whitespace(
                 ctx.styled_dom,
@@ -936,10 +927,7 @@ fn process_layout_children<T: ParsedFontTrait>(
         if display.unwrap_or_default() == LayoutDisplay::Inline {
             // Recursively collect content from inline children
             // This is CRITICAL for proper intrinsic width calculation!
-            ctx.debug_log(&format!(
-                "Recursing into inline child at node {}",
-                child_index
-            ));
+            debug_log!(ctx, "Recursing into inline child at node {}", child_index);
             collect_inline_content_recursive(ctx, tree, child_index, content)?;
         } else {
             // Non-inline children are treated as atomic inline-level boxes
@@ -994,10 +982,8 @@ fn process_layout_children<T: ParsedFontTrait>(
                 _ => intrinsic_sizes.max_content_height,
             };
 
-            ctx.debug_log(&format!(
-                "Found atomic inline child at node {}: display={:?}, intrinsic_width={}, used_width={}, css_width={:?}",
-                child_index, display, intrinsic_sizes.max_content_width, used_width, css_width
-            ));
+            debug_log!(ctx, "Found atomic inline child at node {}: display={:?}, intrinsic_width={}, used_width={}, css_width={:?}",
+                child_index, display, intrinsic_sizes.max_content_width, used_width, css_width);
 
             // Represent as a rectangular shape with the resolved dimensions
             content.push(InlineContent::Shape(InlineShape {

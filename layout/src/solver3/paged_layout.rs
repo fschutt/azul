@@ -10,6 +10,7 @@
 //! **Note**: Full CSS `@page` rule parsing is not yet implemented. The `FakePageConfig`
 //! provides programmatic control over page decoration as a temporary solution.
 
+use crate::debug_log;
 use std::collections::{BTreeMap, HashMap};
 
 use azul_core::{
@@ -478,7 +479,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
 
     // --- Step 1.5: Early Exit Optimization ---
     if recon_result.is_clean() {
-        ctx.debug_log("No changes, layout cache is clean");
+        debug_log!(ctx, "No changes, layout cache is clean");
         let tree = cache.tree.as_ref().ok_or(LayoutError::InvalidTree)?;
 
         use crate::window::LayoutWindow;
@@ -570,7 +571,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         );
 
         if reflow_needed_for_scrollbars {
-            ctx.debug_log("Scrollbars changed container size, starting full reflow...");
+            debug_log!(ctx, "Scrollbars changed container size, starting full reflow...");
             recon_result.layout_roots.clear();
             recon_result.layout_roots.insert(new_tree.root);
             recon_result.intrinsic_dirty = (0..new_tree.nodes.len()).collect();

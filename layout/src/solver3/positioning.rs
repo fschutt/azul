@@ -1,6 +1,7 @@
 //! Final positioning of layout nodes (relative, absolute, and fixed schemes)
 // +spec:positioning:79d47e - Implements relative, absolute, and fixed positioning schemes
 
+use crate::debug_log;
 use std::collections::BTreeMap;
 
 use azul_core::{
@@ -742,10 +743,8 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
             current_pos.x += delta_x;
             current_pos.y += delta_y;
 
-            ctx.debug_log(&format!(
-                "Adjusted relative element #{} from {:?} to {:?} (delta: {}, {})",
-                node_index, initial_pos, *current_pos, delta_x, delta_y
-            ));
+            debug_log!(ctx, "Adjusted relative element #{} from {:?} to {:?} (delta: {}, {})",
+                node_index, initial_pos, *current_pos, delta_x, delta_y);
 
             // +spec:table-layout:ec2600 - For table-row-group, table-header-group, table-footer-group, or table-row,
             // the relative shift affects all contents of the box including table cells.
@@ -1049,10 +1048,8 @@ pub fn adjust_sticky_positions<T: ParsedFontTrait>(
             current_pos.x += shift_x;
             current_pos.y += shift_y;
 
-            ctx.debug_log(&format!(
-                "Adjusted sticky element #{} from {:?} to {:?}",
-                node_index, static_pos, *current_pos
-            ));
+            debug_log!(ctx, "Adjusted sticky element #{} from {:?} to {:?}",
+                node_index, static_pos, *current_pos);
         }
     }
     Ok(())
