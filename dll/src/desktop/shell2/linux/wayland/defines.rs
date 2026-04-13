@@ -42,10 +42,6 @@ pub struct wl_surface {
     _private: [u8; 0],
 }
 #[repr(C)]
-pub struct wl_shell_surface {
-    _private: [u8; 0],
-}
-#[repr(C)]
 pub struct wl_seat {
     _private: [u8; 0],
 }
@@ -176,12 +172,10 @@ pub use super::super::x11::defines::{
     xkb_context, xkb_keycode_t, xkb_keymap, xkb_keysym_t, xkb_state,
 };
 
-// EGL types
-pub type EGLDisplay = *mut c_void;
-pub type EGLConfig = *mut c_void;
-pub type EGLContext = *mut c_void;
-pub type EGLSurface = *mut c_void;
-pub type EGLNativeDisplayType = *mut c_void;
+// Re-export EGL types from X11 defines (they're the same across X11 and Wayland)
+pub use super::super::x11::defines::{
+    EGLConfig, EGLContext, EGLDisplay, EGLNativeDisplayType, EGLSurface,
+};
 
 // Listener structs (wayland-client protocol)
 
