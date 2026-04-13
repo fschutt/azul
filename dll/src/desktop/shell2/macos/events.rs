@@ -35,6 +35,21 @@ use crate::desktop::shell2::common::event::{
     PlatformWindow, BUTTON_STATE_LEFT, BUTTON_STATE_RIGHT, BUTTON_STATE_MIDDLE, BUTTON_STATE_NONE,
 };
 
+// macOS hardware keycodes for modifier keys
+const MACOS_KEYCODE_LSHIFT: u16 = 0x38;
+const MACOS_KEYCODE_LCONTROL: u16 = 0x3B;
+const MACOS_KEYCODE_LALT: u16 = 0x3A;
+const MACOS_KEYCODE_LWIN: u16 = 0x37;
+
+fn button_to_flags(button: MouseButton) -> u8 {
+    match button {
+        MouseButton::Left => BUTTON_STATE_LEFT,
+        MouseButton::Right => BUTTON_STATE_RIGHT,
+        MouseButton::Middle => BUTTON_STATE_MIDDLE,
+        _ => BUTTON_STATE_NONE,
+    }
+}
+
 /// Convert macOS window coordinates to Azul logical coordinates.
 ///
 /// macOS uses a bottom-left origin coordinate system where Y=0 is at the bottom.
@@ -114,13 +129,7 @@ impl MacOSWindow {
         }
 
         // Record input sample for gesture detection (button down starts new session)
-        let button_state = match button {
-            MouseButton::Left => BUTTON_STATE_LEFT,
-            MouseButton::Right => BUTTON_STATE_RIGHT,
-            MouseButton::Middle => BUTTON_STATE_MIDDLE,
-            _ => BUTTON_STATE_NONE,
-        };
-        self.record_input_sample(position, button_state, true, false, None);
+        self.record_input_sample(position, button_to_flags(button), true, false, None);
 
         // Perform hit testing and update last_hit_test
         self.update_hit_test(position);
@@ -159,13 +168,7 @@ impl MacOSWindow {
         }
 
         // Record input sample for gesture detection (button up ends session)
-        let button_state = match button {
-            MouseButton::Left => BUTTON_STATE_LEFT,
-            MouseButton::Right => BUTTON_STATE_RIGHT,
-            MouseButton::Middle => BUTTON_STATE_MIDDLE,
-            _ => BUTTON_STATE_NONE,
-        };
-        self.record_input_sample(position, button_state, false, true, None);
+        self.record_input_sample(position, button_to_flags(button), false, true, None);
 
         // Perform hit testing and update last_hit_test
         self.update_hit_test(position);
@@ -621,52 +624,26 @@ impl MacOSWindow {
         let was_cmd_down = keyboard_state.super_down();
 
         // Update keyboard state based on changes
-        use azul_core::window::VirtualKeyCode;
-
-        // Shift key changed
         if shift_pressed != was_shift_down {
-            if shift_pressed {
-                self.update_keyboard_state(0x38, modifiers, true); // LShift keycode
-            } else {
-                self.update_keyboard_state(0x38, modifiers, false);
-            }
+            self.update_keyboard_state(MACOS_KEYCODE_LSHIFT, modifiers, shift_pressed);
         }
-
-        // Control key changed
         if ctrl_pressed != was_ctrl_down {
-            if ctrl_pressed {
-                self.update_keyboard_state(0x3B, modifiers, true); // LControl keycode
-            } else {
-                self.update_keyboard_state(0x3B, modifiers, false);
-            }
+            self.update_keyboard_state(MACOS_KEYCODE_LCONTROL, modifiers, ctrl_pressed);
         }
-
-        // Alt/Option key changed
         if alt_pressed != was_alt_down {
-            if alt_pressed {
-                self.update_keyboard_state(0x3A, modifiers, true); // LAlt keycode
-            } else {
-                self.update_keyboard_state(0x3A, modifiers, false);
-            }
+            self.update_keyboard_state(MACOS_KEYCODE_LALT, modifiers, alt_pressed);
         }
-
-        // Command key changed
         if cmd_pressed != was_cmd_down {
-            if cmd_pressed {
-                self.update_keyboard_state(0x37, modifiers, true); // LWin (Command) keycode
-            } else {
-                self.update_keyboard_state(0x37, modifiers, false);
-            }
+            self.update_keyboard_state(MACOS_KEYCODE_LWIN, modifiers, cmd_pressed);
         }
 
-        // Dispatch modifier changed callbacks if any modifier changed
         if shift_pressed != was_shift_down
             || ctrl_pressed != was_ctrl_down
             || alt_pressed != was_alt_down
             || cmd_pressed != was_cmd_down
         {
-            // For now, just return DoNothing - could dispatch specific callbacks later
-            EventProcessResult::DoNothing
+            let result = self.process_window_events(0);
+            Self::convert_process_result(result)
         } else {
             EventProcessResult::DoNothing
         }
@@ -781,76 +758,82 @@ impl MacOSWindow {
 
     /// Convert macOS keycode to VirtualKeyCode.
     fn convert_keycode(&self, keycode: u16) -> Option<VirtualKeyCode> {
-        // macOS keycodes: https://eastmanreference.com/complete-list-of-applescript-key-codes
-        match keycode {
-            0x00 => Some(VirtualKeyCode::A),
-            0x01 => Some(VirtualKeyCode::S),
-            0x02 => Some(VirtualKeyCode::D),
-            0x03 => Some(VirtualKeyCode::F),
-            0x04 => Some(VirtualKeyCode::H),
-            0x05 => Some(VirtualKeyCode::G),
-            0x06 => Some(VirtualKeyCode::Z),
-            0x07 => Some(VirtualKeyCode::X),
-            0x08 => Some(VirtualKeyCode::C),
-            0x09 => Some(VirtualKeyCode::V),
-            0x0B => Some(VirtualKeyCode::B),
-            0x0C => Some(VirtualKeyCode::Q),
-            0x0D => Some(VirtualKeyCode::W),
-            0x0E => Some(VirtualKeyCode::E),
-            0x0F => Some(VirtualKeyCode::R),
-            0x10 => Some(VirtualKeyCode::Y),
-            0x11 => Some(VirtualKeyCode::T),
-            0x12 => Some(VirtualKeyCode::Key1),
-            0x13 => Some(VirtualKeyCode::Key2),
-            0x14 => Some(VirtualKeyCode::Key3),
-            0x15 => Some(VirtualKeyCode::Key4),
-            0x16 => Some(VirtualKeyCode::Key6),
-            0x17 => Some(VirtualKeyCode::Key5),
-            0x18 => Some(VirtualKeyCode::Equals),
-            0x19 => Some(VirtualKeyCode::Key9),
-            0x1A => Some(VirtualKeyCode::Key7),
-            0x1B => Some(VirtualKeyCode::Minus),
-            0x1C => Some(VirtualKeyCode::Key8),
-            0x1D => Some(VirtualKeyCode::Key0),
-            0x1E => Some(VirtualKeyCode::RBracket),
-            0x1F => Some(VirtualKeyCode::O),
-            0x20 => Some(VirtualKeyCode::U),
-            0x21 => Some(VirtualKeyCode::LBracket),
-            0x22 => Some(VirtualKeyCode::I),
-            0x23 => Some(VirtualKeyCode::P),
-            0x24 => Some(VirtualKeyCode::Return),
-            0x25 => Some(VirtualKeyCode::L),
-            0x26 => Some(VirtualKeyCode::J),
-            0x27 => Some(VirtualKeyCode::Apostrophe),
-            0x28 => Some(VirtualKeyCode::K),
-            0x29 => Some(VirtualKeyCode::Semicolon),
-            0x2A => Some(VirtualKeyCode::Backslash),
-            0x2B => Some(VirtualKeyCode::Comma),
-            0x2C => Some(VirtualKeyCode::Slash),
-            0x2D => Some(VirtualKeyCode::N),
-            0x2E => Some(VirtualKeyCode::M),
-            0x2F => Some(VirtualKeyCode::Period),
-            0x30 => Some(VirtualKeyCode::Tab),
-            0x31 => Some(VirtualKeyCode::Space),
-            0x32 => Some(VirtualKeyCode::Grave),
-            0x33 => Some(VirtualKeyCode::Back),
-            0x35 => Some(VirtualKeyCode::Escape),
-            0x37 => Some(VirtualKeyCode::LWin), // Command
-            0x38 => Some(VirtualKeyCode::LShift),
-            0x39 => Some(VirtualKeyCode::Capital), // Caps Lock
-            0x3A => Some(VirtualKeyCode::LAlt),    // Option
-            0x3B => Some(VirtualKeyCode::LControl),
-            0x3C => Some(VirtualKeyCode::RShift),
-            0x3D => Some(VirtualKeyCode::RAlt),
-            0x3E => Some(VirtualKeyCode::RControl),
-            0x7B => Some(VirtualKeyCode::Left),
-            0x7C => Some(VirtualKeyCode::Right),
-            0x7D => Some(VirtualKeyCode::Down),
-            0x7E => Some(VirtualKeyCode::Up),
-            _ => None,
-        }
+        convert_keycode(keycode)
     }
+}
 
+fn convert_keycode(keycode: u16) -> Option<VirtualKeyCode> {
+    // macOS keycodes: https://eastmanreference.com/complete-list-of-applescript-key-codes
+    match keycode {
+        0x00 => Some(VirtualKeyCode::A),
+        0x01 => Some(VirtualKeyCode::S),
+        0x02 => Some(VirtualKeyCode::D),
+        0x03 => Some(VirtualKeyCode::F),
+        0x04 => Some(VirtualKeyCode::H),
+        0x05 => Some(VirtualKeyCode::G),
+        0x06 => Some(VirtualKeyCode::Z),
+        0x07 => Some(VirtualKeyCode::X),
+        0x08 => Some(VirtualKeyCode::C),
+        0x09 => Some(VirtualKeyCode::V),
+        0x0B => Some(VirtualKeyCode::B),
+        0x0C => Some(VirtualKeyCode::Q),
+        0x0D => Some(VirtualKeyCode::W),
+        0x0E => Some(VirtualKeyCode::E),
+        0x0F => Some(VirtualKeyCode::R),
+        0x10 => Some(VirtualKeyCode::Y),
+        0x11 => Some(VirtualKeyCode::T),
+        0x12 => Some(VirtualKeyCode::Key1),
+        0x13 => Some(VirtualKeyCode::Key2),
+        0x14 => Some(VirtualKeyCode::Key3),
+        0x15 => Some(VirtualKeyCode::Key4),
+        0x16 => Some(VirtualKeyCode::Key6),
+        0x17 => Some(VirtualKeyCode::Key5),
+        0x18 => Some(VirtualKeyCode::Equals),
+        0x19 => Some(VirtualKeyCode::Key9),
+        0x1A => Some(VirtualKeyCode::Key7),
+        0x1B => Some(VirtualKeyCode::Minus),
+        0x1C => Some(VirtualKeyCode::Key8),
+        0x1D => Some(VirtualKeyCode::Key0),
+        0x1E => Some(VirtualKeyCode::RBracket),
+        0x1F => Some(VirtualKeyCode::O),
+        0x20 => Some(VirtualKeyCode::U),
+        0x21 => Some(VirtualKeyCode::LBracket),
+        0x22 => Some(VirtualKeyCode::I),
+        0x23 => Some(VirtualKeyCode::P),
+        0x24 => Some(VirtualKeyCode::Return),
+        0x25 => Some(VirtualKeyCode::L),
+        0x26 => Some(VirtualKeyCode::J),
+        0x27 => Some(VirtualKeyCode::Apostrophe),
+        0x28 => Some(VirtualKeyCode::K),
+        0x29 => Some(VirtualKeyCode::Semicolon),
+        0x2A => Some(VirtualKeyCode::Backslash),
+        0x2B => Some(VirtualKeyCode::Comma),
+        0x2C => Some(VirtualKeyCode::Slash),
+        0x2D => Some(VirtualKeyCode::N),
+        0x2E => Some(VirtualKeyCode::M),
+        0x2F => Some(VirtualKeyCode::Period),
+        0x30 => Some(VirtualKeyCode::Tab),
+        0x31 => Some(VirtualKeyCode::Space),
+        0x32 => Some(VirtualKeyCode::Grave),
+        0x33 => Some(VirtualKeyCode::Back),
+        0x35 => Some(VirtualKeyCode::Escape),
+        0x37 => Some(VirtualKeyCode::LWin), // Command
+        0x38 => Some(VirtualKeyCode::LShift),
+        0x39 => Some(VirtualKeyCode::Capital), // Caps Lock
+        0x3A => Some(VirtualKeyCode::LAlt),    // Option
+        0x3B => Some(VirtualKeyCode::LControl),
+        0x3C => Some(VirtualKeyCode::RShift),
+        0x3D => Some(VirtualKeyCode::RAlt),
+        0x3E => Some(VirtualKeyCode::RControl),
+        0x7B => Some(VirtualKeyCode::Left),
+        0x7C => Some(VirtualKeyCode::Right),
+        0x7D => Some(VirtualKeyCode::Down),
+        0x7E => Some(VirtualKeyCode::Up),
+        _ => None,
+    }
+}
+
+impl MacOSWindow {
     /// Update keyboard state from event.
     fn update_keyboard_state(
         &mut self,
@@ -1241,20 +1224,13 @@ mod tests {
 
     #[test]
     fn test_keycode_conversion() {
-        // Test some basic keycodes
-        assert_eq!(Some(VirtualKeyCode::A), convert_keycode_test(0x00));
-        assert_eq!(Some(VirtualKeyCode::Return), convert_keycode_test(0x24));
-        assert_eq!(Some(VirtualKeyCode::Space), convert_keycode_test(0x31));
-        assert_eq!(None, convert_keycode_test(0xFF)); // Invalid
-    }
-
-    fn convert_keycode_test(keycode: u16) -> Option<VirtualKeyCode> {
-        // Helper for testing keycode conversion without MacOSWindow instance
-        match keycode {
-            0x00 => Some(VirtualKeyCode::A),
-            0x24 => Some(VirtualKeyCode::Return),
-            0x31 => Some(VirtualKeyCode::Space),
-            _ => None,
-        }
+        assert_eq!(Some(VirtualKeyCode::A), convert_keycode(0x00));
+        assert_eq!(Some(VirtualKeyCode::Return), convert_keycode(0x24));
+        assert_eq!(Some(VirtualKeyCode::Space), convert_keycode(0x31));
+        assert_eq!(Some(VirtualKeyCode::LShift), convert_keycode(0x38));
+        assert_eq!(Some(VirtualKeyCode::LControl), convert_keycode(0x3B));
+        assert_eq!(Some(VirtualKeyCode::LAlt), convert_keycode(0x3A));
+        assert_eq!(Some(VirtualKeyCode::LWin), convert_keycode(0x37));
+        assert_eq!(None, convert_keycode(0xFF));
     }
 }
