@@ -368,6 +368,9 @@ impl A11yManager {
             if let Some(value) = info.accessibility_value.as_option() {
                 builder.set_value(value.as_str());
             }
+            if let Some(desc) = info.description.as_option() {
+                builder.set_description(desc.as_str());
+            }
         }
 
         // DOM attribute overrides

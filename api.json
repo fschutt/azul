@@ -11242,6 +11242,9 @@
                                 "accessibility_value": {
                                     "type": "OptionString"
                                 },
+                                "description": {
+                                    "type": "OptionString"
+                                },
                                 "accelerator": {
                                     "type": "OptionVirtualKeyCodeCombo"
                                 },

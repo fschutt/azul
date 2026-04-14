@@ -33,6 +33,9 @@ pub struct AccessibilityInfo {
     /// Get the "value" of the `IAccessible`, for example a number in a slider,
     /// a URL for a link, the text a user entered in a field.
     pub accessibility_value: OptionString,
+    /// Optional text description providing additional context about the element.
+    /// Maps to `aria-description` / accesskit's `set_description()`.
+    pub description: OptionString,
     /// Optional keyboard accelerator.
     pub accelerator: OptionVirtualKeyCodeCombo,
     /// Optional "default action" description. Only used when there is at least
@@ -798,6 +801,7 @@ impl SmallAriaInfo {
         AccessibilityInfo {
             accessibility_name: self.label.clone(),
             accessibility_value: OptionString::None,
+            description: self.description.clone(),
             role: match self.role {
                 OptionAccessibilityRole::Some(r) => r,
                 OptionAccessibilityRole::None => AccessibilityRole::Unknown,
