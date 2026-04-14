@@ -3802,7 +3802,7 @@ pub fn render_component_preview(
             let load_result = load_fonts_from_disk(
                 &fonts_to_load,
                 &preview_font_manager.fc_cache,
-                |bytes, index| loader.load_font(bytes, index),
+                |bytes, index| loader.load_font_shared(bytes, index),
             );
             preview_font_manager.insert_fonts(load_result.loaded);
         }

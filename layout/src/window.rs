@@ -869,7 +869,7 @@ impl LayoutWindow {
                     let load_result = load_fonts_from_disk(
                         &fonts_to_load,
                         &self.font_manager.fc_cache,
-                        |bytes, index| loader.load_font(bytes, index),
+                        |bytes, index| loader.load_font_shared(bytes, index),
                     );
 
                     if let Some(msgs) = debug_messages.as_mut() {

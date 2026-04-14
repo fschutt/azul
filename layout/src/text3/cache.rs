@@ -587,7 +587,7 @@ impl FontContext {
             let result = load_fonts_from_disk(
                 &to_load,
                 &self.fc_cache,
-                |bytes, index| loader.load_font(bytes, index),
+                |bytes, index| loader.load_font_shared(bytes, index),
             );
             if let Ok(mut map) = self.parsed_fonts.lock() {
                 for (id, font) in result.loaded {

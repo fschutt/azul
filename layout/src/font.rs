@@ -157,6 +157,26 @@ pub mod parsed {
     /// Cached GPOS table for glyph positioning operations.
     pub type GposCache = Arc<LayoutCacheData<GPOS>>;
 
+    /// Glyph-outline decoder state. See the
+    /// [`ParsedFont::loca_glyf`] field docs for the full description.
+    #[derive(Clone)]
+    pub(crate) enum LocaGlyfState {
+        /// Ready to decode immediately, or known to have no outline
+        /// data. `None` covers both CFF fonts and fonts where the
+        /// loca+glyf parse failed.
+        Loaded(Option<Arc<std::sync::Mutex<LocaGlyf>>>),
+        /// Font bytes retained for lazy `LocaGlyf` construction on
+        /// first glyph-decode request.
+        Deferred {
+            bytes: Arc<[u8]>,
+            font_index: usize,
+            /// Populated exactly once, on first
+            /// [`ParsedFont::get_or_decode_glyph`] call that targets
+            /// this font. Subsequent calls see the loaded instance.
+            loaded: Arc<std::sync::OnceLock<Option<Arc<std::sync::Mutex<LocaGlyf>>>>>,
+        },
+    }
+
     /// Adapter that collects allsorts outline commands into our `GlyphOutline` format.
     ///
     /// Implements `OutlineSink` so it can be passed to `GlyfVisitorContext::visit()`.
@@ -306,11 +326,24 @@ pub mod parsed {
         /// (including several tests) depend on. Each entry is an `Arc`
         /// so the caller can hold the record without pinning the lock.
         pub(crate) glyph_cache: Arc<std::sync::RwLock<BTreeMap<u16, Arc<OwnedGlyph>>>>,
-        /// Owned `LocaGlyf` kept alive so the outline cache can decode
-        /// glyphs on demand. `None` for CFF fonts or fonts whose
-        /// `loca`/`glyf` tables failed to parse; those paths fall back
-        /// to the `hmtx`-only `OwnedGlyph` records filled in at parse time.
-        pub(crate) loca_glyf: Option<Arc<std::sync::Mutex<LocaGlyf>>>,
+        /// Glyph outline decoder state.
+        ///
+        /// - `Loaded(Some(arc))`: `LocaGlyf` is already loaded (owning
+        ///   its own `Box<[u8]>` copy of the loca+glyf tables) and
+        ///   ready to decode glyphs. Produced by the eager `from_bytes`
+        ///   constructor path (tests).
+        /// - `Loaded(None)`: the font has no usable loca+glyf (CFF, or
+        ///   a parse failure). Glyph outlines won't decode; the hmtx
+        ///   advance fallback fills in the blanks.
+        /// - `Deferred`: we retain an `Arc<[u8]>` to the full font file
+        ///   and the `font_index`; the first `get_or_decode_glyph` call
+        ///   parses a fresh `FontData` / `TableProvider` from those
+        ///   bytes and loads `LocaGlyf`, storing the result in the
+        ///   `OnceLock`. Fonts that get resolved into a chain but are
+        ///   never actually rasterized pay zero decode cost — this is
+        ///   the big win for pages like `excel.html` where 20+ fallback
+        ///   faces load but only a handful are touched.
+        pub(crate) loca_glyf: LocaGlyfState,
         /// Cached width of the space character in font units.
         pub space_width: Option<usize>,
         /// Character-to-glyph mapping (cmap subtable).
@@ -370,7 +403,11 @@ pub mod parsed {
                 // Arc bump, amortises glyph decode across clones of the
                 // same face.
                 glyph_cache: Arc::clone(&self.glyph_cache),
-                loca_glyf: self.loca_glyf.as_ref().map(Arc::clone),
+                // `LocaGlyfState` is `Clone` — for `Loaded` this is an
+                // `Arc::clone`; for `Deferred` it's an `Arc::clone` of
+                // the bytes + the `OnceLock`, so a clone of a face
+                // that's already decoded glyphs carries the decode.
+                loca_glyf: self.loca_glyf.clone(),
                 space_width: self.space_width,
                 cmap_subtable: self.cmap_subtable.clone(),
                 mock: self.mock.clone(),
@@ -841,7 +878,11 @@ pub mod parsed {
                 cmap_subtable,
                 glyph_records_decoded,
                 glyph_cache: Arc::new(std::sync::RwLock::new(BTreeMap::new())),
-                loca_glyf: loca_glyf_opt,
+                // Eager path: `from_bytes` loaded LocaGlyf immediately
+                // (or set None if the font has no loca+glyf). Lazy
+                // callers use `from_bytes_shared` which replaces this
+                // with `LocaGlyfState::Deferred` before returning.
+                loca_glyf: LocaGlyfState::Loaded(loca_glyf_opt),
                 space_width: None,
                 mock: None,
                 reverse_glyph_cache: BTreeMap::new(),
@@ -901,6 +942,75 @@ pub mod parsed {
         pub fn with_source_bytes(mut self, bytes: std::sync::Arc<[u8]>) -> Self {
             self.original_bytes = Some(bytes);
             self
+        }
+
+        /// Lazy-friendly constructor — identical to
+        /// [`ParsedFont::from_bytes`] except that `LocaGlyf` is
+        /// **not** loaded during the call. Instead, the supplied
+        /// `Arc<[u8]>` is retained and `LocaGlyf::load` runs the first
+        /// time [`get_or_decode_glyph`] needs glyph outlines for this
+        /// face.
+        ///
+        /// Fonts that get resolved into a CSS fallback chain but are
+        /// never actually rasterized (common on desktop — e.g. every
+        /// face of HelveticaNeue.ttc loads, but only one or two are
+        /// shaped) then pay zero loca/glyf cost.
+        ///
+        /// Production callers (the reftest harness, `LayoutWindow`,
+        /// `cpurender`) should prefer this constructor. Tests that
+        /// inspect `glyph_records_decoded` directly and don't want
+        /// a lazy path keep using `from_bytes`.
+        pub fn from_bytes_shared(
+            bytes: std::sync::Arc<[u8]>,
+            font_index: usize,
+            warnings: &mut Vec<FontParseWarning>,
+        ) -> Option<Self> {
+            let mut font = Self::from_bytes(&bytes, font_index, warnings)?;
+            // Replace the eagerly-loaded LocaGlyf with a Deferred slot
+            // carrying the shared bytes. The already-loaded LocaGlyf
+            // (~tens-to-hundreds of KiB of loca+glyf per face) is
+            // dropped here, reclaiming its memory immediately. The
+            // one-shot FontData::read + LocaGlyf::load on first glyph
+            // access re-derives it from the retained bytes.
+            font.loca_glyf = LocaGlyfState::Deferred {
+                bytes,
+                font_index,
+                loaded: Arc::new(std::sync::OnceLock::new()),
+            };
+            Some(font)
+        }
+
+        /// Resolve the current face's `LocaGlyf`, loading it lazily
+        /// on first call when `loca_glyf` is `Deferred`. Returns
+        /// `None` when the font has no usable loca+glyf (CFF fonts
+        /// or parse failures).
+        fn resolve_loca_glyf(&self) -> Option<Arc<std::sync::Mutex<LocaGlyf>>> {
+            match &self.loca_glyf {
+                LocaGlyfState::Loaded(inner) => inner.clone(),
+                LocaGlyfState::Deferred { bytes, font_index, loaded } => {
+                    loaded
+                        .get_or_init(|| {
+                            use allsorts::{
+                                binary::read::ReadScope,
+                                font_data::FontData,
+                                tables::FontTableProvider,
+                            };
+                            let scope = ReadScope::new(bytes);
+                            let font_data = scope.read::<FontData<'_>>().ok()?;
+                            let provider = font_data.table_provider(*font_index).ok()?;
+                            // Gate on table presence to match the `from_bytes`
+                            // has_glyf check; avoids a spurious warning on
+                            // CFF fonts that sneak into the Deferred path.
+                            if !provider.has_table(tag::GLYF) || !provider.has_table(tag::LOCA) {
+                                return None;
+                            }
+                            LocaGlyf::load(&provider)
+                                .ok()
+                                .map(|lg| Arc::new(std::sync::Mutex::new(lg)))
+                        })
+                        .clone()
+                }
+            }
         }
 
         /// Fetch the parsed GSUB cache if this font has one, parsing
@@ -1042,7 +1152,11 @@ pub mod parsed {
                 instructions: None,
             };
 
-            let Some(loca_glyf_arc) = self.loca_glyf.as_ref() else {
+            // Resolve the `LocaGlyf` for this face. For `Loaded` that's
+            // a cheap `Arc::clone`; for `Deferred` this is where the
+            // actual `LocaGlyf::load` happens on first access, paid once
+            // per face that ever decodes a glyph.
+            let Some(loca_glyf_arc) = self.resolve_loca_glyf() else {
                 return record;
             };
             let Ok(mut loca_glyf) = loca_glyf_arc.lock() else {

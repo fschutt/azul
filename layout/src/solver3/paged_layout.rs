@@ -83,7 +83,10 @@ pub fn layout_document_paged<T, F>(
 ) -> Result<Vec<DisplayList>>
 where
     T: ParsedFontTrait + Sync + 'static,
-    F: Fn(&[u8], usize) -> std::result::Result<T, crate::text3::cache::LayoutError>,
+    F: Fn(
+        std::sync::Arc<[u8]>,
+        usize,
+    ) -> std::result::Result<T, crate::text3::cache::LayoutError>,
 {
     // Use default page config (page numbers in footer)
     let page_config = FakePageConfig::new().with_footer_page_numbers();
@@ -139,7 +142,10 @@ pub fn layout_document_paged_with_config<T, F>(
 ) -> Result<Vec<DisplayList>>
 where
     T: ParsedFontTrait + Sync + 'static,
-    F: Fn(&[u8], usize) -> std::result::Result<T, crate::text3::cache::LayoutError>,
+    F: Fn(
+        std::sync::Arc<[u8]>,
+        usize,
+    ) -> std::result::Result<T, crate::text3::cache::LayoutError>,
 {
     let t_layout_start = std::time::Instant::now();
 

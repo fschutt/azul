@@ -3543,14 +3543,20 @@ pub fn load_fonts_from_disk<T, F>(
     load_fn: F,
 ) -> FontLoadResult<T>
 where
-    F: Fn(&[u8], usize) -> Result<T, crate::text3::cache::LayoutError>,
+    // Bytes come in as `Arc<[u8]>` so the loader can retain them
+    // cheaply (one `Arc::clone` per retained copy) for the lazy
+    // `ParsedFont::from_bytes_shared` path — avoids heap-copying
+    // font files into each `ParsedFont`.
+    F: Fn(std::sync::Arc<[u8]>, usize) -> Result<T, crate::text3::cache::LayoutError>,
 {
     let mut loaded = HashMap::new();
     let mut failed = Vec::new();
 
     for font_id in font_ids {
-        // Get font bytes from fc_cache
-        let font_bytes = match fc_cache.get_font_bytes(font_id) {
+        // Get font bytes from fc_cache as a shared Arc. Faces backed
+        // by the same .ttc now all observe the same byte buffer via
+        // rust_fontconfig's `shared_bytes` dedup.
+        let font_bytes = match fc_cache.get_font_bytes_arc(font_id) {
             Some(bytes) => bytes,
             None => {
                 failed.push((
@@ -3571,7 +3577,7 @@ where
             .unwrap_or(0) as usize;
 
         // Load the font using the provided function
-        match load_fn(&font_bytes, font_index) {
+        match load_fn(font_bytes, font_index) {
             Ok(font) => {
                 loaded.insert(*font_id, font);
             }
@@ -3613,7 +3619,7 @@ pub fn resolve_and_load_fonts<T, F>(
     platform: &azul_css::system::Platform,
 ) -> (ResolvedFontChains, FontLoadResult<T>)
 where
-    F: Fn(&[u8], usize) -> Result<T, crate::text3::cache::LayoutError>,
+    F: Fn(std::sync::Arc<[u8]>, usize) -> Result<T, crate::text3::cache::LayoutError>,
 {
     // Step 1-2: Collect and resolve font chains
     let chains = collect_and_resolve_font_chains(styled_dom, fc_cache, platform);
