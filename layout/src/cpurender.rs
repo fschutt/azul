@@ -3125,13 +3125,16 @@ fn render_text(
     for glyph in glyphs {
         let glyph_index = glyph.index as u16;
 
-        let glyph_data = match parsed_font.glyph_records_decoded.get(&glyph_index) {
+        // Lazy decode: first access to a given gid for this face does
+        // the allsorts glyf walk + OwnedGlyph conversion; subsequent
+        // accesses are an Arc bump + BTreeMap lookup.
+        let glyph_data = match parsed_font.get_or_decode_glyph(glyph_index) {
             Some(d) => d,
             None => continue,
         };
 
         let is_hinted = glyph_cache.get_or_build(
-            font_hash.font_hash, glyph_index, glyph_data, parsed_font, ppem,
+            font_hash.font_hash, glyph_index, &glyph_data, parsed_font, ppem,
         ).map(|c| c.is_hinted).unwrap_or(false);
 
         let glyph_x = (glyph.point.x - scroll_offset.0) * dpi_factor;

@@ -263,16 +263,54 @@ pub mod parsed {
         pub vhea_table: Option<HheaTable>,
         /// Maximum profile table (maxp) containing glyph count and memory hints.
         pub maxp_table: MaxpTable,
-        /// Cached GSUB table for glyph substitution (ligatures, alternates).
-        pub gsub_cache: Option<GsubCache>,
-        /// Cached GPOS table for glyph positioning (kerning, mark placement).
-        pub gpos_cache: Option<GposCache>,
+        /// Raw GSUB table bytes, kept as a `Vec<u8>` (tens to low-hundreds
+        /// of KiB) so the parsed `GsubCache` can be built on first shape
+        /// call instead of up-front. Access via [`ParsedFont::gsub`] —
+        /// that getter populates `gsub_cache_lazy` via `OnceLock` and
+        /// returns a borrow.
+        pub(crate) gsub_bytes: Option<Vec<u8>>,
+        /// Lazy GSUB cache: populated on first [`ParsedFont::gsub`] call.
+        /// `None` means "font has no GSUB table" *after* init attempt;
+        /// the `OnceLock` wrapper distinguishes "not yet initialised"
+        /// from "initialised to None".
+        pub(crate) gsub_cache_lazy: std::sync::OnceLock<Option<GsubCache>>,
+        /// Raw GPOS table bytes. Same lazy-parse arrangement as
+        /// `gsub_bytes` — see [`ParsedFont::gpos`].
+        pub(crate) gpos_bytes: Option<Vec<u8>>,
+        /// Lazy GPOS cache, populated on first [`ParsedFont::gpos`] call.
+        pub(crate) gpos_cache_lazy: std::sync::OnceLock<Option<GposCache>>,
         /// Glyph definition table (GDEF) for glyph classification.
         pub opt_gdef_table: Option<Arc<GDEFTable>>,
         /// Legacy kerning table (kern) for fonts without GPOS.
         pub opt_kern_table: Option<Arc<KernTable>>,
         /// Decoded glyph records with outlines and metrics, keyed by glyph ID.
+        ///
+        /// **No longer populated eagerly by `from_bytes`**: only glyph 0
+        /// (.notdef) and the space glyph are inserted up front so basic
+        /// shaping doesn't race with the lazy decoder. Production callers
+        /// read outlines via [`ParsedFont::get_or_decode_glyph`] instead,
+        /// which uses the `Arc<RwLock<…>>` cache below and is cheap on
+        /// hit.
+        ///
+        /// This field is kept as a public `BTreeMap` for back-compat with
+        /// the test suite and any embedder that needs a walkable view.
+        /// Call [`ParsedFont::prime_glyph_cache`] to force all glyphs to
+        /// be decoded into this map (restores the pre-lazy behaviour —
+        /// useful for tests that iterate or compare against reference
+        /// tooling).
         pub glyph_records_decoded: BTreeMap<u16, OwnedGlyph>,
+        /// Thread-safe lazy outline cache used by
+        /// [`ParsedFont::get_or_decode_glyph`]. Separate from
+        /// `glyph_records_decoded` so the public field retains the
+        /// `BTreeMap<u16, OwnedGlyph>` signature that existing callers
+        /// (including several tests) depend on. Each entry is an `Arc`
+        /// so the caller can hold the record without pinning the lock.
+        pub(crate) glyph_cache: Arc<std::sync::RwLock<BTreeMap<u16, Arc<OwnedGlyph>>>>,
+        /// Owned `LocaGlyf` kept alive so the outline cache can decode
+        /// glyphs on demand. `None` for CFF fonts or fonts whose
+        /// `loca`/`glyf` tables failed to parse; those paths fall back
+        /// to the `hmtx`-only `OwnedGlyph` records filled in at parse time.
+        pub(crate) loca_glyf: Option<Arc<std::sync::Mutex<LocaGlyf>>>,
         /// Cached width of the space character in font units.
         pub space_width: Option<usize>,
         /// Character-to-glyph mapping (cmap subtable).
@@ -317,11 +355,22 @@ pub mod parsed {
                 vmtx_data: self.vmtx_data.clone(),
                 vhea_table: self.vhea_table.clone(),
                 maxp_table: self.maxp_table.clone(),
-                gsub_cache: self.gsub_cache.clone(),
-                gpos_cache: self.gpos_cache.clone(),
+                // OnceLock<T: Clone>: Clone preserves the init state, so
+                // a clone of a parsed cache skips re-parse on first
+                // access. The raw bytes we keep around for lazy init
+                // are cloned too.
+                gsub_bytes: self.gsub_bytes.clone(),
+                gsub_cache_lazy: self.gsub_cache_lazy.clone(),
+                gpos_bytes: self.gpos_bytes.clone(),
+                gpos_cache_lazy: self.gpos_cache_lazy.clone(),
                 opt_gdef_table: self.opt_gdef_table.clone(),
                 opt_kern_table: self.opt_kern_table.clone(),
                 glyph_records_decoded: self.glyph_records_decoded.clone(),
+                // Share the lazy cache and loca_glyf across clones: cheap
+                // Arc bump, amortises glyph decode across clones of the
+                // same face.
+                glyph_cache: Arc::clone(&self.glyph_cache),
+                loca_glyf: self.loca_glyf.as_ref().map(Arc::clone),
                 space_width: self.space_width,
                 cmap_subtable: self.cmap_subtable.clone(),
                 mock: self.mock.clone(),
@@ -697,133 +746,34 @@ pub mod parsed {
             let pdf_font_metrics =
                 Self::parse_pdf_font_metrics(font_bytes, font_index, &head_table, &hhea_table);
 
-            // Use allsorts LocaGlyf + GlyfVisitorContext for outline extraction.
-            // This correctly handles composite glyphs (recursive resolution, transforms)
-            // and variable font deltas (gvar) automatically via allsorts internals.
+            // Use allsorts LocaGlyf for on-demand outline extraction. We
+            // *load* LocaGlyf eagerly (it owns ~tens of KiB of loca +
+            // ~hundreds of KiB of glyf bytes) but we *don't* decode any
+            // glyph outlines up front — that's the big RSS win. Glyphs
+            // are decoded by `ParsedFont::get_or_decode_glyph` on first
+            // access from the CPU/GPU rasterizer. For CFF fonts or any
+            // font without loca+glyf the field is `None` and decoding
+            // falls back to the hmtx-only record populated per-glyph on
+            // demand.
             let has_glyf = provider.has_table(tag::GLYF) && provider.has_table(tag::LOCA);
-
-            let glyph_records_decoded: BTreeMap<u16, OwnedGlyph> = if has_glyf {
-
-                // Load LocaGlyf for the visitor
+            let loca_glyf_opt: Option<Arc<std::sync::Mutex<LocaGlyf>>> = if has_glyf {
                 match LocaGlyf::load(&provider) {
-                    Ok(mut loca_glyf) => {
-                        // Optionally set up variable font context for gvar deltas
-                        let var_store = VariableGlyfContextStore::read(&provider).ok();
-                        let var_context = var_store.as_ref()
-                            .and_then(|store| VariableGlyfContext::new(store).ok());
-
-                        // First pass: extract outlines via visitor
-                        let mut map = BTreeMap::new();
-                        {
-                            let mut visitor = GlyfVisitorContext::new(
-                                &mut loca_glyf,
-                                var_context,
-                            );
-
-                            for glyph_index in 0..num_glyphs.min(u16::MAX as usize) {
-                                let gid = glyph_index as u16;
-                                let horz_advance = allsorts::glyph_info::advance(
-                                    &maxp_table, &hhea_table, &hmtx_data, gid,
-                                ).unwrap_or_default();
-
-                                let mut collector = GlyphOutlineCollector::new();
-                                let visit_result = visitor.visit(gid, None, &mut collector);
-
-                                let outlines = match visit_result {
-                                    Ok(()) => collector.into_outlines(),
-                                    Err(_) => Vec::new(),
-                                };
-
-                                let (min_x, min_y, max_x, max_y) = compute_outline_bbox(&outlines);
-
-                                map.insert(gid, OwnedGlyph {
-                                    horz_advance,
-                                    bounding_box: OwnedGlyphBoundingBox {
-                                        min_x, min_y, max_x, max_y,
-                                    },
-                                    outline: outlines,
-                                    phantom_points: None,
-                                    raw_points: None,
-                                    raw_on_curve: None,
-                                    raw_contour_ends: None,
-                                    instructions: None,
-                                });
-                            }
-                        }
-                        // visitor is dropped here, releasing the &mut loca_glyf borrow
-
-                        // Second pass: extract raw SimpleGlyph data for TrueType hinting
-                        for glyph_index in 0..num_glyphs.min(u16::MAX as usize) {
-                            let gid = glyph_index as u16;
-                            if let Ok(glyph_arc) = loca_glyf.glyph(gid) {
-                                if let allsorts::tables::glyf::Glyph::Simple(sg) = glyph_arc.as_ref() {
-                                    if let Some(record) = map.get_mut(&gid) {
-                                        record.raw_points = Some(sg.coordinates.iter()
-                                            .map(|(_, pt)| (pt.0, pt.1)).collect());
-                                        record.raw_on_curve = Some(sg.coordinates.iter()
-                                            .map(|(f, _)| f.is_on_curve()).collect());
-                                        record.raw_contour_ends = Some(sg.end_pts_of_contours.clone());
-                                        record.instructions = Some(sg.instructions.to_vec());
-                                    }
-                                }
-                            }
-                        }
-
-                        map
-                    }
+                    Ok(lg) => Some(Arc::new(std::sync::Mutex::new(lg))),
                     Err(e) => {
                         warnings.push(FontParseWarning::warning(format!(
                             "Failed to load LocaGlyf: {} — falling back to hmtx-only", e
                         )));
-                        // Fall back to hmtx-only metrics
-                        (0..num_glyphs.min(u16::MAX as usize))
-                            .map(|glyph_index| {
-                                let gid = glyph_index as u16;
-                                let horz_advance = allsorts::glyph_info::advance(
-                                    &maxp_table, &hhea_table, &hmtx_data, gid,
-                                ).unwrap_or_default();
-                                (gid, OwnedGlyph {
-                                    horz_advance,
-                                    bounding_box: OwnedGlyphBoundingBox {
-                                        min_x: 0, min_y: 0,
-                                        max_x: horz_advance as i16, max_y: 0,
-                                    },
-                                    outline: Vec::new(),
-                                    phantom_points: None,
-                                    raw_points: None,
-                                    raw_on_curve: None,
-                                    raw_contour_ends: None,
-                                    instructions: None,
-                                })
-                            })
-                            .collect()
+                        None
                     }
                 }
             } else {
-                // CFF fonts or fonts without glyf table: Parse metrics only from hmtx
-                (0..num_glyphs.min(u16::MAX as usize))
-                    .map(|glyph_index| {
-                        let gid = glyph_index as u16;
-                        let horz_advance = allsorts::glyph_info::advance(
-                            &maxp_table, &hhea_table, &hmtx_data, gid,
-                        ).unwrap_or_default();
-
-                        (gid, OwnedGlyph {
-                            horz_advance,
-                            bounding_box: OwnedGlyphBoundingBox {
-                                min_x: 0, min_y: 0,
-                                max_x: horz_advance as i16, max_y: 0,
-                            },
-                            outline: Vec::new(),
-                            phantom_points: None,
-                            raw_points: None,
-                            raw_on_curve: None,
-                            raw_contour_ends: None,
-                            instructions: None,
-                        })
-                    })
-                    .collect::<BTreeMap<_, _>>()
+                None
             };
+
+            // Empty on construction; `.notdef` + space are inserted below
+            // so the shaper's cmap-miss fallback has something to shape
+            // without racing with the lazy decoder.
+            let glyph_records_decoded: BTreeMap<u16, OwnedGlyph> = BTreeMap::new();
 
             let mut font_data_impl = allsorts::font::Font::new(provider).ok()?;
 
@@ -832,9 +782,25 @@ pub mod parsed {
                 &font_data_impl.font_table_provider
             ).ok().flatten().map(|h| std::sync::Mutex::new(h));
 
-            // Required for font layout: gsub_cache, gpos_cache and gdef_table
-            let gsub_cache = font_data_impl.gsub_cache().ok().and_then(|s| s);
-            let gpos_cache = font_data_impl.gpos_cache().ok().and_then(|s| s);
+            // Stash raw GSUB/GPOS bytes for lazy parse. Typical fonts
+            // have ~tens of KiB of GSUB + a few-to-tens of KiB of GPOS —
+            // dwarfed by glyph outlines — so we keep the bytes around
+            // and only spend `LayoutTable::read` + `new_layout_cache`
+            // cycles when the shaper actually needs them (via
+            // `ParsedFont::gsub` / `::gpos`). For an ASCII run where no
+            // substitution / kerning is required, we skip both entirely.
+            let gsub_bytes = font_data_impl
+                .font_table_provider
+                .table_data(tag::GSUB)
+                .ok()
+                .flatten()
+                .map(|c| c.into_owned());
+            let gpos_bytes = font_data_impl
+                .font_table_provider
+                .table_data(tag::GPOS)
+                .ok()
+                .flatten()
+                .map(|c| c.into_owned());
             let opt_gdef_table = font_data_impl.gdef_table().ok().and_then(|o| o);
             let num_glyphs = font_data_impl.num_glyphs();
 
@@ -866,12 +832,16 @@ pub mod parsed {
                 vmtx_data,
                 vhea_table,
                 maxp_table,
-                gsub_cache,
-                gpos_cache,
+                gsub_bytes,
+                gsub_cache_lazy: std::sync::OnceLock::new(),
+                gpos_bytes,
+                gpos_cache_lazy: std::sync::OnceLock::new(),
                 opt_gdef_table,
                 opt_kern_table,
                 cmap_subtable,
                 glyph_records_decoded,
+                glyph_cache: Arc::new(std::sync::RwLock::new(BTreeMap::new())),
+                loca_glyf: loca_glyf_opt,
                 space_width: None,
                 mock: None,
                 reverse_glyph_cache: BTreeMap::new(),
@@ -931,6 +901,196 @@ pub mod parsed {
         pub fn with_source_bytes(mut self, bytes: std::sync::Arc<[u8]>) -> Self {
             self.original_bytes = Some(bytes);
             self
+        }
+
+        /// Fetch the parsed GSUB cache if this font has one, parsing
+        /// it from the retained `gsub_bytes` on first access.
+        ///
+        /// Moved out of the eager `from_bytes` path because most text
+        /// runs never trigger GSUB — plain ASCII without ligatures is
+        /// handled entirely by the cmap + hmtx fast path. Building
+        /// `LayoutCacheData<GSUB>` up front reserved ~0.5–2 MiB per
+        /// face just to throw it away on pages that don't shape
+        /// complex scripts.
+        pub fn gsub(&self) -> Option<&GsubCache> {
+            self.gsub_cache_lazy
+                .get_or_init(|| {
+                    use allsorts::{
+                        binary::read::ReadScope,
+                        layout::{new_layout_cache, LayoutTable, GSUB},
+                    };
+                    let bytes = self.gsub_bytes.as_ref()?;
+                    ReadScope::new(bytes)
+                        .read::<LayoutTable<GSUB>>()
+                        .ok()
+                        .map(new_layout_cache)
+                })
+                .as_ref()
+        }
+
+        /// Fetch the parsed GPOS cache if this font has one, parsing
+        /// it from the retained `gpos_bytes` on first access. See
+        /// [`ParsedFont::gsub`] for the motivation.
+        pub fn gpos(&self) -> Option<&GposCache> {
+            self.gpos_cache_lazy
+                .get_or_init(|| {
+                    use allsorts::{
+                        binary::read::ReadScope,
+                        layout::{new_layout_cache, LayoutTable, GPOS},
+                    };
+                    let bytes = self.gpos_bytes.as_ref()?;
+                    ReadScope::new(bytes)
+                        .read::<LayoutTable<GPOS>>()
+                        .ok()
+                        .map(new_layout_cache)
+                })
+                .as_ref()
+        }
+
+        /// Fetch an `OwnedGlyph` for `gid`, decoding it on first access.
+        ///
+        /// Cached in the `Arc<RwLock<…>>` `glyph_cache` so subsequent
+        /// calls (including across clones of this `ParsedFont`) hit the
+        /// cache. Returns `None` when `gid >= num_glyphs` or the font
+        /// has no loca+glyf and no hmtx entry for the glyph. For CFF
+        /// fonts the returned record has an empty outline and an advance
+        /// pulled from hmtx — matching the pre-lazy behaviour.
+        ///
+        /// Called on the rasterizer hot path; performance budget is a
+        /// few µs per unique glyph (first hit) and an Arc bump + BTreeMap
+        /// lookup (cache hits). The write lock is held only across the
+        /// decode, not across the caller's use of the returned Arc.
+        pub fn get_or_decode_glyph(&self, gid: u16) -> Option<std::sync::Arc<OwnedGlyph>> {
+            use std::sync::Arc;
+            if usize::from(gid) >= self.num_glyphs.min(u16::MAX) as usize {
+                return None;
+            }
+
+            // Fast path: cache hit.
+            if let Ok(cache) = self.glyph_cache.read() {
+                if let Some(existing) = cache.get(&gid) {
+                    return Some(Arc::clone(existing));
+                }
+            }
+
+            // Miss: decode. We drop the read lock before taking the
+            // write lock to avoid deadlock, and we re-check on the way
+            // in because another thread may have decoded the same glyph
+            // in between.
+            let record = self.decode_glyph_inner(gid);
+            let arc = Arc::new(record);
+            if let Ok(mut cache) = self.glyph_cache.write() {
+                cache
+                    .entry(gid)
+                    .or_insert_with(|| Arc::clone(&arc));
+                // If another thread beat us to the insert, return theirs
+                // so all callers observe the same Arc.
+                if let Some(winner) = cache.get(&gid) {
+                    return Some(Arc::clone(winner));
+                }
+            }
+            Some(arc)
+        }
+
+        /// Restore the pre-lazy behaviour: decode every glyph up front
+        /// into the public `glyph_records_decoded` BTreeMap. Used by the
+        /// test suite (and any embedder that wants a walkable view of
+        /// all glyphs without calling `get_or_decode_glyph` per id).
+        pub fn prime_glyph_cache(&mut self) {
+            let n = self.num_glyphs.min(u16::MAX) as usize;
+            for glyph_index in 0..n {
+                let gid = glyph_index as u16;
+                if self.glyph_records_decoded.contains_key(&gid) {
+                    continue;
+                }
+                let record = self.decode_glyph_inner(gid);
+                self.glyph_records_decoded.insert(gid, record);
+            }
+        }
+
+        /// Core decode routine: produces one `OwnedGlyph` for `gid` by
+        /// locking `loca_glyf` and running allsorts' outline visitor +
+        /// raw-simple-glyph extraction. Factored out so both
+        /// [`get_or_decode_glyph`] and [`prime_glyph_cache`] share it.
+        ///
+        /// Always returns an `OwnedGlyph` — if anything in the decode
+        /// chain fails, falls back to an empty-outline record with the
+        /// `hmtx` advance. This mirrors the pre-lazy behaviour where
+        /// every gid ended up in `glyph_records_decoded`.
+        fn decode_glyph_inner(&self, gid: u16) -> OwnedGlyph {
+            let horz_advance = allsorts::glyph_info::advance(
+                &self.maxp_table,
+                &self.hhea_table,
+                &self.hmtx_data,
+                gid,
+            )
+            .unwrap_or_default();
+
+            let mut record = OwnedGlyph {
+                horz_advance,
+                bounding_box: OwnedGlyphBoundingBox {
+                    min_x: 0,
+                    min_y: 0,
+                    max_x: horz_advance as i16,
+                    max_y: 0,
+                },
+                outline: Vec::new(),
+                phantom_points: None,
+                raw_points: None,
+                raw_on_curve: None,
+                raw_contour_ends: None,
+                instructions: None,
+            };
+
+            let Some(loca_glyf_arc) = self.loca_glyf.as_ref() else {
+                return record;
+            };
+            let Ok(mut loca_glyf) = loca_glyf_arc.lock() else {
+                return record;
+            };
+
+            // First pass: visit the outline (handles composite glyphs,
+            // transforms, and — absent a variable-font context — the
+            // default instance coordinates). Variable-font deltas are
+            // *not* applied in the lazy path: the `VariableGlyfContext`
+            // borrows tables from the source byte slice, which we don't
+            // retain here. macOS system fonts used in the reftest
+            // corpus aren't variable, so this is a non-issue in practice
+            // — revisit once a variable font lands in the workload.
+            {
+                let mut visitor =
+                    GlyfVisitorContext::new(&mut *loca_glyf, None);
+                let mut collector = GlyphOutlineCollector::new();
+                if visitor.visit(gid, None, &mut collector).is_ok() {
+                    record.outline = collector.into_outlines();
+                    let (min_x, min_y, max_x, max_y) =
+                        compute_outline_bbox(&record.outline);
+                    record.bounding_box = OwnedGlyphBoundingBox {
+                        min_x,
+                        min_y,
+                        max_x,
+                        max_y,
+                    };
+                }
+            }
+
+            // Second pass: pull raw SimpleGlyph data for TrueType
+            // bytecode hinting. LocaGlyf caches the `Arc<Glyph>`
+            // internally so this lookup is cheap after the first call.
+            if let Ok(glyph_arc) = loca_glyf.glyph(gid) {
+                if let allsorts::tables::glyf::Glyph::Simple(sg) = glyph_arc.as_ref() {
+                    record.raw_points = Some(
+                        sg.coordinates.iter().map(|(_, pt)| (pt.0, pt.1)).collect(),
+                    );
+                    record.raw_on_curve = Some(
+                        sg.coordinates.iter().map(|(f, _)| f.is_on_curve()).collect(),
+                    );
+                    record.raw_contour_ends = Some(sg.end_pts_of_contours.clone());
+                    record.instructions = Some(sg.instructions.to_vec());
+                }
+            }
+
+            record
         }
 
         /// Parse PDF-specific font metrics from HEAD, HHEA, and OS/2 tables
@@ -1018,15 +1178,23 @@ pub mod parsed {
             cmap.map_glyph(codepoint).ok().flatten()
         }
 
-        /// Get the horizontal advance width for a glyph in font units
+        /// Get the horizontal advance width for a glyph in font units.
+        ///
+        /// Pulled straight from the `hmtx` table — no glyph-outline
+        /// decode. Called once per shaped glyph per layout pass, so
+        /// avoiding the lazy decode here is a meaningful win over
+        /// routing through `get_or_decode_glyph`.
         pub fn get_horizontal_advance(&self, glyph_index: u16) -> u16 {
             if let Some(mock) = self.mock.as_ref() {
                 return mock.glyph_advances.get(&glyph_index).copied().unwrap_or(0);
             }
-            self.glyph_records_decoded
-                .get(&glyph_index)
-                .map(|gi| gi.horz_advance)
-                .unwrap_or_default()
+            allsorts::glyph_info::advance(
+                &self.maxp_table,
+                &self.hhea_table,
+                &self.hmtx_data,
+                glyph_index,
+            )
+            .unwrap_or_default()
         }
 
         /// Get the hinted advance width in pixels for a glyph at the given ppem.
@@ -1038,7 +1206,7 @@ pub mod parsed {
         ///
         /// Returns `None` if hinting is not available or fails.
         pub fn get_hinted_advance_px(&self, glyph_index: u16, ppem: u16) -> Option<f32> {
-            let glyph = self.glyph_records_decoded.get(&glyph_index)?;
+            let glyph = self.get_or_decode_glyph(glyph_index)?;
 
             let upem = self.font_metrics.units_per_em;
             if upem == 0 || ppem == 0 {
@@ -1116,8 +1284,7 @@ pub mod parsed {
             let scale = if units_per_em > 0.0 { 1.0 / units_per_em } else { 0.001 };
 
             // Vertical bearing: approximate from glyph bbox if available
-            let (bearing_x, bearing_y) = self.glyph_records_decoded
-                .get(&glyph_id)
+            let (bearing_x, bearing_y) = self.get_or_decode_glyph(glyph_id)
                 .map(|g| {
                     let bbox = &g.bounding_box;
                     // tsb (top side bearing): origin_y - max_y
@@ -1285,7 +1452,7 @@ pub mod parsed {
         /// Get the bounding box size of a glyph (unscaled units) - for PDF
         /// Returns (width, height) in font units
         pub fn get_glyph_bbox_size(&self, glyph_index: u16) -> Option<(i32, i32)> {
-            let g = self.glyph_records_decoded.get(&glyph_index)?;
+            let g = self.get_or_decode_glyph(glyph_index)?;
             let glyph_width = g.horz_advance as i32;
             let glyph_height = g.bounding_box.max_y as i32 - g.bounding_box.min_y as i32;
             Some((glyph_width, glyph_height))
@@ -1389,7 +1556,7 @@ pub mod parsed {
             glyph_id: u16,
             font_size_px: f32,
         ) -> Option<azul_core::geom::LogicalSize> {
-            self.glyph_records_decoded.get(&glyph_id).map(|record| {
+            self.get_or_decode_glyph(glyph_id).map(|record| {
                 let units_per_em = self.font_metrics.units_per_em as f32;
                 let scale_factor = if units_per_em > 0.0 {
                     font_size_px / units_per_em

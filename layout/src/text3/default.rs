@@ -338,7 +338,7 @@ impl ParsedFont {
     }
 
     fn get_glyph_size(&self, glyph_id: u16, font_size_px: f32) -> Option<LogicalSize> {
-        self.glyph_records_decoded.get(&glyph_id).map(|record| {
+        self.get_or_decode_glyph(glyph_id).map(|record| {
             let units_per_em = self.font_metrics.units_per_em as f32;
             let scale_factor = if units_per_em > 0.0 {
                 font_size_px / units_per_em
@@ -757,7 +757,7 @@ fn shape_text_internal(
         })
         .collect();
 
-    if let Some(gsub) = parsed_font.gsub_cache.as_ref() {
+    if let Some(gsub) = parsed_font.gsub() {
         let features = if user_features.is_empty() {
             Features::Mask(build_feature_mask_for_script(script))
         } else {
@@ -783,7 +783,7 @@ fn shape_text_internal(
 
     let mut infos = gpos::Info::init_from_glyphs(opt_gdef, raw_glyphs);
 
-    if let Some(gpos) = parsed_font.gpos_cache.as_ref() {
+    if let Some(gpos) = parsed_font.gpos() {
         let kern_table = parsed_font
             .opt_kern_table
             .as_ref()

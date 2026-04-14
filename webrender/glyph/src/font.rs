@@ -78,7 +78,7 @@ impl FontContext {
         let parsed_font = self.fonts.get(&font.font_key)?;
         let parsed_font = azul_layout::font_ref_to_parsed_font(parsed_font);
         let glyph_id = key.index() as u16;
-        let glyph = parsed_font.glyph_records_decoded.get(&glyph_id)?;
+        let glyph = parsed_font.get_or_decode_glyph(glyph_id)?;
 
         let units_per_em = parsed_font.font_metrics.units_per_em as f32;
         if units_per_em == 0.0 {
@@ -129,8 +129,7 @@ impl FontContext {
         // The ONLY case where we return an empty glyph is for glyphs that EXIST but have
         // no outline (like space characters) - this is handled below in build_path_from_outline.
         let owned_glyph = parsed_font
-            .glyph_records_decoded
-            .get(&glyph_id)
+            .get_or_decode_glyph(glyph_id)
             .ok_or(GlyphRasterError::LoadFailed)?;
 
         let units_per_em = parsed_font.font_metrics.units_per_em as f32;
@@ -141,7 +140,7 @@ impl FontContext {
         let scale = font.size.to_f32_px() / units_per_em;
 
         // Check if glyph has an outline - glyphs without outlines (like spaces) return empty
-        let Some(mut path) = build_path_from_outline(owned_glyph) else {
+        let Some(mut path) = build_path_from_outline(&owned_glyph) else {
             // Glyph exists but has no outline (e.g., space character)
             return Ok(RasterizedGlyph {
                 left: 0.0,
