@@ -1245,6 +1245,13 @@ fn main() -> anyhow::Result<()> {
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
             return Ok(());
         }
+        ["autoreview", "apply-midlevel", rest @ ..] => {
+            let config = reftest::apply_midlevel::parse_args(rest, &project_root)
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            reftest::apply_midlevel::run(config)
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            return Ok(());
+        }
         ["autoreview", rest @ ..] => {
             let config = reftest::autoreview::parse_autoreview_args(rest, &project_root)
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
@@ -1737,6 +1744,8 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    autoreview midlevel-fixes     - Fix mid-level issues sequentially (dedup, refactor)");
     println!("    autoreview merge              - Merge reports into a single checklist");
     println!("    autoreview process            - Implement checklist items (one commit each)");
+    println!("    autoreview apply-midlevel     - Interactively replay commits from a reference branch");
+    println!("                                    --reference=<branch/tag> [--base=<ref>] [--model=<name>]");
     println!();
     println!("  AUTOFIX (synchronize workspace types with api.json):");
     println!("    autofix                       - Analyze and generate patches for api.json");

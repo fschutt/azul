@@ -33,6 +33,7 @@ use serde_derive::{Deserialize, Serialize};
 
 pub mod autodebug;
 pub mod autoreview;
+pub mod apply_midlevel;
 pub mod pipeline;
 pub mod debug;
 pub mod regression;
