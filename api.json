@@ -772,9 +772,6 @@
                 "classes": {
                     "StyleCursor": {
                         "external": "azul_css::props::style::effects::StyleCursor",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Debug",
                             "Eq",
@@ -783,7 +780,8 @@
                             "Copy",
                             "Hash",
                             "Clone",
-                            "Ord"
+                            "Ord",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -14940,6 +14938,9 @@
                 }
             },
             "menu": {
+                "doc": [
+                    "Menu system: context menus, menu bars, and menu items."
+                ],
                 "classes": {
                     "Menu": {
                         "doc": [
@@ -15336,10 +15337,7 @@
                         ],
                         "repr": "C"
                     }
-                },
-                "doc": [
-                    "Menu system: context menus, menu bars, and menu items."
-                ]
+                }
             },
             "css": {
                 "doc": [
@@ -19251,7 +19249,6 @@
                         ],
                         "external": "azul_css::props::basic::length::SizeMetric",
                         "custom_impls": [
-                            "Default",
                             "Display"
                         ],
                         "derive": [
@@ -19262,7 +19259,8 @@
                             "PartialEq",
                             "PartialOrd",
                             "Ord",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -19620,7 +19618,6 @@
                         ],
                         "external": "azul_css::props::style::effects::StyleMixBlendMode",
                         "custom_impls": [
-                            "Default",
                             "Display"
                         ],
                         "derive": [
@@ -19631,7 +19628,8 @@
                             "Ord",
                             "Clone",
                             "Debug",
-                            "Eq"
+                            "Eq",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -19908,9 +19906,6 @@
                             "Represents an `align-content` attribute, which aligns a flex container's lines within it when there is extra space in the cross-axis. Default: `Stretch`"
                         ],
                         "external": "azul_css::props::layout::flex::LayoutAlignContent",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Copy",
                             "Hash",
@@ -19919,7 +19914,8 @@
                             "Ord",
                             "Debug",
                             "Clone",
-                            "PartialEq"
+                            "PartialEq",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -19948,9 +19944,6 @@
                             "Represents an `align-items` attribute, which defines the default behavior for how flex items are laid out along the cross axis on the current line. Default: `Stretch`"
                         ],
                         "external": "azul_css::props::layout::flex::LayoutAlignItems",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Copy",
                             "Hash",
@@ -19959,7 +19952,8 @@
                             "Clone",
                             "Debug",
                             "PartialOrd",
-                            "Ord"
+                            "Ord",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -19985,9 +19979,6 @@
                             "Represents a `box-sizing` attribute"
                         ],
                         "external": "azul_css::props::layout::dimensions::LayoutBoxSizing",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Copy",
                             "Debug",
@@ -19996,7 +19987,8 @@
                             "Eq",
                             "Clone",
                             "PartialOrd",
-                            "Ord"
+                            "Ord",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -20013,9 +20005,6 @@
                             "Represents a `flex-direction` attribute, which establishes the main-axis, thus defining the direction flex items are placed in the flex container. Default: `Row`"
                         ],
                         "external": "azul_css::props::layout::flex::LayoutFlexDirection",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Copy",
                             "Debug",
@@ -20024,7 +20013,8 @@
                             "Eq",
                             "PartialEq",
                             "Ord",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -20159,9 +20149,6 @@
                             "Represents a `float` attribute"
                         ],
                         "external": "azul_css::props::layout::display::LayoutFloat",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Copy",
                             "Clone",
@@ -20170,7 +20157,8 @@
                             "Hash",
                             "Debug",
                             "PartialOrd",
-                            "PartialEq"
+                            "PartialEq",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -20187,9 +20175,6 @@
                     },
                     "LayoutHeight": {
                         "external": "azul_css::props::layout::dimensions::LayoutHeight",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Clone",
                             "Eq",
@@ -20197,7 +20182,8 @@
                             "PartialEq",
                             "PartialOrd",
                             "Hash",
-                            "Debug"
+                            "Debug",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -20222,9 +20208,6 @@
                             "Represents a `justify-content` attribute, which defines the alignment along the main axis. Default: `Start` (flex-start)"
                         ],
                         "external": "azul_css::props::layout::flex::LayoutJustifyContent",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Copy",
                             "PartialEq",
@@ -20233,7 +20216,8 @@
                             "Eq",
                             "PartialOrd",
                             "Debug",
-                            "Ord"
+                            "Ord",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -20586,9 +20570,6 @@
                             "Represents a `position` attribute - default: `Static`"
                         ],
                         "external": "azul_css::props::layout::position::LayoutPosition",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Copy",
                             "Ord",
@@ -20597,7 +20578,8 @@
                             "PartialOrd",
                             "Hash",
                             "Debug",
-                            "PartialEq"
+                            "PartialEq",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -20662,9 +20644,6 @@
                     },
                     "LayoutWidth": {
                         "external": "azul_css::props::layout::dimensions::LayoutWidth",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Eq",
                             "Ord",
@@ -20672,7 +20651,8 @@
                             "PartialEq",
                             "Hash",
                             "Debug",
-                            "Clone"
+                            "Clone",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -20697,9 +20677,6 @@
                             "Represents a `flex-wrap` attribute, which determines whether flex items are forced onto one line or can wrap onto multiple lines. Default: `NoWrap`"
                         ],
                         "external": "azul_css::props::layout::flex::LayoutFlexWrap",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Copy",
                             "Debug",
@@ -20708,7 +20685,8 @@
                             "Eq",
                             "PartialEq",
                             "Hash",
-                            "Ord"
+                            "Ord",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -20870,7 +20848,6 @@
                         ],
                         "external": "azul_css::props::basic::angle::AngleMetric",
                         "custom_impls": [
-                            "Default",
                             "Display"
                         ],
                         "derive": [
@@ -20881,7 +20858,8 @@
                             "Eq",
                             "Ord",
                             "PartialOrd",
-                            "Debug"
+                            "Debug",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -21185,7 +21163,6 @@
                     "Shape": {
                         "external": "azul_css::props::style::background::Shape",
                         "custom_impls": [
-                            "Default",
                             "Display"
                         ],
                         "derive": [
@@ -21196,7 +21173,8 @@
                             "PartialOrd",
                             "Clone",
                             "Hash",
-                            "Eq"
+                            "Eq",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -21211,7 +21189,6 @@
                     "RadialGradientSize": {
                         "external": "azul_css::props::style::background::RadialGradientSize",
                         "custom_impls": [
-                            "Default",
                             "Display"
                         ],
                         "derive": [
@@ -21221,7 +21198,8 @@
                             "Hash",
                             "Eq",
                             "PartialEq",
-                            "Debug"
+                            "Debug",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -21454,9 +21432,6 @@
                     },
                     "StyleBackgroundRepeat": {
                         "external": "azul_css::props::style::background::StyleBackgroundRepeat",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Copy",
                             "PartialOrd",
@@ -21465,7 +21440,8 @@
                             "Eq",
                             "PartialEq",
                             "Hash",
-                            "Debug"
+                            "Debug",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -21479,9 +21455,6 @@
                     },
                     "StyleBackgroundSize": {
                         "external": "azul_css::props::style::background::StyleBackgroundSize",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Copy",
                             "Ord",
@@ -21490,7 +21463,8 @@
                             "Clone",
                             "Eq",
                             "PartialEq",
-                            "PartialOrd"
+                            "PartialOrd",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -21575,7 +21549,6 @@
                         ],
                         "external": "azul_css::props::style::border::BorderStyle",
                         "custom_impls": [
-                            "Default",
                             "Display"
                         ],
                         "derive": [
@@ -21586,7 +21559,8 @@
                             "Hash",
                             "Ord",
                             "Clone",
-                            "Eq"
+                            "Eq",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -24230,8 +24204,7 @@
                         ],
                         "external": "azul_css::props::layout::grid::GridLine",
                         "custom_impls": [
-                            "Debug",
-                            "Default"
+                            "Debug"
                         ],
                         "derive": [
                             "Hash",
@@ -24239,7 +24212,8 @@
                             "PartialOrd",
                             "PartialEq",
                             "Eq",
-                            "Ord"
+                            "Ord",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -24292,9 +24266,6 @@
                             "Represents a `z-index` attribute - controls stacking order of positioned elements"
                         ],
                         "external": "azul_css::props::layout::position::LayoutZIndex",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "PartialEq",
                             "Debug",
@@ -24303,7 +24274,8 @@
                             "PartialOrd",
                             "Copy",
                             "Ord",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -24322,9 +24294,6 @@
                             "Represents `justify-items` for grid containers"
                         ],
                         "external": "azul_css::props::layout::grid::LayoutJustifyItems",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Ord",
                             "Copy",
@@ -24333,7 +24302,8 @@
                             "Hash",
                             "Clone",
                             "PartialOrd",
-                            "PartialEq"
+                            "PartialEq",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -24401,9 +24371,6 @@
                     },
                     "ColumnSpan": {
                         "external": "azul_css::props::layout::column::ColumnSpan",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Clone",
                             "Copy",
@@ -24412,7 +24379,8 @@
                             "PartialOrd",
                             "Hash",
                             "PartialEq",
-                            "Ord"
+                            "Ord",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -24431,7 +24399,6 @@
                         "external": "azul_css::props::layout::wrapping::LayoutClear",
                         "custom_impls": [
                             "Debug",
-                            "Default",
                             "Display"
                         ],
                         "derive": [
@@ -24441,7 +24408,8 @@
                             "Clone",
                             "Copy",
                             "PartialOrd",
-                            "PartialEq"
+                            "PartialEq",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -24464,9 +24432,6 @@
                             "How to handle white space inside an element."
                         ],
                         "external": "azul_css::props::style::text::StyleWhiteSpace",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Ord",
                             "Eq",
@@ -24475,7 +24440,8 @@
                             "Clone",
                             "Hash",
                             "PartialEq",
-                            "PartialOrd"
+                            "PartialOrd",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -24494,9 +24460,6 @@
                             "Represents a `break-inside` CSS property value."
                         ],
                         "external": "azul_css::props::layout::fragmentation::BreakInside",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "PartialOrd",
                             "Eq",
@@ -24505,7 +24468,8 @@
                             "Hash",
                             "Copy",
                             "PartialEq",
-                            "Ord"
+                            "Ord",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -24528,9 +24492,6 @@
                             "Represents an `align-self` attribute, which allows the default alignment (or the one specified by align-items) to be overridden for individual flex items. Default: `Auto`"
                         ],
                         "external": "azul_css::props::layout::flex::LayoutAlignSelf",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Copy",
                             "Eq",
@@ -24539,7 +24500,8 @@
                             "Debug",
                             "PartialEq",
                             "Ord",
-                            "PartialOrd"
+                            "PartialOrd",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -24646,7 +24608,6 @@
                         ],
                         "external": "azul_css::props::layout::shape::ShapeOutside",
                         "custom_impls": [
-                            "Default",
                             "Eq",
                             "Hash",
                             "Ord",
@@ -24655,7 +24616,8 @@
                         "derive": [
                             "PartialEq",
                             "Clone",
-                            "Debug"
+                            "Debug",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -24669,9 +24631,6 @@
                     },
                     "ColumnCount": {
                         "external": "azul_css::props::layout::column::ColumnCount",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Debug",
                             "Eq",
@@ -24680,7 +24639,8 @@
                             "Hash",
                             "PartialEq",
                             "PartialOrd",
-                            "Clone"
+                            "Clone",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -24701,7 +24661,6 @@
                         "external": "azul_css::props::layout::wrapping::LayoutWritingMode",
                         "custom_impls": [
                             "Debug",
-                            "Default",
                             "Display"
                         ],
                         "derive": [
@@ -24711,7 +24670,8 @@
                             "Copy",
                             "PartialEq",
                             "PartialOrd",
-                            "Eq"
+                            "Eq",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -24731,9 +24691,6 @@
                             "Controls whether the user can select text. Used to prevent accidental text selection on UI controls like buttons."
                         ],
                         "external": "azul_css::props::style::text::StyleUserSelect",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Copy",
                             "Ord",
@@ -24742,7 +24699,8 @@
                             "Eq",
                             "PartialEq",
                             "PartialOrd",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -24807,9 +24765,6 @@
                             "Represents `justify-self` for grid items"
                         ],
                         "external": "azul_css::props::layout::grid::LayoutJustifySelf",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Eq",
                             "Hash",
@@ -24818,7 +24773,8 @@
                             "Debug",
                             "Copy",
                             "PartialOrd",
-                            "PartialEq"
+                            "PartialEq",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -24867,9 +24823,6 @@
                             "Hyphenation rules."
                         ],
                         "external": "azul_css::props::style::text::StyleHyphens",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "PartialOrd",
                             "Copy",
@@ -24878,7 +24831,8 @@
                             "Eq",
                             "Ord",
                             "Clone",
-                            "Debug"
+                            "Debug",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -24918,9 +24872,6 @@
                             "Text direction."
                         ],
                         "external": "azul_css::props::style::text::StyleDirection",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Ord",
                             "Clone",
@@ -24929,7 +24880,8 @@
                             "Debug",
                             "PartialOrd",
                             "Copy",
-                            "Eq"
+                            "Eq",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -24947,8 +24899,7 @@
                         ],
                         "external": "azul_css::props::layout::flex::LayoutFlexBasis",
                         "custom_impls": [
-                            "Debug",
-                            "Default"
+                            "Debug"
                         ],
                         "derive": [
                             "Eq",
@@ -24957,7 +24908,8 @@
                             "PartialEq",
                             "Hash",
                             "PartialOrd",
-                            "Ord"
+                            "Ord",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -24995,9 +24947,6 @@
                     },
                     "LayoutTextJustify": {
                         "external": "azul_css::props::layout::text::LayoutTextJustify",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Copy",
                             "Debug",
@@ -25006,7 +24955,8 @@
                             "Ord",
                             "PartialEq",
                             "Clone",
-                            "Eq"
+                            "Eq",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -25029,9 +24979,6 @@
                     },
                     "ColumnWidth": {
                         "external": "azul_css::props::layout::column::ColumnWidth",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Eq",
                             "Clone",
@@ -25040,7 +24987,8 @@
                             "Hash",
                             "PartialOrd",
                             "PartialEq",
-                            "Copy"
+                            "Copy",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -25087,9 +25035,6 @@
                             "Represents a `box-decoration-break` CSS property value."
                         ],
                         "external": "azul_css::props::layout::fragmentation::BoxDecorationBreak",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Hash",
                             "Clone",
@@ -25098,7 +25043,8 @@
                             "Debug",
                             "PartialEq",
                             "PartialOrd",
-                            "Ord"
+                            "Ord",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -25115,9 +25061,6 @@
                             "Represents a `visibility` attribute, controlling element visibility."
                         ],
                         "external": "azul_css::props::style::effects::StyleVisibility",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Copy",
                             "Ord",
@@ -25126,7 +25069,8 @@
                             "PartialOrd",
                             "Clone",
                             "Hash",
-                            "PartialEq"
+                            "PartialEq",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -25170,9 +25114,6 @@
                             "Represents the `grid-auto-flow` property"
                         ],
                         "external": "azul_css::props::layout::grid::LayoutGridAutoFlow",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "PartialEq",
                             "Eq",
@@ -25181,7 +25122,8 @@
                             "Ord",
                             "Clone",
                             "PartialOrd",
-                            "Copy"
+                            "Copy",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -25228,9 +25170,6 @@
                             "Text decoration (underline, overline, line-through)."
                         ],
                         "external": "azul_css::props::style::text::StyleTextDecoration",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Clone",
                             "PartialOrd",
@@ -25239,7 +25178,8 @@
                             "Copy",
                             "Debug",
                             "Ord",
-                            "PartialEq"
+                            "PartialEq",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -25356,9 +25296,6 @@
                     },
                     "ColumnFill": {
                         "external": "azul_css::props::layout::column::ColumnFill",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "PartialEq",
                             "PartialOrd",
@@ -25367,7 +25304,8 @@
                             "Copy",
                             "Eq",
                             "Hash",
-                            "Ord"
+                            "Ord",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -25412,9 +25350,6 @@
                             "Represents a `break-before` or `break-after` CSS property value."
                         ],
                         "external": "azul_css::props::layout::fragmentation::PageBreak",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Ord",
                             "Copy",
@@ -25423,7 +25358,8 @@
                             "Hash",
                             "Debug",
                             "PartialEq",
-                            "Eq"
+                            "Eq",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -25470,9 +25406,6 @@
                             "Represents the standard `scrollbar-width` property."
                         ],
                         "external": "azul_css::props::style::scrollbar::LayoutScrollbarWidth",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Clone",
                             "Hash",
@@ -25481,7 +25414,8 @@
                             "Ord",
                             "Copy",
                             "Debug",
-                            "PartialOrd"
+                            "PartialOrd",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -25501,9 +25435,6 @@
                             "Represents the standard `scrollbar-color` property."
                         ],
                         "external": "azul_css::props::style::scrollbar::StyleScrollbarColor",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Copy",
                             "Ord",
@@ -25512,7 +25443,8 @@
                             "PartialEq",
                             "PartialOrd",
                             "Debug",
-                            "Eq"
+                            "Eq",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -25529,9 +25461,6 @@
                             "Vertical text alignment enum (baseline, top, middle, bottom, sub, super, text-top, text-bottom) - default: `Baseline`"
                         ],
                         "external": "azul_css::props::style::text::StyleVerticalAlign",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "PartialEq",
                             "Hash",
@@ -25540,7 +25469,8 @@
                             "Debug",
                             "Copy",
                             "Ord",
-                            "PartialOrd"
+                            "PartialOrd",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -25604,7 +25534,6 @@
                         ],
                         "external": "azul_css::props::layout::shape::ShapeInside",
                         "custom_impls": [
-                            "Default",
                             "Eq",
                             "Hash",
                             "Ord",
@@ -25613,7 +25542,8 @@
                         "derive": [
                             "Clone",
                             "PartialEq",
-                            "Debug"
+                            "Debug",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -25771,9 +25701,6 @@
                             "Represents the `font-weight` property."
                         ],
                         "external": "azul_css::props::basic::font::StyleFontWeight",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Copy",
                             "Debug",
@@ -25782,7 +25709,8 @@
                             "PartialEq",
                             "Eq",
                             "Ord",
-                            "Clone"
+                            "Clone",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -25935,7 +25863,6 @@
                     "StyleListStyleType": {
                         "external": "azul_css::props::style::lists::StyleListStyleType",
                         "custom_impls": [
-                            "Default",
                             "Display"
                         ],
                         "derive": [
@@ -25946,7 +25873,8 @@
                             "Clone",
                             "PartialOrd",
                             "Ord",
-                            "Copy"
+                            "Copy",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -25994,7 +25922,6 @@
                         ],
                         "external": "azul_css::props::layout::shape::ClipPath",
                         "custom_impls": [
-                            "Default",
                             "Eq",
                             "Hash",
                             "Ord",
@@ -26003,7 +25930,8 @@
                         "derive": [
                             "Debug",
                             "Clone",
-                            "PartialEq"
+                            "PartialEq",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -26176,7 +26104,6 @@
                     "StyleListStylePosition": {
                         "external": "azul_css::props::style::lists::StyleListStylePosition",
                         "custom_impls": [
-                            "Default",
                             "Display"
                         ],
                         "derive": [
@@ -26187,7 +26114,8 @@
                             "Debug",
                             "Clone",
                             "Eq",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -26204,9 +26132,6 @@
                             "Specifies whether cell borders are collapsed into a single border or separated. The `border-collapse` property determines the border rendering model: - **separate**: Each cell has its own border (default, uses border-spacing) - **collapse**: Adjacent cells share borders (ignores border-spacing)"
                         ],
                         "external": "azul_css::props::layout::table::StyleBorderCollapse",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Clone",
                             "PartialEq",
@@ -26215,7 +26140,8 @@
                             "Debug",
                             "Ord",
                             "Copy",
-                            "PartialOrd"
+                            "PartialOrd",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -26240,9 +26166,6 @@
                             "Specifies the placement of a table caption. The `caption-side` property positions the caption either above or below the table."
                         ],
                         "external": "azul_css::props::layout::table::StyleCaptionSide",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Copy",
                             "Hash",
@@ -26251,7 +26174,8 @@
                             "Debug",
                             "PartialOrd",
                             "PartialEq",
-                            "Ord"
+                            "Ord",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -26336,9 +26260,6 @@
                             "hanging-punctuation property for hanging punctuation marks"
                         ],
                         "external": "azul_css::props::style::text::StyleHangingPunctuation",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Copy",
                             "PartialEq",
@@ -26347,7 +26268,8 @@
                             "PartialOrd",
                             "Ord",
                             "Debug",
-                            "Clone"
+                            "Clone",
+                            "Default"
                         ],
                         "struct_fields": [
                             {
@@ -26363,9 +26285,6 @@
                             "Controls the algorithm used to lay out table cells, rows, and columns. The `table-layout` property determines whether the browser should use: - **auto**: Column widths are determined by the content (slower but flexible) - **fixed**: Column widths are determined by the first row (faster and predictable)"
                         ],
                         "external": "azul_css::props::layout::table::LayoutTableLayout",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Hash",
                             "Ord",
@@ -26374,7 +26293,8 @@
                             "PartialEq",
                             "PartialOrd",
                             "Debug",
-                            "Eq"
+                            "Eq",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -26426,9 +26346,6 @@
                             "Specifies whether or not to display borders and background on empty cells. The `empty-cells` property only applies when `border-collapse` is set to `separate`. A cell is considered empty if it contains no visible content."
                         ],
                         "external": "azul_css::props::layout::table::StyleEmptyCells",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Copy",
                             "Eq",
@@ -26437,7 +26354,8 @@
                             "Debug",
                             "PartialEq",
                             "Clone",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -26474,9 +26392,6 @@
                             "Represents the `font-style` property."
                         ],
                         "external": "azul_css::props::basic::font::StyleFontStyle",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Copy",
                             "Clone",
@@ -26485,7 +26400,8 @@
                             "Eq",
                             "PartialOrd",
                             "PartialEq",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -26517,9 +26433,6 @@
                             "text-combine-upright property for combining horizontal text in vertical layout"
                         ],
                         "external": "azul_css::props::style::text::StyleTextCombineUpright",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Eq",
                             "Hash",
@@ -26528,7 +26441,8 @@
                             "PartialOrd",
                             "Ord",
                             "Copy",
-                            "Clone"
+                            "Clone",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -26572,8 +26486,7 @@
                     "GridTrackSizing": {
                         "external": "azul_css::props::layout::grid::GridTrackSizing",
                         "custom_impls": [
-                            "Debug",
-                            "Default"
+                            "Debug"
                         ],
                         "derive": [
                             "Ord",
@@ -26581,7 +26494,8 @@
                             "PartialEq",
                             "Clone",
                             "Eq",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -28514,9 +28428,6 @@
                     },
                     "ExtendMode": {
                         "external": "azul_css::props::style::background::ExtendMode",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Clone",
                             "PartialEq",
@@ -28525,7 +28436,8 @@
                             "Hash",
                             "Ord",
                             "PartialOrd",
-                            "Eq"
+                            "Eq",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -28537,9 +28449,6 @@
                     },
                     "FlowFrom": {
                         "external": "azul_css::props::layout::flow::FlowFrom",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Eq",
                             "Clone",
@@ -28547,7 +28456,8 @@
                             "Ord",
                             "Hash",
                             "PartialEq",
-                            "Debug"
+                            "Debug",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -28573,9 +28483,6 @@
                     },
                     "FlowInto": {
                         "external": "azul_css::props::layout::flow::FlowInto",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Eq",
                             "Hash",
@@ -28583,7 +28490,8 @@
                             "Clone",
                             "Debug",
                             "PartialEq",
-                            "PartialOrd"
+                            "PartialOrd",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -30020,9 +29928,6 @@
                     },
                     "SystemFontType": {
                         "external": "azul_css::system::SystemFontType",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Debug",
                             "Clone",
@@ -30031,7 +29936,8 @@
                             "Eq",
                             "PartialOrd",
                             "Ord",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -32586,9 +32492,6 @@
                     },
                     "StyleLineBreak": {
                         "external": "azul_css::props::style::text::StyleLineBreak",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Debug",
                             "Copy",
@@ -32597,7 +32500,8 @@
                             "Eq",
                             "PartialOrd",
                             "Ord",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -32612,9 +32516,6 @@
                     },
                     "StyleTextAlignLast": {
                         "external": "azul_css::props::style::text::StyleTextAlignLast",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Debug",
                             "Copy",
@@ -32623,7 +32524,8 @@
                             "Eq",
                             "PartialOrd",
                             "Ord",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -32640,9 +32542,6 @@
                     },
                     "StyleOverflowWrap": {
                         "external": "azul_css::props::style::text::StyleOverflowWrap",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Debug",
                             "Copy",
@@ -32651,7 +32550,8 @@
                             "Eq",
                             "PartialOrd",
                             "Ord",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -32664,9 +32564,6 @@
                     },
                     "StyleWordBreak": {
                         "external": "azul_css::props::style::text::StyleWordBreak",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Debug",
                             "Copy",
@@ -32675,7 +32572,8 @@
                             "Eq",
                             "PartialOrd",
                             "Ord",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -32741,9 +32639,6 @@
                     },
                     "StyleTextOrientation": {
                         "external": "azul_css::props::style::effects::StyleTextOrientation",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Debug",
                             "Copy",
@@ -32752,7 +32647,8 @@
                             "Eq",
                             "PartialOrd",
                             "Ord",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -32765,9 +32661,6 @@
                     },
                     "StyleObjectFit": {
                         "external": "azul_css::props::style::effects::StyleObjectFit",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Debug",
                             "Copy",
@@ -32776,7 +32669,8 @@
                             "Eq",
                             "PartialOrd",
                             "Ord",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -32870,9 +32764,6 @@
                     },
                     "StyleAspectRatio": {
                         "external": "azul_css::props::style::effects::StyleAspectRatio",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Debug",
                             "Copy",
@@ -32881,7 +32772,8 @@
                             "Eq",
                             "PartialOrd",
                             "Ord",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -33131,9 +33023,6 @@
                     },
                     "StyleInitialLetterWrap": {
                         "external": "azul_css::props::style::text::StyleInitialLetterWrap",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Debug",
                             "Copy",
@@ -33142,7 +33031,8 @@
                             "Eq",
                             "PartialOrd",
                             "Ord",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -33229,9 +33119,6 @@
                     },
                     "StyleInitialLetterAlign": {
                         "external": "azul_css::props::style::text::StyleInitialLetterAlign",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Debug",
                             "Copy",
@@ -33240,7 +33127,8 @@
                             "Eq",
                             "PartialOrd",
                             "Ord",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -33254,9 +33142,6 @@
                     },
                     "StyleTextBoxEdge": {
                         "external": "azul_css::props::style::text::StyleTextBoxEdge",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Debug",
                             "Copy",
@@ -33265,7 +33150,8 @@
                             "Eq",
                             "PartialOrd",
                             "Ord",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -33279,9 +33165,6 @@
                     },
                     "StyleAlignmentBaseline": {
                         "external": "azul_css::props::style::text::StyleAlignmentBaseline",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Debug",
                             "Copy",
@@ -33290,7 +33173,8 @@
                             "Eq",
                             "PartialOrd",
                             "Ord",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -33308,9 +33192,6 @@
                     },
                     "StyleDominantBaseline": {
                         "external": "azul_css::props::style::text::StyleDominantBaseline",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Debug",
                             "Copy",
@@ -33319,7 +33200,8 @@
                             "Eq",
                             "PartialOrd",
                             "Ord",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -33338,9 +33220,6 @@
                     },
                     "StyleTextBoxTrim": {
                         "external": "azul_css::props::style::text::StyleTextBoxTrim",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Debug",
                             "Copy",
@@ -33349,7 +33228,8 @@
                             "Eq",
                             "PartialOrd",
                             "Ord",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -33385,9 +33265,6 @@
                     },
                     "StyleUnicodeBidi": {
                         "external": "azul_css::props::style::text::StyleUnicodeBidi",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Debug",
                             "Copy",
@@ -33396,7 +33273,8 @@
                             "Eq",
                             "PartialOrd",
                             "Ord",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -33822,7 +33700,6 @@
                         ],
                         "external": "azul_css::props::basic::pixel::SystemMetricRef",
                         "custom_impls": [
-                            "Default",
                             "Display"
                         ],
                         "derive": [
@@ -33833,7 +33710,8 @@
                             "Eq",
                             "PartialOrd",
                             "Ord",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -34147,7 +34025,6 @@
                     "Void": {
                         "external": "azul_css::corety::Void",
                         "custom_impls": [
-                            "Default",
                             "From"
                         ],
                         "derive": [
@@ -34158,7 +34035,8 @@
                             "Eq",
                             "PartialOrd",
                             "Ord",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "struct_fields": [
                             {
@@ -34227,10 +34105,12 @@
                         "enum_fields": [
                             {
                                 "Boxed": {
-                                    "type": "*mut T"
+                                    "type": "T",
+                                    "ref_kind": "mutptr"
                                 },
                                 "Static": {
-                                    "type": "*const T"
+                                    "type": "T",
+                                    "ref_kind": "constptr"
                                 }
                             }
                         ],
@@ -52033,9 +51913,6 @@
                     },
                     "Panose": {
                         "external": "azul_css::props::basic::font::Panose",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Debug",
                             "Clone",
@@ -52044,7 +51921,8 @@
                             "Eq",
                             "PartialOrd",
                             "Ord",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "struct_fields": [
                             {
@@ -52377,7 +52255,6 @@
                     "CssPathSelector": {
                         "external": "azul_css::css::CssPathSelector",
                         "custom_impls": [
-                            "Default",
                             "Display"
                         ],
                         "derive": [
@@ -52387,7 +52264,8 @@
                             "Debug",
                             "PartialOrd",
                             "Hash",
-                            "PartialEq"
+                            "PartialEq",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -54647,9 +54525,6 @@
                     },
                     "CssDuration": {
                         "external": "azul_css::props::basic::time::CssDuration",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Debug",
                             "Copy",
@@ -54658,7 +54533,8 @@
                             "Eq",
                             "PartialOrd",
                             "Ord",
-                            "Hash"
+                            "Hash",
+                            "Default"
                         ],
                         "struct_fields": [
                             {
@@ -79780,6 +79656,9 @@
                 }
             },
             "app": {
+                "doc": [
+                    "Application entry point, configuration, and lifecycle management."
+                ],
                 "classes": {
                     "AppConfig": {
                         "external": "azul_core::resources::AppConfig",
@@ -80009,12 +79888,12 @@
                         ],
                         "repr": "C"
                     }
-                },
-                "doc": [
-                    "Application entry point, configuration, and lifecycle management."
-                ]
+                }
             },
             "task": {
+                "doc": [
+                    "Timer, thread, and async task management."
+                ],
                 "classes": {
                     "ThreadSendMsg": {
                         "external": "azul_core::task::ThreadSendMsg",
@@ -80561,12 +80440,12 @@
                         ],
                         "repr": "C"
                     }
-                },
-                "doc": [
-                    "Timer, thread, and async task management."
-                ]
+                }
             },
             "misc": {
+                "doc": [
+                    "Miscellaneous utility types and helper functions."
+                ],
                 "classes": {
                     "FmtValue": {
                         "external": "azul_layout::fmt::FmtValue",
@@ -81712,12 +81591,12 @@
                         },
                         "repr": "C"
                     }
-                },
-                "doc": [
-                    "Miscellaneous utility types and helper functions."
-                ]
+                }
             },
             "icu": {
+                "doc": [
+                    "ICU internationalization: date/time formatting, plurals, and list formatting."
+                ],
                 "classes": {
                     "IcuDateTime": {
                         "external": "azul_layout::icu::IcuDateTime",
@@ -81806,12 +81685,12 @@
                         ],
                         "repr": "C"
                     }
-                },
-                "doc": [
-                    "ICU internationalization: date/time formatting, plurals, and list formatting."
-                ]
+                }
             },
             "fluent": {
+                "doc": [
+                    "Project Fluent localization: message bundles and argument formatting."
+                ],
                 "classes": {
                     "IcuLocalizerHandle": {
                         "external": "azul_layout::icu::IcuLocalizerHandle",
@@ -82475,12 +82354,12 @@
                         },
                         "repr": "C"
                     }
-                },
-                "doc": [
-                    "Project Fluent localization: message bundles and argument formatting."
-                ]
+                }
             },
             "component": {
+                "doc": [
+                    "Component system for reusable UI building blocks."
+                ],
                 "classes": {
                     "ComponentId": {
                         "external": "azul_core::xml::ComponentId",
@@ -83355,10 +83234,7 @@
                         ],
                         "repr": "C"
                     }
-                },
-                "doc": [
-                    "Component system for reusable UI building blocks."
-                ]
+                }
             }
         }
     }
