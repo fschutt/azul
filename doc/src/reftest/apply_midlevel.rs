@@ -127,9 +127,17 @@ pub fn run(config: Config) -> Result<(), String> {
             continue;
         }
 
-        // Show the commit
+        // Show the commit + overall progress
         let processed_so_far = progress.processed.len();
-        print_commit_summary(processed_so_far + 1, total, &info, paired_docs.as_ref());
+        print_commit_summary(
+            &project_root,
+            processed_so_far + 1,
+            total,
+            &progress,
+            &info,
+            paired_docs.as_ref(),
+            &config.reference,
+        );
 
         // Mark current and save — so Ctrl+C leaves a known-good pointer
         progress.current = Some(next.clone());
@@ -405,28 +413,58 @@ fn find_next<'a>(commits: &'a [String], progress: &Progress) -> Option<&'a Strin
 // ── UI ────────────────────────────────────────────────────────────────────
 
 fn print_commit_summary(
+    project_root: &Path,
     n: usize,
     total: usize,
+    progress: &Progress,
     info: &CommitInfo,
     paired: Option<&CommitInfo>,
+    reference: &str,
 ) {
+    let applied = progress.processed.iter().filter(|d| matches!(
+        d.decision,
+        DecisionKind::AppliedByAgent | DecisionKind::AppliedEdited
+    )).count();
+    let rejected = progress.processed.iter().filter(|d| d.decision == DecisionKind::Rejected).count();
+    let skipped  = progress.processed.iter().filter(|d| d.decision == DecisionKind::SkippedMd).count();
+    let remaining = total.saturating_sub(progress.processed.len()).saturating_sub(1);
+
+    let branch = git_current_branch(project_root).unwrap_or_else(|_| "?".into());
+    let head   = git_head(project_root).unwrap_or_else(|_| "?".into());
+
     println!("════════════════════════════════════════════════════════════════════════");
-    println!("Commit {}/{}  {}", n, total, &info.sha[..12]);
-    println!("Subject: {}", info.subject);
+    println!("  Reference: {}  →  commit {}/{}", reference, n, total);
+    println!("  Replaying onto: branch {} @ {}", branch, short(&head));
+    println!("  Progress: applied={}  rejected={}  skipped={}  remaining={}", applied, rejected, skipped, remaining);
+    println!("────────────────────────────────────────────────────────────────────────");
+    println!("  Next SHA: {}", &info.sha[..12]);
+    println!("  Subject:  {}", info.subject);
     if !info.body.is_empty() {
-        println!("Body:");
         for line in info.body.lines() {
-            println!("  {}", line);
+            println!("    > {}", line);
         }
     }
-    println!("\nFiles:");
+    println!();
+    println!("  Files ({}):", info.files.len());
     for f in &info.files {
-        println!("  {:>5} +{:<4} -{:<4}  {}", "", f.additions, f.deletions, f.path);
+        println!("    +{:<4} -{:<4}  {}", f.additions, f.deletions, f.path);
     }
     if let Some(p) = paired {
-        println!("\nPaired docs commit: {}  {}", &p.sha[..12], p.subject);
+        println!("\n  Paired docs commit: {}  {}", &p.sha[..12], p.subject);
     }
-    println!("────────────────────────────────────────────────────────────────────────");
+    println!("════════════════════════════════════════════════════════════════════════");
+}
+
+fn git_current_branch(project_root: &Path) -> Result<String, String> {
+    let out = Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(project_root)
+        .output()
+        .map_err(|e| format!("git branch: {}", e))?;
+    if !out.status.success() {
+        return Err(format!("git branch: {}", String::from_utf8_lossy(&out.stderr)));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
 enum UserAction {
@@ -688,9 +726,15 @@ fn run_apply_agent(
     let prompt_path = agent_dir.join(format!("{}.md", short(sha)));
     fs::write(&prompt_path, &prompt).ok();
 
-    println!("  → spawning claude agent (prompt saved to {})", prompt_path.display());
-    println!("  → agent output streams below — the session ID will appear in claude's banner");
-    println!("────────────────────────────────────────────────────────────────────────");
+    println!();
+    println!("╔══ spawning claude agent ══════════════════════════════════════════════");
+    println!("║  prompt       : {}", prompt_path.display());
+    println!("║  target SHA   : {}  {}", short(sha), info.subject);
+    println!("║  to attach    : look for 'session_id' in the output below, then");
+    println!("║                 claude --resume <id>");
+    println!("║  to abort     : Ctrl+C — progress is saved, this commit re-runs");
+    println!("╚═══════════════════════════════════════════════════════════════════════");
+    println!();
 
     // rust-analyzer-lsp is ALLOWED here — this agent runs sequentially and
     // benefits from the type info. We only block MCP tools leaking from user
@@ -710,10 +754,19 @@ fn run_apply_agent(
     // targets installed) rather than Homebrew's cargo, which doesn't.
     let path_with_rustup = rustup_prefixed_path();
 
+    // Pass the path to the currently-running azul-doc binary so the agent can
+    // invoke `$AZUL_DOC_BIN autofix` directly instead of `cargo run -r -p
+    // azul-doc -- autofix`. That keeps autofix + codegen working even after
+    // the agent does `cargo clean` (otherwise cargo would have to re-build
+    // azul-doc from scratch before each pipeline step).
+    let azul_doc_bin = std::env::current_exe()
+        .map_err(|e| format!("current_exe: {}", e))?;
+
     let mut child = Command::new("claude")
         .args(&cmd_args)
         .env_remove("CLAUDECODE")
         .env("PATH", &path_with_rustup)
+        .env("AZUL_DOC_BIN", &azul_doc_bin)
         .current_dir(project_root)
         .stdin(Stdio::piped())
         .stdout(Stdio::inherit())
@@ -872,19 +925,25 @@ fn build_agent_prompt(
     p.push_str("Run these in order. If any step fails, investigate and fix the root cause\n");
     p.push_str("before continuing. Do NOT skip any step. ALWAYS use `--release` (`-r`) for\n");
     p.push_str("every cargo invocation — debug artifacts can easily fill the disk.\n\n");
+    p.push_str("IMPORTANT: the azul-doc binary you need for these steps is already built\n");
+    p.push_str("and available as `$AZUL_DOC_BIN` in your environment. Invoke it directly:\n\n");
+    p.push_str("    \"$AZUL_DOC_BIN\" autofix\n\n");
+    p.push_str("NOT `cargo run -r -p azul-doc -- autofix` — the cargo form would rebuild\n");
+    p.push_str("azul-doc after any `cargo clean` you do. `$AZUL_DOC_BIN` is the exact\n");
+    p.push_str("release binary of the CLI that spawned you, so it's guaranteed current.\n\n");
     p.push_str("  (a) Run autofix + apply in a LOOP until autofix reports\n");
     p.push_str("      `Generated 0 patches`. One pass is not enough — applying patches\n");
     p.push_str("      can surface new inconsistencies that autofix then needs to fix too.\n\n");
     p.push_str("      Loop:\n");
-    p.push_str("          cargo run -r -p azul-doc -- autofix\n");
+    p.push_str("          \"$AZUL_DOC_BIN\" autofix\n");
     p.push_str("          # if the above printed `Generated 0 patches` → break out of loop\n");
-    p.push_str("          cargo run -r -p azul-doc -- patch safe target/autofix/patches\n");
-    p.push_str("          cargo run -r -p azul-doc -- patch      target/autofix/patches\n");
+    p.push_str("          \"$AZUL_DOC_BIN\" patch safe target/autofix/patches\n");
+    p.push_str("          \"$AZUL_DOC_BIN\" patch      target/autofix/patches\n");
     p.push_str("          # loop back to `autofix`\n\n");
     p.push_str("      Only proceed once autofix produces zero patches.\n\n");
     p.push_str("  (b) Then run the normalize + codegen pass ONCE:\n\n");
-    p.push_str("          cargo run -r -p azul-doc -- normalize\n");
-    p.push_str("          cargo run -r -p azul-doc -- codegen all\n\n");
+    p.push_str("          \"$AZUL_DOC_BIN\" normalize\n");
+    p.push_str("          \"$AZUL_DOC_BIN\" codegen all\n\n");
     p.push_str("After these, if `git status --porcelain` is non-empty, drop any .md changes\n");
     p.push_str("(same commands as step 2), stage everything else, and amend the commit:\n\n");
     p.push_str("    git add -A\n");
