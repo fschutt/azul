@@ -139,41 +139,95 @@ pub fn run(config: Config) -> Result<(), String> {
 
         match action {
             UserAction::Yes | UserAction::Edit(_) => {
-                let user_instruction = match &action {
-                    UserAction::Edit(s) => Some(s.as_str()),
+                let pre_head = git_head(&project_root)?;
+
+                let mut initial_instruction = match &action {
+                    UserAction::Edit(s) => Some(s.clone()),
                     _ => None,
                 };
+                let mut user_instruction_history: Vec<String> = Vec::new();
+                let mut was_edited = initial_instruction.is_some();
 
-                let outcome = run_apply_agent(
-                    &project_root,
-                    &next,
-                    &info,
-                    paired_docs.as_ref(),
-                    user_instruction,
-                    &config,
-                );
+                // Apply + refine loop
+                let final_outcome = loop {
+                    let instr_ref = initial_instruction.as_deref();
+                    let outcome = run_apply_agent(
+                        &project_root,
+                        &next,
+                        &info,
+                        paired_docs.as_ref(),
+                        instr_ref,
+                        &pre_head,
+                        &config,
+                    );
 
-                match outcome {
+                    match outcome {
+                        Ok(applied) => {
+                            // Show what landed and prompt for accept / refine / revert
+                            print_applied_summary(&project_root, &pre_head, &applied.new_sha)?;
+                            match prompt_post_apply()? {
+                                PostApply::Accept => break Ok(applied),
+                                PostApply::Refine(instr) => {
+                                    user_instruction_history.push(instr.clone());
+                                    initial_instruction = Some(instr);
+                                    was_edited = true;
+                                    // next iteration: agent gets new instruction on top of current HEAD
+                                    continue;
+                                }
+                                PostApply::Revert => {
+                                    run_git(&project_root, &["reset", "--hard", &pre_head])?;
+                                    break Err("user reverted the commit".to_string());
+                                }
+                                PostApply::Quit => {
+                                    // leave commit in place, save progress with current state
+                                    println!("Quitting without advancing. Re-run to resume.");
+                                    save_progress(&progress_path, &progress)?;
+                                    return Ok(());
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            println!("\n[ERROR] agent apply failed: {}\n", e);
+                            println!("Repository state left as-is. Resolve manually or quit.");
+                            return Err(e);
+                        }
+                    }
+                };
+
+                match final_outcome {
                     Ok(Applied { new_sha }) => {
                         progress.current = None;
+                        let notes = if user_instruction_history.is_empty() {
+                            None
+                        } else {
+                            Some(user_instruction_history.join("\n---\n"))
+                        };
                         progress.processed.push(Decision {
                             sha: next.clone(),
                             subject: info.subject.clone(),
-                            decision: if user_instruction.is_some() {
+                            decision: if was_edited {
                                 DecisionKind::AppliedEdited
                             } else {
                                 DecisionKind::AppliedByAgent
                             },
                             new_sha: Some(new_sha),
-                            notes: user_instruction.map(|s| s.to_string()),
+                            notes,
                         });
                         save_progress(&progress_path, &progress)?;
                         println!();
                     }
-                    Err(e) => {
-                        println!("\n[ERROR] agent apply failed: {}\n", e);
-                        println!("Repository state left as-is. Resolve manually or quit.");
-                        return Err(e);
+                    Err(reason) => {
+                        // User reverted — treat as rejected
+                        progress.current = None;
+                        progress.processed.push(Decision {
+                            sha: next.clone(),
+                            subject: info.subject.clone(),
+                            decision: DecisionKind::Rejected,
+                            new_sha: None,
+                            notes: Some(reason),
+                        });
+                        save_progress(&progress_path, &progress)?;
+                        println!();
                     }
                 }
             }
@@ -299,10 +353,11 @@ fn load_commit_info(project_root: &Path, sha: &str) -> Result<CommitInfo, String
     let is_pure_md = !files.is_empty()
         && files.iter().all(|f| f.path.ends_with(".md"));
 
-    // Heuristic: any token in the subject ending in `.rs` that points at a real file
+    // Heuristic: any token in the subject that looks like a source-file path
+    let source_exts = [".rs", ".toml", ".json", ".yaml", ".yml", ".h", ".hpp", ".c", ".cpp", ".py"];
     let subject_source_path = subject
         .split(|c: char| c.is_whitespace() || c == ',' || c == ':')
-        .find(|tok| tok.ends_with(".rs"))
+        .find(|tok| source_exts.iter().any(|ext| tok.ends_with(ext)))
         .map(|s| s.to_string());
 
     Ok(CommitInfo {
@@ -380,6 +435,69 @@ enum UserAction {
     Edit(String),
     Show,
     Quit,
+}
+
+enum PostApply {
+    /// The commit looks good — advance to the next one.
+    Accept,
+    /// Give the agent another round of instructions. The previous commit is
+    /// collapsed and the refinement is squashed into a single commit.
+    Refine(String),
+    /// Revert this commit entirely (hard reset to pre-apply HEAD).
+    Revert,
+    /// Save progress and exit without advancing.
+    Quit,
+}
+
+fn prompt_post_apply() -> Result<PostApply, String> {
+    println!();
+    print!("Accept this commit? [y]es / [e]dit-further / [r]evert / [q]uit: ");
+    io::stdout().flush().ok();
+    let line = read_line()?;
+    let c = line.trim().chars().next().unwrap_or(' ');
+    match c {
+        'y' | 'Y' => Ok(PostApply::Accept),
+        'e' | 'E' => {
+            println!("  Additional instructions for the agent (end with '.' on its own line):");
+            let instr = read_multiline_until_dot()?;
+            Ok(PostApply::Refine(instr))
+        }
+        'r' | 'R' => Ok(PostApply::Revert),
+        'q' | 'Q' => Ok(PostApply::Quit),
+        _ => {
+            println!("  (unrecognised — treating as edit)");
+            println!("  Additional instructions for the agent (end with '.' on its own line):");
+            let instr = read_multiline_until_dot()?;
+            Ok(PostApply::Refine(instr))
+        }
+    }
+}
+
+fn print_applied_summary(
+    project_root: &Path,
+    pre_head: &str,
+    new_head: &str,
+) -> Result<(), String> {
+    println!("\n═══ applied ═══════════════════════════════════════════════════════════");
+    // Show the diffstat of the new commit-range
+    let out = Command::new("git")
+        .args(["diff", "--stat", &format!("{}..{}", pre_head, new_head)])
+        .current_dir(project_root)
+        .output()
+        .map_err(|e| format!("git diff --stat: {}", e))?;
+    print!("{}", String::from_utf8_lossy(&out.stdout));
+
+    // Show the new commit's subject
+    let out = Command::new("git")
+        .args(["log", "--format=%h %s", &format!("{}..{}", pre_head, new_head)])
+        .current_dir(project_root)
+        .output()
+        .map_err(|e| format!("git log: {}", e))?;
+    println!("\nCommit(s):");
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        println!("  {}", line);
+    }
+    Ok(())
 }
 
 fn prompt_user() -> Result<UserAction, String> {
@@ -534,15 +652,22 @@ struct Applied {
 ///
 /// The CLI verifies success by checking that HEAD advanced, the tree is clean,
 /// and the new commit's diff touches no `.md` files.
+///
+/// `pre_head` is the SHA BEFORE the very first apply attempt for this commit.
+/// If the agent is refining a previously-applied commit (HEAD != pre_head when
+/// called), we soft-reset HEAD to pre_head after the agent finishes and
+/// re-commit the combined staged changes as a single commit. This keeps one
+/// commit per reference-commit in the replayed history.
 fn run_apply_agent(
     project_root: &Path,
     sha: &str,
     info: &CommitInfo,
     paired: Option<&CommitInfo>,
     user_instruction: Option<&str>,
+    pre_head: &str,
     config: &Config,
 ) -> Result<Applied, String> {
-    let pre_head = git_head(project_root)?;
+    let is_refinement = git_head(project_root)? != pre_head;
 
     // Refuse to start if the tree is dirty — the agent needs a clean slate.
     let dirty = !index_is_empty(project_root)? || has_worktree_changes(project_root)?;
@@ -567,12 +692,14 @@ fn run_apply_agent(
     println!("  → agent output streams below — the session ID will appear in claude's banner");
     println!("────────────────────────────────────────────────────────────────────────");
 
+    // rust-analyzer-lsp is ALLOWED here — this agent runs sequentially and
+    // benefits from the type info. We only block MCP tools leaking from user
+    // config.
     let mut cmd_args: Vec<&str> = vec![
         "-p",
         "--dangerously-skip-permissions",
         "--verbose",
         "--disallowedTools", "mcp__*",
-        "--disallowedTools", "rust-analyzer-lsp",
     ];
     if let Some(m) = config.model.as_ref() {
         cmd_args.push("--model");
@@ -607,22 +734,78 @@ fn run_apply_agent(
         return Err(format!("claude exited with status {}", status));
     }
 
-    // Verify: HEAD advanced, tree clean, and the new commit doesn't touch .md.
+    // Verify tree is clean.
     let post_head = git_head(project_root)?;
-    if post_head == pre_head {
-        return Err("agent made no commits".into());
-    }
-
     if has_worktree_changes(project_root)? || !index_is_empty(project_root)? {
         return Err("agent left working tree dirty after committing".into());
     }
 
-    let md_hits = git_diff_touches_md(project_root, &pre_head, &post_head)?;
+    if post_head == pre_head {
+        return Err("agent made no commits".into());
+    }
+
+    // If the agent made more than one commit, or we're refining (pre_head is
+    // the original baseline and HEAD already had a commit from a prior round),
+    // collapse everything on top of pre_head into a single squashed commit.
+    let commit_count = count_commits(project_root, pre_head, &post_head)?;
+    let final_head = if commit_count > 1 || is_refinement {
+        squash_to_one_commit(project_root, pre_head, info, user_instruction)?
+    } else {
+        post_head.clone()
+    };
+
+    // Check the squashed (or single) commit doesn't touch .md
+    let md_hits = git_diff_touches_md(project_root, pre_head, &final_head)?;
     if !md_hits.is_empty() {
         return Err(format!("agent committed .md files: {}", md_hits.join(", ")));
     }
 
-    Ok(Applied { new_sha: post_head })
+    Ok(Applied { new_sha: final_head })
+}
+
+fn count_commits(project_root: &Path, from: &str, to: &str) -> Result<usize, String> {
+    let out = Command::new("git")
+        .args(["rev-list", "--count", &format!("{}..{}", from, to)])
+        .current_dir(project_root)
+        .output()
+        .map_err(|e| format!("git rev-list: {}", e))?;
+    String::from_utf8_lossy(&out.stdout)
+        .trim()
+        .parse::<usize>()
+        .map_err(|e| format!("parse commit count: {}", e))
+}
+
+/// Soft-reset HEAD to `base` so all changes since `base` are staged, drop
+/// `.md` files, and re-commit as a single commit with a clean message derived
+/// from the reference commit's subject/body plus an optional note about the
+/// user's instructions.
+fn squash_to_one_commit(
+    project_root: &Path,
+    base: &str,
+    info: &CommitInfo,
+    user_instruction: Option<&str>,
+) -> Result<String, String> {
+    run_git(project_root, &["reset", "--soft", base])?;
+    drop_md_changes(project_root)?;
+
+    if index_is_empty(project_root)? {
+        // Everything was .md — undo
+        reset_working_tree_to(project_root, base)?;
+        return Err("after collapsing and dropping .md, nothing remains to commit".into());
+    }
+
+    let subject = info.subject.clone();
+    let mut body = info.body.clone();
+    if !body.is_empty() { body.push_str("\n\n"); }
+    body.push_str(&format!("Replayed from {}", &info.sha[..12]));
+    if user_instruction.is_some() {
+        body.push_str(" (with user refinements).");
+    } else {
+        body.push_str(".");
+    }
+
+    commit_with_message(project_root, &subject, &body)?;
+    git_head(project_root)
 }
 
 fn build_agent_prompt(
@@ -655,10 +838,15 @@ fn build_agent_prompt(
         p.push_str("and manually apply the INTENT of the diff below, using the paired\n");
         p.push_str("review report for context about WHY the change was made.\n");
     } else {
-        p.push_str("IGNORE the original commit's diff as a literal instruction.\n");
-        p.push_str("Follow the USER INSTRUCTION below instead. Use the original diff\n");
-        p.push_str("and paired report only as reference context for what the original\n");
-        p.push_str("change was trying to accomplish.\n");
+        p.push_str("This is either a user-directed override or a REFINEMENT pass.\n");
+        p.push_str("The user has reviewed a previous attempt at this commit and wants\n");
+        p.push_str("something different. Check `git log -1 --format=%s%n%b HEAD` — if HEAD\n");
+        p.push_str("already looks like the commit you're replaying, this is a refinement:\n");
+        p.push_str("apply the USER INSTRUCTION as an ADDITIONAL edit on top of HEAD, then\n");
+        p.push_str("make a new commit (the caller will squash it into one).\n\n");
+        p.push_str("If HEAD has not yet been replayed, IGNORE the original commit's diff\n");
+        p.push_str("as a literal instruction and follow the USER INSTRUCTION below. Use\n");
+        p.push_str("the original diff and paired report only as reference context.\n");
     }
     p.push_str("\n");
 
@@ -684,11 +872,19 @@ fn build_agent_prompt(
     p.push_str("Run these in order. If any step fails, investigate and fix the root cause\n");
     p.push_str("before continuing. Do NOT skip any step. ALWAYS use `--release` (`-r`) for\n");
     p.push_str("every cargo invocation — debug artifacts can easily fill the disk.\n\n");
-    p.push_str("    cargo run -r -p azul-doc -- autofix\n");
-    p.push_str("    cargo run -r -p azul-doc -- patch safe target/autofix/patches\n");
-    p.push_str("    cargo run -r -p azul-doc -- patch      target/autofix/patches\n");
-    p.push_str("    cargo run -r -p azul-doc -- normalize\n");
-    p.push_str("    cargo run -r -p azul-doc -- codegen all\n\n");
+    p.push_str("  (a) Run autofix + apply in a LOOP until autofix reports\n");
+    p.push_str("      `Generated 0 patches`. One pass is not enough — applying patches\n");
+    p.push_str("      can surface new inconsistencies that autofix then needs to fix too.\n\n");
+    p.push_str("      Loop:\n");
+    p.push_str("          cargo run -r -p azul-doc -- autofix\n");
+    p.push_str("          # if the above printed `Generated 0 patches` → break out of loop\n");
+    p.push_str("          cargo run -r -p azul-doc -- patch safe target/autofix/patches\n");
+    p.push_str("          cargo run -r -p azul-doc -- patch      target/autofix/patches\n");
+    p.push_str("          # loop back to `autofix`\n\n");
+    p.push_str("      Only proceed once autofix produces zero patches.\n\n");
+    p.push_str("  (b) Then run the normalize + codegen pass ONCE:\n\n");
+    p.push_str("          cargo run -r -p azul-doc -- normalize\n");
+    p.push_str("          cargo run -r -p azul-doc -- codegen all\n\n");
     p.push_str("After these, if `git status --porcelain` is non-empty, drop any .md changes\n");
     p.push_str("(same commands as step 2), stage everything else, and amend the commit:\n\n");
     p.push_str("    git add -A\n");
