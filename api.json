@@ -34105,12 +34105,10 @@
                         "enum_fields": [
                             {
                                 "Boxed": {
-                                    "type": "T",
-                                    "ref_kind": "mutptr"
+                                    "type": "*mutT"
                                 },
                                 "Static": {
-                                    "type": "T",
-                                    "ref_kind": "constptr"
+                                    "type": "*constT"
                                 }
                             }
                         ],
