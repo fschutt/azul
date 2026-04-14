@@ -506,17 +506,9 @@ fn print_commit_summary(
     println!("════════════════════════════════════════════════════════════════════════");
 }
 
-/// Show the reference commit in the user's editor with full-tree context:
-///   1. Save current branch.
-///   2. Write the diff to `.apply-midlevel/current.diff`.
-///   3. `git checkout <sha>` — detached HEAD at the reference commit state.
-///   4. Open the project + diff file in the user's editor (tries `$EDITOR`,
-///      `code`, then `open` on macOS / `xdg-open` on linux).
-///   5. Block until the user presses Enter.
-///   6. Restore the saved branch.
-///
-/// If anything fails between 3 and 6, we MUST restore the branch — otherwise
-/// the user is stranded on a detached HEAD.
+/// Checkout the reference commit so an already-open editor (VSCode etc.)
+/// auto-refreshes its git view to that commit's state. Blocks on Enter, then
+/// restores the original branch.
 fn open_commit_in_editor(
     project_root: &Path,
     sha: &str,
@@ -527,14 +519,6 @@ fn open_commit_in_editor(
         return Err("already on a detached HEAD; resolve that first".into());
     }
 
-    // Write the diff file
-    let diff_dir = project_root.join(".apply-midlevel");
-    fs::create_dir_all(&diff_dir).ok();
-    let diff_path = diff_dir.join(format!("{}.diff", short(sha)));
-    let diff_content = git_show_diff(project_root, sha)?;
-    fs::write(&diff_path, &diff_content).ok();
-
-    // Refuse to checkout if the tree is dirty
     if has_worktree_changes(project_root)? || !index_is_empty(project_root)? {
         return Err("working tree not clean; cannot checkout for inspection".into());
     }
@@ -543,14 +527,11 @@ fn open_commit_in_editor(
     println!("  Checking out {} (detached HEAD) …", &sha[..12]);
     run_git(project_root, &["checkout", "--detach", sha])?;
 
-    println!("  Opening editor: diff={} and project root", diff_path.display());
-    open_in_editor(project_root, &diff_path);
-
     println!();
     println!("  ┌─ inspecting commit {} ({}) ─────────────────────", &sha[..12], info.subject);
-    println!("  │ Tree is checked out at the reference commit.");
-    println!("  │ Feel free to poke around. Diff is at: {}", diff_path.display());
-    println!("  │ When done, press Enter to restore branch `{}` and return.", branch);
+    println!("  │ Switch to your editor (VSCode etc.) — its git view should have");
+    println!("  │ auto-refreshed to this commit's state. Poke around.");
+    println!("  │ Press Enter to restore branch `{}` and return to the prompt.", branch);
     println!("  └──────────────────────────────────────────────────────────────────");
     let _ = read_line();
 
@@ -558,58 +539,6 @@ fn open_commit_in_editor(
     run_git(project_root, &["checkout", &branch])?;
     println!();
     Ok(())
-}
-
-/// Best-effort: try `$EDITOR <project>` (if set and not a pager), then `code`,
-/// then macOS `open` / Linux `xdg-open`. We open both the project root (so the
-/// user can navigate files) and the diff file.
-fn open_in_editor(project_root: &Path, diff_path: &Path) {
-    let root_str = project_root.to_string_lossy().to_string();
-    let diff_str = diff_path.to_string_lossy().to_string();
-
-    // Prefer `code` (VSCode) if available — it opens folder + file in one window
-    if is_on_path("code") {
-        let _ = Command::new("code")
-            .arg(&root_str)
-            .arg(&diff_str)
-            .spawn();
-        return;
-    }
-
-    // Respect $EDITOR, but only if it's a GUI editor we can open in background
-    if let Ok(editor) = std::env::var("EDITOR") {
-        if editor.contains("code") || editor.contains("subl") || editor.contains("atom") {
-            let _ = Command::new(&editor).arg(&root_str).arg(&diff_str).spawn();
-            return;
-        }
-    }
-
-    // Platform default
-    #[cfg(target_os = "macos")]
-    {
-        let _ = Command::new("open").arg(&diff_str).spawn();
-        let _ = Command::new("open").arg(&root_str).spawn();
-    }
-    #[cfg(target_os = "linux")]
-    {
-        let _ = Command::new("xdg-open").arg(&diff_str).spawn();
-        let _ = Command::new("xdg-open").arg(&root_str).spawn();
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let _ = Command::new("cmd").args(["/C", "start", "", &diff_str]).spawn();
-        let _ = Command::new("cmd").args(["/C", "start", "", &root_str]).spawn();
-    }
-}
-
-fn is_on_path(program: &str) -> bool {
-    Command::new(program)
-        .arg("--version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
 }
 
 fn git_current_branch(project_root: &Path) -> Result<String, String> {
