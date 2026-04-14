@@ -3008,7 +3008,10 @@ pub fn is_avoid_break_inside(break_inside: &BreakInside) -> bool {
 
 use std::collections::HashMap;
 
-use rust_fontconfig::{FcFontCache, FcWeight, FontFallbackChain, PatternMatch};
+use rust_fontconfig::{
+    FcFontCache, FcWeight, FontFallbackChain, PatternMatch, UnicodeRange,
+    DEFAULT_UNICODE_FALLBACK_SCRIPTS,
+};
 
 use crate::text3::cache::{FontChainKey, FontChainKeyOrRef, FontSelector, FontStack, FontStyle};
 
@@ -3264,9 +3267,82 @@ pub fn collect_font_stacks_from_styled_dom(
 ///
 /// # Returns
 /// A `ResolvedFontChains` containing all resolved font chains
+/// Scan text-node content in `styled_dom` and return the subset of
+/// [`rust_fontconfig::DEFAULT_UNICODE_FALLBACK_SCRIPTS`] whose code-point
+/// ranges actually appear in any text. Short-circuits once all seven
+/// ranges have been seen.
+///
+/// Callers pass the result as `scripts_hint` to
+/// [`resolve_font_chains`] / [`collect_and_resolve_font_chains_with_registration`];
+/// `rust_fontconfig::FcFontCache::resolve_font_chain_with_scripts` then
+/// only pulls in Unicode-fallback fonts for scripts the document
+/// actually uses. An ASCII-only page returns an empty vector, which
+/// avoids dragging Arial Unicode MS, CJK fonts, etc. into the
+/// resolved chain and therefore into the eager-load step.
+pub fn scripts_present_in_styled_dom(styled_dom: &StyledDom) -> Vec<UnicodeRange> {
+    let scripts = DEFAULT_UNICODE_FALLBACK_SCRIPTS;
+    let mut seen = vec![false; scripts.len()];
+    let mut hits = 0usize;
+    let node_data = styled_dom.node_data.as_container();
+    'outer: for node in node_data.internal.iter() {
+        let text: &str = match &node.node_type {
+            azul_core::dom::NodeType::Text(s) => s.as_str(),
+            _ => continue,
+        };
+        for c in text.chars() {
+            let cp = c as u32;
+            // Cheap reject: everything below the first fallback-script
+            // range (Cyrillic starts at U+0400) is covered by the CSS
+            // fallbacks' own glyphs — no reason to probe.
+            if cp < 0x0400 {
+                continue;
+            }
+            for (idx, r) in scripts.iter().enumerate() {
+                if !seen[idx] && cp >= r.start && cp <= r.end {
+                    seen[idx] = true;
+                    hits += 1;
+                    if hits == scripts.len() {
+                        break 'outer;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    scripts
+        .iter()
+        .enumerate()
+        .filter_map(|(i, r)| if seen[i] { Some(*r) } else { None })
+        .collect()
+}
+
+/// Resolve font chains for a collected set of stacks, restricting
+/// Unicode fallbacks to `scripts_hint`. Pass an empty slice to skip
+/// Unicode fallbacks entirely; pass
+/// [`rust_fontconfig::DEFAULT_UNICODE_FALLBACK_SCRIPTS`] (or compute
+/// via [`scripts_present_in_styled_dom`]) for the typical case.
+pub fn resolve_font_chains_with_scripts(
+    collected: &CollectedFontStacks,
+    fc_cache: &FcFontCache,
+    scripts_hint: &[UnicodeRange],
+) -> ResolvedFontChains {
+    resolve_font_chains_inner(collected, fc_cache, Some(scripts_hint))
+}
+
+/// Back-compat wrapper: keeps the pre-refactor "all 7 default scripts"
+/// behaviour. New callers should prefer
+/// [`resolve_font_chains_with_scripts`] with a caller-supplied hint.
 pub fn resolve_font_chains(
     collected: &CollectedFontStacks,
     fc_cache: &FcFontCache,
+) -> ResolvedFontChains {
+    resolve_font_chains_inner(collected, fc_cache, None)
+}
+
+fn resolve_font_chains_inner(
+    collected: &CollectedFontStacks,
+    fc_cache: &FcFontCache,
+    scripts_hint: Option<&[UnicodeRange]>,
 ) -> ResolvedFontChains {
     let mut chains = HashMap::new();
 
@@ -3321,8 +3397,9 @@ pub fn resolve_font_chains(
         };
 
         let mut trace = Vec::new();
-        let chain =
-            fc_cache.resolve_font_chain(&font_families, weight, italic, oblique, &mut trace);
+        let chain = fc_cache.resolve_font_chain_with_scripts(
+            &font_families, weight, italic, oblique, scripts_hint, &mut trace,
+        );
 
         chains.insert(cache_key, chain);
     }
@@ -3360,10 +3437,18 @@ pub fn collect_and_resolve_font_chains_with_registration<T: crate::font_traits::
         font_manager.register_embedded_font(font_ref);
     }
 
-    resolve_font_chains(&collected, fc_cache)
+    // Scope Unicode fallbacks to scripts actually present in the DOM.
+    // For an ASCII-only document this returns an empty hint, which
+    // suppresses the 22 MiB Arial Unicode MS pull-in (and similar
+    // Arabic/Devanagari/Hebrew fonts) that otherwise happen for every
+    // chain regardless of document content.
+    let scripts = scripts_present_in_styled_dom(styled_dom);
+    resolve_font_chains_with_scripts(&collected, fc_cache, &scripts)
 }
 
-/// Legacy wrapper: collect + resolve without registration.
+/// Legacy wrapper: collect + resolve without registration. Kept for
+/// backward compatibility; defaults to the full 7-script unicode
+/// fallback set.
 pub fn collect_and_resolve_font_chains(
     styled_dom: &StyledDom,
     fc_cache: &FcFontCache,

@@ -547,15 +547,24 @@ impl FontContext {
 
     /// Pre-resolve font chains for a StyledDom's CSS font stacks.
     /// Call this before layout so text rendering doesn't skip glyphs.
+    ///
+    /// Unicode-fallback fonts are limited to the scripts actually
+    /// present in the document's text content — for an ASCII-only
+    /// page, this skips the ~300 MiB Arial-Unicode / CJK / Arabic
+    /// pull-in entirely. See
+    /// [`crate::solver3::getters::scripts_present_in_styled_dom`].
     pub fn pre_resolve_chains_for_dom(
         &mut self,
         styled_dom: &azul_core::styled_dom::StyledDom,
         platform: &azul_css::system::Platform,
     ) {
         use crate::solver3::getters::{
-            collect_and_resolve_font_chains,
+            collect_font_stacks_from_styled_dom, resolve_font_chains_with_scripts,
+            scripts_present_in_styled_dom,
         };
-        let chains = collect_and_resolve_font_chains(styled_dom, &self.fc_cache, platform);
+        let collected = collect_font_stacks_from_styled_dom(styled_dom, platform);
+        let scripts = scripts_present_in_styled_dom(styled_dom);
+        let chains = resolve_font_chains_with_scripts(&collected, &self.fc_cache, &scripts);
         self.font_chain_cache = chains.into_fontconfig_chains();
     }
 
