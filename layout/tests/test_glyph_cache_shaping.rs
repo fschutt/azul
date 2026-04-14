@@ -121,7 +121,7 @@ fn test_shaping_vs_hbshape_test() {
     println!("  T+e total: allsorts={:.0} hb={}",
         (t_glyph.advance + t_glyph.kerning) + (e_glyph.advance + e_glyph.kerning),
         t_hb.ax as u32 + e_hb.ax as u32);
-    println!("  allsorts has GPOS: {}", font.gpos_cache.is_some());
+    println!("  allsorts has GPOS: {}", font.gpos().is_some());
     println!("  allsorts has kern table: {}", font.opt_kern_table.is_some());
 
     // Total width of "Te" must match between allsorts and hb-shape

@@ -56,7 +56,12 @@ fn load_helvetica_neue() -> Option<ParsedFont> {
     let font_path = "/System/Library/Fonts/HelveticaNeue.ttc";
     let font_bytes = fs::read(font_path).ok()?;
     let mut warnings = Vec::new();
-    ParsedFont::from_bytes(&font_bytes, 0, &mut warnings)
+    // `from_bytes` no longer pre-decodes every glyph outline; these
+    // tests pull glyph records directly out of `glyph_records_decoded`
+    // by id, so prime the cache up front to restore the old behaviour.
+    let mut font = ParsedFont::from_bytes(&font_bytes, 0, &mut warnings)?;
+    font.prime_glyph_cache();
+    Some(font)
 }
 
 /// FreeType reference data for one glyph at ppem=16.
@@ -1545,7 +1550,7 @@ fn test_debug_kerning() {
     };
 
     eprintln!("Font: {} glyphs, upem={}", font.glyph_records_decoded.len(), font.font_metrics.units_per_em);
-    eprintln!("Has GPOS: {}", font.gpos_cache.is_some());
+    eprintln!("Has GPOS: {}", font.gpos().is_some());
     eprintln!("Has kern table: {}", font.opt_kern_table.is_some());
 
     let t_gid = font.lookup_glyph_index(0x54); // 'T'
@@ -1583,7 +1588,7 @@ fn test_debug_kerning() {
 
     let mut infos = gpos::Info::init_from_glyphs(opt_gdef, raw_glyphs);
 
-    if let Some(gpos_cache) = font.gpos_cache.as_ref() {
+    if let Some(gpos_cache) = font.gpos() {
         let kern_table = font.opt_kern_table.as_ref().map(|kt| kt.as_borrowed());
         let apply_kerning = true;
         let script_tag = allsorts::tag::LATN;

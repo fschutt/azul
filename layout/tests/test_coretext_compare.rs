@@ -329,7 +329,11 @@ fn load_times() -> Option<ParsedFont> {
         .or_else(|_| fs::read("/System/Library/Fonts/Times.ttc"))
         .ok()?;
     let mut w = Vec::new();
-    ParsedFont::from_bytes(&bytes, 0, &mut w)
+    // Prime the lazy outline cache — this test inspects
+    // `glyph_records_decoded` directly by glyph id.
+    let mut f = ParsedFont::from_bytes(&bytes, 0, &mut w)?;
+    f.prime_glyph_cache();
+    Some(f)
 }
 
 /// Pass 1: Binary comparison — are we inking the right pixels?

@@ -206,7 +206,11 @@ fn test_bytecode_decode_u() {
     };
     let mut warnings = Vec::new();
     let font = match ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
-        Some(f) => f, None => { eprintln!("Failed"); return; }
+        // `from_bytes` no longer eagerly decodes every glyph; prime
+        // the cache so the `.glyph_records_decoded.get(&gid)` calls
+        // below still return the per-glyph records this test inspects.
+        Some(mut f) => { f.prime_glyph_cache(); f },
+        None => { eprintln!("Failed"); return; }
     };
 
     let glyph_id = font.lookup_glyph_index('u' as u32).unwrap();
@@ -251,7 +255,11 @@ fn test_bytecode_decode_l() {
     };
     let mut warnings = Vec::new();
     let font = match ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
-        Some(f) => f, None => { eprintln!("Failed"); return; }
+        // `from_bytes` no longer eagerly decodes every glyph; prime
+        // the cache so the `.glyph_records_decoded.get(&gid)` calls
+        // below still return the per-glyph records this test inspects.
+        Some(mut f) => { f.prime_glyph_cache(); f },
+        None => { eprintln!("Failed"); return; }
     };
 
     let glyph_id = font.lookup_glyph_index('L' as u32).unwrap();
@@ -296,7 +304,11 @@ fn test_push_values() {
     };
     let mut warnings = Vec::new();
     let font = match ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
-        Some(f) => f, None => { eprintln!("Failed"); return; }
+        // `from_bytes` no longer eagerly decodes every glyph; prime
+        // the cache so the `.glyph_records_decoded.get(&gid)` calls
+        // below still return the per-glyph records this test inspects.
+        Some(mut f) => { f.prime_glyph_cache(); f },
+        None => { eprintln!("Failed"); return; }
     };
 
     let glyph_id = font.lookup_glyph_index('u' as u32).unwrap();
@@ -350,7 +362,11 @@ fn test_decode_all_lorem_glyphs() {
     };
     let mut warnings = Vec::new();
     let font = match ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
-        Some(f) => f, None => { eprintln!("Failed"); return; }
+        // `from_bytes` no longer eagerly decodes every glyph; prime
+        // the cache so the `.glyph_records_decoded.get(&gid)` calls
+        // below still return the per-glyph records this test inspects.
+        Some(mut f) => { f.prime_glyph_cache(); f },
+        None => { eprintln!("Failed"); return; }
     };
 
     let chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,;:!?";
