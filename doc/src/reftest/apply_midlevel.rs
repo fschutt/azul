@@ -158,61 +158,83 @@ pub fn run(config: Config) -> Result<(), String> {
             &config.reference,
         );
 
-        // Pre-analysis: spawn a fresh agent to classify this commit (does
-        // the diff look like a clean fix, code that should have been wired
-        // into api.json instead, a refactor, etc.). The analyzer has grep
-        // / read permission so it can cross-check the current codebase;
-        // it does NOT modify any files.
+        // Mark current and save — so Ctrl+C leaves a known-good pointer
+        progress.current = Some(next.clone());
+        save_progress(&progress_path, &progress)?;
+
+        // ── Plan session (analyzer iterations) ──────────────────────────
+        let mut plan = PlanSession { iterations: Vec::new() };
+
+        // Initial analysis (no user feedback yet)
         if !config.skip_analyze {
-            match run_analysis_agent(&project_root, &next, &info, paired_docs.as_ref(), &config) {
-                Ok(()) => {}
+            match run_analysis_agent(
+                &project_root, &next, &info, paired_docs.as_ref(),
+                &plan, None, &config,
+            ) {
+                Ok(output) => plan.iterations.push(PlanIteration {
+                    user_feedback: None,
+                    analyzer_output: output,
+                }),
                 Err(e) => {
                     println!("[warn] analysis agent failed (continuing without): {}", e);
                 }
             }
         }
 
-        // Mark current and save — so Ctrl+C leaves a known-good pointer
-        progress.current = Some(next.clone());
-        save_progress(&progress_path, &progress)?;
+        // ── Decision / plan-refinement loop ─────────────────────────────
+        // Stays in this loop until the user picks y/s/r/q. [p] just refines
+        // and loops; [d] checks out + restores and loops.
+        let decision_taken: UserAction = loop {
+            let action = prompt_user()?;
+            match action {
+                UserAction::Refine(feedback) => {
+                    match run_analysis_agent(
+                        &project_root, &next, &info, paired_docs.as_ref(),
+                        &plan, Some(&feedback), &config,
+                    ) {
+                        Ok(output) => plan.iterations.push(PlanIteration {
+                            user_feedback: Some(feedback),
+                            analyzer_output: output,
+                        }),
+                        Err(e) => println!("[warn] refinement failed: {}", e),
+                    }
+                    continue;
+                }
+                UserAction::Show => {
+                    open_commit_in_editor(&project_root, &next, &info)?;
+                    continue;
+                }
+                other => break other,
+            }
+        };
 
-        let action = prompt_user()?;
-
-        match action {
-            UserAction::Yes | UserAction::Edit(_) => {
+        match decision_taken {
+            UserAction::Yes => {
                 let pre_head = git_head(&project_root)?;
+                let user_refinements: Vec<String> = plan.iterations.iter()
+                    .filter_map(|it| it.user_feedback.clone())
+                    .collect();
+                let was_refined = !user_refinements.is_empty();
 
-                let mut initial_instruction = match &action {
-                    UserAction::Edit(s) => Some(s.clone()),
-                    _ => None,
-                };
-                let mut user_instruction_history: Vec<String> = Vec::new();
-                let mut was_edited = initial_instruction.is_some();
-
-                // Apply + refine loop
+                // Apply + post-apply refine loop
                 let final_outcome = loop {
-                    let instr_ref = initial_instruction.as_deref();
                     let outcome = run_apply_agent(
-                        &project_root,
-                        &next,
-                        &info,
+                        &project_root, &next, &info,
                         paired_docs.as_ref(),
-                        instr_ref,
+                        &plan,
                         &pre_head,
                         &config,
                     );
-
                     match outcome {
                         Ok(applied) => {
-                            // Show what landed and prompt for accept / refine / revert
                             print_applied_summary(&project_root, &pre_head, &applied.new_sha)?;
                             match prompt_post_apply()? {
                                 PostApply::Accept => break Ok(applied),
                                 PostApply::Refine(instr) => {
-                                    user_instruction_history.push(instr.clone());
-                                    initial_instruction = Some(instr);
-                                    was_edited = true;
-                                    // next iteration: agent gets new instruction on top of current HEAD
+                                    plan.iterations.push(PlanIteration {
+                                        user_feedback: Some(instr),
+                                        analyzer_output: String::new(),
+                                    });
                                     continue;
                                 }
                                 PostApply::Revert => {
@@ -220,7 +242,6 @@ pub fn run(config: Config) -> Result<(), String> {
                                     break Err("user reverted the commit".to_string());
                                 }
                                 PostApply::Quit => {
-                                    // leave commit in place, save progress with current state
                                     println!("Quitting without advancing. Re-run to resume.");
                                     save_progress(&progress_path, &progress)?;
                                     return Ok(());
@@ -238,15 +259,15 @@ pub fn run(config: Config) -> Result<(), String> {
                 match final_outcome {
                     Ok(Applied { new_sha }) => {
                         progress.current = None;
-                        let notes = if user_instruction_history.is_empty() {
+                        let notes = if user_refinements.is_empty() {
                             None
                         } else {
-                            Some(user_instruction_history.join("\n---\n"))
+                            Some(user_refinements.join("\n---\n"))
                         };
                         progress.processed.push(Decision {
                             sha: next.clone(),
                             subject: info.subject.clone(),
-                            decision: if was_edited {
+                            decision: if was_refined {
                                 DecisionKind::AppliedEdited
                             } else {
                                 DecisionKind::AppliedByAgent
@@ -258,7 +279,6 @@ pub fn run(config: Config) -> Result<(), String> {
                         println!();
                     }
                     Err(reason) => {
-                        // User reverted — treat as rejected
                         progress.current = None;
                         progress.processed.push(Decision {
                             sha: next.clone(),
@@ -296,16 +316,12 @@ pub fn run(config: Config) -> Result<(), String> {
                 save_progress(&progress_path, &progress)?;
                 println!();
             }
-            UserAction::Show => {
-                open_commit_in_editor(&project_root, &next, &info)?;
-                // Loop back to prompt again for the same commit
-                continue;
-            }
             UserAction::Quit => {
                 println!("Saving progress and exiting.");
                 save_progress(&progress_path, &progress)?;
                 break;
             }
+            UserAction::Refine(_) | UserAction::Show => unreachable!(),
         }
     }
 
@@ -554,17 +570,18 @@ fn git_current_branch(project_root: &Path) -> Result<String, String> {
 }
 
 enum UserAction {
-    /// Apply the commit (agent does cherry-pick / graft + CI pipeline).
+    /// Apply the commit using the accumulated plan (analyzer output + user
+    /// refinements). Spawns the apply-agent.
     Yes,
     /// Don't apply — "I'll revisit later", record as skipped.
     Skip(Option<String>),
     /// Definitely don't apply — record as rejected with a reason.
     Reject(Option<String>),
-    /// Apply with a custom instruction instead of the original diff.
-    Edit(String),
-    /// Show the commit in the user's editor: checkout the reference commit
-    /// and open the project + diff file. The CLI restores the current branch
-    /// after the user is done inspecting.
+    /// Refine the plan: feed this extra feedback to the analyzer (the apply
+    /// agent is NOT invoked yet). The analyzer incorporates your note into
+    /// its existing plan and re-prints it.
+    Refine(String),
+    /// Checkout the reference commit so the user's editor shows its state.
     Show,
     /// Save progress and exit.
     Quit,
@@ -635,11 +652,11 @@ fn print_applied_summary(
 
 fn prompt_user() -> Result<UserAction, String> {
     println!("Decision?");
-    println!("  [y] yes — apply the commit");
-    println!("  [s] skip  — don't apply now, come back later");
+    println!("  [y] yes    — apply using the current plan");
+    println!("  [p] plan   — refine the plan: add feedback, analyzer revises");
+    println!("  [s] skip   — don't apply now, come back later");
     println!("  [r] reject — don't apply, record as rejected with reason");
-    println!("  [e] edit  — apply with custom instruction");
-    println!("  [d] diff  — checkout + open commit in editor, then prompt again");
+    println!("  [d] diff   — checkout commit so your editor shows its state");
     println!("  [q] quit");
     print!("> ");
     io::stdout().flush().ok();
@@ -649,6 +666,11 @@ fn prompt_user() -> Result<UserAction, String> {
 
     match c {
         'y' | 'Y' => Ok(UserAction::Yes),
+        'p' | 'P' => {
+            println!("  Feedback for the analyzer (end with a single '.' on its own line):");
+            let fb = read_multiline_until_dot()?;
+            Ok(UserAction::Refine(fb))
+        }
         's' | 'S' => {
             println!("  Reason (one line, empty to skip prompt):");
             let notes = read_line()?.trim().to_string();
@@ -659,15 +681,10 @@ fn prompt_user() -> Result<UserAction, String> {
             let notes = read_line()?.trim().to_string();
             Ok(UserAction::Reject(if notes.is_empty() { None } else { Some(notes) }))
         }
-        'e' | 'E' => {
-            println!("  Instructions for the agent (end with a single '.' on its own line):");
-            let instr = read_multiline_until_dot()?;
-            Ok(UserAction::Edit(instr))
-        }
         'd' | 'D' => Ok(UserAction::Show),
         'q' | 'Q' => Ok(UserAction::Quit),
         _ => {
-            println!("  (unrecognised — please pick one of y/s/r/e/d/q)");
+            println!("  (unrecognised — please pick one of y/p/s/r/d/q)");
             prompt_user()
         }
     }
@@ -780,27 +797,70 @@ fn short(sha: &str) -> &str {
     &sha[..sha.len().min(12)]
 }
 
+// ── Plan session (accumulated analyzer output + user feedback) ────────────
+
+struct PlanSession {
+    iterations: Vec<PlanIteration>,
+}
+
+struct PlanIteration {
+    /// None for the initial pass; Some(text) when the user supplied feedback
+    /// that the analyzer should incorporate.
+    user_feedback: Option<String>,
+    /// Analyzer's output for this iteration. Empty string when this entry
+    /// represents post-apply user feedback that the apply-agent should heed
+    /// (no analyzer run happens in that case).
+    analyzer_output: String,
+}
+
+impl PlanSession {
+    fn latest_plan(&self) -> Option<&str> {
+        self.iterations.iter()
+            .rev()
+            .find(|it| !it.analyzer_output.is_empty())
+            .map(|it| it.analyzer_output.as_str())
+    }
+
+    fn all_feedback(&self) -> Vec<&str> {
+        self.iterations.iter()
+            .filter_map(|it| it.user_feedback.as_deref())
+            .collect()
+    }
+}
+
 // ── Pre-analysis agent ────────────────────────────────────────────────────
 
 /// Spawn a read-only Claude agent that looks at the commit diff + paired
-/// review report + current codebase and recommends an action. Output streams
-/// to the terminal for the user to read before deciding. No file modification.
+/// review report + current codebase and recommends an action. If `plan` has
+/// previous iterations, they are passed as context so the analyzer REFINES
+/// its prior plan rather than starting over.
+///
+/// Output is tee'd to the terminal AND captured to a string, which is
+/// returned for storage in the plan session.
 fn run_analysis_agent(
     project_root: &Path,
     sha: &str,
     info: &CommitInfo,
     paired: Option<&CommitInfo>,
+    plan: &PlanSession,
+    new_feedback: Option<&str>,
     config: &Config,
-) -> Result<(), String> {
-    let prompt = build_analysis_prompt(project_root, sha, info, paired)?;
+) -> Result<String, String> {
+    let is_refinement = !plan.iterations.is_empty();
+    let prompt = build_analysis_prompt(project_root, sha, info, paired, plan, new_feedback)?;
 
     let agent_dir = project_root.join("doc/target/autoreview/apply-midlevel/agent-prompts");
     fs::create_dir_all(&agent_dir).ok();
-    let prompt_path = agent_dir.join(format!("{}.analysis.md", short(sha)));
+    let iter_idx = plan.iterations.len();
+    let prompt_path = agent_dir.join(format!("{}.analysis.{}.md", short(sha), iter_idx));
     fs::write(&prompt_path, &prompt).ok();
 
     println!();
-    println!("┌── pre-analysis (recommendation) ──────────────────────────────────────");
+    if is_refinement {
+        println!("┌── analyzer refining plan (iter #{}) ───────────────────────────────", iter_idx + 1);
+    } else {
+        println!("┌── analyzer: initial plan ─────────────────────────────────────────");
+    }
 
     let model = config
         .analyzer_model
@@ -810,9 +870,6 @@ fn run_analysis_agent(
 
     let path_with_rustup = rustup_prefixed_path();
 
-    // Analyzer can read/grep/search but MUST NOT modify. The --dangerously-skip-permissions
-    // flag still lets the model use Read/Grep freely. We rely on the prompt instructing
-    // it not to edit, and we don't commit anything after.
     let cmd_args: Vec<&str> = vec![
         "-p",
         "--dangerously-skip-permissions",
@@ -833,7 +890,7 @@ fn run_analysis_agent(
         .env("PATH", &path_with_rustup)
         .current_dir(project_root)
         .stdin(Stdio::piped())
-        .stdout(Stdio::inherit())
+        .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .spawn()
         .map_err(|e| format!("spawn claude (analyzer): {}", e))?;
@@ -844,12 +901,38 @@ fn run_analysis_agent(
         drop(stdin);
     }
 
+    // Tee stdout to terminal + capture to a string
+    let stdout = child.stdout.take()
+        .ok_or_else(|| "failed to grab child stdout".to_string())?;
+    let reader_handle = std::thread::spawn(move || -> Vec<u8> {
+        use std::io::{BufReader, Read};
+        let mut reader = BufReader::new(stdout);
+        let mut buf = [0u8; 4096];
+        let mut captured = Vec::new();
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    io::stdout().write_all(&buf[..n]).ok();
+                    io::stdout().flush().ok();
+                    captured.extend_from_slice(&buf[..n]);
+                }
+                Err(_) => break,
+            }
+        }
+        captured
+    });
+
     let status = child.wait().map_err(|e| format!("wait analyzer: {}", e))?;
+    let captured = reader_handle.join()
+        .map_err(|_| "stdout tee thread panicked".to_string())?;
+    let captured_str = String::from_utf8_lossy(&captured).to_string();
+
     println!("└───────────────────────────────────────────────────────────────────────");
     if !status.success() {
         return Err(format!("analyzer exited with status {}", status));
     }
-    Ok(())
+    Ok(captured_str)
 }
 
 fn build_analysis_prompt(
@@ -857,6 +940,8 @@ fn build_analysis_prompt(
     sha: &str,
     info: &CommitInfo,
     paired: Option<&CommitInfo>,
+    plan: &PlanSession,
+    new_feedback: Option<&str>,
 ) -> Result<String, String> {
     let code_diff = git_show_diff(project_root, sha)?;
     let docs_diff = match paired {
@@ -865,43 +950,85 @@ fn build_analysis_prompt(
     };
 
     let mut p = String::new();
-    p.push_str("You are analyzing ONE commit from an automated mid-level code review ");
-    p.push_str("before the user decides what to do with it. DO NOT modify any files. ");
-    p.push_str("Your job is to give the user a short recommendation.\n\n");
+    let is_refinement = !plan.iterations.is_empty();
 
-    p.push_str("The previous review-agent pass was told to find and fix mid-level\n");
-    p.push_str("issues (dead code, duplication, unwired APIs, small refactors). It\n");
-    p.push_str("sometimes DELETED code that looked unused but was actually meant to\n");
-    p.push_str("be part of the public API — it just wasn't wired in `api.json` yet.\n");
-    p.push_str("Your analysis should catch those cases.\n\n");
+    if is_refinement {
+        p.push_str("You are REFINING an existing plan for a single commit from an\n");
+        p.push_str("automated mid-level code review. The user has reviewed your previous\n");
+        p.push_str("recommendation and given feedback. Your job is to incorporate that\n");
+        p.push_str("feedback and output a REVISED plan. DO NOT redo the entire analysis\n");
+        p.push_str("from scratch — build on the previous iteration.\n\n");
+    } else {
+        p.push_str("You are analyzing ONE commit from an automated mid-level code review ");
+        p.push_str("before the user decides what to do with it. DO NOT modify any files. ");
+        p.push_str("Your job is to give the user a short recommendation.\n\n");
 
-    p.push_str("Classify the commit into one of these categories and explain briefly:\n\n");
-    p.push_str("  [KEEP]     Clean, correct fix — the user should apply this as-is.\n");
-    p.push_str("  [WIRE]     Deletes a type/field/fn that should instead be WIRED into\n");
-    p.push_str("             the public API (check api.json — if the symbol is referenced\n");
-    p.push_str("             in the Rust source but not exposed, WIRE is the right call).\n");
-    p.push_str("  [REFACTOR] Intent is right but execution is off — user should edit\n");
-    p.push_str("             with a custom instruction (suggest what).\n");
+        p.push_str("The previous review-agent pass was told to find and fix mid-level\n");
+        p.push_str("issues (dead code, duplication, unwired APIs, small refactors). It\n");
+        p.push_str("sometimes DELETED code that looked unused but was actually meant to\n");
+        p.push_str("be part of the public API — it just wasn't wired in `api.json` yet.\n");
+        p.push_str("Your analysis should catch those cases.\n\n");
+    }
+
+    p.push_str("Classify the commit into one of these categories:\n\n");
+    p.push_str("  [KEEP]     Clean, correct fix — apply as-is.\n");
+    p.push_str("  [WIRE]     Deletes a type/field/fn that should be WIRED into the\n");
+    p.push_str("             public API (api.json) instead of removed.\n");
+    p.push_str("  [REFACTOR] Intent right, execution off — needs a custom instruction.\n");
     p.push_str("  [REJECT]   Incorrect or harmful — do not apply.\n");
-    p.push_str("  [UNCLEAR]  You can't tell without more context — user should inspect.\n\n");
+    p.push_str("  [UNCLEAR]  Can't tell — user should inspect.\n\n");
 
-    p.push_str("How to analyze:\n");
-    p.push_str("  1. Read the commit diff below.\n");
-    p.push_str("  2. Read the paired review report to understand the stated reasoning.\n");
-    p.push_str("  3. For each deletion, use Grep/Read to check whether the deleted name\n");
-    p.push_str("     is referenced anywhere else in the current tree (not just in the\n");
-    p.push_str("     commit's parent — search the CURRENT HEAD). Also check api.json:\n");
-    p.push_str("     if the type/fn is listed there, deletion is almost always wrong.\n");
-    p.push_str("  4. Output a SHORT recommendation (≤ 8 lines total):\n\n");
-    p.push_str("       [CATEGORY] <one sentence>\n");
-    p.push_str("       Why: <1-2 sentences>\n");
-    p.push_str("       Suggested action: <what the user should pick — 'y' / 'e with ...' / 'n'>\n\n");
-    p.push_str("Keep it terse. The user has 335 more commits to review.\n\n");
+    if !is_refinement {
+        p.push_str("How to analyze (first pass):\n");
+        p.push_str("  1. Read the commit diff below.\n");
+        p.push_str("  2. Read the paired review report (context for WHY).\n");
+        p.push_str("  3. For each deletion, use Grep/Read to check whether the deleted\n");
+        p.push_str("     name is referenced in the current tree. Check api.json too.\n");
+        p.push_str("  4. Output a SHORT recommendation (≤ 10 lines):\n\n");
+        p.push_str("       [CATEGORY] <one sentence>\n");
+        p.push_str("       Why: <1-2 sentences>\n");
+        p.push_str("       Plan: <bulleted steps the apply-agent should follow>\n");
+        p.push_str("       Suggested user action: <y / p with feedback / s / r>\n\n");
+    } else {
+        p.push_str("How to refine:\n");
+        p.push_str("  1. Re-read the user's feedback (below).\n");
+        p.push_str("  2. Adjust ONLY the parts of the previous plan that the feedback\n");
+        p.push_str("     touches. Leave the rest intact.\n");
+        p.push_str("  3. Output the FULL revised plan in the same format as before:\n\n");
+        p.push_str("       [CATEGORY] <one sentence>\n");
+        p.push_str("       Why: <1-2 sentences, updated if needed>\n");
+        p.push_str("       Plan: <bulleted steps, refined>\n");
+        p.push_str("       Change since last iteration: <one sentence summarising what's new>\n");
+        p.push_str("       Suggested user action: <y / p with feedback / s / r>\n\n");
+    }
+    p.push_str("Be terse. The user is running through 335 more commits.\n\n");
 
     p.push_str(&format!("Original commit SHA: {}\n", sha));
     p.push_str(&format!("Original subject: {}\n", info.subject));
     if !info.body.is_empty() {
         p.push_str(&format!("Original body:\n{}\n", info.body));
+    }
+
+    // Previous iterations (if any)
+    for (i, it) in plan.iterations.iter().enumerate() {
+        p.push_str(&format!("\n=== PREVIOUS ITERATION {} ===\n", i + 1));
+        if let Some(fb) = &it.user_feedback {
+            p.push_str("User feedback that led to this iteration:\n");
+            p.push_str(fb);
+            p.push_str("\n\n");
+        }
+        if !it.analyzer_output.is_empty() {
+            p.push_str("Your plan at that point:\n");
+            p.push_str(&it.analyzer_output);
+            p.push_str("\n");
+        }
+        p.push_str(&format!("=== END ITERATION {} ===\n", i + 1));
+    }
+
+    if let Some(fb) = new_feedback {
+        p.push_str("\n=== NEW USER FEEDBACK (this iteration) ===\n");
+        p.push_str(fb);
+        p.push_str("\n=== END NEW FEEDBACK ===\n");
     }
 
     p.push_str("\n=== COMMIT DIFF ===\n");
@@ -944,11 +1071,17 @@ fn run_apply_agent(
     sha: &str,
     info: &CommitInfo,
     paired: Option<&CommitInfo>,
-    user_instruction: Option<&str>,
+    plan: &PlanSession,
     pre_head: &str,
     config: &Config,
 ) -> Result<Applied, String> {
     let is_refinement = git_head(project_root)? != pre_head;
+    let user_instruction = if plan.all_feedback().is_empty() {
+        None
+    } else {
+        Some(plan.all_feedback().join("\n---\n"))
+    };
+    let user_instruction = user_instruction.as_deref();
 
     // Refuse to start if the tree is dirty — the agent needs a clean slate.
     let dirty = !index_is_empty(project_root)? || has_worktree_changes(project_root)?;
@@ -958,7 +1091,7 @@ fn run_apply_agent(
         );
     }
 
-    let prompt = build_agent_prompt(project_root, sha, info, paired, user_instruction)?;
+    let prompt = build_agent_prompt(project_root, sha, info, paired, user_instruction, plan)?;
 
     // Persist the prompt for auditing. Agent output is streamed to the user's
     // terminal directly (so they can watch progress and see the session ID the
@@ -1107,6 +1240,7 @@ fn build_agent_prompt(
     info: &CommitInfo,
     paired: Option<&CommitInfo>,
     user_instruction: Option<&str>,
+    plan: &PlanSession,
 ) -> Result<String, String> {
     let code_diff = git_show_diff(project_root, sha)?;
     let docs_diff = match paired {
@@ -1220,10 +1354,19 @@ fn build_agent_prompt(
         p.push_str(&format!("Original body:\n{}\n", info.body));
     }
 
+    // Agreed plan — if the analyzer ran and the user approved (possibly after
+    // refinements), this is the source of truth for what to do. The commit
+    // diff below is now REFERENCE CONTEXT, not a literal recipe.
+    if let Some(latest) = plan.latest_plan() {
+        p.push_str("\n=== AGREED PLAN (source of truth — follow this) ===\n");
+        p.push_str(latest);
+        p.push_str("\n=== END AGREED PLAN ===\n");
+    }
+
     if let Some(instr) = user_instruction {
-        p.push_str("\n=== USER INSTRUCTION (overrides original intent) ===\n");
+        p.push_str("\n=== USER FEEDBACK HISTORY (already folded into the plan above) ===\n");
         p.push_str(instr);
-        p.push_str("\n=== END USER INSTRUCTION ===\n");
+        p.push_str("\n=== END FEEDBACK HISTORY ===\n");
     }
 
     p.push_str("\n=== ORIGINAL COMMIT DIFF ===\n");
