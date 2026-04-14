@@ -869,10 +869,17 @@ fn run_analysis_agent(
         .unwrap_or("opus");
 
     let path_with_rustup = rustup_prefixed_path();
+    let session_uuid = make_session_uuid(sha, &format!("a{}", iter_idx));
+    let session_name = format!("analyzer {}.{}", short(sha), iter_idx);
 
     let cmd_args: Vec<&str> = vec![
         "-p",
         "--dangerously-skip-permissions",
+        "--verbose",
+        "--output-format", "stream-json",
+        "--include-partial-messages",
+        "--session-id", &session_uuid,
+        "-n", &session_name,
         "--disallowedTools", "mcp__*",
         "--disallowedTools", "Edit",
         "--disallowedTools", "Write",
@@ -884,55 +891,192 @@ fn run_analysis_agent(
         "--model", model,
     ];
 
-    let mut child = Command::new("claude")
-        .args(&cmd_args)
+    println!("  session-id: {}", session_uuid);
+    println!("  attach with: claude --resume {}", session_uuid);
+    println!();
+
+    let out = spawn_claude_streaming(
+        &cmd_args, prompt.as_bytes(), project_root, &path_with_rustup, None,
+    )?;
+    println!("└───────────────────────────────────────────────────────────────────────");
+    Ok(out.text)
+}
+
+// ── Streaming helpers ─────────────────────────────────────────────────────
+
+struct StreamOutput {
+    /// Accumulated assistant text content (captured from `assistant` events
+    /// after being printed live as `stream_event` deltas).
+    text: String,
+    #[allow(dead_code)]
+    session_id: Option<String>,
+}
+
+/// Spawn `claude` with the given args in stream-json mode, pipe the prompt
+/// into stdin, and stream the output live to stdout while capturing text.
+///
+/// `extra_env` allows callers to pass additional env vars (like `AZUL_DOC_BIN`).
+fn spawn_claude_streaming(
+    args: &[&str],
+    stdin_bytes: &[u8],
+    cwd: &Path,
+    path_env: &str,
+    extra_env: Option<&[(&str, &Path)]>,
+) -> Result<StreamOutput, String> {
+    let mut cmd = Command::new("claude");
+    cmd.args(args)
         .env_remove("CLAUDECODE")
-        .env("PATH", &path_with_rustup)
-        .current_dir(project_root)
+        .env("PATH", path_env)
+        .current_dir(cwd)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .map_err(|e| format!("spawn claude (analyzer): {}", e))?;
+        .stderr(Stdio::inherit());
+
+    if let Some(env_pairs) = extra_env {
+        for (k, v) in env_pairs {
+            cmd.env(k, v);
+        }
+    }
+
+    let mut child = cmd.spawn().map_err(|e| format!("spawn claude: {}", e))?;
 
     if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(prompt.as_bytes())
-            .map_err(|e| format!("write analyzer prompt: {}", e))?;
+        stdin.write_all(stdin_bytes)
+            .map_err(|e| format!("write prompt stdin: {}", e))?;
         drop(stdin);
     }
 
-    // Tee stdout to terminal + capture to a string
     let stdout = child.stdout.take()
         .ok_or_else(|| "failed to grab child stdout".to_string())?;
-    let reader_handle = std::thread::spawn(move || -> Vec<u8> {
-        use std::io::{BufReader, Read};
-        let mut reader = BufReader::new(stdout);
-        let mut buf = [0u8; 4096];
-        let mut captured = Vec::new();
-        loop {
-            match reader.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    io::stdout().write_all(&buf[..n]).ok();
-                    io::stdout().flush().ok();
-                    captured.extend_from_slice(&buf[..n]);
-                }
-                Err(_) => break,
+    let handle = std::thread::spawn(move || process_stream_events(stdout));
+
+    let status = child.wait().map_err(|e| format!("wait claude: {}", e))?;
+    let out = handle.join().map_err(|_| "stream thread panicked".to_string())?;
+    if !status.success() {
+        return Err(format!("claude exited with status {}", status));
+    }
+    Ok(out)
+}
+
+fn process_stream_events<R: std::io::Read + Send + 'static>(stdout: R) -> StreamOutput {
+    use std::io::BufRead;
+    let reader = std::io::BufReader::new(stdout);
+    let mut text = String::new();
+    let mut session_id: Option<String> = None;
+
+    for line in reader.lines() {
+        let line = match line { Ok(l) => l, Err(_) => break };
+        if line.trim().is_empty() { continue; }
+
+        let v: serde_json::Value = match serde_json::from_str(&line) {
+            Ok(v) => v,
+            Err(_) => {
+                // Non-JSON — print as-is
+                println!("{}", line);
+                continue;
+            }
+        };
+
+        if session_id.is_none() {
+            if let Some(sid) = v.get("session_id").and_then(|s| s.as_str()) {
+                session_id = Some(sid.to_string());
             }
         }
-        captured
-    });
 
-    let status = child.wait().map_err(|e| format!("wait analyzer: {}", e))?;
-    let captured = reader_handle.join()
-        .map_err(|_| "stdout tee thread panicked".to_string())?;
-    let captured_str = String::from_utf8_lossy(&captured).to_string();
-
-    println!("└───────────────────────────────────────────────────────────────────────");
-    if !status.success() {
-        return Err(format!("analyzer exited with status {}", status));
+        match v.get("type").and_then(|t| t.as_str()) {
+            // Live token-by-token text deltas + tool-call announcements.
+            Some("stream_event") => {
+                let event = match v.get("event") {
+                    Some(e) => e, None => continue,
+                };
+                match event.get("type").and_then(|t| t.as_str()) {
+                    Some("content_block_delta") => {
+                        if let Some(t) = event.pointer("/delta/text").and_then(|s| s.as_str()) {
+                            print!("{}", t);
+                            io::stdout().flush().ok();
+                        }
+                    }
+                    Some("content_block_start") => {
+                        if let Some(block) = event.get("content_block") {
+                            if block.get("type").and_then(|t| t.as_str()) == Some("tool_use") {
+                                let name = block.get("name").and_then(|n| n.as_str()).unwrap_or("?");
+                                println!("\n  ⚙ [{}]", name);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            // Final assistant message — capture text (already printed as deltas)
+            // + surface tool-call input summaries (these arrive intact here).
+            Some("assistant") => {
+                if let Some(content) = v.pointer("/message/content").and_then(|c| c.as_array()) {
+                    for block in content {
+                        match block.get("type").and_then(|t| t.as_str()) {
+                            Some("text") => {
+                                if let Some(t) = block.get("text").and_then(|t| t.as_str()) {
+                                    text.push_str(t);
+                                }
+                            }
+                            Some("tool_use") => {
+                                let name = block.get("name").and_then(|n| n.as_str()).unwrap_or("?");
+                                let summary = summarize_tool_input(name, block.get("input"));
+                                if !summary.is_empty() {
+                                    println!("    {}", summary);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            Some("result") => {
+                println!();
+            }
+            _ => {}
+        }
     }
-    Ok(captured_str)
+    StreamOutput { text, session_id }
+}
+
+fn summarize_tool_input(name: &str, input: Option<&serde_json::Value>) -> String {
+    let Some(i) = input else { return String::new() };
+    match name {
+        "Read" | "Edit" | "Write" | "NotebookEdit" => i.get("file_path")
+            .and_then(|v| v.as_str()).unwrap_or("").into(),
+        "Bash" => {
+            let cmd = i.get("command").and_then(|v| v.as_str()).unwrap_or("");
+            cmd.chars().take(120).collect()
+        }
+        "Grep" => {
+            let pat = i.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
+            let path = i.get("path").and_then(|v| v.as_str()).unwrap_or(".");
+            format!("{:?} in {}", pat, path)
+        }
+        "Glob" => i.get("pattern").and_then(|v| v.as_str()).unwrap_or("").into(),
+        _ => String::new(),
+    }
+}
+
+/// Build a deterministic UUID from a git SHA + a per-call suffix so re-runs
+/// (analyzer iterations, apply retries) get predictable session IDs the user
+/// can copy-paste into `claude --resume`.
+fn make_session_uuid(sha: &str, suffix: &str) -> String {
+    let base: String = sha.chars().filter(|c| c.is_ascii_hexdigit()).take(32).collect();
+    let padded: String = if base.len() < 32 {
+        let mut b = base.clone();
+        while b.len() < 32 { b.push('0'); }
+        b
+    } else {
+        base
+    };
+    let mut hash: u32 = 0;
+    for c in suffix.bytes() { hash = hash.wrapping_mul(31).wrapping_add(c as u32); }
+    let suffix_hex = format!("{:02x}", (hash & 0xff) as u8);
+    let mut out: String = padded.chars().take(30).collect();
+    out.push_str(&suffix_hex);
+    format!("{}-{}-{}-{}-{}",
+        &out[0..8], &out[8..12], &out[12..16], &out[16..20], &out[20..32])
 }
 
 fn build_analysis_prompt(
@@ -1115,12 +1259,18 @@ fn run_apply_agent(
     // rust-analyzer-lsp is ALLOWED here — this agent runs sequentially and
     // benefits from the type info. We only block MCP tools leaking from user
     // config.
-    // Default to opus for both agents. User can override via --model=<x>.
+    // Default to opus. User can override via --model=<x>.
     let model = config.model.as_deref().unwrap_or("opus");
-    let mut cmd_args: Vec<&str> = vec![
+    let session_uuid = make_session_uuid(sha, &format!("b{}", plan.iterations.len()));
+    let session_name = format!("apply {}", short(sha));
+    let cmd_args: Vec<&str> = vec![
         "-p",
         "--dangerously-skip-permissions",
         "--verbose",
+        "--output-format", "stream-json",
+        "--include-partial-messages",
+        "--session-id", &session_uuid,
+        "-n", &session_name,
         "--disallowedTools", "mcp__*",
         "--model", model,
     ];
@@ -1135,30 +1285,15 @@ fn run_apply_agent(
         if cfg!(windows) { ".apply-midlevel/azul-doc.exe" } else { ".apply-midlevel/azul-doc" }
     );
 
-    let mut child = Command::new("claude")
-        .args(&cmd_args)
-        .env_remove("CLAUDECODE")
-        .env("PATH", &path_with_rustup)
-        .env("AZUL_DOC_BIN", &azul_doc_bin)
-        .current_dir(project_root)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .map_err(|e| format!("spawn claude: {}", e))?;
+    println!("  session-id: {}", session_uuid);
+    println!("  attach with: claude --resume {}", session_uuid);
+    println!();
 
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(prompt.as_bytes())
-            .map_err(|e| format!("write prompt stdin: {}", e))?;
-        // Close stdin so claude -p knows input is complete
-        drop(stdin);
-    }
-
-    let status = child.wait().map_err(|e| format!("wait claude: {}", e))?;
+    let _out = spawn_claude_streaming(
+        &cmd_args, prompt.as_bytes(), project_root, &path_with_rustup,
+        Some(&[("AZUL_DOC_BIN", azul_doc_bin.as_path())]),
+    )?;
     println!("────────────────────────────────────────────────────────────────────────");
-    if !status.success() {
-        return Err(format!("claude exited with status {}", status));
-    }
 
     // Verify tree is clean.
     let post_head = git_head(project_root)?;
