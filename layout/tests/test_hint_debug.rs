@@ -20,10 +20,15 @@ use allsorts::tables::FontTableProvider;
 use allsorts::tag;
 
 fn load_helvetica_neue() -> Option<ParsedFont> {
+    use std::sync::Arc;
     let font_path = "/System/Library/Fonts/HelveticaNeue.ttc";
     let font_bytes = fs::read(font_path).ok()?;
     let mut warnings = Vec::new();
-    ParsedFont::from_bytes(&font_bytes, 0, &mut warnings)
+    // Retain source bytes — this test reads raw font tables
+    // (`fpgm`, `prep`) off `font.original_bytes`, so it needs them.
+    let bytes_arc: Arc<[u8]> = Arc::from(font_bytes);
+    let font = ParsedFont::from_bytes(&bytes_arc, 0, &mut warnings)?;
+    Some(font.with_source_bytes(bytes_arc))
 }
 
 /// Read a raw font table from the original bytes.
@@ -88,8 +93,12 @@ fn test_phase1_decoding() {
     writeln!(font_out).unwrap();
 
     // Read raw fpgm and prep tables
-    let fpgm_data = read_table(&font.original_bytes, font.original_index, tag::FPGM);
-    let prep_data = read_table(&font.original_bytes, font.original_index, tag::PREP);
+    let source_bytes = font
+        .original_bytes
+        .as_deref()
+        .expect("test retained source bytes via with_source_bytes");
+    let fpgm_data = read_table(source_bytes, font.original_index, tag::FPGM);
+    let prep_data = read_table(source_bytes, font.original_index, tag::PREP);
 
     writeln!(font_out, "=== fpgm bytecode ({} bytes) ===", fpgm_data.as_ref().map_or(0, |d| d.len())).unwrap();
     if let Some(ref data) = fpgm_data {

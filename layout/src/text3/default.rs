@@ -172,7 +172,11 @@ impl ParsedFontTrait for FontRef {
 ///
 /// This trait provides methods that require access to the inner ParsedFont data.
 pub trait FontRefExt {
-    /// Get the original font bytes
+    /// Get the original font bytes. Returns an empty slice when the
+    /// underlying `ParsedFont` was created without retaining its
+    /// source bytes (the default since the lazy-font-loading refactor).
+    /// Callers that need the bytes for PDF embedding must construct
+    /// the `ParsedFont` via `ParsedFont::with_source_bytes`.
     fn get_bytes(&self) -> &[u8];
     /// Get the full font metrics (PDF-style metrics from HEAD, HHEA, OS/2 tables)
     fn get_full_font_metrics(&self) -> azul_css::props::basic::FontMetrics;
@@ -180,7 +184,10 @@ pub trait FontRefExt {
 
 impl FontRefExt for FontRef {
     fn get_bytes(&self) -> &[u8] {
-        &get_parsed_font(self).original_bytes
+        get_parsed_font(self)
+            .original_bytes
+            .as_deref()
+            .unwrap_or(&[])
     }
 
     fn get_full_font_metrics(&self) -> azul_css::props::basic::FontMetrics {

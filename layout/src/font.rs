@@ -281,8 +281,16 @@ pub mod parsed {
         pub mock: Option<Box<MockFont>>,
         /// Reverse mapping: glyph_id -> cluster text (handles ligatures like "fi").
         pub reverse_glyph_cache: std::collections::BTreeMap<u16, String>,
-        /// Original font bytes (needed for subsetting and reconstruction).
-        pub original_bytes: Vec<u8>,
+        /// Original font bytes — only retained for callers that need to
+        /// reconstruct or subset the font (PDF export). Layout / shaping /
+        /// raster never read this, so `ParsedFont::from_bytes` leaves it
+        /// as `None` by default and callers opt in via
+        /// [`ParsedFont::with_source_bytes`]. Shared across faces of the
+        /// same `.ttc` via the `Arc<[u8]>` that
+        /// `rust_fontconfig::FcFontCache::get_font_bytes_arc` returns, so
+        /// at most one copy of each font file lives in memory regardless
+        /// of how many faces point at it.
+        pub original_bytes: Option<std::sync::Arc<[u8]>>,
         /// Font index within collection (0 for single-font files).
         pub original_index: usize,
         /// GID to CID mapping for CFF fonts (required for PDF embedding).
@@ -318,6 +326,7 @@ pub mod parsed {
                 cmap_subtable: self.cmap_subtable.clone(),
                 mock: self.mock.clone(),
                 reverse_glyph_cache: self.reverse_glyph_cache.clone(),
+                // Arc clone — O(1), just bumps refcount; no byte copy.
                 original_bytes: self.original_bytes.clone(),
                 original_index: self.original_index,
                 index_to_cid: self.index_to_cid.clone(),
@@ -866,7 +875,10 @@ pub mod parsed {
                 space_width: None,
                 mock: None,
                 reverse_glyph_cache: BTreeMap::new(),
-                original_bytes: font_bytes.to_vec(),
+                // Don't retain the source bytes by default — layout and
+                // raster don't need them. PDF subsetting / `to_bytes`
+                // callers opt in via `with_source_bytes`.
+                original_bytes: None,
                 original_index: font_index,
                 index_to_cid: BTreeMap::new(), // Will be filled for CFF fonts
                 font_type: FontType::TrueType, // Default, will be updated if CFF
@@ -907,6 +919,18 @@ pub mod parsed {
             font.space_width = space_width;
 
             Some(font)
+        }
+
+        /// Attach the source font bytes to this `ParsedFont`, enabling
+        /// [`ParsedFont::to_bytes`] and [`ParsedFont::subset`] (both of
+        /// which the layout / shaping path never calls).
+        ///
+        /// Takes an `Arc<[u8]>` so the same file's bytes can be shared
+        /// across every face of a `.ttc` at zero extra cost — pair with
+        /// `rust_fontconfig::FcFontCache::get_font_bytes_arc`.
+        pub fn with_source_bytes(mut self, bytes: std::sync::Arc<[u8]>) -> Self {
+            self.original_bytes = Some(bytes);
+            self
         }
 
         /// Parse PDF-specific font metrics from HEAD, HHEA, and OS/2 tables
@@ -1133,10 +1157,20 @@ pub mod parsed {
         /// Convert the ParsedFont back to bytes using allsorts::whole_font
         /// This reconstructs the entire font from the parsed data
         ///
+        /// Requires the source bytes to be retained — callers must have
+        /// constructed this `ParsedFont` via [`ParsedFont::with_source_bytes`]
+        /// (or equivalent). `from_bytes` does not retain them by default,
+        /// since layout / raster never need them.
+        ///
         /// # Arguments
         /// * `tags` - Optional list of specific table tags to include (None = all tables)
         pub fn to_bytes(&self, tags: Option<&[u32]>) -> Result<Vec<u8>, String> {
-            let scope = ReadScope::new(&self.original_bytes);
+            let source = self.original_bytes.as_deref().ok_or_else(|| {
+                "ParsedFont::to_bytes requires source bytes; call \
+                 ParsedFont::with_source_bytes after parsing to retain them"
+                    .to_string()
+            })?;
+            let scope = ReadScope::new(source);
             let font_file = scope.read::<FontData<'_>>().map_err(|e| e.to_string())?;
             let provider = font_file
                 .table_provider(self.original_index)
@@ -1174,7 +1208,12 @@ pub mod parsed {
             glyph_ids: &[(u16, char)],
             cmap_target: CmapTarget,
         ) -> Result<(Vec<u8>, BTreeMap<u16, (u16, char)>), String> {
-            let scope = ReadScope::new(&self.original_bytes);
+            let source = self.original_bytes.as_deref().ok_or_else(|| {
+                "ParsedFont::subset requires source bytes; call \
+                 ParsedFont::with_source_bytes after parsing to retain them"
+                    .to_string()
+            })?;
+            let scope = ReadScope::new(source);
             let font_file = scope.read::<FontData<'_>>().map_err(|e| e.to_string())?;
             let provider = font_file
                 .table_provider(self.original_index)
