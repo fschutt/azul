@@ -34,12 +34,18 @@ pub struct Config {
     pub base: Option<String>,
     pub project_root: PathBuf,
     pub model: Option<String>,
+    /// Pre-analyzer model; defaults to the main model or Haiku if unset.
+    pub analyzer_model: Option<String>,
+    /// If true, skip the pre-analysis agent (faster, but no recommendation).
+    pub skip_analyze: bool,
 }
 
 pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> {
     let mut reference = None;
     let mut base = None;
     let mut model = None;
+    let mut analyzer_model = None;
+    let mut skip_analyze = false;
 
     for arg in args {
         if let Some(v) = arg.strip_prefix("--reference=") {
@@ -48,6 +54,10 @@ pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> 
             base = Some(v.to_string());
         } else if let Some(v) = arg.strip_prefix("--model=") {
             model = Some(v.to_string());
+        } else if let Some(v) = arg.strip_prefix("--analyzer-model=") {
+            analyzer_model = Some(v.to_string());
+        } else if *arg == "--no-analyze" {
+            skip_analyze = true;
         } else if arg.starts_with('-') {
             return Err(format!("Unknown option: {}", arg));
         }
@@ -61,11 +71,20 @@ pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> 
         base,
         project_root: project_root.to_path_buf(),
         model,
+        analyzer_model,
+        skip_analyze,
     })
 }
 
 pub fn run(config: Config) -> Result<(), String> {
     let project_root = config.project_root.clone();
+
+    // Stage the current azul-doc binary in a location that survives `cargo
+    // clean`. The agent will invoke this via $AZUL_DOC_BIN instead of
+    // `cargo run -p azul-doc -- ...`, which would trigger a ~45s rebuild
+    // every time it runs `cargo clean` (and then has to re-run azul-doc).
+    let azul_doc_bin = stage_binary(&project_root)?;
+    println!("Staged azul-doc binary at: {}", azul_doc_bin.display());
 
     // Resolve reference and base SHAs up-front
     let reference_sha = git_rev_parse(&project_root, &config.reference)?;
@@ -138,6 +157,20 @@ pub fn run(config: Config) -> Result<(), String> {
             paired_docs.as_ref(),
             &config.reference,
         );
+
+        // Pre-analysis: spawn a fresh agent to classify this commit (does
+        // the diff look like a clean fix, code that should have been wired
+        // into api.json instead, a refactor, etc.). The analyzer has grep
+        // / read permission so it can cross-check the current codebase;
+        // it does NOT modify any files.
+        if !config.skip_analyze {
+            match run_analysis_agent(&project_root, &next, &info, paired_docs.as_ref(), &config) {
+                Ok(()) => {}
+                Err(e) => {
+                    println!("[warn] analysis agent failed (continuing without): {}", e);
+                }
+            }
+        }
 
         // Mark current and save — so Ctrl+C leaves a known-good pointer
         progress.current = Some(next.clone());
@@ -674,6 +707,143 @@ fn short(sha: &str) -> &str {
     &sha[..sha.len().min(12)]
 }
 
+// ── Pre-analysis agent ────────────────────────────────────────────────────
+
+/// Spawn a read-only Claude agent that looks at the commit diff + paired
+/// review report + current codebase and recommends an action. Output streams
+/// to the terminal for the user to read before deciding. No file modification.
+fn run_analysis_agent(
+    project_root: &Path,
+    sha: &str,
+    info: &CommitInfo,
+    paired: Option<&CommitInfo>,
+    config: &Config,
+) -> Result<(), String> {
+    let prompt = build_analysis_prompt(project_root, sha, info, paired)?;
+
+    let agent_dir = project_root.join("doc/target/autoreview/apply-midlevel/agent-prompts");
+    fs::create_dir_all(&agent_dir).ok();
+    let prompt_path = agent_dir.join(format!("{}.analysis.md", short(sha)));
+    fs::write(&prompt_path, &prompt).ok();
+
+    println!();
+    println!("┌── pre-analysis (recommendation) ──────────────────────────────────────");
+
+    let model = config
+        .analyzer_model
+        .as_deref()
+        .or(config.model.as_deref())
+        .unwrap_or("opus");
+
+    let path_with_rustup = rustup_prefixed_path();
+
+    // Analyzer can read/grep/search but MUST NOT modify. The --dangerously-skip-permissions
+    // flag still lets the model use Read/Grep freely. We rely on the prompt instructing
+    // it not to edit, and we don't commit anything after.
+    let cmd_args: Vec<&str> = vec![
+        "-p",
+        "--dangerously-skip-permissions",
+        "--disallowedTools", "mcp__*",
+        "--disallowedTools", "Edit",
+        "--disallowedTools", "Write",
+        "--disallowedTools", "NotebookEdit",
+        "--disallowedTools", "Bash(git commit*)",
+        "--disallowedTools", "Bash(git cherry-pick*)",
+        "--disallowedTools", "Bash(git reset*)",
+        "--disallowedTools", "Bash(cargo*)",
+        "--model", model,
+    ];
+
+    let mut child = Command::new("claude")
+        .args(&cmd_args)
+        .env_remove("CLAUDECODE")
+        .env("PATH", &path_with_rustup)
+        .current_dir(project_root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .map_err(|e| format!("spawn claude (analyzer): {}", e))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(prompt.as_bytes())
+            .map_err(|e| format!("write analyzer prompt: {}", e))?;
+        drop(stdin);
+    }
+
+    let status = child.wait().map_err(|e| format!("wait analyzer: {}", e))?;
+    println!("└───────────────────────────────────────────────────────────────────────");
+    if !status.success() {
+        return Err(format!("analyzer exited with status {}", status));
+    }
+    Ok(())
+}
+
+fn build_analysis_prompt(
+    project_root: &Path,
+    sha: &str,
+    info: &CommitInfo,
+    paired: Option<&CommitInfo>,
+) -> Result<String, String> {
+    let code_diff = git_show_diff(project_root, sha)?;
+    let docs_diff = match paired {
+        Some(p) => git_show_diff(project_root, &p.sha)?,
+        None => String::new(),
+    };
+
+    let mut p = String::new();
+    p.push_str("You are analyzing ONE commit from an automated mid-level code review ");
+    p.push_str("before the user decides what to do with it. DO NOT modify any files. ");
+    p.push_str("Your job is to give the user a short recommendation.\n\n");
+
+    p.push_str("The previous review-agent pass was told to find and fix mid-level\n");
+    p.push_str("issues (dead code, duplication, unwired APIs, small refactors). It\n");
+    p.push_str("sometimes DELETED code that looked unused but was actually meant to\n");
+    p.push_str("be part of the public API — it just wasn't wired in `api.json` yet.\n");
+    p.push_str("Your analysis should catch those cases.\n\n");
+
+    p.push_str("Classify the commit into one of these categories and explain briefly:\n\n");
+    p.push_str("  [KEEP]     Clean, correct fix — the user should apply this as-is.\n");
+    p.push_str("  [WIRE]     Deletes a type/field/fn that should instead be WIRED into\n");
+    p.push_str("             the public API (check api.json — if the symbol is referenced\n");
+    p.push_str("             in the Rust source but not exposed, WIRE is the right call).\n");
+    p.push_str("  [REFACTOR] Intent is right but execution is off — user should edit\n");
+    p.push_str("             with a custom instruction (suggest what).\n");
+    p.push_str("  [REJECT]   Incorrect or harmful — do not apply.\n");
+    p.push_str("  [UNCLEAR]  You can't tell without more context — user should inspect.\n\n");
+
+    p.push_str("How to analyze:\n");
+    p.push_str("  1. Read the commit diff below.\n");
+    p.push_str("  2. Read the paired review report to understand the stated reasoning.\n");
+    p.push_str("  3. For each deletion, use Grep/Read to check whether the deleted name\n");
+    p.push_str("     is referenced anywhere else in the current tree (not just in the\n");
+    p.push_str("     commit's parent — search the CURRENT HEAD). Also check api.json:\n");
+    p.push_str("     if the type/fn is listed there, deletion is almost always wrong.\n");
+    p.push_str("  4. Output a SHORT recommendation (≤ 8 lines total):\n\n");
+    p.push_str("       [CATEGORY] <one sentence>\n");
+    p.push_str("       Why: <1-2 sentences>\n");
+    p.push_str("       Suggested action: <what the user should pick — 'y' / 'e with ...' / 'n'>\n\n");
+    p.push_str("Keep it terse. The user has 335 more commits to review.\n\n");
+
+    p.push_str(&format!("Original commit SHA: {}\n", sha));
+    p.push_str(&format!("Original subject: {}\n", info.subject));
+    if !info.body.is_empty() {
+        p.push_str(&format!("Original body:\n{}\n", info.body));
+    }
+
+    p.push_str("\n=== COMMIT DIFF ===\n");
+    p.push_str(&code_diff);
+    p.push_str("\n=== END COMMIT DIFF ===\n");
+
+    if !docs_diff.is_empty() {
+        p.push_str("\n=== PAIRED REVIEW REPORT ===\n");
+        p.push_str(&docs_diff);
+        p.push_str("\n=== END REPORT ===\n");
+    }
+
+    Ok(p)
+}
+
 // ── Apply (single agent-driven path) ─────────────────────────────────────
 
 struct Applied {
@@ -739,28 +909,25 @@ fn run_apply_agent(
     // rust-analyzer-lsp is ALLOWED here — this agent runs sequentially and
     // benefits from the type info. We only block MCP tools leaking from user
     // config.
+    // Default to opus for both agents. User can override via --model=<x>.
+    let model = config.model.as_deref().unwrap_or("opus");
     let mut cmd_args: Vec<&str> = vec![
         "-p",
         "--dangerously-skip-permissions",
         "--verbose",
         "--disallowedTools", "mcp__*",
+        "--model", model,
     ];
-    if let Some(m) = config.model.as_ref() {
-        cmd_args.push("--model");
-        cmd_args.push(m);
-    }
 
     // Ensure the agent uses the rustup toolchain (which has all cross-compile
     // targets installed) rather than Homebrew's cargo, which doesn't.
     let path_with_rustup = rustup_prefixed_path();
 
-    // Pass the path to the currently-running azul-doc binary so the agent can
-    // invoke `$AZUL_DOC_BIN autofix` directly instead of `cargo run -r -p
-    // azul-doc -- autofix`. That keeps autofix + codegen working even after
-    // the agent does `cargo clean` (otherwise cargo would have to re-build
-    // azul-doc from scratch before each pipeline step).
-    let azul_doc_bin = std::env::current_exe()
-        .map_err(|e| format!("current_exe: {}", e))?;
+    // Use the staged azul-doc binary (copied outside target/ at startup, so
+    // `cargo clean` in the agent doesn't wipe it).
+    let azul_doc_bin = project_root.join(
+        if cfg!(windows) { ".apply-midlevel/azul-doc.exe" } else { ".apply-midlevel/azul-doc" }
+    );
 
     let mut child = Command::new("claude")
         .args(&cmd_args)
@@ -1045,6 +1212,41 @@ fn index_is_empty(project_root: &Path) -> Result<bool, String> {
         .output()
         .map_err(|e| format!("git diff --cached: {}", e))?;
     Ok(String::from_utf8_lossy(&out.stdout).trim().is_empty())
+}
+
+/// Copy the currently-running `azul-doc` binary to a location that survives
+/// `cargo clean`, and return the stable path. The copy happens once at
+/// startup — repeat runs will overwrite it with whatever version of azul-doc
+/// is currently launching the tool.
+fn stage_binary(project_root: &Path) -> Result<PathBuf, String> {
+    let src = std::env::current_exe()
+        .map_err(|e| format!("current_exe: {}", e))?;
+    // Use project_root/.apply-midlevel/ which is outside any cargo target dir.
+    let dest_dir = project_root.join(".apply-midlevel");
+    fs::create_dir_all(&dest_dir)
+        .map_err(|e| format!("mkdir .apply-midlevel: {}", e))?;
+    let dest = dest_dir.join(if cfg!(windows) { "azul-doc.exe" } else { "azul-doc" });
+
+    // Don't re-copy if it's already identical (avoid invalidating ETag, etc.)
+    let src_meta = fs::metadata(&src).map_err(|e| format!("stat src: {}", e))?;
+    let should_copy = match fs::metadata(&dest) {
+        Ok(dst_meta) => dst_meta.len() != src_meta.len(),
+        Err(_) => true,
+    };
+    if should_copy {
+        fs::copy(&src, &dest).map_err(|e| format!("copy azul-doc: {}", e))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&dest)
+                .map_err(|e| format!("stat dest: {}", e))?
+                .permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&dest, perms)
+                .map_err(|e| format!("chmod: {}", e))?;
+        }
+    }
+    Ok(dest)
 }
 
 /// Build a PATH with `~/.cargo/bin` prepended so rustup-managed `cargo`/`rustc`
