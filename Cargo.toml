@@ -56,11 +56,5 @@ panic = "unwind"  # Tests need unwinding for #[should_panic] etc.
 # Unify allsorts: rust-fontconfig pulls registry allsorts, azul-layout uses
 # our git fork with pixel-snap hinting additions.  This patch makes both
 # resolve to the same crate, eliminating a ~13s duplicate compile.
-#
-# rust-fontconfig is patched to the locally-developed 3.3.0, which adds
-# byte-content deduplication (`get_font_bytes_arc` + `bytes_hash`) and the
-# scripts-aware fallback chain (`resolve_font_chain_with_scripts`). The
-# `version = "3.2.1"` constraints in sub-crates remain satisfied by 3.3.0.
 [patch.crates-io]
 allsorts = { git = "https://github.com/fschutt/allsorts.git", branch = "pixelsnap" }
-rust-fontconfig = { path = "/Users/fschutt/Development/rust-fontconfig" }
