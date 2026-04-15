@@ -334,6 +334,13 @@ pub mod parsed {
         /// [`crate::text3::cache::FontManager::evict_unused`] to
         /// decide which `LocaGlyfState::Deferred` faces to release.
         pub(crate) last_used: Arc<std::sync::atomic::AtomicU64>,
+        /// `true` if this font is a variable font (carries a `gvar`
+        /// table). Cached at parse time so [`decode_glyph_inner`]
+        /// can short-circuit the variable-context construction for
+        /// the common non-variable case. Variable-glyph delta
+        /// application requires the source bytes to be retained,
+        /// so it only fires on the `LocaGlyfState::Deferred` path.
+        pub(crate) is_variable_font: bool,
         /// Lazy outline cache. Populated on first
         /// [`ParsedFont::get_or_decode_glyph`] call per `gid`; entries
         /// are wrapped in `Arc` so callers can hold them without
@@ -425,6 +432,7 @@ pub mod parsed {
                 // Arc bump, amortises glyph decode across clones of the
                 // same face.
                 last_used: Arc::clone(&self.last_used),
+                is_variable_font: self.is_variable_font,
                 glyph_cache: Arc::clone(&self.glyph_cache),
                 // `LocaGlyfState` is `Clone` — for `Loaded` this is an
                 // `Arc::clone`; for `Deferred` it's an `Arc::clone` of
@@ -851,6 +859,12 @@ pub mod parsed {
             // into a chain but never actually rasterized (typical
             // for fallback fonts in CSS chains).
             let has_glyf = provider.has_table(tag::GLYF) && provider.has_table(tag::LOCA);
+            // Cache `has_gvar` before `provider` gets moved into
+            // `allsorts::font::Font::new(provider)` further down —
+            // it's the cheapest way to detect a variable font and
+            // avoids the borrow-after-move that a later
+            // `provider.has_table(tag::GVAR)` would incur.
+            let has_gvar = provider.has_table(tag::GVAR);
             let loca_glyf_opt: Option<Arc<std::sync::Mutex<LocaGlyf>>> = if has_glyf
                 && !defer_loca_glyf
             {
@@ -937,6 +951,7 @@ pub mod parsed {
                 opt_kern_table,
                 cmap_subtable,
                 last_used: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                is_variable_font: has_gvar,
                 glyph_cache: Arc::new(std::sync::RwLock::new(BTreeMap::new())),
                 // Eager path: `from_bytes` loaded LocaGlyf immediately
                 // (or set None if the font has no loca+glyf). Lazy
@@ -1094,6 +1109,30 @@ pub mod parsed {
                     Some(new_arc)
                 }
             }
+        }
+
+        /// Source bytes for PDF subsetting / table extraction.
+        ///
+        /// Looks in two places:
+        /// - `original_bytes` (set by [`ParsedFont::with_source_bytes`]
+        ///   for legacy PDF-first construction).
+        /// - `LocaGlyfState::Deferred.bytes` (set by
+        ///   [`ParsedFont::from_bytes_shared`] — the production lazy
+        ///   path, which already retains an `Arc<[u8]>` for the lazy
+        ///   loca/glyf loader).
+        ///
+        /// Returns `None` only for `ParsedFont`s built via the eager
+        /// `from_bytes` path without an explicit `with_source_bytes`
+        /// call — i.e. unit tests that load a font and don't touch
+        /// PDF.
+        pub fn source_bytes_for_subset(&self) -> Option<std::sync::Arc<[u8]>> {
+            if let Some(bytes) = &self.original_bytes {
+                return Some(std::sync::Arc::clone(bytes));
+            }
+            if let LocaGlyfState::Deferred { bytes, .. } = &self.loca_glyf {
+                return Some(std::sync::Arc::clone(bytes));
+            }
+            None
         }
 
         /// Read the monotonic-clock nanos timestamp of the most
@@ -1312,15 +1351,55 @@ pub mod parsed {
                 return record;
             };
 
-            // First pass: visit the outline (handles composite glyphs,
-            // transforms, and — absent a variable-font context — the
-            // default instance coordinates). Variable-font deltas are
-            // *not* applied in the lazy path: the `VariableGlyfContext`
-            // borrows tables from the source byte slice, which we don't
-            // retain here. macOS system fonts used in the reftest
-            // corpus aren't variable, so this is a non-issue in practice
-            // — revisit once a variable font lands in the workload.
-            {
+            // Visit the outline. If this is a variable font (gvar
+            // table present) AND we still have source bytes (only
+            // the `LocaGlyfState::Deferred` path retains them), we
+            // re-derive a `VariableGlyfContext` here so default-
+            // instance vs designed-instance differences land in
+            // the decoded outline. The chained `if let` pattern
+            // keeps `provider` and `store` in scope for the
+            // visit, which the borrow checker requires (the
+            // store's `Cow::Borrowed(&[u8])` tables tie its
+            // lifetime to the provider).
+            //
+            // Eager-`from_bytes` faces (no retained bytes) and
+            // non-variable fonts skip the var-context machinery
+            // and decode the default instance — same behaviour as
+            // before R4.
+            let mut outline_done = false;
+            if self.is_variable_font {
+                if let LocaGlyfState::Deferred { bytes, .. } = &self.loca_glyf {
+                    let scope = allsorts::binary::read::ReadScope::new(bytes);
+                    if let Ok(font_data) =
+                        scope.read::<allsorts::font_data::FontData<'_>>()
+                    {
+                        if let Ok(provider) = font_data.table_provider(self.original_index) {
+                            if let Ok(store) = VariableGlyfContextStore::read(&provider) {
+                                if let Ok(var_ctx) = VariableGlyfContext::new(&store) {
+                                    let mut visitor = GlyfVisitorContext::new(
+                                        &mut *loca_glyf,
+                                        Some(var_ctx),
+                                    );
+                                    let mut collector = GlyphOutlineCollector::new();
+                                    if visitor.visit(gid, None, &mut collector).is_ok() {
+                                        record.outline = collector.into_outlines();
+                                        let (min_x, min_y, max_x, max_y) =
+                                            compute_outline_bbox(&record.outline);
+                                        record.bounding_box = OwnedGlyphBoundingBox {
+                                            min_x,
+                                            min_y,
+                                            max_x,
+                                            max_y,
+                                        };
+                                        outline_done = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if !outline_done {
                 let mut visitor =
                     GlyfVisitorContext::new(&mut *loca_glyf, None);
                 let mut collector = GlyphOutlineCollector::new();
@@ -1587,20 +1666,24 @@ pub mod parsed {
         /// Convert the ParsedFont back to bytes using allsorts::whole_font
         /// This reconstructs the entire font from the parsed data
         ///
-        /// Requires the source bytes to be retained — callers must have
-        /// constructed this `ParsedFont` via [`ParsedFont::with_source_bytes`]
-        /// (or equivalent). `from_bytes` does not retain them by default,
-        /// since layout / raster never need them.
+        /// Source bytes come from either the explicit
+        /// [`ParsedFont::with_source_bytes`] handle (PDF-first
+        /// construction) *or* the `LocaGlyfState::Deferred` slot
+        /// installed by [`ParsedFont::from_bytes_shared`]. The
+        /// production lazy path retains bytes for the lazy LocaGlyf
+        /// loader, so PDF subsetting Just Works without an extra
+        /// `with_source_bytes` call.
         ///
         /// # Arguments
         /// * `tags` - Optional list of specific table tags to include (None = all tables)
         pub fn to_bytes(&self, tags: Option<&[u32]>) -> Result<Vec<u8>, String> {
-            let source = self.original_bytes.as_deref().ok_or_else(|| {
-                "ParsedFont::to_bytes requires source bytes; call \
-                 ParsedFont::with_source_bytes after parsing to retain them"
+            let source = self.source_bytes_for_subset().ok_or_else(|| {
+                "ParsedFont::to_bytes requires source bytes; construct via \
+                 ParsedFont::from_bytes_shared (production lazy path) or \
+                 attach via ParsedFont::with_source_bytes"
                     .to_string()
             })?;
-            let scope = ReadScope::new(source);
+            let scope = ReadScope::new(&source);
             let font_file = scope.read::<FontData<'_>>().map_err(|e| e.to_string())?;
             let provider = font_file
                 .table_provider(self.original_index)
@@ -1638,12 +1721,13 @@ pub mod parsed {
             glyph_ids: &[(u16, char)],
             cmap_target: CmapTarget,
         ) -> Result<(Vec<u8>, BTreeMap<u16, (u16, char)>), String> {
-            let source = self.original_bytes.as_deref().ok_or_else(|| {
-                "ParsedFont::subset requires source bytes; call \
-                 ParsedFont::with_source_bytes after parsing to retain them"
+            let source = self.source_bytes_for_subset().ok_or_else(|| {
+                "ParsedFont::subset requires source bytes; construct via \
+                 ParsedFont::from_bytes_shared (production lazy path) or \
+                 attach via ParsedFont::with_source_bytes"
                     .to_string()
             })?;
-            let scope = ReadScope::new(source);
+            let scope = ReadScope::new(&source);
             let font_file = scope.read::<FontData<'_>>().map_err(|e| e.to_string())?;
             let provider = font_file
                 .table_provider(self.original_index)
