@@ -559,12 +559,18 @@ impl FontContext {
         platform: &azul_css::system::Platform,
     ) {
         use crate::solver3::getters::{
-            collect_font_stacks_from_styled_dom, resolve_font_chains_with_scripts,
+            collect_font_stacks_from_styled_dom, collect_used_codepoints,
+            prune_chain_to_used_chars, resolve_font_chains_with_scripts,
             scripts_present_in_styled_dom,
         };
         let collected = collect_font_stacks_from_styled_dom(styled_dom, platform);
         let scripts = scripts_present_in_styled_dom(styled_dom);
-        let chains = resolve_font_chains_with_scripts(&collected, &self.fc_cache, &scripts);
+        let mut chains = resolve_font_chains_with_scripts(&collected, &self.fc_cache, &scripts);
+        // Coverage-based prune (matches `collect_and_resolve_font_chains_with_registration`).
+        let used_chars = collect_used_codepoints(styled_dom);
+        for chain in chains.chains.values_mut() {
+            prune_chain_to_used_chars(chain, &used_chars);
+        }
         self.font_chain_cache = chains.into_fontconfig_chains();
     }
 

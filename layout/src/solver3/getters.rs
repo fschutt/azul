@@ -3267,6 +3267,91 @@ pub fn collect_font_stacks_from_styled_dom(
 ///
 /// # Returns
 /// A `ResolvedFontChains` containing all resolved font chains
+/// Walk every text node in `styled_dom` and collect the set of
+/// non-ASCII codepoints actually present in the document.
+///
+/// Used by [`prune_chain_to_used_chars`] to drop CSS-fallback fonts
+/// from a resolved chain when the *first* match in a `css_fallbacks`
+/// group already covers everything the page asks for. ASCII (`< 0x80`)
+/// is universally covered by every Latin font we'd resolve, so we
+/// skip it here to keep the set small. Unicode characters in the
+/// returned set are deduped + sorted via `BTreeSet`.
+///
+/// Cost: O(total text length). Cheap relative to layout itself.
+pub fn collect_used_codepoints(
+    styled_dom: &StyledDom,
+) -> std::collections::BTreeSet<u32> {
+    let mut out = std::collections::BTreeSet::new();
+    let node_data = styled_dom.node_data.as_container();
+    for node in node_data.internal.iter() {
+        let azul_core::dom::NodeType::Text(s) = &node.node_type else {
+            continue;
+        };
+        for c in s.as_str().chars() {
+            let cp = c as u32;
+            if cp >= 0x80 {
+                out.insert(cp);
+            }
+        }
+    }
+    out
+}
+
+/// Trim a [`FontFallbackChain`] down to the minimum set of `FontMatch`
+/// entries needed to cover `used_chars` (typically from
+/// [`collect_used_codepoints`]).
+///
+/// For each `css_fallbacks` group, walk matches in the resolver's
+/// preferred order and keep them until every codepoint in
+/// `used_chars` is covered (per the OS/2 unicode-range bits cached
+/// in `FontMatch.unicode_ranges`). Always keeps at least the first
+/// match per group so a font listed in CSS doesn't disappear.
+///
+/// `unicode_fallbacks` is filtered to only include fonts whose
+/// ranges intersect `used_chars` — Phase-6's
+/// [`scripts_present_in_styled_dom`] already scopes the *script
+/// blocks* but a single block (e.g. CJK Unified, U+4E00..U+9FFF)
+/// can have hundreds of matching system fonts; this prunes them
+/// down to the few that actually cover the codepoints used.
+///
+/// On excel.html (~ASCII-only) this drops the per-chain
+/// `css_fallbacks` from 5 → 1 in each group, eliminating ~20 of
+/// the 26 fonts that would otherwise be parsed by
+/// `load_fonts_from_disk`.
+pub fn prune_chain_to_used_chars(
+    chain: &mut rust_fontconfig::FontFallbackChain,
+    used_chars: &std::collections::BTreeSet<u32>,
+) {
+    fn fm_covers(fm: &rust_fontconfig::FontMatch, cp: u32) -> bool {
+        fm.unicode_ranges
+            .iter()
+            .any(|r| cp >= r.start && cp <= r.end)
+    }
+
+    for group in &mut chain.css_fallbacks {
+        if group.fonts.is_empty() {
+            continue;
+        }
+        // Track which non-ASCII chars still need coverage as we walk
+        // matches in order. We always keep at least the first match.
+        let mut needed: Vec<u32> = used_chars.iter().copied().collect();
+        needed.retain(|&cp| !fm_covers(&group.fonts[0], cp));
+        let mut keep = 1;
+        for fm in group.fonts.iter().skip(1) {
+            if needed.is_empty() {
+                break;
+            }
+            keep += 1;
+            needed.retain(|&cp| !fm_covers(fm, cp));
+        }
+        group.fonts.truncate(keep);
+    }
+
+    chain.unicode_fallbacks.retain(|fm| {
+        used_chars.iter().any(|&cp| fm_covers(fm, cp))
+    });
+}
+
 /// Scan text-node content in `styled_dom` and return the subset of
 /// [`rust_fontconfig::DEFAULT_UNICODE_FALLBACK_SCRIPTS`] whose code-point
 /// ranges actually appear in any text. Short-circuits once all seven
@@ -3443,7 +3528,20 @@ pub fn collect_and_resolve_font_chains_with_registration<T: crate::font_traits::
     // Arabic/Devanagari/Hebrew fonts) that otherwise happen for every
     // chain regardless of document content.
     let scripts = scripts_present_in_styled_dom(styled_dom);
-    resolve_font_chains_with_scripts(&collected, fc_cache, &scripts)
+    let mut resolved = resolve_font_chains_with_scripts(&collected, fc_cache, &scripts);
+
+    // Coverage-based prune: trim each chain's `css_fallbacks` and
+    // `unicode_fallbacks` to only the matches needed for the
+    // codepoints the page actually uses. On excel.html this drops
+    // the chain from 26 -> ~5 faces total, since the first match in
+    // each css_fallbacks group covers ASCII and we don't need the
+    // remaining four faces of HelveticaNeue.ttc / LucidaGrande.ttc /
+    // Menlo.ttc that the resolver kept "just in case".
+    let used_chars = collect_used_codepoints(styled_dom);
+    for chain in resolved.chains.values_mut() {
+        prune_chain_to_used_chars(chain, &used_chars);
+    }
+    resolved
 }
 
 /// Legacy wrapper: collect + resolve without registration. Kept for
