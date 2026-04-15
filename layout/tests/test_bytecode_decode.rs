@@ -214,7 +214,7 @@ fn test_bytecode_decode_u() {
     };
 
     let glyph_id = font.lookup_glyph_index('u' as u32).unwrap();
-    let owned = font.glyph_records_decoded.get(&glyph_id).unwrap();
+    let owned = font.get_or_decode_glyph(glyph_id).unwrap();
     let bytecode = owned.instructions.as_ref().unwrap();
 
     let decoded = decode_bytecode(bytecode);
@@ -263,7 +263,7 @@ fn test_bytecode_decode_l() {
     };
 
     let glyph_id = font.lookup_glyph_index('L' as u32).unwrap();
-    let owned = font.glyph_records_decoded.get(&glyph_id).unwrap();
+    let owned = font.get_or_decode_glyph(glyph_id).unwrap();
     let bytecode = owned.instructions.as_ref().unwrap();
 
     let decoded = decode_bytecode(bytecode);
@@ -312,7 +312,7 @@ fn test_push_values() {
     };
 
     let glyph_id = font.lookup_glyph_index('u' as u32).unwrap();
-    let owned = font.glyph_records_decoded.get(&glyph_id).unwrap();
+    let owned = font.get_or_decode_glyph(glyph_id).unwrap();
     let bytecode = owned.instructions.as_ref().unwrap();
     let decoded = decode_bytecode(bytecode);
 
@@ -378,7 +378,7 @@ fn test_decode_all_lorem_glyphs() {
         let glyph_id = match font.lookup_glyph_index(ch as u32) {
             Some(id) => id, None => continue,
         };
-        let owned = match font.glyph_records_decoded.get(&glyph_id) {
+        let owned = match font.get_or_decode_glyph(glyph_id) {
             Some(o) => o, None => continue,
         };
         let bytecode = match owned.instructions.as_ref() {

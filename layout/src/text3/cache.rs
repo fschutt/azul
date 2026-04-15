@@ -560,12 +560,11 @@ impl FontContext {
     ) {
         use crate::solver3::getters::{
             collect_font_stacks_from_styled_dom, collect_used_codepoints,
-            prune_chain_to_used_chars, resolve_font_chains_with_scripts,
-            scripts_present_in_styled_dom,
+            prune_chain_to_used_chars, resolve_font_chains, scripts_present_in_styled_dom,
         };
         let collected = collect_font_stacks_from_styled_dom(styled_dom, platform);
         let scripts = scripts_present_in_styled_dom(styled_dom);
-        let mut chains = resolve_font_chains_with_scripts(&collected, &self.fc_cache, &scripts);
+        let mut chains = resolve_font_chains(&collected, &self.fc_cache, Some(&scripts));
         // Coverage-based prune (matches `collect_and_resolve_font_chains_with_registration`).
         let used_chars = collect_used_codepoints(styled_dom);
         for chain in chains.chains.values_mut() {
@@ -575,32 +574,38 @@ impl FontContext {
     }
 
     /// Load parsed font bytes from disk for all fonts referenced in `font_chain_cache`.
+    ///
+    /// Thin wrapper that materialises a `ResolvedFontChains` from the
+    /// cached chain map and delegates the actual disk-load to the
+    /// shared `FontManager::load_missing_for_chains` helper, so the
+    /// "collect → diff → load → insert" sequence lives in exactly
+    /// one place. Failures are silently dropped here (the caller is
+    /// the warmup path which has no good place to log them); use
+    /// `FontManager::load_missing_for_chains` directly for diagnostics.
     pub fn load_fonts_for_chains(&self) {
-        use crate::solver3::getters::{collect_font_ids_from_chains, compute_fonts_to_load, load_fonts_from_disk};
+        use crate::solver3::getters::ResolvedFontChains;
         use crate::text3::default::PathLoader;
 
-        // Convert FontChainKey → FontChainKeyOrRef for collect_font_ids_from_chains
-        let chains_map: HashMap<FontChainKeyOrRef, _> = self.font_chain_cache.iter()
+        let chains_map: HashMap<FontChainKeyOrRef, _> = self
+            .font_chain_cache
+            .iter()
             .map(|(k, v)| (FontChainKeyOrRef::Chain(k.clone()), v.clone()))
             .collect();
-        let resolved = crate::solver3::getters::ResolvedFontChains { chains: chains_map };
-        let required = collect_font_ids_from_chains(&resolved);
-        let already = self.parsed_fonts.lock().map(|m| m.keys().cloned().collect()).unwrap_or_default();
-        let to_load = compute_fonts_to_load(&required, &already);
+        let resolved = ResolvedFontChains { chains: chains_map };
 
-        if !to_load.is_empty() {
-            let loader = PathLoader::new();
-            let result = load_fonts_from_disk(
-                &to_load,
-                &self.fc_cache,
-                |bytes, index| loader.load_font_shared(bytes, index),
-            );
-            if let Ok(mut map) = self.parsed_fonts.lock() {
-                for (id, font) in result.loaded {
-                    map.insert(id, font);
-                }
-            }
-        }
+        // Borrow our shared `parsed_fonts` Arc as a transient
+        // FontManager so we can use the helper. `from_arc_shared`
+        // returns a manager that mutates the same underlying pool.
+        let manager = match FontManager::<azul_css::props::basic::FontRef>::from_arc_shared(
+            self.fc_cache.clone(),
+            self.parsed_fonts.clone(),
+        ) {
+            Ok(m) => m,
+            Err(_) => return,
+        };
+        let loader = PathLoader::new();
+        let _failed = manager
+            .load_missing_for_chains(&resolved, |bytes, idx| loader.load_font_shared(bytes, idx));
     }
 
     /// Convert into a `FontManager` with all data populated.
@@ -784,6 +789,39 @@ impl<T: ParsedFontTrait> FontManager<T> {
         for (font_id, font) in fonts {
             parsed.insert(font_id, font);
         }
+    }
+
+    /// One-shot helper that resolves "what fonts does `chains` need
+    /// that this manager hasn't loaded yet" and loads them via the
+    /// supplied `load_fn` closure (typically
+    /// `PathLoader::load_font_shared` for the production lazy-decode
+    /// path). Updates `parsed_fonts` in place and returns any failures
+    /// for the caller to log.
+    ///
+    /// Replaces the same four-step `collect → compute_diff →
+    /// load_from_disk → insert_fonts` dance previously inlined in
+    /// `LayoutWindow::layout_document`, the CPU rasterizer pre-fill
+    /// in `cpurender.rs`, and `FontContext::load_fonts_for_chains`.
+    pub fn load_missing_for_chains<F>(
+        &self,
+        chains: &crate::solver3::getters::ResolvedFontChains,
+        load_fn: F,
+    ) -> Vec<(FontId, String)>
+    where
+        F: Fn(std::sync::Arc<[u8]>, usize) -> Result<T, LayoutError>,
+    {
+        use crate::solver3::getters::{
+            collect_font_ids_from_chains, compute_fonts_to_load, load_fonts_from_disk,
+        };
+        let required = collect_font_ids_from_chains(chains);
+        let already = self.get_loaded_font_ids();
+        let to_load = compute_fonts_to_load(&required, &already);
+        if to_load.is_empty() {
+            return Vec::new();
+        }
+        let result = load_fonts_from_disk(&to_load, &self.fc_cache, load_fn);
+        self.insert_fonts(result.loaded);
+        result.failed
     }
 
     /// Remove a font from the cache

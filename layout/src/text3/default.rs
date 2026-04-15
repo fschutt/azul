@@ -67,10 +67,11 @@ impl PathLoader {
         PathLoader
     }
 
-    /// A helper method to read a font from a path and delegate to the trait's `load_font`.
-    /// Note: This is a convenience and not part of the `FontLoaderTrait`.
+    /// Read a font from disk and parse via the lazy-LocaGlyf path.
+    /// Convenience wrapper around [`PathLoader::load_font_shared`]
+    /// for callers that have a path but no `Arc<[u8]>` yet.
     pub fn load_from_path(&self, path: &Path, font_index: usize) -> Result<FontRef, LayoutError> {
-        let font_bytes = std::fs::read(path).map_err(|e| {
+        let font_bytes = std::fs::read(path).map_err(|_| {
             LayoutError::FontNotFound(FontSelector {
                 family: path.to_string_lossy().into_owned(),
                 weight: rust_fontconfig::FcWeight::Normal,
@@ -78,25 +79,6 @@ impl PathLoader {
                 unicode_ranges: Vec::new(),
             })
         })?;
-        self.load_font(&font_bytes, font_index)
-    }
-}
-
-impl FontManager<FontRef> {
-    pub fn new_with_fc_cache(fc_cache: FcFontCache) -> Result<Self, LayoutError> {
-        FontManager::new(fc_cache)
-    }
-}
-
-impl PathLoader {
-    /// Loads a font from a byte slice (legacy heap-owned form).
-    ///
-    /// Retained for callers that already have a `Vec<u8>` / `&[u8]`;
-    /// internally wraps in an `Arc<[u8]>` and delegates to
-    /// [`PathLoader::load_font_shared`]. The lazy-LocaGlyf path
-    /// holds the Arc, so the bytes stay alive as long as the
-    /// `ParsedFont` does.
-    pub fn load_font(&self, font_bytes: &[u8], font_index: usize) -> Result<FontRef, LayoutError> {
         self.load_font_shared(std::sync::Arc::from(font_bytes), font_index)
     }
 
@@ -105,11 +87,12 @@ impl PathLoader {
     /// the new `ParsedFont::from_bytes_shared` constructor so
     /// `LocaGlyf::load` is deferred until the first glyph decode.
     ///
-    /// This is the path used by the production font loader inside
-    /// `load_fonts_from_disk`. Fonts that never get rasterized
-    /// (common — every face of a `.ttc` gets a FontId, but pages
-    /// only hit a couple of them) then skip their per-face
-    /// ~500 KiB of loca+glyf materialisation.
+    /// This is the only loader on the production path —
+    /// `load_fonts_from_disk` calls this via the closure passed
+    /// into `FontManager::load_missing_for_chains`. Fonts that
+    /// never get rasterized (common — every face of a `.ttc` gets a
+    /// FontId, but pages only hit a couple of them) then skip their
+    /// per-face ~500 KiB of loca+glyf materialisation.
     pub fn load_font_shared(
         &self,
         font_bytes: std::sync::Arc<[u8]>,
@@ -121,6 +104,12 @@ impl PathLoader {
                 LayoutError::ShapingError("Failed to parse font with allsorts".to_string())
             })?;
         Ok(crate::parsed_font_to_font_ref(parsed_font))
+    }
+}
+
+impl FontManager<FontRef> {
+    pub fn new_with_fc_cache(fc_cache: FcFontCache) -> Result<Self, LayoutError> {
+        FontManager::new(fc_cache)
     }
 }
 

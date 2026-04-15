@@ -198,7 +198,7 @@ fn render_coretext(ch: char, font_name: &str, font_size: f32, w: u32, h: u32, ba
 /// Render a glyph with our hinted pipeline into a grayscale bitmap.
 fn render_azul(font: &ParsedFont, ch: char, font_size: f32, w: u32, h: u32, baseline_y: f32) -> Option<GrayBitmap> {
     let glyph_id = font.lookup_glyph_index(ch as u32)?;
-    let owned = font.glyph_records_decoded.get(&glyph_id)?;
+    let owned = font.get_or_decode_glyph(glyph_id)?;
     let ppem = font_size.round() as u16;
 
     let mut cache = GlyphCache::new();

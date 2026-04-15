@@ -3401,30 +3401,21 @@ pub fn scripts_present_in_styled_dom(styled_dom: &StyledDom) -> Vec<UnicodeRange
         .collect()
 }
 
-/// Resolve font chains for a collected set of stacks, restricting
-/// Unicode fallbacks to `scripts_hint`. Pass an empty slice to skip
-/// Unicode fallbacks entirely; pass
-/// [`rust_fontconfig::DEFAULT_UNICODE_FALLBACK_SCRIPTS`] (or compute
-/// via [`scripts_present_in_styled_dom`]) for the typical case.
-pub fn resolve_font_chains_with_scripts(
-    collected: &CollectedFontStacks,
-    fc_cache: &FcFontCache,
-    scripts_hint: &[UnicodeRange],
-) -> ResolvedFontChains {
-    resolve_font_chains_inner(collected, fc_cache, Some(scripts_hint))
-}
-
-/// Back-compat wrapper: keeps the pre-refactor "all 7 default scripts"
-/// behaviour. New callers should prefer
-/// [`resolve_font_chains_with_scripts`] with a caller-supplied hint.
+/// Resolve font chains for a collected set of stacks.
+///
+/// `scripts_hint`:
+/// - `None` keeps the original "all 7 default scripts" behaviour
+///   (Cyrillic / Arabic / Devanagari / Hiragana / Katakana / CJK /
+///   Hangul) — equivalent to passing
+///   `Some(rust_fontconfig::DEFAULT_UNICODE_FALLBACK_SCRIPTS)`.
+/// - `Some(&[])` attaches *no* Unicode fallbacks, suitable for
+///   ASCII-only documents. Combined with `prune_chain_to_used_chars`
+///   this is what eliminates Arial Unicode MS / CJK / Arabic font
+///   loads on Latin-only pages.
+/// - `Some(ranges)` attaches fallbacks only for the listed scripts.
+///   Production callers compute this via
+///   [`scripts_present_in_styled_dom`].
 pub fn resolve_font_chains(
-    collected: &CollectedFontStacks,
-    fc_cache: &FcFontCache,
-) -> ResolvedFontChains {
-    resolve_font_chains_inner(collected, fc_cache, None)
-}
-
-fn resolve_font_chains_inner(
     collected: &CollectedFontStacks,
     fc_cache: &FcFontCache,
     scripts_hint: Option<&[UnicodeRange]>,
@@ -3528,7 +3519,7 @@ pub fn collect_and_resolve_font_chains_with_registration<T: crate::font_traits::
     // Arabic/Devanagari/Hebrew fonts) that otherwise happen for every
     // chain regardless of document content.
     let scripts = scripts_present_in_styled_dom(styled_dom);
-    let mut resolved = resolve_font_chains_with_scripts(&collected, fc_cache, &scripts);
+    let mut resolved = resolve_font_chains(&collected, fc_cache, Some(&scripts));
 
     // Coverage-based prune: trim each chain's `css_fallbacks` and
     // `unicode_fallbacks` to only the matches needed for the
@@ -3553,7 +3544,7 @@ pub fn collect_and_resolve_font_chains(
     platform: &azul_css::system::Platform,
 ) -> ResolvedFontChains {
     let collected = collect_font_stacks_from_styled_dom(styled_dom, platform);
-    resolve_font_chains(&collected, fc_cache)
+    resolve_font_chains(&collected, fc_cache, None)
 }
 
 /// Legacy wrapper: register only. Prefer `collect_and_resolve_font_chains_with_registration`.

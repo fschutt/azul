@@ -303,28 +303,20 @@ pub mod parsed {
         pub opt_gdef_table: Option<Arc<GDEFTable>>,
         /// Legacy kerning table (kern) for fonts without GPOS.
         pub opt_kern_table: Option<Arc<KernTable>>,
-        /// Decoded glyph records with outlines and metrics, keyed by glyph ID.
+        /// Lazy outline cache. Populated on first
+        /// [`ParsedFont::get_or_decode_glyph`] call per `gid`; entries
+        /// are wrapped in `Arc` so callers can hold them without
+        /// keeping the lock. The space glyph (and `.notdef` when
+        /// present) are pre-inserted by `from_bytes_internal` so the
+        /// shaper's cmap-miss path has something to render without
+        /// racing with a decode.
         ///
-        /// **No longer populated eagerly by `from_bytes`**: only glyph 0
-        /// (.notdef) and the space glyph are inserted up front so basic
-        /// shaping doesn't race with the lazy decoder. Production callers
-        /// read outlines via [`ParsedFont::get_or_decode_glyph`] instead,
-        /// which uses the `Arc<RwLock<…>>` cache below and is cheap on
-        /// hit.
-        ///
-        /// This field is kept as a public `BTreeMap` for back-compat with
-        /// the test suite and any embedder that needs a walkable view.
-        /// Call [`ParsedFont::prime_glyph_cache`] to force all glyphs to
-        /// be decoded into this map (restores the pre-lazy behaviour —
-        /// useful for tests that iterate or compare against reference
-        /// tooling).
-        pub glyph_records_decoded: BTreeMap<u16, OwnedGlyph>,
-        /// Thread-safe lazy outline cache used by
-        /// [`ParsedFont::get_or_decode_glyph`]. Separate from
-        /// `glyph_records_decoded` so the public field retains the
-        /// `BTreeMap<u16, OwnedGlyph>` signature that existing callers
-        /// (including several tests) depend on. Each entry is an `Arc`
-        /// so the caller can hold the record without pinning the lock.
+        /// Tests that previously walked the public `glyph_records_decoded`
+        /// `BTreeMap` field now call
+        /// [`ParsedFont::prime_glyph_cache`] (decodes every glyph into
+        /// this cache) followed by
+        /// [`ParsedFont::for_each_decoded_glyph`] /
+        /// [`ParsedFont::glyph_cache_snapshot`] to walk the result.
         pub(crate) glyph_cache: Arc<std::sync::RwLock<BTreeMap<u16, Arc<OwnedGlyph>>>>,
         /// Glyph outline decoder state.
         ///
@@ -398,7 +390,6 @@ pub mod parsed {
                 gpos_cache_lazy: self.gpos_cache_lazy.clone(),
                 opt_gdef_table: self.opt_gdef_table.clone(),
                 opt_kern_table: self.opt_kern_table.clone(),
-                glyph_records_decoded: self.glyph_records_decoded.clone(),
                 // Share the lazy cache and loca_glyf across clones: cheap
                 // Arc bump, amortises glyph decode across clones of the
                 // same face.
@@ -606,8 +597,11 @@ pub mod parsed {
                 )
                 .field("maxp_table", &self.maxp_table)
                 .field(
-                    "glyph_records_decoded",
-                    &format_args!("{} entries", self.glyph_records_decoded.len()),
+                    "glyph_cache",
+                    &format_args!(
+                        "{} entries (lazy)",
+                        self.glyph_cache.read().map(|m| m.len()).unwrap_or(0),
+                    ),
                 )
                 .field("space_width", &self.space_width)
                 .field("cmap_subtable", &self.cmap_subtable)
@@ -672,11 +666,36 @@ pub mod parsed {
         /// # Returns
         /// `Some(ParsedFont)` if parsing succeeds, `None` otherwise
         ///
-        /// Note: Outlines are always parsed (parse_outlines = true)
+        /// Note: Outlines are decoded lazily by `get_or_decode_glyph`;
+        /// `LocaGlyf::load` runs eagerly here. Use `from_bytes_shared`
+        /// for the lazy-LocaGlyf production path.
         pub fn from_bytes(
             font_bytes: &[u8],
             font_index: usize,
             warnings: &mut Vec<FontParseWarning>,
+        ) -> Option<Self> {
+            // `from_bytes` keeps the eager-LocaGlyf behaviour for the
+            // small number of callers (mainly tests) that don't have
+            // an `Arc<[u8]>` to keep alive for the lazy path.
+            Self::from_bytes_internal(font_bytes, font_index, warnings, false)
+        }
+
+        /// Shared implementation of `from_bytes` / `from_bytes_shared`.
+        ///
+        /// `defer_loca_glyf = true` skips the `LocaGlyf::load` call
+        /// here so the caller (`from_bytes_shared`) can install a
+        /// `LocaGlyfState::Deferred` slot that re-parses on first
+        /// glyph decode. Saves the load-then-drop cycle the previous
+        /// arrangement paid (`from_bytes_shared` used to call
+        /// `from_bytes` and immediately replace the loaded LocaGlyf
+        /// with a Deferred slot, throwing away ~hundreds of KiB of
+        /// loca+glyf bytes per face for fonts in the chain that get
+        /// loaded but never rasterized).
+        fn from_bytes_internal(
+            font_bytes: &[u8],
+            font_index: usize,
+            warnings: &mut Vec<FontParseWarning>,
+            defer_loca_glyf: bool,
         ) -> Option<Self> {
             use std::{
                 collections::hash_map::DefaultHasher,
@@ -788,12 +807,21 @@ pub mod parsed {
             // ~hundreds of KiB of glyf bytes) but we *don't* decode any
             // glyph outlines up front — that's the big RSS win. Glyphs
             // are decoded by `ParsedFont::get_or_decode_glyph` on first
-            // access from the CPU/GPU rasterizer. For CFF fonts or any
-            // font without loca+glyf the field is `None` and decoding
-            // falls back to the hmtx-only record populated per-glyph on
-            // demand.
+            // access from the CPU/GPU rasterizer.
+            //
+            // When `defer_loca_glyf` is set (production lazy path via
+            // `from_bytes_shared`), we skip `LocaGlyf::load` here too —
+            // the caller will overwrite the slot with
+            // `LocaGlyfState::Deferred` carrying the source bytes
+            // `Arc<[u8]>`, and the load happens on the first
+            // `get_or_decode_glyph` call. This avoids parsing
+            // ~hundreds of KiB per face for fonts that get resolved
+            // into a chain but never actually rasterized (typical
+            // for fallback fonts in CSS chains).
             let has_glyf = provider.has_table(tag::GLYF) && provider.has_table(tag::LOCA);
-            let loca_glyf_opt: Option<Arc<std::sync::Mutex<LocaGlyf>>> = if has_glyf {
+            let loca_glyf_opt: Option<Arc<std::sync::Mutex<LocaGlyf>>> = if has_glyf
+                && !defer_loca_glyf
+            {
                 match LocaGlyf::load(&provider) {
                     Ok(lg) => Some(Arc::new(std::sync::Mutex::new(lg))),
                     Err(e) => {
@@ -807,10 +835,10 @@ pub mod parsed {
                 None
             };
 
-            // Empty on construction; `.notdef` + space are inserted below
-            // so the shaper's cmap-miss fallback has something to shape
-            // without racing with the lazy decoder.
-            let glyph_records_decoded: BTreeMap<u16, OwnedGlyph> = BTreeMap::new();
+            // Lazy `glyph_cache` starts empty; the space-glyph stub
+            // below pre-inserts gid 0 / space so the shaper's
+            // cmap-miss fallback has something to render without
+            // racing with a decode.
 
             let mut font_data_impl = allsorts::font::Font::new(provider).ok()?;
 
@@ -876,7 +904,6 @@ pub mod parsed {
                 opt_gdef_table,
                 opt_kern_table,
                 cmap_subtable,
-                glyph_records_decoded,
                 glyph_cache: Arc::new(std::sync::RwLock::new(BTreeMap::new())),
                 // Eager path: `from_bytes` loaded LocaGlyf immediately
                 // (or set None if the font has no loca+glyf). Lazy
@@ -900,12 +927,18 @@ pub mod parsed {
             // Calculate space width
             let space_width = font.get_space_width_internal();
 
-            // Ensure space glyph is in glyph_records_decoded
-            // Space glyphs often don't have outlines, so they may not be loaded by default
+            // Pre-decode the space glyph straight into the lazy
+            // `glyph_cache`. Space typically has no outline, so the
+            // decoder's outline visitor returns nothing useful and
+            // we'd spin re-decoding it every shape — short-circuit
+            // here with a hand-rolled record carrying the hmtx
+            // advance.
             let _ = (|| {
                 let space_gid = font.lookup_glyph_index(' ' as u32)?;
-                if font.glyph_records_decoded.contains_key(&space_gid) {
-                    return None; // Already exists
+                if let Ok(cache) = font.glyph_cache.read() {
+                    if cache.contains_key(&space_gid) {
+                        return None;
+                    }
                 }
                 let space_width_val = space_width?;
                 let space_record = OwnedGlyph {
@@ -923,7 +956,9 @@ pub mod parsed {
                     raw_contour_ends: None,
                     instructions: None,
                 };
-                font.glyph_records_decoded.insert(space_gid, space_record);
+                if let Ok(mut cache) = font.glyph_cache.write() {
+                    cache.insert(space_gid, Arc::new(space_record));
+                }
                 Some(())
             })();
 
@@ -965,13 +1000,12 @@ pub mod parsed {
             font_index: usize,
             warnings: &mut Vec<FontParseWarning>,
         ) -> Option<Self> {
-            let mut font = Self::from_bytes(&bytes, font_index, warnings)?;
-            // Replace the eagerly-loaded LocaGlyf with a Deferred slot
-            // carrying the shared bytes. The already-loaded LocaGlyf
-            // (~tens-to-hundreds of KiB of loca+glyf per face) is
-            // dropped here, reclaiming its memory immediately. The
-            // one-shot FontData::read + LocaGlyf::load on first glyph
-            // access re-derives it from the retained bytes.
+            // Skip the eager LocaGlyf::load via `defer_loca_glyf=true`
+            // — saves the load-then-drop cycle the prior arrangement
+            // paid (when this called `from_bytes`, allocated
+            // ~hundreds of KiB of loca+glyf bytes, then immediately
+            // replaced the slot with `Deferred` and dropped them).
+            let mut font = Self::from_bytes_internal(&bytes, font_index, warnings, true)?;
             font.loca_glyf = LocaGlyfState::Deferred {
                 bytes,
                 font_index,
@@ -1102,20 +1136,49 @@ pub mod parsed {
             Some(arc)
         }
 
-        /// Restore the pre-lazy behaviour: decode every glyph up front
-        /// into the public `glyph_records_decoded` BTreeMap. Used by the
-        /// test suite (and any embedder that wants a walkable view of
-        /// all glyphs without calling `get_or_decode_glyph` per id).
+        /// Eagerly decode every glyph into the lazy `glyph_cache`,
+        /// restoring the pre-lazy "every glyph is materialised at
+        /// construction time" behaviour. Used by tests that iterate
+        /// or compare against reference tooling, and by embedders
+        /// that want a walkable view without driving every shape
+        /// through `get_or_decode_glyph`.
+        ///
+        /// After `prime_glyph_cache`, callers can use
+        /// [`ParsedFont::for_each_decoded_glyph`] or
+        /// [`ParsedFont::glyph_cache_snapshot`] to observe the
+        /// populated cache.
         pub fn prime_glyph_cache(&mut self) {
             let n = self.num_glyphs.min(u16::MAX) as usize;
             for glyph_index in 0..n {
                 let gid = glyph_index as u16;
-                if self.glyph_records_decoded.contains_key(&gid) {
-                    continue;
-                }
-                let record = self.decode_glyph_inner(gid);
-                self.glyph_records_decoded.insert(gid, record);
+                let _ = self.get_or_decode_glyph(gid);
             }
+        }
+
+        /// Walk every entry currently in the lazy `glyph_cache`,
+        /// invoking `f(gid, &OwnedGlyph)` for each. Holds a read
+        /// lock for the duration; do not call back into the font
+        /// from `f`. The cache is populated on demand by
+        /// [`ParsedFont::get_or_decode_glyph`] (and bulk-prefilled
+        /// by [`ParsedFont::prime_glyph_cache`]).
+        pub fn for_each_decoded_glyph<F: FnMut(u16, &OwnedGlyph)>(&self, mut f: F) {
+            if let Ok(cache) = self.glyph_cache.read() {
+                for (gid, glyph) in cache.iter() {
+                    f(*gid, glyph.as_ref());
+                }
+            }
+        }
+
+        /// Snapshot of the currently-decoded glyphs as a
+        /// `BTreeMap<u16, Arc<OwnedGlyph>>`. Cheap (clones the
+        /// Arcs, not the records). Used by callers that want to
+        /// hand the map off across an API boundary; for in-place
+        /// iteration prefer [`ParsedFont::for_each_decoded_glyph`].
+        pub fn glyph_cache_snapshot(&self) -> BTreeMap<u16, Arc<OwnedGlyph>> {
+            self.glyph_cache
+                .read()
+                .map(|c| c.clone())
+                .unwrap_or_default()
         }
 
         /// Core decode routine: produces one `OwnedGlyph` for `gid` by

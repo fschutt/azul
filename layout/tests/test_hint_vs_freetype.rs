@@ -148,7 +148,7 @@ const FT_S: FtRef = FtRef {
 
 fn hint_glyph(font: &ParsedFont, codepoint: u32, ppem: u16) -> Option<Vec<(i32, i32)>> {
     let glyph_id = font.lookup_glyph_index(codepoint)?;
-    let owned = font.glyph_records_decoded.get(&glyph_id)?;
+    let owned = font.get_or_decode_glyph(glyph_id)?;
     let raw_points = owned.raw_points.as_ref()?;
     let raw_on_curve = owned.raw_on_curve.as_ref()?;
     let raw_contour_ends = owned.raw_contour_ends.as_ref()?;
@@ -179,7 +179,7 @@ fn hint_glyph(font: &ParsedFont, codepoint: u32, ppem: u16) -> Option<Vec<(i32, 
 
 fn hint_glyph_with_flags(font: &ParsedFont, codepoint: u32, ppem: u16) -> Option<(Vec<(i32, i32)>, Vec<bool>, Vec<bool>)> {
     let glyph_id = font.lookup_glyph_index(codepoint)?;
-    let owned = font.glyph_records_decoded.get(&glyph_id)?;
+    let owned = font.get_or_decode_glyph(glyph_id)?;
     let raw_points = owned.raw_points.as_ref()?;
     let raw_on_curve = owned.raw_on_curve.as_ref()?;
     let raw_contour_ends = owned.raw_contour_ends.as_ref()?;
@@ -254,7 +254,7 @@ fn test_s_path_segments() {
     let cp = 0x73u32; // 's'
 
     let glyph_id = font.lookup_glyph_index(cp).unwrap();
-    let owned = font.glyph_records_decoded.get(&glyph_id).unwrap();
+    let owned = font.get_or_decode_glyph(glyph_id).unwrap();
     let raw_on_curve = owned.raw_on_curve.as_ref().unwrap();
     let raw_contour_ends = owned.raw_contour_ends.as_ref().unwrap();
 
@@ -411,7 +411,7 @@ fn test_render_hinted_glyphs_png() {
             Some(id) => id,
             None => continue,
         };
-        let owned = font.glyph_records_decoded.get(&glyph_id).unwrap();
+        let owned = font.get_or_decode_glyph(glyph_id).unwrap();
         let raw_on_curve = owned.raw_on_curve.as_ref().unwrap();
         let raw_contour_ends = owned.raw_contour_ends.as_ref().unwrap();
 
@@ -454,7 +454,7 @@ fn test_render_hinted_glyphs_png() {
             Some(id) => id,
             None => continue,
         };
-        let owned = font.glyph_records_decoded.get(&glyph_id).unwrap();
+        let owned = font.get_or_decode_glyph(glyph_id).unwrap();
         let raw_on_curve = owned.raw_on_curve.as_ref().unwrap();
         let raw_contour_ends = owned.raw_contour_ends.as_ref().unwrap();
 
@@ -520,7 +520,7 @@ fn test_render_full_alphabet_png() {
             Some(id) => id,
             None => continue,
         };
-        let owned = match font.glyph_records_decoded.get(&glyph_id) {
+        let owned = match font.get_or_decode_glyph(glyph_id) {
             Some(o) => o,
             None => continue,
         };
@@ -605,7 +605,7 @@ fn test_times_serif_hinting() {
             Some(id) => id,
             None => { eprintln!("'{ch}': glyph not found"); continue; }
         };
-        let owned = match font.glyph_records_decoded.get(&glyph_id) {
+        let owned = match font.get_or_decode_glyph(glyph_id) {
             Some(o) => o,
             None => continue,
         };
@@ -655,7 +655,7 @@ fn test_times_serif_hinting() {
 /// Helper to hint a glyph using any ParsedFont (not just HelveticaNeue)
 fn hint_glyph_any(font: &ParsedFont, codepoint: u32, ppem: u16) -> Option<Vec<(i32, i32)>> {
     let glyph_id = font.lookup_glyph_index(codepoint)?;
-    let owned = font.glyph_records_decoded.get(&glyph_id)?;
+    let owned = font.get_or_decode_glyph(glyph_id)?;
     let raw_points = owned.raw_points.as_ref()?;
     let raw_on_curve = owned.raw_on_curve.as_ref()?;
     let raw_contour_ends = owned.raw_contour_ends.as_ref()?;
@@ -707,7 +707,7 @@ fn test_digit_8_vs_freetype() {
 
     let ppem: u16 = 80;
     let glyph_id = font.lookup_glyph_index('8' as u32).unwrap();
-    let owned = font.glyph_records_decoded.get(&glyph_id).unwrap();
+    let owned = font.get_or_decode_glyph(glyph_id).unwrap();
     let raw_points = owned.raw_points.as_ref().unwrap();
     let raw_on_curve = owned.raw_on_curve.as_ref().unwrap();
     let raw_contour_ends = owned.raw_contour_ends.as_ref().unwrap();
@@ -799,7 +799,7 @@ fn test_digit_8_hinting_comparison() {
     let upem = font.font_metrics.units_per_em;
     let scale_f = ppem as f32 / upem as f32;
     let glyph_id = font.lookup_glyph_index('8' as u32).unwrap();
-    let owned = font.glyph_records_decoded.get(&glyph_id).unwrap();
+    let owned = font.get_or_decode_glyph(glyph_id).unwrap();
     let raw_points = owned.raw_points.as_ref().unwrap();
     let raw_on_curve = owned.raw_on_curve.as_ref().unwrap();
     let raw_contour_ends = owned.raw_contour_ends.as_ref().unwrap();
@@ -894,7 +894,7 @@ fn test_render_suspect_glyphs_large() {
         let glyph_id = match font.lookup_glyph_index(*cp) {
             Some(id) => id, None => continue,
         };
-        let owned = match font.glyph_records_decoded.get(&glyph_id) {
+        let owned = match font.get_or_decode_glyph(glyph_id) {
             Some(o) => o, None => continue,
         };
         let raw_on_curve = match owned.raw_on_curve.as_ref() { Some(f) => f, None => continue };
@@ -961,7 +961,7 @@ fn test_render_hinted_vs_unhinted() {
         let glyph_id = match font.lookup_glyph_index(*cp) {
             Some(id) => id, None => continue,
         };
-        let owned = match font.glyph_records_decoded.get(&glyph_id) {
+        let owned = match font.get_or_decode_glyph(glyph_id) {
             Some(o) => o, None => continue,
         };
         let raw_on_curve = match owned.raw_on_curve.as_ref() { Some(f) => f, None => continue };
@@ -1036,7 +1036,7 @@ fn test_fill_rule_comparison() {
         let glyph_id = match font.lookup_glyph_index(*cp) {
             Some(id) => id, None => continue,
         };
-        let owned = match font.glyph_records_decoded.get(&glyph_id) {
+        let owned = match font.get_or_decode_glyph(glyph_id) {
             Some(o) => o, None => continue,
         };
         let raw_on_curve = match owned.raw_on_curve.as_ref() { Some(f) => f, None => continue };
@@ -1085,7 +1085,7 @@ fn test_dump_m_contour() {
     // Dump M, N, 8
     for (name, cp) in &[('M', 0x4Du32), ('N', 0x4Eu32), ('8', 0x38u32)] {
         let glyph_id = font.lookup_glyph_index(*cp).unwrap();
-        let owned = font.glyph_records_decoded.get(&glyph_id).unwrap();
+        let owned = font.get_or_decode_glyph(glyph_id).unwrap();
         let raw_points = owned.raw_points.as_ref().unwrap();
         let raw_on_curve = owned.raw_on_curve.as_ref().unwrap();
         let raw_contour_ends = owned.raw_contour_ends.as_ref().unwrap();
@@ -1153,7 +1153,7 @@ fn test_visitor_vs_contour_path() {
         let glyph_id = match font.lookup_glyph_index(*cp) {
             Some(id) => id, None => continue,
         };
-        let owned = match font.glyph_records_decoded.get(&glyph_id) {
+        let owned = match font.get_or_decode_glyph(glyph_id) {
             Some(o) => o, None => continue,
         };
 
@@ -1212,7 +1212,7 @@ fn test_eight_contours_separate() {
     let font_scale = ppem as f32 / upem as f32;
 
     let glyph_id = font.lookup_glyph_index(0x38).unwrap(); // '8'
-    let owned = font.glyph_records_decoded.get(&glyph_id).unwrap();
+    let owned = font.get_or_decode_glyph(glyph_id).unwrap();
     let raw_on_curve = owned.raw_on_curve.as_ref().unwrap();
     let raw_contour_ends = owned.raw_contour_ends.as_ref().unwrap();
     let raw_points = owned.raw_points.as_ref().unwrap();
@@ -1354,7 +1354,7 @@ fn test_debug_h_glyph() {
             Some(id) => id,
             None => { eprintln!("'{}': glyph not found", name); continue; }
         };
-        let owned = font.glyph_records_decoded.get(&glyph_id).unwrap();
+        let owned = font.get_or_decode_glyph(glyph_id).unwrap();
         let raw_points = owned.raw_points.as_ref().unwrap();
         let raw_on_curve = owned.raw_on_curve.as_ref().unwrap();
         let raw_contour_ends = owned.raw_contour_ends.as_ref().unwrap();
@@ -1403,7 +1403,7 @@ fn test_compare_path_ops() {
         let glyph_id = match font.lookup_glyph_index(*cp) {
             Some(id) => id, None => continue,
         };
-        let owned = match font.glyph_records_decoded.get(&glyph_id) {
+        let owned = match font.get_or_decode_glyph(glyph_id) {
             Some(o) => o, None => continue,
         };
 
@@ -1478,7 +1478,7 @@ fn test_compare_path_ops() {
         let glyph_id = match font.lookup_glyph_index(*cp) {
             Some(id) => id, None => continue,
         };
-        let owned = match font.glyph_records_decoded.get(&glyph_id) {
+        let owned = match font.get_or_decode_glyph(glyph_id) {
             Some(o) => o, None => continue,
         };
         let raw_points = owned.raw_points.as_ref().unwrap();
@@ -1549,7 +1549,7 @@ fn test_debug_kerning() {
         None => { eprintln!("Failed to parse Times"); return; }
     };
 
-    eprintln!("Font: {} glyphs, upem={}", font.glyph_records_decoded.len(), font.font_metrics.units_per_em);
+    eprintln!("Font: {} glyphs, upem={}", font.glyph_cache_snapshot().len(), font.font_metrics.units_per_em);
     eprintln!("Has GPOS: {}", font.gpos().is_some());
     eprintln!("Has kern table: {}", font.opt_kern_table.is_some());
 
@@ -1659,7 +1659,7 @@ fn test_hinting_at_small_ppem() {
                         continue;
                     }
                     let gid = gid.unwrap();
-                    let owned = font.glyph_records_decoded.get(&gid);
+                    let owned = font.get_or_decode_glyph(gid);
                     if owned.is_none() {
                         no_data += 1;
                         continue;
@@ -1697,7 +1697,7 @@ fn test_dump_hinted_L_small() {
     for ppem in [12u16, 16] {
         for ch in ['L', 'o'] {
             let glyph_id = font.lookup_glyph_index(ch as u32).unwrap();
-            let owned = font.glyph_records_decoded.get(&glyph_id).unwrap();
+            let owned = font.get_or_decode_glyph(glyph_id).unwrap();
             let raw_points = owned.raw_points.as_ref().unwrap();
 
             let upem = font.font_metrics.units_per_em;
@@ -1781,7 +1781,7 @@ fn test_trace_L_ppem12() {
 
     let ppem: u16 = 12;
     let glyph_id = font.lookup_glyph_index('L' as u32).unwrap();
-    let owned = font.glyph_records_decoded.get(&glyph_id).unwrap();
+    let owned = font.get_or_decode_glyph(glyph_id).unwrap();
     let raw_points = owned.raw_points.as_ref().unwrap();
     let raw_on_curve = owned.raw_on_curve.as_ref().unwrap();
     let raw_contour_ends = owned.raw_contour_ends.as_ref().unwrap();
@@ -1897,7 +1897,7 @@ fn test_trace_o_ppem64() {
 
     let ppem: u16 = 64;
     let glyph_id = font.lookup_glyph_index('o' as u32).unwrap();
-    let owned = font.glyph_records_decoded.get(&glyph_id).unwrap();
+    let owned = font.get_or_decode_glyph(glyph_id).unwrap();
     let raw_points = owned.raw_points.as_ref().unwrap();
     let raw_on_curve = owned.raw_on_curve.as_ref().unwrap();
     let raw_contour_ends = owned.raw_contour_ends.as_ref().unwrap();
@@ -1947,7 +1947,7 @@ fn test_trace_o_ppem12_iup() {
     hint.interpreter.debug_trace_points = true;
 
     let glyph_id = font.lookup_glyph_index('o' as u32).unwrap();
-    let owned = font.glyph_records_decoded.get(&glyph_id).unwrap();
+    let owned = font.get_or_decode_glyph(glyph_id).unwrap();
     let raw_points = owned.raw_points.as_ref().unwrap();
     let raw_on_curve = owned.raw_on_curve.as_ref().unwrap();
     let raw_contour_ends = owned.raw_contour_ends.as_ref().unwrap();
@@ -2095,7 +2095,7 @@ fn test_trace_i_32px() {
     hint.interpreter.debug_trace_points = true;
 
     let glyph_id = font.lookup_glyph_index('i' as u32).unwrap();
-    let owned = font.glyph_records_decoded.get(&glyph_id).unwrap();
+    let owned = font.get_or_decode_glyph(glyph_id).unwrap();
     let raw_points = owned.raw_points.as_ref().unwrap();
     let raw_on_curve = owned.raw_on_curve.as_ref().unwrap();
     let raw_contour_ends = owned.raw_contour_ends.as_ref().unwrap();

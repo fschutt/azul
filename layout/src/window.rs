@@ -779,10 +779,7 @@ impl LayoutWindow {
         // This must happen BEFORE layout_document() is called
         {
             use crate::{
-                solver3::getters::{
-                    collect_and_resolve_font_chains_with_registration, collect_font_ids_from_chains,
-                    compute_fonts_to_load, load_fonts_from_disk,
-                },
+                solver3::getters::collect_and_resolve_font_chains_with_registration,
                 text3::default::PathLoader,
             };
 
@@ -825,8 +822,13 @@ impl LayoutWindow {
                     }
                 }
 
-                // Step 0+1: Collect font stacks, register embedded FontRefs,
-                // and resolve chains in a single pass over the DOM nodes.
+                // Resolve chains (including the coverage-based prune
+                // and the per-document scripts_hint), then delegate
+                // the load-the-missing-ones dance to FontManager's
+                // shared helper. Same logic that lives at
+                // `FontContext::load_fonts_for_chains` and the CPU
+                // rasterizer's preview pre-fill — one implementation,
+                // three callers.
                 let chains = collect_and_resolve_font_chains_with_registration(
                     &styled_dom, &self.font_manager.fc_cache, &self.font_manager, &platform,
                 );
@@ -837,60 +839,17 @@ impl LayoutWindow {
                     )));
                 }
 
-                // Step 2: Get required font IDs from chains
-                let required_fonts = collect_font_ids_from_chains(&chains);
+                let loader = PathLoader::new();
+                let failed = self.font_manager.load_missing_for_chains(
+                    &chains,
+                    |bytes, index| loader.load_font_shared(bytes, index),
+                );
                 if let Some(msgs) = debug_messages.as_mut() {
-                    msgs.push(LayoutDebugMessage::info(format!(
-                        "[FontLoading] Required fonts: {} unique fonts",
-                        required_fonts.len()
-                    )));
-                }
-
-                // Step 3: Compute which fonts need to be loaded (diff with already loaded)
-                let already_loaded = self.font_manager.get_loaded_font_ids();
-                let fonts_to_load = compute_fonts_to_load(&required_fonts, &already_loaded);
-                if let Some(msgs) = debug_messages.as_mut() {
-                    msgs.push(LayoutDebugMessage::info(format!(
-                        "[FontLoading] Already loaded: {}, need to load: {}",
-                        already_loaded.len(),
-                        fonts_to_load.len()
-                    )));
-                }
-
-                // Step 4: Load missing fonts
-                if !fonts_to_load.is_empty() {
-                    if let Some(msgs) = debug_messages.as_mut() {
-                        msgs.push(LayoutDebugMessage::info(format!(
-                            "[FontLoading] Loading {} fonts from disk...",
-                            fonts_to_load.len()
+                    for (font_id, error) in &failed {
+                        msgs.push(LayoutDebugMessage::warning(format!(
+                            "[FontLoading] Failed to load font {:?}: {}",
+                            font_id, error
                         )));
-                    }
-                    let loader = PathLoader::new();
-                    let load_result = load_fonts_from_disk(
-                        &fonts_to_load,
-                        &self.font_manager.fc_cache,
-                        |bytes, index| loader.load_font_shared(bytes, index),
-                    );
-
-                    if let Some(msgs) = debug_messages.as_mut() {
-                        msgs.push(LayoutDebugMessage::info(format!(
-                            "[FontLoading] Loaded {} fonts, {} failed",
-                            load_result.loaded.len(),
-                            load_result.failed.len()
-                        )));
-                    }
-
-                    // Insert loaded fonts into the font manager
-                    self.font_manager.insert_fonts(load_result.loaded);
-
-                    // Log any failures
-                    for (font_id, error) in &load_result.failed {
-                        if let Some(msgs) = debug_messages.as_mut() {
-                            msgs.push(LayoutDebugMessage::warning(format!(
-                                "[FontLoading] Failed to load font {:?}: {}",
-                                font_id, error
-                            )));
-                        }
                     }
                 }
 

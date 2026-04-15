@@ -173,7 +173,7 @@ fn test_phase1_decoding() {
             }
         };
 
-        match font.glyph_records_decoded.get(&glyph_id) {
+        match font.get_or_decode_glyph(glyph_id) {
             Some(owned) => {
                 writeln!(decode_out, "horz_advance: {}", owned.horz_advance).unwrap();
                 writeln!(decode_out, "bounding_box: min=({}, {}), max=({}, {})",
@@ -307,7 +307,7 @@ fn test_phase2_hinting() {
             }
         };
 
-        let owned = match font.glyph_records_decoded.get(&glyph_id) {
+        let owned = match font.get_or_decode_glyph(glyph_id) {
             Some(g) => g,
             None => {
                 writeln!(hint_out, "ERROR: glyph_id {} not found\n", glyph_id).unwrap();
@@ -431,7 +431,7 @@ fn test_phase2b_trace_t() {
 
     let ch = 'T';
     let glyph_id = font.lookup_glyph_index(ch as u32).expect("T not in cmap");
-    let owned = font.glyph_records_decoded.get(&glyph_id).expect("T not decoded");
+    let owned = font.get_or_decode_glyph(glyph_id).expect("T not decoded");
     let raw_points = owned.raw_points.as_ref().expect("no raw_points");
     let raw_on_curve = owned.raw_on_curve.as_ref().expect("no on_curve");
     let raw_contour_ends = owned.raw_contour_ends.as_ref().expect("no contour_ends");

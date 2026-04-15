@@ -3782,31 +3782,19 @@ pub fn render_component_preview(
 
     // --- Font resolution ---
     {
-        use crate::solver3::getters::{
-            collect_and_resolve_font_chains_with_registration, collect_font_ids_from_chains,
-            compute_fonts_to_load, load_fonts_from_disk,
-        };
+        use crate::solver3::getters::collect_and_resolve_font_chains_with_registration;
+        use crate::text3::default::PathLoader;
 
         let platform = azul_css::system::Platform::current();
 
         let chains = collect_and_resolve_font_chains_with_registration(
             &styled_dom, &preview_font_manager.fc_cache, &preview_font_manager, &platform,
         );
-        let required_fonts = collect_font_ids_from_chains(&chains);
-        let already_loaded = preview_font_manager.get_loaded_font_ids();
-        let fonts_to_load = compute_fonts_to_load(&required_fonts, &already_loaded);
-
-        if !fonts_to_load.is_empty() {
-            use crate::text3::default::PathLoader;
-            let loader = PathLoader::new();
-            let load_result = load_fonts_from_disk(
-                &fonts_to_load,
-                &preview_font_manager.fc_cache,
-                |bytes, index| loader.load_font_shared(bytes, index),
-            );
-            preview_font_manager.insert_fonts(load_result.loaded);
-        }
-
+        let loader = PathLoader::new();
+        let _failed = preview_font_manager.load_missing_for_chains(
+            &chains,
+            |bytes, index| loader.load_font_shared(bytes, index),
+        );
         preview_font_manager.set_font_chain_cache(chains.into_fontconfig_chains());
     }
 
