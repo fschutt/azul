@@ -157,6 +157,23 @@ pub mod parsed {
     /// Cached GPOS table for glyph positioning operations.
     pub type GposCache = Arc<LayoutCacheData<GPOS>>;
 
+    /// Monotonic-clock nanos since process start. Used to timestamp
+    /// `ParsedFont.last_used` for LRU eviction. Cheap (single
+    /// `Instant::now`); resolution is plenty fine for "did this
+    /// face get touched in the last N seconds" decisions. Exposed
+    /// `pub(crate)` so `FontManager::evict_unused` reads from the
+    /// same clock as `last_used` writes.
+    pub(crate) fn monotonic_now_nanos() -> u64 {
+        // Safe: `Instant::elapsed` against the same launch instant is
+        // monotonic and never overflows in any realistic process
+        // lifetime (>500 years).
+        use std::sync::OnceLock;
+        use std::time::Instant;
+        static LAUNCH: OnceLock<Instant> = OnceLock::new();
+        let start = LAUNCH.get_or_init(Instant::now);
+        start.elapsed().as_nanos() as u64
+    }
+
     /// Glyph-outline decoder state. See the
     /// [`ParsedFont::loca_glyf`] field docs for the full description.
     #[derive(Clone)]
@@ -164,16 +181,24 @@ pub mod parsed {
         /// Ready to decode immediately, or known to have no outline
         /// data. `None` covers both CFF fonts and fonts where the
         /// loca+glyf parse failed.
+        ///
+        /// This variant *cannot* be evicted by
+        /// [`crate::text3::cache::FontManager::evict_unused`]: there
+        /// are no source bytes retained to re-decode from. The eager
+        /// `from_bytes` path (tests, `with_source_bytes` PDF callers)
+        /// produces this variant.
         Loaded(Option<Arc<std::sync::Mutex<LocaGlyf>>>),
-        /// Font bytes retained for lazy `LocaGlyf` construction on
-        /// first glyph-decode request.
+        /// Font bytes retained for lazy `LocaGlyf` construction.
+        ///
+        /// `loaded` is `Mutex<Option<…>>` (not `OnceLock`) so an
+        /// idle eviction can clear it back to `None`; the next
+        /// `get_or_decode_glyph` will re-parse from `bytes`. Two-step
+        /// double-check pattern in `resolve_loca_glyf` keeps the
+        /// expensive `LocaGlyf::load` outside the critical section.
         Deferred {
             bytes: Arc<[u8]>,
             font_index: usize,
-            /// Populated exactly once, on first
-            /// [`ParsedFont::get_or_decode_glyph`] call that targets
-            /// this font. Subsequent calls see the loaded instance.
-            loaded: Arc<std::sync::OnceLock<Option<Arc<std::sync::Mutex<LocaGlyf>>>>>,
+            loaded: Arc<std::sync::Mutex<Option<Arc<std::sync::Mutex<LocaGlyf>>>>>,
         },
     }
 
@@ -303,6 +328,12 @@ pub mod parsed {
         pub opt_gdef_table: Option<Arc<GDEFTable>>,
         /// Legacy kerning table (kern) for fonts without GPOS.
         pub opt_kern_table: Option<Arc<KernTable>>,
+        /// Monotonic-clock nanos at the most recent
+        /// [`ParsedFont::get_or_decode_glyph`] / `gsub()` / `gpos()`
+        /// call. `0` means "never touched". Used by
+        /// [`crate::text3::cache::FontManager::evict_unused`] to
+        /// decide which `LocaGlyfState::Deferred` faces to release.
+        pub(crate) last_used: Arc<std::sync::atomic::AtomicU64>,
         /// Lazy outline cache. Populated on first
         /// [`ParsedFont::get_or_decode_glyph`] call per `gid`; entries
         /// are wrapped in `Arc` so callers can hold them without
@@ -393,6 +424,7 @@ pub mod parsed {
                 // Share the lazy cache and loca_glyf across clones: cheap
                 // Arc bump, amortises glyph decode across clones of the
                 // same face.
+                last_used: Arc::clone(&self.last_used),
                 glyph_cache: Arc::clone(&self.glyph_cache),
                 // `LocaGlyfState` is `Clone` — for `Loaded` this is an
                 // `Arc::clone`; for `Deferred` it's an `Arc::clone` of
@@ -904,6 +936,7 @@ pub mod parsed {
                 opt_gdef_table,
                 opt_kern_table,
                 cmap_subtable,
+                last_used: Arc::new(std::sync::atomic::AtomicU64::new(0)),
                 glyph_cache: Arc::new(std::sync::RwLock::new(BTreeMap::new())),
                 // Eager path: `from_bytes` loaded LocaGlyf immediately
                 // (or set None if the font has no loca+glyf). Lazy
@@ -1009,7 +1042,7 @@ pub mod parsed {
             font.loca_glyf = LocaGlyfState::Deferred {
                 bytes,
                 font_index,
-                loaded: Arc::new(std::sync::OnceLock::new()),
+                loaded: Arc::new(std::sync::Mutex::new(None)),
             };
             Some(font)
         }
@@ -1022,28 +1055,74 @@ pub mod parsed {
             match &self.loca_glyf {
                 LocaGlyfState::Loaded(inner) => inner.clone(),
                 LocaGlyfState::Deferred { bytes, font_index, loaded } => {
-                    loaded
-                        .get_or_init(|| {
-                            use allsorts::{
-                                binary::read::ReadScope,
-                                font_data::FontData,
-                                tables::FontTableProvider,
-                            };
-                            let scope = ReadScope::new(bytes);
-                            let font_data = scope.read::<FontData<'_>>().ok()?;
-                            let provider = font_data.table_provider(*font_index).ok()?;
-                            // Gate on table presence to match the `from_bytes`
-                            // has_glyf check; avoids a spurious warning on
-                            // CFF fonts that sneak into the Deferred path.
-                            if !provider.has_table(tag::GLYF) || !provider.has_table(tag::LOCA) {
-                                return None;
-                            }
-                            LocaGlyf::load(&provider)
-                                .ok()
-                                .map(|lg| Arc::new(std::sync::Mutex::new(lg)))
-                        })
-                        .clone()
+                    // Fast path: cached LocaGlyf is present.
+                    if let Ok(guard) = loaded.lock() {
+                        if let Some(arc) = guard.as_ref() {
+                            return Some(Arc::clone(arc));
+                        }
+                    }
+
+                    // Slow path: parse provider + load LocaGlyf without
+                    // holding the slot's lock (allsorts can take a
+                    // millisecond or two on a fresh load). Re-check
+                    // after acquiring the write lock so a parallel
+                    // decoder doesn't double-load.
+                    use allsorts::{
+                        binary::read::ReadScope,
+                        font_data::FontData,
+                        tables::FontTableProvider,
+                    };
+                    let scope = ReadScope::new(bytes);
+                    let font_data = scope.read::<FontData<'_>>().ok()?;
+                    let provider = font_data.table_provider(*font_index).ok()?;
+                    // Gate on table presence to match the `from_bytes`
+                    // has_glyf check; avoids a spurious warning on
+                    // CFF fonts that sneak into the Deferred path.
+                    if !provider.has_table(tag::GLYF) || !provider.has_table(tag::LOCA) {
+                        return None;
+                    }
+                    let new_arc = LocaGlyf::load(&provider)
+                        .ok()
+                        .map(|lg| Arc::new(std::sync::Mutex::new(lg)))?;
+
+                    if let Ok(mut guard) = loaded.lock() {
+                        if let Some(existing) = guard.as_ref() {
+                            return Some(Arc::clone(existing));
+                        }
+                        *guard = Some(Arc::clone(&new_arc));
+                    }
+                    Some(new_arc)
                 }
+            }
+        }
+
+        /// Read the monotonic-clock nanos timestamp of the most
+        /// recent [`get_or_decode_glyph`] call on this face, or `0`
+        /// if it's never been touched.
+        pub fn last_used_nanos(&self) -> u64 {
+            self.last_used.load(std::sync::atomic::Ordering::Relaxed)
+        }
+
+        /// Drop the cached `LocaGlyf` for this face if it's
+        /// `Deferred`-with-bytes-retained — so the next
+        /// [`get_or_decode_glyph`] re-parses from `bytes`. No-op for
+        /// `Loaded` faces (no source bytes to fall back to).
+        ///
+        /// Used by [`crate::text3::cache::FontManager::evict_unused`]
+        /// and exposed publicly so embedders can free memory under
+        /// pressure on fonts they no longer need to render.
+        pub fn evict_loca_glyf(&self) -> bool {
+            match &self.loca_glyf {
+                LocaGlyfState::Deferred { loaded, .. } => {
+                    if let Ok(mut guard) = loaded.lock() {
+                        if guard.is_some() {
+                            *guard = None;
+                            return true;
+                        }
+                    }
+                    false
+                }
+                LocaGlyfState::Loaded(_) => false,
             }
         }
 
@@ -1109,6 +1188,13 @@ pub mod parsed {
             if usize::from(gid) >= self.num_glyphs.min(u16::MAX) as usize {
                 return None;
             }
+            // Bump the LRU timestamp so `FontManager::evict_unused`
+            // can tell this face is still in use. Cheap atomic store
+            // (Relaxed — eviction reads the same atomic and tolerates
+            // a slightly stale value, which only causes "evict, then
+            // re-load on next access" — never an incorrect render).
+            self.last_used
+                .store(monotonic_now_nanos(), std::sync::atomic::Ordering::Relaxed);
 
             // Fast path: cache hit.
             if let Ok(cache) = self.glyph_cache.read() {

@@ -111,7 +111,51 @@ impl FontManager<FontRef> {
     pub fn new_with_fc_cache(fc_cache: FcFontCache) -> Result<Self, LayoutError> {
         FontManager::new(fc_cache)
     }
+
+    /// Evict the cached `LocaGlyf` for every face that hasn't had a
+    /// `get_or_decode_glyph` call within the last `idle` duration.
+    /// Only `LocaGlyfState::Deferred` faces (the production lazy
+    /// path) can be evicted — they keep their source `Arc<[u8]>` so
+    /// the next glyph access re-parses cheaply. `LocaGlyfState::Loaded`
+    /// faces from the eager path stay put.
+    ///
+    /// Returns the number of faces evicted. Embedders can call this
+    /// from a memory-pressure hook or on a timer; servo-shot
+    /// exposes it via `--azul-evict-after-each` for measurement.
+    pub fn evict_unused(&self, idle: std::time::Duration) -> usize {
+        use crate::font::parsed::ParsedFont;
+        let parsed = match self.parsed_fonts.lock() {
+            Ok(p) => p,
+            Err(_) => return 0,
+        };
+        let now = match std::time::Instant::now()
+            .checked_duration_since(std::time::Instant::now() - idle)
+        {
+            Some(d) => d,
+            None => return 0,
+        };
+        // We compare against the same monotonic clock the font's
+        // `last_used` is sampled from. `last_used == 0` means
+        // "never touched" -> eligible. Otherwise we only evict if
+        // `now_nanos - last_used >= idle.as_nanos()`.
+        let _ = now;
+        let cutoff = idle.as_nanos() as u64;
+        let now_nanos = crate::font::parsed::monotonic_now_nanos();
+        let mut evicted = 0usize;
+        for font_ref in parsed.values() {
+            let font: &ParsedFont = get_parsed_font(font_ref);
+            let last = font.last_used_nanos();
+            // Untouched faces are eligible immediately. Touched
+            // faces need to be `idle` past their last use.
+            let stale = last == 0 || now_nanos.saturating_sub(last) >= cutoff;
+            if stale && font.evict_loca_glyf() {
+                evicted += 1;
+            }
+        }
+        evicted
+    }
 }
+
 
 // ParsedFontTrait Implementation for FontRef
 
