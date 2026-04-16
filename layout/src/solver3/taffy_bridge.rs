@@ -882,17 +882,18 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             .map(|v| grid_auto_columns_to_taffy(v))
             .unwrap_or_default();
 
-        taffy_style.grid_auto_flow = cache
-            .get_property(node_data, &id, node_state, &CssPropertyType::GridAutoFlow)
-            .and_then(|p| {
-                if let CssProperty::GridAutoFlow(v) = p {
-                    Some(*v)
-                } else {
-                    None
-                }
-            })
-            .map(|v| grid_auto_flow_to_taffy(v))
-            .unwrap_or_default();
+        taffy_style.grid_auto_flow = if let Some(cc) = cache.compact_cache.as_ref() {
+            use azul_css::compact_cache::*;
+            let bits = ((cc.tier1_enums[id.index()] >> GRID_AUTO_FLOW_SHIFT) & GRID_AUTO_FLOW_MASK) as u8;
+            let val = layout_grid_auto_flow_from_u8(bits);
+            grid_auto_flow_to_taffy(CssPropertyValue::Exact(val))
+        } else {
+            cache
+                .get_property(node_data, &id, node_state, &CssPropertyType::GridAutoFlow)
+                .and_then(|p| if let CssProperty::GridAutoFlow(v) = p { Some(*v) } else { None })
+                .map(|v| grid_auto_flow_to_taffy(v))
+                .unwrap_or_default()
+        };
 
         // Grid item placement (grid-column, grid-row)
         if let Some(grid_col) = cache
@@ -951,16 +952,23 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 // CSS spec: default align-items is "normal" which acts like "stretch"
                 // for non-replaced grid/flex items. Taffy handles this internally when
                 // align_items is None, so we should NOT force a default here.
-        taffy_style.justify_items = cache
-            .get_property(node_data, &id, node_state, &CssPropertyType::JustifyItems)
-            .and_then(|p| {
-                if let CssProperty::JustifyItems(v) = p {
-                    Some(*v)
-                } else {
-                    None
-                }
+        taffy_style.justify_items = if let Some(cc) = cache.compact_cache.as_ref() {
+            use azul_css::compact_cache::*;
+            use azul_css::props::layout::grid::LayoutJustifyItems;
+            let bits = ((cc.tier1_enums[id.index()] >> JUSTIFY_ITEMS_SHIFT) & JUSTIFY_ITEMS_MASK) as u8;
+            let val = layout_justify_items_from_u8(bits);
+            Some(match val {
+                LayoutJustifyItems::Start => taffy::AlignItems::Start,
+                LayoutJustifyItems::End => taffy::AlignItems::End,
+                LayoutJustifyItems::Center => taffy::AlignItems::Center,
+                LayoutJustifyItems::Stretch => taffy::AlignItems::Stretch,
             })
-            .map(|v| layout_justify_items_to_taffy(v));
+        } else {
+            cache
+                .get_property(node_data, &id, node_state, &CssPropertyType::JustifyItems)
+                .and_then(|p| if let CssProperty::JustifyItems(v) = p { Some(*v) } else { None })
+                .map(|v| layout_justify_items_to_taffy(v))
+        };
         taffy_style.justify_content = cache
                 .get_property(node_data, &id, node_state, &CssPropertyType::JustifyContent)
                 .and_then(|p| {
@@ -1069,19 +1077,40 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         } else {
             flex_basis_slow_path(cache, node_data, &id, node_state, &mut taffy_style)
         };
-        taffy_style.align_self = cache
-            .get_property(node_data, &id, node_state, &CssPropertyType::AlignSelf)
-            .and_then(|p| {
-                if let CssProperty::AlignSelf(v) = p {
-                    layout_align_self_to_taffy(*v)
-                } else {
-                    None
-                }
-            });
-        taffy_style.justify_self = cache
-            .get_property(node_data, &id, node_state, &CssPropertyType::JustifySelf)
-            .and_then(|p| {
-                if let CssProperty::JustifySelf(v) = p {
+        taffy_style.align_self = if let Some(cc) = cache.compact_cache.as_ref() {
+            use azul_css::compact_cache::*;
+            let bits = ((cc.tier1_enums[id.index()] >> ALIGN_SELF_SHIFT) & ALIGN_SELF_MASK) as u8;
+            let val = layout_align_self_from_u8(bits);
+            use azul_css::props::layout::flex::LayoutAlignSelf;
+            match val {
+                LayoutAlignSelf::Auto => None,
+                LayoutAlignSelf::Start => Some(taffy::AlignSelf::FlexStart),
+                LayoutAlignSelf::End => Some(taffy::AlignSelf::FlexEnd),
+                LayoutAlignSelf::Center => Some(taffy::AlignSelf::Center),
+                LayoutAlignSelf::Baseline => Some(taffy::AlignSelf::Baseline),
+                LayoutAlignSelf::Stretch => Some(taffy::AlignSelf::Stretch),
+            }
+        } else {
+            cache
+                .get_property(node_data, &id, node_state, &CssPropertyType::AlignSelf)
+                .and_then(|p| if let CssProperty::AlignSelf(v) = p { layout_align_self_to_taffy(*v) } else { None })
+        };
+        taffy_style.justify_self = if let Some(cc) = cache.compact_cache.as_ref() {
+            use azul_css::compact_cache::*;
+            use azul_css::props::layout::grid::LayoutJustifySelf;
+            let bits = ((cc.tier1_enums[id.index()] >> JUSTIFY_SELF_SHIFT) & JUSTIFY_SELF_MASK) as u8;
+            let val = layout_justify_self_from_u8(bits);
+            match val {
+                LayoutJustifySelf::Auto => None,
+                LayoutJustifySelf::Start => Some(taffy::AlignSelf::Start),
+                LayoutJustifySelf::End => Some(taffy::AlignSelf::End),
+                LayoutJustifySelf::Center => Some(taffy::AlignSelf::Center),
+                LayoutJustifySelf::Stretch => Some(taffy::AlignSelf::Stretch),
+            }
+        } else {
+            cache
+                .get_property(node_data, &id, node_state, &CssPropertyType::JustifySelf)
+                .and_then(|p| if let CssProperty::JustifySelf(v) = p {
                     use azul_css::props::layout::grid::LayoutJustifySelf;
                     match v.get_property_or_default().unwrap_or_default() {
                         LayoutJustifySelf::Auto => None,
@@ -1090,10 +1119,8 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                         LayoutJustifySelf::Center => Some(taffy::AlignSelf::Center),
                         LayoutJustifySelf::Stretch => Some(taffy::AlignSelf::Stretch),
                     }
-                } else {
-                    None
-                }
-            });
+                } else { None })
+        };
         taffy_style.align_content = match get_align_content(styled_dom, id, node_state) {
             MultiValue::Exact(v) => Some(layout_align_content_to_taffy(CssPropertyValue::Exact(v))),
             _ => None,
