@@ -616,3 +616,161 @@ fn test_ua_css_body_tag_properties() {
         "Expected <body> to have margin-top from UA CSS"
     );
 }
+
+// =========================================================================
+// Regression tests for bugs found during performance optimization
+// =========================================================================
+
+/// Bug #1/#2: FlatVecVec::sort_each_and_flatten must free build Vecs
+/// and shrink data to fit. Previously build Vecs were retained after
+/// flatten (leaking ~1 MiB on a 1000-node DOM) and data capacity
+/// wasn't shrunk after dedup.
+#[test]
+fn flatvecvec_flatten_frees_build_and_shrinks() {
+    use azul_core::prop_cache::FlatVecVec;
+
+    let mut fvv: FlatVecVec<u32> = FlatVecVec::new(100);
+    for i in 0..100 {
+        fvv.push_to(i, i as u32);
+        fvv.push_to(i, i as u32); // duplicate
+        fvv.push_to(i, (i + 1) as u32);
+    }
+
+    let build_bytes_before = fvv.heap_bytes(4);
+    assert!(build_bytes_before > 0, "build phase should have allocations");
+
+    fvv.sort_each_and_flatten(|x| *x);
+
+    let after_bytes = fvv.heap_bytes(4);
+    // After flatten+dedup: build should be freed, data should be shrunk
+    // 100 nodes × 2 unique items each = 200 items × 4 bytes = 800 bytes data
+    // + 100 offsets × 8 bytes = 800 bytes offsets
+    // Total: ~1600 bytes. Before: much more due to build Vecs.
+    assert!(
+        after_bytes < build_bytes_before,
+        "flatten should reduce memory: before={} after={}",
+        build_bytes_before, after_bytes
+    );
+    // Verify data is accessible
+    assert_eq!(fvv.get_slice(0), &[0, 1]);
+    assert_eq!(fvv.get_slice(50), &[50, 51]);
+}
+
+/// Bug #3: FlatVecVec::retain must shrink_to_fit after filtering.
+/// Previously capacity stayed at the pre-retain size.
+#[test]
+fn flatvecvec_retain_shrinks_capacity() {
+    use azul_core::prop_cache::FlatVecVec;
+
+    let mut fvv: FlatVecVec<u32> = FlatVecVec::new(10);
+    for i in 0..10 {
+        for j in 0..100 {
+            fvv.push_to(i, (i * 100 + j) as u32);
+        }
+    }
+    fvv.sort_each_and_flatten(|x| *x);
+
+    let before = fvv.heap_bytes(4);
+    // Keep only even numbers (removes ~50%)
+    fvv.retain(|x| x % 2 == 0);
+    let after = fvv.heap_bytes(4);
+
+    assert!(
+        after < before * 3 / 4,
+        "retain should significantly reduce memory: before={} after={}",
+        before, after
+    );
+    // Verify filtered data
+    for i in 0..10 {
+        let slice = fvv.get_slice(i);
+        assert!(slice.iter().all(|x| x % 2 == 0), "all values should be even");
+    }
+}
+
+/// Bug #4: prune_compact_normal_props must handle cascaded_props in
+/// build phase (not yet flattened). Previously it would silently skip
+/// the prune because retain() early-returns when offsets is empty.
+#[test]
+fn prune_handles_unflattened_cascaded_props() {
+    use azul_core::prop_cache::{CssPropertyCache, StatefulCssProperty};
+    use azul_css::dynamic_selector::PseudoStateType;
+
+    let mut cache = CssPropertyCache::empty(5);
+    // Add some Normal-state compact properties to cascaded_props (build phase)
+    for i in 0..5 {
+        cache.cascaded_props.push_to(i, StatefulCssProperty {
+            state: PseudoStateType::Normal,
+            prop_type: CssPropertyType::Display,
+            property: CssProperty::Display(CssPropertyValue::Exact(
+                azul_css::props::layout::display::LayoutDisplay::Block,
+            )),
+        });
+    }
+
+    // cascaded_props is still in build phase (not flattened)
+    assert!(!cache.cascaded_props.is_flattened());
+
+    // Build a dummy compact cache so prune can run
+    cache.compact_cache = Some(azul_css::compact_cache::CompactLayoutCache::with_capacity(5));
+
+    // This should NOT panic and should actually prune
+    cache.prune_compact_normal_props();
+
+    // After prune, cascaded_props should be flattened and pruned
+    assert!(cache.cascaded_props.is_flattened());
+    // Display is compact-encoded + Normal state → should be removed
+    let total: usize = (0..5).map(|i| cache.cascaded_props.get_slice(i).len()).sum();
+    assert_eq!(total, 0, "all Normal+compact entries should be pruned");
+}
+
+/// Bug #6: has_compact_encoding must return true for all properties
+/// that apply_css_property_to_compact handles.
+#[test]
+fn has_compact_encoding_covers_all_compact_properties() {
+    use azul_css::props::property::CssPropertyType::*;
+
+    // All properties that are encoded in compact_cache_builder.rs
+    let compact_props = [
+        Display, Position, Float, OverflowX, OverflowY, BoxSizing,
+        FlexDirection, FlexWrap, JustifyContent, AlignItems, AlignContent,
+        WritingMode, Clear, FontWeight, FontStyle, TextAlign,
+        Visibility, WhiteSpace, Direction, VerticalAlign, BorderCollapse,
+        AlignSelf, JustifySelf, GridAutoFlow, JustifyItems,
+        Width, Height, MinWidth, MaxWidth, MinHeight, MaxHeight,
+        FlexBasis, FontSize,
+        PaddingTop, PaddingRight, PaddingBottom, PaddingLeft,
+        MarginTop, MarginRight, MarginBottom, MarginLeft,
+        BorderTopWidth, BorderRightWidth, BorderBottomWidth, BorderLeftWidth,
+        Top, Right, Bottom, Left,
+        FlexGrow, FlexShrink,
+        ZIndex,
+        BorderTopStyle, BorderRightStyle, BorderBottomStyle, BorderLeftStyle,
+        BorderTopColor, BorderRightColor, BorderBottomColor, BorderLeftColor,
+        BorderSpacing, TabSize,
+        TextColor, FontFamily, LineHeight, LetterSpacing, WordSpacing, TextIndent,
+        ColumnGap, RowGap, Gap,
+        GridColumn, GridRow,
+    ];
+
+    for pt in &compact_props {
+        assert!(
+            pt.has_compact_encoding(),
+            "{:?} should have compact encoding but has_compact_encoding() returns false",
+            pt
+        );
+    }
+
+    // These should NOT have compact encoding
+    let non_compact = [
+        BackgroundContent, BackgroundPosition, BackgroundSize,
+        Transform, TransformOrigin, BoxShadowLeft, Opacity,
+        GridTemplateColumns, GridTemplateRows, GridTemplateAreas,
+    ];
+    for pt in &non_compact {
+        assert!(
+            !pt.has_compact_encoding(),
+            "{:?} should NOT have compact encoding",
+            pt
+        );
+    }
+}
