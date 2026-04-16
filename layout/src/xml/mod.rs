@@ -215,9 +215,22 @@ pub fn parse_xml_to_styled_dom(xml: &str) -> Result<StyledDom, XmlError> {
         );
     }
 
+    // Hint the allocator to return pages freed by the CSS parser.
+    // The tokenizer+parser created many small allocations (selectors,
+    // declarations, strings) that are now packed into FastDom. Purging
+    // here returns those pages before the cascade allocates more.
+    crate::probe::hint_purge_allocator();
+
     let t2 = std::time::Instant::now();
     let rss2 = if mem_on { peak_rss_bytes() } else { 0 };
     let styled = StyledDom::create_from_fast_dom(fast_dom);
+
+    // Major purge point: the cascade just freed ~3 MiB of intermediate
+    // allocations (build-phase Vecs, CSS selector matching state, pruned
+    // properties). Tell the allocator to return those pages NOW before
+    // the layout pass allocates more on top of them.
+    crate::probe::hint_purge_allocator();
+
     if mem_on {
         let rss3 = peak_rss_bytes();
         eprintln!(

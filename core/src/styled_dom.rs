@@ -1025,6 +1025,11 @@ impl StyledDom {
         );
         let restyle_ms = t_restyle.elapsed().as_secs_f64() * 1000.0;
 
+        // Drop the CSS object now — selectors/declarations are no longer needed
+        // after restyle has populated css_props. This frees ~500 KiB of stylesheet
+        // data structures (CssRuleBlock, CssPathSelector, CssDeclaration).
+        drop(css);
+
         let t_inherit_compact = std::time::Instant::now();
         let prev_font_hashes: Vec<u64> = css_property_cache.compact_cache
             .as_ref()
