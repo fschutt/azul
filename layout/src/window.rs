@@ -929,17 +929,18 @@ impl LayoutWindow {
         if *MEM_BREAKDOWN_ENABLED
             .get_or_init(|| std::env::var_os("AZUL_MEM_BREAKDOWN").is_some())
         {
-            let bd = styled_dom
-                .css_property_cache
-                .ptr
-                .memory_breakdown();
-            eprintln!(
-                "[MEM] CssPropertyCache ({} nodes) total={} KiB",
-                bd.node_count,
-                bd.total_bytes() / 1024
-            );
-            eprintln!("[MEM]   cascaded_props    {:>7} KiB", bd.cascaded_props_bytes / 1024);
-            eprintln!("[MEM]   css_props         {:>7} KiB", bd.css_props_bytes / 1024);
+            let sr = styled_dom.memory_report();
+            eprintln!("[MEM] StyledDom ({} nodes) total={} KiB", sr.node_count, sr.total_bytes() / 1024);
+            eprintln!("[MEM]   node_hierarchy    {:>7} KiB", sr.node_hierarchy_bytes / 1024);
+            eprintln!("[MEM]   node_data         {:>7} KiB", sr.node_data_bytes / 1024);
+            eprintln!("[MEM]   styled_nodes      {:>7} KiB", sr.styled_nodes_bytes / 1024);
+            eprintln!("[MEM]   cascade_info      {:>7} KiB", sr.cascade_info_bytes / 1024);
+            eprintln!("[MEM]   tag_ids           {:>7} KiB", sr.tag_ids_bytes / 1024);
+            eprintln!("[MEM]   non_leaf_nodes    {:>7} KiB", sr.non_leaf_nodes_bytes / 1024);
+            let bd = &sr.css_property_cache;
+            eprintln!("[MEM]   CssPropertyCache  {:>7} KiB", bd.total_bytes() / 1024);
+            eprintln!("[MEM]     cascaded_props   {:>6} KiB", bd.cascaded_props_bytes / 1024);
+            eprintln!("[MEM]     css_props        {:>6} KiB", bd.css_props_bytes / 1024);
             eprintln!("[MEM]   computed_values   {:>7} KiB", bd.computed_values_bytes / 1024);
             eprintln!("[MEM]   user_overridden   {:>7} KiB", bd.user_overridden_bytes / 1024);
             eprintln!("[MEM]   global_css_props  {:>7} KiB", bd.global_css_props_bytes / 1024);

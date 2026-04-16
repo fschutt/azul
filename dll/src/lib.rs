@@ -51,8 +51,64 @@
     deprecated,                            // objc2 NSOpenGL*, msg_send_id, PanicInfo
 )]
 
+// ---------------------------------------------------------------------------
+// Global allocator selection (mutually exclusive features)
+// ---------------------------------------------------------------------------
+// The C API boundary means this only affects azul's internal allocations.
+// The host application keeps its own allocator unchanged.
+#[cfg(feature = "allocator_mimalloc")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+#[cfg(feature = "allocator_jemalloc")]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 #[macro_use]
 extern crate alloc;
+
+/// Hint the allocator to return freed pages to the OS.
+/// Call after large transient allocations are freed (e.g. after layout).
+/// With `allocator_mimalloc`: calls `mi_collect(true)` for aggressive purge.
+/// With `allocator_jemalloc`: calls `mallctl("arena.0.purge")`.
+/// Without either: platform-specific hint (macOS `malloc_zone_pressure_relief`).
+#[cfg(feature = "cabi_export")]
+#[no_mangle]
+pub extern "C" fn az_purge_allocator() {
+    #[cfg(feature = "allocator_mimalloc")]
+    {
+        extern "C" {
+            fn mi_collect(force: bool);
+        }
+        unsafe { mi_collect(true); }
+    }
+    #[cfg(feature = "allocator_jemalloc")]
+    {
+        // jemalloc: purge via the raw mallctl interface
+        extern "C" {
+            fn mallctl(
+                name: *const u8, oldp: *mut core::ffi::c_void, oldlenp: *mut usize,
+                newp: *mut core::ffi::c_void, newlen: usize,
+            ) -> core::ffi::c_int;
+        }
+        unsafe {
+            mallctl(
+                b"arena.0.purge\0".as_ptr(), core::ptr::null_mut(),
+                core::ptr::null_mut(), core::ptr::null_mut(), 0,
+            );
+        }
+    }
+    #[cfg(not(any(feature = "allocator_mimalloc", feature = "allocator_jemalloc")))]
+    {
+        #[cfg(target_os = "macos")]
+        {
+            extern "C" {
+                fn malloc_zone_pressure_relief(zone: *mut core::ffi::c_void, goal: usize) -> usize;
+            }
+            unsafe { malloc_zone_pressure_relief(core::ptr::null_mut(), 0); }
+        }
+    }
+}
 
 // Internal crates - only needed when cabi_internal is enabled
 // (pulled in by build-dll and link-static via _internal_deps)

@@ -61,6 +61,13 @@ cfg-if = { version = "1.0", optional = true }
 # Brotli decompression for embedded compressed assets (web backend api.json)
 brotli-decompressor = { version = "5", default-features = false, features = ["std"], optional = true }
 
+# Custom allocators — use these to aggressively return freed pages to the OS.
+# Thanks to the C API boundary, the azul library can use a different allocator
+# than the binary linking against it, so enabling these only affects azul's
+# internal allocations.
+mimalloc = { version = "0.1", default-features = false, optional = true }
+tikv-jemallocator = { version = "0.6", default-features = false, optional = true }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = { version = "0.2", optional = true }
 x11-clipboard = { version = "0.9.3", optional = true }
@@ -275,6 +282,13 @@ _internal_deps = [
 # For link-dynamic, std has no effect since those crates aren't included
 std = ["azul-core?/std", "azul-layout?/std"]
 logging = ["log"]
+
+# Memory allocator features — set the global allocator inside the azul DLL.
+# Since azul exposes a C API, the allocator only affects azul's internal
+# allocations. The host application keeps its own allocator.
+# These are mutually exclusive; enabling both is a compile error.
+allocator_mimalloc = ["dep:mimalloc"]
+allocator_jemalloc = ["dep:tikv-jemallocator"]
 
 # Web backend: serve the app as HTML over HTTP (AZ_BACKEND=web://ip:port)
 # Phase 0: no external dependencies (uses std::net::TcpListener).

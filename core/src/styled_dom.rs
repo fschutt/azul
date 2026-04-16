@@ -830,7 +830,66 @@ impl Default for StyledDom {
     }
 }
 
+/// Per-field heap-byte breakdown of a `StyledDom`.
+#[derive(Debug, Clone, Default)]
+pub struct StyledDomMemoryReport {
+    pub node_count: usize,
+    pub node_hierarchy_bytes: usize,
+    pub node_data_bytes: usize,
+    pub styled_nodes_bytes: usize,
+    pub cascade_info_bytes: usize,
+    pub tag_ids_bytes: usize,
+    pub non_leaf_nodes_bytes: usize,
+    pub callback_vecs_bytes: usize,
+    pub css_property_cache: crate::prop_cache::CssPropertyCacheBreakdown,
+}
+
+impl StyledDomMemoryReport {
+    pub fn total_bytes(&self) -> usize {
+        self.node_hierarchy_bytes
+            + self.node_data_bytes
+            + self.styled_nodes_bytes
+            + self.cascade_info_bytes
+            + self.tag_ids_bytes
+            + self.non_leaf_nodes_bytes
+            + self.callback_vecs_bytes
+            + self.css_property_cache.total_bytes()
+    }
+}
+
 impl StyledDom {
+    /// Approximate heap bytes retained by this StyledDom, broken out by field.
+    pub fn memory_report(&self) -> StyledDomMemoryReport {
+        let n = self.node_data.len();
+        StyledDomMemoryReport {
+            node_count: n,
+            node_hierarchy_bytes: self.node_hierarchy.as_ref().len()
+                * core::mem::size_of::<NodeHierarchyItem>(),
+            node_data_bytes: {
+                let base = n * core::mem::size_of::<crate::dom::NodeData>();
+                // NodeData contains inline Vecs (callbacks, css_props, datasets)
+                // that have their own heap allocations. Approximate:
+                let mut inner = 0usize;
+                for nd in self.node_data.as_ref().iter() {
+                    inner += nd.get_callbacks().len() * 64; // rough per-callback
+                    inner += nd.css_props.as_ref().len() * 80; // CssPropertyWithConditions
+                }
+                base + inner
+            },
+            styled_nodes_bytes: n * core::mem::size_of::<StyledNode>(),
+            cascade_info_bytes: n * core::mem::size_of::<CascadeInfo>(),
+            tag_ids_bytes: self.tag_ids_to_node_ids.as_ref().len()
+                * core::mem::size_of::<TagIdToNodeIdMapping>(),
+            non_leaf_nodes_bytes: self.non_leaf_nodes.as_ref().len()
+                * core::mem::size_of::<ParentWithNodeDepth>(),
+            callback_vecs_bytes:
+                self.nodes_with_window_callbacks.as_ref().len() * 8
+                + self.nodes_with_not_callbacks.as_ref().len() * 8
+                + self.nodes_with_datasets.as_ref().len() * 8,
+            css_property_cache: self.css_property_cache.ptr.memory_breakdown(),
+        }
+    }
+
     /// Creates a new StyledDom by applying CSS styles to a DOM tree.
     ///
     /// NOTE: After calling this function, the DOM will be reset to an empty DOM.
