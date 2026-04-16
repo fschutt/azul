@@ -916,7 +916,13 @@ impl StyledDom {
     ) -> Self {
         use crate::dom::EventFilter;
 
+        static CASCADE_BREAKDOWN: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let cascade_dbg = *CASCADE_BREAKDOWN.get_or_init(|| {
+            std::env::var_os("AZUL_MEM_BREAKDOWN").is_some()
+        });
+
         let t0 = std::time::Instant::now();
+        let node_count = compact_dom.len();
 
         let t_prep = std::time::Instant::now();
         let non_leaf_nodes = compact_dom
@@ -928,7 +934,7 @@ impl StyledDom {
             StyledNode {
                 styled_node_state: StyledNodeState::new()
             };
-            compact_dom.len()
+            node_count
         ];
 
         let mut css_property_cache = CssPropertyCache::empty(compact_dom.node_data.len());
@@ -951,7 +957,6 @@ impl StyledDom {
         let prep_ms = t_prep.elapsed().as_secs_f64() * 1000.0;
 
         let t_restyle = std::time::Instant::now();
-        // Phase 1: Match CSS selectors → populate css_props (no tag IDs yet)
         let _restyle_tag_ids = css_property_cache.restyle(
             &mut css,
             &compact_dom.node_data.as_ref(),
@@ -961,7 +966,6 @@ impl StyledDom {
         );
         let restyle_ms = t_restyle.elapsed().as_secs_f64() * 1000.0;
 
-        // Phase 2: Build compact cache (inherit + compact + UA in single pass)
         let t_inherit_compact = std::time::Instant::now();
         let prev_font_hashes: Vec<u64> = css_property_cache.compact_cache
             .as_ref()
@@ -973,9 +977,19 @@ impl StyledDom {
             &prev_font_hashes,
         );
         css_property_cache.compact_cache = Some(compact);
+        let pre_prune = if cascade_dbg {
+            Some(css_property_cache.memory_breakdown())
+        } else { None };
+        css_property_cache.prune_compact_normal_props();
+        if let Some(pre) = pre_prune {
+            let post = css_property_cache.memory_breakdown();
+            eprintln!("[PRUNE] css_props {} → {} KiB  cascaded {} → {} KiB  (saved {} KiB)",
+                pre.css_props_bytes / 1024, post.css_props_bytes / 1024,
+                pre.cascaded_props_bytes / 1024, post.cascaded_props_bytes / 1024,
+                (pre.total_bytes().saturating_sub(post.total_bytes())) / 1024);
+        }
         let inherit_compact_ms = t_inherit_compact.elapsed().as_secs_f64() * 1000.0;
 
-        // Phase 3: Generate tag IDs using compact cache for fast display/overflow reads
         let t_tags = std::time::Instant::now();
         let tag_ids = css_property_cache.generate_tag_ids(
             &compact_dom.node_data.as_ref(),
@@ -984,6 +998,16 @@ impl StyledDom {
         let tags_ms = t_tags.elapsed().as_secs_f64() * 1000.0;
 
         let _total_ms = t0.elapsed().as_secs_f64() * 1000.0;
+
+        if cascade_dbg {
+            let bd = css_property_cache.memory_breakdown();
+            eprintln!("[CASCADE] {} nodes, prep={:.1}ms restyle={:.1}ms compact={:.1}ms tags={:.1}ms total={:.1}ms",
+                node_count, prep_ms, restyle_ms, inherit_compact_ms, tags_ms, _total_ms);
+            eprintln!("[CASCADE]   cascaded_props={} KiB  css_props={} KiB  compact={} KiB  computed={} KiB  total={} KiB",
+                bd.cascaded_props_bytes / 1024, bd.css_props_bytes / 1024,
+                bd.compact_cache_bytes / 1024, bd.computed_values_bytes / 1024,
+                bd.total_bytes() / 1024);
+        }
 
         // Collect callback/dataset nodes in a single pass (avoids 3 separate 50K scans).
         // For XHTML-parsed DOMs with no callbacks, this early-exits immediately.

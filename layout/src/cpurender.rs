@@ -2282,7 +2282,9 @@ fn render_display_list_with_state(
     // accumulated offset before rendering.
     let mut scroll_offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
 
+    let _p_loop = crate::probe::Probe::span("raster_loop");
     for item in &display_list.items {
+        let _p_item = crate::probe::Probe::span(probe_label_for_item(item));
         render_single_item(
             item,
             pixmap,
@@ -2299,6 +2301,53 @@ fn render_display_list_with_state(
     }
 
     Ok(())
+}
+
+/// Compact item-kind label for [`crate::probe`]. Names must be `'static`
+/// strings (probe events store `&'static str` for cheap aggregation),
+/// hence the closed match instead of formatting `Debug`.
+#[inline]
+fn probe_label_for_item(item: &DisplayListItem) -> &'static str {
+    use crate::solver3::display_list::DisplayListItem as I;
+    match item {
+        I::Rect { .. } => "dl:rect",
+        I::SelectionRect { .. } => "dl:sel_rect",
+        I::CursorRect { .. } => "dl:cursor",
+        I::Border { .. } => "dl:border",
+        I::Text { .. } => "dl:text",
+        I::TextLayout { .. } => "dl:text_layout",
+        I::Image { .. } => "dl:image",
+        I::ScrollBar { .. } => "dl:scrollbar_raw",
+        I::ScrollBarStyled { .. } => "dl:scrollbar",
+        I::PushClip { .. } => "dl:push_clip",
+        I::PopClip => "dl:pop_clip",
+        I::PushScrollFrame { .. } => "dl:push_scroll",
+        I::PopScrollFrame => "dl:pop_scroll",
+        I::PushStackingContext { .. } => "dl:push_stack",
+        I::PopStackingContext => "dl:pop_stack",
+        I::PushReferenceFrame { .. } => "dl:push_ref",
+        I::PopReferenceFrame => "dl:pop_ref",
+        I::PushOpacity { .. } => "dl:push_opacity",
+        I::PopOpacity => "dl:pop_opacity",
+        I::PushFilter { .. } => "dl:push_filter",
+        I::PopFilter => "dl:pop_filter",
+        I::PushBackdropFilter { .. } => "dl:push_bdfilter",
+        I::PopBackdropFilter => "dl:pop_bdfilter",
+        I::PushTextShadow { .. } => "dl:push_tshadow",
+        I::PopTextShadow => "dl:pop_tshadow",
+        I::PushImageMaskClip { .. } => "dl:push_imask",
+        I::PopImageMaskClip => "dl:pop_imask",
+        I::LinearGradient { .. } => "dl:linear_grad",
+        I::RadialGradient { .. } => "dl:radial_grad",
+        I::ConicGradient { .. } => "dl:conic_grad",
+        I::BoxShadow { .. } => "dl:box_shadow",
+        I::Underline { .. } => "dl:underline",
+        I::Strikethrough { .. } => "dl:strike",
+        I::Overline { .. } => "dl:overline",
+        I::HitTestArea { .. } => "dl:hit",
+        I::VirtualView { .. } => "dl:vview",
+        I::VirtualViewPlaceholder { .. } => "dl:vview_ph",
+    }
 }
 
 /// Render only the damaged regions of a display list into a retained pixmap.
@@ -3809,6 +3858,7 @@ pub fn render_component_preview(
         float_cache: HashMap::new(),
         cache_map: Default::default(),
         previous_positions: Vec::new(),
+                cached_display_list: None,
     };
     let mut text_cache = TextLayoutCache::new();
     let empty_scroll_offsets = BTreeMap::new();
@@ -3824,7 +3874,7 @@ pub fn render_component_preview(
     let display_list = solver3::layout_document(
         &mut layout_cache,
         &mut text_cache,
-        styled_dom,
+        &styled_dom,
         viewport,
         &preview_font_manager,
         &empty_scroll_offsets,

@@ -1,7 +1,7 @@
 //! Intrinsic and used size calculations for layout nodes
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeSet,
     sync::Arc,
 };
 
@@ -83,15 +83,46 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     }
 
     ctx.debug_log("Starting intrinsic size calculation");
+    // Pre-compute the "ancestor closure" of dirty_nodes: every dirty
+    // node AND each of its ancestors up to root. A node not in this
+    // set (and whose `intrinsic_sizes` is already populated) can
+    // reuse its cached intrinsic — we skip its entire subtree walk.
+    // Before this, `calculate_intrinsic_recursive` walked the full
+    // tree from root regardless, costing ~2 ms per warm render on
+    // excel.html even when only 3 nodes were actually dirty.
+    let dirty_closure = compute_dirty_ancestor_closure(tree, dirty_nodes);
     let mut calculator = IntrinsicSizeCalculator::new(ctx);
+    calculator.dirty_closure = Some(dirty_closure);
     calculator.calculate_intrinsic_recursive(tree, tree.root)?;
     ctx.debug_log("Finished intrinsic size calculation");
     Ok(())
 }
 
+fn compute_dirty_ancestor_closure(
+    tree: &LayoutTree,
+    dirty_nodes: &BTreeSet<usize>,
+) -> std::collections::HashSet<usize> {
+    let mut closure: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    for &dirty in dirty_nodes {
+        let mut cur = Some(dirty);
+        while let Some(idx) = cur {
+            if !closure.insert(idx) {
+                break;
+            }
+            cur = tree.get(idx).and_then(|n| n.parent);
+        }
+    }
+    closure
+}
+
 struct IntrinsicSizeCalculator<'a, 'b, T: ParsedFontTrait> {
     ctx: &'a mut LayoutContext<'b, T>,
     text_cache: LayoutCache,
+    /// If `Some`, only nodes in this set (the ancestor-closure of
+    /// dirty nodes) need recomputation. A clean node whose
+    /// `warm.intrinsic_sizes` is already populated reuses the
+    /// cached value and skips its entire subtree descent.
+    dirty_closure: Option<std::collections::HashSet<usize>>,
 }
 
 impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
@@ -99,6 +130,7 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
         Self {
             ctx,
             text_cache: LayoutCache::new(),
+            dirty_closure: None,
         }
     }
 
@@ -107,6 +139,22 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
         tree: &mut LayoutTree,
         node_index: usize,
     ) -> Result<IntrinsicSizes> {
+        // Fast path: if this subtree has no dirty nodes AND we
+        // already have a cached intrinsic, return the cached value
+        // and skip the whole descent. Caller is the ancestor-closure
+        // computation in `calculate_intrinsic_sizes` — anything not
+        // in that set is guaranteed clean through every descendant.
+        if let Some(closure) = self.dirty_closure.as_ref() {
+            if !closure.contains(&node_index) {
+                if let Some(cached) = tree
+                    .warm(node_index)
+                    .and_then(|w| w.intrinsic_sizes.clone())
+                {
+                    return Ok(cached);
+                }
+            }
+        }
+
         let node = tree
             .get(node_index)
             .cloned()
@@ -121,12 +169,23 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
             return Ok(IntrinsicSizes::default());
         }
 
-        // First, calculate children's intrinsic sizes
-        let mut child_intrinsics = BTreeMap::new();
-        let children = tree.children(node_index).to_vec();
-        for &child_index in &children {
+        // Copy child indices before recursive calls (which need &mut tree).
+        // Stack buffer for the common case (≤32 children); heap only for huge nodes.
+        let children_slice = tree.children(node_index);
+        let n = children_slice.len();
+        let mut stack_buf = [0usize; 32];
+        let heap_buf: Vec<usize>;
+        let children: &[usize] = if n <= 32 {
+            stack_buf[..n].copy_from_slice(children_slice);
+            &stack_buf[..n]
+        } else {
+            heap_buf = children_slice.to_vec();
+            &heap_buf
+        };
+        let mut child_intrinsics = Vec::with_capacity(n);
+        for &child_index in children {
             let child_intrinsic = self.calculate_intrinsic_recursive(tree, child_index)?;
-            child_intrinsics.insert(child_index, child_intrinsic);
+            child_intrinsics.push((child_index, child_intrinsic));
         }
 
         // Then calculate this node's intrinsic size based on its children
@@ -185,7 +244,7 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
         &mut self,
         tree: &LayoutTree,
         node_index: usize,
-        child_intrinsics: &BTreeMap<usize, IntrinsicSizes>,
+        child_intrinsics: &[(usize, IntrinsicSizes)],
     ) -> Result<IntrinsicSizes> {
         let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
 
@@ -530,7 +589,7 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
         &mut self,
         tree: &LayoutTree,
         node_index: usize,
-        child_intrinsics: &BTreeMap<usize, IntrinsicSizes>,
+        child_intrinsics: &[(usize, IntrinsicSizes)],
     ) -> Result<IntrinsicSizes> {
         let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
         let writing_mode = if let Some(dom_id) = node.dom_node_id {
@@ -556,7 +615,7 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
         let mut is_first_child = true;
 
         for &child_index in tree.children(node_index) {
-            if let Some(child_intrinsic) = child_intrinsics.get(&child_index) {
+            if let Some(child_intrinsic) = child_intrinsics.iter().find(|(k, _)| k == &child_index).map(|(_, v)| v) {
                 // +spec:intrinsic-sizing:ed72bb - intrinsic contributions based on outer size, auto margins as zero
                 let child_node = tree.get(child_index);
                 let (cross_extras, main_border_padding, main_margin_start, main_margin_end) =
@@ -645,7 +704,7 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
         &mut self,
         tree: &LayoutTree,
         node_index: usize,
-        child_intrinsics: &BTreeMap<usize, IntrinsicSizes>,
+        child_intrinsics: &[(usize, IntrinsicSizes)],
     ) -> Result<IntrinsicSizes> {
         let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
 
@@ -668,7 +727,7 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
         let mut max_cross_max: f32 = 0.0;
 
         for &child_index in tree.children(node_index) {
-            if let Some(child_intrinsic) = child_intrinsics.get(&child_index) {
+            if let Some(child_intrinsic) = child_intrinsics.iter().find(|(k, _)| k == &child_index).map(|(_, v)| v) {
                 let (child_main_min, child_main_max, child_cross_min, child_cross_max) = if is_row {
                     (
                         child_intrinsic.min_content_width,
@@ -746,7 +805,7 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
         &mut self,
         tree: &LayoutTree,
         node_index: usize,
-        child_intrinsics: &BTreeMap<usize, IntrinsicSizes>,
+        child_intrinsics: &[(usize, IntrinsicSizes)],
     ) -> Result<IntrinsicSizes> {
         // Collect per-column min/max widths and total row heights.
         // Table structure: table > row-group? > row > cell
@@ -778,7 +837,7 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
             let mut row_height = 0.0f32;
             let mut col = 0usize;
             for &cell_idx in tree.children(row_idx) {
-                let cell_intrinsic = child_intrinsics.get(&cell_idx).copied()
+                let cell_intrinsic = child_intrinsics.iter().find(|(k, _)| k == &cell_idx).map(|(_, v)| *v)
                     .unwrap_or_default();
                 // Also check if cell has IFC content we can measure
                 let cell_is = if cell_intrinsic.max_content_width > 0.0 {

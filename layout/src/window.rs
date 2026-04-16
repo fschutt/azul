@@ -84,7 +84,7 @@ use crate::{
     },
     text3::{
         cache::{
-            FontManager, FontSelector, FontStyle, InlineContent, LayoutCache as TextLayoutCache,
+            FontManager, FontSelector, FontStyle, InlineContent, TextShapingCache as TextLayoutCache,
             LayoutError, ShapedItem, StyleProperties, StyledRun, TextBoundary, UnifiedConstraints,
             UnifiedLayout,
         },
@@ -466,6 +466,7 @@ impl LayoutWindow {
                 float_cache: HashMap::new(),
                 cache_map: Default::default(),
                 previous_positions: Vec::new(),
+                cached_display_list: None,
             },
             text_cache: TextLayoutCache::new(),
             font_manager: FontManager::new(fc_cache)?,
@@ -529,7 +530,7 @@ impl LayoutWindow {
 
     /// Create from shared fc_cache + parsed_fonts Arcs.
     pub fn new_with_shared_fonts(
-        fc_cache: std::sync::Arc<FcFontCache>,
+        fc_cache: FcFontCache,
         parsed_fonts: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<rust_fontconfig::FontId, FontRef>>>,
     ) -> Result<Self, crate::solver3::LayoutError> {
         Ok(Self {
@@ -545,6 +546,7 @@ impl LayoutWindow {
                 float_cache: HashMap::new(),
                 cache_map: Default::default(),
                 previous_positions: Vec::new(),
+                cached_display_list: None,
             },
             text_cache: TextLayoutCache::new(),
             font_manager: FontManager::from_arc_shared(fc_cache, parsed_fonts)?,
@@ -623,6 +625,7 @@ impl LayoutWindow {
                 float_cache: HashMap::new(),
                 cache_map: Default::default(),
                 previous_positions: Vec::new(),
+                cached_display_list: None,
             },
             text_cache: TextLayoutCache::new(),
             font_manager: FontManager::new(fc_cache)?,
@@ -691,7 +694,7 @@ impl LayoutWindow {
     /// The display list ready for rendering, or an error if layout fails.
     pub fn layout_and_generate_display_list(
         &mut self,
-        root_dom: StyledDom,
+        root_dom: &StyledDom,
         window_state: &FullWindowState,
         renderer_resources: &RendererResources,
         system_callbacks: &ExternalSystemCallbacks,
@@ -754,16 +757,17 @@ impl LayoutWindow {
 
     fn layout_dom_recursive(
         &mut self,
-        mut styled_dom: StyledDom,
+        styled_dom: &StyledDom,
         window_state: &FullWindowState,
         renderer_resources: &RendererResources,
         system_callbacks: &ExternalSystemCallbacks,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<(), solver3::LayoutError> {
-        if styled_dom.dom_id.inner == 0 {
-            styled_dom.dom_id = DomId::ROOT_ID;
-        }
-        let dom_id = styled_dom.dom_id;
+        let dom_id = if styled_dom.dom_id.inner == 0 {
+            DomId::ROOT_ID
+        } else {
+            styled_dom.dom_id
+        };
 
         let viewport = LogicalRect {
             origin: LogicalPosition::zero(),
@@ -829,9 +833,23 @@ impl LayoutWindow {
                 // `FontContext::load_fonts_for_chains` and the CPU
                 // rasterizer's preview pre-fill — one implementation,
                 // three callers.
-                let chains = collect_and_resolve_font_chains_with_registration(
-                    &styled_dom, &self.font_manager.fc_cache, &self.font_manager, &platform,
-                );
+                crate::probe::sample_peak_rss("rss:before_font_chain");
+                let chains = {
+                    let _p = crate::probe::Probe::span("font_chain_resolve");
+                    collect_and_resolve_font_chains_with_registration(
+                        &styled_dom, &self.font_manager.fc_cache, &self.font_manager, &platform,
+                    )
+                };
+                crate::probe::sample_peak_rss("rss:after_font_chain");
+
+                // Phase 3 (scout-on-demand): no snapshot-refresh
+                // step is needed any more. rust-fontconfig 4.1
+                // made `FcFontCache` a shared-state handle backed
+                // by `Arc<RwLock<_>>`, so builder writes performed
+                // during the `request_and_resolve_with_scripts`
+                // call above are immediately visible to every
+                // downstream `FontFallbackChain::resolve_char`
+                // lookup without any explicit refresh.
                 if let Some(msgs) = debug_messages.as_mut() {
                     msgs.push(LayoutDebugMessage::info(format!(
                         "[FontLoading] Resolved {} font chains",
@@ -840,10 +858,15 @@ impl LayoutWindow {
                 }
 
                 let loader = PathLoader::new();
-                let failed = self.font_manager.load_missing_for_chains(
-                    &chains,
-                    |bytes, index| loader.load_font_shared(bytes, index),
-                );
+                crate::probe::sample_peak_rss("rss:before_font_load");
+                let failed = {
+                    let _p = crate::probe::Probe::span("font_load_missing");
+                    self.font_manager.load_missing_for_chains(
+                        &chains,
+                        |bytes, index| loader.load_font_shared(bytes, index),
+                    )
+                };
+                crate::probe::sample_peak_rss("rss:after_font_load");
                 if let Some(msgs) = debug_messages.as_mut() {
                     for (font_id, error) in &failed {
                         msgs.push(LayoutDebugMessage::warning(format!(
@@ -859,32 +882,72 @@ impl LayoutWindow {
         }
 
         let scroll_offsets = self.scroll_manager.get_scroll_states_for_dom(dom_id);
-        let styled_dom_clone = styled_dom.clone();
         let gpu_cache = self.gpu_state_manager.get_or_create_cache(dom_id).clone();
 
         let cursor_is_visible = self.text_edit_manager.should_draw_cursor();
         let cursor_locations = self.text_edit_manager.build_cursor_locations();
 
-        let mut display_list = solver3::layout_document(
-            &mut self.layout_cache,
-            &mut self.text_cache,
-            styled_dom,
-            viewport,
-            &self.font_manager,
-            &scroll_offsets,
-            &std::collections::BTreeMap::new(),
-            debug_messages,
-            Some(&gpu_cache),
-            &self.renderer_resources,
-            self.id_namespace,
-            dom_id,
-            cursor_is_visible,
-            cursor_locations,
-            self.text_edit_manager.preedit_text.clone(),
-            &self.image_cache,
-            self.system_style.clone(),
-            system_callbacks.get_system_time_fn,
-        )?;
+        let mut display_list = {
+            let _p = crate::probe::Probe::span("solver3_layout_document");
+            solver3::layout_document(
+                &mut self.layout_cache,
+                &mut self.text_cache,
+                &styled_dom,
+                viewport,
+                &self.font_manager,
+                &scroll_offsets,
+                &std::collections::BTreeMap::new(),
+                debug_messages,
+                Some(&gpu_cache),
+                &self.renderer_resources,
+                self.id_namespace,
+                dom_id,
+                cursor_is_visible,
+                cursor_locations,
+                self.text_edit_manager.preedit_text.clone(),
+                &self.image_cache,
+                self.system_style.clone(),
+                system_callbacks.get_system_time_fn,
+            )?
+        };
+
+        // Hint the allocator to return freed pages after the layout pass
+        // drops its transient allocations (intrinsic sizing Vecs, etc.).
+        crate::probe::hint_purge_allocator();
+
+        // Optional memory-breakdown print for the CSS property cache.
+        // Gated on AZUL_MEM_BREAKDOWN=1; off costs one env-var read on
+        // the first call (`OnceLock`-cached) and nothing after.
+        static MEM_BREAKDOWN_ENABLED: std::sync::OnceLock<bool> =
+            std::sync::OnceLock::new();
+        if *MEM_BREAKDOWN_ENABLED
+            .get_or_init(|| std::env::var_os("AZUL_MEM_BREAKDOWN").is_some())
+        {
+            let bd = styled_dom
+                .css_property_cache
+                .ptr
+                .memory_breakdown();
+            eprintln!(
+                "[MEM] CssPropertyCache ({} nodes) total={} KiB",
+                bd.node_count,
+                bd.total_bytes() / 1024
+            );
+            eprintln!("[MEM]   cascaded_props    {:>7} KiB", bd.cascaded_props_bytes / 1024);
+            eprintln!("[MEM]   css_props         {:>7} KiB", bd.css_props_bytes / 1024);
+            eprintln!("[MEM]   computed_values   {:>7} KiB", bd.computed_values_bytes / 1024);
+            eprintln!("[MEM]   user_overridden   {:>7} KiB", bd.user_overridden_bytes / 1024);
+            eprintln!("[MEM]   global_css_props  {:>7} KiB", bd.global_css_props_bytes / 1024);
+            eprintln!("[MEM]   compact_cache     {:>7} KiB", bd.compact_cache_bytes / 1024);
+            eprintln!("[MEM]   resolved_font_sz  {:>7} KiB", bd.resolved_font_sizes_bytes / 1024);
+            #[cfg(feature = "probe")]
+            {
+                let (rss, _virt) = crate::probe::current_rss_bytes();
+                let peak = crate::probe::peak_rss_bytes_pub();
+                eprintln!("[MEM] after layout: current rss={:.1} MiB  peak rss={:.1} MiB  (unreturned={:.1} MiB)",
+                    rss as f64 / 1048576.0, peak as f64 / 1048576.0,
+                    (peak.saturating_sub(rss)) as f64 / 1048576.0);
+            }
+        }
 
         let tree = self
             .layout_cache
@@ -971,14 +1034,14 @@ impl LayoutWindow {
 
         // Scan for VirtualViews *after* the initial layout pass
         // Pass styled_dom directly — layout_results isn't populated yet at this point
-        let vviews = self.scan_for_virtual_views(&styled_dom_clone, &tree, &self.layout_cache.calculated_positions);
+        let vviews = self.scan_for_virtual_views(&styled_dom, &tree, &self.layout_cache.calculated_positions);
 
         for (node_id, bounds) in vviews {
             if let Some(child_dom_id) = self.invoke_virtual_view_callback_with_dom(
                 dom_id,
                 node_id,
                 bounds,
-                Some(&styled_dom_clone),
+                Some(&styled_dom),
                 window_state,
                 renderer_resources,
                 system_callbacks,
@@ -1021,11 +1084,13 @@ impl LayoutWindow {
             }
         }
 
-        // Store the final layout result for this DOM
+        // Store the final layout result for this DOM.
+        // Clone here instead of requiring callers to clone up front —
+        // this is the only place the owned StyledDom is needed.
         self.layout_results.insert(
             dom_id,
             DomLayoutResult {
-                styled_dom: styled_dom_clone,
+                styled_dom: styled_dom.clone(),
                 layout_tree: tree,
                 calculated_positions: self.layout_cache.calculated_positions.clone(),
                 viewport,
@@ -1075,7 +1140,7 @@ impl LayoutWindow {
     /// Returns the new display list after the resize.
     pub fn resize_window(
         &mut self,
-        styled_dom: StyledDom,
+        styled_dom: &StyledDom,
         new_size: LogicalSize,
         renderer_resources: &RendererResources,
         system_callbacks: &ExternalSystemCallbacks,
@@ -1087,10 +1152,8 @@ impl LayoutWindow {
 
         let dom_id = styled_dom.dom_id;
 
-        // Reuse the main layout method - solver3 will detect the viewport
-        // change and invalidate only what's necessary
         self.layout_and_generate_display_list(
-            styled_dom,
+            &styled_dom,
             &window_state,
             renderer_resources,
             system_callbacks,
@@ -1117,6 +1180,7 @@ impl LayoutWindow {
             float_cache: HashMap::new(),
             cache_map: Default::default(),
             previous_positions: Vec::new(),
+                cached_display_list: None,
         };
         self.text_cache = TextLayoutCache::new();
         self.layout_results.clear();
@@ -1318,7 +1382,7 @@ impl LayoutWindow {
         // Create VirtualViewCallbackInfo with the most up-to-date state
         let mut callback_info = azul_core::callbacks::VirtualViewCallbackInfo::new(
             reason,
-            &*self.font_manager.fc_cache,
+            &self.font_manager.fc_cache,
             &self.image_cache,
             window_state.theme,
             azul_core::callbacks::HidpiAdjustedBounds {
@@ -1402,7 +1466,7 @@ impl LayoutWindow {
         // Perform a full layout pass on the child DOM. This will recursively handle
         // any VirtualViews within this VirtualView.
         self.layout_dom_recursive(
-            child_styled_dom,
+            &child_styled_dom,
             window_state,
             renderer_resources,
             system_callbacks,
@@ -5402,6 +5466,7 @@ impl LayoutWindow {
         let cache_map = std::mem::take(&mut self.layout_cache.cache_map);
 
         let mut ctx = LayoutContext {
+            scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
             styled_dom,
             font_manager: &self.font_manager,
             text_selections: &text_selections_map,

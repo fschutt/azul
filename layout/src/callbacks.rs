@@ -66,7 +66,7 @@ use crate::{
         text_input::{PendingTextEdit, TextInputManager},
         undo_redo::{UndoRedoManager, UndoableOperation},
     },
-    text3::cache::{LayoutCache as TextLayoutCache, UnifiedLayout},
+    text3::cache::{TextShapingCache as TextLayoutCache, UnifiedLayout},
     thread::{CreateThreadCallback, Thread},
     timer::Timer,
     window::{DomLayoutResult, LayoutWindow},

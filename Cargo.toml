@@ -53,8 +53,3 @@ lto = false       # Disable LTO so grcov can see individual object files.
 codegen-units = 16
 panic = "unwind"  # Tests need unwinding for #[should_panic] etc.
 
-# Unify allsorts: rust-fontconfig pulls registry allsorts, azul-layout uses
-# our git fork with pixel-snap hinting additions.  This patch makes both
-# resolve to the same crate, eliminating a ~13s duplicate compile.
-[patch.crates-io]
-allsorts = { git = "https://github.com/fschutt/allsorts.git", branch = "pixelsnap" }

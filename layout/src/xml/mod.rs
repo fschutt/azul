@@ -171,14 +171,31 @@ pub fn parse_xml_to_fast_dom(xml: &str) -> Result<azul_core::dom::FastDom, XmlEr
 
 /// Parse XML directly into FastDom + extracted CSS, ready for StyledDom.
 pub fn parse_xml_to_styled_dom(xml: &str) -> Result<StyledDom, XmlError> {
-    #[cfg(debug_assertions)]
-    let t0 = std::time::Instant::now();
-    let (mut fast_dom, css) = parse_xml_to_fast_dom_with_css(xml)?;
-    #[cfg(debug_assertions)]
-    let parse_ms = t0.elapsed().as_secs_f64() * 1000.0;
+    // Optional per-phase RSS/timing breakdown.
+    // Gated on AZUL_MEM_BREAKDOWN=1 — prints
+    //   [XML] tokenize+fast_dom       : +XX MiB in YY ms
+    //   [XML] css attach              : +XX MiB in YY ms
+    //   [XML] create_from_fast_dom    : +XX MiB in YY ms
+    // to locate which sub-phase of the parse-cascade dominates the
+    // RSS jump seen between `page start` and `xml parsed`.
+    static MEM_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let mem_on =
+        *MEM_ENABLED.get_or_init(|| std::env::var_os("AZUL_MEM_BREAKDOWN").is_some());
 
-    #[cfg(debug_assertions)]
+    let t0 = std::time::Instant::now();
+    let rss0 = if mem_on { peak_rss_bytes() } else { 0 };
+    let (mut fast_dom, css) = parse_xml_to_fast_dom_with_css(xml)?;
+    if mem_on {
+        let rss1 = peak_rss_bytes();
+        eprintln!(
+            "[XML] tokenize+fast_dom       : +{:.2} MiB in {:.1} ms",
+            (rss1.saturating_sub(rss0)) as f64 / 1024.0 / 1024.0,
+            t0.elapsed().as_secs_f64() * 1000.0,
+        );
+    }
+
     let t1 = std::time::Instant::now();
+    let rss1 = if mem_on { peak_rss_bytes() } else { 0 };
     // Attach CSS to the FastDom
     if !css.is_empty() {
         let combined_css = Css::new(css.into_iter()
@@ -189,15 +206,31 @@ pub fn parse_xml_to_styled_dom(xml: &str) -> Result<StyledDom, XmlError> {
             css: combined_css,
         }].into();
     }
-    #[cfg(debug_assertions)]
-    let css_attach_ms = t1.elapsed().as_secs_f64() * 1000.0;
+    if mem_on {
+        let rss2 = peak_rss_bytes();
+        eprintln!(
+            "[XML] css attach              : +{:.2} MiB in {:.1} ms",
+            (rss2.saturating_sub(rss1)) as f64 / 1024.0 / 1024.0,
+            t1.elapsed().as_secs_f64() * 1000.0,
+        );
+    }
 
-    #[cfg(debug_assertions)]
     let t2 = std::time::Instant::now();
+    let rss2 = if mem_on { peak_rss_bytes() } else { 0 };
     let styled = StyledDom::create_from_fast_dom(fast_dom);
+    if mem_on {
+        let rss3 = peak_rss_bytes();
+        eprintln!(
+            "[XML] create_from_fast_dom    : +{:.2} MiB in {:.1} ms",
+            (rss3.saturating_sub(rss2)) as f64 / 1024.0 / 1024.0,
+            t2.elapsed().as_secs_f64() * 1000.0,
+        );
+    }
 
     #[cfg(all(debug_assertions, feature = "std"))]
     {
+        let parse_ms = t1.duration_since(t0).as_secs_f64() * 1000.0;
+        let css_attach_ms = t2.duration_since(t1).as_secs_f64() * 1000.0;
         let cascade_ms = t2.elapsed().as_secs_f64() * 1000.0;
         let node_count = styled.node_hierarchy.as_ref().len();
         eprintln!("[parse_xml_to_styled_dom] {} nodes: parse={:.1}ms css_attach={:.1}ms cascade={:.1}ms total={:.1}ms",
@@ -205,6 +238,29 @@ pub fn parse_xml_to_styled_dom(xml: &str) -> Result<StyledDom, XmlError> {
     }
 
     Ok(styled)
+}
+
+/// Resident-set bytes for RSS checkpoints — mirrors servo-shot's
+/// `peak_rss_bytes()`. Uses `getrusage(RUSAGE_SELF)` via the
+/// `probe` feature's `libc` dep; returns 0 without it so the
+/// caller just doesn't emit meaningful deltas.
+#[cfg(all(unix, feature = "probe"))]
+fn peak_rss_bytes() -> u64 {
+    let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+    if unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) } != 0 {
+        return 0;
+    }
+    let ru = usage.ru_maxrss as u64;
+    // macOS reports bytes, Linux reports KiB.
+    #[cfg(target_os = "macos")]
+    { ru }
+    #[cfg(not(target_os = "macos"))]
+    { ru.saturating_mul(1024) }
+}
+
+#[cfg(not(all(unix, feature = "probe")))]
+fn peak_rss_bytes() -> u64 {
+    0
 }
 
 /// Internal: parse XML into FastDom + collected CSS stylesheets.

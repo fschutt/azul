@@ -241,6 +241,20 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     /// On WASM targets (where `std::time::Instant::now()` panics), callers should
     /// supply a no-op or platform-specific implementation.
     pub get_system_time_fn: azul_core::task::GetSystemTimeCallback,
+    /// Memoised `get_scrollbar_style` results, keyed by DOM node id.
+    /// `compute_scrollbar_info_core` is called many times per node
+    /// per layout pass (BFC path + Taffy flex/grid path + display
+    /// list), and each call previously did 9 cascade walks. Once
+    /// populated, subsequent callers in the same LayoutContext
+    /// (a single render) return a clone.
+    ///
+    /// Uses `RefCell` so shared `&self` borrows (e.g. in the Taffy
+    /// bridge's `get_core_container_style`) can mutate the cache
+    /// without lifting the ctx to `&mut`. Keyed by `NodeId` so
+    /// entries span DOMs in iframe-style nested documents if that
+    /// ever becomes a thing.
+    pub scrollbar_style_cache:
+        core::cell::RefCell<std::collections::HashMap<NodeId, crate::solver3::getters::ComputedScrollbarStyle>>,
 }
 
 impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
@@ -378,12 +392,17 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
     }
 }
 
-/// Main entry point for the incremental, cached layout engine
+/// Main entry point for the incremental, cached layout engine.
+///
+/// `new_dom` is borrowed, not owned — every use inside is `&new_dom`,
+/// so taking ownership was a pure formality that forced every caller
+/// to `styled_dom.clone()` the DOM before calling. The clone was
+/// ~2 MiB per render on excel.html; kept at the borrow now.
 #[cfg(feature = "text_layout")]
 pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     cache: &mut LayoutCache,
     text_cache: &mut TextLayoutCache,
-    new_dom: StyledDom,
+    new_dom: &StyledDom,
     viewport: LogicalRect,
     font_manager: &crate::font_traits::FontManager<T>,
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
@@ -418,7 +437,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // Create temporary context without counters for tree generation
     let mut counter_values = HashMap::new();
     let mut ctx_temp = LayoutContext {
-        styled_dom: &new_dom,
+        scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
+        styled_dom: new_dom,
         font_manager,
         text_selections,
         debug_messages,
@@ -435,9 +455,32 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         get_system_time_fn,
     };
 
+    crate::probe::sample_peak_rss("rss:enter_layout_document");
+
     // --- Step 1: Reconciliation & Invalidation ---
     let (mut new_tree, mut recon_result) =
         cache::reconcile_and_invalidate(&mut ctx_temp, cache, viewport)?;
+    crate::probe::sample_peak_rss("rss:after_reconcile");
+
+    // --- Step 1.1: Structural-identity display-list cache ---
+    //
+    // If the reconciled root subtree_hash matches the cached one AND
+    // the viewport is unchanged, nothing structural has moved — skip
+    // layout, positioning, AND display-list generation and return
+    // the cached display list verbatim.
+    //
+    // This fires on re-renders of an unchanged DOM: the reconcile
+    // pass still walks and hashes the tree, but that's ~600 µs vs
+    // the ~4 ms it would otherwise cost to re-emit the display list.
+    if let Some((cached_hash, cached_viewport, cached_dl)) = &cache.cached_display_list {
+        let new_root_hash = new_tree
+            .cold(new_tree.root)
+            .map(|c| c.subtree_hash);
+        if new_root_hash == Some(*cached_hash) && *cached_viewport == viewport {
+            let _p = crate::probe::Probe::span("display_list_cache_hit");
+            return Ok(cached_dl.clone());
+        }
+    }
 
     // Step 1.2: Clear Taffy Caches for Dirty Nodes
     for &node_idx in &recon_result.intrinsic_dirty {
@@ -449,13 +492,124 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // Step 1.3: Compute CSS Counters
     // This must be done after tree generation but before layout,
     // as list markers need counter values during formatting context layout
-    cache::compute_counters(&new_dom, &new_tree, &mut counter_values);
+    {
+        let _p = crate::probe::Probe::span("compute_counters");
+        cache::compute_counters(&new_dom, &new_tree, &mut counter_values);
+    }
 
     // Step 1.4: Resize and invalidate per-node cache (Taffy-inspired 9+1 slot cache)
     // Move cache_map out of LayoutCache for the duration of layout (avoids borrow conflicts).
     // It will be moved back after the layout pass completes.
+    //
+    // Critically: the old `cache_map.entries` is indexed by OLD
+    // layout-tree positions. The NEW tree may have re-ordered
+    // indices (anonymous wrapper slots shifted, whitespace nodes
+    // dropped, etc.). A plain `resize_with(default)` would silently
+    // serve the wrong node's cached result for any shifted index.
+    //
+    // Re-map by stable identity: build `old_layout_idx → new_layout_idx`
+    // via the `(dom_node_id → layout_idx)` tables on both trees,
+    // then move each surviving cache entry into its new slot. Nodes
+    // without a matching DOM id (pure anonymous wrappers) fall
+    // through to the default (empty, i.e. dirty) entry.
     let mut cache_map = std::mem::take(&mut cache.cache_map);
-    cache_map.resize_to_tree(new_tree.nodes.len());
+    let _probe_cache_remap = Some(crate::probe::Probe::span("cache_map_remap"));
+    if let Some(old_tree) = cache.tree.as_ref() {
+        let mut remapped = cache::LayoutCacheMap::default();
+        remapped.entries.resize_with(new_tree.nodes.len(), Default::default);
+
+        // Primary mapping: DOM id → layout idx on both sides. This
+        // covers every node that has a corresponding DOM node.
+        for (dom_id, new_indices) in new_tree.dom_to_layout.iter() {
+            let Some(old_indices) = old_tree.dom_to_layout.get(dom_id) else {
+                continue;
+            };
+            for (pair_idx, &new_layout_idx) in new_indices.iter().enumerate() {
+                let Some(&old_layout_idx) = old_indices.get(pair_idx) else {
+                    continue;
+                };
+                if old_layout_idx >= cache_map.entries.len()
+                    || new_layout_idx >= remapped.entries.len()
+                {
+                    continue;
+                }
+                remapped.entries[new_layout_idx] =
+                    core::mem::take(&mut cache_map.entries[old_layout_idx]);
+            }
+        }
+
+        // Secondary mapping: anonymous wrappers (dom_node_id == None)
+        // by (parent_new_idx, ordinal-among-anon-siblings). An
+        // unchanged DOM produces the same anon wrappers in the same
+        // order under the same parent — matching by position here
+        // preserves their cache slots too. Without this, anon
+        // wrappers re-allocate empty every reconcile and invalidate
+        // their ancestors via `mark_dirty`.
+        fn collect_anon_children_by_parent(
+            tree: &LayoutTree,
+        ) -> std::collections::HashMap<usize, Vec<usize>> {
+            let mut map: std::collections::HashMap<usize, Vec<usize>> =
+                std::collections::HashMap::new();
+            for (idx, node) in tree.nodes.iter().enumerate() {
+                if node.dom_node_id.is_some() {
+                    continue;
+                }
+                if let Some(parent) = node.parent {
+                    map.entry(parent).or_default().push(idx);
+                }
+            }
+            map
+        }
+
+        // Build old-parent → [old_anon_indices] and
+        // new-parent → [new_anon_indices]; match by pair position.
+        let old_anon_by_parent = collect_anon_children_by_parent(old_tree);
+        let new_anon_by_parent = collect_anon_children_by_parent(&new_tree);
+
+        // For each new parent we know: look up its old twin by the
+        // dom-id mapping we just populated, then match anon children
+        // positionally within that parent.
+        // Build a new→old layout-idx lookup from the primary pass.
+        let mut new_to_old_layout_idx: std::collections::HashMap<usize, usize> =
+            std::collections::HashMap::new();
+        for (dom_id, new_indices) in new_tree.dom_to_layout.iter() {
+            let Some(old_indices) = old_tree.dom_to_layout.get(dom_id) else {
+                continue;
+            };
+            for (pair_idx, &new_layout_idx) in new_indices.iter().enumerate() {
+                if let Some(&old_layout_idx) = old_indices.get(pair_idx) {
+                    new_to_old_layout_idx.insert(new_layout_idx, old_layout_idx);
+                }
+            }
+        }
+
+        for (new_parent_idx, new_anon_children) in new_anon_by_parent {
+            let Some(&old_parent_idx) = new_to_old_layout_idx.get(&new_parent_idx) else {
+                continue;
+            };
+            let Some(old_anon_children) = old_anon_by_parent.get(&old_parent_idx) else {
+                continue;
+            };
+            for (ord, &new_anon_idx) in new_anon_children.iter().enumerate() {
+                let Some(&old_anon_idx) = old_anon_children.get(ord) else {
+                    continue;
+                };
+                if old_anon_idx >= cache_map.entries.len()
+                    || new_anon_idx >= remapped.entries.len()
+                {
+                    continue;
+                }
+                remapped.entries[new_anon_idx] =
+                    core::mem::take(&mut cache_map.entries[old_anon_idx]);
+            }
+        }
+
+        cache_map = remapped;
+    } else {
+        cache_map.resize_to_tree(new_tree.nodes.len());
+    }
+    drop(_probe_cache_remap);
+    crate::probe::sample_peak_rss("rss:after_cache_remap");
     for &node_idx in &recon_result.intrinsic_dirty {
         cache_map.mark_dirty(node_idx, &new_tree.nodes);
     }
@@ -465,6 +619,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
 
     // Now create the real context with computed counters
     let mut ctx = LayoutContext {
+        scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
         styled_dom: &new_dom,
         font_manager,
         text_selections,
@@ -522,10 +677,16 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             break;
         }
 
-        calculated_positions = cache.calculated_positions.clone();
+        calculated_positions = {
+            let _p = crate::probe::Probe::span("clone_calculated_positions");
+            cache.calculated_positions.clone()
+        };
         let mut reflow_needed_for_scrollbars = false;
 
-        calculate_intrinsic_sizes(&mut ctx, &mut new_tree, &recon_result.intrinsic_dirty)?;
+        {
+            let _p = crate::probe::Probe::span("calc_intrinsic_sizes");
+            calculate_intrinsic_sizes(&mut ctx, &mut new_tree, &recon_result.intrinsic_dirty)?;
+        }
 
         for &root_idx in &recon_result.layout_roots {
             let (cb_pos, cb_size) = get_containing_block_for_node(
@@ -584,18 +745,23 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 ));
             }
 
-            cache::calculate_layout_for_subtree(
-                &mut ctx,
-                &mut new_tree,
-                text_cache,
-                root_idx,
-                adjusted_cb_pos,
-                cb_size,
-                &mut calculated_positions,
-                &mut reflow_needed_for_scrollbars,
-                &mut cache.float_cache,
-                cache::ComputeMode::PerformLayout,
-            )?;
+            crate::probe::sample_peak_rss("rss:before_root_layout");
+            {
+                let _p = crate::probe::Probe::span("root_layout_pass");
+                cache::calculate_layout_for_subtree(
+                    &mut ctx,
+                    &mut new_tree,
+                    text_cache,
+                    root_idx,
+                    adjusted_cb_pos,
+                    cb_size,
+                    &mut calculated_positions,
+                    &mut reflow_needed_for_scrollbars,
+                    &mut cache.float_cache,
+                    cache::ComputeMode::PerformLayout,
+                )?;
+            }
+            crate::probe::sample_peak_rss("rss:after_root_layout");
 
             // CRITICAL: Insert the root node's own position into calculated_positions
             // This is necessary because calculate_layout_for_subtree only inserts
@@ -645,12 +811,15 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             }
         }
 
-        cache::reposition_clean_subtrees(
-            &new_dom,
-            &new_tree,
-            &recon_result.layout_roots,
-            &mut calculated_positions,
-        );
+        {
+            let _p = crate::probe::Probe::span("reposition_clean_subtrees");
+            cache::reposition_clean_subtrees(
+                &new_dom,
+                &new_tree,
+                &recon_result.layout_roots,
+                &mut calculated_positions,
+            );
+        }
 
         if reflow_needed_for_scrollbars {
             debug_log!(ctx,
@@ -680,57 +849,84 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // positioning absolute elements, the absolute elements will be positioned
     // relative to the wrong (pre-adjustment) position of their containing block.
     // Pass the viewport to correctly resolve percentage offsets for the root element.
-    positioning::adjust_relative_positions(
-        &mut ctx,
-        &new_tree,
-        &mut calculated_positions,
-        viewport,
-    )?;
+    {
+        let _p = crate::probe::Probe::span("adjust_relative_positions");
+        positioning::adjust_relative_positions(
+            &mut ctx,
+            &new_tree,
+            &mut calculated_positions,
+            viewport,
+        )?;
+    }
 
     // --- Step 3.25: Adjust Sticky Positioned Elements ---
     // Sticky elements are laid out in normal flow, then their visual position
     // is clamped based on scroll offset and inset properties relative to the
     // nearest scrollport. Must happen after relative positioning but before
     // absolute positioning (sticky elements establish containing blocks).
-    positioning::adjust_sticky_positions(
-        &mut ctx,
-        &new_tree,
-        &mut calculated_positions,
-        scroll_offsets,
-        viewport,
-    )?;
+    {
+        let _p = crate::probe::Probe::span("adjust_sticky_positions");
+        positioning::adjust_sticky_positions(
+            &mut ctx,
+            &new_tree,
+            &mut calculated_positions,
+            scroll_offsets,
+            viewport,
+        )?;
+    }
 
     // --- Step 3.5: Position Out-of-Flow Elements ---
     // This must be done AFTER adjusting relative positions, so that absolutely
     // positioned elements are positioned relative to the final (post-adjustment)
     // position of their relatively positioned containing blocks.
-    positioning::position_out_of_flow_elements(
-        &mut ctx,
-        &mut new_tree,
-        &mut calculated_positions,
-        viewport,
-    )?;
+    {
+        let _p = crate::probe::Probe::span("position_out_of_flow");
+        positioning::position_out_of_flow_elements(
+            &mut ctx,
+            &mut new_tree,
+            &mut calculated_positions,
+            viewport,
+        )?;
+    }
 
     // --- Step 3.75: Compute Stable Scroll IDs ---
     // This must be done AFTER layout but BEFORE display list generation
     use crate::window::LayoutWindow;
-    let (scroll_ids, scroll_id_to_node_id) = LayoutWindow::compute_scroll_ids(&new_tree, &new_dom);
+    let (scroll_ids, scroll_id_to_node_id) = {
+        let _p = crate::probe::Probe::span("compute_scroll_ids");
+        LayoutWindow::compute_scroll_ids(&new_tree, &new_dom)
+    };
 
+    crate::probe::sample_peak_rss("rss:before_display_list");
     // --- Step 4: Generate Display List & Update Cache ---
-    let display_list = generate_display_list(
-        &mut ctx,
-        &new_tree,
-        &calculated_positions,
-        scroll_offsets,
-        &scroll_ids,
-        gpu_value_cache,
-        renderer_resources,
-        id_namespace,
-        dom_id,
-    )?;
+    let display_list = {
+        let _p = crate::probe::Probe::span("generate_display_list");
+        generate_display_list(
+            &mut ctx,
+            &new_tree,
+            &calculated_positions,
+            scroll_offsets,
+            &scroll_ids,
+            gpu_value_cache,
+            renderer_resources,
+            id_namespace,
+            dom_id,
+        )?
+    };
 
     // Move cache_map back into LayoutCache before dropping ctx
+    let _p_writeback = crate::probe::Probe::span("cache_writeback");
     let cache_map_back = std::mem::take(&mut ctx.cache_map);
+
+    // Cache the freshly-generated display list keyed on the root's
+    // subtree_hash + viewport. If the next `layout_document` call
+    // sees matching values after reconcile, it returns this clone
+    // directly and skips all downstream work.
+    let root_subtree_hash = new_tree
+        .cold(new_tree.root)
+        .map(|c| c.subtree_hash)
+        .unwrap_or(crate::solver3::layout_tree::SubtreeHash(0));
+    cache.cached_display_list = Some((root_subtree_hash, viewport, display_list.clone()));
 
     cache.tree = Some(new_tree);
     cache.previous_positions = std::mem::replace(&mut cache.calculated_positions, calculated_positions);
@@ -739,6 +935,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     cache.scroll_id_to_node_id = scroll_id_to_node_id;
     cache.counters = counter_values;
     cache.cache_map = cache_map_back;
+    crate::probe::sample_peak_rss("rss:after_layout_document");
 
     Ok(display_list)
 }

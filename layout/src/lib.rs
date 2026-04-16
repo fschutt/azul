@@ -44,6 +44,9 @@ extern crate core;
 
 /// Font traits available regardless of text layout feature.
 pub mod font_traits;
+/// Optional probe instrumentation. With the `probe` feature off this
+/// is a tiny module of no-op stubs and pays zero cost.
+pub mod probe;
 /// Image decoding and encoding (wraps the `image` crate).
 #[cfg(feature = "image_decoding")]
 pub mod image;
@@ -251,7 +254,11 @@ pub use solver3::paged_layout::layout_document_paged;
 #[cfg(feature = "text_layout")]
 pub use solver3::{LayoutContext, LayoutError, Result as LayoutResult3};
 #[cfg(feature = "text_layout")]
-pub use text3::cache::{FontContext, FontManager, LayoutCache as TextLayoutCache};
+pub use text3::cache::{FontContext, FontManager, TextShapingCache};
+/// Backwards-compat alias for the old `TextLayoutCache` name.
+/// Will be dropped at the next API revision; new code should use
+/// [`TextShapingCache`] directly.
+pub use text3::cache::TextShapingCache as TextLayoutCache;
 #[cfg(feature = "font_async_registry")]
 pub use rust_fontconfig::registry::FcFontRegistry;
 #[cfg(feature = "text_layout")]

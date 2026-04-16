@@ -8,7 +8,7 @@
 #![cfg(feature = "font_loading")]
 
 use azul_css::{AzString, U8Vec};
-use rust_fontconfig::{FcFontCache, FontSource};
+use rust_fontconfig::{FcFontCache, OwnedFontSource};
 
 pub mod loading {
     #![cfg(feature = "std")]
@@ -196,7 +196,7 @@ pub mod parsed {
         /// double-check pattern in `resolve_loca_glyf` keeps the
         /// expensive `LocaGlyf::load` outside the critical section.
         Deferred {
-            bytes: Arc<[u8]>,
+            bytes: Arc<rust_fontconfig::FontBytes>,
             font_index: usize,
             loaded: Arc<std::sync::Mutex<Option<Arc<std::sync::Mutex<LocaGlyf>>>>>,
         },
@@ -387,11 +387,11 @@ pub mod parsed {
         /// raster never read this, so `ParsedFont::from_bytes` leaves it
         /// as `None` by default and callers opt in via
         /// [`ParsedFont::with_source_bytes`]. Shared across faces of the
-        /// same `.ttc` via the `Arc<[u8]>` that
-        /// `rust_fontconfig::FcFontCache::get_font_bytes_arc` returns, so
-        /// at most one copy of each font file lives in memory regardless
-        /// of how many faces point at it.
-        pub original_bytes: Option<std::sync::Arc<[u8]>>,
+        /// same `.ttc` via the `Arc<FontBytes>` that
+        /// [`rust_fontconfig::FcFontCache::get_font_bytes`] returns —
+        /// for disk fonts the backing is an mmap so untouched pages
+        /// don't count toward RSS.
+        pub original_bytes: Option<std::sync::Arc<rust_fontconfig::FontBytes>>,
         /// Font index within collection (0 for single-font files).
         pub original_index: usize,
         /// GID to CID mapping for CFF fonts (required for PDF embedding).
@@ -927,9 +927,26 @@ pub mod parsed {
                 .ok()
                 .and_then(|s| s.to_owned());
 
-            // Calculate hash of font data
+            // Font identity hash — used by `PartialEq` for ParsedFont.
+            //
+            // Previously we did `font_bytes.hash(&mut hasher)` over
+            // the full mmap. That touched every page of the file
+            // (a 40 MiB `.ttc` walked byte-for-byte) so the "lazy
+            // mmap" ended up *fully resident* the moment we built
+            // a `ParsedFont`. Cold RSS jumped ~40 MiB from this
+            // single line.
+            //
+            // The hash doesn't need to be cryptographic — it just
+            // has to disambiguate two `ParsedFont`s. `(len, first
+            // 4 KiB, last 4 KiB, font_index)` is plenty unique and
+            // only faults in the two header / trailer pages, which
+            // shaping is going to need anyway.
             let mut hasher = DefaultHasher::new();
-            font_bytes.hash(&mut hasher);
+            (font_bytes.len() as u64).hash(&mut hasher);
+            let head_len = font_bytes.len().min(4096);
+            font_bytes[..head_len].hash(&mut hasher);
+            let tail_start = font_bytes.len().saturating_sub(4096);
+            font_bytes[tail_start..].hash(&mut hasher);
             font_index.hash(&mut hasher);
             let hash = hasher.finish();
 
@@ -1019,10 +1036,12 @@ pub mod parsed {
         /// [`ParsedFont::to_bytes`] and [`ParsedFont::subset`] (both of
         /// which the layout / shaping path never calls).
         ///
-        /// Takes an `Arc<[u8]>` so the same file's bytes can be shared
-        /// across every face of a `.ttc` at zero extra cost — pair with
-        /// `rust_fontconfig::FcFontCache::get_font_bytes_arc`.
-        pub fn with_source_bytes(mut self, bytes: std::sync::Arc<[u8]>) -> Self {
+        /// Takes an `Arc<FontBytes>` so the same file's bytes can be
+        /// shared across every face of a `.ttc` at zero extra cost —
+        /// pair with [`rust_fontconfig::FcFontCache::get_font_bytes`].
+        /// For ad-hoc PDF callers that have raw heap bytes, wrap them
+        /// via `Arc::new(FontBytes::Owned(Arc::from(vec)))`.
+        pub fn with_source_bytes(mut self, bytes: std::sync::Arc<rust_fontconfig::FontBytes>) -> Self {
             self.original_bytes = Some(bytes);
             self
         }
@@ -1044,7 +1063,7 @@ pub mod parsed {
         /// inspect `glyph_records_decoded` directly and don't want
         /// a lazy path keep using `from_bytes`.
         pub fn from_bytes_shared(
-            bytes: std::sync::Arc<[u8]>,
+            bytes: std::sync::Arc<rust_fontconfig::FontBytes>,
             font_index: usize,
             warnings: &mut Vec<FontParseWarning>,
         ) -> Option<Self> {
@@ -1053,7 +1072,9 @@ pub mod parsed {
             // paid (when this called `from_bytes`, allocated
             // ~hundreds of KiB of loca+glyf bytes, then immediately
             // replaced the slot with `Deferred` and dropped them).
-            let mut font = Self::from_bytes_internal(&bytes, font_index, warnings, true)?;
+            // `bytes.as_ref()` derefs FontBytes → &[u8] (mmap or owned
+            // — same code path).
+            let mut font = Self::from_bytes_internal(bytes.as_ref(), font_index, warnings, true)?;
             font.loca_glyf = LocaGlyfState::Deferred {
                 bytes,
                 font_index,
@@ -1076,6 +1097,7 @@ pub mod parsed {
                             return Some(Arc::clone(arc));
                         }
                     }
+                    let _p = crate::probe::Probe::span("resolve_loca_glyf");
 
                     // Slow path: parse provider + load LocaGlyf without
                     // holding the slot's lock (allsorts can take a
@@ -1087,7 +1109,7 @@ pub mod parsed {
                         font_data::FontData,
                         tables::FontTableProvider,
                     };
-                    let scope = ReadScope::new(bytes);
+                    let scope = ReadScope::new(bytes.as_slice());
                     let font_data = scope.read::<FontData<'_>>().ok()?;
                     let provider = font_data.table_provider(*font_index).ok()?;
                     // Gate on table presence to match the `from_bytes`
@@ -1125,7 +1147,7 @@ pub mod parsed {
         /// `from_bytes` path without an explicit `with_source_bytes`
         /// call — i.e. unit tests that load a font and don't touch
         /// PDF.
-        pub fn source_bytes_for_subset(&self) -> Option<std::sync::Arc<[u8]>> {
+        pub fn source_bytes_for_subset(&self) -> Option<std::sync::Arc<rust_fontconfig::FontBytes>> {
             if let Some(bytes) = &self.original_bytes {
                 return Some(std::sync::Arc::clone(bytes));
             }
@@ -1316,6 +1338,7 @@ pub mod parsed {
         /// `hmtx` advance. This mirrors the pre-lazy behaviour where
         /// every gid ended up in `glyph_records_decoded`.
         fn decode_glyph_inner(&self, gid: u16) -> OwnedGlyph {
+            let _p = crate::probe::Probe::span("decode_glyph");
             let horz_advance = allsorts::glyph_info::advance(
                 &self.maxp_table,
                 &self.hhea_table,
@@ -1683,7 +1706,7 @@ pub mod parsed {
                  attach via ParsedFont::with_source_bytes"
                     .to_string()
             })?;
-            let scope = ReadScope::new(&source);
+            let scope = ReadScope::new(source.as_slice());
             let font_file = scope.read::<FontData<'_>>().map_err(|e| e.to_string())?;
             let provider = font_file
                 .table_provider(self.original_index)
@@ -1727,7 +1750,7 @@ pub mod parsed {
                  attach via ParsedFont::with_source_bytes"
                     .to_string()
             })?;
-            let scope = ReadScope::new(&source);
+            let scope = ReadScope::new(source.as_slice());
             let font_file = scope.read::<FontData<'_>>().map_err(|e| e.to_string())?;
             let provider = font_file
                 .table_provider(self.original_index)

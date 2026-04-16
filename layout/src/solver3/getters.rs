@@ -56,8 +56,139 @@ use crate::{
 
 // Font-size resolution helper functions
 
-/// Helper function to get element's computed font-size
+/// Helper function to get element's computed font-size.
+///
+/// **Memoised** for the common `Normal` pseudo-state: the first
+/// call on a given `StyledDom` populates
+/// `css_property_cache.ptr.resolved_font_sizes_px` via a single
+/// bottom-up DOM walk (N cascade walks total, stored as
+/// `Vec<f32>`); every subsequent call is a single Vec index.
+/// Non-normal state falls through to [`resolve_font_size_slow`].
+///
+/// Motivation: `AZUL_PROP_COUNT=1` measured 329 629 `font-size`
+/// cascade walks per cold layout on excel.html (~730 per node).
+/// With this cache that collapses to ~500 total (one per node,
+/// once), and subsequent layouts hit the Vec directly.
+///
+/// The semantics of the slow path are preserved exactly: the
+/// `compute_all_font_sizes_px` walker mirrors the original's
+/// `computed_values` → cascade → `DEFAULT_FONT_SIZE` ordering,
+/// so rendered pixels are byte-identical.
 pub fn get_element_font_size(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    node_state: &StyledNodeState,
+) -> f32 {
+    if node_state.is_normal() {
+        let cache = &styled_dom.css_property_cache.ptr;
+        let sizes = cache
+            .resolved_font_sizes_px
+            .get_or_init(|| compute_all_font_sizes_px(styled_dom));
+        if let Some(&fs) = sizes.get(dom_id.index()) {
+            return fs;
+        }
+    }
+    resolve_font_size_slow(styled_dom, dom_id, node_state)
+}
+
+/// Bottom-up single-pass resolve of every node's font-size.
+/// Parents are computed before children (DFS pre-order invariant
+/// on `NodeId::index()`), so `em` inherits via the parent's
+/// already-stored pixel value. `rem` reads from `sizes[0]` once
+/// the root is populated (the root's own size resolves via the
+/// `computed_values` short-circuit if set, otherwise DEFAULT).
+///
+/// Preserves the original resolution order exactly:
+///
+/// 1. `computed_values` binary search → if FontSize is pre-
+///    resolved to a px value, use that.
+/// 2. Full cascade via `cache.get_font_size(...)`; if an explicit
+///    value is present, resolve with context.
+/// 3. `DEFAULT_FONT_SIZE` fallback — NOT `parent_font_size`,
+///    because the `computed_values` short-circuit at step 1 is
+///    the cascade's inheritance channel (pre-populated for every
+///    inheriting node).
+fn compute_all_font_sizes_px(styled_dom: &StyledDom) -> alloc::vec::Vec<f32> {
+    use azul_css::props::{
+        basic::length::SizeMetric,
+        property::{CssProperty, CssPropertyType},
+    };
+
+    let n = styled_dom.node_data.len();
+    let mut sizes = alloc::vec![DEFAULT_FONT_SIZE; n];
+    if n == 0 {
+        return sizes;
+    }
+
+    let data_container = styled_dom.node_data.as_container();
+    let state_container = styled_dom.styled_nodes.as_container();
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let cache = &styled_dom.css_property_cache.ptr;
+
+    for idx in 0..n {
+        let dom_id = NodeId::new(idx);
+
+        // Step 1: computed_values short-circuit (matches original).
+        if let Some(vec) = cache.computed_values.get(idx) {
+            if let Ok(cv_idx) =
+                vec.binary_search_by_key(&CssPropertyType::FontSize, |(k, _)| *k)
+            {
+                if let CssProperty::FontSize(css_val) = &vec[cv_idx].1.property {
+                    if let Some(fs) = css_val.get_property() {
+                        if fs.inner.metric == SizeMetric::Px {
+                            sizes[idx] = fs.inner.number.get();
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Step 2: full cascade walk.
+        let parent_font_size = hierarchy
+            .get(dom_id)
+            .and_then(|node| node.parent_id())
+            .map(|p| sizes[p.index()])
+            .unwrap_or(DEFAULT_FONT_SIZE);
+        let root_font_size = sizes[0];
+
+        let Some(node_data) = data_container.internal.get(idx) else {
+            sizes[idx] = DEFAULT_FONT_SIZE;
+            continue;
+        };
+        let Some(styled) = state_container.internal.get(idx) else {
+            sizes[idx] = DEFAULT_FONT_SIZE;
+            continue;
+        };
+        let node_state = &styled.styled_node_state;
+
+        let resolved = cache
+            .get_font_size(node_data, &dom_id, node_state)
+            .and_then(|v| v.get_property().cloned())
+            .map(|v| {
+                let context = ResolutionContext {
+                    element_font_size: DEFAULT_FONT_SIZE,
+                    parent_font_size,
+                    root_font_size,
+                    containing_block_size: PhysicalSize::new(0.0, 0.0),
+                    element_size: None,
+                    viewport_size: PhysicalSize::new(0.0, 0.0),
+                };
+                v.inner
+                    .resolve_with_context(&context, PropertyContext::FontSize)
+            });
+
+        // Step 3: fallback to DEFAULT (matches original .unwrap_or).
+        sizes[idx] = resolved.unwrap_or(DEFAULT_FONT_SIZE);
+    }
+    sizes
+}
+
+/// Un-memoised recursive resolution, used as the fallback for
+/// non-normal pseudo-states in [`get_element_font_size`] and
+/// directly by tests that bypass the StyledDom-scoped cache.
+/// Keeps the original semantics verbatim.
+fn resolve_font_size_slow(
     styled_dom: &StyledDom,
     dom_id: NodeId,
     node_state: &StyledNodeState,
@@ -65,7 +196,6 @@ pub fn get_element_font_size(
     let node_data = &styled_dom.node_data.as_container()[dom_id];
     let cache = &styled_dom.css_property_cache.ptr;
 
-    // Try to get pre-resolved font-size from computed_values (already in pixels)
     if let Some(vec) = cache.computed_values.get(dom_id.index()) {
         if let Ok(idx) = vec.binary_search_by_key(
             &azul_css::props::property::CssPropertyType::FontSize,
@@ -81,23 +211,20 @@ pub fn get_element_font_size(
         }
     }
 
-    // Fallback: get parent font-size (avoid recursion for root)
     let parent_font_size = styled_dom
         .node_hierarchy
         .as_container()
         .get(dom_id)
         .and_then(|node| node.parent_id())
-        .map(|parent_id| get_element_font_size(styled_dom, parent_id, node_state))
+        .map(|parent_id| resolve_font_size_slow(styled_dom, parent_id, node_state))
         .unwrap_or(DEFAULT_FONT_SIZE);
 
-    // Root font-size: use DEFAULT to avoid infinite recursion
     let root_font_size = if dom_id == NodeId::new(0) {
         DEFAULT_FONT_SIZE
     } else {
-        get_element_font_size(styled_dom, NodeId::new(0), node_state)
+        resolve_font_size_slow(styled_dom, NodeId::new(0), node_state)
     };
 
-    // Resolve font-size with proper context
     cache
         .get_font_size(node_data, &dom_id, node_state)
         .and_then(|v| v.get_property().cloned())
@@ -108,15 +235,8 @@ pub fn get_element_font_size(
                 root_font_size,
                 containing_block_size: PhysicalSize::new(0.0, 0.0),
                 element_size: None,
-                // No viewport is available in this general-purpose helper (called from
-                // layout_tree, taffy_bridge, positioning, etc. without a LayoutContext).
-                // vw/vh units in font-size are valid CSS but extremely rare in practice;
-                // they will resolve to 0 here. Callers that have LayoutContext should
-                // build their own ResolutionContext with the real viewport instead of
-                // using get_element_font_size().
                 viewport_size: PhysicalSize::new(0.0, 0.0),
             };
-
             v.inner
                 .resolve_with_context(&context, PropertyContext::FontSize)
         })
@@ -3297,6 +3417,33 @@ pub fn collect_used_codepoints(
     out
 }
 
+/// Like [`collect_used_codepoints`] but keeps ASCII. The fast-probe
+/// path (`FcFontRegistry::request_fonts_fast`) *does* need ASCII:
+/// "the font has to cover every codepoint I will render" is only
+/// true if we tell it every codepoint, and "Segoe UI" not being
+/// installed on macOS means even ASCII has to fall through to a
+/// system default.
+///
+/// `collect_used_codepoints` strips ASCII because its caller
+/// (`prune_chain_to_used_chars`) runs *after* resolution to trim an
+/// already-resolved chain and every Latin-covering font passes ASCII
+/// trivially. That assumption doesn't hold during probing.
+pub fn collect_used_codepoints_all(
+    styled_dom: &StyledDom,
+) -> std::collections::BTreeSet<char> {
+    let mut out = std::collections::BTreeSet::new();
+    let node_data = styled_dom.node_data.as_container();
+    for node in node_data.internal.iter() {
+        let azul_core::dom::NodeType::Text(s) = &node.node_type else {
+            continue;
+        };
+        for c in s.as_str().chars() {
+            out.insert(c);
+        }
+    }
+    out
+}
+
 /// Trim a [`FontFallbackChain`] down to the minimum set of `FontMatch`
 /// entries needed to cover `used_chars` (typically from
 /// [`collect_used_codepoints`]).
@@ -3420,6 +3567,27 @@ pub fn resolve_font_chains(
     fc_cache: &FcFontCache,
     scripts_hint: Option<&[UnicodeRange]>,
 ) -> ResolvedFontChains {
+    resolve_font_chains_with_registry(collected, fc_cache, None, scripts_hint)
+}
+
+/// Registry-aware variant of [`resolve_font_chains`]. When `registry`
+/// is `Some`, each chain resolution goes through
+/// [`rust_fontconfig::registry::FcFontRegistry::request_and_resolve_with_scripts`]
+/// which priority-bumps the builder for families not yet in the
+/// snapshot and waits for them — the "scout-on-demand" path that
+/// avoids the eager common-stack pre-parse.
+///
+/// When `registry` is `None`, falls back to
+/// [`rust_fontconfig::FcFontCache::resolve_font_chain_with_scripts`]
+/// against the passed-in snapshot, which is what
+/// [`resolve_font_chains`] does and what every code path did before
+/// Phase 3.
+pub fn resolve_font_chains_with_registry(
+    collected: &CollectedFontStacks,
+    fc_cache: &FcFontCache,
+    registry: Option<&rust_fontconfig::registry::FcFontRegistry>,
+    scripts_hint: Option<&[UnicodeRange]>,
+) -> ResolvedFontChains {
     let mut chains = HashMap::new();
 
     // Resolve system/file font stacks via fontconfig
@@ -3472,10 +3640,18 @@ pub fn resolve_font_chains(
             PatternMatch::False
         };
 
-        let mut trace = Vec::new();
-        let chain = fc_cache.resolve_font_chain_with_scripts(
-            &font_families, weight, italic, oblique, scripts_hint, &mut trace,
-        );
+        // Registry-aware resolve: scout-on-demand path when available.
+        // See `resolve_font_chains_with_registry` doc for rationale.
+        let chain = if let Some(reg) = registry {
+            reg.request_and_resolve_with_scripts(
+                &font_families, weight, italic, oblique, scripts_hint,
+            )
+        } else {
+            let mut trace = Vec::new();
+            fc_cache.resolve_font_chain_with_scripts(
+                &font_families, weight, italic, oblique, scripts_hint, &mut trace,
+            )
+        };
 
         chains.insert(cache_key, chain);
     }
@@ -3513,26 +3689,129 @@ pub fn collect_and_resolve_font_chains_with_registration<T: crate::font_traits::
         font_manager.register_embedded_font(font_ref);
     }
 
-    // Scope Unicode fallbacks to scripts actually present in the DOM.
-    // For an ASCII-only document this returns an empty hint, which
-    // suppresses the 22 MiB Arial Unicode MS pull-in (and similar
-    // Arabic/Devanagari/Hebrew fonts) that otherwise happen for every
-    // chain regardless of document content.
-    let scripts = scripts_present_in_styled_dom(styled_dom);
-    let mut resolved = resolve_font_chains(&collected, fc_cache, Some(&scripts));
+    // Fast path (rust-fontconfig 4.2): when a registry is attached
+    // we can resolve each stack by cmap-probing candidate files
+    // against the codepoints the DOM actually uses, instead of
+    // letting `request_fonts` eagerly parse every CSS fallback
+    // via allsorts. On excel.html this drops `font_chain_resolve`
+    // from ~128 ms / 49 faces parsed to ~5 ms / 3 faces.
+    //
+    // Falls back to the legacy pattern-map resolver when:
+    //   - no registry is present (offline `FcFontCache` callers)
+    //   - the DOM has no text codepoints (no shaping to be done,
+    //     so cmap-probing has nothing to check and partial-cover
+    //     entries would be surprising)
+    if let Some(registry) = font_manager.registry.as_deref() {
+        let used_chars = collect_used_codepoints_all(styled_dom);
+        if !used_chars.is_empty() {
+            return resolve_font_chains_fast(
+                &collected,
+                registry,
+                &used_chars,
+            );
+        }
+    }
 
-    // Coverage-based prune: trim each chain's `css_fallbacks` and
-    // `unicode_fallbacks` to only the matches needed for the
-    // codepoints the page actually uses. On excel.html this drops
-    // the chain from 26 -> ~5 faces total, since the first match in
-    // each css_fallbacks group covers ASCII and we don't need the
-    // remaining four faces of HelveticaNeue.ttc / LucidaGrande.ttc /
-    // Menlo.ttc that the resolver kept "just in case".
+    // Legacy path: pattern-map resolver. Only reached when the
+    // caller passes an `FcFontCache` without a live registry
+    // (ad-hoc tests, the PDF writer, etc.).
+    let scripts = scripts_present_in_styled_dom(styled_dom);
+    let mut resolved = resolve_font_chains_with_registry(
+        &collected,
+        fc_cache,
+        font_manager.registry.as_deref(),
+        Some(&scripts),
+    );
+
     let used_chars = collect_used_codepoints(styled_dom);
     for chain in resolved.chains.values_mut() {
         prune_chain_to_used_chars(chain, &used_chars);
     }
     resolved
+}
+
+/// Fast-path resolver backed by [`FcFontRegistry::request_fonts_fast`].
+///
+/// Iterates `collected.font_stacks`, shapes each `(stack, weight,
+/// italic, oblique)` combo into a cmap-probe request carrying the
+/// DOM's codepoint set, calls the registry, and returns a
+/// `ResolvedFontChains` keyed by `FontChainKeyOrRef::Chain` — the
+/// same keys the legacy resolver emits, so downstream code
+/// (`load_missing_for_chains`, `shape_with_font_fallback`) is
+/// unchanged.
+pub fn resolve_font_chains_fast(
+    collected: &CollectedFontStacks,
+    registry: &rust_fontconfig::registry::FcFontRegistry,
+    codepoints: &std::collections::BTreeSet<char>,
+) -> ResolvedFontChains {
+    use rust_fontconfig::PatternMatch;
+
+    static DBG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let dbg = *DBG.get_or_init(|| std::env::var_os("AZUL_FAST_RESOLVE_DEBUG").is_some());
+
+    let mut chains: HashMap<FontChainKeyOrRef, rust_fontconfig::FontFallbackChain> =
+        HashMap::new();
+
+    for font_stack in &collected.font_stacks {
+        if font_stack.is_empty() {
+            continue;
+        }
+
+        let font_families: Vec<String> = font_stack
+            .iter()
+            .map(|s| s.family.clone())
+            .filter(|f| !f.is_empty())
+            .collect();
+
+        let font_families = if font_families.is_empty() {
+            vec!["sans-serif".to_string()]
+        } else {
+            font_families
+        };
+
+        let weight = font_stack[0].weight;
+        let is_italic = font_stack[0].style == FontStyle::Italic;
+        let is_oblique = font_stack[0].style == FontStyle::Oblique;
+
+        let cache_key = FontChainKeyOrRef::Chain(FontChainKey {
+            font_families: font_families.clone(),
+            weight,
+            italic: is_italic,
+            oblique: is_oblique,
+        });
+
+        if chains.contains_key(&cache_key) {
+            continue;
+        }
+
+        let italic_match = if is_italic {
+            PatternMatch::True
+        } else {
+            PatternMatch::False
+        };
+
+        let request = vec![(font_families.clone(), codepoints.clone())];
+        let mut chains_out = registry.request_fonts_fast(&request, weight, italic_match);
+        if dbg {
+            let total_fonts: usize = chains_out
+                .iter()
+                .map(|c| c.css_fallbacks.iter().map(|g| g.fonts.len()).sum::<usize>())
+                .sum();
+            eprintln!(
+                "[FAST] stack {:?} w={:?} i={:?} → {} groups, {} faces",
+                font_families,
+                weight,
+                italic_match,
+                chains_out.first().map(|c| c.css_fallbacks.len()).unwrap_or(0),
+                total_fonts,
+            );
+        }
+        if let Some(chain) = chains_out.pop() {
+            chains.insert(cache_key, chain);
+        }
+    }
+
+    ResolvedFontChains { chains }
 }
 
 /// Legacy wrapper: collect + resolve without registration. Kept for
@@ -3632,20 +3911,20 @@ pub fn load_fonts_from_disk<T, F>(
     load_fn: F,
 ) -> FontLoadResult<T>
 where
-    // Bytes come in as `Arc<[u8]>` so the loader can retain them
-    // cheaply (one `Arc::clone` per retained copy) for the lazy
-    // `ParsedFont::from_bytes_shared` path — avoids heap-copying
-    // font files into each `ParsedFont`.
-    F: Fn(std::sync::Arc<[u8]>, usize) -> Result<T, crate::text3::cache::LayoutError>,
+    // Bytes come in as `Arc<FontBytes>` so the loader can retain
+    // them cheaply (one `Arc::clone` per retained copy). On disk the
+    // backing is an mmap, so untouched glyf/CFF pages don't count
+    // toward RSS — the layout shaper only faults in pages it reads.
+    F: Fn(std::sync::Arc<rust_fontconfig::FontBytes>, usize) -> Result<T, crate::text3::cache::LayoutError>,
 {
     let mut loaded = HashMap::new();
     let mut failed = Vec::new();
 
     for font_id in font_ids {
-        // Get font bytes from fc_cache as a shared Arc. Faces backed
-        // by the same .ttc now all observe the same byte buffer via
+        // Get font bytes from fc_cache as a shared mmap. Faces backed
+        // by the same .ttc all observe the same `Arc<FontBytes>` via
         // rust_fontconfig's `shared_bytes` dedup.
-        let font_bytes = match fc_cache.get_font_bytes_arc(font_id) {
+        let font_bytes = match fc_cache.get_font_bytes(font_id) {
             Some(bytes) => bytes,
             None => {
                 failed.push((
@@ -3660,8 +3939,8 @@ where
         let font_index = fc_cache
             .get_font_by_id(font_id)
             .and_then(|source| match source {
-                rust_fontconfig::FontSource::Disk(path) => Some(path.font_index),
-                rust_fontconfig::FontSource::Memory(font) => Some(font.font_index),
+                rust_fontconfig::OwnedFontSource::Disk(path) => Some(path.font_index),
+                rust_fontconfig::OwnedFontSource::Memory(font) => Some(font.font_index),
             })
             .unwrap_or(0) as usize;
 
@@ -3708,7 +3987,7 @@ pub fn resolve_and_load_fonts<T, F>(
     platform: &azul_css::system::Platform,
 ) -> (ResolvedFontChains, FontLoadResult<T>)
 where
-    F: Fn(std::sync::Arc<[u8]>, usize) -> Result<T, crate::text3::cache::LayoutError>,
+    F: Fn(std::sync::Arc<rust_fontconfig::FontBytes>, usize) -> Result<T, crate::text3::cache::LayoutError>,
 {
     // Step 1-2: Collect and resolve font chains
     let chains = collect_and_resolve_font_chains(styled_dom, fc_cache, platform);
@@ -4033,6 +4312,34 @@ pub fn get_scrollbar_style(
     }
 
     result
+}
+
+/// Cached wrapper for [`get_scrollbar_style`] that reuses the
+/// memo stored on `LayoutContext`. The underlying call performs
+/// 9 cascade walks per node (track/thumb/button/corner/width/
+/// color/visibility/fade-delay/fade-duration). The BFC, Taffy,
+/// and display-list callers all hit the same node many times
+/// inside a single layout pass, so caching turns ~21 rebuilds per
+/// node into one.
+///
+/// Falls back to the uncached `get_scrollbar_style` when no ctx
+/// is available (shouldn't happen in the current code paths).
+pub fn get_scrollbar_style_cached<T: crate::font_traits::ParsedFontTrait>(
+    ctx: &crate::solver3::LayoutContext<'_, T>,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> ComputedScrollbarStyle {
+    if let Some(s) = ctx.scrollbar_style_cache.borrow().get(&node_id) {
+        return s.clone();
+    }
+    let style = get_scrollbar_style(
+        ctx.styled_dom,
+        node_id,
+        node_state,
+        ctx.system_style.as_deref(),
+    );
+    ctx.scrollbar_style_cache.borrow_mut().insert(node_id, style.clone());
+    style
 }
 
 /// Helper to extract a solid color from a StyleBackgroundContent

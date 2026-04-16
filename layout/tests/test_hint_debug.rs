@@ -21,6 +21,7 @@ use allsorts::tag;
 
 fn load_helvetica_neue() -> Option<ParsedFont> {
     use std::sync::Arc;
+    use rust_fontconfig::FontBytes;
     let font_path = "/System/Library/Fonts/HelveticaNeue.ttc";
     let font_bytes = fs::read(font_path).ok()?;
     let mut warnings = Vec::new();
@@ -28,7 +29,8 @@ fn load_helvetica_neue() -> Option<ParsedFont> {
     // (`fpgm`, `prep`) off `font.original_bytes`, so it needs them.
     let bytes_arc: Arc<[u8]> = Arc::from(font_bytes);
     let font = ParsedFont::from_bytes(&bytes_arc, 0, &mut warnings)?;
-    Some(font.with_source_bytes(bytes_arc))
+    let wrapped = Arc::new(FontBytes::Owned(bytes_arc));
+    Some(font.with_source_bytes(wrapped))
 }
 
 /// Read a raw font table from the original bytes.

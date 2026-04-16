@@ -523,25 +523,67 @@ impl<T: ParsedFontTrait> ParsedFontTrait for FontOrRef<T> {
 /// ```
 #[derive(Debug, Clone)]
 pub struct FontContext {
-    pub fc_cache: Arc<FcFontCache>,
+    /// The shared font cache. As of rust-fontconfig 4.1 this type is
+    /// itself backed by `Arc<RwLock<_>>`, so cloning is cheap and all
+    /// clones see builder-thread writes immediately — no more `Arc<T>`
+    /// wrapping is needed and no more stale-snapshot refresh dance.
+    pub fc_cache: FcFontCache,
     pub parsed_fonts: Arc<Mutex<HashMap<FontId, azul_css::props::basic::FontRef>>>,
     pub font_chain_cache: HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
     pub embedded_fonts: HashMap<u64, azul_css::props::basic::FontRef>,
     /// Reverse map: font_family_hash → actual StyleFontFamilyVec.
     /// Accumulated across DOMs for persistence. Copied to FontManager on LayoutWindow creation.
     pub font_hash_to_families: HashMap<u64, azul_css::props::basic::font::StyleFontFamilyVec>,
+    /// Optional link back to the live `FcFontRegistry`. Present iff the
+    /// caller wants the scout-on-demand path
+    /// ([`rust_fontconfig::registry::FcFontRegistry::request_and_resolve_with_scripts`]),
+    /// which priority-bumps the builder for not-yet-parsed families
+    /// rather than falling back to the empty-snapshot response.
+    pub registry: Option<Arc<rust_fontconfig::registry::FcFontRegistry>>,
 }
 
 impl FontContext {
-    /// Create from an `FcFontCache` (e.g., from `FcFontRegistry::into_fc_font_cache()`).
-    /// Parsed fonts, font chains, and embedded fonts start empty.
+    /// Create from an `FcFontCache`. Parsed fonts, font chains, and
+    /// embedded fonts start empty.
+    ///
+    /// The resulting `FontContext` has `registry = None`, so font
+    /// chain resolution only sees what's already in the cache. For
+    /// the scout-on-demand path, use [`FontContext::from_registry`]
+    /// instead, which keeps a handle to the registry so that chain
+    /// resolution can lazy-parse families the DOM needs.
     pub fn from_fc_cache(fc_cache: FcFontCache) -> Self {
         Self {
-            fc_cache: Arc::new(fc_cache),
+            fc_cache,
             parsed_fonts: Arc::new(Mutex::new(HashMap::new())),
             font_chain_cache: HashMap::new(),
             embedded_fonts: HashMap::new(),
             font_hash_to_families: HashMap::new(),
+            registry: None,
+        }
+    }
+
+    /// Create from a live `FcFontRegistry`. The `fc_cache` field gets
+    /// a *shared* handle to the registry's cache (cheap `Arc::clone`
+    /// on the v4.1 shared-state cache) — writes by builder threads
+    /// show up immediately in every reader. Chain resolution goes
+    /// through
+    /// [`rust_fontconfig::registry::FcFontRegistry::request_and_resolve_with_scripts`]
+    /// which priority-bumps the builder for unparsed families and
+    /// waits for them. This is the "scout-on-demand" path: a
+    /// headless renderer can skip the eager common-stack parse and
+    /// pay only the per-family cost on first use, dropping peak RSS
+    /// by the common-stack metadata size (~15 MiB on macOS).
+    pub fn from_registry(
+        registry: Arc<rust_fontconfig::registry::FcFontRegistry>,
+    ) -> Self {
+        let fc_cache = registry.shared_cache();
+        Self {
+            fc_cache,
+            parsed_fonts: Arc::new(Mutex::new(HashMap::new())),
+            font_chain_cache: HashMap::new(),
+            embedded_fonts: HashMap::new(),
+            font_hash_to_families: HashMap::new(),
+            registry: Some(registry),
         }
     }
 
@@ -609,6 +651,8 @@ impl FontContext {
     }
 
     /// Convert into a `FontManager` with all data populated.
+    /// Carries the `registry` forward so the resulting manager also
+    /// has the scout-on-demand path available.
     pub fn to_font_manager(&self) -> FontManager<azul_css::props::basic::FontRef> {
         FontManager {
             fc_cache: self.fc_cache.clone(),
@@ -616,14 +660,18 @@ impl FontContext {
             font_chain_cache: self.font_chain_cache.clone(),
             embedded_fonts: Mutex::new(self.embedded_fonts.clone()),
             font_hash_to_families: self.font_hash_to_families.clone(),
+            registry: self.registry.clone(),
         }
     }
 }
 
 #[derive(Debug)]
 pub struct FontManager<T> {
-    /// Cache that holds the **file paths** of the fonts (not any font data itself)
-    pub fc_cache: Arc<FcFontCache>,
+    /// The font-path cache. `FcFontCache` in rust-fontconfig 4.1 is
+    /// already a shared handle internally (`Arc<RwLock<_>>`), so no
+    /// further `Arc<...>` wrapping is needed — clones are cheap and
+    /// all clones see builder writes instantly.
+    pub fc_cache: FcFontCache,
     /// Holds the actual parsed font (usually with the font bytes attached).
     /// Wrapped in Arc so multiple FontManager instances can share the same
     /// pool of already-parsed fonts (avoids re-reading from disk).
@@ -638,32 +686,41 @@ pub struct FontManager<T> {
     /// Accumulated across DOMs. Used by font collection and text shaping to
     /// resolve compact cache hashes without get_property_slow.
     pub font_hash_to_families: HashMap<u64, azul_css::props::basic::font::StyleFontFamilyVec>,
+    /// Optional link back to the live `FcFontRegistry`. When present,
+    /// chain resolution uses
+    /// [`rust_fontconfig::registry::FcFontRegistry::request_and_resolve_with_scripts`]
+    /// which lazy-parses system fonts as the DOM requests them
+    /// (scout-on-demand). `None` falls back to querying whatever is
+    /// already in the shared cache.
+    pub registry: Option<Arc<rust_fontconfig::registry::FcFontRegistry>>,
 }
 
 impl<T: ParsedFontTrait> FontManager<T> {
     pub fn new(fc_cache: FcFontCache) -> Result<Self, LayoutError> {
-        Ok(Self {
-            fc_cache: Arc::new(fc_cache),
-            parsed_fonts: Arc::new(Mutex::new(HashMap::new())),
-            font_chain_cache: HashMap::new(),
-            embedded_fonts: Mutex::new(HashMap::new()),
-            font_hash_to_families: HashMap::new(),
-        })
-    }
-
-    /// Create a FontManager from a pre-built shared font cache.
-    ///
-    /// The parsed_fonts pool starts empty. Fonts loaded during the first
-    /// layout pass are cached and will be available on subsequent calls
-    /// if you clone the `parsed_fonts` Arc before creating the next instance.
-    /// For full sharing, prefer `from_arc_shared()`.
-    pub fn from_arc(fc_cache: Arc<FcFontCache>) -> Result<Self, LayoutError> {
         Ok(Self {
             fc_cache,
             parsed_fonts: Arc::new(Mutex::new(HashMap::new())),
             font_chain_cache: HashMap::new(),
             embedded_fonts: Mutex::new(HashMap::new()),
             font_hash_to_families: HashMap::new(),
+            registry: None,
+        })
+    }
+
+    /// Create a FontManager sharing the font-path cache handle.
+    ///
+    /// The parsed_fonts pool starts empty. Fonts loaded during the first
+    /// layout pass are cached and will be available on subsequent calls
+    /// if you clone the `parsed_fonts` Arc before creating the next instance.
+    /// For full sharing, prefer `from_arc_shared()`.
+    pub fn from_shared(fc_cache: FcFontCache) -> Result<Self, LayoutError> {
+        Ok(Self {
+            fc_cache,
+            parsed_fonts: Arc::new(Mutex::new(HashMap::new())),
+            font_chain_cache: HashMap::new(),
+            embedded_fonts: Mutex::new(HashMap::new()),
+            font_hash_to_families: HashMap::new(),
+            registry: None,
         })
     }
 
@@ -673,7 +730,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// This avoids re-reading and re-parsing font files from disk when
     /// rendering multiple documents that use the same fonts.
     pub fn from_arc_shared(
-        fc_cache: Arc<FcFontCache>,
+        fc_cache: FcFontCache,
         parsed_fonts: Arc<Mutex<HashMap<FontId, T>>>,
     ) -> Result<Self, LayoutError> {
         Ok(Self {
@@ -682,7 +739,19 @@ impl<T: ParsedFontTrait> FontManager<T> {
             font_chain_cache: HashMap::new(),
             embedded_fonts: Mutex::new(HashMap::new()),
             font_hash_to_families: HashMap::new(),
+            registry: None,
         })
+    }
+
+    /// Attach a `FcFontRegistry` to this FontManager so subsequent
+    /// chain-resolution calls use the on-demand path
+    /// ([`rust_fontconfig::registry::FcFontRegistry::request_and_resolve_with_scripts`]).
+    pub fn with_registry(
+        mut self,
+        registry: Arc<rust_fontconfig::registry::FcFontRegistry>,
+    ) -> Self {
+        self.registry = Some(registry);
+        self
     }
 
     /// Get a shareable handle to the parsed-font pool.
@@ -808,7 +877,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
         load_fn: F,
     ) -> Vec<(FontId, String)>
     where
-        F: Fn(std::sync::Arc<[u8]>, usize) -> Result<T, LayoutError>,
+        F: Fn(std::sync::Arc<rust_fontconfig::FontBytes>, usize) -> Result<T, LayoutError>,
     {
         use crate::solver3::getters::{
             collect_font_ids_from_chains, compute_fonts_to_load, load_fonts_from_disk,
@@ -5128,7 +5197,7 @@ pub struct PerItemShapedEntry {
     pub total_advance: f32,
 }
 
-pub struct LayoutCache {
+pub struct TextShapingCache {
     // Stage 1 Cache: InlineContent -> LogicalItems
     logical_items: HashMap<CacheId, Arc<Vec<LogicalItem>>>,
     // Stage 2 Cache: LogicalItems -> VisualItems
@@ -5146,7 +5215,7 @@ pub struct LayoutCache {
     layouts: HashMap<CacheId, Arc<UnifiedLayout>>,
 }
 
-impl LayoutCache {
+impl TextShapingCache {
     pub fn new() -> Self {
         Self {
             logical_items: HashMap::new(),
@@ -5269,7 +5338,7 @@ impl LayoutCache {
     }
 }
 
-impl Default for LayoutCache {
+impl Default for TextShapingCache {
     fn default() -> Self {
         Self::new()
     }
@@ -5337,7 +5406,7 @@ fn calculate_id<T: Hash>(item: &T) -> CacheId {
 
 // --- Main Layout Pipeline Implementation ---
 
-impl LayoutCache {
+impl TextShapingCache {
     /// New top-level entry point for flowing layout across multiple regions.
     ///
     /// This function orchestrates the entire layout pipeline, but instead of fitting
@@ -6173,9 +6242,21 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
     fc_cache: &FcFontCache,
     loaded_fonts: &LoadedFonts<T>,
 ) -> Result<Vec<ShapedCluster>, LayoutError> {
+    // Cache the debug flag in a `OnceLock<bool>` — reading it per-shape
+    // (this function fires once per text segment, ~hundreds of times
+    // per render of a real DOM) costs ~100 ns per `std::env::var_os`
+    // call on macOS (env-lock + hashmap lookup), and even before the
+    // lookup finishes the `eprintln!` machinery takes a stderr lock
+    // and allocates the formatted string. Both are invisible in
+    // release unless `AZUL_FONT_FALLBACK_DEBUG=1` is set.
+    static FONT_FB_DEBUG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let dbg = *FONT_FB_DEBUG.get_or_init(|| {
+        std::env::var_os("AZUL_FONT_FALLBACK_DEBUG").is_some()
+    });
+
     let segments = split_text_by_font_coverage(text, font_chain, fc_cache);
 
-    if segments.len() > 1 {
+    if dbg && segments.len() > 1 {
         eprintln!(
             "[FONT FALLBACK] text needs {} font segments for '{}' ({}..{} bytes)",
             segments.len(),
@@ -6189,14 +6270,18 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
         let (seg_start, seg_end, font_id) = match segments.first() {
             Some(s) => s,
             None => {
-                eprintln!("[FONT FALLBACK] no font could render any char in '{}'", text.chars().take(20).collect::<String>());
+                if dbg {
+                    eprintln!("[FONT FALLBACK] no font could render any char in '{}'", text.chars().take(20).collect::<String>());
+                }
                 return Ok(Vec::new());
             }
         };
         let font = match loaded_fonts.get(font_id) {
             Some(f) => f,
             None => {
-                eprintln!("[FONT FALLBACK] font {:?} not in loaded_fonts for '{}'", font_id, text.chars().take(20).collect::<String>());
+                if dbg {
+                    eprintln!("[FONT FALLBACK] font {:?} not in loaded_fonts for '{}'", font_id, text.chars().take(20).collect::<String>());
+                }
                 return Ok(Vec::new());
             }
         };
@@ -6225,15 +6310,19 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
         let font = match loaded_fonts.get(font_id) {
             Some(f) => f,
             None => {
-                eprintln!("[FONT FALLBACK] font {:?} NOT loaded, skipping segment bytes {}..{}", font_id, seg_start, seg_end);
+                if dbg {
+                    eprintln!("[FONT FALLBACK] font {:?} NOT loaded, skipping segment bytes {}..{}", font_id, seg_start, seg_end);
+                }
                 continue;
             }
         };
         let segment_text = &text[*seg_start..*seg_end];
-        eprintln!(
-            "[FONT FALLBACK] text='{}' uses font {:?} (bytes {}..{})",
-            segment_text, font_id, seg_start, seg_end
-        );
+        if dbg {
+            eprintln!(
+                "[FONT FALLBACK] text='{}' uses font {:?} (bytes {}..{})",
+                segment_text, font_id, seg_start, seg_end
+            );
+        }
         let mut seg_clusters = shape_text_correctly(
             segment_text, script, language, direction,
             font, style, source_index, source_node_id,

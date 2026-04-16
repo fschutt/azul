@@ -61,7 +61,7 @@ fn test_margin_collapsing() {
 
     layout_window
         .layout_and_generate_display_list(
-            styled_dom,
+            &styled_dom,
             &window_state,
             &renderer_resources,
             &system_callbacks,

@@ -369,6 +369,14 @@ pub struct LayoutCache {
     /// Snapshot of calculated_positions from the previous frame, used by the
     /// compositor to compute damage rects (old bounds vs new bounds).
     pub previous_positions: super::PositionVec,
+    /// Cached display list keyed by `(root_subtree_hash, viewport)`.
+    /// When the reconciled tree has the same root subtree_hash AND
+    /// the same viewport as the cached one, the display list is
+    /// returned as-is — skipping layout, positioning, and
+    /// display-list generation entirely. Cleared whenever
+    /// `mark_dirty` fires on any node (since the root's upstream
+    /// invalidation chain clears its ancestors).
+    pub cached_display_list: Option<(SubtreeHash, LogicalRect, super::display_list::DisplayList)>,
 }
 
 /// The result of a reconciliation pass.
@@ -683,11 +691,84 @@ pub fn shift_subtree_position(
 
 /// Compares the new DOM against the cached tree, creating a new tree
 /// and identifying which parts need to be re-laid out.
+/// Count how many of the supplied DOM children would actually end up
+/// in the layout tree. Mirrors the filters applied by
+/// `LayoutTreeBuilder::build_recursive` so reconciliation can compare
+/// like-for-like:
+///
+/// - `display: none` nodes are skipped entirely.
+/// - In table structural contexts (table, row-group, row) whitespace
+///   text nodes are skipped (CSS 2.2 §17.2.1, matches
+///   `should_skip_for_table_structure`).
+/// - Whitespace-only inline runs that sit between block siblings
+///   collapse to zero boxes (CSS 2.2 §9.2.2.1).
+///
+/// The first two rules drop children unconditionally; the third only
+/// fires on siblings surrounding a block-level child, so we detect it
+/// by walking the run pairs. We do not build the runs — just count
+/// survivors.
+fn layout_relevant_child_count(
+    styled_dom: &azul_core::styled_dom::StyledDom,
+    children: &[NodeId],
+    parent_id: NodeId,
+) -> usize {
+    use super::getters::{get_display_property, MultiValue};
+    use super::layout_tree::{is_block_level, is_whitespace_only_text};
+
+    let parent_display = match get_display_property(styled_dom, Some(parent_id)) {
+        MultiValue::Exact(d) => d,
+        _ => azul_css::props::layout::display::LayoutDisplay::Block,
+    };
+    let is_table_structural = matches!(
+        parent_display,
+        azul_css::props::layout::display::LayoutDisplay::Table
+            | azul_css::props::layout::display::LayoutDisplay::InlineTable
+            | azul_css::props::layout::display::LayoutDisplay::TableRowGroup
+            | azul_css::props::layout::display::LayoutDisplay::TableHeaderGroup
+            | azul_css::props::layout::display::LayoutDisplay::TableFooterGroup
+            | azul_css::props::layout::display::LayoutDisplay::TableRow
+    );
+
+    let has_any_block_child = children
+        .iter()
+        .any(|&id| is_block_level(styled_dom, id));
+
+    let mut count = 0usize;
+    // When parent has any block child, whitespace-only inline runs
+    // surrounding blocks collapse. We approximate that by skipping
+    // whitespace text whenever any block sibling exists.
+    let collapse_inline_whitespace = has_any_block_child;
+    for &id in children {
+        // display:none drops
+        let display = match get_display_property(styled_dom, Some(id)) {
+            MultiValue::Exact(d) => d,
+            _ => azul_css::props::layout::display::LayoutDisplay::Block,
+        };
+        if matches!(display, azul_css::props::layout::display::LayoutDisplay::None) {
+            continue;
+        }
+        // Table-structural whitespace drops.
+        if is_table_structural && is_whitespace_only_text(styled_dom, id) {
+            continue;
+        }
+        // Whitespace-only inline run collapse when mixed with blocks.
+        if collapse_inline_whitespace
+            && !is_block_level(styled_dom, id)
+            && is_whitespace_only_text(styled_dom, id)
+        {
+            continue;
+        }
+        count += 1;
+    }
+    count
+}
+
 pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     cache: &LayoutCache,
     viewport: LogicalRect,
 ) -> Result<(LayoutTree, ReconciliationResult)> {
+    let _probe_outer = crate::probe::Probe::span("reconcile_and_invalidate");
     let mut new_tree_builder = LayoutTreeBuilder::new(ctx.viewport_size);
     let mut recon_result = ReconciliationResult::default();
     let old_tree = cache.tree.as_ref();
@@ -806,23 +887,60 @@ pub fn reconcile_recursive(
     let node_data = &styled_dom.node_data.as_container()[new_dom_id];
 
     let old_cold = old_tree.and_then(|t| old_tree_idx.and_then(|idx| t.cold(idx)));
+    match (old_tree.is_some(), old_tree_idx.is_some(), old_cold.is_some()) {
+        (false, _, _) => drop(crate::probe::Probe::span("recon_old_tree_none")),
+        (true, false, _) => drop(crate::probe::Probe::span("recon_old_idx_none")),
+        (true, true, false) => drop(crate::probe::Probe::span("recon_cold_none")),
+        (true, true, true) => drop(crate::probe::Probe::span("recon_cold_some")),
+    }
 
     // Compute the new multi-field fingerprint instead of a single hash.
-    let new_fingerprint = NodeDataFingerprint::compute(
-        node_data,
-        styled_dom.styled_nodes.as_container().get(new_dom_id).map(|n| &n.styled_node_state),
-    );
+    let new_fingerprint = {
+        let _p = crate::probe::Probe::span("fingerprint_compute");
+        NodeDataFingerprint::compute(
+            node_data,
+            styled_dom.styled_nodes.as_container().get(new_dom_id).map(|n| &n.styled_node_state),
+        )
+    };
 
     // Compare fingerprints to determine what changed (Layout, Paint, or Nothing).
     let dirty_flag = match old_cold {
-        None => DirtyFlag::Layout, // new node → full layout
+        None => {
+            drop(crate::probe::Probe::span("fp_new_node"));
+            DirtyFlag::Layout // new node → full layout
+        },
         Some(old_c) => {
             let change_set = old_c.node_data_fingerprint.diff(&new_fingerprint);
             if change_set.needs_layout() {
+                drop(crate::probe::Probe::span("fp_needs_layout"));
+                // Cache the env check in a `OnceLock<bool>`: this branch
+                // fires once per dirty node (hundreds on cold layout),
+                // and a direct `env::var` is a mutex + hashmap lookup
+                // on macOS (~100 ns/call) even when the env var is unset.
+                static FP_DUMP_ENABLED: std::sync::OnceLock<bool> =
+                    std::sync::OnceLock::new();
+                let enabled = *FP_DUMP_ENABLED.get_or_init(|| {
+                    std::env::var_os("AZUL_FP_DUMP").is_some()
+                });
+                if enabled {
+                    use std::sync::atomic::{AtomicUsize, Ordering};
+                    static DUMPED: AtomicUsize = AtomicUsize::new(0);
+                    let n = DUMPED.fetch_add(1, Ordering::Relaxed);
+                    if n < 10 {
+                        eprintln!(
+                            "[fp_diff {n}] dom={} old={:?} new={:?}",
+                            new_dom_id.index(),
+                            old_c.node_data_fingerprint,
+                            new_fingerprint,
+                        );
+                    }
+                }
                 DirtyFlag::Layout
             } else if change_set.needs_paint() {
+                drop(crate::probe::Probe::span("fp_needs_paint"));
                 DirtyFlag::Paint
             } else {
+                drop(crate::probe::Probe::span("fp_clean"));
                 DirtyFlag::None
             }
         }
@@ -893,11 +1011,38 @@ pub fn reconcile_recursive(
         }
     }
 
-    let old_children_indices: Vec<_> = old_tree
+    // Compute both positional and DOM-keyed lookups for the old
+    // tree's children. The DOM-keyed map is authoritative for
+    // reconciliation (positional drifts every time the layout-tree
+    // builder drops a DOM child — whitespace text, display:none,
+    // table-structural whitespace — or inserts an anonymous
+    // wrapper that isn't in the DOM).
+    let old_children_indices: Vec<usize> = old_tree
         .and_then(|t| old_tree_idx.map(|idx| t.children(idx).to_vec()))
         .unwrap_or_default();
+    let old_children_by_dom: alloc::collections::BTreeMap<NodeId, usize> = old_tree
+        .and_then(|t| old_tree_idx.map(|idx| {
+            t.children(idx).iter()
+                .filter_map(|&cidx| t.get(cidx).and_then(|n| n.dom_node_id).map(|did| (did, cidx)))
+                .collect()
+        }))
+        .unwrap_or_default();
 
-    let mut children_are_different = new_children_dom_ids.len() != old_children_indices.len();
+    // Count of old layout children that correspond to a real DOM
+    // node (exclude anonymous wrappers). This is what we compare
+    // against the layout-relevant subset of new DOM children to
+    // decide whether the structural shape actually changed.
+    let old_layout_relevant_count = old_children_by_dom.len();
+
+    // Filter new DOM children to the subset the layout-tree builder
+    // would actually emit. This mirrors `should_skip_for_table_structure`
+    // and the `is_whitespace_only_inline_run` logic. Without this
+    // filter, `children_are_different` fires on every reconcile
+    // because the DOM has whitespace text nodes the layout tree
+    // drops.
+    let new_layout_relevant_count = layout_relevant_child_count(styled_dom, &new_children_dom_ids, new_dom_id);
+
+    let mut children_are_different = new_layout_relevant_count != old_layout_relevant_count;
     let mut new_child_hashes = Vec::new();
 
     // +spec:display-property:42f9c0 - anonymous block boxes wrap inline runs when block container has mixed block/inline children
@@ -914,7 +1059,13 @@ pub fn reconcile_recursive(
         // All children are inline - no anonymous boxes needed
         // Simple case: process each child directly
         for (i, &new_child_dom_id) in new_children_dom_ids.iter().enumerate() {
-            let old_child_idx = old_children_indices.get(i).copied();
+            // DOM-ID match rather than positional — tree builder
+            // may have dropped some DOM children (whitespace text
+            // nodes) so positional drift mis-aligns the cache.
+            // DOM-id match only: positional fallback would align
+            // anonymous wrappers against real DOM nodes and trigger
+            // spurious fingerprint mismatches (see fp_diff dump).
+            let old_child_idx = old_children_by_dom.get(&new_child_dom_id).copied();
 
             let reconciled_child_idx = reconcile_recursive(
                 styled_dom,
@@ -989,7 +1140,17 @@ pub fn reconcile_recursive(
 
                     // Process each inline child under the anonymous wrapper
                     for (pos, inline_dom_id) in inline_run.drain(..) {
-                        let old_child_idx = old_children_indices.get(pos).copied();
+                        // Inline children live under the anon wrapper
+                        // in the old tree, so the parent's direct
+                        // `old_children_by_dom` map won't hit them.
+                        // Fall through to the global `dom_to_layout`
+                        // map; we don't care which anon wrapper they
+                        // were under, only that their cold data
+                        // (fingerprint) gets matched correctly.
+                        let old_child_idx = old_children_by_dom.get(&inline_dom_id).copied()
+                            .or_else(|| old_tree
+                                .and_then(|t| t.dom_to_layout.get(&inline_dom_id))
+                                .and_then(|v| v.first().copied()));
                         let reconciled_child_idx = reconcile_recursive(
                             styled_dom,
                             inline_dom_id,
@@ -1005,14 +1166,23 @@ pub fn reconcile_recursive(
                         }
                     }
 
-                    // Mark anonymous wrapper as dirty for layout
-                    recon.intrinsic_dirty.insert(anon_idx);
+                    // NOTE: We intentionally do NOT unconditionally
+                    // mark the anonymous wrapper as intrinsic_dirty
+                    // here. If any of the inline children are
+                    // themselves dirty, their own `mark_dirty` call
+                    // propagates upward through this wrapper, so
+                    // wrappers whose content is unchanged keep their
+                    // cached layout. Setting `children_are_different`
+                    // when the wrapper is newly created (no matching
+                    // old anon) flips the parent to layout-dirty,
+                    // which is what triggers a fresh wrapper layout.
                     children_are_different = true;
                     } // end else (non-whitespace run)
                 }
 
                 // Process block-level child directly under parent
-                let old_child_idx = old_children_indices.get(i).copied();
+                let old_child_idx = old_children_by_dom.get(&new_child_dom_id).copied()
+                    .or_else(|| old_children_indices.get(i).copied());
                 let reconciled_child_idx = reconcile_recursive(
                     styled_dom,
                     new_child_dom_id,
@@ -1069,7 +1239,7 @@ pub fn reconcile_recursive(
             }
 
             for (pos, inline_dom_id) in inline_run.drain(..) {
-                let old_child_idx = old_children_indices.get(pos).copied();
+                let old_child_idx = old_children_by_dom.get(&inline_dom_id).copied();
                 let reconciled_child_idx = reconcile_recursive(
                     styled_dom,
                     inline_dom_id,
@@ -1085,7 +1255,9 @@ pub fn reconcile_recursive(
                 }
             }
 
-            recon.intrinsic_dirty.insert(anon_idx);
+            // See note in main mixed-content branch: rely on
+            // children's own mark_dirty to propagate upward rather
+            // than invalidating the whole wrapper each reconcile.
             children_are_different = true;
             } // end else (non-whitespace trailing run)
         }
@@ -1239,18 +1411,20 @@ pub fn compute_scrollbar_info_core<T: ParsedFontTrait>(
     let overflow_x = get_overflow_x(ctx.styled_dom, dom_id, styled_node_state);
     let overflow_y = get_overflow_y(ctx.styled_dom, dom_id, styled_node_state);
 
-    // Resolve per-node scrollbar width from CSS + OS overlay preference
-    let scrollbar_width_px =
-        crate::solver3::getters::get_layout_scrollbar_width_px(ctx, dom_id, styled_node_state);
-
-    // Also resolve the visual (rendering) width — needed by GPU state for thumb positioning.
-    // For overlay scrollbars, reserve_width_px is 0 but visual_width_px is non-zero (e.g. 8.0).
-    let scrollbar_style = crate::solver3::getters::get_scrollbar_style(
-        ctx.styled_dom,
-        dom_id,
-        styled_node_state,
-        ctx.system_style.as_deref(),
+    // Resolve the full scrollbar style **once** and reuse it
+    // across the rest of this function + any further calls from
+    // the same layout pass via `LayoutContext::scrollbar_style_cache`.
+    // Previously we called `get_layout_scrollbar_width_px` (which
+    // builds the full scrollbar_style internally, keeps only
+    // `reserve_width_px`, then drops it) and then
+    // `get_scrollbar_style` again — each build performs 9 cascade
+    // walks (track/thumb/button/corner/width/color/visibility/
+    // fade-delay/fade-duration). With the memo, subsequent calls
+    // on the same (dom_id, state) are a HashMap hit.
+    let scrollbar_style = crate::solver3::getters::get_scrollbar_style_cached(
+        ctx, dom_id, styled_node_state,
     );
+    let scrollbar_width_px = scrollbar_style.reserve_width_px;
 
     let mut reqs = fc::check_scrollbar_necessity(
         content_size,
@@ -1692,6 +1866,10 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     float_cache: &mut HashMap<usize, fc::FloatingContext>,
     compute_mode: ComputeMode,
 ) -> Result<()> {
+    let _probe = match compute_mode {
+        ComputeMode::ComputeSize => crate::probe::Probe::span("size_node"),
+        ComputeMode::PerformLayout => crate::probe::Probe::span("pos_node"),
+    };
     // === PER-NODE CACHE CHECK (Taffy-inspired 9+1 slot cache) ===
     //
     // Two-mode cache lookup (CSS two-pass architecture):
@@ -1718,6 +1896,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
                 if let Some(cached_sizing) = sizing_hit {
                     // SIZING CACHE HIT — set used_size and return immediately.
                     // No child positioning needed in ComputeSize mode.
+                    drop(crate::probe::Probe::span("size_cache_hit_sizing"));
                     if let Some(node) = tree.get_mut(node_index) {
                         node.used_size = Some(cached_sizing.result_size);
                     }
@@ -1734,6 +1913,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
                     .cloned();
                 if let Some(cached_layout) = layout_hit {
                     // Layout slot hit in ComputeSize mode — extract size only
+                    drop(crate::probe::Probe::span("size_cache_hit_layout"));
                     if let Some(node) = tree.get_mut(node_index) {
                         node.used_size = Some(cached_layout.result_size);
                     }
@@ -1743,6 +1923,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
                     }
                     return Ok(());
                 }
+                drop(crate::probe::Probe::span("size_cache_miss"));
             }
             ComputeMode::PerformLayout => {
                 // PerformLayout: check layout slot (the single "full layout" slot)
@@ -1750,6 +1931,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
                     .get_layout(containing_block_size)
                     .cloned();
                 if let Some(cached_layout) = layout_hit {
+                    drop(crate::probe::Probe::span("pos_cache_hit"));
                     // LAYOUT CACHE HIT — apply cached results with child positions
                     if let Some(node) = tree.get_mut(node_index) {
                         node.used_size = Some(cached_layout.result_size);
@@ -1805,7 +1987,10 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     }
     
     // === CACHE MISS — compute layout ===
-    
+    if compute_mode == ComputeMode::PerformLayout {
+        drop(crate::probe::Probe::span("pos_cache_miss"));
+    }
+
     // Phase 1: Prepare layout context (calculate used size, constraints)
     let PreparedLayoutContext {
         constraints,
@@ -1813,7 +1998,10 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
         writing_mode,
         mut final_used_size,
         box_props,
-    } = prepare_layout_context(ctx, tree, node_index, containing_block_size)?;
+    } = {
+        let _p = crate::probe::Probe::span("prepare_layout_context");
+        prepare_layout_context(ctx, tree, node_index, containing_block_size)?
+    };
 
     // Phase 1.5: Update used_size BEFORE calling layout_formatting_context.
     //
@@ -1834,8 +2022,10 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     }
 
     // Phase 2: Layout children using the formatting context
-    let layout_result =
-        layout_formatting_context(ctx, tree, text_cache, node_index, &constraints, float_cache)?;
+    let layout_result = {
+        let _p = crate::probe::Probe::span("layout_formatting_context");
+        layout_formatting_context(ctx, tree, text_cache, node_index, &constraints, float_cache)?
+    };
     let content_size = layout_result.output.overflow_size;
 
     // Phase 2.5: Resolve 'auto' main-axis size based on content

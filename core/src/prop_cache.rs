@@ -124,6 +124,29 @@ use azul_css::dynamic_selector::{
     CssPropertyWithConditions, CssPropertyWithConditionsVec, DynamicSelectorContext,
 };
 
+#[cfg(feature = "std")]
+std::thread_local! {
+    static PROP_COUNTS: core::cell::RefCell<
+        std::collections::HashMap<&'static str, usize>
+    > = core::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// Drain the per-thread CSS cascade-walk counter populated by
+/// [`CssPropertyCache::get_property`] when `AZUL_PROP_COUNT=1` is set
+/// in the environment. Returns `(property_label, count)` pairs
+/// sorted by count descending. Layout-side instrumentation calls
+/// this after each `layout_document` to print which properties
+/// drove the most cascade walks.
+#[cfg(feature = "std")]
+pub fn drain_css_prop_counts() -> Vec<(&'static str, usize)> {
+    PROP_COUNTS.with(|c| {
+        let map = core::mem::take(&mut *c.borrow_mut());
+        let mut v: Vec<_> = map.into_iter().collect();
+        v.sort_by(|a, b| b.1.cmp(&a.1));
+        v
+    })
+}
+
 // Unit conversion constants (CSS absolute units → pixels)
 const PT_TO_PX: f32 = 1.333333;
 const IN_TO_PX: f32 = 96.0;
@@ -360,6 +383,21 @@ impl<T> Default for FlatVecVec<T> {
 }
 
 impl<T> FlatVecVec<T> {
+    /// Approximate heap bytes retained. Sums capacity of the
+    /// flattened `data` + `offsets` tables and the per-node build
+    /// Vecs (in case `sort_each_and_flatten` hasn't been called
+    /// yet). `per_element_size` should be `size_of::<T>()`.
+    pub fn heap_bytes(&self, per_element_size: usize) -> usize {
+        let data_bytes = self.data.capacity() * per_element_size;
+        let offsets_bytes =
+            self.offsets.capacity() * core::mem::size_of::<(u32, u32)>();
+        let mut build_bytes = self.build.capacity() * core::mem::size_of::<Vec<T>>();
+        for v in &self.build {
+            build_bytes += v.capacity() * per_element_size;
+        }
+        data_bytes + offsets_bytes + build_bytes
+    }
+
     /// Create a new `FlatVecVec` with `node_count` empty slots (build phase).
     pub fn new(node_count: usize) -> Self {
         let mut build = Vec::with_capacity(node_count);
@@ -451,10 +489,7 @@ impl<T> FlatVecVec<T> {
         for inner in self.build.iter_mut() {
             inner.sort_by(|a, b| key_fn(a).cmp(&key_fn(b)));
 
-            // Deduplicate: after sorting, consecutive items with the same key
-            // form groups. Among each group, the last element wins (latest
-            // source order / highest specificity per CSS cascade).
-            // Mark which indices to keep: only the last of each consecutive group.
+            // Deduplicate: keep last of each consecutive-key group (CSS cascade).
             let n = inner.len();
             let mut keep = vec![false; n];
             for i in 0..n {
@@ -475,9 +510,10 @@ impl<T> FlatVecVec<T> {
             offsets.push((start, len));
         }
 
+        flat_data.shrink_to_fit();
         self.data = flat_data;
         self.offsets = offsets;
-        // Keep build vecs allocated but empty (for potential reuse on re-restyle)
+        self.build = Vec::new();
     }
 
     /// Flatten without sorting (for data that's already sorted).
@@ -497,6 +533,33 @@ impl<T> FlatVecVec<T> {
 
         self.data = flat_data;
         self.offsets = offsets;
+        self.build = Vec::new();
+    }
+
+    /// Rebuild flat storage, keeping only items matching `predicate`.
+    /// Must be called after flatten. Preserves per-node ordering.
+    pub fn retain(&mut self, predicate: impl Fn(&T) -> bool) where T: Clone {
+        if self.offsets.is_empty() { return; }
+        let node_count = self.offsets.len();
+        let mut new_data = Vec::new();
+        let mut new_offsets = Vec::with_capacity(node_count);
+        for &(start, len) in &self.offsets {
+            let s = start as usize;
+            let l = len as usize;
+            let new_start = new_data.len() as u32;
+            let slice = &self.data[s..s + l];
+            let mut kept = 0u32;
+            for item in slice {
+                if predicate(item) {
+                    new_data.push((*item).clone());
+                    kept += 1;
+                }
+            }
+            new_offsets.push((new_start, kept));
+        }
+        new_data.shrink_to_fit();
+        self.data = new_data;
+        self.offsets = new_offsets;
     }
 
     /// Iterate over all nodes, yielding (node_index, &[T]) for each.
@@ -595,9 +658,177 @@ pub struct CssPropertyCache {
     // Applied during build_compact_cache_with_inheritance instead of being
     // cloned into each node's css_props (saves 50K×N clones).
     pub global_css_props: Vec<CssProperty>,
+
+    /// Per-node resolved font-size, in pixels, for the `Normal`
+    /// pseudo-state. Populated lazily on first call to
+    /// [`crate::styled_dom::StyledDom::resolved_font_size_px`] via a
+    /// single bottom-up DOM walk; subsequent reads are O(1) Vec
+    /// index by `NodeId::index()`.
+    ///
+    /// Motivation: `get_font_size` is called ~730× per node per
+    /// layout pass (see `AZUL_PROP_COUNT=1` report — 329 629
+    /// cascade walks on excel.html alone). Each resolution
+    /// recursively reads the parent's font-size (for `em`) plus
+    /// the root's font-size (for `rem`), multiplying the walk
+    /// count. Caching the pre-resolved pixel value collapses that
+    /// to a single `Vec<f32>` indexed lookup.
+    #[cfg_attr(feature = "serde-json", serde(skip))]
+    pub resolved_font_sizes_px: std::sync::OnceLock<Vec<f32>>,
+}
+
+/// Heap-size breakdown of a `CssPropertyCache`, produced by
+/// [`CssPropertyCache::memory_breakdown`]. All values in bytes.
+///
+/// Primarily a diagnostic — the numbers are capacity-based and
+/// don't chase into property-variant payloads (e.g. the `Vec`
+/// inside a `FontFamily(...)`). Intended for "which subfield is
+/// eating RSS" triage, not for precise accounting.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CssPropertyCacheBreakdown {
+    pub node_count: usize,
+    pub cascaded_props_bytes: usize,
+    pub css_props_bytes: usize,
+    pub computed_values_bytes: usize,
+    pub user_overridden_bytes: usize,
+    pub global_css_props_bytes: usize,
+    pub compact_cache_bytes: usize,
+    pub resolved_font_sizes_bytes: usize,
+}
+
+impl CssPropertyCacheBreakdown {
+    /// Sum of all subfields.
+    pub fn total_bytes(&self) -> usize {
+        self.cascaded_props_bytes
+            + self.css_props_bytes
+            + self.computed_values_bytes
+            + self.user_overridden_bytes
+            + self.global_css_props_bytes
+            + self.compact_cache_bytes
+            + self.resolved_font_sizes_bytes
+    }
 }
 
 impl CssPropertyCache {
+    /// Approximate heap bytes retained by this cache, broken out by
+    /// subfield. Used by `StyledDom::memory_breakdown` + the
+    /// `AZUL_MEM_BREAKDOWN=1` reporter. Sums capacity × element size
+    /// for each Vec and adds a coarse allowance for the inner Vec
+    /// headers inside `computed_values`.
+    ///
+    /// This is a measurement helper, not a tight bound — it doesn't
+    /// chase into the `CssProperty` enum variants that carry their
+    /// own `Vec`/`String` allocations (notably `FontFamily` →
+    /// `StyleFontFamilyVec` → `Vec<StyleFontFamily>`), so the real
+    /// heap footprint for a property-rich DOM can be 2-3× these
+    /// numbers. Still useful for spotting gross duplication between
+    /// the pre-compact and compact caches.
+    pub fn memory_breakdown(&self) -> CssPropertyCacheBreakdown {
+        let stateful_sz = core::mem::size_of::<StatefulCssProperty>();
+        let computed_entry_sz =
+            core::mem::size_of::<(CssPropertyType, CssPropertyWithOrigin)>();
+        let outer_vec_sz = core::mem::size_of::<Vec<(CssPropertyType, CssPropertyWithOrigin)>>();
+
+        let cascaded_bytes = self.cascaded_props.heap_bytes(stateful_sz);
+        let css_bytes = self.css_props.heap_bytes(stateful_sz);
+
+        let mut computed_bytes = self.computed_values.capacity() * outer_vec_sz;
+        for v in &self.computed_values {
+            computed_bytes += v.capacity() * computed_entry_sz;
+        }
+
+        let user_overridden_bytes = {
+            let mut b = self.user_overridden_properties.capacity() * outer_vec_sz;
+            for v in &self.user_overridden_properties {
+                b += v.capacity()
+                    * core::mem::size_of::<(CssPropertyType, CssProperty)>();
+            }
+            b
+        };
+
+        let global_bytes = self.global_css_props.capacity()
+            * core::mem::size_of::<CssProperty>();
+
+        let compact_bytes = self
+            .compact_cache
+            .as_ref()
+            .map(|c| {
+                c.tier1_enums.capacity() * 8
+                    + c.tier2_dims.capacity() * 68
+                    + c.tier2_cold.capacity() * 28
+                    + c.tier2b_text.capacity() * 24
+                    + c.prev_font_hashes.capacity() * 8
+                    + c.font_dirty_nodes.capacity() * 8
+            })
+            .unwrap_or(0);
+
+        let resolved_font_sizes_bytes = self
+            .resolved_font_sizes_px
+            .get()
+            .map(|v| v.capacity() * core::mem::size_of::<f32>())
+            .unwrap_or(0);
+
+        CssPropertyCacheBreakdown {
+            node_count: self.node_count,
+            cascaded_props_bytes: cascaded_bytes,
+            css_props_bytes: css_bytes,
+            computed_values_bytes: computed_bytes,
+            user_overridden_bytes,
+            global_css_props_bytes: global_bytes,
+            compact_cache_bytes: compact_bytes,
+            resolved_font_sizes_bytes,
+        }
+    }
+
+    /// Drop Normal-state properties that have compact encodings from
+    /// `css_props` and `cascaded_props`. After `build_compact_cache_with_inheritance`,
+    /// these are redundant — the compact cache is the source of truth for layout.
+    /// Non-Normal entries (hover/active/focus) and non-compact properties
+    /// (background, box-shadow, transform, etc.) are kept for `get_property_slow`.
+    pub fn prune_compact_normal_props(&mut self) {
+        use azul_css::dynamic_selector::PseudoStateType;
+
+        static PRUNE_DBG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let dbg = *PRUNE_DBG.get_or_init(|| std::env::var_os("AZUL_MEM_BREAKDOWN").is_some());
+        if dbg {
+            let mut normal_compact = 0usize;
+            let mut normal_noncompact = 0usize;
+            let mut nonnormal = 0usize;
+            for i in 0..self.css_props.len() {
+                for p in self.css_props.get_slice(i) {
+                    if p.state != PseudoStateType::Normal {
+                        nonnormal += 1;
+                    } else if p.prop_type.has_compact_encoding() {
+                        normal_compact += 1;
+                    } else {
+                        normal_noncompact += 1;
+                    }
+                }
+            }
+            let ssp_sz = core::mem::size_of::<StatefulCssProperty>();
+            let mut casc_normal_compact = 0usize;
+            let mut casc_total = 0usize;
+            for i in 0..self.cascaded_props.len() {
+                for p in self.cascaded_props.get_slice(i) {
+                    casc_total += 1;
+                    if p.state == PseudoStateType::Normal && p.prop_type.has_compact_encoding() {
+                        casc_normal_compact += 1;
+                    }
+                }
+            }
+            eprintln!("[PRUNE] css_props: norm+compact={} norm+other={} nonnorm={} SSP={}B | cascaded: total={} norm+compact={}",
+                normal_compact, normal_noncompact, nonnormal, ssp_sz, casc_total, casc_normal_compact);
+        }
+
+        let keep = |p: &StatefulCssProperty| -> bool {
+            p.state != PseudoStateType::Normal || !p.prop_type.has_compact_encoding()
+        };
+        self.css_props.retain(keep);
+        if !self.cascaded_props.is_flattened() {
+            self.cascaded_props.sort_each_and_flatten(|p| (p.state, p.prop_type));
+        }
+        self.cascaded_props.retain(keep);
+    }
+
     /// Look up a CSS property for a specific pseudo-state in a stateful property vec.
     /// Requires the vec to be sorted by (state, prop_type).
     #[inline]
@@ -1304,15 +1535,25 @@ impl CssPropertyCache {
     pub fn empty(node_count: usize) -> Self {
         Self {
             node_count,
-            user_overridden_properties: vec![Vec::new(); node_count],
+            user_overridden_properties: Vec::new(),
 
             cascaded_props: FlatVecVec::new(node_count),
             css_props: FlatVecVec::new(node_count),
 
-            computed_values: vec![Vec::new(); node_count],
+            computed_values: Vec::new(),
             compact_cache: None,
             global_css_props: Vec::new(),
+            resolved_font_sizes_px: std::sync::OnceLock::new(),
         }
+    }
+
+    /// Clear the lazily-populated font-size cache. Call after any
+    /// mutation that could change resolved font-sizes (restyle,
+    /// DOM mutation, `append`, etc.). The next
+    /// [`crate::styled_dom::StyledDom::resolved_font_size_px`] call
+    /// repopulates via a single bottom-up tree walk.
+    pub fn invalidate_resolved_font_sizes(&mut self) {
+        self.resolved_font_sizes_px = std::sync::OnceLock::new();
     }
 
     pub fn append(&mut self, other: &mut Self) {
@@ -1322,6 +1563,8 @@ impl CssPropertyCache {
         self.computed_values.extend(other.computed_values.drain(..));
 
         self.node_count += other.node_count;
+        // Indices shifted — invalidate the font-size cache too.
+        self.resolved_font_sizes_px = std::sync::OnceLock::new();
 
         // Invalidate compact cache since node IDs shifted
         self.compact_cache = None;
@@ -1464,10 +1707,54 @@ impl CssPropertyCache {
         node_state: &StyledNodeState,
         css_property_type: &CssPropertyType,
     ) -> Option<&CssProperty> {
+        // Thread-local counter of cascade walks, broken down by
+        // property type. Drain with `drain_css_prop_counts` (free
+        // fn below) when `AZUL_PROP_COUNT=1` is set to see which
+        // properties dominate the cold layout path.
+        //
+        // Env check is read ONCE at process start and cached in a
+        // `OnceLock<bool>`. Before this, the env check ran per
+        // `get_property` call — and the function fires 710k+ times
+        // per cold layout on excel.html. `std::env::var_os` takes
+        // ~100 ns per call on macOS (env lock + hashmap lookup), so
+        // the naive check added ~70 ms of pure noise to every
+        // single layout, regardless of whether the env var was set.
+        // Using a one-time cached bool removes that overhead.
+        static PROP_COUNT_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let enabled = *PROP_COUNT_ENABLED.get_or_init(|| {
+            std::env::var_os("AZUL_PROP_COUNT").is_some()
+        });
+        if enabled {
+            PROP_COUNTS.with(|c| {
+                *c.borrow_mut()
+                    .entry(Self::css_prop_type_label(css_property_type))
+                    .or_insert(0) += 1;
+            });
+        }
+
         // Always use full cascade resolution.
         // Tier 1/2/2b handle layout-hot properties via direct typed getters.
         // This path is only used for paint-time reads (background, shadow, etc.)
         self.get_property_slow(node_data, node_id, node_state, css_property_type)
+    }
+
+    fn css_prop_type_label(t: &CssPropertyType) -> &'static str {
+        // Intern Debug-format labels under a mutex-guarded map so
+        // we leak at most one `&'static str` per distinct
+        // `CssPropertyType` variant (bounded at ≤ 178 total). Only
+        // triggered when `AZUL_PROP_COUNT=1`, so zero cost normally.
+        use std::sync::{Mutex, OnceLock};
+        static TABLE: OnceLock<Mutex<std::collections::HashMap<CssPropertyType, &'static str>>> =
+            OnceLock::new();
+        let m = TABLE.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+        let mut g = m.lock().expect("AZUL_PROP_COUNT label table poisoned");
+        if let Some(s) = g.get(t) {
+            return *s;
+        }
+        let s: String = std::format!("{:?}", t);
+        let leaked: &'static str = std::boxed::Box::leak(s.into_boxed_str());
+        g.insert(*t, leaked);
+        leaked
     }
 
     /// Full cascade resolution for any CSS property type.

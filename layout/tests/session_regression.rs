@@ -40,7 +40,7 @@ fn do_layout(dom: Dom, css_str: &str, w: f32, h: f32) -> LayoutWindow {
     let rr = RendererResources::default();
     let sc = ExternalSystemCallbacks::rust_internal();
     let mut dbg = Some(Vec::new());
-    lw.layout_and_generate_display_list(styled_dom, &ws, &rr, &sc, &mut dbg)
+    lw.layout_and_generate_display_list(&styled_dom, &ws, &rr, &sc, &mut dbg)
         .unwrap();
     lw
 }

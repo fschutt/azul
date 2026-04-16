@@ -3667,12 +3667,12 @@ where
         // Get node_id for GPU cache lookup and CSS style lookup
         let node_id = node.dom_node_id;
 
-        // Get CSS scrollbar style for this node
+        // Get CSS scrollbar style for this node (cached per LayoutContext).
         let scrollbar_style = node_id
             .map(|nid| {
                 let node_state =
                     &self.ctx.styled_dom.styled_nodes.as_container()[nid].styled_node_state;
-                get_scrollbar_style(self.ctx.styled_dom, nid, node_state, self.ctx.system_style.as_ref().map(|v| &**v))
+                crate::solver3::getters::get_scrollbar_style_cached(self.ctx, nid, node_state)
             })
             .unwrap_or_default();
 

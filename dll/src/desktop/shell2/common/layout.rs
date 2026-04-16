@@ -412,7 +412,7 @@ pub fn regenerate_layout(
     
     layout_window
         .layout_and_generate_display_list(
-            styled_dom,
+            &styled_dom,
             current_window_state,
             renderer_resources,
             &ExternalSystemCallbacks::rust_internal(),
@@ -587,7 +587,7 @@ pub fn incremental_relayout(
 
         layout_window
             .layout_and_generate_display_list(
-                styled_dom,
+                &styled_dom,
                 current_window_state,
                 renderer_resources,
                 &system_callbacks,

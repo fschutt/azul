@@ -46,7 +46,7 @@ fn layout_dom_and_count_scrollbars(dom: Dom, css_str: &str, width: f32, height: 
 
     layout_window
         .layout_and_generate_display_list(
-            styled_dom,
+            &styled_dom,
             &window_state,
             &renderer_resources,
             &system_callbacks,
@@ -349,7 +349,7 @@ fn layout_dom_and_get_content_width(
 
     layout_window
         .layout_and_generate_display_list(
-            styled_dom,
+            &styled_dom,
             &window_state,
             &renderer_resources,
             &system_callbacks,
@@ -565,7 +565,7 @@ fn layout_dom_and_get_scrollbar_bounds(
 
     layout_window
         .layout_and_generate_display_list(
-            styled_dom,
+            &styled_dom,
             &window_state,
             &renderer_resources,
             &system_callbacks,
@@ -845,7 +845,7 @@ fn layout_dom_and_get_scrollbar_info(
 
     layout_window
         .layout_and_generate_display_list(
-            styled_dom,
+            &styled_dom,
             &window_state,
             &renderer_resources,
             &system_callbacks,

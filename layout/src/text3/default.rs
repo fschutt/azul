@@ -68,8 +68,9 @@ impl PathLoader {
     }
 
     /// Read a font from disk and parse via the lazy-LocaGlyf path.
-    /// Convenience wrapper around [`PathLoader::load_font_shared`]
-    /// for callers that have a path but no `Arc<[u8]>` yet.
+    /// Convenience wrapper for callers that have a path but no
+    /// `Arc<FontBytes>` yet — uses a heap read (`Owned`) since a
+    /// loose path won't go through the fontconfig dedup cache.
     pub fn load_from_path(&self, path: &Path, font_index: usize) -> Result<FontRef, LayoutError> {
         let font_bytes = std::fs::read(path).map_err(|_| {
             LayoutError::FontNotFound(FontSelector {
@@ -79,23 +80,27 @@ impl PathLoader {
                 unicode_ranges: Vec::new(),
             })
         })?;
-        self.load_font_shared(std::sync::Arc::from(font_bytes), font_index)
+        let arc_owned = std::sync::Arc::<[u8]>::from(font_bytes);
+        let bytes = std::sync::Arc::new(rust_fontconfig::FontBytes::Owned(arc_owned));
+        self.load_font_shared(bytes, font_index)
     }
 
-    /// Lazy-friendly loader: takes an `Arc<[u8]>` (typically from
-    /// `rust_fontconfig::FcFontCache::get_font_bytes_arc`) and uses
-    /// the new `ParsedFont::from_bytes_shared` constructor so
+    /// Lazy-friendly loader: takes an `Arc<FontBytes>` (typically
+    /// from [`rust_fontconfig::FcFontCache::get_font_bytes`]) and
+    /// uses the [`ParsedFont::from_bytes_shared`] constructor so
     /// `LocaGlyf::load` is deferred until the first glyph decode.
     ///
     /// This is the only loader on the production path —
     /// `load_fonts_from_disk` calls this via the closure passed
     /// into `FontManager::load_missing_for_chains`. Fonts that
     /// never get rasterized (common — every face of a `.ttc` gets a
-    /// FontId, but pages only hit a couple of them) then skip their
-    /// per-face ~500 KiB of loca+glyf materialisation.
+    /// FontId, but pages only hit a couple of them) skip their
+    /// per-face loca+glyf materialisation entirely; with
+    /// `FontBytes::Mmapped` the unread pages also never count
+    /// toward RSS.
     pub fn load_font_shared(
         &self,
-        font_bytes: std::sync::Arc<[u8]>,
+        font_bytes: std::sync::Arc<rust_fontconfig::FontBytes>,
         font_index: usize,
     ) -> Result<FontRef, LayoutError> {
         let mut warnings = Vec::new();
@@ -243,7 +248,8 @@ impl FontRefExt for FontRef {
     fn get_bytes(&self) -> &[u8] {
         get_parsed_font(self)
             .original_bytes
-            .as_deref()
+            .as_ref()
+            .map(|b| b.as_slice())
             .unwrap_or(&[])
     }
 

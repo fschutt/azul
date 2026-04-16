@@ -1433,6 +1433,32 @@ impl CssPropertyType {
         }
     }
 
+    pub fn has_compact_encoding(&self) -> bool {
+        use self::CssPropertyType::*;
+        matches!(self,
+            // Tier 1 enums
+            Display | Position | Float | OverflowX | OverflowY | BoxSizing |
+            FlexDirection | FlexWrap | JustifyContent | AlignItems | AlignContent |
+            WritingMode | Clear | FontWeight | FontStyle | TextAlign |
+            Visibility | WhiteSpace | Direction | VerticalAlign | BorderCollapse |
+            // Tier 2 dims
+            Width | Height | MinWidth | MaxWidth | MinHeight | MaxHeight |
+            FlexBasis | FontSize |
+            PaddingTop | PaddingRight | PaddingBottom | PaddingLeft |
+            MarginTop | MarginRight | MarginBottom | MarginLeft |
+            BorderTopWidth | BorderRightWidth | BorderBottomWidth | BorderLeftWidth |
+            Top | Right | Bottom | Left |
+            FlexGrow | FlexShrink |
+            // Tier 2 cold
+            ZIndex |
+            BorderTopStyle | BorderRightStyle | BorderBottomStyle | BorderLeftStyle |
+            BorderTopColor | BorderRightColor | BorderBottomColor | BorderLeftColor |
+            BorderSpacing | TabSize |
+            // Tier 2b text
+            TextColor | FontFamily | LineHeight | LetterSpacing | WordSpacing | TextIndent
+        )
+    }
+
     pub fn get_category(&self) -> CssPropertyCategory {
         if self.is_gpu_only_property() {
             CssPropertyCategory::GpuOnly

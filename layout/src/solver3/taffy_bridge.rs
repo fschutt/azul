@@ -581,6 +581,13 @@ struct TaffyBridge<'a, 'b, T: ParsedFontTrait> {
     /// `Dimension::calc(ptr)`. Kept alive for the duration of the layout pass.
     /// Uses `RefCell` because `get_core_container_style` takes `&self`.
     calc_storage: std::cell::RefCell<Vec<Box<CalcResolveContext>>>,
+    /// Memoised `translate_style_to_taffy` results, keyed by DOM node id
+    /// (`usize` = `NodeId::index`). Taffy calls
+    /// `get_core_container_style` and `should_suppress_cross_intrinsic`
+    /// many times per node during a single layout pass; each call
+    /// triggers ~13 `cache.get_property` cascade walks for grid/flex
+    /// props. Caching the built `Style` cuts this to one build per node.
+    style_memo: std::cell::RefCell<std::collections::HashMap<usize, Style>>,
 }
 
 impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
@@ -594,7 +601,26 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             tree,
             text_cache,
             calc_storage: std::cell::RefCell::new(Vec::new()),
+            style_memo: std::cell::RefCell::new(std::collections::HashMap::new()),
         }
+    }
+
+    /// Cache-backed wrapper for `translate_style_to_taffy`. Returns a
+    /// clone of the memoised `Style` on cache hit, builds + inserts on
+    /// miss. Keyed by DOM node index (not tree index) because the
+    /// result depends only on the styled DOM, not on the transient
+    /// layout tree.
+    fn translate_style_to_taffy_cached(&self, dom_id: Option<NodeId>) -> Style {
+        let Some(id) = dom_id else {
+            return Style::default();
+        };
+        let key = id.index();
+        if let Some(style) = self.style_memo.borrow().get(&key) {
+            return style.clone();
+        }
+        let style = self.translate_style_to_taffy(dom_id);
+        self.style_memo.borrow_mut().insert(key, style.clone());
+        style
     }
 
     /// Translates CSS properties from the `StyledDom` into a `taffy::Style` struct.
@@ -1081,7 +1107,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
     /// Gets or computes the Taffy style for a given node index.
     fn get_taffy_style(&self, node_idx: usize) -> Style {
         let dom_id = self.tree.get(node_idx).and_then(|n| n.dom_node_id);
-        let mut style = self.translate_style_to_taffy(dom_id);
+        let mut style = self.translate_style_to_taffy_cached(dom_id);
         
         // CSS 2.1 § 10.3.3: Root element margin handling for Flex/Grid.
         //
@@ -1147,7 +1173,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                     return (false, false);
                 };
                 let parent_dom_id = self.tree.get(parent_idx).and_then(|n| n.dom_node_id);
-                let parent_style = self.translate_style_to_taffy(parent_dom_id);
+                let parent_style = self.translate_style_to_taffy_cached(parent_dom_id);
 
                 // Determine if flex container is row or column
                 let is_row = matches!(

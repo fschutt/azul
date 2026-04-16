@@ -42,7 +42,7 @@ use azul_css::{
     system::SystemStyle,
     AzString,
 };
-use rust_fontconfig::{FcFontCache, FontSource};
+use rust_fontconfig::{FcFontCache, OwnedFontSource};
 
 use crate::{
     dom::{Dom, DomId, DomNodeId, EventFilter, OptionDom},
@@ -597,12 +597,12 @@ impl LayoutCallbackInfo {
 
         fc_cache
             .list()
-            .iter()
+            .into_iter()
             .filter_map(|(pattern, font_id)| {
-                let source = fc_cache.get_font_by_id(font_id)?;
+                let source = fc_cache.get_font_by_id(&font_id)?;
                 match source {
-                    FontSource::Memory(_) => None,
-                    FontSource::Disk(d) => Some((pattern.name.as_ref()?.clone(), d.path.clone())),
+                    OwnedFontSource::Memory(_) => None,
+                    OwnedFontSource::Disk(d) => Some((pattern.name.as_ref()?.clone(), d.path.clone())),
                 }
             })
             .map(|(k, v)| AzStringPair {

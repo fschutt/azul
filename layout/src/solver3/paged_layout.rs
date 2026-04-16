@@ -84,7 +84,7 @@ pub fn layout_document_paged<T, F>(
 where
     T: ParsedFontTrait + Sync + 'static,
     F: Fn(
-        std::sync::Arc<[u8]>,
+        std::sync::Arc<rust_fontconfig::FontBytes>,
         usize,
     ) -> std::result::Result<T, crate::text3::cache::LayoutError>,
 {
@@ -143,7 +143,7 @@ pub fn layout_document_paged_with_config<T, F>(
 where
     T: ParsedFontTrait + Sync + 'static,
     F: Fn(
-        std::sync::Arc<[u8]>,
+        std::sync::Arc<rust_fontconfig::FontBytes>,
         usize,
     ) -> std::result::Result<T, crate::text3::cache::LayoutError>,
 {
@@ -207,6 +207,7 @@ where
         let mut counter_values = cache.counters.clone();
         let empty_text_selections: BTreeMap<DomId, TextSelection> = BTreeMap::new();
         let mut ctx = LayoutContext {
+            scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
             styled_dom: new_dom,
             font_manager: &*font_manager,
             text_selections: &empty_text_selections,
@@ -277,6 +278,7 @@ where
     let mut counter_values = cache.counters.clone();
     let empty_text_selections: BTreeMap<DomId, TextSelection> = BTreeMap::new();
     let mut ctx = LayoutContext {
+        scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
         styled_dom: new_dom,
         font_manager: &*font_manager,
         text_selections: &empty_text_selections,
@@ -407,6 +409,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     let mut counter_values = HashMap::new();
     let empty_text_selections: BTreeMap<DomId, TextSelection> = BTreeMap::new();
     let mut ctx_temp = LayoutContext {
+        scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
         styled_dom: new_dom,
         font_manager,
         text_selections: &empty_text_selections,
@@ -465,6 +468,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
 
     // Now create the real context with computed counters and fragmentation
     let mut ctx = LayoutContext {
+        scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
         styled_dom: new_dom,
         font_manager,
         text_selections: &empty_text_selections,

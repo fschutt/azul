@@ -58,7 +58,7 @@ impl RenderHarness {
         let sc = ExternalSystemCallbacks::rust_internal();
         let mut dbg = Some(Vec::new());
 
-        lw.layout_and_generate_display_list(styled_dom, &ws, &rr, &sc, &mut dbg)
+        lw.layout_and_generate_display_list(&styled_dom, &ws, &rr, &sc, &mut dbg)
             .unwrap();
 
         let dom_id = DomId { inner: 0 };
