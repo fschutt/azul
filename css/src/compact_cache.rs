@@ -16,9 +16,10 @@ use crate::props::layout::{
     display::LayoutDisplay,
     dimensions::{LayoutHeight, LayoutWidth, LayoutMaxHeight, LayoutMaxWidth, LayoutMinHeight, LayoutMinWidth},
     flex::{
-        LayoutAlignContent, LayoutAlignItems, LayoutFlexDirection, LayoutFlexWrap,
+        LayoutAlignContent, LayoutAlignItems, LayoutAlignSelf, LayoutFlexDirection, LayoutFlexWrap,
         LayoutJustifyContent,
     },
+    grid::{LayoutGridAutoFlow, LayoutJustifySelf, LayoutJustifyItems},
     overflow::LayoutOverflow,
     position::LayoutPosition,
     wrapping::{LayoutClear, LayoutWritingMode},
@@ -140,6 +141,15 @@ pub const WHITE_SPACE_MASK: u64 = 0x07; // 3 bits
 pub const DIRECTION_MASK: u64 = 0x01;   // 1 bit
 pub const VERTICAL_ALIGN_MASK: u64 = 0x07; // 3 bits
 pub const BORDER_COLLAPSE_MASK: u64 = 0x01; // 1 bit
+
+pub const ALIGN_SELF_SHIFT: u32 = 53;
+pub const JUSTIFY_SELF_SHIFT: u32 = 56;
+pub const GRID_AUTO_FLOW_SHIFT: u32 = 59;
+pub const JUSTIFY_ITEMS_SHIFT: u32 = 61;
+pub const ALIGN_SELF_MASK: u64 = 0x07;     // 3 bits
+pub const JUSTIFY_SELF_MASK: u64 = 0x07;   // 3 bits
+pub const GRID_AUTO_FLOW_MASK: u64 = 0x03; // 2 bits (row/col × dense)
+pub const JUSTIFY_ITEMS_MASK: u64 = 0x03;  // 2 bits (start/center/end/stretch)
 
 /// Special value stored in the spare bits [63:51] to indicate this node has
 /// NO tier-1 data (i.e., all defaults). 0 is a valid all-defaults encoding,
@@ -391,6 +401,96 @@ pub fn layout_align_items_to_u8(v: LayoutAlignItems) -> u8 {
         LayoutAlignItems::Start => 2,
         LayoutAlignItems::End => 3,
         LayoutAlignItems::Baseline => 4,
+    }
+}
+
+#[inline(always)]
+pub fn layout_align_self_to_u8(v: LayoutAlignSelf) -> u8 {
+    match v {
+        LayoutAlignSelf::Auto => 0,
+        LayoutAlignSelf::Stretch => 1,
+        LayoutAlignSelf::Center => 2,
+        LayoutAlignSelf::Start => 3,
+        LayoutAlignSelf::End => 4,
+        LayoutAlignSelf::Baseline => 5,
+    }
+}
+
+#[inline(always)]
+pub fn layout_align_self_from_u8(v: u8) -> LayoutAlignSelf {
+    match v {
+        0 => LayoutAlignSelf::Auto,
+        1 => LayoutAlignSelf::Stretch,
+        2 => LayoutAlignSelf::Center,
+        3 => LayoutAlignSelf::Start,
+        4 => LayoutAlignSelf::End,
+        5 => LayoutAlignSelf::Baseline,
+        _ => LayoutAlignSelf::Auto,
+    }
+}
+
+#[inline(always)]
+pub fn layout_justify_self_to_u8(v: LayoutJustifySelf) -> u8 {
+    match v {
+        LayoutJustifySelf::Auto => 0,
+        LayoutJustifySelf::Start => 1,
+        LayoutJustifySelf::End => 2,
+        LayoutJustifySelf::Center => 3,
+        LayoutJustifySelf::Stretch => 4,
+    }
+}
+
+#[inline(always)]
+pub fn layout_justify_self_from_u8(v: u8) -> LayoutJustifySelf {
+    match v {
+        0 => LayoutJustifySelf::Auto,
+        1 => LayoutJustifySelf::Start,
+        2 => LayoutJustifySelf::End,
+        3 => LayoutJustifySelf::Center,
+        4 => LayoutJustifySelf::Stretch,
+        _ => LayoutJustifySelf::Auto,
+    }
+}
+
+#[inline(always)]
+pub fn layout_justify_items_to_u8(v: LayoutJustifyItems) -> u8 {
+    match v {
+        LayoutJustifyItems::Start => 0,
+        LayoutJustifyItems::End => 1,
+        LayoutJustifyItems::Center => 2,
+        LayoutJustifyItems::Stretch => 3,
+    }
+}
+
+#[inline(always)]
+pub fn layout_justify_items_from_u8(v: u8) -> LayoutJustifyItems {
+    match v {
+        0 => LayoutJustifyItems::Start,
+        1 => LayoutJustifyItems::End,
+        2 => LayoutJustifyItems::Center,
+        3 => LayoutJustifyItems::Stretch,
+        _ => LayoutJustifyItems::Start,
+    }
+}
+
+#[inline(always)]
+pub fn layout_grid_auto_flow_to_u8(v: LayoutGridAutoFlow) -> u8 {
+    match v {
+        LayoutGridAutoFlow::Row => 0,
+        LayoutGridAutoFlow::Column => 1,
+        LayoutGridAutoFlow::RowDense => 2,
+        LayoutGridAutoFlow::ColumnDense => 3,
+    }
+}
+
+#[inline(always)]
+pub fn layout_grid_auto_flow_from_u8(v: u8) -> LayoutGridAutoFlow {
+    match v {
+        0 => LayoutGridAutoFlow::Row,
+        1 => LayoutGridAutoFlow::Column,
+        2 => LayoutGridAutoFlow::RowDense,
+        3 => LayoutGridAutoFlow::ColumnDense,
+        _ => LayoutGridAutoFlow::Row,
     }
 }
 
@@ -1066,6 +1166,10 @@ pub struct CompactNodeProps {
     // --- Flex (u16 MSB-sentinel, ×100) ---
     pub flex_grow: u16,
     pub flex_shrink: u16,
+
+    // --- Gap (i16 px×10, 0 = default) ---
+    pub row_gap: i16,
+    pub column_gap: i16,
 }
 
 /// Paint-cold compact properties for a single node (28 bytes).
@@ -1121,6 +1225,10 @@ impl Default for CompactNodeProps {
             // Flex defaults
             flex_grow: 0,
             flex_shrink: encode_flex_u16(1.0), // CSS default: flex-shrink: 1
+
+            // Gap defaults
+            row_gap: 0,
+            column_gap: 0,
         }
     }
 }

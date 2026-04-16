@@ -1455,7 +1455,11 @@ impl CssPropertyType {
             BorderTopColor | BorderRightColor | BorderBottomColor | BorderLeftColor |
             BorderSpacing | TabSize |
             // Tier 2b text
-            TextColor | FontFamily | LineHeight | LetterSpacing | WordSpacing | TextIndent
+            TextColor | FontFamily | LineHeight | LetterSpacing | WordSpacing | TextIndent |
+            // Grid/flex alignment (tier1 extension)
+            AlignSelf | JustifySelf | GridAutoFlow | JustifyItems |
+            // Gap (tier2 extension)
+            ColumnGap | RowGap | Gap
         )
     }
 

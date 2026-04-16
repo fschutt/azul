@@ -824,6 +824,10 @@ fn apply_css_property_to_compact(
         CssProperty::Direction(v) => set_tier1!(v, DIRECTION_SHIFT, DIRECTION_MASK, style_direction_to_u8),
         CssProperty::VerticalAlign(v) => set_tier1!(v, VERTICAL_ALIGN_SHIFT, VERTICAL_ALIGN_MASK, style_vertical_align_to_u8),
         CssProperty::BorderCollapse(v) => set_tier1!(v, BORDER_COLLAPSE_SHIFT, BORDER_COLLAPSE_MASK, border_collapse_to_u8),
+        CssProperty::AlignSelf(v) => set_tier1!(v, ALIGN_SELF_SHIFT, ALIGN_SELF_MASK, layout_align_self_to_u8),
+        CssProperty::JustifySelf(v) => set_tier1!(v, JUSTIFY_SELF_SHIFT, JUSTIFY_SELF_MASK, layout_justify_self_to_u8),
+        CssProperty::GridAutoFlow(v) => set_tier1!(v, GRID_AUTO_FLOW_SHIFT, GRID_AUTO_FLOW_MASK, layout_grid_auto_flow_to_u8),
+        CssProperty::JustifyItems(v) => set_tier1!(v, JUSTIFY_ITEMS_SHIFT, JUSTIFY_ITEMS_MASK, layout_justify_items_to_u8),
 
         // Tier 2 dimensions
         CssProperty::Width(v) => { dims.width = encode_layout_width(v); }
@@ -858,6 +862,30 @@ fn apply_css_property_to_compact(
         CssProperty::FlexShrink(v) => {
             if let Some(exact) = v.get_property() {
                 dims.flex_shrink = encode_flex_u16(exact.inner.get());
+            }
+        }
+
+        CssProperty::RowGap(v) => {
+            if let Some(g) = v.get_property() {
+                if g.inner.metric == SizeMetric::Px {
+                    dims.row_gap = encode_resolved_px_i16(g.inner.number.get());
+                }
+            }
+        }
+        CssProperty::ColumnGap(v) => {
+            if let Some(g) = v.get_property() {
+                if g.inner.metric == SizeMetric::Px {
+                    dims.column_gap = encode_resolved_px_i16(g.inner.number.get());
+                }
+            }
+        }
+        CssProperty::Gap(v) => {
+            if let Some(g) = v.get_property() {
+                if g.inner.metric == SizeMetric::Px {
+                    let enc = encode_resolved_px_i16(g.inner.number.get());
+                    dims.row_gap = enc;
+                    dims.column_gap = enc;
+                }
             }
         }
 
