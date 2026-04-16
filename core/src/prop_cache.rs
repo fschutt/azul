@@ -931,29 +931,38 @@ impl CssPropertyCache {
             // Phase 2: Match specific rules per-node (only non-global rules)
             if !specific_rules.is_empty() {
 
+            // Per-node "which declarations match" lists are built as
+            // `(rule_idx, decl_idx)` pairs — 4 bytes per entry instead of
+            // cloning a 140-byte `CssProperty`. The clone only happens at
+            // the final push_to step, so the transient peak is ~35× smaller.
+            //
+            // rule_idx indexes into `specific_rules` (Vec<&CssRuleBlock>),
+            // decl_idx indexes into `rule.declarations.as_slice()`. Both
+            // fit in u16 since real stylesheets have far fewer than 65k
+            // rules and declarations per rule.
             macro_rules! filter_rules {($expected_pseudo_selector:expr, $node_id:expr) => {{
-                specific_rules.iter()
-                .filter(|rule_block| crate::style::rule_ends_with(&rule_block.path, $expected_pseudo_selector))
-                .filter(|rule_block| crate::style::matches_html_element(
-                    &rule_block.path,
-                    $node_id,
-                    &node_hierarchy.as_container(),
-                    &node_data,
-                    &html_tree,
-                    $expected_pseudo_selector
-                ))
-                .flat_map(|matched_rule| {
-                    matched_rule.declarations
-                    .iter()
-                    .filter_map(move |declaration| {
-                        match declaration {
-                            CssDeclaration::Static(s) => Some(s),
-                            CssDeclaration::Dynamic(_d) => None,
+                let mut out: Vec<(u16, u16)> = Vec::new();
+                for (rule_idx, rule_block) in specific_rules.iter().enumerate() {
+                    if !crate::style::rule_ends_with(&rule_block.path, $expected_pseudo_selector) {
+                        continue;
+                    }
+                    if !crate::style::matches_html_element(
+                        &rule_block.path,
+                        $node_id,
+                        &node_hierarchy.as_container(),
+                        &node_data,
+                        &html_tree,
+                        $expected_pseudo_selector,
+                    ) {
+                        continue;
+                    }
+                    for (decl_idx, decl) in rule_block.declarations.as_slice().iter().enumerate() {
+                        if matches!(decl, CssDeclaration::Static(_)) {
+                            out.push((rule_idx as u16, decl_idx as u16));
                         }
-                    })
-                })
-                .map(|prop| prop.clone())
-                .collect::<Vec<CssProperty>>()
+                    }
+                }
+                out
             }};}
 
             // Pre-check which pseudo-states have any matching rules at all.
@@ -969,18 +978,23 @@ impl CssPropertyCache {
             macro_rules! collect_and_assign {
                 ($pseudo:expr, $state:expr, $has_any:expr) => {
                     if $has_any {
-                        let rules: NodeDataContainer<(NodeId, Vec<CssProperty>)> = node_data
+                        let indices: NodeDataContainer<(NodeId, Vec<(u16, u16)>)> = node_data
                             .transform_nodeid_multithreaded_optional(|node_id| {
                                 let r = filter_rules!($pseudo, node_id);
                                 if r.is_empty() { None } else { Some((node_id, r)) }
                             });
-                        for (n, props) in rules.internal.into_iter() {
-                            for prop in props.into_iter() {
-                                self.css_props.push_to(n.index(), StatefulCssProperty {
-                                    state: $state,
-                                    prop_type: prop.get_type(),
-                                    property: prop,
-                                });
+                        for (n, pairs) in indices.internal.into_iter() {
+                            for (rule_idx, decl_idx) in pairs {
+                                let decl = &specific_rules[rule_idx as usize]
+                                    .declarations
+                                    .as_slice()[decl_idx as usize];
+                                if let CssDeclaration::Static(prop) = decl {
+                                    self.css_props.push_to(n.index(), StatefulCssProperty {
+                                        state: $state,
+                                        prop_type: prop.get_type(),
+                                        property: prop.clone(),
+                                    });
+                                }
                             }
                         }
                     }
