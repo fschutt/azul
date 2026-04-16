@@ -760,6 +760,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 ));
             }
 
+            // Purge after intrinsic sizing — frees child_intrinsics Vecs,
+            // IntrinsicSizeCalculator temporaries, text measurement caches.
+            crate::probe::hint_purge_allocator();
             crate::probe::sample_peak_rss("rss:before_root_layout");
             {
                 let _p = crate::probe::Probe::span("root_layout_pass");
