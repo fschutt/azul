@@ -1459,7 +1459,9 @@ impl CssPropertyType {
             // Grid/flex alignment (tier1 extension)
             AlignSelf | JustifySelf | GridAutoFlow | JustifyItems |
             // Gap (tier2 extension)
-            ColumnGap | RowGap | Gap
+            ColumnGap | RowGap | Gap |
+            // Grid placement (tier2_cold extension)
+            GridColumn | GridRow
         )
     }
 

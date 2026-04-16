@@ -180,6 +180,16 @@ fn layout_position_to_taffy(val: LayoutPositionValue) -> taffy::Position {
     }
 }
 
+fn decode_compact_grid_line(v: i16) -> taffy::style::GridPlacement<String> {
+    if v == azul_css::compact_cache::I16_AUTO || v == azul_css::compact_cache::I16_SENTINEL {
+        taffy::style::GridPlacement::Auto
+    } else if v < 0 {
+        taffy::style::GridPlacement::<String>::from_span((-v) as u16)
+    } else {
+        taffy::style::GridPlacement::<String>::from_line_index(v)
+    }
+}
+
 fn grid_auto_flow_to_taffy(val: LayoutGridAutoFlowValue) -> taffy::GridAutoFlow {
     match val.get_property_or_default().unwrap_or_default() {
         LayoutGridAutoFlow::Row => taffy::GridAutoFlow::Row,
@@ -785,7 +795,25 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             })
             .unwrap_or_else(Size::zero);
 
-        // Grid template rows - convert GridTemplate to Vec<GridTemplateComponent>
+        // Skip grid properties when not in a grid context.
+        // Grid container props: only if this node has display:grid.
+        // Grid item props: only if parent has display:grid.
+        let (self_is_grid, parent_is_grid) = cache.compact_cache.as_ref().map_or((false, false), |cc| {
+            use azul_css::compact_cache::*;
+            let self_t1 = cc.tier1_enums[id.index()];
+            let self_display = ((self_t1 >> DISPLAY_SHIFT) & DISPLAY_MASK) as u8;
+            let grid_val = layout_display_to_u8(azul_css::props::layout::display::LayoutDisplay::Grid);
+            let self_grid = self_display == grid_val;
+
+            let parent_idx = styled_dom.node_hierarchy.as_ref()[id.index()].parent_id()
+                .map(|p| p.index()).unwrap_or(0);
+            let parent_t1 = cc.tier1_enums[parent_idx];
+            let parent_display = ((parent_t1 >> DISPLAY_SHIFT) & DISPLAY_MASK) as u8;
+            let parent_grid = parent_display == grid_val;
+            (self_grid, parent_grid)
+        });
+
+        if self_is_grid {
         taffy_style.grid_template_rows = cache
             .get_property(
                 node_data,
@@ -895,32 +923,32 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 .unwrap_or_default()
         };
 
-        // Grid item placement (grid-column, grid-row)
-        if let Some(grid_col) = cache
-            .get_property(node_data, &id, node_state, &CssPropertyType::GridColumn)
-            .and_then(|p| {
-                if let CssProperty::GridColumn(v) = p {
-                    v.get_property().cloned()
-                } else {
-                    None
-                }
-            })
-        {
-            taffy_style.grid_column = grid_placement_to_taffy(&grid_col);
-        }
+        } // end if self_is_grid
 
-        if let Some(grid_row) = cache
-            .get_property(node_data, &id, node_state, &CssPropertyType::GridRow)
-            .and_then(|p| {
-                if let CssProperty::GridRow(v) = p {
-                    v.get_property().cloned()
-                } else {
-                    None
-                }
-            })
-        {
-            taffy_style.grid_row = grid_placement_to_taffy(&grid_row);
+        if parent_is_grid {
+        // Grid item placement — read from compact cold cache (Auto/Line/Span)
+        if let Some(cc) = cache.compact_cache.as_ref() {
+            let cs = cc.tier2_cold[id.index()].grid_col_start;
+            let ce = cc.tier2_cold[id.index()].grid_col_end;
+            if cs != azul_css::compact_cache::I16_AUTO || ce != azul_css::compact_cache::I16_AUTO {
+                taffy_style.grid_column = taffy::Line { start: decode_compact_grid_line(cs), end: decode_compact_grid_line(ce) };
+            }
+            let rs = cc.tier2_cold[id.index()].grid_row_start;
+            let re = cc.tier2_cold[id.index()].grid_row_end;
+            if rs != azul_css::compact_cache::I16_AUTO || re != azul_css::compact_cache::I16_AUTO {
+                taffy_style.grid_row = taffy::Line { start: decode_compact_grid_line(rs), end: decode_compact_grid_line(re) };
+            }
+        } else {
+            if let Some(grid_col) = cache
+                .get_property(node_data, &id, node_state, &CssPropertyType::GridColumn)
+                .and_then(|p| if let CssProperty::GridColumn(v) = p { v.get_property().cloned() } else { None })
+            { taffy_style.grid_column = grid_placement_to_taffy(&grid_col); }
+            if let Some(grid_row) = cache
+                .get_property(node_data, &id, node_state, &CssPropertyType::GridRow)
+                .and_then(|p| if let CssProperty::GridRow(v) = p { v.get_property().cloned() } else { None })
+            { taffy_style.grid_row = grid_placement_to_taffy(&grid_row); }
         }
+        } // end if parent_is_grid
 
         // Flexbox
         taffy_style.flex_direction = match get_flex_direction(styled_dom, id, node_state) {

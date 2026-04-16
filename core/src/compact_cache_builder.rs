@@ -889,6 +889,20 @@ fn apply_css_property_to_compact(
             }
         }
 
+        // Grid placement (compact encoding for common Auto/Line cases)
+        CssProperty::GridColumn(v) => {
+            if let Some(gp) = v.get_property() {
+                cold.grid_col_start = encode_grid_line(&gp.grid_start);
+                cold.grid_col_end = encode_grid_line(&gp.grid_end);
+            }
+        }
+        CssProperty::GridRow(v) => {
+            if let Some(gp) = v.get_property() {
+                cold.grid_row_start = encode_grid_line(&gp.grid_start);
+                cold.grid_row_end = encode_grid_line(&gp.grid_end);
+            }
+        }
+
         // Tier 2 cold
         CssProperty::ZIndex(v) => {
             if let Some(exact) = v.get_property() {
@@ -988,6 +1002,22 @@ fn apply_css_property_to_compact(
 // =============================================================================
 // Helper encoders for dimension properties
 // =============================================================================
+
+/// Encode a GridLine into i16: Auto=I16_AUTO, Line(n)=n, Span(n)=-(n).
+/// Named lines fall back to I16_SENTINEL (not compact-encodable).
+fn encode_grid_line(line: &azul_css::props::layout::grid::GridLine) -> i16 {
+    use azul_css::props::layout::grid::GridLine;
+    match line {
+        GridLine::Auto => I16_AUTO,
+        GridLine::Line(n) => {
+            if *n >= -32000 && *n <= 32000 { *n as i16 } else { I16_SENTINEL }
+        }
+        GridLine::Span(n) => {
+            if *n >= 1 && *n <= 32000 { -(*n as i16) } else { I16_SENTINEL }
+        }
+        GridLine::Named(_) => I16_SENTINEL,
+    }
+}
 
 /// Encode a CssPropertyValue<LayoutWidth> into u32 compact form.
 fn encode_layout_width<T: LayoutWidthLike>(val: &CssPropertyValue<T>) -> u32 {

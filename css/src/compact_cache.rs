@@ -1190,7 +1190,14 @@ pub struct CompactNodePropsCold {
     pub border_spacing_h: i16,
     pub border_spacing_v: i16,
     pub tab_size: i16,
-    pub _pad: [u8; 2],
+    /// Grid column start (I16_AUTO = auto, positive = line number, negative = span)
+    pub grid_col_start: i16,
+    /// Grid column end
+    pub grid_col_end: i16,
+    /// Grid row start
+    pub grid_row_start: i16,
+    /// Grid row end
+    pub grid_row_end: i16,
 }
 
 impl Default for CompactNodeProps {
@@ -1247,7 +1254,10 @@ impl Default for CompactNodePropsCold {
             border_spacing_h: 0,
             border_spacing_v: 0,
             tab_size: I16_SENTINEL, // default is 8em, needs resolution → sentinel
-            _pad: [0; 2],
+            grid_col_start: I16_AUTO,
+            grid_col_end: I16_AUTO,
+            grid_row_start: I16_AUTO,
+            grid_row_end: I16_AUTO,
         }
     }
 }
