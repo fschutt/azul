@@ -276,8 +276,8 @@ macro_rules! css_property_from_type {
             CssPropertyType::GridAutoRows => {
                 CssProperty::GridAutoRows(CssPropertyValue::$content_type)
             }
-            CssPropertyType::GridColumn => CssProperty::GridColumn(CssPropertyValue::$content_type),
-            CssPropertyType::GridRow => CssProperty::GridRow(CssPropertyValue::$content_type),
+            CssPropertyType::GridColumn => CssProperty::GridColumn(Box::new(CssPropertyValue::$content_type)),
+            CssPropertyType::GridRow => CssProperty::GridRow(Box::new(CssPropertyValue::$content_type)),
             CssPropertyType::GridTemplateAreas => {
                 CssProperty::GridTemplateAreas(CssPropertyValue::$content_type)
             }
@@ -386,19 +386,19 @@ macro_rules! css_property_from_type {
                 CssProperty::BoxShadowBottom(CssPropertyValue::$content_type)
             }
             CssPropertyType::ScrollbarTrack => {
-                CssProperty::ScrollbarTrack(CssPropertyValue::$content_type)
+                CssProperty::ScrollbarTrack(Box::new(CssPropertyValue::$content_type))
             }
             CssPropertyType::ScrollbarThumb => {
-                CssProperty::ScrollbarThumb(CssPropertyValue::$content_type)
+                CssProperty::ScrollbarThumb(Box::new(CssPropertyValue::$content_type))
             }
             CssPropertyType::ScrollbarButton => {
-                CssProperty::ScrollbarButton(CssPropertyValue::$content_type)
+                CssProperty::ScrollbarButton(Box::new(CssPropertyValue::$content_type))
             }
             CssPropertyType::ScrollbarCorner => {
-                CssProperty::ScrollbarCorner(CssPropertyValue::$content_type)
+                CssProperty::ScrollbarCorner(Box::new(CssPropertyValue::$content_type))
             }
             CssPropertyType::ScrollbarResizer => {
-                CssProperty::ScrollbarResizer(CssPropertyValue::$content_type)
+                CssProperty::ScrollbarResizer(Box::new(CssPropertyValue::$content_type))
             }
             CssPropertyType::ScrollbarWidth => {
                 CssProperty::ScrollbarWidth(CssPropertyValue::$content_type)
@@ -486,12 +486,12 @@ macro_rules! css_property_from_type {
             CssPropertyType::FlowInto => CssProperty::FlowInto(CssPropertyValue::$content_type),
             CssPropertyType::FlowFrom => CssProperty::FlowFrom(CssPropertyValue::$content_type),
             CssPropertyType::ShapeOutside => {
-                CssProperty::ShapeOutside(CssPropertyValue::$content_type)
+                CssProperty::ShapeOutside(Box::new(CssPropertyValue::$content_type))
             }
             CssPropertyType::ShapeInside => {
-                CssProperty::ShapeInside(CssPropertyValue::$content_type)
+                CssProperty::ShapeInside(Box::new(CssPropertyValue::$content_type))
             }
-            CssPropertyType::ClipPath => CssProperty::ClipPath(CssPropertyValue::$content_type),
+            CssPropertyType::ClipPath => CssProperty::ClipPath(Box::new(CssPropertyValue::$content_type)),
             CssPropertyType::ShapeMargin => {
                 CssProperty::ShapeMargin(CssPropertyValue::$content_type)
             }

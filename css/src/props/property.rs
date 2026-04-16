@@ -632,8 +632,10 @@ pub enum CssProperty {
     GridTemplateRows(LayoutGridTemplateRowsValue),
     GridAutoColumns(LayoutGridAutoColumnsValue),
     GridAutoRows(LayoutGridAutoRowsValue),
-    GridColumn(LayoutGridColumnValue),
-    GridRow(LayoutGridRowValue),
+    /// Boxed (120B inline otherwise): GridPlacement has {start,end,fallback,hover,focus,active}.
+    GridColumn(Box<LayoutGridColumnValue>),
+    /// Boxed (120B inline otherwise): GridPlacement has {start,end,fallback,hover,focus,active}.
+    GridRow(Box<LayoutGridRowValue>),
     GridTemplateAreas(LayoutGridTemplateAreasValue),
     WritingMode(LayoutWritingModeValue),
     Clear(LayoutClearValue),
@@ -683,11 +685,16 @@ pub enum CssProperty {
     BoxShadowRight(StyleBoxShadowValue),
     BoxShadowTop(StyleBoxShadowValue),
     BoxShadowBottom(StyleBoxShadowValue),
-    ScrollbarTrack(StyleBackgroundContentValue),
-    ScrollbarThumb(StyleBackgroundContentValue),
-    ScrollbarButton(StyleBackgroundContentValue),
-    ScrollbarCorner(StyleBackgroundContentValue),
-    ScrollbarResizer(StyleBackgroundContentValue),
+    /// Boxed (128B inline otherwise): StyleBackgroundContent holds LinearGradient with its Vec of stops.
+    ScrollbarTrack(Box<StyleBackgroundContentValue>),
+    /// Boxed (128B inline otherwise).
+    ScrollbarThumb(Box<StyleBackgroundContentValue>),
+    /// Boxed (128B inline otherwise).
+    ScrollbarButton(Box<StyleBackgroundContentValue>),
+    /// Boxed (128B inline otherwise).
+    ScrollbarCorner(Box<StyleBackgroundContentValue>),
+    /// Boxed (128B inline otherwise).
+    ScrollbarResizer(Box<StyleBackgroundContentValue>),
     ScrollbarWidth(LayoutScrollbarWidthValue),
     ScrollbarColor(StyleScrollbarColorValue),
     ScrollbarVisibility(ScrollbarVisibilityModeValue),
@@ -718,9 +725,12 @@ pub enum CssProperty {
     ColumnRuleColor(ColumnRuleColorValue),
     FlowInto(FlowIntoValue),
     FlowFrom(FlowFromValue),
-    ShapeOutside(ShapeOutsideValue),
-    ShapeInside(ShapeInsideValue),
-    ClipPath(ClipPathValue),
+    /// Boxed (64B inline otherwise): CssShape contains polygon/path vecs.
+    ShapeOutside(Box<ShapeOutsideValue>),
+    /// Boxed (64B inline otherwise).
+    ShapeInside(Box<ShapeInsideValue>),
+    /// Boxed (64B inline otherwise).
+    ClipPath(Box<ClipPathValue>),
     ShapeMargin(ShapeMarginValue),
     ShapeImageThreshold(ShapeImageThresholdValue),
     TableLayout(LayoutTableLayoutValue),
@@ -3026,9 +3036,9 @@ pub fn parse_css_property<'a>(
                 CssProperty::GridAutoRows(CssPropertyValue::Exact(GridAutoTracks::from(template)))
             }
             CssPropertyType::GridColumn => {
-                CssProperty::GridColumn(parse_grid_placement(value)?.into())
+                CssProperty::GridColumn(Box::new(CssPropertyValue::Exact(parse_grid_placement(value)?)))
             }
-            CssPropertyType::GridRow => CssProperty::GridRow(parse_grid_placement(value)?.into()),
+            CssPropertyType::GridRow => CssProperty::GridRow(Box::new(CssPropertyValue::Exact(parse_grid_placement(value)?))),
             CssPropertyType::GridTemplateAreas => {
                 use crate::props::layout::grid::parse_grid_template_areas;
                 let areas = parse_grid_template_areas(value)
@@ -3115,11 +3125,11 @@ pub fn parse_css_property<'a>(
                 CssProperty::BoxShadowBottom(CssPropertyValue::Exact(BoxOrStatic::heap(parse_style_box_shadow(value)?)))
             }
 
-            CssPropertyType::ScrollbarTrack => CssProperty::ScrollbarTrack(parse_style_background_content(value)?.into()),
-            CssPropertyType::ScrollbarThumb => CssProperty::ScrollbarThumb(parse_style_background_content(value)?.into()),
-            CssPropertyType::ScrollbarButton => CssProperty::ScrollbarButton(parse_style_background_content(value)?.into()),
-            CssPropertyType::ScrollbarCorner => CssProperty::ScrollbarCorner(parse_style_background_content(value)?.into()),
-            CssPropertyType::ScrollbarResizer => CssProperty::ScrollbarResizer(parse_style_background_content(value)?.into()),
+            CssPropertyType::ScrollbarTrack => CssProperty::ScrollbarTrack(Box::new(CssPropertyValue::Exact(parse_style_background_content(value)?))),
+            CssPropertyType::ScrollbarThumb => CssProperty::ScrollbarThumb(Box::new(CssPropertyValue::Exact(parse_style_background_content(value)?))),
+            CssPropertyType::ScrollbarButton => CssProperty::ScrollbarButton(Box::new(CssPropertyValue::Exact(parse_style_background_content(value)?))),
+            CssPropertyType::ScrollbarCorner => CssProperty::ScrollbarCorner(Box::new(CssPropertyValue::Exact(parse_style_background_content(value)?))),
+            CssPropertyType::ScrollbarResizer => CssProperty::ScrollbarResizer(Box::new(CssPropertyValue::Exact(parse_style_background_content(value)?))),
             CssPropertyType::ScrollbarWidth => parse_layout_scrollbar_width(value)?.into(),
             CssPropertyType::ScrollbarColor => parse_style_scrollbar_color(value)?.into(),
             CssPropertyType::ScrollbarVisibility => parse_scrollbar_visibility_mode(value)?.into(),
@@ -3177,21 +3187,18 @@ pub fn parse_css_property<'a>(
             }
             CssPropertyType::FlowInto => CssProperty::FlowInto(parse_flow_into(value)?.into()),
             CssPropertyType::FlowFrom => CssProperty::FlowFrom(parse_flow_from(value)?.into()),
-            CssPropertyType::ShapeOutside => CssProperty::ShapeOutside(
-                parse_shape_outside(value)
-                    .map_err(|_| CssParsingError::GenericParseError)?
-                    .into(),
-            ),
-            CssPropertyType::ShapeInside => CssProperty::ShapeInside(
-                parse_shape_inside(value)
-                    .map_err(|_| CssParsingError::GenericParseError)?
-                    .into(),
-            ),
-            CssPropertyType::ClipPath => CssProperty::ClipPath(
-                parse_clip_path(value)
-                    .map_err(|_| CssParsingError::GenericParseError)?
-                    .into(),
-            ),
+            CssPropertyType::ShapeOutside => CssProperty::ShapeOutside(Box::new(
+                CssPropertyValue::Exact(parse_shape_outside(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?)
+            )),
+            CssPropertyType::ShapeInside => CssProperty::ShapeInside(Box::new(
+                CssPropertyValue::Exact(parse_shape_inside(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?)
+            )),
+            CssPropertyType::ClipPath => CssProperty::ClipPath(Box::new(
+                CssPropertyValue::Exact(parse_clip_path(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?)
+            )),
             CssPropertyType::ShapeMargin => {
                 CssProperty::ShapeMargin(parse_shape_margin(value)?.into())
             }
@@ -3977,14 +3984,14 @@ pub fn parse_combined_css_property<'a>(
                 parse_grid_line_owned(s.trim()).map_err(|_| CssParsingError::InvalidValue(InvalidValueErr(value)))
             };
             Ok(vec![
-                CssProperty::GridRow(CssPropertyValue::Exact(GridPlacement {
+                CssProperty::GridRow(Box::new(CssPropertyValue::Exact(GridPlacement {
                     grid_start: parse_line(row_start)?,
                     grid_end: parse_line(row_end)?,
-                })),
-                CssProperty::GridColumn(CssPropertyValue::Exact(GridPlacement {
+                }))),
+                CssProperty::GridColumn(Box::new(CssPropertyValue::Exact(GridPlacement {
                     grid_start: parse_line(col_start)?,
                     grid_end: parse_line(col_end)?,
-                })),
+                }))),
             ])
         }
         ColumnRule => {
@@ -4076,6 +4083,19 @@ macro_rules! impl_from_css_prop {
         impl From<$a> for $b {
             fn from(e: $a) -> Self {
                 $b::$enum_type(CssPropertyValue::from(e))
+            }
+        }
+    };
+}
+
+// Same as `impl_from_css_prop!`, but wraps the `CssPropertyValue` in a `Box` —
+// used for the large variants that were boxed to shrink `CssProperty` from
+// 136 bytes to ~56 bytes.
+macro_rules! impl_from_css_prop_boxed {
+    ($a:ident, $b:ident:: $enum_type:ident) => {
+        impl From<$a> for $b {
+            fn from(e: $a) -> Self {
+                $b::$enum_type(Box::new(CssPropertyValue::from(e)))
             }
         }
     };
@@ -4224,9 +4244,9 @@ impl_from_css_prop!(ColumnRuleStyle, CssProperty::ColumnRuleStyle);
 impl_from_css_prop!(ColumnRuleColor, CssProperty::ColumnRuleColor);
 impl_from_css_prop!(FlowInto, CssProperty::FlowInto);
 impl_from_css_prop!(FlowFrom, CssProperty::FlowFrom);
-impl_from_css_prop!(ShapeOutside, CssProperty::ShapeOutside);
-impl_from_css_prop!(ShapeInside, CssProperty::ShapeInside);
-impl_from_css_prop!(ClipPath, CssProperty::ClipPath);
+impl_from_css_prop_boxed!(ShapeOutside, CssProperty::ShapeOutside);
+impl_from_css_prop_boxed!(ShapeInside, CssProperty::ShapeInside);
+impl_from_css_prop_boxed!(ClipPath, CssProperty::ClipPath);
 impl_from_css_prop!(ShapeMargin, CssProperty::ShapeMargin);
 impl_from_css_prop!(ShapeImageThreshold, CssProperty::ShapeImageThreshold);
 impl_from_css_prop!(Content, CssProperty::Content);
@@ -4904,16 +4924,16 @@ impl CssProperty {
 
     // const constructors for easier API access
 
-    pub const fn none(prop_type: CssPropertyType) -> Self {
+    pub fn none(prop_type: CssPropertyType) -> Self {
         css_property_from_type!(prop_type, None)
     }
-    pub const fn auto(prop_type: CssPropertyType) -> Self {
+    pub fn auto(prop_type: CssPropertyType) -> Self {
         css_property_from_type!(prop_type, Auto)
     }
-    pub const fn initial(prop_type: CssPropertyType) -> Self {
+    pub fn initial(prop_type: CssPropertyType) -> Self {
         css_property_from_type!(prop_type, Initial)
     }
-    pub const fn inherit(prop_type: CssPropertyType) -> Self {
+    pub fn inherit(prop_type: CssPropertyType) -> Self {
         css_property_from_type!(prop_type, Inherit)
     }
 
@@ -5237,14 +5257,14 @@ impl CssProperty {
     pub const fn flow_from(input: FlowFrom) -> Self {
         CssProperty::FlowFrom(CssPropertyValue::Exact(input))
     }
-    pub const fn shape_outside(input: ShapeOutside) -> Self {
-        CssProperty::ShapeOutside(CssPropertyValue::Exact(input))
+    pub fn shape_outside(input: ShapeOutside) -> Self {
+        CssProperty::ShapeOutside(Box::new(CssPropertyValue::Exact(input)))
     }
-    pub const fn shape_inside(input: ShapeInside) -> Self {
-        CssProperty::ShapeInside(CssPropertyValue::Exact(input))
+    pub fn shape_inside(input: ShapeInside) -> Self {
+        CssProperty::ShapeInside(Box::new(CssPropertyValue::Exact(input)))
     }
-    pub const fn clip_path(input: ClipPath) -> Self {
-        CssProperty::ClipPath(CssPropertyValue::Exact(input))
+    pub fn clip_path(input: ClipPath) -> Self {
+        CssProperty::ClipPath(Box::new(CssPropertyValue::Exact(input)))
     }
     pub const fn shape_margin(input: ShapeMargin) -> Self {
         CssProperty::ShapeMargin(CssPropertyValue::Exact(input))
@@ -5342,14 +5362,14 @@ impl CssProperty {
         }
     }
 
-    pub const fn as_grid_column(&self) -> Option<&LayoutGridColumnValue> {
+    pub fn as_grid_column(&self) -> Option<&LayoutGridColumnValue> {
         match self {
             CssProperty::GridColumn(f) => Some(f),
             _ => None,
         }
     }
 
-    pub const fn as_grid_row(&self) -> Option<&LayoutGridRowValue> {
+    pub fn as_grid_row(&self) -> Option<&LayoutGridRowValue> {
         match self {
             CssProperty::GridRow(f) => Some(f),
             _ => None,
@@ -5377,35 +5397,35 @@ impl CssProperty {
         }
     }
 
-    pub const fn as_scrollbar_track(&self) -> Option<&StyleBackgroundContentValue> {
+    pub fn as_scrollbar_track(&self) -> Option<&StyleBackgroundContentValue> {
         match self {
             CssProperty::ScrollbarTrack(f) => Some(f),
             _ => None,
         }
     }
 
-    pub const fn as_scrollbar_thumb(&self) -> Option<&StyleBackgroundContentValue> {
+    pub fn as_scrollbar_thumb(&self) -> Option<&StyleBackgroundContentValue> {
         match self {
             CssProperty::ScrollbarThumb(f) => Some(f),
             _ => None,
         }
     }
 
-    pub const fn as_scrollbar_button(&self) -> Option<&StyleBackgroundContentValue> {
+    pub fn as_scrollbar_button(&self) -> Option<&StyleBackgroundContentValue> {
         match self {
             CssProperty::ScrollbarButton(f) => Some(f),
             _ => None,
         }
     }
 
-    pub const fn as_scrollbar_corner(&self) -> Option<&StyleBackgroundContentValue> {
+    pub fn as_scrollbar_corner(&self) -> Option<&StyleBackgroundContentValue> {
         match self {
             CssProperty::ScrollbarCorner(f) => Some(f),
             _ => None,
         }
     }
 
-    pub const fn as_scrollbar_resizer(&self) -> Option<&StyleBackgroundContentValue> {
+    pub fn as_scrollbar_resizer(&self) -> Option<&StyleBackgroundContentValue> {
         match self {
             CssProperty::ScrollbarResizer(f) => Some(f),
             _ => None,
@@ -6241,19 +6261,19 @@ impl CssProperty {
             _ => None,
         }
     }
-    pub const fn as_shape_outside(&self) -> Option<&ShapeOutsideValue> {
+    pub fn as_shape_outside(&self) -> Option<&ShapeOutsideValue> {
         match self {
             CssProperty::ShapeOutside(f) => Some(f),
             _ => None,
         }
     }
-    pub const fn as_shape_inside(&self) -> Option<&ShapeInsideValue> {
+    pub fn as_shape_inside(&self) -> Option<&ShapeInsideValue> {
         match self {
             CssProperty::ShapeInside(f) => Some(f),
             _ => None,
         }
     }
-    pub const fn as_clip_path(&self) -> Option<&ClipPathValue> {
+    pub fn as_clip_path(&self) -> Option<&ClipPathValue> {
         match self {
             CssProperty::ClipPath(f) => Some(f),
             _ => None,
@@ -6557,16 +6577,16 @@ impl CssProperty {
         }
     }
 
-    pub const fn const_none(prop_type: CssPropertyType) -> Self {
+    pub fn const_none(prop_type: CssPropertyType) -> Self {
         css_property_from_type!(prop_type, None)
     }
-    pub const fn const_auto(prop_type: CssPropertyType) -> Self {
+    pub fn const_auto(prop_type: CssPropertyType) -> Self {
         css_property_from_type!(prop_type, Auto)
     }
-    pub const fn const_initial(prop_type: CssPropertyType) -> Self {
+    pub fn const_initial(prop_type: CssPropertyType) -> Self {
         css_property_from_type!(prop_type, Initial)
     }
-    pub const fn const_inherit(prop_type: CssPropertyType) -> Self {
+    pub fn const_inherit(prop_type: CssPropertyType) -> Self {
         css_property_from_type!(prop_type, Inherit)
     }
 
@@ -6834,14 +6854,14 @@ impl CssProperty {
     pub const fn const_flow_from(input: FlowFrom) -> Self {
         CssProperty::FlowFrom(FlowFromValue::Exact(input))
     }
-    pub const fn const_shape_outside(input: ShapeOutside) -> Self {
-        CssProperty::ShapeOutside(ShapeOutsideValue::Exact(input))
+    pub fn const_shape_outside(input: ShapeOutside) -> Self {
+        CssProperty::ShapeOutside(Box::new(ShapeOutsideValue::Exact(input)))
     }
-    pub const fn const_shape_inside(input: ShapeInside) -> Self {
-        CssProperty::ShapeInside(ShapeInsideValue::Exact(input))
+    pub fn const_shape_inside(input: ShapeInside) -> Self {
+        CssProperty::ShapeInside(Box::new(ShapeInsideValue::Exact(input)))
     }
-    pub const fn const_clip_path(input: ClipPath) -> Self {
-        CssProperty::ClipPath(ClipPathValue::Exact(input))
+    pub fn const_clip_path(input: ClipPath) -> Self {
+        CssProperty::ClipPath(Box::new(ClipPathValue::Exact(input)))
     }
     pub const fn const_shape_margin(input: ShapeMargin) -> Self {
         CssProperty::ShapeMargin(ShapeMarginValue::Exact(input))

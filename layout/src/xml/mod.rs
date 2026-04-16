@@ -408,6 +408,21 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
     let mut last_was_void = false;
     let mut tag_stack: Vec<String> = Vec::new(); // for matching close tags
 
+    // Lowercase `src` into `dst`, reusing `dst`'s existing capacity.
+    // Zero-alloc when dst's capacity is already ≥ src.len() AND no uppercase
+    // conversion is needed (the happy path for HTML5 where tags are lowercase).
+    fn lowercase_into(dst: &mut String, src: &str) {
+        dst.clear();
+        if src.bytes().all(|b| !b.is_ascii_uppercase()) {
+            dst.push_str(src);
+        } else {
+            dst.reserve(src.len());
+            for b in src.bytes() {
+                dst.push(b.to_ascii_lowercase() as char);
+            }
+        }
+    }
+
     for token in tokenizer {
         let token = token.map_err(|e| XmlError::ParserError(translate_xmlparser_error(e)))?;
         match token {
@@ -425,12 +440,20 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                     }
                 }
 
-                current_tag = local.as_str().to_ascii_lowercase();
+                // Reuse the current_tag buffer — avoids ~1023 fresh String
+                // allocations per parse (one per ElementStart).
+                lowercase_into(&mut current_tag, local.as_str());
                 current_attrs.clear();
                 pending_open = true;
                 last_was_void = VOID_ELEMENTS.contains(&current_tag.as_str());
             }
             Attribute { local, value, .. } => {
+                // decode_xml_entities returns Cow::Borrowed when no entities
+                // are present (the common case), so `.into_owned()` is the
+                // only fresh allocation here. The key is copied via
+                // `to_string()` because we can't hold a borrow across token
+                // iterations. TODO: when we switch current_attrs to
+                // Vec<(&str, Cow<str>)> this becomes zero-alloc for the key.
                 current_attrs.push((local.to_string(), decode_xml_entities(value.as_str()).into_owned()));
             }
             ElementEnd { end: Open, .. } => {
@@ -446,7 +469,10 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                         if is_void { builder.close_node(); }
                     }
                     if !is_void {
-                        tag_stack.push(current_tag.clone());
+                        // Use take() instead of clone() — after pending_open=false,
+                        // current_tag is not read again until the next ElementStart
+                        // reassigns it via lowercase_into.
+                        tag_stack.push(core::mem::take(&mut current_tag));
                     }
                     pending_open = false;
                 }
@@ -472,7 +498,7 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                         if is_void { builder.close_node(); }
                     }
                     if !is_void {
-                        tag_stack.push(current_tag.clone());
+                        tag_stack.push(core::mem::take(&mut current_tag));
                     }
                     pending_open = false;
                 }
