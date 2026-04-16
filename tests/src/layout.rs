@@ -214,7 +214,7 @@ mod text2 {
             font_metrics: mock_font.get_font_metrics().clone(),
             num_glyphs: 256, // Reasonable default for tests
             hhea_table: default_hhea_table(),
-            hmtx_data: Vec::new(),
+            hmtx_range: (0, 0),
             maxp_table: default_maxp_table(),
             gsub_cache: None,
             gpos_cache: None,

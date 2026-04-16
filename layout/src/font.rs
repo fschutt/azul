@@ -300,10 +300,10 @@ pub mod parsed {
         pub num_glyphs: u16,
         /// Horizontal header table (hhea) containing global horizontal metrics.
         pub hhea_table: HheaTable,
-        /// Raw horizontal metrics data (hmtx table bytes).
-        pub hmtx_data: Vec<u8>,
-        /// Raw vertical metrics data (vmtx table bytes, if present).
-        pub vmtx_data: Vec<u8>,
+        /// Offset+length into original_bytes for hmtx table (lazy: no copy).
+        pub hmtx_range: (usize, usize),
+        /// Offset+length into original_bytes for vmtx table (lazy: no copy).
+        pub vmtx_range: (usize, usize),
         /// Vertical header table (vhea), same format as hhea. None if font has no vertical metrics.
         pub vhea_table: Option<HheaTable>,
         /// Maximum profile table (maxp) containing glyph count and memory hints.
@@ -414,8 +414,8 @@ pub mod parsed {
                 pdf_font_metrics: self.pdf_font_metrics,
                 num_glyphs: self.num_glyphs,
                 hhea_table: self.hhea_table.clone(),
-                hmtx_data: self.hmtx_data.clone(),
-                vmtx_data: self.vmtx_data.clone(),
+                hmtx_range: self.hmtx_range,
+                vmtx_range: self.vmtx_range,
                 vhea_table: self.vhea_table.clone(),
                 maxp_table: self.maxp_table.clone(),
                 // OnceLock<T: Clone>: Clone preserves the init state, so
@@ -632,8 +632,8 @@ pub mod parsed {
                 .field("num_glyphs", &self.num_glyphs)
                 .field("hhea_table", &self.hhea_table)
                 .field(
-                    "hmtx_data",
-                    &format_args!("<{} bytes>", self.hmtx_data.len()),
+                    "hmtx_range",
+                    &format_args!("<{} bytes>", self.hmtx_range.1),
                 )
                 .field("maxp_table", &self.maxp_table)
                 .field(
@@ -800,17 +800,46 @@ pub mod parsed {
 
             let num_glyphs = maxp_table.num_glyphs as usize;
 
-            let hmtx_data = provider
+            // Compute byte offset+length into font_bytes for hmtx/vmtx
+            // instead of copying the table data. The provider returns a
+            // borrowed slice for OpenType fonts, so we can derive the
+            // offset via pointer arithmetic.
+            let hmtx_range = provider
                 .table_data(tag::HMTX)
                 .ok()
-                .and_then(|s| Some(s?.to_vec()))
-                .unwrap_or_default();
+                .and_then(|cow_opt| {
+                    let cow = cow_opt?;
+                    match cow {
+                        std::borrow::Cow::Borrowed(slice) => {
+                            let base = font_bytes.as_ptr() as usize;
+                            let ptr = slice.as_ptr() as usize;
+                            let offset = ptr.checked_sub(base)?;
+                            if offset + slice.len() <= font_bytes.len() {
+                                Some((offset, slice.len()))
+                            } else {
+                                None
+                            }
+                        }
+                        std::borrow::Cow::Owned(_) => None,
+                    }
+                })
+                .unwrap_or((0, 0));
 
-            let vmtx_data = provider
+            let vmtx_range = provider
                 .table_data(tag::VMTX)
                 .ok()
-                .and_then(|s| Some(s?.to_vec()))
-                .unwrap_or_default();
+                .and_then(|s| {
+                    let slice = s?;
+                    let base = font_bytes.as_ptr() as usize;
+                    let ptr = slice.as_ptr() as usize;
+                    let offset = ptr.checked_sub(base)?;
+                    if offset + slice.len() <= font_bytes.len() {
+                        Some((offset, slice.len()))
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or((0, 0));
 
             // Parse vhea table (same format as hhea, used for vertical metrics)
             let vhea_table = provider
@@ -956,8 +985,8 @@ pub mod parsed {
                 pdf_font_metrics,
                 num_glyphs,
                 hhea_table,
-                hmtx_data,
-                vmtx_data,
+                hmtx_range,
+                vmtx_range,
                 vhea_table,
                 maxp_table,
                 gsub_bytes,
@@ -1075,6 +1104,7 @@ pub mod parsed {
             // `bytes.as_ref()` derefs FontBytes → &[u8] (mmap or owned
             // — same code path).
             let mut font = Self::from_bytes_internal(bytes.as_ref(), font_index, warnings, true)?;
+            font.original_bytes = Some(bytes.clone());
             font.loca_glyf = LocaGlyfState::Deferred {
                 bytes,
                 font_index,
@@ -1337,12 +1367,28 @@ pub mod parsed {
         /// chain fails, falls back to an empty-outline record with the
         /// `hmtx` advance. This mirrors the pre-lazy behaviour where
         /// every gid ended up in `glyph_records_decoded`.
+        fn hmtx_bytes(&self) -> &[u8] {
+            let (off, len) = self.hmtx_range;
+            if len == 0 { return &[]; }
+            self.original_bytes.as_ref()
+                .map(|b| &b.as_ref()[off..off+len])
+                .unwrap_or(&[])
+        }
+
+        fn vmtx_bytes(&self) -> &[u8] {
+            let (off, len) = self.vmtx_range;
+            if len == 0 { return &[]; }
+            self.original_bytes.as_ref()
+                .map(|b| &b.as_ref()[off..off+len])
+                .unwrap_or(&[])
+        }
+
         fn decode_glyph_inner(&self, gid: u16) -> OwnedGlyph {
             let _p = crate::probe::Probe::span("decode_glyph");
             let horz_advance = allsorts::glyph_info::advance(
                 &self.maxp_table,
                 &self.hhea_table,
-                &self.hmtx_data,
+                self.hmtx_bytes(),
                 gid,
             )
             .unwrap_or_default();
@@ -1530,7 +1576,7 @@ pub mod parsed {
             allsorts::glyph_info::advance(
                 &self.maxp_table,
                 &self.hhea_table,
-                &self.hmtx_data,
+                self.hmtx_bytes(),
                 glyph_index,
             )
             .ok()
@@ -1556,7 +1602,7 @@ pub mod parsed {
             allsorts::glyph_info::advance(
                 &self.maxp_table,
                 &self.hhea_table,
-                &self.hmtx_data,
+                self.hmtx_bytes(),
                 glyph_index,
             )
             .unwrap_or_default()
@@ -1638,11 +1684,11 @@ pub mod parsed {
             glyph_id: u16,
         ) -> Option<crate::text3::cache::VerticalMetrics> {
             let vhea = self.vhea_table.as_ref()?;
-            if self.vmtx_data.is_empty() {
+            if self.vmtx_range.1 == 0 {
                 return None;
             }
             let vert_advance = allsorts::glyph_info::advance(
-                &self.maxp_table, vhea, &self.vmtx_data, glyph_id,
+                &self.maxp_table, vhea, self.vmtx_bytes(), glyph_id,
             ).ok()? as f32;
 
             let units_per_em = self.font_metrics.units_per_em as f32;
@@ -1778,7 +1824,7 @@ pub mod parsed {
             allsorts::glyph_info::advance(
                 &self.maxp_table,
                 &self.hhea_table,
-                &self.hmtx_data,
+                self.hmtx_bytes(),
                 glyph_index,
             )
             .ok()
