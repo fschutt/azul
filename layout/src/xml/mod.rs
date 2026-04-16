@@ -331,9 +331,22 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
     // Pre-compute the CSS key map once (used for style= attribute parsing)
     let css_key_map = azul_css::props::property::get_css_key_map();
 
+    // One bump arena for every AzString produced during this parse —
+    // id/class tokens, text nodes, etc. Replaces ~1k small heap allocs
+    // with a handful of 64 KiB chunks. Each AzString carries its own
+    // Arc reference to the arena, so the arena survives until the last
+    // string is dropped (typically when the StyledDom is dropped).
+    let mut str_arena = azul_css::corety::StringArena::new();
+
     // Finalize the pending open element: create NodeData from tag + attrs, push to builder
     // tag is already lowercase
-    let finalize_open = |builder: &mut CompactDomBuilder, tag: &str, attrs: &[(String, String)], css_key_map: &azul_css::props::property::CssKeyMap| {
+    let finalize_open = |
+        builder: &mut CompactDomBuilder,
+        str_arena: &mut azul_css::corety::StringArena,
+        tag: &str,
+        attrs: &[(String, String)],
+        css_key_map: &azul_css::props::property::CssKeyMap,
+    | {
         let node_type = azul_core::xml::tag_to_node_type(tag);
         let mut nd = NodeData::create_node(node_type);
 
@@ -344,12 +357,12 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
             match key.as_str() {
                 "id" => {
                     for id in value.split_whitespace() {
-                        attr_vec.push(azul_core::dom::AttributeType::Id(id.into()));
+                        attr_vec.push(azul_core::dom::AttributeType::Id(str_arena.intern(id)));
                     }
                 }
                 "class" => {
                     for class in value.split_whitespace() {
-                        attr_vec.push(azul_core::dom::AttributeType::Class(class.into()));
+                        attr_vec.push(azul_core::dom::AttributeType::Class(str_arena.intern(class)));
                     }
                 }
                 "focusable" => {
@@ -432,7 +445,7 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                     let is_void = VOID_ELEMENTS.contains(&current_tag.as_str());
                     if current_tag == "head" { head_depth += 1; }
                     if head_depth == 0 {
-                        finalize_open(&mut builder, &current_tag, &current_attrs, &css_key_map);
+                        finalize_open(&mut builder, &mut str_arena, &current_tag, &current_attrs, &css_key_map);
                         if is_void { builder.close_node(); }
                     }
                     if !is_void {
@@ -465,7 +478,7 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                     }
                     if current_tag == "head" { head_depth += 1; }
                     if head_depth == 0 {
-                        finalize_open(&mut builder, &current_tag, &current_attrs, &css_key_map);
+                        finalize_open(&mut builder, &mut str_arena, &current_tag, &current_attrs, &css_key_map);
                         if is_void { builder.close_node(); }
                     }
                     if !is_void {
@@ -482,7 +495,7 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                 if pending_open {
                     if current_tag == "head" { head_depth += 1; }
                     if head_depth == 0 {
-                        finalize_open(&mut builder, &current_tag, &current_attrs, &css_key_map);
+                        finalize_open(&mut builder, &mut str_arena, &current_tag, &current_attrs, &css_key_map);
                         builder.close_node();
                     }
                     if current_tag == "head" && head_depth > 0 { head_depth -= 1; }
@@ -494,7 +507,7 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                     let is_void = VOID_ELEMENTS.contains(&current_tag.as_str());
                     if current_tag == "head" { head_depth += 1; }
                     if head_depth == 0 {
-                        finalize_open(&mut builder, &current_tag, &current_attrs, &css_key_map);
+                        finalize_open(&mut builder, &mut str_arena, &current_tag, &current_attrs, &css_key_map);
                         if is_void { builder.close_node(); }
                     }
                     if !is_void {
@@ -540,7 +553,7 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                     }
                     if current_tag == "head" { head_depth += 1; }
                     if head_depth == 0 {
-                        finalize_open(&mut builder, &current_tag, &current_attrs, &css_key_map);
+                        finalize_open(&mut builder, &mut str_arena, &current_tag, &current_attrs, &css_key_map);
                         if is_void { builder.close_node(); }
                     }
                     if !is_void {
@@ -559,7 +572,7 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                         let inside_body = tag_stack.iter().any(|t| t == "body");
                         if inside_body || !text_str.trim().is_empty() {
                             let decoded = decode_xml_entities(text_str);
-                            builder.add_leaf(NodeData::create_text(azul_css::AzString::from(&*decoded)));
+                            builder.add_leaf(NodeData::create_text(str_arena.intern(&decoded)));
                         }
                     }
                 }
@@ -570,11 +583,15 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
 
     // Close any remaining open elements
     if pending_open {
-        finalize_open(&mut builder, &current_tag, &current_attrs, &css_key_map);
+        finalize_open(&mut builder, &mut str_arena, &current_tag, &current_attrs, &css_key_map);
     }
     while tag_stack.pop().is_some() {
         builder.close_node();
     }
+
+    // Drop the arena handle explicitly. AzStrings already embedded in
+    // the FastDom keep the backing bytes alive via their cloned Arc refs.
+    drop(str_arena);
 
     Ok((builder.finish(), collected_css))
 }

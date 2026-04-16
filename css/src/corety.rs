@@ -620,3 +620,226 @@ impl Ord for OptionF32 {
         }
     }
 }
+
+// ============================================================================
+// StringArena — bump allocator for AzString bytes
+// ============================================================================
+//
+// Consolidates thousands of small AzString allocations (tag names,
+// attribute values, text content) into a handful of 64 KiB chunks.
+// Each arena-backed AzString uses `U8VecDestructor::External` and stashes
+// a cloned `Arc<StringArenaInner>` pointer in the `cap` field — dropping
+// the AzString decrements the refcount, and the backing bytes are freed
+// only when the last reference goes away. This works across FFI without
+// changing any public struct layout.
+
+use alloc::sync::Arc;
+use core::cell::UnsafeCell;
+
+/// Shared interior of a [`StringArena`]. Refcounted via `Arc<Self>`;
+/// never accessed through its `Arc` for mutation — only the owning
+/// `StringArena` (with `&mut self`) mutates the chunks.
+struct StringArenaInner {
+    /// Pre-allocated byte chunks. Pointers into a chunk stay valid
+    /// because we never push past `Vec::capacity()` — no reallocation.
+    chunks: UnsafeCell<Vec<Vec<u8>>>,
+    /// Remaining unused bytes in the last chunk; `0` when a fresh
+    /// chunk is needed.
+    current_remaining: UnsafeCell<usize>,
+}
+
+// Safety:
+// - Mutation through `UnsafeCell` only happens via `&mut StringArena`,
+//   which owns the sole external reference to `Arc<StringArenaInner>`
+//   held in a `StringArena`. Other `Arc` references live inside AzString
+//   destructors and never touch chunks — they only drop the Arc.
+// - `Arc<T>` itself needs `T: Send + Sync` to cross threads; since the
+//   destructor can run on any thread, we claim Send+Sync and rely on the
+//   single-writer invariant for mutation safety.
+unsafe impl Send for StringArenaInner {}
+unsafe impl Sync for StringArenaInner {}
+
+/// Bump allocator backing arena-owned `AzString` instances.
+///
+/// Every AzString returned by [`StringArena::intern`] holds a cloned
+/// `Arc` to this arena; the backing bytes stay alive until the last
+/// such AzString (and the arena handle itself) is dropped.
+///
+/// Intended use: create one arena per XML/HTML parse pass, intern all
+/// tag names / attribute values / text content through it, then drop the
+/// handle. The AzStrings embedded in the resulting `StyledDom` keep the
+/// arena alive for as long as they need the bytes.
+pub struct StringArena {
+    inner: Arc<StringArenaInner>,
+}
+
+impl StringArena {
+    /// Size of a freshly allocated chunk. Large enough that a typical
+    /// DOM parse fits in 1-2 chunks, small enough to not over-allocate
+    /// for small documents.
+    pub const CHUNK_SIZE: usize = 64 * 1024;
+
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(StringArenaInner {
+                chunks: UnsafeCell::new(Vec::new()),
+                current_remaining: UnsafeCell::new(0),
+            }),
+        }
+    }
+
+    /// Returns `(chunk_count, total_bytes_used)` for metrics.
+    pub fn metrics(&self) -> (usize, usize) {
+        // Safety: metrics is read-only; the caller holds &self so no
+        // concurrent mutation via &mut self is possible.
+        unsafe {
+            let chunks = &*self.inner.chunks.get();
+            let total: usize = chunks.iter().map(|c| c.len()).sum();
+            (chunks.len(), total)
+        }
+    }
+
+    /// Intern `s` into the arena and return an AzString whose backing
+    /// bytes live inside the arena. The returned AzString owns a cloned
+    /// `Arc` reference; dropping it decrements the refcount, and the
+    /// arena frees its chunks when the final reference is released.
+    pub fn intern(&mut self, s: &str) -> AzString {
+        let bytes = s.as_bytes();
+        let len = bytes.len();
+
+        let ptr: *const u8 = if len == 0 {
+            // Empty strings don't need arena storage; a non-null dangling
+            // pointer is fine because `len == 0` means nobody will deref.
+            core::ptr::NonNull::<u8>::dangling().as_ptr()
+        } else {
+            // Safety: `&mut self` ⇒ exclusive access to inner chunks.
+            unsafe {
+                let chunks: &mut Vec<Vec<u8>> = &mut *self.inner.chunks.get();
+                let remaining: &mut usize = &mut *self.inner.current_remaining.get();
+
+                // Oversized strings get their own dedicated chunk so we
+                // don't waste the tail of the current chunk.
+                if len > Self::CHUNK_SIZE / 2 {
+                    let mut v = Vec::with_capacity(len);
+                    v.extend_from_slice(bytes);
+                    let p = v.as_ptr();
+                    chunks.push(v);
+                    p
+                } else {
+                    if *remaining < len {
+                        chunks.push(Vec::with_capacity(Self::CHUNK_SIZE));
+                        *remaining = Self::CHUNK_SIZE;
+                    }
+                    // Safety: chunk was allocated with capacity ≥ len and
+                    // `remaining` tracks unused capacity — no realloc.
+                    let chunk = chunks.last_mut().unwrap();
+                    let offset = chunk.len();
+                    chunk.extend_from_slice(bytes);
+                    *remaining -= len;
+                    chunk.as_ptr().add(offset)
+                }
+            }
+        };
+
+        // Each AzString carries its own Arc reference count. Stash the
+        // raw Arc pointer in `cap` so the External destructor can decrement.
+        let arc_raw = Arc::into_raw(Arc::clone(&self.inner));
+
+        AzString {
+            vec: U8Vec {
+                ptr,
+                len,
+                // NOTE: `cap` stores an Arc pointer, not a capacity. This
+                // works because the `External` destructor path never calls
+                // `Vec::from_raw_parts(ptr, len, cap)` — only `DefaultRust`
+                // does that.
+                cap: arc_raw as usize,
+                destructor: U8VecDestructor::External(arena_string_destructor),
+            },
+        }
+    }
+}
+
+impl Default for StringArena {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Destructor installed on every arena-backed AzString. Reads the Arc
+/// pointer out of `cap` and drops one Arc reference; when the count
+/// reaches zero the `StringArenaInner` is freed.
+extern "C" fn arena_string_destructor(vec: *mut U8Vec) {
+    // Safety: called at most once per AzString drop. `cap` was set by
+    // `StringArena::intern` to `Arc::into_raw(Arc<StringArenaInner>)`.
+    unsafe {
+        let v = &mut *vec;
+        let arc_raw = v.cap as *const StringArenaInner;
+        if !arc_raw.is_null() {
+            let _ = Arc::from_raw(arc_raw);
+            // Prevent a hypothetical double-drop from dereferencing
+            // freed memory.
+            v.cap = 0;
+        }
+    }
+}
+
+#[cfg(test)]
+mod string_arena_tests {
+    use super::*;
+
+    #[test]
+    fn intern_round_trip() {
+        let mut arena = StringArena::new();
+        let a = arena.intern("hello");
+        let b = arena.intern("world");
+        let c = arena.intern("");
+        assert_eq!(a.as_str(), "hello");
+        assert_eq!(b.as_str(), "world");
+        assert_eq!(c.as_str(), "");
+    }
+
+    #[test]
+    fn strings_outlive_arena_handle() {
+        let a = {
+            let mut arena = StringArena::new();
+            arena.intern("survives drop of arena handle")
+        };
+        assert_eq!(a.as_str(), "survives drop of arena handle");
+    }
+
+    #[test]
+    fn oversized_string_gets_dedicated_chunk() {
+        let mut arena = StringArena::new();
+        let big = "x".repeat(StringArena::CHUNK_SIZE);
+        let s = arena.intern(&big);
+        assert_eq!(s.len(), big.len());
+        assert_eq!(s.as_str(), big.as_str());
+    }
+
+    #[test]
+    fn many_small_strings_share_chunk() {
+        let mut arena = StringArena::new();
+        let mut strings = Vec::new();
+        for i in 0..100 {
+            strings.push(arena.intern(&format!("s{i}")));
+        }
+        let (chunks, _bytes) = arena.metrics();
+        assert!(chunks <= 2, "expected ≤2 chunks for 100 small strings, got {chunks}");
+        for (i, s) in strings.iter().enumerate() {
+            assert_eq!(s.as_str(), format!("s{i}"));
+        }
+    }
+
+    #[test]
+    fn clone_deep_copies_and_is_independent() {
+        // Cloning an External AzString deep-copies into DefaultRust, so
+        // the clone doesn't depend on the arena at all.
+        let clone = {
+            let mut arena = StringArena::new();
+            let a = arena.intern("deep-copy test");
+            a.clone()
+        };
+        assert_eq!(clone.as_str(), "deep-copy test");
+    }
+}

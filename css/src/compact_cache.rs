@@ -1984,12 +1984,17 @@ mod tests {
 
     #[test]
     fn test_compact_node_props_size() {
-        assert_eq!(core::mem::size_of::<CompactNodeProps>(), 68);
+        // 72B hot props: 8×u32 dimensions (32B) + 16×i16 box model (32B)
+        // + 2×u16 flex (4B) + 1×i16 order + align/pos tier1 bits (4B).
+        assert_eq!(core::mem::size_of::<CompactNodeProps>(), 72);
     }
 
     #[test]
     fn test_compact_node_props_cold_size() {
-        assert_eq!(core::mem::size_of::<CompactNodePropsCold>(), 28);
+        // 36B cold props: 4×u32 border colors (16B) + 4×i16 border/spacing
+        // + 4×i16 grid placement (grid_col/row_start/end) + 1×i16 z_index
+        // + 1×u16 border_styles_packed, aligned up to 36B.
+        assert_eq!(core::mem::size_of::<CompactNodePropsCold>(), 36);
     }
 
     #[test]
