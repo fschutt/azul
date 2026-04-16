@@ -4917,6 +4917,9 @@ impl CssPropertyCache {
         node_hierarchy: &[NodeHierarchyItem],
         node_data: &[NodeData],
     ) -> Vec<NodeId> {
+        if self.computed_values.len() < node_hierarchy.len() {
+            self.computed_values.resize(node_hierarchy.len(), Vec::new());
+        }
         node_hierarchy
             .iter()
             .enumerate()

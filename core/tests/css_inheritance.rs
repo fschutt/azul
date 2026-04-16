@@ -33,13 +33,19 @@ fn find_prop<'a>(
         .map(|idx| &computed[idx].1)
 }
 
-// Helper macro to create a StyledDom and get the necessary references
+// Helper macro to create a StyledDom and get the necessary references.
+// Explicitly calls compute_inherited_values to populate computed_values
+// (the compact cache builder handles inheritance directly in compact format
+// and does not populate computed_values).
 macro_rules! setup_test {
     ($dom:expr) => {{
         let mut dom = $dom;
         let styled_dom = StyledDom::create(&mut dom, Css::empty());
 
-        let cache = styled_dom.css_property_cache.ptr.clone();
+        let mut cache = styled_dom.css_property_cache.ptr.clone();
+        let hierarchy = styled_dom.node_hierarchy.as_container();
+        let node_data = styled_dom.node_data.as_container();
+        cache.compute_inherited_values(hierarchy.internal, node_data.internal);
 
         (styled_dom, cache)
     }};

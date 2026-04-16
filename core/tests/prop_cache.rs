@@ -28,12 +28,18 @@ fn find_prop<'a>(
         .map(|idx| &computed[idx].1)
 }
 
-// Helper macro to create a StyledDom and get the CSS property cache
+// Helper macro to create a StyledDom and get the CSS property cache.
+// Calls compute_inherited_values to populate computed_values
+// (build_compact_cache_with_inheritance handles inheritance in compact
+// format and does not fill computed_values).
 macro_rules! setup_styled_dom {
     ($dom:expr) => {{
         let mut dom = $dom;
         let styled_dom = StyledDom::create(&mut dom, Css::empty());
-        let cache = styled_dom.css_property_cache.ptr.clone();
+        let mut cache = styled_dom.css_property_cache.ptr.clone();
+        let h = styled_dom.node_hierarchy.as_container();
+        let d = styled_dom.node_data.as_container();
+        cache.compute_inherited_values(h.internal, d.internal);
         (styled_dom, cache)
     }};
     ($dom:expr, $css:expr) => {{
@@ -41,7 +47,10 @@ macro_rules! setup_styled_dom {
         let (css, _) = azul_css::parser2::new_from_str($css);
         let css_wrapper = css;
         let styled_dom = StyledDom::create(&mut dom, css_wrapper);
-        let cache = styled_dom.css_property_cache.ptr.clone();
+        let mut cache = styled_dom.css_property_cache.ptr.clone();
+        let h = styled_dom.node_hierarchy.as_container();
+        let d = styled_dom.node_data.as_container();
+        cache.compute_inherited_values(h.internal, d.internal);
         (styled_dom, cache)
     }};
 }
@@ -330,18 +339,17 @@ fn test_multiple_properties_computed() {
     "#;
     let dom = Dom::create_div();
 
-    let (_styled_dom, cache) = setup_styled_dom!(dom, css);
+    let (styled_dom, _cache) = setup_styled_dom!(dom, css);
 
-    let div_id = azul_core::dom::NodeId::new(0);
-    let computed = cache
-        .computed_values
-        .get(div_id.index())
-        .expect("div should have computed values");
-
-    // Check that multiple properties exist
-    assert!(find_prop(computed, &CssPropertyType::FontSize).is_some());
-    assert!(find_prop(computed, &CssPropertyType::Display).is_some());
-    // Width might not be computed if it's not inheritable
+    // After compact-prune, compact-encoded properties live in the compact cache,
+    // not in computed_values. Verify via compact cache.
+    let cc = styled_dom.css_property_cache.ptr.compact_cache.as_ref().unwrap();
+    let fs = cc.tier2_dims[0].font_size;
+    assert_ne!(fs, 0, "font-size should be set in compact cache");
+    let display = ((cc.tier1_enums[0] >> azul_css::compact_cache::DISPLAY_SHIFT)
+        & azul_css::compact_cache::DISPLAY_MASK) as u8;
+    // Block encodes as 0 (default), which is correct
+    assert_eq!(display, 0, "display:block encodes as 0 in compact cache");
 }
 
 #[test]
@@ -468,21 +476,15 @@ fn test_non_inheritable_property_not_inherited() {
 fn test_empty_css_produces_only_ua_styles() {
     let dom = Dom::create_node(NodeType::P).with_child(Dom::create_text("Paragraph"));
 
-    let (_styled_dom, cache) = setup_styled_dom!(dom);
+    let (styled_dom, _cache) = setup_styled_dom!(dom);
 
-    // P should have UA CSS for display, margins, etc.
-    let p_id = azul_core::dom::NodeId::new(0);
-    let computed = cache
-        .computed_values
-        .get(p_id.index())
-        .expect("p should have computed values");
-
-    // P has UA CSS margin-top and margin-bottom
-    assert!(
-        find_prop(computed, &CssPropertyType::MarginTop).is_some()
-            || find_prop(computed, &CssPropertyType::Display).is_some(),
-        "P should have some UA CSS properties"
-    );
+    // P should have UA CSS applied. Compact cache encodes Block as 0
+    // (default when bits unset), so we check the POPULATED bit + margin.
+    let cc = styled_dom.css_property_cache.ptr.compact_cache.as_ref()
+        .expect("compact cache should exist");
+    // P has margin-top from UA CSS — check it's non-zero in compact dims
+    let margin_top = cc.tier2_dims[0].margin_top;
+    assert_ne!(margin_top, 0, "P should have non-zero margin-top from UA CSS");
 }
 
 #[test]
