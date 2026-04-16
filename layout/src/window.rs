@@ -467,6 +467,8 @@ impl LayoutWindow {
                 cache_map: Default::default(),
                 previous_positions: Vec::new(),
                 cached_display_list: None,
+                prev_dom_ptr: 0,
+                prev_viewport: LogicalRect::zero(),
             },
             text_cache: TextLayoutCache::new(),
             font_manager: FontManager::new(fc_cache)?,
@@ -547,6 +549,8 @@ impl LayoutWindow {
                 cache_map: Default::default(),
                 previous_positions: Vec::new(),
                 cached_display_list: None,
+                prev_dom_ptr: 0,
+                prev_viewport: LogicalRect::zero(),
             },
             text_cache: TextLayoutCache::new(),
             font_manager: FontManager::from_arc_shared(fc_cache, parsed_fonts)?,
@@ -626,6 +630,8 @@ impl LayoutWindow {
                 cache_map: Default::default(),
                 previous_positions: Vec::new(),
                 cached_display_list: None,
+                prev_dom_ptr: 0,
+                prev_viewport: LogicalRect::zero(),
             },
             text_cache: TextLayoutCache::new(),
             font_manager: FontManager::new(fc_cache)?,
@@ -1181,6 +1187,8 @@ impl LayoutWindow {
             cache_map: Default::default(),
             previous_positions: Vec::new(),
                 cached_display_list: None,
+                prev_dom_ptr: 0,
+                prev_viewport: LogicalRect::zero(),
         };
         self.text_cache = TextLayoutCache::new();
         self.layout_results.clear();

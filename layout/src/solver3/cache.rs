@@ -377,6 +377,11 @@ pub struct LayoutCache {
     /// `mark_dirty` fires on any node (since the root's upstream
     /// invalidation chain clears its ancestors).
     pub cached_display_list: Option<(SubtreeHash, LogicalRect, super::display_list::DisplayList)>,
+    /// Raw pointer of the StyledDom from the previous layout pass. When the
+    /// same `&StyledDom` reference is passed again AND the viewport is unchanged,
+    /// skip reconcile entirely and return the cached display list (saves ~0.8 ms).
+    pub prev_dom_ptr: usize,
+    pub prev_viewport: LogicalRect,
 }
 
 /// The result of a reconciliation pass.

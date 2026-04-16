@@ -457,6 +457,21 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
 
     crate::probe::sample_peak_rss("rss:enter_layout_document");
 
+    // --- Step 0: Pointer-identity fast path ---
+    // If the exact same StyledDom reference is passed with the same viewport,
+    // skip reconcile entirely and return the cached display list.
+    let dom_ptr = new_dom as *const StyledDom as usize;
+    if dom_ptr == cache.prev_dom_ptr
+        && viewport == cache.prev_viewport
+        && cache.cached_display_list.is_some()
+    {
+        let _p = crate::probe::Probe::span("dom_ptr_cache_hit");
+        let (_, _, cached_dl) = cache.cached_display_list.as_ref().unwrap();
+        return Ok(cached_dl.clone());
+    }
+    cache.prev_dom_ptr = dom_ptr;
+    cache.prev_viewport = viewport;
+
     // --- Step 1: Reconciliation & Invalidation ---
     let (mut new_tree, mut recon_result) =
         cache::reconcile_and_invalidate(&mut ctx_temp, cache, viewport)?;
