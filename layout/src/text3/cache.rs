@@ -5095,6 +5095,25 @@ pub struct FlowLayout {
     pub remaining_items: Vec<ShapedItem>,
 }
 
+/// Inline-axis intrinsic contributions derived from shaped text, without running
+/// the line-breaking stage of the pipeline.
+///
+/// Callers that only need min/max-content widths for sizing (see
+/// `calculate_ifc_root_intrinsic_sizes`) should prefer this over invoking
+/// `layout_flow` twice with `AvailableSpace::MinContent`/`MaxContent`. The
+/// latter runs the full flow loop — including `BreakCursor::peek_next_unit`,
+/// which clones every `ShapedCluster` it inspects — even though no constraint
+/// actually limits the line width.
+#[derive(Debug, Clone, Default)]
+pub struct IntrinsicTextSizes {
+    /// CSS min-content = widest unbreakable unit (word) along the inline axis.
+    pub min_content_width: f32,
+    /// CSS max-content = sum of all advances along the inline axis (single line).
+    pub max_content_width: f32,
+    /// Height of a single line box: max(ascent + descent) across all items.
+    pub max_content_height: f32,
+}
+
 /// Cached line break boundaries from a previous layout pass.
 /// Enables incremental relayout: when a word changes width,
 /// we can check if it still fits on the same line without
@@ -5724,6 +5743,153 @@ impl TextShapingCache {
         Ok(FlowLayout {
             fragment_layouts,
             remaining_items: cursor.drain_remaining(),
+        })
+    }
+
+    /// Runs stages 1–4 of the layout pipeline (logical analysis, BiDi, shaping,
+    /// text orientation) and derives min/max-content widths by scanning the
+    /// resulting `ShapedItem`s directly — without running stage 5's line-breaking
+    /// `BreakCursor` loop.
+    ///
+    /// Used by `calculate_ifc_root_intrinsic_sizes` to avoid the 24% CPU spent
+    /// cloning `ShapedCluster`s inside `BreakCursor::peek_next_unit` on every
+    /// sizing pass. Since stages 1–3 hit the same `per_item_shaped` cache as
+    /// `layout_flow`, a subsequent `layout_flow` call for the same content at
+    /// a real container width is a pure cache hit for the shaping work.
+    ///
+    /// The item walk uses the same break-opportunity predicate that the
+    /// `BreakCursor` would — min-content accumulates advances between break
+    /// opportunities and tracks the maximum; max-content is the sum of all
+    /// advances (as if the flow were laid out on a single infinitely-wide line).
+    pub fn measure_intrinsic_widths<T: ParsedFontTrait>(
+        &mut self,
+        content: &[InlineContent],
+        style_overrides: &[StyleOverride],
+        constraints: &UnifiedConstraints,
+        font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
+        fc_cache: &FcFontCache,
+        loaded_fonts: &LoadedFonts<T>,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ) -> Result<IntrinsicTextSizes, LayoutError> {
+        const PER_ITEM_CACHE_MAX: usize = 4096;
+        if self.per_item_shaped.len() > PER_ITEM_CACHE_MAX {
+            self.begin_generation();
+        }
+
+        // Stage 1: Logical Analysis
+        let logical_items_id = calculate_id(&content);
+        let logical_items = self
+            .logical_items
+            .entry(logical_items_id)
+            .or_insert_with(|| {
+                Arc::new(create_logical_items(
+                    content,
+                    style_overrides,
+                    debug_messages,
+                ))
+            })
+            .clone();
+
+        // Stage 2: BiDi (same derivation as layout_flow)
+        let unicode_bidi_val = constraints.unicode_bidi;
+        let base_direction = if unicode_bidi_val == UnicodeBidi::Plaintext {
+            let has_strong = logical_items.iter().any(|item| {
+                if let LogicalItem::Text { text, .. } = item {
+                    matches!(unicode_bidi::get_base_direction(text.as_str()),
+                        unicode_bidi::Direction::Ltr | unicode_bidi::Direction::Rtl)
+                } else {
+                    false
+                }
+            });
+            if has_strong {
+                get_base_direction_from_logical(&logical_items)
+            } else {
+                constraints.direction.unwrap_or(BidiDirection::Ltr)
+            }
+        } else {
+            constraints.direction.unwrap_or(BidiDirection::Ltr)
+        };
+        let visual_key = VisualItemsKey {
+            logical_items_id,
+            base_direction,
+        };
+        let visual_items_id = calculate_id(&visual_key);
+        let visual_items = self
+            .visual_items
+            .entry(visual_items_id)
+            .or_insert_with(|| {
+                Arc::new(
+                    reorder_logical_items(&logical_items, base_direction, unicode_bidi_val, debug_messages).unwrap(),
+                )
+            })
+            .clone();
+
+        // Stage 3: Shaping
+        let shaped_key = ShapedItemsKey::new(visual_items_id, &visual_items);
+        let shaped_items_id = calculate_id(&shaped_key);
+        let shaped_items = match self.shaped_items.get(&shaped_items_id) {
+            Some(cached) => cached.clone(),
+            None => {
+                let items = Arc::new(shape_visual_items_with_per_item_cache(
+                    &visual_items,
+                    &mut self.per_item_shaped,
+                    &mut self.per_item_accessed,
+                    font_chain_cache,
+                    fc_cache,
+                    loaded_fonts,
+                    debug_messages,
+                )?);
+                self.shaped_items.insert(shaped_items_id, items.clone());
+                items
+            }
+        };
+
+        // Stage 4: Text orientation
+        let oriented_items = apply_text_orientation(shaped_items, constraints)?;
+
+        // Stage 5 bypass: scan items for min/max contributions.
+        let word_break = constraints.word_break;
+        let hyphens = constraints.hyphenation;
+
+        let mut total = 0.0f32;
+        let mut max_word = 0.0f32;
+        let mut cur_word = 0.0f32;
+        let mut max_line_height = 0.0f32;
+
+        for item in oriented_items.iter() {
+            let advance = match item {
+                ShapedItem::Cluster(c) => c.advance,
+                ShapedItem::CombinedBlock { bounds, .. }
+                | ShapedItem::Object { bounds, .. }
+                | ShapedItem::Tab { bounds, .. } => bounds.width,
+                ShapedItem::Break { .. } => 0.0,
+            };
+            let adv = advance.max(0.0);
+            total += adv;
+
+            let (asc, desc) = get_item_vertical_metrics_approx(item);
+            let h = (asc + desc).max(item.bounds().height);
+            if h > max_line_height {
+                max_line_height = h;
+            }
+
+            if is_break_opportunity_with_word_break(item, word_break, hyphens) {
+                if cur_word > max_word {
+                    max_word = cur_word;
+                }
+                cur_word = 0.0;
+            } else {
+                cur_word += adv;
+            }
+        }
+        if cur_word > max_word {
+            max_word = cur_word;
+        }
+
+        Ok(IntrinsicTextSizes {
+            min_content_width: max_word,
+            max_content_width: total,
+            max_content_height: max_line_height,
         })
     }
 }

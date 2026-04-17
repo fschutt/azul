@@ -517,6 +517,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         crate::solver3::sizing::calculate_intrinsic_sizes(
             &mut ctx,
             &mut new_tree,
+            text_cache,
             &recon_result.intrinsic_dirty,
         )?;
 

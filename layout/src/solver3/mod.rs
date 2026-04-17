@@ -703,7 +703,12 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         {
             crate::probe::reset_peak();
             let _p = crate::probe::Probe::span("calc_intrinsic_sizes");
-            calculate_intrinsic_sizes(&mut ctx, &mut new_tree, &recon_result.intrinsic_dirty)?;
+            calculate_intrinsic_sizes(
+                &mut ctx,
+                &mut new_tree,
+                text_cache,
+                &recon_result.intrinsic_dirty,
+            )?;
         }
         crate::probe::sample_peak_rss("rss:after_calc_intrinsic");
         crate::probe::sample_phase_peak("rss:peak_during_intrinsic");
