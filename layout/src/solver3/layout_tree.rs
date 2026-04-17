@@ -761,7 +761,80 @@ pub struct LayoutTree {
     pub children_offsets: Vec<(u32, u32)>,
 }
 
+/// Approximate per-field heap-byte breakdown of a [`LayoutTree`].
+#[derive(Debug, Clone, Default)]
+pub struct LayoutTreeMemoryReport {
+    pub node_count: usize,
+    pub hot_bytes: usize,
+    pub warm_bytes: usize,
+    pub warm_inline_layout_bytes: usize,
+    pub warm_taffy_cache_bytes: usize,
+    pub cold_bytes: usize,
+    pub dom_to_layout_bytes: usize,
+    pub children_arena_bytes: usize,
+    pub children_offsets_bytes: usize,
+}
+
+impl LayoutTreeMemoryReport {
+    pub fn total_bytes(&self) -> usize {
+        self.hot_bytes
+            + self.warm_bytes
+            + self.warm_inline_layout_bytes
+            + self.warm_taffy_cache_bytes
+            + self.cold_bytes
+            + self.dom_to_layout_bytes
+            + self.children_arena_bytes
+            + self.children_offsets_bytes
+    }
+}
+
 impl LayoutTree {
+    /// Approximate heap bytes retained by this LayoutTree.
+    pub fn memory_report(&self) -> LayoutTreeMemoryReport {
+        let mut report = LayoutTreeMemoryReport {
+            node_count: self.nodes.len(),
+            hot_bytes: self.nodes.capacity() * core::mem::size_of::<LayoutNodeHot>(),
+            warm_bytes: self.warm.capacity() * core::mem::size_of::<LayoutNodeWarm>(),
+            cold_bytes: self.cold.capacity() * core::mem::size_of::<LayoutNodeCold>(),
+            children_arena_bytes: self.children_arena.capacity() * core::mem::size_of::<usize>(),
+            children_offsets_bytes: self.children_offsets.capacity() * core::mem::size_of::<(u32, u32)>(),
+            dom_to_layout_bytes: 0,
+            warm_inline_layout_bytes: 0,
+            warm_taffy_cache_bytes: 0,
+        };
+        // HashMap<NodeId, Vec<usize>> — approximate: (key + Vec-header) per entry
+        // plus heap for each inner Vec.
+        let entries = self.dom_to_layout.len();
+        report.dom_to_layout_bytes = entries * (core::mem::size_of::<NodeId>() + core::mem::size_of::<Vec<usize>>());
+        for v in self.dom_to_layout.values() {
+            report.dom_to_layout_bytes += v.capacity() * core::mem::size_of::<usize>();
+        }
+        // Inline layout data lives behind Arc — count Arc heap-shares once
+        // per node that has a cached layout. Counted conservatively.
+        for w in &self.warm {
+            if let Some(cached) = &w.inline_layout_result {
+                // Arc<UnifiedLayout> — count the UnifiedLayout header + its items.
+                report.warm_inline_layout_bytes += core::mem::size_of::<crate::text3::cache::UnifiedLayout>();
+                report.warm_inline_layout_bytes += cached.layout.items.capacity()
+                    * core::mem::size_of::<crate::text3::cache::PositionedItem>();
+                report.warm_inline_layout_bytes += cached.item_metrics.capacity()
+                    * core::mem::size_of::<InlineItemMetrics>();
+                // Glyph bytes inside ShapedItem::Cluster — unbounded but bounded
+                // per entry. Approximate by counting clusters × 32 bytes/glyph.
+                for item in cached.layout.items.iter() {
+                    if let crate::text3::cache::ShapedItem::Cluster(c) = &item.item {
+                        report.warm_inline_layout_bytes += c.glyphs.capacity()
+                            * core::mem::size_of::<crate::text3::cache::ShapedGlyph>();
+                        report.warm_inline_layout_bytes += c.text.capacity();
+                    }
+                }
+            }
+            // Taffy cache — each slot is an Option, ~50 B empty
+            report.warm_taffy_cache_bytes += core::mem::size_of::<TaffyCache>();
+        }
+        report
+    }
+
     /// Returns the children of node `index` as a contiguous slice from the arena.
     #[inline]
     pub fn children(&self, index: usize) -> &[usize] {

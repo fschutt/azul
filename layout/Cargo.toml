@@ -112,6 +112,12 @@ core-foundation = { version = "0.10", optional = true }
 core-graphics = { version = "0.23", optional = true }
 core-text = { version = "20.1", optional = true }
 
+# Allocator-specific purge hooks. Enabled by consumer crates that link
+# against the matching global allocator. Both features are mutually
+# exclusive — enabling both produces a build error.
+libmimalloc-sys = { version = "0.1", default-features = false, features = ["extended"], optional = true }
+tikv-jemalloc-sys = { version = "0.6", default-features = false, optional = true }
+
 [features]
 # Default: Full layout engine with text, fonts, SVG, images, accessibility
 # Uses multithreaded font loading for faster startup on desktop
@@ -121,6 +127,13 @@ default = ["std", "text_layout", "text_layout_hyphenation", "font_loading_multit
 # guards across the layout pipeline. Off by default — consumer crates
 # (servo-shot, profiling harnesses) opt in. Zero cost when off.
 probe = ["dep:libc"]
+
+# Wire `hint_purge_allocator()` to the matching allocator's pressure-relief
+# call. Without these flags the default macOS path only drains the system
+# zone — which is a no-op when a third-party global allocator (mimalloc,
+# jemalloc) is installed.
+allocator_mimalloc = ["dep:libmimalloc-sys"]
+allocator_jemalloc = ["dep:tikv-jemalloc-sys"]
 
 # Standard library support
 std = ["azul-core/std"]

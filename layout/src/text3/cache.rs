@@ -5215,6 +5215,35 @@ pub struct TextShapingCache {
     layouts: HashMap<CacheId, Arc<UnifiedLayout>>,
 }
 
+/// Approximate heap bytes retained by a [`TextShapingCache`].
+#[derive(Debug, Clone, Default)]
+pub struct TextCacheMemoryReport {
+    pub logical_items_entries: usize,
+    pub logical_items_bytes: usize,
+    pub visual_items_entries: usize,
+    pub visual_items_bytes: usize,
+    pub shaped_items_entries: usize,
+    pub shaped_items_bytes: usize,
+    pub shaped_glyph_bytes: usize,
+    pub shaped_cluster_text_bytes: usize,
+    pub per_item_shaped_entries: usize,
+    pub per_item_shaped_bytes: usize,
+    pub layouts_entries: usize,
+    pub layouts_bytes: usize,
+}
+
+impl TextCacheMemoryReport {
+    pub fn total_bytes(&self) -> usize {
+        self.logical_items_bytes
+            + self.visual_items_bytes
+            + self.shaped_items_bytes
+            + self.shaped_glyph_bytes
+            + self.shaped_cluster_text_bytes
+            + self.per_item_shaped_bytes
+            + self.layouts_bytes
+    }
+}
+
 impl TextShapingCache {
     pub fn new() -> Self {
         Self {
@@ -5226,6 +5255,50 @@ impl TextShapingCache {
             generation: 0,
             layouts: HashMap::new(),
         }
+    }
+
+    /// Approximate per-stage heap-byte breakdown.
+    pub fn memory_report(&self) -> TextCacheMemoryReport {
+        let mut r = TextCacheMemoryReport::default();
+        r.logical_items_entries = self.logical_items.len();
+        for (_, arc) in &self.logical_items {
+            r.logical_items_bytes += arc.capacity() * core::mem::size_of::<LogicalItem>();
+        }
+        r.visual_items_entries = self.visual_items.len();
+        for (_, arc) in &self.visual_items {
+            r.visual_items_bytes += arc.capacity() * core::mem::size_of::<VisualItem>();
+        }
+        r.shaped_items_entries = self.shaped_items.len();
+        for (_, arc) in &self.shaped_items {
+            r.shaped_items_bytes += arc.capacity() * core::mem::size_of::<ShapedItem>();
+            for item in arc.iter() {
+                if let ShapedItem::Cluster(c) = item {
+                    r.shaped_glyph_bytes += c.glyphs.capacity() * core::mem::size_of::<ShapedGlyph>();
+                    r.shaped_cluster_text_bytes += c.text.capacity();
+                }
+            }
+        }
+        r.per_item_shaped_entries = self.per_item_shaped.len();
+        for (_, arc) in &self.per_item_shaped {
+            r.per_item_shaped_bytes += arc.clusters.capacity() * core::mem::size_of::<ShapedItem>();
+            for item in arc.clusters.iter() {
+                if let ShapedItem::Cluster(c) = item {
+                    r.per_item_shaped_bytes += c.glyphs.capacity() * core::mem::size_of::<ShapedGlyph>();
+                    r.per_item_shaped_bytes += c.text.capacity();
+                }
+            }
+        }
+        r.layouts_entries = self.layouts.len();
+        for (_, arc) in &self.layouts {
+            r.layouts_bytes += arc.items.capacity() * core::mem::size_of::<PositionedItem>();
+            for it in arc.items.iter() {
+                if let ShapedItem::Cluster(c) = &it.item {
+                    r.layouts_bytes += c.glyphs.capacity() * core::mem::size_of::<ShapedGlyph>();
+                    r.layouts_bytes += c.text.capacity();
+                }
+            }
+        }
+        r
     }
 
     /// Call at the start of each layout pass. Evicts per-item shaped entries

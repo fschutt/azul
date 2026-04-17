@@ -157,14 +157,21 @@ pub fn monotonic_now_nanos() -> u64 {
     start.elapsed().as_nanos() as u64
 }
 
-/// Convenience wrapper: sample the process's peak RSS right now
-/// and push it into the probe event buffer under the given label.
-/// Only compiled when the `probe` feature is on; a no-op otherwise.
+/// Convenience wrapper: sample the process's **current** resident set
+/// (not peak) via `task_info` on macOS / `/proc/self/statm` on Linux and
+/// push it into the probe event buffer under the given label.
+///
+/// Using current RSS (not `getrusage.ru_maxrss`) is essential so that
+/// allocator purges are visible — peak RSS only moves up. Name kept as
+/// `sample_peak_rss` for backwards compatibility with existing
+/// checkpoint labels; semantically it is "sample current".
 #[inline]
 pub fn sample_peak_rss(label: &'static str) {
     #[cfg(feature = "probe")]
     {
-        Probe::sample_rss(label, peak_rss_bytes_self());
+        let (current, _virt) = current_rss_bytes();
+        let bytes = if current != 0 { current } else { peak_rss_bytes_self() };
+        Probe::sample_rss(label, bytes);
     }
     #[cfg(not(feature = "probe"))]
     let _ = label;
@@ -190,13 +197,46 @@ fn peak_rss_bytes_self() -> u64 {
     }
 }
 
-/// On macOS, ask the default malloc zone to return freed pages to the OS.
-/// This calls `malloc_zone_pressure_relief(0, 0)` which hints the allocator
-/// to purge cached memory. No-op on other platforms.
-/// Call after major allocations are freed (e.g. after layout pass).
+/// Ask the active global allocator to return freed pages to the OS.
+///
+/// - With `allocator_mimalloc` feature: calls `mi_collect(true)`, which
+///   aggressively returns pages (matches `az_purge_allocator` in azul-dll).
+/// - With `allocator_jemalloc` feature: calls `mallctl("arena.0.purge")`.
+/// - Otherwise on macOS: falls back to `malloc_zone_pressure_relief`
+///   which drains the system zone (no-op when a third-party allocator
+///   is the global one — hence the explicit feature flags above).
+/// - Other platforms with default allocator: no-op.
+///
+/// Call after major allocations are freed (e.g. after a layout pass).
 #[inline]
 pub fn hint_purge_allocator() {
-    #[cfg(target_os = "macos")]
+    #[cfg(feature = "allocator_mimalloc")]
+    {
+        // Aggressive purge — returns arenas to the OS when possible.
+        unsafe {
+            libmimalloc_sys::mi_collect(true);
+        }
+        if std::env::var("AZUL_PURGE_TRACE").is_ok() {
+            let (rss, _) = current_rss_bytes();
+            eprintln!("[PURGE] mi_collect(true) called — current rss={:.2} MiB", rss as f64 / 1048576.0);
+        }
+        return;
+    }
+    #[cfg(feature = "allocator_jemalloc")]
+    {
+        // Purge all arenas. `arena.<i>.purge` with i = MALLCTL_ARENAS_ALL.
+        unsafe {
+            let _ = tikv_jemalloc_sys::mallctl(
+                b"arena.4096.purge\0".as_ptr() as *const _,
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                0,
+            );
+        }
+        return;
+    }
+    #[cfg(all(target_os = "macos", not(any(feature = "allocator_mimalloc", feature = "allocator_jemalloc"))))]
     {
         extern "C" {
             fn malloc_zone_pressure_relief(zone: *mut core::ffi::c_void, goal: usize) -> usize;

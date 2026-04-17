@@ -946,6 +946,43 @@ impl LayoutWindow {
             eprintln!("[MEM]   global_css_props  {:>7} KiB", bd.global_css_props_bytes / 1024);
             eprintln!("[MEM]   compact_cache     {:>7} KiB", bd.compact_cache_bytes / 1024);
             eprintln!("[MEM]   resolved_font_sz  {:>7} KiB", bd.resolved_font_sizes_bytes / 1024);
+
+            // solver3 LayoutCache breakdown
+            let sc = self.layout_cache.memory_report();
+            eprintln!("[MEM] Solver3 LayoutCache total={} KiB", sc.total_bytes() / 1024);
+            if let Some(tr) = &sc.tree_report {
+                eprintln!("[MEM]   LayoutTree        {:>7} KiB  ({} nodes)", sc.tree_bytes / 1024, tr.node_count);
+                eprintln!("[MEM]     hot              {:>6} KiB", tr.hot_bytes / 1024);
+                eprintln!("[MEM]     warm             {:>6} KiB", tr.warm_bytes / 1024);
+                eprintln!("[MEM]     warm.inline      {:>6} KiB  (shaped text in CachedInlineLayout)", tr.warm_inline_layout_bytes / 1024);
+                eprintln!("[MEM]     warm.taffy       {:>6} KiB", tr.warm_taffy_cache_bytes / 1024);
+                eprintln!("[MEM]     cold             {:>6} KiB", tr.cold_bytes / 1024);
+                eprintln!("[MEM]     children_arena   {:>6} KiB", tr.children_arena_bytes / 1024);
+                eprintln!("[MEM]     dom_to_layout    {:>6} KiB", tr.dom_to_layout_bytes / 1024);
+            }
+            eprintln!("[MEM]   cache_map         {:>7} KiB  (Taffy-style 9+1 slots per node)", sc.cache_map_bytes / 1024);
+            eprintln!("[MEM]   calculated_pos    {:>7} KiB", sc.calculated_positions_bytes / 1024);
+            eprintln!("[MEM]   previous_pos      {:>7} KiB", sc.previous_positions_bytes / 1024);
+            eprintln!("[MEM]   float_cache       {:>7} KiB", sc.float_cache_bytes / 1024);
+            eprintln!("[MEM]   counters          {:>7} KiB", sc.counters_bytes / 1024);
+            eprintln!("[MEM]   scroll_ids        {:>7} KiB", sc.scroll_ids_bytes / 1024);
+            eprintln!("[MEM]   cached_display    {:>7} KiB", sc.cached_display_list_bytes / 1024);
+
+            // text shaping cache breakdown
+            let tc = self.text_cache.memory_report();
+            eprintln!("[MEM] TextShapingCache total={} KiB", tc.total_bytes() / 1024);
+            eprintln!("[MEM]   logical_items     {:>7} KiB  ({} entries)", tc.logical_items_bytes / 1024, tc.logical_items_entries);
+            eprintln!("[MEM]   visual_items      {:>7} KiB  ({} entries)", tc.visual_items_bytes / 1024, tc.visual_items_entries);
+            eprintln!("[MEM]   shaped_items      {:>7} KiB  ({} entries)", tc.shaped_items_bytes / 1024, tc.shaped_items_entries);
+            eprintln!("[MEM]     glyph_bytes     {:>7} KiB", tc.shaped_glyph_bytes / 1024);
+            eprintln!("[MEM]     cluster_text    {:>7} KiB", tc.shaped_cluster_text_bytes / 1024);
+            eprintln!("[MEM]   per_item_shaped   {:>7} KiB  ({} entries)", tc.per_item_shaped_bytes / 1024, tc.per_item_shaped_entries);
+            eprintln!("[MEM]   layouts           {:>7} KiB  ({} entries)", tc.layouts_bytes / 1024, tc.layouts_entries);
+
+            let grand_total = sr.total_bytes() + sc.total_bytes() + tc.total_bytes();
+            eprintln!("[MEM] --- GRAND TOTAL (StyledDom + Solver3 + TextCache) = {} KiB = {:.2} MiB ---",
+                grand_total / 1024, grand_total as f64 / 1048576.0);
+
             #[cfg(feature = "probe")]
             {
                 let (rss, _virt) = crate::probe::current_rss_bytes();
@@ -953,6 +990,8 @@ impl LayoutWindow {
                 eprintln!("[MEM] after layout: current rss={:.1} MiB  peak rss={:.1} MiB  (unreturned={:.1} MiB)",
                     rss as f64 / 1048576.0, peak as f64 / 1048576.0,
                     (peak.saturating_sub(rss)) as f64 / 1048576.0);
+                eprintln!("[MEM] accounted / rss = {:.1}% — the gap is allocator overhead + unreturned transient pages + fonts/images + misc",
+                    grand_total as f64 * 100.0 / (rss as f64).max(1.0));
             }
         }
 

@@ -384,6 +384,73 @@ pub struct LayoutCache {
     pub prev_viewport: LogicalRect,
 }
 
+/// Approximate heap-byte breakdown of the solver3 LayoutCache.
+#[derive(Debug, Clone, Default)]
+pub struct Solver3CacheMemoryReport {
+    pub tree_bytes: usize,
+    pub tree_report: Option<super::layout_tree::LayoutTreeMemoryReport>,
+    pub calculated_positions_bytes: usize,
+    pub previous_positions_bytes: usize,
+    pub scroll_ids_bytes: usize,
+    pub scroll_id_to_node_id_bytes: usize,
+    pub counters_bytes: usize,
+    pub float_cache_bytes: usize,
+    pub cache_map_bytes: usize,
+    pub cached_display_list_bytes: usize,
+}
+
+impl Solver3CacheMemoryReport {
+    pub fn total_bytes(&self) -> usize {
+        self.tree_bytes
+            + self.calculated_positions_bytes
+            + self.previous_positions_bytes
+            + self.scroll_ids_bytes
+            + self.scroll_id_to_node_id_bytes
+            + self.counters_bytes
+            + self.float_cache_bytes
+            + self.cache_map_bytes
+            + self.cached_display_list_bytes
+    }
+}
+
+impl LayoutCache {
+    /// Approximate heap bytes retained by this LayoutCache.
+    pub fn memory_report(&self) -> Solver3CacheMemoryReport {
+        let tree_report = self.tree.as_ref().map(|t| t.memory_report());
+        let tree_bytes = tree_report.as_ref().map(|r| r.total_bytes()).unwrap_or(0);
+        // cache_map: Vec<NodeCache>; NodeCache has 9 Option<SizingCacheEntry>
+        // + 1 Option<LayoutCacheEntry>. Count filled layout entries' child_positions.
+        let mut cache_map_bytes = self.cache_map.entries.capacity()
+            * core::mem::size_of::<NodeCache>();
+        for e in &self.cache_map.entries {
+            if let Some(le) = &e.layout_entry {
+                cache_map_bytes += le.child_positions.capacity()
+                    * core::mem::size_of::<(usize, LogicalPosition)>();
+            }
+        }
+        Solver3CacheMemoryReport {
+            tree_bytes,
+            tree_report,
+            calculated_positions_bytes: self.calculated_positions.len()
+                * core::mem::size_of::<LogicalPosition>(),
+            previous_positions_bytes: self.previous_positions.len()
+                * core::mem::size_of::<LogicalPosition>(),
+            scroll_ids_bytes: self.scroll_ids.len()
+                * (core::mem::size_of::<usize>() + core::mem::size_of::<u64>()),
+            scroll_id_to_node_id_bytes: self.scroll_id_to_node_id.len()
+                * (core::mem::size_of::<u64>() + core::mem::size_of::<NodeId>()),
+            counters_bytes: self.counters.iter().map(|((_, name), _)| {
+                core::mem::size_of::<(usize, String)>()
+                    + core::mem::size_of::<i32>()
+                    + name.capacity()
+            }).sum(),
+            float_cache_bytes: self.float_cache.len() * 256, // conservative per-FC
+            cache_map_bytes,
+            cached_display_list_bytes: if self.cached_display_list.is_some() { 2048 } else { 0 },
+        }
+    }
+}
+
 /// The result of a reconciliation pass.
 #[derive(Debug, Default)]
 pub struct ReconciliationResult {
