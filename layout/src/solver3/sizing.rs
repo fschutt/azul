@@ -95,7 +95,21 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
 
     let mut calculator = IntrinsicSizeCalculator::new(ctx, text_cache);
     calculator.dirty_closure = Some(dirty_closure);
-    calculator.calculate_intrinsic_recursive(tree, tree.root)?;
+    // Fix C (re-enabled §58 Win #3): skip intrinsic computation for subtrees
+    // whose values will never be consumed. `tree.subtree_needs_intrinsic` is a
+    // static-DOM bitmap precomputed at tree-build time — true if this node or
+    // any descendant establishes a shrink-to-fit context. When both the
+    // caller and the subtree are non-STF, no one reads the intrinsic, so the
+    // whole descent is pure waste.
+    //
+    // The previous attempt (7667d13e, reverted in bd9ad36d) wrote default
+    // (zero) intrinsics and broke auto-height rendering because
+    // calculate_used_size_for_node read intrinsic.max_content_height as the
+    // height:auto fallback. 97c3d3db refactored that dependency away: for
+    // block-level auto-height, used_size.height is 0 pre-layout and
+    // apply_content_based_height fills it from the laid-out content size.
+    // With that gone, skipping intrinsic is safe.
+    calculator.calculate_intrinsic_recursive(tree, tree.root, false)?;
     ctx.debug_log("Finished intrinsic size calculation");
     Ok(())
 }
@@ -147,6 +161,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         &mut self,
         tree: &mut LayoutTree,
         node_index: usize,
+        ancestor_is_stf: bool,
     ) -> Result<IntrinsicSizes> {
         // Fast path: if this subtree has no dirty nodes AND we
         // already have a cached intrinsic, return the cached value
@@ -162,6 +177,27 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                     return Ok(cached);
                 }
             }
+        }
+
+        // Fix C static-DOM short-circuit: if no ancestor needs this intrinsic
+        // (none are STF) AND no descendant in this subtree is STF, nobody
+        // will ever read the value. Write a default and skip the recursion.
+        // `subtree_needs_intrinsic` is precomputed at tree-build time from
+        // the DOM's display/position/float properties, so this is a constant
+        // lookup with no per-pass work.
+        if !ancestor_is_stf
+            && tree
+                .subtree_needs_intrinsic
+                .get(node_index)
+                .copied()
+                .map(|v| !v)
+                .unwrap_or(false)
+        {
+            let default = IntrinsicSizes::default();
+            if let Some(n) = tree.warm_mut(node_index) {
+                n.intrinsic_sizes = Some(default);
+            }
+            return Ok(default);
         }
 
         // Previously cloned the full LayoutNode to sidestep borrow conflicts
@@ -196,10 +232,24 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             heap_buf = children_slice.to_vec();
             &heap_buf
         };
+        // Propagate STF flag: children inherit `ancestor_is_stf=true` if any
+        // ancestor up to and including self is STF.
+        let self_is_stf = tree
+            .get(node_index)
+            .map(|n| {
+                crate::solver3::layout_tree::is_shrink_to_fit_context(
+                    self.ctx.styled_dom,
+                    n.dom_node_id,
+                    &n.formatting_context,
+                )
+            })
+            .unwrap_or(false);
+        let child_ancestor_is_stf = ancestor_is_stf || self_is_stf;
+
         let mut child_intrinsics = Vec::with_capacity(n);
         for &child_index in children {
             let child_intrinsic =
-                self.calculate_intrinsic_recursive(tree, child_index)?;
+                self.calculate_intrinsic_recursive(tree, child_index, child_ancestor_is_stf)?;
             child_intrinsics.push((child_index, child_intrinsic));
         }
 

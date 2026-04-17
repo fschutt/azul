@@ -759,6 +759,20 @@ pub struct LayoutTree {
     pub children_arena: Vec<usize>,
     /// Per-node (start, len) into `children_arena`. Indexed by node index.
     pub children_offsets: Vec<(u32, u32)>,
+    /// Per-node bit: this node or any descendant establishes a shrink-to-fit
+    /// (STF) context whose sizing algorithm reads children's intrinsic sizes
+    /// (flex/grid/table/inline-block containers, floats, or abspos elements).
+    ///
+    /// If `subtree_needs_intrinsic[i]` is false AND no ancestor of `i` is STF
+    /// either, the intrinsic sizing pass can skip the entire subtree — nothing
+    /// will ever read those values. This is the static-DOM optimization from
+    /// §58 Win #3 (the "safely re-enabled Fix C").
+    ///
+    /// Computed once at tree build time in `generate_layout_tree`. An empty
+    /// vec means "assume every subtree needs intrinsics" (safe fallback for
+    /// code paths that construct `LayoutTree` without going through the
+    /// builder — currently none, but preserves the invariant for tests).
+    pub subtree_needs_intrinsic: Vec<bool>,
 }
 
 /// Approximate per-field heap-byte breakdown of a [`LayoutTree`].
@@ -1055,7 +1069,15 @@ pub fn generate_layout_tree<T: ParsedFontTrait>(
         .unwrap_or(NodeId::ZERO);
     let root_index =
         builder.process_node(ctx.styled_dom, root_id, None, &mut ctx.debug_messages)?;
-    let layout_tree = builder.build(root_index);
+    let mut layout_tree = builder.build(root_index);
+
+    // Pre-compute the STF (shrink-to-fit) subtree bitmap. This is static-DOM
+    // information: whether a subtree establishes any shrink-to-fit context
+    // depends only on the DOM structure + formatting context, both of which
+    // are frozen from here until the next layout-tree rebuild. The intrinsic
+    // sizing pass reads this to skip subtrees whose intrinsics are never
+    // consumed (§58 Win #3).
+    layout_tree.subtree_needs_intrinsic = compute_subtree_needs_intrinsic(ctx.styled_dom, &layout_tree);
 
     debug_log!(
         ctx,
@@ -1064,6 +1086,79 @@ pub fn generate_layout_tree<T: ParsedFontTrait>(
     );
 
     Ok(layout_tree)
+}
+
+/// Returns true if `(dom_node_id, fc)` establishes a formatting context whose
+/// sizing algorithm reads children's intrinsic sizes. Covers:
+/// - flex containers (flex item sizing uses child min/max-content),
+/// - grid containers (grid-track sizing likewise),
+/// - tables and table cells,
+/// - inline-block (its own width may be shrink-to-fit),
+/// - floats and abspos elements (their `auto` width resolves to shrink-to-fit).
+///
+/// A `FormattingContext::Block` with a definite CSS width is NOT shrink-to-fit —
+/// its inner layout gets the width top-down, so descendant intrinsics don't
+/// feed back up. That's the path Fix C short-circuits.
+pub(crate) fn is_shrink_to_fit_context(
+    styled_dom: &StyledDom,
+    dom_node_id: Option<NodeId>,
+    fc: &FormattingContext,
+) -> bool {
+    use crate::solver3::getters::{get_float, MultiValue};
+    use crate::solver3::positioning::get_position_type;
+    use azul_css::props::layout::{LayoutFloat, LayoutPosition};
+
+    match fc {
+        FormattingContext::Flex
+        | FormattingContext::Grid
+        | FormattingContext::Table
+        | FormattingContext::InlineBlock => return true,
+        _ => {}
+    }
+    let Some(dom_id) = dom_node_id else { return false; };
+    let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+    let float_val = match get_float(styled_dom, dom_id, node_state) {
+        MultiValue::Exact(v) => v,
+        _ => LayoutFloat::None,
+    };
+    if float_val != LayoutFloat::None {
+        return true;
+    }
+    let pos = get_position_type(styled_dom, Some(dom_id));
+    if pos == LayoutPosition::Absolute || pos == LayoutPosition::Fixed {
+        // Abspos only becomes shrink-to-fit when width is `auto`.
+        // Being conservative: treat as STF whenever abspos so we still
+        // compute intrinsics for the auto-width case. Misses no work.
+        return true;
+    }
+    false
+}
+
+/// Per-node bitmap of "this node or any descendant establishes a shrink-to-fit
+/// context." Post-order walk: `out[i] = self_stf(i) || any(out[child_of_i])`.
+/// Layout tree nodes are built top-down (pre-order), so iterating from the end
+/// visits children before parents.
+fn compute_subtree_needs_intrinsic(
+    styled_dom: &StyledDom,
+    tree: &LayoutTree,
+) -> Vec<bool> {
+    let n = tree.nodes.len();
+    let mut out = vec![false; n];
+    for idx in (0..n).rev() {
+        let hot = &tree.nodes[idx];
+        let self_stf = is_shrink_to_fit_context(styled_dom, hot.dom_node_id, &hot.formatting_context);
+        let mut any = self_stf;
+        if !any {
+            for &child in tree.children(idx) {
+                if out.get(child).copied().unwrap_or(false) {
+                    any = true;
+                    break;
+                }
+            }
+        }
+        out[idx] = any;
+    }
+    out
 }
 
 /// Incrementally builds a [`LayoutTree`] from a [`StyledDom`].
@@ -1958,6 +2053,9 @@ impl LayoutTreeBuilder {
             dom_to_layout: self.dom_to_layout,
             children_arena: arena,
             children_offsets: offsets,
+            // Populated by `generate_layout_tree` after the tree is built,
+            // since the computation needs styled_dom for float/position lookup.
+            subtree_needs_intrinsic: Vec::new(),
         }
     }
 }
