@@ -1436,10 +1436,32 @@ pub fn calculate_used_size_for_node(
         LayoutHeight::Auto => {
             // +spec:width-calculation:be5eb1 - auto height means available block space is infinite (unconstrained)
             // +spec:replaced-elements:994ac6 - §10.6.2: auto height for replaced elements uses intrinsic height or (used width)/ratio
-            // For 'auto' height, we initially use the intrinsic content height.
-            // For block containers, this will be updated later in the layout process
-            // after the children's heights are known.
-            intrinsic.max_content_height
+            //
+            // For block-level non-replaced containers in normal flow, CSS 2.2 §10.6.3
+            // says auto height is resolved from children after layout. We return 0.0
+            // as a placeholder; `apply_content_based_height` (cache.rs) overwrites it
+            // with the laid-out content size. Reading `intrinsic.max_content_height`
+            // here is unsafe: when the intrinsic pass short-circuits (e.g. a non-STF
+            // subtree whose intrinsics are never consumed), that field is zero anyway
+            // — so any caller that "trusts" the pre-layout value is depending on an
+            // estimate that isn't guaranteed to exist.
+            //
+            // Shrink-to-fit contexts (inline-block, float, abspos, table/table-cell)
+            // genuinely need intrinsic for width sizing; auto-height for those is
+            // still driven by content, but we keep the intrinsic fallback for
+            // backwards compatibility with the existing paths.
+            match display.unwrap_or_default() {
+                LayoutDisplay::Block
+                | LayoutDisplay::FlowRoot
+                | LayoutDisplay::ListItem
+                | LayoutDisplay::Flex
+                | LayoutDisplay::Grid => 0.0,
+                // Inline: height property does not apply (§10.6.1), handled earlier
+                // via css_height override, but be explicit anyway.
+                LayoutDisplay::Inline => 0.0,
+                // Shrink-to-fit and intrinsically-sized: keep using intrinsic pre-layout.
+                _ => intrinsic.max_content_height,
+            }
         }
         LayoutHeight::Px(px) => {
             // Resolve percentage or absolute pixel value
