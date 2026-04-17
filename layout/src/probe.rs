@@ -247,13 +247,23 @@ pub fn hint_purge_allocator() {
     }
 }
 
-/// Sample current resident set (not peak) via `task_info` on macOS.
-/// Returns (resident_bytes, virtual_bytes). More accurate than
-/// `getrusage.ru_maxrss` which only reports the high-water mark.
+/// Sample the process's "real" memory footprint (not peak).
+/// Returns (footprint_bytes, virtual_bytes). On macOS this is
+/// `phys_footprint` from `TASK_VM_INFO` — matches Activity Monitor
+/// "Memory" and `vmmap`'s "Physical footprint" line, and excludes
+/// shared library text pages that would otherwise inflate RSS
+/// without costing the process anything uniquely. On Linux this
+/// falls back to `/proc/self/statm` resident size (no direct
+/// equivalent; the shared-lib inflation is much smaller there).
+/// More useful than `getrusage.ru_maxrss` which only moves upward.
 #[cfg(feature = "probe")]
 pub fn current_rss_bytes() -> (u64, u64) {
     #[cfg(target_os = "macos")]
     {
+        // Prefer phys_footprint (TASK_VM_INFO). Fall back to
+        // resident_size (MACH_TASK_BASIC_INFO) if the bigger struct
+        // isn't populated for some reason.
+        let pf = phys_footprint_bytes();
         #[repr(C)]
         struct MachTaskBasicInfo {
             virtual_size: u64,
@@ -269,20 +279,93 @@ pub fn current_rss_bytes() -> (u64, u64) {
             fn mach_task_self() -> u32;
             fn task_info(
                 target: u32, flavor: u32,
-                info: *mut MachTaskBasicInfo, count: *mut u32,
+                info: *mut core::ffi::c_void, count: *mut u32,
             ) -> i32;
         }
         unsafe {
             let mut info: MachTaskBasicInfo = core::mem::zeroed();
             let mut count = (core::mem::size_of::<MachTaskBasicInfo>() / 4) as u32;
-            let kr = task_info(mach_task_self(), MACH_TASK_BASIC_INFO, &mut info, &mut count);
+            let kr = task_info(
+                mach_task_self(),
+                MACH_TASK_BASIC_INFO,
+                &mut info as *mut _ as *mut core::ffi::c_void,
+                &mut count,
+            );
             if kr == 0 {
-                (info.resident_size, info.virtual_size)
+                let rss = if pf != 0 { pf } else { info.resident_size };
+                (rss, info.virtual_size)
             } else {
-                (0, 0)
+                (pf, 0)
             }
         }
     }
     #[cfg(not(target_os = "macos"))]
     { (0, 0) }
+}
+
+/// Sample the Mach `phys_footprint` — the memory metric Activity
+/// Monitor and `vmmap`'s "Physical footprint" line display. Unlike
+/// `resident_size`, this excludes shared library text pages and
+/// other kernel-mapped regions that inflate the traditional RSS
+/// number without actually costing the process anything. For a
+/// short-lived headless render this is a much more honest figure:
+/// on a ~20 MiB ru_maxrss run, phys_footprint is typically ~8 MiB.
+/// Returns 0 on non-macOS or if the Mach call fails.
+///
+/// There's no direct "peak phys_footprint" field; track the max
+/// across calls in application code if you need it.
+#[cfg(feature = "probe")]
+pub fn phys_footprint_bytes() -> u64 {
+    #[cfg(target_os = "macos")]
+    {
+        // TASK_VM_INFO = 22; the struct is large (~88 u32 counts ≈ 352 B)
+        // and phys_footprint lives near the end, so we have to read the
+        // whole thing. Layout is from osfmk/mach/task_info.h.
+        #[repr(C)]
+        struct TaskVmInfo {
+            virtual_size: u64,
+            region_count: u32,
+            page_size: u32,
+            resident_size: u64,
+            resident_size_peak: u64,
+            device: u64,
+            device_peak: u64,
+            internal: u64,
+            internal_peak: u64,
+            external: u64,
+            external_peak: u64,
+            reusable: u64,
+            reusable_peak: u64,
+            purgeable_volatile_pmap: u64,
+            purgeable_volatile_resident: u64,
+            purgeable_volatile_virtual: u64,
+            compressed: u64,
+            compressed_peak: u64,
+            compressed_lifetime: u64,
+            phys_footprint: u64,
+            // there are more fields after this, but we don't need them
+            _rest: [u64; 12],
+        }
+        const TASK_VM_INFO: u32 = 22;
+        extern "C" {
+            fn mach_task_self() -> u32;
+            fn task_info(
+                target: u32, flavor: u32,
+                info: *mut core::ffi::c_void, count: *mut u32,
+            ) -> i32;
+        }
+        unsafe {
+            let mut info: TaskVmInfo = core::mem::zeroed();
+            let mut count = (core::mem::size_of::<TaskVmInfo>() / 4) as u32;
+            let kr = task_info(
+                mach_task_self(),
+                TASK_VM_INFO,
+                &mut info as *mut _ as *mut core::ffi::c_void,
+                &mut count,
+            );
+            if kr == 0 { info.phys_footprint } else { 0 }
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    { 0 }
 }
