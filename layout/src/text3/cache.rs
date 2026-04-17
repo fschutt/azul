@@ -41,8 +41,16 @@ use azul_css::{
 #[cfg(feature = "text_layout_hyphenation")]
 use hyphenation::{Hyphenator, Language as HyphenationLanguage, Load, Standard};
 use rust_fontconfig::{FcFontCache, FcPattern, FcWeight, FontId, PatternMatch, UnicodeRange};
+use smallvec::{smallvec, SmallVec};
 use unicode_bidi::{BidiInfo, Level, TextSource};
 use unicode_segmentation::UnicodeSegmentation;
+
+/// Glyph storage for a single shaped cluster. Inline one glyph (the
+/// common case for Latin text), spill to heap for ligatures / combining
+/// marks / multi-glyph clusters. The `union` feature of smallvec packs
+/// the inline buffer and the heap pointer into the same bytes, so sizeof
+/// stays `sizeof(ShapedGlyph) + 2*usize` regardless of inline/heap state.
+pub type ShapedGlyphVec = SmallVec<[ShapedGlyph; 1]>;
 
 /// CSS `line-height` value.
 ///
@@ -3740,7 +3748,7 @@ pub enum ShapedItem {
     CombinedBlock {
         source: ContentIndex,
         /// The glyphs to be rendered horizontally within the vertical line.
-        glyphs: Vec<ShapedGlyph>,
+        glyphs: ShapedGlyphVec,
         bounds: Rect,
         baseline_offset: f32,
     },
@@ -3817,8 +3825,10 @@ pub struct ShapedCluster {
     /// The DOM NodeId of the Text node this cluster originated from.
     /// None for generated content (list markers, ::before/::after, etc.)
     pub source_node_id: Option<NodeId>,
-    /// The glyphs that make up this cluster.
-    pub glyphs: Vec<ShapedGlyph>,
+    /// The glyphs that make up this cluster. `SmallVec<[T; 1]>` — inline
+    /// single-glyph clusters (the common case for Latin text), spill to
+    /// heap only for ligatures / combining marks.
+    pub glyphs: ShapedGlyphVec,
     /// The total advance width (horizontal) or height (vertical) of the cluster.
     pub advance: f32,
     /// The direction of this cluster, inherited from its `VisualItem`.
@@ -6830,7 +6840,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                     }
                 };
 
-                let shaped_glyphs = glyphs
+                let shaped_glyphs: ShapedGlyphVec = glyphs
                     .into_iter()
                     .map(|g| ShapedGlyph {
                         kind: GlyphKind::Character,
@@ -6846,7 +6856,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         vertical_advance: g.vertical_advance,
                         vertical_offset: g.vertical_bearing,
                     })
-                    .collect::<Vec<_>>();
+                    .collect();
 
                 // +spec:block-formatting-context:dc4549 - text-combine-upright compression: UA may scale composition to match 水 advance height
                 let total_width: f32 = shaped_glyphs.iter().map(|g| g.advance + g.kerning).sum();
@@ -8135,7 +8145,7 @@ pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
                 item_index: u32::MAX,
             },
             source_node_id: None, // Hyphen is generated, not from DOM
-            glyphs: vec![ShapedGlyph {
+            glyphs: smallvec![ShapedGlyph {
                 kind: GlyphKind::Hyphen,
                 glyph_id: hyphen_glyph_id,
                 font_hash: last_glyph.font_hash,
@@ -9058,7 +9068,7 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
                 item_index: u32::MAX,
             },
             source_node_id: None, // Kashida is generated, not from DOM
-            glyphs: vec![kashida_glyph],
+            glyphs: smallvec![kashida_glyph],
             advance: kashida_advance,
             direction: BidiDirection::Ltr,
             style,
