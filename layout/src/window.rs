@@ -5396,8 +5396,32 @@ impl LayoutWindow {
             }
         }
 
-        // 3. Re-run the text3 layout pipeline
-        let new_layout = self.relayout_text_node_internal(&new_inline_content, &constraints);
+        // 3. Re-run the text3 layout pipeline.
+        //
+        // Try the incremental path first: it runs stages 1-3 (logical items,
+        // bidi, shape) on the new content and, if the cached layout is
+        // still reusable (same item count, no overflow, line breaks cached),
+        // skips stage 4 (line-breaking + positioning). For edits whose new
+        // advances fall into GlyphSwap/LineShift territory, this turns a
+        // full IFC relayout into a glyph + x-position patch.
+        let cached_snapshot = self
+            .layout_results
+            .get(&dom_id)
+            .and_then(|lr| lr.layout_tree.warm(ifc_layout_index))
+            .and_then(|w| w.inline_layout_result.as_ref())
+            .cloned();
+
+        let new_layout = if let Some(cached) = cached_snapshot {
+            self.try_incremental_text_relayout(
+                &new_inline_content,
+                &constraints,
+                &cached,
+                node_id,
+            )
+            .map(|(layout, _skipped_fragment)| layout)
+        } else {
+            self.relayout_text_node_internal(&new_inline_content, &constraints)
+        };
 
         let Some(new_layout) = new_layout else {
             return;
@@ -5602,13 +5626,7 @@ impl LayoutWindow {
         content: &[InlineContent],
         constraints: &UnifiedConstraints,
     ) -> Option<UnifiedLayout> {
-        use crate::text3::cache::{
-            create_logical_items, perform_fragment_layout, reorder_logical_items,
-            shape_visual_items, BidiDirection, BreakCursor,
-        };
-
-        // Stage 1: Create logical items from InlineContent
-        let logical_items = create_logical_items(content, &[], &mut None);
+        let (logical_items, shaped_items) = self.shape_text_for_relayout(content, constraints)?;
 
         if logical_items.is_empty() {
             return Some(UnifiedLayout {
@@ -5617,36 +5635,215 @@ impl LayoutWindow {
             });
         }
 
-        // Stage 2: Bidi reordering
-        let base_direction = constraints.direction.unwrap_or(BidiDirection::Ltr);
-        let visual_items = match reorder_logical_items(&logical_items, base_direction, crate::text3::cache::UnicodeBidi::Normal, &mut None) {
-            Ok(v) => { v }
-            Err(e) => { return None; }
+        self.fragment_layout_from_shaped(&logical_items, &shaped_items, constraints)
+    }
+
+    /// Stages 1-3 of the text3 pipeline (logical items, bidi reorder, shape).
+    /// Returned separately so an incremental relayout path can skip stage 4
+    /// (line breaking + positioning) when the cached layout is reusable.
+    fn shape_text_for_relayout(
+        &self,
+        content: &[InlineContent],
+        constraints: &UnifiedConstraints,
+    ) -> Option<(
+        Vec<crate::text3::cache::LogicalItem>,
+        Vec<crate::text3::cache::ShapedItem>,
+    )> {
+        use crate::text3::cache::{
+            create_logical_items, reorder_logical_items, shape_visual_items, BidiDirection,
         };
 
-        // Stage 3: Shape text (resolve fonts, create glyphs)
+        let logical_items = create_logical_items(content, &[], &mut None);
+        if logical_items.is_empty() {
+            return Some((logical_items, Vec::new()));
+        }
+
+        let base_direction = constraints.direction.unwrap_or(BidiDirection::Ltr);
+        let visual_items = reorder_logical_items(
+            &logical_items,
+            base_direction,
+            crate::text3::cache::UnicodeBidi::Normal,
+            &mut None,
+        )
+        .ok()?;
+
         let loaded_fonts = self.font_manager.get_loaded_fonts();
-        let shaped_items = match shape_visual_items(
+        let shaped_items = shape_visual_items(
             &visual_items,
             self.font_manager.get_font_chain_cache(),
             &self.font_manager.fc_cache,
             &loaded_fonts,
             &mut None,
-        ) {
-            Ok(s) => { s }
-            Err(e) => { return None; }
+        )
+        .ok()?;
+
+        Some((logical_items, shaped_items))
+    }
+
+    /// Stage 4 of the text3 pipeline: line breaking + positioning.
+    fn fragment_layout_from_shaped(
+        &self,
+        logical_items: &[crate::text3::cache::LogicalItem],
+        shaped_items: &[crate::text3::cache::ShapedItem],
+        constraints: &UnifiedConstraints,
+    ) -> Option<UnifiedLayout> {
+        use crate::text3::cache::{perform_fragment_layout, BreakCursor};
+
+        let loaded_fonts = self.font_manager.get_loaded_fonts();
+        let mut cursor = BreakCursor::new(shaped_items);
+        perform_fragment_layout(&mut cursor, logical_items, constraints, &mut None, &loaded_fonts).ok()
+    }
+
+    /// Attempt an incremental IFC relayout for a text edit.
+    ///
+    /// Runs stages 1-3 (logical items, bidi, shape) on the new content, then
+    /// checks whether the cached UnifiedLayout can be patched without
+    /// re-running line-breaking (stage 4).
+    ///
+    /// Returns `Some((new_layout, skipped_fragment_layout))`:
+    ///   - `skipped_fragment_layout == true` means we took the incremental
+    ///     fast path and returned a patched cached layout.
+    ///   - `skipped_fragment_layout == false` means we fell back to full
+    ///     fragment_layout (stage 4) but reused shape output from stages 1-3.
+    ///
+    /// Returns `None` only if logical_items + reorder + shape itself fails.
+    fn try_incremental_text_relayout(
+        &self,
+        content: &[InlineContent],
+        constraints: &UnifiedConstraints,
+        cached: &crate::solver3::layout_tree::CachedInlineLayout,
+        edited_node_id: NodeId,
+    ) -> Option<(UnifiedLayout, bool)> {
+        use crate::text3::cache::{
+            try_incremental_relayout as decide_incremental,
+            IncrementalRelayoutResult, PositionedItem, ShapedItem,
         };
 
-        // Stage 4: Fragment layout (line breaking, positioning)
-        let mut cursor = BreakCursor::new(&shaped_items);
-        match perform_fragment_layout(&mut cursor, &logical_items, constraints, &mut None, &loaded_fonts) {
-            Ok(layout) => {
-                Some(layout)
+        let (logical_items, shaped_items) = self.shape_text_for_relayout(content, constraints)?;
+
+        if logical_items.is_empty() {
+            return Some((
+                UnifiedLayout {
+                    items: Vec::new(),
+                    overflow: crate::text3::cache::OverflowInfo::default(),
+                },
+                true,
+            ));
+        }
+
+        // Incremental patching requires:
+        //   - The cached layout came with line-break metadata.
+        //   - No overflow in the cached layout (patching positions around
+        //     overflow is not supported).
+        //   - The new shape output has the same number of items as the
+        //     cached positioned items, so we can zip 1:1.
+        let incremental_ok = cached.line_breaks.is_some()
+            && cached.layout.overflow.overflow_items.is_empty()
+            && shaped_items.len() == cached.layout.items.len();
+
+        if incremental_ok {
+            let line_breaks = cached.line_breaks.as_ref().unwrap();
+
+            let old_advances: Vec<f32> =
+                cached.item_metrics.iter().map(|m| m.advance_width).collect();
+            let new_advances: Vec<f32> =
+                shaped_items.iter().map(|si| si.bounds().width).collect();
+
+            // An item is dirty if its advance width changed OR it originates
+            // from the edited DOM node. The latter is needed so GlyphSwap
+            // (same-width edits) still invalidates glyph data, not just
+            // positions.
+            let mut dirty_indices: Vec<usize> = Vec::new();
+            for (i, (old_a, new_a)) in old_advances.iter().zip(new_advances.iter()).enumerate() {
+                if (new_a - old_a).abs() > 0.01 {
+                    dirty_indices.push(i);
+                }
             }
-            Err(e) => {
-                None
+            for (i, si) in shaped_items.iter().enumerate() {
+                if let ShapedItem::Cluster(c) = si {
+                    if c.source_node_id == Some(edited_node_id)
+                        && !dirty_indices.contains(&i)
+                    {
+                        dirty_indices.push(i);
+                    }
+                }
+            }
+            dirty_indices.sort_unstable();
+            dirty_indices.dedup();
+
+            let decision =
+                decide_incremental(&dirty_indices, &old_advances, &new_advances, line_breaks);
+
+            match decision {
+                IncrementalRelayoutResult::GlyphSwap => {
+                    // Widths unchanged — keep cached positions and line
+                    // assignments, swap in the new shaped items so their
+                    // glyph data reflects the edit.
+                    let items: Vec<PositionedItem> = cached
+                        .layout
+                        .items
+                        .iter()
+                        .zip(shaped_items.into_iter())
+                        .map(|(old_positioned, new_shaped)| PositionedItem {
+                            item: new_shaped,
+                            position: old_positioned.position,
+                            line_index: old_positioned.line_index,
+                        })
+                        .collect();
+                    return Some((
+                        UnifiedLayout {
+                            items,
+                            overflow: cached.layout.overflow.clone(),
+                        },
+                        true,
+                    ));
+                }
+                IncrementalRelayoutResult::LineShift {
+                    affected_item,
+                    delta,
+                } => {
+                    // Width changed but the line still fits — shift x
+                    // positions of items after `affected_item` on the same
+                    // line. Items on later lines keep their positions.
+                    let affected_line = cached.layout.items[affected_item].line_index;
+                    let items: Vec<PositionedItem> = cached
+                        .layout
+                        .items
+                        .iter()
+                        .zip(shaped_items.into_iter())
+                        .enumerate()
+                        .map(|(i, (old_positioned, new_shaped))| {
+                            let mut position = old_positioned.position;
+                            if i > affected_item && old_positioned.line_index == affected_line {
+                                position.x += delta;
+                            }
+                            PositionedItem {
+                                item: new_shaped,
+                                position,
+                                line_index: old_positioned.line_index,
+                            }
+                        })
+                        .collect();
+                    return Some((
+                        UnifiedLayout {
+                            items,
+                            overflow: cached.layout.overflow.clone(),
+                        },
+                        true,
+                    ));
+                }
+                IncrementalRelayoutResult::PartialReflow { .. }
+                | IncrementalRelayoutResult::FullRelayout => {
+                    // Fall through to full fragment layout.
+                }
             }
         }
+
+        // Fall-back: run stage 4 (line breaking + positioning) with the
+        // already-computed logical + shaped items. Still cheaper than the
+        // plain full path because stages 1-3 aren't repeated.
+        let layout = self.fragment_layout_from_shaped(&logical_items, &shaped_items, constraints)?;
+        Some((layout, false))
     }
 
     /// Helper to get node used_size for accessibility actions

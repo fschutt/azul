@@ -2437,12 +2437,15 @@ fn layout_ifc<T: ParsedFontTrait>(
                     .map(|m| m.advance_width)
                     .collect();
 
-                // For now, we detect "no dirty items" case: if item count is unchanged
-                // and the cached layout exists, check try_incremental_relayout with
-                // empty dirty set (returns GlyphSwap = no change = reuse cached).
-                // The full dirty-item detection requires tracking which DOM nodes
-                // changed text, which is done in update_text_cache_after_edit.
-                // TODO: pass dirty_item_indices from the reconciliation path.
+                // Cache-reuse fast path. Real incremental relayout for text
+                // edits lives in LayoutWindow::try_incremental_text_relayout
+                // (window.rs) — it has the newly-shaped items and the edited
+                // node id, so it can compute real dirty_item_indices and
+                // take the GlyphSwap / LineShift branches. Here we only
+                // know the IFC is being re-entered (e.g. viewport resize on
+                // a static IFC); with nothing re-shaped yet, the best we can
+                // do is "no items changed at this level" → trivial GlyphSwap
+                // to return the cached layout unchanged.
                 let result = crate::text3::cache::try_incremental_relayout(
                     &[], // empty = no dirty items detected at this level
                     &old_advances,
