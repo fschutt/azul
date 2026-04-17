@@ -93,19 +93,9 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     // excel.html even when only 3 nodes were actually dirty.
     let dirty_closure = compute_dirty_ancestor_closure(tree, dirty_nodes);
 
-    // Fix C: if no subtree rooted at `tree.root` contains a shrink-to-fit
-    // context (flex/grid/table/float/abspos/inline-block), the bottom-up
-    // intrinsic sizes will never be consumed during layout — the parent
-    // block provides definite widths top-down. Per-subtree marks propagate
-    // downward through the recursive walk so mixed documents (a single
-    // flex toolbar over a body of normal-flow prose) still skip the
-    // prose subtrees while computing intrinsics where they matter.
-    let needs_intrinsic = compute_subtree_needs_intrinsic(ctx, tree);
-
     let mut calculator = IntrinsicSizeCalculator::new(ctx, text_cache);
     calculator.dirty_closure = Some(dirty_closure);
-    calculator.subtree_needs_intrinsic = needs_intrinsic;
-    calculator.calculate_intrinsic_recursive(tree, tree.root, false)?;
+    calculator.calculate_intrinsic_recursive(tree, tree.root)?;
     ctx.debug_log("Finished intrinsic size calculation");
     Ok(())
 }
@@ -127,81 +117,6 @@ fn compute_dirty_ancestor_closure(
     closure
 }
 
-/// Returns true if `(dom_node_id, fc)` establishes a formatting context whose
-/// sizing algorithm reads children's intrinsic sizes. Covers:
-/// - flex containers (flex item sizing uses child min/max-content),
-/// - grid containers (grid-track sizing likewise),
-/// - tables and table cells,
-/// - inline-block (its own width may be shrink-to-fit),
-/// - floats and abspos elements whose width is `auto` (CSS 2.2 §10.3.5 / §10.3.7:
-///   `auto` resolves to shrink-to-fit, which pulls max-content from the element).
-///
-/// A `FormattingContext::Block` with a definite CSS width is NOT shrink-to-fit —
-/// its inner layout gets the width top-down, so descendant intrinsics don't
-/// feed back up. That's the path fix C short-circuits.
-fn is_shrink_to_fit_context(
-    styled_dom: &StyledDom,
-    dom_node_id: Option<NodeId>,
-    fc: Option<&FormattingContext>,
-) -> bool {
-    if let Some(fc) = fc {
-        match fc {
-            FormattingContext::Flex
-            | FormattingContext::Grid
-            | FormattingContext::Table
-            | FormattingContext::InlineBlock => return true,
-            _ => {}
-        }
-    }
-    let Some(dom_id) = dom_node_id else { return false; };
-    let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
-    if get_float(styled_dom, dom_id, node_state).unwrap_or(LayoutFloat::None) != LayoutFloat::None {
-        return true;
-    }
-    let pos = get_position_type(styled_dom, Some(dom_id));
-    if pos == LayoutPosition::Absolute || pos == LayoutPosition::Fixed {
-        // Abspos only becomes shrink-to-fit when width is `auto`.
-        // Being conservative: treat as STF whenever abspos so we still
-        // compute intrinsics for the auto-width case. Misses no work.
-        return true;
-    }
-    false
-}
-
-/// Mark each layout-tree node whose subtree (itself or any descendant)
-/// establishes a shrink-to-fit context. Used by `calculate_intrinsic_recursive`
-/// to prove a normal-flow subtree's intrinsics will not be consumed.
-fn compute_subtree_needs_intrinsic<T: ParsedFontTrait>(
-    ctx: &LayoutContext<'_, T>,
-    tree: &LayoutTree,
-) -> Vec<bool> {
-    let n = tree.nodes.len();
-    let mut out = vec![false; n];
-    // Post-order walk: a node's bit is its own STF-ness OR any child's bit.
-    // LayoutTree stores children by index; iterate from end so children are
-    // visited before parents (tree.nodes is typically built in pre-order).
-    // If ordering is not guaranteed, we do a full fixed-point pass.
-    for idx in (0..n).rev() {
-        let node = &tree.nodes[idx];
-        let self_stf = is_shrink_to_fit_context(
-            ctx.styled_dom,
-            node.dom_node_id,
-            Some(&node.formatting_context),
-        );
-        let mut any = self_stf;
-        if !any {
-            for &child in tree.children(idx) {
-                if out.get(child).copied().unwrap_or(false) {
-                    any = true;
-                    break;
-                }
-            }
-        }
-        out[idx] = any;
-    }
-    out
-}
-
 struct IntrinsicSizeCalculator<'a, 'b, 'c, T: ParsedFontTrait> {
     ctx: &'a mut LayoutContext<'b, T>,
     /// Shared text shaping cache, threaded through from the caller so
@@ -217,11 +132,6 @@ struct IntrinsicSizeCalculator<'a, 'b, 'c, T: ParsedFontTrait> {
     /// `warm.intrinsic_sizes` is already populated reuses the
     /// cached value and skips its entire subtree descent.
     dirty_closure: Option<std::collections::HashSet<usize>>,
-    /// Per-layout-tree-index: does this node or any of its descendants
-    /// establish a shrink-to-fit context whose sizing consumes
-    /// intrinsic contributions? Indexed by `LayoutTree` node index.
-    /// Empty means "assume every subtree needs intrinsics" (safe fallback).
-    subtree_needs_intrinsic: Vec<bool>,
 }
 
 impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
@@ -230,7 +140,6 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             ctx,
             text_cache,
             dirty_closure: None,
-            subtree_needs_intrinsic: Vec::new(),
         }
     }
 
@@ -238,29 +147,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         &mut self,
         tree: &mut LayoutTree,
         node_index: usize,
-        ancestor_is_stf: bool,
     ) -> Result<IntrinsicSizes> {
-        // Fix C: if no ancestor consumes intrinsic sizes AND this subtree
-        // contains no shrink-to-fit context either, the computed value
-        // would be written and never read. Skip the whole subtree walk
-        // and return defaults. This catches entire normal-flow documents
-        // (block_2000.html, text_2000.html) where `<p>` paragraphs inside
-        // plain `<div>`s were eagerly measuring inline content that layout
-        // then ignored because the parent had a definite (viewport-derived)
-        // width.
-        let subtree_stf = self
-            .subtree_needs_intrinsic
-            .get(node_index)
-            .copied()
-            .unwrap_or(true);
-        if !ancestor_is_stf && !subtree_stf {
-            let default = IntrinsicSizes::default();
-            if let Some(n) = tree.warm_mut(node_index) {
-                n.intrinsic_sizes = Some(default.clone());
-            }
-            return Ok(default);
-        }
-
         // Fast path: if this subtree has no dirty nodes AND we
         // already have a cached intrinsic, return the cached value
         // and skip the whole descent. Caller is the ancestor-closure
@@ -309,23 +196,10 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             heap_buf = children_slice.to_vec();
             &heap_buf
         };
-        // Fix C: children inherit our STF status. If WE are a shrink-to-fit
-        // context (flex/grid/table/inline-block/float/abspos with auto width),
-        // our descendants' intrinsic sizes WILL be consumed. Otherwise
-        // descendants inherit the caller's `ancestor_is_stf` — so a normal
-        // `<div>` under a flex container still reports true to its own text
-        // `<p>` descendants.
-        let child_ancestor_is_stf = ancestor_is_stf
-            || is_shrink_to_fit_context(
-                self.ctx.styled_dom,
-                dom_node_id,
-                tree.get(node_index).map(|n| &n.formatting_context),
-            );
-
         let mut child_intrinsics = Vec::with_capacity(n);
         for &child_index in children {
             let child_intrinsic =
-                self.calculate_intrinsic_recursive(tree, child_index, child_ancestor_is_stf)?;
+                self.calculate_intrinsic_recursive(tree, child_index)?;
             child_intrinsics.push((child_index, child_intrinsic));
         }
 
