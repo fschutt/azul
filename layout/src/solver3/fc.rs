@@ -2636,8 +2636,23 @@ fn layout_ifc<T: ParsedFontTrait>(
         // of the first/last formatted line. If there is intervening non-zero padding or
         // borders, there is no effect. Does not apply to flex, grid, or table contexts.
         let ifc_node_state = &ctx.styled_dom.styled_nodes.as_container()[ifc_root_dom_id].styled_node_state;
-        let text_box_trim = get_text_box_trim_property(ctx.styled_dom, ifc_root_dom_id, ifc_node_state)
-            .unwrap_or(StyleTextBoxTrim::None);
+        // Fast path: if no node in the DOM declared text-box-trim, the cascade
+        // walk would always return None → skip it.
+        let text_box_trim = {
+            let skip = ctx.styled_dom
+                .css_property_cache
+                .ptr
+                .compact_cache
+                .as_ref()
+                .map(|cc| cc.dom_declared_flags & azul_css::compact_cache::DOM_HAS_TEXT_BOX_TRIM == 0)
+                .unwrap_or(false);
+            if skip {
+                StyleTextBoxTrim::None
+            } else {
+                get_text_box_trim_property(ctx.styled_dom, ifc_root_dom_id, ifc_node_state)
+                    .unwrap_or(StyleTextBoxTrim::None)
+            }
+        };
 
         if text_box_trim != StyleTextBoxTrim::None && !main_frag.items.is_empty() {
             // Half-leading = (line-height - (ascent + descent)) / 2
@@ -2928,6 +2943,28 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     styled_dom: &StyledDom,
     dom_id: NodeId,
 ) -> UnifiedConstraints {
+    // DOM-level declared flags: if a bit is clear, no node in this DOM
+    // declared the corresponding property → cascade walks always return
+    // None, and we use the default value directly. All flags default to
+    // "set" when there is no compact cache (paranoid fallback).
+    use azul_css::compact_cache::{
+        DOM_HAS_SHAPE_INSIDE, DOM_HAS_SHAPE_OUTSIDE, DOM_HAS_TEXT_JUSTIFY,
+        DOM_HAS_TEXT_INDENT, DOM_HAS_COLUMN_COUNT, DOM_HAS_COLUMN_GAP,
+        DOM_HAS_INITIAL_LETTER, DOM_HAS_INITIAL_LETTER_ALIGN,
+        DOM_HAS_LINE_CLAMP, DOM_HAS_HANGING_PUNCTUATION,
+        DOM_HAS_TEXT_COMBINE_UPRIGHT, DOM_HAS_EXCLUSION_MARGIN,
+        DOM_HAS_HYPHENATION_LANGUAGE, DOM_HAS_UNICODE_BIDI,
+        DOM_HAS_HYPHENS, DOM_HAS_WORD_BREAK, DOM_HAS_OVERFLOW_WRAP,
+        DOM_HAS_LINE_BREAK, DOM_HAS_TEXT_ALIGN_LAST, DOM_HAS_LINE_HEIGHT,
+    };
+    let dom_declared = styled_dom
+        .css_property_cache
+        .ptr
+        .compact_cache
+        .as_ref()
+        .map(|cc| cc.dom_declared_flags)
+        .unwrap_or(!0u32);
+
     // Convert floats into exclusion zones for text3 to flow around.
     let mut shape_exclusions = if let Some(ref bfc_state) = constraints.bfc_state {
         debug_info!(
@@ -3033,32 +3070,36 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         constraints.available_size.height
     );
 
-    let shape_boundaries = styled_dom
-        .css_property_cache
-        .ptr
-        .get_shape_inside(node_data, &id, node_state)
-        .and_then(|v| {
-            debug_info!(ctx, "Got shape-inside value: {:?}", v);
-            v.get_property()
-        })
-        .and_then(|shape_inside| {
-            debug_info!(ctx, "shape-inside property: {:?}", shape_inside);
-            if let ShapeInside::Shape(css_shape) = shape_inside {
-                debug_info!(
-                    ctx,
-                    "Converting CSS shape to ShapeBoundary: {:?}",
-                    css_shape
-                );
-                let boundary =
-                    ShapeBoundary::from_css_shape(css_shape, reference_box, ctx.debug_messages);
-                debug_info!(ctx, "Created ShapeBoundary: {:?}", boundary);
-                Some(vec![boundary])
-            } else {
-                debug_info!(ctx, "shape-inside is None");
-                None
-            }
-        })
-        .unwrap_or_default();
+    let shape_boundaries = if dom_declared & DOM_HAS_SHAPE_INSIDE != 0 {
+        styled_dom
+            .css_property_cache
+            .ptr
+            .get_shape_inside(node_data, &id, node_state)
+            .and_then(|v| {
+                debug_info!(ctx, "Got shape-inside value: {:?}", v);
+                v.get_property()
+            })
+            .and_then(|shape_inside| {
+                debug_info!(ctx, "shape-inside property: {:?}", shape_inside);
+                if let ShapeInside::Shape(css_shape) = shape_inside {
+                    debug_info!(
+                        ctx,
+                        "Converting CSS shape to ShapeBoundary: {:?}",
+                        css_shape
+                    );
+                    let boundary =
+                        ShapeBoundary::from_css_shape(css_shape, reference_box, ctx.debug_messages);
+                    debug_info!(ctx, "Created ShapeBoundary: {:?}", boundary);
+                    Some(vec![boundary])
+                } else {
+                    debug_info!(ctx, "shape-inside is None");
+                    None
+                }
+            })
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
 
     debug_info!(
         ctx,
@@ -3068,28 +3109,30 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
 
     // shape-outside: Text wraps around the shape (adds to exclusions)
     debug_info!(ctx, "Checking shape-outside for node {:?}", id);
-    if let Some(shape_outside_value) = styled_dom
-        .css_property_cache
-        .ptr
-        .get_shape_outside(node_data, &id, node_state)
-    {
-        debug_info!(ctx, "Got shape-outside value: {:?}", shape_outside_value);
-        if let Some(shape_outside) = shape_outside_value.get_property() {
-            debug_info!(ctx, "shape-outside property: {:?}", shape_outside);
-            if let ShapeOutside::Shape(css_shape) = shape_outside {
-                debug_info!(
-                    ctx,
-                    "Converting CSS shape-outside to ShapeBoundary: {:?}",
-                    css_shape
-                );
-                let boundary =
-                    ShapeBoundary::from_css_shape(css_shape, reference_box, ctx.debug_messages);
-                debug_info!(ctx, "Created ShapeBoundary (exclusion): {:?}", boundary);
-                shape_exclusions.push(boundary);
+    if dom_declared & DOM_HAS_SHAPE_OUTSIDE != 0 {
+        if let Some(shape_outside_value) = styled_dom
+            .css_property_cache
+            .ptr
+            .get_shape_outside(node_data, &id, node_state)
+        {
+            debug_info!(ctx, "Got shape-outside value: {:?}", shape_outside_value);
+            if let Some(shape_outside) = shape_outside_value.get_property() {
+                debug_info!(ctx, "shape-outside property: {:?}", shape_outside);
+                if let ShapeOutside::Shape(css_shape) = shape_outside {
+                    debug_info!(
+                        ctx,
+                        "Converting CSS shape-outside to ShapeBoundary: {:?}",
+                        css_shape
+                    );
+                    let boundary =
+                        ShapeBoundary::from_css_shape(css_shape, reference_box, ctx.debug_messages);
+                    debug_info!(ctx, "Created ShapeBoundary (exclusion): {:?}", boundary);
+                    shape_exclusions.push(boundary);
+                }
             }
+        } else {
+            debug_info!(ctx, "No shape-outside value found");
         }
-    } else {
-        debug_info!(ctx, "No shape-outside value found");
     }
 
     // TODO: clip-path will be used for rendering clipping (not text layout)
@@ -3098,58 +3141,86 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
 
     let text_align = get_text_align(styled_dom, id, node_state).unwrap_or_default();
 
-    let text_justify = styled_dom
-        .css_property_cache
-        .ptr
-        .get_text_justify(node_data, &id, node_state)
-        .and_then(|s| s.get_property().copied())
-        .unwrap_or_default();
+    let text_justify = if dom_declared & DOM_HAS_TEXT_JUSTIFY != 0 {
+        styled_dom
+            .css_property_cache
+            .ptr
+            .get_text_justify(node_data, &id, node_state)
+            .and_then(|s| s.get_property().copied())
+            .unwrap_or_default()
+    } else {
+        Default::default()
+    };
 
     // Get font-size for resolving line-height
     // Use helper function which checks dependency chain first
     let font_size = get_element_font_size(styled_dom, id, node_state);
 
-    let line_height_value = styled_dom
-        .css_property_cache
-        .ptr
-        .get_line_height(node_data, &id, node_state)
-        .and_then(|s| s.get_property().cloned())
-        .unwrap_or_default();
+    let line_height_value = if dom_declared & DOM_HAS_LINE_HEIGHT != 0 {
+        styled_dom
+            .css_property_cache
+            .ptr
+            .get_line_height(node_data, &id, node_state)
+            .and_then(|s| s.get_property().cloned())
+            .unwrap_or_default()
+    } else {
+        Default::default()
+    };
 
-    let hyphenation = styled_dom
-        .css_property_cache
-        .ptr
-        .get_hyphens(node_data, &id, node_state)
-        .and_then(|s| s.get_property().copied())
-        .unwrap_or_default();
+    let hyphenation = if dom_declared & DOM_HAS_HYPHENS != 0 {
+        styled_dom
+            .css_property_cache
+            .ptr
+            .get_hyphens(node_data, &id, node_state)
+            .and_then(|s| s.get_property().copied())
+            .unwrap_or_default()
+    } else {
+        Default::default()
+    };
 
-    let word_break_css = styled_dom
-        .css_property_cache
-        .ptr
-        .get_word_break(node_data, &id, node_state)
-        .and_then(|s| s.get_property().copied())
-        .unwrap_or_default();
+    let word_break_css = if dom_declared & DOM_HAS_WORD_BREAK != 0 {
+        styled_dom
+            .css_property_cache
+            .ptr
+            .get_word_break(node_data, &id, node_state)
+            .and_then(|s| s.get_property().copied())
+            .unwrap_or_default()
+    } else {
+        Default::default()
+    };
 
-    let overflow_wrap_css = styled_dom
-        .css_property_cache
-        .ptr
-        .get_overflow_wrap(node_data, &id, node_state)
-        .and_then(|s| s.get_property().copied())
-        .unwrap_or_default();
+    let overflow_wrap_css = if dom_declared & DOM_HAS_OVERFLOW_WRAP != 0 {
+        styled_dom
+            .css_property_cache
+            .ptr
+            .get_overflow_wrap(node_data, &id, node_state)
+            .and_then(|s| s.get_property().copied())
+            .unwrap_or_default()
+    } else {
+        Default::default()
+    };
 
-    let line_break_css = styled_dom
-        .css_property_cache
-        .ptr
-        .get_line_break(node_data, &id, node_state)
-        .and_then(|s| s.get_property().copied())
-        .unwrap_or_default();
+    let line_break_css = if dom_declared & DOM_HAS_LINE_BREAK != 0 {
+        styled_dom
+            .css_property_cache
+            .ptr
+            .get_line_break(node_data, &id, node_state)
+            .and_then(|s| s.get_property().copied())
+            .unwrap_or_default()
+    } else {
+        Default::default()
+    };
 
-    let text_align_last_css = styled_dom
-        .css_property_cache
-        .ptr
-        .get_text_align_last(node_data, &id, node_state)
-        .and_then(|s| s.get_property().copied())
-        .unwrap_or_default();
+    let text_align_last_css = if dom_declared & DOM_HAS_TEXT_ALIGN_LAST != 0 {
+        styled_dom
+            .css_property_cache
+            .ptr
+            .get_text_align_last(node_data, &id, node_state)
+            .and_then(|s| s.get_property().copied())
+            .unwrap_or_default()
+    } else {
+        Default::default()
+    };
 
     let overflow_behaviour = get_overflow_x(styled_dom, id, node_state).unwrap_or_default();
 
@@ -3241,16 +3312,20 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
 
     // Get unicode-bidi property for bidi algorithm configuration
     // +spec:containing-block:0d4914 - unicode-bidi: plaintext causes P2/P3 heuristics instead of HL1 override
-    let unicode_bidi_val = match get_unicode_bidi_property(styled_dom, id, node_state) {
-        MultiValue::Exact(u) => match u {
-            StyleUnicodeBidi::Normal => text3::cache::UnicodeBidi::Normal,
-            StyleUnicodeBidi::Embed => text3::cache::UnicodeBidi::Embed,
-            StyleUnicodeBidi::Isolate => text3::cache::UnicodeBidi::Isolate,
-            StyleUnicodeBidi::BidiOverride => text3::cache::UnicodeBidi::BidiOverride,
-            StyleUnicodeBidi::IsolateOverride => text3::cache::UnicodeBidi::IsolateOverride,
-            StyleUnicodeBidi::Plaintext => text3::cache::UnicodeBidi::Plaintext,
-        },
-        _ => text3::cache::UnicodeBidi::Normal,
+    let unicode_bidi_val = if dom_declared & DOM_HAS_UNICODE_BIDI != 0 {
+        match get_unicode_bidi_property(styled_dom, id, node_state) {
+            MultiValue::Exact(u) => match u {
+                StyleUnicodeBidi::Normal => text3::cache::UnicodeBidi::Normal,
+                StyleUnicodeBidi::Embed => text3::cache::UnicodeBidi::Embed,
+                StyleUnicodeBidi::Isolate => text3::cache::UnicodeBidi::Isolate,
+                StyleUnicodeBidi::BidiOverride => text3::cache::UnicodeBidi::BidiOverride,
+                StyleUnicodeBidi::IsolateOverride => text3::cache::UnicodeBidi::IsolateOverride,
+                StyleUnicodeBidi::Plaintext => text3::cache::UnicodeBidi::Plaintext,
+            },
+            _ => text3::cache::UnicodeBidi::Normal,
+        }
+    } else {
+        text3::cache::UnicodeBidi::Normal
     };
 
     debug_info!(
@@ -3266,11 +3341,15 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     // +spec:display-contents:5f95ac - text-indent: percentage=0 for intrinsic sizing, each-line and hanging keywords
     // +spec:floats:17c74a - text-indent applied to first line (5em indentation with no floats)
     // +spec:positioning:1e32b1 - text-indent with hanging/each-line keywords resolved and passed to text layout
-    let text_indent_prop = styled_dom
-        .css_property_cache
-        .ptr
-        .get_text_indent(node_data, &id, node_state)
-        .and_then(|s| s.get_property().cloned());
+    let text_indent_prop = if dom_declared & DOM_HAS_TEXT_INDENT != 0 {
+        styled_dom
+            .css_property_cache
+            .ptr
+            .get_text_indent(node_data, &id, node_state)
+            .and_then(|s| s.get_property().cloned())
+    } else {
+        None
+    };
     let is_intrinsic_sizing = matches!(
         constraints.available_width_type,
         Text3AvailableSpace::MinContent | Text3AvailableSpace::MaxContent
@@ -3299,39 +3378,48 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     let text_indent_hanging = text_indent_prop.map(|ti| ti.hanging).unwrap_or(false);
 
     // Get column-count for multi-column layout (default: 1 = no columns)
-    let columns = styled_dom
-        .css_property_cache
-        .ptr
-        .get_column_count(node_data, &id, node_state)
-        .and_then(|s| s.get_property())
-        .map(|cc| match cc {
-            ColumnCount::Integer(n) => *n,
-            ColumnCount::Auto => 1,
-        })
-        .unwrap_or(1);
+    let columns = if dom_declared & DOM_HAS_COLUMN_COUNT != 0 {
+        styled_dom
+            .css_property_cache
+            .ptr
+            .get_column_count(node_data, &id, node_state)
+            .and_then(|s| s.get_property())
+            .map(|cc| match cc {
+                ColumnCount::Integer(n) => *n,
+                ColumnCount::Auto => 1,
+            })
+            .unwrap_or(1)
+    } else {
+        1
+    };
 
     // Get column-gap for multi-column layout (default: normal = 1em)
-    let column_gap = styled_dom
-        .css_property_cache
-        .ptr
-        .get_column_gap(node_data, &id, node_state)
-        .and_then(|s| s.get_property())
-        .map(|cg| {
-            let context = ResolutionContext {
-                element_font_size: get_element_font_size(styled_dom, id, node_state),
-                parent_font_size: get_parent_font_size(styled_dom, id, node_state),
-                root_font_size: get_root_font_size(styled_dom, node_state),
-                containing_block_size: PhysicalSize::new(0.0, 0.0),
-                element_size: None,
-                viewport_size: PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
-            };
-            cg.inner
-                .resolve_with_context(&context, PropertyContext::Other)
-        })
-        .unwrap_or_else(|| {
-            // Default: 1em
-            get_element_font_size(styled_dom, id, node_state)
-        });
+    let column_gap = if dom_declared & DOM_HAS_COLUMN_GAP != 0 {
+        styled_dom
+            .css_property_cache
+            .ptr
+            .get_column_gap(node_data, &id, node_state)
+            .and_then(|s| s.get_property())
+            .map(|cg| {
+                let context = ResolutionContext {
+                    element_font_size: get_element_font_size(styled_dom, id, node_state),
+                    parent_font_size: get_parent_font_size(styled_dom, id, node_state),
+                    root_font_size: get_root_font_size(styled_dom, node_state),
+                    containing_block_size: PhysicalSize::new(0.0, 0.0),
+                    element_size: None,
+                    viewport_size: PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
+                };
+                cg.inner
+                    .resolve_with_context(&context, PropertyContext::Other)
+            })
+            .unwrap_or_else(|| {
+                // Default: 1em
+                get_element_font_size(styled_dom, id, node_state)
+            })
+    } else {
+        // Default: 1em
+        get_element_font_size(styled_dom, id, node_state)
+    };
 
     // +spec:line-breaking:b4928e - white-space values mapped to wrap/whitespace processing rules
     // Map white-space CSS property to TextWrap
@@ -3374,18 +3462,22 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     // +spec:writing-modes:903310 - atomic initial letters use normal sizing; only positioning is special
     // Get initial-letter for drop caps
     // +spec:display-property:4c69bf - read initial-letter-align for alignment points
-    let initial_letter_align = styled_dom
-        .css_property_cache
-        .ptr
-        .get_initial_letter_align(node_data, &id, node_state)
-        .and_then(|s| s.get_property())
-        .map(|a| match a {
-            azul_css::props::style::text::StyleInitialLetterAlign::Auto => text3::cache::InitialLetterAlign::Auto,
-            azul_css::props::style::text::StyleInitialLetterAlign::Alphabetic => text3::cache::InitialLetterAlign::Alphabetic,
-            azul_css::props::style::text::StyleInitialLetterAlign::Hanging => text3::cache::InitialLetterAlign::Hanging,
-            azul_css::props::style::text::StyleInitialLetterAlign::Ideographic => text3::cache::InitialLetterAlign::Ideographic,
-        })
-        .unwrap_or(text3::cache::InitialLetterAlign::Auto);
+    let initial_letter_align = if dom_declared & DOM_HAS_INITIAL_LETTER_ALIGN != 0 {
+        styled_dom
+            .css_property_cache
+            .ptr
+            .get_initial_letter_align(node_data, &id, node_state)
+            .and_then(|s| s.get_property())
+            .map(|a| match a {
+                azul_css::props::style::text::StyleInitialLetterAlign::Auto => text3::cache::InitialLetterAlign::Auto,
+                azul_css::props::style::text::StyleInitialLetterAlign::Alphabetic => text3::cache::InitialLetterAlign::Alphabetic,
+                azul_css::props::style::text::StyleInitialLetterAlign::Hanging => text3::cache::InitialLetterAlign::Hanging,
+                azul_css::props::style::text::StyleInitialLetterAlign::Ideographic => text3::cache::InitialLetterAlign::Ideographic,
+            })
+            .unwrap_or(text3::cache::InitialLetterAlign::Auto)
+    } else {
+        text3::cache::InitialLetterAlign::Auto
+    };
     // +spec:display-property:5af252 - initial-letter on inline-level box not at line start uses normal
     // +spec:text-alignment-spacing:a17609 - sunken initial letters suppress letter-spacing and justification (not word-spacing) with adjacent content
     // +spec:display-property:68ab22 - initial-letter only applies in IFC (inline-level);
@@ -3394,24 +3486,28 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     // +spec:writing-modes:c89d19 - initial-letter block-axis positioning: sink determines block offset
     // +spec:display-property:b67500 - initial-letter size/sink: values other than normal make box an initial letter box (inline-level, in-flow)
     // +spec:display-property:416f27 - initial-letter sink defaults to "drop" (sink = size floored) when omitted
-    let initial_letter = styled_dom
-        .css_property_cache
-        .ptr
-        .get_initial_letter(node_data, &id, node_state)
-        .and_then(|s| s.get_property())
-        .map(|il| {
-            use std::num::NonZeroUsize;
-            let sink = match il.sink {
-                azul_css::corety::OptionU32::Some(s) => s,
-                azul_css::corety::OptionU32::None => il.size, // "drop" assumed: sink = size
-            };
-            text3::cache::InitialLetter {
-                size: il.size as f32,
-                sink,
-                count: NonZeroUsize::new(1).unwrap(),
-                align: initial_letter_align,
-            }
-        });
+    let initial_letter = if dom_declared & DOM_HAS_INITIAL_LETTER != 0 {
+        styled_dom
+            .css_property_cache
+            .ptr
+            .get_initial_letter(node_data, &id, node_state)
+            .and_then(|s| s.get_property())
+            .map(|il| {
+                use std::num::NonZeroUsize;
+                let sink = match il.sink {
+                    azul_css::corety::OptionU32::Some(s) => s,
+                    azul_css::corety::OptionU32::None => il.size, // "drop" assumed: sink = size
+                };
+                text3::cache::InitialLetter {
+                    size: il.size as f32,
+                    sink,
+                    count: NonZeroUsize::new(1).unwrap(),
+                    align: initial_letter_align,
+                }
+            })
+    } else {
+        None
+    };
 
     // If initial-letter is set, compute the drop cap exclusion area and add it
     // to the shape exclusions so that text wraps around the enlarged letter.
@@ -3439,78 +3535,98 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     }
 
     // Get line-clamp for limiting visible lines
-    let line_clamp = styled_dom
-        .css_property_cache
-        .ptr
-        .get_line_clamp(node_data, &id, node_state)
-        .and_then(|s| s.get_property())
-        .and_then(|lc| std::num::NonZeroUsize::new(lc.max_lines));
+    let line_clamp = if dom_declared & DOM_HAS_LINE_CLAMP != 0 {
+        styled_dom
+            .css_property_cache
+            .ptr
+            .get_line_clamp(node_data, &id, node_state)
+            .and_then(|s| s.get_property())
+            .and_then(|lc| std::num::NonZeroUsize::new(lc.max_lines))
+    } else {
+        None
+    };
 
     // Get hanging-punctuation for hanging punctuation marks
-    let hanging_punctuation = styled_dom
-        .css_property_cache
-        .ptr
-        .get_hanging_punctuation(node_data, &id, node_state)
-        .and_then(|s| s.get_property())
-        .map(|hp| hp.enabled)
-        .unwrap_or(false);
+    let hanging_punctuation = if dom_declared & DOM_HAS_HANGING_PUNCTUATION != 0 {
+        styled_dom
+            .css_property_cache
+            .ptr
+            .get_hanging_punctuation(node_data, &id, node_state)
+            .and_then(|s| s.get_property())
+            .map(|hp| hp.enabled)
+            .unwrap_or(false)
+    } else {
+        false
+    };
 
     // Get text-combine-upright for vertical text combination
     // +spec:line-breaking:9f150a - text-combine-upright:all composes glyphs horizontally, ignoring letter-spacing and forced line breaks
     // +spec:line-breaking:1b88cd - text-combine-upright:all layout: inline-block with 1em square, ignoring forced line breaks
     // +spec:inline-formatting-context:c8d8d9 - text-combine-upright compression passed to text shaping engine
     // +spec:inline-formatting-context:f4ef7d - text-combine-upright layout rules (1em square composition)
-    let text_combine_upright = styled_dom
-        .css_property_cache
-        .ptr
-        .get_text_combine_upright(node_data, &id, node_state)
-        .and_then(|s| s.get_property())
-        // +spec:display-property:6f174d - text-combine-upright horizontal-in-vertical composition
-        .map(|tcu| match tcu {
-            StyleTextCombineUpright::None => text3::cache::TextCombineUpright::None,
-            StyleTextCombineUpright::All => text3::cache::TextCombineUpright::All,
-            StyleTextCombineUpright::Digits(n) => text3::cache::TextCombineUpright::Digits(*n),
-        });
+    let text_combine_upright = if dom_declared & DOM_HAS_TEXT_COMBINE_UPRIGHT != 0 {
+        styled_dom
+            .css_property_cache
+            .ptr
+            .get_text_combine_upright(node_data, &id, node_state)
+            .and_then(|s| s.get_property())
+            // +spec:display-property:6f174d - text-combine-upright horizontal-in-vertical composition
+            .map(|tcu| match tcu {
+                StyleTextCombineUpright::None => text3::cache::TextCombineUpright::None,
+                StyleTextCombineUpright::All => text3::cache::TextCombineUpright::All,
+                StyleTextCombineUpright::Digits(n) => text3::cache::TextCombineUpright::Digits(*n),
+            })
+    } else {
+        None
+    };
 
     // Get exclusion-margin for shape exclusions
-    let exclusion_margin = styled_dom
-        .css_property_cache
-        .ptr
-        .get_exclusion_margin(node_data, &id, node_state)
-        .and_then(|s| s.get_property())
-        .map(|em| em.inner.get() as f32)
-        .unwrap_or(0.0);
+    let exclusion_margin = if dom_declared & DOM_HAS_EXCLUSION_MARGIN != 0 {
+        styled_dom
+            .css_property_cache
+            .ptr
+            .get_exclusion_margin(node_data, &id, node_state)
+            .and_then(|s| s.get_property())
+            .map(|em| em.inner.get() as f32)
+            .unwrap_or(0.0)
+    } else {
+        0.0
+    };
 
     // Get hyphenation-language for language-specific hyphenation
-    let hyphenation_language = styled_dom
-        .css_property_cache
-        .ptr
-        .get_hyphenation_language(node_data, &id, node_state)
-        .and_then(|s| s.get_property())
-        .and_then(|hl| {
-            #[cfg(feature = "text_layout_hyphenation")]
-            {
-                use hyphenation::{Language, Load};
-                // Parse BCP 47 language code to hyphenation::Language
-                match hl.inner.as_str() {
-                    "en-US" | "en" => Some(Language::EnglishUS),
-                    "de-DE" | "de" => Some(Language::German1996),
-                    "fr-FR" | "fr" => Some(Language::French),
-                    "es-ES" | "es" => Some(Language::Spanish),
-                    "it-IT" | "it" => Some(Language::Italian),
-                    "pt-PT" | "pt" => Some(Language::Portuguese),
-                    "nl-NL" | "nl" => Some(Language::Dutch),
-                    "pl-PL" | "pl" => Some(Language::Polish),
-                    "ru-RU" | "ru" => Some(Language::Russian),
-                    "zh-CN" | "zh" => Some(Language::Chinese),
-                    _ => None, // Unsupported language
+    let hyphenation_language = if dom_declared & DOM_HAS_HYPHENATION_LANGUAGE != 0 {
+        styled_dom
+            .css_property_cache
+            .ptr
+            .get_hyphenation_language(node_data, &id, node_state)
+            .and_then(|s| s.get_property())
+            .and_then(|hl| {
+                #[cfg(feature = "text_layout_hyphenation")]
+                {
+                    use hyphenation::{Language, Load};
+                    // Parse BCP 47 language code to hyphenation::Language
+                    match hl.inner.as_str() {
+                        "en-US" | "en" => Some(Language::EnglishUS),
+                        "de-DE" | "de" => Some(Language::German1996),
+                        "fr-FR" | "fr" => Some(Language::French),
+                        "es-ES" | "es" => Some(Language::Spanish),
+                        "it-IT" | "it" => Some(Language::Italian),
+                        "pt-PT" | "pt" => Some(Language::Portuguese),
+                        "nl-NL" | "nl" => Some(Language::Dutch),
+                        "pl-PL" | "pl" => Some(Language::Polish),
+                        "ru-RU" | "ru" => Some(Language::Russian),
+                        "zh-CN" | "zh" => Some(Language::Chinese),
+                        _ => None, // Unsupported language
+                    }
                 }
-            }
-            #[cfg(not(feature = "text_layout_hyphenation"))]
-            {
-                None::<crate::text3::script::Language>
-            }
-        });
+                #[cfg(not(feature = "text_layout_hyphenation"))]
+                {
+                    None::<crate::text3::script::Language>
+                }
+            })
+    } else {
+        None
+    };
 
     UnifiedConstraints {
         exclusion_margin,

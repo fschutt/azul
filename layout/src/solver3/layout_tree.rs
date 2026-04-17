@@ -2339,19 +2339,41 @@ fn collect_box_props(
 
     let style_zeroes_width = |s: BorderStyle| matches!(s, BorderStyle::None | BorderStyle::Hidden);
 
-    // Read border styles to check if widths should be zeroed
-    let bs_top = styled_dom.css_property_cache.ptr
-        .get_border_top_style(node_data, &dom_id, &node_state)
-        .and_then(|v| v.get_property()).map(|s| s.inner).unwrap_or(BorderStyle::None);
-    let bs_right = styled_dom.css_property_cache.ptr
-        .get_border_right_style(node_data, &dom_id, &node_state)
-        .and_then(|v| v.get_property()).map(|s| s.inner).unwrap_or(BorderStyle::None);
-    let bs_bottom = styled_dom.css_property_cache.ptr
-        .get_border_bottom_style(node_data, &dom_id, &node_state)
-        .and_then(|v| v.get_property()).map(|s| s.inner).unwrap_or(BorderStyle::None);
-    let bs_left = styled_dom.css_property_cache.ptr
-        .get_border_left_style(node_data, &dom_id, &node_state)
-        .and_then(|v| v.get_property()).map(|s| s.inner).unwrap_or(BorderStyle::None);
+    // Read border styles to check if widths should be zeroed.
+    // FAST PATH: compact cache returns styles directly for normal state — no
+    // cascade walks. Prior code here did 4 cascade walks × 586 nodes.
+    let (bs_top, bs_right, bs_bottom, bs_left) = {
+        let cache_ptr = &styled_dom.css_property_cache.ptr;
+        if node_state.is_normal() {
+            if let Some(ref cc) = cache_ptr.compact_cache {
+                let idx = dom_id.index();
+                (cc.get_border_top_style(idx), cc.get_border_right_style(idx),
+                 cc.get_border_bottom_style(idx), cc.get_border_left_style(idx))
+            } else {
+                (
+                    cache_ptr.get_border_top_style(node_data, &dom_id, &node_state)
+                        .and_then(|v| v.get_property()).map(|s| s.inner).unwrap_or(BorderStyle::None),
+                    cache_ptr.get_border_right_style(node_data, &dom_id, &node_state)
+                        .and_then(|v| v.get_property()).map(|s| s.inner).unwrap_or(BorderStyle::None),
+                    cache_ptr.get_border_bottom_style(node_data, &dom_id, &node_state)
+                        .and_then(|v| v.get_property()).map(|s| s.inner).unwrap_or(BorderStyle::None),
+                    cache_ptr.get_border_left_style(node_data, &dom_id, &node_state)
+                        .and_then(|v| v.get_property()).map(|s| s.inner).unwrap_or(BorderStyle::None),
+                )
+            }
+        } else {
+            (
+                cache_ptr.get_border_top_style(node_data, &dom_id, &node_state)
+                    .and_then(|v| v.get_property()).map(|s| s.inner).unwrap_or(BorderStyle::None),
+                cache_ptr.get_border_right_style(node_data, &dom_id, &node_state)
+                    .and_then(|v| v.get_property()).map(|s| s.inner).unwrap_or(BorderStyle::None),
+                cache_ptr.get_border_bottom_style(node_data, &dom_id, &node_state)
+                    .and_then(|v| v.get_property()).map(|s| s.inner).unwrap_or(BorderStyle::None),
+                cache_ptr.get_border_left_style(node_data, &dom_id, &node_state)
+                    .and_then(|v| v.get_property()).map(|s| s.inner).unwrap_or(BorderStyle::None),
+            )
+        }
+    };
 
     // Build unresolved border, zeroing width when style is none or hidden
     let unresolved_border = UnresolvedEdge {

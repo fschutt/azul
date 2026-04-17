@@ -118,11 +118,26 @@ impl GpuValueCache {
             }
         }
 
-        // calculate the transform values of every single node that has a non-default transform
+        // calculate the transform values of every single node that has a non-default transform.
+        //
+        // GPU fast path: `has_transform` is a single bit in the compact cache.
+        // The overwhelmingly common case is "no transform set", which now reads one
+        // byte and bails — no cascade walk. Only nodes that actually have a
+        // transform pay the slow-walk cost (required to retrieve the parsed value).
         let all_current_transform_events = (0..styled_dom.node_data.len())
             .filter_map(|node_id| {
                 let node_id = NodeId::new(node_id);
                 let styled_node_state = &node_states[node_id].styled_node_state;
+                // Bit-check short-circuit: only proceed if the node might have a transform.
+                if styled_node_state.is_normal() {
+                    if let Some(ref cc) = css_property_cache.compact_cache {
+                        if !cc.has_transform(node_id.index())
+                            && self.css_current_transform_values.get(&node_id).is_none()
+                        {
+                            return None;
+                        }
+                    }
+                }
                 let node_data = &node_data[node_id];
                 let current_transform = css_property_cache
                     .get_transform(node_data, &node_id, styled_node_state)?
@@ -192,14 +207,46 @@ impl GpuValueCache {
         }
 
         // calculate the opacity of every single node that has a non-default opacity
+        //
+        // GPU fast path: compact cache encodes opacity as a single u8. Nodes with
+        // no author-set opacity (the common case) have `OPACITY_SENTINEL` and
+        // return immediately — no cascade walk. Only non-default opacities
+        // generate key events.
         let all_current_opacity_events = (0..styled_dom.node_data.len())
             .filter_map(|node_id| {
                 let node_id = NodeId::new(node_id);
                 let styled_node_state = &node_states[node_id].styled_node_state;
+
+                // Fast-path opacity read via compact cache.
+                let mut compact_opacity: Option<f32> = None;
+                if styled_node_state.is_normal() {
+                    if let Some(ref cc) = css_property_cache.compact_cache {
+                        let raw = cc.get_opacity_raw(node_id.index());
+                        compact_opacity = if raw == azul_css::compact_cache::OPACITY_SENTINEL {
+                            // unset → default (1.0) — bail out unless we had a prior opacity key
+                            if self.current_opacity_values.get(&node_id).is_none() {
+                                return None;
+                            }
+                            None
+                        } else {
+                            Some((raw as f32) / 254.0)
+                        };
+                    }
+                }
+
                 let node_data = &node_data[node_id];
-                let current_opacity =
-                    css_property_cache.get_opacity(node_data, &node_id, styled_node_state)?;
-                let current_opacity = current_opacity.get_property();
+                let current_opacity: Option<f32> = if let Some(v) = compact_opacity {
+                    // Fast path: value already read from compact cache.
+                    Some(v)
+                } else if styled_node_state.is_normal() && css_property_cache.compact_cache.is_some() {
+                    // Fast path: sentinel — unset → default (1.0, treated as None here).
+                    None
+                } else {
+                    css_property_cache
+                        .get_opacity(node_data, &node_id, styled_node_state)?
+                        .get_property()
+                        .map(|p| p.inner.normalized())
+                };
                 let existing_opacity = self.current_opacity_values.get(&node_id);
 
                 match (existing_opacity, current_opacity) {
@@ -207,13 +254,13 @@ impl GpuValueCache {
                     (None, Some(new)) => Some(GpuOpacityKeyEvent::Added(
                         node_id,
                         OpacityKey::unique(),
-                        new.inner.normalized(),
+                        new,
                     )),
                     (Some(old), Some(new)) => Some(GpuOpacityKeyEvent::Changed(
                         node_id,
                         self.opacity_keys.get(&node_id).copied()?,
                         *old,
-                        new.inner.normalized(),
+                        new,
                     )),
                     (Some(_old), None) => Some(GpuOpacityKeyEvent::Removed(
                         node_id,

@@ -162,6 +162,47 @@ fn compute_all_font_sizes_px(styled_dom: &StyledDom) -> alloc::vec::Vec<f32> {
         };
         let node_state = &styled.styled_node_state;
 
+        // Step 2.5: compact cache fast path — avoids a full cascade walk
+        // per node. The build-time pass has already resolved em/% to px,
+        // so the raw u32 here is the final pixel value when set.
+        let mut fast_fs: Option<f32> = None;
+        let mut compact_said_inherit = false;
+        if node_state.is_normal() {
+            if let Some(ref cc) = cache.compact_cache {
+                let raw = cc.get_font_size_raw(idx);
+                if raw == azul_css::compact_cache::U32_SENTINEL
+                    || raw == azul_css::compact_cache::U32_INHERIT
+                    || raw == azul_css::compact_cache::U32_INITIAL
+                {
+                    compact_said_inherit = true;
+                } else if let Some(pv) = azul_css::compact_cache::decode_pixel_value_u32(raw) {
+                    // Already-resolved pixel value (em/% eliminated during build).
+                    if pv.metric == SizeMetric::Px {
+                        fast_fs = Some(pv.number.get());
+                    } else {
+                        // Shouldn't normally happen post-resolve, but fall through safely.
+                        let context = ResolutionContext {
+                            element_font_size: DEFAULT_FONT_SIZE,
+                            parent_font_size,
+                            root_font_size,
+                            containing_block_size: PhysicalSize::new(0.0, 0.0),
+                            element_size: None,
+                            viewport_size: PhysicalSize::new(0.0, 0.0),
+                        };
+                        fast_fs = Some(pv.resolve_with_context(&context, PropertyContext::FontSize));
+                    }
+                }
+            }
+        }
+        if let Some(fs) = fast_fs {
+            sizes[idx] = fs;
+            continue;
+        }
+        if compact_said_inherit {
+            sizes[idx] = parent_font_size;
+            continue;
+        }
+
         let resolved = cache
             .get_font_size(node_data, &dom_id, node_state)
             .and_then(|v| v.get_property().cloned())
@@ -1306,12 +1347,40 @@ get_css_property!(
 );
 
 // +spec:overflow:5d15e2 - block-start/block-end scrollbar gutter follows same rules as inline gutters when auto
-get_css_property!(
-    get_scrollbar_gutter_property,
-    get_scrollbar_gutter,
-    StyleScrollbarGutter,
-    azul_css::props::property::CssPropertyType::ScrollbarGutter
-);
+//
+// Hand-rolled fast path: 99% of nodes don't set scrollbar-gutter, and the
+// default is `auto`. The compact cache stores the enum in 2 bits of
+// tier2_cold.hot_flags, so we can return the answer without a cascade walk.
+pub fn get_scrollbar_gutter_property(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> MultiValue<StyleScrollbarGutter> {
+    // FAST PATH: 2-bit enum in hot_flags
+    if node_state.is_normal() {
+        if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
+            let bits = cc.get_scrollbar_gutter_bits(node_id.index());
+            let val = match bits {
+                azul_css::compact_cache::SCROLLBAR_GUTTER_AUTO => StyleScrollbarGutter::Auto,
+                azul_css::compact_cache::SCROLLBAR_GUTTER_STABLE => StyleScrollbarGutter::Stable,
+                azul_css::compact_cache::SCROLLBAR_GUTTER_BOTH_EDGES => StyleScrollbarGutter::StableBothEdges,
+                _ => StyleScrollbarGutter::Auto,
+            };
+            return MultiValue::Exact(val);
+        }
+    }
+
+    // SLOW PATH: cascade resolution for pseudo-states or missing cache
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    let author_css = styled_dom
+        .css_property_cache
+        .ptr
+        .get_scrollbar_gutter(node_data, &node_id, node_state);
+    if let Some(val) = author_css.and_then(|v| v.get_property().cloned()) {
+        return MultiValue::Exact(val);
+    }
+    MultiValue::Auto
+}
 
 get_css_property!(
     get_overflow_clip_margin_property,
@@ -1328,12 +1397,42 @@ get_css_property!(
 );
 
 // +spec:writing-modes:257296 - text-orientation getter for vertical typesetting (upright/sideways)
-get_css_property!(
-    get_text_orientation_property,
-    get_text_orientation,
-    StyleTextOrientation,
-    azul_css::props::property::CssPropertyType::TextOrientation
-);
+//
+// Hand-rolled (not macro-generated) to attach a negative fast-path: most
+// nodes have no text-orientation declared (default = Mixed), so we avoid a
+// cascade walk per fc.rs call (which is called ~2× per node).
+pub fn get_text_orientation_property(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> MultiValue<StyleTextOrientation> {
+    if node_state.is_normal() {
+        if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
+            if !cc.has_text_orientation(node_id.index()) {
+                return MultiValue::Auto;
+            }
+        }
+    }
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    if let Some(val) = styled_dom
+        .css_property_cache
+        .ptr
+        .get_text_orientation(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property().cloned())
+    {
+        return MultiValue::Exact(val);
+    }
+    let ua = azul_core::ua_css::get_ua_property(
+        &node_data.node_type,
+        azul_css::props::property::CssPropertyType::TextOrientation,
+    );
+    if let Some(ua_prop) = ua {
+        if let Some(val) = extract_property_value::<StyleTextOrientation>(ua_prop) {
+            return MultiValue::Exact(val);
+        }
+    }
+    MultiValue::Auto
+}
 
 get_css_property!(
     get_object_position_property,
@@ -1389,6 +1488,27 @@ pub fn get_style_border_radius(
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> azul_css::props::style::border_radius::StyleBorderRadius {
+    use azul_css::props::basic::pixel::PixelValue;
+    // FAST PATH: all four corners live in tier2_cold as i16 px × 10. The
+    // common case (no rounded corners anywhere) reads four bytes and bails.
+    if node_state.is_normal() {
+        if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
+            let idx = node_id.index();
+            let decode = |raw: i16| -> PixelValue {
+                if raw >= azul_css::compact_cache::I16_SENTINEL_THRESHOLD {
+                    PixelValue::px(0.0)
+                } else {
+                    PixelValue::px(raw as f32 / 10.0)
+                }
+            };
+            return StyleBorderRadius {
+                top_left: decode(cc.get_border_top_left_radius_raw(idx)),
+                top_right: decode(cc.get_border_top_right_radius_raw(idx)),
+                bottom_right: decode(cc.get_border_bottom_right_radius_raw(idx)),
+                bottom_left: decode(cc.get_border_bottom_left_radius_raw(idx)),
+            };
+        }
+    }
     let node_data = &styled_dom.node_data.as_container()[node_id];
 
     let top_left = styled_dom
@@ -1444,6 +1564,30 @@ pub fn get_border_radius(
     viewport_size: LogicalSize,
 ) -> BorderRadius {
     use azul_css::props::basic::{PhysicalSize, PropertyContext, ResolutionContext};
+
+    // FAST PATH: all four corners as i16 px × 10 in tier2_cold. The
+    // overwhelmingly common case (no rounded corners) reads four bytes and
+    // returns zeros without a cascade walk.
+    if node_state.is_normal() {
+        if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
+            let idx = node_id.index();
+            let tl = cc.get_border_top_left_radius_raw(idx);
+            let tr = cc.get_border_top_right_radius_raw(idx);
+            let br = cc.get_border_bottom_right_radius_raw(idx);
+            let bl = cc.get_border_bottom_left_radius_raw(idx);
+            // sentinel = "unset" = 0 px (no corner radius)
+            let thresh = azul_css::compact_cache::I16_SENTINEL_THRESHOLD;
+            let decode = |raw: i16| -> f32 {
+                if raw >= thresh { 0.0 } else { raw as f32 / 10.0 }
+            };
+            return BorderRadius {
+                top_left: decode(tl),
+                top_right: decode(tr),
+                bottom_right: decode(br),
+                bottom_left: decode(bl),
+            };
+        }
+    }
 
     let node_data = &styled_dom.node_data.as_container()[node_id];
 
@@ -1626,13 +1770,22 @@ pub fn get_background_color(
     node_state: &StyledNodeState,
 ) -> ColorU {
     let node_data = &styled_dom.node_data.as_container()[node_id];
+    let cache = &styled_dom.css_property_cache.ptr;
 
-    // Fast path: Get this node's background
-    let get_node_bg = |node_id: NodeId, node_data: &azul_core::dom::NodeData| {
-        styled_dom
-            .css_property_cache
-            .ptr
-            .get_background_content(node_data, &node_id, node_state)
+    // Fast path: Get this node's background.
+    // Negative fast path: if compact cache says `has_background == 0` on a
+    // normal-state node, skip the cascade walk entirely. Only declared backgrounds
+    // set the bit, so `false` is a safe "unconditionally transparent" signal.
+    let get_node_bg = |nid: NodeId, ndata: &azul_core::dom::NodeData, state: &StyledNodeState| {
+        if state.is_normal() {
+            if let Some(ref cc) = cache.compact_cache {
+                if !cc.has_background(nid.index()) {
+                    return None;
+                }
+            }
+        }
+        cache
+            .get_background_content(ndata, &nid, state)
             .and_then(|bg| bg.get_property())
             .and_then(|bg_vec| bg_vec.get(0).cloned())
             .and_then(|first_bg| match &first_bg {
@@ -1642,7 +1795,7 @@ pub fn get_background_color(
             })
     };
 
-    let own_bg = get_node_bg(node_id, node_data);
+    let own_bg = get_node_bg(node_id, node_data, node_state);
 
     // CSS Background Propagation: Special handling for <html> root element
     // Only check propagation if this is an Html node AND has transparent background (no
@@ -1686,7 +1839,8 @@ pub fn get_background_color(
     }
 
     // Propagate <body>'s background to <html> (canvas)
-    get_node_bg(first_child, first_child_data).unwrap_or(ColorU {
+    let first_child_state = &styled_dom.styled_nodes.as_container()[first_child].styled_node_state;
+    get_node_bg(first_child, first_child_data, first_child_state).unwrap_or(ColorU {
         r: 0,
         g: 0,
         b: 0,
@@ -1709,20 +1863,29 @@ pub fn get_background_contents(
     use azul_css::props::style::StyleBackgroundContent;
 
     let node_data = &styled_dom.node_data.as_container()[node_id];
+    let cache = &styled_dom.css_property_cache.ptr;
 
-    // Helper to get backgrounds for a node
+    // Helper to get backgrounds for a node.
+    // Negative fast path: if compact cache says `has_background == 0` on a normal
+    // pseudo-state node, return empty without walking the cascade.
     let get_node_backgrounds =
-        |nid: NodeId, ndata: &azul_core::dom::NodeData| -> Vec<StyleBackgroundContent> {
-            styled_dom
-                .css_property_cache
-                .ptr
-                .get_background_content(ndata, &nid, node_state)
+        |nid: NodeId, ndata: &azul_core::dom::NodeData, state: &StyledNodeState|
+        -> Vec<StyleBackgroundContent> {
+            if state.is_normal() {
+                if let Some(ref cc) = cache.compact_cache {
+                    if !cc.has_background(nid.index()) {
+                        return Vec::new();
+                    }
+                }
+            }
+            cache
+                .get_background_content(ndata, &nid, state)
                 .and_then(|bg| bg.get_property())
                 .map(|bg_vec| bg_vec.iter().cloned().collect())
                 .unwrap_or_default()
         };
 
-    let own_backgrounds = get_node_backgrounds(node_id, node_data);
+    let own_backgrounds = get_node_backgrounds(node_id, node_data, node_state);
 
     // CSS Background Propagation: Special handling for <html> root element
     // Only check propagation if this is an Html node AND has no backgrounds
@@ -1749,7 +1912,8 @@ pub fn get_background_contents(
     }
 
     // Propagate <body>'s backgrounds to <html> (canvas)
-    get_node_backgrounds(first_child, first_child_data)
+    let first_child_state = &styled_dom.styled_nodes.as_container()[first_child].styled_node_state;
+    get_node_backgrounds(first_child, first_child_data, first_child_state)
 }
 
 /// Information about border rendering
@@ -1767,6 +1931,11 @@ pub fn get_border_info(
     use crate::solver3::display_list::{StyleBorderColors, StyleBorderStyles, StyleBorderWidths};
     use azul_css::css::CssPropertyValue;
     use azul_css::props::basic::color::ColorU;
+    use azul_css::props::basic::pixel::PixelValue;
+    use azul_css::props::style::{
+        LayoutBorderTopWidth, LayoutBorderRightWidth,
+        LayoutBorderBottomWidth, LayoutBorderLeftWidth,
+    };
     use azul_css::props::style::border::{
         BorderStyle, StyleBorderTopColor, StyleBorderRightColor,
         StyleBorderBottomColor, StyleBorderLeftColor,
@@ -1779,17 +1948,30 @@ pub fn get_border_info(
         if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
             let idx = node_id.index();
 
-            // Border widths (already have compact path via i16)
-            let node_data = &styled_dom.node_data.as_container()[node_id];
+            // Border widths: decode from compact i16 (resolved px × 10).
+            // Previously this block called the slow convenience getters
+            // despite being in the "fast path" branch — 2014 slow walks
+            // per width × 4 widths per cold excel.html layout. Fixed
+            // 2026-04-17.
+            let make_width_px = |raw: i16| -> Option<PixelValue> {
+                if raw == azul_css::compact_cache::I16_AUTO
+                    || raw == azul_css::compact_cache::I16_INITIAL
+                    || raw >= azul_css::compact_cache::I16_SENTINEL_THRESHOLD
+                {
+                    None
+                } else {
+                    Some(PixelValue::px(raw as f32 / 10.0))
+                }
+            };
             let widths = StyleBorderWidths {
-                top: styled_dom.css_property_cache.ptr
-                    .get_border_top_width(node_data, &node_id, node_state).cloned(),
-                right: styled_dom.css_property_cache.ptr
-                    .get_border_right_width(node_data, &node_id, node_state).cloned(),
-                bottom: styled_dom.css_property_cache.ptr
-                    .get_border_bottom_width(node_data, &node_id, node_state).cloned(),
-                left: styled_dom.css_property_cache.ptr
-                    .get_border_left_width(node_data, &node_id, node_state).cloned(),
+                top: make_width_px(cc.get_border_top_width_raw(idx))
+                    .map(|px| CssPropertyValue::Exact(LayoutBorderTopWidth { inner: px })),
+                right: make_width_px(cc.get_border_right_width_raw(idx))
+                    .map(|px| CssPropertyValue::Exact(LayoutBorderRightWidth { inner: px })),
+                bottom: make_width_px(cc.get_border_bottom_width_raw(idx))
+                    .map(|px| CssPropertyValue::Exact(LayoutBorderBottomWidth { inner: px })),
+                left: make_width_px(cc.get_border_left_width_raw(idx))
+                    .map(|px| CssPropertyValue::Exact(LayoutBorderLeftWidth { inner: px })),
             };
 
             // Border colors from compact cache
@@ -2462,28 +2644,12 @@ pub fn get_style_properties(
             })
     };
 
-    // Get parent's font-size for proper em resolution in font-size property
-    let parent_font_size = styled_dom
-        .node_hierarchy
-        .as_container()
-        .get(dom_id)
-        .and_then(|node| {
-            let parent_id = CoreNodeId::from_usize(node.parent)?;
-            // Recursively get parent's font-size
-            cache
-                .get_font_size(
-                    &styled_dom.node_data.as_container()[parent_id],
-                    &parent_id,
-                    &styled_dom.styled_nodes.as_container()[parent_id].styled_node_state,
-                )
-                .and_then(|v| v.get_property().cloned())
-                .map(|v| {
-                    // If parent also has em/rem, we'd need to recurse, but for now use fallback
-                    use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
-                    v.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE)
-                })
-        })
-        .unwrap_or(azul_css::props::basic::pixel::DEFAULT_FONT_SIZE);
+    // Get parent's font-size for proper em resolution in font-size property.
+    // FAST PATH: `get_parent_font_size` goes through `get_element_font_size`
+    // which hits the memoised `resolved_font_sizes_px` Vec (O(1) array index).
+    // The old code here walked the full CSS cascade for every call — 1485
+    // slow walks per cold excel.html layout. Replaced 2026-04-17.
+    let parent_font_size = get_parent_font_size(styled_dom, dom_id, node_state);
 
     let root_font_size = get_root_font_size(styled_dom, node_state);
 
@@ -2501,25 +2667,33 @@ pub fn get_style_properties(
     // font-size is an inheritable property, so if the node doesn't have
     // an explicit font-size, it should inherit from the parent (not default to 16px)
     let font_size = {
-        // FAST PATH: compact cache for normal state
-        let mut fast_font_size = None;
+        // FAST PATH: compact cache for normal state.
+        // Sentinel/inherit/initial → inherit from parent directly (which is
+        // what the slow cascade walk would fall back to via `.unwrap_or(parent_font_size)`
+        // anyway — avoid the walk entirely).
+        let mut fast_font_size: Option<f32> = None;
+        let mut compact_said_inherit = false;
         if node_state.is_normal() {
             if let Some(ref cc) = cache.compact_cache {
                 let raw = cc.get_font_size_raw(dom_id.index());
-                if raw != azul_css::compact_cache::U32_SENTINEL
-                    && raw != azul_css::compact_cache::U32_INHERIT
-                    && raw != azul_css::compact_cache::U32_INITIAL
+                if raw == azul_css::compact_cache::U32_SENTINEL
+                    || raw == azul_css::compact_cache::U32_INHERIT
+                    || raw == azul_css::compact_cache::U32_INITIAL
                 {
-                    if let Some(pv) = azul_css::compact_cache::decode_pixel_value_u32(raw) {
-                        fast_font_size = Some(pv.resolve_with_context(
-                            &font_size_context,
-                            PropertyContext::FontSize,
-                        ));
-                    }
+                    compact_said_inherit = true;
+                } else if let Some(pv) = azul_css::compact_cache::decode_pixel_value_u32(raw) {
+                    fast_font_size = Some(pv.resolve_with_context(
+                        &font_size_context,
+                        PropertyContext::FontSize,
+                    ));
                 }
             }
         }
-        fast_font_size.unwrap_or_else(|| {
+        if let Some(fs) = fast_font_size {
+            fs
+        } else if compact_said_inherit {
+            parent_font_size
+        } else {
             cache
                 .get_font_size(node_data, &dom_id, node_state)
                 .and_then(|v| v.get_property().cloned())
@@ -2528,7 +2702,7 @@ pub fn get_style_properties(
                         .resolve_with_context(&font_size_context, PropertyContext::FontSize)
                 })
                 .unwrap_or(parent_font_size)
-        })
+        }
     };
 
     let color_from_cache = {
@@ -2565,29 +2739,37 @@ pub fn get_style_properties(
 
     // +spec:font-metrics:e480da - line-height: normal/number/length/percentage resolution
     let line_height = {
-        // FAST PATH: compact cache for line-height (stored as normalized × 1000 i16)
+        // FAST PATH: compact cache for line-height (stored as normalized × 1000 i16).
+        // When the cache returns Some → we have a resolved value.
+        // When it returns None AND node_state is normal → the compact cache stored
+        // the sentinel, which means "line-height: normal" (the spec default).
+        // Previously we fell through to a cascade walk here — but the default
+        // has already been authoritatively decided by the builder, so the walk
+        // would only ever re-confirm "no value, normal". 1600 pure-waste walks
+        // per cold excel.html layout. Short-circuit to Normal directly.
         let mut fast_lh = None;
+        let mut sentinel_normal = false;
         if node_state.is_normal() {
             if let Some(ref cc) = cache.compact_cache {
                 if let Some(normalized) = cc.get_line_height(dom_id.index()) {
-                    // normalized is the raw i16 / 1000.0 value from decode_resolved_px_i16
-                    // But line_height encoding is special: percentage × 10 as i16
-                    // decode: i16 / 10.0 → raw percentage value (not /100!)
-                    // Wait - get_line_height uses decode_resolved_px_i16 which does val / 10.0
-                    // Builder stores: normalized() * 1000.0 as i16
-                    // So decoded = i16 / 10.0 = normalized() * 100.0
-                    // We need normalized() * font_size, so: decoded / 100.0 * font_size
                     fast_lh = Some(crate::text3::cache::LineHeight::Px(normalized / 100.0 * font_size));
+                } else {
+                    // Sentinel in compact cache = "normal" (CSS default).
+                    sentinel_normal = true;
                 }
             }
         }
-        fast_lh.unwrap_or_else(|| {
-            cache
-                .get_line_height(node_data, &dom_id, node_state)
-                .and_then(|v| v.get_property().cloned())
-                .map(|v| crate::text3::cache::LineHeight::Px(v.inner.normalized() * font_size))
-                .unwrap_or(crate::text3::cache::LineHeight::Normal)
-        })
+        if sentinel_normal {
+            crate::text3::cache::LineHeight::Normal
+        } else {
+            fast_lh.unwrap_or_else(|| {
+                cache
+                    .get_line_height(node_data, &dom_id, node_state)
+                    .and_then(|v| v.get_property().cloned())
+                    .map(|v| crate::text3::cache::LineHeight::Px(v.inner.normalized() * font_size))
+                    .unwrap_or(crate::text3::cache::LineHeight::Normal)
+            })
+        }
     };
 
     // Get background color for INLINE elements only
@@ -2595,11 +2777,16 @@ pub fn get_style_properties(
     // the background is painted separately by paint_element_background() in display_list.rs.
     // Only inline elements (span, em, strong, a, etc.) should have their background color
     // propagated through StyleProperties for the text rendering pipeline.
+    //
+    // FAST PATH: use the compact-cache-backed display getter. The old code
+    // here called `cache.get_display(..)` (the 3-arg convenience method on
+    // CssPropertyCache) which routes through `get_property_slow` — 1485 slow
+    // walks per cold excel.html layout. Replaced 2026-04-17.
     use azul_css::props::layout::LayoutDisplay;
-    let display = cache
-        .get_display(node_data, &dom_id, node_state)
-        .and_then(|v| v.get_property().cloned())
-        .unwrap_or(LayoutDisplay::Inline);
+    let display = match get_display_property(styled_dom, Some(dom_id)) {
+        MultiValue::Exact(v) => v,
+        _ => LayoutDisplay::Inline,
+    };
 
     // For inline and inline-block elements, get background content and border info
     // Block elements have their backgrounds/borders painted by display_list.rs
@@ -2772,22 +2959,53 @@ pub fn get_style_properties(
         })
     };
 
-    // Get text-decoration from CSS
-    let text_decoration = cache
-        .get_text_decoration(node_data, &dom_id, node_state)
-        .and_then(|v| v.get_property().cloned())
-        .map(|v| crate::text3::cache::TextDecoration::from_css(v))
-        .unwrap_or_default();
+    // Get text-decoration from CSS.
+    //
+    // Fast path: the compact cache keeps a `has_text_decoration` flag. If
+    // unset (the overwhelmingly common case — plain body text has no
+    // decoration set), skip the 4-pseudo-state × 6-layer cascade walk
+    // entirely. Only nodes that actually set text-decoration pay the walk.
+    let text_decoration = {
+        let mut skip_walk = false;
+        if node_state.is_normal() {
+            if let Some(ref cc) = cache.compact_cache {
+                if !cc.has_text_decoration(dom_id.index()) {
+                    skip_walk = true;
+                }
+            }
+        }
+        if skip_walk {
+            crate::text3::cache::TextDecoration::default()
+        } else {
+            cache
+                .get_text_decoration(node_data, &dom_id, node_state)
+                .and_then(|v| v.get_property().cloned())
+                .map(|v| crate::text3::cache::TextDecoration::from_css(v))
+                .unwrap_or_default()
+        }
+    };
 
-    // Get tab-size (tab-size) from CSS
+    // Get tab-size (tab-size) from CSS.
+    //
+    // tab-size defaults to `I16_SENTINEL` in the compact cache builder
+    // (spec default is "8", meaning 8 space widths). The old fallback
+    // called `cache.get_tab_size(..)` (slow cascade) for every node whose
+    // raw was SENTINEL — virtually every node, because almost nothing sets
+    // tab-size. That was 1485 pure-waste slow walks per cold layout.
+    //
+    // New behaviour: sentinel → 8.0 directly. Only walk the cascade when
+    // the compact cache is genuinely unavailable (no `compact_cache`) or
+    // the node is in a pseudo-state that bypassed the cache.
     let tab_size = {
-        // FAST PATH: compact cache for tab-size (i16 resolved px × 10)
         let mut fast_tab = None;
         if node_state.is_normal() {
             if let Some(ref cc) = cache.compact_cache {
                 let raw = cc.get_tab_size_raw(dom_id.index());
                 if raw < azul_css::compact_cache::I16_SENTINEL_THRESHOLD {
                     fast_tab = Some(raw as f32 / 10.0);
+                } else {
+                    // Sentinel / Inherit / Initial → spec default is 8.
+                    fast_tab = Some(8.0);
                 }
             }
         }
@@ -3005,8 +3223,16 @@ pub fn get_break_before(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> PageB
     let Some(id) = dom_id else {
         return PageBreak::Auto;
     };
-    let node_data = &styled_dom.node_data.as_container()[id];
     let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
+    // Negative fast path: break-* is almost never declared.
+    if node_state.is_normal() {
+        if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
+            if !cc.has_break(id.index()) {
+                return PageBreak::Auto;
+            }
+        }
+    }
+    let node_data = &styled_dom.node_data.as_container()[id];
     styled_dom
         .css_property_cache
         .ptr
@@ -3020,8 +3246,15 @@ pub fn get_break_after(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> PageBr
     let Some(id) = dom_id else {
         return PageBreak::Auto;
     };
-    let node_data = &styled_dom.node_data.as_container()[id];
     let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
+    if node_state.is_normal() {
+        if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
+            if !cc.has_break(id.index()) {
+                return PageBreak::Auto;
+            }
+        }
+    }
+    let node_data = &styled_dom.node_data.as_container()[id];
     styled_dom
         .css_property_cache
         .ptr
@@ -4199,7 +4432,17 @@ pub fn get_scrollbar_style(
         None => azul_css::dynamic_selector::DynamicSelectorContext::default(),
     };
     let ua = azul_core::ua_css::evaluate_ua_scrollbar_css(&ctx);
-    let mut result = ComputedScrollbarStyle::from_ua_resolved(&ua);
+    let result = ComputedScrollbarStyle::from_ua_resolved(&ua);
+
+    // FAST PATH: 99% of nodes have no scrollbar CSS. Bail before walking 8 × cascade.
+    if node_state.is_normal() {
+        if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
+            if !cc.has_scrollbar_css(node_id.index()) {
+                return result;
+            }
+        }
+    }
+    let mut result = result;
 
     // Step 2: Check individual scrollbar part backgrounds
     if let Some(track) = styled_dom
@@ -4847,11 +5090,26 @@ pub fn get_border_spacing(
 }
 
 /// Get opacity value. Returns f32 (default 1.0).
+///
+/// GPU fast path: the compact cache encodes opacity as a u8 (0-254, 255 = unset).
+/// Avoids the 4-pseudo-state × 6-layer cascade walk for animations reading opacity
+/// across every node each frame.
 pub fn get_opacity(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> f32 {
+    // FAST PATH: compact cache for normal state
+    if node_state.is_normal() {
+        if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
+            let raw = cc.get_opacity_raw(node_id.index());
+            if raw == azul_css::compact_cache::OPACITY_SENTINEL {
+                return 1.0;
+            }
+            return (raw as f32) / 254.0;
+        }
+    }
+    // SLOW PATH: fall back to cascade walk (state != normal, or no compact cache)
     let node_data = &styled_dom.node_data.as_container()[node_id];
     styled_dom.css_property_cache.ptr
         .get_opacity(node_data, &node_id, node_state)
@@ -4866,6 +5124,11 @@ pub fn get_filter(
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> Option<azul_css::props::style::filter::StyleFilterVec> {
+    if node_state.is_normal() {
+        if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
+            if !cc.has_filter(node_id.index()) { return None; }
+        }
+    }
     let node_data = &styled_dom.node_data.as_container()[node_id];
     styled_dom.css_property_cache.ptr
         .get_filter(node_data, &node_id, node_state)
@@ -4879,11 +5142,31 @@ pub fn get_backdrop_filter(
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> Option<azul_css::props::style::filter::StyleFilterVec> {
+    if node_state.is_normal() {
+        if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
+            if !cc.has_backdrop_filter(node_id.index()) { return None; }
+        }
+    }
     let node_data = &styled_dom.node_data.as_container()[node_id];
     styled_dom.css_property_cache.ptr
         .get_backdrop_filter(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .cloned()
+}
+
+/// Compact-cache negative fast path for all 4 box-shadow sides.
+/// Most nodes have no shadow; cheap to check one bit vs. 4 cascade walks.
+#[inline]
+fn box_shadow_fast_bail(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> bool {
+    if !node_state.is_normal() { return false; }
+    if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
+        return !cc.has_box_shadow(node_id.index());
+    }
+    false
 }
 
 /// Get box-shadow for left side. Returns Option<StyleBoxShadow> (cloned).
@@ -4892,6 +5175,7 @@ pub fn get_box_shadow_left(
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> Option<azul_css::props::style::box_shadow::StyleBoxShadow> {
+    if box_shadow_fast_bail(styled_dom, node_id, node_state) { return None; }
     let node_data = &styled_dom.node_data.as_container()[node_id];
     styled_dom.css_property_cache.ptr
         .get_box_shadow_left(node_data, &node_id, node_state)
@@ -4905,6 +5189,7 @@ pub fn get_box_shadow_right(
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> Option<azul_css::props::style::box_shadow::StyleBoxShadow> {
+    if box_shadow_fast_bail(styled_dom, node_id, node_state) { return None; }
     let node_data = &styled_dom.node_data.as_container()[node_id];
     styled_dom.css_property_cache.ptr
         .get_box_shadow_right(node_data, &node_id, node_state)
@@ -4918,6 +5203,7 @@ pub fn get_box_shadow_top(
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> Option<azul_css::props::style::box_shadow::StyleBoxShadow> {
+    if box_shadow_fast_bail(styled_dom, node_id, node_state) { return None; }
     let node_data = &styled_dom.node_data.as_container()[node_id];
     styled_dom.css_property_cache.ptr
         .get_box_shadow_top(node_data, &node_id, node_state)
@@ -4931,6 +5217,7 @@ pub fn get_box_shadow_bottom(
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> Option<azul_css::props::style::box_shadow::StyleBoxShadow> {
+    if box_shadow_fast_bail(styled_dom, node_id, node_state) { return None; }
     let node_data = &styled_dom.node_data.as_container()[node_id];
     styled_dom.css_property_cache.ptr
         .get_box_shadow_bottom(node_data, &node_id, node_state)
@@ -4944,6 +5231,11 @@ pub fn get_text_shadow(
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> Option<azul_css::props::style::box_shadow::StyleBoxShadow> {
+    if node_state.is_normal() {
+        if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
+            if !cc.has_text_shadow(node_id.index()) { return None; }
+        }
+    }
     let node_data = &styled_dom.node_data.as_container()[node_id];
     styled_dom.css_property_cache.ptr
         .get_text_shadow(node_data, &node_id, node_state)
@@ -4952,28 +5244,30 @@ pub fn get_text_shadow(
 }
 
 /// Get transform property. Returns Option (non-empty transform list, cloned).
+///
+/// GPU fast path: the compact cache keeps a `has_transform` flag. If unset,
+/// skips the cascade walk entirely — which is the overwhelming case since most
+/// nodes have no transform. Only nodes that actually have a transform pay the
+/// slow-walk cost to retrieve the parsed value.
 pub fn get_transform(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> Option<azul_css::props::style::transform::StyleTransformVec> {
+    // FAST PATH: bit check in compact cache
+    if node_state.is_normal() {
+        if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
+            if !cc.has_transform(node_id.index()) {
+                return None;
+            }
+            // has_transform set → fall through to cascade walk for the value
+        }
+    }
     let node_data = &styled_dom.node_data.as_container()[node_id];
     styled_dom.css_property_cache.ptr
         .get_transform(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .cloned()
-}
-
-/// Get display property (raw). Returns Option<LayoutDisplay>.
-pub fn get_display_raw(
-    styled_dom: &StyledDom,
-    node_id: NodeId,
-    node_state: &StyledNodeState,
-) -> Option<LayoutDisplay> {
-    let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom.css_property_cache.ptr
-        .get_display(node_data, &node_id, node_state)
-        .and_then(|v| v.get_property().copied())
 }
 
 /// Get counter-reset property. Returns Option<CounterReset> (cloned).
@@ -5189,6 +5483,14 @@ pub fn get_clip_path(
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> Option<azul_css::props::layout::shape::ClipPath> {
+    // Negative fast path: most nodes have `clip-path: none`.
+    if node_state.is_normal() {
+        if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
+            if !cc.has_clip_path(node_id.index()) {
+                return None;
+            }
+        }
+    }
     let node_data = &styled_dom.node_data.as_container()[node_id];
     styled_dom.css_property_cache.ptr
         .get_clip_path(node_data, &node_id, node_state)

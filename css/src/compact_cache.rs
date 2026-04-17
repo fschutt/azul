@@ -1172,7 +1172,7 @@ pub struct CompactNodeProps {
     pub column_gap: i16,
 }
 
-/// Paint-cold compact properties for a single node (28 bytes).
+/// Paint-cold compact properties for a single node.
 /// Only accessed during display list generation, table layout, or text shaping.
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C)]
@@ -1182,6 +1182,12 @@ pub struct CompactNodePropsCold {
     pub border_right_color: u32,
     pub border_bottom_color: u32,
     pub border_left_color: u32,
+
+    // --- Border radii (i16 px × 10, I16_SENTINEL = unset/default = 0) ---
+    pub border_top_left_radius: i16,
+    pub border_top_right_radius: i16,
+    pub border_bottom_left_radius: i16,
+    pub border_bottom_right_radius: i16,
 
     // --- Other ---
     pub z_index: i16,   // range ±32764, sentinel = 0x7FFF
@@ -1198,7 +1204,86 @@ pub struct CompactNodePropsCold {
     pub grid_row_start: i16,
     /// Grid row end
     pub grid_row_end: i16,
+
+    // --- GPU / hot paint props ---
+    /// Opacity × 254 (0 = fully transparent, 254 = opaque). 255 = unset/default (= 1.0).
+    pub opacity: u8,
+    /// Bitflags for properties that are usually unset. Lets the getter
+    /// short-circuit without a cascade walk when the value is the default.
+    ///
+    /// bit 0: has_transform                (slow-walk only when set)
+    /// bit 1: has_transform_origin
+    /// bit 2: has_box_shadow
+    /// bit 3: has_text_decoration          (slow-walk only when set)
+    /// bits 4-5: scrollbar_gutter (0 = auto default, 1 = stable, 2 = both-edges, 3 = mirror)
+    /// bit 6: has_background                (slow-walk only when set; ≈ negative fast path)
+    /// bit 7: has_clip_path                 (slow-walk only when set)
+    pub hot_flags: u8,
+    /// Second byte of flags for rarely-set properties.
+    ///
+    /// bit 0: has_any_scrollbar_css
+    ///        OR of all -azul-scrollbar-* / scrollbar-color / scrollbar-width props.
+    ///        When clear, `get_scrollbar_style` can skip 8 cascade walks and use
+    ///        the UA-default result.
+    /// bit 1: has_counter      (counter-reset OR counter-increment)
+    /// bit 2: has_break        (break-before OR break-after)
+    /// bit 3: has_text_orientation
+    /// bit 4: has_text_shadow
+    /// bit 5: has_backdrop_filter
+    /// bit 6: has_filter
+    /// bit 7: has_mix_blend_mode
+    pub extra_flags: u8,
 }
+
+pub const OPACITY_SENTINEL: u8 = 255;
+pub const HOT_FLAG_HAS_TRANSFORM: u8 = 1 << 0;
+pub const HOT_FLAG_HAS_TRANSFORM_ORIGIN: u8 = 1 << 1;
+pub const HOT_FLAG_HAS_BOX_SHADOW: u8 = 1 << 2;
+pub const HOT_FLAG_HAS_TEXT_DECORATION: u8 = 1 << 3;
+pub const HOT_FLAG_SCROLLBAR_GUTTER_SHIFT: u8 = 4;
+pub const HOT_FLAG_SCROLLBAR_GUTTER_MASK: u8 = 0b0011_0000;
+pub const HOT_FLAG_HAS_BACKGROUND: u8 = 1 << 6;
+pub const HOT_FLAG_HAS_CLIP_PATH: u8 = 1 << 7;
+pub const EXTRA_FLAG_HAS_SCROLLBAR_CSS: u8 = 1 << 0;
+pub const EXTRA_FLAG_HAS_COUNTER: u8 = 1 << 1;
+pub const EXTRA_FLAG_HAS_BREAK: u8 = 1 << 2;
+pub const EXTRA_FLAG_HAS_TEXT_ORIENTATION: u8 = 1 << 3;
+pub const EXTRA_FLAG_HAS_TEXT_SHADOW: u8 = 1 << 4;
+pub const EXTRA_FLAG_HAS_BACKDROP_FILTER: u8 = 1 << 5;
+pub const EXTRA_FLAG_HAS_FILTER: u8 = 1 << 6;
+pub const EXTRA_FLAG_HAS_MIX_BLEND_MODE: u8 = 1 << 7;
+
+// ---- DOM-level rare text prop flags (stored on CompactLayoutCache) ----
+// Each bit = "some node in this DOM declared this property".
+// When clear, cascade walks for that prop anywhere in the DOM
+// necessarily return None → callers can skip the walk and use
+// the default value. Eliminates ~N × IFC-count walks per layout
+// in typical pages where these props are never declared.
+pub const DOM_HAS_SHAPE_INSIDE: u32 = 1 << 0;
+pub const DOM_HAS_SHAPE_OUTSIDE: u32 = 1 << 1;
+pub const DOM_HAS_TEXT_JUSTIFY: u32 = 1 << 2;
+pub const DOM_HAS_TEXT_INDENT: u32 = 1 << 3;
+pub const DOM_HAS_COLUMN_COUNT: u32 = 1 << 4;
+pub const DOM_HAS_COLUMN_GAP: u32 = 1 << 5;
+pub const DOM_HAS_INITIAL_LETTER: u32 = 1 << 6;
+pub const DOM_HAS_INITIAL_LETTER_ALIGN: u32 = 1 << 7;
+pub const DOM_HAS_LINE_CLAMP: u32 = 1 << 8;
+pub const DOM_HAS_HANGING_PUNCTUATION: u32 = 1 << 9;
+pub const DOM_HAS_TEXT_COMBINE_UPRIGHT: u32 = 1 << 10;
+pub const DOM_HAS_EXCLUSION_MARGIN: u32 = 1 << 11;
+pub const DOM_HAS_HYPHENATION_LANGUAGE: u32 = 1 << 12;
+pub const DOM_HAS_UNICODE_BIDI: u32 = 1 << 13;
+pub const DOM_HAS_TEXT_BOX_TRIM: u32 = 1 << 14;
+pub const DOM_HAS_HYPHENS: u32 = 1 << 15;
+pub const DOM_HAS_WORD_BREAK: u32 = 1 << 16;
+pub const DOM_HAS_OVERFLOW_WRAP: u32 = 1 << 17;
+pub const DOM_HAS_LINE_BREAK: u32 = 1 << 18;
+pub const DOM_HAS_TEXT_ALIGN_LAST: u32 = 1 << 19;
+pub const DOM_HAS_LINE_HEIGHT: u32 = 1 << 20;
+pub const SCROLLBAR_GUTTER_AUTO: u8 = 0;
+pub const SCROLLBAR_GUTTER_STABLE: u8 = 1;
+pub const SCROLLBAR_GUTTER_BOTH_EDGES: u8 = 2;
+pub const SCROLLBAR_GUTTER_MIRROR: u8 = 3;
 
 impl Default for CompactNodeProps {
     fn default() -> Self {
@@ -1248,6 +1333,11 @@ impl Default for CompactNodePropsCold {
             border_right_color: 0,
             border_bottom_color: 0,
             border_left_color: 0,
+            // Border radii: I16_SENTINEL means "no rounded corner" (skip slow walk)
+            border_top_left_radius: I16_SENTINEL,
+            border_top_right_radius: I16_SENTINEL,
+            border_bottom_left_radius: I16_SENTINEL,
+            border_bottom_right_radius: I16_SENTINEL,
             // Other
             z_index: I16_AUTO,
             border_styles_packed: 0, // all BorderStyle::None
@@ -1258,6 +1348,9 @@ impl Default for CompactNodePropsCold {
             grid_col_end: I16_AUTO,
             grid_row_start: I16_AUTO,
             grid_row_end: I16_AUTO,
+            opacity: OPACITY_SENTINEL,
+            hot_flags: 0,
+            extra_flags: 0,
         }
     }
 }
@@ -1344,6 +1437,12 @@ pub struct CompactLayoutCache {
     /// without going through `get_property_slow()` (which fails for inherited values
     /// on text nodes).
     pub font_hash_to_families: alloc::collections::BTreeMap<u64, crate::props::basic::font::StyleFontFamilyVec>,
+    /// Bitfield tracking which rare text props are declared *anywhere* in the DOM.
+    /// Built once during `build_compact_cache_with_inheritance`. When a bit is
+    /// clear, callers (e.g. `translate_to_text3_constraints`) can skip the
+    /// cascade walk for that property — its slow path would always return
+    /// `None` and fall back to the default. See `DOM_HAS_*` constants.
+    pub dom_declared_flags: u32,
 }
 
 impl CompactLayoutCache {
@@ -1357,6 +1456,7 @@ impl CompactLayoutCache {
             font_dirty_nodes: Vec::new(),
             prev_font_hashes: Vec::new(),
             font_hash_to_families: alloc::collections::BTreeMap::new(),
+            dom_declared_flags: 0,
         }
     }
 
@@ -1370,6 +1470,7 @@ impl CompactLayoutCache {
             font_dirty_nodes: Vec::new(),
             prev_font_hashes: vec![0u64; node_count],
             font_hash_to_families: alloc::collections::BTreeMap::new(),
+            dom_declared_flags: 0,
         }
     }
 
@@ -1782,6 +1883,126 @@ impl CompactLayoutCache {
     #[inline(always)]
     pub fn get_tab_size_raw(&self, node_idx: usize) -> i16 {
         self.tier2_cold[node_idx].tab_size
+    }
+
+    // -- Border radii — cold tier (i16 px × 10, I16_SENTINEL = unset = 0) --
+
+    #[inline(always)]
+    pub fn get_border_top_left_radius_raw(&self, node_idx: usize) -> i16 {
+        self.tier2_cold[node_idx].border_top_left_radius
+    }
+
+    #[inline(always)]
+    pub fn get_border_top_right_radius_raw(&self, node_idx: usize) -> i16 {
+        self.tier2_cold[node_idx].border_top_right_radius
+    }
+
+    #[inline(always)]
+    pub fn get_border_bottom_left_radius_raw(&self, node_idx: usize) -> i16 {
+        self.tier2_cold[node_idx].border_bottom_left_radius
+    }
+
+    #[inline(always)]
+    pub fn get_border_bottom_right_radius_raw(&self, node_idx: usize) -> i16 {
+        self.tier2_cold[node_idx].border_bottom_right_radius
+    }
+
+    // -- Opacity / transform / hot flags --
+
+    /// Raw opacity byte. `OPACITY_SENTINEL` (255) = unset (default = 1.0).
+    /// Otherwise value / 254.0 yields the opacity in [0.0, 1.0].
+    #[inline(always)]
+    pub fn get_opacity_raw(&self, node_idx: usize) -> u8 {
+        self.tier2_cold[node_idx].opacity
+    }
+
+    #[inline(always)]
+    pub fn get_hot_flags(&self, node_idx: usize) -> u8 {
+        self.tier2_cold[node_idx].hot_flags
+    }
+
+    #[inline(always)]
+    pub fn has_transform(&self, node_idx: usize) -> bool {
+        self.tier2_cold[node_idx].hot_flags & HOT_FLAG_HAS_TRANSFORM != 0
+    }
+
+    #[inline(always)]
+    pub fn has_transform_origin(&self, node_idx: usize) -> bool {
+        self.tier2_cold[node_idx].hot_flags & HOT_FLAG_HAS_TRANSFORM_ORIGIN != 0
+    }
+
+    #[inline(always)]
+    pub fn has_box_shadow(&self, node_idx: usize) -> bool {
+        self.tier2_cold[node_idx].hot_flags & HOT_FLAG_HAS_BOX_SHADOW != 0
+    }
+
+    #[inline(always)]
+    pub fn has_text_decoration(&self, node_idx: usize) -> bool {
+        self.tier2_cold[node_idx].hot_flags & HOT_FLAG_HAS_TEXT_DECORATION != 0
+    }
+
+    #[inline(always)]
+    pub fn has_background(&self, node_idx: usize) -> bool {
+        self.tier2_cold[node_idx].hot_flags & HOT_FLAG_HAS_BACKGROUND != 0
+    }
+
+    #[inline(always)]
+    pub fn has_clip_path(&self, node_idx: usize) -> bool {
+        self.tier2_cold[node_idx].hot_flags & HOT_FLAG_HAS_CLIP_PATH != 0
+    }
+
+    #[inline(always)]
+    pub fn has_scrollbar_css(&self, node_idx: usize) -> bool {
+        self.tier2_cold[node_idx].extra_flags & EXTRA_FLAG_HAS_SCROLLBAR_CSS != 0
+    }
+
+    #[inline(always)]
+    pub fn has_counter(&self, node_idx: usize) -> bool {
+        self.tier2_cold[node_idx].extra_flags & EXTRA_FLAG_HAS_COUNTER != 0
+    }
+
+    #[inline(always)]
+    pub fn has_break(&self, node_idx: usize) -> bool {
+        self.tier2_cold[node_idx].extra_flags & EXTRA_FLAG_HAS_BREAK != 0
+    }
+
+    #[inline(always)]
+    pub fn has_text_orientation(&self, node_idx: usize) -> bool {
+        self.tier2_cold[node_idx].extra_flags & EXTRA_FLAG_HAS_TEXT_ORIENTATION != 0
+    }
+
+    #[inline(always)]
+    pub fn has_text_shadow(&self, node_idx: usize) -> bool {
+        self.tier2_cold[node_idx].extra_flags & EXTRA_FLAG_HAS_TEXT_SHADOW != 0
+    }
+
+    #[inline(always)]
+    pub fn has_backdrop_filter(&self, node_idx: usize) -> bool {
+        self.tier2_cold[node_idx].extra_flags & EXTRA_FLAG_HAS_BACKDROP_FILTER != 0
+    }
+
+    #[inline(always)]
+    pub fn has_filter(&self, node_idx: usize) -> bool {
+        self.tier2_cold[node_idx].extra_flags & EXTRA_FLAG_HAS_FILTER != 0
+    }
+
+    #[inline(always)]
+    pub fn has_mix_blend_mode(&self, node_idx: usize) -> bool {
+        self.tier2_cold[node_idx].extra_flags & EXTRA_FLAG_HAS_MIX_BLEND_MODE != 0
+    }
+
+    /// DOM-level fast-path check: returns `true` if the given flag bit is set
+    /// (some node in this DOM declared the corresponding property).
+    #[inline(always)]
+    pub fn dom_declared(&self, flag: u32) -> bool {
+        self.dom_declared_flags & flag != 0
+    }
+
+    /// Scrollbar-gutter: 0 = auto (default), 1 = stable, 2 = both-edges, 3 = mirror.
+    #[inline(always)]
+    pub fn get_scrollbar_gutter_bits(&self, node_idx: usize) -> u8 {
+        (self.tier2_cold[node_idx].hot_flags & HOT_FLAG_SCROLLBAR_GUTTER_MASK)
+            >> HOT_FLAG_SCROLLBAR_GUTTER_SHIFT
     }
 
     // -- Tier 2b getters (text props) --

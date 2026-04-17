@@ -774,26 +774,34 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             bottom: multi_value_to_lp(get_css_border_bottom_width(styled_dom, id, node_state)),
         };
 
-        // Grid & gap properties
-        taffy_style.gap = cache
-            .get_property(node_data, &id, node_state, &CssPropertyType::Gap)
-            .and_then(|p| {
-                if let CssProperty::Gap(v) = p {
-                    Some(v)
+        // Grid & gap properties — COMPACT FAST PATH: row_gap/column_gap are
+        // i16 px × 10 in tier2_dims. The slow-path lookup would walk the
+        // cascade for every node even though the answer is already encoded.
+        taffy_style.gap = if let Some(ref cc) = cache.compact_cache {
+            let row = cc.tier2_dims[id.index()].row_gap;
+            let col = cc.tier2_dims[id.index()].column_gap;
+            let decode = |raw: i16| -> taffy::LengthPercentage {
+                if raw >= azul_css::compact_cache::I16_SENTINEL_THRESHOLD {
+                    taffy::LengthPercentage::length(0.0)
                 } else {
-                    None
+                    taffy::LengthPercentage::length(raw as f32 / 10.0)
                 }
-            })
-            .map(|v| {
-                let val = v.get_property_or_default().unwrap_or_default().inner;
-                // Gap can use %, em, rem - convert properly
-                let gap_lp = pixel_to_lp(val);
-                Size {
-                    width: gap_lp,
-                    height: gap_lp,
-                }
-            })
-            .unwrap_or_else(Size::zero);
+            };
+            Size {
+                width: decode(col),
+                height: decode(row),
+            }
+        } else {
+            cache
+                .get_property(node_data, &id, node_state, &CssPropertyType::Gap)
+                .and_then(|p| if let CssProperty::Gap(v) = p { Some(v) } else { None })
+                .map(|v| {
+                    let val = v.get_property_or_default().unwrap_or_default().inner;
+                    let gap_lp = pixel_to_lp(val);
+                    Size { width: gap_lp, height: gap_lp }
+                })
+                .unwrap_or_else(Size::zero)
+        };
 
         // Skip grid properties when not in a grid context.
         // Grid container props: only if this node has display:grid.
@@ -997,16 +1005,27 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 .and_then(|p| if let CssProperty::JustifyItems(v) = p { Some(*v) } else { None })
                 .map(|v| layout_justify_items_to_taffy(v))
         };
-        taffy_style.justify_content = cache
+        // COMPACT FAST PATH: justify-content is in tier1 bits 21-23.
+        taffy_style.justify_content = if let Some(ref cc) = cache.compact_cache {
+            use azul_css::compact_cache::*;
+            use azul_css::props::layout::LayoutJustifyContent;
+            let bits = ((cc.tier1_enums[id.index()] >> JUSTIFY_CONTENT_SHIFT) & JUSTIFY_MASK) as u8;
+            Some(match layout_justify_content_from_u8(bits) {
+                LayoutJustifyContent::FlexStart => taffy::JustifyContent::FlexStart,
+                LayoutJustifyContent::FlexEnd => taffy::JustifyContent::FlexEnd,
+                LayoutJustifyContent::Start => taffy::JustifyContent::Start,
+                LayoutJustifyContent::End => taffy::JustifyContent::End,
+                LayoutJustifyContent::Center => taffy::JustifyContent::Center,
+                LayoutJustifyContent::SpaceBetween => taffy::JustifyContent::SpaceBetween,
+                LayoutJustifyContent::SpaceAround => taffy::JustifyContent::SpaceAround,
+                LayoutJustifyContent::SpaceEvenly => taffy::JustifyContent::SpaceEvenly,
+            })
+        } else {
+            cache
                 .get_property(node_data, &id, node_state, &CssPropertyType::JustifyContent)
-                .and_then(|p| {
-                    if let CssProperty::JustifyContent(v) = p {
-                        Some(*v)
-                    } else {
-                        None
-                    }
-                })
-                .map(layout_justify_content_to_taffy);
+                .and_then(|p| if let CssProperty::JustifyContent(v) = p { Some(v) } else { None })
+                .map(|v| layout_justify_content_to_taffy(v.clone()))
+        };
                 // CSS spec: default justify-content is "normal". Taffy handles
                 // this internally when justify_content is None.
         // COMPACT FAST PATH: flex_grow stored as u16 × 100

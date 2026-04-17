@@ -2582,10 +2582,19 @@ fn compute_counters_recursive(
     };
     let is_list_item = matches!(display, Some(LayoutDisplay::ListItem));
 
+    // FAST PATH: almost no nodes declare counter-reset/counter-increment.
+    // Single-bit check in compact cache lets us skip two cascade walks per node.
+    let has_counter_css = node_state.is_normal()
+        && cache.compact_cache.as_ref().map_or(true, |cc| cc.has_counter(dom_id.index()));
+
     // Process counter-reset (now properly typed)
-    let counter_reset = cache
-        .get_counter_reset(node_data, &dom_id, node_state)
-        .and_then(|v| v.get_property());
+    let counter_reset = if has_counter_css {
+        cache
+            .get_counter_reset(node_data, &dom_id, node_state)
+            .and_then(|v| v.get_property())
+    } else {
+        None
+    };
 
     if let Some(counter_reset) = counter_reset {
         let counter_name_str = counter_reset.counter_name.as_str();
@@ -2603,9 +2612,13 @@ fn compute_counters_recursive(
     }
 
     // Process counter-increment (now properly typed)
-    let counter_inc = cache
-        .get_counter_increment(node_data, &dom_id, node_state)
-        .and_then(|v| v.get_property());
+    let counter_inc = if has_counter_css {
+        cache
+            .get_counter_increment(node_data, &dom_id, node_state)
+            .and_then(|v| v.get_property())
+    } else {
+        None
+    };
 
     if let Some(counter_inc) = counter_inc {
         let counter_name_str = counter_inc.counter_name.as_str();

@@ -653,6 +653,7 @@ impl CssPropertyCache {
                         &mut result.tier2b_text[i],
                         &mut result.font_hash_to_families,
                     );
+                    update_dom_declared_flags(prop, &mut result.dom_declared_flags);
                 }
             }
 
@@ -684,6 +685,7 @@ impl CssPropertyCache {
                     &mut result.tier2b_text[i],
                     &mut result.font_hash_to_families,
                 );
+                update_dom_declared_flags(&prop.property, &mut result.dom_declared_flags);
             }
 
             {
@@ -712,6 +714,7 @@ impl CssPropertyCache {
                     &mut result.tier2b_text[i],
                     &mut result.font_hash_to_families,
                 );
+                update_dom_declared_flags(&inline.property, &mut result.dom_declared_flags);
             }
 
             // Resolve font-size from em/percent/pt/etc. to px.
@@ -993,8 +996,183 @@ fn apply_css_property_to_compact(
         CssProperty::WordSpacing(v) => { text.word_spacing = encode_css_pixel_as_i16(v); }
         CssProperty::TextIndent(v) => { text.text_indent = encode_css_pixel_as_i16(v); }
 
-        // Non-compact properties (background, transform, box-shadow, etc.)
-        // — handled by get_property_slow fallback at paint time
+        // Border radii (cold): encode px × 10 into i16; sentinel stays = unset/0
+        CssProperty::BorderTopLeftRadius(v) => {
+            if let Some(exact) = v.get_property() {
+                if exact.inner.metric == SizeMetric::Px {
+                    cold.border_top_left_radius = encode_resolved_px_i16(exact.inner.number.get());
+                }
+            }
+        }
+        CssProperty::BorderTopRightRadius(v) => {
+            if let Some(exact) = v.get_property() {
+                if exact.inner.metric == SizeMetric::Px {
+                    cold.border_top_right_radius = encode_resolved_px_i16(exact.inner.number.get());
+                }
+            }
+        }
+        CssProperty::BorderBottomLeftRadius(v) => {
+            if let Some(exact) = v.get_property() {
+                if exact.inner.metric == SizeMetric::Px {
+                    cold.border_bottom_left_radius = encode_resolved_px_i16(exact.inner.number.get());
+                }
+            }
+        }
+        CssProperty::BorderBottomRightRadius(v) => {
+            if let Some(exact) = v.get_property() {
+                if exact.inner.metric == SizeMetric::Px {
+                    cold.border_bottom_right_radius = encode_resolved_px_i16(exact.inner.number.get());
+                }
+            }
+        }
+
+        // Opacity: encode as 0-254, 255 = sentinel (unset/default = 1.0)
+        CssProperty::Opacity(v) => {
+            if let Some(exact) = v.get_property() {
+                let o = exact.inner.normalized().clamp(0.0, 1.0);
+                let byte = (o * 254.0).round() as u8;
+                // byte is in [0, 254], never collides with OPACITY_SENTINEL=255
+                cold.opacity = byte;
+            }
+        }
+
+        // has-flags: set bit whenever property is set (regardless of value).
+        // Getter uses this as a fast "is the default" bail-out.
+        CssProperty::Transform(v) => {
+            if v.get_property().is_some() { cold.hot_flags |= HOT_FLAG_HAS_TRANSFORM; }
+        }
+        CssProperty::TransformOrigin(v) => {
+            if v.get_property().is_some() { cold.hot_flags |= HOT_FLAG_HAS_TRANSFORM_ORIGIN; }
+        }
+        CssProperty::BoxShadowTop(v) => {
+            if v.get_property().is_some() { cold.hot_flags |= HOT_FLAG_HAS_BOX_SHADOW; }
+        }
+        CssProperty::BoxShadowBottom(v) => {
+            if v.get_property().is_some() { cold.hot_flags |= HOT_FLAG_HAS_BOX_SHADOW; }
+        }
+        CssProperty::BoxShadowLeft(v) => {
+            if v.get_property().is_some() { cold.hot_flags |= HOT_FLAG_HAS_BOX_SHADOW; }
+        }
+        CssProperty::BoxShadowRight(v) => {
+            if v.get_property().is_some() { cold.hot_flags |= HOT_FLAG_HAS_BOX_SHADOW; }
+        }
+        CssProperty::TextDecoration(v) => {
+            if v.get_property().is_some() { cold.hot_flags |= HOT_FLAG_HAS_TEXT_DECORATION; }
+        }
+        CssProperty::ScrollbarGutter(v) => {
+            if let Some(exact) = v.get_property() {
+                use azul_css::props::layout::overflow::StyleScrollbarGutter;
+                let bits: u8 = match exact {
+                    StyleScrollbarGutter::Auto => SCROLLBAR_GUTTER_AUTO,
+                    StyleScrollbarGutter::Stable => SCROLLBAR_GUTTER_STABLE,
+                    StyleScrollbarGutter::StableBothEdges => SCROLLBAR_GUTTER_BOTH_EDGES,
+                };
+                cold.hot_flags = (cold.hot_flags & !HOT_FLAG_SCROLLBAR_GUTTER_MASK)
+                    | ((bits << HOT_FLAG_SCROLLBAR_GUTTER_SHIFT) & HOT_FLAG_SCROLLBAR_GUTTER_MASK);
+            }
+        }
+        CssProperty::BackgroundContent(v) => {
+            if v.get_property().is_some() { cold.hot_flags |= HOT_FLAG_HAS_BACKGROUND; }
+        }
+        CssProperty::ClipPath(v) => {
+            if v.get_property().is_some() { cold.hot_flags |= HOT_FLAG_HAS_CLIP_PATH; }
+        }
+
+        // Any scrollbar customisation sets the single `has_any_scrollbar_css`
+        // bit. When unset, get_scrollbar_style can bail to UA defaults without
+        // doing 8 cascade walks.
+        CssProperty::ScrollbarTrack(v) => {
+            if v.get_property().is_some() { cold.extra_flags |= EXTRA_FLAG_HAS_SCROLLBAR_CSS; }
+        }
+        CssProperty::ScrollbarThumb(v) => {
+            if v.get_property().is_some() { cold.extra_flags |= EXTRA_FLAG_HAS_SCROLLBAR_CSS; }
+        }
+        CssProperty::ScrollbarButton(v) => {
+            if v.get_property().is_some() { cold.extra_flags |= EXTRA_FLAG_HAS_SCROLLBAR_CSS; }
+        }
+        CssProperty::ScrollbarCorner(v) => {
+            if v.get_property().is_some() { cold.extra_flags |= EXTRA_FLAG_HAS_SCROLLBAR_CSS; }
+        }
+        CssProperty::ScrollbarWidth(v) => {
+            if v.get_property().is_some() { cold.extra_flags |= EXTRA_FLAG_HAS_SCROLLBAR_CSS; }
+        }
+        CssProperty::ScrollbarColor(v) => {
+            if v.get_property().is_some() { cold.extra_flags |= EXTRA_FLAG_HAS_SCROLLBAR_CSS; }
+        }
+        CssProperty::ScrollbarVisibility(v) => {
+            if v.get_property().is_some() { cold.extra_flags |= EXTRA_FLAG_HAS_SCROLLBAR_CSS; }
+        }
+        CssProperty::ScrollbarFadeDelay(v) => {
+            if v.get_property().is_some() { cold.extra_flags |= EXTRA_FLAG_HAS_SCROLLBAR_CSS; }
+        }
+        CssProperty::ScrollbarFadeDuration(v) => {
+            if v.get_property().is_some() { cold.extra_flags |= EXTRA_FLAG_HAS_SCROLLBAR_CSS; }
+        }
+
+        // Rare paint/layout props with dedicated fast-path bits.
+        CssProperty::CounterReset(v) => {
+            if v.get_property().is_some() { cold.extra_flags |= EXTRA_FLAG_HAS_COUNTER; }
+        }
+        CssProperty::CounterIncrement(v) => {
+            if v.get_property().is_some() { cold.extra_flags |= EXTRA_FLAG_HAS_COUNTER; }
+        }
+        CssProperty::BreakBefore(v) => {
+            if v.get_property().is_some() { cold.extra_flags |= EXTRA_FLAG_HAS_BREAK; }
+        }
+        CssProperty::BreakAfter(v) => {
+            if v.get_property().is_some() { cold.extra_flags |= EXTRA_FLAG_HAS_BREAK; }
+        }
+        CssProperty::TextOrientation(v) => {
+            if v.get_property().is_some() { cold.extra_flags |= EXTRA_FLAG_HAS_TEXT_ORIENTATION; }
+        }
+        CssProperty::TextShadow(v) => {
+            if v.get_property().is_some() { cold.extra_flags |= EXTRA_FLAG_HAS_TEXT_SHADOW; }
+        }
+        CssProperty::BackdropFilter(v) => {
+            if v.get_property().is_some() { cold.extra_flags |= EXTRA_FLAG_HAS_BACKDROP_FILTER; }
+        }
+        CssProperty::Filter(v) => {
+            if v.get_property().is_some() { cold.extra_flags |= EXTRA_FLAG_HAS_FILTER; }
+        }
+        CssProperty::MixBlendMode(v) => {
+            if v.get_property().is_some() { cold.extra_flags |= EXTRA_FLAG_HAS_MIX_BLEND_MODE; }
+        }
+
+        // Non-compact properties (background, etc.) — handled by get_property_slow fallback
+        _ => {}
+    }
+}
+
+/// OR the DOM-level declared-flag for rarely-set text properties. Called once
+/// per property per node so that when a flag bit is clear, callers
+/// (e.g. `translate_to_text3_constraints`) can skip the cascade walk and use
+/// the default value — the slow walk would never find a declaration anyway.
+fn update_dom_declared_flags(prop: &CssProperty, flags: &mut u32) {
+    // Only mark if the property value is actually "set" (not Auto/Initial/etc.).
+    // Using `get_property().is_some()` mirrors the pattern used elsewhere in
+    // this builder for has-X bits.
+    match prop {
+        CssProperty::ShapeInside(v) => if v.get_property().is_some() { *flags |= DOM_HAS_SHAPE_INSIDE; }
+        CssProperty::ShapeOutside(v) => if v.get_property().is_some() { *flags |= DOM_HAS_SHAPE_OUTSIDE; }
+        CssProperty::TextJustify(v) => if v.get_property().is_some() { *flags |= DOM_HAS_TEXT_JUSTIFY; }
+        CssProperty::TextIndent(v) => if v.get_property().is_some() { *flags |= DOM_HAS_TEXT_INDENT; }
+        CssProperty::ColumnCount(v) => if v.get_property().is_some() { *flags |= DOM_HAS_COLUMN_COUNT; }
+        CssProperty::ColumnGap(v) => if v.get_property().is_some() { *flags |= DOM_HAS_COLUMN_GAP; }
+        CssProperty::InitialLetter(v) => if v.get_property().is_some() { *flags |= DOM_HAS_INITIAL_LETTER; }
+        CssProperty::InitialLetterAlign(v) => if v.get_property().is_some() { *flags |= DOM_HAS_INITIAL_LETTER_ALIGN; }
+        CssProperty::LineClamp(v) => if v.get_property().is_some() { *flags |= DOM_HAS_LINE_CLAMP; }
+        CssProperty::HangingPunctuation(v) => if v.get_property().is_some() { *flags |= DOM_HAS_HANGING_PUNCTUATION; }
+        CssProperty::TextCombineUpright(v) => if v.get_property().is_some() { *flags |= DOM_HAS_TEXT_COMBINE_UPRIGHT; }
+        CssProperty::ExclusionMargin(v) => if v.get_property().is_some() { *flags |= DOM_HAS_EXCLUSION_MARGIN; }
+        CssProperty::HyphenationLanguage(v) => if v.get_property().is_some() { *flags |= DOM_HAS_HYPHENATION_LANGUAGE; }
+        CssProperty::UnicodeBidi(v) => if v.get_property().is_some() { *flags |= DOM_HAS_UNICODE_BIDI; }
+        CssProperty::TextBoxTrim(v) => if v.get_property().is_some() { *flags |= DOM_HAS_TEXT_BOX_TRIM; }
+        CssProperty::Hyphens(v) => if v.get_property().is_some() { *flags |= DOM_HAS_HYPHENS; }
+        CssProperty::WordBreak(v) => if v.get_property().is_some() { *flags |= DOM_HAS_WORD_BREAK; }
+        CssProperty::OverflowWrap(v) => if v.get_property().is_some() { *flags |= DOM_HAS_OVERFLOW_WRAP; }
+        CssProperty::LineBreak(v) => if v.get_property().is_some() { *flags |= DOM_HAS_LINE_BREAK; }
+        CssProperty::TextAlignLast(v) => if v.get_property().is_some() { *flags |= DOM_HAS_TEXT_ALIGN_LAST; }
+        CssProperty::LineHeight(v) => if v.get_property().is_some() { *flags |= DOM_HAS_LINE_HEIGHT; }
         _ => {}
     }
 }

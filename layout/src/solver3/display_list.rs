@@ -2263,12 +2263,10 @@ where
             let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
             let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
 
-            // Opacity
-            let opacity = self.ctx.styled_dom.css_property_cache.ptr
-                .get_opacity(node_data, &dom_id, node_state)
-                .and_then(|v| v.get_property())
-                .map(|v| v.inner.normalized())
-                .unwrap_or(1.0);
+            // Opacity (GPU: fast path via compact cache)
+            let opacity = crate::solver3::getters::get_opacity(
+                self.ctx.styled_dom, dom_id, node_state,
+            );
 
             if opacity < 1.0 {
                 builder.push_item(DisplayListItem::PushOpacity {
@@ -3235,30 +3233,24 @@ where
                 get_style_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state);
 
             // Paint box shadows before backgrounds (CSS spec: shadows render behind the element)
-            let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
             let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
 
             // +spec:overflow:bb4308 - box shadows are ink overflow: painted outside border box, not affecting layout
-            // Check all four sides for box-shadow (azul stores them per-side)
-            for get_shadow_fn in [
-                azul_core::prop_cache::CssPropertyCache::get_box_shadow_left,
-                azul_core::prop_cache::CssPropertyCache::get_box_shadow_right,
-                azul_core::prop_cache::CssPropertyCache::get_box_shadow_top,
-                azul_core::prop_cache::CssPropertyCache::get_box_shadow_bottom,
+            // Check all four sides for box-shadow (azul stores them per-side).
+            // Routed through `super::getters::*` so the compact-cache has_box_shadow
+            // fast path fires — most nodes have no shadow and skip 4 cascade walks.
+            for shadow in [
+                super::getters::get_box_shadow_left(self.ctx.styled_dom, dom_id, node_state),
+                super::getters::get_box_shadow_right(self.ctx.styled_dom, dom_id, node_state),
+                super::getters::get_box_shadow_top(self.ctx.styled_dom, dom_id, node_state),
+                super::getters::get_box_shadow_bottom(self.ctx.styled_dom, dom_id, node_state),
             ] {
-                if let Some(shadow_value) = get_shadow_fn(
-                    &self.ctx.styled_dom.css_property_cache.ptr,
-                    node_data,
-                    &dom_id,
-                    &node_state,
-                ) {
-                    if let Some(shadow) = shadow_value.get_property() {
-                        builder.push_item(DisplayListItem::BoxShadow {
-                            bounds: paint_rect.into(),
-                            shadow: (**shadow).clone(),
-                            border_radius: simple_border_radius,
-                        });
-                    }
+                if let Some(shadow) = shadow {
+                    builder.push_item(DisplayListItem::BoxShadow {
+                        bounds: paint_rect.into(),
+                        shadow,
+                        border_radius: simple_border_radius,
+                    });
                 }
             }
 
@@ -4445,34 +4437,20 @@ where
             let node_state =
                 &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
 
-            // Opacity < 1
-            let opacity = self
-                .ctx
-                .styled_dom
-                .css_property_cache
-                .ptr
-                .get_opacity(node_data, &dom_id, node_state)
-                .and_then(|v| v.get_property())
-                .map(|v| v.inner.normalized())
-                .unwrap_or(1.0);
-
-            if opacity < 1.0 {
+            // Opacity < 1 (GPU: fast path via compact cache)
+            if crate::solver3::getters::get_opacity(
+                self.ctx.styled_dom, dom_id, node_state,
+            ) < 1.0 {
                 return true;
             }
 
-            // Transform != none
-            let has_transform = self
-                .ctx
-                .styled_dom
-                .css_property_cache
-                .ptr
-                .get_transform(node_data, &dom_id, node_state)
-                .and_then(|v| v.get_property())
-                .map(|v| !v.is_empty())
-                .unwrap_or(false);
-
-            if has_transform {
-                return true;
+            // Transform != none (GPU: has_transform bit check, then slow walk only if set)
+            if let Some(t) = crate::solver3::getters::get_transform(
+                self.ctx.styled_dom, dom_id, node_state,
+            ) {
+                if !t.is_empty() {
+                    return true;
+                }
             }
         }
 
@@ -4507,31 +4485,18 @@ pub fn node_establishes_stacking_context(
         return true;
     }
 
-    let node_data = &styled_dom.node_data.as_container()[dom_id];
     let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
 
-    // Opacity < 1
-    let opacity = styled_dom
-        .css_property_cache
-        .ptr
-        .get_opacity(node_data, &dom_id, node_state)
-        .and_then(|v| v.get_property())
-        .map(|v| v.inner.normalized())
-        .unwrap_or(1.0);
-    if opacity < 1.0 {
+    // Opacity < 1 (GPU: compact-cache fast path)
+    if crate::solver3::getters::get_opacity(styled_dom, dom_id, node_state) < 1.0 {
         return true;
     }
 
-    // Transform != none
-    let has_transform = styled_dom
-        .css_property_cache
-        .ptr
-        .get_transform(node_data, &dom_id, node_state)
-        .and_then(|v| v.get_property())
-        .map(|v| !v.is_empty())
-        .unwrap_or(false);
-    if has_transform {
-        return true;
+    // Transform != none (GPU: has_transform bit check, then slow walk only if set)
+    if let Some(t) = crate::solver3::getters::get_transform(styled_dom, dom_id, node_state) {
+        if !t.is_empty() {
+            return true;
+        }
     }
 
     false
