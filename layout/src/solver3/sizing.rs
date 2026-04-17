@@ -155,13 +155,18 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
             }
         }
 
-        let node = tree
+        // Previously cloned the full LayoutNode to sidestep borrow conflicts
+        // with the `&mut tree` recursive calls below, but we only need the
+        // DOM id here — a `Copy` scalar. The clone was allocating a
+        // Vec<usize> for children and a TaffyCache on every recursion
+        // (~300x on excel.html).
+        let dom_node_id = tree
             .get(node_index)
-            .cloned()
-            .ok_or(LayoutError::InvalidTree)?;
+            .ok_or(LayoutError::InvalidTree)?
+            .dom_node_id;
 
         // Out-of-flow elements do not contribute to their parent's intrinsic size.
-        let position = get_position_type(self.ctx.styled_dom, node.dom_node_id);
+        let position = get_position_type(self.ctx.styled_dom, dom_node_id);
         if position == LayoutPosition::Absolute || position == LayoutPosition::Fixed {
             if let Some(n) = tree.warm_mut(node_index) {
                 n.intrinsic_sizes = Some(IntrinsicSizes::default());
