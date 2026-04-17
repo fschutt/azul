@@ -798,18 +798,44 @@ impl LayoutWindow {
             // which compares each node's font_family_hash against the
             // previous frame. This replaces the collision-prone global XOR
             // approach: XOR(a,b,a,b) == 0 even though fonts changed.
-            let font_dirty_count = styled_dom
-                .css_property_cache
-                .ptr
-                .compact_cache
-                .as_ref()
+            //
+            // Additional guard: compute an FxHash signature of
+            // `prev_font_hashes` and compare against the one we stashed
+            // after the last successful chain resolution. If it matches,
+            // the DOM's font stacks are identical to what's already in
+            // `font_chain_cache` — no resolver call needed. This catches
+            // the common "repeated layout on unchanged DOM" case that
+            // `font_dirty_nodes.len() == 0` misses, because the dirty
+            // list is only re-computed inside `build_compact_cache`,
+            // which most layouts do NOT re-run.
+            let compact_cache_ref = styled_dom.css_property_cache.ptr.compact_cache.as_ref();
+            let font_dirty_count = compact_cache_ref
                 .map(|cc| cc.font_dirty_nodes.len())
                 .unwrap_or(1); // if no compact cache, treat as dirty
 
+            let font_stacks_sig = compact_cache_ref.map(|cc| {
+                // Fast polynomial rolling hash over the `prev_font_hashes`
+                // slice. Mixes each u64 with a multiplier + bit-rotation,
+                // which is collision-resistant enough for our one-at-a-time
+                // "did this DOM's font stacks change" comparison and an
+                // order of magnitude cheaper than SipHash for ~300 nodes.
+                let mut h: u64 = 0xcbf29ce484222325;
+                for &fh in cc.prev_font_hashes.iter() {
+                    h = h.rotate_left(13) ^ fh;
+                    h = h.wrapping_mul(0x100000001b3);
+                }
+                h
+            });
+
             // Skip all font resolution steps if NO node's font_family_hash
-            // changed AND the font_chain_cache has already been populated.
-            let font_requirements_unchanged = font_dirty_count == 0
-                && !self.font_manager.font_chain_cache.is_empty();
+            // changed AND the font_chain_cache has already been populated,
+            // OR if the font-stacks signature matches the one we stashed
+            // after the last successful resolution.
+            let font_requirements_unchanged = (font_dirty_count == 0
+                && !self.font_manager.font_chain_cache.is_empty())
+                || (font_stacks_sig.is_some()
+                    && font_stacks_sig == self.font_manager.last_resolved_font_stacks_sig
+                    && !self.font_manager.font_chain_cache.is_empty());
 
             if font_requirements_unchanged {
                 if let Some(msgs) = debug_messages.as_mut() {
@@ -882,8 +908,13 @@ impl LayoutWindow {
                     }
                 }
 
-                // Step 5: Update font chain cache
-                self.font_manager.set_font_chain_cache(chains.into_fontconfig_chains());
+                // Step 5: Update font chain cache (and stash the
+                // `prev_font_hashes` signature so the next layout with
+                // an identical DOM skips the resolver entirely).
+                self.font_manager.set_font_chain_cache_with_sig(
+                    chains.into_fontconfig_chains(),
+                    font_stacks_sig,
+                );
             }
         }
 

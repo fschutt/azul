@@ -669,6 +669,7 @@ impl FontContext {
             embedded_fonts: Mutex::new(self.embedded_fonts.clone()),
             font_hash_to_families: self.font_hash_to_families.clone(),
             registry: self.registry.clone(),
+            last_resolved_font_stacks_sig: None,
         }
     }
 }
@@ -701,6 +702,13 @@ pub struct FontManager<T> {
     /// (scout-on-demand). `None` falls back to querying whatever is
     /// already in the shared cache.
     pub registry: Option<Arc<rust_fontconfig::registry::FcFontRegistry>>,
+    /// FxHash of the `prev_font_hashes` slice at the moment the last
+    /// successful `collect_and_resolve_font_chains_with_registration`
+    /// call populated `font_chain_cache`. Lets repeated layouts of the
+    /// same DOM skip the ~1.5 ms (cold) / ~0.9 ms (warm) chain resolver
+    /// when the set of font-family hashes has not changed. Cleared
+    /// whenever `font_chain_cache` is explicitly emptied.
+    pub last_resolved_font_stacks_sig: Option<u64>,
 }
 
 impl<T: ParsedFontTrait> FontManager<T> {
@@ -712,6 +720,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
             embedded_fonts: Mutex::new(HashMap::new()),
             font_hash_to_families: HashMap::new(),
             registry: None,
+            last_resolved_font_stacks_sig: None,
         })
     }
 
@@ -729,6 +738,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
             embedded_fonts: Mutex::new(HashMap::new()),
             font_hash_to_families: HashMap::new(),
             registry: None,
+            last_resolved_font_stacks_sig: None,
         })
     }
 
@@ -748,6 +758,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
             embedded_fonts: Mutex::new(HashMap::new()),
             font_hash_to_families: HashMap::new(),
             registry: None,
+            last_resolved_font_stacks_sig: None,
         })
     }
 
@@ -779,6 +790,21 @@ impl<T: ParsedFontTrait> FontManager<T> {
         chains: HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
     ) {
         self.font_chain_cache = chains;
+        self.last_resolved_font_stacks_sig = None;
+    }
+
+    /// Set the font chain cache and record the input signature so
+    /// subsequent layouts with the same `prev_font_hashes` skip the
+    /// resolver. Pass `sig = None` if the caller cannot compute a
+    /// reliable signature — equivalent to the single-arg
+    /// `set_font_chain_cache`.
+    pub fn set_font_chain_cache_with_sig(
+        &mut self,
+        chains: HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
+        sig: Option<u64>,
+    ) {
+        self.font_chain_cache = chains;
+        self.last_resolved_font_stacks_sig = sig;
     }
 
     /// Merge additional font chains into the existing cache
