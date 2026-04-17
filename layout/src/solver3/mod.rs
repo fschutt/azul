@@ -473,9 +473,11 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     cache.prev_viewport = viewport;
 
     // --- Step 1: Reconciliation & Invalidation ---
+    crate::probe::reset_peak();
     let (mut new_tree, mut recon_result) =
         cache::reconcile_and_invalidate(&mut ctx_temp, cache, viewport)?;
     crate::probe::sample_peak_rss("rss:after_reconcile");
+    crate::probe::sample_phase_peak("rss:peak_during_reconcile");
 
     // --- Step 1.1: Structural-identity display-list cache ---
     //
@@ -699,9 +701,12 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         let mut reflow_needed_for_scrollbars = false;
 
         {
+            crate::probe::reset_peak();
             let _p = crate::probe::Probe::span("calc_intrinsic_sizes");
             calculate_intrinsic_sizes(&mut ctx, &mut new_tree, &recon_result.intrinsic_dirty)?;
         }
+        crate::probe::sample_peak_rss("rss:after_calc_intrinsic");
+        crate::probe::sample_phase_peak("rss:peak_during_intrinsic");
 
         for &root_idx in &recon_result.layout_roots {
             let (cb_pos, cb_size) = get_containing_block_for_node(
@@ -764,6 +769,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // IntrinsicSizeCalculator temporaries, text measurement caches.
             crate::probe::hint_purge_allocator();
             crate::probe::sample_peak_rss("rss:before_root_layout");
+            crate::probe::reset_peak();
             {
                 let _p = crate::probe::Probe::span("root_layout_pass");
                 cache::calculate_layout_for_subtree(
@@ -780,6 +786,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 )?;
             }
             crate::probe::sample_peak_rss("rss:after_root_layout");
+            crate::probe::sample_phase_peak("rss:peak_during_root_layout");
 
             // CRITICAL: Insert the root node's own position into calculated_positions
             // This is necessary because calculate_layout_for_subtree only inserts
@@ -916,6 +923,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     };
 
     crate::probe::sample_peak_rss("rss:before_display_list");
+    crate::probe::reset_peak();
     // --- Step 4: Generate Display List & Update Cache ---
     let display_list = {
         let _p = crate::probe::Probe::span("generate_display_list");
@@ -931,6 +939,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             dom_id,
         )?
     };
+    crate::probe::sample_phase_peak("rss:peak_during_display_list");
 
     // Move cache_map back into LayoutCache before dropping ctx
     let _p_writeback = crate::probe::Probe::span("cache_writeback");

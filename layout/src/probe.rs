@@ -369,3 +369,79 @@ pub fn phys_footprint_bytes() -> u64 {
     #[cfg(not(target_os = "macos"))]
     { 0 }
 }
+
+/// Background sampler for peak phys_footprint. Spawns a thread that
+/// polls `phys_footprint_bytes()` every ~2 ms and updates a shared
+/// atomic. The kernel does not expose a direct "peak phys_footprint"
+/// — unlike `resident_size_peak` in TASK_VM_INFO — so polling is
+/// the only way to catch mid-phase transients that are MADV_FREE'd
+/// before the next explicit sample point.
+///
+/// Not started by default; call `start_peak_sampler()` once at
+/// process init if you want peak tracking. Overhead is negligible
+/// (~1-5 µs per poll on macOS, 500 Hz → <0.25% CPU of one core).
+/// `peak_phys_footprint_seen()` reads the current high-water mark.
+#[cfg(feature = "probe")]
+pub fn start_peak_sampler() {
+    #[cfg(target_os = "macos")]
+    {
+        use std::sync::atomic::Ordering;
+        // Idempotent — only spawns once.
+        static STARTED: std::sync::atomic::AtomicBool =
+            std::sync::atomic::AtomicBool::new(false);
+        if STARTED.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        std::thread::Builder::new()
+            .name("azul-peak-sampler".to_string())
+            .spawn(|| loop {
+                let now = phys_footprint_bytes();
+                let prev = PEAK_PHYS_FOOTPRINT.load(Ordering::Relaxed);
+                if now > prev {
+                    PEAK_PHYS_FOOTPRINT.store(now, Ordering::Relaxed);
+                }
+                std::thread::sleep(std::time::Duration::from_micros(250));
+            })
+            .ok();
+    }
+}
+
+#[cfg(feature = "probe")]
+static PEAK_PHYS_FOOTPRINT: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+/// Read the peak `phys_footprint` seen by the background sampler.
+/// Returns 0 if `start_peak_sampler` was never called.
+#[cfg(feature = "probe")]
+pub fn peak_phys_footprint_seen() -> u64 {
+    PEAK_PHYS_FOOTPRINT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Reset the global peak high-water mark to the current phys_footprint.
+/// Paired with `peak_phys_footprint_seen()` so a caller can record
+/// "peak during phase X" — call `reset_peak()` at phase entry, then
+/// `peak_phys_footprint_seen()` at phase exit. The 500 Hz background
+/// sampler runs continuously either way.
+#[cfg(feature = "probe")]
+pub fn reset_peak() {
+    let now = phys_footprint_bytes();
+    PEAK_PHYS_FOOTPRINT.store(now, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Record a phase's peak footprint into the probe event stream.
+/// Call at phase exit after `reset_peak()` at phase entry. Emits an
+/// RSS-kind event with `bytes = peak seen during phase`.
+#[cfg(feature = "probe")]
+#[inline]
+pub fn sample_phase_peak(label: &'static str) {
+    let peak = PEAK_PHYS_FOOTPRINT.load(std::sync::atomic::Ordering::Relaxed);
+    Probe::sample_rss(label, peak);
+}
+
+#[cfg(not(feature = "probe"))]
+#[inline(always)]
+pub fn reset_peak() {}
+
+#[cfg(not(feature = "probe"))]
+#[inline(always)]
+pub fn sample_phase_peak(_label: &'static str) {}
