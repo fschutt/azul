@@ -2100,6 +2100,15 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     };
     let content_size = layout_result.output.overflow_size;
 
+    // If layout_formatting_context adjusted this node's used_size (e.g.
+    // layout_flex_grid auto-applying box-sizing:border-box on the root),
+    // propagate that back into final_used_size so Phase 3 (scrollbars),
+    // Phase 4 (final write), and the self_content_box_pos calculation all
+    // see the same border-box that the children were laid out inside.
+    if let Some(adjusted) = tree.get(node_index).and_then(|n| n.used_size) {
+        final_used_size = adjusted;
+    }
+
     // Phase 2.5: Resolve 'auto' main-axis size based on content
     // For anonymous boxes, use default styled node state
     let styled_node_state = dom_id
