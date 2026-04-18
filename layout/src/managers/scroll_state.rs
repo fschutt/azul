@@ -404,6 +404,16 @@ impl ScrollManager {
         Self::default()
     }
 
+    /// Sizes of the internal maps — used by `AZ_E2E_TEST` to watch for
+    /// unbounded growth across resize/tick iterations.
+    pub fn debug_counts(&self) -> (usize, usize, usize) {
+        (
+            self.states.len(),
+            self.external_scroll_ids.len(),
+            self.scrollbar_states.len(),
+        )
+    }
+
     /// Returns `true` if any scroll position changed since the last
     /// `clear_scroll_dirty()` call.
     pub fn has_pending_scroll_changes(&self) -> bool {

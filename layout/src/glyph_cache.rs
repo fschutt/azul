@@ -81,6 +81,12 @@ impl GlyphCache {
         }
     }
 
+    /// Entry count of the glyph-path cache (for leak probes).
+    pub fn paths_len(&self) -> usize { self.paths.len() }
+
+    /// Entry count of the pre-rasterized cell cache (for leak probes).
+    pub fn cells_len(&self) -> usize { self.cells.len() }
+
     /// Get a cached path, or build it on cache miss.
     /// Returns `None` if the glyph has no outline (e.g. space character).
     pub fn get_or_build(

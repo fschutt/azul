@@ -45,6 +45,14 @@ impl HoverManager {
         }
     }
 
+    /// (input points, total history entries across all points). Used by
+    /// `AZ_E2E_TEST` to watch for unbounded growth.
+    pub fn debug_counts(&self) -> (usize, usize) {
+        let points = self.hover_histories.len();
+        let total: usize = self.hover_histories.values().map(|h| h.len()).sum();
+        (points, total)
+    }
+
     /// Push a new hit test result for a specific input point
     ///
     /// The most recent result is always at index 0 for that input point.

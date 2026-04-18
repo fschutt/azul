@@ -83,6 +83,11 @@ impl VirtualViewManager {
         }
     }
 
+    /// (states, pipeline_ids). Used by `AZ_E2E_TEST` to watch growth.
+    pub fn debug_counts(&self) -> (usize, usize) {
+        (self.states.len(), self.pipeline_ids.len())
+    }
+
     /// Called at the start of each frame (currently a no-op)
     pub fn begin_frame(&mut self) {
         // Nothing to do here for now, but good practice for stateful managers

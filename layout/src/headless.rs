@@ -167,6 +167,11 @@ impl CpuHitTester {
         }
     }
 
+    /// Sum of HitTestEntry counts across all DomIds (for leak probes).
+    pub fn node_rects_total(&self) -> usize {
+        self.node_rects.values().map(|v| v.len()).sum()
+    }
+
     /// Rebuild the hit test structure from layout results.
     ///
     /// Called after each layout pass. Extracts positioned rectangles from

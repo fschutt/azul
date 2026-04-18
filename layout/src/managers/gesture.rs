@@ -407,6 +407,12 @@ impl Default for GestureAndDragManager {
 }
 
 impl GestureAndDragManager {
+    /// (input_sessions, long_press_callbacks_invoked). Used by
+    /// `AZ_E2E_TEST` to watch for unbounded growth.
+    pub fn debug_counts(&self) -> (usize, usize) {
+        (self.input_sessions.len(), self.long_press_callbacks_invoked.len())
+    }
+
     /// Create a new gesture and drag manager
     pub fn new() -> Self {
         Self {

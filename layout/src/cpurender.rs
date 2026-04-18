@@ -141,6 +141,11 @@ impl CompositorState {
         id
     }
 
+    /// Read-only peek at the next layer ID counter (for leak probes).
+    pub fn next_layer_id_peek(&self) -> u64 {
+        self.next_layer_id
+    }
+
     /// Walk the display list and create layers for scroll frames, filters, opacity, transforms.
     /// Returns a mapping from display-list item index to the LayerId it should render into.
     pub fn allocate_layers_from_display_list(
