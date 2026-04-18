@@ -269,6 +269,21 @@ pub fn run(
         setup_e2e_runner(test_file);
     }
 
+    // AZ_E2E_TEST: deterministic resize/tick scenario runner. Takes over the
+    // main loop entirely (bypasses NSApplication) and exits the process after
+    // the scenario completes.
+    #[cfg(feature = "e2e-test")]
+    if let Some(path) = super::common::e2e_test::scenario_path() {
+        return super::common::e2e_test::run_e2e_scenario(
+            &path,
+            app_data,
+            config,
+            fc_cache,
+            font_registry,
+            root_window,
+        );
+    }
+
     // Resolve rendering backend from AZ_BACKEND env / config
     let backend = resolve_backend(&root_window);
 

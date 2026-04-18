@@ -18,6 +18,8 @@ pub mod error;
 
 // Unified cross-platform modules
 pub mod debug_server;
+#[cfg(feature = "e2e-test")]
+pub mod e2e_test;
 pub mod event;
 pub mod layout;
 

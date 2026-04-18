@@ -393,6 +393,15 @@ use_pyo3_logger = ["pyo3-log", "logging"]
 python-extension = ["build-dll", "pyo3", "use_pyo3_logger", "link-static"]
 
 # -----------------------------------------------------------------------------
+# E2E Test Harness (AZ_E2E_TEST env-var-driven scenario runner)
+# -----------------------------------------------------------------------------
+# Enables the `common::e2e_test` module. At runtime, setting AZ_E2E_TEST=<json>
+# replaces the normal window loop with a scripted resize/tick scenario that
+# probes RSS after each batch of iterations. Used to reproduce the calc.c
+# resize leak deterministically.
+e2e-test = ["serde_json", "azul-layout?/probe"]
+
+# -----------------------------------------------------------------------------
 # Package Metadata
 # -----------------------------------------------------------------------------
 

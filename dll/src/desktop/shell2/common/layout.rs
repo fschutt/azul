@@ -91,11 +91,13 @@ pub fn regenerate_layout(
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Result<LayoutRegenerateResult, String> {
     log_debug!(LogCategory::Layout, "[regenerate_layout] START");
+    azul_layout::probe::emit_phase_heap("start");
 
     // If the async font registry is available, request commonly-used fonts
     // and block until they are ready (eliminates FOUC). On cache hits this
     // is effectively free; on first run it blocks until the Scout + Builder
     // threads have parsed the needed fonts.
+    azul_layout::probe::emit_phase_heap("before_registry_check");
     if let Some(registry) = font_registry.as_ref() {
         // Avoid replacing a complete font cache (e.g. loaded from disk cache at
         // startup) with an incomplete snapshot while background builder threads
@@ -109,17 +111,23 @@ pub fn regenerate_layout(
         if current_cache_empty || build_complete {
             log_debug!(LogCategory::Layout, "[regenerate_layout] Requesting fonts from registry...");
             let font_stacks = rust_fontconfig::config::tokenize_common_families(rust_fontconfig::OperatingSystem::current());
+            azul_layout::probe::emit_phase_heap_extra("after_tokenize", registry.chain_cache_len() as u64);
             registry.request_fonts(&font_stacks);
+            azul_layout::probe::emit_phase_heap_extra("after_request_fonts", registry.chain_cache_len() as u64);
             // Snapshot the registry into an FcFontCache for use during layout
             layout_window.font_manager.fc_cache = registry.shared_cache();
+            azul_layout::probe::emit_phase_heap("after_shared_cache");
             log_debug!(LogCategory::Layout, "[regenerate_layout] Font registry snapshot complete");
         } else {
             log_debug!(LogCategory::Layout, "[regenerate_layout] Using existing font cache (build still in progress)");
         }
     } else {
+        azul_layout::probe::emit_phase_heap("before_fc_clone");
         // Fallback: use the provided fc_cache directly
         layout_window.font_manager.fc_cache = (**fc_cache).clone();
+        azul_layout::probe::emit_phase_heap("after_fc_clone");
     }
+    azul_layout::probe::emit_phase_heap("after_font_snapshot");
 
     // 1. Call user's layout callback to get new DOM
     log_debug!(
@@ -143,21 +151,25 @@ pub fn regenerate_layout(
     );
 
     let app_data_borrowed = app_data.borrow_mut();
+    azul_layout::probe::emit_phase_heap("before_callback");
 
     let user_dom =
         (current_window_state.layout_callback.cb)((*app_data_borrowed).clone(), callback_info);
 
     drop(app_data_borrowed); // Release borrow
+    azul_layout::probe::emit_phase_heap("after_callback");
 
     // 1.5. Flatten recursive Dom → StyledDom (single deferred cascade pass)
     //
     // The user callback now returns a recursive `Dom` with CSS attached via `.style()`.
     // We collect all CSS objects, flatten the tree, and run a single cascade pass.
     let mut user_styled_dom = azul_core::styled_dom::StyledDom::create_from_dom(user_dom);
+    azul_layout::probe::emit_phase_heap("after_create_from_dom");
 
     // 2. Resolve icon nodes to their actual content (text glyphs, images, etc.)
     // This must happen after the user's layout callback and before CSD injection
     azul_core::icon::resolve_icons_in_styled_dom(&mut user_styled_dom, icon_provider, system_style);
+    azul_layout::probe::emit_phase_heap("after_icons");
 
     // 3. Conditionally inject Client-Side Decorations (CSD)
     //
@@ -200,6 +212,7 @@ pub fn regenerate_layout(
     } else {
         user_styled_dom
     };
+    azul_layout::probe::emit_phase_heap("after_csd");
 
     // 3.4. Re-compute inheritance and compact cache on the composed tree.
     //
@@ -220,6 +233,7 @@ pub fn regenerate_layout(
     // Re-running inheritance + compact cache rebuild on the fully composed tree
     // fixes both issues. Cost: one extra O(n) pass — acceptable for correctness.
     styled_dom.recompute_inheritance_and_compact_cache();
+    azul_layout::probe::emit_phase_heap("after_recompute_cache");
 
     // 3.5. STATE MIGRATION: Transfer heavy resources from old DOM to new DOM
     // This allows components like video players to preserve their decoder handles
@@ -283,6 +297,7 @@ pub fn regenerate_layout(
             azul_core::dom::DomId::ROOT_ID,
         );
     }
+    azul_layout::probe::emit_phase_heap("after_state_migrate");
 
     // NOTE: dirty_text_nodes is NOT applied to the StyledDom here.
     // The V3 architecture has two paths:
@@ -309,6 +324,7 @@ pub fn regenerate_layout(
         layout_window,
         current_window_state,
     );
+    azul_layout::probe::emit_phase_heap("after_runtime_states");
 
     // 3.7 OPTIMIZATION: Check if the new DOM is structurally identical to the old DOM.
     // If so, we can skip the expensive layout pipeline (CSS cascade, flexbox, display list)
@@ -395,29 +411,33 @@ pub fn regenerate_layout(
             }
 
             log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE (layout unchanged)");
+            azul_layout::probe::emit_phase_heap("end_unchanged");
             return Ok(LayoutRegenerateResult::LayoutUnchanged);
         }
     }
     } // end if !window_size_changed
+    azul_layout::probe::emit_phase_heap("after_equivalence_check");
 
     // 4. Perform layout with solver3
     log_debug!(
         LogCategory::Layout,
         "[regenerate_layout] Calling layout_and_generate_display_list"
     );
-    
+
     // Update system style for resolving system color keywords (selection colors, accent, etc.)
     layout_window.set_system_style(system_style.clone());
-    
+    azul_layout::probe::emit_phase_heap("before_layout_dl");
+
     layout_window
         .layout_and_generate_display_list(
-            &styled_dom,
+            styled_dom,
             current_window_state,
             renderer_resources,
             &ExternalSystemCallbacks::rust_internal(),
             debug_messages,
         )
         .map_err(|e| format!("Layout error: {:?}", e))?;
+    azul_layout::probe::emit_phase_heap("after_layout_and_dl");
 
     // CRITICAL: Update layout_window's cached window state so the next
     // regenerate_layout correctly detects size changes.  Without this,
@@ -542,6 +562,7 @@ pub fn regenerate_layout(
     }
 
     log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE");
+    azul_layout::probe::emit_phase_heap("end");
 
     Ok(LayoutRegenerateResult::LayoutChanged)
 }
@@ -581,12 +602,26 @@ pub fn incremental_relayout(
 
     // Re-run layout on the existing StyledDom with dirty flags already set.
     // The StyledDom in the layout_result already has updated styles/states.
-    if let Some(layout_result) = layout_window.layout_results.get(&azul_core::dom::DomId::ROOT_ID) {
-        let styled_dom = layout_result.styled_dom.clone();
+    //
+    // Ownership transfer: pull the existing DomLayoutResult out of the map
+    // (`.remove()` instead of `.get()`), take its `styled_dom` by value, and
+    // hand it to `layout_and_generate_display_list`, which will move it into
+    // the freshly-inserted result. This eliminates the double clone that used
+    // to happen on every resize (once here, once again inside the layout fn).
+    if let Some(layout_result) = layout_window
+        .layout_results
+        .remove(&azul_core::dom::DomId::ROOT_ID)
+    {
+        // Move the StyledDom out of the old DomLayoutResult; the remaining
+        // fields (positions, display list, tree) drop when `layout_result`
+        // goes out of scope. `layout_and_generate_display_list` then inserts
+        // a fresh DomLayoutResult built around this very StyledDom without
+        // cloning it.
+        let styled_dom = layout_result.styled_dom;
 
         layout_window
             .layout_and_generate_display_list(
-                &styled_dom,
+                styled_dom,
                 current_window_state,
                 renderer_resources,
                 &system_callbacks,
