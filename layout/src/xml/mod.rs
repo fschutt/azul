@@ -179,8 +179,7 @@ pub fn parse_xml_to_styled_dom(xml: &str) -> Result<StyledDom, XmlError> {
     // to locate which sub-phase of the parse-cascade dominates the
     // RSS jump seen between `page start` and `xml parsed`.
     static MEM_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    let mem_on =
-        *MEM_ENABLED.get_or_init(|| std::env::var_os("AZUL_MEM_BREAKDOWN").is_some());
+    let mem_on = *MEM_ENABLED.get_or_init(azul_core::profile::memory_enabled);
 
     let t0 = std::time::Instant::now();
     let rss0 = if mem_on { peak_rss_bytes() } else { 0 };

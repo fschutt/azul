@@ -672,7 +672,6 @@ pub struct CssPropertyCache {
     /// the root's font-size (for `rem`), multiplying the walk
     /// count. Caching the pre-resolved pixel value collapses that
     /// to a single `Vec<f32>` indexed lookup.
-    #[cfg_attr(feature = "serde-json", serde(skip))]
     pub resolved_font_sizes_px: std::sync::OnceLock<Vec<f32>>,
 }
 
@@ -788,7 +787,7 @@ impl CssPropertyCache {
         use azul_css::dynamic_selector::PseudoStateType;
 
         static PRUNE_DBG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        let dbg = *PRUNE_DBG.get_or_init(|| std::env::var_os("AZUL_MEM_BREAKDOWN").is_some());
+        let dbg = *PRUNE_DBG.get_or_init(crate::profile::memory_enabled);
         if dbg {
             let mut normal_compact = 0usize;
             let mut normal_noncompact = 0usize;
@@ -1735,9 +1734,7 @@ impl CssPropertyCache {
         // single layout, regardless of whether the env var was set.
         // Using a one-time cached bool removes that overhead.
         static PROP_COUNT_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        let enabled = *PROP_COUNT_ENABLED.get_or_init(|| {
-            std::env::var_os("AZUL_PROP_COUNT").is_some()
-        });
+        let enabled = *PROP_COUNT_ENABLED.get_or_init(crate::profile::cascade_enabled);
         if enabled {
             PROP_COUNTS.with(|c| {
                 *c.borrow_mut()

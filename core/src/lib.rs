@@ -50,6 +50,8 @@ pub mod macros;
 /// Debug logging system with category filtering.
 #[macro_use]
 pub mod debug;
+/// Unified `AZ_PROFILE` gate for memory and CPU profiling instrumentation.
+pub mod profile;
 /// Callback types: layout, event, timer, thread, and focus handling.
 #[macro_use]
 pub mod callbacks;

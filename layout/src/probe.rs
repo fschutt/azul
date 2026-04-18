@@ -14,7 +14,13 @@
 
 use core::marker::PhantomData;
 
-#[cfg(feature = "probe")]
+// WASM gate: `Instant::now()` panics on browser WASM (no monotonic clock)
+// and `libc::getrusage` isn't available, so on `target_family = "wasm"`
+// we drop to the no-op stubs even when the `probe` feature is on.
+// `AZ_PROFILE=cpu` then prints "(probe unavailable on this target)"
+// rather than crashing.
+
+#[cfg(all(feature = "probe", not(target_family = "wasm")))]
 mod imp {
     use std::cell::RefCell;
     use std::time::Instant;
@@ -63,7 +69,7 @@ mod imp {
     }
 }
 
-#[cfg(not(feature = "probe"))]
+#[cfg(any(not(feature = "probe"), target_family = "wasm"))]
 mod imp {
     pub struct Span;
 
@@ -157,6 +163,97 @@ pub fn monotonic_now_nanos() -> u64 {
     start.elapsed().as_nanos() as u64
 }
 
+/// Format drained probe events as a per-phase timing table to stderr.
+///
+/// Groups `EventKind::Span` by name and prints count / total / avg / p99 /
+/// max in µs. `EventKind::Rss` checkpoints print in wall-clock order with
+/// deltas so allocator purges are visible.
+///
+/// Sorted by total-ns descending so the slowest phase is on top — ideal
+/// for spotting which phase spiked during a stuttering frame.
+///
+/// Called by `AZ_PROFILE=cpu` dumps (both initial layout and relayout),
+/// and also by external consumers like `servo-shot --azul-trace`.
+pub fn print_drained_events(label: &str, events: &[Event]) {
+    use std::collections::BTreeMap;
+
+    if events.is_empty() {
+        if !Probe::enabled() {
+            // Feature absent or target-family disabled (WASM): show "???"
+            // instead of a misleading "compile with feature=probe" hint.
+            eprintln!(
+                "[CPU] {label}: probe unavailable on this target (timings = ???)"
+            );
+        } else {
+            eprintln!("[CPU] {label}: no events recorded this pass");
+        }
+        return;
+    }
+
+    let mut spans: BTreeMap<&'static str, Vec<u64>> = BTreeMap::new();
+    let mut rss_marks: Vec<(&'static str, u64)> = Vec::new();
+    for ev in events {
+        match ev.kind {
+            EventKind::Span { dur_ns } => spans.entry(ev.name).or_default().push(dur_ns),
+            EventKind::Rss { bytes } => rss_marks.push((ev.name, bytes)),
+        }
+    }
+
+    let mut rows: Vec<(&'static str, usize, u64, u64, u64, u64)> = spans
+        .into_iter()
+        .map(|(name, mut ns)| {
+            ns.sort_unstable();
+            let n = ns.len();
+            let total: u128 = ns.iter().map(|&x| x as u128).sum();
+            let avg = (total / n.max(1) as u128) as u64;
+            let p99 = ns[(n.saturating_sub(1) * 99) / 100];
+            let max = *ns.last().unwrap();
+            (name, n, total as u64, avg, p99, max)
+        })
+        .collect();
+    rows.sort_by(|a, b| b.2.cmp(&a.2));
+
+    eprintln!("[CPU] === {label} ({} phases) ===", rows.len());
+    eprintln!(
+        "[CPU] {:<28}  {:>5}  {:>10}  {:>9}  {:>9}  {:>9}",
+        "phase", "n", "total(µs)", "avg(µs)", "p99(µs)", "max(µs)"
+    );
+    for (name, n, total, avg, p99, max) in &rows {
+        eprintln!(
+            "[CPU] {:<28}  {:>5}  {:>10.1}  {:>9.2}  {:>9.2}  {:>9.2}",
+            name,
+            n,
+            (*total as f64) / 1_000.0,
+            (*avg as f64) / 1_000.0,
+            (*p99 as f64) / 1_000.0,
+            (*max as f64) / 1_000.0,
+        );
+    }
+    if !rss_marks.is_empty() {
+        eprintln!("[CPU]   -- RSS checkpoints (wall-clock order) --");
+        let mut prev: Option<u64> = None;
+        for (lbl, bytes) in &rss_marks {
+            let delta = prev
+                .map(|p| {
+                    let diff = *bytes as i128 - p as i128;
+                    if diff >= 0 {
+                        format!("  (Δ +{:.2} MiB)", diff as f64 / 1048576.0)
+                    } else {
+                        format!("  (Δ -{:.2} MiB)", -diff as f64 / 1048576.0)
+                    }
+                })
+                .unwrap_or_default();
+            eprintln!(
+                "[CPU]   {:<28}  {:.2} MiB{}",
+                lbl,
+                *bytes as f64 / 1048576.0,
+                delta
+            );
+            prev = Some(*bytes);
+        }
+    }
+}
+
 /// Convenience wrapper: sample the process's **current** resident set
 /// (not peak) via `task_info` on macOS / `/proc/self/statm` on Linux and
 /// push it into the probe event buffer under the given label.
@@ -216,7 +313,8 @@ pub fn hint_purge_allocator() {
         unsafe {
             libmimalloc_sys::mi_collect(true);
         }
-        if std::env::var("AZUL_PURGE_TRACE").is_ok() {
+        static PURGE_TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *PURGE_TRACE.get_or_init(azul_core::profile::memory_enabled) {
             let (rss, _) = current_rss_bytes();
             eprintln!("[PURGE] mi_collect(true) called — current rss={:.2} MiB", rss as f64 / 1048576.0);
         }

@@ -957,9 +957,7 @@ impl LayoutWindow {
         // the first call (`OnceLock`-cached) and nothing after.
         static MEM_BREAKDOWN_ENABLED: std::sync::OnceLock<bool> =
             std::sync::OnceLock::new();
-        if *MEM_BREAKDOWN_ENABLED
-            .get_or_init(|| std::env::var_os("AZUL_MEM_BREAKDOWN").is_some())
-        {
+        if *MEM_BREAKDOWN_ENABLED.get_or_init(azul_core::profile::memory_enabled) {
             let sr = styled_dom.memory_report();
             eprintln!("[MEM] StyledDom ({} nodes) total={} KiB", sr.node_count, sr.total_bytes() / 1024);
             eprintln!("[MEM]   node_hierarchy    {:>7} KiB", sr.node_hierarchy_bytes / 1024);
@@ -1023,6 +1021,32 @@ impl LayoutWindow {
                     (peak.saturating_sub(rss)) as f64 / 1048576.0);
                 eprintln!("[MEM] accounted / rss = {:.1}% — the gap is allocator overhead + unreturned transient pages + fonts/images + misc",
                     grand_total as f64 * 100.0 / (rss as f64).max(1.0));
+            }
+        }
+
+        // Optional AZ_PROFILE=cpu dump: per-phase wall-clock timings from
+        // `Probe::span` spans (layout, style, cascade, paint, text-shape,
+        // callbacks, …). Drains the thread-local buffer once per pass so
+        // the printout reflects ONE layout/relayout frame — which makes it
+        // easy to see which phase spiked during a stuttering frame.
+        static CPU_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *CPU_ENABLED.get_or_init(azul_core::profile::cpu_enabled) {
+            let events = crate::probe::Probe::drain();
+            crate::probe::print_drained_events("layout pass", &events);
+        }
+
+        // Optional AZ_PROFILE=cascade dump: top-N CSS properties by
+        // cascade-walk count per layout pass. Narrow diagnostic for
+        // prop-cache triage — not a general CPU profile.
+        static CASCADE_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *CASCADE_ENABLED.get_or_init(azul_core::profile::cascade_enabled) {
+            let counts = azul_core::prop_cache::drain_css_prop_counts();
+            let total: usize = counts.iter().map(|(_, n)| *n).sum();
+            if total > 0 {
+                eprintln!("[CASCADE] cascade-walks this pass: {} total", total);
+                for (label, n) in counts.iter().take(20) {
+                    eprintln!("[CASCADE]   {:>8}  {}", n, label);
+                }
             }
         }
 

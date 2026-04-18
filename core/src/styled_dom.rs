@@ -976,9 +976,7 @@ impl StyledDom {
         use crate::dom::EventFilter;
 
         static CASCADE_BREAKDOWN: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        let cascade_dbg = *CASCADE_BREAKDOWN.get_or_init(|| {
-            std::env::var_os("AZUL_MEM_BREAKDOWN").is_some()
-        });
+        let cascade_dbg = *CASCADE_BREAKDOWN.get_or_init(crate::profile::memory_enabled);
 
         let t0 = std::time::Instant::now();
         let node_count = compact_dom.len();
