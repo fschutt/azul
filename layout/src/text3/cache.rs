@@ -5266,8 +5266,6 @@ pub struct TextShapingCache {
     per_item_accessed: HashSet<u64>,
     /// Current generation counter, incremented each layout pass.
     generation: u64,
-    // Stage 4 Cache: ShapedItems + Constraints -> Final Layout (now strongly typed)
-    layouts: HashMap<CacheId, Arc<UnifiedLayout>>,
 }
 
 /// Approximate heap bytes retained by a [`TextShapingCache`].
@@ -5283,8 +5281,6 @@ pub struct TextCacheMemoryReport {
     pub shaped_cluster_text_bytes: usize,
     pub per_item_shaped_entries: usize,
     pub per_item_shaped_bytes: usize,
-    pub layouts_entries: usize,
-    pub layouts_bytes: usize,
 }
 
 impl TextCacheMemoryReport {
@@ -5295,7 +5291,6 @@ impl TextCacheMemoryReport {
             + self.shaped_glyph_bytes
             + self.shaped_cluster_text_bytes
             + self.per_item_shaped_bytes
-            + self.layouts_bytes
     }
 }
 
@@ -5308,7 +5303,6 @@ impl TextShapingCache {
             per_item_shaped: HashMap::new(),
             per_item_accessed: HashSet::new(),
             generation: 0,
-            layouts: HashMap::new(),
         }
     }
 
@@ -5343,16 +5337,6 @@ impl TextShapingCache {
                 }
             }
         }
-        r.layouts_entries = self.layouts.len();
-        for (_, arc) in &self.layouts {
-            r.layouts_bytes += arc.items.capacity() * core::mem::size_of::<PositionedItem>();
-            for it in arc.items.iter() {
-                if let ShapedItem::Cluster(c) = &it.item {
-                    r.layouts_bytes += c.glyphs.capacity() * core::mem::size_of::<ShapedGlyph>();
-                    r.layouts_bytes += c.text.capacity();
-                }
-            }
-        }
         r
     }
 
@@ -5368,16 +5352,6 @@ impl TextShapingCache {
         self.generation += 1;
     }
 
-    /// Get a layout from the cache by its ID
-    pub fn get_layout(&self, cache_id: &CacheId) -> Option<&Arc<UnifiedLayout>> {
-        self.layouts.get(cache_id)
-    }
-
-    /// Get all layout cache IDs (for iteration/debugging)
-    pub fn get_all_layout_ids(&self) -> Vec<CacheId> {
-        self.layouts.keys().copied().collect()
-    }
-    
     /// Check if we can reuse an old layout based on layout-affecting parameters.
     /// 
     /// This function compares only the parameters that affect glyph positions,

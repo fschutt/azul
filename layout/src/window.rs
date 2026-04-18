@@ -700,7 +700,7 @@ impl LayoutWindow {
     /// The display list ready for rendering, or an error if layout fails.
     pub fn layout_and_generate_display_list(
         &mut self,
-        root_dom: &StyledDom,
+        root_dom: StyledDom,
         window_state: &FullWindowState,
         renderer_resources: &RendererResources,
         system_callbacks: &ExternalSystemCallbacks,
@@ -722,7 +722,8 @@ impl LayoutWindow {
             )));
         }
 
-        // Start recursive layout from the root DOM
+        // Start recursive layout from the root DOM. Passes ownership — the
+        // StyledDom ends up inside `layout_results` without a clone.
         let result = self.layout_dom_recursive(
             root_dom,
             window_state,
@@ -763,7 +764,7 @@ impl LayoutWindow {
 
     fn layout_dom_recursive(
         &mut self,
-        styled_dom: &StyledDom,
+        styled_dom: StyledDom,
         window_state: &FullWindowState,
         renderer_resources: &RendererResources,
         system_callbacks: &ExternalSystemCallbacks,
@@ -1006,7 +1007,6 @@ impl LayoutWindow {
             eprintln!("[MEM]     glyph_bytes     {:>7} KiB", tc.shaped_glyph_bytes / 1024);
             eprintln!("[MEM]     cluster_text    {:>7} KiB", tc.shaped_cluster_text_bytes / 1024);
             eprintln!("[MEM]   per_item_shaped   {:>7} KiB  ({} entries)", tc.per_item_shaped_bytes / 1024, tc.per_item_shaped_entries);
-            eprintln!("[MEM]   layouts           {:>7} KiB  ({} entries)", tc.layouts_bytes / 1024, tc.layouts_entries);
 
             let grand_total = sr.total_bytes() + sc.total_bytes() + tc.total_bytes();
             eprintln!("[MEM] --- GRAND TOTAL (StyledDom + Solver3 + TextCache) = {} KiB = {:.2} MiB ---",
@@ -1185,13 +1185,12 @@ impl LayoutWindow {
             }
         }
 
-        // Store the final layout result for this DOM.
-        // Clone here instead of requiring callers to clone up front —
-        // this is the only place the owned StyledDom is needed.
+        // Store the final layout result for this DOM. `styled_dom` was passed
+        // in by value, so we move it into the map without cloning.
         self.layout_results.insert(
             dom_id,
             DomLayoutResult {
-                styled_dom: styled_dom.clone(),
+                styled_dom,
                 layout_tree: tree,
                 calculated_positions: self.layout_cache.calculated_positions.clone(),
                 viewport,
@@ -1241,7 +1240,7 @@ impl LayoutWindow {
     /// Returns the new display list after the resize.
     pub fn resize_window(
         &mut self,
-        styled_dom: &StyledDom,
+        styled_dom: StyledDom,
         new_size: LogicalSize,
         renderer_resources: &RendererResources,
         system_callbacks: &ExternalSystemCallbacks,
@@ -1254,7 +1253,7 @@ impl LayoutWindow {
         let dom_id = styled_dom.dom_id;
 
         self.layout_and_generate_display_list(
-            &styled_dom,
+            styled_dom,
             &window_state,
             renderer_resources,
             system_callbacks,
@@ -1567,9 +1566,10 @@ impl LayoutWindow {
 
         // **RECURSIVE LAYOUT STEP**
         // Perform a full layout pass on the child DOM. This will recursively handle
-        // any VirtualViews within this VirtualView.
+        // any VirtualViews within this VirtualView. Ownership of the child DOM
+        // is transferred into `layout_results`.
         self.layout_dom_recursive(
-            &child_styled_dom,
+            child_styled_dom,
             window_state,
             renderer_resources,
             system_callbacks,
@@ -6751,83 +6751,12 @@ impl LayoutWindow {
             return None;
         }
 
-        let mut plain_text = String::new();
-        let mut styled_runs = Vec::new();
-
-        // Iterate through all text layouts to find selected content
-        for cache_id in self.text_cache.get_all_layout_ids() {
-            let layout = self.text_cache.get_layout(&cache_id)?;
-
-            // Process each selection range
-            for range in &ranges {
-                // Iterate through positioned items in the layout
-                for positioned_item in &layout.items {
-                    match &positioned_item.item {
-                        ShapedItem::Cluster(cluster) => {
-                            // Check if this cluster is within the selection range
-                            let cluster_id = cluster.source_cluster_id;
-
-                            // Simple check: is this cluster between start and end?
-                            let in_range = if range.start.cluster_id <= range.end.cluster_id {
-                                cluster_id >= range.start.cluster_id
-                                    && cluster_id <= range.end.cluster_id
-                            } else {
-                                cluster_id >= range.end.cluster_id
-                                    && cluster_id <= range.start.cluster_id
-                            };
-
-                            if in_range {
-                                // Extract text from cluster
-                                plain_text.push_str(&cluster.text);
-
-                                // Extract styling from first glyph (they share styling)
-                                if let Some(first_glyph) = cluster.glyphs.first() {
-                                    let style = &first_glyph.style;
-
-                                    // Extract font family from font stack
-                                    let default_font = FontSelector::default();
-                                    let first_font = style.font_stack.first_selector()
-                                        .unwrap_or(&default_font);
-                                    let font_family: OptionString =
-                                        Some(AzString::from(first_font.family.as_str())).into();
-
-                                    // Check if bold/italic from font selector
-                                    use rust_fontconfig::FcWeight;
-                                    let is_bold = matches!(
-                                        first_font.weight,
-                                        FcWeight::Bold | FcWeight::ExtraBold | FcWeight::Black
-                                    );
-                                    let is_italic = matches!(
-                                        first_font.style,
-                                        FontStyle::Italic | FontStyle::Oblique
-                                    );
-
-                                    styled_runs.push(StyledTextRun {
-                                        text: cluster.text.clone().into(),
-                                        font_family,
-                                        font_size_px: style.font_size_px,
-                                        color: style.color,
-                                        is_bold,
-                                        is_italic,
-                                    });
-                                }
-                            }
-                        }
-                        // For now, skip non-cluster items (objects, breaks, etc.)
-                        _ => {}
-                    }
-                }
-            }
-        }
-
-        if plain_text.is_empty() {
-            None
-        } else {
-            Some(ClipboardContent {
-                plain_text: plain_text.into(),
-                styled_runs: styled_runs.into(),
-            })
-        }
+        // TODO: iterate over live text layouts to extract selected content.
+        // Previously walked `text_cache.layouts` which was never populated
+        // (dead field, removed). Needs re-plumbing against the current per-DOM
+        // layout store before selection-based copy can return real content.
+        let _ = ranges;
+        None
     }
 
     /// Process image callback updates from callback changes

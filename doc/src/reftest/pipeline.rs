@@ -213,7 +213,7 @@ pub fn render_xhtml_to_webp(
     let ext = ExternalSystemCallbacks::rust_internal();
     let mut debug_messages = if collect_debug { Some(Vec::new()) } else { None };
 
-    layout_window.layout_and_generate_display_list(&styled_dom, &ws, &mut rr, &ext, &mut debug_messages)
+    layout_window.layout_and_generate_display_list(styled_dom, &ws, &mut rr, &ext, &mut debug_messages)
         .map_err(|e| format!("layout: {}", e))?;
 
     let dl = layout_window.layout_results.remove(&DomId::ROOT_ID).ok_or("No layout result")?.display_list;

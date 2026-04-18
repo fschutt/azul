@@ -39,7 +39,7 @@ fn layout_dom(dom: Dom, css_str: &str, width: f32, height: f32) -> LayoutWindow 
 
     layout_window
         .layout_and_generate_display_list(
-            &styled_dom,
+            styled_dom,
             &window_state,
             &renderer_resources,
             &system_callbacks,

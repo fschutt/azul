@@ -68,7 +68,7 @@ fn test_margin_blocked_no_double_count() {
 
     layout_window
         .layout_and_generate_display_list(
-            &styled_dom,
+            styled_dom,
             &window_state,
             &renderer_resources,
             &system_callbacks,
@@ -147,7 +147,7 @@ fn test_margin_escape_excludes_from_parent_height() {
 
     layout_window
         .layout_and_generate_display_list(
-            &styled_dom,
+            styled_dom,
             &window_state,
             &renderer_resources,
             &system_callbacks,
@@ -236,7 +236,7 @@ fn test_sibling_margins_included_in_parent_height() {
 
     layout_window
         .layout_and_generate_display_list(
-            &styled_dom,
+            styled_dom,
             &window_state,
             &renderer_resources,
             &system_callbacks,
@@ -354,7 +354,7 @@ fn test_nested_margin_escape() {
 
     layout_window
         .layout_and_generate_display_list(
-            &styled_dom,
+            styled_dom,
             &window_state,
             &renderer_resources,
             &system_callbacks,
@@ -432,7 +432,7 @@ fn test_coordinate_system_separation() {
 
     layout_window
         .layout_and_generate_display_list(
-            &styled_dom,
+            styled_dom,
             &window_state,
             &renderer_resources,
             &system_callbacks,

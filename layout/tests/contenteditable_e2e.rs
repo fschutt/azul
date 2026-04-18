@@ -112,7 +112,7 @@ impl ContentEditableHarness {
         let lw = self.layout_window.as_mut().unwrap();
         let mut dbg = Some(Vec::new());
         lw.layout_and_generate_display_list(
-            &styled_dom,
+            styled_dom,
             &self.window_state,
             &self.renderer_resources,
             &self.system_callbacks,
