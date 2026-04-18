@@ -79,8 +79,8 @@ pub struct TypeAddition {
     pub kind: String, // "struct", "enum", "callback_typedef", etc.
     /// Struct fields (for struct types): (field_name, field_type, ref_kind)
     pub struct_fields: Option<Vec<(String, String, String)>>, // (field_name, field_type, ref_kind)
-    /// Enum variants (for enum types)
-    pub enum_variants: Option<Vec<(String, Option<String>)>>, // (variant_name, variant_type)
+    /// Enum variants (for enum types): (variant_name, variant_type, ref_kind)
+    pub enum_variants: Option<Vec<(String, Option<String>, crate::api::RefKind)>>,
     /// Derives from source code
     pub derives: Vec<String>,
     /// Callback typedef definition (for function pointer types)
@@ -135,6 +135,7 @@ pub struct StructFieldInfo {
 pub struct EnumVariantInfo {
     pub name: String,
     pub ty: Option<String>,
+    pub ref_kind: crate::api::RefKind,
 }
 
 #[derive(Debug, Clone)]
@@ -599,9 +600,18 @@ pub fn generate_diff(
                         super::type_index::TypeDefKind::Enum {
                             variants, derives, ..
                         } => {
-                            let variant_vec: Vec<(String, Option<String>)> = variants
+                            let variant_vec: Vec<(String, Option<String>, crate::api::RefKind)> = variants
                                 .iter()
-                                .map(|(name, variant)| (name.clone(), variant.ty.clone()))
+                                .map(|(name, variant)| {
+                                    let (base_ty, rk) = match variant.ty.as_deref() {
+                                        Some(t) => {
+                                            let (b, k) = crate::autofix::utils::extract_type_and_ref_kind(t);
+                                            (Some(b), k)
+                                        }
+                                        None => (None, crate::api::RefKind::Value),
+                                    };
+                                    (name.clone(), base_ty, rk)
+                                })
                                 .collect();
                             (None, Some(variant_vec), derives, None)
                         }
@@ -909,14 +919,14 @@ fn collect_api_json_types(api_data: &ApiData) -> BTreeMap<String, ApiTypeInfo> {
                         .collect()
                 });
 
-                // Extract enum variants
+                // Extract enum variants (carrying ref_kind from api.json)
                 let enum_variants = class_data.enum_fields.as_ref().map(|variants_vec| {
                     variants_vec
                         .iter()
                         .flat_map(|variant_map| {
-                            variant_map
-                                .iter()
-                                .map(|(name, data)| (name.clone(), data.r#type.clone()))
+                            variant_map.iter().map(|(name, data)| {
+                                (name.clone(), data.r#type.clone(), data.ref_kind)
+                            })
                         })
                         .collect()
                 });
@@ -1030,8 +1040,8 @@ pub struct ApiTypeInfo {
     pub repr: Option<String>,
     /// Struct fields: (field_name, field_type, ref_kind)
     pub struct_fields: Option<Vec<(String, String, crate::api::RefKind)>>,
-    /// Enum variants: (variant_name, variant_type)
-    pub enum_variants: Option<Vec<(String, Option<String>)>>,
+    /// Enum variants: (variant_name, variant_type, ref_kind)
+    pub enum_variants: Option<Vec<(String, Option<String>, crate::api::RefKind)>>,
     /// Callback typedef args: (arg_type, ref_kind) - uses RefKind directly, no string conversion
     pub callback_args: Option<Vec<(String, crate::api::RefKind)>>,
     /// Callback typedef return type
@@ -1423,7 +1433,7 @@ fn find_dead_type_clusters(
 
         // Enum variants
         if let Some(ref variants) = api_info.enum_variants {
-            for (_, variant_type) in variants {
+            for (_, variant_type, _) in variants {
                 if let Some(vt) = variant_type {
                     let clean = strip_ptr_prefix(vt);
                     if all_type_names.contains(clean) {
@@ -1765,26 +1775,39 @@ fn compare_enum_variants(
 ) -> Vec<TypeModification> {
     let mut modifications = Vec::new();
 
-    // Get workspace variants (expand MacroGenerated types)
+    // Get workspace variants (expand MacroGenerated types).
+    // Pointer prefixes (*mut T, *const T, &T, &mut T) are split off the type
+    // string into ref_kind — parity with how struct fields are handled.
     let expanded = workspace_type.expand_macro_generated();
     let workspace_variants: Vec<EnumVariantInfo> = match expanded {
         TypeDefKind::Enum { variants, .. } => variants
             .iter()
-            .map(|(name, variant)| EnumVariantInfo {
-                name: name.clone(),
-                ty: variant.ty.clone(),
+            .map(|(name, variant)| {
+                let (base_ty, rk) = match variant.ty.as_deref() {
+                    Some(t) => {
+                        let (b, k) = crate::autofix::utils::extract_type_and_ref_kind(t);
+                        (Some(b), k)
+                    }
+                    None => (None, crate::api::RefKind::Value),
+                };
+                EnumVariantInfo {
+                    name: name.clone(),
+                    ty: base_ty,
+                    ref_kind: rk,
+                }
             })
             .collect(),
         _ => return modifications, // Not an enum
     };
 
     // Get api.json variants
-    let api_variants: Vec<(String, Option<String>)> = match &api_info.enum_variants {
-        Some(variants) => variants.clone(),
-        None => Vec::new(),
-    };
+    let api_variants: Vec<(String, Option<String>, crate::api::RefKind)> =
+        match &api_info.enum_variants {
+            Some(variants) => variants.clone(),
+            None => Vec::new(),
+        };
 
-    // Check if variants differ in any way: count, names, types, or order
+    // Check if variants differ in any way: count, names, types, order, or ref_kind
     let variants_differ = if workspace_variants.len() != api_variants.len() {
         true
     } else {
@@ -1792,7 +1815,7 @@ fn compare_enum_variants(
         workspace_variants
             .iter()
             .zip(api_variants.iter())
-            .any(|(ws, (api_name, api_type))| {
+            .any(|(ws, (api_name, api_type, api_ref_kind))| {
                 let name_differs = ws.name != *api_name;
                 let workspace_normalized = ws.ty.as_ref().map(|t| {
                     // Use normalize_generic_type to collapse BoxOrStatic<T> → BoxOrStaticT, etc.
@@ -1801,13 +1824,15 @@ fn compare_enum_variants(
                 });
                 let api_normalized = api_type.as_ref().map(|t| normalize_type_name(t));
                 let type_differs = workspace_normalized != api_normalized;
-                name_differs || type_differs
+                let ref_kind_differs = ws.ref_kind != *api_ref_kind;
+                name_differs || type_differs || ref_kind_differs
             })
     };
 
     // If any difference exists, replace ALL variants with the correct ones from workspace
     if variants_differ && !workspace_variants.is_empty() {
-        // Normalize variant types (collapse BoxOrStatic<T> → BoxOrStaticT, strip Az prefix)
+        // Normalize variant types (collapse BoxOrStatic<T> → BoxOrStaticT, strip Az prefix).
+        // ref_kind was already extracted above, so ty here is the base type only.
         let normalized_variants: Vec<EnumVariantInfo> = workspace_variants
             .into_iter()
             .map(|mut v| {
@@ -2072,7 +2097,7 @@ fn get_type_kind_with_fields(
 ) -> (
     String,
     Option<Vec<(String, String, String)>>,
-    Option<Vec<(String, Option<String>)>>,
+    Option<Vec<(String, Option<String>, crate::api::RefKind)>>,
     Vec<String>,
     Option<CallbackTypedefInfo>,
 ) {
@@ -2118,9 +2143,18 @@ fn get_type_kind_with_fields(
             super::type_index::TypeDefKind::Enum {
                 variants, derives, ..
             } => {
-                let variant_vec: Vec<(String, Option<String>)> = variants
+                let variant_vec: Vec<(String, Option<String>, crate::api::RefKind)> = variants
                     .iter()
-                    .map(|(name, variant)| (name.clone(), variant.ty.clone()))
+                    .map(|(name, variant)| {
+                        let (base_ty, rk) = match variant.ty.as_deref() {
+                            Some(t) => {
+                                let (b, k) = crate::autofix::utils::extract_type_and_ref_kind(t);
+                                (Some(b), k)
+                            }
+                            None => (None, crate::api::RefKind::Value),
+                        };
+                        (name.clone(), base_ty, rk)
+                    })
                     .collect();
                 (kind_str.to_string(), None, Some(variant_vec), derives, None)
             }
@@ -2348,7 +2382,7 @@ fn build_element_to_option_map(
         
         if let Some(ref variants) = api_info.enum_variants {
             // Look for the Some variant and extract its inner type
-            for (variant_name, variant_type) in variants {
+            for (variant_name, variant_type, _) in variants {
                 if variant_name == "Some" {
                     if let Some(inner_type) = variant_type {
                         // Map: inner_type -> OptionTypeName

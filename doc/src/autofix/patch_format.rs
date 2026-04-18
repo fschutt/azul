@@ -211,6 +211,8 @@ pub struct EnumVariantDef {
     pub name: String,
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
     pub variant_type: Option<String>,
+    #[serde(default, skip_serializing_if = "is_ref_kind_default")]
+    pub ref_kind: crate::api::RefKind,
 }
 
 /// Callback argument definition for patches
@@ -370,6 +372,8 @@ pub struct VariantDef {
     pub name: String,
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
     pub variant_type: Option<String>,
+    #[serde(default, skip_serializing_if = "is_ref_kind_default")]
+    pub ref_kind: crate::api::RefKind,
 }
 
 impl AutofixPatch {
@@ -1122,15 +1126,29 @@ impl AutofixPatch {
                     patch.add_struct_fields = Some(false); // REPLACE, not merge
                 }
                 ModifyChange::ReplaceEnumVariants { variants } => {
-                    // Complete replacement - NOT a merge, preserves variant order
+                    // Complete replacement - NOT a merge, preserves variant order.
+                    // Prefer the explicit ref_kind field from the patch. As a defensive
+                    // fallback (old patches, hand-authored input), split any pointer
+                    // prefix out of variant_type and fold it into ref_kind.
                     let mut ordered_variants: IndexMap<String, EnumVariantData> = IndexMap::new();
                     for variant in variants {
+                        let (base_type, ref_kind) = match variant.variant_type.as_deref() {
+                            Some(t) => {
+                                if !variant.ref_kind.is_default() {
+                                    (Some(t.to_string()), variant.ref_kind)
+                                } else {
+                                    let (bt, rk) = split_variant_pointer_prefix(t);
+                                    (Some(bt), rk)
+                                }
+                            }
+                            None => (None, variant.ref_kind),
+                        };
                         ordered_variants.insert(
                             variant.name.clone(),
                             EnumVariantData {
-                                r#type: variant.variant_type.clone(),
+                                r#type: base_type,
                                 doc: None,
-                                ref_kind: Default::default(),
+                                ref_kind,
                             },
                         );
                     }
@@ -1284,20 +1302,41 @@ fn insert_class_patch(
         .insert(class_name.to_string(), class_patch);
 }
 
-/// Parse pointer prefixes from a type string (e.g., "*mut c_void" -> ("c_void", MutPtr))
+/// Parse pointer prefixes from a type string (e.g., "*mut c_void" -> ("c_void", MutPtr)).
+/// Accepts both spaced (`*mut T`) and compact (`*mutT`) forms defensively.
 fn parse_pointer_from_type(target: &str) -> (String, crate::api::RefKind) {
+    split_variant_pointer_prefix(target)
+}
+
+/// Split a type string into (base_type, ref_kind). Tolerates both spaced
+/// (`*mut T`) and compact (`*mutT`) pointer/reference prefixes.
+fn split_variant_pointer_prefix(target: &str) -> (String, crate::api::RefKind) {
     let trimmed = target.trim();
-    if let Some(rest) = trimmed.strip_prefix("*mut ") {
-        (rest.trim().to_string(), crate::api::RefKind::MutPtr)
-    } else if let Some(rest) = trimmed.strip_prefix("*const ") {
-        (rest.trim().to_string(), crate::api::RefKind::ConstPtr)
-    } else if let Some(rest) = trimmed.strip_prefix("&mut ") {
-        (rest.trim().to_string(), crate::api::RefKind::RefMut)
-    } else if let Some(rest) = trimmed.strip_prefix('&') {
-        (rest.trim().to_string(), crate::api::RefKind::Ref)
-    } else {
-        (trimmed.to_string(), crate::api::RefKind::Value)
+
+    // Try the 4 pointer/reference prefixes in order of specificity. For each,
+    // accept either a trailing space or any non-ident continuation.
+    let pairs = [
+        ("*mut", crate::api::RefKind::MutPtr),
+        ("*const", crate::api::RefKind::ConstPtr),
+        ("&mut", crate::api::RefKind::RefMut),
+        ("&", crate::api::RefKind::Ref),
+    ];
+    for (prefix, kind) in pairs.iter() {
+        if let Some(rest) = trimmed.strip_prefix(prefix) {
+            // Ensure the prefix is followed by whitespace or a non-ident-start
+            // character, not a continuation of an identifier. E.g. strip "*mut"
+            // from "*mut T" but also from "*mutT" (accepted defensively).
+            let rest_trimmed = rest.trim_start();
+            if rest_trimmed.is_empty() {
+                continue;
+            }
+            // If prefix was followed directly by a letter/underscore with no
+            // separator, it's the compact form — still accept it.
+            return (rest_trimmed.to_string(), *kind);
+        }
     }
+
+    (trimmed.to_string(), crate::api::RefKind::Value)
 }
 
 #[cfg(test)]

@@ -876,6 +876,7 @@ fn generate_combined_patch(
                     .map(|v| patch_format::EnumVariantDef {
                         name: v.name.clone(),
                         variant_type: v.ty.clone(),
+                        ref_kind: v.ref_kind,
                     })
                     .collect();
                 changes.push(ModifyChange::ReplaceEnumVariants {
@@ -1160,9 +1161,10 @@ fn generate_addition_patch(addition: &diff::TypeAddition) -> String {
     let enum_variants = addition.enum_variants.as_ref().map(|variants| {
         variants
             .iter()
-            .map(|(name, ty)| patch_format::VariantDef {
+            .map(|(name, ty, rk)| patch_format::VariantDef {
                 name: name.clone(),
                 variant_type: ty.clone(),
+                ref_kind: *rk,
             })
             .collect()
     });

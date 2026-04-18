@@ -1161,15 +1161,27 @@ pub fn generate_add_type_patches(
             None
         };
 
-        // Build enum_variants
+        // Build enum_variants - split pointer prefixes out of the type string
+        // into ref_kind so api.json stores the canonical `T` + `ref_kind` shape.
         let enum_variants: Option<Vec<crate::autofix::patch_format::VariantDef>> =
             if !variants.is_empty() {
                 Some(
                     variants
                         .iter()
-                        .map(|(name, ty_opt)| crate::autofix::patch_format::VariantDef {
-                            name: name.clone(),
-                            variant_type: ty_opt.clone(),
+                        .map(|(name, ty_opt)| {
+                            let (base, rk) = match ty_opt.as_deref() {
+                                Some(t) => {
+                                    let (b, k) =
+                                        crate::autofix::utils::extract_type_and_ref_kind(t);
+                                    (Some(b), k)
+                                }
+                                None => (None, crate::api::RefKind::Value),
+                            };
+                            crate::autofix::patch_format::VariantDef {
+                                name: name.clone(),
+                                variant_type: base,
+                                ref_kind: rk,
+                            }
                         })
                         .collect(),
                 )
