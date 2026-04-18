@@ -111,15 +111,14 @@ pub fn regenerate_layout(
             let font_stacks = rust_fontconfig::config::tokenize_common_families(rust_fontconfig::OperatingSystem::current());
             registry.request_fonts(&font_stacks);
             // Snapshot the registry into an FcFontCache for use during layout
-            let snapshot = Arc::new(registry.into_fc_font_cache());
-            layout_window.font_manager.fc_cache = snapshot.clone();
+            layout_window.font_manager.fc_cache = registry.shared_cache();
             log_debug!(LogCategory::Layout, "[regenerate_layout] Font registry snapshot complete");
         } else {
             log_debug!(LogCategory::Layout, "[regenerate_layout] Using existing font cache (build still in progress)");
         }
     } else {
         // Fallback: use the provided fc_cache directly
-        layout_window.font_manager.fc_cache = fc_cache.clone();
+        layout_window.font_manager.fc_cache = (**fc_cache).clone();
     }
 
     // 1. Call user's layout callback to get new DOM

@@ -124,7 +124,7 @@ impl ReftestPipeline {
         let os = rust_fontconfig::OperatingSystem::current();
         let common_stacks = rust_fontconfig::config::tokenize_common_families(os);
         registry.request_fonts(&common_stacks);
-        let fc_cache = registry.into_fc_font_cache();
+        let fc_cache = registry.shared_cache();
 
         let mut font_context = azul_layout::FontContext::from_fc_cache(fc_cache);
 

@@ -183,7 +183,7 @@ impl AppInternal {
             let cache = if had_cache.is_some() {
                 // If we had a disk cache, snapshot the registry now so the fc_cache
                 // is immediately usable (contains cached fonts from last run)
-                Arc::new(registry.into_fc_font_cache())
+                Arc::new(registry.shared_cache())
             } else {
                 Arc::new(FcFontCache::default())
             };

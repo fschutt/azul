@@ -1039,13 +1039,10 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
         std::thread::sleep(Duration::from_millis(50));
     }
     // Snapshot the cache → build FontContext for rendering
-    let fc_cache = font_registry.cache.read()
-        .map(|c| c.clone())
-        .map_err(|e| format!("Failed to read font cache: {}", e))?;
+    let fc_cache = font_registry.shared_cache();
     let font_context = azul_layout::FontContext::from_fc_cache(fc_cache.clone());
     // Signal shutdown so background threads exit cleanly
-    font_registry.shutdown.store(true, std::sync::atomic::Ordering::Release);
-    font_registry.queue_condvar.notify_all();
+    font_registry.shutdown();
     println!("    Font cache ready in {:.1}s ({} fonts)",
         fc_cache_start.elapsed().as_secs_f64(),
         fc_cache.list().len());
