@@ -1477,6 +1477,7 @@ fn render_linear_gradient(
         return Ok(());
     }
 
+
     let lut = build_gradient_lut_linear(&gradient.stops);
 
     // Convert Direction to start/end points using the existing to_points method
@@ -1502,12 +1503,11 @@ fn render_linear_gradient(
         return Ok(());
     }
 
-    // Build transform: maps gradient line to X axis
-    // We need the inverse: pixel space -> gradient space
-    let angle = dy.atan2(dx);
-    let mut transform = TransAffine::new_translation(x1, y1);
-    transform.rotate(angle);
-    transform.scale(len / 100.0, len / 100.0); // scale so d1=0, d2=100 maps to gradient length
+    // gradient-space (0..100, 0) → pixel-space line (x1,y1)→(x2,y2). Use agg's
+    // helper so the composition order is T * R * S — hand-rolling it via
+    // new_translation().rotate().scale() pre-multiplies and ends up as
+    // S * R * T, which rotates the translation and yields out-of-range gx.
+    let mut transform = TransAffine::new_line_segment(x1, y1, x2, y2, 100.0);
     transform.invert();
 
     let mut path = if border_radius.is_zero() {
@@ -1584,9 +1584,11 @@ fn render_radial_gradient(
         return Ok(());
     }
 
-    // Build transform: maps center to origin, scales radius to 100
-    let mut transform = TransAffine::new_translation(cx, cy);
-    transform.scale(radius / 100.0, radius / 100.0);
+    // Gradient-space (radius=100 at distance=100) → pixel-space around (cx, cy).
+    // Build as T * S (scale first, then translate) so S only affects the radius.
+    // scale() pre-multiplies so we must start from scaling matrix.
+    let mut transform = TransAffine::new_scaling_uniform(radius / 100.0);
+    transform.translate(cx, cy);
     transform.invert();
 
     let mut path = if border_radius.is_zero() {
@@ -1631,9 +1633,11 @@ fn render_conic_gradient(
     let start_angle_deg = gradient.angle.to_degrees();
     let start_angle_rad = ((start_angle_deg - 90.0) as f64).to_radians();
 
-    // Build transform: translate center to origin, rotate by start angle
-    let mut transform = TransAffine::new_translation(cx, cy);
-    transform.rotate(start_angle_rad);
+    // Forward: gradient angle θ → pixel rotated by start_angle around (cx, cy).
+    // Build as T * R so rotation is applied before translation (rotate() pre-multiplies,
+    // so start from rotation matrix and translate last).
+    let mut transform = TransAffine::new_rotation(start_angle_rad);
+    transform.translate(cx, cy);
     transform.invert();
 
     // GradientConic maps atan2(y,x) * d / pi, covering [0, d] for the half-circle.
@@ -3248,48 +3252,16 @@ fn render_border(
     let scaled_width = width * dpi_factor;
     let agg_color = Rgba8::new(color.r as u32, color.g as u32, color.b as u32, color.a as u32);
 
-    let mut path = PathStorage::new();
+    // 1. Build outer path (rounded rect at the nominal border radii)
+    let mut path = build_rounded_rect_path(&rect, border_radius, dpi_factor);
 
-    // 1. Add Outer Path
     let x = rect.x as f64;
     let y = rect.y as f64;
     let w = rect.width as f64;
     let h = rect.height as f64;
-
-    if border_radius.is_zero() {
-        path.move_to(x, y);
-        path.line_to(x + w, y);
-        path.line_to(x + w, y + h);
-        path.line_to(x, y + h);
-        path.close_polygon(PATH_FLAGS_NONE);
-    } else {
-        let tl = (border_radius.top_left * dpi_factor) as f64;
-        let tr = (border_radius.top_right * dpi_factor) as f64;
-        let br = (border_radius.bottom_right * dpi_factor) as f64;
-        let bl = (border_radius.bottom_left * dpi_factor) as f64;
-
-        path.move_to(x + tl, y);
-        path.line_to(x + w - tr, y);
-        if tr > 0.0 {
-            path.curve3(x + w, y, x + w, y + tr);
-        }
-        path.line_to(x + w, y + h - br);
-        if br > 0.0 {
-            path.curve3(x + w, y + h, x + w - br, y + h);
-        }
-        path.line_to(x + bl, y + h);
-        if bl > 0.0 {
-            path.curve3(x, y + h, x, y + h - bl);
-        }
-        path.line_to(x, y + tl);
-        if tl > 0.0 {
-            path.curve3(x, y, x + tl, y);
-        }
-        path.close_polygon(PATH_FLAGS_NONE);
-    }
-
-    // 2. Add Inner Path (same winding — EvenOdd fill creates the hole)
     let sw = scaled_width as f64;
+
+    // 2. Add inner path with shrunk radii so EvenOdd fill carves the stroke
     let ir = AzRect::from_xywh(
         rect.x + scaled_width,
         rect.y + scaled_width,
@@ -3298,42 +3270,14 @@ fn render_border(
     );
 
     if let Some(ir) = ir {
-        let ix = ir.x as f64;
-        let iy = ir.y as f64;
-        let iw = ir.width as f64;
-        let ih = ir.height as f64;
-
-        if border_radius.is_zero() {
-            path.move_to(ix, iy);
-            path.line_to(ix + iw, iy);
-            path.line_to(ix + iw, iy + ih);
-            path.line_to(ix, iy + ih);
-            path.close_polygon(PATH_FLAGS_NONE);
-        } else {
-            let tl = ((border_radius.top_left * dpi_factor - scaled_width).max(0.0)) as f64;
-            let tr = ((border_radius.top_right * dpi_factor - scaled_width).max(0.0)) as f64;
-            let br = ((border_radius.bottom_right * dpi_factor - scaled_width).max(0.0)) as f64;
-            let bl = ((border_radius.bottom_left * dpi_factor - scaled_width).max(0.0)) as f64;
-
-            path.move_to(ix + tl, iy);
-            path.line_to(ix + iw - tr, iy);
-            if tr > 0.0 {
-                path.curve3(ix + iw, iy, ix + iw, iy + tr);
-            }
-            path.line_to(ix + iw, iy + ih - br);
-            if br > 0.0 {
-                path.curve3(ix + iw, iy + ih, ix + iw - br, iy + ih);
-            }
-            path.line_to(ix + bl, iy + ih);
-            if bl > 0.0 {
-                path.curve3(ix, iy + ih, ix, iy + ih - bl);
-            }
-            path.line_to(ix, iy + tl);
-            if tl > 0.0 {
-                path.curve3(ix, iy, ix + tl, iy);
-            }
-            path.close_polygon(PATH_FLAGS_NONE);
-        }
+        let inner_radius = BorderRadius {
+            top_left: (border_radius.top_left - width).max(0.0),
+            top_right: (border_radius.top_right - width).max(0.0),
+            bottom_right: (border_radius.bottom_right - width).max(0.0),
+            bottom_left: (border_radius.bottom_left - width).max(0.0),
+        };
+        let mut inner = build_rounded_rect_path(&ir, &inner_radius, dpi_factor);
+        path.concat_path(&mut inner, 0);
     }
 
     // 3. Render based on border style
@@ -3676,42 +3620,33 @@ fn build_rounded_rect_path(
     let br = (border_radius.bottom_right * dpi_factor) as f64;
     let bl = (border_radius.bottom_left * dpi_factor) as f64;
 
-    // Start at top-left corner (after radius)
-    path.move_to(x + tl, y);
-
-    // Top edge
-    path.line_to(x + w - tr, y);
-
-    // Top-right corner
-    if tr > 0.0 {
-        path.curve3(x + w, y, x + w, y + tr);
+    if tl <= 0.0 && tr <= 0.0 && br <= 0.0 && bl <= 0.0 {
+        path.move_to(x, y);
+        path.line_to(x + w, y);
+        path.line_to(x + w, y + h);
+        path.line_to(x, y + h);
+        path.close_polygon(PATH_FLAGS_NONE);
+        return path;
     }
 
-    // Right edge
-    path.line_to(x + w, y + h - br);
+    // agg::RoundedRect emits real arc vertices (MOVE_TO + LINE_TO segments)
+    // via its embedded Arc generator, which the scanline rasterizer consumes
+    // directly. curve3() control points are silently flattened to straight
+    // lines by the rasterizer, which is why the hand-rolled path produced
+    // square corners — Arc-based flattening produces smooth corners.
+    //
+    // agg's corner slots (rx1/ry1 .. rx4/ry4) map to screen corners as:
+    //   slot 1 → top-left    (center at x1+rx1, y1+ry1)
+    //   slot 2 → top-right   (center at x2-rx2, y1+ry2)
+    //   slot 3 → bottom-right (center at x2-rx3, y2-ry3)
+    //   slot 4 → bottom-left (center at x1+rx4, y2-ry4)
+    let mut rr = RoundedRect::default_new();
+    rr.rect(x, y, x + w, y + h);
+    rr.radius_all(tl, tl, tr, tr, br, br, bl, bl);
+    rr.normalize_radius();
+    rr.set_approximation_scale(dpi_factor.max(1.0) as f64);
 
-    // Bottom-right corner
-    if br > 0.0 {
-        path.curve3(x + w, y + h, x + w - br, y + h);
-    }
-
-    // Bottom edge
-    path.line_to(x + bl, y + h);
-
-    // Bottom-left corner
-    if bl > 0.0 {
-        path.curve3(x, y + h, x, y + h - bl);
-    }
-
-    // Left edge
-    path.line_to(x, y + tl);
-
-    // Top-left corner
-    if tl > 0.0 {
-        path.curve3(x, y, x + tl, y);
-    }
-
-    path.close_polygon(PATH_FLAGS_NONE);
+    path.concat_path(&mut rr, 0);
     path
 }
 
