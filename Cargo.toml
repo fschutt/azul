@@ -18,6 +18,9 @@ exclude = [
 glean = "60.5.0"
 gleam = "0.15.1"
 
+[patch.crates-io]
+rust-fontconfig = { path = "/Users/fschutt/Development/rust-fontconfig" }
+
 [profile.release]
 opt-level = 3
 debug = 1         # Line-level debug info only (smaller than full debug=2).
