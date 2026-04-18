@@ -107,14 +107,17 @@ AzDom create_button(AzRefAny* calc, const char* label, EventType evt, char digit
     return button;
 }
 
-static const char* CALC_STYLE = 
+static const char* CALC_STYLE =
     "height:100%;"
     "display:flex;"
     "flex-direction:column;"
-    "font-family:sans-serif;";
+    "font-family:sans-serif;"
+    "background:linear-gradient(to bottom, #3a3a3c, #1c1c1e);"
+    "padding:14px;"
+    "user-select:none;";
 
-static const char* DISPLAY_STYLE = 
-    "background-color:#2d2d2d;"
+static const char* DISPLAY_STYLE =
+    "background:linear-gradient(to bottom, #1a1a1c, #2a2a2e);"
     "color:white;"
     "font-size:48px;"
     "text-align:right;"
@@ -122,41 +125,90 @@ static const char* DISPLAY_STYLE =
     "display:flex;"
     "align-items:center;"
     "justify-content:flex-end;"
-    "min-height:80px;";
+    "min-height:80px;"
+    "border-radius:10px;"
+    "box-shadow:inset 0px 2px 4px rgba(0,0,0,0.6);"
+    "margin-bottom:12px;"
+    "user-select:none;";
 
-static const char* BUTTONS_STYLE = 
+static const char* BUTTONS_STYLE =
     "flex-grow:1;"
     "display:grid;"
     "grid-template-columns:1fr 1fr 1fr 1fr;"
     "grid-template-rows:1fr 1fr 1fr 1fr 1fr;"
-    "gap:1px;"
-    "background-color:#666666;";
+    "gap:8px;";
 
-static const char* BTN_STYLE = 
-    "background-color:#d1d1d6;"
+static const char* BTN_STYLE =
+    "background:linear-gradient(to bottom, #fdfdff, #b8b8bf);"
     "color:#1d1d1f;"
-    "font-size:24px;"
+    "font-size:28px;"
+    "font-weight:500;"
     "display:flex;"
     "align-items:center;"
-    "justify-content:center;";
+    "justify-content:center;"
+    "border-radius:14px;"
+    "border:1px solid #8a8a90;"
+    "box-shadow:0px 2px 3px rgba(0,0,0,0.45);"
+    "cursor:pointer;"
+    "user-select:none;";
 
-static const char* OP_STYLE = 
-    "background-color:#ff9f0a;"
+static const char* FN_STYLE =
+    "background:linear-gradient(to bottom, #c8c8ce, #8a8a90);"
+    "color:#1d1d1f;"
+    "font-size:28px;"
+    "font-weight:500;"
+    "display:flex;"
+    "align-items:center;"
+    "justify-content:center;"
+    "border-radius:14px;"
+    "border:1px solid #5a5a60;"
+    "box-shadow:0px 2px 3px rgba(0,0,0,0.45);"
+    "cursor:pointer;"
+    "user-select:none;";
+
+static const char* OP_STYLE =
+    "background:linear-gradient(to bottom, #ffc050, #ff6a00);"
     "color:white;"
-    "font-size:24px;"
+    "font-size:32px;"
+    "font-weight:bold;"
     "display:flex;"
     "align-items:center;"
-    "justify-content:center;";
+    "justify-content:center;"
+    "border-radius:14px;"
+    "border:1px solid #d06600;"
+    "box-shadow:0px 2px 3px rgba(0,0,0,0.45);"
+    "cursor:pointer;"
+    "user-select:none;";
 
-static const char* ZERO_STYLE = 
-    "background-color:#d1d1d6;"
+static const char* EQ_STYLE =
+    "background:linear-gradient(to bottom, system:accent, system:accent);"
+    "color:system:accent-text;"
+    "font-size:32px;"
+    "font-weight:bold;"
+    "display:flex;"
+    "align-items:center;"
+    "justify-content:center;"
+    "border-radius:14px;"
+    "border:1px solid rgba(0,0,0,0.3);"
+    "box-shadow:0px 2px 3px rgba(0,0,0,0.45);"
+    "cursor:pointer;"
+    "user-select:none;";
+
+static const char* ZERO_STYLE =
+    "background:linear-gradient(to bottom, #fdfdff, #b8b8bf);"
     "color:#1d1d1f;"
-    "font-size:24px;"
+    "font-size:28px;"
+    "font-weight:500;"
     "display:flex;"
     "align-items:center;"
     "justify-content:flex-start;"
     "padding-left:28px;"
-    "grid-column:span 2;";
+    "grid-column:span 2;"
+    "border-radius:14px;"
+    "border:1px solid #8a8a90;"
+    "box-shadow:0px 2px 3px rgba(0,0,0,0.45);"
+    "cursor:pointer;"
+    "user-select:none;";
 
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     CalculatorRef c = CalculatorRef_create(&data);
@@ -180,9 +232,9 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_setCss(&buttons, buttons_style);
     
     // Row 1
-    AzDom_addChild(&buttons, create_button(&data, "C", EVT_CLEAR, 0, OP_NONE, BTN_STYLE));
-    AzDom_addChild(&buttons, create_button(&data, "+/-", EVT_INVERT, 0, OP_NONE, BTN_STYLE));
-    AzDom_addChild(&buttons, create_button(&data, "%", EVT_PERCENT, 0, OP_NONE, BTN_STYLE));
+    AzDom_addChild(&buttons, create_button(&data, "C", EVT_CLEAR, 0, OP_NONE, FN_STYLE));
+    AzDom_addChild(&buttons, create_button(&data, "+/-", EVT_INVERT, 0, OP_NONE, FN_STYLE));
+    AzDom_addChild(&buttons, create_button(&data, "%", EVT_PERCENT, 0, OP_NONE, FN_STYLE));
     AzDom_addChild(&buttons, create_button(&data, "\xc3\xb7", EVT_OPERATION, 0, OP_DIVIDE, OP_STYLE));
     
     // Row 2
@@ -206,7 +258,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // Row 5
     AzDom_addChild(&buttons, create_button(&data, "0", EVT_DIGIT, '0', OP_NONE, ZERO_STYLE));
     AzDom_addChild(&buttons, create_button(&data, ".", EVT_DIGIT, '.', OP_NONE, BTN_STYLE));
-    AzDom_addChild(&buttons, create_button(&data, "=", EVT_EQUALS, 0, OP_NONE, OP_STYLE));
+    AzDom_addChild(&buttons, create_button(&data, "=", EVT_EQUALS, 0, OP_NONE, EQ_STYLE));
 
     // Main container
     AzDom body = AzDom_createDiv();
