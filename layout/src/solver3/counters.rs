@@ -35,7 +35,7 @@ pub fn format_counter(value: i32, style: StyleListStyleType) -> String {
 /// This implements the CSS `lower-alpha` and `upper-alpha` counter styles.
 fn to_alphabetic(mut num: u32, uppercase: bool) -> String {
     if num == 0 {
-        return "0".to_string();
+        return String::new();
     }
 
     let mut result = String::new();
@@ -96,7 +96,7 @@ fn to_roman(mut num: u32, uppercase: bool) -> String {
 /// Supports α, β, γ, ... (24 letters of Greek alphabet).
 fn to_greek(num: u32, uppercase: bool) -> String {
     if num == 0 {
-        return "0".to_string();
+        return String::new();
     }
 
     // Greek lowercase letters α-ω (24 letters, omitting archaic letters)
