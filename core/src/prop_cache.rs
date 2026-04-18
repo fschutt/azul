@@ -562,6 +562,35 @@ impl<T> FlatVecVec<T> {
         self.offsets = new_offsets;
     }
 
+    /// Like `retain`, but passes each item's owning node index to the predicate.
+    /// Must be called after flatten. Preserves per-node ordering.
+    pub fn retain_with_node_index(
+        &mut self,
+        predicate: impl Fn(usize, &T) -> bool,
+    ) where T: Clone {
+        if self.offsets.is_empty() { return; }
+        let node_count = self.offsets.len();
+        let mut new_data = Vec::new();
+        let mut new_offsets = Vec::with_capacity(node_count);
+        for (node_idx, &(start, len)) in self.offsets.iter().enumerate() {
+            let s = start as usize;
+            let l = len as usize;
+            let new_start = new_data.len() as u32;
+            let slice = &self.data[s..s + l];
+            let mut kept = 0u32;
+            for item in slice {
+                if predicate(node_idx, item) {
+                    new_data.push((*item).clone());
+                    kept += 1;
+                }
+            }
+            new_offsets.push((new_start, kept));
+        }
+        new_data.shrink_to_fit();
+        self.data = new_data;
+        self.offsets = new_offsets;
+    }
+
     /// Iterate over all nodes, yielding (node_index, &[T]) for each.
     /// Works in both build and flattened phases.
     pub fn iter_node_slices(&self) -> FlatVecVecIter<'_, T> {
@@ -818,8 +847,24 @@ impl CssPropertyCache {
                 normal_compact, normal_noncompact, nonnormal, ssp_sz, casc_total, casc_normal_compact);
         }
 
+        // The compact cache stores SENTINEL for pixel-valued properties whose inner
+        // value is Exact with a non-px metric (vh, vw, %, em, rem, calc(), ...).
+        // Those need the slow `css_props` walk at layout time because the compact
+        // cache has nothing usable. We must keep them here or the slow path falls
+        // back to UA CSS and silently clobbers the author's rule.
         let keep = |p: &StatefulCssProperty| -> bool {
-            p.state != PseudoStateType::Normal || !p.prop_type.has_compact_encoding()
+            if p.state != PseudoStateType::Normal {
+                return true;
+            }
+            if !p.prop_type.has_compact_encoding() {
+                return true;
+            }
+            // Compact-encoded AND Normal: drop only if the compact cache fully
+            // captured the value (px metric, or Auto/Initial/Inherit/None).
+            if property_needs_slow_path_after_compact(&p.property) {
+                return true;
+            }
+            false
         };
         self.css_props.retain(keep);
         if !self.cascaded_props.is_flattened() {
@@ -861,6 +906,94 @@ impl CssPropertyCache {
         state: azul_css::dynamic_selector::PseudoStateType,
     ) -> impl Iterator<Item = &'a CssPropertyType> + 'a {
         props.iter().filter(move |p| p.state == state).map(|p| &p.prop_type)
+    }
+}
+
+/// Returns true if `prop`'s value cannot be fully represented in the compact
+/// cache and therefore needs to survive `prune_compact_normal_props` so the
+/// slow `css_props` walk can still find it at layout time.
+///
+/// Pixel-valued properties (margin, padding, width, height, ...) are the only
+/// case: `Exact(pv)` with `pv.metric != Px` (vh, vw, %, em, rem, ...) encodes
+/// to the compact cache's SENTINEL slot, which loses the value. All other
+/// compact-encoded types (tier1 enums, colors, hashes, etc.) always round-trip
+/// through the compact encoding.
+fn property_needs_slow_path_after_compact(prop: &CssProperty) -> bool {
+    use azul_css::css::CssPropertyValue;
+    use azul_css::props::{
+        basic::length::SizeMetric,
+        layout::{
+            dimensions::{LayoutHeight, LayoutWidth},
+            flex::LayoutFlexBasis,
+        },
+    };
+
+    // `inner: PixelValue` wrapper types — check metric directly.
+    macro_rules! check_plain {
+        ($v:expr) => {{
+            if let CssPropertyValue::Exact(ref inner) = $v {
+                return inner.inner.metric != SizeMetric::Px;
+            }
+            false
+        }};
+    }
+
+    match prop {
+        // LayoutWidth / LayoutHeight: enum with `Px(PixelValue)` variant.
+        // Non-pixel variants (Auto / MinContent / MaxContent / FitContent / Calc)
+        // are already handled by the tier1 fast path or don't exist as i16 dims.
+        CssProperty::Width(v) => {
+            if let CssPropertyValue::Exact(LayoutWidth::Px(pv)) = v {
+                return pv.metric != SizeMetric::Px;
+            }
+            false
+        }
+        CssProperty::Height(v) => {
+            if let CssPropertyValue::Exact(LayoutHeight::Px(pv)) = v {
+                return pv.metric != SizeMetric::Px;
+            }
+            false
+        }
+
+        // LayoutFlexBasis: enum with `Exact(PixelValue)` variant.
+        CssProperty::FlexBasis(v) => {
+            if let CssPropertyValue::Exact(LayoutFlexBasis::Exact(pv)) = v {
+                return pv.metric != SizeMetric::Px;
+            }
+            false
+        }
+
+        // `inner: PixelValue` wrappers
+        CssProperty::MinWidth(v) => check_plain!(v),
+        CssProperty::MaxWidth(v) => check_plain!(v),
+        CssProperty::MinHeight(v) => check_plain!(v),
+        CssProperty::MaxHeight(v) => check_plain!(v),
+        CssProperty::FontSize(v) => check_plain!(v),
+        CssProperty::PaddingTop(v) => check_plain!(v),
+        CssProperty::PaddingRight(v) => check_plain!(v),
+        CssProperty::PaddingBottom(v) => check_plain!(v),
+        CssProperty::PaddingLeft(v) => check_plain!(v),
+        CssProperty::MarginTop(v) => check_plain!(v),
+        CssProperty::MarginRight(v) => check_plain!(v),
+        CssProperty::MarginBottom(v) => check_plain!(v),
+        CssProperty::MarginLeft(v) => check_plain!(v),
+        CssProperty::BorderTopWidth(v) => check_plain!(v),
+        CssProperty::BorderRightWidth(v) => check_plain!(v),
+        CssProperty::BorderBottomWidth(v) => check_plain!(v),
+        CssProperty::BorderLeftWidth(v) => check_plain!(v),
+        CssProperty::Top(v) => check_plain!(v),
+        CssProperty::Right(v) => check_plain!(v),
+        CssProperty::Bottom(v) => check_plain!(v),
+        CssProperty::Left(v) => check_plain!(v),
+        CssProperty::ColumnGap(v) => check_plain!(v),
+        CssProperty::RowGap(v) => check_plain!(v),
+        CssProperty::LetterSpacing(v) => check_plain!(v),
+        CssProperty::WordSpacing(v) => check_plain!(v),
+        CssProperty::TextIndent(v) => check_plain!(v),
+        CssProperty::TabSize(v) => check_plain!(v),
+
+        // All other compact-encoded types round-trip through the compact cache.
+        _ => false,
     }
 }
 
