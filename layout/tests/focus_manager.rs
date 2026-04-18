@@ -527,28 +527,7 @@ fn test_focus_manager_integration_with_all_managers() {
         .focus_manager
         .set_focused_node(Some(node1.clone()));
 
-    // Add selection
-    let sel_state = SelectionState {
-        selections: vec![Selection::Cursor(TextCursor {
-            cluster_id: GraphemeClusterId {
-                source_run: 0,
-                start_byte_in_run: 0,
-            },
-            affinity: CursorAffinity::Leading,
-        })]
-        .into(),
-        node_id: node1.clone(),
-    };
-    layout_window
-        .text_edit_manager.selection_manager
-        .set_selection(dom_id, sel_state);
-
-    // Verify state
     assert_eq!(layout_window.focus_manager.get_focused_node(), Some(&node1));
-    assert!(layout_window
-        .text_edit_manager.selection_manager
-        .get_selection(&dom_id)
-        .is_some());
 
     // Simulate focus change
     let old_focus = layout_window.focus_manager.get_focused_node().copied();
@@ -560,19 +539,12 @@ fn test_focus_manager_integration_with_all_managers() {
     // Verify focus changed
     assert_ne!(old_focus.as_ref(), new_focus);
 
-    // Clear selections (as event system would do)
-    if old_focus.as_ref() != new_focus {
-        layout_window.text_edit_manager.selection_manager.clear_all();
-    }
-
-    // Verify selections cleared
-    assert!(layout_window
-        .text_edit_manager.selection_manager
-        .get_selection(&dom_id)
-        .is_none());
-
     // Verify focus is on new node
     assert_eq!(layout_window.focus_manager.get_focused_node(), Some(&node2));
+
+    // Suppress unused warning: dom_id was used by the selection sub-test that
+    // was retired when SelectionManager was folded into multi_cursor.
+    let _ = dom_id;
 }
 
 #[test]

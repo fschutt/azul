@@ -22,10 +22,27 @@
 
 #[cfg(all(feature = "cpurender", feature = "text_layout", feature = "font_loading"))]
 mod tests {
-    use azul_core::dom::Dom;
+    use azul_core::dom::{Dom, IdOrClass};
     use azul_css::css::Css;
     use azul_layout::cpurender::{render_dom_to_image, AzulPixmap, pixel_diff};
     use std::path::PathBuf;
+
+    /// Build a CSS from one or more `selector { decls }` blocks.
+    fn make_css(rules: &str) -> Css {
+        let (css, _) = azul_css::parser2::new_from_str(rules);
+        css
+    }
+
+    /// Helper: wrap a single class's declarations into `.<class> { ... }`.
+    fn class_css(class: &str, decls: &str) -> Css {
+        make_css(&format!(".{class} {{ {decls} }}"))
+    }
+
+    fn classed_div(class: &str) -> Dom {
+        Dom::create_div().with_ids_and_classes(
+            vec![IdOrClass::Class(class.to_string().into())].into(),
+        )
+    }
 
     /// Directory for reference PNGs (relative to the layout crate root).
     fn reference_dir() -> PathBuf {
@@ -117,89 +134,86 @@ mod tests {
 
     #[test]
     fn red_box_100x100() {
-        let dom = Dom::create_div()
-            .with_inline_style("width:100px;height:100px;background-color:red");
-        assert_pixel_match("red_box_100x100", dom, empty_css(), 100.0, 100.0, 0);
+        let dom = classed_div("t");
+        let css = class_css("t", "width:100px;height:100px;background-color:red;");
+        assert_pixel_match("red_box_100x100", dom, css, 100.0, 100.0, 0);
     }
 
     #[test]
     fn blue_box_with_border() {
-        let dom = Dom::create_div()
-            .with_inline_style(
-                "width:80px;height:60px;background-color:blue;\
-                 border:2px solid black"
-            );
-        assert_pixel_match("blue_box_with_border", dom, empty_css(), 100.0, 80.0, 0);
+        let dom = classed_div("t");
+        let css = class_css(
+            "t",
+            "width:80px;height:60px;background-color:blue;border:2px solid black;",
+        );
+        assert_pixel_match("blue_box_with_border", dom, css, 100.0, 80.0, 0);
     }
 
     #[test]
     fn nested_boxes() {
-        let inner = Dom::create_div()
-            .with_inline_style("width:40px;height:40px;background-color:green");
-        let outer = Dom::create_div()
-            .with_inline_style(
-                "width:100px;height:100px;background-color:#cccccc;\
-                 display:flex;justify-content:center;align-items:center"
-            )
-            .with_child(inner);
-        assert_pixel_match("nested_boxes", outer, empty_css(), 100.0, 100.0, 0);
+        let inner = classed_div("inner");
+        let outer = classed_div("outer").with_child(inner);
+        let css = make_css(
+            ".outer { width:100px;height:100px;background-color:#cccccc;\
+                     display:flex;justify-content:center;align-items:center; } \
+             .inner { width:40px;height:40px;background-color:green; }",
+        );
+        assert_pixel_match("nested_boxes", outer, css, 100.0, 100.0, 0);
     }
 
     #[test]
     fn gradient_background() {
-        let dom = Dom::create_div()
-            .with_inline_style(
-                "width:200px;height:50px;\
-                 background:linear-gradient(to right, red, blue)"
-            );
-        assert_pixel_match("gradient_background", dom, empty_css(), 200.0, 50.0, 2);
+        let dom = classed_div("t");
+        let css = class_css(
+            "t",
+            "width:200px;height:50px;background:linear-gradient(to right, red, blue);",
+        );
+        assert_pixel_match("gradient_background", dom, css, 200.0, 50.0, 2);
     }
 
     #[test]
     fn multiple_children_flex() {
-        let child = |color: &str| -> Dom {
-            Dom::create_div()
-                .with_inline_style(&format!(
-                    "width:30px;height:30px;background-color:{};margin:5px", color
-                ))
-        };
-        let parent = Dom::create_div()
-            .with_inline_style("width:200px;height:50px;display:flex;background-color:white")
+        let child = |color: &str| -> Dom { classed_div(color) };
+        let parent = classed_div("parent")
             .with_child(child("red"))
             .with_child(child("green"))
             .with_child(child("blue"));
-        assert_pixel_match("multiple_children_flex", parent, empty_css(), 200.0, 50.0, 0);
+        let css = make_css(
+            ".parent { width:200px;height:50px;display:flex;background-color:white; } \
+             .red { width:30px;height:30px;background-color:red;margin:5px; } \
+             .green { width:30px;height:30px;background-color:green;margin:5px; } \
+             .blue { width:30px;height:30px;background-color:blue;margin:5px; }",
+        );
+        assert_pixel_match("multiple_children_flex", parent, css, 200.0, 50.0, 0);
     }
 
     #[test]
     fn box_shadow() {
-        let dom = Dom::create_div()
-            .with_inline_style(
-                "width:60px;height:60px;background-color:white;\
-                 box-shadow:4px 4px 8px rgba(0,0,0,0.5);\
-                 margin:20px"
-            );
+        let dom = classed_div("t");
+        let css = class_css(
+            "t",
+            "width:60px;height:60px;background-color:white;\
+             box-shadow:4px 4px 8px rgba(0,0,0,0.5);margin:20px;",
+        );
         // Threshold of 3 for anti-aliased shadow edges
-        assert_pixel_match("box_shadow", dom, empty_css(), 120.0, 120.0, 3);
+        assert_pixel_match("box_shadow", dom, css, 120.0, 120.0, 3);
     }
 
     #[test]
     fn resize_stability() {
         // Render the same DOM at two sizes and verify each is self-consistent
-        let make_dom = || {
-            Dom::create_div()
-                .with_inline_style("width:100%;height:100%;background-color:#336699")
-        };
+        let make_dom = || classed_div("t");
+        let css = || class_css("t", "width:100%;height:100%;background-color:#336699;");
 
         // 200x150
         assert_pixel_match(
             "resize_stability_200x150",
-            make_dom(), empty_css(), 200.0, 150.0, 0,
+            make_dom(), css(), 200.0, 150.0, 0,
         );
         // 400x300
         assert_pixel_match(
             "resize_stability_400x300",
-            make_dom(), empty_css(), 400.0, 300.0, 0,
+            make_dom(), css(), 400.0, 300.0, 0,
         );
     }
 
@@ -207,9 +221,8 @@ mod tests {
     fn svg_clip_regression() {
         use azul_core::svg_path_parser::parse_svg_path_d;
         let clip = parse_svg_path_d("M 10,10 L 90,10 L 90,90 L 10,90 Z").unwrap();
-        let dom = Dom::create_div()
-            .with_inline_style("width:100px;height:100px;background-color:red")
-            .with_svg_clip_path(clip);
-        assert_pixel_match("svg_clip_regression", dom, empty_css(), 100.0, 100.0, 0);
+        let dom = classed_div("t").with_svg_clip_path(clip);
+        let css = class_css("t", "width:100px;height:100px;background-color:red;");
+        assert_pixel_match("svg_clip_regression", dom, css, 100.0, 100.0, 0);
     }
 }

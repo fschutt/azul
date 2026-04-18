@@ -50,8 +50,14 @@ fn test_inline_block_text_generates_text_items() {
         scroll_id_to_node_id: HashMap::new(),
         counters: HashMap::new(),
         float_cache: HashMap::new(),
-            cache_map: Default::default(),
-            previous_positions: Vec::new(),
+        cache_map: Default::default(),
+        previous_positions: Vec::new(),
+        cached_display_list: None,
+        prev_dom_ptr: 0,
+        prev_viewport: LogicalRect {
+            origin: LogicalPosition::zero(),
+            size: LogicalSize::zero(),
+        },
     };
     let mut text_cache = TextLayoutCache::new();
 
@@ -67,7 +73,9 @@ fn test_inline_block_text_generates_text_items() {
     let mut debug_messages = Some(Vec::new());
 
     let loader = PathLoader::new();
-    let font_loader = |bytes: &[u8], index: usize| loader.load_font(bytes, index);
+    let font_loader = |bytes: std::sync::Arc<rust_fontconfig::FontBytes>, index: usize| {
+        loader.load_font_shared(bytes, index)
+    };
     let page_config = FakePageConfig::new();
 
     let display_lists = layout_document_paged_with_config(
@@ -78,7 +86,6 @@ fn test_inline_block_text_generates_text_items() {
         viewport,
         &mut font_manager,
         &BTreeMap::new(),
-        &BTreeMap::new(),
         &mut debug_messages,
         None,
         &renderer_resources,
@@ -86,7 +93,8 @@ fn test_inline_block_text_generates_text_items() {
         DomId::ROOT_ID,
         font_loader,
         page_config,
-        &azul_core::resources::ImageCache::default(),        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+        &azul_core::resources::ImageCache::default(),
+        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
         false,
     )
     .expect("Layout should succeed");
@@ -268,8 +276,14 @@ fn test_text_wraps_at_constrained_width() {
         scroll_id_to_node_id: HashMap::new(),
         counters: HashMap::new(),
         float_cache: HashMap::new(),
-            cache_map: Default::default(),
-            previous_positions: Vec::new(),
+        cache_map: Default::default(),
+        previous_positions: Vec::new(),
+        cached_display_list: None,
+        prev_dom_ptr: 0,
+        prev_viewport: LogicalRect {
+            origin: LogicalPosition::zero(),
+            size: LogicalSize::zero(),
+        },
     };
     let mut text_cache = TextLayoutCache::new();
 
@@ -285,7 +299,9 @@ fn test_text_wraps_at_constrained_width() {
     let mut debug_messages = Some(Vec::new());
 
     let loader = PathLoader::new();
-    let font_loader = |bytes: &[u8], index: usize| loader.load_font(bytes, index);
+    let font_loader = |bytes: std::sync::Arc<rust_fontconfig::FontBytes>, index: usize| {
+        loader.load_font_shared(bytes, index)
+    };
     let page_config = FakePageConfig::new();
 
     let display_lists = layout_document_paged_with_config(
@@ -296,7 +312,6 @@ fn test_text_wraps_at_constrained_width() {
         viewport,
         &mut font_manager,
         &BTreeMap::new(),
-        &BTreeMap::new(),
         &mut debug_messages,
         None,
         &renderer_resources,
@@ -304,7 +319,8 @@ fn test_text_wraps_at_constrained_width() {
         DomId::ROOT_ID,
         font_loader,
         page_config,
-        &azul_core::resources::ImageCache::default(),        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+        &azul_core::resources::ImageCache::default(),
+        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
         false,
     )
     .expect("Layout should succeed");
@@ -439,8 +455,14 @@ fn test_inline_text_and_inline_block_on_same_line() {
         scroll_id_to_node_id: HashMap::new(),
         counters: HashMap::new(),
         float_cache: HashMap::new(),
-            cache_map: Default::default(),
-            previous_positions: Vec::new(),
+        cache_map: Default::default(),
+        previous_positions: Vec::new(),
+        cached_display_list: None,
+        prev_dom_ptr: 0,
+        prev_viewport: LogicalRect {
+            origin: LogicalPosition::zero(),
+            size: LogicalSize::zero(),
+        },
     };
     let mut text_cache = TextLayoutCache::new();
 
@@ -456,7 +478,9 @@ fn test_inline_text_and_inline_block_on_same_line() {
     let mut debug_messages = Some(Vec::new());
 
     let loader = PathLoader::new();
-    let font_loader = |bytes: &[u8], index: usize| loader.load_font(bytes, index);
+    let font_loader = |bytes: std::sync::Arc<rust_fontconfig::FontBytes>, index: usize| {
+        loader.load_font_shared(bytes, index)
+    };
     let page_config = FakePageConfig::new();
 
     let display_lists = layout_document_paged_with_config(
@@ -467,7 +491,6 @@ fn test_inline_text_and_inline_block_on_same_line() {
         viewport,
         &mut font_manager,
         &BTreeMap::new(),
-        &BTreeMap::new(),
         &mut debug_messages,
         None,
         &renderer_resources,
@@ -475,7 +498,8 @@ fn test_inline_text_and_inline_block_on_same_line() {
         DomId::ROOT_ID,
         font_loader,
         page_config,
-        &azul_core::resources::ImageCache::default(),        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+        &azul_core::resources::ImageCache::default(),
+        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
         false,
     )
     .expect("Layout should succeed");
@@ -627,20 +651,23 @@ fn test_body_as_root_inline_block_positioning() {
     //   .with_child(button) // inline-block button
     //
     // NO HTML wrapper - body is the root node (DOM index 0)
-    use azul_core::dom::NodeData;
+    use azul_core::dom::{IdOrClass, NodeData};
     use azul_core::styled_dom::StyledDom;
-    
-    // Create the DOM structure programmatically (like the Live-App does)
-    let mut label = Dom::create_text("5");
-    label.set_inline_style("font-size: 50px; display: inline;");
 
-    let mut button = Dom::create_text("Increase counter");
-    button.set_inline_style("display: inline-block; padding: 5px 10px; background: #efefef;");
+    // Create the DOM structure programmatically (like the Live-App does)
+    let label = Dom::create_text("5")
+        .with_ids_and_classes(vec![IdOrClass::Class("label".into())].into());
+    let button = Dom::create_text("Increase counter")
+        .with_ids_and_classes(vec![IdOrClass::Class("button".into())].into());
 
     let mut body_dom = Dom::create_body()
         .with_child(label)
         .with_child(button);
-    let styled_dom = StyledDom::create(&mut body_dom, azul_css::css::Css::empty());
+    let (css, _) = azul_css::parser2::new_from_str(
+        ".label { font-size: 50px; display: inline; } \
+         .button { display: inline-block; padding: 5px 10px; background: #efefef; }",
+    );
+    let styled_dom = StyledDom::create(&mut body_dom, css);
 
     // Create font cache and font manager
     let fc_cache = build_font_cache();
@@ -655,8 +682,14 @@ fn test_body_as_root_inline_block_positioning() {
         scroll_id_to_node_id: HashMap::new(),
         counters: HashMap::new(),
         float_cache: HashMap::new(),
-            cache_map: Default::default(),
-            previous_positions: Vec::new(),
+        cache_map: Default::default(),
+        previous_positions: Vec::new(),
+        cached_display_list: None,
+        prev_dom_ptr: 0,
+        prev_viewport: LogicalRect {
+            origin: LogicalPosition::zero(),
+            size: LogicalSize::zero(),
+        },
     };
     let mut text_cache = TextLayoutCache::new();
 
@@ -672,7 +705,9 @@ fn test_body_as_root_inline_block_positioning() {
     let mut debug_messages = Some(Vec::new());
 
     let loader = PathLoader::new();
-    let font_loader = |bytes: &[u8], index: usize| loader.load_font(bytes, index);
+    let font_loader = |bytes: std::sync::Arc<rust_fontconfig::FontBytes>, index: usize| {
+        loader.load_font_shared(bytes, index)
+    };
     let page_config = FakePageConfig::new();
 
     let display_lists = layout_document_paged_with_config(
@@ -683,7 +718,6 @@ fn test_body_as_root_inline_block_positioning() {
         viewport,
         &mut font_manager,
         &BTreeMap::new(),
-        &BTreeMap::new(),
         &mut debug_messages,
         None,
         &renderer_resources,
@@ -691,7 +725,8 @@ fn test_body_as_root_inline_block_positioning() {
         DomId::ROOT_ID,
         font_loader,
         page_config,
-        &azul_core::resources::ImageCache::default(),        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+        &azul_core::resources::ImageCache::default(),
+        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
         false,
     )
     .expect("Layout should succeed");

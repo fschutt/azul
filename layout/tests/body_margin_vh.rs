@@ -58,8 +58,14 @@ fn test_body_margin_15vh_auto() {
         scroll_id_to_node_id: HashMap::new(),
         counters: HashMap::new(),
         float_cache: HashMap::new(),
-            cache_map: Default::default(),
-            previous_positions: Vec::new(),
+        cache_map: Default::default(),
+        previous_positions: Vec::new(),
+        cached_display_list: None,
+        prev_dom_ptr: 0,
+        prev_viewport: LogicalRect {
+            origin: LogicalPosition::zero(),
+            size: LogicalSize::zero(),
+        },
     };
     let mut text_cache = TextLayoutCache::new();
 
@@ -76,7 +82,9 @@ fn test_body_margin_15vh_auto() {
     let mut debug_messages = Some(Vec::new());
 
     let loader = PathLoader::new();
-    let font_loader = |bytes: &[u8], index: usize| loader.load_font(bytes, index);
+    let font_loader = |bytes: std::sync::Arc<rust_fontconfig::FontBytes>, index: usize| {
+        loader.load_font_shared(bytes, index)
+    };
     let page_config = FakePageConfig::new();
 
     let _display_lists = layout_document_paged_with_config(
@@ -87,7 +95,6 @@ fn test_body_margin_15vh_auto() {
         viewport,
         &mut font_manager,
         &BTreeMap::new(),
-        &BTreeMap::new(),
         &mut debug_messages,
         None,
         &renderer_resources,
@@ -95,7 +102,8 @@ fn test_body_margin_15vh_auto() {
         DomId::ROOT_ID,
         font_loader,
         page_config,
-        &azul_core::resources::ImageCache::default(),        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+        &azul_core::resources::ImageCache::default(),
+        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
         false,
     )
     .expect("Layout should succeed");

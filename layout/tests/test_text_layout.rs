@@ -3,7 +3,7 @@
 //! These tests verify that text nodes are properly laid out within their parent's
 //! inline formatting context, matching HTML/CSS behavior.
 
-use azul_core::dom::{Dom, NodeType};
+use azul_core::dom::{Dom, IdOrClass, NodeType};
 use azul_core::styled_dom::StyledDom;
 use azul_css::css::Css;
 
@@ -71,10 +71,13 @@ fn test_div_with_explicit_font_size() {
     // This is similar to our failing test case
 
     let mut dom = Dom::create_div()
-        .with_inline_style("font-size: 24px; width: 400px; height: 30px;")
+        .with_ids_and_classes(vec![IdOrClass::Class("t".into())].into())
         .with_children(vec![Dom::create_text("Test Text")].into());
 
-    let styled_dom = StyledDom::create(&mut dom, Css::empty());
+    let (css, _) = azul_css::parser2::new_from_str(
+        ".t { font-size: 24px; width: 400px; height: 30px; }",
+    );
+    let styled_dom = StyledDom::create(&mut dom, css);
 
     eprintln!("\nTest: div_with_explicit_font_size");
     eprintln!("This matches our failing test_display_list example");

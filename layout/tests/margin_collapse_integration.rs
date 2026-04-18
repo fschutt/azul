@@ -41,7 +41,14 @@ fn run_layout_with_size(html: &str, w: f32, h: f32) -> Solver3LayoutCache {
         counters: HashMap::new(),
         float_cache: HashMap::new(),
         cache_map: Default::default(),
-        previous_positions: Vec::new(),    };
+        previous_positions: Vec::new(),
+        cached_display_list: None,
+        prev_dom_ptr: 0,
+        prev_viewport: LogicalRect {
+            origin: LogicalPosition::zero(),
+            size: LogicalSize::zero(),
+        },
+    };
     let mut text_cache = TextLayoutCache::new();
     let content_size = LogicalSize::new(w, h);
     let fragmentation_context = FragmentationContext::new_paged(content_size);
@@ -52,7 +59,9 @@ fn run_layout_with_size(html: &str, w: f32, h: f32) -> Solver3LayoutCache {
     let renderer_resources = RendererResources::default();
     let mut debug_messages = Some(Vec::new());
     let loader = PathLoader::new();
-    let font_loader = |bytes: &[u8], index: usize| loader.load_font(bytes, index);
+    let font_loader = |bytes: std::sync::Arc<rust_fontconfig::FontBytes>, index: usize| {
+        loader.load_font_shared(bytes, index)
+    };
     let page_config = FakePageConfig::new();
 
     let _display_lists = layout_document_paged_with_config(
@@ -62,7 +71,6 @@ fn run_layout_with_size(html: &str, w: f32, h: f32) -> Solver3LayoutCache {
         &styled_dom,
         viewport,
         &mut font_manager,
-        &BTreeMap::new(),
         &BTreeMap::new(),
         &mut debug_messages,
         None,

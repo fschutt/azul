@@ -5,13 +5,18 @@
 
 #[cfg(all(feature = "cpurender", feature = "text_layout", feature = "font_loading"))]
 mod tests {
-    use azul_core::dom::Dom;
+    use azul_core::dom::{Dom, IdOrClass};
     use azul_core::svg_path_parser::{parse_svg_path_d, svg_circle_to_paths, svg_rect_to_path};
     use azul_css::css::Css;
     use azul_layout::cpurender::render_dom_to_image;
 
-    fn empty_css() -> Css {
-        Css::new(Vec::new())
+    fn css_for(selector: &str, decls: &str) -> Css {
+        let (css, _) = azul_css::parser2::new_from_str(&format!("{selector} {{ {decls} }}"));
+        css
+    }
+
+    fn target_class() -> Vec<IdOrClass> {
+        vec![IdOrClass::Class("target".into())]
     }
 
     #[test]
@@ -19,10 +24,10 @@ mod tests {
         // Parse a simple square path, attach as SVG clip to a red div, render to PNG
         let clip = parse_svg_path_d("M 0,0 L 100,0 L 100,100 L 0,100 Z").unwrap();
         let dom = Dom::create_div()
-            .with_inline_style("width:100px;height:100px;background-color:red")
+            .with_ids_and_classes(target_class().into())
             .with_svg_clip_path(clip);
 
-        let css = empty_css();
+        let css = css_for(".target", "width:100px;height:100px;background-color:red;");
         let png = render_dom_to_image(dom, css, 100.0, 100.0, 1.0).unwrap();
         assert!(!png.is_empty(), "PNG should not be empty");
         // PNG magic bytes
@@ -37,10 +42,10 @@ mod tests {
             rings: azul_core::svg::SvgPathVec::from_vec(vec![circle_path]),
         };
         let dom = Dom::create_div()
-            .with_inline_style("width:100px;height:100px;background-color:blue")
+            .with_ids_and_classes(target_class().into())
             .with_svg_clip_path(clip);
 
-        let css = empty_css();
+        let css = css_for(".target", "width:100px;height:100px;background-color:blue;");
         let png = render_dom_to_image(dom, css, 100.0, 100.0, 1.0).unwrap();
         assert!(!png.is_empty());
         assert_eq!(&png[0..4], &[0x89, b'P', b'N', b'G']);
@@ -54,10 +59,10 @@ mod tests {
             rings: azul_core::svg::SvgPathVec::from_vec(vec![rect_path]),
         };
         let dom = Dom::create_div()
-            .with_inline_style("width:200px;height:100px;background-color:green")
+            .with_ids_and_classes(target_class().into())
             .with_svg_clip_path(clip);
 
-        let css = empty_css();
+        let css = css_for(".target", "width:200px;height:100px;background-color:green;");
         let png = render_dom_to_image(dom, css, 200.0, 100.0, 1.0).unwrap();
         assert!(!png.is_empty());
         // Write to tmp for manual inspection
@@ -67,8 +72,8 @@ mod tests {
     #[test]
     fn test_render_empty_dom() {
         let dom = Dom::create_div()
-            .with_inline_style("width:50px;height:50px");
-        let css = empty_css();
+            .with_ids_and_classes(target_class().into());
+        let css = css_for(".target", "width:50px;height:50px;");
         let png = render_dom_to_image(dom, css, 50.0, 50.0, 1.0).unwrap();
         assert!(!png.is_empty());
     }
@@ -80,10 +85,10 @@ mod tests {
             "M 50,0 L 61,35 L 98,35 L 68,57 L 79,91 L 50,70 L 21,91 L 32,57 L 2,35 L 39,35 Z"
         ).unwrap();
         let dom = Dom::create_div()
-            .with_inline_style("width:100px;height:100px;background-color:gold")
+            .with_ids_and_classes(target_class().into())
             .with_svg_clip_path(star);
 
-        let css = empty_css();
+        let css = css_for(".target", "width:100px;height:100px;background-color:gold;");
         let png = render_dom_to_image(dom, css, 100.0, 100.0, 1.0).unwrap();
         assert!(!png.is_empty());
         let _ = std::fs::write("/tmp/azul_svg_star.png", &png);

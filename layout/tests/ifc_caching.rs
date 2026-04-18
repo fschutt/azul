@@ -359,7 +359,14 @@ fn layout_html_and_get_tree(html: &str) -> azul_layout::Solver3LayoutCache {
         counters: HashMap::new(),
         float_cache: HashMap::new(),
         cache_map: Default::default(),
-        previous_positions: Vec::new(),    };
+        previous_positions: Vec::new(),
+        cached_display_list: None,
+        prev_dom_ptr: 0,
+        prev_viewport: LogicalRect {
+            origin: LogicalPosition::zero(),
+            size: LogicalSize::zero(),
+        },
+    };
     let mut text_cache = TextLayoutCache::new();
 
     let content_size = LogicalSize::new(800.0, 600.0);
@@ -371,7 +378,9 @@ fn layout_html_and_get_tree(html: &str) -> azul_layout::Solver3LayoutCache {
     let renderer_resources = RendererResources::default();
     let mut debug_messages = Some(Vec::new());
     let loader = PathLoader::new();
-    let font_loader = |bytes: &[u8], index: usize| loader.load_font(bytes, index);
+    let font_loader = |bytes: std::sync::Arc<rust_fontconfig::FontBytes>, index: usize| {
+        loader.load_font_shared(bytes, index)
+    };
     let page_config = FakePageConfig::new();
 
     let _ = layout_document_paged_with_config(
@@ -382,7 +391,6 @@ fn layout_html_and_get_tree(html: &str) -> azul_layout::Solver3LayoutCache {
         viewport,
         &mut font_manager,
         &BTreeMap::new(),
-        &BTreeMap::new(),
         &mut debug_messages,
         None,
         &renderer_resources,
@@ -390,7 +398,8 @@ fn layout_html_and_get_tree(html: &str) -> azul_layout::Solver3LayoutCache {
         DomId::ROOT_ID,
         font_loader,
         page_config,
-        &azul_core::resources::ImageCache::default(),        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+        &azul_core::resources::ImageCache::default(),
+        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
         false,
     )
     .expect("Layout should succeed");
@@ -594,7 +603,7 @@ fn test_ifc_layout_replace_preserves_metrics_structure() {
         source_cluster_id: GraphemeClusterId { source_run: 0, start_byte_in_run: 0 },
         source_content_index: ContentIndex { run_index: 0, item_index: 0 },
         source_node_id: Some(azul_core::dom::NodeId::new(3)),
-        glyphs: vec![],
+        glyphs: smallvec::smallvec![],
         advance: 10.0,
         direction: azul_layout::text3::cache::BidiDirection::Ltr,
         style: Default::default(),

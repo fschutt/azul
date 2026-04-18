@@ -62,7 +62,14 @@ impl TestEnv {
             counters: HashMap::new(),
             float_cache: HashMap::new(),
             cache_map: Default::default(),
-        previous_positions: Vec::new(),        };
+            previous_positions: Vec::new(),
+            cached_display_list: None,
+            prev_dom_ptr: 0,
+            prev_viewport: LogicalRect {
+                origin: LogicalPosition::zero(),
+                size: LogicalSize::zero(),
+            },
+        };
         let mut text_cache = TextLayoutCache::new();
 
         let content_size = LogicalSize::new(viewport_w, viewport_h);
@@ -75,7 +82,9 @@ impl TestEnv {
         let mut debug_messages = Some(Vec::new());
 
         let loader = PathLoader::new();
-        let font_loader = |bytes: &[u8], index: usize| loader.load_font(bytes, index);
+        let font_loader = |bytes: std::sync::Arc<rust_fontconfig::FontBytes>, index: usize| {
+        loader.load_font_shared(bytes, index)
+    };
         let page_config = FakePageConfig::new();
 
         let _display_lists = layout_document_paged_with_config(
@@ -85,7 +94,6 @@ impl TestEnv {
             &styled_dom,
             viewport,
             &mut self.font_manager,
-            &BTreeMap::new(),
             &BTreeMap::new(),
             &mut debug_messages,
             None,
@@ -125,7 +133,9 @@ impl TestEnv {
         let mut debug_messages = Some(Vec::new());
 
         let loader = PathLoader::new();
-        let font_loader = |bytes: &[u8], index: usize| loader.load_font(bytes, index);
+        let font_loader = |bytes: std::sync::Arc<rust_fontconfig::FontBytes>, index: usize| {
+        loader.load_font_shared(bytes, index)
+    };
         let page_config = FakePageConfig::new();
 
         let start = std::time::Instant::now();
@@ -136,7 +146,6 @@ impl TestEnv {
             &styled_dom,
             viewport,
             &mut self.font_manager,
-            &BTreeMap::new(),
             &BTreeMap::new(),
             &mut debug_messages,
             None,
@@ -240,7 +249,7 @@ fn test_node_cache_sizing_store_and_retrieve() {
 fn test_node_cache_layout_store_and_retrieve() {
     use azul_layout::solver3::cache::{NodeCache, LayoutCacheEntry};
     use azul_layout::solver3::scrollbar::ScrollbarRequirements;
-    use azul_core::geom::{LogicalSize, LogicalPosition};
+    use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 
     let mut cache = NodeCache::default();
 
