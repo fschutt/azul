@@ -98,7 +98,7 @@ AzDom create_button(AzRefAny* calc, const char* label, EventType evt, char digit
     
     AzDom button = AzDom_createDiv();
     AzString style_str = AzString_copyFromBytes((const uint8_t*)style, 0, strlen(style));
-    AzDom_setInlineStyle(&button, style_str);
+    AzDom_setCss(&button, style_str);
     AzString label_str = AzString_copyFromBytes((const uint8_t*)label, 0, strlen(label));
     AzDom_addChild(&button, AzDom_createText(label_str));
     AzEventFilter event = AzEventFilter_hover(AzHoverEventFilter_mouseUp());
@@ -171,13 +171,13 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // Display
     AzDom display = AzDom_createDiv();
     AzString display_style = AzString_copyFromBytes((const uint8_t*)DISPLAY_STYLE, 0, strlen(DISPLAY_STYLE));
-    AzDom_setInlineStyle(&display, display_style);
+    AzDom_setCss(&display, display_style);
     AzDom_addChild(&display, AzDom_createText(AzString_copyFromBytes((uint8_t*)display_text, 0, strlen(display_text))));
 
     // Buttons grid
     AzDom buttons = AzDom_createDiv();
     AzString buttons_style = AzString_copyFromBytes((const uint8_t*)BUTTONS_STYLE, 0, strlen(BUTTONS_STYLE));
-    AzDom_setInlineStyle(&buttons, buttons_style);
+    AzDom_setCss(&buttons, buttons_style);
     
     // Row 1
     AzDom_addChild(&buttons, create_button(&data, "C", EVT_CLEAR, 0, OP_NONE, BTN_STYLE));
@@ -211,7 +211,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // Main container
     AzDom body = AzDom_createDiv();
     AzString body_style = AzString_copyFromBytes((const uint8_t*)CALC_STYLE, 0, strlen(CALC_STYLE));
-    AzDom_setInlineStyle(&body, body_style);
+    AzDom_setCss(&body, body_style);
     AzDom_addChild(&body, display);
     AzDom_addChild(&body, buttons);
 
