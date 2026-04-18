@@ -410,6 +410,69 @@ fn test_css_styling_with_nested_divs() {
         .style(css.0);
 }
 
+/// Regression test for the calc.c "frame ≥2 loses all backgrounds" bug:
+/// `recompute_inheritance_and_compact_cache()` must reproduce the
+/// `hot_flags` that `create_from_compact_dom` produced on frame 1. If the
+/// recompute path silently drops to the getters-only `build_compact_cache`
+/// variant, `HOT_FLAG_HAS_BACKGROUND` is never written, the renderer's
+/// `has_any_background()` negative fast-path returns false for every node,
+/// and every painted background vanishes on the next layout pass.
+#[test]
+fn test_recompute_preserves_hot_flag_has_background() {
+    use azul_css::compact_cache::HOT_FLAG_HAS_BACKGROUND;
+
+    let css_str = "
+        body { margin: 0; padding: 0; }
+        .painted { background: red; width: 100px; height: 100px; }
+    ";
+    let css = azul_css::parser2::new_from_str(css_str).0;
+
+    let mut dom = Dom::create_body().with_children(
+        vec![Dom::create_div().with_class("painted".to_string().into())].into(),
+    );
+    let mut styled = StyledDom::create(&mut dom, css);
+
+    // Frame 1: find the painted node by walking its hot_flags.
+    let any_bg_frame1 = {
+        let cache = styled
+            .css_property_cache
+            .ptr
+            .compact_cache
+            .as_ref()
+            .expect("compact_cache populated by create_from_compact_dom");
+        (0..styled.node_hierarchy.as_ref().len())
+            .any(|i| cache.tier2_cold[i].hot_flags & HOT_FLAG_HAS_BACKGROUND != 0)
+    };
+    assert!(
+        any_bg_frame1,
+        "frame 1: expected HOT_FLAG_HAS_BACKGROUND on the .painted node",
+    );
+
+    // Frame 2+: simulate regenerate_layout rebuilding the compact cache.
+    // This is the path the calculator hit on every resize tick, and the
+    // one that had silently regressed to the getter-only builder.
+    styled.recompute_inheritance_and_compact_cache();
+
+    let any_bg_frame2 = {
+        let cache = styled
+            .css_property_cache
+            .ptr
+            .compact_cache
+            .as_ref()
+            .expect("compact_cache rebuilt by recompute_inheritance_and_compact_cache");
+        (0..styled.node_hierarchy.as_ref().len())
+            .any(|i| cache.tier2_cold[i].hot_flags & HOT_FLAG_HAS_BACKGROUND != 0)
+    };
+    assert!(
+        any_bg_frame2,
+        "frame ≥2 after recompute_inheritance_and_compact_cache: \
+         HOT_FLAG_HAS_BACKGROUND disappeared. The recompute path must \
+         use build_compact_cache_with_inheritance (not plain \
+         build_compact_cache) so apply_css_property_to_compact runs and \
+         populates hot_flags for the renderer's negative fast-paths.",
+    );
+}
+
 /// Calculated hash of a font-family
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Ord, PartialOrd)]
 pub struct StyleFontFamilyHash(pub u64);

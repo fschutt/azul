@@ -2228,4 +2228,314 @@ mod tests {
     fn test_compact_text_props_size() {
         assert_eq!(core::mem::size_of::<CompactTextProps>(), 24);
     }
+
+    // ========================================================================
+    // Tier1 enum 0-sentinel contract
+    //
+    // Tier1 packs 21 enums into a single u64. A bit run that is all zeros
+    // must decode to the CSS initial value of that property, because an
+    // unpopulated tier1 field is all zeros. If any encoder shifts so that
+    // `0 -> something-other-than-initial`, every node that didn't explicitly
+    // set the property silently gets the wrong default — which is exactly
+    // how the calc.c grid stretch regression shipped (Start encoded as 0,
+    // so every grid container reported justify-items: Start instead of
+    // the CSS default Stretch-for-grid, collapsing the calc button grid).
+    //
+    // Test invariant: decoding a u8 of 0 for every enum yields the CSS
+    // initial value of that property.
+    // ========================================================================
+
+    #[test]
+    fn test_justify_items_zero_is_stretch() {
+        // CSS initial for justify-items is `normal`, which on a grid item
+        // behaves as `stretch`. The tier1 bit pattern 0 must round-trip to
+        // Stretch so unset grid containers don't collapse their items.
+        assert_eq!(layout_justify_items_from_u8(0), LayoutJustifyItems::Stretch);
+        assert_eq!(layout_justify_items_to_u8(LayoutJustifyItems::Stretch), 0);
+    }
+
+    #[test]
+    fn test_tier1_enum_zero_sentinel_is_css_initial() {
+        assert_eq!(layout_display_from_u8(0), LayoutDisplay::Block);
+        assert_eq!(layout_position_from_u8(0), LayoutPosition::Static);
+        assert_eq!(layout_float_from_u8(0), LayoutFloat::None);
+        assert_eq!(layout_overflow_from_u8(0), LayoutOverflow::Visible);
+        assert_eq!(layout_box_sizing_from_u8(0), LayoutBoxSizing::ContentBox);
+        assert_eq!(layout_flex_direction_from_u8(0), LayoutFlexDirection::Row);
+        assert_eq!(layout_flex_wrap_from_u8(0), LayoutFlexWrap::NoWrap);
+        assert_eq!(layout_justify_content_from_u8(0), LayoutJustifyContent::FlexStart);
+        assert_eq!(layout_align_items_from_u8(0), LayoutAlignItems::Stretch);
+        assert_eq!(layout_align_content_from_u8(0), LayoutAlignContent::Stretch);
+        assert_eq!(layout_align_self_from_u8(0), LayoutAlignSelf::Auto);
+        assert_eq!(layout_justify_self_from_u8(0), LayoutJustifySelf::Auto);
+        assert_eq!(layout_justify_items_from_u8(0), LayoutJustifyItems::Stretch);
+        assert_eq!(layout_grid_auto_flow_from_u8(0), LayoutGridAutoFlow::Row);
+        assert_eq!(layout_writing_mode_from_u8(0), LayoutWritingMode::HorizontalTb);
+        assert_eq!(layout_clear_from_u8(0), LayoutClear::None);
+        assert_eq!(style_font_weight_from_u8(0), StyleFontWeight::Normal);
+        assert_eq!(style_font_style_from_u8(0), StyleFontStyle::Normal);
+        // text-align initial is `start`; we collapse `start` → `left` on
+        // LTR runs at encode time, so the 0 slot decodes to Left.
+        assert_eq!(style_text_align_from_u8(0), StyleTextAlign::Left);
+        assert_eq!(style_visibility_from_u8(0), StyleVisibility::Visible);
+        assert_eq!(style_white_space_from_u8(0), StyleWhiteSpace::Normal);
+        assert_eq!(style_direction_from_u8(0), StyleDirection::Ltr);
+        assert_eq!(style_vertical_align_from_u8(0), StyleVerticalAlign::Baseline);
+        assert_eq!(border_collapse_from_u8(0), StyleBorderCollapse::Separate);
+    }
+
+    #[test]
+    fn test_tier1_enum_initial_encodes_to_zero() {
+        // Mirror of the above — encoding the CSS initial value must
+        // produce 0, otherwise an `all-zeros` tier1 bit run would encode
+        // a non-initial value and nodes without explicit properties would
+        // silently inherit the wrong default.
+        assert_eq!(layout_display_to_u8(LayoutDisplay::Block), 0);
+        assert_eq!(layout_position_to_u8(LayoutPosition::Static), 0);
+        assert_eq!(layout_float_to_u8(LayoutFloat::None), 0);
+        assert_eq!(layout_overflow_to_u8(LayoutOverflow::Visible), 0);
+        assert_eq!(layout_box_sizing_to_u8(LayoutBoxSizing::ContentBox), 0);
+        assert_eq!(layout_flex_direction_to_u8(LayoutFlexDirection::Row), 0);
+        assert_eq!(layout_flex_wrap_to_u8(LayoutFlexWrap::NoWrap), 0);
+        assert_eq!(layout_justify_content_to_u8(LayoutJustifyContent::FlexStart), 0);
+        assert_eq!(layout_align_items_to_u8(LayoutAlignItems::Stretch), 0);
+        assert_eq!(layout_align_content_to_u8(LayoutAlignContent::Stretch), 0);
+        assert_eq!(layout_align_self_to_u8(LayoutAlignSelf::Auto), 0);
+        assert_eq!(layout_justify_self_to_u8(LayoutJustifySelf::Auto), 0);
+        assert_eq!(layout_justify_items_to_u8(LayoutJustifyItems::Stretch), 0);
+        assert_eq!(layout_grid_auto_flow_to_u8(LayoutGridAutoFlow::Row), 0);
+        assert_eq!(layout_writing_mode_to_u8(LayoutWritingMode::HorizontalTb), 0);
+        assert_eq!(layout_clear_to_u8(LayoutClear::None), 0);
+        assert_eq!(style_font_weight_to_u8(StyleFontWeight::Normal), 0);
+        assert_eq!(style_font_style_to_u8(StyleFontStyle::Normal), 0);
+        assert_eq!(style_text_align_to_u8(StyleTextAlign::Left), 0);
+        assert_eq!(style_visibility_to_u8(StyleVisibility::Visible), 0);
+        assert_eq!(style_white_space_to_u8(StyleWhiteSpace::Normal), 0);
+        assert_eq!(style_direction_to_u8(StyleDirection::Ltr), 0);
+        assert_eq!(style_vertical_align_to_u8(StyleVerticalAlign::Baseline), 0);
+        assert_eq!(border_collapse_to_u8(StyleBorderCollapse::Separate), 0);
+    }
+
+    // ========================================================================
+    // Exhaustive round-trip: every variant of every enum must survive
+    // encode → decode unchanged. Catches any reordering that maps two
+    // different variants to the same u8, or any mask-width mismatch.
+    // ========================================================================
+
+    macro_rules! roundtrip_all {
+        ($name:ident, $to:ident, $from:ident, [$($variant:expr),+ $(,)?]) => {
+            #[test]
+            fn $name() {
+                for v in [$($variant),+] {
+                    let u = $to(v);
+                    let decoded = $from(u);
+                    assert_eq!(decoded, v, "{:?} != {:?} (via u8 = {})", decoded, v, u);
+                }
+            }
+        };
+    }
+
+    roundtrip_all!(rt_display, layout_display_to_u8, layout_display_from_u8, [
+        LayoutDisplay::Block, LayoutDisplay::Inline, LayoutDisplay::InlineBlock,
+        LayoutDisplay::Flex, LayoutDisplay::None, LayoutDisplay::InlineFlex,
+        LayoutDisplay::Table, LayoutDisplay::InlineTable, LayoutDisplay::TableRowGroup,
+        LayoutDisplay::TableHeaderGroup, LayoutDisplay::TableFooterGroup,
+        LayoutDisplay::TableRow, LayoutDisplay::TableColumnGroup,
+        LayoutDisplay::TableColumn, LayoutDisplay::TableCell,
+        LayoutDisplay::TableCaption, LayoutDisplay::FlowRoot,
+        LayoutDisplay::ListItem, LayoutDisplay::RunIn, LayoutDisplay::Marker,
+        LayoutDisplay::Grid, LayoutDisplay::InlineGrid, LayoutDisplay::Contents,
+    ]);
+
+    roundtrip_all!(rt_position, layout_position_to_u8, layout_position_from_u8, [
+        LayoutPosition::Static, LayoutPosition::Relative, LayoutPosition::Absolute,
+        LayoutPosition::Fixed, LayoutPosition::Sticky,
+    ]);
+
+    roundtrip_all!(rt_float, layout_float_to_u8, layout_float_from_u8, [
+        LayoutFloat::None, LayoutFloat::Left, LayoutFloat::Right,
+    ]);
+
+    roundtrip_all!(rt_overflow, layout_overflow_to_u8, layout_overflow_from_u8, [
+        LayoutOverflow::Visible, LayoutOverflow::Hidden, LayoutOverflow::Scroll,
+        LayoutOverflow::Auto, LayoutOverflow::Clip,
+    ]);
+
+    roundtrip_all!(rt_box_sizing, layout_box_sizing_to_u8, layout_box_sizing_from_u8, [
+        LayoutBoxSizing::ContentBox, LayoutBoxSizing::BorderBox,
+    ]);
+
+    roundtrip_all!(rt_flex_direction, layout_flex_direction_to_u8, layout_flex_direction_from_u8, [
+        LayoutFlexDirection::Row, LayoutFlexDirection::RowReverse,
+        LayoutFlexDirection::Column, LayoutFlexDirection::ColumnReverse,
+    ]);
+
+    roundtrip_all!(rt_flex_wrap, layout_flex_wrap_to_u8, layout_flex_wrap_from_u8, [
+        LayoutFlexWrap::NoWrap, LayoutFlexWrap::Wrap, LayoutFlexWrap::WrapReverse,
+    ]);
+
+    roundtrip_all!(rt_justify_content, layout_justify_content_to_u8, layout_justify_content_from_u8, [
+        LayoutJustifyContent::FlexStart, LayoutJustifyContent::FlexEnd,
+        LayoutJustifyContent::Start, LayoutJustifyContent::End,
+        LayoutJustifyContent::Center, LayoutJustifyContent::SpaceBetween,
+        LayoutJustifyContent::SpaceAround, LayoutJustifyContent::SpaceEvenly,
+    ]);
+
+    roundtrip_all!(rt_align_items, layout_align_items_to_u8, layout_align_items_from_u8, [
+        LayoutAlignItems::Stretch, LayoutAlignItems::Center, LayoutAlignItems::Start,
+        LayoutAlignItems::End, LayoutAlignItems::Baseline,
+    ]);
+
+    roundtrip_all!(rt_align_self, layout_align_self_to_u8, layout_align_self_from_u8, [
+        LayoutAlignSelf::Auto, LayoutAlignSelf::Stretch, LayoutAlignSelf::Center,
+        LayoutAlignSelf::Start, LayoutAlignSelf::End, LayoutAlignSelf::Baseline,
+    ]);
+
+    roundtrip_all!(rt_justify_self, layout_justify_self_to_u8, layout_justify_self_from_u8, [
+        LayoutJustifySelf::Auto, LayoutJustifySelf::Start, LayoutJustifySelf::End,
+        LayoutJustifySelf::Center, LayoutJustifySelf::Stretch,
+    ]);
+
+    roundtrip_all!(rt_justify_items, layout_justify_items_to_u8, layout_justify_items_from_u8, [
+        LayoutJustifyItems::Stretch, LayoutJustifyItems::Start,
+        LayoutJustifyItems::End, LayoutJustifyItems::Center,
+    ]);
+
+    roundtrip_all!(rt_grid_auto_flow, layout_grid_auto_flow_to_u8, layout_grid_auto_flow_from_u8, [
+        LayoutGridAutoFlow::Row, LayoutGridAutoFlow::Column,
+        LayoutGridAutoFlow::RowDense, LayoutGridAutoFlow::ColumnDense,
+    ]);
+
+    roundtrip_all!(rt_align_content, layout_align_content_to_u8, layout_align_content_from_u8, [
+        LayoutAlignContent::Stretch, LayoutAlignContent::Center,
+        LayoutAlignContent::Start, LayoutAlignContent::End,
+        LayoutAlignContent::SpaceBetween, LayoutAlignContent::SpaceAround,
+    ]);
+
+    roundtrip_all!(rt_writing_mode, layout_writing_mode_to_u8, layout_writing_mode_from_u8, [
+        LayoutWritingMode::HorizontalTb, LayoutWritingMode::VerticalRl,
+        LayoutWritingMode::VerticalLr,
+    ]);
+
+    roundtrip_all!(rt_clear, layout_clear_to_u8, layout_clear_from_u8, [
+        LayoutClear::None, LayoutClear::Left, LayoutClear::Right, LayoutClear::Both,
+    ]);
+
+    roundtrip_all!(rt_font_weight, style_font_weight_to_u8, style_font_weight_from_u8, [
+        StyleFontWeight::Normal, StyleFontWeight::W100, StyleFontWeight::W200,
+        StyleFontWeight::W300, StyleFontWeight::W500, StyleFontWeight::W600,
+        StyleFontWeight::Bold, StyleFontWeight::W800, StyleFontWeight::W900,
+        StyleFontWeight::Lighter, StyleFontWeight::Bolder,
+    ]);
+
+    roundtrip_all!(rt_font_style, style_font_style_to_u8, style_font_style_from_u8, [
+        StyleFontStyle::Normal, StyleFontStyle::Italic, StyleFontStyle::Oblique,
+    ]);
+
+    roundtrip_all!(rt_text_align, style_text_align_to_u8, style_text_align_from_u8, [
+        StyleTextAlign::Left, StyleTextAlign::Center, StyleTextAlign::Right,
+        StyleTextAlign::Justify, StyleTextAlign::Start, StyleTextAlign::End,
+    ]);
+
+    roundtrip_all!(rt_visibility, style_visibility_to_u8, style_visibility_from_u8, [
+        StyleVisibility::Visible, StyleVisibility::Hidden, StyleVisibility::Collapse,
+    ]);
+
+    roundtrip_all!(rt_white_space, style_white_space_to_u8, style_white_space_from_u8, [
+        StyleWhiteSpace::Normal, StyleWhiteSpace::Pre, StyleWhiteSpace::Nowrap,
+        StyleWhiteSpace::PreWrap, StyleWhiteSpace::PreLine, StyleWhiteSpace::BreakSpaces,
+    ]);
+
+    roundtrip_all!(rt_direction, style_direction_to_u8, style_direction_from_u8, [
+        StyleDirection::Ltr, StyleDirection::Rtl,
+    ]);
+
+    roundtrip_all!(rt_vertical_align, style_vertical_align_to_u8, style_vertical_align_from_u8, [
+        StyleVerticalAlign::Baseline, StyleVerticalAlign::Top, StyleVerticalAlign::Middle,
+        StyleVerticalAlign::Bottom, StyleVerticalAlign::Sub, StyleVerticalAlign::Superscript,
+        StyleVerticalAlign::TextTop, StyleVerticalAlign::TextBottom,
+    ]);
+
+    roundtrip_all!(rt_border_collapse, border_collapse_to_u8, border_collapse_from_u8, [
+        StyleBorderCollapse::Separate, StyleBorderCollapse::Collapse,
+    ]);
+
+    // ========================================================================
+    // Bit-layout safety: every encoder must produce a u8 whose bits all
+    // fit inside the mask allocated for that property in the tier1 u64.
+    // If an enum grows a new variant that overflows its mask, the encoded
+    // bits would leak into the next property's slot and silently corrupt
+    // unrelated state.
+    // ========================================================================
+
+    #[test]
+    fn test_encoded_u8_fits_in_tier1_mask() {
+        fn assert_fits(name: &str, val: u8, mask: u64) {
+            assert!(
+                (val as u64) & !mask == 0,
+                "{}: encoded u8 {} overflows mask {:b}",
+                name, val, mask,
+            );
+        }
+
+        assert_fits("display", layout_display_to_u8(LayoutDisplay::Contents), DISPLAY_MASK);
+        assert_fits("position", layout_position_to_u8(LayoutPosition::Sticky), POSITION_MASK);
+        assert_fits("float", layout_float_to_u8(LayoutFloat::Right), FLOAT_MASK);
+        assert_fits("overflow", layout_overflow_to_u8(LayoutOverflow::Clip), OVERFLOW_MASK);
+        assert_fits("box_sizing", layout_box_sizing_to_u8(LayoutBoxSizing::BorderBox), BOX_SIZING_MASK);
+        assert_fits("flex_direction", layout_flex_direction_to_u8(LayoutFlexDirection::ColumnReverse), FLEX_DIR_MASK);
+        assert_fits("flex_wrap", layout_flex_wrap_to_u8(LayoutFlexWrap::WrapReverse), FLEX_WRAP_MASK);
+        assert_fits("justify_content", layout_justify_content_to_u8(LayoutJustifyContent::SpaceEvenly), JUSTIFY_MASK);
+        assert_fits("align_items", layout_align_items_to_u8(LayoutAlignItems::Baseline), ALIGN_MASK);
+        assert_fits("align_self", layout_align_self_to_u8(LayoutAlignSelf::Baseline), ALIGN_SELF_MASK);
+        assert_fits("justify_self", layout_justify_self_to_u8(LayoutJustifySelf::Stretch), JUSTIFY_SELF_MASK);
+        assert_fits("justify_items", layout_justify_items_to_u8(LayoutJustifyItems::Center), JUSTIFY_ITEMS_MASK);
+        assert_fits("grid_auto_flow", layout_grid_auto_flow_to_u8(LayoutGridAutoFlow::ColumnDense), GRID_AUTO_FLOW_MASK);
+        assert_fits("align_content", layout_align_content_to_u8(LayoutAlignContent::SpaceAround), ALIGN_MASK);
+        assert_fits("writing_mode", layout_writing_mode_to_u8(LayoutWritingMode::VerticalLr), WRITING_MODE_MASK);
+        assert_fits("clear", layout_clear_to_u8(LayoutClear::Both), CLEAR_MASK);
+        assert_fits("font_weight", style_font_weight_to_u8(StyleFontWeight::Bolder), FONT_WEIGHT_MASK);
+        assert_fits("font_style", style_font_style_to_u8(StyleFontStyle::Oblique), FONT_STYLE_MASK);
+        assert_fits("text_align", style_text_align_to_u8(StyleTextAlign::End), TEXT_ALIGN_MASK);
+        assert_fits("visibility", style_visibility_to_u8(StyleVisibility::Collapse), VISIBILITY_MASK);
+        assert_fits("white_space", style_white_space_to_u8(StyleWhiteSpace::BreakSpaces), WHITE_SPACE_MASK);
+        assert_fits("direction", style_direction_to_u8(StyleDirection::Rtl), DIRECTION_MASK);
+        assert_fits("vertical_align", style_vertical_align_to_u8(StyleVerticalAlign::TextBottom), VERTICAL_ALIGN_MASK);
+        assert_fits("border_collapse", border_collapse_to_u8(StyleBorderCollapse::Collapse), BORDER_COLLAPSE_MASK);
+    }
+
+    // ========================================================================
+    // Empty tier1 decodes to all-initial — this is the core contract that
+    // was violated by the pre-fix justify_items encoding. An empty u64 with
+    // only TIER1_POPULATED_BIT set must decode every property to its CSS
+    // initial value; this is how `build_compact_cache` can leave unspecified
+    // properties at 0 and still produce the correct cascade result.
+    // ========================================================================
+
+    #[test]
+    fn test_empty_tier1_decodes_to_initial_values() {
+        let t1 = TIER1_POPULATED_BIT; // populated, but zero content
+        assert!(tier1_is_populated(t1));
+        assert_eq!(decode_display(t1), LayoutDisplay::Block);
+        assert_eq!(decode_position(t1), LayoutPosition::Static);
+        assert_eq!(decode_float(t1), LayoutFloat::None);
+        assert_eq!(decode_overflow_x(t1), LayoutOverflow::Visible);
+        assert_eq!(decode_overflow_y(t1), LayoutOverflow::Visible);
+        assert_eq!(decode_box_sizing(t1), LayoutBoxSizing::ContentBox);
+        assert_eq!(decode_flex_direction(t1), LayoutFlexDirection::Row);
+        assert_eq!(decode_flex_wrap(t1), LayoutFlexWrap::NoWrap);
+        assert_eq!(decode_justify_content(t1), LayoutJustifyContent::FlexStart);
+        assert_eq!(decode_align_items(t1), LayoutAlignItems::Stretch);
+        assert_eq!(decode_align_content(t1), LayoutAlignContent::Stretch);
+        assert_eq!(decode_writing_mode(t1), LayoutWritingMode::HorizontalTb);
+        assert_eq!(decode_clear(t1), LayoutClear::None);
+        assert_eq!(decode_font_weight(t1), StyleFontWeight::Normal);
+        assert_eq!(decode_font_style(t1), StyleFontStyle::Normal);
+        assert_eq!(decode_text_align(t1), StyleTextAlign::Left);
+        assert_eq!(decode_visibility(t1), StyleVisibility::Visible);
+        assert_eq!(decode_white_space(t1), StyleWhiteSpace::Normal);
+        assert_eq!(decode_direction(t1), StyleDirection::Ltr);
+        assert_eq!(decode_vertical_align(t1), StyleVerticalAlign::Baseline);
+        assert_eq!(decode_border_collapse(t1), StyleBorderCollapse::Separate);
+    }
 }
