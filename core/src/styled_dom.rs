@@ -1418,16 +1418,10 @@ impl StyledDom {
     /// by re-running a full depth-first inheritance pass and rebuilding the
     /// compact cache from scratch on the composed tree.
     pub fn recompute_inheritance_and_compact_cache(&mut self) {
-        // Re-run UA CSS on the merged tree — append_child may have introduced
-        // new nodes (e.g. CSD titlebar) that were never styled by the child's
-        // cascade. apply_ua_css is idempotent: it only fills properties that
-        // are not already set, so re-running it on already-styled nodes is safe.
-        self.css_property_cache
-            .downcast_mut()
-            .apply_ua_css(self.node_data.as_container().internal);
-        self.css_property_cache
-            .downcast_mut()
-            .sort_cascaded_props();
+        // Every StyledDom this could be merging from has already had UA CSS
+        // applied and cascaded_props flattened during its own create()/restyle().
+        // Re-running apply_ua_css / sort_cascaded_props here would try to
+        // push_to flat storage (panic) and has no legitimate work to do.
 
         // Re-compute inherited values across the entire composed tree.
         // This is the key correctness fix: inherited properties from parent
