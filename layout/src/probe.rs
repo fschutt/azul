@@ -64,6 +64,14 @@ mod imp {
         EVENTS.with(|cell| core::mem::take(&mut *cell.borrow_mut()))
     }
 
+    pub(super) fn drop_events() {
+        EVENTS.with(|cell| cell.borrow_mut().clear());
+    }
+
+    pub(super) fn peek_len() -> usize {
+        EVENTS.with(|cell| cell.borrow().len())
+    }
+
     pub(super) fn enabled() -> bool {
         true
     }
@@ -90,6 +98,12 @@ mod imp {
     pub(super) fn drain() -> Vec<super::Event> {
         Vec::new()
     }
+
+    #[inline(always)]
+    pub(super) fn drop_events() {}
+
+    #[inline(always)]
+    pub(super) fn peek_len() -> usize { 0 }
 
     #[inline(always)]
     pub(super) fn enabled() -> bool {
@@ -142,6 +156,21 @@ impl Probe {
     #[inline(always)]
     pub fn drain() -> Vec<Event> {
         imp::drain()
+    }
+
+    /// Discard the per-thread event buffer without allocating a `Vec` to
+    /// hand back. Used by long-running harnesses (e.g. `AZ_E2E_TEST`) that
+    /// want to prevent the thread-local buffer from inflating RSS during
+    /// thousands of layout passes without actually needing the events.
+    #[inline(always)]
+    pub fn drop_events() {
+        imp::drop_events();
+    }
+
+    /// Current number of events in the per-thread buffer. Cheap to call.
+    #[inline(always)]
+    pub fn peek_len() -> usize {
+        imp::peek_len()
     }
 
     /// Whether the `probe` feature is compiled in.
@@ -401,6 +430,35 @@ pub fn current_rss_bytes() -> (u64, u64) {
     { (0, 0) }
 }
 
+/// Heap bytes currently held by the libc allocator (`mstats.bytes_used`).
+///
+/// Unlike RSS, this is what *Rust* allocations plus anything else going
+/// through the default malloc zone is actually holding — mmap regions
+/// for thread stacks, GL buffers, file-mapped fonts, etc. are NOT counted.
+/// A leak that shows up here points to a genuine heap retention (an Arc
+/// chain never dropped, a Vec never shrunk, a `Box<T>` forgotten).
+/// Returns 0 on non-macOS.
+#[cfg(feature = "probe")]
+pub fn malloc_heap_bytes() -> u64 {
+    #[cfg(target_os = "macos")]
+    {
+        #[repr(C)]
+        struct Mstats {
+            bytes_total: usize,
+            chunks_used: usize,
+            bytes_used: usize,
+            chunks_free: usize,
+            bytes_free: usize,
+        }
+        extern "C" {
+            fn mstats() -> Mstats;
+        }
+        unsafe { mstats().bytes_used as u64 }
+    }
+    #[cfg(not(target_os = "macos"))]
+    { 0 }
+}
+
 /// Sample the Mach `phys_footprint` — the memory metric Activity
 /// Monitor and `vmmap`'s "Physical footprint" line display. Unlike
 /// `resident_size`, this excludes shared library text pages and
@@ -543,3 +601,111 @@ pub fn reset_peak() {}
 #[cfg(not(feature = "probe"))]
 #[inline(always)]
 pub fn sample_phase_peak(_label: &'static str) {}
+
+#[cfg(not(feature = "probe"))]
+#[inline(always)]
+pub fn malloc_heap_bytes() -> u64 { 0 }
+
+/// Emit one `{"ev":"phase","label":L,"heap":N,"call":C}` line to the
+/// JSONL file named by `AZ_PROFILE_OUT=<path>`. Only fires when
+/// `AZ_PROFILE=heap,jsonl` is set *and* the path is given.
+///
+/// Each call auto-increments a monotonic `call` id so downstream
+/// analyzers can group phases belonging to a single `regenerate_layout`
+/// invocation.
+///
+/// `label` convention: `start` at function entry; `<step>` after each
+/// phase completes; `end` at function exit. Heap Δ between adjacent
+/// labels within the same call-id is the bytes retained by that phase.
+///
+/// Zero overhead when flags aren't set (two atomic loads). Zero overhead
+/// when the `probe` feature is off (no-op stub).
+#[cfg(feature = "probe")]
+pub fn emit_phase_heap(label: &str) {
+    use std::io::Write;
+    if !heap_jsonl_enabled() { return; }
+    let Some(p) = azul_core::profile::out_path() else { return };
+    static CALL_ID: std::sync::atomic::AtomicU64 =
+        std::sync::atomic::AtomicU64::new(0);
+    // Auto-increment on every "start" label; "end" and intermediates reuse
+    // the current id so all phases in one regenerate_layout invocation share
+    // a call number.
+    static CURRENT_CALL: std::sync::atomic::AtomicU64 =
+        std::sync::atomic::AtomicU64::new(0);
+    let call_id = if label == "start" {
+        let next = CALL_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+        CURRENT_CALL.store(next, std::sync::atomic::Ordering::Relaxed);
+        next
+    } else {
+        CURRENT_CALL.load(std::sync::atomic::Ordering::Relaxed)
+    };
+    let heap = malloc_heap_bytes();
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(p)
+    {
+        let _ = writeln!(
+            f,
+            r#"{{"ev":"phase","call":{},"label":"{}","heap":{}}}"#,
+            call_id, label, heap
+        );
+    }
+}
+
+#[cfg(not(feature = "probe"))]
+#[inline(always)]
+pub fn emit_phase_heap(_label: &str) {}
+
+/// Like [`emit_phase_heap`] but attaches a numeric payload (e.g., a cache
+/// size) to the JSONL record under the `"extra"` field.
+///
+/// Gated behind `AZ_PROFILE=heap,jsonl,detail` — the `detail` token opts
+/// in to fine-grained probes that produce extra per-step records (one
+/// per intermediate step inside a phase). Without `detail`, only the
+/// coarser phase probes from [`emit_phase_heap`] fire.
+#[cfg(feature = "probe")]
+pub fn emit_phase_heap_extra(label: &str, extra: u64) {
+    use std::io::Write;
+    if !heap_jsonl_enabled() { return; }
+    if !azul_core::profile::detail_enabled() { return; }
+    let Some(p) = azul_core::profile::out_path() else { return };
+    let heap = malloc_heap_bytes();
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(p)
+    {
+        let _ = writeln!(
+            f,
+            r#"{{"ev":"phase","call":0,"label":"{}","heap":{},"extra":{}}}"#,
+            label, heap, extra
+        );
+    }
+}
+
+#[cfg(not(feature = "probe"))]
+#[inline(always)]
+pub fn emit_phase_heap_extra(_label: &str, _extra: u64) {}
+
+/// Both `heap` and `jsonl` tokens active in `AZ_PROFILE` — the combination
+/// that enables JSONL heap-probe emission. Either alone is a no-op.
+#[cfg(feature = "probe")]
+#[inline]
+fn heap_jsonl_enabled() -> bool {
+    let f = azul_core::profile::flags();
+    f.heap && f.jsonl
+}
+
+/// Returns true iff `AZ_PROFILE=detail` is active. Kept as a public
+/// re-export so downstream crates can write `azul_layout::probe::detail_enabled()`
+/// without pulling in `azul_core::profile` directly.
+#[cfg(feature = "probe")]
+#[inline]
+pub fn detail_enabled() -> bool {
+    azul_core::profile::detail_enabled()
+}
+
+#[cfg(not(feature = "probe"))]
+#[inline(always)]
+pub fn detail_enabled() -> bool { false }
