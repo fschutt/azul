@@ -452,24 +452,30 @@ pub fn layout_justify_self_from_u8(v: u8) -> LayoutJustifySelf {
     }
 }
 
+// Tier1 uses 0 as the "unset" sentinel for every enum. For justify-items
+// the CSS default is `normal` which behaves as `stretch` on grid items,
+// so 0 must decode to Stretch (not Start). Getting this wrong leaves
+// every unset grid container reporting justify-items: Start, which
+// forces taffy to content-size items instead of stretching them across
+// their column tracks — exactly the calc.c regression.
 #[inline(always)]
 pub fn layout_justify_items_to_u8(v: LayoutJustifyItems) -> u8 {
     match v {
-        LayoutJustifyItems::Start => 0,
-        LayoutJustifyItems::End => 1,
-        LayoutJustifyItems::Center => 2,
-        LayoutJustifyItems::Stretch => 3,
+        LayoutJustifyItems::Stretch => 0,
+        LayoutJustifyItems::Start => 1,
+        LayoutJustifyItems::End => 2,
+        LayoutJustifyItems::Center => 3,
     }
 }
 
 #[inline(always)]
 pub fn layout_justify_items_from_u8(v: u8) -> LayoutJustifyItems {
     match v {
-        0 => LayoutJustifyItems::Start,
-        1 => LayoutJustifyItems::End,
-        2 => LayoutJustifyItems::Center,
-        3 => LayoutJustifyItems::Stretch,
-        _ => LayoutJustifyItems::Start,
+        0 => LayoutJustifyItems::Stretch,
+        1 => LayoutJustifyItems::Start,
+        2 => LayoutJustifyItems::End,
+        3 => LayoutJustifyItems::Center,
+        _ => LayoutJustifyItems::Stretch,
     }
 }
 

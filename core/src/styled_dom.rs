@@ -1416,22 +1416,13 @@ impl StyledDom {
     /// by re-running a full depth-first inheritance pass and rebuilding the
     /// compact cache from scratch on the composed tree.
     pub fn recompute_inheritance_and_compact_cache(&mut self) {
-        // Every StyledDom this could be merging from has already had UA CSS
-        // applied and cascaded_props flattened during its own create()/restyle().
-        // Re-running apply_ua_css / sort_cascaded_props here would try to
-        // push_to flat storage (panic) and has no legitimate work to do.
-
-        // Re-compute inherited values across the entire composed tree.
-        // This is the key correctness fix: inherited properties from parent
-        // nodes now correctly flow into appended child subtrees.
-        self.css_property_cache
-            .downcast_mut()
-            .compute_inherited_values(
-                self.node_hierarchy.as_container().internal,
-                self.node_data.as_container().internal,
-            );
-
-        // Rebuild compact cache from the freshly-inherited property values.
+        // Use the _with_inheritance variant: it does inheritance inline (via
+        // parent-compact-field copy) AND populates hot_flags via
+        // apply_css_property_to_compact.  The plain build_compact_cache would
+        // leave HOT_FLAG_HAS_BACKGROUND / HAS_CLIP_PATH / extra_flags at 0,
+        // causing renderer negative fast-paths to skip paint (regression
+        // introduced by ff059052b).  No SIGABRT risk — _with_inheritance
+        // never pushes to the flat cascaded_props storage.
         let prev_font_hashes: Vec<u64> = self.css_property_cache
             .downcast_mut()
             .compact_cache
@@ -1440,8 +1431,9 @@ impl StyledDom {
             .unwrap_or_default();
         let compact = self.css_property_cache
             .downcast_mut()
-            .build_compact_cache(
+            .build_compact_cache_with_inheritance(
                 self.node_data.as_container().internal,
+                self.node_hierarchy.as_container().internal,
                 &prev_font_hashes,
             );
         self.css_property_cache.downcast_mut().compact_cache = Some(compact);
