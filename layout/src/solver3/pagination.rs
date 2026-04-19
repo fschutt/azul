@@ -923,6 +923,8 @@ impl PageTemplate {
 /// ## Example
 ///
 /// ```rust
+/// use azul_layout::solver3::pagination::FakePageConfig;
+///
 /// let config = FakePageConfig::new()
 ///     .with_footer_page_numbers()
 ///     .with_header_text("My Document")
