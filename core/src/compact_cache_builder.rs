@@ -587,46 +587,14 @@ impl CssPropertyCache {
 
             // Step 2: Apply UA CSS defaults for this node type directly to compact values.
             // UA defaults have lowest cascade priority — overridden by author CSS below.
-            // This replaces the separate apply_ua_css() pass + cascaded_props + sort.
-            {
-                // Apply ALL UA CSS defaults for this node type.
-                // Use apply_css_property_to_compact for consistent encoding.
-                // This replaces the incomplete property list that missed overflow, position, etc.
-                use azul_css::props::property::CssPropertyType as PT2;
-                const UA_PROPERTY_TYPES: &[PT2] = &[
-                    // Tier1 enum properties
-                    PT2::Display, PT2::Position, PT2::Float, PT2::Clear,
-                    PT2::OverflowX, PT2::OverflowY, PT2::BoxSizing,
-                    PT2::FlexDirection, PT2::FlexWrap, PT2::JustifyContent,
-                    PT2::AlignItems, PT2::AlignContent, PT2::WritingMode,
-                    PT2::FontWeight, PT2::FontStyle, PT2::TextAlign,
-                    PT2::Visibility, PT2::WhiteSpace, PT2::Direction,
-                    PT2::VerticalAlign, PT2::BorderCollapse,
-                    // Tier2 dimension properties
-                    PT2::Width, PT2::Height, PT2::FontSize,
-                    PT2::MarginTop, PT2::MarginBottom, PT2::MarginLeft, PT2::MarginRight,
-                    PT2::PaddingTop, PT2::PaddingBottom, PT2::PaddingLeft, PT2::PaddingRight,
-                    PT2::BorderTopWidth, PT2::BorderTopStyle, PT2::BorderTopColor,
-                    PT2::BorderRightWidth, PT2::BorderRightStyle, PT2::BorderRightColor,
-                    PT2::BorderBottomWidth, PT2::BorderBottomStyle, PT2::BorderBottomColor,
-                    PT2::BorderLeftWidth, PT2::BorderLeftStyle, PT2::BorderLeftColor,
-                    // Text properties
-                    PT2::TextColor, PT2::LineHeight, PT2::LetterSpacing, PT2::WordSpacing,
-                    PT2::TextDecoration, PT2::Cursor, PT2::ListStyleType,
-                ];
-                for pt in UA_PROPERTY_TYPES {
-                    if let Some(ua_prop) = crate::ua_css::get_ua_property(&nd.node_type, *pt) {
-                        apply_css_property_to_compact(
-                            ua_prop,
-                            &mut result.tier1_enums[i],
-                            &mut result.tier2_dims[i],
-                            &mut result.tier2_cold[i],
-                            &mut result.tier2b_text[i],
-                            &mut result.font_hash_to_families,
-                        );
-                    }
-                }
-            }
+            apply_ua_css_to_compact(
+                &nd.node_type,
+                &mut result.tier1_enums[i],
+                &mut result.tier2_dims[i],
+                &mut result.tier2_cold[i],
+                &mut result.tier2b_text[i],
+                &mut result.font_hash_to_families,
+            );
 
             {
                 let d = &result.tier2_dims[i];
@@ -720,37 +688,11 @@ impl CssPropertyCache {
             // Resolve font-size from em/percent/pt/etc. to px.
             // CSS 2.1: inherited font-size is the COMPUTED (px) value, not the specified value.
             // Pre-order traversal guarantees parent's font_size is already resolved.
-            {
-                let raw_fs = result.tier2_dims[i].font_size;
-                if raw_fs != U32_SENTINEL && raw_fs < U32_SENTINEL_THRESHOLD {
-                    if let Some(pv) = decode_pixel_value_u32(raw_fs) {
-                        if pv.metric != SizeMetric::Px {
-                            let parent_font_size_px = parent_id
-                                .map(|pid| {
-                                    decode_pixel_value_u32(result.tier2_dims[pid.index()].font_size)
-                                        .map(|ppv| ppv.number.get())
-                                        .unwrap_or(16.0)
-                                })
-                                .unwrap_or(16.0);
-
-                            let resolved_px = match pv.metric {
-                                SizeMetric::Em => pv.number.get() * parent_font_size_px,
-                                SizeMetric::Percent => pv.number.get() / 100.0 * parent_font_size_px,
-                                SizeMetric::Rem => {
-                                    decode_pixel_value_u32(result.tier2_dims[0].font_size)
-                                        .map(|rpv| rpv.number.get())
-                                        .unwrap_or(16.0)
-                                        * pv.number.get()
-                                }
-                                SizeMetric::Pt => pv.number.get() * 96.0 / 72.0,
-                                _ => pv.number.get(),
-                            };
-                            result.tier2_dims[i].font_size =
-                                encode_pixel_value_u32(&azul_css::props::basic::pixel::PixelValue::px(resolved_px));
-                        }
-                    }
-                }
-            }
+            resolve_font_size_to_px(
+                &mut result.tier2_dims,
+                i,
+                parent_id,
+            );
 
             // Set populated bit
             if result.tier1_enums[i] != 0 {
@@ -777,6 +719,90 @@ impl CssPropertyCache {
 
         result
     }
+}
+
+// =============================================================================
+// Helpers extracted from build_compact_cache_with_inheritance_debug
+// =============================================================================
+
+/// Apply UA CSS defaults for a node type directly to compact values.
+/// UA defaults have lowest cascade priority — overridden by author CSS.
+fn apply_ua_css_to_compact(
+    node_type: &crate::dom::NodeType,
+    tier1: &mut u64,
+    dims: &mut CompactNodeProps,
+    cold: &mut CompactNodePropsCold,
+    text: &mut CompactTextProps,
+    font_hash_map: &mut alloc::collections::BTreeMap<u64, azul_css::props::basic::font::StyleFontFamilyVec>,
+) {
+    use azul_css::props::property::CssPropertyType as PT2;
+    const UA_PROPERTY_TYPES: &[PT2] = &[
+        // Tier1 enum properties
+        PT2::Display, PT2::Position, PT2::Float, PT2::Clear,
+        PT2::OverflowX, PT2::OverflowY, PT2::BoxSizing,
+        PT2::FlexDirection, PT2::FlexWrap, PT2::JustifyContent,
+        PT2::AlignItems, PT2::AlignContent, PT2::WritingMode,
+        PT2::FontWeight, PT2::FontStyle, PT2::TextAlign,
+        PT2::Visibility, PT2::WhiteSpace, PT2::Direction,
+        PT2::VerticalAlign, PT2::BorderCollapse,
+        // Tier2 dimension properties
+        PT2::Width, PT2::Height, PT2::FontSize,
+        PT2::MarginTop, PT2::MarginBottom, PT2::MarginLeft, PT2::MarginRight,
+        PT2::PaddingTop, PT2::PaddingBottom, PT2::PaddingLeft, PT2::PaddingRight,
+        PT2::BorderTopWidth, PT2::BorderTopStyle, PT2::BorderTopColor,
+        PT2::BorderRightWidth, PT2::BorderRightStyle, PT2::BorderRightColor,
+        PT2::BorderBottomWidth, PT2::BorderBottomStyle, PT2::BorderBottomColor,
+        PT2::BorderLeftWidth, PT2::BorderLeftStyle, PT2::BorderLeftColor,
+        // Text properties
+        PT2::TextColor, PT2::LineHeight, PT2::LetterSpacing, PT2::WordSpacing,
+        PT2::TextDecoration, PT2::Cursor, PT2::ListStyleType,
+    ];
+    for pt in UA_PROPERTY_TYPES {
+        if let Some(ua_prop) = crate::ua_css::get_ua_property(node_type, *pt) {
+            apply_css_property_to_compact(ua_prop, tier1, dims, cold, text, font_hash_map);
+        }
+    }
+}
+
+/// Resolve a node's font-size from relative units (em, %, rem, pt) to absolute px.
+/// CSS 2.1: inherited font-size is the COMPUTED (px) value, not the specified value.
+/// Pre-order traversal guarantees parent's font_size is already resolved.
+fn resolve_font_size_to_px(
+    tier2_dims: &mut [CompactNodeProps],
+    node_idx: usize,
+    parent_id: Option<NodeId>,
+) {
+    let raw_fs = tier2_dims[node_idx].font_size;
+    if raw_fs == U32_SENTINEL || raw_fs >= U32_SENTINEL_THRESHOLD {
+        return;
+    }
+    let pv = match decode_pixel_value_u32(raw_fs) {
+        Some(pv) if pv.metric != SizeMetric::Px => pv,
+        _ => return,
+    };
+
+    let parent_font_size_px = parent_id
+        .map(|pid| {
+            decode_pixel_value_u32(tier2_dims[pid.index()].font_size)
+                .map(|ppv| ppv.number.get())
+                .unwrap_or(16.0)
+        })
+        .unwrap_or(16.0);
+
+    let resolved_px = match pv.metric {
+        SizeMetric::Em => pv.number.get() * parent_font_size_px,
+        SizeMetric::Percent => pv.number.get() / 100.0 * parent_font_size_px,
+        SizeMetric::Rem => {
+            decode_pixel_value_u32(tier2_dims[0].font_size)
+                .map(|rpv| rpv.number.get())
+                .unwrap_or(16.0)
+                * pv.number.get()
+        }
+        SizeMetric::Pt => pv.number.get() * 96.0 / 72.0,
+        _ => pv.number.get(),
+    };
+    tier2_dims[node_idx].font_size =
+        encode_pixel_value_u32(&azul_css::props::basic::pixel::PixelValue::px(resolved_px));
 }
 
 // =============================================================================
@@ -1304,22 +1330,17 @@ impl_has_inner_pixel!(
 );
 
 /// Encode a CssPropertyValue<T> where T wraps a PixelValue, as i16 (×10 resolved px).
-/// Only encodes absolute `px` values; everything else → sentinel.
+/// Delegates to the canonical `azul_css::compact_cache::encode_css_pixel_as_i16`.
 fn encode_css_pixel_as_i16<T: HasInnerPixelValue>(val: &CssPropertyValue<T>) -> i16 {
-    match val {
-        CssPropertyValue::Exact(inner) => {
-            let pv = inner.get_inner_pixel();
-            if pv.metric == SizeMetric::Px {
-                encode_resolved_px_i16(pv.number.get())
-            } else {
-                I16_SENTINEL // non-px units need resolution context → slow path
-            }
-        }
-        CssPropertyValue::Auto => I16_AUTO,
-        CssPropertyValue::Initial => I16_INITIAL,
-        CssPropertyValue::Inherit => I16_INHERIT,
-        _ => I16_SENTINEL,
-    }
+    let mapped = match val {
+        CssPropertyValue::Exact(inner) => CssPropertyValue::Exact(inner.get_inner_pixel()),
+        CssPropertyValue::Auto => CssPropertyValue::Auto,
+        CssPropertyValue::Initial => CssPropertyValue::Initial,
+        CssPropertyValue::Inherit => CssPropertyValue::Inherit,
+        CssPropertyValue::None => CssPropertyValue::None,
+        _ => return I16_SENTINEL,
+    };
+    azul_css::compact_cache::encode_css_pixel_as_i16(&mapped)
 }
 
 /// Encode margin: same as encode_css_pixel_as_i16 but Auto is a distinct value.
