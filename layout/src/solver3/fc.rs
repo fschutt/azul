@@ -5115,6 +5115,26 @@ fn calculate_column_widths_fixed<T: ParsedFontTrait>(
     }
 }
 
+/// Recursively clear the layout cache for every node in a subtree.
+///
+/// A fixed-depth walk is not enough: a table cell like
+/// `<td><span><a>text</a></span></td>` has 4+ levels once the anonymous IFC
+/// wrapper is inserted, and any stale cache below that level would feed a
+/// narrow intrinsic width back into `measure_cell_content_width`.
+fn clear_subtree_cache(
+    tree: &LayoutTree,
+    cache_map: &mut crate::solver3::cache::LayoutCacheMap,
+    root: usize,
+) {
+    if root < cache_map.entries.len() {
+        cache_map.entries[root].clear();
+    }
+    let child_ids: Vec<usize> = tree.children(root).to_vec();
+    for child in child_ids {
+        clear_subtree_cache(tree, cache_map, child);
+    }
+}
+
 /// Measure a cell's content width for a given intrinsic sizing mode.
 ///
 /// CSS 2.2 Section 17.5.2.2: shared helper for min-content and max-content
@@ -5150,23 +5170,12 @@ fn measure_cell_content_width<T: ParsedFontTrait>(
     let mut temp_scrollbar_reflow = false;
     let mut temp_float_cache = HashMap::new();
 
-    // Clear cached layout for this cell and its descendants so that
-    // min/max-content measurement uses unconstrained width, not a
-    // stale result from a previous pass with narrower constraints.
-    if cell_index < ctx.cache_map.entries.len() {
-        ctx.cache_map.entries[cell_index].clear();
-    }
-    // Also clear descendants (anonymous IFC wrappers, inline nodes)
-    for &desc_idx in tree.children(cell_index) {
-        if desc_idx < ctx.cache_map.entries.len() {
-            ctx.cache_map.entries[desc_idx].clear();
-        }
-        for &grand_idx in tree.children(desc_idx) {
-            if grand_idx < ctx.cache_map.entries.len() {
-                ctx.cache_map.entries[grand_idx].clear();
-            }
-        }
-    }
+    // Clear cached layout for this cell and ALL its descendants so that
+    // min/max-content measurement uses unconstrained width, not a stale
+    // result from a previous pass with narrower constraints. Deeply nested
+    // inlines (`<td><span><a>text</a></span></td>`) need recursion; a fixed
+    // 2-level walk left the `<a>` at level 3 with a stale cached 0-width.
+    clear_subtree_cache(tree, &mut ctx.cache_map, cell_index);
 
     crate::solver3::cache::calculate_layout_for_subtree(
         ctx,

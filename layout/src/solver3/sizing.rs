@@ -71,6 +71,22 @@ pub fn resolve_percentage_with_box_model(
     (containing_block_dimension * percentage).max(0.0)
 }
 
+/// Returns true if the DOM subtree rooted at `dom_id` contains any `NodeType::Text`.
+///
+/// Used when deciding whether a `FormattingContext::Inline` node should measure
+/// its inline content (it acts as an IFC root when nested inlines eventually
+/// hold text) versus returning zero (pure inline wrapper with no text reaches).
+fn subtree_contains_text(styled_dom: &StyledDom, dom_id: NodeId) -> bool {
+    let node_hierarchy = styled_dom.node_hierarchy.as_container();
+    let node_data = styled_dom.node_data.as_container();
+    if matches!(node_data[dom_id].get_node_type(), NodeType::Text(_)) {
+        return true;
+    }
+    dom_id
+        .az_children(&node_hierarchy)
+        .any(|child| subtree_contains_text(styled_dom, child))
+}
+
 /// Phase 2a: Calculate intrinsic sizes (bottom-up pass)
 /// // +spec:display-contents:f12d4e - intrinsic sizing: size determined by contents, not context
 pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
@@ -460,7 +476,13 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 //
                 // We distinguish by:
                 // - Checking if THIS node is a Text node (case 1)
-                // - Checking if this node has direct text children (case 2)
+                // - Checking if this subtree contains any text (case 2)
+                //
+                // Why descendants, not just direct children: for `<span><a>text</a></span>`,
+                // the `<span>` is a layout-tree IFC root (layout_ifc is called on it), but
+                // its direct DOM children are inline elements, not text. Restricting the
+                // check to direct text children would zero out the span's intrinsic width
+                // even though the cell content width depends on it.
                 let is_text_node = if let Some(dom_id) = node.dom_node_id {
                     let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
                     matches!(node_data.get_node_type(), NodeType::Text(_))
@@ -468,17 +490,13 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                     false
                 };
 
-                let has_direct_text_children = if let Some(dom_id) = node.dom_node_id {
-                    let node_hierarchy = &self.ctx.styled_dom.node_hierarchy.as_container();
-                    dom_id.az_children(node_hierarchy).any(|child_id| {
-                        let child_node_data = &self.ctx.styled_dom.node_data.as_container()[child_id];
-                        matches!(child_node_data.get_node_type(), NodeType::Text(_))
-                    })
+                let has_text_in_subtree = if let Some(dom_id) = node.dom_node_id {
+                    subtree_contains_text(self.ctx.styled_dom, dom_id)
                 } else {
                     false
                 };
-                
-                if is_text_node || has_direct_text_children {
+
+                if is_text_node || has_text_in_subtree {
                     // Case 1 or 2: Text node or IFC root - measure inline content
                     self.calculate_ifc_root_intrinsic_sizes(tree, node_index)
                 } else {
