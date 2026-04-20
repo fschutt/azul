@@ -87,7 +87,8 @@ winapi = { version = "0.3.9", optional = true, default-features = false, feature
     "uxtheme",
     "dwmapi",
     "wingdi",
-    "commdlg"
+    "commdlg",
+    "winerror",
 ] }
 clipboard-win = { version = "5.4", optional = true }
 accesskit_windows = { version = "0.32", optional = true }

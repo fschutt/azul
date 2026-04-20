@@ -900,6 +900,7 @@ impl X11Window {
                     monitor_id: OptionU32::None,
                     window_id: options.window_state.window_id.clone(),
                     window_focused: true,
+                    active_route: azul_core::resources::OptionRouteMatch::None,
                 },
                 previous_window_state: None,
                 renderer,

@@ -143,6 +143,16 @@ pub struct wl_message {
     pub types: *const *const wl_interface,
 }
 
+/// Thread-safe wrapper for a `&'static wl_interface` stored in a `OnceLock`.
+///
+/// `wl_interface` holds raw `*const` pointers (name / methods / events) which
+/// aren't auto-`Sync`, but in this module every pointer targets immutable
+/// `Box::leak`-ed data that outlives the process. That makes cross-thread
+/// reads safe; this wrapper carries that promise so `OnceLock` can accept it.
+struct SyncInterface(&'static wl_interface);
+unsafe impl Send for SyncInterface {}
+unsafe impl Sync for SyncInterface {}
+
 // Opaque structs from wayland-egl.h
 #[repr(C)]
 pub struct wl_egl_window {
@@ -545,9 +555,9 @@ pub const ZWP_TEXT_INPUT_MANAGER_V3_GET_TEXT_INPUT: u32 = 1;
 /// one-time ~300 byte allocation per process.
 pub fn get_text_input_v3_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
-    static INTERFACE: OnceLock<&'static wl_interface> = OnceLock::new();
+    static INTERFACE: OnceLock<SyncInterface> = OnceLock::new();
 
-    INTERFACE.get_or_init(|| {
+    INTERFACE.get_or_init(|| SyncInterface({
         let null_types: &'static [*const wl_interface; 4] = Box::leak(Box::new([
             std::ptr::null(),
             std::ptr::null(),
@@ -639,15 +649,15 @@ pub fn get_text_input_v3_interface() -> &'static wl_interface {
             event_count: 6,
             events: events.as_ptr(),
         }))
-    })
+    })).0
 }
 
 /// Create the wl_interface for zwp_text_input_manager_v3 at runtime.
 pub fn get_text_input_manager_v3_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
-    static INTERFACE: OnceLock<&'static wl_interface> = OnceLock::new();
+    static INTERFACE: OnceLock<SyncInterface> = OnceLock::new();
 
-    INTERFACE.get_or_init(|| {
+    INTERFACE.get_or_init(|| SyncInterface({
         let null_types: &'static [*const wl_interface; 2] = Box::leak(Box::new([
             std::ptr::null(),
             std::ptr::null(),
@@ -674,7 +684,7 @@ pub fn get_text_input_manager_v3_interface() -> &'static wl_interface {
             event_count: 0,
             events: std::ptr::null(),
         }))
-    })
+    })).0
 }
 
 // XKB Constants

@@ -889,6 +889,7 @@ impl WaylandWindow {
                     monitor_id: OptionU32::None,
                     window_id: options.window_state.window_id.clone(),
                     window_focused: false,
+                    active_route: azul_core::resources::OptionRouteMatch::None,
                 },
                 previous_window_state: None,
                 layout_window: Some(layout_window),
@@ -3408,10 +3409,10 @@ impl WaylandWindow {
             LogicalSize::new(width as f32, height as f32),
         );
 
+        // Approximate panel/taskbar height — Wayland doesn't expose actual work area
+        const ESTIMATED_PANEL_HEIGHT: i32 = 24;
         let work_area = LogicalRect::new(
             LogicalPosition::zero(),
-            // Approximate panel/taskbar height — Wayland doesn't expose actual work area
-            const ESTIMATED_PANEL_HEIGHT: i32 = 24;
             LogicalSize::new(width as f32, (height as i32 - ESTIMATED_PANEL_HEIGHT).max(0) as f32),
         );
 
@@ -3670,6 +3671,7 @@ impl WaylandPopup {
             monitor_id: parent.common.current_window_state.monitor_id,
             window_id: options.window_state.window_id.clone(),
             window_focused: false,
+            active_route: azul_core::resources::OptionRouteMatch::None,
         };
 
         Ok(Self {

@@ -82,14 +82,13 @@ impl LinuxAccessibilityAdapter {
         };
 
         if let Some(adapter) = guard.as_mut() {
-            // Wrap in catch_unwind to prevent panics from crashing the app
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                adapter.update_if_active(|| tree_update)
+            // Wrap in catch_unwind to prevent panics from crashing the app.
+            // accesskit's unix adapter raises AT-SPI events internally and
+            // returns `()` (unlike the macOS adapter which hands back a
+            // `QueuedEvents`), so there's nothing to dispatch on our side.
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                adapter.update_if_active(|| tree_update);
             }));
-            // Raise queued events so screen readers receive AT-SPI notifications
-            if let Ok(Some(events)) = result {
-                events.raise();
-            }
         }
     }
 

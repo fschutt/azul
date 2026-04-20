@@ -410,6 +410,7 @@ impl Win32Window {
             monitor_id: OptionU32::None, // Monitor ID will be detected from platform
             window_id: initial_window_state.window_id.clone(),
             window_focused: true,
+            active_route: azul_core::resources::OptionRouteMatch::None,
         };
 
         // Set document_id and id_namespace for this window
