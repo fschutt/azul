@@ -1059,15 +1059,20 @@ fn layout_bfc<T: ParsedFontTrait>(
     let parent_margin_top = node_bp.margin.main_start(writing_mode);
     let parent_margin_bottom = node_bp.margin.main_end(writing_mode);
 
-    // +spec:margin-collapsing:2476d8 - margins do not collapse across formatting context boundaries
-    // If this node establishes an independent formatting context (new BFC), its margins
-    // must NOT collapse with its children's margins. The children are in a different FC.
-    let is_bfc_root = node.parent.is_none() || establishes_new_bfc(ctx, &node, tree.cold(node_index));
+    // margins do not collapse across formatting context boundaries: an independent
+    // BFC (float, overflow != visible, display: flex/grid, etc.) isolates its
+    // children's margins. The DOM root is NOT a BFC boundary for this purpose —
+    // its first child's margin still collapses through it (then gets absorbed at
+    // the root, since there's no grandparent to escape to).
+    let establishes_own_bfc = establishes_new_bfc(ctx, &node, tree.cold(node_index));
+    let is_bfc_root = node.parent.is_none() || establishes_own_bfc;
 
-    // Check if parent (this BFC root) has border/padding that prevents parent-child collapse
-    let parent_has_top_blocker = is_bfc_root
+    // parent_has_*_blocker inhibits parent-child margin collapse per CSS 2.2 §8.3.1.
+    // An explicit border/padding blocks, and an independent BFC blocks, but the
+    // root on its own does not.
+    let parent_has_top_blocker = establishes_own_bfc
         || has_margin_collapse_blocker(&node_bp, writing_mode, true);
-    let parent_has_bottom_blocker = is_bfc_root
+    let parent_has_bottom_blocker = establishes_own_bfc
         || has_margin_collapse_blocker(&node_bp, writing_mode, false);
 
     // Track accumulated top margin for first-child escape
