@@ -13,7 +13,13 @@ fn load_times_new_roman() -> Option<ParsedFont> {
     let font_path = "/System/Library/Fonts/Supplemental/Times New Roman.ttf";
     let font_bytes = std::fs::read(font_path).ok()?;
     let mut warnings = Vec::new();
-    ParsedFont::from_bytes(&font_bytes, 0, &mut warnings)
+    // `from_bytes` drops `original_bytes`, so `hmtx_bytes()` would return
+    // `&[]` and every advance lookup would come back zero. Retain the
+    // source bytes via `with_source_bytes` so the hmtx table is readable.
+    let bytes_arc = std::sync::Arc::new(
+        rust_fontconfig::FontBytes::Owned(std::sync::Arc::from(font_bytes.as_slice())),
+    );
+    Some(ParsedFont::from_bytes(&font_bytes, 0, &mut warnings)?.with_source_bytes(bytes_arc))
 }
 
 /// hb-shape reference data at font-size=2048 (=upem, so values are in font units).
@@ -86,7 +92,7 @@ fn test_shaping_vs_hbshape_test() {
     println!("{:<6} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>12} {:>10}",
         "char", "gid_as", "gid_hb", "raw_adv", "eff_adv", "hb_ax", "off_x", "hb_dx", "advance", "kerning");
 
-    for (i, (g, h)) in glyphs.iter().zip(hb.iter()).enumerate() {
+    for (g, h) in glyphs.iter().zip(hb.iter()) {
         let raw_advance = font.get_horizontal_advance(g.glyph_id);
         let effective_advance_units = (g.advance + g.kerning).round() as i32;
         let offset_x_units = g.offset.x.round() as i32;
