@@ -11,7 +11,6 @@ use azul_core::{
     resources::RendererResources,
     styled_dom::{NodeHierarchyItemId, StyledDom},
 };
-use azul_css::css::Css;
 use azul_layout::{
     callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
 };
@@ -275,13 +274,18 @@ fn test_nested_margin_escape() {
     //     </div>
     //   </div>
     //
-    // Expected:
-    //   - Node 1 (.box) margin escapes through Node 0: 30px
-    //   - Node 4 (.nested-box) margin escapes through Node 3: 50px
-    //   - Node 3 margin (40) collapses with Node 1 bottom margin (30) = 40px gap
-    //   - Node 0 height = 140 (box) + 40 (collapsed) + 130 (nested-box) = 310px MINUS 30px escaped
-    //     = 280px content-box height
-    //   - Node 3 height = 130px (nested-box only, NOT including escaped 50px)
+    // Expected (per CSS 2.2 §8.3.1 margin-through-flow collapsing):
+    //   - Node 1 (.box) has padding → its top margin (30) still escapes through Node 0
+    //     (chain stops at box's own padding — box's own top-margin is the collapsed value).
+    //   - Node 4 (.nested-box) has padding → its top margin (50) escapes through Node 3
+    //     to become Node 3's effective top margin (max(40, 50) = 50).
+    //   - Sibling collapse between Node 1 and Node 3 uses Node 3's ESCAPED top (50),
+    //     not its own (40): max(30, 50) = 50px gap.
+    //   - Node 0 children extent = 140 (box) + 50 (gap) + 130 (nested-container) = 320
+    //   - Root traps escaped margins (no grandparent): top 30 + bottom 40.
+    //   - Final height: 320 + 40 (bottom trap) = 360px.
+    //     (Top trap +30 is exactly offset by `total_escaped_top_margin` subtraction.)
+    //   - Node 3 height = 130px (just nested-box's border-box; escaped margins don't count).
 
     let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
@@ -382,8 +386,9 @@ fn test_nested_margin_escape() {
         .expect("nested-container rect");
 
     assert!(
-        (container_rect.size.height - 350.0).abs() < 1.0,
-        "Container should be ~350px (box + nested-box + margins), got {}",
+        (container_rect.size.height - 360.0).abs() < 1.0,
+        "Container should be ~360px (140 box + 50 gap + 130 nested-container + 40 bottom \
+         trap), got {}",
         container_rect.size.height
     );
 
