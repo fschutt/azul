@@ -284,6 +284,8 @@ pub enum LifecycleReason {
     Resize,
     /// Props or state changed
     Update,
+    /// Node was removed from DOM
+    Unmount,
 }
 
 /// Keyboard modifier keys state.
@@ -1045,15 +1047,35 @@ fn matches_filter_phase(
         EventFilter::Window(window_filter) => {
             matches_window_filter(window_filter, event, current_phase)
         }
-        EventFilter::Not(_) => {
-            // Not filters are inverted - will be implemented in future
-            false
+        EventFilter::Component(component_filter) => {
+            matches_component_filter(component_filter, event, current_phase)
         }
-        EventFilter::Component(_) | EventFilter::Application(_) => {
-            // Lifecycle and application events - will be implemented in future
+        EventFilter::Application(_) => {
+            // Application events - will be implemented in future
             false
         }
     }
+}
+
+/// Check if a component (lifecycle) filter matches the event.
+///
+/// Lifecycle events produced by `diff::reconcile_dom` carry the target node in
+/// `SyntheticEvent.target`, so dispatchers that bypass `propagate_event` and
+/// invoke the target directly also need a way to compare. This predicate is
+/// the single source of truth for that comparison; changing it without
+/// updating `event_type_to_filters` will de-sync dispatch.
+fn matches_component_filter(
+    filter: &ComponentEventFilter,
+    event: &SyntheticEvent,
+    _phase: EventPhase,
+) -> bool {
+    matches!(
+        (filter, &event.event_type),
+        (ComponentEventFilter::AfterMount, EventType::Mount)
+            | (ComponentEventFilter::BeforeUnmount, EventType::Unmount)
+            | (ComponentEventFilter::Updated, EventType::Update)
+            | (ComponentEventFilter::NodeResized, EventType::Resize)
+    )
 }
 
 /// Check if a hover filter matches the event.
@@ -1518,6 +1540,8 @@ pub fn detect_lifecycle_events_with_reconciliation(
     dom_id: DomId,
     old_node_data: &[crate::dom::NodeData],
     new_node_data: &[crate::dom::NodeData],
+    old_hierarchy: &[crate::styled_dom::NodeHierarchyItem],
+    new_hierarchy: &[crate::styled_dom::NodeHierarchyItem],
     old_layout: &crate::FastHashMap<NodeId, LogicalRect>,
     new_layout: &crate::FastHashMap<NodeId, LogicalRect>,
     timestamp: Instant,
@@ -1525,6 +1549,8 @@ pub fn detect_lifecycle_events_with_reconciliation(
     let diff_result = crate::diff::reconcile_dom(
         old_node_data,
         new_node_data,
+        old_hierarchy,
+        new_hierarchy,
         old_layout,
         new_layout,
         dom_id,
@@ -2029,25 +2055,6 @@ impl WindowEventFilter {
     }
 }
 
-/// The inverse of an `onclick` event filter, fires when an item is *not* hovered / focused.
-/// This is useful for cleanly implementing things like popover dialogs or dropdown boxes that
-/// want to close when the user clicks any where *but* the item itself.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[repr(C, u8)]
-pub enum NotEventFilter {
-    Hover(HoverEventFilter),
-    Focus(FocusEventFilter),
-}
-
-impl NotEventFilter {
-    pub fn as_event_filter(&self) -> EventFilter {
-        match self {
-            NotEventFilter::Hover(e) => EventFilter::Hover(*e),
-            NotEventFilter::Focus(e) => EventFilter::Focus(*e),
-        }
-    }
-}
-
 /// Defines events related to the lifecycle of a DOM node itself.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -2062,6 +2069,8 @@ pub enum ComponentEventFilter {
     DefaultAction,
     /// Fired when the component becomes selected.
     Selected,
+    /// Fired when a keyed component's content has changed (props/state update).
+    Updated,
 }
 
 /// Defines application-level events not tied to a specific window or node.
@@ -2089,11 +2098,6 @@ pub enum EventFilter {
     /// Calls the attached callback when the mouse is actively over the
     /// given element.
     Hover(HoverEventFilter),
-    /// Inverse of `Hover` - calls the attached callback if the mouse is **not**
-    /// over the given element. This is particularly useful for popover menus
-    /// where you want to close the menu when the user clicks anywhere else but
-    /// the menu itself.
-    Not(NotEventFilter),
     /// Calls the attached callback when the element is currently focused.
     Focus(FocusEventFilter),
     /// Calls the callback when anything related to the window is happening.
@@ -2144,7 +2148,6 @@ macro_rules! get_single_enum_type {
 impl EventFilter {
     get_single_enum_type!(as_hover_event_filter, EventFilter::Hover(HoverEventFilter));
     get_single_enum_type!(as_focus_event_filter, EventFilter::Focus(FocusEventFilter));
-    get_single_enum_type!(as_not_event_filter, EventFilter::Not(NotEventFilter));
     get_single_enum_type!(
         as_window_event_filter,
         EventFilter::Window(WindowEventFilter)
@@ -2369,6 +2372,15 @@ pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> V
         E::FileHover => vec![EF::Hover(H::HoveredFile)],
         E::FileDrop => vec![EF::Hover(H::DroppedFile)],
         E::FileHoverCancel => vec![EF::Hover(H::HoveredFileCancelled)],
+
+        // Lifecycle events — dispatched on the target node via EventFilter::Component.
+        // Both Mount and Unmount map to their respective Component filters so that
+        // `.add_callback(EventFilter::Component(ComponentEventFilter::AfterMount))`
+        // actually fires after reconcile_dom emits a SyntheticEvent{EventType::Mount,..}.
+        E::Mount => vec![EF::Component(ComponentEventFilter::AfterMount)],
+        E::Unmount => vec![EF::Component(ComponentEventFilter::BeforeUnmount)],
+        E::Update => vec![EF::Component(ComponentEventFilter::Updated)],
+        E::Resize => vec![EF::Component(ComponentEventFilter::NodeResized)],
 
         // Unsupported events
         _ => vec![],

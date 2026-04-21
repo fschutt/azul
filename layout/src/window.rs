@@ -385,6 +385,28 @@ pub struct LayoutWindow {
     /// Pending VirtualView updates from callbacks (processed in next frame)
     /// Map of DomId -> Set of NodeIds that need re-rendering
     pub pending_virtual_view_updates: BTreeMap<DomId, FastBTreeSet<NodeId>>,
+    /// Lifecycle events produced by DOM reconciliation, waiting to be dispatched.
+    ///
+    /// `regenerate_layout` appends `diff::reconcile_dom`'s `DiffResult.events` here
+    /// (Mount / Update / Resize SyntheticEvents — note: NOT Unmount; see
+    /// `pending_unmount_invocations`). The shell's event loop drains and
+    /// dispatches them via `dispatch_events_propagated`, which routes
+    /// `EventFilter::Component(_)` filters through `matches_component_filter`.
+    /// Drain-and-clear is the caller's responsibility; nothing inside
+    /// `LayoutWindow` ages or discards these on its own.
+    pub pending_lifecycle_events: Vec<azul_core::events::SyntheticEvent>,
+    /// Resolved BeforeUnmount invocations queued for dispatch.
+    ///
+    /// Unmount events target OLD NodeIds that disappear once the new layout
+    /// is committed to `layout_results`, so the shell cannot resolve them
+    /// via DOM lookup at dispatch time. `regenerate_layout` resolves the
+    /// callback against the OLD node data while it still has access, then
+    /// pushes a `(CoreCallbackData, SyntheticEvent)` pair here. The shell's
+    /// dispatcher invokes each pair directly.
+    pub pending_unmount_invocations: Vec<(
+        azul_core::callbacks::CoreCallbackData,
+        azul_core::events::SyntheticEvent,
+    )>,
     /// System style (colors, fonts, metrics) for resolving system color keywords
     /// Set via `set_system_style()` from the shell after window creation
     pub system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
@@ -506,6 +528,8 @@ impl LayoutWindow {
             },
             dirty_text_nodes: BTreeMap::new(),
             pending_virtual_view_updates: BTreeMap::new(),
+            pending_lifecycle_events: Vec::new(),
+            pending_unmount_invocations: Vec::new(),
             system_style: None,
             monitors: std::sync::Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
             font_stacks_hash: 0,
@@ -588,6 +612,8 @@ impl LayoutWindow {
             },
             dirty_text_nodes: BTreeMap::new(),
             pending_virtual_view_updates: BTreeMap::new(),
+            pending_lifecycle_events: Vec::new(),
+            pending_unmount_invocations: Vec::new(),
             system_style: None,
             monitors: std::sync::Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
             font_stacks_hash: 0,
@@ -669,6 +695,8 @@ impl LayoutWindow {
             },
             dirty_text_nodes: BTreeMap::new(),
             pending_virtual_view_updates: BTreeMap::new(),
+            pending_lifecycle_events: Vec::new(),
+            pending_unmount_invocations: Vec::new(),
             system_style: None,
             monitors: std::sync::Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
             font_stacks_hash: 0,

@@ -5,8 +5,32 @@ use azul_core::FastHashMap;
 use azul_core::dom::{NodeData, DomId};
 use azul_core::id::NodeId;
 use azul_core::geom::LogicalRect;
-use azul_core::diff::{reconcile_dom, reconcile_cursor_position, transfer_states, create_migration_map, NodeMove};
+use azul_core::diff::{reconcile_dom, reconcile_cursor_position, transfer_states, create_migration_map, NodeMove, DiffResult};
 use azul_core::task::Instant;
+
+// Flat-DOM test wrapper — these tests don't model parent/sibling pointers, so
+// `reconcile_dom` runs against empty hierarchy slices. The reconciliation-key
+// tier degrades to `(node_type discriminant + classes)` with no structural
+// nesting, which matches the pre-hierarchy test expectations.
+fn reconcile_dom_flat(
+    old_data: &[NodeData],
+    new_data: &[NodeData],
+    old_layout: &FastHashMap<NodeId, LogicalRect>,
+    new_layout: &FastHashMap<NodeId, LogicalRect>,
+    dom_id: DomId,
+    timestamp: Instant,
+) -> DiffResult {
+    reconcile_dom(
+        old_data,
+        new_data,
+        &[],
+        &[],
+        old_layout,
+        new_layout,
+        dom_id,
+        timestamp,
+    )
+}
 
 #[test]
 fn test_simple_mount() {
@@ -17,7 +41,7 @@ fn test_simple_mount() {
     let mut new_layout = FastHashMap::default();
     new_layout.insert(NodeId::new(0), LogicalRect::zero());
     
-    let result = reconcile_dom(
+    let result = reconcile_dom_flat(
         &old_data,
         &new_data,
         &old_layout,
@@ -42,7 +66,7 @@ fn test_identical_nodes_match() {
     let mut new_layout = FastHashMap::default();
     new_layout.insert(NodeId::new(0), LogicalRect::zero());
     
-    let result = reconcile_dom(
+    let result = reconcile_dom_flat(
         &old_data,
         &new_data,
         &old_layout,
@@ -79,7 +103,7 @@ fn test_reorder_by_hash() {
     new_layout.insert(NodeId::new(0), LogicalRect::zero());
     new_layout.insert(NodeId::new(1), LogicalRect::zero());
     
-    let result = reconcile_dom(
+    let result = reconcile_dom_flat(
         &old_data,
         &new_data,
         &old_layout,
@@ -109,7 +133,7 @@ fn test_empty_to_empty() {
     let old_data: Vec<NodeData> = vec![];
     let new_data: Vec<NodeData> = vec![];
     
-    let result = reconcile_dom(
+    let result = reconcile_dom_flat(
         &old_data,
         &new_data,
         &FastHashMap::default(),
@@ -136,7 +160,7 @@ fn test_all_nodes_removed() {
         old_layout.insert(NodeId::new(i), LogicalRect::zero());
     }
     
-    let result = reconcile_dom(
+    let result = reconcile_dom_flat(
         &old_data,
         &new_data,
         &old_layout,
@@ -164,7 +188,7 @@ fn test_all_nodes_added() {
         new_layout.insert(NodeId::new(i), LogicalRect::zero());
     }
     
-    let result = reconcile_dom(
+    let result = reconcile_dom_flat(
         &old_data,
         &new_data,
         &FastHashMap::default(),
@@ -196,7 +220,7 @@ fn test_keyed_node_match() {
     let mut new_layout = FastHashMap::default();
     new_layout.insert(NodeId::new(0), LogicalRect::zero());
     
-    let result = reconcile_dom(
+    let result = reconcile_dom_flat(
         &old_data,
         &new_data,
         &old_layout,
@@ -231,7 +255,7 @@ fn test_keyed_reorder() {
         new_layout.insert(NodeId::new(i), LogicalRect::zero());
     }
     
-    let result = reconcile_dom(
+    let result = reconcile_dom_flat(
         &old_data,
         &new_data,
         &old_layout,
@@ -272,7 +296,7 @@ fn test_identical_nodes_fifo() {
         new_layout.insert(NodeId::new(i), LogicalRect::zero());
     }
     
-    let result = reconcile_dom(
+    let result = reconcile_dom_flat(
         &old_data,
         &new_data,
         &old_layout,
@@ -315,7 +339,7 @@ fn test_insert_at_beginning() {
         new_layout.insert(NodeId::new(i), LogicalRect::zero());
     }
     
-    let result = reconcile_dom(
+    let result = reconcile_dom_flat(
         &old_data,
         &new_data,
         &old_layout,
@@ -361,7 +385,7 @@ fn test_insert_in_middle() {
         new_layout.insert(NodeId::new(i), LogicalRect::zero());
     }
     
-    let result = reconcile_dom(
+    let result = reconcile_dom_flat(
         &old_data,
         &new_data,
         &old_layout,
@@ -406,7 +430,7 @@ fn test_remove_from_middle() {
         new_layout.insert(NodeId::new(i), LogicalRect::zero());
     }
     
-    let result = reconcile_dom(
+    let result = reconcile_dom_flat(
         &old_data,
         &new_data,
         &old_layout,
@@ -450,7 +474,7 @@ fn test_mixed_keyed_and_unkeyed() {
         new_layout.insert(NodeId::new(i), LogicalRect::zero());
     }
     
-    let result = reconcile_dom(
+    let result = reconcile_dom_flat(
         &old_data,
         &new_data,
         &old_layout,
@@ -490,7 +514,7 @@ fn test_duplicate_keys() {
     let mut new_layout = FastHashMap::default();
     new_layout.insert(NodeId::new(0), LogicalRect::zero());
     
-    let result = reconcile_dom(
+    let result = reconcile_dom_flat(
         &old_data,
         &new_data,
         &old_layout,
@@ -519,7 +543,7 @@ fn test_key_not_in_old() {
     let mut new_layout = FastHashMap::default();
     new_layout.insert(NodeId::new(0), LogicalRect::zero());
     
-    let result = reconcile_dom(
+    let result = reconcile_dom_flat(
         &old_data,
         &new_data,
         &old_layout,
@@ -555,7 +579,7 @@ fn test_large_list_reorder() {
         new_layout.insert(NodeId::new(i), LogicalRect::zero());
     }
     
-    let result = reconcile_dom(
+    let result = reconcile_dom_flat(
         &old_data,
         &new_data,
         &old_layout,
@@ -588,7 +612,7 @@ fn test_migration_map() {
         new_layout.insert(NodeId::new(i), LogicalRect::zero());
     }
     
-    let result = reconcile_dom(
+    let result = reconcile_dom_flat(
         &old_data,
         &new_data,
         &old_layout,
@@ -619,7 +643,7 @@ fn test_different_node_types() {
     let mut new_layout = FastHashMap::default();
     new_layout.insert(NodeId::new(0), LogicalRect::zero());
     
-    let result = reconcile_dom(
+    let result = reconcile_dom_flat(
         &old_data,
         &new_data,
         &old_layout,
@@ -651,7 +675,7 @@ fn test_text_nodes() {
         new_layout.insert(NodeId::new(i), LogicalRect::zero());
     }
     
-    let result = reconcile_dom(
+    let result = reconcile_dom_flat(
         &old_data,
         &new_data,
         &old_layout,
@@ -686,7 +710,7 @@ fn test_shuffle_three() {
         new_layout.insert(NodeId::new(i), LogicalRect::zero());
     }
     
-    let result = reconcile_dom(
+    let result = reconcile_dom_flat(
         &old_data,
         &new_data,
         &old_layout,
@@ -1193,7 +1217,7 @@ fn test_reconcile_then_transfer_integration() {
     new_layout.insert(NodeId::new(0), LogicalRect::zero());
     
     // Step 1: Reconcile
-    let diff = reconcile_dom(
+    let diff = reconcile_dom_flat(
         &old_data,
         &new_data,
         &old_layout,
@@ -1318,7 +1342,7 @@ fn test_text_nodes_match_by_structural_hash() {
     let mut new_layout = FastHashMap::default();
     new_layout.insert(NodeId::new(0), LogicalRect::zero());
     
-    let result = reconcile_dom(
+    let result = reconcile_dom_flat(
         &old_data,
         &new_data,
         &old_layout,

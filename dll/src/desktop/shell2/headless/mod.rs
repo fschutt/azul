@@ -494,6 +494,14 @@ impl HeadlessWindow {
             self.cpu_backend.hit_tester.rebuild_from_layout(&lw.layout_results);
         }
 
+        // Drain any lifecycle events produced by reconciliation (Mount/Unmount/
+        // Update/Resize) and dispatch them through the normal callback pipeline.
+        // Doing this inside regenerate_layout keeps the headless test harness
+        // self-contained: callers do not have to remember to pump lifecycle
+        // events separately to see `.with_callback(EventFilter::Component(_))`
+        // fire.
+        self.dispatch_pending_lifecycle_events();
+
         // CPU-render the frame (retained compositor handles efficient resize)
         #[cfg(feature = "cpurender")]
         {

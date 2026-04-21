@@ -277,7 +277,6 @@ fn generate_prelude(builder: &mut CodeBuilder, modules: &BTreeMap<String, Vec<Ty
         "WindowEventFilter",
         "ApplicationEventFilter",
         "ComponentEventFilter",
-        "NotEventFilter",
         "LogicalSize",
         "LogicalPosition",
         "LayoutSize",

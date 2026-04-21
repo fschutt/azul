@@ -2979,8 +2979,32 @@ pub trait PlatformWindow {
                                 }
                             }
                         }
-                        // Not/Component filters: not used in event dispatch
-                        EventFilter::Not(_) | EventFilter::Component(_) => {}
+                        EventFilter::Component(_) => {
+                            // Lifecycle events (Mount/Unmount/Update/Resize) carry the
+                            // target node in `event.target`; fire the callback on that
+                            // node only. No propagation, no bubbling — this mirrors how
+                            // the diff emits one SyntheticEvent per affected node.
+                            let dom_id = event.target.dom;
+                            let Some(node_id) = event.target.node.into_crate_internal() else {
+                                continue;
+                            };
+                            let Some(lr) = layout_window.layout_results.get(&dom_id) else {
+                                continue;
+                            };
+                            let ndc = lr.styled_dom.node_data.as_container();
+                            let Some(nd) = ndc.get(node_id) else {
+                                continue;
+                            };
+                            for cb in nd.get_callbacks().as_ref().iter() {
+                                if cb.event == *filter {
+                                    planned.push(PlannedInvocation {
+                                        dom_id,
+                                        node_id,
+                                        callback_data: cb.clone(),
+                                    });
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -3292,6 +3316,73 @@ pub trait PlatformWindow {
         // Delegate to LayoutWindow's process_accessibility_action
         // This has direct mutable access to all managers and returns affected nodes
         layout_window.process_accessibility_action(dom_id, node_id, action, now)
+    }
+
+    /// Drain `LayoutWindow.pending_lifecycle_events` and dispatch each event.
+    ///
+    /// Reconciliation (see `common::layout::regenerate_layout`) queues
+    /// Mount / Unmount / Update / Resize `SyntheticEvent`s for affected nodes.
+    /// This method pops the queue and routes them through `dispatch_events_propagated`,
+    /// which handles `EventFilter::Component(_)` by invoking callbacks on the
+    /// event's target node (no capture/bubble phases — lifecycle events are
+    /// single-target).
+    ///
+    /// Call this after `regenerate_layout` completes so callbacks observe a
+    /// consistent post-layout DOM. Returning `true` means at least one callback
+    /// reported `Update::Refresh(Dom)` and the caller should regenerate again.
+    fn dispatch_pending_lifecycle_events(&mut self) -> bool {
+        // Snapshot both queues up front so we hold no borrow on the layout
+        // window when invoking callbacks (callbacks may mutate it).
+        let (events, unmount_invocations) = match self.get_layout_window_mut() {
+            Some(lw) => (
+                core::mem::take(&mut lw.pending_lifecycle_events),
+                core::mem::take(&mut lw.pending_unmount_invocations),
+            ),
+            None => return false,
+        };
+
+        let mut any_refresh = false;
+
+        if !events.is_empty() {
+            let (_, update, _) = self.dispatch_events_propagated(&events);
+            if !matches!(update, azul_core::callbacks::Update::DoNothing) {
+                any_refresh = true;
+            }
+        }
+
+        // BeforeUnmount callbacks were resolved against the OLD node data at
+        // diff time, so we already have a `(CoreCallbackData, SyntheticEvent)`
+        // pair for each one. Invoke directly via `invoke_single_callback` —
+        // there is no DOM lookup to perform (the OLD NodeId is stale by now).
+        if !unmount_invocations.is_empty() {
+            let borrows = self.prepare_callback_invocation();
+            let mut all_changes: Vec<azul_layout::callbacks::CallbackChange> = Vec::new();
+            for (callback_data, _event) in &unmount_invocations {
+                let mut callback =
+                    azul_layout::callbacks::Callback::from_core(callback_data.callback.clone());
+                let (changes, update) = borrows.layout_window.invoke_single_callback(
+                    &mut callback,
+                    &mut callback_data.refany.clone(),
+                    &borrows.window_handle,
+                    borrows.gl_context_ptr,
+                    borrows.system_style.clone(),
+                    &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
+                    borrows.previous_window_state,
+                    borrows.current_window_state,
+                    borrows.renderer_resources,
+                );
+                if !matches!(update, azul_core::callbacks::Update::DoNothing) {
+                    any_refresh = true;
+                }
+                all_changes.extend(changes);
+            }
+            drop(borrows);
+            for change in &all_changes {
+                let _ = self.apply_user_change(change);
+            }
+        }
+
+        any_refresh
     }
 
     /// Process all window events using the state-diffing system.

@@ -27,7 +27,7 @@ fn make_layout(n: usize) -> FastHashMap<NodeId, LogicalRect> {
     m
 }
 
-/// Helper: run reconcile_dom with simple defaults
+/// Helper: run reconcile_dom with simple defaults (flat DOM, no hierarchy).
 fn reconcile(
     old: &[NodeData],
     new: &[NodeData],
@@ -36,6 +36,7 @@ fn reconcile(
     let new_layout = make_layout(new.len());
     reconcile_dom(
         old, new,
+        &[], &[],
         &old_layout, &new_layout,
         DomId { inner: 0 },
         Instant::now(),

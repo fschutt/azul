@@ -17,3 +17,4 @@ mod css_scope;
 mod state_preservation;
 mod text_reconciliation;
 mod dom_reconciliation;
+mod deep_reconciliation;

@@ -848,7 +848,6 @@ pub struct StyledDom {
     pub styled_nodes: StyledNodeVec,
     pub cascade_info: CascadeInfoVec,
     pub nodes_with_window_callbacks: NodeHierarchyItemIdVec,
-    pub nodes_with_not_callbacks: NodeHierarchyItemIdVec,
     pub nodes_with_datasets: NodeHierarchyItemIdVec,
     pub tag_ids_to_node_ids: TagIdToNodeIdMappingVec,
     pub non_leaf_nodes: ParentWithNodeDepthVec,
@@ -885,7 +884,6 @@ impl Default for StyledDom {
             }]
             .into(),
             nodes_with_window_callbacks: Vec::new().into(),
-            nodes_with_not_callbacks: Vec::new().into(),
             nodes_with_datasets: Vec::new().into(),
             css_property_cache: CssPropertyCachePtr::new(CssPropertyCache::empty(1)),
             dom_id: DomId::ROOT_ID,
@@ -947,7 +945,6 @@ impl StyledDom {
                 * core::mem::size_of::<ParentWithNodeDepth>(),
             callback_vecs_bytes:
                 self.nodes_with_window_callbacks.as_ref().len() * 8
-                + self.nodes_with_not_callbacks.as_ref().len() * 8
                 + self.nodes_with_datasets.as_ref().len() * 8,
             css_property_cache: self.css_property_cache.ptr.memory_breakdown(),
         }
@@ -1139,9 +1136,8 @@ impl StyledDom {
         let has_any_callbacks = compact_dom.node_data.as_ref().internal.iter()
             .any(|c| !c.get_callbacks().is_empty() || c.get_dataset().is_some());
 
-        let (nodes_with_window_callbacks, nodes_with_not_callbacks, nodes_with_datasets) = if has_any_callbacks {
+        let (nodes_with_window_callbacks, nodes_with_datasets) = if has_any_callbacks {
             let mut win_cbs = Vec::new();
-            let mut not_cbs = Vec::new();
             let mut datasets = Vec::new();
             for (node_id, c) in compact_dom.node_data.as_ref().internal.iter().enumerate() {
                 let cbs = c.get_callbacks();
@@ -1150,22 +1146,15 @@ impl StyledDom {
                     datasets.push(NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node_id))));
                 }
                 for cb in cbs.iter() {
-                    match cb.event {
-                        EventFilter::Window(_) => {
-                            win_cbs.push(NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node_id))));
-                            break;
-                        }
-                        EventFilter::Not(_) => {
-                            not_cbs.push(NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node_id))));
-                            break;
-                        }
-                        _ => {}
+                    if let EventFilter::Window(_) = cb.event {
+                        win_cbs.push(NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node_id))));
+                        break;
                     }
                 }
             }
-            (win_cbs, not_cbs, datasets)
+            (win_cbs, datasets)
         } else {
-            (Vec::new(), Vec::new(), Vec::new())
+            (Vec::new(), Vec::new())
         };
 
         let mut styled_dom = StyledDom {
@@ -1176,7 +1165,6 @@ impl StyledDom {
             styled_nodes: styled_nodes.into(),
             tag_ids_to_node_ids: tag_ids.into(),
             nodes_with_window_callbacks: nodes_with_window_callbacks.into(),
-            nodes_with_not_callbacks: nodes_with_not_callbacks.into(),
             nodes_with_datasets: nodes_with_datasets.into(),
             non_leaf_nodes,
             css_property_cache: CssPropertyCachePtr::new(css_property_cache),
@@ -1306,12 +1294,6 @@ impl StyledDom {
         self.nodes_with_window_callbacks
             .append(&mut other.nodes_with_window_callbacks);
 
-        for nid in other.nodes_with_not_callbacks.iter_mut() {
-            nid.inner += self_len;
-        }
-        self.nodes_with_not_callbacks
-            .append(&mut other.nodes_with_not_callbacks);
-
         for nid in other.nodes_with_datasets.iter_mut() {
             nid.inner += self_len;
         }
@@ -1401,12 +1383,6 @@ impl StyledDom {
         }
         self.nodes_with_window_callbacks
             .append(&mut other.nodes_with_window_callbacks);
-
-        for nid in other.nodes_with_not_callbacks.iter_mut() {
-            nid.inner += self_len;
-        }
-        self.nodes_with_not_callbacks
-            .append(&mut other.nodes_with_not_callbacks);
 
         for nid in other.nodes_with_datasets.iter_mut() {
             nid.inner += self_len;

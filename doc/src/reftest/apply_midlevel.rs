@@ -604,7 +604,16 @@ fn prompt_post_apply() -> Result<PostApply, String> {
     print!("Accept this commit? [y]es / [e]dit-further / [r]evert / [q]uit: ");
     io::stdout().flush().ok();
     let line = read_line()?;
-    let c = line.trim().chars().next().unwrap_or(' ');
+    let trimmed = line.trim();
+
+    // Multi-char input → treat as edit-further feedback directly. Avoids the
+    // second "Additional instructions:" prompt when the user has already
+    // typed their feedback on this line.
+    if trimmed.chars().count() > 1 {
+        return Ok(PostApply::Refine(trimmed.to_string()));
+    }
+
+    let c = trimmed.chars().next().unwrap_or(' ');
     match c {
         'y' | 'Y' => Ok(PostApply::Accept),
         'e' | 'E' => {
@@ -615,10 +624,8 @@ fn prompt_post_apply() -> Result<PostApply, String> {
         'r' | 'R' => Ok(PostApply::Revert),
         'q' | 'Q' => Ok(PostApply::Quit),
         _ => {
-            println!("  (unrecognised — treating as edit)");
-            println!("  Additional instructions for the agent (end with '.' on its own line):");
-            let instr = read_multiline_until_dot()?;
-            Ok(PostApply::Refine(instr))
+            println!("  (unrecognised — please pick one of y/e/r/q, or type feedback)");
+            prompt_post_apply()
         }
     }
 }
@@ -658,11 +665,22 @@ fn prompt_user() -> Result<UserAction, String> {
     println!("  [r] reject — don't apply, record as rejected with reason");
     println!("  [d] diff   — checkout commit so your editor shows its state");
     println!("  [q] quit");
+    println!("  (anything longer than one character is taken as analyzer feedback)");
     print!("> ");
     io::stdout().flush().ok();
 
     let line = read_line()?;
-    let c = line.trim().chars().next().unwrap_or(' ');
+    let trimmed = line.trim();
+
+    // Multi-char input → treat the whole line as analyzer feedback and go
+    // straight to refinement, skipping the second "Feedback:" prompt. This
+    // lets the user type feedback directly at the decision prompt instead
+    // of having to press `p`, then re-type, then terminate with `.`.
+    if trimmed.chars().count() > 1 {
+        return Ok(UserAction::Refine(trimmed.to_string()));
+    }
+
+    let c = trimmed.chars().next().unwrap_or(' ');
 
     match c {
         'y' | 'Y' => Ok(UserAction::Yes),
@@ -684,7 +702,7 @@ fn prompt_user() -> Result<UserAction, String> {
         'd' | 'D' => Ok(UserAction::Show),
         'q' | 'Q' => Ok(UserAction::Quit),
         _ => {
-            println!("  (unrecognised — please pick one of y/p/s/r/d/q)");
+            println!("  (unrecognised — please pick one of y/p/s/r/d/q, or type feedback)");
             prompt_user()
         }
     }

@@ -30,7 +30,7 @@ use azul_css::{
 pub use crate::a11y::*;
 pub use crate::events::{
     ApplicationEventFilter, ComponentEventFilter, EventFilter, FocusEventFilter, HoverEventFilter,
-    NotEventFilter, WindowEventFilter,
+    WindowEventFilter,
 };
 pub use crate::id::{Node, NodeHierarchy, NodeId};
 use crate::{

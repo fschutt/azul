@@ -8,11 +8,12 @@
 
 use azul_core::diff::{
     reconcile_dom_with_changes, ChangeAccumulator, ExtendedDiffResult,
-    NodeChangeSet, reconcile_dom,
+    NodeChangeSet, reconcile_dom, DiffResult,
 };
 use azul_core::dom::{NodeData, DomId};
 use azul_core::id::NodeId;
 use azul_core::geom::LogicalRect;
+use azul_core::styled_dom::{NodeHierarchyItem, StyledNodeState};
 use azul_core::task::Instant;
 use azul_core::FastHashMap;
 use azul_css::AzString;
@@ -27,6 +28,33 @@ fn make_layout(n: usize) -> FastHashMap<NodeId, LogicalRect> {
     m
 }
 
+/// Flat-DOM wrapper for `reconcile_dom_with_changes`. These tests don't model
+/// parent/sibling pointers, so we pass empty hierarchy slices; the reconciliation
+/// key degrades to `(node_type discriminant + classes)`.
+fn reconcile_dom_with_changes_flat(
+    old_data: &[NodeData],
+    new_data: &[NodeData],
+    old_styled: Option<&[StyledNodeState]>,
+    new_styled: Option<&[StyledNodeState]>,
+    old_layout: &FastHashMap<NodeId, LogicalRect>,
+    new_layout: &FastHashMap<NodeId, LogicalRect>,
+    dom_id: DomId,
+    timestamp: Instant,
+) -> ExtendedDiffResult {
+    reconcile_dom_with_changes(
+        old_data,
+        new_data,
+        &[],
+        &[],
+        old_styled,
+        new_styled,
+        old_layout,
+        new_layout,
+        dom_id,
+        timestamp,
+    )
+}
+
 // =========================================================================
 // SCENARIO: Identical DOM (no changes)
 // =========================================================================
@@ -39,7 +67,7 @@ fn identical_dom_no_changes() {
     ];
     let layout = make_layout(data.len());
     
-    let extended = reconcile_dom_with_changes(
+    let extended = reconcile_dom_with_changes_flat(
         &data, &data,
         None, None,
         &layout, &layout,
@@ -58,7 +86,7 @@ fn identical_dom_accumulator_empty() {
     let data = vec![NodeData::create_div(), NodeData::create_text("Hi")];
     let layout = make_layout(data.len());
     
-    let extended = reconcile_dom_with_changes(
+    let extended = reconcile_dom_with_changes_flat(
         &data, &data, None, None, &layout, &layout,
         DomId { inner: 0 }, Instant::now(),
     );
@@ -83,7 +111,7 @@ fn text_edit_detected() {
     let old_layout = make_layout(1);
     let new_layout = make_layout(1);
     
-    let extended = reconcile_dom_with_changes(
+    let extended = reconcile_dom_with_changes_flat(
         &old, &new, None, None,
         &old_layout, &new_layout,
         DomId { inner: 0 }, Instant::now(),
@@ -104,7 +132,7 @@ fn text_edit_accumulator_shows_ifc_scope() {
     let old_layout = make_layout(1);
     let new_layout = make_layout(1);
     
-    let extended = reconcile_dom_with_changes(
+    let extended = reconcile_dom_with_changes_flat(
         &old, &new, None, None,
         &old_layout, &new_layout,
         DomId { inner: 0 }, Instant::now(),
@@ -133,7 +161,7 @@ fn class_change_detected() {
     let old_layout = make_layout(1);
     let new_layout = make_layout(1);
     
-    let extended = reconcile_dom_with_changes(
+    let extended = reconcile_dom_with_changes_flat(
         &old, &new, None, None,
         &old_layout, &new_layout,
         DomId { inner: 0 }, Instant::now(),
@@ -161,7 +189,7 @@ fn class_change_accumulator_full_scope() {
     let old_layout = make_layout(1);
     let new_layout = make_layout(1);
     
-    let extended = reconcile_dom_with_changes(
+    let extended = reconcile_dom_with_changes_flat(
         &old, &new, None, None,
         &old_layout, &new_layout,
         DomId { inner: 0 }, Instant::now(),
@@ -186,7 +214,7 @@ fn inline_style_change_detected() {
     let old_layout = make_layout(1);
     let new_layout = make_layout(1);
     
-    let extended = reconcile_dom_with_changes(
+    let extended = reconcile_dom_with_changes_flat(
         &old, &new, None, None,
         &old_layout, &new_layout,
         DomId { inner: 0 }, Instant::now(),
@@ -206,7 +234,7 @@ fn paint_only_style_change() {
     let old_layout = make_layout(1);
     let new_layout = make_layout(1);
     
-    let extended = reconcile_dom_with_changes(
+    let extended = reconcile_dom_with_changes_flat(
         &old, &new, None, None,
         &old_layout, &new_layout,
         DomId { inner: 0 }, Instant::now(),
@@ -238,7 +266,7 @@ fn node_added_detected_as_mount() {
     let old_layout = make_layout(1);
     let new_layout = make_layout(2);
     
-    let extended = reconcile_dom_with_changes(
+    let extended = reconcile_dom_with_changes_flat(
         &old, &new, None, None,
         &old_layout, &new_layout,
         DomId { inner: 0 }, Instant::now(),
@@ -268,7 +296,7 @@ fn node_removed_detected_as_unmount() {
     let old_layout = make_layout(2);
     let new_layout = make_layout(1);
     
-    let extended = reconcile_dom_with_changes(
+    let extended = reconcile_dom_with_changes_flat(
         &old, &new, None, None,
         &old_layout, &new_layout,
         DomId { inner: 0 }, Instant::now(),
@@ -293,7 +321,7 @@ fn node_type_change_full_scope() {
     let old_layout = make_layout(1);
     let new_layout = make_layout(1);
     
-    let extended = reconcile_dom_with_changes(
+    let extended = reconcile_dom_with_changes_flat(
         &old, &new, None, None,
         &old_layout, &new_layout,
         DomId { inner: 0 }, Instant::now(),
@@ -326,7 +354,7 @@ fn only_changed_node_flagged() {
     let old_layout = make_layout(3);
     let new_layout = make_layout(3);
     
-    let extended = reconcile_dom_with_changes(
+    let extended = reconcile_dom_with_changes_flat(
         &old, &new, None, None,
         &old_layout, &new_layout,
         DomId { inner: 0 }, Instant::now(),
@@ -365,7 +393,7 @@ fn keyed_reorder_no_content_change() {
     let old_layout = make_layout(3);
     let new_layout = make_layout(3);
     
-    let extended = reconcile_dom_with_changes(
+    let extended = reconcile_dom_with_changes_flat(
         &old, &new, None, None,
         &old_layout, &new_layout,
         DomId { inner: 0 }, Instant::now(),
@@ -399,7 +427,7 @@ fn insert_at_beginning() {
     let old_layout = make_layout(2);
     let new_layout = make_layout(3);
     
-    let extended = reconcile_dom_with_changes(
+    let extended = reconcile_dom_with_changes_flat(
         &old, &new, None, None,
         &old_layout, &new_layout,
         DomId { inner: 0 }, Instant::now(),
@@ -432,7 +460,7 @@ fn delete_from_middle() {
     let old_layout = make_layout(3);
     let new_layout = make_layout(2);
     
-    let extended = reconcile_dom_with_changes(
+    let extended = reconcile_dom_with_changes_flat(
         &old, &new, None, None,
         &old_layout, &new_layout,
         DomId { inner: 0 }, Instant::now(),
@@ -464,7 +492,7 @@ fn contenteditable_change_detected() {
     let old_layout = make_layout(1);
     let new_layout = make_layout(1);
     
-    let extended = reconcile_dom_with_changes(
+    let extended = reconcile_dom_with_changes_flat(
         &old, &new, None, None,
         &old_layout, &new_layout,
         DomId { inner: 0 }, Instant::now(),
@@ -507,7 +535,7 @@ fn realistic_todo_list_update() {
     let old_layout = make_layout(3);
     let new_layout = make_layout(3);
     
-    let extended = reconcile_dom_with_changes(
+    let extended = reconcile_dom_with_changes_flat(
         &old, &new, None, None,
         &old_layout, &new_layout,
         DomId { inner: 0 }, Instant::now(),
@@ -535,7 +563,7 @@ fn empty_to_empty_no_changes() {
     let old_layout = FastHashMap::default();
     let new_layout = FastHashMap::default();
     
-    let extended = reconcile_dom_with_changes(
+    let extended = reconcile_dom_with_changes_flat(
         &old, &new, None, None,
         &old_layout, &new_layout,
         DomId { inner: 0 }, Instant::now(),
@@ -553,7 +581,7 @@ fn empty_to_populated() {
     let old_layout = FastHashMap::default();
     let new_layout = make_layout(2);
     
-    let extended = reconcile_dom_with_changes(
+    let extended = reconcile_dom_with_changes_flat(
         &old, &new, None, None,
         &old_layout, &new_layout,
         DomId { inner: 0 }, Instant::now(),
@@ -576,7 +604,7 @@ fn populated_to_empty() {
     let old_layout = make_layout(2);
     let new_layout = FastHashMap::default();
     
-    let extended = reconcile_dom_with_changes(
+    let extended = reconcile_dom_with_changes_flat(
         &old, &new, None, None,
         &old_layout, &new_layout,
         DomId { inner: 0 }, Instant::now(),

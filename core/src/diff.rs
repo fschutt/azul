@@ -312,6 +312,98 @@ pub fn compute_node_changes(
     changes
 }
 
+/// Calculate the reconciliation key for a node using the priority hierarchy:
+/// 1. Explicit key (set via `.with_key()`)
+/// 2. CSS ID (set via `.with_id("my-id")`)
+/// 3. Structural key: nth-of-type-within-parent + parent's reconciliation key
+///
+/// The structural key prevents incorrect matching when nodes are inserted
+/// before existing nodes (e.g., prepending items to a list) and allows
+/// keyless nodes to be matched across frames when their logical position
+/// and type are stable (even if content changed — which then fires an
+/// `Update` lifecycle event, see `reconcile_dom`).
+///
+/// When `hierarchy` is empty (or this node has no entry), the structural
+/// key degrades to `discriminant(node_type) + classes` — parent/nth-of-type
+/// context simply drops out. This lets callers that don't track hierarchy
+/// (tests, flat-DOM scenarios) still benefit from explicit-key and CSS-ID
+/// matching without divergent behavior.
+pub fn calculate_reconciliation_key(
+    node_data: &[NodeData],
+    hierarchy: &[NodeHierarchyItem],
+    node_id: NodeId,
+) -> u64 {
+    use core::hash::Hasher;
+
+    let node = &node_data[node_id.index()];
+
+    // Priority 1: Explicit key
+    if let Some(key) = node.get_key() {
+        return key;
+    }
+
+    // Priority 2: CSS ID
+    for attr in node.attributes().as_ref().iter() {
+        if let Some(id) = attr.as_id() {
+            let mut hasher = std::hash::DefaultHasher::new();
+            id.hash(&mut hasher);
+            return hasher.finish();
+        }
+    }
+
+    // Priority 3: Structural key = (node type, classes, nth-of-type, parent key)
+    let mut hasher = std::hash::DefaultHasher::new();
+
+    core::mem::discriminant(node.get_node_type()).hash(&mut hasher);
+    for attr in node.attributes().as_ref().iter() {
+        if let Some(class) = attr.as_class() {
+            class.hash(&mut hasher);
+        }
+    }
+
+    if let Some(hierarchy_item) = hierarchy.get(node_id.index()) {
+        if let Some(parent_id) = hierarchy_item.parent_id() {
+            let mut sibling_index: usize = 0;
+            let parent_hierarchy = &hierarchy[parent_id.index()];
+
+            let mut current = parent_hierarchy.first_child_id(parent_id);
+            while let Some(sibling_id) = current {
+                if sibling_id == node_id {
+                    break;
+                }
+                let sibling = &node_data[sibling_id.index()];
+                if core::mem::discriminant(sibling.get_node_type())
+                    == core::mem::discriminant(node.get_node_type())
+                {
+                    sibling_index += 1;
+                }
+                current = hierarchy[sibling_id.index()].next_sibling_id();
+            }
+
+            sibling_index.hash(&mut hasher);
+
+            let parent_key = calculate_reconciliation_key(node_data, hierarchy, parent_id);
+            parent_key.hash(&mut hasher);
+        }
+    }
+
+    hasher.finish()
+}
+
+/// Precompute reconciliation keys for every node in a DOM tree.
+///
+/// Called once per side (old/new) at the start of `reconcile_dom`. Returns a
+/// vector indexed by node index (`keys[node_id.index()]`) so lookup during
+/// reconciliation is O(1).
+pub fn precompute_reconciliation_keys(
+    node_data: &[NodeData],
+    hierarchy: &[NodeHierarchyItem],
+) -> Vec<u64> {
+    (0..node_data.len())
+        .map(|idx| calculate_reconciliation_key(node_data, hierarchy, NodeId::new(idx)))
+        .collect()
+}
+
 /// Represents a mapping between a node in the old DOM and the new DOM.
 #[derive(Debug, Clone, Copy)]
 pub struct NodeMove {
@@ -339,110 +431,6 @@ impl Default for DiffResult {
     }
 }
 
-/// Calculate the reconciliation key for a node using the priority hierarchy:
-/// 1. Explicit key (set via `.with_key()`)
-/// 2. CSS ID (set via `.with_id("my-id")`)
-/// 3. Structural key: nth-of-type-within-parent + parent's reconciliation key
-///
-/// The structural key prevents incorrect matching when nodes are inserted
-/// before existing nodes (e.g., prepending items to a list).
-///
-/// # Arguments
-/// * `node_data` - Slice of all node data
-/// * `hierarchy` - Slice of node hierarchy (parent/child relationships)
-/// * `node_id` - The node to calculate the key for
-///
-/// # Returns
-/// A 64-bit key that uniquely identifies this node's logical position in the tree.
-pub fn calculate_reconciliation_key(
-    node_data: &[NodeData],
-    hierarchy: &[NodeHierarchyItem],
-    node_id: NodeId,
-) -> u64 {
-    use std::hash::Hasher;
-    
-    let node = &node_data[node_id.index()];
-    
-    // Priority 1: Explicit key
-    if let Some(key) = node.get_key() {
-        return key;
-    }
-    
-    // Priority 2: CSS ID
-    for attr in node.attributes().as_ref().iter() {
-        if let Some(id) = attr.as_id() {
-            let mut hasher = std::hash::DefaultHasher::new();
-            id.hash(&mut hasher);
-            return hasher.finish();
-        }
-    }
-    
-    // Priority 3: Structural key = nth-of-type-within-parent + parent key
-    let mut hasher = std::hash::DefaultHasher::new();
-    
-    // Hash node type discriminant and classes (nth-of-type logic)
-    core::mem::discriminant(node.get_node_type()).hash(&mut hasher);
-    for attr in node.attributes().as_ref().iter() {
-        if let Some(class) = attr.as_class() {
-            class.hash(&mut hasher);
-        }
-    }
-    
-    // Calculate sibling index (nth-of-type within parent)
-    if let Some(hierarchy_item) = hierarchy.get(node_id.index()) {
-        if let Some(parent_id) = hierarchy_item.parent_id() {
-            // Count siblings of same type before this node
-            let mut sibling_index: usize = 0;
-            let parent_hierarchy = &hierarchy[parent_id.index()];
-            
-            // Walk siblings from first child to this node
-            let mut current = parent_hierarchy.first_child_id(parent_id);
-            while let Some(sibling_id) = current {
-                if sibling_id == node_id {
-                    break;
-                }
-                // Check if sibling has same type/classes
-                let sibling = &node_data[sibling_id.index()];
-                if core::mem::discriminant(sibling.get_node_type()) 
-                    == core::mem::discriminant(node.get_node_type()) 
-                {
-                    sibling_index += 1;
-                }
-                current = hierarchy[sibling_id.index()].next_sibling_id();
-            }
-            
-            sibling_index.hash(&mut hasher);
-            
-            // Recursively include parent's key
-            let parent_key = calculate_reconciliation_key(node_data, hierarchy, parent_id);
-            parent_key.hash(&mut hasher);
-        }
-    }
-    
-    hasher.finish()
-}
-
-/// Precompute reconciliation keys for all nodes in a DOM tree.
-///
-/// This should be called once before reconciliation to compute stable keys
-/// for all nodes. Keys are computed using the hierarchy:
-/// 1. Explicit key → 2. CSS ID → 3. Structural key (nth-of-type + parent key)
-///
-/// # Returns
-/// A map from NodeId to its reconciliation key.
-pub fn precompute_reconciliation_keys(
-    node_data: &[NodeData],
-    hierarchy: &[NodeHierarchyItem],
-) -> FastHashMap<NodeId, u64> {
-    let mut keys = FastHashMap::default();
-    for idx in 0..node_data.len() {
-        let node_id = NodeId::new(idx);
-        let key = calculate_reconciliation_key(node_data, hierarchy, node_id);
-        keys.insert(node_id, key);
-    }
-    keys
-}
-
 /// Calculates the difference between two DOM frames and generates lifecycle events.
 ///
 /// This is the main entry point for DOM reconciliation. It compares the old and new
@@ -450,18 +438,29 @@ pub fn precompute_reconciliation_keys(
 /// - Mount events for new nodes
 /// - Unmount events for removed nodes
 /// - Resize events for nodes whose bounds changed
-/// - Update events for nodes whose content changed (when matched by key)
+/// - Update events for nodes whose logical position is stable but content changed
+///
+/// # Matching priority
+/// For every node, the reconciliation key (`calculate_reconciliation_key`) encodes
+/// Priority 1 (`.with_key()`), Priority 2 (CSS ID), and Priority 3 (structural key:
+/// nth-of-type + parent key). The tiers are then tried in order:
+///
+/// 1. **Reconciliation key** — matches logical identity, may fire Update on content change.
+/// 2. **Content hash** — exact match including content; catches pure reorders of anonymous nodes.
+/// 3. **Structural hash** — matches node type + attrs ignoring text content; for text-edit cases.
 ///
 /// # Arguments
-/// * `old_node_data` - Node data from the previous frame
-/// * `new_node_data` - Node data from the current frame
-/// * `old_layout` - Layout bounds from the previous frame
-/// * `new_layout` - Layout bounds from the current frame
+/// * `old_node_data` / `new_node_data` - Per-node data for each frame
+/// * `old_hierarchy` / `new_hierarchy` - Parent/sibling pointers. Pass `&[]` if unavailable;
+///   the structural-key branch of the reconciliation key degrades gracefully.
+/// * `old_layout` / `new_layout` - Layout bounds used to detect Resize events
 /// * `dom_id` - The DOM identifier
 /// * `timestamp` - Current timestamp for events
 pub fn reconcile_dom(
     old_node_data: &[NodeData],
     new_node_data: &[NodeData],
+    old_hierarchy: &[NodeHierarchyItem],
+    new_hierarchy: &[NodeHierarchyItem],
     old_layout: &FastHashMap<NodeId, LogicalRect>,
     new_layout: &FastHashMap<NodeId, LogicalRect>,
     dom_id: DomId,
@@ -470,81 +469,87 @@ pub fn reconcile_dom(
     let mut result = DiffResult::default();
 
     // --- STEP 1: INDEX THE OLD DOM ---
-    // Create lookups to find old nodes by Key or by Hash.
-    // 
-    // IMPORTANT: We use TWO hash indexes:
-    // 1. Content Hash (calculate_node_data_hash) - for exact matching including text content
-    // 2. Structural Hash (calculate_structural_hash) - for text nodes where content may change
     //
-    // This allows Text("Hello") to match Text("Hello World") as a structural match,
-    // preserving cursor/selection state during text editing.
+    // Three tiers, in priority order:
+    //   Tier 1: reconciliation key (.with_key() / CSS ID / structural key)
+    //   Tier 2: content hash (exact node_data hash — matches pure reorders)
+    //   Tier 3: structural hash (discriminant + attrs, ignores text — matches text edits)
+    //
+    // Each tier is keyed with a `VecDeque<NodeId>` because all three can legitimately
+    // collide (two sibling divs produce the same structural key, two identical nodes
+    // produce the same content hash, etc.); we consume in document order on match.
 
-    let mut old_keyed: FastHashMap<u64, NodeId> = FastHashMap::default();
+    let old_rec_keys = precompute_reconciliation_keys(old_node_data, old_hierarchy);
+
+    let mut old_by_rec_key: FastHashMap<u64, VecDeque<NodeId>> = FastHashMap::default();
     let mut old_hashed: FastHashMap<DomNodeHash, VecDeque<NodeId>> = FastHashMap::default();
     let mut old_structural: FastHashMap<DomNodeHash, VecDeque<NodeId>> = FastHashMap::default();
     let mut old_nodes_consumed = vec![false; old_node_data.len()];
 
     for (idx, node) in old_node_data.iter().enumerate() {
         let id = NodeId::new(idx);
+        old_by_rec_key.entry(old_rec_keys[idx]).or_default().push_back(id);
 
-        if let Some(key) = node.get_key() {
-            // Priority 1: Explicit Key
-            old_keyed.insert(key, id);
-        } else {
-            // Priority 2: Content Hash (exact match)
-            let hash = node.calculate_node_data_hash();
-            old_hashed.entry(hash).or_default().push_back(id);
-            
-            // Priority 3: Structural Hash (for text node matching)
-            let structural_hash = node.calculate_structural_hash();
-            old_structural.entry(structural_hash).or_default().push_back(id);
-        }
+        let hash = node.calculate_node_data_hash();
+        old_hashed.entry(hash).or_default().push_back(id);
+
+        let structural_hash = node.calculate_structural_hash();
+        old_structural.entry(structural_hash).or_default().push_back(id);
     }
 
     // --- STEP 2: ITERATE NEW DOM AND CLAIM MATCHES ---
 
+    // Helper: pop the first non-consumed NodeId from a queue.
+    fn pop_first_unconsumed(
+        queue: &mut VecDeque<NodeId>,
+        consumed: &[bool],
+    ) -> Option<NodeId> {
+        while let Some(&old_id) = queue.front() {
+            if consumed[old_id.index()] {
+                queue.pop_front();
+            } else {
+                queue.pop_front();
+                return Some(old_id);
+            }
+        }
+        None
+    }
+
     for (new_idx, new_node) in new_node_data.iter().enumerate() {
         let new_id = NodeId::new(new_idx);
         let mut matched_old_id = None;
+        let mut matched_by_rec_key = false;
+        let has_explicit_key = new_node.get_key().is_some();
 
-        // A. Try Match by Key
-        if let Some(key) = new_node.get_key() {
-            if let Some(&old_id) = old_keyed.get(&key) {
-                if !old_nodes_consumed[old_id.index()] {
+        // Tier 1: Reconciliation key (explicit `.with_key()`, CSS ID, or structural key)
+        let new_rec_key =
+            calculate_reconciliation_key(new_node_data, new_hierarchy, new_id);
+        if let Some(queue) = old_by_rec_key.get_mut(&new_rec_key) {
+            if let Some(old_id) = pop_first_unconsumed(queue, &old_nodes_consumed) {
+                matched_old_id = Some(old_id);
+                matched_by_rec_key = true;
+            }
+        }
+
+        // An explicit `.with_key()` is a strong, intentional identity marker: if it
+        // doesn't match anything in the old DOM we treat the new node as genuinely
+        // new (Mount), rather than falling through to coarser content/structural
+        // tiers and silently matching an unrelated node.
+        if !has_explicit_key && matched_old_id.is_none() {
+            // Tier 2: Content hash (exact match — catches pure reorders)
+            let hash = new_node.calculate_node_data_hash();
+            if let Some(queue) = old_hashed.get_mut(&hash) {
+                if let Some(old_id) = pop_first_unconsumed(queue, &old_nodes_consumed) {
                     matched_old_id = Some(old_id);
                 }
             }
-        }
-        // B. Try Match by Content Hash first (exact match - The "Automagic" Reordering)
-        else {
-            let hash = new_node.calculate_node_data_hash();
 
-            // Get the queue of old nodes with this identical content
-            if let Some(queue) = old_hashed.get_mut(&hash) {
-                // Find first non-consumed node in queue
-                while let Some(old_id) = queue.front() {
-                    if !old_nodes_consumed[old_id.index()] {
-                        matched_old_id = Some(*old_id);
-                        queue.pop_front();
-                        break;
-                    } else {
-                        queue.pop_front();
-                    }
-                }
-            }
-            
-            // C. If no exact match, try Structural Hash (for text nodes with changed content)
+            // Tier 3: Structural hash (text-node fallback — ignores text content)
             if matched_old_id.is_none() {
                 let structural_hash = new_node.calculate_structural_hash();
                 if let Some(queue) = old_structural.get_mut(&structural_hash) {
-                    while let Some(old_id) = queue.front() {
-                        if !old_nodes_consumed[old_id.index()] {
-                            matched_old_id = Some(*old_id);
-                            queue.pop_front();
-                            break;
-                        } else {
-                            queue.pop_front();
-                        }
+                    if let Some(old_id) = pop_first_unconsumed(queue, &old_nodes_consumed) {
+                        matched_old_id = Some(old_id);
                     }
                 }
             }
@@ -582,8 +587,12 @@ pub fn reconcile_dom(
                 }
             }
 
-            // If matched by Key, the content might have changed, so we should check hash equality.
-            if new_node.get_key().is_some() {
+            // Fire Update when the node was matched by logical identity (reconciliation
+            // key: explicit .with_key(), CSS ID, or structural key) but its content hash
+            // differs. Tier-2/Tier-3 matches by definition don't carry an Update — a
+            // content-hash match is content-identical, and a structural-hash match is
+            // a text edit handled by cursor/text reconciliation elsewhere.
+            if matched_by_rec_key {
                 let old_hash = old_node_data[old_id.index()].calculate_node_data_hash();
                 let new_hash = new_node.calculate_node_data_hash();
 
@@ -636,7 +645,7 @@ pub fn reconcile_dom(
                     dom_id,
                     &timestamp,
                     LifecycleEventData {
-                        reason: LifecycleReason::InitialMount, // Context implies unmount
+                        reason: LifecycleReason::Unmount,
                         previous_bounds: Some(bounds),
                         current_bounds: LogicalRect::zero(),
                     },
@@ -706,12 +715,10 @@ fn has_resize_callback(node: &NodeData) -> bool {
 
 /// Check if the node has any lifecycle callback that would respond to updates.
 fn has_update_callback(node: &NodeData) -> bool {
-    // For now, we use Selected as a placeholder for "update" events
-    // This could be extended to a dedicated UpdateCallback in the future
     node.get_callbacks().iter().any(|cb| {
         matches!(
             cb.event,
-            EventFilter::Component(ComponentEventFilter::Selected)
+            EventFilter::Component(ComponentEventFilter::Updated)
         )
     })
 }
@@ -1348,6 +1355,8 @@ impl ChangeAccumulator {
 pub fn reconcile_dom_with_changes(
     old_node_data: &[NodeData],
     new_node_data: &[NodeData],
+    old_hierarchy: &[NodeHierarchyItem],
+    new_hierarchy: &[NodeHierarchyItem],
     old_styled_nodes: Option<&[StyledNodeState]>,
     new_styled_nodes: Option<&[StyledNodeState]>,
     old_layout: &FastHashMap<NodeId, LogicalRect>,
@@ -1359,6 +1368,8 @@ pub fn reconcile_dom_with_changes(
     let diff = reconcile_dom(
         old_node_data,
         new_node_data,
+        old_hierarchy,
+        new_hierarchy,
         old_layout,
         new_layout,
         dom_id,

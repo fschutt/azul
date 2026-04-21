@@ -250,9 +250,13 @@ pub fn regenerate_layout(
         // Get old node data (from previous frame — includes titlebar if it was injected)
         let old_node_data_vec = &old_layout_result.styled_dom.node_data;
         let old_node_data: Vec<azul_core::dom::NodeData> = old_node_data_vec.as_ref().to_vec();
+        let old_hierarchy: Vec<azul_core::styled_dom::NodeHierarchyItem> =
+            old_layout_result.styled_dom.node_hierarchy.as_ref().to_vec();
 
         // Get new node data (from current frame — now also includes titlebar)
         let mut new_node_data: Vec<azul_core::dom::NodeData> = styled_dom.node_data.as_ref().to_vec();
+        let new_hierarchy: Vec<azul_core::styled_dom::NodeHierarchyItem> =
+            styled_dom.node_hierarchy.as_ref().to_vec();
 
         // Build layout maps for reconciliation (empty for now - we just need node moves)
         let old_layout_map = azul_core::FastHashMap::default();
@@ -262,6 +266,8 @@ pub fn regenerate_layout(
         let diff_result = azul_core::diff::reconcile_dom(
             &old_node_data,
             &new_node_data,
+            &old_hierarchy,
+            &new_hierarchy,
             &old_layout_map,
             &new_layout_map,
             azul_core::dom::DomId::ROOT_ID,
@@ -270,7 +276,7 @@ pub fn regenerate_layout(
 
         // Execute state migration for matched nodes with merge callbacks
         if !diff_result.node_moves.is_empty() {
-            let mut old_node_data_mut = old_node_data;
+            let mut old_node_data_mut = old_node_data.clone();
             azul_core::diff::transfer_states(
                 &mut old_node_data_mut,
                 &mut new_node_data,
@@ -296,6 +302,48 @@ pub fn regenerate_layout(
             &diff_result.node_moves,
             azul_core::dom::DomId::ROOT_ID,
         );
+
+        // 3.7. QUEUE LIFECYCLE EVENTS FOR DISPATCH
+        //
+        // Mount / Update / Resize events target NEW NodeIds — they resolve
+        // cleanly against the freshly-installed `layout_results` later in
+        // the dispatch path.
+        //
+        // Unmount events are different: their `target.node` is an OLD NodeId
+        // that does NOT exist in the new tree. By the time
+        // `dispatch_events_propagated` runs, `layout_results` has already
+        // been replaced by the new layout, so a NodeId-based lookup will
+        // miss the BeforeUnmount callback. To keep that callback firing we
+        // resolve it RIGHT HERE — while the OLD `old_node_data` slice is
+        // still in scope — and stash a `(CoreCallbackData, SyntheticEvent)`
+        // pair on the layout window. The dispatcher drains this side queue
+        // and invokes the callbacks directly, bypassing the DOM lookup.
+        for event in diff_result.events {
+            use azul_core::events::{ComponentEventFilter, EventFilter, EventType};
+            if event.event_type == EventType::Unmount {
+                let old_node_id = event
+                    .target
+                    .node
+                    .into_crate_internal()
+                    .map(|nid| nid.index());
+                if let Some(idx) = old_node_id {
+                    if let Some(nd) = old_node_data.get(idx) {
+                        for cb in nd.get_callbacks().as_ref().iter() {
+                            if matches!(
+                                cb.event,
+                                EventFilter::Component(ComponentEventFilter::BeforeUnmount)
+                            ) {
+                                layout_window
+                                    .pending_unmount_invocations
+                                    .push((cb.clone(), event.clone()));
+                            }
+                        }
+                    }
+                }
+            } else {
+                layout_window.pending_lifecycle_events.push(event);
+            }
+        }
     }
     azul_layout::probe::emit_phase_heap("after_state_migrate");
 

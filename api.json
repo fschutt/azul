@@ -27080,9 +27080,6 @@
                                 "Hover": {
                                     "type": "HoverEventFilter"
                                 },
-                                "Not": {
-                                    "type": "NotEventFilter"
-                                },
                                 "Focus": {
                                     "type": "FocusEventFilter"
                                 },
@@ -27176,9 +27173,6 @@
                                     "type": "CascadeInfoVec"
                                 },
                                 "nodes_with_window_callbacks": {
-                                    "type": "NodeHierarchyItemIdVec"
-                                },
-                                "nodes_with_not_callbacks": {
                                     "type": "NodeHierarchyItemIdVec"
                                 },
                                 "nodes_with_datasets": {
@@ -27338,30 +27332,6 @@
                             }
                         },
                         "repr": "C"
-                    },
-                    "NotEventFilter": {
-                        "external": "azul_core::events::NotEventFilter",
-                        "derive": [
-                            "Copy",
-                            "Hash",
-                            "PartialOrd",
-                            "Clone",
-                            "Ord",
-                            "Eq",
-                            "Debug",
-                            "PartialEq"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Hover": {
-                                    "type": "HoverEventFilter"
-                                },
-                                "Focus": {
-                                    "type": "FocusEventFilter"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
                     },
                     "VertexLayout": {
                         "external": "azul_core::gl::VertexLayout",
@@ -82725,7 +82695,8 @@
                                 "BeforeUnmount": {},
                                 "NodeResized": {},
                                 "DefaultAction": {},
-                                "Selected": {}
+                                "Selected": {},
+                                "Updated": {}
                             }
                         ],
                         "repr": "C"
