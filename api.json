@@ -2673,6 +2673,59 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "MimeTypeData": {
+                        "doc": [
+                            "FFI-safe `(mime_type, data)` pair used to build a `MimeTypeDataVec` for `DragData`."
+                        ],
+                        "external": "azul_core::drag::MimeTypeData",
+                        "derive": [
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd",
+                            "Debug",
+                            "Hash",
+                            "Eq",
+                            "Default",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "mime_type": {
+                                    "type": "String"
+                                },
+                                "data": {
+                                    "type": "U8Vec"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "MimeTypeDataVecSlice": {
+                        "external": "azul_core::drag::MimeTypeDataVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "MimeTypeData",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -6739,6 +6792,23 @@
                                     }
                                 ],
                                 "fn_body": "object.set_drag_data(mime_type, data.into())"
+                            },
+                            "set_drop_effect": {
+                                "doc": [
+                                    "Set the drop effect for the current drag operation.",
+                                    "",
+                                    "W3C equivalent: `dataTransfer.dropEffect = \"none\" | \"copy\" | \"link\" | \"move\"`.",
+                                    "Should be called from a DragOver or DragEnter callback on the drop target."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "effect": "DropEffect"
+                                    }
+                                ],
+                                "fn_body": "object.set_drop_effect(effect)"
                             }
                         },
                         "repr": "C"
@@ -14952,6 +15022,112 @@
                             }
                         },
                         "functions": {},
+                        "repr": "C"
+                    },
+                    "DropEffect": {
+                        "doc": [
+                            "Drop effect - the outcome if the dragged data is dropped on the current target (HTML5 `DataTransfer.dropEffect`).",
+                            "Must be one of `None`, `Copy`, `Link`, or `Move`; defaults to `None`."
+                        ],
+                        "external": "azul_core::drag::DropEffect",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Copy": {},
+                                "Link": {},
+                                "Move": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DragEffect": {
+                        "doc": [
+                            "Set of drag operations the drag source permits (HTML5 `DataTransfer.effectAllowed`).",
+                            "Superset of `DropEffect` adding combined values (`CopyLink`, `CopyMove`, `LinkMove`, `All`) and `Uninitialized` (the default)."
+                        ],
+                        "external": "azul_core::drag::DragEffect",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Uninitialized": {},
+                                "None": {},
+                                "Copy": {},
+                                "CopyLink": {},
+                                "CopyMove": {},
+                                "Link": {},
+                                "LinkMove": {},
+                                "Move": {},
+                                "All": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DragData": {
+                        "doc": [
+                            "Drag data (HTML5 `DataTransfer`): the MIME-keyed payload and the set of operations the source allows."
+                        ],
+                        "external": "azul_core::drag::DragData",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "MimeTypeDataVec"
+                                }
+                            },
+                            {
+                                "effect_allowed": {
+                                    "type": "DragEffect"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "doc": [
+                                    "Create empty drag data with `effect_allowed = DragEffect::Uninitialized`."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::drag::DragData::new()"
+                            }
+                        },
+                        "functions": {
+                            "set_data": {
+                                "doc": [
+                                    "Set payload for a MIME type (W3C: `dataTransfer.setData`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "mime_type": "String"
+                                    },
+                                    {
+                                        "data": "U8Vec"
+                                    }
+                                ],
+                                "fn_body": "object.set_data(mime_type, data.into())"
+                            }
+                        },
                         "repr": "C"
                     },
                     "ParseIntErrorWithInput": {
@@ -60960,6 +61136,210 @@
                         },
                         "repr": "C"
                     },
+                    "MimeTypeDataVec": {
+                        "doc": [
+                            "Wrapper over a Rust-allocated `Vec<MimeTypeData>`"
+                        ],
+                        "external": "azul_core::drag::MimeTypeDataVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "custom_destructor": true,
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "MimeTypeData",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "MimeTypeDataVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `MimeTypeDataVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "MimeTypeDataVec"
+                                },
+                                "fn_body": "MimeTypeDataVec::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `MimeTypeDataVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MimeTypeDataVec"
+                                },
+                                "fn_body": "MimeTypeDataVec::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "mime_type_data_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "mime_type_data_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "mime_type_data_vec.is_empty()"
+                            },
+                            "get": {
+                                "doc": [
+                                    "Returns a reference to the element at the given index, or None if out of bounds"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionMimeTypeData"
+                                },
+                                "fn_body": "mime_type_data_vec.get(index).cloned().into()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `MimeTypeDataVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "MimeTypeData"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MimeTypeDataVec"
+                                },
+                                "fn_body": "MimeTypeDataVec::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `MimeTypeDataVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const MimeTypeData"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MimeTypeDataVec"
+                                },
+                                "fn_body": "unsafe { MimeTypeDataVec::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionMimeTypeData"
+                                },
+                                "fn_body": "mime_type_data_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `MimeTypeDataVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MimeTypeDataVecSlice"
+                                },
+                                "fn_body": "mime_type_data_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MimeTypeDataVecSlice"
+                                },
+                                "fn_body": "mime_type_data_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
                     "StringPairVec": {
                         "doc": [
                             "Wrapper over a Rust-allocated `Vec<StringPair>"
@@ -63874,6 +64254,18 @@
                             "returns": null
                         }
                     },
+                    "MimeTypeDataVecDestructorType": {
+                        "external": "azul_core::drag::MimeTypeDataVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "MimeTypeDataVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
                     "DomVecDestructor": {
                         "external": "azul_core::dom::DomVecDestructor",
                         "derive": [
@@ -64695,6 +65087,23 @@
                                 "NoDestructor": {},
                                 "External": {
                                     "type": "StringPairVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "MimeTypeDataVecDestructor": {
+                        "external": "azul_core::drag::MimeTypeDataVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "MimeTypeDataVecDestructorType"
                                 },
                                 "AlreadyDestroyed": {}
                             }
@@ -76729,6 +77138,34 @@
                                     "type": "StringPair",
                                     "doc": [
                                         "Some value of type StringPair"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionMimeTypeData": {
+                        "external": "azul_core::drag::OptionMimeTypeData",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "MimeTypeData",
+                                    "doc": [
+                                        "Some value of type MimeTypeData"
                                     ]
                                 }
                             }

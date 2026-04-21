@@ -3313,13 +3313,25 @@ impl CallbackInfo {
         // Try gesture manager first
         if let Some(ctx) = lw.gesture_drag_manager.get_drag_context() {
             if let Some(node_drag) = ctx.as_node_drag() {
-                return node_drag.drag_data.data.keys().cloned().collect();
+                return node_drag
+                    .drag_data
+                    .data
+                    .as_ref()
+                    .iter()
+                    .map(|e| e.mime_type.clone())
+                    .collect();
             }
         }
         // Fallback to drag_drop_manager
         if let Some(ctx) = lw.drag_drop_manager.get_drag_context() {
             if let Some(node_drag) = ctx.as_node_drag() {
-                return node_drag.drag_data.data.keys().cloned().collect();
+                return node_drag
+                    .drag_data
+                    .data
+                    .as_ref()
+                    .iter()
+                    .map(|e| e.mime_type.clone())
+                    .collect();
             }
         }
         Vec::new()

@@ -10,7 +10,6 @@
 //! The `DragContext` struct tracks the current drag state and provides
 //! a unified interface for event processing.
 
-use alloc::collections::btree_map::BTreeMap;
 use alloc::vec::Vec;
 
 use crate::dom::{DomId, DomNodeId, NodeId, OptionDomNodeId};
@@ -18,7 +17,7 @@ use crate::geom::LogicalPosition;
 use crate::selection::TextCursor;
 use crate::window::WindowPosition;
 
-use azul_css::{AzString, StringVec};
+use azul_css::{AzString, StringVec, U8Vec};
 
 /// Type of the active drag operation.
 ///
@@ -201,73 +200,142 @@ pub enum AutoScrollDirection {
     DownRight,
 }
 
-/// Drop effect (what happens when dropped)
+/// Drop effect — the operation that will happen if the data is dropped
+/// on the current target (HTML5 `DataTransfer.dropEffect`).
+///
+/// This is a strict subset of `DragEffect`: a drop target selects one of
+/// these four outcomes, which must also be allowed by the source's
+/// `effect_allowed`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(C)]
 pub enum DropEffect {
-    /// No effect
+    /// No drop allowed / the drop is rejected. Default.
     #[default]
     None,
-    /// Copy the data
+    /// Drop will copy the data (source retains its copy).
     Copy,
-    /// Move the data
-    Move,
-    /// Create link
+    /// Drop will create a link/shortcut to the data.
     Link,
+    /// Drop will move the data (source should remove its copy).
+    Move,
 }
 
-/// Drag data (like HTML5 DataTransfer).
+/// Allowed drag effects — the set of operations the drag source permits
+/// (HTML5 `DataTransfer.effectAllowed`).
 ///
-/// Note: this type is Rust-only and not exposed through the C API,
-/// since `BTreeMap` and `Vec<u8>` are not FFI-safe.
-#[derive(Debug, Clone, PartialEq)]
-pub struct DragData {
-    /// MIME type -> data mapping
-    ///
-    /// e.g., "text/plain" -> "Hello World"
-    pub data: BTreeMap<AzString, Vec<u8>>,
-    /// Allowed drag operations
-    pub effect_allowed: DragEffect,
-}
-
-impl Default for DragData {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Drag/drop effect (like HTML5 dropEffect)
+/// The drop target's `DropEffect` must be a member of this set for the
+/// drop to succeed. Semantic superset of `DropEffect` that adds the
+/// HTML5 combined-permission values (`CopyLink`, `CopyMove`, `LinkMove`,
+/// `All`) and the pre-drag `Uninitialized` sentinel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(C)]
 pub enum DragEffect {
-    /// No drop allowed
+    /// Allowed set has not been initialized yet (equivalent to `All` in
+    /// most user agents). Default for fresh drags.
     #[default]
+    Uninitialized,
+    /// No drop is permitted.
     None,
-    /// Copy operation
+    /// Only Copy is permitted.
     Copy,
-    /// Move operation
-    Move,
-    /// Link/shortcut operation
+    /// Copy or Link is permitted.
+    CopyLink,
+    /// Copy or Move is permitted.
+    CopyMove,
+    /// Only Link is permitted.
     Link,
+    /// Link or Move is permitted.
+    LinkMove,
+    /// Only Move is permitted.
+    Move,
+    /// Any of Copy, Link, or Move is permitted.
+    All,
+}
+
+/// FFI-safe (`mime_type`, `data`) pair used by [`DragData`] in place of
+/// a `BTreeMap<AzString, Vec<u8>>` entry.
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct MimeTypeData {
+    pub mime_type: AzString,
+    pub data: U8Vec,
+}
+
+impl_option!(
+    MimeTypeData,
+    OptionMimeTypeData,
+    copy = false,
+    [Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]
+);
+
+impl_vec!(
+    MimeTypeData,
+    MimeTypeDataVec,
+    MimeTypeDataVecDestructor,
+    MimeTypeDataVecDestructorType,
+    MimeTypeDataVecSlice,
+    OptionMimeTypeData
+);
+impl_vec_mut!(MimeTypeData, MimeTypeDataVec);
+impl_vec_debug!(MimeTypeData, MimeTypeDataVec);
+impl_vec_partialord!(MimeTypeData, MimeTypeDataVec);
+impl_vec_ord!(MimeTypeData, MimeTypeDataVec);
+impl_vec_clone!(MimeTypeData, MimeTypeDataVec, MimeTypeDataVecDestructor);
+impl_vec_partialeq!(MimeTypeData, MimeTypeDataVec);
+impl_vec_eq!(MimeTypeData, MimeTypeDataVec);
+impl_vec_hash!(MimeTypeData, MimeTypeDataVec);
+
+/// Drag data (HTML5 `DataTransfer`).
+///
+/// Holds the payload(s) being transferred during a drag operation, keyed
+/// by MIME type, plus the set of operations the source allows.
+#[derive(Debug, Default, Clone, PartialEq)]
+#[repr(C)]
+pub struct DragData {
+    /// MIME type -> data mapping (vec-of-pairs for FFI compatibility).
+    ///
+    /// e.g., `"text/plain" -> "Hello World"`.
+    pub data: MimeTypeDataVec,
+    /// Set of drag operations the source permits for this drag.
+    pub effect_allowed: DragEffect,
 }
 
 impl DragData {
     /// Create new empty drag data
     pub fn new() -> Self {
         Self {
-            data: BTreeMap::new(),
-            effect_allowed: DragEffect::Copy,
+            data: MimeTypeDataVec::new(),
+            effect_allowed: DragEffect::Uninitialized,
         }
     }
 
-    /// Set data for a MIME type
+    /// Set data for a MIME type. Replaces any existing entry for the
+    /// same MIME type.
     pub fn set_data(&mut self, mime_type: impl Into<AzString>, data: Vec<u8>) {
-        self.data.insert(mime_type.into(), data);
+        let mime_type = mime_type.into();
+        let value: U8Vec = data.into();
+        if let Some(entry) = self
+            .data
+            .as_mut()
+            .iter_mut()
+            .find(|e| e.mime_type == mime_type)
+        {
+            entry.data = value;
+        } else {
+            self.data.push(MimeTypeData {
+                mime_type,
+                data: value,
+            });
+        }
     }
 
     /// Get data for a MIME type
     pub fn get_data(&self, mime_type: &str) -> Option<&[u8]> {
-        self.data.get(&AzString::from(mime_type)).map(|v| v.as_slice())
+        self.data
+            .as_ref()
+            .iter()
+            .find(|e| e.mime_type.as_str() == mime_type)
+            .map(|e| e.data.as_ref())
     }
 
     /// Set plain text data

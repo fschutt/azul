@@ -648,7 +648,6 @@ pub const INTERNAL_ONLY_TYPES: &[&str] = &[
     // Types with BTreeMap fields
     "HitTest",
     "FullHitTest",
-    "DragData",
     // Cache types with HashMap/Arc
     "LayoutCache",
     "TextLayoutCache",
