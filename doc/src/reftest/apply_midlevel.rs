@@ -869,37 +869,58 @@ fn run_analysis_agent(
         .unwrap_or("opus");
 
     let path_with_rustup = rustup_prefixed_path();
-    let session_uuid = make_session_uuid(sha, &format!("a{}", iter_idx));
     let session_name = format!("analyzer {}.{}", short(sha), iter_idx);
 
-    let cmd_args: Vec<&str> = vec![
-        "-p",
-        "--dangerously-skip-permissions",
-        "--verbose",
-        "--output-format", "stream-json",
-        "--include-partial-messages",
-        "--session-id", &session_uuid,
-        "-n", &session_name,
-        "--disallowedTools", "mcp__*",
-        "--disallowedTools", "Edit",
-        "--disallowedTools", "Write",
-        "--disallowedTools", "NotebookEdit",
-        "--disallowedTools", "Bash(git commit*)",
-        "--disallowedTools", "Bash(git cherry-pick*)",
-        "--disallowedTools", "Bash(git reset*)",
-        "--disallowedTools", "Bash(cargo*)",
-        "--model", model,
-    ];
+    // Retry loop: on session-UUID collision (left over from a crashed/
+    // restarted run, or a race), regenerate a fresh UUID and try again.
+    let max_retries: u32 = 4;
+    let mut attempt: u32 = 0;
+    loop {
+        let session_uuid = pick_free_session_uuid(sha, "a", iter_idx, attempt, project_root);
+        let cmd_args: Vec<&str> = vec![
+            "-p",
+            "--dangerously-skip-permissions",
+            "--verbose",
+            "--output-format", "stream-json",
+            "--include-partial-messages",
+            "--session-id", &session_uuid,
+            "-n", &session_name,
+            "--disallowedTools", "mcp__*",
+            "--disallowedTools", "Edit",
+            "--disallowedTools", "Write",
+            "--disallowedTools", "NotebookEdit",
+            "--disallowedTools", "Bash(git commit*)",
+            "--disallowedTools", "Bash(git cherry-pick*)",
+            "--disallowedTools", "Bash(git reset*)",
+            "--disallowedTools", "Bash(cargo*)",
+            "--model", model,
+        ];
 
-    println!("  session-id: {}", session_uuid);
-    println!("  attach with: claude --resume {}", session_uuid);
-    println!();
+        println!("  session-id: {}", session_uuid);
+        println!("  attach with: claude --resume {}", session_uuid);
+        println!();
 
-    let out = spawn_claude_streaming(
-        &cmd_args, prompt.as_bytes(), project_root, &path_with_rustup, None,
-    )?;
-    println!("└───────────────────────────────────────────────────────────────────────");
-    Ok(out.text)
+        match spawn_claude_streaming(
+            &cmd_args, prompt.as_bytes(), project_root, &path_with_rustup, None,
+        ) {
+            Ok(out) => {
+                println!("└───────────────────────────────────────────────────────────────────────");
+                return Ok(out.text);
+            }
+            Err(ClaudeError::SessionInUse) if attempt < max_retries => {
+                attempt += 1;
+                println!(
+                    "  [retry {}/{}] session UUID was already in use — regenerating...",
+                    attempt, max_retries
+                );
+                continue;
+            }
+            Err(e) => {
+                println!("└───────────────────────────────────────────────────────────────────────");
+                return Err(e.to_string());
+            }
+        }
+    }
 }
 
 // ── Streaming helpers ─────────────────────────────────────────────────────
@@ -912,8 +933,30 @@ struct StreamOutput {
     session_id: Option<String>,
 }
 
+/// Distinguishes a "session UUID collision" failure (recoverable by retrying
+/// with a different UUID) from any other error.
+#[derive(Debug)]
+enum ClaudeError {
+    /// Claude refused to start because `--session-id <uuid>` was already in
+    /// use (i.e. a `~/.claude/projects/<...>/<uuid>.jsonl` file exists from a
+    /// prior run). Callers should retry with a fresh UUID.
+    SessionInUse,
+    Other(String),
+}
+
+impl std::fmt::Display for ClaudeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ClaudeError::SessionInUse => write!(f, "claude session UUID already in use"),
+            ClaudeError::Other(s) => write!(f, "{}", s),
+        }
+    }
+}
+
 /// Spawn `claude` with the given args in stream-json mode, pipe the prompt
 /// into stdin, and stream the output live to stdout while capturing text.
+/// Stderr is tee'd to the parent's stderr AND scanned for the specific
+/// "Session ID X is already in use" message so the caller can retry.
 ///
 /// `extra_env` allows callers to pass additional env vars (like `AZUL_DOC_BIN`).
 fn spawn_claude_streaming(
@@ -922,7 +965,7 @@ fn spawn_claude_streaming(
     cwd: &Path,
     path_env: &str,
     extra_env: Option<&[(&str, &Path)]>,
-) -> Result<StreamOutput, String> {
+) -> Result<StreamOutput, ClaudeError> {
     let mut cmd = Command::new("claude");
     cmd.args(args)
         .env_remove("CLAUDECODE")
@@ -930,7 +973,7 @@ fn spawn_claude_streaming(
         .current_dir(cwd)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit());
+        .stderr(Stdio::piped());
 
     if let Some(env_pairs) = extra_env {
         for (k, v) in env_pairs {
@@ -938,24 +981,60 @@ fn spawn_claude_streaming(
         }
     }
 
-    let mut child = cmd.spawn().map_err(|e| format!("spawn claude: {}", e))?;
+    let mut child = cmd.spawn()
+        .map_err(|e| ClaudeError::Other(format!("spawn claude: {}", e)))?;
 
     if let Some(mut stdin) = child.stdin.take() {
         stdin.write_all(stdin_bytes)
-            .map_err(|e| format!("write prompt stdin: {}", e))?;
+            .map_err(|e| ClaudeError::Other(format!("write prompt stdin: {}", e)))?;
         drop(stdin);
     }
 
     let stdout = child.stdout.take()
-        .ok_or_else(|| "failed to grab child stdout".to_string())?;
-    let handle = std::thread::spawn(move || process_stream_events(stdout));
+        .ok_or_else(|| ClaudeError::Other("failed to grab child stdout".to_string()))?;
+    let stderr = child.stderr.take()
+        .ok_or_else(|| ClaudeError::Other("failed to grab child stderr".to_string()))?;
 
-    let status = child.wait().map_err(|e| format!("wait claude: {}", e))?;
-    let out = handle.join().map_err(|_| "stream thread panicked".to_string())?;
+    let stdout_handle = std::thread::spawn(move || process_stream_events(stdout));
+    let stderr_handle = std::thread::spawn(move || tee_stderr(stderr));
+
+    let status = child.wait()
+        .map_err(|e| ClaudeError::Other(format!("wait claude: {}", e)))?;
+    let out = stdout_handle.join()
+        .map_err(|_| ClaudeError::Other("stream thread panicked".to_string()))?;
+    let stderr_scan = stderr_handle.join()
+        .unwrap_or(StderrScan { session_in_use: false });
+
     if !status.success() {
-        return Err(format!("claude exited with status {}", status));
+        if stderr_scan.session_in_use {
+            return Err(ClaudeError::SessionInUse);
+        }
+        return Err(ClaudeError::Other(format!("claude exited with status {}", status)));
     }
     Ok(out)
+}
+
+struct StderrScan {
+    /// True if stderr contained "Session ID … is already in use".
+    session_in_use: bool,
+}
+
+/// Tee Claude's stderr to our own stderr while scanning for the specific
+/// session-collision message.
+fn tee_stderr<R: std::io::Read + Send + 'static>(stderr: R) -> StderrScan {
+    use std::io::BufRead;
+    let reader = std::io::BufReader::new(stderr);
+    let mut session_in_use = false;
+    for line in reader.lines() {
+        let line = match line { Ok(l) => l, Err(_) => break };
+        if line.contains("is already in use")
+            && line.to_ascii_lowercase().contains("session id")
+        {
+            session_in_use = true;
+        }
+        eprintln!("{}", line);
+    }
+    StderrScan { session_in_use }
 }
 
 fn process_stream_events<R: std::io::Read + Send + 'static>(stdout: R) -> StreamOutput {
@@ -1056,6 +1135,88 @@ fn summarize_tool_input(name: &str, input: Option<&serde_json::Value>) -> String
         "Glob" => i.get("pattern").and_then(|v| v.as_str()).unwrap_or("").into(),
         _ => String::new(),
     }
+}
+
+/// Path to the on-disk transcript file that `claude` would use for a given
+/// session UUID when invoked from `cwd`. Claude stores transcripts at
+/// `~/.claude/projects/<sanitized-cwd>/<uuid>.jsonl`, where the sanitization
+/// replaces `/` with `-` in the absolute path.
+fn claude_session_file(cwd: &Path, uuid: &str) -> Option<PathBuf> {
+    let home = std::env::var("HOME").ok()?;
+    let abs = cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
+    let sanitized: String = abs
+        .to_string_lossy()
+        .chars()
+        .map(|c| if c == '/' { '-' } else { c })
+        .collect();
+    Some(
+        PathBuf::from(home)
+            .join(".claude/projects")
+            .join(sanitized)
+            .join(format!("{}.jsonl", uuid)),
+    )
+}
+
+/// Check if a session UUID is already taken by a prior `claude` run.
+fn claude_session_in_use(cwd: &Path, uuid: &str) -> bool {
+    claude_session_file(cwd, uuid).map(|p| p.exists()).unwrap_or(false)
+}
+
+/// Pick a session UUID that is not already in use on disk. On the first
+/// attempt we try the deterministic UUID (so re-runs stay predictable in the
+/// happy path); on retries we fall back to a random UUID because
+/// `make_session_uuid` only varies the last 2 hex chars (256 values per SHA)
+/// which is too narrow for exhaustive retrying.
+///
+/// The pre-check is only advisory — `spawn_claude_streaming` also detects the
+/// race where another `claude` process grabs the UUID after we checked. On
+/// that error the caller should pass `retry_attempt > 0`.
+fn pick_free_session_uuid(
+    sha: &str,
+    suffix_prefix: &str,
+    iter_idx: usize,
+    retry_attempt: u32,
+    cwd: &Path,
+) -> String {
+    if retry_attempt == 0 {
+        let initial = make_session_uuid(sha, &format!("{}{}", suffix_prefix, iter_idx));
+        if !claude_session_in_use(cwd, &initial) {
+            return initial;
+        }
+    }
+    for _ in 0..64 {
+        let uuid = make_random_session_uuid();
+        if !claude_session_in_use(cwd, &uuid) {
+            return uuid;
+        }
+    }
+    // Degenerate fallback: return whatever we get and let claude's own check
+    // reject it if there's still a collision.
+    make_random_session_uuid()
+}
+
+/// Generate a pseudo-random UUID from process id + nanosecond clock. Not
+/// cryptographically random (we have no `rand` dep), but more than enough to
+/// avoid collisions in this single-user, sequentially-invoked tool.
+fn make_random_session_uuid() -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let pid = std::process::id() as u128;
+    // Two independent 64-bit mixes so both halves of the UUID vary per call.
+    let lo = nanos
+        ^ pid.wrapping_mul(0x9E37_79B9_7F4A_7C15_u128)
+        ^ (pid << 64);
+    let hi = nanos.rotate_left(37)
+        ^ pid.wrapping_mul(0xBF58_476D_1CE4_E5B9_u128)
+        ^ (pid << 32);
+    let mixed = lo ^ hi.rotate_left(17);
+    let hex = format!("{:032x}", mixed);
+    format!(
+        "{}-{}-{}-{}-{}",
+        &hex[0..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..32]
+    )
 }
 
 /// Build a deterministic UUID from a git SHA + a per-call suffix so re-runs
@@ -1284,19 +1445,8 @@ fn run_apply_agent(
     // config.
     // Default to opus. User can override via --model=<x>.
     let model = config.model.as_deref().unwrap_or("opus");
-    let session_uuid = make_session_uuid(sha, &format!("b{}", plan.iterations.len()));
+    let iter_idx = plan.iterations.len();
     let session_name = format!("apply {}", short(sha));
-    let cmd_args: Vec<&str> = vec![
-        "-p",
-        "--dangerously-skip-permissions",
-        "--verbose",
-        "--output-format", "stream-json",
-        "--include-partial-messages",
-        "--session-id", &session_uuid,
-        "-n", &session_name,
-        "--disallowedTools", "mcp__*",
-        "--model", model,
-    ];
 
     // Ensure the agent uses the rustup toolchain (which has all cross-compile
     // targets installed) rather than Homebrew's cargo, which doesn't.
@@ -1308,14 +1458,44 @@ fn run_apply_agent(
         if cfg!(windows) { ".apply-midlevel/azul-doc.exe" } else { ".apply-midlevel/azul-doc" }
     );
 
-    println!("  session-id: {}", session_uuid);
-    println!("  attach with: claude --resume {}", session_uuid);
-    println!();
+    // Retry loop: on session-UUID collision (left over from a crashed/
+    // restarted run, or a race), regenerate a fresh UUID and try again.
+    let max_retries: u32 = 4;
+    let mut attempt: u32 = 0;
+    loop {
+        let session_uuid = pick_free_session_uuid(sha, "b", iter_idx, attempt, project_root);
+        let cmd_args: Vec<&str> = vec![
+            "-p",
+            "--dangerously-skip-permissions",
+            "--verbose",
+            "--output-format", "stream-json",
+            "--include-partial-messages",
+            "--session-id", &session_uuid,
+            "-n", &session_name,
+            "--disallowedTools", "mcp__*",
+            "--model", model,
+        ];
 
-    let _out = spawn_claude_streaming(
-        &cmd_args, prompt.as_bytes(), project_root, &path_with_rustup,
-        Some(&[("AZUL_DOC_BIN", azul_doc_bin.as_path())]),
-    )?;
+        println!("  session-id: {}", session_uuid);
+        println!("  attach with: claude --resume {}", session_uuid);
+        println!();
+
+        match spawn_claude_streaming(
+            &cmd_args, prompt.as_bytes(), project_root, &path_with_rustup,
+            Some(&[("AZUL_DOC_BIN", azul_doc_bin.as_path())]),
+        ) {
+            Ok(_out) => break,
+            Err(ClaudeError::SessionInUse) if attempt < max_retries => {
+                attempt += 1;
+                println!(
+                    "  [retry {}/{}] session UUID was already in use — regenerating...",
+                    attempt, max_retries
+                );
+                continue;
+            }
+            Err(e) => return Err(e.to_string()),
+        }
+    }
     println!("────────────────────────────────────────────────────────────────────────");
 
     // Verify tree is clean.
