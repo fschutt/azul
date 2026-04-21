@@ -2,7 +2,8 @@
 //!
 //! Tests for DOM tree construction, node management, and related operations.
 
-use azul_core::dom::{Dom, NodeType};
+use azul_core::a11y::SmallAriaInfo;
+use azul_core::dom::{Dom, NodeData, NodeType};
 use azul_css::dynamic_selector::CssPropertyWithConditions;
 use azul_css::props::{basic::font::StyleFontSize, property::CssProperty};
 
@@ -380,4 +381,49 @@ fn test_add_child_node_count_matches_actual() {
         4,
         "node_count() should return the actual total node count including all descendants"
     );
+}
+
+/// Compile-time coverage: every a11y-able element must expose both the
+/// accessibility-required constructor and the `*_no_a11y` escape hatch on
+/// both `Dom` and `NodeData`. If a constructor is renamed or removed this
+/// test fails to compile, flagging the gap before bindings regenerate.
+#[test]
+fn test_a11y_constructors_coverage() {
+    let aria = || SmallAriaInfo::label("l");
+
+    // Dom: accessibility-required variants.
+    let _: Dom = Dom::create_a("/h", "Home", aria());
+    let _: Dom = Dom::create_button("Save", aria());
+    let _: Dom = Dom::create_label("email", "Email", aria());
+    let _: Dom = Dom::create_input("text", "name", "Name", aria());
+    let _: Dom = Dom::create_textarea("notes", "Notes", aria());
+    let _: Dom = Dom::create_select("country", "Country", aria());
+    let _: Dom = Dom::create_table("People", aria());
+
+    // Dom: explicit opt-out variants.
+    let _: Dom = Dom::create_a_no_a11y("/h".into(), None.into());
+    let _: Dom = Dom::create_button_no_a11y("Save".into());
+    let _: Dom = Dom::create_label_no_a11y("email".into(), "Email".into());
+    let _: Dom = Dom::create_input_no_a11y("text".into(), "name".into(), "Name".into());
+    let _: Dom = Dom::create_textarea_no_a11y("notes".into(), "Notes".into());
+    let _: Dom = Dom::create_select_no_a11y("country".into(), "Country".into());
+    let _: Dom = Dom::create_table_no_a11y();
+
+    // NodeData: accessibility-required variants.
+    let _: NodeData = NodeData::create_button(aria());
+    let _: NodeData = NodeData::create_a("/h".into(), aria());
+    let _: NodeData = NodeData::create_input("text".into(), "n".into(), "N".into(), aria());
+    let _: NodeData = NodeData::create_textarea("n".into(), "N".into(), aria());
+    let _: NodeData = NodeData::create_select("n".into(), "N".into(), aria());
+    let _: NodeData = NodeData::create_table(aria());
+    let _: NodeData = NodeData::create_label("email".into(), aria());
+
+    // NodeData: explicit opt-out variants.
+    let _: NodeData = NodeData::create_button_no_a11y();
+    let _: NodeData = NodeData::create_a_no_a11y("/h".into());
+    let _: NodeData = NodeData::create_input_no_a11y("text".into(), "n".into(), "N".into());
+    let _: NodeData = NodeData::create_textarea_no_a11y("n".into(), "N".into());
+    let _: NodeData = NodeData::create_select_no_a11y("n".into(), "N".into());
+    let _: NodeData = NodeData::create_table_no_a11y();
+    let _: NodeData = NodeData::create_label_no_a11y("email".into());
 }

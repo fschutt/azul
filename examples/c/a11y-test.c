@@ -69,13 +69,13 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AzDom_addChild(&h2, AzDom_createText(AZ_STR("2. Buttons")));
         AzDom_addChild(&section, h2);
 
-        AzDom btn1 = AzDom_createButton(AZ_STR("Click Me"));
+        AzDom btn1 = AzDom_createButton(AZ_STR("Click Me"), AzSmallAriaInfo_label(AZ_STR("Click Me")));
         AzDom_addChild(&section, btn1);
 
-        AzDom btn2 = AzDom_createButton(AZ_STR("Submit"));
+        AzDom btn2 = AzDom_createButton(AZ_STR("Submit"), AzSmallAriaInfo_label(AZ_STR("Submit form")));
         AzDom_addChild(&section, btn2);
 
-        AzDom btn3 = AzDom_createButton(AZ_STR("Cancel"));
+        AzDom btn3 = AzDom_createButton(AZ_STR("Cancel"), AzSmallAriaInfo_label(AZ_STR("Cancel action")));
         AzDom_addChild(&section, btn3);
 
         AzDom_addChild(&body, section);
@@ -90,12 +90,12 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AzDom_addChild(&h2, AzDom_createText(AZ_STR("3. Links")));
         AzDom_addChild(&section, h2);
 
-        AzDom link1 = AzDom_createA(AZ_STR("https://example.com"), AzOptionString_some(AZ_STR("Example Website")));
+        AzDom link1 = AzDom_createA(AZ_STR("https://example.com"), AZ_STR("Example Website"), AzSmallAriaInfo_label(AZ_STR("Example Website")));
         AzDom_addChild(&section, link1);
 
         AzDom_addChild(&section, AzDom_createText(AZ_STR(" | ")));
 
-        AzDom link2 = AzDom_createA(AZ_STR("https://azul.rs"), AzOptionString_some(AZ_STR("Azul Homepage")));
+        AzDom link2 = AzDom_createA(AZ_STR("https://azul.rs"), AZ_STR("Azul Homepage"), AzSmallAriaInfo_label(AZ_STR("Azul Homepage")));
         AzDom_addChild(&section, link2);
 
         AzDom_addChild(&body, section);
@@ -110,13 +110,13 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AzDom_addChild(&h2, AzDom_createText(AZ_STR("4. Form Inputs")));
         AzDom_addChild(&section, h2);
 
-        AzDom input1 = AzDom_createInput(AZ_STR("text"), AZ_STR("username"), AZ_STR("Username:"));
+        AzDom input1 = AzDom_createInput(AZ_STR("text"), AZ_STR("username"), AZ_STR("Username:"), AzSmallAriaInfo_label(AZ_STR("Username")));
         AzDom_addChild(&section, input1);
 
-        AzDom input2 = AzDom_createInput(AZ_STR("password"), AZ_STR("password"), AZ_STR("Password:"));
+        AzDom input2 = AzDom_createInput(AZ_STR("password"), AZ_STR("password"), AZ_STR("Password:"), AzSmallAriaInfo_label(AZ_STR("Password")));
         AzDom_addChild(&section, input2);
 
-        AzDom input3 = AzDom_createInput(AZ_STR("checkbox"), AZ_STR("agree"), AZ_STR("I agree to terms"));
+        AzDom input3 = AzDom_createInput(AZ_STR("checkbox"), AZ_STR("agree"), AZ_STR("I agree to terms"), AzSmallAriaInfo_label(AZ_STR("Agree to terms")));
         AzDom_addChild(&section, input3);
 
         AzDom_addChild(&body, section);
@@ -155,7 +155,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AzDom_addChild(&h2, AzDom_createText(AZ_STR("6. Table")));
         AzDom_addChild(&section, h2);
 
-        AzDom table = AzDom_createTable();
+        AzDom table = AzDom_createTable(AZ_STR("Employee Directory"), AzSmallAriaInfo_label(AZ_STR("Employee directory table")));
 
         // Header row
         AzDom tr_head = AzDom_createTr();

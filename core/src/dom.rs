@@ -2202,6 +2202,145 @@ impl NodeData {
         nd
     }
 
+    // -- Accessibility-aware NodeData constructors --
+    // Each a11y-able element has two constructors: the canonical one takes a
+    // `SmallAriaInfo` so the caller must opt in to an accessible name, and the
+    // `*_no_a11y` variant is a deliberate escape hatch with a longer name.
+
+    fn with_attribute(mut self, attr: AttributeType) -> Self {
+        let mut v = self.attributes().clone().into_library_owned_vec();
+        v.push(attr);
+        self.set_attributes(v.into());
+        self
+    }
+
+    /// Creates a button `NodeData` with accessibility information.
+    #[inline]
+    pub fn create_button(aria: SmallAriaInfo) -> Self {
+        let mut nd = Self::create_node(NodeType::Button);
+        nd.set_accessibility_info(aria.to_full_info());
+        nd
+    }
+
+    /// Creates a button `NodeData` without accessibility information.
+    #[inline]
+    pub fn create_button_no_a11y() -> Self {
+        Self::create_node(NodeType::Button)
+    }
+
+    /// Creates an anchor `NodeData` with an href and accessibility information.
+    #[inline]
+    pub fn create_a(href: AzString, aria: SmallAriaInfo) -> Self {
+        let mut nd = Self::create_node(NodeType::A).with_attribute(AttributeType::Href(href));
+        nd.set_accessibility_info(aria.to_full_info());
+        nd
+    }
+
+    /// Creates an anchor `NodeData` with an href but no accessibility information.
+    #[inline]
+    pub fn create_a_no_a11y(href: AzString) -> Self {
+        Self::create_node(NodeType::A).with_attribute(AttributeType::Href(href))
+    }
+
+    /// Creates an input `NodeData` with accessibility information.
+    #[inline]
+    pub fn create_input(
+        input_type: AzString,
+        name: AzString,
+        label: AzString,
+        aria: SmallAriaInfo,
+    ) -> Self {
+        let mut nd = Self::create_node(NodeType::Input)
+            .with_attribute(AttributeType::InputType(input_type))
+            .with_attribute(AttributeType::Name(name))
+            .with_attribute(AttributeType::AriaLabel(label));
+        nd.set_accessibility_info(aria.to_full_info());
+        nd
+    }
+
+    /// Creates an input `NodeData` without accessibility information.
+    #[inline]
+    pub fn create_input_no_a11y(input_type: AzString, name: AzString, label: AzString) -> Self {
+        Self::create_node(NodeType::Input)
+            .with_attribute(AttributeType::InputType(input_type))
+            .with_attribute(AttributeType::Name(name))
+            .with_attribute(AttributeType::AriaLabel(label))
+    }
+
+    /// Creates a textarea `NodeData` with accessibility information.
+    #[inline]
+    pub fn create_textarea(name: AzString, label: AzString, aria: SmallAriaInfo) -> Self {
+        let mut nd = Self::create_node(NodeType::TextArea)
+            .with_attribute(AttributeType::Name(name))
+            .with_attribute(AttributeType::AriaLabel(label));
+        nd.set_accessibility_info(aria.to_full_info());
+        nd
+    }
+
+    /// Creates a textarea `NodeData` without accessibility information.
+    #[inline]
+    pub fn create_textarea_no_a11y(name: AzString, label: AzString) -> Self {
+        Self::create_node(NodeType::TextArea)
+            .with_attribute(AttributeType::Name(name))
+            .with_attribute(AttributeType::AriaLabel(label))
+    }
+
+    /// Creates a select `NodeData` with accessibility information.
+    #[inline]
+    pub fn create_select(name: AzString, label: AzString, aria: SmallAriaInfo) -> Self {
+        let mut nd = Self::create_node(NodeType::Select)
+            .with_attribute(AttributeType::Name(name))
+            .with_attribute(AttributeType::AriaLabel(label));
+        nd.set_accessibility_info(aria.to_full_info());
+        nd
+    }
+
+    /// Creates a select `NodeData` without accessibility information.
+    #[inline]
+    pub fn create_select_no_a11y(name: AzString, label: AzString) -> Self {
+        Self::create_node(NodeType::Select)
+            .with_attribute(AttributeType::Name(name))
+            .with_attribute(AttributeType::AriaLabel(label))
+    }
+
+    /// Creates a table `NodeData` with accessibility information.
+    #[inline]
+    pub fn create_table(aria: SmallAriaInfo) -> Self {
+        let mut nd = Self::create_node(NodeType::Table);
+        nd.set_accessibility_info(aria.to_full_info());
+        nd
+    }
+
+    /// Creates a table `NodeData` without accessibility information.
+    #[inline]
+    pub fn create_table_no_a11y() -> Self {
+        Self::create_node(NodeType::Table)
+    }
+
+    /// Creates a label `NodeData` with an associated control ID and accessibility
+    /// information.
+    #[inline]
+    pub fn create_label(for_id: AzString, aria: SmallAriaInfo) -> Self {
+        let mut nd = Self::create_node(NodeType::Label).with_attribute(AttributeType::Custom(
+            AttributeNameValue {
+                attr_name: "for".into(),
+                value: for_id,
+            },
+        ));
+        nd.set_accessibility_info(aria.to_full_info());
+        nd
+    }
+
+    /// Creates a label `NodeData` with an associated control ID but no
+    /// accessibility information.
+    #[inline]
+    pub fn create_label_no_a11y(for_id: AzString) -> Self {
+        Self::create_node(NodeType::Label).with_attribute(AttributeType::Custom(AttributeNameValue {
+            attr_name: "for".into(),
+            value: for_id,
+        }))
+    }
+
     /// Checks whether this node is of the given node type (div, image, text).
     #[inline]
     pub fn is_node_type(&self, searched_type: NodeType) -> bool {
@@ -3825,16 +3964,15 @@ impl Dom {
         Self::create_node(NodeType::Bdo).with_child(Self::create_text(text))
     }
 
-    /// Creates an anchor/hyperlink element.
+    /// Creates an anchor/hyperlink element without accessibility information.
     ///
-    /// **Accessibility**: Always provide meaningful link text. Avoid "click here" or "read more".
-    /// Screen readers often navigate by links, so descriptive text is crucial.
+    /// Prefer [`Dom::create_a`] so that screen readers get a meaningful label.
     ///
     /// **Parameters:**
     /// - `href`: Link destination URL
     /// - `label`: Link text (pass `None` for image-only links with alt text)
     #[inline]
-    pub fn create_a(href: AzString, label: OptionString) -> Self {
+    pub fn create_a_no_a11y(href: AzString, label: OptionString) -> Self {
         let mut link = Self::create_node(NodeType::A).with_attribute(AttributeType::Href(href));
         if let OptionString::Some(text) = label {
             link = link.with_child(Self::create_text(text));
@@ -3842,28 +3980,27 @@ impl Dom {
         link
     }
 
-    /// Creates a button element.
+    /// Creates a button element without accessibility information.
     ///
-    /// **Accessibility**: Buttons are keyboard accessible by default. Always provide clear
-    /// button text or an `aria-label` for icon-only buttons.
+    /// Prefer [`Dom::create_button`] so that the element has a meaningful accessible
+    /// name for screen readers.
     ///
     /// **Parameters:**
     /// - `text`: Button label text
     #[inline]
-    pub fn create_button(text: AzString) -> Self {
+    pub fn create_button_no_a11y(text: AzString) -> Self {
         Self::create_node(NodeType::Button).with_child(Self::create_text(text))
     }
 
-    /// Creates a label element for form controls.
+    /// Creates a label element for form controls without accessibility information.
     ///
-    /// **Accessibility**: Always associate labels with form controls using `for` attribute
-    /// or by wrapping the control. This is critical for screen reader users.
+    /// Prefer [`Dom::create_label`] so that screen readers get a descriptive label.
     ///
     /// **Parameters:**
     /// - `for_id`: ID of the associated form control
     /// - `text`: Label text
     #[inline]
-    pub fn create_label(for_id: AzString, text: AzString) -> Self {
+    pub fn create_label_no_a11y(for_id: AzString, text: AzString) -> Self {
         Self::create_node(NodeType::Label)
             .with_attribute(AttributeType::Custom(AttributeNameValue {
                 attr_name: "for".into(),
@@ -3872,47 +4009,48 @@ impl Dom {
             .with_child(Self::create_text(text))
     }
 
-    /// Creates an input element.
+    /// Creates an input element without accessibility information.
     ///
-    /// **Accessibility**: Always provide a label or `aria-label`. Set appropriate `type`
-    /// and `aria-` attributes for the input's purpose.
+    /// Prefer [`Dom::create_input`] so that screen readers get a descriptive label
+    /// beyond the HTML `aria-label` attribute.
     ///
     /// **Parameters:**
     /// - `input_type`: Input type (text, password, email, etc.)
     /// - `name`: Form field name
     /// - `label`: Accessibility label (required)
     #[inline]
-    pub fn create_input(input_type: AzString, name: AzString, label: AzString) -> Self {
+    pub fn create_input_no_a11y(input_type: AzString, name: AzString, label: AzString) -> Self {
         Self::create_node(NodeType::Input)
             .with_attribute(AttributeType::InputType(input_type))
             .with_attribute(AttributeType::Name(name))
             .with_attribute(AttributeType::AriaLabel(label))
     }
 
-    /// Creates a textarea element.
+    /// Creates a textarea element without accessibility information.
     ///
-    /// **Accessibility**: Always provide a label or `aria-label`. Consider `aria-describedby`
-    /// for additional instructions.
+    /// Prefer [`Dom::create_textarea`] so that screen readers get an accurate
+    /// description of the control.
     ///
     /// **Parameters:**
     /// - `name`: Form field name
     /// - `label`: Accessibility label (required)
     #[inline]
-    pub fn create_textarea(name: AzString, label: AzString) -> Self {
+    pub fn create_textarea_no_a11y(name: AzString, label: AzString) -> Self {
         Self::create_node(NodeType::TextArea)
             .with_attribute(AttributeType::Name(name))
             .with_attribute(AttributeType::AriaLabel(label))
     }
 
-    /// Creates a select dropdown element.
+    /// Creates a select dropdown element without accessibility information.
     ///
-    /// **Accessibility**: Always provide a label. Group related options with `optgroup`.
+    /// Prefer [`Dom::create_select`] so that screen readers announce the control
+    /// appropriately.
     ///
     /// **Parameters:**
     /// - `name`: Form field name
     /// - `label`: Accessibility label (required)
     #[inline]
-    pub fn create_select(name: AzString, label: AzString) -> Self {
+    pub fn create_select_no_a11y(name: AzString, label: AzString) -> Self {
         Self::create_node(NodeType::Select)
             .with_attribute(AttributeType::Name(name))
             .with_attribute(AttributeType::AriaLabel(label))
@@ -3957,12 +4095,12 @@ impl Dom {
         Self::create_node(NodeType::Li)
     }
 
-    /// Creates a table element.
+    /// Creates a table element without accessibility information.
     ///
-    /// **Accessibility**: Use proper table structure with `thead`, `tbody`, `th`, and `td`.
-    /// Provide a `caption` for table purpose. Use `scope` attribute on header cells.
+    /// Prefer [`Dom::create_table`] so that screen readers can announce the table's
+    /// purpose alongside its caption.
     #[inline(always)]
-    pub fn create_table() -> Self {
+    pub fn create_table_no_a11y() -> Self {
         Self::create_node(NodeType::Table)
     }
 
@@ -4531,37 +4669,45 @@ impl Dom {
 
     // Accessibility-Aware Constructors
     // These constructors require explicit accessibility information.
+    // Use the `*_no_a11y` variants only as a deliberate escape hatch.
 
     /// Creates a button with text content and accessibility information.
+    ///
+    /// Use [`Dom::create_button_no_a11y`] to skip the accessibility information.
     ///
     /// **Parameters:**
     /// - `text`: The visible button text
     /// - `aria`: Accessibility information (role, description, etc.)
     #[inline]
-    pub fn button_with_aria<S: Into<AzString>>(text: S, aria: SmallAriaInfo) -> Self {
-        let mut btn = Self::create_button(text.into());
+    pub fn create_button<S: Into<AzString>>(text: S, aria: SmallAriaInfo) -> Self {
+        let mut btn = Self::create_button_no_a11y(text.into());
         btn.root.set_accessibility_info(aria.to_full_info());
         btn
     }
 
     /// Creates a link (anchor) with href, text, and accessibility information.
     ///
+    /// Use [`Dom::create_a_no_a11y`] to skip the accessibility information (e.g. for
+    /// image-only links whose accessible name comes from an `<img alt>`).
+    ///
     /// **Parameters:**
     /// - `href`: The link destination
     /// - `text`: The visible link text
     /// - `aria`: Accessibility information (expanded description, etc.)
     #[inline]
-    pub fn link_with_aria<S1: Into<AzString>, S2: Into<AzString>>(
+    pub fn create_a<S1: Into<AzString>, S2: Into<AzString>>(
         href: S1,
         text: S2,
         aria: SmallAriaInfo,
     ) -> Self {
-        let mut link = Self::create_a(href.into(), OptionString::Some(text.into()));
+        let mut link = Self::create_a_no_a11y(href.into(), OptionString::Some(text.into()));
         link.root.set_accessibility_info(aria.to_full_info());
         link
     }
 
     /// Creates an input element with type, name, and accessibility information.
+    ///
+    /// Use [`Dom::create_input_no_a11y`] to skip the accessibility information.
     ///
     /// **Parameters:**
     /// - `input_type`: The input type (text, password, email, etc.)
@@ -4569,59 +4715,66 @@ impl Dom {
     /// - `label`: Base accessibility label
     /// - `aria`: Additional accessibility information (description, etc.)
     #[inline]
-    pub fn input_with_aria<S1: Into<AzString>, S2: Into<AzString>, S3: Into<AzString>>(
+    pub fn create_input<S1: Into<AzString>, S2: Into<AzString>, S3: Into<AzString>>(
         input_type: S1,
         name: S2,
         label: S3,
         aria: SmallAriaInfo,
     ) -> Self {
-        let mut input = Self::create_input(input_type.into(), name.into(), label.into());
+        let mut input = Self::create_input_no_a11y(input_type.into(), name.into(), label.into());
         input.root.set_accessibility_info(aria.to_full_info());
         input
     }
 
     /// Creates a textarea with name and accessibility information.
     ///
+    /// Use [`Dom::create_textarea_no_a11y`] to skip the accessibility information.
+    ///
     /// **Parameters:**
     /// - `name`: The form field name
     /// - `label`: Base accessibility label
     /// - `aria`: Additional accessibility information (description, etc.)
     #[inline]
-    pub fn textarea_with_aria<S1: Into<AzString>, S2: Into<AzString>>(
+    pub fn create_textarea<S1: Into<AzString>, S2: Into<AzString>>(
         name: S1,
         label: S2,
         aria: SmallAriaInfo,
     ) -> Self {
-        let mut textarea = Self::create_textarea(name.into(), label.into());
+        let mut textarea = Self::create_textarea_no_a11y(name.into(), label.into());
         textarea.root.set_accessibility_info(aria.to_full_info());
         textarea
     }
 
     /// Creates a select dropdown with name and accessibility information.
     ///
+    /// Use [`Dom::create_select_no_a11y`] to skip the accessibility information.
+    ///
     /// **Parameters:**
     /// - `name`: The form field name
     /// - `label`: Base accessibility label
     /// - `aria`: Additional accessibility information (description, etc.)
     #[inline]
-    pub fn select_with_aria<S1: Into<AzString>, S2: Into<AzString>>(
+    pub fn create_select<S1: Into<AzString>, S2: Into<AzString>>(
         name: S1,
         label: S2,
         aria: SmallAriaInfo,
     ) -> Self {
-        let mut select = Self::create_select(name.into(), label.into());
+        let mut select = Self::create_select_no_a11y(name.into(), label.into());
         select.root.set_accessibility_info(aria.to_full_info());
         select
     }
 
     /// Creates a table with caption and accessibility information.
     ///
+    /// Use [`Dom::create_table_no_a11y`] to skip the caption and accessibility
+    /// information.
+    ///
     /// **Parameters:**
     /// - `caption`: Table caption (visible title)
     /// - `aria`: Accessibility information describing table purpose
     #[inline]
-    pub fn table_with_aria<S: Into<AzString>>(caption: S, aria: SmallAriaInfo) -> Self {
-        let mut table = Self::create_table()
+    pub fn create_table<S: Into<AzString>>(caption: S, aria: SmallAriaInfo) -> Self {
+        let mut table = Self::create_table_no_a11y()
             .with_child(Self::create_caption().with_child(Self::create_text(caption)));
         table.root.set_accessibility_info(aria.to_full_info());
         table
@@ -4629,17 +4782,19 @@ impl Dom {
 
     /// Creates a label for a form control with additional accessibility information.
     ///
+    /// Use [`Dom::create_label_no_a11y`] to skip the accessibility information.
+    ///
     /// **Parameters:**
     /// - `for_id`: The ID of the associated form control
     /// - `text`: The visible label text
     /// - `aria`: Additional accessibility information (description, etc.)
     #[inline]
-    pub fn label_with_aria<S1: Into<AzString>, S2: Into<AzString>>(
+    pub fn create_label<S1: Into<AzString>, S2: Into<AzString>>(
         for_id: S1,
         text: S2,
         aria: SmallAriaInfo,
     ) -> Self {
-        let mut label = Self::create_label(for_id.into(), text.into());
+        let mut label = Self::create_label_no_a11y(for_id.into(), text.into());
         label.root.set_accessibility_info(aria.to_full_info());
         label
     }

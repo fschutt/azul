@@ -8974,10 +8974,35 @@
                             },
                             "create_a": {
                                 "doc": [
-                                    "Creates an anchor/hyperlink element.",
+                                    "Creates an anchor (hyperlink) with href, visible text, and accessibility",
+                                    "information.",
                                     "",
-                                    "**Accessibility**: Always provide meaningful link text. Avoid \"click here\" or \"read more\".",
-                                    "Screen readers often navigate by links, so descriptive text is crucial.",
+                                    "Use `create_a_no_a11y` only as a deliberate escape hatch (for example, image-only",
+                                    "links whose accessible name comes from an `<img alt>`).",
+                                    "",
+                                    "**Parameters:**",
+                                    "- `href`: Link destination URL",
+                                    "- `text`: Visible link text",
+                                    "- `aria`: Accessibility information (expanded description, etc.)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "href": "String"
+                                    },
+                                    {
+                                        "text": "String"
+                                    },
+                                    {
+                                        "aria": "SmallAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_a(href, text, aria)"
+                            },
+                            "create_a_no_a11y": {
+                                "doc": [
+                                    "Creates an anchor/hyperlink element without accessibility information.",
+                                    "",
+                                    "Prefer `create_a` so that screen readers get a meaningful label.",
                                     "",
                                     "**Parameters:**",
                                     "- `href`: Link destination URL",
@@ -8991,14 +9016,34 @@
                                         "label": "OptionString"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::create_a(href, label)"
+                                "fn_body": "azul_core::dom::Dom::create_a_no_a11y(href, label)"
                             },
                             "create_button": {
                                 "doc": [
-                                    "Creates a button element.",
+                                    "Creates a button element with text content and accessibility information.",
                                     "",
-                                    "**Accessibility**: Buttons are keyboard accessible by default. Always provide clear",
-                                    "button text or an `aria-label` for icon-only buttons.",
+                                    "Use `create_button_no_a11y` only as a deliberate escape hatch.",
+                                    "",
+                                    "**Parameters:**",
+                                    "- `text`: Button label text",
+                                    "- `aria`: Accessibility information (role, description, etc.)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "text": "String"
+                                    },
+                                    {
+                                        "aria": "SmallAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_button(text, aria)"
+                            },
+                            "create_button_no_a11y": {
+                                "doc": [
+                                    "Creates a button element without accessibility information.",
+                                    "",
+                                    "Prefer `create_button` so that the element has a meaningful accessible name for",
+                                    "screen readers.",
                                     "",
                                     "**Parameters:**",
                                     "- `text`: Button label text"
@@ -9008,14 +9053,37 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::create_button(text)"
+                                "fn_body": "azul_core::dom::Dom::create_button_no_a11y(text)"
                             },
                             "create_label": {
                                 "doc": [
-                                    "Creates a label element for form controls.",
+                                    "Creates a label element for form controls with accessibility information.",
                                     "",
-                                    "**Accessibility**: Always associate labels with form controls using `for` attribute",
-                                    "or by wrapping the control. This is critical for screen reader users.",
+                                    "Use `create_label_no_a11y` only as a deliberate escape hatch.",
+                                    "",
+                                    "**Parameters:**",
+                                    "- `for_id`: ID of the associated form control",
+                                    "- `text`: Label text",
+                                    "- `aria`: Accessibility information (description, etc.)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "for_id": "String"
+                                    },
+                                    {
+                                        "text": "String"
+                                    },
+                                    {
+                                        "aria": "SmallAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_label(for_id, text, aria)"
+                            },
+                            "create_label_no_a11y": {
+                                "doc": [
+                                    "Creates a label element for form controls without accessibility information.",
+                                    "",
+                                    "Prefer `create_label` so that screen readers get a descriptive label.",
                                     "",
                                     "**Parameters:**",
                                     "- `for_id`: ID of the associated form control",
@@ -9029,14 +9097,42 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::create_label(for_id, text)"
+                                "fn_body": "azul_core::dom::Dom::create_label_no_a11y(for_id, text)"
                             },
                             "create_input": {
                                 "doc": [
-                                    "Creates an input element.",
+                                    "Creates an input element with type, name, and accessibility information.",
                                     "",
-                                    "**Accessibility**: Always provide a label or `aria-label`. Set appropriate `type`",
-                                    "and `aria-` attributes for the input's purpose.",
+                                    "Use `create_input_no_a11y` only as a deliberate escape hatch.",
+                                    "",
+                                    "**Parameters:**",
+                                    "- `input_type`: Input type (text, password, email, etc.)",
+                                    "- `name`: Form field name",
+                                    "- `label`: Accessibility label",
+                                    "- `aria`: Accessibility information (description, etc.)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "input_type": "String"
+                                    },
+                                    {
+                                        "name": "String"
+                                    },
+                                    {
+                                        "label": "String"
+                                    },
+                                    {
+                                        "aria": "SmallAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_input(input_type, name, label, aria)"
+                            },
+                            "create_input_no_a11y": {
+                                "doc": [
+                                    "Creates an input element without accessibility information.",
+                                    "",
+                                    "Prefer `create_input` so that screen readers get a descriptive label beyond the",
+                                    "HTML `aria-label` attribute.",
                                     "",
                                     "**Parameters:**",
                                     "- `input_type`: Input type (text, password, email, etc.)",
@@ -9054,14 +9150,38 @@
                                         "label": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::create_input(input_type, name, label)"
+                                "fn_body": "azul_core::dom::Dom::create_input_no_a11y(input_type, name, label)"
                             },
                             "create_textarea": {
                                 "doc": [
-                                    "Creates a textarea element.",
+                                    "Creates a textarea element with name and accessibility information.",
                                     "",
-                                    "**Accessibility**: Always provide a label or `aria-label`. Consider `aria-describedby`",
-                                    "for additional instructions.",
+                                    "Use `create_textarea_no_a11y` only as a deliberate escape hatch.",
+                                    "",
+                                    "**Parameters:**",
+                                    "- `name`: Form field name",
+                                    "- `label`: Accessibility label",
+                                    "- `aria`: Accessibility information (description, etc.)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "name": "String"
+                                    },
+                                    {
+                                        "label": "String"
+                                    },
+                                    {
+                                        "aria": "SmallAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_textarea(name, label, aria)"
+                            },
+                            "create_textarea_no_a11y": {
+                                "doc": [
+                                    "Creates a textarea element without accessibility information.",
+                                    "",
+                                    "Prefer `create_textarea` so that screen readers get an accurate description of",
+                                    "the control.",
                                     "",
                                     "**Parameters:**",
                                     "- `name`: Form field name",
@@ -9075,13 +9195,37 @@
                                         "label": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::create_textarea(name, label)"
+                                "fn_body": "azul_core::dom::Dom::create_textarea_no_a11y(name, label)"
                             },
                             "create_select": {
                                 "doc": [
-                                    "Creates a select dropdown element.",
+                                    "Creates a select dropdown with name and accessibility information.",
                                     "",
-                                    "**Accessibility**: Always provide a label. Group related options with `optgroup`.",
+                                    "Use `create_select_no_a11y` only as a deliberate escape hatch.",
+                                    "",
+                                    "**Parameters:**",
+                                    "- `name`: Form field name",
+                                    "- `label`: Accessibility label",
+                                    "- `aria`: Accessibility information (description, etc.)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "name": "String"
+                                    },
+                                    {
+                                        "label": "String"
+                                    },
+                                    {
+                                        "aria": "SmallAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_select(name, label, aria)"
+                            },
+                            "create_select_no_a11y": {
+                                "doc": [
+                                    "Creates a select dropdown without accessibility information.",
+                                    "",
+                                    "Prefer `create_select` so that screen readers announce the control appropriately.",
                                     "",
                                     "**Parameters:**",
                                     "- `name`: Form field name",
@@ -9095,7 +9239,7 @@
                                         "label": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::create_select(name, label)"
+                                "fn_body": "azul_core::dom::Dom::create_select_no_a11y(name, label)"
                             },
                             "create_option": {
                                 "doc": [
@@ -9147,13 +9291,33 @@
                             },
                             "create_table": {
                                 "doc": [
-                                    "Creates a table element.",
+                                    "Creates a table element with a caption and accessibility information.",
                                     "",
-                                    "**Accessibility**: Use proper table structure with `thead`, `tbody`, `th`, and `td`.",
-                                    "Provide a `caption` for table purpose. Use `scope` attribute on header cells."
+                                    "Use `create_table_no_a11y` only as a deliberate escape hatch.",
+                                    "",
+                                    "**Parameters:**",
+                                    "- `caption`: Visible caption text for the table",
+                                    "- `aria`: Accessibility information describing table purpose"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "caption": "String"
+                                    },
+                                    {
+                                        "aria": "SmallAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_table(caption, aria)"
+                            },
+                            "create_table_no_a11y": {
+                                "doc": [
+                                    "Creates a table element without accessibility information.",
+                                    "",
+                                    "Prefer `create_table` so that screen readers can announce the table's purpose",
+                                    "alongside its caption."
                                 ],
                                 "fn_args": [],
-                                "fn_body": "azul_core::dom::Dom::create_table()"
+                                "fn_body": "azul_core::dom::Dom::create_table_no_a11y()"
                             },
                             "create_caption": {
                                 "doc": [
@@ -9689,216 +9853,6 @@
                                     }
                                 ],
                                 "fn_body": "azul_core::dom::Dom::p_with_text(text)"
-                            },
-                            "button_with_aria": {
-                                "doc": [
-                                    "Creates a button with text content and accessibility information.",
-                                    "",
-                                    "**Parameters:**",
-                                    "- `text`: The visible button text",
-                                    "- `aria`: Accessibility information (role, description, etc.)",
-                                    "",
-                                    "**Example:**",
-                                    "```ignore",
-                                    "Dom::button_with_aria(\"Submit\", SmallAriaInfo::label(\"Submit form\"))",
-                                    "```ignore"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "text": "String"
-                                    },
-                                    {
-                                        "aria": "SmallAriaInfo"
-                                    }
-                                ],
-                                "fn_body": "azul_core::dom::Dom::button_with_aria(text, aria)"
-                            },
-                            "link_with_aria": {
-                                "doc": [
-                                    "Creates a link (anchor) with href, text, and accessibility information.",
-                                    "",
-                                    "**Parameters:**",
-                                    "- `href`: The link destination",
-                                    "- `text`: The visible link text",
-                                    "- `aria`: Accessibility information (expanded description, etc.)",
-                                    "",
-                                    "**Example:**",
-                                    "```ignore",
-                                    "Dom::link_with_aria(",
-                                    "    \"/home\",",
-                                    "    \"Home\",",
-                                    "    SmallAriaInfo::label(\"Navigate to home page\"),",
-                                    ")",
-                                    "```ignore"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "href": "String"
-                                    },
-                                    {
-                                        "text": "String"
-                                    },
-                                    {
-                                        "aria": "SmallAriaInfo"
-                                    }
-                                ],
-                                "fn_body": "azul_core::dom::Dom::link_with_aria(href, text, aria)"
-                            },
-                            "input_with_aria": {
-                                "doc": [
-                                    "Creates an input element with type, name, and accessibility information.",
-                                    "",
-                                    "**Parameters:**",
-                                    "- `input_type`: The input type (text, password, email, etc.)",
-                                    "- `name`: The form field name",
-                                    "- `label`: Base accessibility label",
-                                    "- `aria`: Additional accessibility information (description, etc.)",
-                                    "",
-                                    "**Example:**",
-                                    "```ignore",
-                                    "Dom::input_with_aria(",
-                                    "    \"email\",",
-                                    "    \"user_email\",",
-                                    "    \"Email address\",",
-                                    "    SmallAriaInfo::label(\"Email address\").with_description(\"Enter your email\"),",
-                                    ")",
-                                    "```ignore"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "input_type": "String"
-                                    },
-                                    {
-                                        "name": "String"
-                                    },
-                                    {
-                                        "label": "String"
-                                    },
-                                    {
-                                        "aria": "SmallAriaInfo"
-                                    }
-                                ],
-                                "fn_body": "azul_core::dom::Dom::input_with_aria(input_type, name, label, aria)"
-                            },
-                            "textarea_with_aria": {
-                                "doc": [
-                                    "Creates a textarea with name and accessibility information.",
-                                    "",
-                                    "**Parameters:**",
-                                    "- `name`: The form field name",
-                                    "- `label`: Base accessibility label",
-                                    "- `aria`: Additional accessibility information (description, etc.)",
-                                    "",
-                                    "**Example:**",
-                                    "```ignore",
-                                    "Dom::textarea_with_aria(",
-                                    "    \"comment\",",
-                                    "    \"Comment\",",
-                                    "    SmallAriaInfo::label(\"Comment\").with_description(\"Enter your feedback\"),",
-                                    ")",
-                                    "```ignore"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "name": "String"
-                                    },
-                                    {
-                                        "label": "String"
-                                    },
-                                    {
-                                        "aria": "SmallAriaInfo"
-                                    }
-                                ],
-                                "fn_body": "azul_core::dom::Dom::textarea_with_aria(name, label, aria)"
-                            },
-                            "select_with_aria": {
-                                "doc": [
-                                    "Creates a select dropdown with name and accessibility information.",
-                                    "",
-                                    "**Parameters:**",
-                                    "- `name`: The form field name",
-                                    "- `label`: Base accessibility label",
-                                    "- `aria`: Additional accessibility information (description, etc.)",
-                                    "",
-                                    "**Example:**",
-                                    "```ignore",
-                                    "Dom::select_with_aria(",
-                                    "    \"country\",",
-                                    "    \"Country\",",
-                                    "    SmallAriaInfo::label(\"Country\").with_description(\"Select your country\"),",
-                                    ")",
-                                    "```ignore"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "name": "String"
-                                    },
-                                    {
-                                        "label": "String"
-                                    },
-                                    {
-                                        "aria": "SmallAriaInfo"
-                                    }
-                                ],
-                                "fn_body": "azul_core::dom::Dom::select_with_aria(name, label, aria)"
-                            },
-                            "table_with_aria": {
-                                "doc": [
-                                    "Creates a table with caption and accessibility information.",
-                                    "",
-                                    "**Parameters:**",
-                                    "- `caption`: Table caption (visible title)",
-                                    "- `aria`: Accessibility information describing table purpose",
-                                    "",
-                                    "**Example:**",
-                                    "```ignore",
-                                    "Dom::table_with_aria(",
-                                    "    \"Employee Directory\",",
-                                    "    SmallAriaInfo::label(\"Employee directory table\")",
-                                    "        .with_description(\"Contains employee names, emails, and departments\"),",
-                                    ")",
-                                    "```ignore"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "caption": "String"
-                                    },
-                                    {
-                                        "aria": "SmallAriaInfo"
-                                    }
-                                ],
-                                "fn_body": "azul_core::dom::Dom::table_with_aria(caption, aria)"
-                            },
-                            "label_with_aria": {
-                                "doc": [
-                                    "Creates a label for a form control with additional accessibility information.",
-                                    "",
-                                    "**Parameters:**",
-                                    "- `for_id`: The ID of the associated form control",
-                                    "- `text`: The visible label text",
-                                    "- `aria`: Additional accessibility information (description, etc.)",
-                                    "",
-                                    "**Example:**",
-                                    "```ignore",
-                                    "Dom::label_with_aria(",
-                                    "    \"email-input\",",
-                                    "    \"Email Address:\",",
-                                    "    SmallAriaInfo::label(\"Email input\").with_description(\"Required field\"),",
-                                    ")",
-                                    "```ignore"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "for_id": "String"
-                                    },
-                                    {
-                                        "text": "String"
-                                    },
-                                    {
-                                        "aria": "SmallAriaInfo"
-                                    }
-                                ],
-                                "fn_body": "azul_core::dom::Dom::label_with_aria(for_id, text, aria)"
                             }
                         },
                         "functions": {
@@ -10569,6 +10523,191 @@
                                     }
                                 ],
                                 "fn_body": "azul_core::dom::NodeData::create_node(node_type)"
+                            },
+                            "create_button": {
+                                "doc": [
+                                    "Creates a button `NodeData` with accessibility information."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "aria": "SmallAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::NodeData::create_button(aria)"
+                            },
+                            "create_button_no_a11y": {
+                                "doc": [
+                                    "Creates a button `NodeData` without accessibility information."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::NodeData::create_button_no_a11y()"
+                            },
+                            "create_a": {
+                                "doc": [
+                                    "Creates an anchor `NodeData` with an href and accessibility information."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "href": "String"
+                                    },
+                                    {
+                                        "aria": "SmallAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::NodeData::create_a(href, aria)"
+                            },
+                            "create_a_no_a11y": {
+                                "doc": [
+                                    "Creates an anchor `NodeData` with an href but no accessibility information."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "href": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::NodeData::create_a_no_a11y(href)"
+                            },
+                            "create_input": {
+                                "doc": [
+                                    "Creates an input `NodeData` with accessibility information."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "input_type": "String"
+                                    },
+                                    {
+                                        "name": "String"
+                                    },
+                                    {
+                                        "label": "String"
+                                    },
+                                    {
+                                        "aria": "SmallAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::NodeData::create_input(input_type, name, label, aria)"
+                            },
+                            "create_input_no_a11y": {
+                                "doc": [
+                                    "Creates an input `NodeData` without accessibility information."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "input_type": "String"
+                                    },
+                                    {
+                                        "name": "String"
+                                    },
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::NodeData::create_input_no_a11y(input_type, name, label)"
+                            },
+                            "create_textarea": {
+                                "doc": [
+                                    "Creates a textarea `NodeData` with accessibility information."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "name": "String"
+                                    },
+                                    {
+                                        "label": "String"
+                                    },
+                                    {
+                                        "aria": "SmallAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::NodeData::create_textarea(name, label, aria)"
+                            },
+                            "create_textarea_no_a11y": {
+                                "doc": [
+                                    "Creates a textarea `NodeData` without accessibility information."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "name": "String"
+                                    },
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::NodeData::create_textarea_no_a11y(name, label)"
+                            },
+                            "create_select": {
+                                "doc": [
+                                    "Creates a select `NodeData` with accessibility information."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "name": "String"
+                                    },
+                                    {
+                                        "label": "String"
+                                    },
+                                    {
+                                        "aria": "SmallAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::NodeData::create_select(name, label, aria)"
+                            },
+                            "create_select_no_a11y": {
+                                "doc": [
+                                    "Creates a select `NodeData` without accessibility information."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "name": "String"
+                                    },
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::NodeData::create_select_no_a11y(name, label)"
+                            },
+                            "create_table": {
+                                "doc": [
+                                    "Creates a table `NodeData` with accessibility information."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "aria": "SmallAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::NodeData::create_table(aria)"
+                            },
+                            "create_table_no_a11y": {
+                                "doc": [
+                                    "Creates a table `NodeData` without accessibility information."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::NodeData::create_table_no_a11y()"
+                            },
+                            "create_label": {
+                                "doc": [
+                                    "Creates a label `NodeData` with an associated control ID and accessibility information."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "for_id": "String"
+                                    },
+                                    {
+                                        "aria": "SmallAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::NodeData::create_label(for_id, aria)"
+                            },
+                            "create_label_no_a11y": {
+                                "doc": [
+                                    "Creates a label `NodeData` with an associated control ID but no accessibility information."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "for_id": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::NodeData::create_label_no_a11y(for_id)"
                             }
                         },
                         "functions": {
@@ -14091,6 +14230,55 @@
                                 }
                             }
                         ],
+                        "constructors": {
+                            "label": {
+                                "doc": [
+                                    "Creates a `SmallAriaInfo` carrying only an accessible name."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "text": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::a11y::SmallAriaInfo::label(text)"
+                            }
+                        },
+                        "functions": {
+                            "with_role": {
+                                "doc": [
+                                    "Returns a copy with the given accessibility role."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "role": "AccessibilityRole"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SmallAriaInfo"
+                                },
+                                "fn_body": "object.with_role(role)"
+                            },
+                            "with_description": {
+                                "doc": [
+                                    "Returns a copy with the given accessible description."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "desc": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SmallAriaInfo"
+                                },
+                                "fn_body": "object.with_description(desc)"
+                            }
+                        },
                         "repr": "C"
                     },
                     "IdOrClass": {
