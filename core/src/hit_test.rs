@@ -10,11 +10,10 @@ use core::{
 
 use crate::{
     dom::{DomId, DomNodeHash, DomNodeId, OptionDomNodeId, ScrollTagId, ScrollbarOrientation},
-    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    geom::{LogicalPosition, LogicalRect},
     hit_test_tag::CursorType,
     id::NodeId,
     resources::IdNamespace,
-    styled_dom::NodeHierarchyItemId,
     window::MouseCursorType,
     FastHashMap,
 };
@@ -92,17 +91,6 @@ impl ::core::fmt::Debug for ExternalScrollId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self)
     }
-}
-
-/// Tracks which nodes overflow their parent and need scroll handling,
-/// along with nodes that clip their children.
-#[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
-pub struct ScrolledNodes {
-    pub overflowing_nodes: BTreeMap<NodeHierarchyItemId, OverflowingScrollNode>,
-    /// Nodes that need to clip their direct children (i.e. nodes
-    /// with overflow-x and overflow-y set to "Hidden")
-    pub clip_nodes: BTreeMap<NodeId, LogicalSize>,
-    pub tags_to_node_ids: BTreeMap<ScrollTagId, NodeHierarchyItemId>,
 }
 
 /// A node whose content overflows its parent, requiring scroll handling.
@@ -238,29 +226,6 @@ pub struct ScrollHitTestItem {
 pub struct ScrollStates(pub FastHashMap<ExternalScrollId, ScrollState>);
 
 impl ScrollStates {
-    /// Special rendering function that skips building a layout and only does
-    /// hit-testing and rendering - called on pure scroll events, since it's
-    /// significantly less CPU-intensive to just render the last display list instead of
-    /// re-layouting on every single scroll event.
-    #[must_use]
-    pub fn should_scroll_render(
-        &mut self,
-        (scroll_x, scroll_y): &(f32, f32),
-        hit_test: &FullHitTest,
-    ) -> bool {
-        let mut should_scroll_render = false;
-
-        for hit_test in hit_test.hovered_nodes.values() {
-            for scroll_hit_test_item in hit_test.scroll_hit_test_nodes.values() {
-                self.scroll_node(&scroll_hit_test_item.scroll_node, *scroll_x, *scroll_y);
-                should_scroll_render = true;
-                break; // only scroll first node that was hit
-            }
-        }
-
-        should_scroll_render
-    }
-
     pub fn new() -> ScrollStates {
         ScrollStates::default()
     }
@@ -349,19 +314,6 @@ pub struct FullHitTest {
     pub hovered_nodes: BTreeMap<DomId, HitTest>,
     pub focused_node: OptionDomNodeId,
 }
-
-/// A hovered node entry from a full hit test, pairing a DOM ID with its hit-test result.
-pub struct FullHitTestHoveredNode {
-    pub dom_id: DomId,
-    pub hit_test: HitTest,
-}
-
-impl_option!(
-    FullHitTest,
-    OptionFullHitTest,
-    copy = false,
-    [Debug, Clone, PartialEq]
-);
 
 impl FullHitTest {
     /// Create an empty hit-test result
