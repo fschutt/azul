@@ -948,6 +948,25 @@ impl LayoutWindow {
         }
 
         let scroll_offsets = self.scroll_manager.get_scroll_states_for_dom(dom_id);
+
+        // Synchronize CSS transform / opacity keys with the current StyledDom
+        // BEFORE building the display list. `display_list.rs` reads
+        // `css_transform_keys` / `css_current_transform_values` (and the
+        // opacity equivalents) to emit reference frames and opacity stacking
+        // contexts — these maps are only populated by
+        // `GpuValueCache::synchronize`. The returned events are merged into
+        // `gpu_state_manager.pending_changes` so the renderer can later push
+        // matching WebRender transactions alongside scrollbar transform
+        // events.
+        {
+            let mut transform_opacity_events = self
+                .gpu_state_manager
+                .get_or_create_cache(dom_id)
+                .synchronize(&styled_dom);
+            self.gpu_state_manager
+                .pending_changes
+                .merge(&mut transform_opacity_events);
+        }
         let gpu_cache = self.gpu_state_manager.get_or_create_cache(dom_id).clone();
 
         let cursor_is_visible = self.text_edit_manager.should_draw_cursor();
@@ -2359,10 +2378,7 @@ impl LayoutWindow {
 
     /// Get or create a GPU value cache for a specific DOM
     pub fn get_or_create_gpu_cache(&mut self, dom_id: DomId) -> &mut GpuValueCache {
-        self.gpu_state_manager
-            .caches
-            .entry(dom_id)
-            .or_insert_with(GpuValueCache::default)
+        self.gpu_state_manager.get_or_create_cache(dom_id)
     }
 
     // Layout Result Access

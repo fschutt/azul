@@ -54,6 +54,11 @@ pub struct GpuStateManager {
     /// and the active fade-out phase (0 < opacity < 1).
     /// Set by `LayoutWindow::synchronize_scrollbar_opacity`, read by the platform render loop.
     pub scrollbar_fade_active: bool,
+    /// GPU events produced during layout (CSS transform / opacity synchronization,
+    /// scrollbar transform / opacity updates) that have not yet been pushed to
+    /// the renderer. Drained by the platform render path when a transaction is
+    /// built.
+    pub pending_changes: GpuEventChanges,
 }
 
 impl Default for GpuStateManager {
@@ -102,7 +107,14 @@ impl GpuStateManager {
             fade_duration,
             fade_states: BTreeMap::new(),
             scrollbar_fade_active: false,
+            pending_changes: GpuEventChanges::empty(),
         }
+    }
+
+    /// Take any queued transform / opacity events that have been accumulated
+    /// during layout. Clears the internal buffer.
+    pub fn take_pending_changes(&mut self) -> GpuEventChanges {
+        core::mem::take(&mut self.pending_changes)
     }
 
     /// Advances GPU state by one tick, interpolating animated opacity values.
