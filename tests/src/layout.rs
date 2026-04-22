@@ -89,7 +89,7 @@ mod text2 {
         },
         ui_solver::{FormattingContext, ResolvedTextLayoutOptions},
         window::{LogicalPosition, LogicalRect, LogicalSize},
-        FastHashMap,
+        OrderedMap,
     };
     use azul_css::{
         AzString, CssProperty, CssPropertyType, CssPropertyValue, FontData, FontRef,
@@ -181,16 +181,16 @@ mod text2 {
         fn get_registered_font(
             &self,
             _font_key: &FontKey,
-        ) -> Option<&(FontRef, FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>)> {
+        ) -> Option<&(FontRef, OrderedMap<(Au, DpiScaleFactor), FontInstanceKey>)> {
             // Return a reference to the static instance
             static mut FONT_INSTANCES: Option<(
                 FontRef,
-                FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>,
+                OrderedMap<(Au, DpiScaleFactor), FontInstanceKey>,
             )> = None;
 
             unsafe {
                 if FONT_INSTANCES.is_none() {
-                    let instances = FastHashMap::default();
+                    let instances = OrderedMap::default();
                     // Clone the font_ref - this is safe since it's reference-counted internally
                     FONT_INSTANCES = Some((self.font_ref.clone(), instances));
                 }

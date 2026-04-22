@@ -18,7 +18,7 @@ use crate::{
     id::NodeId,
     styled_dom::{ChangedCssProperty, NodeHierarchyItemId},
     task::Instant,
-    FastHashMap,
+    OrderedMap,
 };
 
 /// Easing functions for smooth scroll animations
@@ -1423,7 +1423,7 @@ pub struct LifecycleEventResult {
     pub events: Vec<SyntheticEvent>,
     /// Maps old NodeId -> new NodeId for matched nodes.
     /// Use this to migrate focus, scroll state, and other node-specific state.
-    pub node_id_mapping: crate::FastHashMap<NodeId, NodeId>,
+    pub node_id_mapping: crate::OrderedMap<NodeId, NodeId>,
 }
 
 /// Detect lifecycle events using reconciliation with stable keys and content hashing.
@@ -1485,8 +1485,8 @@ pub fn detect_lifecycle_events_with_reconciliation(
     new_node_data: &[crate::dom::NodeData],
     old_hierarchy: &[crate::styled_dom::NodeHierarchyItem],
     new_hierarchy: &[crate::styled_dom::NodeHierarchyItem],
-    old_layout: &crate::FastHashMap<NodeId, LogicalRect>,
-    new_layout: &crate::FastHashMap<NodeId, LogicalRect>,
+    old_layout: &crate::OrderedMap<NodeId, LogicalRect>,
+    new_layout: &crate::OrderedMap<NodeId, LogicalRect>,
     timestamp: Instant,
 ) -> LifecycleEventResult {
     let diff_result = crate::diff::reconcile_dom(
@@ -3515,8 +3515,8 @@ mod tests {
         let new_data: Vec<crate::dom::NodeData> = Vec::new();
         let old_hier: Vec<crate::styled_dom::NodeHierarchyItem> = Vec::new();
         let new_hier: Vec<crate::styled_dom::NodeHierarchyItem> = Vec::new();
-        let old_layout = FastHashMap::default();
-        let new_layout = FastHashMap::default();
+        let old_layout = OrderedMap::default();
+        let new_layout = OrderedMap::default();
         let result: LifecycleEventResult = detect_lifecycle_events_with_reconciliation(
             dom_id,
             &old_data,

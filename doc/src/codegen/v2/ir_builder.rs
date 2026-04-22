@@ -115,7 +115,7 @@ impl<'a> IRBuilder<'a> {
                 "HashSet<",
                 "BTreeSet<",
                 "FastBTreeSet<",
-                "FastHashMap<",
+                "OrderedMap<",
                 "FastHashSet<",
                 "Vec<", // Generic Vec (not our specialized Vec types)
             ];

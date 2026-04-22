@@ -32,7 +32,7 @@ use crate::{
     resources::{Epoch, ExternalImageId, ImageDescriptor, ImageDescriptorFlags, RawImageFormat},
     svg::{TessellatedGPUSvgNode, TessellatedSvgNode},
     window::RendererType,
-    FastHashMap,
+    OrderedMap,
 };
 
 pub type GLuint = u32;
@@ -712,7 +712,7 @@ impl Drop for GLsyncPtr {
 
 /// Each pipeline (window) has its own OpenGL textures. GL Textures can technically
 /// be shared across pipelines, however this turns out to be very difficult in practice.
-pub type GlTextureStorage = FastHashMap<Epoch, FastHashMap<ExternalImageId, Texture>>;
+pub type GlTextureStorage = OrderedMap<Epoch, OrderedMap<ExternalImageId, Texture>>;
 
 /// Non-cleaned up textures. When a GlTexture is registered, it has to stay active as long
 /// as WebRender needs it for drawing. To transparently do this, we store the epoch that the
@@ -730,7 +730,7 @@ pub type GlTextureStorage = FastHashMap<Epoch, FastHashMap<ExternalImageId, Text
 ///
 /// WARNING: Not thread-safe (however, the Texture itself is thread-unsafe, so it's unlikely to ever
 /// be misused)
-static mut ACTIVE_GL_TEXTURES: Option<FastHashMap<DocumentId, GlTextureStorage>> = None;
+static mut ACTIVE_GL_TEXTURES: Option<OrderedMap<DocumentId, GlTextureStorage>> = None;
 
 /// Inserts a new texture into the OpenGL texture cache, returns a new image ID
 /// for the inserted texture
@@ -745,15 +745,15 @@ pub fn insert_into_active_gl_textures(
 
     unsafe {
         if ACTIVE_GL_TEXTURES.is_none() {
-            ACTIVE_GL_TEXTURES = Some(FastHashMap::new());
+            ACTIVE_GL_TEXTURES = Some(OrderedMap::new());
         }
         let active_textures = ACTIVE_GL_TEXTURES.as_mut().unwrap();
         let active_epochs = active_textures
             .entry(document_id)
-            .or_insert_with(|| FastHashMap::new());
+            .or_insert_with(|| OrderedMap::new());
         let active_textures_for_epoch = active_epochs
             .entry(epoch)
-            .or_insert_with(|| FastHashMap::new());
+            .or_insert_with(|| OrderedMap::new());
         active_textures_for_epoch.insert(external_image_id, texture);
     }
 

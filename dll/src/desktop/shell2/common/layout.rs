@@ -259,8 +259,8 @@ pub fn regenerate_layout(
             styled_dom.node_hierarchy.as_ref().to_vec();
 
         // Build layout maps for reconciliation (empty for now - we just need node moves)
-        let old_layout_map = azul_core::FastHashMap::default();
-        let new_layout_map = azul_core::FastHashMap::default();
+        let old_layout_map = azul_core::OrderedMap::default();
+        let new_layout_map = azul_core::OrderedMap::default();
 
         // Run reconciliation to find matched nodes
         let diff_result = azul_core::diff::reconcile_dom(

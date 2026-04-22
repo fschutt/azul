@@ -120,6 +120,10 @@ pub mod xml;
 /// JSON value types for the C API (no serde dependency).
 pub mod json;
 
-// Typedef for possible faster implementation of hashing
-pub type FastHashMap<T, U> = alloc::collections::BTreeMap<T, U>;
+/// Ordered map alias used throughout `azul-core`.
+///
+/// This is backed by `BTreeMap` (not a hash map) because the `core` crate
+/// supports `no_std`, where `HashMap` is unavailable. The webrender crates
+/// define their own `FastHashMap` using `HashMap` + `FxHasher`.
+pub type OrderedMap<T, U> = alloc::collections::BTreeMap<T, U>;
 pub type FastBTreeSet<T> = alloc::collections::BTreeSet<T>;

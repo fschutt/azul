@@ -27,7 +27,7 @@ use crate::{
     id::NodeId,
     styled_dom::{ChangedCssProperty, NodeHierarchyItemId, NodeHierarchyItem, RestyleResult, StyledNodeState},
     task::Instant,
-    FastHashMap,
+    OrderedMap,
 };
 
 // ============================================================================
@@ -225,7 +225,7 @@ pub fn compute_node_changes(
         let mut has_paint = false;
 
         // Build a map of property type → value for old props
-        let mut old_map = FastHashMap::default();
+        let mut old_map = OrderedMap::default();
         for prop in old_props.iter() {
             old_map.insert(
                 prop.property.get_type(),
@@ -234,7 +234,7 @@ pub fn compute_node_changes(
         }
 
         // Check new props against old
-        let mut seen_types = FastHashMap::default();
+        let mut seen_types = OrderedMap::default();
         for prop in new_props.iter() {
             let prop_type = prop.property.get_type();
             seen_types.insert(prop_type, ());
@@ -461,8 +461,8 @@ pub fn reconcile_dom(
     new_node_data: &[NodeData],
     old_hierarchy: &[NodeHierarchyItem],
     new_hierarchy: &[NodeHierarchyItem],
-    old_layout: &FastHashMap<NodeId, LogicalRect>,
-    new_layout: &FastHashMap<NodeId, LogicalRect>,
+    old_layout: &OrderedMap<NodeId, LogicalRect>,
+    new_layout: &OrderedMap<NodeId, LogicalRect>,
     dom_id: DomId,
     timestamp: Instant,
 ) -> DiffResult {
@@ -481,9 +481,9 @@ pub fn reconcile_dom(
 
     let old_rec_keys = precompute_reconciliation_keys(old_node_data, old_hierarchy);
 
-    let mut old_by_rec_key: FastHashMap<u64, VecDeque<NodeId>> = FastHashMap::default();
-    let mut old_hashed: FastHashMap<DomNodeHash, VecDeque<NodeId>> = FastHashMap::default();
-    let mut old_structural: FastHashMap<DomNodeHash, VecDeque<NodeId>> = FastHashMap::default();
+    let mut old_by_rec_key: OrderedMap<u64, VecDeque<NodeId>> = OrderedMap::default();
+    let mut old_hashed: OrderedMap<DomNodeHash, VecDeque<NodeId>> = OrderedMap::default();
+    let mut old_structural: OrderedMap<DomNodeHash, VecDeque<NodeId>> = OrderedMap::default();
     let mut old_nodes_consumed = vec![false; old_node_data.len()];
 
     for (idx, node) in old_node_data.iter().enumerate() {
@@ -743,8 +743,8 @@ fn has_update_callback(node: &NodeData) -> bool {
 ///     }
 /// }
 /// ```
-pub fn create_migration_map(node_moves: &[NodeMove]) -> FastHashMap<NodeId, NodeId> {
-    let mut map = FastHashMap::default();
+pub fn create_migration_map(node_moves: &[NodeMove]) -> OrderedMap<NodeId, NodeId> {
+    let mut map = OrderedMap::default();
     for m in node_moves {
         map.insert(m.old_node_id, m.new_node_id);
     }
@@ -1359,8 +1359,8 @@ pub fn reconcile_dom_with_changes(
     new_hierarchy: &[NodeHierarchyItem],
     old_styled_nodes: Option<&[StyledNodeState]>,
     new_styled_nodes: Option<&[StyledNodeState]>,
-    old_layout: &FastHashMap<NodeId, LogicalRect>,
-    new_layout: &FastHashMap<NodeId, LogicalRect>,
+    old_layout: &OrderedMap<NodeId, LogicalRect>,
+    new_layout: &OrderedMap<NodeId, LogicalRect>,
     dom_id: DomId,
     timestamp: Instant,
 ) -> ExtendedDiffResult {

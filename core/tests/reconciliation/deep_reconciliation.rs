@@ -29,7 +29,7 @@ use azul_core::id::NodeId;
 use azul_core::refany::{OptionRefAny, RefAny};
 use azul_core::styled_dom::{convert_dom_into_compact_dom, NodeHierarchyItem};
 use azul_core::task::Instant;
-use azul_core::FastHashMap;
+use azul_core::OrderedMap;
 use azul_core::callbacks::CoreCallback;
 
 // The function pointer identity doesn't matter for `reconcile_dom` — only the
@@ -64,8 +64,8 @@ fn flatten(dom: Dom) -> (Vec<NodeData>, Vec<NodeHierarchyItem>) {
     (node_data, hierarchy)
 }
 
-fn zero_layout(n: usize) -> FastHashMap<NodeId, LogicalRect> {
-    let mut m = FastHashMap::default();
+fn zero_layout(n: usize) -> OrderedMap<NodeId, LogicalRect> {
+    let mut m = OrderedMap::default();
     for i in 0..n {
         m.insert(NodeId::new(i), LogicalRect::zero());
     }
