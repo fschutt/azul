@@ -66,6 +66,7 @@ use azul_css::{
 use crate::{
     callbacks::Update,
     dom::{Dom, DomId, NodeData, NodeDataVec, OptionTabIndex, TabIndex, TagId},
+    events::{RelayoutNodes, RestyleNodes},
     id::{
         Node, NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut, NodeHierarchy,
         NodeId,
@@ -138,7 +139,7 @@ pub struct ActiveChange {
 #[derive(Debug, Clone, Default)]
 pub struct RestyleResult {
     /// Nodes whose CSS properties changed, with details of the changes
-    pub changed_nodes: BTreeMap<NodeId, Vec<ChangedCssProperty>>,
+    pub changed_nodes: RestyleNodes,
     /// Whether layout needs to be recalculated (layout properties changed)
     pub needs_layout: bool,
     /// Whether display list needs regeneration (visual properties changed)
@@ -1617,7 +1618,7 @@ impl StyledDom {
         &mut self,
         nodes: &[NodeId],
         new_hover_state: bool,
-    ) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
+    ) -> RestyleNodes {
         // save the old node state
         let old_node_states = nodes
             .iter()
@@ -1734,7 +1735,7 @@ impl StyledDom {
         &mut self,
         nodes: &[NodeId],
         new_active_state: bool,
-    ) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
+    ) -> RestyleNodes {
         // save the old node state
         let old_node_states = nodes
             .iter()
@@ -1853,7 +1854,7 @@ impl StyledDom {
         &mut self,
         nodes: &[NodeId],
         new_focus_state: bool,
-    ) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
+    ) -> RestyleNodes {
         // save the old node state
         let old_node_states = nodes
             .iter()
@@ -1991,7 +1992,7 @@ impl StyledDom {
         result.gpu_only_changes = true; // Start with GPU-only assumption
 
         // Helper closure to merge changes and analyze property categories
-        let mut process_changes = |changes: BTreeMap<NodeId, Vec<ChangedCssProperty>>| {
+        let mut process_changes = |changes: RestyleNodes| {
             for (node_id, props) in changes {
                 for change in &props {
                     let prop_type = change.current_prop.get_type();
@@ -2086,7 +2087,7 @@ impl StyledDom {
         &mut self,
         node_id: &NodeId,
         new_properties: &[CssProperty],
-    ) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
+    ) -> RestyleNodes {
         let mut map = BTreeMap::default();
 
         if new_properties.is_empty() {

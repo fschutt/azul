@@ -489,6 +489,28 @@ impl MouseState {
     pub fn mouse_down(&self) -> bool {
         self.right_down || self.left_down || self.middle_down
     }
+
+    /// Snapshot the button-down flags as a `MouseButtonState` for drag tracking.
+    pub fn button_state(&self) -> crate::events::MouseButtonState {
+        crate::events::MouseButtonState {
+            left_down: self.left_down,
+            right_down: self.right_down,
+            middle_down: self.middle_down,
+        }
+    }
+}
+
+impl From<&MouseState> for crate::events::MouseButtonState {
+    fn from(s: &MouseState) -> Self {
+        s.button_state()
+    }
+}
+
+impl crate::events::MouseButtonState {
+    /// Returns true if any of the tracked buttons is held down.
+    pub fn any_down(&self) -> bool {
+        self.left_down || self.right_down || self.middle_down
+    }
 }
 
 // TODO: returned by process_system_scroll

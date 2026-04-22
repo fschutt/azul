@@ -3149,6 +3149,37 @@ impl NodeData {
     }
 }
 
+impl crate::events::ActivationBehavior for NodeData {
+    fn has_activation_behavior(&self) -> bool {
+        NodeData::has_activation_behavior(self)
+    }
+
+    fn is_activatable(&self) -> bool {
+        NodeData::is_activatable(self)
+    }
+}
+
+impl crate::events::Focusable for NodeData {
+    fn get_tabindex(&self) -> Option<i32> {
+        self.get_effective_tabindex()
+    }
+
+    fn is_focusable(&self) -> bool {
+        NodeData::is_focusable(self)
+    }
+
+    fn is_naturally_focusable(&self) -> bool {
+        matches!(
+            self.node_type,
+            NodeType::A
+                | NodeType::Button
+                | NodeType::Input
+                | NodeType::Select
+                | NodeType::TextArea
+        )
+    }
+}
+
 /// A unique, runtime-generated identifier for a single `Dom` instance.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C)]

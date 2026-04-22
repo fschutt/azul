@@ -46,6 +46,37 @@ pub struct CallbackToCall {
     pub event_filter: EventFilter,
 }
 
+impl CallbackToCall {
+    pub fn new(
+        node_id: NodeId,
+        hit_test_item: Option<HitTestItem>,
+        event_filter: EventFilter,
+    ) -> Self {
+        Self { node_id, hit_test_item, event_filter }
+    }
+
+    /// Build a list of `CallbackToCall` entries for every node hit by the
+    /// given hit test under the given DOM, tagged with `event_filter`.
+    /// Returns an empty `Vec` when there is no hit test data for the DOM.
+    pub fn from_hit_test(
+        hit_test: &FullHitTest,
+        dom_id: DomId,
+        event_filter: EventFilter,
+    ) -> Vec<CallbackToCall> {
+        let Some(hit) = hit_test.hovered_nodes.get(&dom_id) else {
+            return Vec::new();
+        };
+        hit.regular_hit_test_nodes
+            .iter()
+            .map(|(node_id, item)| CallbackToCall {
+                node_id: *node_id,
+                hit_test_item: Some(item.clone()),
+                event_filter: event_filter.clone(),
+            })
+            .collect()
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[must_use = "ProcessEventResult must be used to determine if relayout/repaint is needed"]
 pub enum ProcessEventResult {
@@ -1078,6 +1109,15 @@ fn matches_component_filter(
     )
 }
 
+/// Check if the event data contains a mouse event with the expected button.
+fn check_mouse_button(data: &EventData, expected: MouseButton) -> bool {
+    if let EventData::Mouse(mouse_data) = data {
+        mouse_data.button == expected
+    } else {
+        false
+    }
+}
+
 /// Check if a hover filter matches the event.
 fn matches_hover_filter(
     filter: &HoverEventFilter,
@@ -1089,50 +1129,17 @@ fn matches_hover_filter(
     match (filter, &event.event_type) {
         (MouseOver, EventType::MouseOver) => true,
         (MouseDown, EventType::MouseDown) => true,
-        (LeftMouseDown, EventType::MouseDown) => {
-            // Check if it's left button
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Left
-            } else {
-                false
-            }
-        }
+        (LeftMouseDown, EventType::MouseDown) => check_mouse_button(&event.data, MouseButton::Left),
         (RightMouseDown, EventType::MouseDown) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Right
-            } else {
-                false
-            }
+            check_mouse_button(&event.data, MouseButton::Right)
         }
         (MiddleMouseDown, EventType::MouseDown) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Middle
-            } else {
-                false
-            }
+            check_mouse_button(&event.data, MouseButton::Middle)
         }
         (MouseUp, EventType::MouseUp) => true,
-        (LeftMouseUp, EventType::MouseUp) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Left
-            } else {
-                false
-            }
-        }
-        (RightMouseUp, EventType::MouseUp) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Right
-            } else {
-                false
-            }
-        }
-        (MiddleMouseUp, EventType::MouseUp) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Middle
-            } else {
-                false
-            }
-        }
+        (LeftMouseUp, EventType::MouseUp) => check_mouse_button(&event.data, MouseButton::Left),
+        (RightMouseUp, EventType::MouseUp) => check_mouse_button(&event.data, MouseButton::Right),
+        (MiddleMouseUp, EventType::MouseUp) => check_mouse_button(&event.data, MouseButton::Middle),
         (MouseEnter, EventType::MouseEnter) => true,
         (MouseLeave, EventType::MouseLeave) => true,
         (Scroll, EventType::Scroll) => true,
@@ -1171,49 +1178,17 @@ fn matches_focus_filter(
     match (filter, &event.event_type) {
         (MouseOver, EventType::MouseOver) => true,
         (MouseDown, EventType::MouseDown) => true,
-        (LeftMouseDown, EventType::MouseDown) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Left
-            } else {
-                false
-            }
-        }
+        (LeftMouseDown, EventType::MouseDown) => check_mouse_button(&event.data, MouseButton::Left),
         (RightMouseDown, EventType::MouseDown) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Right
-            } else {
-                false
-            }
+            check_mouse_button(&event.data, MouseButton::Right)
         }
         (MiddleMouseDown, EventType::MouseDown) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Middle
-            } else {
-                false
-            }
+            check_mouse_button(&event.data, MouseButton::Middle)
         }
         (MouseUp, EventType::MouseUp) => true,
-        (LeftMouseUp, EventType::MouseUp) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Left
-            } else {
-                false
-            }
-        }
-        (RightMouseUp, EventType::MouseUp) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Right
-            } else {
-                false
-            }
-        }
-        (MiddleMouseUp, EventType::MouseUp) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Middle
-            } else {
-                false
-            }
-        }
+        (LeftMouseUp, EventType::MouseUp) => check_mouse_button(&event.data, MouseButton::Left),
+        (RightMouseUp, EventType::MouseUp) => check_mouse_button(&event.data, MouseButton::Right),
+        (MiddleMouseUp, EventType::MouseUp) => check_mouse_button(&event.data, MouseButton::Middle),
         (MouseEnter, EventType::MouseEnter) => true,
         (MouseLeave, EventType::MouseLeave) => true,
         (Scroll, EventType::Scroll) => true,
@@ -1246,49 +1221,17 @@ fn matches_window_filter(
     match (filter, &event.event_type) {
         (MouseOver, EventType::MouseOver) => true,
         (MouseDown, EventType::MouseDown) => true,
-        (LeftMouseDown, EventType::MouseDown) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Left
-            } else {
-                false
-            }
-        }
+        (LeftMouseDown, EventType::MouseDown) => check_mouse_button(&event.data, MouseButton::Left),
         (RightMouseDown, EventType::MouseDown) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Right
-            } else {
-                false
-            }
+            check_mouse_button(&event.data, MouseButton::Right)
         }
         (MiddleMouseDown, EventType::MouseDown) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Middle
-            } else {
-                false
-            }
+            check_mouse_button(&event.data, MouseButton::Middle)
         }
         (MouseUp, EventType::MouseUp) => true,
-        (LeftMouseUp, EventType::MouseUp) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Left
-            } else {
-                false
-            }
-        }
-        (RightMouseUp, EventType::MouseUp) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Right
-            } else {
-                false
-            }
-        }
-        (MiddleMouseUp, EventType::MouseUp) => {
-            if let EventData::Mouse(mouse_data) = &event.data {
-                mouse_data.button == MouseButton::Middle
-            } else {
-                false
-            }
-        }
+        (LeftMouseUp, EventType::MouseUp) => check_mouse_button(&event.data, MouseButton::Left),
+        (RightMouseUp, EventType::MouseUp) => check_mouse_button(&event.data, MouseButton::Right),
+        (MiddleMouseUp, EventType::MouseUp) => check_mouse_button(&event.data, MouseButton::Middle),
         (MouseEnter, EventType::MouseEnter) => true,
         (MouseLeave, EventType::MouseLeave) => true,
         (Scroll, EventType::Scroll) => true,
@@ -1436,7 +1379,7 @@ fn create_unmount_event(
         dom_id,
         timestamp,
         LifecycleEventData {
-            reason: LifecycleReason::InitialMount,
+            reason: LifecycleReason::Unmount,
             previous_bounds: Some(previous_bounds),
             current_bounds: LogicalRect::zero(),
         },
@@ -2657,6 +2600,42 @@ pub enum ArrowDirection {
     DocumentEnd,
 }
 
+impl ArrowDirection {
+    /// Map a `VirtualKeyCode` plus the `ctrl` modifier into an `ArrowDirection`.
+    /// Returns `None` if the key is not a navigation key.
+    pub fn from_key(vk: crate::window::VirtualKeyCode, ctrl: bool) -> Option<Self> {
+        use crate::window::VirtualKeyCode::*;
+        Some(match vk {
+            Left => ArrowDirection::Left,
+            Right => ArrowDirection::Right,
+            Up => ArrowDirection::Up,
+            Down => ArrowDirection::Down,
+            Home if ctrl => ArrowDirection::DocumentStart,
+            Home => ArrowDirection::LineStart,
+            End if ctrl => ArrowDirection::DocumentEnd,
+            End => ArrowDirection::LineEnd,
+            _ => return None,
+        })
+    }
+
+    /// Convert to a `(SelectionDirection, SelectionStep)` pair for the
+    /// selection-op interpreter. `ctrl` upgrades arrow keys to word jumps.
+    pub fn to_selection(self, ctrl: bool) -> (SelectionDirection, SelectionStep) {
+        match self {
+            ArrowDirection::Left if ctrl => (SelectionDirection::Backward, SelectionStep::Word),
+            ArrowDirection::Right if ctrl => (SelectionDirection::Forward, SelectionStep::Word),
+            ArrowDirection::Left => (SelectionDirection::Backward, SelectionStep::Character),
+            ArrowDirection::Right => (SelectionDirection::Forward, SelectionStep::Character),
+            ArrowDirection::Up => (SelectionDirection::Backward, SelectionStep::VisualLine),
+            ArrowDirection::Down => (SelectionDirection::Forward, SelectionStep::VisualLine),
+            ArrowDirection::LineStart => (SelectionDirection::Backward, SelectionStep::Line),
+            ArrowDirection::LineEnd => (SelectionDirection::Forward, SelectionStep::Line),
+            ArrowDirection::DocumentStart => (SelectionDirection::Backward, SelectionStep::Document),
+            ArrowDirection::DocumentEnd => (SelectionDirection::Forward, SelectionStep::Document),
+        }
+    }
+}
+
 /// Direction of cursor movement or selection expansion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(C)]
@@ -2733,6 +2712,28 @@ pub enum KeyboardShortcut {
     SelectAll, // Ctrl+A
     Undo,      // Ctrl+Z
     Redo,      // Ctrl+Y or Ctrl+Shift+Z
+}
+
+impl KeyboardShortcut {
+    /// Map a `(VirtualKeyCode, ctrl, shift)` triple to a text-editing shortcut.
+    /// Returns `None` if the key combination is not a recognized shortcut or
+    /// if `ctrl` is not held.
+    pub fn from_key(vk: crate::window::VirtualKeyCode, ctrl: bool, shift: bool) -> Option<Self> {
+        use crate::window::VirtualKeyCode::*;
+        if !ctrl {
+            return None;
+        }
+        Some(match vk {
+            C => KeyboardShortcut::Copy,
+            X => KeyboardShortcut::Cut,
+            V => KeyboardShortcut::Paste,
+            A => KeyboardShortcut::SelectAll,
+            Z if shift => KeyboardShortcut::Redo,
+            Z => KeyboardShortcut::Undo,
+            Y => KeyboardShortcut::Redo,
+            _ => return None,
+        })
+    }
 }
 
 /// Default input interpreter: standard desktop keybindings.
@@ -2974,53 +2975,49 @@ fn handle_key_down(
     let shift = keyboard_state.shift_down();
     let vk = keyboard_state.current_virtual_keycode.as_ref()?;
 
-    // Check keyboard shortcuts (Ctrl+key) → emit specific SystemChange variants
+    // Check keyboard shortcuts (Ctrl+key) → emit specific SystemChange variants.
+    // Standard editing shortcuts are routed through the `KeyboardShortcut` enum,
+    // and a couple of additional Azul-specific Ctrl combos are matched after.
     if ctrl {
-        let system_change = match vk {
-            VirtualKeyCode::C => Some(SystemChange::CopyToClipboard),
-            VirtualKeyCode::X => Some(SystemChange::CutToClipboard { target }),
-            VirtualKeyCode::V => Some(SystemChange::PasteFromClipboard),
-            VirtualKeyCode::A => Some(SystemChange::SelectAllText),
-            VirtualKeyCode::Z if !shift => Some(SystemChange::UndoTextEdit { target }),
-            VirtualKeyCode::Z if shift => Some(SystemChange::RedoTextEdit { target }),
-            VirtualKeyCode::Y => Some(SystemChange::RedoTextEdit { target }),
-            VirtualKeyCode::D => Some(SystemChange::SelectNextOccurrence { target }),
-            _ => None,
-        };
-        if let Some(change) = system_change {
+        if let Some(shortcut) = KeyboardShortcut::from_key(*vk, ctrl, shift) {
+            let change = match shortcut {
+                KeyboardShortcut::Copy => SystemChange::CopyToClipboard,
+                KeyboardShortcut::Cut => SystemChange::CutToClipboard { target },
+                KeyboardShortcut::Paste => SystemChange::PasteFromClipboard,
+                KeyboardShortcut::SelectAll => SystemChange::SelectAllText,
+                KeyboardShortcut::Undo => SystemChange::UndoTextEdit { target },
+                KeyboardShortcut::Redo => SystemChange::RedoTextEdit { target },
+            };
             return Some(InternalEventAction::AddAndSkip(change));
+        }
+        if matches!(vk, VirtualKeyCode::D) {
+            return Some(InternalEventAction::AddAndSkip(
+                SystemChange::SelectNextOccurrence { target },
+            ));
         }
     }
 
     // Unified: arrow keys, Home/End, Backspace/Delete all map to SelectionOp.
     let mode_for_shift = if shift { SelectionMode::Extend } else { SelectionMode::Move };
-    let selection_op = match vk {
-        // Ctrl+Arrow = word jump
-        VirtualKeyCode::Left if ctrl => Some(SelectionOp::new(SelectionDirection::Backward, SelectionStep::Word, mode_for_shift)),
-        VirtualKeyCode::Right if ctrl => Some(SelectionOp::new(SelectionDirection::Forward, SelectionStep::Word, mode_for_shift)),
-        // Plain arrow = character
-        VirtualKeyCode::Left => Some(SelectionOp::new(SelectionDirection::Backward, SelectionStep::Character, mode_for_shift)),
-        VirtualKeyCode::Right => Some(SelectionOp::new(SelectionDirection::Forward, SelectionStep::Character, mode_for_shift)),
-        VirtualKeyCode::Up => Some(SelectionOp::new(SelectionDirection::Backward, SelectionStep::VisualLine, mode_for_shift)),
-        VirtualKeyCode::Down => Some(SelectionOp::new(SelectionDirection::Forward, SelectionStep::VisualLine, mode_for_shift)),
-        // Home/End
-        VirtualKeyCode::Home if ctrl => Some(SelectionOp::new(SelectionDirection::Backward, SelectionStep::Document, mode_for_shift)),
-        VirtualKeyCode::Home => Some(SelectionOp::new(SelectionDirection::Backward, SelectionStep::Line, mode_for_shift)),
-        VirtualKeyCode::End if ctrl => Some(SelectionOp::new(SelectionDirection::Forward, SelectionStep::Document, mode_for_shift)),
-        VirtualKeyCode::End => Some(SelectionOp::new(SelectionDirection::Forward, SelectionStep::Line, mode_for_shift)),
-        // Backspace/Delete = Delete mode (Ctrl upgrades to Word)
-        VirtualKeyCode::Back => Some(SelectionOp::new(
-            SelectionDirection::Backward,
-            if ctrl { SelectionStep::Word } else { SelectionStep::Character },
-            SelectionMode::Delete,
-        )),
-        VirtualKeyCode::Delete => Some(SelectionOp::new(
-            SelectionDirection::Forward,
-            if ctrl { SelectionStep::Word } else { SelectionStep::Character },
-            SelectionMode::Delete,
-        )),
-        _ => None,
-    }?;
+    let selection_op = if let Some(arrow) = ArrowDirection::from_key(*vk, ctrl) {
+        let (direction, step) = arrow.to_selection(ctrl);
+        SelectionOp::new(direction, step, mode_for_shift)
+    } else {
+        match vk {
+            // Backspace/Delete = Delete mode (Ctrl upgrades to Word)
+            VirtualKeyCode::Back => SelectionOp::new(
+                SelectionDirection::Backward,
+                if ctrl { SelectionStep::Word } else { SelectionStep::Character },
+                SelectionMode::Delete,
+            ),
+            VirtualKeyCode::Delete => SelectionOp::new(
+                SelectionDirection::Forward,
+                if ctrl { SelectionStep::Word } else { SelectionStep::Character },
+                SelectionMode::Delete,
+            ),
+            _ => return None,
+        }
+    };
 
     Some(InternalEventAction::AddAndSkip(
         SystemChange::ApplySelectionOp { target, op: selection_op },
@@ -3120,6 +3117,7 @@ pub fn post_callback_filter_system_changes(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use azul_css::AzString;
     use crate::dom::{DomId, DomNodeId};
     use crate::styled_dom::NodeHierarchyItemId;
     use crate::id::NodeId;
@@ -3395,5 +3393,163 @@ mod tests {
             .collect();
 
         assert_eq!(click_changes.len(), 1, "MouseDown with hit_test should generate TextSelectionClick");
+    }
+
+    #[test]
+    fn process_event_result_max_self_picks_higher_variant() {
+        let lo = ProcessEventResult::ShouldReRenderCurrentWindow;
+        let hi = ProcessEventResult::ShouldRegenerateDomCurrentWindow;
+        assert_eq!(lo.max_self(hi), hi);
+        assert_eq!(hi.max_self(lo), hi);
+        assert_eq!(lo.max_self(lo), lo);
+    }
+
+    #[test]
+    fn arrow_direction_from_key_maps_arrows_and_home_end() {
+        use crate::window::VirtualKeyCode::*;
+        assert_eq!(ArrowDirection::from_key(Left, false), Some(ArrowDirection::Left));
+        assert_eq!(ArrowDirection::from_key(Right, false), Some(ArrowDirection::Right));
+        assert_eq!(ArrowDirection::from_key(Up, false), Some(ArrowDirection::Up));
+        assert_eq!(ArrowDirection::from_key(Down, false), Some(ArrowDirection::Down));
+        assert_eq!(ArrowDirection::from_key(Home, false), Some(ArrowDirection::LineStart));
+        assert_eq!(ArrowDirection::from_key(End, false), Some(ArrowDirection::LineEnd));
+        assert_eq!(ArrowDirection::from_key(Home, true), Some(ArrowDirection::DocumentStart));
+        assert_eq!(ArrowDirection::from_key(End, true), Some(ArrowDirection::DocumentEnd));
+        assert_eq!(ArrowDirection::from_key(C, false), None);
+    }
+
+    #[test]
+    fn arrow_direction_to_selection_respects_ctrl() {
+        let (d, s) = ArrowDirection::Left.to_selection(false);
+        assert_eq!((d, s), (SelectionDirection::Backward, SelectionStep::Character));
+        let (d, s) = ArrowDirection::Left.to_selection(true);
+        assert_eq!((d, s), (SelectionDirection::Backward, SelectionStep::Word));
+        let (d, s) = ArrowDirection::Up.to_selection(false);
+        assert_eq!((d, s), (SelectionDirection::Backward, SelectionStep::VisualLine));
+        let (d, s) = ArrowDirection::DocumentEnd.to_selection(false);
+        assert_eq!((d, s), (SelectionDirection::Forward, SelectionStep::Document));
+    }
+
+    #[test]
+    fn keyboard_shortcut_from_key_recognizes_editing_combos() {
+        use crate::window::VirtualKeyCode::*;
+        assert_eq!(KeyboardShortcut::from_key(C, true, false), Some(KeyboardShortcut::Copy));
+        assert_eq!(KeyboardShortcut::from_key(X, true, false), Some(KeyboardShortcut::Cut));
+        assert_eq!(KeyboardShortcut::from_key(V, true, false), Some(KeyboardShortcut::Paste));
+        assert_eq!(KeyboardShortcut::from_key(A, true, false), Some(KeyboardShortcut::SelectAll));
+        assert_eq!(KeyboardShortcut::from_key(Z, true, false), Some(KeyboardShortcut::Undo));
+        assert_eq!(KeyboardShortcut::from_key(Z, true, true), Some(KeyboardShortcut::Redo));
+        assert_eq!(KeyboardShortcut::from_key(Y, true, false), Some(KeyboardShortcut::Redo));
+        // Non-ctrl combos must not match
+        assert_eq!(KeyboardShortcut::from_key(C, false, false), None);
+        // Unknown keys
+        assert_eq!(KeyboardShortcut::from_key(D, true, false), None);
+    }
+
+    #[test]
+    fn mouse_button_state_round_trips_from_mouse_state() {
+        let mut ms = MouseState::default();
+        ms.left_down = true;
+        ms.middle_down = true;
+        let bs: MouseButtonState = (&ms).into();
+        assert!(bs.left_down);
+        assert!(!bs.right_down);
+        assert!(bs.middle_down);
+        assert!(bs.any_down());
+
+        let none = MouseButtonState { left_down: false, right_down: false, middle_down: false };
+        assert!(!none.any_down());
+    }
+
+    #[test]
+    fn callback_to_call_collects_hits_for_dom() {
+        let dom_id = DomId { inner: 0 };
+        let hit_test = make_hit_test_with_node(2);
+        let filter = EventFilter::Hover(HoverEventFilter::MouseDown);
+        let calls = CallbackToCall::from_hit_test(&hit_test, dom_id, filter.clone());
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].node_id, NodeId::new(2));
+        assert_eq!(calls[0].event_filter, filter);
+        assert!(calls[0].hit_test_item.is_some());
+
+        // Unknown DOM id => empty list
+        let other = CallbackToCall::from_hit_test(
+            &hit_test,
+            DomId { inner: 999 },
+            EventFilter::Hover(HoverEventFilter::MouseUp),
+        );
+        assert!(other.is_empty());
+
+        // Direct constructor builds expected fields
+        let direct = CallbackToCall::new(
+            NodeId::new(7),
+            None,
+            EventFilter::Focus(FocusEventFilter::FocusReceived),
+        );
+        assert_eq!(direct.node_id, NodeId::new(7));
+        assert!(direct.hit_test_item.is_none());
+    }
+
+    #[test]
+    fn restyle_relayout_aliases_are_btreemap_compatible() {
+        // RestyleNodes / RelayoutNodes are aliases for BTreeMap<NodeId, Vec<ChangedCssProperty>>.
+        // Confirm we can construct empty ones via the alias and that they accept the same keys.
+        let restyle: RestyleNodes = BTreeMap::new();
+        let relayout: RelayoutNodes = BTreeMap::new();
+        assert!(restyle.is_empty());
+        assert!(relayout.is_empty());
+
+        // RelayoutWords is BTreeMap<NodeId, AzString>.
+        let mut words: RelayoutWords = BTreeMap::new();
+        words.insert(NodeId::new(1), AzString::from_const_str("hello"));
+        assert_eq!(words.get(&NodeId::new(1)).map(|s| s.as_str()), Some("hello"));
+    }
+
+    #[test]
+    fn detect_lifecycle_events_with_reconciliation_is_callable() {
+        // Smoke test: empty old/new node data must produce no events and an
+        // empty migration map. This proves the function is callable from
+        // the public API and threads through `crate::diff::reconcile_dom`.
+        let dom_id = DomId { inner: 0 };
+        let old_data: Vec<crate::dom::NodeData> = Vec::new();
+        let new_data: Vec<crate::dom::NodeData> = Vec::new();
+        let old_hier: Vec<crate::styled_dom::NodeHierarchyItem> = Vec::new();
+        let new_hier: Vec<crate::styled_dom::NodeHierarchyItem> = Vec::new();
+        let old_layout = FastHashMap::default();
+        let new_layout = FastHashMap::default();
+        let result: LifecycleEventResult = detect_lifecycle_events_with_reconciliation(
+            dom_id,
+            &old_data,
+            &new_data,
+            &old_hier,
+            &new_hier,
+            &old_layout,
+            &new_layout,
+            Instant::Tick(SystemTick::new(0)),
+        );
+        assert!(result.events.is_empty());
+        assert!(result.node_id_mapping.is_empty());
+    }
+
+    #[test]
+    fn nodedata_focusable_and_activation_traits_are_wired() {
+        use crate::dom::{NodeData, NodeType};
+        use crate::events::{ActivationBehavior as _, Focusable as _};
+
+        // <button> is naturally focusable and has activation behavior.
+        let btn = NodeData::create_node(NodeType::Button);
+        assert!(<NodeData as Focusable>::is_naturally_focusable(&btn));
+        assert!(<NodeData as Focusable>::is_focusable(&btn));
+        assert!(<NodeData as ActivationBehavior>::has_activation_behavior(&btn));
+        assert!(<NodeData as ActivationBehavior>::is_activatable(&btn));
+
+        // A plain <div> is neither naturally focusable nor activatable.
+        let div = NodeData::create_node(NodeType::Div);
+        assert!(!<NodeData as Focusable>::is_naturally_focusable(&div));
+        assert!(!<NodeData as ActivationBehavior>::has_activation_behavior(&div));
+
+        // <input> is naturally focusable.
+        let input = NodeData::create_node(NodeType::Input);
+        assert!(<NodeData as Focusable>::is_naturally_focusable(&input));
     }
 }

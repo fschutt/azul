@@ -1852,9 +1852,9 @@ pub trait PlatformWindow {
 
                 if !text_events.is_empty() {
                     let (text_changes_result, text_update, _) = self.dispatch_events_propagated(&text_events);
-                    result = result.max(text_changes_result);
+                    result = result.max_self(text_changes_result);
                     if matches!(text_update, Update::RefreshDom | Update::RefreshDomAllWindows) {
-                        result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+                        result = result.max_self(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
                     }
                 }
 
