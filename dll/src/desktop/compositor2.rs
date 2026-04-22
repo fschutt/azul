@@ -18,6 +18,7 @@ use alloc::collections::BTreeMap;
 use azul_core::{
     dom::DomId,
     hit_test::PipelineId as AzulPipelineId,
+    hit_test_tag::TAG_TYPE_SCROLL_CONTAINER,
     resources::{DpiScaleFactor, FontInstanceKey, ImageRefHash},
     ui_solver::GlyphInstance,
 };
@@ -995,7 +996,6 @@ pub fn translate_displaylist_to_wr(
                 // Push a hit-test area for this scroll container so the scroll manager can find it
                 // during wheel/trackpad events. This uses TAG_TYPE_SCROLL_CONTAINER (0x0500).
                 // The tag encodes: tag.0 = scroll_id, tag.1 = 0x0500
-                const TAG_TYPE_SCROLL_CONTAINER: u16 = 0x0500;
                 let scroll_container_tag: ItemTag = (*scroll_id, TAG_TYPE_SCROLL_CONTAINER);
                 builder.push_hit_test(
                     adjusted_frame_rect,

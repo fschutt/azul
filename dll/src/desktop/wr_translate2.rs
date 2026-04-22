@@ -15,6 +15,7 @@ use azul_core::{
     dom::{DomId, DomNodeId, NodeId},
     geom::{LogicalPosition, LogicalRect},
     hit_test::{DocumentId, PipelineId},
+    hit_test_tag::{TAG_TYPE_CURSOR, TAG_TYPE_DOM_NODE, TAG_TYPE_SCROLLBAR, TAG_TYPE_SCROLL_CONTAINER},
     resources::{
         AddImage, ImageData as AzImageData, ImageDirtyRect, ImageKey, ImageRef, SyntheticItalics, UpdateImage,
     },
@@ -1021,15 +1022,6 @@ pub fn fullhittest_new_webrender(
 }
 
 // Display list translation and resource management
-
-/// Hit-test tag type: regular DOM node (tag.1 upper byte)
-const TAG_TYPE_DOM_NODE: u16 = 0x0100;
-/// Hit-test tag type: scrollbar component (tag.1 upper byte)
-const TAG_TYPE_SCROLLBAR: u16 = 0x0200;
-/// Hit-test tag type: cursor style (tag.1 upper byte)
-const TAG_TYPE_CURSOR: u16 = 0x0400;
-/// Hit-test tag type: scroll container (tag.1 upper byte)
-const TAG_TYPE_SCROLL_CONTAINER: u16 = 0x0500;
 
 use std::collections::{HashMap, HashSet};
 

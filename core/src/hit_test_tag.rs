@@ -70,8 +70,6 @@ pub const TAG_TYPE_CURSOR: u16 = 0x0400;
 /// Scroll containers push this tag so the scroll manager can find them during wheel events.
 pub const TAG_TYPE_SCROLL_CONTAINER: u16 = 0x0500;
 
-/// Reserved for future use (e.g., resize handles, drag-drop targets)
-pub const TAG_TYPE_RESERVED: u16 = 0x0600;
 
 // ============================================================================
 // Scrollbar Component Types (stored in lower byte of ItemTag.1 for scrollbar tags)
@@ -115,21 +113,6 @@ impl ScrollbarComponent {
         }
     }
 
-    /// Check if this is a vertical component
-    pub fn is_vertical(&self) -> bool {
-        matches!(
-            self,
-            ScrollbarComponent::VerticalTrack | ScrollbarComponent::VerticalThumb
-        )
-    }
-
-    /// Check if this is a thumb (draggable handle)
-    pub fn is_thumb(&self) -> bool {
-        matches!(
-            self,
-            ScrollbarComponent::VerticalThumb | ScrollbarComponent::HorizontalThumb
-        )
-    }
 }
 
 // ============================================================================
@@ -499,89 +482,6 @@ impl fmt::Display for HitTestTag {
                     text_run_index
                 )
             }
-        }
-    }
-}
-
-// ============================================================================
-// Hit-Test Result Types (what gets returned from hit-testing)
-// ============================================================================
-
-/// Result of processing a single WebRender hit-test item.
-///
-/// A single hit position can hit multiple overlapping elements, and each element
-/// can have multiple "roles" (e.g., a button that is also selectable text).
-#[derive(Debug, Clone, PartialEq)]
-pub struct HitTestResult {
-    /// The typed tag that was hit
-    pub tag: HitTestTag,
-
-    /// Point in the viewport coordinate space
-    pub point_in_viewport: crate::geom::LogicalPosition,
-
-    /// Point relative to the hit item's origin
-    pub point_relative_to_item: crate::geom::LogicalPosition,
-}
-
-// ============================================================================
-// Conversion from legacy ScrollbarHitId
-// ============================================================================
-
-/// Convert from legacy ScrollbarHitId to the new type-safe system
-impl From<crate::hit_test::ScrollbarHitId> for HitTestTag {
-    fn from(legacy: crate::hit_test::ScrollbarHitId) -> Self {
-        use crate::hit_test::ScrollbarHitId;
-        match legacy {
-            ScrollbarHitId::VerticalTrack(dom_id, node_id) => HitTestTag::Scrollbar {
-                dom_id,
-                node_id,
-                component: ScrollbarComponent::VerticalTrack,
-            },
-            ScrollbarHitId::VerticalThumb(dom_id, node_id) => HitTestTag::Scrollbar {
-                dom_id,
-                node_id,
-                component: ScrollbarComponent::VerticalThumb,
-            },
-            ScrollbarHitId::HorizontalTrack(dom_id, node_id) => HitTestTag::Scrollbar {
-                dom_id,
-                node_id,
-                component: ScrollbarComponent::HorizontalTrack,
-            },
-            ScrollbarHitId::HorizontalThumb(dom_id, node_id) => HitTestTag::Scrollbar {
-                dom_id,
-                node_id,
-                component: ScrollbarComponent::HorizontalThumb,
-            },
-        }
-    }
-}
-
-/// Convert from the new type-safe system to legacy ScrollbarHitId
-impl TryFrom<HitTestTag> for crate::hit_test::ScrollbarHitId {
-    type Error = ();
-
-    fn try_from(tag: HitTestTag) -> Result<Self, Self::Error> {
-        use crate::hit_test::ScrollbarHitId;
-        match tag {
-            HitTestTag::Scrollbar {
-                dom_id,
-                node_id,
-                component,
-            } => match component {
-                ScrollbarComponent::VerticalTrack => {
-                    Ok(ScrollbarHitId::VerticalTrack(dom_id, node_id))
-                }
-                ScrollbarComponent::VerticalThumb => {
-                    Ok(ScrollbarHitId::VerticalThumb(dom_id, node_id))
-                }
-                ScrollbarComponent::HorizontalTrack => {
-                    Ok(ScrollbarHitId::HorizontalTrack(dom_id, node_id))
-                }
-                ScrollbarComponent::HorizontalThumb => {
-                    Ok(ScrollbarHitId::HorizontalThumb(dom_id, node_id))
-                }
-            },
-            _ => Err(()),
         }
     }
 }
