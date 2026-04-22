@@ -13,7 +13,7 @@ use allsorts::{
     gpos,
     gsub::{self, FeatureInfo, FeatureMask, Features},
 };
-use azul_core::{geom::LogicalSize, glyph::Placement};
+use azul_core::geom::LogicalSize;
 use azul_css::props::basic::FontRef;
 use rust_fontconfig::FcFontCache;
 
