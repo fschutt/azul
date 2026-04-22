@@ -186,16 +186,13 @@ pub struct Node {
     // pub first_child: Option<NodeId>,
 }
 
-/// Node that initializes a Dom.
-pub const ROOT_NODE: Node = Node {
-    parent: None,
-    previous_sibling: None,
-    next_sibling: None,
-    last_child: None,
-};
-
 impl Node {
-    pub const ROOT: Node = ROOT_NODE;
+    pub const ROOT: Node = Node {
+        parent: None,
+        previous_sibling: None,
+        next_sibling: None,
+        last_child: None,
+    };
 
     #[inline]
     pub const fn has_parent(&self) -> bool {
@@ -246,12 +243,6 @@ impl NodeHierarchy {
         }
     }
 
-    #[inline(always)]
-    pub fn as_ref_mut(&mut self) -> NodeHierarchyRefMut<'_> {
-        NodeHierarchyRefMut {
-            internal: &mut self.internal[..],
-        }
-    }
 }
 
 /// The hierarchy of nodes is stored separately from the actual node content in order
@@ -260,11 +251,6 @@ impl NodeHierarchy {
 #[derive(Debug, PartialEq, Hash, Eq)]
 pub struct NodeHierarchyRef<'a> {
     pub internal: &'a [Node],
-}
-
-#[derive(Debug, PartialEq, Hash, Eq)]
-pub struct NodeHierarchyRefMut<'a> {
-    pub internal: &'a mut [Node],
 }
 
 impl<'a> NodeHierarchyRef<'a> {
@@ -322,29 +308,6 @@ impl<'a> NodeHierarchyRef<'a> {
         non_leaf_nodes
     }
 
-    /// Returns the number of all subtree items - runtime O(1)
-    #[inline]
-    pub fn subtree_len(&self, parent_id: NodeId) -> usize {
-        let self_item_index = parent_id.index();
-        let next_item_index = match self[parent_id].next_sibling {
-            None => self.len(),
-            Some(s) => s.index(),
-        };
-        next_item_index - self_item_index - 1
-    }
-
-    /// Returns the index in the parent node of a certain NodeId
-    /// (starts at 0, i.e. the first node has the index of 0).
-    #[inline]
-    pub fn get_index_in_parent(&self, node_id: NodeId) -> usize {
-        node_id.preceding_siblings(&self).count() - 1
-    }
-}
-
-impl<'a> NodeHierarchyRefMut<'a> {
-    pub fn from_slice(data: &'a mut [Node]) -> NodeHierarchyRefMut<'a> {
-        NodeHierarchyRefMut { internal: data }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
@@ -368,14 +331,6 @@ pub struct NodeDataContainerRefMut<'a, T> {
     pub internal: &'a mut [T],
 }
 
-impl<'a, T> NodeDataContainerRefMut<'a, T> {
-    pub fn as_borrowing_ref<'b>(&'b self) -> NodeDataContainerRef<'b, T> {
-        NodeDataContainerRef {
-            internal: &*self.internal,
-        }
-    }
-}
-
 impl<T> Default for NodeDataContainer<T> {
     fn default() -> Self {
         Self {
@@ -390,22 +345,6 @@ impl<'a> Index<NodeId> for NodeHierarchyRef<'a> {
     #[inline(always)]
     fn index(&self, node_id: NodeId) -> &Node {
         &self.internal[node_id.index()]
-    }
-}
-
-impl<'a> Index<NodeId> for NodeHierarchyRefMut<'a> {
-    type Output = Node;
-
-    #[inline(always)]
-    fn index(&self, node_id: NodeId) -> &Node {
-        &self.internal[node_id.index()]
-    }
-}
-
-impl<'a> IndexMut<NodeId> for NodeHierarchyRefMut<'a> {
-    #[inline(always)]
-    fn index_mut(&mut self, node_id: NodeId) -> &mut Node {
-        &mut self.internal[node_id.index()]
     }
 }
 
@@ -452,56 +391,10 @@ impl<'a, T: 'a> NodeDataContainerRefMut<'a, T> {
     pub fn get_mut(&mut self, id: NodeId) -> Option<&mut T> {
         self.internal.get_mut(id.index())
     }
-    #[inline(always)]
-    pub fn get_mut_extended_lifetime(&'a mut self, id: NodeId) -> Option<&'a mut T> {
-        self.internal.get_mut(id.index())
-    }
-}
-
-impl<'a, T: Send + 'a> NodeDataContainerRefMut<'a, T> {
-    pub fn transform_multithread<U: Send, F: Send + Sync>(
-        &mut self,
-        closure: F,
-    ) -> NodeDataContainer<U>
-    where
-        F: Fn(&mut T, NodeId) -> U,
-    {
-        NodeDataContainer {
-            internal: self
-                .internal
-                .iter_mut()
-                .enumerate()
-                .map(|(node_id, node)| closure(node, NodeId::new(node_id)))
-                .collect::<Vec<U>>(),
-        }
-    }
-
-    pub fn transform_multithread_optional<U: Send, F: Send + Sync>(&mut self, closure: F) -> Vec<U>
-    where
-        F: Fn(&mut T, NodeId) -> Option<U>,
-    {
-        self.internal
-            .iter_mut()
-            .enumerate()
-            .filter_map(|(node_id, node)| closure(node, NodeId::new(node_id)))
-            .collect::<Vec<U>>()
-    }
 }
 
 impl<'a, T: Send + 'a> NodeDataContainerRef<'a, T> {
-    pub fn transform_nodeid<U: Send, F: Send + Sync>(&self, closure: F) -> NodeDataContainer<U>
-    where
-        F: Fn(NodeId) -> U,
-    {
-        let len = self.len();
-        NodeDataContainer {
-            internal: (0..len)
-                .map(|node_id| closure(NodeId::new(node_id)))
-                .collect::<Vec<U>>(),
-        }
-    }
-
-    pub fn transform_nodeid_multithreaded_optional<U: Send, F: Send + Sync>(
+    pub fn transform_nodeid_optional<U: Send, F: Send + Sync>(
         &self,
         closure: F,
     ) -> NodeDataContainer<U>
@@ -519,11 +412,6 @@ impl<'a, T: Send + 'a> NodeDataContainerRef<'a, T> {
 
 impl<'a, T: 'a> NodeDataContainerRef<'a, T> {
     #[inline(always)]
-    pub fn get_extended_lifetime(&self, id: NodeId) -> Option<&'a T> {
-        self.internal.get(id.index())
-    }
-
-    #[inline(always)]
     pub fn from_slice(data: &'a [T]) -> NodeDataContainerRef<'a, T> {
         NodeDataContainerRef { internal: data }
     }
@@ -531,20 +419,6 @@ impl<'a, T: 'a> NodeDataContainerRef<'a, T> {
     #[inline(always)]
     pub fn len(&self) -> usize {
         self.internal.len()
-    }
-
-    pub fn transform_singlethread<U, F>(&self, mut closure: F) -> NodeDataContainer<U>
-    where
-        F: FnMut(&T, NodeId) -> U,
-    {
-        NodeDataContainer {
-            internal: self
-                .internal
-                .iter()
-                .enumerate()
-                .map(|(node_id, node)| closure(node, NodeId::new(node_id)))
-                .collect(),
-        }
     }
 
     #[inline(always)]
@@ -592,17 +466,6 @@ impl<'a, T> IndexMut<NodeId> for NodeDataContainerRefMut<'a, T> {
 }
 
 impl NodeId {
-    /// Return an iterator of references to this node and its ancestors.
-    ///
-    /// Call `.next().unwrap()` once on the iterator to skip the node itself.
-    #[inline]
-    pub const fn ancestors<'a>(self, node_hierarchy: &'a NodeHierarchyRef<'a>) -> Ancestors<'a> {
-        Ancestors {
-            node_hierarchy,
-            node: Some(self),
-        }
-    }
-
     /// Return an iterator of references to this node and the siblings before it.
     ///
     /// Call `.next().unwrap()` once on the iterator to skip the node itself.
@@ -617,73 +480,12 @@ impl NodeId {
         }
     }
 
-    /// Return an iterator of references to this node and the siblings after it.
-    ///
-    /// Call `.next().unwrap()` once on the iterator to skip the node itself.
-    #[inline]
-    pub const fn following_siblings<'a>(
-        self,
-        node_hierarchy: &'a NodeHierarchyRef<'a>,
-    ) -> FollowingSiblings<'a> {
-        FollowingSiblings {
-            node_hierarchy,
-            node: Some(self),
-        }
-    }
-
-    /// Return an iterator of references to this node’s children.
+    /// Return an iterator of references to this node's children.
     #[inline]
     pub fn children<'a>(self, node_hierarchy: &'a NodeHierarchyRef<'a>) -> Children<'a> {
         Children {
             node_hierarchy,
             node: node_hierarchy[self].get_first_child(self),
-        }
-    }
-
-    /// Return an iterator of references to this node’s children, in reverse order.
-    #[inline]
-    pub fn reverse_children<'a>(
-        self,
-        node_hierarchy: &'a NodeHierarchyRef<'a>,
-    ) -> ReverseChildren<'a> {
-        ReverseChildren {
-            node_hierarchy,
-            node: node_hierarchy[self].last_child,
-        }
-    }
-
-    /// Return an iterator of references to this node and its descendants, in tree order.
-    ///
-    /// Parent nodes appear before the descendants.
-    /// Call `.next().unwrap()` once on the iterator to skip the node itself.
-    #[inline]
-    pub const fn descendants<'a>(
-        self,
-        node_hierarchy: &'a NodeHierarchyRef<'a>,
-    ) -> Descendants<'a> {
-        Descendants(self.traverse(node_hierarchy))
-    }
-
-    /// Return an iterator of references to this node and its descendants, in tree order.
-    #[inline]
-    pub const fn traverse<'a>(self, node_hierarchy: &'a NodeHierarchyRef<'a>) -> Traverse<'a> {
-        Traverse {
-            node_hierarchy,
-            root: self,
-            next: Some(NodeEdge::Start(self)),
-        }
-    }
-
-    /// Return an iterator of references to this node and its descendants, in tree order.
-    #[inline]
-    pub const fn reverse_traverse<'a>(
-        self,
-        node_hierarchy: &'a NodeHierarchyRef<'a>,
-    ) -> ReverseTraverse<'a> {
-        ReverseTraverse {
-            node_hierarchy,
-            root: self,
-            next: Some(NodeEdge::End(self)),
         }
     }
 }
@@ -728,14 +530,6 @@ impl Iterator for LinearIterator {
     }
 }
 
-/// An iterator of references to the ancestors a given node.
-pub struct Ancestors<'a> {
-    node_hierarchy: &'a NodeHierarchyRef<'a>,
-    node: Option<NodeId>,
-}
-
-impl_node_iterator!(Ancestors, |node: &Node| node.parent);
-
 /// An iterator of references to the siblings before a given node.
 pub struct PrecedingSiblings<'a> {
     node_hierarchy: &'a NodeHierarchyRef<'a>,
@@ -743,14 +537,6 @@ pub struct PrecedingSiblings<'a> {
 }
 
 impl_node_iterator!(PrecedingSiblings, |node: &Node| node.previous_sibling);
-
-/// An iterator of references to the siblings after a given node.
-pub struct FollowingSiblings<'a> {
-    node_hierarchy: &'a NodeHierarchyRef<'a>,
-    node: Option<NodeId>,
-}
-
-impl_node_iterator!(FollowingSiblings, |node: &Node| node.next_sibling);
 
 /// Special iterator for using NodeDataContainerRef<AzNode> instead of NodeHierarchy
 pub struct AzChildren<'a> {
@@ -827,7 +613,7 @@ impl NodeId {
         self.az_children(node_hierarchy).collect()
     }
 
-    /// Return an iterator of references to this node’s children.
+    /// Return an iterator of references to this node's children.
     #[inline]
     pub fn az_children<'a>(
         self,
@@ -839,7 +625,7 @@ impl NodeId {
         }
     }
 
-    /// Return an iterator of references to this node’s children.
+    /// Return an iterator of references to this node's children.
     #[inline]
     pub fn az_reverse_children<'a>(
         self,
@@ -859,129 +645,3 @@ pub struct Children<'a> {
 }
 
 impl_node_iterator!(Children, |node: &Node| node.next_sibling);
-
-/// An iterator of references to the children of a given node, in reverse order.
-pub struct ReverseChildren<'a> {
-    node_hierarchy: &'a NodeHierarchyRef<'a>,
-    node: Option<NodeId>,
-}
-
-impl_node_iterator!(ReverseChildren, |node: &Node| node.previous_sibling);
-
-/// An iterator of references to a given node and its descendants, in tree order.
-pub struct Descendants<'a>(Traverse<'a>);
-
-impl<'a> Iterator for Descendants<'a> {
-    type Item = NodeId;
-
-    fn next(&mut self) -> Option<NodeId> {
-        loop {
-            match self.0.next() {
-                Some(NodeEdge::Start(node)) => return Some(node),
-                Some(NodeEdge::End(_)) => {}
-                None => return None,
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum NodeEdge<T> {
-    /// Indicates that start of a node that has children.
-    /// Yielded by `Traverse::next` before the node’s descendants.
-    /// In HTML or XML, this corresponds to an opening tag like `<div>`
-    Start(T),
-
-    /// Indicates that end of a node that has children.
-    /// Yielded by `Traverse::next` after the node’s descendants.
-    /// In HTML or XML, this corresponds to a closing tag like `</div>`
-    End(T),
-}
-
-impl<T> NodeEdge<T> {
-    pub fn inner_value(self) -> T {
-        use self::NodeEdge::*;
-        match self {
-            Start(t) => t,
-            End(t) => t,
-        }
-    }
-}
-
-/// An iterator of references to a given node and its descendants, in tree order.
-pub struct Traverse<'a> {
-    node_hierarchy: &'a NodeHierarchyRef<'a>,
-    root: NodeId,
-    next: Option<NodeEdge<NodeId>>,
-}
-
-impl<'a> Iterator for Traverse<'a> {
-    type Item = NodeEdge<NodeId>;
-
-    fn next(&mut self) -> Option<NodeEdge<NodeId>> {
-        let item = self.next.take()?;
-        self.next = self.compute_next(&item);
-        Some(item)
-    }
-}
-
-impl<'a> Traverse<'a> {
-    /// Compute the next edge in tree order
-    fn compute_next(&self, item: &NodeEdge<NodeId>) -> Option<NodeEdge<NodeId>> {
-        match *item {
-            NodeEdge::Start(node) => Some(match self.node_hierarchy[node].get_first_child(node) {
-                Some(first_child) => NodeEdge::Start(first_child),
-                None => NodeEdge::End(node),
-            }),
-            NodeEdge::End(node) if node == self.root => None,
-            NodeEdge::End(node) => self.next_from_end(node),
-        }
-    }
-
-    /// From an End edge, find the next edge (next sibling's Start, or parent's End)
-    fn next_from_end(&self, node: NodeId) -> Option<NodeEdge<NodeId>> {
-        let h = &self.node_hierarchy[node];
-        h.next_sibling
-            .map(NodeEdge::Start)
-            .or_else(|| h.parent.map(NodeEdge::End))
-    }
-}
-
-/// An iterator of references to a given node and its descendants, in reverse tree order.
-pub struct ReverseTraverse<'a> {
-    node_hierarchy: &'a NodeHierarchyRef<'a>,
-    root: NodeId,
-    next: Option<NodeEdge<NodeId>>,
-}
-
-impl<'a> Iterator for ReverseTraverse<'a> {
-    type Item = NodeEdge<NodeId>;
-
-    fn next(&mut self) -> Option<NodeEdge<NodeId>> {
-        let item = self.next.take()?;
-        self.next = self.compute_next(&item);
-        Some(item)
-    }
-}
-
-impl<'a> ReverseTraverse<'a> {
-    /// Compute the next edge in reverse tree order
-    fn compute_next(&self, item: &NodeEdge<NodeId>) -> Option<NodeEdge<NodeId>> {
-        match *item {
-            NodeEdge::End(node) => Some(match self.node_hierarchy[node].last_child {
-                Some(last_child) => NodeEdge::End(last_child),
-                None => NodeEdge::Start(node),
-            }),
-            NodeEdge::Start(node) if node == self.root => None,
-            NodeEdge::Start(node) => self.next_from_start(node),
-        }
-    }
-
-    /// From a Start edge, find the next edge (previous sibling's End, or parent's Start)
-    fn next_from_start(&self, node: NodeId) -> Option<NodeEdge<NodeId>> {
-        let h = &self.node_hierarchy[node];
-        h.previous_sibling
-            .map(NodeEdge::End)
-            .or_else(|| h.parent.map(NodeEdge::Start))
-    }
-}
