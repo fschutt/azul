@@ -91,36 +91,6 @@ impl LogicalRect {
             && point.y < self.max_y()
     }
 
-    /// Faster union for a Vec<LayoutRect>
-    #[inline]
-    pub fn union<I: Iterator<Item = Self>>(mut rects: I) -> Option<Self> {
-        let first = rects.next()?;
-
-        let mut min_x = first.origin.x;
-        let mut min_y = first.origin.y;
-        let mut max_x = first.origin.x + first.size.width;
-        let mut max_y = first.origin.y + first.size.height;
-
-        for Self {
-            origin: LogicalPosition { x, y },
-            size: LogicalSize { width, height },
-        } in rects
-        {
-            min_x = min_x.min(x);
-            min_y = min_y.min(y);
-            max_x = max_x.max(x + width);
-            max_y = max_y.max(y + height);
-        }
-
-        Some(Self {
-            origin: LogicalPosition { x: min_x, y: min_y },
-            size: LogicalSize {
-                width: max_x - min_x,
-                height: max_y - min_y,
-            },
-        })
-    }
-
     /// Same as `contains()`, but returns the (x, y) offset of the hit point
     ///
     /// On a regular computer this function takes ~3.2ns to run
@@ -137,19 +107,6 @@ impl LogicalRect {
         }
     }
 
-    /// Converts to an integer-based `LayoutRect`, rounding coordinates.
-    pub fn to_layout_rect(&self) -> LayoutRect {
-        LayoutRect {
-            origin: LayoutPoint::new(
-                libm::roundf(self.origin.x) as isize,
-                libm::roundf(self.origin.y) as isize,
-            ),
-            size: LayoutSize::new(
-                libm::roundf(self.size.width) as isize,
-                libm::roundf(self.size.height) as isize,
-            ),
-        }
-    }
 }
 
 impl_vec!(LogicalRect, LogicalRectVec, LogicalRectVecDestructor, LogicalRectVecDestructorType, LogicalRectVecSlice, OptionLogicalRect);
@@ -167,10 +124,7 @@ use core::{
     ops::{self, AddAssign, SubAssign},
 };
 
-use azul_css::props::{
-    basic::{LayoutPoint, LayoutRect, LayoutSize},
-    layout::LayoutWritingMode,
-};
+use azul_css::props::layout::LayoutWritingMode;
 
 /// A 2D position in logical (DPI-independent) coordinates.
 #[derive(Default, Copy, Clone, PartialEq, PartialOrd)]
@@ -480,8 +434,8 @@ impl LogicalPosition {
     #[inline(always)]
     pub fn to_physical(self, hidpi_factor: f32) -> PhysicalPosition<u32> {
         PhysicalPosition {
-            x: (self.x * hidpi_factor) as u32,
-            y: (self.y * hidpi_factor) as u32,
+            x: libm::roundf(self.x * hidpi_factor) as u32,
+            y: libm::roundf(self.y * hidpi_factor) as u32,
         }
     }
 }
@@ -536,8 +490,8 @@ impl LogicalSize {
     #[inline(always)]
     pub fn to_physical(self, hidpi_factor: f32) -> PhysicalSize<u32> {
         PhysicalSize {
-            width: (self.width * hidpi_factor) as u32,
-            height: (self.height * hidpi_factor) as u32,
+            width: libm::roundf(self.width * hidpi_factor) as u32,
+            height: libm::roundf(self.height * hidpi_factor) as u32,
         }
     }
 }
@@ -591,17 +545,6 @@ pub enum CoordinateSpace {
     ReferenceFrame,
 }
 
-impl CoordinateSpace {
-    /// Returns a human-readable description of this coordinate space.
-    pub const fn description(&self) -> &'static str {
-        match self {
-            CoordinateSpace::Window => "Absolute window coordinates (layout engine output)",
-            CoordinateSpace::ScrollFrame => "Relative to scroll frame origin (for WebRender scroll nodes)",
-            CoordinateSpace::Parent => "Relative to parent node origin",
-            CoordinateSpace::ReferenceFrame => "Relative to CSS transform origin",
-        }
-    }
-}
 
 // =============================================================================
 // Type-safe coordinate newtypes for API clarity
