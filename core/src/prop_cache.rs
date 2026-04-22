@@ -363,8 +363,13 @@ pub struct FlatVecVec<T> {
 
 impl<T: PartialEq> PartialEq for FlatVecVec<T> {
     fn eq(&self, other: &Self) -> bool {
-        // Compare logical content, not internal representation
-        if !self.build.is_empty() || !other.build.is_empty() {
+        let self_in_build = !self.build.is_empty() && self.offsets.is_empty();
+        let other_in_build = !other.build.is_empty() && other.offsets.is_empty();
+        debug_assert!(
+            self_in_build == other_in_build,
+            "FlatVecVec::eq called across phases (one build, one flattened)"
+        );
+        if self_in_build || other_in_build {
             self.build == other.build
         } else {
             self.data == other.data && self.offsets == other.offsets
@@ -593,7 +598,7 @@ impl<T> FlatVecVec<T> {
 
     /// Iterate over all nodes, yielding (node_index, &[T]) for each.
     /// Works in both build and flattened phases.
-    pub fn iter_node_slices(&self) -> FlatVecVecIter<'_, T> {
+    pub(crate) fn iter_node_slices(&self) -> FlatVecVecIter<'_, T> {
         FlatVecVecIter {
             fvv: self,
             idx: 0,
@@ -620,7 +625,7 @@ impl<T> FlatVecVec<T> {
 }
 
 /// Iterator over (node_index, &[T]) pairs from a `FlatVecVec`.
-pub struct FlatVecVecIter<'a, T> {
+pub(crate) struct FlatVecVecIter<'a, T> {
     fvv: &'a FlatVecVec<T>,
     idx: usize,
     count: usize,
@@ -2160,7 +2165,7 @@ impl CssPropertyCache {
     ///
     /// The evaluation follows "last wins" semantics - properties are evaluated
     /// in reverse order and the first matching property wins.
-    pub fn get_property_with_context<'a>(
+    pub(crate) fn get_property_with_context<'a>(
         &'a self,
         node_data: &'a NodeData,
         node_id: &NodeId,
@@ -2196,7 +2201,7 @@ impl CssPropertyCache {
 
     /// Check if any properties with conditions would change between two contexts.
     /// This is used for re-layout detection on viewport/container resize.
-    pub fn check_properties_changed(
+    pub(crate) fn check_properties_changed(
         node_data: &NodeData,
         old_context: &DynamicSelectorContext,
         new_context: &DynamicSelectorContext,
@@ -2213,7 +2218,7 @@ impl CssPropertyCache {
 
     /// Check if any layout-affecting properties would change between two contexts.
     /// This is a more targeted check for re-layout detection.
-    pub fn check_layout_properties_changed(
+    pub(crate) fn check_layout_properties_changed(
         node_data: &NodeData,
         old_context: &DynamicSelectorContext,
         new_context: &DynamicSelectorContext,
@@ -2932,7 +2937,7 @@ impl CssPropertyCache {
     }
 
     /// Method for getting grid-gap property
-    pub fn get_grid_gap<'a>(
+    pub(crate) fn get_grid_gap<'a>(
         &'a self,
         node_data: &'a NodeData,
         node_id: &NodeId,
@@ -5328,7 +5333,7 @@ struct InheritanceContext {
 impl CssPropertyCache {
 
     /// Clear the entire compact cache. Call after major DOM changes.
-    pub fn invalidate_resolved_cache(&mut self) {
+    pub(crate) fn invalidate_resolved_cache(&mut self) {
         self.compact_cache = None;
     }
 }
