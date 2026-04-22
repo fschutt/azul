@@ -2,39 +2,6 @@
 //! and enum conversions (`From`, `Display`). Used by the `core`, `layout`,
 //! and `css` crates.
 
-/// Implements functions for `CallbackInfo` and `Info`,
-/// to prevent duplicating the functions
-#[macro_export]
-macro_rules! impl_task_api {
-    () => {
-        /// Insert a timer into the list of active timers.
-        /// Replaces the existing timer if called with the same TimerId.
-        pub fn add_timer(&mut self, id: TimerId, timer: Timer) {
-            self.timers.insert(id, timer);
-        }
-
-        /// Returns if a timer with the given ID is currently running
-        pub fn has_timer(&self, timer_id: &TimerId) -> bool {
-            self.get_timer(timer_id).is_some()
-        }
-
-        /// Returns a reference to an existing timer (if the `TimerId` is valid)
-        pub fn get_timer(&self, timer_id: &TimerId) -> Option<&Timer> {
-            self.timers.get(&timer_id)
-        }
-
-        /// Deletes a timer and returns it (if the `TimerId` is valid)
-        pub fn delete_timer(&mut self, timer_id: &TimerId) -> Option<Timer> {
-            self.timers.remove(timer_id)
-        }
-
-        /// Adds a (thread-safe) `Task` to the app that runs on a different thread
-        pub fn add_task(&mut self, task: Task) {
-            self.tasks.push(task);
-        }
-    };
-}
-
 /// Implement the `From` trait for any type.
 #[macro_export]
 macro_rules! impl_from {
@@ -93,17 +60,12 @@ macro_rules! impl_display {
     };
 }
 
-/// Implements `Display, Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord`
-/// for a callback struct with `.cb` (function pointer) and `.ctx` (`OptionRefAny`) fields.
-/// Also implements `From<$callback_ty>` to create a callback from a raw function pointer.
-///
-/// For callbacks with only a `.cb` field (no `.ctx`), use [`impl_callback_simple!`] instead.
-///
-/// This is necessary to work around for https://github.com/rust-lang/rust/issues/54508
+/// Helper macro implementing the shared trait impls (`Display`, `Debug`, `Hash`,
+/// `PartialEq`, `Eq`, `PartialOrd`, `Ord`) for callback types.
+/// Used internally by [`impl_callback!`] and [`impl_callback_simple!`].
 #[macro_export]
-macro_rules! impl_callback {
-    // Version with callable field (for UI callbacks that need FFI support)
-    ($callback_value:ident, $callback_ty:ty) => {
+macro_rules! impl_callback_traits {
+    ($callback_value:ident) => {
         impl ::core::fmt::Display for $callback_value {
             fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
                 write!(f, "{:?}", self)
@@ -114,15 +76,6 @@ macro_rules! impl_callback {
             fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
                 let callback = stringify!($callback_value);
                 write!(f, "{} @ 0x{:x}", callback, self.cb as *const () as usize)
-            }
-        }
-
-        impl Clone for $callback_value {
-            fn clone(&self) -> Self {
-                $callback_value {
-                    cb: self.cb.clone(),
-                    ctx: self.ctx.clone(),
-                }
             }
         }
 
@@ -154,6 +107,30 @@ macro_rules! impl_callback {
         }
 
         impl Eq for $callback_value {}
+    };
+}
+
+/// Implements `Display, Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord`
+/// for a callback struct with `.cb` (function pointer) and `.ctx` (`OptionRefAny`) fields.
+/// Also implements `From<$callback_ty>` to create a callback from a raw function pointer.
+///
+/// For callbacks with only a `.cb` field (no `.ctx`), use [`impl_callback_simple!`] instead.
+///
+/// This is necessary to work around for https://github.com/rust-lang/rust/issues/54508
+#[macro_export]
+macro_rules! impl_callback {
+    // Version with callable field (for UI callbacks that need FFI support)
+    ($callback_value:ident, $callback_ty:ty) => {
+        $crate::impl_callback_traits!($callback_value);
+
+        impl Clone for $callback_value {
+            fn clone(&self) -> Self {
+                $callback_value {
+                    cb: self.cb.clone(),
+                    ctx: self.ctx.clone(),
+                }
+            }
+        }
 
         /// Allow creating callback from a raw function pointer
         /// Sets callable to None (for native Rust/C usage)
@@ -175,18 +152,7 @@ macro_rules! impl_callback {
 #[macro_export]
 macro_rules! impl_callback_simple {
     ($callback_value:ident) => {
-        impl ::core::fmt::Display for $callback_value {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-                write!(f, "{:?}", self)
-            }
-        }
-
-        impl ::core::fmt::Debug for $callback_value {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-                let callback = stringify!($callback_value);
-                write!(f, "{} @ 0x{:x}", callback, self.cb as *const () as usize)
-            }
-        }
+        $crate::impl_callback_traits!($callback_value);
 
         impl Clone for $callback_value {
             fn clone(&self) -> Self {
@@ -195,35 +161,6 @@ macro_rules! impl_callback_simple {
                 }
             }
         }
-
-        impl ::core::hash::Hash for $callback_value {
-            fn hash<H>(&self, state: &mut H)
-            where
-                H: ::core::hash::Hasher,
-            {
-                state.write_usize(self.cb as *const () as usize);
-            }
-        }
-
-        impl PartialEq for $callback_value {
-            fn eq(&self, rhs: &Self) -> bool {
-                self.cb as *const () as usize == rhs.cb as usize
-            }
-        }
-
-        impl PartialOrd for $callback_value {
-            fn partial_cmp(&self, other: &Self) -> Option<::core::cmp::Ordering> {
-                Some((self.cb as *const () as usize).cmp(&(other.cb as *const () as usize)))
-            }
-        }
-
-        impl Ord for $callback_value {
-            fn cmp(&self, other: &Self) -> ::core::cmp::Ordering {
-                (self.cb as *const () as usize).cmp(&(other.cb as *const () as usize))
-            }
-        }
-
-        impl Eq for $callback_value {}
 
         impl Copy for $callback_value {}
     };
