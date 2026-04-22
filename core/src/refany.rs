@@ -238,20 +238,20 @@ impl Drop for RefCount {
 
 /// Debug-friendly snapshot of `RefCountInner` with non-atomic values.
 #[derive(Debug, Clone)]
-pub struct RefCountInnerDebug {
-    pub num_copies: usize,
-    pub num_refs: usize,
-    pub num_mutable_refs: usize,
-    pub _internal_len: usize,
-    pub _internal_layout_size: usize,
-    pub _internal_layout_align: usize,
-    pub type_id: u64,
-    pub type_name: AzString,
-    pub custom_destructor: usize,
+pub(crate) struct RefCountInnerDebug {
+    pub(crate) num_copies: usize,
+    pub(crate) num_refs: usize,
+    pub(crate) num_mutable_refs: usize,
+    pub(crate) _internal_len: usize,
+    pub(crate) _internal_layout_size: usize,
+    pub(crate) _internal_layout_align: usize,
+    pub(crate) type_id: u64,
+    pub(crate) type_name: AzString,
+    pub(crate) custom_destructor: usize,
     /// Serialization function pointer (0 = not set)
-    pub serialize_fn: usize,
+    pub(crate) serialize_fn: usize,
     /// Deserialization function pointer (0 = not set)
-    pub deserialize_fn: usize,
+    pub(crate) deserialize_fn: usize,
 }
 
 impl RefCount {
@@ -286,7 +286,7 @@ impl RefCount {
     /// Creates a debug snapshot of the current reference counts.
     ///
     /// Loads all atomic values with `SeqCst` ordering to get a consistent view.
-    pub fn debug_get_refcount_copied(&self) -> RefCountInnerDebug {
+    pub(crate) fn debug_get_refcount_copied(&self) -> RefCountInnerDebug {
         let dc = self.downcast();
         RefCountInnerDebug {
             num_copies: dc.num_copies.load(AtomicOrdering::SeqCst),
@@ -784,7 +784,7 @@ impl RefAny {
     /// # Memory Ordering
     ///
     /// Uses `SeqCst` to ensure a consistent view across all three counters.
-    pub fn has_no_copies(&self) -> bool {
+    pub(crate) fn has_no_copies(&self) -> bool {
         self.sharing_info
             .downcast()
             .num_copies
