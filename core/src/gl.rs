@@ -997,16 +997,44 @@ void main() {
     oFragColor = fColor;
 }";
 
+/// Checks if a shader compiled successfully. Logs an error under `std`.
+fn check_shader_compile(gl_context: &GenericGlContext, shader: GLuint, _label: &str) {
+    let mut status = [0_i32];
+    unsafe { gl_context.get_shader_iv(shader, gl::COMPILE_STATUS, &mut status) };
+    if status[0] != gl::TRUE as i32 {
+        #[cfg(feature = "std")]
+        {
+            let log = gl_context.get_shader_info_log(shader);
+            eprintln!("azul: {} shader compile error: {}", _label, log);
+        }
+    }
+}
+
+/// Checks if a program linked successfully. Logs an error under `std`.
+fn check_program_link(gl_context: &GenericGlContext, program: GLuint, _label: &str) {
+    let mut status = [0_i32];
+    unsafe { gl_context.get_program_iv(program, gl::LINK_STATUS, &mut status) };
+    if status[0] != gl::TRUE as i32 {
+        #[cfg(feature = "std")]
+        {
+            let log = gl_context.get_program_info_log(program);
+            eprintln!("azul: {} program link error: {}", _label, log);
+        }
+    }
+}
+
 impl GlContextPtr {
     pub fn new(renderer_type: RendererType, gl_context: Rc<GenericGlContext>) -> Self {
         // Compile basic shader
         let vertex_shader_object = gl_context.create_shader(gl::VERTEX_SHADER);
         gl_context.shader_source(vertex_shader_object, &[SVG_VERTEX_SHADER]);
         gl_context.compile_shader(vertex_shader_object);
+        check_shader_compile(&gl_context, vertex_shader_object, "SVG vertex");
 
         let fragment_shader_object = gl_context.create_shader(gl::FRAGMENT_SHADER);
         gl_context.shader_source(fragment_shader_object, &[SVG_FRAGMENT_SHADER]);
         gl_context.compile_shader(fragment_shader_object);
+        check_shader_compile(&gl_context, fragment_shader_object, "SVG fragment");
 
         let svg_program_id = gl_context.create_program();
 
@@ -1014,6 +1042,7 @@ impl GlContextPtr {
         gl_context.attach_shader(svg_program_id, fragment_shader_object);
         gl_context.bind_attrib_location(svg_program_id, 0, "vAttrXY".into());
         gl_context.link_program(svg_program_id);
+        check_program_link(&gl_context, svg_program_id, "SVG");
 
         gl_context.delete_shader(vertex_shader_object);
         gl_context.delete_shader(fragment_shader_object);
@@ -1022,10 +1051,12 @@ impl GlContextPtr {
         let vertex_shader_object = gl_context.create_shader(gl::VERTEX_SHADER);
         gl_context.shader_source(vertex_shader_object, &[SVG_MULTICOLOR_VERTEX_SHADER]);
         gl_context.compile_shader(vertex_shader_object);
+        check_shader_compile(&gl_context, vertex_shader_object, "SVG multicolor vertex");
 
         let fragment_shader_object = gl_context.create_shader(gl::FRAGMENT_SHADER);
         gl_context.shader_source(fragment_shader_object, &[SVG_MULTICOLOR_FRAGMENT_SHADER]);
         gl_context.compile_shader(fragment_shader_object);
+        check_shader_compile(&gl_context, fragment_shader_object, "SVG multicolor fragment");
 
         let svg_multicolor_program_id = gl_context.create_program();
 
@@ -1034,6 +1065,7 @@ impl GlContextPtr {
         gl_context.bind_attrib_location(svg_multicolor_program_id, 0, "vAttrXY".into());
         gl_context.bind_attrib_location(svg_multicolor_program_id, 1, "vColor".into());
         gl_context.link_program(svg_multicolor_program_id);
+        check_program_link(&gl_context, svg_multicolor_program_id, "SVG multicolor");
 
         gl_context.delete_shader(vertex_shader_object);
         gl_context.delete_shader(fragment_shader_object);
@@ -1044,10 +1076,12 @@ impl GlContextPtr {
         let vertex_shader_object = gl_context.create_shader(gl::VERTEX_SHADER);
         gl_context.shader_source(vertex_shader_object, &[FXAA_VERTEX_SHADER]);
         gl_context.compile_shader(vertex_shader_object);
+        check_shader_compile(&gl_context, vertex_shader_object, "FXAA vertex");
 
         let fragment_shader_object = gl_context.create_shader(gl::FRAGMENT_SHADER);
         gl_context.shader_source(fragment_shader_object, &[FXAA_FRAGMENT_SHADER]);
         gl_context.compile_shader(fragment_shader_object);
+        check_shader_compile(&gl_context, fragment_shader_object, "FXAA fragment");
 
         let fxaa_program_id = gl_context.create_program();
 
@@ -1055,6 +1089,7 @@ impl GlContextPtr {
         gl_context.attach_shader(fxaa_program_id, fragment_shader_object);
         gl_context.bind_attrib_location(fxaa_program_id, 0, "vAttrXY".into());
         gl_context.link_program(fxaa_program_id);
+        check_program_link(&gl_context, fxaa_program_id, "FXAA");
 
         gl_context.delete_shader(vertex_shader_object);
         gl_context.delete_shader(fragment_shader_object);
@@ -2447,6 +2482,59 @@ impl Ord for GlContextPtr {
     }
 }
 
+/// Saved OpenGL state for save/restore around framebuffer operations.
+/// Used by `Texture::clear()` and `GlShader::draw()` to avoid corrupting
+/// the caller's GL state.
+struct GlStateSave {
+    current_multisample: [u8; 1],
+    current_index_buffer: [i32; 1],
+    current_vertex_buffer: [i32; 1],
+    current_vertex_array_object: [i32; 1],
+    current_program: [i32; 1],
+    current_framebuffers: [i32; 1],
+    current_renderbuffers: [i32; 1],
+    current_texture_2d: [i32; 1],
+}
+
+impl GlStateSave {
+    fn save(gl_context: &GlContextPtr) -> Self {
+        let mut s = GlStateSave {
+            current_multisample: [0],
+            current_index_buffer: [0],
+            current_vertex_buffer: [0],
+            current_vertex_array_object: [0],
+            current_program: [0],
+            current_framebuffers: [0],
+            current_renderbuffers: [0],
+            current_texture_2d: [0],
+        };
+
+        gl_context.get_boolean_v(gl::MULTISAMPLE, (&mut s.current_multisample[..]).into());
+        gl_context.get_integer_v(gl::ARRAY_BUFFER_BINDING, (&mut s.current_vertex_buffer[..]).into());
+        gl_context.get_integer_v(gl::ELEMENT_ARRAY_BUFFER_BINDING, (&mut s.current_index_buffer[..]).into());
+        gl_context.get_integer_v(gl::CURRENT_PROGRAM, (&mut s.current_program[..]).into());
+        gl_context.get_integer_v(gl::VERTEX_ARRAY_BINDING, (&mut s.current_vertex_array_object[..]).into());
+        gl_context.get_integer_v(gl::RENDERBUFFER, (&mut s.current_renderbuffers[..]).into());
+        gl_context.get_integer_v(gl::FRAMEBUFFER, (&mut s.current_framebuffers[..]).into());
+        gl_context.get_integer_v(gl::TEXTURE_2D, (&mut s.current_texture_2d[..]).into());
+
+        s
+    }
+
+    fn restore(&self, gl_context: &GlContextPtr) {
+        if u32::from(self.current_multisample[0]) == gl::TRUE {
+            gl_context.enable(gl::MULTISAMPLE);
+        }
+        gl_context.bind_framebuffer(gl::FRAMEBUFFER, self.current_framebuffers[0] as u32);
+        gl_context.bind_texture(gl::TEXTURE_2D, self.current_texture_2d[0] as u32);
+        gl_context.bind_buffer(gl::RENDERBUFFER, self.current_renderbuffers[0] as u32);
+        gl_context.bind_vertex_array(self.current_vertex_array_object[0] as u32);
+        gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, self.current_index_buffer[0] as u32);
+        gl_context.bind_buffer(gl::ARRAY_BUFFER, self.current_vertex_buffer[0] as u32);
+        gl_context.use_program(self.current_program[0] as u32);
+    }
+}
+
 /// OpenGL texture, use `ReadOnlyWindow::create_texture` to create a texture
 #[repr(C)]
 pub struct Texture {
@@ -2558,38 +2646,7 @@ impl Texture {
     }
 
     pub fn clear(&mut self) {
-        // save the OpenGL state
-        let mut current_multisample = [0_u8];
-        let mut current_index_buffer = [0_i32];
-        let mut current_vertex_buffer = [0_i32];
-        let mut current_vertex_array_object = [0_i32];
-        let mut current_program = [0_i32];
-        let mut current_framebuffers = [0_i32];
-        let mut current_renderbuffers = [0_i32];
-        let mut current_texture_2d = [0_i32];
-
-        self.gl_context
-            .get_boolean_v(gl::MULTISAMPLE, (&mut current_multisample[..]).into());
-        self.gl_context.get_integer_v(
-            gl::ARRAY_BUFFER_BINDING,
-            (&mut current_vertex_buffer[..]).into(),
-        );
-        self.gl_context.get_integer_v(
-            gl::ELEMENT_ARRAY_BUFFER_BINDING,
-            (&mut current_index_buffer[..]).into(),
-        );
-        self.gl_context
-            .get_integer_v(gl::CURRENT_PROGRAM, (&mut current_program[..]).into());
-        self.gl_context.get_integer_v(
-            gl::VERTEX_ARRAY_BINDING,
-            (&mut current_vertex_array_object[..]).into(),
-        );
-        self.gl_context
-            .get_integer_v(gl::RENDERBUFFER, (&mut current_renderbuffers[..]).into());
-        self.gl_context
-            .get_integer_v(gl::FRAMEBUFFER, (&mut current_framebuffers[..]).into());
-        self.gl_context
-            .get_integer_v(gl::TEXTURE_2D, (&mut current_texture_2d[..]).into());
+        let saved = GlStateSave::save(&self.gl_context);
 
         let framebuffers = self.gl_context.gen_framebuffers(1);
         let framebuffer_id = framebuffers.get(0).unwrap();
@@ -2659,31 +2716,12 @@ impl Texture {
         self.gl_context
             .clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
 
-        // Reset the OpenGL state
-        if u32::from(current_multisample[0]) == gl::TRUE {
-            self.gl_context.enable(gl::MULTISAMPLE);
-        }
-        self.gl_context
-            .bind_framebuffer(gl::FRAMEBUFFER, current_framebuffers[0] as u32);
-        self.gl_context
-            .bind_texture(gl::TEXTURE_2D, current_texture_2d[0] as u32);
-        self.gl_context
-            .bind_buffer(gl::RENDERBUFFER, current_renderbuffers[0] as u32);
-        self.gl_context
-            .bind_vertex_array(current_vertex_array_object[0] as u32);
-        self.gl_context
-            .bind_buffer(gl::ELEMENT_ARRAY_BUFFER, current_index_buffer[0] as u32);
-        self.gl_context
-            .bind_buffer(gl::ARRAY_BUFFER, current_vertex_buffer[0] as u32);
-        self.gl_context.use_program(current_program[0] as u32);
-
         self.gl_context
             .delete_framebuffers((&[*framebuffer_id])[..].into());
         self.gl_context
             .delete_renderbuffers((&[*depthbuffer_id])[..].into());
 
-        self.gl_context
-            .bind_texture(gl::TEXTURE_2D, current_texture_2d[0] as u32);
+        saved.restore(&self.gl_context);
     }
 
     pub fn get_descriptor(&self) -> ImageDescriptor {
@@ -3538,35 +3576,11 @@ impl GlShader {
 
         let gl_context = &texture.gl_context;
 
-        // save the OpenGL state
-        let mut current_multisample = [0_u8];
-        let mut current_index_buffer = [0_i32];
-        let mut current_vertex_buffer = [0_i32];
-        let mut current_vertex_array_object = [0_i32];
-        let mut current_program = [0_i32];
-        let mut current_framebuffers = [0_i32];
-        let mut current_renderbuffers = [0_i32];
-        let mut current_texture_2d = [0_i32];
+        let saved = GlStateSave::save(gl_context);
+
+        // save draw()-specific state not covered by GlStateSave
         let mut current_blend_enabled = [0_u8];
         let mut current_primitive_restart_enabled = [0_u8];
-
-        gl_context.get_boolean_v(gl::MULTISAMPLE, (&mut current_multisample[..]).into());
-        gl_context.get_integer_v(
-            gl::ARRAY_BUFFER_BINDING,
-            (&mut current_vertex_buffer[..]).into(),
-        );
-        gl_context.get_integer_v(
-            gl::ELEMENT_ARRAY_BUFFER_BINDING,
-            (&mut current_index_buffer[..]).into(),
-        );
-        gl_context.get_integer_v(gl::CURRENT_PROGRAM, (&mut current_program[..]).into());
-        gl_context.get_integer_v(
-            gl::VERTEX_ARRAY_BINDING,
-            (&mut current_vertex_array_object[..]).into(),
-        );
-        gl_context.get_integer_v(gl::RENDERBUFFER, (&mut current_renderbuffers[..]).into());
-        gl_context.get_integer_v(gl::FRAMEBUFFER, (&mut current_framebuffers[..]).into());
-        gl_context.get_integer_v(gl::TEXTURE_2D, (&mut current_texture_2d[..]).into());
         gl_context.get_boolean_v(gl::BLEND, (&mut current_blend_enabled[..]).into());
         gl_context.get_boolean_v(
             gl::PRIMITIVE_RESTART,
@@ -3721,26 +3735,19 @@ impl GlShader {
             );
         }
 
-        // Reset the OpenGL state
-        if u32::from(current_multisample[0]) == gl::TRUE {
-            gl_context.enable(gl::MULTISAMPLE);
-        }
+        // Reset draw()-specific state
         if u32::from(current_blend_enabled[0]) == gl::FALSE {
             gl_context.disable(gl::BLEND);
         }
         if u32::from(current_primitive_restart_enabled[0]) == gl::FALSE {
             gl_context.disable(gl::PRIMITIVE_RESTART);
         }
-        gl_context.bind_framebuffer(gl::FRAMEBUFFER, current_framebuffers[0] as u32);
-        gl_context.bind_texture(gl::TEXTURE_2D, current_texture_2d[0] as u32);
-        gl_context.bind_buffer(gl::RENDERBUFFER, current_renderbuffers[0] as u32);
-        gl_context.bind_vertex_array(current_vertex_array_object[0] as u32);
-        gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, current_index_buffer[0] as u32);
-        gl_context.bind_buffer(gl::ARRAY_BUFFER, current_vertex_buffer[0] as u32);
-        gl_context.use_program(current_program[0] as u32);
 
         gl_context.delete_framebuffers((&[*framebuffer_id])[..].into());
         gl_context.delete_renderbuffers((&[*depthbuffer_id])[..].into());
+
+        // Reset common GL state
+        saved.restore(gl_context);
 
         texture.format = RawImageFormat::RGBA8;
         texture.flags = TextureFlags {
