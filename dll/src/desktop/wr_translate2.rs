@@ -1033,16 +1033,14 @@ use azul_layout::window::LayoutWindow;
 /// Generate FontKey deterministically from font hash
 /// This ensures the same font always gets the same key across frames
 fn font_key_from_hash(font_hash: u64) -> FontKey {
-    // Split the 64-bit hash into namespace (upper 32 bits) and key (lower 32 bits)
-    let namespace = ((font_hash >> 32) & 0xFFFFFFFF) as u32;
-    let key = (font_hash & 0xFFFFFFFF) as u32;
-
-    // Ensure namespace is non-zero (WebRender requirement)
+    // Derive a non-zero namespace (WebRender requirement) from the upper
+    // 32 bits of the hash; keep the full hash as the `u64` key.
+    let namespace = (font_hash >> 32) as u32;
     let namespace = if namespace == 0 { 1 } else { namespace };
 
     FontKey {
         namespace: azul_core::resources::IdNamespace(namespace),
-        key,
+        key: font_hash,
     }
 }
 
@@ -1457,9 +1455,14 @@ fn translate_add_font_instance(add_instance: AddFontInstance) -> Option<WrAddFon
     })
 }
 
-/// Translate ImageKey from azul-core to WebRender
+/// Translate ImageKey from azul-core to WebRender.
+///
+/// Azul's `ImageKey.key` is a `u64` so pointer-derived hashes round-trip
+/// losslessly internally; webrender's slot is a `u32`, so we narrow at this
+/// FFI boundary. Collision risk is bounded to a single frame's add/delete
+/// pairing within webrender's own namespace+u32 ID space.
 pub fn translate_image_key(key: ImageKey) -> WrImageKey {
-    WrImageKey(wr_translate_id_namespace(key.namespace), key.key)
+    WrImageKey(wr_translate_id_namespace(key.namespace), key.key as u32)
 }
 
 /// Translate ImageDescriptor from azul-core to WebRender
@@ -1484,9 +1487,10 @@ fn wr_translate_image_descriptor(descriptor: &azul_core::resources::ImageDescrip
     }
 }
 
-/// Translate FontKey from azul-core to WebRender
+/// Translate FontKey from azul-core to WebRender.
+/// Narrows azul's u64 key to webrender's u32 slot (see `translate_image_key`).
 fn translate_font_key(key: FontKey) -> WrFontKey {
-    WrFontKey(wr_translate_id_namespace(key.namespace), key.key)
+    WrFontKey(wr_translate_id_namespace(key.namespace), key.key as u32)
 }
 
 /// Translate ImageData from azul-core to WebRender's ImageData
@@ -2125,7 +2129,7 @@ const fn wr_translate_id_namespace(
 
 #[inline]
 pub fn wr_translate_font_instance_key(key: FontInstanceKey) -> WrFontInstanceKey {
-    WrFontInstanceKey(wr_translate_id_namespace(key.namespace), key.key)
+    WrFontInstanceKey(wr_translate_id_namespace(key.namespace), key.key as u32)
 }
 
 #[inline]
@@ -3017,7 +3021,7 @@ fn process_image_callback_updates(
                 // Generate ImageKey from the stable ExternalImageId
                 let image_key = azul_core::resources::ImageKey {
                     namespace: layout_window.id_namespace,
-                    key: external_image_id.inner as u32,
+                    key: external_image_id.inner,
                 };
 
                 let wr_key = translate_image_key(image_key);

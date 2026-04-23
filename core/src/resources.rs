@@ -15,7 +15,7 @@ use alloc::{boxed::Box, collections::btree_map::BTreeMap, string::String, vec::V
 use core::{
     fmt,
     hash::{Hash, Hasher},
-    sync::atomic::{AtomicU32, AtomicUsize, Ordering as AtomicOrdering},
+    sync::atomic::{AtomicU64, AtomicUsize, Ordering as AtomicOrdering},
 };
 
 use azul_css::{
@@ -634,24 +634,6 @@ pub enum AppLogLevel {
     Trace,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct PrimitiveFlags {
-    /// The CSS backface-visibility property (yes, it can be really granular)
-    pub is_backface_visible: bool,
-    /// If set, this primitive represents a scroll bar container
-    pub is_scrollbar_container: bool,
-    /// If set, this primitive represents a scroll bar thumb
-    pub is_scrollbar_thumb: bool,
-    /// This is used as a performance hint - this primitive may be promoted to a native
-    /// compositor surface under certain (implementation specific) conditions. This
-    /// is typically used for large videos, and canvas elements.
-    pub prefer_compositor_surface: bool,
-    /// If set, this primitive can be passed directly to the compositor via its
-    /// ExternalImageId, and the compositor will use the native image directly.
-    /// Used as a further extension on top of PREFER_COMPOSITOR_SURFACE.
-    pub supports_external_compositor_surface: bool,
-}
-
 /// Metadata (but not storage) describing an image In WebRender.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -724,14 +706,14 @@ pub enum RawImageFormat {
 }
 
 // NOTE: starts at 1 (0 = DUMMY)
-static IMAGE_KEY: AtomicU32 = AtomicU32::new(1);
-static FONT_KEY: AtomicU32 = AtomicU32::new(0);
-static FONT_INSTANCE_KEY: AtomicU32 = AtomicU32::new(0);
+static IMAGE_KEY: AtomicU64 = AtomicU64::new(1);
+static FONT_KEY: AtomicU64 = AtomicU64::new(0);
+static FONT_INSTANCE_KEY: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ImageKey {
     pub namespace: IdNamespace,
-    pub key: u32,
+    pub key: u64,
 }
 
 impl ImageKey {
@@ -751,7 +733,7 @@ impl ImageKey {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FontKey {
     pub namespace: IdNamespace,
-    pub key: u32,
+    pub key: u64,
 }
 
 impl FontKey {
@@ -766,7 +748,7 @@ impl FontKey {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FontInstanceKey {
     pub namespace: IdNamespace,
-    pub key: u32,
+    pub key: u64,
 }
 
 impl FontInstanceKey {
@@ -1110,12 +1092,13 @@ pub fn image_ref_get_hash(ir: &ImageRef) -> ImageRefHash {
 }
 
 /// Convert a stable ImageRefHash directly to an ImageKey.
-/// Since ImageKey is just a (namespace, u32) pair, we can directly use
-/// the hash value as the key. This avoids the need for a separate mapping table.
+///
+/// `ImageKey.key` is a `u64`, so the pointer-derived `ImageRefHash.inner: usize`
+/// round-trips losslessly on both 32- and 64-bit platforms without any folding.
 pub fn image_ref_hash_to_image_key(hash: ImageRefHash, namespace: IdNamespace) -> ImageKey {
     ImageKey {
         namespace,
-        key: hash.inner as u32,
+        key: hash.inner as u64,
     }
 }
 
@@ -1166,37 +1149,10 @@ impl ImageCache {
     }
 }
 
-/// What type of image is this?
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum ImageType {
-    /// CSS background-image
-    Background,
-    /// DOM node content
-    Content,
-    /// DOM node clip-mask
-    ClipMask,
-}
-
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct ResolvedImage {
     pub key: ImageKey,
     pub descriptor: ImageDescriptor,
-}
-
-/// Represents an exclusion area for handling floats
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub struct TextExclusionArea {
-    pub rect: LogicalRect,
-    pub side: ExclusionSide,
-}
-
-/// Side of the exclusion area
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub enum ExclusionSide {
-    Left,
-    Right,
-    Both,
-    None,
 }
 
 /// Trait for accessing font resources
@@ -1344,34 +1300,6 @@ impl RendererResources {
                     }
                 })
             })
-    }
-
-    pub fn get_image(&self, hash: &ImageRefHash) -> Option<&ResolvedImage> {
-        self.currently_registered_images.get(hash)
-    }
-
-    pub fn get_font_family(
-        &self,
-        style_font_families_hash: &StyleFontFamiliesHash,
-    ) -> Option<&StyleFontFamilyHash> {
-        self.font_families_map.get(style_font_families_hash)
-    }
-
-    pub fn get_font_key(&self, style_font_family_hash: &StyleFontFamilyHash) -> Option<&FontKey> {
-        self.font_id_map.get(style_font_family_hash)
-    }
-
-    pub fn get_registered_font(
-        &self,
-        font_key: &FontKey,
-    ) -> Option<&(FontRef, OrderedMap<(Au, DpiScaleFactor), FontInstanceKey>)> {
-        self.currently_registered_fonts.get(font_key)
-    }
-
-    pub fn update_image(&mut self, image_ref_hash: &ImageRefHash, descriptor: ImageDescriptor) {
-        if let Some(s) = self.currently_registered_images.get_mut(image_ref_hash) {
-            s.descriptor = descriptor; // key stays the same, only descriptor changes
-        }
     }
 
     pub fn get_font_instance_key_for_text(
@@ -2683,15 +2611,6 @@ pub struct AddImageMsg(pub AddImage);
 impl AddImageMsg {
     pub fn into_resource_update(&self) -> ResourceUpdate {
         ResourceUpdate::AddImage(self.0.clone())
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
-pub struct DeleteImageMsg(ImageKey);
-
-impl DeleteImageMsg {
-    pub fn into_resource_update(&self) -> ResourceUpdate {
-        ResourceUpdate::DeleteImage(self.0.clone())
     }
 }
 

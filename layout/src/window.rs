@@ -1776,11 +1776,11 @@ impl LayoutWindow {
                     _ => continue,
                 };
                 // Deterministic FontKey from hash (same algorithm as wr_translate2)
-                let ns = ((hash >> 32) & 0xFFFF_FFFF) as u32;
+                let ns = (hash >> 32) as u32;
                 let ns = if ns == 0 { 1 } else { ns };
                 fonts.insert(FontKey {
                     namespace: IdNamespace(ns),
-                    key: (hash & 0xFFFF_FFFF) as u32,
+                    key: hash,
                 });
             }
         }

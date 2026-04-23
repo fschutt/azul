@@ -19,7 +19,7 @@ use azul_core::{
     dom::DomId,
     hit_test::PipelineId as AzulPipelineId,
     hit_test_tag::TAG_TYPE_SCROLL_CONTAINER,
-    resources::{DpiScaleFactor, FontInstanceKey, ImageRefHash},
+    resources::{DpiScaleFactor, FontInstanceKey, ImageRefHash, RendererResourcesTrait},
     ui_solver::GlyphInstance,
 };
 use azul_css::props::{

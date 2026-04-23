@@ -1,0 +1,204 @@
+//! End-to-end proof that adding and dropping an `ImageRef` from the DOM
+//! across successive frames produces the correct resource updates.
+//!
+//! The goal of `ImageKey` being derived from `ImageRefHash` is that:
+//!   - Frame N uses an image  → `collect_image_resource_updates` yields an
+//!     `AddImage` whose `ImageKey` can be round-tripped back to the source
+//!     `ImageRefHash` losslessly (no folding / no truncation).
+//!   - Frame N+1 no longer references the image → `scan_used_images` no
+//!     longer contains that hash (input to the GC path that would emit
+//!     `DeleteImage`).
+//!
+//! At the time of writing, the `DeleteImage` emission path on the dll side
+//! has not been wired into `HeadlessWindow::regenerate_layout`; the test
+//! therefore asserts the invariants that ARE reachable (AddImage generation,
+//! lossless hash→key round-trip, scan_used_images diff) and documents the
+//! missing GC step so that when it lands, only one assertion here flips on.
+//!
+//! See the sibling test `headless_lifecycle.rs` for the overall pattern of
+//! driving a `HeadlessWindow` with a layout callback that returns different
+//! DOMs on successive frames.
+
+use std::cell::RefCell;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use azul_core::callbacks::{LayoutCallback, LayoutCallbackInfo};
+use azul_core::dom::{Dom, NodeData};
+use azul_core::icon::{IconProviderHandle, SharedIconProvider};
+use azul_core::refany::RefAny;
+use azul_core::resources::{
+    image_ref_hash_to_image_key, AppConfig, ImageRef, ImageRefHash, RawImage, RawImageData,
+    RawImageFormat,
+};
+use azul_layout::window_state::WindowCreateOptions;
+use rust_fontconfig::FcFontCache;
+
+use azul::desktop::shell2::headless::HeadlessWindow;
+use azul::desktop::wr_translate2::collect_image_resource_updates;
+
+#[derive(Clone)]
+struct Ctx {
+    /// Externally-controlled toggle. `regenerate_layout` may invoke the
+    /// layout callback multiple times per frame, so we pick DOM contents
+    /// off a flag rather than an auto-incrementing counter.
+    include_image: Arc<AtomicBool>,
+    /// Pre-built ImageRef whose hash is stable across frames.
+    image: ImageRef,
+}
+
+fn make_image() -> ImageRef {
+    // 2x2 fully-opaque red BGRA8 image. Exact bytes don't matter — we only
+    // care that we get back a valid ImageRef that flows through the DOM.
+    let pixels: Vec<u8> = vec![
+        0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255,
+    ];
+    let raw = RawImage {
+        pixels: RawImageData::U8(pixels.into()),
+        width: 2,
+        height: 2,
+        premultiplied_alpha: true,
+        data_format: RawImageFormat::BGRA8,
+        tag: Vec::new().into(),
+    };
+    ImageRef::new_rawimage(raw).expect("RawImage → ImageRef must succeed")
+}
+
+extern "C" fn layout_cb(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    let ctx = match data.downcast_ref::<Ctx>() {
+        Some(c) => c.clone(),
+        None => return Dom::create_body(),
+    };
+
+    if ctx.include_image.load(Ordering::SeqCst) {
+        Dom::create_body()
+            .with_child(Dom::from_data(NodeData::create_image(ctx.image.clone())))
+    } else {
+        Dom::create_body()
+    }
+}
+
+fn make_window(ctx: Ctx) -> HeadlessWindow {
+    let fc_cache = Arc::new(FcFontCache::default());
+    let app_data = Arc::new(RefCell::new(RefAny::new(ctx)));
+    let icon_provider = SharedIconProvider::from_handle(IconProviderHandle::default());
+
+    let mut options = WindowCreateOptions::default();
+    options.window_state.layout_callback = LayoutCallback {
+        cb: layout_cb,
+        ctx: azul_core::refany::OptionRefAny::None,
+    };
+
+    HeadlessWindow::new(
+        options,
+        app_data,
+        AppConfig::default(),
+        icon_provider,
+        fc_cache,
+        None,
+    )
+    .expect("HeadlessWindow construction must succeed")
+}
+
+#[test]
+fn image_ref_hash_round_trips_losslessly() {
+    // Sanity test: image_ref_hash_to_image_key must be bijective w.r.t.
+    // hash.inner <-> ImageKey.key (no folding, no truncation).
+    let image = make_image();
+    let hash: ImageRefHash = image.get_hash();
+    let namespace = azul_core::resources::IdNamespace(7);
+    let key = image_ref_hash_to_image_key(hash, namespace);
+
+    assert_eq!(key.namespace, namespace);
+    assert_eq!(
+        key.key as usize, hash.inner,
+        "ImageKey.key must preserve every bit of ImageRefHash.inner \
+         (u64 key + usize hash, no folding/truncation)"
+    );
+}
+
+#[test]
+fn image_lifecycle_produces_add_then_disappears_from_scan() {
+    let image = make_image();
+    let expected_hash = image.get_hash();
+    let include_image = Arc::new(AtomicBool::new(true));
+    let ctx = Ctx {
+        include_image: include_image.clone(),
+        image: image.clone(),
+    };
+    // Drop our local handle — the ImageRef will only stay alive via the
+    // DOM returned from layout_cb (cloned from ctx.image on each call).
+    drop(image);
+
+    let mut window = make_window(ctx);
+
+    // Frame 0 → DOM contains the image.
+    window
+        .regenerate_layout()
+        .expect("frame 0 regenerate_layout");
+
+    let layout_window = window
+        .common
+        .layout_window
+        .as_ref()
+        .expect("layout_window populated after first regenerate_layout");
+
+    let used_frame0 = layout_window
+        .scan_used_images(&azul_core::resources::ImageCache::new());
+    assert!(
+        used_frame0.contains(&expected_hash),
+        "frame 0: the image we placed in the DOM must appear in scan_used_images \
+         (hash={:?}, scanned={:?})",
+        expected_hash,
+        used_frame0,
+    );
+
+    let adds_frame0 =
+        collect_image_resource_updates(layout_window, &window.common.renderer_resources);
+    assert_eq!(
+        adds_frame0.len(),
+        1,
+        "frame 0: exactly one AddImage resource update expected (got {})",
+        adds_frame0.len(),
+    );
+    let (hash0, add_msg0) = &adds_frame0[0];
+    assert_eq!(*hash0, expected_hash, "AddImage hash must match");
+
+    // ImageKey must round-trip from the hash losslessly.
+    let expected_key =
+        image_ref_hash_to_image_key(expected_hash, layout_window.id_namespace);
+    assert_eq!(
+        add_msg0.0.key, expected_key,
+        "AddImage.key must equal image_ref_hash_to_image_key(hash, ns) exactly"
+    );
+
+    // Frame 1 → DOM no longer references the image.
+    include_image.store(false, Ordering::SeqCst);
+    window
+        .regenerate_layout()
+        .expect("frame 1 regenerate_layout");
+
+    let layout_window = window
+        .common
+        .layout_window
+        .as_ref()
+        .expect("layout_window still populated after second regenerate_layout");
+
+    let used_frame1 = layout_window
+        .scan_used_images(&azul_core::resources::ImageCache::new());
+    assert!(
+        !used_frame1.contains(&expected_hash),
+        "frame 1: image is no longer referenced by the DOM, so scan_used_images \
+         must NOT contain its hash (this is the input the GC path uses to emit \
+         ResourceUpdate::DeleteImage) — scanned={:?}",
+        used_frame1,
+    );
+
+    let adds_frame1 =
+        collect_image_resource_updates(layout_window, &window.common.renderer_resources);
+    assert!(
+        adds_frame1.is_empty(),
+        "frame 1: no image in the DOM → no AddImage updates (got {:?})",
+        adds_frame1,
+    );
+}
