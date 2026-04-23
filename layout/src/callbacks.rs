@@ -239,6 +239,18 @@ pub enum CallbackChange {
         node_id: NodeId,
         properties: CssPropertyVec,
     },
+    /// Override CSS properties on a node via the user-override channel
+    /// (`CssPropertyCache::user_overridden_properties`). Unlike
+    /// `ChangeNodeCssProperties`, this does not mutate the node's static
+    /// `css_props` — the override layer is read at higher priority by the
+    /// property resolution pipeline, so animating a handful of properties
+    /// per frame stays cheap. Passing `CssProperty::Initial` for a property
+    /// removes any prior override for that type on the same node.
+    OverrideNodeCssProperties {
+        dom_id: DomId,
+        node_id: NodeId,
+        properties: CssPropertyVec,
+    },
 
     // Scroll Management
     /// Scroll a node to a specific position
@@ -1270,6 +1282,36 @@ impl CallbackInfo {
             .into_crate_internal()
             .expect("DomNodeId node should not be None");
         self.change_node_css_properties(dom_id, internal_node_id, vec![property].into());
+    }
+
+    /// Quickly override CSS properties on a node for animation or other
+    /// transient visual changes. Writes go through
+    /// `CssPropertyCache::user_overridden_properties`, which is consulted at
+    /// higher priority than the static cascade, so this does not invalidate
+    /// the styled DOM's CSS rules. Pass `CssProperty::Initial` for a given
+    /// property type to remove any prior override for that type.
+    pub fn override_node_css_properties(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        properties: CssPropertyVec,
+    ) {
+        self.push_change(CallbackChange::OverrideNodeCssProperties {
+            dom_id,
+            node_id,
+            properties,
+        });
+    }
+
+    /// Convenience wrapper for `override_node_css_properties` that targets a
+    /// single property on the hit node's DOM (typical for animation callbacks).
+    pub fn override_css_property(&mut self, node_id: DomNodeId, property: CssProperty) {
+        let dom_id = node_id.dom;
+        let internal_node_id = node_id
+            .node
+            .into_crate_internal()
+            .expect("DomNodeId node should not be None");
+        self.override_node_css_properties(dom_id, internal_node_id, vec![property].into());
     }
 
     /// Scroll a node to a specific position (applied after callback returns)

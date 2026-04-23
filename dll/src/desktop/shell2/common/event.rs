@@ -1392,6 +1392,27 @@ pub trait PlatformWindow {
                 ProcessEventResult::ShouldIncrementalRelayout
             }
 
+            CallbackChange::OverrideNodeCssProperties { dom_id, node_id, properties } => {
+                // Fast-path override channel: writes land in
+                // CssPropertyCache::user_overridden_properties, which the
+                // property resolver consults first. Used by animation
+                // callbacks that want to change a handful of properties
+                // per frame without rebuilding the CSS cascade.
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if let Some(layout_result) = lw.layout_results.get_mut(dom_id) {
+                        let idx = node_id.index();
+                        if idx < layout_result.styled_dom.node_data.as_ref().len() {
+                            let props_slice: Vec<azul_css::props::property::CssProperty> =
+                                properties.as_ref().iter().cloned().collect();
+                            let _ = layout_result
+                                .styled_dom
+                                .restyle_user_property(node_id, &props_slice);
+                        }
+                    }
+                }
+                ProcessEventResult::ShouldIncrementalRelayout
+            }
+
             // === Scroll ===
 
             CallbackChange::ScrollTo { dom_id, node_id, position, unclamped } => {
@@ -1949,7 +1970,10 @@ pub trait PlatformWindow {
 
                             // Append to the parent
                             match position {
-                                Some(pos) => layout_result.styled_dom.append_child_with_index(styled, *pos),
+                                Some(pos) => {
+                                    layout_result.styled_dom.append_child_with_index(styled, *pos);
+                                    layout_result.styled_dom.finalize_non_leaf_nodes();
+                                },
                                 None => layout_result.styled_dom.append_child(styled),
                             }
                         }
