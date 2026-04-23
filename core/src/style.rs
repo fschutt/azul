@@ -83,7 +83,7 @@ pub fn matches_html_element(
         first_group,
         &html_node_tree[node_id],
         &node_data[node_id],
-        expected_path_ending.clone(),
+        &expected_path_ending,
         is_last_content_group,
     ) {
         return false;
@@ -105,7 +105,7 @@ pub fn matches_html_element(
                 match parent {
                     Some(p) if selector_group_matches(
                         content_group, &html_node_tree[p], &node_data[p],
-                        expected_path_ending.clone(), is_last,
+                        &expected_path_ending, is_last,
                     ) => { current_node = p; }
                     _ => return false,
                 }
@@ -117,7 +117,7 @@ pub fn matches_html_element(
                 while let Some(anc) = ancestor {
                     if selector_group_matches(
                         content_group, &html_node_tree[anc], &node_data[anc],
-                        expected_path_ending.clone(), is_last,
+                        &expected_path_ending, is_last,
                     ) {
                         current_node = anc;
                         found = true;
@@ -135,7 +135,7 @@ pub fn matches_html_element(
                 match sibling {
                     Some(s) if selector_group_matches(
                         content_group, &html_node_tree[s], &node_data[s],
-                        expected_path_ending.clone(), is_last,
+                        &expected_path_ending, is_last,
                     ) => { current_node = s; }
                     _ => return false,
                 }
@@ -147,7 +147,7 @@ pub fn matches_html_element(
                 while let Some(sib) = sibling {
                     if selector_group_matches(
                         content_group, &html_node_tree[sib], &node_data[sib],
-                        expected_path_ending.clone(), is_last,
+                        &expected_path_ending, is_last,
                     ) {
                         current_node = sib;
                         found = true;
@@ -211,8 +211,8 @@ fn find_non_anonymous_prev_sibling(
 /// "body > .foo.main > #baz" will be split into ["body", ".foo.main" and "#baz"]
 pub struct CssGroupIterator<'a> {
     pub css_path: &'a [CssPathSelector],
-    pub current_idx: usize,
-    pub last_reason: CssGroupSplitReason,
+    current_idx: usize,
+    last_reason: CssGroupSplitReason,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -235,9 +235,6 @@ impl<'a> CssGroupIterator<'a> {
             current_idx: initial_len,
             last_reason: CssGroupSplitReason::Children,
         }
-    }
-    pub fn is_last_content_group(&self) -> bool {
-        self.current_idx.saturating_add(1) == self.css_path.len().saturating_sub(1)
     }
 }
 
@@ -423,11 +420,11 @@ pub fn rule_ends_with(path: &CssPath, target: Option<CssPathPseudoSelector>) -> 
 ///
 /// Returns true if all selectors in the group match the given node.
 /// Combinator selectors (>, +, ~, space) should not appear in the group.
-pub fn selector_group_matches(
+fn selector_group_matches(
     selectors: &[&CssPathSelector],
     html_node: &CascadeInfo,
     node_data: &NodeData,
-    expected_path_ending: Option<CssPathPseudoSelector>,
+    expected_path_ending: &Option<CssPathPseudoSelector>,
     is_last_content_group: bool,
 ) -> bool {
     selectors.iter().all(|selector| {
@@ -435,7 +432,7 @@ pub fn selector_group_matches(
             selector,
             html_node,
             node_data,
-            expected_path_ending.clone(),
+            expected_path_ending,
             is_last_content_group,
         )
     })
@@ -446,7 +443,7 @@ fn match_single_selector(
     selector: &CssPathSelector,
     html_node: &CascadeInfo,
     node_data: &NodeData,
-    expected_path_ending: Option<CssPathPseudoSelector>,
+    expected_path_ending: &Option<CssPathPseudoSelector>,
     is_last_content_group: bool,
 ) -> bool {
     use self::CssPathSelector::*;
@@ -467,7 +464,7 @@ fn match_single_selector(
 fn match_pseudo_selector(
     pseudo: &CssPathPseudoSelector,
     html_node: &CascadeInfo,
-    expected_path_ending: Option<CssPathPseudoSelector>,
+    expected_path_ending: &Option<CssPathPseudoSelector>,
     is_last_content_group: bool,
 ) -> bool {
     match pseudo {
@@ -475,39 +472,39 @@ fn match_pseudo_selector(
         CssPathPseudoSelector::Last => match_last_child(html_node),
         CssPathPseudoSelector::NthChild(pattern) => match_nth_child(html_node, pattern),
         CssPathPseudoSelector::Hover => match_interactive_pseudo(
-            CssPathPseudoSelector::Hover,
+            &CssPathPseudoSelector::Hover,
             expected_path_ending,
             is_last_content_group,
         ),
         CssPathPseudoSelector::Active => match_interactive_pseudo(
-            CssPathPseudoSelector::Active,
+            &CssPathPseudoSelector::Active,
             expected_path_ending,
             is_last_content_group,
         ),
         CssPathPseudoSelector::Focus => match_interactive_pseudo(
-            CssPathPseudoSelector::Focus,
+            &CssPathPseudoSelector::Focus,
             expected_path_ending,
             is_last_content_group,
         ),
         CssPathPseudoSelector::Backdrop => match_interactive_pseudo(
-            CssPathPseudoSelector::Backdrop,
+            &CssPathPseudoSelector::Backdrop,
             expected_path_ending,
             is_last_content_group,
         ),
         CssPathPseudoSelector::Dragging => match_interactive_pseudo(
-            CssPathPseudoSelector::Dragging,
+            &CssPathPseudoSelector::Dragging,
             expected_path_ending,
             is_last_content_group,
         ),
         CssPathPseudoSelector::DragOver => match_interactive_pseudo(
-            CssPathPseudoSelector::DragOver,
+            &CssPathPseudoSelector::DragOver,
             expected_path_ending,
             is_last_content_group,
         ),
         CssPathPseudoSelector::Lang(lang) => {
             // :lang() is matched via DynamicSelector at runtime, not during CSS cascade
             // During cascade, we just check if this is the expected ending
-            if let Some(ref expected) = expected_path_ending {
+            if let Some(expected) = expected_path_ending {
                 if let CssPathPseudoSelector::Lang(expected_lang) = expected {
                     return lang == expected_lang;
                 }
@@ -555,9 +552,9 @@ fn match_nth_child(html_node: &CascadeInfo, pattern: &CssNthChildSelector) -> bo
 /// Matches interactive pseudo-selectors (:hover, :active, :focus).
 /// These only apply if they appear in the last content group of the CSS path.
 fn match_interactive_pseudo(
-    pseudo: CssPathPseudoSelector,
-    expected_path_ending: Option<CssPathPseudoSelector>,
+    pseudo: &CssPathPseudoSelector,
+    expected_path_ending: &Option<CssPathPseudoSelector>,
     is_last_content_group: bool,
 ) -> bool {
-    is_last_content_group && expected_path_ending == Some(pseudo)
+    is_last_content_group && expected_path_ending.as_ref() == Some(pseudo)
 }
