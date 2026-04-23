@@ -23,7 +23,7 @@ use azul_css::{
             ColorF, ColorU, OptionColorU, OptionLayoutSize, PixelValue, SvgCubicCurve, SvgPoint,
             SvgQuadraticCurve, SvgRect, SvgVector,
         },
-        style::{StyleTransformOrigin, StyleTransformVec},
+        style::{StyleTransform, StyleTransformOrigin, StyleTransformVec},
     },
     AzString, OptionString, StringVec, U32Vec,
 };
@@ -905,6 +905,51 @@ impl_vec_clone!(
 );
 impl_vec_partialeq!(SvgColoredVertex, SvgColoredVertexVec);
 
+/// Computes the bbox size and transform matrix uniforms shared by SVG draw methods.
+///
+/// Converts `StyleTransform` list into column-major `[f32; 16]` for OpenGL,
+/// and packages it along with the bbox size uniform.
+fn compute_svg_transform_uniforms(
+    target_size: PhysicalSizeU32,
+    transforms: &[StyleTransform],
+) -> (Uniform, Uniform) {
+    let transform_origin = StyleTransformOrigin {
+        x: PixelValue::px(target_size.width as f32 / 2.0),
+        y: PixelValue::px(target_size.height as f32 / 2.0),
+    };
+
+    let computed_transform = ComputedTransform3D::from_style_transform_vec(
+        transforms,
+        &transform_origin,
+        target_size.width as f32,
+        target_size.height as f32,
+        RotationMode::ForWebRender,
+    );
+
+    // NOTE: OpenGL draws are column-major, while ComputedTransform3D
+    // is row-major! Need to transpose the matrix!
+    let m = computed_transform.get_column_major().m;
+    let matrix: [f32; 16] = core::array::from_fn(|i| m[i / 4][i % 4]);
+
+    let bbox_uniform = Uniform {
+        uniform_name: "vBboxSize".into(),
+        uniform_type: UniformType::FloatVec2([
+            target_size.width as f32,
+            target_size.height as f32,
+        ]),
+    };
+
+    let transform_uniform = Uniform {
+        uniform_name: "vTransformMatrix".into(),
+        uniform_type: UniformType::Matrix4 {
+            transpose: false,
+            matrix,
+        },
+    };
+
+    (bbox_uniform, transform_uniform)
+}
+
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct TessellatedGPUSvgNode {
@@ -934,45 +979,18 @@ impl TessellatedGPUSvgNode {
         color: ColorU,
         transforms: StyleTransformVec,
     ) -> bool {
-        let transform_origin = StyleTransformOrigin {
-            x: PixelValue::px(target_size.width as f32 / 2.0),
-            y: PixelValue::px(target_size.height as f32 / 2.0),
-        };
-
-        let computed_transform = ComputedTransform3D::from_style_transform_vec(
-            transforms.as_ref(),
-            &transform_origin,
-            target_size.width as f32,
-            target_size.height as f32,
-            RotationMode::ForWebRender,
-        );
-
-        // NOTE: OpenGL draws are column-major, while ComputedTransform3D
-        // is row-major! Need to transpose the matrix!
-        let column_major = computed_transform.get_column_major();
+        let (bbox_uniform, transform_uniform) =
+            compute_svg_transform_uniforms(target_size, transforms.as_ref());
 
         let color: ColorF = color.into();
 
-        // uniforms for the SVG shader
         let uniforms = [
-            Uniform {
-                uniform_name: "vBboxSize".into(),
-                uniform_type: UniformType::FloatVec2([
-                    target_size.width as f32,
-                    target_size.height as f32,
-                ]),
-            },
+            bbox_uniform,
             Uniform {
                 uniform_name: "fDrawColor".into(),
                 uniform_type: UniformType::FloatVec4([color.r, color.g, color.b, color.a]),
             },
-            Uniform {
-                uniform_name: "vTransformMatrix".into(),
-                uniform_type: UniformType::Matrix4 {
-                    transpose: false,
-                    matrix: unsafe { core::mem::transmute(column_major.m) },
-                },
-            },
+            transform_uniform,
         ];
 
         GlShader::draw(
@@ -1013,40 +1031,10 @@ impl TessellatedColoredGPUSvgNode {
         target_size: PhysicalSizeU32,
         transforms: StyleTransformVec,
     ) -> bool {
-        let transform_origin = StyleTransformOrigin {
-            x: PixelValue::px(target_size.width as f32 / 2.0),
-            y: PixelValue::px(target_size.height as f32 / 2.0),
-        };
+        let (bbox_uniform, transform_uniform) =
+            compute_svg_transform_uniforms(target_size, transforms.as_ref());
 
-        let computed_transform = ComputedTransform3D::from_style_transform_vec(
-            transforms.as_ref(),
-            &transform_origin,
-            target_size.width as f32,
-            target_size.height as f32,
-            RotationMode::ForWebRender,
-        );
-
-        // NOTE: OpenGL draws are column-major, while ComputedTransform3D
-        // is row-major! Need to transpose the matrix!
-        let column_major = computed_transform.get_column_major();
-
-        // uniforms for the SVG shader
-        let uniforms = [
-            Uniform {
-                uniform_name: "vBboxSize".into(),
-                uniform_type: UniformType::FloatVec2([
-                    target_size.width as f32,
-                    target_size.height as f32,
-                ]),
-            },
-            Uniform {
-                uniform_name: "vTransformMatrix".into(),
-                uniform_type: UniformType::Matrix4 {
-                    transpose: false,
-                    matrix: unsafe { core::mem::transmute(column_major.m) },
-                },
-            },
-        ];
+        let uniforms = [bbox_uniform, transform_uniform];
 
         GlShader::draw(
             texture.gl_context.ptr.svg_multicolor_shader,
