@@ -3500,6 +3500,41 @@ pub trait PlatformWindow {
             return ProcessEventResult::DoNothing;
         }
 
+        // Tooltip-delay timer: on hover transitions onto (or off of) a node
+        // that advertises a tooltip source (title/alt/aria-label), start or
+        // stop `TOOLTIP_DELAY_TIMER_ID`. Delay comes from
+        // `SystemStyle::input_metrics.hover_time_ms` (SPI_GETMOUSEHOVERTIME on
+        // Windows, default 400ms). Timer callback emits ShowTooltip on expiry.
+        {
+            let hover_time_ms = self.get_system_style().input.hover_time_ms;
+            let tooltip_action = self
+                .get_layout_window()
+                .map(|lw| lw.handle_hover_change_for_tooltip(hover_time_ms));
+
+            if let Some(action) = tooltip_action {
+                match action {
+                    azul_layout::TooltipTimerAction::Start(timer) => {
+                        if let Some(lw) = self.get_layout_window_mut() {
+                            lw.timers
+                                .insert(azul_core::task::TOOLTIP_DELAY_TIMER_ID, timer.clone());
+                        }
+                        self.start_timer(
+                            azul_core::task::TOOLTIP_DELAY_TIMER_ID.id,
+                            timer,
+                        );
+                    }
+                    azul_layout::TooltipTimerAction::Stop => {
+                        if let Some(lw) = self.get_layout_window_mut() {
+                            lw.timers.remove(&azul_core::task::TOOLTIP_DELAY_TIMER_ID);
+                        }
+                        self.stop_timer(azul_core::task::TOOLTIP_DELAY_TIMER_ID.id);
+                        self.hide_tooltip_from_callback();
+                    }
+                    azul_layout::TooltipTimerAction::NoChange => {}
+                }
+            }
+        }
+
         // Update active drag position with current mouse position.
         // This must happen BEFORE callbacks so titlebar_drag (and other drag
         // callbacks) see the updated DragContext.current_position.

@@ -54695,6 +54695,25 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "div": {
+                                "doc": [
+                                    "Divides this tick-difference by another, returning the ratio as an f64. Returns Inf or NaN if other is zero."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "other": "SystemTickDiff"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f64"
+                                },
+                                "fn_body": "object.div(&other)"
+                            }
+                        },
                         "repr": "C"
                     },
                     "SystemTick": {
@@ -54746,6 +54765,85 @@
                                 }
                             }
                         ],
+                        "constructors": {
+                            "max": {
+                                "doc": [
+                                    "Returns the maximum representable duration."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::task::Duration::max()"
+                            }
+                        },
+                        "functions": {
+                            "div": {
+                                "doc": [
+                                    "Divides this duration by another, returning the ratio as an f32. Returns 0.0 if the variants differ (mixing System with Tick)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "other": "Duration"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f32"
+                                },
+                                "fn_body": "object.div(&other)"
+                            },
+                            "min": {
+                                "doc": [
+                                    "Returns the smaller of two durations."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "other": "Duration"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Duration"
+                                },
+                                "fn_body": "object.min(other)"
+                            },
+                            "greater_than": {
+                                "doc": [
+                                    "Returns true if self > other. Panics if the variants differ (System vs. Tick)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "other": "Duration"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.greater_than(&other)"
+                            },
+                            "smaller_than": {
+                                "doc": [
+                                    "Returns true if self < other. Panics if the variants differ (System vs. Tick)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "other": "Duration"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.smaller_than(&other)"
+                            }
+                        },
                         "repr": "C, u8"
                     },
                     "SystemTimeDiff": {
@@ -54824,6 +54922,23 @@
                                     "type": "u64"
                                 },
                                 "fn_body": "object.millis()"
+                            },
+                            "div": {
+                                "doc": [
+                                    "Divides this duration by another, returning the ratio as an f64. Returns Inf or NaN if other is zero."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "other": "SystemTimeDiff"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f64"
+                                },
+                                "fn_body": "object.div(&other)"
                             }
                         },
                         "repr": "C"

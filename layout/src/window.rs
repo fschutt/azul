@@ -165,6 +165,19 @@ pub enum CursorBlinkTimerAction {
     NoChange,
 }
 
+/// Action for the tooltip-delay timer, returned by
+/// `LayoutWindow::handle_hover_change_for_tooltip()`. Platform layer translates
+/// these to `start_timer` / `stop_timer` calls on `TOOLTIP_DELAY_TIMER_ID`.
+#[derive(Debug, Clone)]
+pub enum TooltipTimerAction {
+    /// Start the tooltip-delay timer with the given configuration
+    Start(crate::timer::Timer),
+    /// Stop the tooltip-delay timer and hide the tooltip if shown
+    Stop,
+    /// No change needed (timer already in correct state)
+    NoChange,
+}
+
 /// Helper function to create a unique IdNamespace
 fn new_id_namespace() -> IdNamespace {
     let id = ID_NAMESPACE_COUNTER.fetch_add(1, Ordering::Relaxed) as u32;
@@ -228,6 +241,54 @@ pub extern "C" fn cursor_blink_timer_callback(
     TimerCallbackReturn {
         should_update: Update::DoNothing,
         should_terminate: TerminateTimer::Continue,
+    }
+}
+
+// ============================================================================
+// Tooltip Delay Timer Callback
+// ============================================================================
+
+/// Callback for the tooltip-delay timer.
+///
+/// Fires once after `InputMetrics::hover_time_ms` has elapsed while a node with
+/// a tooltip-bearing attribute was continuously hovered. The callback looks up
+/// the `title` / `aria-label` / `alt` attribute on the currently-hovered node,
+/// emits a `ShowTooltip` CallbackChange, and terminates — a single-shot timer.
+/// Movement to a different node (or any hover loss) removes and re-adds the
+/// timer from the platform layer, so the callback itself never needs to
+/// reschedule.
+pub extern "C" fn tooltip_delay_timer_callback(
+    _data: RefAny,
+    mut info: crate::timer::TimerCallbackInfo,
+) -> azul_core::callbacks::TimerCallbackReturn {
+    use azul_core::callbacks::{TimerCallbackReturn, Update};
+    use azul_core::task::TerminateTimer;
+
+    let layout_window = info.callback_info.get_layout_window();
+    let hover_node_id = layout_window
+        .hover_manager
+        .current_hover_node()
+        .map(|node_id| azul_core::dom::DomNodeId {
+            dom: azul_core::dom::DomId { inner: 0 },
+            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+        });
+
+    if let Some(dom_node_id) = hover_node_id {
+        // Priority: aria-label > alt > title (mirrors DOM get_accessible_label).
+        let tooltip_text = info
+            .callback_info
+            .get_node_attribute(dom_node_id, "aria-label")
+            .or_else(|| info.callback_info.get_node_attribute(dom_node_id, "alt"))
+            .or_else(|| info.callback_info.get_node_attribute(dom_node_id, "title"));
+
+        if let Some(text) = tooltip_text {
+            info.callback_info.show_tooltip(text);
+        }
+    }
+
+    TimerCallbackReturn {
+        should_update: Update::DoNothing,
+        should_terminate: TerminateTimer::Terminate,
     }
 }
 
@@ -2020,6 +2081,76 @@ impl LayoutWindow {
             interval: azul_core::task::OptionDuration::Some(Duration::System(SystemTimeDiff::from_millis(interval_ms))),
             timeout: azul_core::task::OptionDuration::None,
             callback: TimerCallback::create(cursor_blink_timer_callback),
+        }
+    }
+
+    // Tooltip-Delay Timer
+
+    /// Create a one-shot tooltip-delay timer.
+    ///
+    /// Fires exactly once after `hover_time_ms` elapsed. On expiry the callback
+    /// looks up the currently-hovered node's `title` / `alt` / `aria-label`
+    /// attribute and emits a `ShowTooltip` CallbackChange, then terminates.
+    pub fn create_tooltip_delay_timer(&self, hover_time_ms: u32) -> crate::timer::Timer {
+        use azul_core::task::{Duration, SystemTimeDiff};
+        use crate::timer::{Timer, TimerCallback};
+        use azul_core::refany::RefAny;
+
+        Timer {
+            refany: RefAny::new(()),
+            node_id: None.into(),
+            created: azul_core::task::Instant::now(),
+            run_count: 0,
+            last_run: azul_core::task::OptionInstant::None,
+            delay: azul_core::task::OptionDuration::Some(Duration::System(
+                SystemTimeDiff::from_millis(hover_time_ms as u64),
+            )),
+            interval: azul_core::task::OptionDuration::None,
+            timeout: azul_core::task::OptionDuration::None,
+            callback: TimerCallback::create(tooltip_delay_timer_callback),
+        }
+    }
+
+    /// Determine what tooltip-timer action the shell should take given a hover
+    /// transition.
+    ///
+    /// The platform event loop calls this once per event-dispatch cycle (after
+    /// hit-testing has updated `hover_manager`). It compares the current and
+    /// previous deepest hovered nodes and returns:
+    ///
+    /// - `Start` if the user just hovered onto a node that has a tooltip
+    ///   source (`title` / `alt` / `aria-label`) — the shell should (re)start
+    ///   `TOOLTIP_DELAY_TIMER_ID` with the returned Timer.
+    /// - `Stop` if the hover moved off a tooltip-bearing node (or left the
+    ///   window) — the shell should stop `TOOLTIP_DELAY_TIMER_ID` and hide
+    ///   any currently-visible tooltip.
+    /// - `NoChange` if the hovered node hasn't changed between frames.
+    pub fn handle_hover_change_for_tooltip(&self, hover_time_ms: u32) -> TooltipTimerAction {
+        let current_hover = self.hover_manager.current_hover_node();
+        let previous_hover = self.hover_manager.previous_hover_node();
+
+        if current_hover == previous_hover {
+            return TooltipTimerAction::NoChange;
+        }
+
+        let dom_id = DomId { inner: 0 };
+        let Some(layout_result) = self.layout_results.get(&dom_id) else {
+            return TooltipTimerAction::Stop;
+        };
+        let node_data_cont = layout_result.styled_dom.node_data.as_container();
+
+        let node_has_tooltip = |node_id: NodeId| -> bool {
+            node_data_cont
+                .get(node_id)
+                .map(|n| n.get_accessible_label().is_some())
+                .unwrap_or(false)
+        };
+
+        match current_hover {
+            Some(node) if node_has_tooltip(node) => {
+                TooltipTimerAction::Start(self.create_tooltip_delay_timer(hover_time_ms))
+            }
+            _ => TooltipTimerAction::Stop,
         }
     }
 

@@ -262,7 +262,7 @@ pub use text3::cache::TextShapingCache as TextLayoutCache;
 #[cfg(feature = "font_async_registry")]
 pub use rust_fontconfig::registry::FcFontRegistry;
 #[cfg(feature = "text_layout")]
-pub use window::{CursorBlinkTimerAction, LayoutWindow, ScrollbarDragState};
+pub use window::{CursorBlinkTimerAction, LayoutWindow, ScrollbarDragState, TooltipTimerAction};
 #[cfg(feature = "text_layout")]
 pub use managers::text_input::{PendingTextEdit, OptionPendingTextEdit};
 

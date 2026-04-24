@@ -69,10 +69,18 @@ pub const CURSOR_BLINK_TIMER_ID: TimerId = TimerId { id: 0x0001 };
 pub const SCROLL_MOMENTUM_TIMER_ID: TimerId = TimerId { id: 0x0002 };
 /// Timer ID for auto-scroll during drag operations near edges
 pub const DRAG_AUTOSCROLL_TIMER_ID: TimerId = TimerId { id: 0x0003 };
-/// Timer ID for tooltip show delay
+/// Timer ID for tooltip show delay.
+///
+/// Started by the platform event loop when the hover target changes to a node
+/// that advertises a tooltip source (`aria-label` / `alt` / `title`); fires
+/// once after `SystemStyle::input_metrics.hover_time_ms` (SPI_GETMOUSEHOVERTIME
+/// on Windows, default 400ms) and emits a `ShowTooltip` `CallbackChange`. The
+/// timer is torn down on hover loss, which also emits `HideTooltip`.
+///
+/// Double-click detection used to live on a neighbouring reserved ID but is
+/// now handled entirely by `GestureManager::detect_double_click`, so no
+/// equivalent `DOUBLE_CLICK_TIMER_ID` exists.
 pub const TOOLTIP_DELAY_TIMER_ID: TimerId = TimerId { id: 0x0004 };
-/// Timer ID for double-click detection timeout
-pub const DOUBLE_CLICK_TIMER_ID: TimerId = TimerId { id: 0x0005 };
 
 /// First available ID for user-defined timers
 pub const USER_TIMER_ID_START: usize = 0x0100;
