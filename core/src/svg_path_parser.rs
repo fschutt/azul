@@ -206,6 +206,119 @@ impl<'a> PathParser<'a> {
             SvgPoint { x, y }
         }
     }
+
+    fn handle_line_to(&mut self, relative: bool, elements: &mut Vec<SvgPathElement>) -> Result<(), SvgPathParseError> {
+        let (x, y) = self.parse_coordinate_pair()?;
+        let end = self.make_absolute(x, y, relative);
+        elements.push(SvgPathElement::Line(SvgLine { start: self.current, end }));
+        self.current = end;
+        self.last_control = None;
+        Ok(())
+    }
+
+    fn handle_horizontal_to(&mut self, relative: bool, elements: &mut Vec<SvgPathElement>) -> Result<(), SvgPathParseError> {
+        let x = self.parse_number()?;
+        let abs_x = if relative { self.current.x + x } else { x };
+        let end = SvgPoint { x: abs_x, y: self.current.y };
+        elements.push(SvgPathElement::Line(SvgLine { start: self.current, end }));
+        self.current = end;
+        self.last_control = None;
+        Ok(())
+    }
+
+    fn handle_vertical_to(&mut self, relative: bool, elements: &mut Vec<SvgPathElement>) -> Result<(), SvgPathParseError> {
+        let y = self.parse_number()?;
+        let abs_y = if relative { self.current.y + y } else { y };
+        let end = SvgPoint { x: self.current.x, y: abs_y };
+        elements.push(SvgPathElement::Line(SvgLine { start: self.current, end }));
+        self.current = end;
+        self.last_control = None;
+        Ok(())
+    }
+
+    fn handle_cubic_to(&mut self, relative: bool, elements: &mut Vec<SvgPathElement>) -> Result<(), SvgPathParseError> {
+        let (c1x, c1y) = self.parse_coordinate_pair()?;
+        let (c2x, c2y) = self.parse_coordinate_pair()?;
+        let (ex, ey) = self.parse_coordinate_pair()?;
+        let ctrl_1 = self.make_absolute(c1x, c1y, relative);
+        let ctrl_2 = self.make_absolute(c2x, c2y, relative);
+        let end = self.make_absolute(ex, ey, relative);
+        elements.push(SvgPathElement::CubicCurve(SvgCubicCurve {
+            start: self.current, ctrl_1, ctrl_2, end,
+        }));
+        self.last_control = Some(ctrl_2);
+        self.current = end;
+        Ok(())
+    }
+
+    fn handle_smooth_cubic_to(&mut self, relative: bool, elements: &mut Vec<SvgPathElement>) -> Result<(), SvgPathParseError> {
+        let ctrl_1 = match self.last_control {
+            Some(lc) if matches!(self.last_command.to_ascii_uppercase(), b'C' | b'S') => {
+                SvgPoint {
+                    x: 2.0 * self.current.x - lc.x,
+                    y: 2.0 * self.current.y - lc.y,
+                }
+            }
+            _ => self.current,
+        };
+        let (c2x, c2y) = self.parse_coordinate_pair()?;
+        let (ex, ey) = self.parse_coordinate_pair()?;
+        let ctrl_2 = self.make_absolute(c2x, c2y, relative);
+        let end = self.make_absolute(ex, ey, relative);
+        elements.push(SvgPathElement::CubicCurve(SvgCubicCurve {
+            start: self.current, ctrl_1, ctrl_2, end,
+        }));
+        self.last_control = Some(ctrl_2);
+        self.current = end;
+        Ok(())
+    }
+
+    fn handle_quadratic_to(&mut self, relative: bool, elements: &mut Vec<SvgPathElement>) -> Result<(), SvgPathParseError> {
+        let (cx, cy) = self.parse_coordinate_pair()?;
+        let (ex, ey) = self.parse_coordinate_pair()?;
+        let ctrl = self.make_absolute(cx, cy, relative);
+        let end = self.make_absolute(ex, ey, relative);
+        elements.push(SvgPathElement::QuadraticCurve(SvgQuadraticCurve {
+            start: self.current, ctrl, end,
+        }));
+        self.last_control = Some(ctrl);
+        self.current = end;
+        Ok(())
+    }
+
+    fn handle_smooth_quadratic_to(&mut self, relative: bool, elements: &mut Vec<SvgPathElement>) -> Result<(), SvgPathParseError> {
+        let ctrl = match self.last_control {
+            Some(lc) if matches!(self.last_command.to_ascii_uppercase(), b'Q' | b'T') => {
+                SvgPoint {
+                    x: 2.0 * self.current.x - lc.x,
+                    y: 2.0 * self.current.y - lc.y,
+                }
+            }
+            _ => self.current,
+        };
+        let (ex, ey) = self.parse_coordinate_pair()?;
+        let end = self.make_absolute(ex, ey, relative);
+        elements.push(SvgPathElement::QuadraticCurve(SvgQuadraticCurve {
+            start: self.current, ctrl, end,
+        }));
+        self.last_control = Some(ctrl);
+        self.current = end;
+        Ok(())
+    }
+
+    fn handle_arc_to(&mut self, relative: bool, elements: &mut Vec<SvgPathElement>) -> Result<(), SvgPathParseError> {
+        let rx = self.parse_number()?.abs();
+        let ry = self.parse_number()?.abs();
+        let x_rotation = self.parse_number()?;
+        let large_arc = self.parse_flag()?;
+        let sweep = self.parse_flag()?;
+        let (ex, ey) = self.parse_coordinate_pair()?;
+        let end = self.make_absolute(ex, ey, relative);
+        arc_to_cubics(self.current, end, rx, ry, x_rotation, large_arc, sweep, elements);
+        self.current = end;
+        self.last_control = None;
+        Ok(())
+    }
 }
 
 /// Parse an SVG path `d` attribute string into a `SvgMultiPolygon`.
@@ -270,154 +383,35 @@ pub fn parse_svg_path_d(d: &str) -> Result<SvgMultiPolygon, SvgPathParseError> {
                 parser.last_command = cmd;
             }
             b'L' => {
-                let (x, y) = parser.parse_coordinate_pair()?;
-                let end = parser.make_absolute(x, y, relative);
-                current_elements.push(SvgPathElement::Line(SvgLine {
-                    start: parser.current,
-                    end,
-                }));
-                parser.current = end;
-                parser.last_control = None;
+                parser.handle_line_to(relative, &mut current_elements)?;
                 parser.last_command = cmd;
             }
             b'H' => {
-                let x = parser.parse_number()?;
-                let abs_x = if relative {
-                    parser.current.x + x
-                } else {
-                    x
-                };
-                let end = SvgPoint {
-                    x: abs_x,
-                    y: parser.current.y,
-                };
-                current_elements.push(SvgPathElement::Line(SvgLine {
-                    start: parser.current,
-                    end,
-                }));
-                parser.current = end;
-                parser.last_control = None;
+                parser.handle_horizontal_to(relative, &mut current_elements)?;
                 parser.last_command = cmd;
             }
             b'V' => {
-                let y = parser.parse_number()?;
-                let abs_y = if relative {
-                    parser.current.y + y
-                } else {
-                    y
-                };
-                let end = SvgPoint {
-                    x: parser.current.x,
-                    y: abs_y,
-                };
-                current_elements.push(SvgPathElement::Line(SvgLine {
-                    start: parser.current,
-                    end,
-                }));
-                parser.current = end;
-                parser.last_control = None;
+                parser.handle_vertical_to(relative, &mut current_elements)?;
                 parser.last_command = cmd;
             }
             b'C' => {
-                let (c1x, c1y) = parser.parse_coordinate_pair()?;
-                let (c2x, c2y) = parser.parse_coordinate_pair()?;
-                let (ex, ey) = parser.parse_coordinate_pair()?;
-                let ctrl_1 = parser.make_absolute(c1x, c1y, relative);
-                let ctrl_2 = parser.make_absolute(c2x, c2y, relative);
-                let end = parser.make_absolute(ex, ey, relative);
-                current_elements.push(SvgPathElement::CubicCurve(SvgCubicCurve {
-                    start: parser.current,
-                    ctrl_1,
-                    ctrl_2,
-                    end,
-                }));
-                parser.last_control = Some(ctrl_2);
-                parser.current = end;
+                parser.handle_cubic_to(relative, &mut current_elements)?;
                 parser.last_command = cmd;
             }
             b'S' => {
-                // Smooth cubic: reflect last control point
-                let ctrl_1 = match parser.last_control {
-                    Some(lc) if matches!(parser.last_command.to_ascii_uppercase(), b'C' | b'S') => {
-                        SvgPoint {
-                            x: 2.0 * parser.current.x - lc.x,
-                            y: 2.0 * parser.current.y - lc.y,
-                        }
-                    }
-                    _ => parser.current,
-                };
-                let (c2x, c2y) = parser.parse_coordinate_pair()?;
-                let (ex, ey) = parser.parse_coordinate_pair()?;
-                let ctrl_2 = parser.make_absolute(c2x, c2y, relative);
-                let end = parser.make_absolute(ex, ey, relative);
-                current_elements.push(SvgPathElement::CubicCurve(SvgCubicCurve {
-                    start: parser.current,
-                    ctrl_1,
-                    ctrl_2,
-                    end,
-                }));
-                parser.last_control = Some(ctrl_2);
-                parser.current = end;
+                parser.handle_smooth_cubic_to(relative, &mut current_elements)?;
                 parser.last_command = cmd;
             }
             b'Q' => {
-                let (cx, cy) = parser.parse_coordinate_pair()?;
-                let (ex, ey) = parser.parse_coordinate_pair()?;
-                let ctrl = parser.make_absolute(cx, cy, relative);
-                let end = parser.make_absolute(ex, ey, relative);
-                current_elements.push(SvgPathElement::QuadraticCurve(SvgQuadraticCurve {
-                    start: parser.current,
-                    ctrl,
-                    end,
-                }));
-                parser.last_control = Some(ctrl);
-                parser.current = end;
+                parser.handle_quadratic_to(relative, &mut current_elements)?;
                 parser.last_command = cmd;
             }
             b'T' => {
-                // Smooth quadratic: reflect last control point
-                let ctrl = match parser.last_control {
-                    Some(lc) if matches!(parser.last_command.to_ascii_uppercase(), b'Q' | b'T') => {
-                        SvgPoint {
-                            x: 2.0 * parser.current.x - lc.x,
-                            y: 2.0 * parser.current.y - lc.y,
-                        }
-                    }
-                    _ => parser.current,
-                };
-                let (ex, ey) = parser.parse_coordinate_pair()?;
-                let end = parser.make_absolute(ex, ey, relative);
-                current_elements.push(SvgPathElement::QuadraticCurve(SvgQuadraticCurve {
-                    start: parser.current,
-                    ctrl,
-                    end,
-                }));
-                parser.last_control = Some(ctrl);
-                parser.current = end;
+                parser.handle_smooth_quadratic_to(relative, &mut current_elements)?;
                 parser.last_command = cmd;
             }
             b'A' => {
-                let rx = parser.parse_number()?.abs();
-                let ry = parser.parse_number()?.abs();
-                let x_rotation = parser.parse_number()?;
-                let large_arc = parser.parse_flag()?;
-                let sweep = parser.parse_flag()?;
-                let (ex, ey) = parser.parse_coordinate_pair()?;
-                let end = parser.make_absolute(ex, ey, relative);
-
-                arc_to_cubics(
-                    parser.current,
-                    end,
-                    rx,
-                    ry,
-                    x_rotation,
-                    large_arc,
-                    sweep,
-                    &mut current_elements,
-                );
-
-                parser.current = end;
-                parser.last_control = None;
+                parser.handle_arc_to(relative, &mut current_elements)?;
                 parser.last_command = cmd;
             }
             b'Z' => {
@@ -467,141 +461,14 @@ pub fn parse_svg_path_d(d: &str) -> Result<SvgMultiPolygon, SvgPathParseError> {
 
                 // Implicit repeat of the same command
                 match cmd_upper {
-                    b'L' => {
-                        let (x, y) = parser.parse_coordinate_pair()?;
-                        let end = parser.make_absolute(x, y, relative);
-                        current_elements.push(SvgPathElement::Line(SvgLine {
-                            start: parser.current,
-                            end,
-                        }));
-                        parser.current = end;
-                        parser.last_control = None;
-                    }
-                    b'H' => {
-                        let x = parser.parse_number()?;
-                        let abs_x = if relative {
-                            parser.current.x + x
-                        } else {
-                            x
-                        };
-                        let end = SvgPoint {
-                            x: abs_x,
-                            y: parser.current.y,
-                        };
-                        current_elements.push(SvgPathElement::Line(SvgLine {
-                            start: parser.current,
-                            end,
-                        }));
-                        parser.current = end;
-                        parser.last_control = None;
-                    }
-                    b'V' => {
-                        let y = parser.parse_number()?;
-                        let abs_y = if relative {
-                            parser.current.y + y
-                        } else {
-                            y
-                        };
-                        let end = SvgPoint {
-                            x: parser.current.x,
-                            y: abs_y,
-                        };
-                        current_elements.push(SvgPathElement::Line(SvgLine {
-                            start: parser.current,
-                            end,
-                        }));
-                        parser.current = end;
-                        parser.last_control = None;
-                    }
-                    b'C' => {
-                        let (c1x, c1y) = parser.parse_coordinate_pair()?;
-                        let (c2x, c2y) = parser.parse_coordinate_pair()?;
-                        let (ex, ey) = parser.parse_coordinate_pair()?;
-                        let ctrl_1 = parser.make_absolute(c1x, c1y, relative);
-                        let ctrl_2 = parser.make_absolute(c2x, c2y, relative);
-                        let end = parser.make_absolute(ex, ey, relative);
-                        current_elements.push(SvgPathElement::CubicCurve(SvgCubicCurve {
-                            start: parser.current,
-                            ctrl_1,
-                            ctrl_2,
-                            end,
-                        }));
-                        parser.last_control = Some(ctrl_2);
-                        parser.current = end;
-                    }
-                    b'S' => {
-                        let ctrl_1 = match parser.last_control {
-                            Some(lc) => SvgPoint {
-                                x: 2.0 * parser.current.x - lc.x,
-                                y: 2.0 * parser.current.y - lc.y,
-                            },
-                            _ => parser.current,
-                        };
-                        let (c2x, c2y) = parser.parse_coordinate_pair()?;
-                        let (ex, ey) = parser.parse_coordinate_pair()?;
-                        let ctrl_2 = parser.make_absolute(c2x, c2y, relative);
-                        let end = parser.make_absolute(ex, ey, relative);
-                        current_elements.push(SvgPathElement::CubicCurve(SvgCubicCurve {
-                            start: parser.current,
-                            ctrl_1,
-                            ctrl_2,
-                            end,
-                        }));
-                        parser.last_control = Some(ctrl_2);
-                        parser.current = end;
-                    }
-                    b'Q' => {
-                        let (cx, cy) = parser.parse_coordinate_pair()?;
-                        let (ex, ey) = parser.parse_coordinate_pair()?;
-                        let ctrl = parser.make_absolute(cx, cy, relative);
-                        let end = parser.make_absolute(ex, ey, relative);
-                        current_elements.push(SvgPathElement::QuadraticCurve(SvgQuadraticCurve {
-                            start: parser.current,
-                            ctrl,
-                            end,
-                        }));
-                        parser.last_control = Some(ctrl);
-                        parser.current = end;
-                    }
-                    b'T' => {
-                        let ctrl = match parser.last_control {
-                            Some(lc) => SvgPoint {
-                                x: 2.0 * parser.current.x - lc.x,
-                                y: 2.0 * parser.current.y - lc.y,
-                            },
-                            _ => parser.current,
-                        };
-                        let (ex, ey) = parser.parse_coordinate_pair()?;
-                        let end = parser.make_absolute(ex, ey, relative);
-                        current_elements.push(SvgPathElement::QuadraticCurve(SvgQuadraticCurve {
-                            start: parser.current,
-                            ctrl,
-                            end,
-                        }));
-                        parser.last_control = Some(ctrl);
-                        parser.current = end;
-                    }
-                    b'A' => {
-                        let rx = parser.parse_number()?.abs();
-                        let ry = parser.parse_number()?.abs();
-                        let x_rotation = parser.parse_number()?;
-                        let large_arc = parser.parse_flag()?;
-                        let sweep = parser.parse_flag()?;
-                        let (ex, ey) = parser.parse_coordinate_pair()?;
-                        let end = parser.make_absolute(ex, ey, relative);
-                        arc_to_cubics(
-                            parser.current,
-                            end,
-                            rx,
-                            ry,
-                            x_rotation,
-                            large_arc,
-                            sweep,
-                            &mut current_elements,
-                        );
-                        parser.current = end;
-                        parser.last_control = None;
-                    }
+                    b'L' => parser.handle_line_to(relative, &mut current_elements)?,
+                    b'H' => parser.handle_horizontal_to(relative, &mut current_elements)?,
+                    b'V' => parser.handle_vertical_to(relative, &mut current_elements)?,
+                    b'C' => parser.handle_cubic_to(relative, &mut current_elements)?,
+                    b'S' => parser.handle_smooth_cubic_to(relative, &mut current_elements)?,
+                    b'Q' => parser.handle_quadratic_to(relative, &mut current_elements)?,
+                    b'T' => parser.handle_smooth_quadratic_to(relative, &mut current_elements)?,
+                    b'A' => parser.handle_arc_to(relative, &mut current_elements)?,
                     _ => break,
                 }
             }
