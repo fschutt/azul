@@ -1432,7 +1432,7 @@ impl LayoutTreeBuilder {
                     // wrapper, flex longhands apply to the inner table box, caption contents
                     // contribute to wrapper min/max-content sizes
                     let child_display = get_display_type(styled_dom, child_dom_id);
-                    if is_flex_or_grid && matches!(child_display, LayoutDisplay::Table | LayoutDisplay::InlineTable) {
+                    if is_flex_or_grid && child_display.creates_table_context() {
                         let wrapper_idx = self.create_anonymous_node(
                             node_idx,
                             AnonymousBoxType::TableWrapper,

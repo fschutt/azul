@@ -404,15 +404,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                                 return false;
                             }
                             let display = get_display_type(self.ctx.styled_dom, dom_id);
-                            // Block-level display values
-                            matches!(display,
-                                LayoutDisplay::Block
-                                | LayoutDisplay::Flex
-                                | LayoutDisplay::Grid
-                                | LayoutDisplay::Table
-                                | LayoutDisplay::ListItem
-                                | LayoutDisplay::FlowRoot
-                            )
+                            display.creates_block_context()
                         })
                         .unwrap_or(false)
                 });
