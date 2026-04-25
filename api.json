@@ -51772,7 +51772,7 @@
                         "repr": "C"
                     },
                     "CssImageParseErrorOwned": {
-                        "external": "azul_css::props::basic::image::CssImageParseErrorOwned",
+                        "external": "azul_css::props::basic::parse::CssImageParseErrorOwned",
                         "derive": [
                             "Debug",
                             "Clone",
