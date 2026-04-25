@@ -107,7 +107,7 @@ impl ComputedTransform3D {
     /// only affects the X and Y axes.
     ///
     /// Corresponds to `matrix(m11, m12, m21, m22, m41, m42)` in CSS.
-    pub const fn new_2d(m11: f32, m12: f32, m21: f32, m22: f32, m41: f32, m42: f32) -> Self {
+    const fn new_2d(m11: f32, m12: f32, m21: f32, m22: f32, m41: f32, m42: f32) -> Self {
         Self::new(
             m11, m12, 0.0, 0.0, m21, m22, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, m41, m42, 0.0, 1.0,
         )
@@ -123,7 +123,9 @@ impl ComputedTransform3D {
     pub fn inverse(&self) -> Self {
         let det = self.determinant();
 
-        // if det == 0.0 { return None; }
+        if det.abs() < f32::EPSILON {
+            return Self::IDENTITY;
+        }
 
         let m = ComputedTransform3D::new(
             self.m[1][2] * self.m[2][3] * self.m[3][1] - self.m[1][3] * self.m[2][2] * self.m[3][1]
@@ -327,7 +329,7 @@ impl ComputedTransform3D {
 
     /// Creates a new transform from a style transform using the
     /// parent width as a way to resolve for percentages
-    pub fn from_style_transform(
+    fn from_style_transform(
         t: &StyleTransform,
         transform_origin: &StyleTransformOrigin,
         percent_resolve_x: f32,
@@ -532,7 +534,7 @@ impl ComputedTransform3D {
     /// Creates a perspective projection matrix with distance `d`.
     #[must_use]
     #[inline]
-    pub fn new_perspective(d: f32) -> Self {
+    fn new_perspective(d: f32) -> Self {
         Self::new(
             1.0,
             0.0,
@@ -557,7 +559,7 @@ impl ComputedTransform3D {
     /// The supplied axis must be normalized.
     #[must_use]
     #[inline]
-    pub fn new_rotation(x: f32, y: f32, z: f32, theta_radians: f32) -> Self {
+    fn new_rotation(x: f32, y: f32, z: f32, theta_radians: f32) -> Self {
         let xx = x * x;
         let yy = y * y;
         let zz = z * z;
@@ -589,7 +591,7 @@ impl ComputedTransform3D {
     /// Creates a 2D skew matrix from angles in degrees.
     #[must_use]
     #[inline]
-    pub fn new_skew(alpha: f32, beta: f32) -> Self {
+    fn new_skew(alpha: f32, beta: f32) -> Self {
         let (sx, sy) = (beta.to_radians().tan(), alpha.to_radians().tan());
         Self::new(
             1.0, sx, 0.0, 0.0, sy, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
@@ -598,7 +600,7 @@ impl ComputedTransform3D {
 
     /// Returns this matrix transposed to column-major layout.
     #[must_use]
-    pub fn get_column_major(&self) -> Self {
+    pub(crate) fn get_column_major(&self) -> Self {
         ComputedTransform3D::new(
             self.m[0][0],
             self.m[1][0],
@@ -798,7 +800,7 @@ impl ComputedTransform3D {
     /// Multiplies this matrix by `other` using SSE instructions.
     #[cfg(target_arch = "x86_64")]
     #[inline]
-    pub unsafe fn then_sse(&self, other: &Self) -> Self {
+    unsafe fn then_sse(&self, other: &Self) -> Self {
         Self {
             m: [
                 Self::linear_combine_sse(self.m[0], other),
@@ -811,7 +813,7 @@ impl ComputedTransform3D {
 
     /// Dual linear combination using AVX instructions on YMM registers.
     #[cfg(target_arch = "x86_64")]
-    pub unsafe fn linear_combine_avx8(
+    unsafe fn linear_combine_avx8(
         a01: core::arch::x86_64::__m256,
         b: &ComputedTransform3D,
     ) -> core::arch::x86_64::__m256 {
@@ -851,7 +853,7 @@ impl ComputedTransform3D {
     /// Multiplies this matrix by `other` using AVX instructions.
     #[cfg(target_arch = "x86_64")]
     #[inline]
-    pub unsafe fn then_avx8(&self, other: &Self) -> Self {
+    unsafe fn then_avx8(&self, other: &Self) -> Self {
         use core::{
             arch::x86_64::{__m256, _mm256_loadu_ps, _mm256_storeu_ps, _mm256_zeroupper},
             mem,
@@ -878,7 +880,7 @@ impl ComputedTransform3D {
     /// Creates a rotation matrix around the given axis, adjusted for the coordinate system.
     #[must_use]
     #[inline]
-    pub fn make_rotation(
+    fn make_rotation(
         rotation_origin: (f32, f32),
         mut degrees: f32,
         axis_x: f32,
