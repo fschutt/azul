@@ -1184,6 +1184,7 @@ fn update_dom_declared_flags(prop: &CssProperty, flags: &mut u32) {
         CssProperty::TextIndent(v) => if v.get_property().is_some() { *flags |= DOM_HAS_TEXT_INDENT; }
         CssProperty::ColumnCount(v) => if v.get_property().is_some() { *flags |= DOM_HAS_COLUMN_COUNT; }
         CssProperty::ColumnGap(v) => if v.get_property().is_some() { *flags |= DOM_HAS_COLUMN_GAP; }
+        CssProperty::ColumnWidth(v) => if v.get_property().is_some() { *flags |= DOM_HAS_COLUMN_WIDTH; }
         CssProperty::InitialLetter(v) => if v.get_property().is_some() { *flags |= DOM_HAS_INITIAL_LETTER; }
         CssProperty::InitialLetterAlign(v) => if v.get_property().is_some() { *flags |= DOM_HAS_INITIAL_LETTER_ALIGN; }
         CssProperty::LineClamp(v) => if v.get_property().is_some() { *flags |= DOM_HAS_LINE_CLAMP; }

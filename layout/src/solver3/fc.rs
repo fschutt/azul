@@ -20,7 +20,7 @@ use azul_css::{
             ColorU, PhysicalSize, PropertyContext, ResolutionContext, SizeMetric,
         },
         layout::{
-            ColumnCount, LayoutBorderSpacing, LayoutClear, LayoutDisplay, LayoutFloat,
+            ColumnCount, ColumnWidth, LayoutBorderSpacing, LayoutClear, LayoutDisplay, LayoutFloat,
             LayoutHeight, LayoutJustifyContent, LayoutOverflow, LayoutPosition, LayoutTableLayout,
             LayoutTextJustify, LayoutWidth, LayoutWritingMode, ShapeInside, ShapeOutside,
             StyleBorderCollapse, StyleCaptionSide, StyleEmptyCells,
@@ -3004,6 +3004,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     use azul_css::compact_cache::{
         DOM_HAS_SHAPE_INSIDE, DOM_HAS_SHAPE_OUTSIDE, DOM_HAS_TEXT_JUSTIFY,
         DOM_HAS_TEXT_INDENT, DOM_HAS_COLUMN_COUNT, DOM_HAS_COLUMN_GAP,
+        DOM_HAS_COLUMN_WIDTH,
         DOM_HAS_INITIAL_LETTER, DOM_HAS_INITIAL_LETTER_ALIGN,
         DOM_HAS_LINE_CLAMP, DOM_HAS_HANGING_PUNCTUATION,
         DOM_HAS_TEXT_COMBINE_UPRIGHT, DOM_HAS_EXCLUSION_MARGIN,
@@ -3431,48 +3432,63 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     let text_indent_each_line = text_indent_prop.map(|ti| ti.each_line).unwrap_or(false);
     let text_indent_hanging = text_indent_prop.map(|ti| ti.hanging).unwrap_or(false);
 
-    // Get column-count for multi-column layout (default: 1 = no columns)
-    let columns = if dom_declared & DOM_HAS_COLUMN_COUNT != 0 {
-        styled_dom
-            .css_property_cache
-            .ptr
-            .get_column_count(node_data, &id, node_state)
-            .and_then(|s| s.get_property())
-            .map(|cc| match cc {
-                ColumnCount::Integer(n) => *n,
-                ColumnCount::Auto => 1,
-            })
-            .unwrap_or(1)
-    } else {
-        1
+    // ResolutionContext shared by column-gap and column-width (both resolve
+    // lengths against the same font/viewport, with no containing-block size).
+    let column_resolve_ctx = ResolutionContext {
+        element_font_size: get_element_font_size(styled_dom, id, node_state),
+        parent_font_size: get_parent_font_size(styled_dom, id, node_state),
+        root_font_size: get_root_font_size(styled_dom, node_state),
+        containing_block_size: PhysicalSize::new(0.0, 0.0),
+        element_size: None,
+        viewport_size: PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
     };
 
+    // Read a declared CSS property from the cache, returning None when the
+    // DOM-level declared bit is clear (no node sets the property).
+    macro_rules! declared_prop {
+        ($bit:expr, $getter:ident) => {
+            if dom_declared & $bit != 0 {
+                styled_dom
+                    .css_property_cache
+                    .ptr
+                    .$getter(node_data, &id, node_state)
+                    .and_then(|s| s.get_property())
+            } else {
+                None
+            }
+        };
+    }
+
     // Get column-gap for multi-column layout (default: normal = 1em)
-    let column_gap = if dom_declared & DOM_HAS_COLUMN_GAP != 0 {
-        styled_dom
-            .css_property_cache
-            .ptr
-            .get_column_gap(node_data, &id, node_state)
-            .and_then(|s| s.get_property())
-            .map(|cg| {
-                let context = ResolutionContext {
-                    element_font_size: get_element_font_size(styled_dom, id, node_state),
-                    parent_font_size: get_parent_font_size(styled_dom, id, node_state),
-                    root_font_size: get_root_font_size(styled_dom, node_state),
-                    containing_block_size: PhysicalSize::new(0.0, 0.0),
-                    element_size: None,
-                    viewport_size: PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
-                };
-                cg.inner
-                    .resolve_with_context(&context, PropertyContext::Other)
-            })
-            .unwrap_or_else(|| {
-                // Default: 1em
-                get_element_font_size(styled_dom, id, node_state)
-            })
-    } else {
-        // Default: 1em
-        get_element_font_size(styled_dom, id, node_state)
+    let column_gap = declared_prop!(DOM_HAS_COLUMN_GAP, get_column_gap)
+        .map(|cg| {
+            cg.inner
+                .resolve_with_context(&column_resolve_ctx, PropertyContext::Other)
+        })
+        .unwrap_or_else(|| get_element_font_size(styled_dom, id, node_state));
+
+    // Get column-width for multi-column layout (None = auto)
+    let column_width =
+        declared_prop!(DOM_HAS_COLUMN_WIDTH, get_column_width).and_then(|cw| match cw {
+            ColumnWidth::Auto => None,
+            ColumnWidth::Length(px) => {
+                Some(px.resolve_with_context(&column_resolve_ctx, PropertyContext::Other))
+            }
+        });
+
+    // Get column-count for multi-column layout (default: 1 = no columns)
+    let explicit_column_count =
+        declared_prop!(DOM_HAS_COLUMN_COUNT, get_column_count).copied();
+
+    // CSS multi-column: derive column count from column-width when column-count is auto.
+    // Per spec: N = max(1, floor((available-width + column-gap) / (column-width + column-gap)))
+    let columns = match (explicit_column_count, column_width) {
+        (Some(ColumnCount::Integer(n)), _) => n,
+        (_, Some(cw)) if cw > 0.0 => {
+            let avail = constraints.available_size.width;
+            ((avail + column_gap) / (cw + column_gap)).floor().max(1.0) as u32
+        }
+        _ => 1,
     };
 
     // +spec:line-breaking:b4928e - white-space values mapped to wrap/whitespace processing rules
