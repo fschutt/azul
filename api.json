@@ -28184,7 +28184,85 @@
                                 "fn_body": "azul_css::props::basic::geometry::LayoutRect::zero()"
                             }
                         },
-                        "functions": {},
+                        "functions": {
+                            "contains_f32": {
+                                "doc": [
+                                    "Returns whether this rectangle contains the given (x, y) point in f32 coordinates."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "x": "f32"
+                                    },
+                                    {
+                                        "y": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.contains_f32(x, y)"
+                            },
+                            "contains_rect": {
+                                "doc": [
+                                    "Returns whether `other` is fully contained inside this rectangle."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "other": "LayoutRect"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.contains_rect(&other)"
+                            },
+                            "union": {
+                                "doc": [
+                                    "Returns the bounding rectangle that covers every rectangle in the slice, or `OptionLayoutRect::None` if the slice is empty."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "rects": "LayoutRectVecSlice"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionLayoutRect"
+                                },
+                                "fn_body": "azul_css::props::basic::geometry::LayoutRect::union(rects)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "LayoutRectVecSlice": {
+                        "external": "azul_css::props::basic::geometry::LayoutRectVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "LayoutRect",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
                         "repr": "C"
                     },
                     "WindowPosition": {
@@ -74423,6 +74501,227 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "LayoutRectVecDestructorType": {
+                        "external": "azul_css::props::basic::geometry::LayoutRectVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "LayoutRectVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "LayoutRectVecDestructor": {
+                        "external": "azul_css::props::basic::geometry::LayoutRectVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "LayoutRectVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "LayoutRectVec": {
+                        "doc": [
+                            "Wrapper over a Rust-allocated `Vec<LayoutRect>`"
+                        ],
+                        "external": "azul_css::props::basic::geometry::LayoutRectVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "custom_destructor": true,
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "LayoutRect",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "LayoutRectVecDestructor"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `LayoutRectVec`"
+                                ],
+                                "fn_args": [],
+                                "fn_body": "LayoutRectVec::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `LayoutRectVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "fn_body": "LayoutRectVec::with_capacity(cap)"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `LayoutRectVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "LayoutRect"
+                                    }
+                                ],
+                                "fn_body": "LayoutRectVec::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `LayoutRectVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const LayoutRect"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "fn_body": "unsafe { LayoutRectVec::copy_from_ptr(ptr, len) }"
+                            }
+                        },
+                        "functions": {
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "layout_rect_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "layout_rect_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "layout_rect_vec.is_empty()"
+                            },
+                            "get": {
+                                "doc": [
+                                    "Returns a reference to the element at the given index, or None if out of bounds"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionLayoutRect"
+                                },
+                                "fn_body": "layout_rect_vec.get(index).cloned().into()"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionLayoutRect"
+                                },
+                                "fn_body": "layout_rect_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `LayoutRectVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "LayoutRectVecSlice"
+                                },
+                                "fn_body": "layout_rect_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "LayoutRectVecSlice"
+                                },
+                                "fn_body": "layout_rect_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -75258,6 +75557,27 @@
                             {
                                 "Some": {
                                     "type": "LayoutSize"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionLayoutRect": {
+                        "external": "azul_css::props::basic::geometry::OptionLayoutRect",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {}
+                            },
+                            {
+                                "Some": {
+                                    "type": "LayoutRect"
                                 }
                             }
                         ],

@@ -183,20 +183,24 @@ impl LayoutRect {
         }
     }
 
-    /// Faster union for a Vec<LayoutRect>
+    /// Returns the bounding rectangle that covers every rectangle in the slice,
+    /// or `OptionLayoutRect::None` if the slice is empty.
     #[inline]
-    pub fn union<I: Iterator<Item = Self>>(mut rects: I) -> Option<Self> {
-        let first = rects.next()?;
+    pub fn union(rects: LayoutRectVecSlice) -> OptionLayoutRect {
+        let mut iter = rects.as_slice().iter().copied();
+        let Some(first) = iter.next() else {
+            return OptionLayoutRect::None;
+        };
 
-        let mut max_x = first.origin.x + first.size.width;
-        let mut max_y = first.origin.y + first.size.height;
         let mut min_x = first.origin.x;
         let mut min_y = first.origin.y;
+        let mut max_x = first.origin.x + first.size.width;
+        let mut max_y = first.origin.y + first.size.height;
 
-        while let Some(Self {
+        for Self {
             origin: LayoutPoint { x, y },
             size: LayoutSize { width, height },
-        }) = rects.next()
+        } in iter
         {
             max_x = max_x.max(x + width);
             max_y = max_y.max(y + height);
@@ -204,7 +208,7 @@ impl LayoutRect {
             min_y = min_y.min(y);
         }
 
-        Some(Self {
+        OptionLayoutRect::Some(Self {
             origin: LayoutPoint { x: min_x, y: min_y },
             size: LayoutSize {
                 width: max_x - min_x,
@@ -213,14 +217,7 @@ impl LayoutRect {
         })
     }
 
-    // Returns the scroll rect (not the union rect) of the parent / children
-    #[inline]
-    pub fn get_scroll_rect<I: Iterator<Item = Self>>(&self, children: I) -> Option<Self> {
-        let children_union = Self::union(children)?;
-        Self::union([*self, children_union].iter().copied())
-    }
-
-    // Returns if b overlaps a
+    /// Returns true if `b` is fully contained inside `self`.
     #[inline(always)]
     pub const fn contains_rect(&self, b: &LayoutRect) -> bool {
         let a = self;
@@ -239,5 +236,35 @@ impl LayoutRect {
             && b_y >= a_y
             && b_x + b_width <= a_x + a_width
             && b_y + b_height <= a_y + a_height
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rect(x: isize, y: isize, w: isize, h: isize) -> LayoutRect {
+        LayoutRect::new(LayoutPoint::new(x, y), LayoutSize::new(w, h))
+    }
+
+    #[test]
+    fn union_slice_returns_bounding_rect() {
+        let vec: LayoutRectVec =
+            alloc::vec![rect(0, 0, 10, 10), rect(20, -5, 5, 30), rect(-3, 15, 4, 4)].into();
+        let slice = vec.as_c_slice();
+
+        match LayoutRect::union(slice) {
+            OptionLayoutRect::Some(r) => {
+                assert_eq!(r, rect(-3, -5, 28, 30));
+            }
+            OptionLayoutRect::None => panic!("expected Some bounding rect"),
+        }
+    }
+
+    #[test]
+    fn union_empty_slice_returns_none() {
+        let vec: LayoutRectVec = LayoutRectVec::new();
+        let slice = vec.as_c_slice();
+        assert!(matches!(LayoutRect::union(slice), OptionLayoutRect::None));
     }
 }
