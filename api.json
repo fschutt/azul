@@ -53806,6 +53806,36 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "angle_degrees": {
+                                "doc": [
+                                    "Returns the angle of the vector in degrees"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f64"
+                                },
+                                "fn_body": "object.angle_degrees()"
+                            },
+                            "rotate_90deg_ccw": {
+                                "doc": [
+                                    "Rotate the vector 90 degrees counter-clockwise"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SvgVector"
+                                },
+                                "fn_body": "object.rotate_90deg_ccw()"
+                            }
+                        },
                         "repr": "C"
                     },
                     "SvgQuadraticCurve": {
@@ -54061,6 +54091,48 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "expand": {
+                                "doc": [
+                                    "Expands the rect with a certain amount of padding"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "padding_top": "f32"
+                                    },
+                                    {
+                                        "padding_bottom": "f32"
+                                    },
+                                    {
+                                        "padding_left": "f32"
+                                    },
+                                    {
+                                        "padding_right": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SvgRect"
+                                },
+                                "fn_body": "object.expand(padding_top, padding_bottom, padding_left, padding_right)"
+                            },
+                            "get_center": {
+                                "doc": [
+                                    "Returns the center point of the rect"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SvgPoint"
+                                },
+                                "fn_body": "object.get_center()"
+                            }
+                        },
                         "repr": "C"
                     },
                     "SvgPoint": {
