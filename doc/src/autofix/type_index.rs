@@ -2507,6 +2507,46 @@ fn extract_macro_generated_types(
             }
         }
 
+        "define_offset_parse_error" => {
+            // define_offset_parse_error!(Struct, Error, ErrorOwned, parse_fn)
+            // Generates: #[repr(C, u8)] enum ErrorOwned { PixelValue(CssPixelValueParseErrorOwned) }
+            if args.len() >= 3 {
+                let error_owned_name = args[2].to_string();
+                types.push(TypeDefinition {
+                    full_path: build_full_path(crate_name, module_path, &error_owned_name),
+                    type_name: error_owned_name.clone(),
+                    file_path: file_path.to_path_buf(),
+                    module_path: module_path.to_string(),
+                    crate_name: crate_name.to_string(),
+                    kind: TypeDefKind::Enum {
+                        variants: {
+                            let mut variants = IndexMap::new();
+                            variants.insert(
+                                "PixelValue".to_string(),
+                                VariantDef {
+                                    name: "PixelValue".to_string(),
+                                    ty: Some("CssPixelValueParseErrorOwned".to_string()),
+                                    doc: Vec::new(),
+                                },
+                            );
+                            variants
+                        },
+                        repr: Some("C, u8".to_string()),
+                        repr_attr_count: 1,
+                        generic_params: vec![],
+                        derives: vec![
+                            "Debug".to_string(),
+                            "Clone".to_string(),
+                            "PartialEq".to_string(),
+                        ],
+                        custom_impls: vec![],
+                    },
+                    source_code: m.to_token_stream().to_string(),
+                    methods: Vec::new(),
+                });
+            }
+        }
+
         "define_widow_orphan_parser" => {
             // define_widow_orphan_parser!(fn, struct, error, error_owned, prop)
             // Generates: #[repr(C, u8)] enum ErrorOwned {

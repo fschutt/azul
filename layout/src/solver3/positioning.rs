@@ -440,7 +440,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                         let mut found = None;
                         while let Some(pidx) = parent {
                             if let Some(pnode) = tree.get(pidx) {
-                                if get_position_type(ctx.styled_dom, pnode.dom_node_id) != LayoutPosition::Static {
+                                if get_position_type(ctx.styled_dom, pnode.dom_node_id).is_positioned() {
                                     found = pnode.dom_node_id;
                                     break;
                                 }
@@ -1108,7 +1108,7 @@ pub fn find_absolute_containing_block_rect(
     while let Some(parent_index) = current_parent_idx {
         let parent_node = tree.get(parent_index).ok_or(LayoutError::InvalidTree)?;
 
-        if get_position_type(styled_dom, parent_node.dom_node_id) != LayoutPosition::Static {
+        if get_position_type(styled_dom, parent_node.dom_node_id).is_positioned() {
             // calculated_positions stores margin-box positions
             let margin_box_pos = calculated_positions
                 .get(parent_index)
