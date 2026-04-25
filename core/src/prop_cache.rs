@@ -152,7 +152,6 @@ const PT_TO_PX: f32 = 1.333333;
 const IN_TO_PX: f32 = 96.0;
 const CM_TO_PX: f32 = 37.7952755906;
 const MM_TO_PX: f32 = 3.7795275591;
-const DEFAULT_FONT_SIZE_PX: f32 = 16.0;
 
 /// Match on any CssProperty variant and access the inner CssPropertyValue<T>.
 #[allow(unused_macros)]
@@ -1775,7 +1774,7 @@ impl CssPropertyCache {
         node_id: &NodeId,
         node_state: &StyledNodeState,
     ) -> StyleTextColor {
-        use crate::ui_solver::DEFAULT_TEXT_COLOR;
+        use azul_css::defaults::DEFAULT_TEXT_COLOR;
         self.get_text_color(node_data, node_id, node_state)
             .and_then(|fs| fs.get_property().cloned())
             .unwrap_or(DEFAULT_TEXT_COLOR)
@@ -1788,7 +1787,7 @@ impl CssPropertyCache {
         node_id: &NodeId,
         node_state: &StyledNodeState,
     ) -> StyleFontFamilyVec {
-        use crate::ui_solver::DEFAULT_FONT_ID;
+        use azul_css::defaults::DEFAULT_FONT_ID;
         let default_font_id = vec![StyleFontFamily::System(AzString::from_const_str(
             DEFAULT_FONT_ID,
         ))]
@@ -1807,7 +1806,7 @@ impl CssPropertyCache {
         node_id: &NodeId,
         node_state: &StyledNodeState,
     ) -> StyleFontSize {
-        use crate::ui_solver::DEFAULT_FONT_SIZE;
+        use azul_css::defaults::DEFAULT_FONT_SIZE;
         self.get_font_size(node_data, node_id, node_state)
             .and_then(|fs| fs.get_property().cloned())
             .unwrap_or(DEFAULT_FONT_SIZE)
@@ -5237,9 +5236,18 @@ impl CssPropertyCache {
             });
 
         match parent_font_size {
-            Some(pfs) => Self::resolve_property_dependency(prop, &pfs.property)
-                .unwrap_or_else(|| Self::resolve_font_size_to_pixels(prop, DEFAULT_FONT_SIZE_PX)),
-            None => Self::resolve_font_size_to_pixels(prop, DEFAULT_FONT_SIZE_PX),
+            Some(pfs) => Self::resolve_property_dependency(prop, &pfs.property).unwrap_or_else(
+                || {
+                    Self::resolve_font_size_to_pixels(
+                        prop,
+                        azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                    )
+                },
+            ),
+            None => Self::resolve_font_size_to_pixels(
+                prop,
+                azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+            ),
         }
     }
 
@@ -5278,7 +5286,9 @@ impl CssPropertyCache {
             SizeMetric::Cm => font_size.inner.number.get() * CM_TO_PX,
             SizeMetric::Mm => font_size.inner.number.get() * MM_TO_PX,
             SizeMetric::Em => font_size.inner.number.get() * reference_px,
-            SizeMetric::Rem => font_size.inner.number.get() * DEFAULT_FONT_SIZE_PX,
+            SizeMetric::Rem => {
+                font_size.inner.number.get() * azul_css::props::basic::pixel::DEFAULT_FONT_SIZE
+            }
             SizeMetric::Percent => font_size.inner.number.get() / 100.0 * reference_px,
             SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => {
                 return prop.clone();

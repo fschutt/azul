@@ -49,6 +49,8 @@ pub mod compact_cache;
 pub mod corety;
 /// Stylesheet types: rules, selectors, declarations, and specificity.
 pub mod css;
+/// Typed default values for CSS properties (font size, font id, text color).
+pub mod defaults;
 /// Runtime CSS selector matching (`:hover`, `@os`, `@media`, etc.).
 pub mod dynamic_selector;
 /// Const-compatible Rust source code generation from parsed CSS.
