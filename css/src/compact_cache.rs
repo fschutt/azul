@@ -2213,10 +2213,11 @@ mod tests {
 
     #[test]
     fn test_compact_node_props_cold_size() {
-        // 36B cold props: 4×u32 border colors (16B) + 4×i16 border/spacing
-        // + 4×i16 grid placement (grid_col/row_start/end) + 1×i16 z_index
-        // + 1×u16 border_styles_packed, aligned up to 36B.
-        assert_eq!(core::mem::size_of::<CompactNodePropsCold>(), 36);
+        // 48B cold props: 4×u32 border colors (16B) + 4×i16 border radii (8B)
+        // + 1×i16 z_index + 1×u16 border_styles_packed + 2×i16 border_spacing
+        // + 1×i16 tab_size + 4×i16 grid placement (8B) + 3×u8 (opacity,
+        // hot_flags, extra_flags) = 45B, padded to 48B for u32 alignment.
+        assert_eq!(core::mem::size_of::<CompactNodePropsCold>(), 48);
     }
 
     #[test]
