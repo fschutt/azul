@@ -98,25 +98,6 @@ impl crate::format_rust_code::FormatAsRustCode for StyleFontWeight {
     }
 }
 
-impl StyleFontWeight {
-    /// Convert to fontconfig weight value for font selection
-    pub const fn to_fc_weight(self) -> i32 {
-        match self {
-            StyleFontWeight::Lighter => 50, // FC_WEIGHT_LIGHT
-            StyleFontWeight::W100 => 0,     // FC_WEIGHT_THIN
-            StyleFontWeight::W200 => 40,    // FC_WEIGHT_EXTRALIGHT
-            StyleFontWeight::W300 => 50,    // FC_WEIGHT_LIGHT
-            StyleFontWeight::Normal => 80,  // FC_WEIGHT_REGULAR / FC_WEIGHT_NORMAL
-            StyleFontWeight::W500 => 100,   // FC_WEIGHT_MEDIUM
-            StyleFontWeight::W600 => 180,   // FC_WEIGHT_SEMIBOLD
-            StyleFontWeight::Bold => 200,   // FC_WEIGHT_BOLD
-            StyleFontWeight::W800 => 205,   // FC_WEIGHT_EXTRABOLD
-            StyleFontWeight::W900 => 210,   // FC_WEIGHT_BLACK / FC_WEIGHT_HEAVY
-            StyleFontWeight::Bolder => 215, // Slightly heavier than W900
-        }
-    }
-}
-
 // --- Font Style ---
 
 /// Represents the `font-style` property.
@@ -664,38 +645,6 @@ impl Panose {
             midline: 0,
             x_height: 0,
         }
-    }
-
-    /// Create from a 10-byte array
-    pub const fn from_array(arr: [u8; 10]) -> Self {
-        Panose {
-            family_type: arr[0],
-            serif_style: arr[1],
-            weight: arr[2],
-            proportion: arr[3],
-            contrast: arr[4],
-            stroke_variation: arr[5],
-            arm_style: arr[6],
-            letterform: arr[7],
-            midline: arr[8],
-            x_height: arr[9],
-        }
-    }
-
-    /// Convert to a 10-byte array
-    pub const fn to_array(&self) -> [u8; 10] {
-        [
-            self.family_type,
-            self.serif_style,
-            self.weight,
-            self.proportion,
-            self.contrast,
-            self.stroke_variation,
-            self.arm_style,
-            self.letterform,
-            self.midline,
-            self.x_height,
-        ]
     }
 }
 
