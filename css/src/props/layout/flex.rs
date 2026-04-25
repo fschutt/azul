@@ -494,8 +494,10 @@ pub fn parse_layout_justify_content<'a>(
     input: &'a str,
 ) -> Result<LayoutJustifyContent, JustifyContentParseError<'a>> {
     match input.trim() {
-        "flex-start" => Ok(LayoutJustifyContent::Start),
-        "flex-end" => Ok(LayoutJustifyContent::End),
+        "flex-start" => Ok(LayoutJustifyContent::FlexStart),
+        "flex-end" => Ok(LayoutJustifyContent::FlexEnd),
+        "start" => Ok(LayoutJustifyContent::Start),
+        "end" => Ok(LayoutJustifyContent::End),
         "center" => Ok(LayoutJustifyContent::Center),
         "space-between" => Ok(LayoutJustifyContent::SpaceBetween),
         "space-around" => Ok(LayoutJustifyContent::SpaceAround),
@@ -947,10 +949,18 @@ mod tests {
     fn test_parse_layout_justify_content() {
         assert_eq!(
             parse_layout_justify_content("flex-start").unwrap(),
-            LayoutJustifyContent::Start
+            LayoutJustifyContent::FlexStart
         );
         assert_eq!(
             parse_layout_justify_content("flex-end").unwrap(),
+            LayoutJustifyContent::FlexEnd
+        );
+        assert_eq!(
+            parse_layout_justify_content("start").unwrap(),
+            LayoutJustifyContent::Start
+        );
+        assert_eq!(
+            parse_layout_justify_content("end").unwrap(),
             LayoutJustifyContent::End
         );
         assert_eq!(
@@ -973,7 +983,6 @@ mod tests {
             parse_layout_justify_content("  center  ").unwrap(),
             LayoutJustifyContent::Center
         );
-        assert!(parse_layout_justify_content("start").is_err());
     }
 
     #[test]

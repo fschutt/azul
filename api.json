@@ -20549,6 +20549,61 @@
                                 "ColumnReverse": {}
                             }
                         ],
+                        "functions": {
+                            "get_axis": {
+                                "doc": [
+                                    "Returns the `LayoutAxis` (Horizontal or Vertical) that this flex-direction lays items along."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "LayoutAxis"
+                                },
+                                "fn_body": "object.get_axis()"
+                            },
+                            "is_reverse": {
+                                "doc": [
+                                    "Returns `true` if this flex-direction is a reversed variant (`RowReverse` or `ColumnReverse`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_reverse()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "LayoutAxis": {
+                        "doc": [
+                            "Represents the main or cross axis of a flex container."
+                        ],
+                        "external": "azul_css::props::layout::flex::LayoutAxis",
+                        "derive": [
+                            "Copy",
+                            "Debug",
+                            "PartialOrd",
+                            "Clone",
+                            "Eq",
+                            "PartialEq",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Horizontal": {}
+                            },
+                            {
+                                "Vertical": {}
+                            }
+                        ],
                         "repr": "C"
                     },
                     "LayoutDisplay": {
