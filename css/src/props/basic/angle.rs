@@ -114,6 +114,20 @@ impl AngleValue {
         }
     }
 
+    /// Creates a const angle value with the given metric from a fractional number.
+    ///
+    /// # Arguments
+    /// * `metric` - The angle metric (Degree, Radians, etc.)
+    /// * `pre_comma` - The integer part (e.g., 45 for 45.5deg)
+    /// * `post_comma` - The fractional part as digits (e.g., 5 for 0.5deg)
+    #[inline]
+    pub const fn const_from_metric_fractional(metric: AngleMetric, pre_comma: isize, post_comma: isize) -> Self {
+        Self {
+            metric,
+            number: FloatValue::const_new_fractional(pre_comma, post_comma),
+        }
+    }
+
     /// Creates an angle value in degrees.
     #[inline]
     pub fn deg(value: f32) -> Self {
