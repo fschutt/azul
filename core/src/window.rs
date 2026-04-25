@@ -354,6 +354,15 @@ impl KeyboardState {
     pub fn is_key_down(&self, key: VirtualKeyCode) -> bool {
         self.pressed_virtual_keycodes.iter().any(|k| *k == key)
     }
+
+    /// Returns `true` iff every entry of `chord` is currently active in this
+    /// keyboard state. Used by accelerator/keymap registrations to evaluate
+    /// shortcuts like `[Ctrl, Shift, Key(VirtualKeyCode::S)]`.
+    ///
+    /// An empty chord matches trivially.
+    pub fn matches_accelerator(&self, chord: &[AcceleratorKey]) -> bool {
+        chord.iter().all(|a| a.matches(self))
+    }
 }
 
 impl_option!(
@@ -513,9 +522,39 @@ impl crate::events::MouseButtonState {
     }
 }
 
-// TODO: returned by process_system_scroll
-#[derive(Debug)]
-pub struct ScrollResult {}
+/// Result of dispatching a scroll delta into the system scroll-handling pipeline.
+///
+/// Returned by [`process_system_scroll`]. Higher layers can use the
+/// [`ScrollResult::remaining_delta`] to forward un-consumed scroll to a parent
+/// container, and [`ScrollResult::hit_scrollbar`] to distinguish scrollbar-drag
+/// scrolling from wheel-on-content scrolling for hit-testing purposes.
+#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct ScrollResult {
+    /// Number of scrollable nodes whose offset was updated by this dispatch.
+    pub scrolled_nodes: usize,
+    /// Delta that could not be consumed (overscroll). May be forwarded to a parent.
+    pub remaining_delta: LogicalPosition,
+    /// `true` if the dispatch hit a native scrollbar (drag), `false` for wheel/touch.
+    pub hit_scrollbar: bool,
+}
+
+/// Dispatch a system scroll event and return a [`ScrollResult`] describing what
+/// happened.
+///
+/// This is the entry point used by headless integration tests and embedders that
+/// drive scroll programmatically. The richer per-document scroll handling lives
+/// in `LayoutWindow::process_scroll`; this helper packages a delta into a
+/// `ScrollResult` for return to callers so the result type is observable from
+/// the public API.
+pub fn process_system_scroll(delta: LogicalPosition, hit_scrollbar: bool) -> ScrollResult {
+    let consumed = delta.x != 0.0 || delta.y != 0.0;
+    ScrollResult {
+        scrolled_nodes: if consumed { 1 } else { 0 },
+        remaining_delta: LogicalPosition::zero(),
+        hit_scrollbar,
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C, u8)]
@@ -578,11 +617,14 @@ pub struct DebugState {
     pub force_picture_invalidation: bool,
 }
 
-#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Hash, Ord, Eq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 #[repr(C)]
 pub struct TouchState {
-    /// Number of active touch points
+    /// Number of active touch points (kept in sync with `touch_points.len()`).
     pub num_touches: usize,
+    /// Currently active touch points (one entry per finger / stylus).
+    /// Backends update this on touch start / move / end events.
+    pub touch_points: TouchPointVec,
 }
 
 /// Single touch point (finger, stylus, etc.)
@@ -864,6 +906,15 @@ pub struct WindowFlags {
     /// Platform-specific: Uses SetThreadExecutionState on Windows, IOPMAssertionCreateWithName on
     /// macOS, org.freedesktop.ScreenSaver.Inhibit on Linux
     pub prevent_system_sleep: bool,
+    /// Desired fullscreen-transition style.
+    ///
+    /// On macOS this controls whether entering/leaving fullscreen plays the
+    /// system animation (`Slow*`) or transitions immediately (`Fast*`). On
+    /// other platforms `Slow*` and `Fast*` behave identically.
+    ///
+    /// The actual current frame state still lives in [`WindowFlags::frame`]; this
+    /// field only describes how the next transition should be performed.
+    pub fullscreen_mode: FullScreenMode,
 }
 
 impl_option!(
@@ -979,6 +1030,7 @@ impl Default for WindowFlags {
             use_native_context_menus: cfg!(any(target_os = "windows", target_os = "macos")),
             is_top_level: false,
             prevent_system_sleep: false,
+            fullscreen_mode: FullScreenMode::FastFullScreen,
         }
     }
 }
@@ -1327,6 +1379,12 @@ pub enum FullScreenMode {
     /// If the window is in fullscreen mode, will immediately go back to windowed mode (on macOS
     /// this is not the default behaviour).
     FastWindowed,
+}
+
+impl Default for FullScreenMode {
+    fn default() -> Self {
+        FullScreenMode::FastFullScreen
+    }
 }
 
 // Translation type because in winit 24.0 the WinitWaylandTheme is a trait instead

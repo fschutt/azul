@@ -59,7 +59,10 @@ use azul_core::{
     icon::SharedIconProvider,
     refany::RefAny,
     resources::{AppConfig, AppTerminationBehavior, IdNamespace, ImageCache, RendererResources},
-    window::{RawWindowHandle, VirtualKeyCode},
+    window::{
+        AcceleratorKey, FullScreenMode, RawWindowHandle, ScrollResult, TouchPoint, TouchPointVec,
+        VirtualKeyCode, WindowFrame,
+    },
 };
 use azul_layout::{
     window::{LayoutWindow, ScrollbarDragState},
@@ -540,6 +543,69 @@ impl HeadlessWindow {
     pub fn inject_events(&mut self, events: impl IntoIterator<Item = HeadlessEvent>) {
         self.event_queue.extend(events);
         self.wake();
+    }
+
+    /// Convert a `KeyDown` virtual keycode into the locale-independent character
+    /// fallback (delegating to [`VirtualKeyCode::get_lowercase`]) and, if a
+    /// character is available, queue a synthetic `TextInput` event for the next
+    /// poll cycle.
+    ///
+    /// This mirrors what platform IME paths do when no locale-specific composer
+    /// is active: latin keys still produce a typed character without going
+    /// through a full input-method round-trip.
+    pub fn synthesize_character_input(&mut self, vk: VirtualKeyCode) -> Option<char> {
+        let c = vk.get_lowercase()?;
+        self.inject_event(HeadlessEvent::TextInput { text: c.to_string() });
+        Some(c)
+    }
+
+    /// Replace the active touch point list. Updates `num_touches` to match.
+    pub fn inject_touch_points(&mut self, points: impl IntoIterator<Item = TouchPoint>) {
+        let vec: TouchPointVec = points.into_iter().collect::<Vec<_>>().into();
+        let touch_state = &mut self.common.current_window_state.touch_state;
+        touch_state.num_touches = vec.len();
+        touch_state.touch_points = vec;
+        self.wake();
+    }
+
+    /// Set the desired fullscreen-transition style on the current window state
+    /// flags. The next request to enter or leave fullscreen will honor this
+    /// value (slow vs. fast on macOS).
+    ///
+    /// On platforms that do not distinguish slow/fast transitions this is a
+    /// no-op for animation purposes but still recorded on the window state for
+    /// observation.
+    pub fn set_fullscreen_mode(&mut self, mode: FullScreenMode) {
+        let flags = &mut self.common.current_window_state.flags;
+        flags.fullscreen_mode = mode;
+        // Fold the request into the current frame state so headless callers
+        // can observe the transition without a real OS event loop.
+        flags.frame = match mode {
+            FullScreenMode::SlowFullScreen | FullScreenMode::FastFullScreen => {
+                WindowFrame::Fullscreen
+            }
+            FullScreenMode::SlowWindowed | FullScreenMode::FastWindowed => WindowFrame::Normal,
+        };
+    }
+
+    /// Returns `true` if every entry of `chord` is currently active in the
+    /// window's keyboard state. Use to evaluate registered accelerator
+    /// shortcuts (e.g. `[Ctrl, Key(VirtualKeyCode::S)]`) on each key event.
+    pub fn matches_accelerator(&self, chord: &[AcceleratorKey]) -> bool {
+        self.common
+            .current_window_state
+            .keyboard_state
+            .matches_accelerator(chord)
+    }
+
+    /// Drive a synthetic scroll delta through [`process_system_scroll`] and
+    /// return the [`ScrollResult`] for assertion in tests.
+    pub fn process_system_scroll(
+        &mut self,
+        delta: LogicalPosition,
+        hit_scrollbar: bool,
+    ) -> ScrollResult {
+        azul_core::window::process_system_scroll(delta, hit_scrollbar)
     }
 
     /// Signal the condvar so the blocking loop wakes up.

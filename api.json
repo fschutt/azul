@@ -1409,6 +1409,9 @@
                                 },
                                 "prevent_system_sleep": {
                                     "type": "bool"
+                                },
+                                "fullscreen_mode": {
+                                    "type": "FullScreenMode"
                                 }
                             }
                         ],
@@ -2712,6 +2715,97 @@
                             {
                                 "ptr": {
                                     "type": "MimeTypeData",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "FullScreenMode": {
+                        "external": "azul_core::window::FullScreenMode",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "SlowFullScreen": {},
+                                "FastFullScreen": {},
+                                "SlowWindowed": {},
+                                "FastWindowed": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TouchPoint": {
+                        "doc": [
+                            "Single touch point (finger, stylus, etc.)"
+                        ],
+                        "external": "azul_core::window::TouchPoint",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "id": {
+                                    "type": "u64",
+                                    "doc": [
+                                        "Unique identifier for this touch point (persists across move events)"
+                                    ]
+                                }
+                            },
+                            {
+                                "position": {
+                                    "type": "LogicalPosition",
+                                    "doc": [
+                                        "Current position of the touch point in logical coordinates"
+                                    ]
+                                }
+                            },
+                            {
+                                "force": {
+                                    "type": "f32",
+                                    "doc": [
+                                        "Force / pressure of the touch (0.0 = none, 1.0 = max). Set to 0.5 if pressure is unavailable."
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TouchPointVecSlice": {
+                        "external": "azul_core::window::TouchPointVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "TouchPoint",
                                     "ref_kind": "constptr",
                                     "doc": [
                                         "Pointer to the slice data"
@@ -13394,18 +13488,18 @@
                         "derive": [
                             "Debug",
                             "Default",
-                            "Copy",
                             "Clone",
-                            "PartialEq",
-                            "PartialOrd",
-                            "Hash",
-                            "Ord",
-                            "Eq"
+                            "PartialEq"
                         ],
                         "struct_fields": [
                             {
                                 "num_touches": {
                                     "type": "usize"
+                                }
+                            },
+                            {
+                                "touch_points": {
+                                    "type": "TouchPointVec"
                                 }
                             }
                         ],
@@ -73961,6 +74055,215 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "TouchPointVecDestructorType": {
+                        "external": "azul_core::window::TouchPointVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "TouchPointVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "TouchPointVecDestructor": {
+                        "external": "azul_core::window::TouchPointVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "TouchPointVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "TouchPointVec": {
+                        "external": "azul_core::window::TouchPointVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "TouchPoint",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "TouchPointVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `TouchPointVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "TouchPointVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `TouchPointVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TouchPointVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "touch_point_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "touch_point_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "touch_point_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `TouchPointVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "TouchPoint"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TouchPointVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `TouchPointVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const TouchPoint"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TouchPointVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionTouchPoint"
+                                },
+                                "fn_body": "touch_point_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `TouchPointVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TouchPointVecSlice"
+                                },
+                                "fn_body": "touch_point_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TouchPointVecSlice"
+                                },
+                                "fn_body": "touch_point_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -77916,6 +78219,32 @@
                                 "None": {},
                                 "Some": {
                                     "type": "RouteMatch"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionTouchPoint": {
+                        "external": "azul_core::window::OptionTouchPoint",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "TouchPoint",
+                                    "doc": [
+                                        "Some value of type TouchPoint"
+                                    ]
                                 }
                             }
                         ],
