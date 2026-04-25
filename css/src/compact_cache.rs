@@ -1282,6 +1282,7 @@ pub const DOM_HAS_LINE_BREAK: u32 = 1 << 18;
 pub const DOM_HAS_TEXT_ALIGN_LAST: u32 = 1 << 19;
 pub const DOM_HAS_LINE_HEIGHT: u32 = 1 << 20;
 pub const DOM_HAS_COLUMN_WIDTH: u32 = 1 << 21;
+pub const DOM_HAS_SHAPE_MARGIN: u32 = 1 << 22;
 pub const SCROLLBAR_GUTTER_AUTO: u8 = 0;
 pub const SCROLLBAR_GUTTER_STABLE: u8 = 1;
 pub const SCROLLBAR_GUTTER_BOTH_EDGES: u8 = 2;

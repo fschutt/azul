@@ -30881,22 +30881,6 @@
                         ],
                         "repr": "C"
                     },
-                    "LayoutInsetBottomParseErrorOwned": {
-                        "external": "azul_css::props::layout::position::LayoutInsetBottomParseErrorOwned",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq"
-                        ],
-                        "enum_fields": [
-                            {
-                                "PixelValue": {
-                                    "type": "CssPixelValueParseErrorOwned"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
                     "CssColorParseErrorOwned": {
                         "external": "azul_css::props::basic::color::CssColorParseErrorOwned",
                         "derive": [
@@ -30997,22 +30981,6 @@
                             {
                                 "FloatValue": {
                                     "type": "String"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
-                    "LayoutTopParseErrorOwned": {
-                        "external": "azul_css::props::layout::position::LayoutTopParseErrorOwned",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq"
-                        ],
-                        "enum_fields": [
-                            {
-                                "PixelValue": {
-                                    "type": "CssPixelValueParseErrorOwned"
                                 }
                             }
                         ],
@@ -31339,22 +31307,6 @@
                     },
                     "StyleTextIndentParseErrorOwned": {
                         "external": "azul_css::props::style::text::StyleTextIndentParseErrorOwned",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq"
-                        ],
-                        "enum_fields": [
-                            {
-                                "PixelValue": {
-                                    "type": "CssPixelValueParseErrorOwned"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
-                    "LayoutRightParseErrorOwned": {
-                        "external": "azul_css::props::layout::position::LayoutRightParseErrorOwned",
                         "derive": [
                             "Debug",
                             "Clone",
@@ -32067,22 +32019,6 @@
                             {
                                 "InvalidValue": {
                                     "type": "InvalidValueErrOwned"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
-                    "LayoutLeftParseErrorOwned": {
-                        "external": "azul_css::props::layout::position::LayoutLeftParseErrorOwned",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq"
-                        ],
-                        "enum_fields": [
-                            {
-                                "PixelValue": {
-                                    "type": "CssPixelValueParseErrorOwned"
                                 }
                             }
                         ],
@@ -35036,6 +34972,70 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "LayoutLeftParseErrorOwned": {
+                        "external": "azul_css::props::layout::position::LayoutLeftParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "PixelValue": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "LayoutTopParseErrorOwned": {
+                        "external": "azul_css::props::layout::position::LayoutTopParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "PixelValue": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "LayoutInsetBottomParseErrorOwned": {
+                        "external": "azul_css::props::layout::position::LayoutInsetBottomParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "PixelValue": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "LayoutRightParseErrorOwned": {
+                        "external": "azul_css::props::layout::position::LayoutRightParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "PixelValue": {
+                                    "type": "CssPixelValueParseErrorOwned"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },

@@ -2,6 +2,7 @@
 //!
 //! These types are C-compatible (repr(C)) for use across FFI boundaries.
 
+use alloc::string::String;
 use crate::corety::{AzString, OptionF32};
 
 /// Compares two f32 values for ordering, treating NaN as equal.
@@ -278,6 +279,71 @@ impl CssShape {
             inset_left: left,
             border_radius: OptionF32::Some(radius),
         })
+    }
+
+    pub fn print_as_css_value(&self) -> String {
+        use alloc::format;
+        match self {
+            CssShape::Circle(ShapeCircle { center, radius }) => {
+                format!("circle({}px at {}px {}px)", radius, center.x, center.y)
+            }
+            CssShape::Ellipse(ShapeEllipse { center, radius_x, radius_y }) => {
+                format!("ellipse({}px {}px at {}px {}px)", radius_x, radius_y, center.x, center.y)
+            }
+            CssShape::Polygon(ShapePolygon { points }) => {
+                let pts: alloc::vec::Vec<String> = points.as_ref().iter()
+                    .map(|p| format!("{}px {}px", p.x, p.y))
+                    .collect();
+                format!("polygon({})", pts.join(", "))
+            }
+            CssShape::Inset(ShapeInset { inset_top, inset_right, inset_bottom, inset_left, border_radius }) => {
+                let base = format!("inset({}px {}px {}px {}px", inset_top, inset_right, inset_bottom, inset_left);
+                match border_radius {
+                    OptionF32::Some(r) => format!("{} round {}px)", base, r),
+                    OptionF32::None => format!("{})", base),
+                }
+            }
+            CssShape::Path(ShapePath { data }) => {
+                format!("path(\"{}\")", data.as_str())
+            }
+        }
+    }
+
+    pub fn format_as_rust_code(&self) -> String {
+        use alloc::format;
+        match self {
+            CssShape::Circle(ShapeCircle { center, radius }) => {
+                format!(
+                    "CssShape::Circle(ShapeCircle {{ center: ShapePoint::new({}_f32, {}_f32), radius: {}_f32 }})",
+                    center.x, center.y, radius
+                )
+            }
+            CssShape::Ellipse(ShapeEllipse { center, radius_x, radius_y }) => {
+                format!(
+                    "CssShape::Ellipse(ShapeEllipse {{ center: ShapePoint::new({}_f32, {}_f32), radius_x: {}_f32, radius_y: {}_f32 }})",
+                    center.x, center.y, radius_x, radius_y
+                )
+            }
+            CssShape::Polygon(ShapePolygon { points }) => {
+                let pts: alloc::vec::Vec<String> = points.as_ref().iter()
+                    .map(|p| format!("ShapePoint::new({}_f32, {}_f32)", p.x, p.y))
+                    .collect();
+                format!("CssShape::Polygon(ShapePolygon {{ points: vec![{}].into() }})", pts.join(", "))
+            }
+            CssShape::Inset(ShapeInset { inset_top, inset_right, inset_bottom, inset_left, border_radius }) => {
+                let br = match border_radius {
+                    OptionF32::Some(r) => format!("OptionF32::Some({}_f32)", r),
+                    OptionF32::None => String::from("OptionF32::None"),
+                };
+                format!(
+                    "CssShape::Inset(ShapeInset {{ inset_top: {}_f32, inset_right: {}_f32, inset_bottom: {}_f32, inset_left: {}_f32, border_radius: {} }})",
+                    inset_top, inset_right, inset_bottom, inset_left, br
+                )
+            }
+            CssShape::Path(ShapePath { data }) => {
+                format!("CssShape::Path(ShapePath {{ data: AzString::from_const_str(\"{}\") }})", data.as_str())
+            }
+        }
     }
 }
 

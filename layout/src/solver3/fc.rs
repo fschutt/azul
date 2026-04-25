@@ -3008,6 +3008,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         DOM_HAS_INITIAL_LETTER, DOM_HAS_INITIAL_LETTER_ALIGN,
         DOM_HAS_LINE_CLAMP, DOM_HAS_HANGING_PUNCTUATION,
         DOM_HAS_TEXT_COMBINE_UPRIGHT, DOM_HAS_EXCLUSION_MARGIN,
+        DOM_HAS_SHAPE_MARGIN,
         DOM_HAS_HYPHENATION_LANGUAGE, DOM_HAS_UNICODE_BIDI,
         DOM_HAS_HYPHENS, DOM_HAS_WORD_BREAK, DOM_HAS_OVERFLOW_WRAP,
         DOM_HAS_LINE_BREAK, DOM_HAS_TEXT_ALIGN_LAST, DOM_HAS_LINE_HEIGHT,
@@ -3650,8 +3651,12 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         None
     };
 
-    // Get exclusion-margin for shape exclusions
-    let exclusion_margin = if dom_declared & DOM_HAS_EXCLUSION_MARGIN != 0 {
+    // Get exclusion-margin (CSS Exclusions L1) and shape-margin (CSS Shapes L1)
+    // for shape exclusions. We sum both into a single margin knob — strictly,
+    // they apply to different sources (exclusion-margin → CSS Exclusions,
+    // shape-margin → shape-outside), but the layout solver currently keeps
+    // a single per-IFC margin value, so the two get added.
+    let exclusion_margin_base = if dom_declared & DOM_HAS_EXCLUSION_MARGIN != 0 {
         styled_dom
             .css_property_cache
             .ptr
@@ -3662,6 +3667,20 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     } else {
         0.0
     };
+
+    let shape_margin = if dom_declared & DOM_HAS_SHAPE_MARGIN != 0 {
+        styled_dom
+            .css_property_cache
+            .ptr
+            .get_shape_margin(node_data, &id, node_state)
+            .and_then(|s| s.get_property())
+            .map(|sm| sm.inner.number.get() as f32)
+            .unwrap_or(0.0)
+    } else {
+        0.0
+    };
+
+    let exclusion_margin = exclusion_margin_base + shape_margin;
 
     // Get hyphenation-language for language-specific hyphenation
     let hyphenation_language = if dom_declared & DOM_HAS_HYPHENATION_LANGUAGE != 0 {

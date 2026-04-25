@@ -1191,6 +1191,7 @@ fn update_dom_declared_flags(prop: &CssProperty, flags: &mut u32) {
         CssProperty::HangingPunctuation(v) => if v.get_property().is_some() { *flags |= DOM_HAS_HANGING_PUNCTUATION; }
         CssProperty::TextCombineUpright(v) => if v.get_property().is_some() { *flags |= DOM_HAS_TEXT_COMBINE_UPRIGHT; }
         CssProperty::ExclusionMargin(v) => if v.get_property().is_some() { *flags |= DOM_HAS_EXCLUSION_MARGIN; }
+        CssProperty::ShapeMargin(v) => if v.get_property().is_some() { *flags |= DOM_HAS_SHAPE_MARGIN; }
         CssProperty::HyphenationLanguage(v) => if v.get_property().is_some() { *flags |= DOM_HAS_HYPHENATION_LANGUAGE; }
         CssProperty::UnicodeBidi(v) => if v.get_property().is_some() { *flags |= DOM_HAS_UNICODE_BIDI; }
         CssProperty::TextBoxTrim(v) => if v.get_property().is_some() { *flags |= DOM_HAS_TEXT_BOX_TRIM; }
