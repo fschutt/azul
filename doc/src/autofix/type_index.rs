@@ -2558,6 +2558,145 @@ fn extract_macro_generated_types(
             }
         }
 
+        "define_sizing_enum" => {
+            // define_sizing_enum!(LayoutWidth) / define_sizing_enum!(LayoutHeight)
+            // Generates: #[repr(C, u8)] enum $name {
+            //   Auto, Px(PixelValue), MinContent, MaxContent,
+            //   FitContent(PixelValue), Calc(CalcAstItemVec),
+            // }
+            if !args.is_empty() {
+                let enum_name = args[0].to_string();
+                types.push(TypeDefinition {
+                    full_path: build_full_path(crate_name, module_path, &enum_name),
+                    type_name: enum_name.clone(),
+                    file_path: file_path.to_path_buf(),
+                    module_path: module_path.to_string(),
+                    crate_name: crate_name.to_string(),
+                    kind: TypeDefKind::Enum {
+                        variants: {
+                            let mut variants = IndexMap::new();
+                            variants.insert(
+                                "Auto".to_string(),
+                                VariantDef {
+                                    name: "Auto".to_string(),
+                                    ty: None,
+                                    doc: Vec::new(),
+                                },
+                            );
+                            variants.insert(
+                                "Px".to_string(),
+                                VariantDef {
+                                    name: "Px".to_string(),
+                                    ty: Some("PixelValue".to_string()),
+                                    doc: Vec::new(),
+                                },
+                            );
+                            variants.insert(
+                                "MinContent".to_string(),
+                                VariantDef {
+                                    name: "MinContent".to_string(),
+                                    ty: None,
+                                    doc: Vec::new(),
+                                },
+                            );
+                            variants.insert(
+                                "MaxContent".to_string(),
+                                VariantDef {
+                                    name: "MaxContent".to_string(),
+                                    ty: None,
+                                    doc: Vec::new(),
+                                },
+                            );
+                            variants.insert(
+                                "FitContent".to_string(),
+                                VariantDef {
+                                    name: "FitContent".to_string(),
+                                    ty: Some("PixelValue".to_string()),
+                                    doc: Vec::new(),
+                                },
+                            );
+                            variants.insert(
+                                "Calc".to_string(),
+                                VariantDef {
+                                    name: "Calc".to_string(),
+                                    ty: Some("CalcAstItemVec".to_string()),
+                                    doc: Vec::new(),
+                                },
+                            );
+                            variants
+                        },
+                        repr: Some("C, u8".to_string()),
+                        repr_attr_count: 1,
+                        generic_params: vec![],
+                        derives: vec![
+                            "Debug".to_string(),
+                            "Clone".to_string(),
+                            "PartialEq".to_string(),
+                            "Eq".to_string(),
+                            "PartialOrd".to_string(),
+                            "Ord".to_string(),
+                            "Hash".to_string(),
+                            "Default".to_string(),
+                        ],
+                        custom_impls: vec![],
+                    },
+                    source_code: m.to_token_stream().to_string(),
+                    methods: Vec::new(),
+                });
+            }
+        }
+
+        "define_sizing_parser" => {
+            // define_sizing_parser!(fn, enum, error, error_owned, label)
+            // Generates: #[repr(C, u8)] enum ErrorOwned {
+            //   PixelValue(CssPixelValueParseErrorOwned),
+            //   InvalidKeyword(AzString),
+            // }
+            if args.len() >= 4 {
+                let error_owned_name = args[3].to_string();
+                types.push(TypeDefinition {
+                    full_path: build_full_path(crate_name, module_path, &error_owned_name),
+                    type_name: error_owned_name.clone(),
+                    file_path: file_path.to_path_buf(),
+                    module_path: module_path.to_string(),
+                    crate_name: crate_name.to_string(),
+                    kind: TypeDefKind::Enum {
+                        variants: {
+                            let mut variants = IndexMap::new();
+                            variants.insert(
+                                "PixelValue".to_string(),
+                                VariantDef {
+                                    name: "PixelValue".to_string(),
+                                    ty: Some("CssPixelValueParseErrorOwned".to_string()),
+                                    doc: Vec::new(),
+                                },
+                            );
+                            variants.insert(
+                                "InvalidKeyword".to_string(),
+                                VariantDef {
+                                    name: "InvalidKeyword".to_string(),
+                                    ty: Some("AzString".to_string()),
+                                    doc: Vec::new(),
+                                },
+                            );
+                            variants
+                        },
+                        repr: Some("C, u8".to_string()),
+                        repr_attr_count: 1,
+                        generic_params: vec![],
+                        derives: vec![
+                            "Debug".to_string(),
+                            "Clone".to_string(),
+                            "PartialEq".to_string(),
+                        ],
+                        custom_impls: vec![],
+                    },
+                    source_code: m.to_token_stream().to_string(),
+                    methods: Vec::new(),
+                });
+            }
+        }
+
         _ => {}
     }
 
