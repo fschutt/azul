@@ -396,6 +396,7 @@ impl_vec_clone!(
 impl_vec_partialeq!(VirtualKeyCode, VirtualKeyCodeVec);
 impl_vec_eq!(VirtualKeyCode, VirtualKeyCodeVec);
 impl_vec_hash!(VirtualKeyCode, VirtualKeyCodeVec);
+impl_vec_mut!(VirtualKeyCode, VirtualKeyCodeVec);
 
 impl_vec_as_hashmap!(VirtualKeyCode, VirtualKeyCodeVec);
 
@@ -407,6 +408,7 @@ impl_vec_clone!(ScanCode, ScanCodeVec, ScanCodeVecDestructor);
 impl_vec_partialeq!(ScanCode, ScanCodeVec);
 impl_vec_eq!(ScanCode, ScanCodeVec);
 impl_vec_hash!(ScanCode, ScanCodeVec);
+impl_vec_mut!(ScanCode, ScanCodeVec);
 
 impl_vec_as_hashmap!(ScanCode, ScanCodeVec);
 

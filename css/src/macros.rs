@@ -392,9 +392,7 @@ macro_rules! impl_vec_as_hashmap {
         impl $struct_name {
             pub fn insert_hm_item(&mut self, item: $struct_type) {
                 if !self.contains_hm_item(&item) {
-                    let mut vec = self.clone().into_library_owned_vec();
-                    vec.push(item);
-                    *self = Self::from_vec(vec);
+                    self.push(item);
                 }
             }
 
@@ -1098,16 +1096,6 @@ macro_rules! impl_result {
 
         impl_result_inner!($ok_struct_type, $err_struct_type, $struct_name);
     );
-}
-
-macro_rules! impl_grid_value_fmt {
-    ($struct_name:ident) => {
-        impl FormatAsRustCode for $struct_name {
-            fn format_as_rust_code(&self, _tabs: usize) -> String {
-                format!("{} {{ /* TODO */ }}", stringify!($struct_name))
-            }
-        }
-    };
 }
 
 macro_rules! impl_color_value_fmt {

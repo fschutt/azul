@@ -352,6 +352,19 @@ pub fn format_color_value(c: &ColorU) -> String {
     )
 }
 
+fn format_grid_line(line: &GridLine, _tabs: usize) -> String {
+    match line {
+        GridLine::Auto => "GridLine::Auto".to_string(),
+        GridLine::Line(n) => format!("GridLine::Line({})", n),
+        GridLine::Named(named) => format!(
+            "GridLine::Named(NamedGridLine {{ grid_line_name: AzString::from_const_str({:?}), span_count: {} }})",
+            named.grid_line_name.as_ref(),
+            named.span_count,
+        ),
+        GridLine::Span(n) => format!("GridLine::Span({})", n),
+    }
+}
+
 fn format_color_or_system(c: &crate::props::basic::color::ColorOrSystem) -> String {
     use crate::props::basic::color::{ColorOrSystem, SystemColorRef};
     match c {
@@ -490,8 +503,30 @@ impl_pixel_value_fmt!(LayoutLeft);
 impl_pixel_value_fmt!(LayoutColumnGap);
 impl_pixel_value_fmt!(LayoutRowGap);
 
-impl_grid_value_fmt!(GridTemplate);
-impl_grid_value_fmt!(GridPlacement);
+impl FormatAsRustCode for GridTemplate {
+    fn format_as_rust_code(&self, tabs: usize) -> String {
+        let tracks: Vec<String> = self
+            .tracks
+            .as_ref()
+            .iter()
+            .map(|t| t.format_as_rust_code(tabs))
+            .collect();
+        format!(
+            "GridTemplate {{ tracks: GridTrackSizingVec::from_vec(vec![{}]) }}",
+            tracks.join(", ")
+        )
+    }
+}
+
+impl FormatAsRustCode for GridPlacement {
+    fn format_as_rust_code(&self, tabs: usize) -> String {
+        format!(
+            "GridPlacement {{ grid_start: {}, grid_end: {} }}",
+            format_grid_line(&self.grid_start, tabs),
+            format_grid_line(&self.grid_end, tabs),
+        )
+    }
+}
 
 impl_color_value_fmt!(StyleTextColor);
 impl_color_value_fmt!(StyleBorderTopColor);
