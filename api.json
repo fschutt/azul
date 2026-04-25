@@ -21431,6 +21431,16 @@
                             }
                         ],
                         "functions": {
+                            "zero": {
+                                "doc": [
+                                    "Creates an AngleValue of zero degrees."
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "AngleValue"
+                                },
+                                "fn_body": "AngleValue::zero()"
+                            },
                             "deg": {
                                 "doc": [
                                     "Creates an AngleValue from degrees"
