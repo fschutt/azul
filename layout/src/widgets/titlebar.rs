@@ -176,23 +176,23 @@ impl Titlebar {
     pub fn from_system_style(title: AzString, system_style: &SystemStyle) -> Self {
         let tm = &system_style.metrics.titlebar;
         let height = tm.height.as_ref()
-            .map(|pv| pv.to_pixels_internal(0.0, 0.0))
+            .map(|pv| pv.to_pixels_internal(0.0, 0.0, 0.0))
             .unwrap_or(DEFAULT_TITLEBAR_HEIGHT);
         let font_size = tm.title_font_size
             .into_option()
             .unwrap_or(DEFAULT_TITLE_FONT_SIZE);
         let button_area = tm.button_area_width.as_ref()
-            .map(|pv| pv.to_pixels_internal(0.0, 0.0))
+            .map(|pv| pv.to_pixels_internal(0.0, 0.0, 0.0))
             .unwrap_or(DEFAULT_BUTTON_AREA_WIDTH);
         let safe_left = tm.safe_area.left.as_ref()
-            .map(|pv| pv.to_pixels_internal(0.0, 0.0))
+            .map(|pv| pv.to_pixels_internal(0.0, 0.0, 0.0))
             .unwrap_or(0.0);
         let safe_right = tm.safe_area.right.as_ref()
-            .map(|pv| pv.to_pixels_internal(0.0, 0.0))
+            .map(|pv| pv.to_pixels_internal(0.0, 0.0, 0.0))
             .unwrap_or(0.0);
         // Apply padding_horizontal from TitlebarMetrics
         let pad_h = tm.padding_horizontal.as_ref()
-            .map(|pv| pv.to_pixels_internal(0.0, 0.0))
+            .map(|pv| pv.to_pixels_internal(0.0, 0.0, 0.0))
             .unwrap_or(0.0);
 
         // Equal padding on both sides so text-align:center stays at the window midpoint.
@@ -220,7 +220,7 @@ impl Titlebar {
     pub fn from_system_style_csd(title: AzString, system_style: &SystemStyle) -> Self {
         let tm = &system_style.metrics.titlebar;
         let height = tm.height.as_ref()
-            .map(|pv| pv.to_pixels_internal(0.0, 0.0))
+            .map(|pv| pv.to_pixels_internal(0.0, 0.0, 0.0))
             .unwrap_or(DEFAULT_TITLEBAR_HEIGHT);
         let font_size = tm.title_font_size
             .into_option()

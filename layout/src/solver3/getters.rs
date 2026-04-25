@@ -2374,7 +2374,7 @@ pub fn get_selection_style(
         .ptr
         .get_selection_radius(node_data, &node_id, node_state)
         .and_then(|r| r.get_property().cloned())
-        .map(|r| r.inner.to_pixels_internal(0.0, 16.0)) // percent=0, em=16px default font size
+        .map(|r| r.inner.to_pixels_internal(0.0, 16.0, 16.0)) // percent=0, em=16px default font size
         .unwrap_or(0.0);
 
     SelectionStyle {
@@ -2427,7 +2427,7 @@ pub fn get_caret_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> Caret
         .ptr
         .get_caret_width(node_data, &node_id, node_state)
         .and_then(|w| w.get_property().cloned())
-        .map(|w| w.inner.to_pixels_internal(0.0, 16.0)) // 16.0 as default em size
+        .map(|w| w.inner.to_pixels_internal(0.0, 16.0, 16.0)) // 16.0 as default em size
         .unwrap_or(2.0); // 2px width by default
 
     let animation_duration = styled_dom

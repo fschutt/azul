@@ -1253,7 +1253,7 @@ impl SystemStyle {
         }
         fn opt_px(v: &OptionPixelValue) -> alloc::string::String {
             match v.as_ref() {
-                Some(v) => format!("{:.1}", v.to_pixels_internal(0.0, 0.0)),
+                Some(v) => format!("{:.1}", v.to_pixels_internal(0.0, 0.0, 0.0)),
                 None => "null".into(),
             }
         }
@@ -1547,7 +1547,7 @@ r#"{{
             .corner_radius
             .map(|px| {
                 use crate::props::basic::pixel::DEFAULT_FONT_SIZE;
-                format!("{}px", px.to_pixels_internal(1.0, DEFAULT_FONT_SIZE))
+                format!("{}px", px.to_pixels_internal(1.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
             })
             .unwrap_or_else(|| "4px".to_string());
 

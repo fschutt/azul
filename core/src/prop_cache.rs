@@ -4400,6 +4400,7 @@ impl CssPropertyCache {
                 LayoutWidth::Px(px) => Some(px.to_pixels_internal(
                     reference_width,
                     azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                 )),
                 _ => Some(0.0), // min-content/max-content not resolved here
             })
@@ -4418,6 +4419,7 @@ impl CssPropertyCache {
                 Some(w.get_property()?.inner.to_pixels_internal(
                     reference_width,
                     azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                 ))
             })
             .unwrap_or(0.0)
@@ -4435,6 +4437,7 @@ impl CssPropertyCache {
                 Some(w.get_property()?.inner.to_pixels_internal(
                     reference_width,
                     azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                 ))
             })
     }
@@ -4451,6 +4454,7 @@ impl CssPropertyCache {
             .and_then(|h| match h.get_property()? {
                 LayoutHeight::Px(px) => Some(px.to_pixels_internal(
                     reference_height,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                     azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                 )),
                 _ => Some(0.0), // min-content/max-content not resolved here
@@ -4470,6 +4474,7 @@ impl CssPropertyCache {
                 Some(h.get_property()?.inner.to_pixels_internal(
                     reference_height,
                     azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                 ))
             })
             .unwrap_or(0.0)
@@ -4486,6 +4491,7 @@ impl CssPropertyCache {
             .and_then(|h| {
                 Some(h.get_property()?.inner.to_pixels_internal(
                     reference_height,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                     azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                 ))
             })
@@ -4504,6 +4510,7 @@ impl CssPropertyCache {
                 Some(l.get_property()?.inner.to_pixels_internal(
                     reference_width,
                     azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                 ))
             })
     }
@@ -4519,6 +4526,7 @@ impl CssPropertyCache {
             .and_then(|r| {
                 Some(r.get_property()?.inner.to_pixels_internal(
                     reference_width,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                     azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                 ))
             })
@@ -4536,6 +4544,7 @@ impl CssPropertyCache {
                 Some(t.get_property()?.inner.to_pixels_internal(
                     reference_height,
                     azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                 ))
             })
     }
@@ -4551,6 +4560,7 @@ impl CssPropertyCache {
             .and_then(|b| {
                 Some(b.get_property()?.inner.to_pixels_internal(
                     reference_height,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                     azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                 ))
             })
@@ -4569,6 +4579,7 @@ impl CssPropertyCache {
                 Some(b.get_property()?.inner.to_pixels_internal(
                     reference_width,
                     azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                 ))
             })
             .unwrap_or(0.0)
@@ -4585,6 +4596,7 @@ impl CssPropertyCache {
             .and_then(|b| {
                 Some(b.get_property()?.inner.to_pixels_internal(
                     reference_width,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                     azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                 ))
             })
@@ -4603,6 +4615,7 @@ impl CssPropertyCache {
                 Some(b.get_property()?.inner.to_pixels_internal(
                     reference_height,
                     azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                 ))
             })
             .unwrap_or(0.0)
@@ -4619,6 +4632,7 @@ impl CssPropertyCache {
             .and_then(|b| {
                 Some(b.get_property()?.inner.to_pixels_internal(
                     reference_height,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                     azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                 ))
             })
@@ -4638,6 +4652,7 @@ impl CssPropertyCache {
                 Some(p.get_property()?.inner.to_pixels_internal(
                     reference_width,
                     azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                 ))
             })
             .unwrap_or(0.0)
@@ -4654,6 +4669,7 @@ impl CssPropertyCache {
             .and_then(|p| {
                 Some(p.get_property()?.inner.to_pixels_internal(
                     reference_width,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                     azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                 ))
             })
@@ -4672,6 +4688,7 @@ impl CssPropertyCache {
                 Some(p.get_property()?.inner.to_pixels_internal(
                     reference_height,
                     azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                 ))
             })
             .unwrap_or(0.0)
@@ -4688,6 +4705,7 @@ impl CssPropertyCache {
             .and_then(|p| {
                 Some(p.get_property()?.inner.to_pixels_internal(
                     reference_height,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                     azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                 ))
             })
@@ -4707,6 +4725,7 @@ impl CssPropertyCache {
                 Some(m.get_property()?.inner.to_pixels_internal(
                     reference_width,
                     azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                 ))
             })
             .unwrap_or(0.0)
@@ -4723,6 +4742,7 @@ impl CssPropertyCache {
             .and_then(|m| {
                 Some(m.get_property()?.inner.to_pixels_internal(
                     reference_width,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                     azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                 ))
             })
@@ -4741,6 +4761,7 @@ impl CssPropertyCache {
                 Some(m.get_property()?.inner.to_pixels_internal(
                     reference_height,
                     azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                 ))
             })
             .unwrap_or(0.0)
@@ -4757,6 +4778,7 @@ impl CssPropertyCache {
             .and_then(|m| {
                 Some(m.get_property()?.inner.to_pixels_internal(
                     reference_height,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                     azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                 ))
             })

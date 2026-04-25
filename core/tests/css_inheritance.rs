@@ -89,7 +89,7 @@ fn test_font_size_inheritance_single_level() {
         };
         if let CssProperty::FontSize(font_size_value) = &prop_with_origin.property {
             if let Some(font_size) = font_size_value.get_property() {
-                let size = font_size.inner.to_pixels_internal(16.0, 16.0); // Default fallback
+                let size = font_size.inner.to_pixels_internal(16.0, 16.0, 16.0); // Default fallback
                 assert_eq!(
                     size, 24.0,
                     "Child should inherit parent's font-size of 24px"
@@ -147,7 +147,7 @@ fn test_font_size_override_not_inherited() {
         };
         if let CssProperty::FontSize(font_size_value) = &prop_with_origin.property {
             if let Some(font_size) = font_size_value.get_property() {
-                let size = font_size.inner.to_pixels_internal(16.0, 16.0);
+                let size = font_size.inner.to_pixels_internal(16.0, 16.0, 16.0);
                 assert_eq!(
                     size, 12.0,
                     "Child should use its explicit font-size of 12px, not inherit 24px"
@@ -267,7 +267,7 @@ fn test_mixed_inherited_and_explicit_properties() {
         };
         if let CssProperty::FontSize(font_size_value) = &prop_with_origin.property {
             if let Some(font_size) = font_size_value.get_property() {
-                let size = font_size.inner.to_pixels_internal(16.0, 16.0);
+                let size = font_size.inner.to_pixels_internal(16.0, 16.0, 16.0);
                 assert_eq!(size, 16.0, "p should have explicit font-size: 16px");
             }
         } else {
@@ -502,7 +502,7 @@ fn test_em_unit_inheritance_basic() {
     };
 
     // 2em relative to parent's 16px = 32px
-    let size = font_size.inner.to_pixels_internal(16.0, 16.0); // Parent's font-size is 16px
+    let size = font_size.inner.to_pixels_internal(16.0, 16.0, 16.0); // Parent's font-size is 16px
     assert_eq!(
         size, 32.0,
         "p with font-size: 2em should compute to 32px (2 * 16px)"
@@ -573,7 +573,7 @@ fn test_em_unit_cascading_multiplication() {
         panic!("p FontSize should have value");
     };
 
-    let p_size = p_size_val.inner.to_pixels_internal(10.0, 10.0); // Parent (div) is 10px
+    let p_size = p_size_val.inner.to_pixels_internal(10.0, 10.0, 10.0); // Parent (div) is 10px
     assert_eq!(p_size, 20.0, "p should be 20px (2em * 10px)");
 
     // Check span: 1.5em * 20px = 30px
@@ -593,7 +593,7 @@ fn test_em_unit_cascading_multiplication() {
         panic!("span FontSize should have value");
     };
 
-    let span_size = span_size_val.inner.to_pixels_internal(20.0, 20.0); // Parent (p) is 20px
+    let span_size = span_size_val.inner.to_pixels_internal(20.0, 20.0, 20.0); // Parent (p) is 20px
     assert_eq!(span_size, 30.0, "span should be 30px (1.5em * 20px)");
 }
 
@@ -888,7 +888,7 @@ fn test_percentage_font_size_inheritance() {
         panic!("p FontSize should have value");
     };
 
-    let p_size = p_size_val.inner.to_pixels_internal(20.0, 20.0); // Parent is 20px
+    let p_size = p_size_val.inner.to_pixels_internal(20.0, 20.0, 20.0); // Parent is 20px
     assert_eq!(p_size, 30.0, "p with 150% should be 30px (1.5 * 20px)");
 
     // span: 80% of 30px = 24px
@@ -908,6 +908,6 @@ fn test_percentage_font_size_inheritance() {
         panic!("span FontSize should have value");
     };
 
-    let span_size = span_size_val.inner.to_pixels_internal(30.0, 30.0); // Parent is 30px
+    let span_size = span_size_val.inner.to_pixels_internal(30.0, 30.0, 30.0); // Parent is 30px
     assert_eq!(span_size, 24.0, "span with 80% should be 24px (0.8 * 30px)");
 }

@@ -200,49 +200,6 @@ impl ResolutionContext {
         }
     }
 
-    /// Create a context with only font-size information (for font-relative units)
-    #[inline]
-    pub const fn for_fonts(
-        element_font_size: f32,
-        parent_font_size: f32,
-        root_font_size: f32,
-    ) -> Self {
-        Self {
-            element_font_size,
-            parent_font_size,
-            root_font_size,
-            containing_block_size: PhysicalSize {
-                width: 0.0,
-                height: 0.0,
-            },
-            element_size: None,
-            viewport_size: PhysicalSize {
-                width: 0.0,
-                height: 0.0,
-            },
-        }
-    }
-
-    /// Create a context with containing block information (for percentage units)
-    #[inline]
-    pub const fn with_containing_block(mut self, containing_block_size: PhysicalSize) -> Self {
-        self.containing_block_size = containing_block_size;
-        self
-    }
-
-    /// Create a context with element size information (for border-radius, transforms)
-    #[inline]
-    pub const fn with_element_size(mut self, element_size: PhysicalSize) -> Self {
-        self.element_size = Some(element_size);
-        self
-    }
-
-    /// Create a context with viewport size information (for vw, vh, vmin, vmax units)
-    #[inline]
-    pub const fn with_viewport_size(mut self, viewport_size: PhysicalSize) -> Self {
-        self.viewport_size = viewport_size;
-        self
-    }
 }
 
 /// Specifies which property context we're resolving for, to determine correct reference values
@@ -480,8 +437,8 @@ impl PixelValue {
         } else {
             // Interpolate between different metrics by converting to px
             // Note: Uses DEFAULT_FONT_SIZE for em/rem - acceptable for animation fallback
-            let self_px_interp = self.to_pixels_internal(0.0, DEFAULT_FONT_SIZE);
-            let other_px_interp = other.to_pixels_internal(0.0, DEFAULT_FONT_SIZE);
+            let self_px_interp = self.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
+            let other_px_interp = other.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
             Self::from_metric(
                 SizeMetric::Px,
                 self_px_interp + (other_px_interp - self_px_interp) * t,
@@ -509,7 +466,7 @@ impl PixelValue {
     /// **DO NOT USE directly!** Use `resolve_with_context()` instead for new code.
     #[doc(hidden)]
     #[inline]
-    pub fn to_pixels_internal(&self, percent_resolve: f32, em_resolve: f32) -> f32 {
+    pub fn to_pixels_internal(&self, percent_resolve: f32, em_resolve: f32, rem_resolve: f32) -> f32 {
         match self.metric {
             SizeMetric::Px => self.number.get(),
             SizeMetric::Pt => self.number.get() * PT_TO_PX,
@@ -517,7 +474,7 @@ impl PixelValue {
             SizeMetric::Cm => self.number.get() * 96.0 / 2.54,
             SizeMetric::Mm => self.number.get() * 96.0 / 25.4,
             SizeMetric::Em => self.number.get() * em_resolve,
-            SizeMetric::Rem => self.number.get() * em_resolve,
+            SizeMetric::Rem => self.number.get() * rem_resolve,
             SizeMetric::Percent => {
                 NormalizedPercentage::from_unnormalized(self.number.get()).resolve(percent_resolve)
             }
@@ -703,8 +660,8 @@ impl PixelValueNoPercent {
     /// **DO NOT USE directly!** Use `resolve_with_context()` on inner value instead.
     #[doc(hidden)]
     #[inline]
-    pub fn to_pixels_internal(&self, em_resolve: f32) -> f32 {
-        self.inner.to_pixels_internal(0.0, em_resolve)
+    pub fn to_pixels_internal(&self, em_resolve: f32, rem_resolve: f32) -> f32 {
+        self.inner.to_pixels_internal(0.0, em_resolve, rem_resolve)
     }
 
     #[inline]
@@ -1040,18 +997,6 @@ impl PixelValueOrSystem {
         }
     }
     
-    /// Returns the concrete value if available, or a default fallback for system metrics.
-    pub fn to_pixel_value_with_fallback(&self, fallback: PixelValue) -> PixelValue {
-        match self {
-            PixelValueOrSystem::Value(v) => *v,
-            PixelValueOrSystem::System(_) => fallback,
-        }
-    }
-    
-    /// Returns the concrete value if available, or zero for system metrics.
-    pub fn to_pixel_value_default(&self) -> PixelValue {
-        self.to_pixel_value_with_fallback(PixelValue::zero())
-    }
 }
 
 impl fmt::Display for PixelValueOrSystem {

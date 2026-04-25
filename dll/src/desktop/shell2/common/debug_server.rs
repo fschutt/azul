@@ -7125,19 +7125,19 @@ fn process_debug_event(
                             });
                             // Extract border widths from each side
                             let extract_top_width = widths.top.as_ref().and_then(|c| match c {
-                                azul_css::css::CssPropertyValue::Exact(c) => Some(c.inner.to_pixels_internal(0.0, 16.0)),
+                                azul_css::css::CssPropertyValue::Exact(c) => Some(c.inner.to_pixels_internal(0.0, 16.0, 16.0)),
                                 _ => None,
                             });
                             let extract_right_width = widths.right.as_ref().and_then(|c| match c {
-                                azul_css::css::CssPropertyValue::Exact(c) => Some(c.inner.to_pixels_internal(0.0, 16.0)),
+                                azul_css::css::CssPropertyValue::Exact(c) => Some(c.inner.to_pixels_internal(0.0, 16.0, 16.0)),
                                 _ => None,
                             });
                             let extract_bottom_width = widths.bottom.as_ref().and_then(|c| match c {
-                                azul_css::css::CssPropertyValue::Exact(c) => Some(c.inner.to_pixels_internal(0.0, 16.0)),
+                                azul_css::css::CssPropertyValue::Exact(c) => Some(c.inner.to_pixels_internal(0.0, 16.0, 16.0)),
                                 _ => None,
                             });
                             let extract_left_width = widths.left.as_ref().and_then(|c| match c {
-                                azul_css::css::CssPropertyValue::Exact(c) => Some(c.inner.to_pixels_internal(0.0, 16.0)),
+                                azul_css::css::CssPropertyValue::Exact(c) => Some(c.inner.to_pixels_internal(0.0, 16.0, 16.0)),
                                 _ => None,
                             });
                             let border_colors = BorderColorsJson {

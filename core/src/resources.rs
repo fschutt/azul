@@ -2035,7 +2035,7 @@ impl_option!(
 );
 
 pub fn font_size_to_au(font_size: StyleFontSize) -> Au {
-    Au::from_px(font_size.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE))
+    Au::from_px(font_size.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
 }
 
 pub type FontInstanceFlags = u32;

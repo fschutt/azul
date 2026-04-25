@@ -185,7 +185,7 @@ fn override_node_css_properties_lands_in_user_overridden_cache() {
     match &width_entry.1 {
         CssProperty::Width(lw) => match lw.get_property().expect("non-auto width override") {
             LayoutWidth::Px(px) => {
-                let val = px.to_pixels_internal(0.0, 0.0);
+                let val = px.to_pixels_internal(0.0, 0.0, 0.0);
                 assert!(
                     (val - 123.0).abs() < 0.5,
                     "override width value round-trip: expected 123.0, got {}",

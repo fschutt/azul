@@ -2100,17 +2100,17 @@ pub fn wr_translate_border_radius(
     // The "w / h" is necessary to convert percentage-based values into pixels, for example
     // "border-radius: 50%;"
 
-    let top_left_px_h = top_left.to_pixels_internal(w, DEFAULT_FONT_SIZE);
-    let top_left_px_v = top_left.to_pixels_internal(h, DEFAULT_FONT_SIZE);
+    let top_left_px_h = top_left.to_pixels_internal(w, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
+    let top_left_px_v = top_left.to_pixels_internal(h, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
 
-    let top_right_px_h = top_right.to_pixels_internal(w, DEFAULT_FONT_SIZE);
-    let top_right_px_v = top_right.to_pixels_internal(h, DEFAULT_FONT_SIZE);
+    let top_right_px_h = top_right.to_pixels_internal(w, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
+    let top_right_px_v = top_right.to_pixels_internal(h, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
 
-    let bottom_left_px_h = bottom_left.to_pixels_internal(w, DEFAULT_FONT_SIZE);
-    let bottom_left_px_v = bottom_left.to_pixels_internal(h, DEFAULT_FONT_SIZE);
+    let bottom_left_px_h = bottom_left.to_pixels_internal(w, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
+    let bottom_left_px_v = bottom_left.to_pixels_internal(h, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
 
-    let bottom_right_px_h = bottom_right.to_pixels_internal(w, DEFAULT_FONT_SIZE);
-    let bottom_right_px_v = bottom_right.to_pixels_internal(h, DEFAULT_FONT_SIZE);
+    let bottom_right_px_h = bottom_right.to_pixels_internal(w, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
+    let bottom_right_px_v = bottom_right.to_pixels_internal(h, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
 
     WrBorderRadius {
         top_left: WrLayoutSize::new(top_left_px_h, top_left_px_v),
@@ -2289,19 +2289,19 @@ pub fn get_webrender_border(
 
     let has_no_border_radius = radii
         .top_left
-        .to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE)
+        .to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
         == 0.0
         && radii
             .top_right
-            .to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE)
+            .to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
             == 0.0
         && radii
             .bottom_left
-            .to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE)
+            .to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
             == 0.0
         && radii
             .bottom_right
-            .to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE)
+            .to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
             == 0.0;
 
     let (color_top, color_right, color_bottom, color_left) = (
@@ -2353,22 +2353,22 @@ pub fn get_webrender_border(
     let border_widths = WrLayoutSideOffsets::new(
         width_top
             .map(|v| {
-                (v.to_pixels_internal(rect_size.height, DEFAULT_FONT_SIZE) * hidpi).floor() / hidpi
+                (v.to_pixels_internal(rect_size.height, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * hidpi).floor() / hidpi
             })
             .unwrap_or(0.0),
         width_right
             .map(|v| {
-                (v.to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE) * hidpi).floor() / hidpi
+                (v.to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * hidpi).floor() / hidpi
             })
             .unwrap_or(0.0),
         width_bottom
             .map(|v| {
-                (v.to_pixels_internal(rect_size.height, DEFAULT_FONT_SIZE) * hidpi).floor() / hidpi
+                (v.to_pixels_internal(rect_size.height, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * hidpi).floor() / hidpi
             })
             .unwrap_or(0.0),
         width_left
             .map(|v| {
-                (v.to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE) * hidpi).floor() / hidpi
+                (v.to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * hidpi).floor() / hidpi
             })
             .unwrap_or(0.0),
     );
