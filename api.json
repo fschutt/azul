@@ -27998,6 +27998,32 @@
                                 }
                             }
                         ],
+                        "constructors": {
+                            "create": {
+                                "fn_args": [
+                                    {
+                                        "name": "String"
+                                    },
+                                    {
+                                        "span": "OptionI32"
+                                    }
+                                ],
+                                "fn_body": "azul_css::props::layout::grid::NamedGridLine::create(name, span.into())"
+                            }
+                        },
+                        "functions": {
+                            "span": {
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionI32"
+                                },
+                                "fn_body": "object.span().into()"
+                            }
+                        },
                         "repr": "C"
                     },
                     "ScrollbarColorCustom": {

@@ -336,6 +336,31 @@ impl GridParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+fn split_respecting_parens(input: &str) -> Result<Vec<String>, ()> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut paren_depth: i32 = 0;
+
+    for ch in input.chars() {
+        match ch {
+            '(' => { paren_depth += 1; current.push(ch); }
+            ')' => { paren_depth -= 1; if paren_depth < 0 { return Err(()); } current.push(ch); }
+            ' ' if paren_depth == 0 => {
+                if !current.trim().is_empty() {
+                    parts.push(current.trim().to_string());
+                    current.clear();
+                }
+            }
+            _ => current.push(ch),
+        }
+    }
+    if !current.trim().is_empty() {
+        parts.push(current.trim().to_string());
+    }
+    Ok(parts)
+}
+
+#[cfg(feature = "parser")]
 pub fn parse_grid_template<'a>(input: &'a str) -> Result<GridTemplate, GridParseError<'a>> {
     use crate::props::basic::pixel::parse_pixel_value;
 
@@ -345,38 +370,12 @@ pub fn parse_grid_template<'a>(input: &'a str) -> Result<GridTemplate, GridParse
         return Ok(GridTemplate::default());
     }
 
+    let parts = split_respecting_parens(input)
+        .map_err(|_| GridParseError::InvalidValue(input))?;
+
     let mut tracks = Vec::new();
-    let mut current = String::new();
-    let mut paren_depth = 0;
-
-    for ch in input.chars() {
-        match ch {
-            '(' => {
-                paren_depth += 1;
-                current.push(ch);
-            }
-            ')' => {
-                paren_depth -= 1;
-                if paren_depth < 0 {
-                    return Err(GridParseError::InvalidValue(input));
-                }
-                current.push(ch);
-            }
-            ' ' if paren_depth == 0 => {
-                if !current.trim().is_empty() {
-                    let track_str = current.trim().to_string();
-                    parse_grid_track_or_repeat(&track_str, &mut tracks)
-                        .map_err(|_| GridParseError::InvalidValue(input))?;
-                    current.clear();
-                }
-            }
-            _ => current.push(ch),
-        }
-    }
-
-    if !current.trim().is_empty() {
-        let track_str = current.trim().to_string();
-        parse_grid_track_or_repeat(&track_str, &mut tracks)
+    for part in &parts {
+        parse_grid_track_or_repeat(part, &mut tracks)
             .map_err(|_| GridParseError::InvalidValue(input))?;
     }
 
@@ -406,25 +405,11 @@ fn parse_grid_track_or_repeat(input: &str, tracks: &mut Vec<GridTrackSizing>) ->
         }
 
         // Parse the track list (may contain multiple space-separated tracks)
-        let mut repeat_tracks = Vec::new();
-        let mut current = String::new();
-        let mut paren_depth = 0;
-        for ch in track_list_str.chars() {
-            match ch {
-                '(' => { paren_depth += 1; current.push(ch); }
-                ')' => { paren_depth -= 1; if paren_depth < 0 { return Err(()); } current.push(ch); }
-                ' ' if paren_depth == 0 => {
-                    if !current.trim().is_empty() {
-                        repeat_tracks.push(parse_grid_track_owned(current.trim())?);
-                        current.clear();
-                    }
-                }
-                _ => current.push(ch),
-            }
-        }
-        if !current.trim().is_empty() {
-            repeat_tracks.push(parse_grid_track_owned(current.trim())?);
-        }
+        let parts = split_respecting_parens(track_list_str)?;
+        let repeat_tracks: Vec<GridTrackSizing> = parts
+            .iter()
+            .map(|p| parse_grid_track_owned(p))
+            .collect::<Result<Vec<_>, _>>()?;
 
         // Expand: repeat N times
         for _ in 0..count {
