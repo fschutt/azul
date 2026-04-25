@@ -1114,20 +1114,9 @@ impl ScrollbarFadeDelayParseErrorOwned {
     }
 }
 
-/// Parse a time value as milliseconds: `500ms`, `0`, `1s`, `0.2s`
+#[cfg(feature = "parser")]
 fn parse_time_ms(input: &str) -> Option<u32> {
-    let input = input.trim();
-    if input == "0" {
-        return Some(0);
-    }
-    if let Some(ms_str) = input.strip_suffix("ms") {
-        return ms_str.trim().parse::<u32>().ok();
-    }
-    if let Some(s_str) = input.strip_suffix('s') {
-        let secs: f64 = s_str.trim().parse().ok()?;
-        return Some((secs * 1000.0) as u32);
-    }
-    None
+    crate::props::basic::time::parse_duration(input).ok().map(|d| d.inner)
 }
 
 #[cfg(feature = "parser")]
