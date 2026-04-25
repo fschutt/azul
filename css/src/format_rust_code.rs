@@ -746,6 +746,24 @@ impl FormatAsRustCode for StyleOverflowClipMargin {
     }
 }
 
+impl FormatAsRustCode for StyleClipRect {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        fn fmt_edge(o: &OptionF32) -> String {
+            match o {
+                OptionF32::None => String::from("OptionF32::None"),
+                OptionF32::Some(v) => format!("OptionF32::Some({:?})", v),
+            }
+        }
+        format!(
+            "StyleClipRect {{ top: {}, right: {}, bottom: {}, left: {} }}",
+            fmt_edge(&self.top),
+            fmt_edge(&self.right),
+            fmt_edge(&self.bottom),
+            fmt_edge(&self.left),
+        )
+    }
+}
+
 // Complex type implementations
 
 fn format_style_background_size(c: &StyleBackgroundSize) -> String {

@@ -1,7 +1,7 @@
 //! CSS properties for managing content overflow.
 
 use alloc::string::{String, ToString};
-use crate::corety::AzString;
+use crate::corety::{AzString, OptionF32};
 
 use crate::props::formatter::PrintAsCssValue;
 
@@ -412,22 +412,24 @@ pub fn parse_style_overflow_clip_margin<'a>(
 ///
 /// Negative lengths are permitted.
 // +spec:overflow:297dc3 - clip rect() auto values resolve to border box edges
-#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleClipRect {
-    /// Top edge offset. `None` means `auto` (= 0).
-    pub top: Option<f32>,
-    /// Right edge offset. `None` means `auto` (= used width + horiz padding + horiz border).
-    pub right: Option<f32>,
-    /// Bottom edge offset. `None` means `auto` (= used height + vert padding + vert border).
-    pub bottom: Option<f32>,
-    /// Left edge offset. `None` means `auto` (= 0).
-    pub left: Option<f32>,
+    /// Top edge offset in pixels. `None` means `auto` (= 0).
+    pub top: OptionF32,
+    /// Right edge offset in pixels. `None` means `auto` (= used width + horiz padding + horiz border).
+    pub right: OptionF32,
+    /// Bottom edge offset in pixels. `None` means `auto` (= used height + vert padding + vert border).
+    pub bottom: OptionF32,
+    /// Left edge offset in pixels. `None` means `auto` (= 0).
+    pub left: OptionF32,
 }
 
 impl StyleClipRect {
     /// Resolves `auto` values to border box edges given the element's
     /// used width/height and padding/border sizes.
+    ///
+    /// Returns `(top, right, bottom, left)` in pixels.
     pub fn resolve(
         &self,
         used_width: f32,
@@ -441,16 +443,135 @@ impl StyleClipRect {
         border_top: f32,
         border_bottom: f32,
     ) -> (f32, f32, f32, f32) {
-        let top = self.top.unwrap_or(0.0);
-        let left = self.left.unwrap_or(0.0);
+        let top = self.top.into_option().unwrap_or(0.0);
+        let left = self.left.into_option().unwrap_or(0.0);
         let bottom = self
             .bottom
+            .into_option()
             .unwrap_or(used_height + padding_top + padding_bottom + border_top + border_bottom);
         let right = self
             .right
+            .into_option()
             .unwrap_or(used_width + padding_left + padding_right + border_left + border_right);
         (top, right, bottom, left)
     }
+}
+
+impl PrintAsCssValue for StyleClipRect {
+    fn print_as_css_value(&self) -> String {
+        fn fmt_edge(o: &OptionF32) -> String {
+            match o.into_option() {
+                Some(v) => format!("{}px", v),
+                None => String::from("auto"),
+            }
+        }
+        format!(
+            "rect({}, {}, {}, {})",
+            fmt_edge(&self.top),
+            fmt_edge(&self.right),
+            fmt_edge(&self.bottom),
+            fmt_edge(&self.left)
+        )
+    }
+}
+
+// -- Parser for StyleClipRect
+
+/// Error returned when parsing a CSS `clip` property value fails.
+#[derive(Clone, PartialEq, Eq)]
+pub enum StyleClipRectParseError<'a> {
+    /// The provided value is not a valid `clip` value.
+    InvalidValue(&'a str),
+}
+
+impl_debug_as_display!(StyleClipRectParseError<'a>);
+impl_display! { StyleClipRectParseError<'a>, {
+    InvalidValue(val) => format!(
+        "Invalid clip value: \"{}\". Expected 'auto' or 'rect(<top>, <right>, <bottom>, <left>)'.", val
+    ),
+}}
+
+/// An owned version of `StyleClipRectParseError`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C, u8)]
+pub enum StyleClipRectParseErrorOwned {
+    InvalidValue(AzString),
+}
+
+impl<'a> StyleClipRectParseError<'a> {
+    /// Converts the borrowed error into an owned error.
+    pub fn to_contained(&self) -> StyleClipRectParseErrorOwned {
+        match self {
+            StyleClipRectParseError::InvalidValue(s) => {
+                StyleClipRectParseErrorOwned::InvalidValue(s.to_string().into())
+            }
+        }
+    }
+}
+
+impl StyleClipRectParseErrorOwned {
+    /// Converts the owned error back into a borrowed error.
+    pub fn to_shared<'a>(&'a self) -> StyleClipRectParseError<'a> {
+        match self {
+            StyleClipRectParseErrorOwned::InvalidValue(s) => {
+                StyleClipRectParseError::InvalidValue(s.as_str())
+            }
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+fn parse_clip_edge<'a>(token: &'a str) -> Result<OptionF32, StyleClipRectParseError<'a>> {
+    use crate::props::basic::pixel::parse_pixel_value;
+
+    let token = token.trim();
+    if token.eq_ignore_ascii_case("auto") {
+        return Ok(OptionF32::None);
+    }
+    let pv = parse_pixel_value(token)
+        .map_err(|_| StyleClipRectParseError::InvalidValue(token))?;
+    Ok(OptionF32::Some(pv.number.get()))
+}
+
+#[cfg(feature = "parser")]
+/// Parses a `StyleClipRect` from a string slice.
+///
+/// Accepts:
+/// - `auto` — equivalent to `rect(auto, auto, auto, auto)`.
+/// - `rect(<top>, <right>, <bottom>, <left>)` — comma-separated form.
+/// - `rect(<top> <right> <bottom> <left>)` — legacy space-separated form.
+///
+/// Each edge is either `auto` or a `<length>`. Negative lengths are permitted.
+pub fn parse_clip_rect<'a>(input: &'a str) -> Result<StyleClipRect, StyleClipRectParseError<'a>> {
+    let trimmed = input.trim();
+
+    if trimmed.eq_ignore_ascii_case("auto") {
+        return Ok(StyleClipRect::default());
+    }
+
+    let inner = trimmed
+        .strip_prefix("rect(")
+        .or_else(|| trimmed.strip_prefix("RECT("))
+        .and_then(|s| s.strip_suffix(')'))
+        .ok_or(StyleClipRectParseError::InvalidValue(input))?;
+
+    let inner = inner.trim();
+    let parts: alloc::vec::Vec<&str> = if inner.contains(',') {
+        inner.split(',').map(|s| s.trim()).collect()
+    } else {
+        inner.split_whitespace().collect()
+    };
+
+    if parts.len() != 4 {
+        return Err(StyleClipRectParseError::InvalidValue(input));
+    }
+
+    Ok(StyleClipRect {
+        top: parse_clip_edge(parts[0])?,
+        right: parse_clip_edge(parts[1])?,
+        bottom: parse_clip_edge(parts[2])?,
+        left: parse_clip_edge(parts[3])?,
+    })
 }
 
 #[cfg(all(test, feature = "parser"))]
@@ -500,5 +621,63 @@ mod tests {
         assert!(!LayoutOverflow::Hidden.needs_scrollbar(true));
         assert!(!LayoutOverflow::Visible.needs_scrollbar(true));
         assert!(!LayoutOverflow::Clip.needs_scrollbar(true));
+    }
+
+    #[test]
+    fn test_parse_clip_rect_auto_keyword() {
+        let r = parse_clip_rect("auto").unwrap();
+        assert_eq!(r.top, OptionF32::None);
+        assert_eq!(r.right, OptionF32::None);
+        assert_eq!(r.bottom, OptionF32::None);
+        assert_eq!(r.left, OptionF32::None);
+    }
+
+    #[test]
+    fn test_parse_clip_rect_all_auto_in_rect() {
+        let r = parse_clip_rect("rect(auto, auto, auto, auto)").unwrap();
+        assert_eq!(r.top, OptionF32::None);
+        assert_eq!(r.right, OptionF32::None);
+        assert_eq!(r.bottom, OptionF32::None);
+        assert_eq!(r.left, OptionF32::None);
+    }
+
+    #[test]
+    fn test_parse_clip_rect_mixed_auto_and_lengths() {
+        let r = parse_clip_rect("rect(10px, auto, 30px, auto)").unwrap();
+        assert_eq!(r.top, OptionF32::Some(10.0));
+        assert_eq!(r.right, OptionF32::None);
+        assert_eq!(r.bottom, OptionF32::Some(30.0));
+        assert_eq!(r.left, OptionF32::None);
+    }
+
+    #[test]
+    fn test_parse_clip_rect_negative_lengths() {
+        let r = parse_clip_rect("rect(-5px, 0px, -10px, 0px)").unwrap();
+        assert_eq!(r.top, OptionF32::Some(-5.0));
+        assert_eq!(r.right, OptionF32::Some(0.0));
+        assert_eq!(r.bottom, OptionF32::Some(-10.0));
+        assert_eq!(r.left, OptionF32::Some(0.0));
+    }
+
+    #[test]
+    fn test_parse_clip_rect_legacy_space_separated() {
+        // Legacy CSS 2.1 syntax used spaces instead of commas.
+        let r = parse_clip_rect("rect(1px 2px 3px 4px)").unwrap();
+        assert_eq!(r.top, OptionF32::Some(1.0));
+        assert_eq!(r.right, OptionF32::Some(2.0));
+        assert_eq!(r.bottom, OptionF32::Some(3.0));
+        assert_eq!(r.left, OptionF32::Some(4.0));
+    }
+
+    #[test]
+    fn test_parse_clip_rect_malformed() {
+        assert!(parse_clip_rect("").is_err());
+        assert!(parse_clip_rect("none").is_err());
+        // Wrong number of edges.
+        assert!(parse_clip_rect("rect(10px, 20px, 30px)").is_err());
+        // Missing closing paren.
+        assert!(parse_clip_rect("rect(10px, 20px, 30px, 40px").is_err());
+        // Garbage edge.
+        assert!(parse_clip_rect("rect(10px, abc, 30px, 40px)").is_err());
     }
 }

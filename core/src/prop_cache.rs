@@ -99,7 +99,7 @@ use azul_css::{
             StyleTextBoxTrimValue, StyleTextBoxEdgeValue,
             StyleDominantBaselineValue, StyleAlignmentBaselineValue,
             StyleInitialLetterAlignValue, StyleInitialLetterWrapValue,
-            StyleScrollbarGutterValue, StyleOverflowClipMarginValue,
+            StyleScrollbarGutterValue, StyleOverflowClipMarginValue, StyleClipRectValue,
             StyleTextDecorationValue, StyleTextIndentValue,
             StyleTransformOriginValue, StyleTransformVecValue, StyleUserSelectValue,
             StyleVerticalAlignValue, StyleVisibilityValue, StyleWhiteSpaceValue,
@@ -186,6 +186,7 @@ macro_rules! match_property_value {
             CssProperty::InitialLetterWrap($value) => $expr,
             CssProperty::ScrollbarGutter($value) => $expr,
             CssProperty::OverflowClipMargin($value) => $expr,
+            CssProperty::Clip($value) => $expr,
             CssProperty::ExclusionMargin($value) => $expr,
             CssProperty::HyphenationLanguage($value) => $expr,
             CssProperty::LineHeight($value) => $expr,
@@ -1544,6 +1545,9 @@ impl CssPropertyCache {
         if let Some(p) = self.get_overflow_clip_margin(&node_data, node_id, node_state) {
             s.push_str(&format!("overflow-clip-margin: {};", p.get_css_value_fmt()));
         }
+        if let Some(p) = self.get_clip(&node_data, node_id, node_state) {
+            s.push_str(&format!("clip: {};", p.get_css_value_fmt()));
+        }
         if let Some(p) = self.get_white_space(&node_data, node_id, node_state) {
             s.push_str(&format!("white-space: {};", p.get_css_value_fmt()));
         }
@@ -2450,6 +2454,16 @@ impl CssPropertyCache {
     ) -> Option<&'a StyleOverflowClipMarginValue> {
         self.get_property(node_data, node_id, node_state, &CssPropertyType::OverflowClipMargin)
             .and_then(|p| p.as_overflow_clip_margin())
+    }
+
+    pub fn get_clip<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a StyleClipRectValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::Clip)
+            .and_then(|p| p.as_clip())
     }
 
     /// Method for getting white-space property

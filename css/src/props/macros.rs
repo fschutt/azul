@@ -536,6 +536,7 @@ macro_rules! css_property_from_type {
             CssPropertyType::InitialLetterWrap => CssProperty::InitialLetterWrap(CssPropertyValue::$content_type),
             CssPropertyType::ScrollbarGutter => CssProperty::ScrollbarGutter(CssPropertyValue::$content_type),
             CssPropertyType::OverflowClipMargin => CssProperty::OverflowClipMargin(CssPropertyValue::$content_type),
+            CssPropertyType::Clip => CssProperty::Clip(CssPropertyValue::$content_type),
         }
     }};
 }

@@ -16007,6 +16007,9 @@
                                 "OverflowClipMargin": {
                                     "type": "StyleOverflowClipMarginValue"
                                 },
+                                "Clip": {
+                                    "type": "StyleClipRectValue"
+                                },
                                 "ExclusionMargin": {
                                     "type": "StyleExclusionMarginValue"
                                 },
@@ -28679,6 +28682,7 @@
                                 "InitialLetterWrap": {},
                                 "ScrollbarGutter": {},
                                 "OverflowClipMargin": {},
+                                "Clip": {},
                                 "ExclusionMargin": {},
                                 "HyphenationLanguage": {},
                                 "LineHeight": {},
@@ -34970,6 +34974,64 @@
                                 },
                                 "titlebar_button_layout": {
                                     "type": "OptionString"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleClipRectParseErrorOwned": {
+                        "external": "azul_css::props::layout::overflow::StyleClipRectParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleClipRectValue": {
+                        "external": "azul_css::props::property::StyleClipRectValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleClipRect"
+                            ]
+                        }
+                    },
+                    "StyleClipRect": {
+                        "external": "azul_css::props::layout::overflow::StyleClipRect",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "top": {
+                                    "type": "OptionF32"
+                                },
+                                "right": {
+                                    "type": "OptionF32"
+                                },
+                                "bottom": {
+                                    "type": "OptionF32"
+                                },
+                                "left": {
+                                    "type": "OptionF32"
                                 }
                             }
                         ],
@@ -80848,6 +80910,9 @@
                                 },
                                 "OverflowClipMargin": {
                                     "type": "StyleOverflowClipMarginParseErrorOwned"
+                                },
+                                "Clip": {
+                                    "type": "StyleClipRectParseErrorOwned"
                                 },
                                 "ExclusionMargin": {
                                     "type": "StyleExclusionMarginParseErrorOwned"

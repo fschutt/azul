@@ -76,7 +76,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 27] = [
     (CombinedCssPropertyType::InsetInline, "inset-inline"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 177] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 178] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -120,6 +120,8 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 177] = [
     (CssPropertyType::InitialLetterWrap, "initial-letter-wrap"),
     (CssPropertyType::ScrollbarGutter, "scrollbar-gutter"),
     (CssPropertyType::OverflowClipMargin, "overflow-clip-margin"),
+    // +spec:overflow:297dc3 - clip rect() auto values resolve to border box edges
+    (CssPropertyType::Clip, "clip"),
     (CssPropertyType::ExclusionMargin, "-azul-exclusion-margin"),
     (
         CssPropertyType::HyphenationLanguage,
@@ -319,6 +321,7 @@ pub type StyleInitialLetterAlignValue = CssPropertyValue<StyleInitialLetterAlign
 pub type StyleInitialLetterWrapValue = CssPropertyValue<StyleInitialLetterWrap>;
 pub type StyleScrollbarGutterValue = CssPropertyValue<StyleScrollbarGutter>;
 pub type StyleOverflowClipMarginValue = CssPropertyValue<StyleOverflowClipMargin>;
+pub type StyleClipRectValue = CssPropertyValue<StyleClipRect>;
 pub type StyleExclusionMarginValue = CssPropertyValue<StyleExclusionMargin>;
 pub type StyleHyphenationLanguageValue = CssPropertyValue<StyleHyphenationLanguage>;
 pub type StyleWordSpacingValue = CssPropertyValue<StyleWordSpacing>;
@@ -584,6 +587,7 @@ pub enum CssProperty {
     InitialLetterWrap(StyleInitialLetterWrapValue),
     ScrollbarGutter(StyleScrollbarGutterValue),
     OverflowClipMargin(StyleOverflowClipMarginValue),
+    Clip(StyleClipRectValue),
     ExclusionMargin(StyleExclusionMarginValue),
     HyphenationLanguage(StyleHyphenationLanguageValue),
     LineHeight(StyleLineHeightValue),
@@ -829,6 +833,7 @@ pub enum CssPropertyType {
     InitialLetterWrap,
     ScrollbarGutter,
     OverflowClipMargin,
+    Clip,
     ExclusionMargin,
     HyphenationLanguage,
     LineHeight,
@@ -1015,6 +1020,7 @@ impl CssPropertyType {
         CssPropertyType::InitialLetterWrap,
         CssPropertyType::ScrollbarGutter,
         CssPropertyType::OverflowClipMargin,
+        CssPropertyType::Clip,
         CssPropertyType::ExclusionMargin,
         CssPropertyType::HyphenationLanguage,
         CssPropertyType::LineHeight,
@@ -1240,6 +1246,7 @@ impl CssPropertyType {
             CssPropertyType::InitialLetterWrap => "initial-letter-wrap",
             CssPropertyType::ScrollbarGutter => "scrollbar-gutter",
             CssPropertyType::OverflowClipMargin => "overflow-clip-margin",
+            CssPropertyType::Clip => "clip",
             CssPropertyType::ExclusionMargin => "-azul-exclusion-margin",
             CssPropertyType::HyphenationLanguage => "-azul-hyphenation-language",
             CssPropertyType::LineHeight => "line-height",
@@ -1530,7 +1537,8 @@ impl CssPropertyType {
             | MixBlendMode
             | Filter
             | BackdropFilter
-            | TextShadow => false,
+            | TextShadow
+            | Clip => false,
             _ => true,
         }
     }
@@ -1574,7 +1582,7 @@ impl CssPropertyType {
             | BackfaceVisibility | MixBlendMode | Filter | BackdropFilter
             | TextShadow | SelectionBackgroundColor | SelectionColor
             | SelectionRadius | CaretColor | CaretAnimationDuration
-            | CaretWidth | ObjectFit | ObjectPosition => RelayoutScope::None,
+            | CaretWidth | ObjectFit | ObjectPosition | Clip => RelayoutScope::None,
 
             // Font/text properties — IFC-only if inside inline context,
             // otherwise no layout impact (block with only block children
@@ -1675,6 +1683,7 @@ pub enum CssParsingError<'a> {
     InitialLetterWrap(StyleInitialLetterWrapParseError<'a>),
     ScrollbarGutter(StyleScrollbarGutterParseError<'a>),
     OverflowClipMargin(StyleOverflowClipMarginParseError<'a>),
+    Clip(StyleClipRectParseError<'a>),
     ExclusionMargin(StyleExclusionMarginParseError),
     HyphenationLanguage(StyleHyphenationLanguageParseError),
     LineHeight(StyleLineHeightParseError),
@@ -1844,6 +1853,7 @@ pub enum CssParsingErrorOwned {
     InitialLetterWrap(StyleInitialLetterWrapParseErrorOwned),
     ScrollbarGutter(StyleScrollbarGutterParseErrorOwned),
     OverflowClipMargin(StyleOverflowClipMarginParseErrorOwned),
+    Clip(StyleClipRectParseErrorOwned),
     ExclusionMargin(StyleExclusionMarginParseErrorOwned),
     HyphenationLanguage(StyleHyphenationLanguageParseErrorOwned),
     LineHeight(StyleLineHeightParseError),
@@ -2048,6 +2058,7 @@ impl_display! { CssParsingError<'a>, {
     InitialLetterWrap(e) => format!("Invalid initial-letter-wrap: {}", e),
     ScrollbarGutter(e) => format!("Invalid scrollbar-gutter: {}", e),
     OverflowClipMargin(e) => format!("Invalid overflow-clip-margin: {}", e),
+    Clip(e) => format!("Invalid clip: {}", e),
     ExclusionMargin(e) => format!("Invalid -azul-exclusion-margin: {}", e),
     HyphenationLanguage(e) => format!("Invalid -azul-hyphenation-language: {}", e),
     LineHeight(e) => format!("Invalid line-height: {}", e),
@@ -2161,6 +2172,10 @@ impl_from!(
 impl_from!(
     StyleOverflowClipMarginParseError<'a>,
     CssParsingError::OverflowClipMargin
+);
+impl_from!(
+    StyleClipRectParseError<'a>,
+    CssParsingError::Clip
 );
 
 // Manual From implementation for StyleExclusionMarginParseError (no lifetime)
@@ -2578,6 +2593,7 @@ impl<'a> CssParsingError<'a> {
             CssParsingError::InitialLetterWrap(e) => CssParsingErrorOwned::InitialLetterWrap(e.to_contained()),
             CssParsingError::ScrollbarGutter(e) => CssParsingErrorOwned::ScrollbarGutter(e.to_contained()),
             CssParsingError::OverflowClipMargin(e) => CssParsingErrorOwned::OverflowClipMargin(e.to_contained()),
+            CssParsingError::Clip(e) => CssParsingErrorOwned::Clip(e.to_contained()),
             CssParsingError::ExclusionMargin(e) => {
                 CssParsingErrorOwned::ExclusionMargin(e.to_contained())
             }
@@ -2793,6 +2809,7 @@ impl CssParsingErrorOwned {
             CssParsingErrorOwned::InitialLetterWrap(e) => CssParsingError::InitialLetterWrap(e.to_shared()),
             CssParsingErrorOwned::ScrollbarGutter(e) => CssParsingError::ScrollbarGutter(e.to_shared()),
             CssParsingErrorOwned::OverflowClipMargin(e) => CssParsingError::OverflowClipMargin(e.to_shared()),
+            CssParsingErrorOwned::Clip(e) => CssParsingError::Clip(e.to_shared()),
             CssParsingErrorOwned::ExclusionMargin(e) => {
                 CssParsingError::ExclusionMargin(e.to_shared())
             }
@@ -2941,6 +2958,7 @@ pub fn parse_css_property<'a>(
             CssPropertyType::InitialLetterWrap => parse_style_initial_letter_wrap(value)?.into(),
             CssPropertyType::ScrollbarGutter => parse_style_scrollbar_gutter(value)?.into(),
             CssPropertyType::OverflowClipMargin => parse_style_overflow_clip_margin(value)?.into(),
+            CssPropertyType::Clip => parse_clip_rect(value)?.into(),
             CssPropertyType::ExclusionMargin => parse_style_exclusion_margin(value)?.into(),
             CssPropertyType::HyphenationLanguage => parse_style_hyphenation_language(value)?.into(),
             CssPropertyType::LineHeight => parse_style_line_height(value)?.into(),
@@ -4108,6 +4126,7 @@ impl_from_css_prop!(StyleInitialLetterAlign, CssProperty::InitialLetterAlign);
 impl_from_css_prop!(StyleInitialLetterWrap, CssProperty::InitialLetterWrap);
 impl_from_css_prop!(StyleScrollbarGutter, CssProperty::ScrollbarGutter);
 impl_from_css_prop!(StyleOverflowClipMargin, CssProperty::OverflowClipMargin);
+impl_from_css_prop!(StyleClipRect, CssProperty::Clip);
 impl_from_css_prop!(StyleExclusionMargin, CssProperty::ExclusionMargin);
 impl_from_css_prop!(StyleHyphenationLanguage, CssProperty::HyphenationLanguage);
 impl_from_css_prop!(StyleLineHeight, CssProperty::LineHeight);
@@ -4272,6 +4291,7 @@ impl CssProperty {
             CssProperty::InitialLetterWrap(v) => v.get_css_value_fmt(),
             CssProperty::ScrollbarGutter(v) => v.get_css_value_fmt(),
             CssProperty::OverflowClipMargin(v) => v.get_css_value_fmt(),
+            CssProperty::Clip(v) => v.get_css_value_fmt(),
             CssProperty::ExclusionMargin(v) => v.get_css_value_fmt(),
             CssProperty::HyphenationLanguage(v) => v.get_css_value_fmt(),
             CssProperty::LineHeight(v) => v.get_css_value_fmt(),
@@ -4745,6 +4765,7 @@ impl CssProperty {
             CssProperty::InitialLetterWrap(_) => CssPropertyType::InitialLetterWrap,
             CssProperty::ScrollbarGutter(_) => CssPropertyType::ScrollbarGutter,
             CssProperty::OverflowClipMargin(_) => CssPropertyType::OverflowClipMargin,
+            CssProperty::Clip(_) => CssPropertyType::Clip,
             CssProperty::ExclusionMargin(_) => CssPropertyType::ExclusionMargin,
             CssProperty::HyphenationLanguage(_) => CssPropertyType::HyphenationLanguage,
             CssProperty::LineHeight(_) => CssPropertyType::LineHeight,
@@ -5657,6 +5678,12 @@ impl CssProperty {
             _ => None,
         }
     }
+    pub const fn as_clip(&self) -> Option<&StyleClipRectValue> {
+        match self {
+            CssProperty::Clip(f) => Some(f),
+            _ => None,
+        }
+    }
     pub const fn as_exclusion_margin(&self) -> Option<&StyleExclusionMarginValue> {
         match self {
             CssProperty::ExclusionMargin(f) => Some(f),
@@ -6399,6 +6426,7 @@ impl CssProperty {
             InitialLetterWrap(c) => c.is_initial(),
             ScrollbarGutter(c) => c.is_initial(),
             OverflowClipMargin(c) => c.is_initial(),
+            Clip(c) => c.is_initial(),
             ExclusionMargin(c) => c.is_initial(),
             HyphenationLanguage(c) => c.is_initial(),
             LineHeight(c) => c.is_initial(),
@@ -6994,6 +7022,10 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::OverflowClipMargin(p) => format!(
             "CssProperty::OverflowClipMargin({})",
             print_css_property_value(p, tabs, "StyleOverflowClipMargin")
+        ),
+        CssProperty::Clip(p) => format!(
+            "CssProperty::Clip({})",
+            print_css_property_value(p, tabs, "StyleClipRect")
         ),
         CssProperty::ExclusionMargin(p) => format!(
             "CssProperty::ExclusionMargin({})",
