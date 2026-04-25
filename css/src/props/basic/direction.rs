@@ -306,7 +306,7 @@ impl CssDirectionParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_direction_corner<'a>(
+fn parse_direction_corner<'a>(
     input: &'a str,
 ) -> Result<DirectionCorner, CssDirectionCornerParseError<'a>> {
     match input {

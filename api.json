@@ -21598,6 +21598,22 @@
                                 "BottomLeft": {}
                             }
                         ],
+                        "functions": {
+                            "opposite": {
+                                "doc": [
+                                    "Returns the corner opposite to this one (e.g. `TopLeft` -> `BottomRight`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DirectionCorner"
+                                },
+                                "fn_body": "object.opposite()"
+                            }
+                        },
                         "repr": "C"
                     },
                     "DirectionCorners": {
