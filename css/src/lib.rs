@@ -43,6 +43,8 @@ extern crate core;
 #[macro_use]
 /// Internal macros for reducing boilerplate in property definitions.
 pub mod macros;
+/// Multi-language code generation backends (Rust, C++, Python).
+pub mod codegen;
 /// Three-tier numeric property cache for fast style resolution.
 pub mod compact_cache;
 /// FFI-safe core type aliases (`AzString`, `AzVec`, `OptionT`, etc.).

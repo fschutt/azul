@@ -13,7 +13,7 @@ use core::fmt;
 
 use crate::{
     dynamic_selector::DynamicSelectorVec,
-    props::property::{format_static_css_prop, CssProperty, CssPropertyType},
+    props::property::{CssProperty, CssPropertyType},
     AzString,
 };
 
@@ -1061,6 +1061,7 @@ impl NodeTypeTag {
             "switch" => Ok(NodeTypeTag::SvgSwitch),
 
             // SVG text elements
+            "svg:text" => Ok(NodeTypeTag::SvgText),
             "tspan" => Ok(NodeTypeTag::SvgTspan),
             "textpath" => Ok(NodeTypeTag::SvgTextPath),
 
@@ -1103,9 +1104,15 @@ impl NodeTypeTag {
             "feturbulence" => Ok(NodeTypeTag::SvgFeTurbulence),
 
             // SVG marker/image elements
+            "image" | "svg:image" => Ok(NodeTypeTag::SvgImage),
+            "svg:marker" => Ok(NodeTypeTag::SvgMarker),
             "foreignobject" => Ok(NodeTypeTag::SvgForeignObject),
 
             // SVG descriptive elements
+            "svg:title" => Ok(NodeTypeTag::SvgTitle),
+            "svg:a" => Ok(NodeTypeTag::SvgA),
+            "svg:style" => Ok(NodeTypeTag::SvgStyle),
+            "svg:script" => Ok(NodeTypeTag::SvgScript),
             "desc" => Ok(NodeTypeTag::SvgDesc),
             "metadata" => Ok(NodeTypeTag::SvgMetadata),
             "view" => Ok(NodeTypeTag::SvgView),
@@ -1282,7 +1289,7 @@ impl fmt::Display for NodeTypeTag {
             NodeTypeTag::SvgSwitch => write!(f, "switch"),
 
             // SVG text elements
-            NodeTypeTag::SvgText => write!(f, "text"),
+            NodeTypeTag::SvgText => write!(f, "svg:text"),
             NodeTypeTag::SvgTspan => write!(f, "tspan"),
             NodeTypeTag::SvgTextPath => write!(f, "textpath"),
 
@@ -1325,18 +1332,18 @@ impl fmt::Display for NodeTypeTag {
             NodeTypeTag::SvgFeTurbulence => write!(f, "feturbulence"),
 
             // SVG marker/image elements
-            NodeTypeTag::SvgMarker => write!(f, "marker"),
-            NodeTypeTag::SvgImage => write!(f, "image"),
+            NodeTypeTag::SvgMarker => write!(f, "svg:marker"),
+            NodeTypeTag::SvgImage => write!(f, "svg:image"),
             NodeTypeTag::SvgForeignObject => write!(f, "foreignobject"),
 
             // SVG descriptive elements
-            NodeTypeTag::SvgTitle => write!(f, "title"),
+            NodeTypeTag::SvgTitle => write!(f, "svg:title"),
             NodeTypeTag::SvgDesc => write!(f, "desc"),
             NodeTypeTag::SvgMetadata => write!(f, "metadata"),
-            NodeTypeTag::SvgA => write!(f, "a"),
+            NodeTypeTag::SvgA => write!(f, "svg:a"),
             NodeTypeTag::SvgView => write!(f, "view"),
-            NodeTypeTag::SvgStyle => write!(f, "style"),
-            NodeTypeTag::SvgScript => write!(f, "script"),
+            NodeTypeTag::SvgStyle => write!(f, "svg:style"),
+            NodeTypeTag::SvgScript => write!(f, "svg:script"),
 
             // SVG animation elements
             NodeTypeTag::SvgAnimate => write!(f, "animate"),
@@ -1627,381 +1634,4 @@ pub fn get_specificity(path: &CssPath) -> (usize, usize, usize, usize) {
         .filter(|x| matches!(x, CssPathSelector::Type(_)))
         .count();
     (id_count, class_count, div_count, path.selectors.len())
-}
-
-// --- Formatting ---
-
-// High-level CSS to Rust code generation
-
-pub fn css_to_rust_code(css: &Css) -> String {
-    let mut output = String::new();
-
-    output.push_str("const CSS: Css = Css {\r\n");
-    output.push_str("\tstylesheets: [\r\n");
-
-    for stylesheet in css.stylesheets.iter() {
-        output.push_str("\t\tStylesheet {\r\n");
-        output.push_str("\t\t\trules: [\r\n");
-
-        for block in stylesheet.rules.iter() {
-            output.push_str("\t\t\t\tCssRuleBlock: {\r\n");
-            output.push_str(&format!(
-                "\t\t\t\t\tpath: {},\r\n",
-                print_block_path(&block.path, 5)
-            ));
-
-            output.push_str("\t\t\t\t\tdeclarations: [\r\n");
-
-            for declaration in block.declarations.iter() {
-                output.push_str(&format!(
-                    "\t\t\t\t\t\t{},\r\n",
-                    print_declaration(declaration, 6)
-                ));
-            }
-
-            output.push_str("\t\t\t\t\t]\r\n");
-
-            output.push_str("\t\t\t\t},\r\n");
-        }
-
-        output.push_str("\t\t\t]\r\n");
-        output.push_str("\t\t},\r\n");
-    }
-
-    output.push_str("\t]\r\n");
-    output.push_str("};");
-
-    
-
-    output.replace("\t", "    ")
-}
-
-pub fn format_node_type(n: &NodeTypeTag) -> &'static str {
-    match n {
-        // Document structure
-        NodeTypeTag::Html => "NodeTypeTag::Html",
-        NodeTypeTag::Head => "NodeTypeTag::Head",
-        NodeTypeTag::Body => "NodeTypeTag::Body",
-
-        // Block elements
-        NodeTypeTag::Div => "NodeTypeTag::Div",
-        NodeTypeTag::P => "NodeTypeTag::P",
-        NodeTypeTag::Article => "NodeTypeTag::Article",
-        NodeTypeTag::Section => "NodeTypeTag::Section",
-        NodeTypeTag::Nav => "NodeTypeTag::Nav",
-        NodeTypeTag::Aside => "NodeTypeTag::Aside",
-        NodeTypeTag::Header => "NodeTypeTag::Header",
-        NodeTypeTag::Footer => "NodeTypeTag::Footer",
-        NodeTypeTag::Main => "NodeTypeTag::Main",
-        NodeTypeTag::Figure => "NodeTypeTag::Figure",
-        NodeTypeTag::FigCaption => "NodeTypeTag::FigCaption",
-
-        // Headings
-        NodeTypeTag::H1 => "NodeTypeTag::H1",
-        NodeTypeTag::H2 => "NodeTypeTag::H2",
-        NodeTypeTag::H3 => "NodeTypeTag::H3",
-        NodeTypeTag::H4 => "NodeTypeTag::H4",
-        NodeTypeTag::H5 => "NodeTypeTag::H5",
-        NodeTypeTag::H6 => "NodeTypeTag::H6",
-
-        // Text formatting
-        NodeTypeTag::Br => "NodeTypeTag::Br",
-        NodeTypeTag::Hr => "NodeTypeTag::Hr",
-        NodeTypeTag::Pre => "NodeTypeTag::Pre",
-        NodeTypeTag::BlockQuote => "NodeTypeTag::BlockQuote",
-        NodeTypeTag::Address => "NodeTypeTag::Address",
-        NodeTypeTag::Details => "NodeTypeTag::Details",
-        NodeTypeTag::Summary => "NodeTypeTag::Summary",
-        NodeTypeTag::Dialog => "NodeTypeTag::Dialog",
-
-        // List elements
-        NodeTypeTag::Ul => "NodeTypeTag::Ul",
-        NodeTypeTag::Ol => "NodeTypeTag::Ol",
-        NodeTypeTag::Li => "NodeTypeTag::Li",
-        NodeTypeTag::Dl => "NodeTypeTag::Dl",
-        NodeTypeTag::Dt => "NodeTypeTag::Dt",
-        NodeTypeTag::Dd => "NodeTypeTag::Dd",
-        NodeTypeTag::Menu => "NodeTypeTag::Menu",
-        NodeTypeTag::MenuItem => "NodeTypeTag::MenuItem",
-        NodeTypeTag::Dir => "NodeTypeTag::Dir",
-
-        // Table elements
-        NodeTypeTag::Table => "NodeTypeTag::Table",
-        NodeTypeTag::Caption => "NodeTypeTag::Caption",
-        NodeTypeTag::THead => "NodeTypeTag::THead",
-        NodeTypeTag::TBody => "NodeTypeTag::TBody",
-        NodeTypeTag::TFoot => "NodeTypeTag::TFoot",
-        NodeTypeTag::Tr => "NodeTypeTag::Tr",
-        NodeTypeTag::Th => "NodeTypeTag::Th",
-        NodeTypeTag::Td => "NodeTypeTag::Td",
-        NodeTypeTag::ColGroup => "NodeTypeTag::ColGroup",
-        NodeTypeTag::Col => "NodeTypeTag::Col",
-
-        // Form elements
-        NodeTypeTag::Form => "NodeTypeTag::Form",
-        NodeTypeTag::FieldSet => "NodeTypeTag::FieldSet",
-        NodeTypeTag::Legend => "NodeTypeTag::Legend",
-        NodeTypeTag::Label => "NodeTypeTag::Label",
-        NodeTypeTag::Input => "NodeTypeTag::Input",
-        NodeTypeTag::Button => "NodeTypeTag::Button",
-        NodeTypeTag::Select => "NodeTypeTag::Select",
-        NodeTypeTag::OptGroup => "NodeTypeTag::OptGroup",
-        NodeTypeTag::SelectOption => "NodeTypeTag::SelectOption",
-        NodeTypeTag::TextArea => "NodeTypeTag::TextArea",
-        NodeTypeTag::Output => "NodeTypeTag::Output",
-        NodeTypeTag::Progress => "NodeTypeTag::Progress",
-        NodeTypeTag::Meter => "NodeTypeTag::Meter",
-        NodeTypeTag::DataList => "NodeTypeTag::DataList",
-
-        // Inline elements
-        NodeTypeTag::Span => "NodeTypeTag::Span",
-        NodeTypeTag::A => "NodeTypeTag::A",
-        NodeTypeTag::Em => "NodeTypeTag::Em",
-        NodeTypeTag::Strong => "NodeTypeTag::Strong",
-        NodeTypeTag::B => "NodeTypeTag::B",
-        NodeTypeTag::I => "NodeTypeTag::I",
-        NodeTypeTag::U => "NodeTypeTag::U",
-        NodeTypeTag::S => "NodeTypeTag::S",
-        NodeTypeTag::Mark => "NodeTypeTag::Mark",
-        NodeTypeTag::Del => "NodeTypeTag::Del",
-        NodeTypeTag::Ins => "NodeTypeTag::Ins",
-        NodeTypeTag::Code => "NodeTypeTag::Code",
-        NodeTypeTag::Samp => "NodeTypeTag::Samp",
-        NodeTypeTag::Kbd => "NodeTypeTag::Kbd",
-        NodeTypeTag::Var => "NodeTypeTag::Var",
-        NodeTypeTag::Cite => "NodeTypeTag::Cite",
-        NodeTypeTag::Dfn => "NodeTypeTag::Dfn",
-        NodeTypeTag::Abbr => "NodeTypeTag::Abbr",
-        NodeTypeTag::Acronym => "NodeTypeTag::Acronym",
-        NodeTypeTag::Q => "NodeTypeTag::Q",
-        NodeTypeTag::Time => "NodeTypeTag::Time",
-        NodeTypeTag::Sub => "NodeTypeTag::Sub",
-        NodeTypeTag::Sup => "NodeTypeTag::Sup",
-        NodeTypeTag::Small => "NodeTypeTag::Small",
-        NodeTypeTag::Big => "NodeTypeTag::Big",
-        NodeTypeTag::Bdo => "NodeTypeTag::Bdo",
-        NodeTypeTag::Bdi => "NodeTypeTag::Bdi",
-        NodeTypeTag::Wbr => "NodeTypeTag::Wbr",
-        NodeTypeTag::Ruby => "NodeTypeTag::Ruby",
-        NodeTypeTag::Rt => "NodeTypeTag::Rt",
-        NodeTypeTag::Rtc => "NodeTypeTag::Rtc",
-        NodeTypeTag::Rp => "NodeTypeTag::Rp",
-        NodeTypeTag::Data => "NodeTypeTag::Data",
-
-        // Embedded content
-        NodeTypeTag::Canvas => "NodeTypeTag::Canvas",
-        NodeTypeTag::Object => "NodeTypeTag::Object",
-        NodeTypeTag::Param => "NodeTypeTag::Param",
-        NodeTypeTag::Embed => "NodeTypeTag::Embed",
-        NodeTypeTag::Audio => "NodeTypeTag::Audio",
-        NodeTypeTag::Video => "NodeTypeTag::Video",
-        NodeTypeTag::Source => "NodeTypeTag::Source",
-        NodeTypeTag::Track => "NodeTypeTag::Track",
-        NodeTypeTag::Map => "NodeTypeTag::Map",
-        NodeTypeTag::Area => "NodeTypeTag::Area",
-        NodeTypeTag::Svg => "NodeTypeTag::Svg",
-        NodeTypeTag::SvgPath => "NodeTypeTag::SvgPath",
-        NodeTypeTag::SvgCircle => "NodeTypeTag::SvgCircle",
-        NodeTypeTag::SvgRect => "NodeTypeTag::SvgRect",
-        NodeTypeTag::SvgEllipse => "NodeTypeTag::SvgEllipse",
-        NodeTypeTag::SvgLine => "NodeTypeTag::SvgLine",
-        NodeTypeTag::SvgPolygon => "NodeTypeTag::SvgPolygon",
-        NodeTypeTag::SvgPolyline => "NodeTypeTag::SvgPolyline",
-        NodeTypeTag::SvgG => "NodeTypeTag::SvgG",
-
-        // SVG container elements
-        NodeTypeTag::SvgDefs => "NodeTypeTag::SvgDefs",
-        NodeTypeTag::SvgSymbol => "NodeTypeTag::SvgSymbol",
-        NodeTypeTag::SvgUse => "NodeTypeTag::SvgUse",
-        NodeTypeTag::SvgSwitch => "NodeTypeTag::SvgSwitch",
-
-        // SVG text elements
-        NodeTypeTag::SvgText => "NodeTypeTag::SvgText",
-        NodeTypeTag::SvgTspan => "NodeTypeTag::SvgTspan",
-        NodeTypeTag::SvgTextPath => "NodeTypeTag::SvgTextPath",
-
-        // SVG paint server elements
-        NodeTypeTag::SvgLinearGradient => "NodeTypeTag::SvgLinearGradient",
-        NodeTypeTag::SvgRadialGradient => "NodeTypeTag::SvgRadialGradient",
-        NodeTypeTag::SvgStop => "NodeTypeTag::SvgStop",
-        NodeTypeTag::SvgPattern => "NodeTypeTag::SvgPattern",
-
-        // SVG clipping/masking elements
-        NodeTypeTag::SvgClipPathElement => "NodeTypeTag::SvgClipPathElement",
-        NodeTypeTag::SvgMask => "NodeTypeTag::SvgMask",
-
-        // SVG filter elements
-        NodeTypeTag::SvgFilter => "NodeTypeTag::SvgFilter",
-        NodeTypeTag::SvgFeBlend => "NodeTypeTag::SvgFeBlend",
-        NodeTypeTag::SvgFeColorMatrix => "NodeTypeTag::SvgFeColorMatrix",
-        NodeTypeTag::SvgFeComponentTransfer => "NodeTypeTag::SvgFeComponentTransfer",
-        NodeTypeTag::SvgFeComposite => "NodeTypeTag::SvgFeComposite",
-        NodeTypeTag::SvgFeConvolveMatrix => "NodeTypeTag::SvgFeConvolveMatrix",
-        NodeTypeTag::SvgFeDiffuseLighting => "NodeTypeTag::SvgFeDiffuseLighting",
-        NodeTypeTag::SvgFeDisplacementMap => "NodeTypeTag::SvgFeDisplacementMap",
-        NodeTypeTag::SvgFeDistantLight => "NodeTypeTag::SvgFeDistantLight",
-        NodeTypeTag::SvgFeDropShadow => "NodeTypeTag::SvgFeDropShadow",
-        NodeTypeTag::SvgFeFlood => "NodeTypeTag::SvgFeFlood",
-        NodeTypeTag::SvgFeFuncR => "NodeTypeTag::SvgFeFuncR",
-        NodeTypeTag::SvgFeFuncG => "NodeTypeTag::SvgFeFuncG",
-        NodeTypeTag::SvgFeFuncB => "NodeTypeTag::SvgFeFuncB",
-        NodeTypeTag::SvgFeFuncA => "NodeTypeTag::SvgFeFuncA",
-        NodeTypeTag::SvgFeGaussianBlur => "NodeTypeTag::SvgFeGaussianBlur",
-        NodeTypeTag::SvgFeImage => "NodeTypeTag::SvgFeImage",
-        NodeTypeTag::SvgFeMerge => "NodeTypeTag::SvgFeMerge",
-        NodeTypeTag::SvgFeMergeNode => "NodeTypeTag::SvgFeMergeNode",
-        NodeTypeTag::SvgFeMorphology => "NodeTypeTag::SvgFeMorphology",
-        NodeTypeTag::SvgFeOffset => "NodeTypeTag::SvgFeOffset",
-        NodeTypeTag::SvgFePointLight => "NodeTypeTag::SvgFePointLight",
-        NodeTypeTag::SvgFeSpecularLighting => "NodeTypeTag::SvgFeSpecularLighting",
-        NodeTypeTag::SvgFeSpotLight => "NodeTypeTag::SvgFeSpotLight",
-        NodeTypeTag::SvgFeTile => "NodeTypeTag::SvgFeTile",
-        NodeTypeTag::SvgFeTurbulence => "NodeTypeTag::SvgFeTurbulence",
-
-        // SVG marker/image elements
-        NodeTypeTag::SvgMarker => "NodeTypeTag::SvgMarker",
-        NodeTypeTag::SvgImage => "NodeTypeTag::SvgImage",
-        NodeTypeTag::SvgForeignObject => "NodeTypeTag::SvgForeignObject",
-
-        // SVG descriptive elements
-        NodeTypeTag::SvgTitle => "NodeTypeTag::SvgTitle",
-        NodeTypeTag::SvgDesc => "NodeTypeTag::SvgDesc",
-        NodeTypeTag::SvgMetadata => "NodeTypeTag::SvgMetadata",
-        NodeTypeTag::SvgA => "NodeTypeTag::SvgA",
-        NodeTypeTag::SvgView => "NodeTypeTag::SvgView",
-        NodeTypeTag::SvgStyle => "NodeTypeTag::SvgStyle",
-        NodeTypeTag::SvgScript => "NodeTypeTag::SvgScript",
-
-        // SVG animation elements
-        NodeTypeTag::SvgAnimate => "NodeTypeTag::SvgAnimate",
-        NodeTypeTag::SvgAnimateMotion => "NodeTypeTag::SvgAnimateMotion",
-        NodeTypeTag::SvgAnimateTransform => "NodeTypeTag::SvgAnimateTransform",
-        NodeTypeTag::SvgSet => "NodeTypeTag::SvgSet",
-        NodeTypeTag::SvgMpath => "NodeTypeTag::SvgMpath",
-
-        // Metadata
-        NodeTypeTag::Title => "NodeTypeTag::Title",
-        NodeTypeTag::Meta => "NodeTypeTag::Meta",
-        NodeTypeTag::Link => "NodeTypeTag::Link",
-        NodeTypeTag::Script => "NodeTypeTag::Script",
-        NodeTypeTag::Style => "NodeTypeTag::Style",
-        NodeTypeTag::Base => "NodeTypeTag::Base",
-
-        // Content elements
-        NodeTypeTag::Text => "NodeTypeTag::Text",
-        NodeTypeTag::Img => "NodeTypeTag::Img",
-        NodeTypeTag::VirtualView => "NodeTypeTag::VirtualView",
-        NodeTypeTag::Icon => "NodeTypeTag::Icon",
-
-        // Pseudo-elements
-        NodeTypeTag::Before => "NodeTypeTag::Before",
-        NodeTypeTag::After => "NodeTypeTag::After",
-        NodeTypeTag::Marker => "NodeTypeTag::Marker",
-        NodeTypeTag::Placeholder => "NodeTypeTag::Placeholder",
-    }
-}
-
-pub fn print_block_path(path: &CssPath, tabs: usize) -> String {
-    let t = String::from("    ").repeat(tabs);
-    let t1 = String::from("    ").repeat(tabs + 1);
-
-    format!(
-        "CssPath {{\r\n{}selectors: {}\r\n{}}}",
-        t1,
-        format_selectors(path.selectors.as_ref(), tabs + 1),
-        t
-    )
-}
-
-pub fn format_selectors(selectors: &[CssPathSelector], tabs: usize) -> String {
-    let t = String::from("    ").repeat(tabs);
-    let t1 = String::from("    ").repeat(tabs + 1);
-
-    let selectors_formatted = selectors
-        .iter()
-        .map(|s| format!("{}{},", t1, format_single_selector(s, tabs + 1)))
-        .collect::<Vec<String>>()
-        .join("\r\n");
-
-    format!("vec![\r\n{}\r\n{}].into()", selectors_formatted, t)
-}
-
-pub fn format_single_selector(p: &CssPathSelector, _tabs: usize) -> String {
-    match p {
-        CssPathSelector::Global => "CssPathSelector::Global".to_string(),
-        CssPathSelector::Type(ntp) => format!("CssPathSelector::Type({})", format_node_type(ntp)),
-        CssPathSelector::Class(class) => {
-            format!("CssPathSelector::Class(String::from({:?}))", class)
-        }
-        CssPathSelector::Id(id) => format!("CssPathSelector::Id(String::from({:?}))", id),
-        CssPathSelector::PseudoSelector(cps) => format!(
-            "CssPathSelector::PseudoSelector({})",
-            format_pseudo_selector_type(cps)
-        ),
-        CssPathSelector::DirectChildren => "CssPathSelector::DirectChildren".to_string(),
-        CssPathSelector::Children => "CssPathSelector::Children".to_string(),
-        CssPathSelector::AdjacentSibling => "CssPathSelector::AdjacentSibling".to_string(),
-        CssPathSelector::GeneralSibling => "CssPathSelector::GeneralSibling".to_string(),
-    }
-}
-
-pub fn format_pseudo_selector_type(p: &CssPathPseudoSelector) -> String {
-    match p {
-        CssPathPseudoSelector::First => "CssPathPseudoSelector::First".to_string(),
-        CssPathPseudoSelector::Last => "CssPathPseudoSelector::Last".to_string(),
-        CssPathPseudoSelector::NthChild(n) => format!(
-            "CssPathPseudoSelector::NthChild({})",
-            format_nth_child_selector(n)
-        ),
-        CssPathPseudoSelector::Hover => "CssPathPseudoSelector::Hover".to_string(),
-        CssPathPseudoSelector::Active => "CssPathPseudoSelector::Active".to_string(),
-        CssPathPseudoSelector::Focus => "CssPathPseudoSelector::Focus".to_string(),
-        CssPathPseudoSelector::Backdrop => "CssPathPseudoSelector::Backdrop".to_string(),
-        CssPathPseudoSelector::Lang(lang) => format!(
-            "CssPathPseudoSelector::Lang(AzString::from_const_str(\"{}\"))",
-            lang.as_str()
-        ),
-        CssPathPseudoSelector::Dragging => "CssPathPseudoSelector::Dragging".to_string(),
-        CssPathPseudoSelector::DragOver => "CssPathPseudoSelector::DragOver".to_string(),
-    }
-}
-
-pub fn format_nth_child_selector(n: &CssNthChildSelector) -> String {
-    match n {
-        CssNthChildSelector::Number(num) => format!("CssNthChildSelector::Number({})", num),
-        CssNthChildSelector::Even => "CssNthChildSelector::Even".to_string(),
-        CssNthChildSelector::Odd => "CssNthChildSelector::Odd".to_string(),
-        CssNthChildSelector::Pattern(CssNthChildPattern {
-            pattern_repeat,
-            offset,
-        }) => format!(
-            "CssNthChildSelector::Pattern(CssNthChildPattern {{ pattern_repeat: {}, offset: {} }})",
-            pattern_repeat, offset
-        ),
-    }
-}
-
-pub fn print_declaration(decl: &CssDeclaration, tabs: usize) -> String {
-    match decl {
-        CssDeclaration::Static(s) => format!(
-            "CssDeclaration::Static({})",
-            format_static_css_prop(s, tabs)
-        ),
-        CssDeclaration::Dynamic(d) => format!(
-            "CssDeclaration::Dynamic({})",
-            format_dynamic_css_prop(d, tabs)
-        ),
-    }
-}
-
-pub fn format_dynamic_css_prop(decl: &DynamicCssProperty, tabs: usize) -> String {
-    let t = String::from("    ").repeat(tabs);
-    format!(
-        "DynamicCssProperty {{\r\n{}    dynamic_id: {:?},\r\n{}    default_value: {},\r\n{}}}",
-        t,
-        decl.dynamic_id,
-        t,
-        format_static_css_prop(&decl.default_value, tabs + 1),
-        t
-    )
 }

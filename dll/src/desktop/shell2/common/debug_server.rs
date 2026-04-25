@@ -2841,6 +2841,28 @@ fn handle_http_connection(stream: &mut std::net::TcpStream, request_tx: &Arc<Mut
         return;
     }
 
+    // ── Route: POST /debug/compile?lang=<rust|cpp|python> → return generated project as ZIP ──
+    if method == "POST" && path.starts_with("/debug/compile") {
+        let lang = path
+            .split_once('?')
+            .and_then(|(_, q)| {
+                q.split('&').find_map(|kv| {
+                    let (k, v) = kv.split_once('=')?;
+                    if k == "lang" { Some(v) } else { None }
+                })
+            })
+            .unwrap_or("rust");
+
+        let body_start = request
+            .find("\r\n\r\n")
+            .map(|i| i + 4)
+            .or_else(|| request.find("\n\n").map(|i| i + 2));
+        let css_source = body_start.map(|s| &request[s..]).unwrap_or("");
+
+        compile_and_send_zip(stream, lang, css_source);
+        return;
+    }
+
     let response_json = match (method, path) {
         // Health check - GET /health
         ("GET", "/health") => {
@@ -2886,7 +2908,7 @@ fn handle_http_connection(stream: &mut std::net::TcpStream, request_tx: &Arc<Mut
 
         _ => serialize_http_response(&DebugHttpResponse::Error(DebugHttpResponseError {
             request_id: None,
-            message: "GET / → debugger UI, GET /debugger.css → CSS, GET /debugger.js → JS, GET /material-icons.ttf → font, GET /health → status, POST / → debug commands (incl. run_e2e_tests)".to_string(),
+            message: "GET / → debugger UI, GET /debugger.css → CSS, GET /debugger.js → JS, GET /material-icons.ttf → font, GET /health → status, POST / → debug commands (incl. run_e2e_tests), POST /debug/compile?lang=rust → standalone project ZIP".to_string(),
         })),
     };
 
@@ -2931,6 +2953,99 @@ fn handle_http_connection(stream: &mut std::net::TcpStream, request_tx: &Arc<Mut
         if n == 0 {
             break;
         } // EOF received, client closed connection
+    }
+}
+
+/// Compile a CSS source string into a standalone project for `lang` and stream
+/// the resulting ZIP back over `stream`. Errors are surfaced as 4xx/5xx
+/// responses rather than abrupt disconnects so the AZ_DEBUG webpage can render
+/// a useful message.
+#[cfg(feature = "std")]
+fn compile_and_send_zip(stream: &mut std::net::TcpStream, lang: &str, css_source: &str) {
+    use std::io::{Read, Write};
+
+    use azul_css::codegen::backend_for;
+    use azul_layout::zip::{ZipFileEntry, ZipWriteConfig};
+
+    let backend = match backend_for(lang) {
+        Some(b) => b,
+        None => {
+            let body = format!("Unknown lang: {lang}. Supported: rust, cpp, python.");
+            let header = format!(
+                "HTTP/1.0 400 Bad Request\r\nContent-Type: text/plain\r\nContent-Length: \
+                 {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            stream.set_nodelay(true).ok();
+            let _ = stream.write_all(header.as_bytes());
+            let _ = stream.write_all(body.as_bytes());
+            let _ = stream.flush();
+            let _ = stream.shutdown(std::net::Shutdown::Write);
+            let mut drain = [0u8; 64];
+            while let Ok(n) = stream.read(&mut drain) {
+                if n == 0 {
+                    break;
+                }
+            }
+            return;
+        }
+    };
+
+    let (parsed, _warnings) = azul_css::parser2::new_from_str(css_source);
+    let files = backend.emit_project(&parsed);
+
+    let entries: Vec<ZipFileEntry> = files
+        .into_iter()
+        .map(|f| ZipFileEntry::file(f.path, f.contents.into_bytes()))
+        .collect();
+    let archive = azul_layout::zip::ZipFile { entries };
+
+    let zip_bytes = match archive.to_bytes(&ZipWriteConfig::default()) {
+        Ok(b) => b,
+        Err(e) => {
+            let body = format!("ZIP write failed: {e:?}");
+            let header = format!(
+                "HTTP/1.0 500 Internal Server Error\r\nContent-Type: text/plain\r\nContent-Length: \
+                 {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            stream.set_nodelay(true).ok();
+            let _ = stream.write_all(header.as_bytes());
+            let _ = stream.write_all(body.as_bytes());
+            let _ = stream.flush();
+            let _ = stream.shutdown(std::net::Shutdown::Write);
+            let mut drain = [0u8; 64];
+            while let Ok(n) = stream.read(&mut drain) {
+                if n == 0 {
+                    break;
+                }
+            }
+            return;
+        }
+    };
+
+    let header = format!(
+        "HTTP/1.0 200 OK\r\nContent-Type: application/zip\r\nContent-Disposition: attachment; \
+         filename=\"azul-generated-{lang}.zip\"\r\nContent-Length: {}\r\nConnection: \
+         close\r\n\r\n",
+        zip_bytes.len()
+    );
+    stream.set_nodelay(true).ok();
+    if stream.write_all(header.as_bytes()).is_err() {
+        return;
+    }
+    for chunk in zip_bytes.chunks(8192) {
+        if stream.write_all(chunk).is_err() {
+            return;
+        }
+    }
+    let _ = stream.flush();
+    let _ = stream.shutdown(std::net::Shutdown::Write);
+    let mut drain = [0u8; 64];
+    while let Ok(n) = stream.read(&mut drain) {
+        if n == 0 {
+            break;
+        }
     }
 }
 
