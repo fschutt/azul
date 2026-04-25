@@ -15395,6 +15395,64 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "CssAttributeSelector": {
+                        "external": "azul_css::css::CssAttributeSelector",
+                        "custom_impls": [
+                            "Default",
+                            "Display"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "name": {
+                                    "type": "String"
+                                },
+                                "op": {
+                                    "type": "AttributeMatchOp"
+                                },
+                                "value": {
+                                    "type": "OptionString"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "AttributeMatchOp": {
+                        "external": "azul_css::css::AttributeMatchOp",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Copy",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Exists": {},
+                                "Eq": {},
+                                "Includes": {},
+                                "DashMatch": {},
+                                "Prefix": {},
+                                "Suffix": {},
+                                "Substring": {}
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -52712,6 +52770,9 @@
                                 },
                                 "PseudoSelector": {
                                     "type": "CssPathPseudoSelector"
+                                },
+                                "Attribute": {
+                                    "type": "CssAttributeSelector"
                                 },
                                 "DirectChildren": {},
                                 "Children": {},

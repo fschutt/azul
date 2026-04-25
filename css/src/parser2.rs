@@ -64,9 +64,9 @@ pub use crate::props::property::CssParsingError;
 use crate::{
     corety::{AzString, OptionString},
     css::{
-        Css, CssDeclaration, CssNthChildSelector, CssPath, CssPathPseudoSelector, CssPathSelector,
-        CssRuleBlock, DynamicCssProperty, NodeTypeTag, NodeTypeTagParseError,
-        NodeTypeTagParseErrorOwned, Stylesheet,
+        AttributeMatchOp, Css, CssAttributeSelector, CssDeclaration, CssNthChildSelector, CssPath,
+        CssPathPseudoSelector, CssPathSelector, CssRuleBlock, DynamicCssProperty, NodeTypeTag,
+        NodeTypeTagParseError, NodeTypeTagParseErrorOwned, Stylesheet,
     },
     dynamic_selector::{
         BoolCondition, DynamicSelector, DynamicSelectorVec, LanguageCondition, MediaType,
@@ -454,6 +454,81 @@ pub fn pseudo_selector_from_str<'a>(
             selector, value,
         )),
     }
+}
+
+/// Parses the inner content of an attribute selector token (the text between `[` and `]`).
+///
+/// Returns `None` if the input is malformed (empty name, unterminated quote, etc).
+pub fn parse_attribute_selector(input: &str) -> Option<CssAttributeSelector> {
+    let s = input.trim();
+    if s.is_empty() {
+        return None;
+    }
+
+    // Find the operator (the longest match wins).
+    let (op, op_pos): (AttributeMatchOp, Option<usize>) = if let Some(i) = s.find("~=") {
+        (AttributeMatchOp::Includes, Some(i))
+    } else if let Some(i) = s.find("|=") {
+        (AttributeMatchOp::DashMatch, Some(i))
+    } else if let Some(i) = s.find("^=") {
+        (AttributeMatchOp::Prefix, Some(i))
+    } else if let Some(i) = s.find("$=") {
+        (AttributeMatchOp::Suffix, Some(i))
+    } else if let Some(i) = s.find("*=") {
+        (AttributeMatchOp::Substring, Some(i))
+    } else if let Some(i) = s.find('=') {
+        (AttributeMatchOp::Eq, Some(i))
+    } else {
+        (AttributeMatchOp::Exists, None)
+    };
+
+    let (name, value) = match op_pos {
+        None => (s, None),
+        Some(i) => {
+            let name = s[..i].trim();
+            let op_len = if matches!(op, AttributeMatchOp::Eq) { 1 } else { 2 };
+            let raw_value = s[i + op_len..].trim();
+            let unquoted = strip_attribute_quotes(raw_value)?;
+            (name, Some(unquoted))
+        }
+    };
+
+    if name.is_empty() {
+        return None;
+    }
+    // Reject names that contain whitespace or quotes.
+    if name.chars().any(|c| c.is_whitespace() || c == '"' || c == '\'') {
+        return None;
+    }
+
+    Some(CssAttributeSelector {
+        name: name.to_string().into(),
+        op,
+        value: match value {
+            Some(v) => OptionString::Some(v.to_string().into()),
+            None => OptionString::None,
+        },
+    })
+}
+
+/// Strips matching surrounding `"` or `'` from a value. If the value is unquoted,
+/// returns it unchanged. Returns `None` if quoting is unbalanced.
+fn strip_attribute_quotes(s: &str) -> Option<&str> {
+    let bytes = s.as_bytes();
+    if bytes.len() >= 2 {
+        let first = bytes[0];
+        let last = bytes[bytes.len() - 1];
+        if (first == b'"' && last == b'"') || (first == b'\'' && last == b'\'') {
+            return Some(&s[1..s.len() - 1]);
+        }
+        if first == b'"' || first == b'\'' || last == b'"' || last == b'\'' {
+            // Unbalanced quote.
+            return None;
+        }
+    } else if bytes.len() == 1 && (bytes[0] == b'"' || bytes[0] == b'\'') {
+        return None;
+    }
+    Some(s)
 }
 
 /// Parses the inner value of the `:nth-child` selector, including numbers and patterns.
@@ -1665,12 +1740,13 @@ fn new_from_str_inner<'a>(
                     }
                 }
             }
-            Token::AttributeSelector(_attr) => {
-                // Attribute selectors (e.g. [data-foo], [type="text"]) are not yet supported.
-                // Skip with a warning instead of silently misrepresenting as a class selector.
-                warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
-                    message: "Attribute selectors are not yet supported, rule skipped",
-                });
+            Token::AttributeSelector(attr) => {
+                match parse_attribute_selector(attr) {
+                    Some(sel) => last_path.push(CssPathSelector::Attribute(sel)),
+                    None => warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
+                        message: "Malformed attribute selector, rule skipped",
+                    }),
+                }
             }
             Token::Declaration(key, val) => {
                 current_declarations.insert(

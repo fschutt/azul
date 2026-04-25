@@ -8,8 +8,9 @@ use alloc::{format, string::String, string::ToString, vec, vec::Vec};
 use super::{CodegenBackend, GeneratedFile};
 use crate::{
     css::{
-        Css, CssDeclaration, CssNthChildPattern, CssNthChildSelector, CssPath,
-        CssPathPseudoSelector, CssPathSelector, DynamicCssProperty, NodeTypeTag,
+        AttributeMatchOp, Css, CssAttributeSelector, CssDeclaration, CssNthChildPattern,
+        CssNthChildSelector, CssPath, CssPathPseudoSelector, CssPathSelector, DynamicCssProperty,
+        NodeTypeTag,
     },
     props::property::format_static_css_prop,
 };
@@ -358,6 +359,10 @@ pub fn format_single_selector(p: &CssPathSelector, _tabs: usize) -> String {
             "CssPathSelector::PseudoSelector({})",
             format_pseudo_selector_type(cps)
         ),
+        CssPathSelector::Attribute(a) => format!(
+            "CssPathSelector::Attribute({})",
+            format_attribute_selector(a)
+        ),
         CssPathSelector::DirectChildren => "CssPathSelector::DirectChildren".to_string(),
         CssPathSelector::Children => "CssPathSelector::Children".to_string(),
         CssPathSelector::AdjacentSibling => "CssPathSelector::AdjacentSibling".to_string(),
@@ -383,6 +388,34 @@ pub fn format_pseudo_selector_type(p: &CssPathPseudoSelector) -> String {
         ),
         CssPathPseudoSelector::Dragging => "CssPathPseudoSelector::Dragging".to_string(),
         CssPathPseudoSelector::DragOver => "CssPathPseudoSelector::DragOver".to_string(),
+    }
+}
+
+pub fn format_attribute_selector(a: &CssAttributeSelector) -> String {
+    let value = match a.value.as_ref() {
+        Some(v) => format!(
+            "OptionString::Some(AzString::from_const_str({:?}))",
+            v.as_str()
+        ),
+        None => "OptionString::None".to_string(),
+    };
+    format!(
+        "CssAttributeSelector {{ name: AzString::from_const_str({:?}), op: {}, value: {} }}",
+        a.name.as_str(),
+        format_attribute_match_op(&a.op),
+        value
+    )
+}
+
+pub fn format_attribute_match_op(op: &AttributeMatchOp) -> String {
+    match op {
+        AttributeMatchOp::Exists => "AttributeMatchOp::Exists".to_string(),
+        AttributeMatchOp::Eq => "AttributeMatchOp::Eq".to_string(),
+        AttributeMatchOp::Includes => "AttributeMatchOp::Includes".to_string(),
+        AttributeMatchOp::DashMatch => "AttributeMatchOp::DashMatch".to_string(),
+        AttributeMatchOp::Prefix => "AttributeMatchOp::Prefix".to_string(),
+        AttributeMatchOp::Suffix => "AttributeMatchOp::Suffix".to_string(),
+        AttributeMatchOp::Substring => "AttributeMatchOp::Substring".to_string(),
     }
 }
 

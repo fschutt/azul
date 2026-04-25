@@ -7,8 +7,8 @@
 use alloc::vec::Vec;
 
 use azul_css::css::{
-    CssContentGroup, CssNthChildSelector, CssNthChildSelector::*, CssPath, CssPathPseudoSelector,
-    CssPathSelector,
+    AttributeMatchOp, CssAttributeSelector, CssContentGroup, CssNthChildSelector,
+    CssNthChildSelector::*, CssPath, CssPathPseudoSelector, CssPathSelector,
 };
 
 use crate::{
@@ -456,8 +456,52 @@ fn match_single_selector(
         PseudoSelector(p) => {
             match_pseudo_selector(p, html_node, expected_path_ending, is_last_content_group)
         }
+        Attribute(a) => match_attribute_selector(a, node_data),
         DirectChildren | Children | AdjacentSibling | GeneralSibling => false,
     }
+}
+
+/// Matches an attribute selector (`[name]`, `[name="v"]`, `[name~="v"]`, ...) against a node.
+///
+/// Some attributes (notably `class`) are stored as multiple separate entries in
+/// `node_data.attributes()` rather than a single space-joined string. We collect
+/// every matching value and treat the matcher as "any value satisfies the op",
+/// so that `[class~="primary"]` matches a node with classes `foo primary bar`.
+fn match_attribute_selector(sel: &CssAttributeSelector, node_data: &NodeData) -> bool {
+    let name = sel.name.as_str();
+    let target = sel.value.as_ref().map(|v| v.as_str());
+
+    let check = |actual: &str| -> bool {
+        match (&sel.op, target) {
+            (AttributeMatchOp::Exists, _) => true,
+            (AttributeMatchOp::Eq, Some(t)) => actual == t,
+            (AttributeMatchOp::Includes, Some(t)) => {
+                if t.is_empty() || t.contains(char::is_whitespace) {
+                    return false;
+                }
+                actual.split_whitespace().any(|word| word == t)
+            }
+            (AttributeMatchOp::DashMatch, Some(t)) => {
+                actual == t || actual.starts_with(&alloc::format!("{}-", t))
+            }
+            (AttributeMatchOp::Prefix, Some(t)) => !t.is_empty() && actual.starts_with(t),
+            (AttributeMatchOp::Suffix, Some(t)) => !t.is_empty() && actual.ends_with(t),
+            (AttributeMatchOp::Substring, Some(t)) => !t.is_empty() && actual.contains(t),
+            // Operator with a missing value (parser should reject these — be defensive).
+            (_, None) => false,
+        }
+    };
+
+    for attr in node_data.attributes().iter() {
+        if attr.name() != name {
+            continue;
+        }
+        if check(attr.value().as_str()) {
+            return true;
+        }
+    }
+
+    false
 }
 
 /// Matches a pseudo-selector (:first, :last, :nth-child, :hover, etc.) against a node.

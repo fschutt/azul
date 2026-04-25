@@ -12,6 +12,7 @@ use alloc::{string::String, vec::Vec};
 use core::fmt;
 
 use crate::{
+    corety::OptionString,
     dynamic_selector::DynamicSelectorVec,
     props::property::{CssProperty, CssPropertyType},
     AzString,
@@ -1443,6 +1444,8 @@ pub enum CssPathSelector {
     Id(AzString),
     /// `:something`
     PseudoSelector(CssPathPseudoSelector),
+    /// `[attr]`, `[attr="value"]`, `[attr~="value"]`, etc.
+    Attribute(CssAttributeSelector),
     /// Represents the `>` selector (direct child)
     DirectChildren,
     /// Represents the ` ` selector (descendant)
@@ -1451,6 +1454,51 @@ pub enum CssPathSelector {
     AdjacentSibling,
     /// Represents the `~` selector (general sibling)
     GeneralSibling,
+}
+
+/// Attribute selector (`[attr]`, `[attr="value"]`, ...).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C)]
+pub struct CssAttributeSelector {
+    pub name: AzString,
+    pub op: AttributeMatchOp,
+    pub value: OptionString,
+}
+
+impl Default for CssAttributeSelector {
+    fn default() -> Self {
+        Self {
+            name: AzString::default(),
+            op: AttributeMatchOp::Exists,
+            value: OptionString::None,
+        }
+    }
+}
+
+/// Operator that compares an attribute value against a target string.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C)]
+pub enum AttributeMatchOp {
+    /// `[attr]` — attribute is present (any value).
+    Exists,
+    /// `[attr="value"]` — attribute equals value exactly.
+    Eq,
+    /// `[attr~="value"]` — value is one of the whitespace-separated words.
+    Includes,
+    /// `[attr|="value"]` — value equals exactly OR begins with value followed by `-`.
+    DashMatch,
+    /// `[attr^="value"]` — value starts with the given prefix.
+    Prefix,
+    /// `[attr$="value"]` — value ends with the given suffix.
+    Suffix,
+    /// `[attr*="value"]` — value contains the given substring.
+    Substring,
+}
+
+impl Default for AttributeMatchOp {
+    fn default() -> Self {
+        AttributeMatchOp::Exists
+    }
 }
 
 impl_option!(
@@ -1470,10 +1518,37 @@ impl fmt::Display for CssPathSelector {
             Class(c) => write!(f, ".{}", c),
             Id(i) => write!(f, "#{}", i),
             PseudoSelector(p) => write!(f, ":{}", p),
+            Attribute(a) => write!(f, "{}", a),
             DirectChildren => write!(f, ">"),
             Children => write!(f, " "),
             AdjacentSibling => write!(f, "+"),
             GeneralSibling => write!(f, "~"),
+        }
+    }
+}
+
+impl fmt::Display for CssAttributeSelector {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match (&self.op, self.value.as_ref()) {
+            (AttributeMatchOp::Exists, _) => write!(f, "[{}]", self.name),
+            (op, Some(v)) => write!(f, "[{}{}=\"{}\"]", self.name, op.symbol_prefix(), v),
+            (op, None) => write!(f, "[{}{}=\"\"]", self.name, op.symbol_prefix()),
+        }
+    }
+}
+
+impl AttributeMatchOp {
+    /// Returns the prefix character for the `=` operator (e.g. `~` for `~=`).
+    /// `Eq` returns `""`, `Exists` is unused (no `=` printed at all).
+    pub fn symbol_prefix(&self) -> &'static str {
+        match self {
+            AttributeMatchOp::Exists => "",
+            AttributeMatchOp::Eq => "",
+            AttributeMatchOp::Includes => "~",
+            AttributeMatchOp::DashMatch => "|",
+            AttributeMatchOp::Prefix => "^",
+            AttributeMatchOp::Suffix => "$",
+            AttributeMatchOp::Substring => "*",
         }
     }
 }
@@ -1625,7 +1700,12 @@ pub fn get_specificity(path: &CssPath) -> (usize, usize, usize, usize) {
         .selectors
         .iter()
         .filter(|x| {
-            matches!(x, CssPathSelector::Class(_) | CssPathSelector::PseudoSelector(_))
+            matches!(
+                x,
+                CssPathSelector::Class(_)
+                    | CssPathSelector::PseudoSelector(_)
+                    | CssPathSelector::Attribute(_)
+            )
         })
         .count();
     let div_count = path
