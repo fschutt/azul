@@ -42,12 +42,6 @@ use alloc::vec::Vec;
 
 /// u16 sentinel values (for resolved-px ×10 and flex ×100)
 pub const U16_SENTINEL: u16 = 0xFFFF;
-pub const U16_AUTO: u16 = 0xFFFE;
-pub const U16_NONE: u16 = 0xFFFD;
-pub const U16_INHERIT: u16 = 0xFFFC;
-pub const U16_INITIAL: u16 = 0xFFFB;
-pub const U16_MIN_CONTENT: u16 = 0xFFFA;
-pub const U16_MAX_CONTENT: u16 = 0xFFF9;
 /// Any u16 value >= this threshold is a sentinel, not a real value
 pub const U16_SENTINEL_THRESHOLD: u16 = 0xFFF9;
 
@@ -1009,6 +1003,7 @@ pub fn decode_border_collapse(t1: u64) -> StyleBorderCollapse {
 
 /// Returns true if the tier1 u64 was actually populated by `encode_tier1`.
 #[inline(always)]
+#[cfg(test)]
 pub fn tier1_is_populated(t1: u64) -> bool {
     (t1 & TIER1_POPULATED_BIT) != 0
 }
