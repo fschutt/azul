@@ -118,11 +118,11 @@ impl core::ops::DerefMut for XmlAttributeMap {
 }
 
 /// Name of a component argument (e.g. `"text"`, `"href"`).
-pub type ComponentArgumentName = String;
+type ComponentArgumentName = String;
 /// Type of a component argument as a string (e.g. `"String"`, `"bool"`).
-pub type ComponentArgumentType = String;
+type ComponentArgumentType = String;
 /// Zero-based position of an argument in the component's argument list.
-pub type ComponentArgumentOrder = usize;
+type ComponentArgumentOrder = usize;
 
 /// FFI-safe replacement for `(ComponentArgumentName, ComponentArgumentType)` tuple.
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -152,13 +152,13 @@ pub struct ComponentArguments {
 }
 
 /// Name of an XML/HTML component (e.g. `"button"`, `"my-widget"`).
-pub type ComponentName = String;
+type ComponentName = String;
 /// Compiled source code string for a component.
-pub type CompiledComponent = String;
+type CompiledComponent = String;
 
 /// Universal HTML attribute names that are handled by the framework
 /// and should not be passed through to component-specific argument lists.
-pub const DEFAULT_ARGS: [&str; 8] = [
+const DEFAULT_ARGS: [&str; 8] = [
     "id",
     "class",
     "tabindex",
@@ -2646,6 +2646,16 @@ fn builtin_compile_fn(
     r.into()
 }
 
+/// Pushes a `<div>` containing `"field_name: value"` text into the children list.
+fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn core::fmt::Display) {
+    use crate::dom::{Dom, NodeType};
+    let text = alloc::format!("{}: {}", field_name, value);
+    children.push(
+        Dom::create_node(NodeType::Div)
+            .with_children(alloc::vec![Dom::create_text(text)].into()),
+    );
+}
+
 /// Default render function for user-defined (JSON-imported) components.
 ///
 /// Interprets the `ComponentDef` structure generically:
@@ -2686,46 +2696,29 @@ pub fn user_defined_render_fn(
                             children.push(label_dom);
                         }
                     }
-                    ComponentDefaultValue::Bool(b) => {
-                        // Render as a label showing "fieldName: true/false"
-                        let text = alloc::format!("{}: {}", field_name, b);
-                        children.push(Dom::create_node(NodeType::Div)
-                            .with_children(alloc::vec![Dom::create_text(text)].into()));
+                    ComponentDefaultValue::Bool(v) => {
+                        push_scalar_field(&mut children, field_name, v);
                     }
                     ComponentDefaultValue::I32(v) => {
-                        let text = alloc::format!("{}: {}", field_name, v);
-                        children.push(Dom::create_node(NodeType::Div)
-                            .with_children(alloc::vec![Dom::create_text(text)].into()));
+                        push_scalar_field(&mut children, field_name, v);
                     }
                     ComponentDefaultValue::I64(v) => {
-                        let text = alloc::format!("{}: {}", field_name, v);
-                        children.push(Dom::create_node(NodeType::Div)
-                            .with_children(alloc::vec![Dom::create_text(text)].into()));
+                        push_scalar_field(&mut children, field_name, v);
                     }
                     ComponentDefaultValue::U32(v) => {
-                        let text = alloc::format!("{}: {}", field_name, v);
-                        children.push(Dom::create_node(NodeType::Div)
-                            .with_children(alloc::vec![Dom::create_text(text)].into()));
+                        push_scalar_field(&mut children, field_name, v);
                     }
                     ComponentDefaultValue::U64(v) => {
-                        let text = alloc::format!("{}: {}", field_name, v);
-                        children.push(Dom::create_node(NodeType::Div)
-                            .with_children(alloc::vec![Dom::create_text(text)].into()));
+                        push_scalar_field(&mut children, field_name, v);
                     }
                     ComponentDefaultValue::Usize(v) => {
-                        let text = alloc::format!("{}: {}", field_name, v);
-                        children.push(Dom::create_node(NodeType::Div)
-                            .with_children(alloc::vec![Dom::create_text(text)].into()));
+                        push_scalar_field(&mut children, field_name, v);
                     }
                     ComponentDefaultValue::F32(v) => {
-                        let text = alloc::format!("{}: {}", field_name, v);
-                        children.push(Dom::create_node(NodeType::Div)
-                            .with_children(alloc::vec![Dom::create_text(text)].into()));
+                        push_scalar_field(&mut children, field_name, v);
                     }
                     ComponentDefaultValue::F64(v) => {
-                        let text = alloc::format!("{}: {}", field_name, v);
-                        children.push(Dom::create_node(NodeType::Div)
-                            .with_children(alloc::vec![Dom::create_text(text)].into()));
+                        push_scalar_field(&mut children, field_name, v);
                     }
                     ComponentDefaultValue::ColorU(c) => {
                         let text = alloc::format!("{}: #{:02x}{:02x}{:02x}{:02x}", field_name, c.r, c.g, c.b, c.a);
@@ -3278,7 +3271,7 @@ impl ComponentMap {
 ///
 /// # Returns
 /// A cloned `ComponentDataModel` with overridden defaults
-pub fn xml_attrs_to_data_model(
+fn xml_attrs_to_data_model(
     base_model: &ComponentDataModel,
     xml_attributes: &XmlAttributeMap,
     text_content: Option<&str>,
@@ -4177,7 +4170,7 @@ pub fn get_body_node<'a>(root_nodes: &'a [XmlNodeChild]) -> Result<&'a XmlNode, 
 /// Searches in the the `root_nodes` for a `node_type`, convenience function in order to
 /// for example find the first <blah /> node in all these nodes.
 /// This function searches recursively through the entire tree.
-pub fn find_node_by_type<'a>(
+fn find_node_by_type<'a>(
     root_nodes: &'a [XmlNodeChild],
     node_type: &str,
 ) -> Option<&'a XmlNode> {
@@ -4286,7 +4279,7 @@ pub fn str_to_dom<'a>(
 ///
 /// **Note**: `str_to_dom()` now delegates to this function, so you can use
 /// either one. This function is kept for backward compatibility.
-pub fn str_to_dom_fast<'a>(
+fn str_to_dom_fast<'a>(
     root_nodes: &'a [XmlNodeChild],
     component_map: &'a ComponentMap,
     max_width: Option<f32>,
@@ -4489,7 +4482,7 @@ fn main() {
 }
 
 // Compile all components to source code
-pub fn compile_components(
+fn compile_components(
     components: Vec<(
         ComponentName,
         CompiledComponent,
@@ -4531,7 +4524,7 @@ pub fn compile_components(
     }
 }
 
-pub fn format_component_args(component_args: &ComponentArgumentVec) -> String {
+fn format_component_args(component_args: &ComponentArgumentVec) -> String {
     let mut args = component_args
         .iter()
         .map(|a| format!("{}: {}", a.name, a.arg_type))
@@ -5150,7 +5143,7 @@ fn xml_node_to_fast_dom<'a>(
 
 /// Render a DOM from an XML body node using the fast arena-based path.
 /// Builds a FastDom directly (no tree intermediary), then creates StyledDom.
-pub fn render_dom_from_body_node_fast<'a>(
+fn render_dom_from_body_node_fast<'a>(
     body_node: &'a XmlNode,
     mut global_css: Option<Css>,
     component_map: &'a ComponentMap,
@@ -5199,7 +5192,7 @@ pub fn render_dom_from_body_node_fast<'a>(
 
 // render_dom_from_body_node() removed — use render_dom_from_body_node_fast() or str_to_dom()
 
-pub fn set_stringified_attributes(
+fn set_stringified_attributes(
     dom_string: &mut String,
     xml_attributes: &XmlAttributeMap,
     filtered_xml_attributes: &ComponentArgumentVec,
@@ -5395,7 +5388,7 @@ pub fn split_dynamic_string(input: &str) -> Vec<DynamicItem> {
 /// let variables = btreemap!{ "a" => "value1", "b" => "value2" };
 /// [Str("hello "), Var("a"), Str(", "), Var("b"), Str("{ "), Var("c"), Str(" }}")]
 /// => "hello value1, valuec{ {c} }"
-pub fn combine_and_replace_dynamic_items(
+fn combine_and_replace_dynamic_items(
     input: &[DynamicItem],
     variables: &ComponentArgumentVec,
 ) -> String {
@@ -5918,7 +5911,7 @@ fn format_args_for_rust_code(input: &str) -> String {
     compile_and_format_dynamic_items(&dynamic_str_items)
 }
 
-pub fn compile_node_to_rust_code_inner<'a>(
+fn compile_node_to_rust_code_inner<'a>(
     node: &XmlNode,
     component_map: &'a ComponentMap,
     tabs: usize,
