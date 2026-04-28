@@ -242,12 +242,12 @@ impl FormatAsRustCode for StyleEmptyCells {
 
 /// Parse errors for table-layout property
 #[derive(Debug, Clone, PartialEq)]
-pub enum LayoutTableLayoutParseError<'a> {
+pub(crate) enum LayoutTableLayoutParseError<'a> {
     InvalidKeyword(&'a str),
 }
 
 /// Parse a table-layout value from a string
-pub fn parse_table_layout<'a>(
+pub(crate) fn parse_table_layout<'a>(
     input: &'a str,
 ) -> Result<LayoutTableLayout, LayoutTableLayoutParseError<'a>> {
     match input.trim() {
@@ -259,12 +259,12 @@ pub fn parse_table_layout<'a>(
 
 /// Parse errors for border-collapse property
 #[derive(Debug, Clone, PartialEq)]
-pub enum StyleBorderCollapseParseError<'a> {
+pub(crate) enum StyleBorderCollapseParseError<'a> {
     InvalidKeyword(&'a str),
 }
 
 /// Parse a border-collapse value from a string
-pub fn parse_border_collapse<'a>(
+pub(crate) fn parse_border_collapse<'a>(
     input: &'a str,
 ) -> Result<StyleBorderCollapse, StyleBorderCollapseParseError<'a>> {
     match input.trim() {
@@ -276,14 +276,14 @@ pub fn parse_border_collapse<'a>(
 
 /// Parse errors for border-spacing property
 #[derive(Debug, Clone, PartialEq)]
-pub enum LayoutBorderSpacingParseError<'a> {
+pub(crate) enum LayoutBorderSpacingParseError<'a> {
     PixelValue(CssPixelValueParseError<'a>),
     InvalidFormat,
 }
 
 /// Parse a border-spacing value from a string
 /// Accepts: "5px" or "5px 10px"
-pub fn parse_border_spacing<'a>(
+pub(crate) fn parse_border_spacing<'a>(
     input: &'a str,
 ) -> Result<LayoutBorderSpacing, LayoutBorderSpacingParseError<'a>> {
     use crate::props::basic::parse_pixel_value;
@@ -311,12 +311,12 @@ pub fn parse_border_spacing<'a>(
 
 /// Parse errors for caption-side property
 #[derive(Debug, Clone, PartialEq)]
-pub enum StyleCaptionSideParseError<'a> {
+pub(crate) enum StyleCaptionSideParseError<'a> {
     InvalidKeyword(&'a str),
 }
 
 /// Parse a caption-side value from a string
-pub fn parse_caption_side<'a>(
+pub(crate) fn parse_caption_side<'a>(
     input: &'a str,
 ) -> Result<StyleCaptionSide, StyleCaptionSideParseError<'a>> {
     match input.trim() {
@@ -328,12 +328,12 @@ pub fn parse_caption_side<'a>(
 
 /// Parse errors for empty-cells property
 #[derive(Debug, Clone, PartialEq)]
-pub enum StyleEmptyCellsParseError<'a> {
+pub(crate) enum StyleEmptyCellsParseError<'a> {
     InvalidKeyword(&'a str),
 }
 
 /// Parse an empty-cells value from a string
-pub fn parse_empty_cells<'a>(
+pub(crate) fn parse_empty_cells<'a>(
     input: &'a str,
 ) -> Result<StyleEmptyCells, StyleEmptyCellsParseError<'a>> {
     match input.trim() {
