@@ -232,6 +232,17 @@ pub fn parse_style_hyphenation_language(
         trimmed
     };
 
+    // Basic BCP 47 validation: non-empty, ASCII alphanumeric + hyphens, no leading/trailing hyphens
+    if unquoted.is_empty()
+        || !unquoted.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        || unquoted.starts_with('-')
+        || unquoted.ends_with('-')
+    {
+        return Err(StyleHyphenationLanguageParseError::InvalidString(
+            unquoted.to_string(),
+        ));
+    }
+
     Ok(StyleHyphenationLanguage {
         inner: AzString::from_string(unquoted.to_string()),
     })
@@ -260,6 +271,40 @@ mod tests {
 
         let lang = parse_style_hyphenation_language("fr-FR").unwrap();
         assert_eq!(lang.inner.as_str(), "fr-FR");
+
+        let lang = parse_style_hyphenation_language("zh").unwrap();
+        assert_eq!(lang.inner.as_str(), "zh");
+
+        let lang = parse_style_hyphenation_language("sr-Latn-RS").unwrap();
+        assert_eq!(lang.inner.as_str(), "sr-Latn-RS");
+
+        // Double hyphen is permitted by the current ASCII/format rules.
+        let lang = parse_style_hyphenation_language("en--US").unwrap();
+        assert_eq!(lang.inner.as_str(), "en--US");
+    }
+
+    #[test]
+    fn test_parse_hyphenation_language_invalid() {
+        assert!(matches!(
+            parse_style_hyphenation_language(""),
+            Err(StyleHyphenationLanguageParseError::InvalidString(_))
+        ));
+        assert!(matches!(
+            parse_style_hyphenation_language("-en"),
+            Err(StyleHyphenationLanguageParseError::InvalidString(_))
+        ));
+        assert!(matches!(
+            parse_style_hyphenation_language("en-"),
+            Err(StyleHyphenationLanguageParseError::InvalidString(_))
+        ));
+        assert!(matches!(
+            parse_style_hyphenation_language("en_US"),
+            Err(StyleHyphenationLanguageParseError::InvalidString(_))
+        ));
+        assert!(matches!(
+            parse_style_hyphenation_language("日本語"),
+            Err(StyleHyphenationLanguageParseError::InvalidString(_))
+        ));
     }
 
     #[test]
