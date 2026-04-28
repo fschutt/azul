@@ -16247,9 +16247,6 @@
                                 "BorderTopLeftRadius": {
                                     "type": "StyleBorderTopLeftRadiusValue"
                                 },
-                                "LayoutTextJustify": {
-                                    "type": "LayoutTextJustifyValue"
-                                },
                                 "BorderTopRightRadius": {
                                     "type": "StyleBorderTopRightRadiusValue"
                                 },

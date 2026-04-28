@@ -667,7 +667,6 @@ pub enum CssProperty {
     MarginRight(LayoutMarginRightValue),
     MarginBottom(LayoutMarginBottomValue),
     BorderTopLeftRadius(StyleBorderTopLeftRadiusValue),
-    LayoutTextJustify(LayoutTextJustifyValue),
     BorderTopRightRadius(StyleBorderTopRightRadiusValue),
     BorderBottomLeftRadius(StyleBorderBottomLeftRadiusValue),
     BorderBottomRightRadius(StyleBorderBottomRightRadiusValue),
@@ -4265,7 +4264,6 @@ impl CssProperty {
             CssProperty::SelectionColor(v) => v.get_css_value_fmt(),
             CssProperty::SelectionRadius(v) => v.get_css_value_fmt(),
             CssProperty::TextJustify(v) => v.get_css_value_fmt(),
-            CssProperty::LayoutTextJustify(v) => format!("{:?}", v),
             CssProperty::TextColor(v) => v.get_css_value_fmt(),
             CssProperty::FontSize(v) => v.get_css_value_fmt(),
             CssProperty::FontFamily(v) => v.get_css_value_fmt(),
@@ -4736,7 +4734,6 @@ impl CssProperty {
             CssProperty::SelectionRadius(_) => CssPropertyType::SelectionRadius,
 
             CssProperty::TextJustify(_) => CssPropertyType::TextJustify,
-            CssProperty::LayoutTextJustify(_) => CssPropertyType::TextJustify,
             CssProperty::TextColor(_) => CssPropertyType::TextColor,
             CssProperty::FontSize(_) => CssPropertyType::FontSize,
             CssProperty::FontFamily(_) => CssPropertyType::FontFamily,
@@ -5378,13 +5375,6 @@ impl CssProperty {
     pub const fn as_clear(&self) -> Option<&LayoutClearValue> {
         match self {
             CssProperty::Clear(f) => Some(f),
-            _ => None,
-        }
-    }
-
-    pub const fn as_layout_text_justify(&self) -> Option<&LayoutTextJustifyValue> {
-        match self {
-            CssProperty::LayoutTextJustify(f) => Some(f),
             _ => None,
         }
     }
@@ -6400,7 +6390,6 @@ impl CssProperty {
             SelectionColor(c) => c.is_initial(),
             SelectionRadius(c) => c.is_initial(),
             TextJustify(c) => c.is_initial(),
-            LayoutTextJustify(_) => false,
             TextColor(c) => c.is_initial(),
             FontSize(c) => c.is_initial(),
             FontFamily(c) => c.is_initial(),
@@ -6932,10 +6921,6 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::TextJustify(p) => format!(
             "CssProperty::TextJustify({})",
             print_css_property_value(p, tabs, "LayoutTextJustify")
-        ),
-        CssProperty::LayoutTextJustify(j) => format!(
-            "CssProperty::LayoutTextJustify({})",
-            print_css_property_value(j, tabs, "LayoutText")
         ),
         CssProperty::TextColor(p) => format!(
             "CssProperty::TextColor({})",
