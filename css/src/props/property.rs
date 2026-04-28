@@ -5196,7 +5196,7 @@ impl CssProperty {
     pub const fn perspective_origin(input: StylePerspectiveOrigin) -> Self {
         CssProperty::PerspectiveOrigin(CssPropertyValue::Exact(input))
     }
-    pub const fn backface_visiblity(input: StyleBackfaceVisibility) -> Self {
+    pub const fn backface_visibility(input: StyleBackfaceVisibility) -> Self {
         CssProperty::BackfaceVisibility(CssPropertyValue::Exact(input))
     }
 
@@ -6794,7 +6794,7 @@ impl CssProperty {
     pub const fn const_perspective_origin(input: StylePerspectiveOrigin) -> Self {
         CssProperty::PerspectiveOrigin(StylePerspectiveOriginValue::Exact(input))
     }
-    pub const fn const_backface_visiblity(input: StyleBackfaceVisibility) -> Self {
+    pub const fn const_backface_visibility(input: StyleBackfaceVisibility) -> Self {
         CssProperty::BackfaceVisibility(StyleBackfaceVisibilityValue::Exact(input))
     }
     pub const fn const_break_before(input: PageBreak) -> Self {
