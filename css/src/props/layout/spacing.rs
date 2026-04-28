@@ -22,26 +22,31 @@ use crate::{
 
 // Spacing properties - wrapper structs around PixelValue for type safety
 
+macro_rules! impl_spacing_type_impls {
+    ($name:ident) => {
+        impl ::core::fmt::Debug for $name {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+                write!(f, "{}", self.inner)
+            }
+        }
+
+        impl PixelValueTaker for $name {
+            fn from_pixel_value(inner: PixelValue) -> Self {
+                Self { inner }
+            }
+        }
+
+        impl_pixel_value!($name);
+    };
+}
+
 /// Layout padding top value
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct LayoutPaddingTop {
     pub inner: PixelValue,
 }
-
-impl ::core::fmt::Debug for LayoutPaddingTop {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        write!(f, "{}", self.inner)
-    }
-}
-
-impl PixelValueTaker for LayoutPaddingTop {
-    fn from_pixel_value(inner: PixelValue) -> Self {
-        Self { inner }
-    }
-}
-
-impl_pixel_value!(LayoutPaddingTop);
+impl_spacing_type_impls!(LayoutPaddingTop);
 
 /// Layout padding right value
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -49,20 +54,7 @@ impl_pixel_value!(LayoutPaddingTop);
 pub struct LayoutPaddingRight {
     pub inner: PixelValue,
 }
-
-impl ::core::fmt::Debug for LayoutPaddingRight {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        write!(f, "{}", self.inner)
-    }
-}
-
-impl PixelValueTaker for LayoutPaddingRight {
-    fn from_pixel_value(inner: PixelValue) -> Self {
-        Self { inner }
-    }
-}
-
-impl_pixel_value!(LayoutPaddingRight);
+impl_spacing_type_impls!(LayoutPaddingRight);
 
 /// Layout padding bottom value
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -70,20 +62,7 @@ impl_pixel_value!(LayoutPaddingRight);
 pub struct LayoutPaddingBottom {
     pub inner: PixelValue,
 }
-
-impl ::core::fmt::Debug for LayoutPaddingBottom {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        write!(f, "{}", self.inner)
-    }
-}
-
-impl PixelValueTaker for LayoutPaddingBottom {
-    fn from_pixel_value(inner: PixelValue) -> Self {
-        Self { inner }
-    }
-}
-
-impl_pixel_value!(LayoutPaddingBottom);
+impl_spacing_type_impls!(LayoutPaddingBottom);
 
 /// Layout padding left value
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -91,20 +70,7 @@ impl_pixel_value!(LayoutPaddingBottom);
 pub struct LayoutPaddingLeft {
     pub inner: PixelValue,
 }
-
-impl ::core::fmt::Debug for LayoutPaddingLeft {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        write!(f, "{}", self.inner)
-    }
-}
-
-impl PixelValueTaker for LayoutPaddingLeft {
-    fn from_pixel_value(inner: PixelValue) -> Self {
-        Self { inner }
-    }
-}
-
-impl_pixel_value!(LayoutPaddingLeft);
+impl_spacing_type_impls!(LayoutPaddingLeft);
 
 /// Layout padding inline start value (for RTL/LTR support)
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -112,20 +78,7 @@ impl_pixel_value!(LayoutPaddingLeft);
 pub struct LayoutPaddingInlineStart {
     pub inner: PixelValue,
 }
-
-impl ::core::fmt::Debug for LayoutPaddingInlineStart {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        write!(f, "{}", self.inner)
-    }
-}
-
-impl PixelValueTaker for LayoutPaddingInlineStart {
-    fn from_pixel_value(inner: PixelValue) -> Self {
-        Self { inner }
-    }
-}
-
-impl_pixel_value!(LayoutPaddingInlineStart);
+impl_spacing_type_impls!(LayoutPaddingInlineStart);
 
 /// Layout padding inline end value (for RTL/LTR support)
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -133,20 +86,7 @@ impl_pixel_value!(LayoutPaddingInlineStart);
 pub struct LayoutPaddingInlineEnd {
     pub inner: PixelValue,
 }
-
-impl ::core::fmt::Debug for LayoutPaddingInlineEnd {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        write!(f, "{}", self.inner)
-    }
-}
-
-impl PixelValueTaker for LayoutPaddingInlineEnd {
-    fn from_pixel_value(inner: PixelValue) -> Self {
-        Self { inner }
-    }
-}
-
-impl_pixel_value!(LayoutPaddingInlineEnd);
+impl_spacing_type_impls!(LayoutPaddingInlineEnd);
 
 /// Layout margin top value
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -154,20 +94,7 @@ impl_pixel_value!(LayoutPaddingInlineEnd);
 pub struct LayoutMarginTop {
     pub inner: PixelValue,
 }
-
-impl ::core::fmt::Debug for LayoutMarginTop {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        write!(f, "{}", self.inner)
-    }
-}
-
-impl PixelValueTaker for LayoutMarginTop {
-    fn from_pixel_value(inner: PixelValue) -> Self {
-        Self { inner }
-    }
-}
-
-impl_pixel_value!(LayoutMarginTop);
+impl_spacing_type_impls!(LayoutMarginTop);
 
 /// Layout margin right value
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -175,20 +102,7 @@ impl_pixel_value!(LayoutMarginTop);
 pub struct LayoutMarginRight {
     pub inner: PixelValue,
 }
-
-impl ::core::fmt::Debug for LayoutMarginRight {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        write!(f, "{}", self.inner)
-    }
-}
-
-impl PixelValueTaker for LayoutMarginRight {
-    fn from_pixel_value(inner: PixelValue) -> Self {
-        Self { inner }
-    }
-}
-
-impl_pixel_value!(LayoutMarginRight);
+impl_spacing_type_impls!(LayoutMarginRight);
 
 /// Layout margin bottom value
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -196,20 +110,7 @@ impl_pixel_value!(LayoutMarginRight);
 pub struct LayoutMarginBottom {
     pub inner: PixelValue,
 }
-
-impl ::core::fmt::Debug for LayoutMarginBottom {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        write!(f, "{}", self.inner)
-    }
-}
-
-impl PixelValueTaker for LayoutMarginBottom {
-    fn from_pixel_value(inner: PixelValue) -> Self {
-        Self { inner }
-    }
-}
-
-impl_pixel_value!(LayoutMarginBottom);
+impl_spacing_type_impls!(LayoutMarginBottom);
 
 /// Layout margin left value
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -217,20 +118,7 @@ impl_pixel_value!(LayoutMarginBottom);
 pub struct LayoutMarginLeft {
     pub inner: PixelValue,
 }
-
-impl ::core::fmt::Debug for LayoutMarginLeft {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        write!(f, "{}", self.inner)
-    }
-}
-
-impl PixelValueTaker for LayoutMarginLeft {
-    fn from_pixel_value(inner: PixelValue) -> Self {
-        Self { inner }
-    }
-}
-
-impl_pixel_value!(LayoutMarginLeft);
+impl_spacing_type_impls!(LayoutMarginLeft);
 
 /// Layout column gap value (for flexbox/grid)
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -238,20 +126,7 @@ impl_pixel_value!(LayoutMarginLeft);
 pub struct LayoutColumnGap {
     pub inner: PixelValue,
 }
-
-impl ::core::fmt::Debug for LayoutColumnGap {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        write!(f, "{}", self.inner)
-    }
-}
-
-impl PixelValueTaker for LayoutColumnGap {
-    fn from_pixel_value(inner: PixelValue) -> Self {
-        Self { inner }
-    }
-}
-
-impl_pixel_value!(LayoutColumnGap);
+impl_spacing_type_impls!(LayoutColumnGap);
 
 /// Layout row gap value (for flexbox/grid)
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -259,22 +134,56 @@ impl_pixel_value!(LayoutColumnGap);
 pub struct LayoutRowGap {
     pub inner: PixelValue,
 }
-
-impl ::core::fmt::Debug for LayoutRowGap {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        write!(f, "{}", self.inner)
-    }
-}
-
-impl PixelValueTaker for LayoutRowGap {
-    fn from_pixel_value(inner: PixelValue) -> Self {
-        Self { inner }
-    }
-}
-
-impl_pixel_value!(LayoutRowGap);
+impl_spacing_type_impls!(LayoutRowGap);
 
 // --- PARSERS ---
+
+#[cfg(feature = "parser")]
+macro_rules! impl_spacing_parse_error {
+    ($borrowed:ident, $owned:ident, $property_name:expr) => {
+        #[cfg(feature = "parser")]
+        impl_debug_as_display!($borrowed<'a>);
+
+        #[cfg(feature = "parser")]
+        impl_display! { $borrowed<'a>, {
+            PixelValueParseError(e) => format!("Could not parse pixel value: {}", e),
+            TooManyValues => concat!("Too many values: ", $property_name, " property accepts at most 4 values."),
+            TooFewValues => concat!("Too few values: ", $property_name, " property requires at least 1 value."),
+        }}
+
+        #[cfg(feature = "parser")]
+        impl_from!(
+            CssPixelValueParseError<'a>,
+            $borrowed::PixelValueParseError
+        );
+
+        #[cfg(feature = "parser")]
+        impl<'a> $borrowed<'a> {
+            pub fn to_contained(&self) -> $owned {
+                match self {
+                    $borrowed::PixelValueParseError(e) => {
+                        $owned::PixelValueParseError(e.to_contained())
+                    }
+                    $borrowed::TooManyValues => $owned::TooManyValues,
+                    $borrowed::TooFewValues => $owned::TooFewValues,
+                }
+            }
+        }
+
+        #[cfg(feature = "parser")]
+        impl $owned {
+            pub fn to_shared<'a>(&'a self) -> $borrowed<'a> {
+                match self {
+                    $owned::PixelValueParseError(e) => {
+                        $borrowed::PixelValueParseError(e.to_shared())
+                    }
+                    $owned::TooManyValues => $borrowed::TooManyValues,
+                    $owned::TooFewValues => $borrowed::TooFewValues,
+                }
+            }
+        }
+    };
+}
 
 // -- Padding Shorthand Parser --
 
@@ -287,22 +196,6 @@ pub enum LayoutPaddingParseError<'a> {
     TooFewValues,
 }
 
-#[cfg(feature = "parser")]
-impl_debug_as_display!(LayoutPaddingParseError<'a>);
-
-#[cfg(feature = "parser")]
-impl_display! { LayoutPaddingParseError<'a>, {
-    PixelValueParseError(e) => format!("Could not parse pixel value: {}", e),
-    TooManyValues => "Too many values: padding property accepts at most 4 values.",
-    TooFewValues => "Too few values: padding property requires at least 1 value.",
-}}
-
-#[cfg(feature = "parser")]
-impl_from!(
-    CssPixelValueParseError<'a>,
-    LayoutPaddingParseError::PixelValueParseError
-);
-
 /// Owned variant of [`LayoutPaddingParseError`].
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
@@ -314,30 +207,7 @@ pub enum LayoutPaddingParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-impl<'a> LayoutPaddingParseError<'a> {
-    pub fn to_contained(&self) -> LayoutPaddingParseErrorOwned {
-        match self {
-            LayoutPaddingParseError::PixelValueParseError(e) => {
-                LayoutPaddingParseErrorOwned::PixelValueParseError(e.to_contained())
-            }
-            LayoutPaddingParseError::TooManyValues => LayoutPaddingParseErrorOwned::TooManyValues,
-            LayoutPaddingParseError::TooFewValues => LayoutPaddingParseErrorOwned::TooFewValues,
-        }
-    }
-}
-
-#[cfg(feature = "parser")]
-impl LayoutPaddingParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> LayoutPaddingParseError<'a> {
-        match self {
-            LayoutPaddingParseErrorOwned::PixelValueParseError(e) => {
-                LayoutPaddingParseError::PixelValueParseError(e.to_shared())
-            }
-            LayoutPaddingParseErrorOwned::TooManyValues => LayoutPaddingParseError::TooManyValues,
-            LayoutPaddingParseErrorOwned::TooFewValues => LayoutPaddingParseError::TooFewValues,
-        }
-    }
-}
+impl_spacing_parse_error!(LayoutPaddingParseError, LayoutPaddingParseErrorOwned, "padding");
 
 /// Result of parsing the CSS `padding` shorthand property (1–4 values).
 #[cfg(feature = "parser")]
@@ -419,22 +289,6 @@ pub enum LayoutMarginParseError<'a> {
     TooFewValues,
 }
 
-#[cfg(feature = "parser")]
-impl_debug_as_display!(LayoutMarginParseError<'a>);
-
-#[cfg(feature = "parser")]
-impl_display! { LayoutMarginParseError<'a>, {
-    PixelValueParseError(e) => format!("Could not parse pixel value: {}", e),
-    TooManyValues => "Too many values: margin property accepts at most 4 values.",
-    TooFewValues => "Too few values: margin property requires at least 1 value.",
-}}
-
-#[cfg(feature = "parser")]
-impl_from!(
-    CssPixelValueParseError<'a>,
-    LayoutMarginParseError::PixelValueParseError
-);
-
 /// Owned variant of [`LayoutMarginParseError`].
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
@@ -446,30 +300,7 @@ pub enum LayoutMarginParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-impl<'a> LayoutMarginParseError<'a> {
-    pub fn to_contained(&self) -> LayoutMarginParseErrorOwned {
-        match self {
-            LayoutMarginParseError::PixelValueParseError(e) => {
-                LayoutMarginParseErrorOwned::PixelValueParseError(e.to_contained())
-            }
-            LayoutMarginParseError::TooManyValues => LayoutMarginParseErrorOwned::TooManyValues,
-            LayoutMarginParseError::TooFewValues => LayoutMarginParseErrorOwned::TooFewValues,
-        }
-    }
-}
-
-#[cfg(feature = "parser")]
-impl LayoutMarginParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> LayoutMarginParseError<'a> {
-        match self {
-            LayoutMarginParseErrorOwned::PixelValueParseError(e) => {
-                LayoutMarginParseError::PixelValueParseError(e.to_shared())
-            }
-            LayoutMarginParseErrorOwned::TooManyValues => LayoutMarginParseError::TooManyValues,
-            LayoutMarginParseErrorOwned::TooFewValues => LayoutMarginParseError::TooFewValues,
-        }
-    }
-}
+impl_spacing_parse_error!(LayoutMarginParseError, LayoutMarginParseErrorOwned, "margin");
 
 /// Result of parsing the CSS `margin` shorthand property (1–4 values).
 #[cfg(feature = "parser")]

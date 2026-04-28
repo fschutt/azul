@@ -3006,6 +3006,18 @@ fn extract_custom_impls_from_items(items: &[Item]) -> BTreeMap<String, Vec<Strin
                     break;
                 }
             }
+
+            // impl_spacing_type_impls!(TypeName) generates `impl Debug for TypeName`
+            // (plus inherent impls that don't affect derive tracking).
+            if macro_name == "impl_spacing_type_impls" {
+                let type_name = m.mac.tokens.to_string().trim().to_string();
+                if !type_name.is_empty() {
+                    custom_impls
+                        .entry(type_name)
+                        .or_default()
+                        .push("Debug".to_string());
+                }
+            }
         }
     }
 
