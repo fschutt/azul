@@ -32,7 +32,7 @@ use azul_css::{
     props::{
         layout::{
             LayoutDisplay, LayoutFlexWrap, LayoutHeight, LayoutJustifyContent, LayoutOverflow,
-            LayoutPosition, LayoutWrap, LayoutWritingMode,
+            LayoutPosition, LayoutWritingMode,
         },
         property::{CssProperty, CssPropertyType},
         style::StyleTextAlign,

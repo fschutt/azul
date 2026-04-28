@@ -31160,22 +31160,6 @@
                         ],
                         "repr": "C"
                     },
-                    "LayoutWrapParseErrorOwned": {
-                        "external": "azul_css::props::layout::wrapping::LayoutWrapParseErrorOwned",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq"
-                        ],
-                        "enum_fields": [
-                            {
-                                "InvalidValue": {
-                                    "type": "String"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
                     "CssStylePerspectiveOriginParseErrorOwned": {
                         "external": "azul_css::props::style::transform::CssStylePerspectiveOriginParseErrorOwned",
                         "derive": [
@@ -81066,9 +81050,6 @@
                                 },
                                 "AlignSelf": {
                                     "type": "AlignSelfParseErrorOwned"
-                                },
-                                "LayoutWrap": {
-                                    "type": "LayoutWrapParseErrorOwned"
                                 },
                                 "LayoutWritingMode": {
                                     "type": "LayoutWritingModeParseErrorOwned"
