@@ -3624,7 +3624,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             .ptr
             .get_hanging_punctuation(node_data, &id, node_state)
             .and_then(|s| s.get_property())
-            .map(|hp| hp.enabled)
+            .map(|hp| hp.is_enabled())
             .unwrap_or(false)
     } else {
         false
