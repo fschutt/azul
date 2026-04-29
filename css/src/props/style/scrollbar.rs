@@ -6,7 +6,6 @@ use crate::corety::AzString;
 use crate::props::{
     basic::{
         color::{parse_css_color, ColorU, CssColorParseError, CssColorParseErrorOwned},
-        pixel::PixelValue,
     },
     formatter::PrintAsCssValue,
     layout::{
@@ -63,14 +62,6 @@ impl PrintAsCssValue for OverscrollBehavior {
             Self::None => "none".to_string(),
         }
     }
-}
-
-/// Combined overscroll behavior for X and Y axes
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-#[repr(C)]
-pub struct OverscrollBehaviorXY {
-    pub x: OverscrollBehavior,
-    pub y: OverscrollBehavior,
 }
 
 // ============================================================================
@@ -995,51 +986,6 @@ pub fn parse_style_scrollbar_color<'a>(
     }))
 }
 
-#[derive(Clone, PartialEq)]
-pub enum CssScrollbarStyleParseError<'a> {
-    Invalid(&'a str),
-}
-
-impl_debug_as_display!(CssScrollbarStyleParseError<'a>);
-impl_display! { CssScrollbarStyleParseError<'a>, {
-    Invalid(e) => format!("Invalid scrollbar style: \"{}\"", e),
-}}
-
-#[derive(Debug, Clone, PartialEq)]
-#[repr(C, u8)]
-pub enum CssScrollbarStyleParseErrorOwned {
-    Invalid(AzString),
-}
-
-impl<'a> CssScrollbarStyleParseError<'a> {
-    pub fn to_contained(&self) -> CssScrollbarStyleParseErrorOwned {
-        match self {
-            CssScrollbarStyleParseError::Invalid(s) => {
-                CssScrollbarStyleParseErrorOwned::Invalid(s.to_string().into())
-            }
-        }
-    }
-}
-
-impl CssScrollbarStyleParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> CssScrollbarStyleParseError<'a> {
-        match self {
-            CssScrollbarStyleParseErrorOwned::Invalid(s) => {
-                CssScrollbarStyleParseError::Invalid(s.as_str())
-            }
-        }
-    }
-}
-
-#[cfg(feature = "parser")]
-pub fn parse_scrollbar_style<'a>(
-    _input: &'a str,
-) -> Result<ScrollbarStyle, CssScrollbarStyleParseError<'a>> {
-    // TODO: implement parser for -webkit-scrollbar shorthand format.
-    // For now, it returns the default style.
-    Ok(ScrollbarStyle::default())
-}
-
 // --- Scrollbar Visibility Mode Parser ---
 
 #[derive(Clone, PartialEq)]
@@ -1168,99 +1114,10 @@ pub fn parse_scrollbar_fade_duration<'a>(
         .ok_or(ScrollbarFadeDurationParseError::InvalidValue(input))
 }
 
-// --- STYLE RESOLUTION ---
-
-/// Resolves the final scrollbar style for a node based on standard and
-/// non-standard CSS properties.
-///
-/// This function implements the specified override behavior: if `scrollbar-width`
-/// or `scrollbar-color` are set to anything other than `auto`, they take
-/// precedence over any `::-webkit-scrollbar` styling.
-pub fn resolve_scrollbar_style(
-    scrollbar_width: Option<&LayoutScrollbarWidth>,
-    scrollbar_color: Option<&StyleScrollbarColor>,
-    webkit_scrollbar_style: Option<&ScrollbarStyle>,
-) -> ComputedScrollbarStyle {
-    let final_width = scrollbar_width
-        .copied()
-        .unwrap_or(LayoutScrollbarWidth::Auto);
-    let final_color = scrollbar_color
-        .copied()
-        .unwrap_or(StyleScrollbarColor::Auto);
-
-    // If standard properties are used (not 'auto'), they win.
-    if final_width != LayoutScrollbarWidth::Auto || final_color != StyleScrollbarColor::Auto {
-        let width = match final_width {
-            LayoutScrollbarWidth::None => None,
-            // Use a reasonable default for "thin"
-            LayoutScrollbarWidth::Thin => Some(LayoutWidth::Px(PixelValue::px(8.0))),
-            // If auto, fall back to -webkit- width or the UA default
-            LayoutScrollbarWidth::Auto => Some(
-                webkit_scrollbar_style
-                    .map_or_else(|| ScrollbarInfo::default().width, |s| s.vertical.width.clone()),
-            ),
-        };
-
-        let (thumb_color, track_color) = match final_color {
-            StyleScrollbarColor::Custom(c) => (Some(c.thumb), Some(c.track)),
-            StyleScrollbarColor::Auto => (None, None), // UA default
-        };
-
-        return ComputedScrollbarStyle {
-            width,
-            thumb_color,
-            track_color,
-        };
-    }
-
-    // Otherwise, fall back to -webkit-scrollbar properties if they exist.
-    if let Some(webkit_style) = webkit_scrollbar_style {
-        // For simplicity, we'll use the vertical scrollbar's info.
-        let info = &webkit_style.vertical;
-
-        // The -webkit-scrollbar `display: none;` is often implemented by setting width to 0.
-        let width_pixels = match info.width {
-            LayoutWidth::Px(px) => {
-                use crate::props::basic::pixel::DEFAULT_FONT_SIZE;
-                px.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
-            }
-            _ => 8.0, // Default for min-content/max-content
-        };
-        if width_pixels <= 0.0 {
-            return ComputedScrollbarStyle {
-                width: None,
-                thumb_color: None,
-                track_color: None,
-            };
-        }
-
-        let thumb = match &info.thumb {
-            StyleBackgroundContent::Color(c) => Some(*c),
-            _ => None, // Gradients, images are not directly mapped to a single color
-        };
-
-        let track = match &info.track {
-            StyleBackgroundContent::Color(c) => Some(*c),
-            _ => None,
-        };
-
-        return ComputedScrollbarStyle {
-            width: Some(info.width.clone()),
-            thumb_color: thumb,
-            track_color: track,
-        };
-    }
-
-    // If no styling is provided at all, use UA defaults.
-    ComputedScrollbarStyle::default()
-}
-
 #[cfg(all(test, feature = "parser"))]
 mod tests {
     use super::*;
-    use crate::props::{basic::color::ColorU, layout::dimensions::LayoutWidth};
-
-    // --- Parser Tests ---
+    use crate::props::basic::color::ColorU;
 
     #[test]
     fn test_parse_scrollbar_width() {
@@ -1306,102 +1163,5 @@ mod tests {
 
         assert!(parse_style_scrollbar_color("red").is_err());
         assert!(parse_style_scrollbar_color("red blue green").is_err());
-    }
-
-    // --- Resolution Logic Tests ---
-
-    // Helper to create a default -webkit- style for testing
-    fn get_webkit_style() -> ScrollbarStyle {
-        let mut info = ScrollbarInfo::default();
-        info.width = LayoutWidth::px(15.0);
-        info.thumb = StyleBackgroundContent::Color(ColorU::GREEN);
-        info.track = StyleBackgroundContent::Color(ColorU::new_rgb(100, 100, 100));
-        ScrollbarStyle {
-            horizontal: info.clone(),
-            vertical: info,
-        }
-    }
-
-    #[test]
-    fn test_resolve_standard_overrides_webkit() {
-        let width = LayoutScrollbarWidth::Thin;
-        let color = StyleScrollbarColor::Custom(ScrollbarColorCustom {
-            thumb: ColorU::RED,
-            track: ColorU::BLUE,
-        });
-        let webkit_style = get_webkit_style();
-
-        let resolved = resolve_scrollbar_style(Some(&width), Some(&color), Some(&webkit_style));
-
-        // "thin" resolves to a specific px value (e.g., 8px)
-        assert_eq!(resolved.width, Some(LayoutWidth::px(8.0)));
-        assert_eq!(resolved.thumb_color, Some(ColorU::RED));
-        assert_eq!(resolved.track_color, Some(ColorU::BLUE));
-    }
-
-    #[test]
-    fn test_resolve_standard_auto_falls_back_to_webkit() {
-        let width = LayoutScrollbarWidth::Auto;
-        let color = StyleScrollbarColor::Auto;
-        let webkit_style = get_webkit_style();
-
-        let resolved = resolve_scrollbar_style(Some(&width), Some(&color), Some(&webkit_style));
-
-        assert_eq!(resolved.width, Some(LayoutWidth::px(15.0)));
-        assert_eq!(resolved.thumb_color, Some(ColorU::GREEN));
-        assert_eq!(resolved.track_color, Some(ColorU::new_rgb(100, 100, 100)));
-    }
-
-    #[test]
-    fn test_resolve_no_styles_uses_default() {
-        let resolved = resolve_scrollbar_style(None, None, None);
-        assert_eq!(resolved, ComputedScrollbarStyle::default());
-    }
-
-    #[test]
-    fn test_resolve_scrollbar_width_none() {
-        let width = LayoutScrollbarWidth::None;
-        let webkit_style = get_webkit_style();
-
-        let resolved = resolve_scrollbar_style(Some(&width), None, Some(&webkit_style));
-        assert_eq!(resolved.width, None);
-    }
-
-    #[test]
-    fn test_resolve_webkit_display_none_equivalent() {
-        let mut webkit_style = get_webkit_style();
-        webkit_style.vertical.width = LayoutWidth::px(0.0);
-
-        let resolved = resolve_scrollbar_style(None, None, Some(&webkit_style));
-        assert_eq!(resolved.width, None);
-    }
-
-    #[test]
-    fn test_resolve_only_color_is_set() {
-        let color = StyleScrollbarColor::Custom(ScrollbarColorCustom {
-            thumb: ColorU::RED,
-            track: ColorU::BLUE,
-        });
-        let webkit_style = get_webkit_style();
-
-        let resolved = resolve_scrollbar_style(None, Some(&color), Some(&webkit_style));
-
-        // Width should fall back to webkit, but colors should be standard
-        assert_eq!(resolved.width, Some(LayoutWidth::px(15.0)));
-        assert_eq!(resolved.thumb_color, Some(ColorU::RED));
-        assert_eq!(resolved.track_color, Some(ColorU::BLUE));
-    }
-
-    #[test]
-    fn test_resolve_only_width_is_set() {
-        let width = LayoutScrollbarWidth::Thin;
-        let webkit_style = get_webkit_style();
-
-        let resolved = resolve_scrollbar_style(Some(&width), None, Some(&webkit_style));
-
-        // Width should be from standard, colors should be UA default (since standard color is auto)
-        assert_eq!(resolved.width, Some(LayoutWidth::px(8.0)));
-        assert_eq!(resolved.thumb_color, None);
-        assert_eq!(resolved.track_color, None);
     }
 }
