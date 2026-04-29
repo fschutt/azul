@@ -747,16 +747,10 @@ pub fn parse_style_transform<'a>(
                     })?
                     .trim(),
             )?;
-            let y = parse_pixel_value(
-                components
-                    .get(1)
-                    .ok_or(CssStyleTransformParseError::WrongNumberOfComponents {
-                        expected: 2,
-                        got: 1,
-                        input: transform_values,
-                    })?
-                    .trim(),
-            )?;
+            let y = match components.get(1) {
+                Some(c) => parse_pixel_value(c.trim())?,
+                None => PixelValue::px(0.0),
+            };
             Ok(StyleTransform::Translate(StyleTransformTranslate2D {
                 x,
                 y,
@@ -810,12 +804,23 @@ pub fn parse_style_transform<'a>(
         )?)),
         "rotate" => Ok(StyleTransform::Rotate(parse_angle_value(transform_values)?)),
         "rotate3d" => {
-            let nums = get_numbers(transform_values, 4)?;
+            let parts: Vec<_> = transform_values.splitn(4, ',').collect();
+            if parts.len() != 4 {
+                return Err(CssStyleTransformParseError::WrongNumberOfComponents {
+                    expected: 4,
+                    got: parts.len(),
+                    input: transform_values,
+                });
+            }
+            let x = parts[0].trim().parse::<f32>()?;
+            let y = parts[1].trim().parse::<f32>()?;
+            let z = parts[2].trim().parse::<f32>()?;
+            let angle = parse_angle_value(parts[3].trim())?;
             Ok(StyleTransform::Rotate3D(StyleTransformRotate3D {
-                x: FloatValue::new(nums[0]),
-                y: FloatValue::new(nums[1]),
-                z: FloatValue::new(nums[2]),
-                angle: AngleValue::deg(nums[3]),
+                x: FloatValue::new(x),
+                y: FloatValue::new(y),
+                z: FloatValue::new(z),
+                angle,
             }))
         }
         "rotateX" => Ok(StyleTransform::RotateX(parse_angle_value(
@@ -828,10 +833,23 @@ pub fn parse_style_transform<'a>(
             transform_values,
         )?)),
         "scale" => {
-            let nums = get_numbers(transform_values, 2)?;
+            let parts: Vec<_> = transform_values.split(',').collect();
+            if parts.is_empty() || parts.len() > 2 {
+                return Err(CssStyleTransformParseError::WrongNumberOfComponents {
+                    expected: 2,
+                    got: parts.len(),
+                    input: transform_values,
+                });
+            }
+            let x = parts[0].trim().parse::<f32>()?;
+            let y = if parts.len() == 2 {
+                parts[1].trim().parse::<f32>()?
+            } else {
+                x
+            };
             Ok(StyleTransform::Scale(StyleTransformScale2D {
-                x: FloatValue::new(nums[0]),
-                y: FloatValue::new(nums[1]),
+                x: FloatValue::new(x),
+                y: FloatValue::new(y),
             }))
         }
         "scale3d" => {
@@ -853,25 +871,18 @@ pub fn parse_style_transform<'a>(
         ))),
         "skew" => {
             let components: Vec<_> = transform_values.split(',').collect();
-            let x = parse_angle_value(
-                components.first()
-                    .ok_or(CssStyleTransformParseError::WrongNumberOfComponents {
-                        expected: 2,
-                        got: 0,
-                        input: transform_values,
-                    })?
-                    .trim(),
-            )?;
-            let y = parse_angle_value(
-                components
-                    .get(1)
-                    .ok_or(CssStyleTransformParseError::WrongNumberOfComponents {
-                        expected: 2,
-                        got: 1,
-                        input: transform_values,
-                    })?
-                    .trim(),
-            )?;
+            if components.is_empty() || components.len() > 2 {
+                return Err(CssStyleTransformParseError::WrongNumberOfComponents {
+                    expected: 2,
+                    got: components.len(),
+                    input: transform_values,
+                });
+            }
+            let x = parse_angle_value(components[0].trim())?;
+            let y = match components.get(1) {
+                Some(c) => parse_angle_value(c.trim())?,
+                None => AngleValue::deg(0.0),
+            };
             Ok(StyleTransform::Skew(StyleTransformSkew2D { x, y }))
         }
         "skewX" => Ok(StyleTransform::SkewX(parse_angle_value(transform_values)?)),
@@ -1044,8 +1055,37 @@ mod tests {
         // Wrong function name
         assert!(parse_style_transform("translatex(10px)").is_err());
         // Wrong number of args
-        assert!(parse_style_transform("scale(1)").is_err());
         assert!(parse_style_transform("translate(1, 2, 3)").is_err());
+        // Single-arg forms (CSS spec compliant)
+        let scale1 = parse_style_transform("scale(2)").unwrap();
+        if let StyleTransform::Scale(s) = scale1 {
+            assert_eq!(s.x.get(), 2.0);
+            assert_eq!(s.y.get(), 2.0);
+        } else {
+            panic!("Expected Scale");
+        }
+        let translate1 = parse_style_transform("translate(10px)").unwrap();
+        if let StyleTransform::Translate(t) = translate1 {
+            assert_eq!(t.x, PixelValue::px(10.0));
+            assert_eq!(t.y, PixelValue::px(0.0));
+        } else {
+            panic!("Expected Translate");
+        }
+        let skew1 = parse_style_transform("skew(20deg)").unwrap();
+        if let StyleTransform::Skew(s) = skew1 {
+            assert_eq!(s.x, AngleValue::deg(20.0));
+            assert_eq!(s.y, AngleValue::deg(0.0));
+        } else {
+            panic!("Expected Skew");
+        }
+        // rotate3d with angle unit
+        let rot3d = parse_style_transform("rotate3d(1, 0, 0, 45deg)").unwrap();
+        if let StyleTransform::Rotate3D(r) = rot3d {
+            assert_eq!(r.x.get(), 1.0);
+            assert_eq!(r.angle, AngleValue::deg(45.0));
+        } else {
+            panic!("Expected Rotate3D");
+        }
         // Invalid value
         assert!(parse_style_transform("rotate(10px)").is_err());
         assert!(parse_style_transform("translateX(auto)").is_err());
