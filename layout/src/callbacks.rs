@@ -2891,7 +2891,8 @@ impl CallbackInfo {
             gpu_cache,
             dom_id,
             &scroll_offsets,
-        );
+        )
+        .with_system_style(layout_window.system_style.clone());
 
         let opts = RenderOptions {
             width,

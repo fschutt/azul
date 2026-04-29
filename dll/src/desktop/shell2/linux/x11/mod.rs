@@ -1665,7 +1665,8 @@ impl X11Window {
                                     gpu_cache,
                                     dom_id,
                                     &scroll_offsets,
-                                );
+                                )
+                                .with_system_style(layout_window.system_style.clone());
 
                                 // Try incremental damage-rect rendering first
                                 let dl_damage = match &self.previous_display_list {

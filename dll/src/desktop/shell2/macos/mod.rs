@@ -5412,7 +5412,8 @@ impl MacOSWindow {
                     let gpu_cache = layout_window.gpu_state_manager.get_cache(dom_id);
                     let render_state = CpuRenderState::from_gpu_cache(
                         gpu_cache, dom_id, &scroll_offsets,
-                    );
+                    )
+                    .with_system_style(layout_window.system_style.clone());
 
                     // Try incremental damage-rect rendering first
                     let dl_damage = match &self.previous_display_list {

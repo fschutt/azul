@@ -279,7 +279,8 @@ impl CpuBackend {
 
         let render_state = cpurender::CpuRenderState::new(
             cpurender::ScrollOffsetMap::new()
-        );
+        )
+        .with_system_style(layout_window.system_style.clone());
 
         if is_incremental && !all_damage.is_empty() {
             // Incremental: render only damaged regions

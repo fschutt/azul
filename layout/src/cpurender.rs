@@ -1375,18 +1375,36 @@ fn agg_fill_gradient_clipped<G: GradientFunction>(
 // Gradient helpers
 // ============================================================================
 
-/// Resolve a ColorOrSystem to a concrete ColorU (system colors fall back to gray).
-fn resolve_color(color: &ColorOrSystem) -> ColorU {
-    match color {
-        ColorOrSystem::Color(c) => *c,
-        // Placeholder: system colors are not resolved here; fall back to neutral gray
-        ColorOrSystem::System(_) => ColorU { r: 128, g: 128, b: 128, a: 255 },
+/// Fallback color used when a `system:*` keyword cannot be resolved
+/// (for example because no `SystemStyle` is attached to the
+/// [`CpuRenderState`], or because the requested key is unset on the
+/// current platform). CSS Images Level 4 leaves the color undefined in
+/// this case; transparent black means the stop simply contributes
+/// nothing to the gradient instead of poisoning it with an arbitrary
+/// visible color (the previous behaviour was hardcoded mid-gray, which
+/// produced visibly wrong output).
+const SYSTEM_COLOR_FALLBACK: ColorU = ColorU { r: 0, g: 0, b: 0, a: 0 };
+
+/// Resolve a `ColorOrSystem` against the optional system palette.
+///
+/// Concrete colors are returned verbatim. `system:*` keywords are
+/// resolved against `system_colors` when available and fall back to
+/// `SYSTEM_COLOR_FALLBACK` otherwise.
+fn resolve_color(
+    color: &ColorOrSystem,
+    system_colors: Option<&azul_css::system::SystemColors>,
+) -> ColorU {
+    match (color, system_colors) {
+        (ColorOrSystem::Color(c), _) => *c,
+        (ColorOrSystem::System(_), Some(sc)) => color.resolve(sc, SYSTEM_COLOR_FALLBACK),
+        (ColorOrSystem::System(_), None) => SYSTEM_COLOR_FALLBACK,
     }
 }
 
 /// Build a GradientLut from normalized linear color stops.
 fn build_gradient_lut_linear(
     stops: &azul_css::props::style::background::NormalizedLinearColorStopVec,
+    system_colors: Option<&azul_css::system::SystemColors>,
 ) -> GradientLut {
     let mut lut = GradientLut::new_default();
     let stops_slice = stops.as_ref();
@@ -1399,7 +1417,7 @@ fn build_gradient_lut_linear(
     }
     for stop in stops_slice {
         let offset = stop.offset.normalized() as f64; // 0.0..1.0
-        let c = resolve_color(&stop.color);
+        let c = resolve_color(&stop.color, system_colors);
         lut.add_color(offset, Rgba8::new(c.r as u32, c.g as u32, c.b as u32, c.a as u32));
     }
     lut.build_lut();
@@ -1409,6 +1427,7 @@ fn build_gradient_lut_linear(
 /// Build a GradientLut from normalized radial (conic) color stops.
 fn build_gradient_lut_radial(
     stops: &azul_css::props::style::background::NormalizedRadialColorStopVec,
+    system_colors: Option<&azul_css::system::SystemColors>,
 ) -> GradientLut {
     let mut lut = GradientLut::new_default();
     let stops_slice = stops.as_ref();
@@ -1421,7 +1440,7 @@ fn build_gradient_lut_radial(
     for stop in stops_slice {
         // Conic stops use angle — normalize to 0..1 fraction of full circle
         let offset = (stop.angle.to_degrees() / 360.0).clamp(0.0, 1.0) as f64;
-        let c = resolve_color(&stop.color);
+        let c = resolve_color(&stop.color, system_colors);
         lut.add_color(offset, Rgba8::new(c.r as u32, c.g as u32, c.b as u32, c.a as u32));
     }
     lut.build_lut();
@@ -1464,6 +1483,7 @@ fn render_linear_gradient(
     border_radius: &BorderRadius,
     clip: Option<AzRect>,
     dpi_factor: f32,
+    system_colors: Option<&azul_css::system::SystemColors>,
 ) -> Result<(), String> {
     use azul_css::props::basic::geometry::{LayoutRect, LayoutSize};
 
@@ -1478,7 +1498,7 @@ fn render_linear_gradient(
     }
 
 
-    let lut = build_gradient_lut_linear(&gradient.stops);
+    let lut = build_gradient_lut_linear(&gradient.stops, system_colors);
 
     // Convert Direction to start/end points using the existing to_points method
     let layout_rect = LayoutRect {
@@ -1527,6 +1547,7 @@ fn render_radial_gradient(
     border_radius: &BorderRadius,
     clip: Option<AzRect>,
     dpi_factor: f32,
+    system_colors: Option<&azul_css::system::SystemColors>,
 ) -> Result<(), String> {
     use azul_css::props::style::background::{RadialGradientSize, Shape};
 
@@ -1540,7 +1561,7 @@ fn render_radial_gradient(
         return Ok(());
     }
 
-    let lut = build_gradient_lut_linear(&gradient.stops);
+    let lut = build_gradient_lut_linear(&gradient.stops, system_colors);
 
     let w = rect.width as f64;
     let h = rect.height as f64;
@@ -1608,6 +1629,7 @@ fn render_conic_gradient(
     border_radius: &BorderRadius,
     clip: Option<AzRect>,
     dpi_factor: f32,
+    system_colors: Option<&azul_css::system::SystemColors>,
 ) -> Result<(), String> {
     let rect = match logical_rect_to_az_rect(bounds, dpi_factor) {
         Some(r) => r,
@@ -1619,7 +1641,7 @@ fn render_conic_gradient(
         return Ok(());
     }
 
-    let lut = build_gradient_lut_radial(&gradient.stops);
+    let lut = build_gradient_lut_radial(&gradient.stops, system_colors);
 
     let w = rect.width as f64;
     let h = rect.height as f64;
@@ -2190,6 +2212,10 @@ pub struct CpuRenderState {
     /// For WhenScrolling mode, opacity is 1.0 when recently scrolled,
     /// fades to 0.0 after idle. For Always mode, opacity is always 1.0.
     pub opacities: HashMap<usize, f32>,
+    /// System style for resolving system color references inside gradient
+    /// stops (e.g. `system:accent` in macOS button backgrounds). When None,
+    /// system color stops fall back to a transparent color.
+    pub system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
 }
 
 impl CpuRenderState {
@@ -2198,7 +2224,18 @@ impl CpuRenderState {
             scroll_offsets,
             transforms: HashMap::new(),
             opacities: HashMap::new(),
+            system_style: None,
         }
+    }
+
+    /// Attach a `SystemStyle` so the renderer can resolve `system:*` color
+    /// keywords (e.g. in gradient stops) against the live OS palette.
+    pub fn with_system_style(
+        mut self,
+        system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
+    ) -> Self {
+        self.system_style = system_style;
+        self
     }
 
     /// Build from a GpuValueCache snapshot.
@@ -2257,6 +2294,7 @@ impl CpuRenderState {
             scroll_offsets: scroll_offsets.clone(),
             transforms,
             opacities,
+            system_style: None,
         }
     }
 }
@@ -2849,6 +2887,7 @@ fn render_single_item(
                     border_radius,
                     clip,
                     dpi_factor,
+                    render_state.system_style.as_deref().map(|s| &s.colors),
                 )?;
             }
             DisplayListItem::RadialGradient {
@@ -2864,6 +2903,7 @@ fn render_single_item(
                     border_radius,
                     clip,
                     dpi_factor,
+                    render_state.system_style.as_deref().map(|s| &s.colors),
                 )?;
             }
             DisplayListItem::ConicGradient {
@@ -2879,6 +2919,7 @@ fn render_single_item(
                     border_radius,
                     clip,
                     dpi_factor,
+                    render_state.system_style.as_deref().map(|s| &s.colors),
                 )?;
             }
 
@@ -3830,7 +3871,7 @@ pub fn render_component_preview(
         Vec::new(),
         None, // preedit_text: not needed for headless preview rendering
         &azul_core::resources::ImageCache::default(),
-        system_style,
+        system_style.clone(),
         get_system_time_fn,
     ).map_err(|e| format!("Layout failed: {:?}", e))?;
 
@@ -3869,13 +3910,16 @@ pub fn render_component_preview(
     pixmap.fill(bg.r, bg.g, bg.b, bg.a);
 
     let mut preview_glyph_cache = GlyphCache::new();
-    render_display_list(
+    let preview_render_state = CpuRenderState::new(ScrollOffsetMap::new())
+        .with_system_style(system_style);
+    render_display_list_with_state(
         &display_list,
         &mut pixmap,
         dpi,
         &renderer_resources,
         Some(&preview_font_manager),
         &mut preview_glyph_cache,
+        &preview_render_state,
     )?;
 
     let png_data = pixmap.encode_png()
