@@ -115,8 +115,7 @@ pub struct StyleColorMatrix {
 }
 
 impl StyleColorMatrix {
-    /// Returns the matrix values as a slice for iteration
-    pub fn as_slice(&self) -> [FloatValue; 20] {
+    pub fn to_array(&self) -> [FloatValue; 20] {
         [
             self.m0, self.m1, self.m2, self.m3, self.m4, self.m5, self.m6, self.m7, self.m8,
             self.m9, self.m10, self.m11, self.m12, self.m13, self.m14, self.m15, self.m16,
@@ -192,7 +191,7 @@ impl PrintAsCssValue for StyleFilter {
             StyleFilter::Opacity(c) => format!("opacity({})", c),
             StyleFilter::ColorMatrix(c) => format!(
                 "color-matrix({})",
-                c.as_slice()
+                c.to_array()
                     .iter()
                     .map(|s| format!("{}", s))
                     .collect::<Vec<_>>()
@@ -249,6 +248,9 @@ pub mod parser {
         BlendMode(InvalidValueErr<'a>),
         Color(CssColorParseError<'a>),
         Opacity(PercentageParseError),
+        Brightness(PercentageParseError),
+        Contrast(PercentageParseError),
+        Saturate(PercentageParseError),
         Blur(CssStyleBlurParseError<'a>),
         ColorMatrix(CssStyleColorMatrixParseError<'a>),
         Offset(CssStyleFilterOffsetParseError<'a>),
@@ -264,6 +266,9 @@ pub mod parser {
         BlendMode(e) => format!("Error parsing blend(): invalid value \"{}\"", e.0),
         Color(e) => format!("Error parsing flood(): {}", e),
         Opacity(e) => format!("Error parsing opacity(): {}", e),
+        Brightness(e) => format!("Error parsing brightness(): {}", e),
+        Contrast(e) => format!("Error parsing contrast(): {}", e),
+        Saturate(e) => format!("Error parsing saturate(): {}", e),
         Blur(e) => format!("Error parsing blur(): {}", e),
         ColorMatrix(e) => format!("Error parsing color-matrix(): {}", e),
         Offset(e) => format!("Error parsing offset(): {}", e),
@@ -317,6 +322,9 @@ pub mod parser {
         BlendMode(InvalidValueErrOwned),
         Color(CssColorParseErrorOwned),
         Opacity(PercentageParseError),
+        Brightness(PercentageParseError),
+        Contrast(PercentageParseError),
+        Saturate(PercentageParseError),
         Blur(CssStyleBlurParseErrorOwned),
         ColorMatrix(CssStyleColorMatrixParseErrorOwned),
         Offset(CssStyleFilterOffsetParseErrorOwned),
@@ -337,6 +345,9 @@ pub mod parser {
                 Self::BlendMode(e) => CssStyleFilterParseErrorOwned::BlendMode(e.to_contained()),
                 Self::Color(e) => CssStyleFilterParseErrorOwned::Color(e.to_contained()),
                 Self::Opacity(e) => CssStyleFilterParseErrorOwned::Opacity(e.clone()),
+                Self::Brightness(e) => CssStyleFilterParseErrorOwned::Brightness(e.clone()),
+                Self::Contrast(e) => CssStyleFilterParseErrorOwned::Contrast(e.clone()),
+                Self::Saturate(e) => CssStyleFilterParseErrorOwned::Saturate(e.clone()),
                 Self::Blur(e) => CssStyleFilterParseErrorOwned::Blur(e.to_contained()),
                 Self::ColorMatrix(e) => {
                     CssStyleFilterParseErrorOwned::ColorMatrix(e.to_contained())
@@ -359,6 +370,9 @@ pub mod parser {
                 Self::BlendMode(e) => CssStyleFilterParseError::BlendMode(e.to_shared()),
                 Self::Color(e) => CssStyleFilterParseError::Color(e.to_shared()),
                 Self::Opacity(e) => CssStyleFilterParseError::Opacity(e.clone()),
+                Self::Brightness(e) => CssStyleFilterParseError::Brightness(e.clone()),
+                Self::Contrast(e) => CssStyleFilterParseError::Contrast(e.clone()),
+                Self::Saturate(e) => CssStyleFilterParseError::Saturate(e.clone()),
                 Self::Blur(e) => CssStyleFilterParseError::Blur(e.to_shared()),
                 Self::ColorMatrix(e) => CssStyleFilterParseError::ColorMatrix(e.to_shared()),
                 Self::Offset(e) => CssStyleFilterParseError::Offset(e.to_shared()),
@@ -697,12 +711,36 @@ pub mod parser {
             "composite" => Ok(StyleFilter::Composite(parse_filter_composite(
                 filter_values,
             )?)),
-            "brightness" => Ok(StyleFilter::Brightness(parse_percentage_value(filter_values)?)),
-            "contrast" => Ok(StyleFilter::Contrast(parse_percentage_value(filter_values)?)),
+            "brightness" => {
+                let val = parse_percentage_value(filter_values)?;
+                if val.normalized() < 0.0 {
+                    return Err(CssStyleFilterParseError::Brightness(
+                        PercentageParseError::InvalidUnit(filter_values.to_string().into()),
+                    ));
+                }
+                Ok(StyleFilter::Brightness(val))
+            }
+            "contrast" => {
+                let val = parse_percentage_value(filter_values)?;
+                if val.normalized() < 0.0 {
+                    return Err(CssStyleFilterParseError::Contrast(
+                        PercentageParseError::InvalidUnit(filter_values.to_string().into()),
+                    ));
+                }
+                Ok(StyleFilter::Contrast(val))
+            }
             "grayscale" => Ok(StyleFilter::Grayscale(parse_percentage_value(filter_values)?)),
             "hue-rotate" => Ok(StyleFilter::HueRotate(parse_angle_value(filter_values)?)),
             "invert" => Ok(StyleFilter::Invert(parse_percentage_value(filter_values)?)),
-            "saturate" => Ok(StyleFilter::Saturate(parse_percentage_value(filter_values)?)),
+            "saturate" => {
+                let val = parse_percentage_value(filter_values)?;
+                if val.normalized() < 0.0 {
+                    return Err(CssStyleFilterParseError::Saturate(
+                        PercentageParseError::InvalidUnit(filter_values.to_string().into()),
+                    ));
+                }
+                Ok(StyleFilter::Saturate(val))
+            }
             "sepia" => Ok(StyleFilter::Sepia(parse_percentage_value(filter_values)?)),
             _ => unreachable!(),
         }
@@ -892,6 +930,61 @@ mod tests {
         assert!(matches!(filters.as_slice()[0], StyleFilter::Blur(_)));
         assert!(matches!(filters.as_slice()[1], StyleFilter::DropShadow(_)));
         assert!(matches!(filters.as_slice()[2], StyleFilter::Opacity(_)));
+    }
+
+    #[test]
+    fn test_parse_standard_css_filters() {
+        let brightness = parse_style_filter("brightness(150%)").unwrap();
+        if let StyleFilter::Brightness(v) = brightness {
+            assert!((v.normalized() - 1.5).abs() < 0.001);
+        } else {
+            panic!("expected Brightness");
+        }
+
+        let contrast = parse_style_filter("contrast(200%)").unwrap();
+        if let StyleFilter::Contrast(v) = contrast {
+            assert!((v.normalized() - 2.0).abs() < 0.001);
+        } else {
+            panic!("expected Contrast");
+        }
+
+        let grayscale = parse_style_filter("grayscale(100%)").unwrap();
+        if let StyleFilter::Grayscale(v) = grayscale {
+            assert!((v.normalized() - 1.0).abs() < 0.001);
+        } else {
+            panic!("expected Grayscale");
+        }
+
+        let hue = parse_style_filter("hue-rotate(90deg)").unwrap();
+        assert!(matches!(hue, StyleFilter::HueRotate(_)));
+
+        let invert = parse_style_filter("invert(75%)").unwrap();
+        if let StyleFilter::Invert(v) = invert {
+            assert!((v.normalized() - 0.75).abs() < 0.001);
+        } else {
+            panic!("expected Invert");
+        }
+
+        let saturate = parse_style_filter("saturate(50%)").unwrap();
+        if let StyleFilter::Saturate(v) = saturate {
+            assert!((v.normalized() - 0.5).abs() < 0.001);
+        } else {
+            panic!("expected Saturate");
+        }
+
+        let sepia = parse_style_filter("sepia(60%)").unwrap();
+        if let StyleFilter::Sepia(v) = sepia {
+            assert!((v.normalized() - 0.6).abs() < 0.001);
+        } else {
+            panic!("expected Sepia");
+        }
+    }
+
+    #[test]
+    fn test_negative_values_rejected() {
+        assert!(parse_style_filter("brightness(-50%)").is_err());
+        assert!(parse_style_filter("contrast(-10%)").is_err());
+        assert!(parse_style_filter("saturate(-20%)").is_err());
     }
 
     #[test]
