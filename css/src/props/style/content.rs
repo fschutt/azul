@@ -199,15 +199,13 @@ pub mod parser {
         })
     }
 
-    pub fn parse_counter_reset(input: &str) -> Result<CounterReset, ()> {
+    fn parse_counter_name_value(input: &str, default_value: i32) -> Result<(AzString, i32), ()> {
         let trimmed = input.trim();
 
         if trimmed == "none" {
-            return Ok(CounterReset::none());
+            return Ok((AzString::from_const_str("none"), 0));
         }
 
-        // Parse "counter-name value" format
-        // e.g., "list-item 0", "section 1", or just "list-item" (defaults to 0)
         let parts: Vec<&str> = trimmed.split_whitespace().collect();
 
         if parts.is_empty() {
@@ -218,34 +216,19 @@ pub mod parser {
         let value = if parts.len() > 1 {
             parts[1].parse::<i32>().map_err(|_| ())?
         } else {
-            0 // CSS spec: default reset value is 0
+            default_value
         };
 
+        Ok((counter_name, value))
+    }
+
+    pub fn parse_counter_reset(input: &str) -> Result<CounterReset, ()> {
+        let (counter_name, value) = parse_counter_name_value(input, 0)?;
         Ok(CounterReset::new(counter_name, value))
     }
 
     pub fn parse_counter_increment(input: &str) -> Result<CounterIncrement, ()> {
-        let trimmed = input.trim();
-
-        if trimmed == "none" {
-            return Ok(CounterIncrement::none());
-        }
-
-        // Parse "counter-name value" format
-        // e.g., "list-item 1", "section 2", or just "list-item" (defaults to 1)
-        let parts: Vec<&str> = trimmed.split_whitespace().collect();
-
-        if parts.is_empty() {
-            return Err(());
-        }
-
-        let counter_name = parts[0].into();
-        let value = if parts.len() > 1 {
-            parts[1].parse::<i32>().map_err(|_| ())?
-        } else {
-            1 // CSS spec: default increment value is 1
-        };
-
+        let (counter_name, value) = parse_counter_name_value(input, 1)?;
         Ok(CounterIncrement::new(counter_name, value))
     }
 
