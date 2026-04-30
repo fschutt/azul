@@ -24,8 +24,11 @@ use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
+
+use super::telegram::{InputChannel, TelegramBridge, UserInput};
 
 // ── Public API ────────────────────────────────────────────────────────────
 
@@ -38,6 +41,8 @@ pub struct Config {
     pub analyzer_model: Option<String>,
     /// If true, skip the pre-analysis agent (faster, but no recommendation).
     pub skip_analyze: bool,
+    /// If true, do not mirror prompts to Telegram even if a config exists.
+    pub no_telegram: bool,
 }
 
 pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> {
@@ -46,6 +51,7 @@ pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> 
     let mut model = None;
     let mut analyzer_model = None;
     let mut skip_analyze = false;
+    let mut no_telegram = false;
 
     for arg in args {
         if let Some(v) = arg.strip_prefix("--reference=") {
@@ -58,6 +64,8 @@ pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> 
             analyzer_model = Some(v.to_string());
         } else if *arg == "--no-analyze" {
             skip_analyze = true;
+        } else if *arg == "--no-telegram" {
+            no_telegram = true;
         } else if arg.starts_with('-') {
             return Err(format!("Unknown option: {}", arg));
         }
@@ -73,6 +81,7 @@ pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> 
         model,
         analyzer_model,
         skip_analyze,
+        no_telegram,
     })
 }
 
@@ -118,12 +127,63 @@ pub fn run(config: Config) -> Result<(), String> {
     println!("Base: {}", base_ref);
     println!("Progress: {}/{} processed\n", progress.processed.len(), total);
 
+    // ── Telegram bridge (optional) ──────────────────────────────────────
+    let bridge: Option<Arc<TelegramBridge>> = if config.no_telegram {
+        None
+    } else {
+        match TelegramBridge::from_env_or_config() {
+            Some(Ok(b)) => {
+                println!(
+                    "[telegram] active — chat_id={}, prompts will mirror to your bot",
+                    b.chat_id
+                );
+                let _ = b.send_message(
+                    &format!(
+                        "azul-doc apply-midlevel started\n\
+                         reference: {}\n\
+                         {} commits, {} processed so far",
+                        config.reference,
+                        total,
+                        progress.processed.len()
+                    ),
+                    None,
+                );
+                Some(Arc::new(b))
+            }
+            Some(Err(e)) => {
+                eprintln!("[telegram] config error, disabling: {}", e);
+                None
+            }
+            None => None,
+        }
+    };
+    let input_channel = InputChannel::start(bridge.clone());
+
     // Main loop
     loop {
         let next = match find_next(&commits, &progress) {
             Some(sha) => sha.clone(),
             None => {
                 println!("All commits processed.");
+                if let Some(b) = bridge.as_ref() {
+                    let applied = progress.processed.iter().filter(|d| matches!(
+                        d.decision,
+                        DecisionKind::AppliedByAgent | DecisionKind::AppliedEdited
+                    )).count();
+                    let rejected = progress.processed.iter()
+                        .filter(|d| d.decision == DecisionKind::Rejected).count();
+                    let skipped = progress.processed.iter().filter(|d| matches!(
+                        d.decision,
+                        DecisionKind::SkippedMd | DecisionKind::SkippedByUser
+                    )).count();
+                    let _ = b.send_message(
+                        &format!(
+                            "apply-midlevel finished\nreference: {}\napplied={} rejected={} skipped={}",
+                            config.reference, applied, rejected, skipped
+                        ),
+                        None,
+                    );
+                }
                 break;
             }
         };
@@ -185,7 +245,15 @@ pub fn run(config: Config) -> Result<(), String> {
         // Stays in this loop until the user picks y/s/r/q. [p] just refines
         // and loops; [d] checks out + restores and loops.
         let decision_taken: UserAction = loop {
-            let action = prompt_user()?;
+            let phone_summary = build_phone_summary(
+                &info,
+                paired_docs.as_ref(),
+                &plan,
+                processed_so_far + 1,
+                total,
+                &progress,
+            );
+            let action = prompt_user(&input_channel, Some(&phone_summary))?;
             match action {
                 UserAction::Refine(feedback) => {
                     match run_analysis_agent(
@@ -201,7 +269,7 @@ pub fn run(config: Config) -> Result<(), String> {
                     continue;
                 }
                 UserAction::Show => {
-                    open_commit_in_editor(&project_root, &next, &info)?;
+                    open_commit_in_editor(&project_root, &next, &info, &input_channel)?;
                     continue;
                 }
                 other => break other,
@@ -228,7 +296,7 @@ pub fn run(config: Config) -> Result<(), String> {
                     match outcome {
                         Ok(applied) => {
                             print_applied_summary(&project_root, &pre_head, &applied.new_sha)?;
-                            match prompt_post_apply()? {
+                            match prompt_post_apply(&input_channel)? {
                                 PostApply::Accept => break Ok(applied),
                                 PostApply::Refine(instr) => {
                                     plan.iterations.push(PlanIteration {
@@ -476,6 +544,109 @@ fn find_next<'a>(commits: &'a [String], progress: &Progress) -> Option<&'a Strin
 
 // ── UI ────────────────────────────────────────────────────────────────────
 
+/// Phone-friendly summary for the Telegram message: progress banner + commit
+/// info + the analyzer's recommendation tail (the `[CATEGORY] / Why: / Plan:
+/// / Suggested user action:` block). Capped well below Telegram's 4096-char
+/// limit; further truncation happens during send if needed.
+fn build_phone_summary(
+    info: &CommitInfo,
+    paired: Option<&CommitInfo>,
+    plan: &PlanSession,
+    n: usize,
+    total: usize,
+    progress: &Progress,
+) -> String {
+    let applied = progress.processed.iter().filter(|d| matches!(
+        d.decision,
+        DecisionKind::AppliedByAgent | DecisionKind::AppliedEdited
+    )).count();
+    let rejected = progress.processed.iter().filter(|d| d.decision == DecisionKind::Rejected).count();
+    let skipped = progress.processed.iter().filter(|d| matches!(
+        d.decision,
+        DecisionKind::SkippedMd | DecisionKind::SkippedByUser
+    )).count();
+
+    let mut s = String::new();
+    s.push_str(&format!(
+        "Commit {}/{} | applied={} rejected={} skipped={}\n",
+        n, total, applied, rejected, skipped
+    ));
+    s.push_str(&format!("{}\n", &info.sha[..info.sha.len().min(12)]));
+    s.push_str(&format!("{}\n", info.subject));
+
+    if !info.body.is_empty() {
+        let body_trim: String = info.body.lines().take(4).collect::<Vec<_>>().join("\n");
+        s.push_str(&format!("\n{}\n", body_trim));
+    }
+
+    s.push_str("\nFiles:\n");
+    for f in info.files.iter().take(8) {
+        s.push_str(&format!("  +{} -{}  {}\n", f.additions, f.deletions, f.path));
+    }
+    if info.files.len() > 8 {
+        s.push_str(&format!("  …(+{} more)\n", info.files.len() - 8));
+    }
+    if let Some(p) = paired {
+        s.push_str(&format!(
+            "\nPaired docs: {}\n",
+            &p.sha[..p.sha.len().min(12)]
+        ));
+    }
+
+    if let Some(latest) = plan.latest_plan() {
+        s.push_str("\n— analyzer —\n");
+        s.push_str(&extract_analyzer_summary(latest));
+    }
+
+    s
+}
+
+/// Pull just the recommendation block out of the analyzer's full output.
+/// The analyzer is told to produce a structured tail starting with
+/// `[KEEP|DONE|WIRE|REFACTOR|REJECT|UNCLEAR]`; we find the LAST such tag and
+/// return everything from that line onward, capped at 1500 chars.
+fn extract_analyzer_summary(text: &str) -> String {
+    let tags = ["[KEEP]", "[DONE]", "[WIRE]", "[REFACTOR]", "[REJECT]", "[UNCLEAR]"];
+    let trimmed = text.trim_end();
+
+    let mut last_byte: Option<usize> = None;
+    for tag in &tags {
+        if let Some(pos) = trimmed.rfind(tag) {
+            let line_start = trimmed[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
+            last_byte = Some(match last_byte {
+                None => line_start,
+                Some(prev) => prev.max(line_start),
+            });
+        }
+    }
+
+    let start = last_byte.unwrap_or_else(|| {
+        // No structured tag found — return the last 1500 chars.
+        let total = trimmed.chars().count();
+        if total > 1500 {
+            trimmed
+                .char_indices()
+                .nth(total - 1500)
+                .map(|(i, _)| i)
+                .unwrap_or(0)
+        } else {
+            0
+        }
+    });
+
+    let body = trimmed[start..].trim();
+    if body.chars().count() > 1500 {
+        let cut = body
+            .char_indices()
+            .nth(1500)
+            .map(|(i, _)| i)
+            .unwrap_or(body.len());
+        format!("{}\n…(truncated)", &body[..cut])
+    } else {
+        body.to_string()
+    }
+}
+
 fn print_commit_summary(
     project_root: &Path,
     n: usize,
@@ -529,6 +700,7 @@ fn open_commit_in_editor(
     project_root: &Path,
     sha: &str,
     info: &CommitInfo,
+    input: &InputChannel,
 ) -> Result<(), String> {
     let branch = git_current_branch(project_root)?;
     if branch == "HEAD" {
@@ -549,7 +721,20 @@ fn open_commit_in_editor(
     println!("  │ auto-refreshed to this commit's state. Poke around.");
     println!("  │ Press Enter to restore branch `{}` and return to the prompt.", branch);
     println!("  └──────────────────────────────────────────────────────────────────");
-    let _ = read_line();
+
+    if let Some(bridge) = input.bridge.as_ref() {
+        let _ = bridge.send_message(
+            &format!(
+                "Local checkout of {} for editor inspection. Send any message here \
+                 (or press Enter on the terminal) to restore branch {}.",
+                &sha[..12],
+                branch
+            ),
+            None,
+        );
+    }
+    input.drain_stale();
+    let _ = input.recv()?;
 
     println!("  Restoring branch {} …", branch);
     run_git(project_root, &["checkout", &branch])?;
@@ -599,11 +784,25 @@ enum PostApply {
     Quit,
 }
 
-fn prompt_post_apply() -> Result<PostApply, String> {
+fn prompt_post_apply(input: &InputChannel) -> Result<PostApply, String> {
     println!();
     print!("Accept this commit? [y]es / [e]dit-further / [r]evert / [q]uit: ");
     io::stdout().flush().ok();
-    let line = read_line()?;
+
+    if let Some(bridge) = input.bridge.as_ref() {
+        let kb_rows: &[&[&str]] = &[&["y", "e"], &["r", "q"]];
+        let _ = bridge.send_message(
+            "Apply succeeded. Accept this commit?\n\
+             y = yes (advance)\n\
+             e = edit further (or just type instructions)\n\
+             r = revert\n\
+             q = quit (don't advance)",
+            Some(kb_rows),
+        );
+    }
+
+    input.drain_stale();
+    let line = input.recv()?.into_text();
     let trimmed = line.trim();
 
     // Multi-char input → treat as edit-further feedback directly. Avoids the
@@ -617,15 +816,18 @@ fn prompt_post_apply() -> Result<PostApply, String> {
     match c {
         'y' | 'Y' => Ok(PostApply::Accept),
         'e' | 'E' => {
-            println!("  Additional instructions for the agent (end with '.' on its own line):");
-            let instr = read_multiline_until_dot()?;
+            let instr = read_followup(
+                input,
+                "Additional instructions for the agent:",
+                "Additional instructions for the agent (end with '.' on its own line):",
+            )?;
             Ok(PostApply::Refine(instr))
         }
         'r' | 'R' => Ok(PostApply::Revert),
         'q' | 'Q' => Ok(PostApply::Quit),
         _ => {
             println!("  (unrecognised — please pick one of y/e/r/q, or type feedback)");
-            prompt_post_apply()
+            prompt_post_apply(input)
         }
     }
 }
@@ -657,7 +859,10 @@ fn print_applied_summary(
     Ok(())
 }
 
-fn prompt_user() -> Result<UserAction, String> {
+fn prompt_user(
+    input: &InputChannel,
+    phone_summary: Option<&str>,
+) -> Result<UserAction, String> {
     println!("Decision?");
     println!("  [y] yes    — apply using the current plan");
     println!("  [p] plan   — refine the plan: add feedback, analyzer revises");
@@ -669,13 +874,34 @@ fn prompt_user() -> Result<UserAction, String> {
     print!("> ");
     io::stdout().flush().ok();
 
-    let line = read_line()?;
+    if let Some(bridge) = input.bridge.as_ref() {
+        let mut msg = String::new();
+        if let Some(s) = phone_summary {
+            msg.push_str(s);
+            msg.push_str("\n\n— — —\n\n");
+        }
+        msg.push_str(
+            "Decision?\n\
+             y = apply as-is\n\
+             p = refine plan (or just type feedback)\n\
+             s = skip (revisit later)\n\
+             r = reject\n\
+             q = quit",
+        );
+        let kb_rows: &[&[&str]] = &[&["y", "p"], &["s", "r"], &["q"]];
+        if let Err(e) = bridge.send_message(&msg, Some(kb_rows)) {
+            eprintln!("[telegram] send failed: {}", e);
+        }
+    }
+
+    input.drain_stale();
+    let user_input = input.recv()?;
+    let was_remote = matches!(user_input, UserInput::Remote(_));
+    let line = user_input.into_text();
     let trimmed = line.trim();
 
     // Multi-char input → treat the whole line as analyzer feedback and go
-    // straight to refinement, skipping the second "Feedback:" prompt. This
-    // lets the user type feedback directly at the decision prompt instead
-    // of having to press `p`, then re-type, then terminate with `.`.
+    // straight to refinement, skipping the second "Feedback:" prompt.
     if trimmed.chars().count() > 1 {
         return Ok(UserAction::Refine(trimmed.to_string()));
     }
@@ -685,47 +911,116 @@ fn prompt_user() -> Result<UserAction, String> {
     match c {
         'y' | 'Y' => Ok(UserAction::Yes),
         'p' | 'P' => {
-            println!("  Feedback for the analyzer (end with a single '.' on its own line):");
-            let fb = read_multiline_until_dot()?;
+            let fb = read_followup(
+                input,
+                "Feedback for the analyzer:",
+                "Feedback for the analyzer (end with a single '.' on its own line):",
+            )?;
             Ok(UserAction::Refine(fb))
         }
         's' | 'S' => {
-            println!("  Reason (one line, empty to skip prompt):");
-            let notes = read_line()?.trim().to_string();
-            Ok(UserAction::Skip(if notes.is_empty() { None } else { Some(notes) }))
+            let notes =
+                read_oneline(input, "Reason (one line, empty to skip prompt):")?;
+            Ok(UserAction::Skip(if notes.is_empty() {
+                None
+            } else {
+                Some(notes)
+            }))
         }
         'r' | 'R' => {
-            println!("  Reason for rejecting (one line, empty to skip prompt):");
-            let notes = read_line()?.trim().to_string();
-            Ok(UserAction::Reject(if notes.is_empty() { None } else { Some(notes) }))
+            let notes = read_oneline(
+                input,
+                "Reason for rejecting (one line, empty to skip prompt):",
+            )?;
+            Ok(UserAction::Reject(if notes.is_empty() {
+                None
+            } else {
+                Some(notes)
+            }))
         }
-        'd' | 'D' => Ok(UserAction::Show),
+        'd' | 'D' => {
+            if was_remote {
+                println!("  [d] requires local editor access; pick y/p/s/r/q instead.");
+                if let Some(bridge) = input.bridge.as_ref() {
+                    let _ = bridge.send_message(
+                        "[d] is local-only (needs editor access). Pick y/p/s/r/q.",
+                        None,
+                    );
+                }
+                prompt_user(input, phone_summary)
+            } else {
+                Ok(UserAction::Show)
+            }
+        }
         'q' | 'Q' => Ok(UserAction::Quit),
         _ => {
             println!("  (unrecognised — please pick one of y/p/s/r/d/q, or type feedback)");
-            prompt_user()
+            prompt_user(input, phone_summary)
         }
     }
 }
 
-fn read_line() -> Result<String, String> {
-    let stdin = io::stdin();
-    let mut line = String::new();
-    stdin.lock().read_line(&mut line)
-        .map_err(|e| format!("stdin read: {}", e))?;
-    Ok(line)
+/// Read one line of follow-up. From local stdin, accepts a single line
+/// (trimmed); from Telegram, takes the entire next message verbatim.
+fn read_oneline(input: &InputChannel, prompt: &str) -> Result<String, String> {
+    println!("  {}", prompt);
+    if let Some(bridge) = input.bridge.as_ref() {
+        let _ = bridge.send_message(prompt, None);
+    }
+    input.drain_stale();
+    Ok(input.recv()?.into_text().trim().to_string())
 }
 
-fn read_multiline_until_dot() -> Result<String, String> {
-    let stdin = io::stdin();
-    let mut buf = String::new();
-    for line in stdin.lock().lines() {
-        let line = line.map_err(|e| format!("stdin read: {}", e))?;
-        if line.trim() == "." { break; }
-        buf.push_str(&line);
-        buf.push('\n');
+/// Read a multi-line follow-up. Local: terminate with a single `.` on its
+/// own line (legacy behaviour). Remote: the entire message is taken as-is.
+fn read_followup(
+    input: &InputChannel,
+    remote_prompt: &str,
+    local_prompt: &str,
+) -> Result<String, String> {
+    if let Some(bridge) = input.bridge.as_ref() {
+        let _ = bridge.send_message(remote_prompt, None);
     }
-    Ok(buf)
+    println!("  {}", local_prompt);
+    input.drain_stale();
+
+    let first = input.recv()?;
+    match first {
+        UserInput::Remote(text) => Ok(text),
+        UserInput::Local(line) => {
+            let mut buf = String::new();
+            if line.trim() != "." {
+                buf.push_str(&line);
+                if !buf.ends_with('\n') {
+                    buf.push('\n');
+                }
+            } else {
+                return Ok(buf);
+            }
+            // Remaining lines: keep reading until '.' on its own line, but
+            // a Remote message arriving here is treated as the whole thing.
+            loop {
+                match input.recv()? {
+                    UserInput::Remote(text) => {
+                        buf.push_str(&text);
+                        if !buf.ends_with('\n') {
+                            buf.push('\n');
+                        }
+                        return Ok(buf);
+                    }
+                    UserInput::Local(l) => {
+                        if l.trim() == "." {
+                            return Ok(buf);
+                        }
+                        buf.push_str(&l);
+                        if !buf.ends_with('\n') {
+                            buf.push('\n');
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ── Git helpers ──────────────────────────────────────────────────────────

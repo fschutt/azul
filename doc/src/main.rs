@@ -1252,6 +1252,11 @@ fn main() -> anyhow::Result<()> {
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
             return Ok(());
         }
+        ["telegram-setup"] | ["autoreview", "telegram-setup"] => {
+            reftest::telegram::setup_interactive()
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            return Ok(());
+        }
         ["autoreview", rest @ ..] => {
             let config = reftest::autoreview::parse_autoreview_args(rest, &project_root)
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
@@ -1746,6 +1751,9 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    autoreview process            - Implement checklist items (one commit each)");
     println!("    autoreview apply-midlevel     - Interactively replay commits from a reference branch");
     println!("                                    --reference=<branch/tag> [--base=<ref>] [--model=<name>]");
+    println!("                                    [--no-telegram]");
+    println!("    telegram-setup                - Pair azul-doc with a Telegram bot so prompts");
+    println!("                                    (apply-midlevel etc.) mirror to your phone");
     println!();
     println!("  AUTOFIX (synchronize workspace types with api.json):");
     println!("    autofix                       - Analyze and generate patches for api.json");

@@ -264,6 +264,92 @@ doc/target/autodebug/
 └── summary.json    # Overall results
 ```
 
+## `apply-midlevel` — Interactive Commit Replay
+
+Walks every commit on a reference branch (e.g. `midlevel-fixes-reference`)
+and prompts you, one at a time, whether to apply, refine, skip, or reject
+each one. A pre-analyzer Claude agent reads the commit + current tree and
+recommends an action; you decide.
+
+```bash
+azul-doc autoreview apply-midlevel --reference=<branch-or-tag> [options]
+```
+
+Options:
+
+| Flag | Default | Notes |
+|------|---------|-------|
+| `--reference=<ref>` | required | Branch or tag to replay |
+| `--base=<ref>` | `origin/layout-debug-clean` | Diverge point |
+| `--model=<name>` | `opus` | Apply-agent model |
+| `--analyzer-model=<name>` | same as `--model` | Pre-analyzer model |
+| `--no-analyze` | off | Skip the pre-analysis agent |
+| `--no-telegram` | off | Don't mirror prompts to Telegram (see below) |
+
+Per commit you choose:
+
+```
+[y] yes      apply using the current plan
+[p] plan     refine the plan: add feedback, analyzer revises
+[s] skip     don't apply now, come back later
+[r] reject   don't apply, record as rejected with reason
+[d] diff     checkout the commit so your editor refreshes
+[q] quit     save progress and exit
+```
+
+Progress is saved to `doc/target/autoreview/apply-midlevel/progress.json`
+after every decision. Re-running resumes where you left off.
+
+### Answer prompts from your phone (Telegram)
+
+A long replay can take days. To answer prompts when you're away from the
+PC, pair `azul-doc` with a Telegram bot — once paired, every prompt is
+mirrored to a chat with you and any reply (tap a button, or type
+free-form feedback) feeds straight into the running `apply-midlevel`.
+Local stdin still works; whichever input arrives first wins.
+
+**One-time setup:**
+
+1. **Create a bot.** Open Telegram, message [@BotFather](https://t.me/BotFather),
+   send `/newbot`, follow the prompts. Pick any name and any handle ending
+   in `bot`. BotFather replies with a token like `1234567890:ABCdef-...`.
+
+2. **Pair.** Run the wizard:
+
+   ```bash
+   azul-doc telegram-setup
+   ```
+
+   Paste the token when asked. The wizard verifies the token, prints your
+   bot's `@handle`, and waits for you to message `/start` to it from your
+   phone. As soon as it sees your message, it stores the chat-id and sends
+   a confirmation.
+
+3. **Done.** Future runs of `apply-midlevel` automatically mirror prompts
+   to your bot. The phone message contains the commit summary, file list,
+   and the analyzer's recommendation; reply with `y/p/s/r/q` (a tap-keyboard
+   is shown) or type free-form feedback for the analyzer.
+
+**Configuration locations** (checked in this order):
+
+| Source | Vars / Path |
+|--------|-------------|
+| Env vars | `AZUL_DOC_TG_TOKEN` + `AZUL_DOC_TG_CHAT_ID` (also `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`) |
+| File | `~/.config/azul-doc/telegram.toml` (created by `telegram-setup`, mode `0600`) |
+
+**Disable per run:** add `--no-telegram` to the `apply-midlevel` invocation.
+
+**Notes:**
+
+- `[d] diff` is local-only — it checks out the commit so your editor
+  refreshes. If you tap `d` from Telegram you'll get a "local-only"
+  rejection and be re-prompted.
+- The phone message is just commit metadata + the analyzer's `[CATEGORY]
+  / Why: / Plan: / Suggested user action:` tail. The full diff stays on
+  the local terminal.
+- A network blip on the long-poll prints to stderr, sleeps 5s, and retries
+  — it won't kill the run.
+
 ## Website Deployment
 
 Builds the full azul.rs website (API docs, release pages, examples, reftest

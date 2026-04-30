@@ -37,6 +37,7 @@ pub mod apply_midlevel;
 pub mod pipeline;
 pub mod debug;
 pub mod regression;
+pub mod telegram;
 
 /// Create a ureq Agent with pure-Rust TLS (rustls + rustls-rustcrypto)
 pub fn make_https_agent() -> ureq::Agent {
