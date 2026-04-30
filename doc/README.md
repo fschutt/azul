@@ -326,9 +326,26 @@ Local stdin still works; whichever input arrives first wins.
    a confirmation.
 
 3. **Done.** Future runs of `apply-midlevel` automatically mirror prompts
-   to your bot. The phone message contains the commit summary, file list,
-   and the analyzer's recommendation; reply with `y/p/s/r/q` (a tap-keyboard
-   is shown) or type free-form feedback for the analyzer.
+   to your bot. Each prompt comes with a tap-keyboard:
+
+   | Stage | Buttons | Free-form text |
+   |-------|---------|----------------|
+   | Pre-apply | `apply` `refine` `diff` `skip` `reject` `quit` | becomes analyzer feedback |
+   | Post-apply | `accept` `edit` `revert` `quit` | becomes "edit" instructions |
+
+   The legacy single-letter shortcuts (`y/p/s/r/d/q` and `y/e/r/q`) still
+   work too — useful when typing on the local terminal.
+
+**Diff preview on the phone.**
+
+- Tap **diff** at the pre-apply prompt → the bot ships the reference
+  commit's full patch as `<short-sha>.patch`. Telegram renders it inline
+  for scrolling, and "Open in…" lets you pass it to GitHub mobile,
+  GitKraken, or any diff viewer that handles `.patch` files.
+- Right after a successful apply, the bot **automatically** sends the
+  applied diff (`applied-<short>.patch`) before showing the
+  accept/edit/revert prompt — no extra tap needed. This is the diff
+  the agent actually produced; review it on your phone before deciding.
 
 **Configuration locations** (checked in this order):
 
@@ -339,16 +356,24 @@ Local stdin still works; whichever input arrives first wins.
 
 **Disable per run:** add `--no-telegram` to the `apply-midlevel` invocation.
 
+**Notifications missing on your phone?** The bot always sends with
+`disable_notification: false`, so the message itself is alerting. If you
+don't hear pings, the cause is almost always client-side: long-press
+the bot chat in Telegram → check the bell icon isn't muted, and verify
+the Telegram app has notification permission at the OS level.
+
 **Notes:**
 
-- `[d] diff` is local-only — it checks out the commit so your editor
-  refreshes. If you tap `d` from Telegram you'll get a "local-only"
-  rejection and be re-prompted.
-- The phone message is just commit metadata + the analyzer's `[CATEGORY]
-  / Why: / Plan: / Suggested user action:` tail. The full diff stays on
-  the local terminal.
+- `[d] diff` from the local terminal still does the editor checkout
+  (detached HEAD on the commit, restored on Enter). From Telegram it
+  ships a `.patch` document instead — no working-tree changes.
+- The phone message itself is just commit metadata + the analyzer's
+  `[CATEGORY] / Why: / Plan: / Suggested user action:` tail; the full
+  diff goes through the document attachment, not the message body.
 - A network blip on the long-poll prints to stderr, sleeps 5s, and retries
   — it won't kill the run.
+- Diff documents are capped at 1 MiB to keep slow phone connections
+  responsive; oversized diffs get truncated with an explanatory tail line.
 
 ## Website Deployment
 

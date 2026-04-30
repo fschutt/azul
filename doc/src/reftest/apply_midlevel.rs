@@ -272,6 +272,14 @@ pub fn run(config: Config) -> Result<(), String> {
                     open_commit_in_editor(&project_root, &next, &info, &input_channel)?;
                     continue;
                 }
+                UserAction::ShowRemote => {
+                    if let Some(b) = bridge.as_ref() {
+                        if let Err(e) = send_commit_diff_to_phone(b, &project_root, &next, &info) {
+                            eprintln!("[telegram] sendDocument failed: {}", e);
+                        }
+                    }
+                    continue;
+                }
                 other => break other,
             }
         };
@@ -296,6 +304,13 @@ pub fn run(config: Config) -> Result<(), String> {
                     match outcome {
                         Ok(applied) => {
                             print_applied_summary(&project_root, &pre_head, &applied.new_sha)?;
+                            if let Some(b) = bridge.as_ref() {
+                                if let Err(e) = send_applied_diff_to_phone(
+                                    b, &project_root, &pre_head, &applied.new_sha,
+                                ) {
+                                    eprintln!("[telegram] applied-diff sendDocument failed: {}", e);
+                                }
+                            }
                             match prompt_post_apply(&input_channel)? {
                                 PostApply::Accept => break Ok(applied),
                                 PostApply::Refine(instr) => {
@@ -389,7 +404,7 @@ pub fn run(config: Config) -> Result<(), String> {
                 save_progress(&progress_path, &progress)?;
                 break;
             }
-            UserAction::Refine(_) | UserAction::Show => unreachable!(),
+            UserAction::Refine(_) | UserAction::Show | UserAction::ShowRemote => unreachable!(),
         }
     }
 
@@ -766,8 +781,13 @@ enum UserAction {
     /// agent is NOT invoked yet). The analyzer incorporates your note into
     /// its existing plan and re-prints it.
     Refine(String),
-    /// Checkout the reference commit so the user's editor shows its state.
+    /// (Local) Checkout the reference commit so the user's editor shows
+    /// its state. Inherently local — needs a working tree to flip.
     Show,
+    /// (Remote) Send the reference commit's `git show` patch to the phone.
+    /// No working-tree changes; just an FYI document for the user to
+    /// preview before deciding.
+    ShowRemote,
     /// Save progress and exit.
     Quit,
 }
@@ -790,13 +810,11 @@ fn prompt_post_apply(input: &InputChannel) -> Result<PostApply, String> {
     io::stdout().flush().ok();
 
     if let Some(bridge) = input.bridge.as_ref() {
-        let kb_rows: &[&[&str]] = &[&["y", "e"], &["r", "q"]];
+        let kb_rows: &[&[&str]] = &[&["accept", "edit"], &["revert", "quit"]];
+        // The applied diff was sent right before this prompt, so the
+        // message itself can be terse — the reply keyboard names the actions.
         let _ = bridge.send_message(
-            "Apply succeeded. Accept this commit?\n\
-             y = yes (advance)\n\
-             e = edit further (or just type instructions)\n\
-             r = revert\n\
-             q = quit (don't advance)",
+            "Apply succeeded. Diff is attached above.",
             Some(kb_rows),
         );
     }
@@ -805,17 +823,29 @@ fn prompt_post_apply(input: &InputChannel) -> Result<PostApply, String> {
     let line = input.recv()?.into_text();
     let trimmed = line.trim();
 
-    // Multi-char input → treat as edit-further feedback directly. Avoids the
-    // second "Additional instructions:" prompt when the user has already
-    // typed their feedback on this line.
-    if trimmed.chars().count() > 1 {
-        return Ok(PostApply::Refine(trimmed.to_string()));
-    }
+    let token: Option<&str> = match trimmed.to_ascii_lowercase().as_str() {
+        "y" | "yes" | "accept" => Some("accept"),
+        "e" | "edit" => Some("edit"),
+        "r" | "revert" => Some("revert"),
+        "q" | "quit" | "exit" => Some("quit"),
+        _ => None,
+    };
 
-    let c = trimmed.chars().next().unwrap_or(' ');
-    match c {
-        'y' | 'Y' => Ok(PostApply::Accept),
-        'e' | 'E' => {
+    let token = match token {
+        Some(t) => t,
+        None => {
+            if trimmed.is_empty() {
+                println!("  (empty input — please pick an action, or type instructions)");
+                return prompt_post_apply(input);
+            }
+            // Free-form text → treat as edit-further feedback directly.
+            return Ok(PostApply::Refine(trimmed.to_string()));
+        }
+    };
+
+    match token {
+        "accept" => Ok(PostApply::Accept),
+        "edit" => {
             let instr = read_followup(
                 input,
                 "Additional instructions for the agent:",
@@ -823,13 +853,62 @@ fn prompt_post_apply(input: &InputChannel) -> Result<PostApply, String> {
             )?;
             Ok(PostApply::Refine(instr))
         }
-        'r' | 'R' => Ok(PostApply::Revert),
-        'q' | 'Q' => Ok(PostApply::Quit),
-        _ => {
-            println!("  (unrecognised — please pick one of y/e/r/q, or type feedback)");
-            prompt_post_apply(input)
-        }
+        "revert" => Ok(PostApply::Revert),
+        "quit" => Ok(PostApply::Quit),
+        _ => unreachable!(),
     }
+}
+
+/// Ship the reference commit's full patch (`git show <sha>`) to Telegram
+/// as `<short-sha>.patch`. Lets the user preview the diff on their phone
+/// without needing local editor access. Caption carries the subject line
+/// so they can recognise it at a glance.
+fn send_commit_diff_to_phone(
+    bridge: &TelegramBridge,
+    project_root: &Path,
+    sha: &str,
+    info: &CommitInfo,
+) -> Result<(), String> {
+    let out = Command::new("git")
+        .args(["show", "--patch", "--stat", sha])
+        .current_dir(project_root)
+        .output()
+        .map_err(|e| format!("git show: {}", e))?;
+    if !out.status.success() {
+        return Err(format!(
+            "git show: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
+    }
+    let filename = format!("{}.patch", short(sha));
+    let caption = format!("{}  {}", short(sha), info.subject);
+    bridge.send_document(&filename, &out.stdout, Some(&caption))
+}
+
+/// Ship the *applied* diff (between `pre_head` and `new_head`) to Telegram.
+/// Auto-fired right after a successful apply so the user can review what
+/// the agent actually did before deciding accept/edit/revert.
+fn send_applied_diff_to_phone(
+    bridge: &TelegramBridge,
+    project_root: &Path,
+    pre_head: &str,
+    new_head: &str,
+) -> Result<(), String> {
+    let range = format!("{}..{}", pre_head, new_head);
+    let out = Command::new("git")
+        .args(["log", "--patch", "--stat", "--reverse", &range])
+        .current_dir(project_root)
+        .output()
+        .map_err(|e| format!("git log: {}", e))?;
+    if !out.status.success() {
+        return Err(format!(
+            "git log: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
+    }
+    let filename = format!("applied-{}.patch", short(new_head));
+    let caption = format!("Applied diff {}..{}", short(pre_head), short(new_head));
+    bridge.send_document(&filename, &out.stdout, Some(&caption))
 }
 
 fn print_applied_summary(
@@ -875,20 +954,14 @@ fn prompt_user(
     io::stdout().flush().ok();
 
     if let Some(bridge) = input.bridge.as_ref() {
-        let mut msg = String::new();
-        if let Some(s) = phone_summary {
-            msg.push_str(s);
-            msg.push_str("\n\n— — —\n\n");
-        }
-        msg.push_str(
-            "Decision?\n\
-             y = apply as-is\n\
-             p = refine plan (or just type feedback)\n\
-             s = skip (revisit later)\n\
-             r = reject\n\
-             q = quit",
-        );
-        let kb_rows: &[&[&str]] = &[&["y", "p"], &["s", "r"], &["q"]];
+        // Phone message: just the summary. The reply keyboard names the
+        // actions, so no inline legend is needed.
+        let msg = phone_summary.unwrap_or("Decision?").to_string();
+        let kb_rows: &[&[&str]] = &[
+            &["apply", "refine"],
+            &["diff", "skip"],
+            &["reject", "quit"],
+        ];
         if let Err(e) = bridge.send_message(&msg, Some(kb_rows)) {
             eprintln!("[telegram] send failed: {}", e);
         }
@@ -900,17 +973,35 @@ fn prompt_user(
     let line = user_input.into_text();
     let trimmed = line.trim();
 
-    // Multi-char input → treat the whole line as analyzer feedback and go
-    // straight to refinement, skipping the second "Feedback:" prompt.
-    if trimmed.chars().count() > 1 {
-        return Ok(UserAction::Refine(trimmed.to_string()));
-    }
+    // Map both the new word-buttons and the legacy single-letter shortcuts
+    // to a canonical token. Anything that doesn't match either is treated
+    // as free-form analyzer feedback.
+    let token: Option<&str> = match trimmed.to_ascii_lowercase().as_str() {
+        "y" | "yes" | "apply" => Some("apply"),
+        "p" | "plan" | "refine" => Some("refine"),
+        "s" | "skip" => Some("skip"),
+        "r" | "reject" => Some("reject"),
+        "d" | "diff" | "show" => Some("diff"),
+        "q" | "quit" | "exit" => Some("quit"),
+        _ => None,
+    };
 
-    let c = trimmed.chars().next().unwrap_or(' ');
+    let token = match token {
+        Some(t) => t,
+        None => {
+            // Free-form text → analyzer feedback. Empty input falls through
+            // to a re-prompt rather than feeding "" to the analyzer.
+            if trimmed.is_empty() {
+                println!("  (empty input — please pick an action, or type feedback)");
+                return prompt_user(input, phone_summary);
+            }
+            return Ok(UserAction::Refine(trimmed.to_string()));
+        }
+    };
 
-    match c {
-        'y' | 'Y' => Ok(UserAction::Yes),
-        'p' | 'P' => {
+    match token {
+        "apply" => Ok(UserAction::Yes),
+        "refine" => {
             let fb = read_followup(
                 input,
                 "Feedback for the analyzer:",
@@ -918,45 +1009,26 @@ fn prompt_user(
             )?;
             Ok(UserAction::Refine(fb))
         }
-        's' | 'S' => {
-            let notes =
-                read_oneline(input, "Reason (one line, empty to skip prompt):")?;
-            Ok(UserAction::Skip(if notes.is_empty() {
-                None
-            } else {
-                Some(notes)
-            }))
+        "skip" => {
+            let notes = read_oneline(input, "Reason (one line, empty to skip prompt):")?;
+            Ok(UserAction::Skip(if notes.is_empty() { None } else { Some(notes) }))
         }
-        'r' | 'R' => {
+        "reject" => {
             let notes = read_oneline(
                 input,
                 "Reason for rejecting (one line, empty to skip prompt):",
             )?;
-            Ok(UserAction::Reject(if notes.is_empty() {
-                None
-            } else {
-                Some(notes)
-            }))
+            Ok(UserAction::Reject(if notes.is_empty() { None } else { Some(notes) }))
         }
-        'd' | 'D' => {
+        "diff" => {
             if was_remote {
-                println!("  [d] requires local editor access; pick y/p/s/r/q instead.");
-                if let Some(bridge) = input.bridge.as_ref() {
-                    let _ = bridge.send_message(
-                        "[d] is local-only (needs editor access). Pick y/p/s/r/q.",
-                        None,
-                    );
-                }
-                prompt_user(input, phone_summary)
+                Ok(UserAction::ShowRemote)
             } else {
                 Ok(UserAction::Show)
             }
         }
-        'q' | 'Q' => Ok(UserAction::Quit),
-        _ => {
-            println!("  (unrecognised — please pick one of y/p/s/r/d/q, or type feedback)");
-            prompt_user(input, phone_summary)
-        }
+        "quit" => Ok(UserAction::Quit),
+        _ => unreachable!(),
     }
 }
 

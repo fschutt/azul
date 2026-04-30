@@ -125,7 +125,10 @@ impl TelegramBridge {
     /// Pass `None` to clear any existing keyboard (free-form replies).
     ///
     /// Long messages are split into 4000-char chunks (Telegram caps at
-    /// 4096); only the first chunk carries the keyboard.
+    /// 4096); only the last chunk carries the keyboard. `disable_notification`
+    /// is set to `false` explicitly on every send so the phone rings — the
+    /// only reason a user might not hear the bot is per-chat mute on the
+    /// Telegram client side.
     pub fn send_message(
         &self,
         text: &str,
@@ -140,6 +143,7 @@ impl TelegramBridge {
                 "chat_id": self.chat_id,
                 "text": chunk,
                 "disable_web_page_preview": true,
+                "disable_notification": false,
             });
             // Only attach keyboard once, on the LAST chunk so it stays
             // visible after the user scrolls down to read.
@@ -162,6 +166,72 @@ impl TelegramBridge {
                 .send_json(&body)
                 .map_err(|e| format!("telegram sendMessage: {}", e))?;
         }
+        Ok(())
+    }
+
+    /// POST sendDocument with a hand-rolled multipart/form-data body —
+    /// avoids pulling in mime_guess via ureq's `multipart` feature. Caps
+    /// the document body at 1 MiB; bigger payloads are head-truncated with
+    /// an explanatory tail line so you don't blow Telegram's 50 MiB limit
+    /// or wedge a slow phone connection on a runaway diff.
+    pub fn send_document(
+        &self,
+        filename: &str,
+        bytes: &[u8],
+        caption: Option<&str>,
+    ) -> Result<(), String> {
+        const MAX: usize = 1024 * 1024;
+        let mut owned: Vec<u8>;
+        let body_bytes: &[u8] = if bytes.len() > MAX {
+            owned = bytes[..MAX].to_vec();
+            owned.extend_from_slice(b"\n\n--- truncated; original was larger than 1 MiB ---\n");
+            &owned
+        } else {
+            bytes
+        };
+
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let boundary = format!("----azulDocBoundary{:032x}", nanos);
+
+        let mut buf: Vec<u8> = Vec::with_capacity(body_bytes.len() + 1024);
+        let push_field = |buf: &mut Vec<u8>, name: &str, value: &str| {
+            buf.extend_from_slice(b"--");
+            buf.extend_from_slice(boundary.as_bytes());
+            buf.extend_from_slice(b"\r\nContent-Disposition: form-data; name=\"");
+            buf.extend_from_slice(name.as_bytes());
+            buf.extend_from_slice(b"\"\r\n\r\n");
+            buf.extend_from_slice(value.as_bytes());
+            buf.extend_from_slice(b"\r\n");
+        };
+        push_field(&mut buf, "chat_id", &self.chat_id.to_string());
+        push_field(&mut buf, "disable_notification", "false");
+        if let Some(c) = caption {
+            // Telegram caption is capped at 1024 chars; trim defensively.
+            let trimmed: String = c.chars().take(1000).collect();
+            push_field(&mut buf, "caption", &trimmed);
+        }
+
+        // file part
+        buf.extend_from_slice(b"--");
+        buf.extend_from_slice(boundary.as_bytes());
+        buf.extend_from_slice(b"\r\nContent-Disposition: form-data; name=\"document\"; filename=\"");
+        buf.extend_from_slice(filename.as_bytes());
+        buf.extend_from_slice(b"\"\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n");
+        buf.extend_from_slice(body_bytes);
+        buf.extend_from_slice(b"\r\n--");
+        buf.extend_from_slice(boundary.as_bytes());
+        buf.extend_from_slice(b"--\r\n");
+
+        let url = format!("https://api.telegram.org/bot{}/sendDocument", self.token);
+        let content_type = format!("multipart/form-data; boundary={}", boundary);
+        self.agent
+            .post(&url)
+            .header("Content-Type", &content_type)
+            .send(&buf[..])
+            .map_err(|e| format!("telegram sendDocument: {}", e))?;
         Ok(())
     }
 
