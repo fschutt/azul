@@ -806,7 +806,7 @@ enum PostApply {
 
 fn prompt_post_apply(input: &InputChannel) -> Result<PostApply, String> {
     println!();
-    print!("Accept this commit? [y]es / [e]dit-further / [r]evert / [q]uit: ");
+    print!("Accept this commit? accept/y / edit/e / revert/r / quit/q: ");
     io::stdout().flush().ok();
 
     if let Some(bridge) = input.bridge.as_ref() {
@@ -823,10 +823,13 @@ fn prompt_post_apply(input: &InputChannel) -> Result<PostApply, String> {
     let line = input.recv()?.into_text();
     let trimmed = line.trim();
 
+    // `apply`/`a` are accepted in addition to `accept` because muscle
+    // memory carries over from the pre-apply prompt where the button is
+    // labelled "apply". Same intent — advance to the next commit.
     let token: Option<&str> = match trimmed.to_ascii_lowercase().as_str() {
-        "y" | "yes" | "accept" => Some("accept"),
+        "y" | "yes" | "a" | "accept" | "apply" | "ok" => Some("accept"),
         "e" | "edit" => Some("edit"),
-        "r" | "revert" => Some("revert"),
+        "r" | "revert" | "undo" => Some("revert"),
         "q" | "quit" | "exit" => Some("quit"),
         _ => None,
     };
@@ -943,13 +946,13 @@ fn prompt_user(
     phone_summary: Option<&str>,
 ) -> Result<UserAction, String> {
     println!("Decision?");
-    println!("  [y] yes    — apply using the current plan");
-    println!("  [p] plan   — refine the plan: add feedback, analyzer revises");
-    println!("  [s] skip   — don't apply now, come back later");
-    println!("  [r] reject — don't apply, record as rejected with reason");
-    println!("  [d] diff   — checkout commit so your editor shows its state");
-    println!("  [q] quit");
-    println!("  (anything longer than one character is taken as analyzer feedback)");
+    println!("  apply  / y    — apply using the current plan");
+    println!("  refine / p    — refine the plan: add feedback, analyzer revises");
+    println!("  skip   / s    — don't apply now, come back later");
+    println!("  reject / r    — don't apply, record as rejected with reason");
+    println!("  diff   / d    — checkout commit so your editor shows its state");
+    println!("  quit   / q    — save progress and exit");
+    println!("  (any other multi-character text is taken as analyzer feedback)");
     print!("> ");
     io::stdout().flush().ok();
 
