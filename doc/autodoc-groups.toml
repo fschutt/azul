@@ -19,8 +19,8 @@
 
 [meta]
 generated_from = "doc/guide/reference.md"
-total_groups = 24
-total_outputs = 35
+total_groups = 33
+total_outputs = 50
 existing_guides = ["architecture"]
 schema_version = 2
 
