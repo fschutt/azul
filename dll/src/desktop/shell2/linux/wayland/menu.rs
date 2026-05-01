@@ -25,11 +25,17 @@ use crate::log_error;
 
 /// Data passed to the menu layout callback
 #[derive(Debug, Clone)]
-struct MenuLayoutData {
+pub(crate) struct MenuLayoutData {
     /// Menu structure to render
-    menu: Menu,
+    pub menu: Menu,
     /// System style for native look
-    system_style: SystemStyle,
+    pub system_style: SystemStyle,
+    /// Trigger rectangle in parent-surface-relative logical coordinates.
+    /// Stored here so the future xdg_popup positioner can anchor the popup
+    /// to the trigger node on the parent surface — Wayland clients cannot
+    /// address absolute screen coordinates, so positioning must happen via
+    /// the compositor with this rect.
+    pub trigger_rect: LogicalRect,
 }
 
 /// Layout callback for menu popup windows
@@ -76,32 +82,30 @@ extern "C" fn menu_layout_callback(mut data: RefAny, _info: LayoutCallbackInfo) 
 /// # Returns
 /// * `WindowCreateOptions` - Window options for creating the popup
 pub fn create_menu_popup_options(
-    parent: &WaylandWindow,
+    _parent: &WaylandWindow,
     menu: &Menu,
     system_style: &SystemStyle,
     trigger_rect: LogicalRect,
     menu_size: LogicalSize,
 ) -> WindowCreateOptions {
-    // Create menu data for layout callback
     let menu_data = MenuLayoutData {
         menu: menu.clone(),
         system_style: system_style.clone(),
+        trigger_rect,
     };
 
     let menu_data_refany = RefAny::new(menu_data);
 
-    // Create window options
     let mut options = WindowCreateOptions::default();
     options.window_state.size.dimensions = menu_size;
     options.window_state.title = "Menu".to_string().into();
 
-    // Set layout callback - RefAny contains menu data, callback knows how to use it
     options.window_state.layout_callback = LayoutCallback {
         cb: menu_layout_callback,
         ctx: azul_core::refany::OptionRefAny::Some(menu_data_refany),
     };
 
-    // Set window flags for popup behavior
+    options.window_state.flags.window_type = azul_core::window::WindowType::Menu;
     options.window_state.flags.decorations = azul_core::window::WindowDecorations::None;
     options.window_state.flags.is_always_on_top = true;
     options.window_state.flags.is_resizable = false;

@@ -1154,6 +1154,19 @@ pub fn run(
                                 pending_create.window_state.flags.window_type
                             );
 
+                            // TODO(wayland-popup): when
+                            // pending_create.window_state.flags.window_type ==
+                            // WindowType::Menu, this should not create a fresh
+                            // toplevel — Wayland menus must be xdg_popup
+                            // surfaces parented via xdg_surface::get_popup with
+                            // an xdg_positioner anchored to the trigger rect on
+                            // the parent. The trigger rect is stashed inside
+                            // the layout-callback RefAny as
+                            // `wayland::menu::MenuLayoutData::trigger_rect`.
+                            // Implementing this needs xdg_positioner bindings
+                            // in wayland/dlopen.rs and parent-serial threading
+                            // for the popup grab.
+
                             match super::linux::wayland::WaylandWindow::new(
                                 pending_create,
                                 wayland_window.resources.clone(),

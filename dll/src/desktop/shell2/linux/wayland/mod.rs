@@ -740,34 +740,36 @@ impl PlatformWindow for WaylandWindow {
 }
 
 impl WaylandWindow {
-    /// Show a fallback window-based menu at the given position
+    /// Show a fallback window-based menu at the given position.
+    ///
+    /// Wayland clients have no notion of absolute screen coordinates, so this
+    /// path uses `menu::create_menu_popup_options` (parent-relative) instead of
+    /// the absolute-coords `desktop::menu::show_menu` used on X11/Win/macOS.
+    /// The trigger rectangle is collapsed to a zero-size rect anchored at the
+    /// requested position; once xdg_popup wiring lands the positioner will
+    /// anchor against this rect on the parent surface.
     fn show_fallback_menu(
         &mut self,
         menu: &azul_core::menu::Menu,
         position: azul_core::geom::LogicalPosition,
     ) {
-        // Get parent window position
-        let parent_pos = match self.common.current_window_state.position {
-            azul_core::window::WindowPosition::Initialized(pos) => {
-                azul_core::geom::LogicalPosition::new(pos.x as f32, pos.y as f32)
-            }
-            _ => azul_core::geom::LogicalPosition::new(0.0, 0.0),
-        };
+        let trigger_rect = azul_core::geom::LogicalRect::new(
+            position,
+            azul_core::geom::LogicalSize::zero(),
+        );
+        let menu_size = self::menu::calculate_menu_size(menu, &self.common.system_style);
 
-        // Create menu window options
-        let menu_options = crate::desktop::menu::show_menu(
-            menu.clone(),
-            self.common.system_style.clone(),
-            parent_pos,
-            None,           // No trigger rect
-            Some(position), // Position for menu
-            None,           // No parent menu
+        let menu_options = self::menu::create_menu_popup_options(
+            self,
+            menu,
+            &self.common.system_style,
+            trigger_rect,
+            menu_size,
         );
 
-        // Queue window creation request
         log_debug!(
             LogCategory::Window,
-            "[Wayland] Queuing fallback menu window at ({}, {}) - will be created in event loop",
+            "[Wayland] Queuing fallback menu window at parent-relative ({}, {}) - will be created in event loop",
             position.x,
             position.y
         );
@@ -2035,34 +2037,36 @@ impl WaylandWindow {
         true
     }
 
-    /// Queue a window-based context menu for creation in the event loop
-    /// This is part of the unified multi-window menu system (Shell2 V2)
+    /// Queue a window-based context menu for creation in the event loop.
+    ///
+    /// This is part of the unified multi-window menu system (Shell2 V2).
+    /// Wayland clients can't address absolute screen coordinates, so the
+    /// popup is anchored relative to the parent surface via
+    /// `menu::create_menu_popup_options`. The cursor position is recorded as
+    /// a zero-sized trigger rect; the eventual xdg_popup positioner will
+    /// anchor against it.
     fn show_window_based_context_menu(
         &mut self,
         menu: &azul_core::menu::Menu,
         position: LogicalPosition,
     ) {
-        // Get parent window position (Wayland doesn't expose absolute positions)
-        let parent_pos = match self.common.current_window_state.position {
-            azul_core::window::WindowPosition::Initialized(pos) => {
-                azul_core::geom::LogicalPosition::new(pos.x as f32, pos.y as f32)
-            }
-            _ => azul_core::geom::LogicalPosition::new(0.0, 0.0),
-        };
+        let trigger_rect = azul_core::geom::LogicalRect::new(
+            position,
+            azul_core::geom::LogicalSize::zero(),
+        );
+        let menu_size = self::menu::calculate_menu_size(menu, &self.common.system_style);
 
-        // Create menu window options using unified menu system
-        let menu_options = crate::desktop::menu::show_menu(
-            menu.clone(),
-            self.common.system_style.clone(),
-            parent_pos,
-            None,           // No trigger rect for context menus
-            Some(position), // Cursor position
-            None,           // No parent menu
+        let menu_options = self::menu::create_menu_popup_options(
+            self,
+            menu,
+            &self.common.system_style,
+            trigger_rect,
+            menu_size,
         );
 
         log_debug!(
             LogCategory::Window,
-            "[Wayland] Queuing window-based context menu at screen ({}, {})",
+            "[Wayland] Queuing window-based context menu at parent-relative ({}, {})",
             position.x,
             position.y
         );
