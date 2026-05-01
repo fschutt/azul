@@ -16,15 +16,7 @@ use super::defines::*;
 use crate::desktop::shell2::common::{
     dlopen::load_first_available, DlError, DynamicLibrary as DynamicLibraryTrait,
 };
-
-macro_rules! load_symbol {
-    ($lib:expr, $t:ty, $s:expr) => {
-        match unsafe { $lib.get_symbol::<$t>($s) } {
-            Ok(f) => f,
-            Err(e) => return Err(e),
-        }
-    };
-}
+use crate::load_symbol;
 
 /// Dynamically loaded Wayland client, EGL, and cursor function pointers.
 pub struct Wayland {
