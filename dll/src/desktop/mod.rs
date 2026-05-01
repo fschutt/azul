@@ -50,7 +50,9 @@ pub mod css {
     pub use azul_css::css::Css;
 }
 /// Bindings to the native file-chooser, color picker, etc. dialogs
-pub mod dialogs;
+pub mod dialogs {
+    pub use azul_layout::desktop::dialogs::*;
+}
 /// Display/Monitor management for menu positioning
 pub mod display;
 /// Extra functions for file IO (for C / C++ developers)

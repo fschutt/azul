@@ -1,33 +1,33 @@
 //! Native OS dialog wrappers (message boxes, file open/save, color picker)
 //! built on top of the `tfd` (tiny-file-dialogs) crate.
 
-#![allow(missing_copy_implementations)]
-
-use core::ffi::c_void;
-
-use azul_core::window::AzStringPair;
-use azul_css::{impl_option, impl_option_inner, props::basic::color::ColorU, AzString, StringVec};
+use azul_css::{
+    corety::OptionString,
+    impl_option, impl_option_inner,
+    props::basic::color::{ColorU, OptionColorU},
+    AzString, OptionStringVec, StringVec,
+};
 use tfd::{DefaultColorValue, MessageBoxIcon};
 
-/// Button dialog wrapper for reserved integration purposes
-#[derive(Debug)]
+/// Static-method namespace for `tfd`-backed message-box dialogs.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[repr(C)]
 pub struct MsgBox {
-    /// reserved pointer (currently nullptr) for potential C extension
-    pub _reserved: *mut c_void,
+    pub _reserved: u8,
 }
 
-/// File dialog wrapper for reserved integration purposes
-#[derive(Debug)]
+/// Static-method namespace for `tfd`-backed file dialogs.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[repr(C)]
 pub struct FileDialog {
-    /// reserved pointer (currently nullptr) for potential C extension
-    pub _reserved: *mut c_void,
+    pub _reserved: u8,
 }
 
-/// Color picker dialog wrapper for reserved integration purposes
-#[derive(Debug)]
+/// Static-method namespace for the `tfd`-backed color picker.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[repr(C)]
 pub struct ColorPickerDialog {
-    /// reserved pointer (currently nullptr) for potential C extension
-    pub _reserved: *mut c_void,
+    pub _reserved: u8,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -57,20 +57,6 @@ impl From<OkCancel> for tfd::OkCancel {
     }
 }
 
-/// "Ok / Cancel" MsgBox (title, message, icon, default)
-pub fn msg_box_ok_cancel(
-    title: &str,
-    message: &str,
-    icon: MessageBoxIcon,
-    default: OkCancel,
-) -> OkCancel {
-    let msg_box = tfd::MessageBox::new(title, message)
-        .with_icon(icon)
-        .run_modal_ok_cancel(default.into());
-    msg_box.into()
-}
-
-/// Yes or No result, returned from the `msg_box_yes_no` function
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 #[repr(C)]
 pub enum YesNo {
@@ -98,7 +84,6 @@ impl From<tfd::YesNo> for YesNo {
     }
 }
 
-/// MsgBox icon to use in the `msg_box_*` functions
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 #[repr(C)]
 pub enum MsgBoxIcon {
@@ -120,49 +105,87 @@ impl From<MsgBoxIcon> for MessageBoxIcon {
     }
 }
 
-/// "Y/N" MsgBox (title, message, icon, default)
-pub fn msg_box_yes_no(title: &str, message: &str, icon: MessageBoxIcon, default: YesNo) -> YesNo {
-    let msg_box = tfd::MessageBox::new(title, message)
-        .with_icon(icon)
-        .run_modal_yes_no(default.into());
-    msg_box.into()
+impl MsgBox {
+    /// Returns a zero-initialised namespace handle. The struct itself carries
+    /// no state — instances exist only so the FFI layer can hang static
+    /// methods off the type.
+    pub const fn new() -> Self {
+        Self { _reserved: 0 }
+    }
+
+    /// "Ok" message box — title, message, icon. Quotes are stripped from the
+    /// message to work around `tfd` misinterpreting them as shell metacharacters
+    /// on some platforms.
+    pub fn ok(title: AzString, message: AzString, icon: MsgBoxIcon) {
+        let mut msg = message.as_str().to_string();
+        msg = msg.replace('\"', "");
+        msg = msg.replace('\'', "");
+
+        tfd::MessageBox::new(title.as_str(), &msg)
+            .with_icon(icon.into())
+            .run_modal();
+    }
+
+    /// "Ok / Cancel" message box — title, message, icon, default button.
+    pub fn ok_cancel(
+        title: AzString,
+        message: AzString,
+        icon: MsgBoxIcon,
+        default: OkCancel,
+    ) -> OkCancel {
+        tfd::MessageBox::new(title.as_str(), message.as_str())
+            .with_icon(icon.into())
+            .run_modal_ok_cancel(default.into())
+            .into()
+    }
+
+    /// "Yes / No" message box — title, message, icon, default button.
+    pub fn yes_no(
+        title: AzString,
+        message: AzString,
+        icon: MsgBoxIcon,
+        default: YesNo,
+    ) -> YesNo {
+        tfd::MessageBox::new(title.as_str(), message.as_str())
+            .with_icon(icon.into())
+            .run_modal_yes_no(default.into())
+            .into()
+    }
+
+    /// Convenience: "Ok" message box with the title "Info" and an info icon.
+    pub fn info(content: AzString) {
+        Self::ok(AzString::from("Info"), content, MsgBoxIcon::Info);
+    }
 }
 
-/// "Ok" MsgBox (title, message, icon)
-///
-/// Note: quotes are stripped from the message to work around `tfd`
-/// misinterpreting them as shell metacharacters on some platforms.
-pub fn msg_box_ok(title: &str, message: &str, icon: MessageBoxIcon) {
-    let mut msg = message.to_string();
+impl ColorPickerDialog {
+    /// Returns a zero-initialised namespace handle. Static-only — the struct
+    /// is just a hook for the FFI layer.
+    pub const fn new() -> Self {
+        Self { _reserved: 0 }
+    }
 
-    msg = msg.replace('\"', "");
-    msg = msg.replace('\'', "");
+    /// Opens the default color picker dialog. Returns `None` if cancelled.
+    pub fn open(title: AzString, default_value: OptionColorU) -> OptionColorU {
+        let rgb = default_value
+            .into_option()
+            .map_or([0, 0, 0], |c| [c.r, c.g, c.b]);
 
-    tfd::MessageBox::new(title, &msg)
-        .with_icon(icon)
-        .run_modal();
-}
+        let default_color = DefaultColorValue::RGB(rgb);
+        let result = tfd::ColorChooser::new(title.as_str())
+            .with_default_color(default_color)
+            .run_modal();
 
-/// Wrapper around `message_box_ok` with the default title "Info" + an info icon.
-pub fn msg_box(content: &str) {
-    msg_box_ok("Info", content, MessageBoxIcon::Info);
-}
-
-/// Opens the default color picker dialog
-pub fn color_picker_dialog(title: &str, default_value: Option<ColorU>) -> Option<ColorU> {
-    let rgb = default_value.map_or([0, 0, 0], |c| [c.r, c.g, c.b]);
-
-    let default_color = DefaultColorValue::RGB(rgb);
-    let result = tfd::ColorChooser::new(title)
-        .with_default_color(default_color)
-        .run_modal()?;
-
-    Some(ColorU {
-        r: result.1[0],
-        g: result.1[1],
-        b: result.1[2],
-        a: ColorU::ALPHA_OPAQUE,
-    })
+        match result {
+            Some(r) => OptionColorU::Some(ColorU {
+                r: r.1[0],
+                g: r.1[1],
+                b: r.1[2],
+                a: ColorU::ALPHA_OPAQUE,
+            }),
+            None => OptionColorU::None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -179,77 +202,87 @@ impl_option!(
     [Debug, Clone, PartialEq, PartialOrd]
 );
 
-/// Open a single file, returns `None` if the user canceled the dialog.
-///
-/// Filters are the file extensions, i.e. `Some(&["doc", "docx"])` to only allow
-/// "doc" and "docx" files
-pub fn open_file_dialog(
-    title: &str,
-    default_path: Option<&str>,
-    filter_list: Option<FileTypeList>,
-) -> Option<AzString> {
-    let mut dialog = tfd::FileDialog::new(title);
-
-    if let Some(path) = default_path {
-        dialog = dialog.with_path(path);
-    }
-
-    if let Some(filter) = filter_list {
-        let v = filter.document_types.clone().into_library_owned_vec();
-
-        let patterns: Vec<&str> = v.iter().map(|s| s.as_str()).collect();
-
-        dialog = dialog.with_filter(&patterns, filter.document_descriptor.as_str());
-    }
-
-    dialog.open_file().map(|s| s.into())
+/// Apply a [`FileTypeList`] filter to a `tfd::FileDialog`.
+fn apply_filter(mut dialog: tfd::FileDialog, filter: FileTypeList) -> tfd::FileDialog {
+    let v = filter.document_types.clone().into_library_owned_vec();
+    let patterns: Vec<&str> = v.iter().map(|s| s.as_str()).collect();
+    dialog = dialog.with_filter(&patterns, filter.document_descriptor.as_str());
+    dialog
 }
 
-/// Open a directory, returns `None` if the user canceled the dialog
-pub fn open_directory_dialog(title: &str, default_path: Option<&str>) -> Option<AzString> {
-    let mut dialog = tfd::FileDialog::new(title);
-
-    if let Some(path) = default_path {
-        dialog = dialog.with_path(path);
+impl FileDialog {
+    /// Returns a zero-initialised namespace handle. Static-only — the struct
+    /// is just a hook for the FFI layer.
+    pub const fn new() -> Self {
+        Self { _reserved: 0 }
     }
 
-    dialog.select_folder().map(|s| s.into())
+    /// Open a single file. Returns `None` if the user cancelled.
+    ///
+    /// `filter_list` filters by extension, e.g. `["doc", "docx"]`.
+    pub fn open_file(
+        title: AzString,
+        default_path: OptionString,
+        filter_list: OptionFileTypeList,
+    ) -> OptionString {
+        let mut dialog = tfd::FileDialog::new(title.as_str());
+
+        if let Some(path) = default_path.as_option() {
+            dialog = dialog.with_path(path.as_str());
+        }
+
+        if let Some(filter) = filter_list.into_option() {
+            dialog = apply_filter(dialog, filter);
+        }
+
+        dialog.open_file().map(AzString::from).into()
+    }
+
+    /// Open a directory. Returns `None` if the user cancelled.
+    pub fn open_directory(title: AzString, default_path: OptionString) -> OptionString {
+        let mut dialog = tfd::FileDialog::new(title.as_str());
+
+        if let Some(path) = default_path.as_option() {
+            dialog = dialog.with_path(path.as_str());
+        }
+
+        dialog.select_folder().map(AzString::from).into()
+    }
+
+    /// Open multiple files. Returns `None` if the user cancelled.
+    ///
+    /// `filter_list` filters by extension, e.g. `["doc", "docx"]`.
+    pub fn open_multiple_files(
+        title: AzString,
+        default_path: OptionString,
+        filter_list: OptionFileTypeList,
+    ) -> OptionStringVec {
+        let mut dialog = tfd::FileDialog::new(title.as_str()).with_multiple_selection(true);
+
+        if let Some(path) = default_path.as_option() {
+            dialog = dialog.with_path(path.as_str());
+        }
+
+        if let Some(filter) = filter_list.into_option() {
+            dialog = apply_filter(dialog, filter);
+        }
+
+        dialog.open_files().map(StringVec::from).into()
+    }
+
+    /// Save file dialog. Returns `None` if the user cancelled.
+    pub fn save_file(title: AzString, default_path: OptionString) -> OptionString {
+        let mut dialog = tfd::FileDialog::new(title.as_str());
+
+        if let Some(path) = default_path.as_option() {
+            dialog = dialog.with_path(path.as_str());
+        }
+
+        dialog.save_file().map(AzString::from).into()
+    }
 }
 
-/// Open multiple files at once, returns `None` if the user canceled the dialog,
-/// otherwise returns the `Vec<String>` with the given file paths
-///
-/// Filters are the file extensions, i.e. `Some(&["doc", "docx"])` to only allow
-/// "doc" and "docx" files
-pub fn open_multiple_files_dialog(
-    title: &str,
-    default_path: Option<&str>,
-    filter_list: Option<FileTypeList>,
-) -> Option<StringVec> {
-    let mut dialog = tfd::FileDialog::new(title).with_multiple_selection(true);
-
-    if let Some(path) = default_path {
-        dialog = dialog.with_path(path);
-    }
-
-    if let Some(filter) = filter_list {
-        let v = filter.document_types.clone().into_library_owned_vec();
-
-        let patterns: Vec<&str> = v.iter().map(|s| s.as_str()).collect();
-
-        dialog = dialog.with_filter(&patterns, filter.document_descriptor.as_str());
-    }
-
-    dialog.open_files().map(|s| s.into())
-}
-
-/// Opens a save file dialog, returns `None` if the user canceled the dialog
-pub fn save_file_dialog(title: &str, default_path: Option<&str>) -> Option<AzString> {
-    let mut dialog = tfd::FileDialog::new(title);
-
-    if let Some(path) = default_path {
-        dialog = dialog.with_path(path);
-    }
-
-    dialog.save_file().map(|s| s.into())
+/// Convenience shim: show a default "Info" message box.
+pub fn msg_box(content: &str) {
+    MsgBox::info(AzString::from(content));
 }
