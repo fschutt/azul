@@ -18,7 +18,7 @@
 # Only external + non-topic + non-stub pages need a guide_order.
 
 [meta]
-generated_from = "doc/guide/reference.md"
+generated_from = "doc/guide/en/reference.md"
 total_groups = 33
 total_outputs = 50
 existing_guides = ["architecture"]
@@ -37,7 +37,7 @@ notes = "Install + per-language entry pages."
 
 [[group.outputs]]
 slug = "getting-started"
-path = "doc/guide/getting-started.md"
+path = "doc/guide/en/getting-started.md"
 title = "Getting Started"
 maturity = "mature"
 guide_order = 10
@@ -45,28 +45,28 @@ prerequisites = []
 
 [[group.outputs]]
 slug = "bindings/rust"
-path = "doc/guide/bindings/rust.md"
+path = "doc/guide/en/bindings/rust.md"
 title = "Rust Bindings"
 maturity = "wip"
 topic_only = true
 
 [[group.outputs]]
 slug = "bindings/c"
-path = "doc/guide/bindings/c.md"
+path = "doc/guide/en/bindings/c.md"
 title = "C Bindings"
 maturity = "wip"
 topic_only = true
 
 [[group.outputs]]
 slug = "bindings/cpp"
-path = "doc/guide/bindings/cpp.md"
+path = "doc/guide/en/bindings/cpp.md"
 title = "C++ Bindings"
 maturity = "wip"
 topic_only = true
 
 [[group.outputs]]
 slug = "bindings/python"
-path = "doc/guide/bindings/python.md"
+path = "doc/guide/en/bindings/python.md"
 title = "Python Bindings"
 maturity = "wip"
 topic_only = true
@@ -82,7 +82,7 @@ notes = "Minimal window. First page that runs code. Anchor for the linear guide.
 
 [[group.outputs]]
 slug = "hello-world"
-path = "doc/guide/hello-world.md"
+path = "doc/guide/en/hello-world.md"
 title = "Hello, World"
 maturity = "mature"
 guide_order = 20
@@ -100,7 +100,7 @@ maturity_default = "mature"
 
 [[group.outputs]]
 slug = "architecture"
-path = "doc/guide/architecture.md"
+path = "doc/guide/en/architecture.md"
 title = "Architecture"
 maturity = "mature"
 guide_order = 30
@@ -116,7 +116,7 @@ tracked_files = ["core/src/dom.rs", "core/src/callbacks.rs", "core/src/id_tree.r
 
 [[group.outputs]]
 slug = "dom"
-path = "doc/guide/dom.md"
+path = "doc/guide/en/dom.md"
 title = "DOM and Callbacks"
 audience = "external"
 maturity = "mature"
@@ -125,7 +125,7 @@ prerequisites = ["hello-world", "architecture"]
 
 [[group.outputs]]
 slug = "internals/dom"
-path = "doc/guide/internals/dom.md"
+path = "doc/guide/en/internals/dom.md"
 title = "DOM Internals"
 audience = "contributor"
 maturity = "mature"
@@ -141,7 +141,7 @@ tracked_globs = ["dll/src/desktop/shell2/*/event*.rs"]
 
 [[group.outputs]]
 slug = "events"
-path = "doc/guide/events.md"
+path = "doc/guide/en/events.md"
 title = "Events and Input"
 audience = "external"
 maturity = "mature"
@@ -150,7 +150,7 @@ prerequisites = ["dom"]
 
 [[group.outputs]]
 slug = "internals/event-system"
-path = "doc/guide/internals/event-system.md"
+path = "doc/guide/en/internals/event-system.md"
 title = "Event System Internals"
 audience = "contributor"
 maturity = "mature"
@@ -166,7 +166,7 @@ tracked_globs = ["css/src/props/**/*.rs"]
 
 [[group.outputs]]
 slug = "css"
-path = "doc/guide/css.md"
+path = "doc/guide/en/css.md"
 title = "CSS Styling"
 audience = "external"
 maturity = "mature"
@@ -175,7 +175,7 @@ prerequisites = ["dom"]
 
 [[group.outputs]]
 slug = "internals/css-properties"
-path = "doc/guide/internals/css-properties.md"
+path = "doc/guide/en/internals/css-properties.md"
 title = "CSS Property Internals"
 audience = "contributor"
 maturity = "mature"
@@ -191,7 +191,7 @@ notes = "User-facing layout reference. Internals covered by `layout-solver`."
 
 [[group.outputs]]
 slug = "layout"
-path = "doc/guide/layout.md"
+path = "doc/guide/en/layout.md"
 title = "Layout"
 maturity = "mature"
 guide_order = 70
@@ -208,7 +208,7 @@ tracked_globs = ["layout/src/text*/**/*.rs"]
 
 [[group.outputs]]
 slug = "text"
-path = "doc/guide/text.md"
+path = "doc/guide/en/text.md"
 title = "Text and Fonts"
 audience = "external"
 maturity = "wip"
@@ -217,7 +217,7 @@ prerequisites = ["css", "layout"]
 
 [[group.outputs]]
 slug = "internals/text-pipeline"
-path = "doc/guide/internals/text-pipeline.md"
+path = "doc/guide/en/internals/text-pipeline.md"
 title = "Text Pipeline"
 audience = "contributor"
 maturity = "wip"
@@ -233,7 +233,7 @@ tracked_globs = ["core/src/svg*.rs", "css/src/props/basic/image.rs"]
 
 [[group.outputs]]
 slug = "images"
-path = "doc/guide/images.md"
+path = "doc/guide/en/images.md"
 title = "Images, SVG, and Canvas"
 audience = "external"
 maturity = "wip"
@@ -242,7 +242,7 @@ prerequisites = ["dom"]
 
 [[group.outputs]]
 slug = "internals/image-pipeline"
-path = "doc/guide/internals/image-pipeline.md"
+path = "doc/guide/en/internals/image-pipeline.md"
 title = "Image Pipeline"
 audience = "contributor"
 maturity = "wip"
@@ -258,7 +258,7 @@ tracked_globs = ["layout/src/widgets/**/*.rs"]
 
 [[group.outputs]]
 slug = "widgets"
-path = "doc/guide/widgets.md"
+path = "doc/guide/en/widgets.md"
 title = "Widgets"
 audience = "external"
 maturity = "wip"
@@ -267,7 +267,7 @@ prerequisites = ["events", "css"]
 
 [[group.outputs]]
 slug = "internals/widgets"
-path = "doc/guide/internals/widgets.md"
+path = "doc/guide/en/internals/widgets.md"
 title = "Widget Internals"
 audience = "contributor"
 maturity = "wip"
@@ -283,7 +283,7 @@ notes = "Frame-driven Timer types. Prerequisite for animations."
 
 [[group.outputs]]
 slug = "timers"
-path = "doc/guide/timers.md"
+path = "doc/guide/en/timers.md"
 title = "Timers"
 maturity = "wip"
 guide_order = 110
@@ -300,7 +300,7 @@ notes = "Stub-tagged: type definitions exist but runtime is not wired up. Docume
 
 [[group.outputs]]
 slug = "animations"
-path = "doc/guide/animations.md"
+path = "doc/guide/en/animations.md"
 title = "Animations"
 maturity = "stub"
 guide_order = 120
@@ -317,7 +317,7 @@ notes = "User-side: scroll regions, scroll-into-view. Internals covered by `hit-
 
 [[group.outputs]]
 slug = "scrolling"
-path = "doc/guide/scrolling.md"
+path = "doc/guide/en/scrolling.md"
 title = "Scrolling"
 maturity = "wip"
 guide_order = 130
@@ -334,7 +334,7 @@ notes = "User-side Threads + async work. Internals covered by `async-internals`.
 
 [[group.outputs]]
 slug = "background-tasks"
-path = "doc/guide/background-tasks.md"
+path = "doc/guide/en/background-tasks.md"
 title = "Background Tasks"
 maturity = "wip"
 guide_order = 140
@@ -350,7 +350,7 @@ tracked_globs = ["dll/src/desktop/shell2/*/clipboard*.rs"]
 
 [[group.outputs]]
 slug = "clipboard"
-path = "doc/guide/clipboard.md"
+path = "doc/guide/en/clipboard.md"
 title = "Clipboard"
 audience = "external"
 maturity = "wip"
@@ -359,7 +359,7 @@ prerequisites = ["events"]
 
 [[group.outputs]]
 slug = "internals/clipboard"
-path = "doc/guide/internals/clipboard.md"
+path = "doc/guide/en/internals/clipboard.md"
 title = "Clipboard Internals"
 audience = "contributor"
 maturity = "wip"
@@ -375,7 +375,7 @@ tracked_globs = ["dll/src/desktop/shell2/*/accessibility*.rs"]
 
 [[group.outputs]]
 slug = "accessibility"
-path = "doc/guide/accessibility.md"
+path = "doc/guide/en/accessibility.md"
 title = "Accessibility"
 audience = "external"
 maturity = "wip"
@@ -384,7 +384,7 @@ prerequisites = ["dom"]
 
 [[group.outputs]]
 slug = "internals/accessibility-backends"
-path = "doc/guide/internals/accessibility-backends.md"
+path = "doc/guide/en/internals/accessibility-backends.md"
 title = "Accessibility Backends"
 audience = "contributor"
 maturity = "wip"
@@ -400,7 +400,7 @@ notes = "User-facing windowing. Internals covered by `shell2-backends`."
 
 [[group.outputs]]
 slug = "windowing"
-path = "doc/guide/windowing.md"
+path = "doc/guide/en/windowing.md"
 title = "Windows and Decorations"
 maturity = "mature"
 guide_order = 170
@@ -417,7 +417,7 @@ notes = "User-facing web target. Internals covered by `web-backend-internals`."
 
 [[group.outputs]]
 slug = "web-target"
-path = "doc/guide/web-target.md"
+path = "doc/guide/en/web-target.md"
 title = "Web Target (WASM/SSR)"
 maturity = "wip"
 guide_order = 180
@@ -436,7 +436,7 @@ notes = "Standalone use of azul's XML parser as a library — not GUI-dependent.
 
 [[group.outputs]]
 slug = "topics/xml-parsing"
-path = "doc/guide/topics/xml-parsing.md"
+path = "doc/guide/en/topics/xml-parsing.md"
 title = "XML Parsing (Standalone)"
 maturity = "wip"
 topic_only = true
@@ -452,7 +452,7 @@ notes = "Server-side rendering, screenshot generation, non-interactive use."
 
 [[group.outputs]]
 slug = "topics/headless-render"
-path = "doc/guide/topics/headless-render.md"
+path = "doc/guide/en/topics/headless-render.md"
 title = "Headless Rendering"
 maturity = "wip"
 topic_only = true
@@ -469,7 +469,7 @@ tracked_files = ["core/src/lib.rs", "css/src/lib.rs", "layout/src/lib.rs", "dll/
 
 [[group.outputs]]
 slug = "internals/crate-layout"
-path = "doc/guide/internals/crate-layout.md"
+path = "doc/guide/en/internals/crate-layout.md"
 title = "Crate Layout"
 maturity = "mature"
 
@@ -483,7 +483,7 @@ tracked_files = ["core/src/compact_cache_builder.rs", "css/src/css_property.rs",
 
 [[group.outputs]]
 slug = "internals/compact-cache"
-path = "doc/guide/internals/compact-cache.md"
+path = "doc/guide/en/internals/compact-cache.md"
 title = "Compact Property Cache"
 maturity = "mature"
 
@@ -503,7 +503,7 @@ tracked_files = [
 
 [[group.outputs]]
 slug = "internals/cascade"
-path = "doc/guide/internals/cascade.md"
+path = "doc/guide/en/internals/cascade.md"
 title = "CSS Cascade Internals"
 maturity = "wip"
 
@@ -518,13 +518,13 @@ tracked_globs = ["layout/src/text2/*.rs"]
 
 [[group.outputs]]
 slug = "internals/layout-solver"
-path = "doc/guide/internals/layout-solver.md"
+path = "doc/guide/en/internals/layout-solver.md"
 title = "Layout Solver"
 maturity = "wip"
 
 [[group.outputs]]
 slug = "internals/layout-inline"
-path = "doc/guide/internals/layout-inline.md"
+path = "doc/guide/en/internals/layout-inline.md"
 title = "Inline Layout"
 maturity = "wip"
 
@@ -539,13 +539,13 @@ tracked_globs = ["dll/src/desktop/shell2/common/gl*.rs", "webrender/webrender/sr
 
 [[group.outputs]]
 slug = "internals/rendering"
-path = "doc/guide/internals/rendering.md"
+path = "doc/guide/en/internals/rendering.md"
 title = "Rendering Pipeline"
 maturity = "wip"
 
 [[group.outputs]]
 slug = "internals/gl-loading"
-path = "doc/guide/internals/gl-loading.md"
+path = "doc/guide/en/internals/gl-loading.md"
 title = "GL Function Loading"
 maturity = "wip"
 
@@ -559,25 +559,25 @@ tracked_globs = ["dll/src/desktop/shell2/**/*.rs"]
 
 [[group.outputs]]
 slug = "internals/shell2-common"
-path = "doc/guide/internals/shell2-common.md"
+path = "doc/guide/en/internals/shell2-common.md"
 title = "Shell2 Common Layer"
 maturity = "wip"
 
 [[group.outputs]]
 slug = "internals/shell2-linux"
-path = "doc/guide/internals/shell2-linux.md"
+path = "doc/guide/en/internals/shell2-linux.md"
 title = "Shell2 Linux (X11/Wayland)"
 maturity = "wip"
 
 [[group.outputs]]
 slug = "internals/shell2-windows"
-path = "doc/guide/internals/shell2-windows.md"
+path = "doc/guide/en/internals/shell2-windows.md"
 title = "Shell2 Windows"
 maturity = "wip"
 
 [[group.outputs]]
 slug = "internals/shell2-macos"
-path = "doc/guide/internals/shell2-macos.md"
+path = "doc/guide/en/internals/shell2-macos.md"
 title = "Shell2 macOS"
 maturity = "wip"
 
@@ -592,7 +592,7 @@ tracked_globs = ["dll/src/desktop/shell2/*/menu*.rs"]
 
 [[group.outputs]]
 slug = "internals/menu-and-csd"
-path = "doc/guide/internals/menu-and-csd.md"
+path = "doc/guide/en/internals/menu-and-csd.md"
 title = "Menus and Client-Side Decorations"
 maturity = "wip"
 
@@ -606,7 +606,7 @@ tracked_files = ["dll/build.rs", "doc/src/dllgen/mod.rs", "api.json"]
 
 [[group.outputs]]
 slug = "internals/codegen"
-path = "doc/guide/internals/codegen.md"
+path = "doc/guide/en/internals/codegen.md"
 title = "FFI Code Generation"
 maturity = "mature"
 
@@ -620,7 +620,7 @@ tracked_files = ["dll/src/web/mod.rs"]
 
 [[group.outputs]]
 slug = "internals/web-backend"
-path = "doc/guide/internals/web-backend.md"
+path = "doc/guide/en/internals/web-backend.md"
 title = "Web Backend Internals"
 maturity = "wip"
 
@@ -634,7 +634,7 @@ tracked_files = ["core/src/task.rs"]
 
 [[group.outputs]]
 slug = "internals/async"
-path = "doc/guide/internals/async.md"
+path = "doc/guide/en/internals/async.md"
 title = "Async, Timers, and Threading Internals"
 maturity = "wip"
 
@@ -648,7 +648,7 @@ tracked_files = ["css/src/system_style.rs"]
 
 [[group.outputs]]
 slug = "internals/system-style"
-path = "doc/guide/internals/system-style.md"
+path = "doc/guide/en/internals/system-style.md"
 title = "System Style Discovery"
 maturity = "wip"
 
@@ -662,7 +662,7 @@ tracked_files = ["core/src/virtualized_view_manager.rs"]
 
 [[group.outputs]]
 slug = "internals/virtualview"
-path = "doc/guide/internals/virtualview.md"
+path = "doc/guide/en/internals/virtualview.md"
 title = "VirtualView Lazy Loading"
 maturity = "wip"
 
@@ -676,6 +676,6 @@ tracked_files = ["layout/src/hit_test.rs", "core/src/scrolling.rs"]
 
 [[group.outputs]]
 slug = "internals/hit-testing"
-path = "doc/guide/internals/hit-testing.md"
+path = "doc/guide/en/internals/hit-testing.md"
 title = "Hit Testing and Scrolling Internals"
 maturity = "wip"

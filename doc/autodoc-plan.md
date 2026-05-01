@@ -103,12 +103,15 @@ errors; `stub` pages have their code blocks marked `ignore`.
 
 **English is canonical.** Translations are downstream.
 
-- File layout: `doc/guide/<slug>.md` is canonical English. Translations
-  live at `doc/guide/<slug>.<lang>.md` (e.g. `getting-started.de.md`).
-  Keeping language as a suffix avoids a parallel directory tree and makes
-  it obvious which pages have which translations.
-- URL routing: `/guide/<slug>.html` (English) vs `/<lang>/guide/<slug>.html`
-  (translated). The build inspects the file suffix.
+- File layout: language is a **directory prefix**.
+  `doc/guide/en/<slug>.md` is canonical English; translations live at
+  `doc/guide/<lang>/<slug>.md` (e.g. `doc/guide/de/getting-started.md`).
+  Each language has its own `SUMMARY.md` and `screenshots/` directory.
+  Screenshots are per-language because slideshow XML carries page text
+  that differs across languages — a German "Hallo, Welt" PNG differs
+  from the English one.
+- URL routing: `/<lang>/guide/<slug>.html` for every language (English
+  uses `/en/...` like everything else; no special-case rooted URLs).
 - A translation file declares its source revision in frontmatter:
   ```
   ---

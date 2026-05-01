@@ -59,13 +59,13 @@ pub fn get_guide_list() -> Vec<Guide> {
             "Architecture",
             include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/guide/architecture.md"
+                "/guide/en/architecture.md"
             )),
         ),
         guide_from_md(
             "reference",
             "Documentation Backlog",
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/reference.md")),
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/en/reference.md")),
         ),
     ]
 }
