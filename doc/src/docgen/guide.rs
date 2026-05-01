@@ -1,32 +1,25 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+
 use comrak::options::{Extension, Parse, Plugins, Render, RenderPlugins};
 
 use super::HTML_ROOT;
 
 /// Guide information structure
 pub struct Guide {
-    /// Title for navigation (from api.json or hardcoded)
+    /// Title for navigation (from frontmatter or first H1)
     pub title: String,
-    /// File name derived from the .md filename (for URL)
+    /// Path-like file name (no extension) used to compute the output URL.
+    /// For nested pages this includes subdirectories, e.g. `internals/dom`.
     pub file_name: String,
-    /// Raw markdown content
+    /// Markdown content with the YAML frontmatter already stripped.
     pub content: String,
-}
-
-/// Create a Guide from a markdown file path, content, and explicit title
-fn guide_from_md(md_filename: &str, title: &str, content: &'static str) -> Guide {
-    // Remove .md extension for URL
-    let file_name = md_filename.trim_end_matches(".md").to_string();
-
-    Guide {
-        title: title.to_string(),
-        file_name,
-        content: content.to_string(),
-    }
 }
 
 /// Pre-process markdown content:
 /// - Remove mermaid code blocks (not supported in HTML output)
-/// Note: We keep the first H1 header now since that's the real title
+/// (Frontmatter is stripped earlier, in `get_guide_list`, so it never
+/// reaches this stage.)
 fn preprocess_markdown_content(content: &str) -> String {
     let lines: Vec<&str> = content.lines().collect();
 
@@ -51,23 +44,85 @@ fn preprocess_markdown_content(content: &str) -> String {
     result.join("\n")
 }
 
-/// Get a list of all guides
+/// Walk `doc/guide/en/` at runtime and return one Guide per .md file.
+/// Frontmatter is parsed for title/ordering; pages without frontmatter
+/// fall back to their first H1 line as title.
+///
+/// Output ordering: pages with `guide_order` come first (ascending),
+/// then everything else alphabetically.
 pub fn get_guide_list() -> Vec<Guide> {
-    vec![
-        guide_from_md(
-            "architecture",
-            "Architecture",
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/guide/en/architecture.md"
-            )),
-        ),
-        guide_from_md(
-            "reference",
-            "Documentation Backlog",
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/en/reference.md")),
-        ),
-    ]
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let lang_dir = manifest_dir.join("guide").join("en");
+    let mut collected: Vec<(Option<i32>, String, Guide)> = Vec::new();
+    walk_collect(&lang_dir, &lang_dir, &mut collected);
+
+    collected.sort_by(|a, b| match (a.0, b.0) {
+        (Some(x), Some(y)) => x.cmp(&y),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => a.1.cmp(&b.1),
+    });
+
+    collected.into_iter().map(|(_, _, g)| g).collect()
+}
+
+fn walk_collect(
+    root: &Path,
+    dir: &Path,
+    out: &mut Vec<(Option<i32>, String, Guide)>,
+) {
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if p.is_dir() {
+            let n = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
+            // Skip generated assets
+            if matches!(n, "screenshots" | "target") {
+                continue;
+            }
+            walk_collect(root, &p, out);
+        } else if p.extension().map(|e| e == "md").unwrap_or(false) {
+            let n = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
+            if n == "SUMMARY.md" {
+                continue;
+            }
+            let rel = match p.strip_prefix(root) {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+            let stem = rel.with_extension("");
+            let file_name = stem.to_string_lossy().replace('\\', "/");
+            let content = fs::read_to_string(&p).unwrap_or_default();
+            let (title, body, guide_order) = extract_metadata(&content, &file_name);
+            out.push((
+                guide_order,
+                file_name.clone(),
+                Guide {
+                    title,
+                    file_name,
+                    content: body,
+                },
+            ));
+        }
+    }
+}
+
+fn extract_metadata(content: &str, fallback_name: &str) -> (String, String, Option<i32>) {
+    if let Some((fm, body)) = crate::reftest::autodoc::parse_frontmatter(content) {
+        return (fm.title, body, fm.guide_order);
+    }
+    // No frontmatter — first H1, else fallback name.
+    let mut title = fallback_name.to_string();
+    for line in content.lines().take(40) {
+        if let Some(t) = line.trim().strip_prefix("# ") {
+            title = t.to_string();
+            break;
+        }
+    }
+    (title, content.to_string(), None)
 }
 
 /// Generate HTML for a specific guide
@@ -77,12 +132,14 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
     let prism_script = crate::docgen::get_prism_script();
 
     // Pre-process content: remove mermaid blocks and expand `azul-render`
-    // fences into <figure>/slideshow HTML (PNGs come from the
-    // autodoc-screenshots run; URLs are relative to the rendered guide).
+    // fences into <figure>/slideshow HTML. Use an absolute URL prefix so
+    // pages at any nesting depth (`guide/dom.html` vs `guide/internals/dom.html`)
+    // resolve to the same screenshots directory.
     let processed_content = preprocess_markdown_content(&guide.content);
+    let screenshot_prefix = format!("{HTML_ROOT}/guide/screenshots/");
     let processed_content = crate::reftest::autodoc::expand_azul_render_blocks(
         &processed_content,
-        "./screenshots/",
+        &screenshot_prefix,
     );
 
     let content = comrak::markdown_to_html_with_plugins(

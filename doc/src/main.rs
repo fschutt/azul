@@ -1430,6 +1430,26 @@ fn main() -> anyhow::Result<()> {
                 println!("  [OK] Generated: {}", path);
             }
 
+            // Copy screenshot PNGs from doc/guide/en/screenshots/ to
+            // <deploy>/guide/screenshots/ so the absolute URLs in
+            // <figure>/slideshow HTML resolve.
+            let screenshots_src = project_root.join("doc/guide/en/screenshots");
+            let screenshots_dst = output_dir.join("guide/screenshots");
+            if screenshots_src.is_dir() {
+                fs::create_dir_all(&screenshots_dst)?;
+                let mut copied = 0usize;
+                for entry in fs::read_dir(&screenshots_src)? {
+                    let entry = entry?;
+                    let from = entry.path();
+                    if from.extension().map(|e| e == "png").unwrap_or(false) {
+                        let to = screenshots_dst.join(from.file_name().unwrap());
+                        fs::copy(&from, &to)?;
+                        copied += 1;
+                    }
+                }
+                println!("  [OK] Copied {} screenshot(s) to guide/screenshots/", copied);
+            }
+
             // Verify all example files exist before proceeding
             let examples_dir = project_root.join("examples");
             println!("Verifying example files...");
