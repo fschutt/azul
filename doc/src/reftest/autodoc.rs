@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::reftest::autoreview::AutoreviewConfig;
 use crate::spec::executor::{self, AgentResult, SHUTDOWN_REQUESTED};
@@ -317,20 +318,25 @@ pub fn build_autodoc_prompt(project_root: &Path, group: &Group) -> String {
     s.push_str("## Required frontmatter\n\n");
     s.push_str("Each output file MUST start with YAML frontmatter:\n\n");
     s.push_str("```yaml\n---\n\
-                slug: <slug>\n\
+                slug: <slug>            # URL slug; for English == canonical_slug\n\
                 title: <title>\n\
+                language: en             # canonical pages are always English\n\
+                canonical_slug: <slug>   # same as `slug` for English pages\n\
                 audience: <external | contributor>\n\
                 maturity: <mature | wip | stub | draft>\n\
                 guide_order: <int or null>\n\
                 topic_only: <bool>\n\
-                prerequisites: [<slug>, ...]\n\
+                prerequisites: [<canonical-slug>, ...]\n\
                 tracked_files:\n  - <path>\n  - ...\n\
                 last_generated_rev: <git-sha-here>\n\
                 generated_at: <iso8601>\n\
                 ---\n```\n\n");
     s.push_str(&format!(
         "Use git rev `{}` and the current ISO timestamp. Tracked files come from the manifest \
-         (listed below).\n\n",
+         (listed below). `language: en` and `canonical_slug == slug` because this run \
+         generates canonical English pages. Do NOT emit `source_rev` or `source_hash` — \
+         those fields belong to translations only and are written by the future `translate` \
+         subcommand.\n\n",
         head_sha(project_root).unwrap_or_else(|_| "UNKNOWN".to_string())
     ));
 
@@ -461,8 +467,21 @@ fn authoring_rules() -> &'static str {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Frontmatter {
+    /// URL slug — *localized*. For English: same as `canonical_slug`. For
+    /// translations: localized form (e.g. `architektur`), used in the URL
+    /// `/<lang>/<slug>`.
     pub slug: String,
     pub title: String,
+    /// Language code (e.g. "en", "de"). Required.
+    #[serde(default = "default_language")]
+    pub language: String,
+    /// English-side identity. Same as `slug` for English pages; for
+    /// translations, the canonical English slug this page mirrors.
+    /// Used by the website to find sibling translations and by the
+    /// staleness checker to look up the canonical source file.
+    #[serde(default)]
+    pub canonical_slug: Option<String>,
+
     #[serde(default)]
     pub audience: Option<String>,
     pub maturity: String,
@@ -470,13 +489,81 @@ pub struct Frontmatter {
     pub guide_order: Option<i32>,
     #[serde(default)]
     pub topic_only: bool,
+    /// Prerequisite *canonical* slugs (English). The website resolves
+    /// these to localized URLs at render time so a German page reading
+    /// `prerequisites: [hello-world]` links to the German "hallo-welt"
+    /// page.
     #[serde(default)]
     pub prerequisites: Vec<String>,
+
+    /// Source files this guide documents. Only meaningful on canonical
+    /// English pages — translations leave this empty and inherit
+    /// staleness from their canonical source.
     #[serde(default)]
     pub tracked_files: Vec<String>,
-    pub last_generated_rev: String,
+    /// Git SHA at which the page was last regenerated. Required for
+    /// canonical English pages.
+    #[serde(default)]
+    pub last_generated_rev: Option<String>,
+
+    /// For translations only: the git SHA of the canonical English file
+    /// at the time this translation was produced. The staleness checker
+    /// reports this translation as stale if the canonical file has
+    /// commits after `source_rev`.
+    #[serde(default)]
+    pub source_rev: Option<String>,
+
+    /// For translations only: SHA-256 of the canonical English file's
+    /// content (after the frontmatter, body bytes only) at the time of
+    /// translation. The release pipeline hashes the current canonical
+    /// body and compares — mismatch = translation is out of date and
+    /// the build fails.
+    #[serde(default)]
+    pub source_hash: Option<String>,
+
     #[serde(default)]
     pub generated_at: String,
+}
+
+fn default_language() -> String {
+    "en".to_string()
+}
+
+impl Frontmatter {
+    pub fn is_canonical_english(&self) -> bool {
+        self.language == "en"
+    }
+    pub fn effective_canonical_slug(&self) -> &str {
+        self.canonical_slug.as_deref().unwrap_or(&self.slug)
+    }
+}
+
+/// SHA-256 of a canonical page's body (post-frontmatter content). Used
+/// to detect translation drift: each translation records the canonical
+/// hash at translation time; the release pipeline recomputes the hash
+/// from the live English file and refuses to ship if it has changed.
+pub fn hash_body(body: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(body.as_bytes());
+    let result = hasher.finalize();
+    let mut hex = String::with_capacity(64);
+    for b in result {
+        use std::fmt::Write;
+        let _ = write!(hex, "{:02x}", b);
+    }
+    hex
+}
+
+/// Read a canonical English file and return the SHA-256 of its body.
+/// Returns None if the file is missing or has no frontmatter.
+pub fn read_canonical_hash(
+    project_root: &Path,
+    canonical_slug: &str,
+) -> Option<String> {
+    let path = project_root.join(format!("doc/guide/en/{}.md", canonical_slug));
+    let content = fs::read_to_string(&path).ok()?;
+    let (_fm, body) = parse_frontmatter(&content)?;
+    Some(hash_body(&body))
 }
 
 /// Extract YAML frontmatter and return (parsed, body).
@@ -906,6 +993,8 @@ pub fn run_autodoc_check(config: &AutoreviewConfig) -> Result<(), String> {
     let mut no_frontmatter: Vec<PathBuf> = Vec::new();
     let mut fresh = 0usize;
 
+    let mut translation_stale: Vec<(PathBuf, String, Vec<String>)> = Vec::new();
+
     for page in &pages {
         let content = match fs::read_to_string(page) {
             Ok(c) => c,
@@ -918,10 +1007,77 @@ pub fn run_autodoc_check(config: &AutoreviewConfig) -> Result<(), String> {
                 continue;
             }
         };
+
+        // Translation page: check against canonical English source.
+        if fm.language != "en" {
+            let canonical_slug = fm.effective_canonical_slug().to_string();
+            let canonical_path = format!("doc/guide/en/{}.md", canonical_slug);
+            let mut reasons: Vec<String> = Vec::new();
+
+            // 1) Content hash check — the authoritative "did the body change" signal.
+            match (&fm.source_hash, read_canonical_hash(project_root, &canonical_slug)) {
+                (Some(recorded), Some(current)) if recorded == &current => {
+                    // body matches — no drift
+                }
+                (Some(recorded), Some(current)) => {
+                    reasons.push(format!(
+                        "body hash mismatch (recorded `{}`, current `{}`)",
+                        &recorded[..12.min(recorded.len())],
+                        &current[..12.min(current.len())],
+                    ));
+                }
+                (None, _) => {
+                    reasons.push("(no source_hash recorded — re-translate)".to_string());
+                }
+                (Some(_), None) => {
+                    reasons.push(format!(
+                        "canonical file `{}` is missing or unparsable",
+                        canonical_path
+                    ));
+                }
+            }
+
+            // 2) Git rev check — informational; surfaces *which* commits touched
+            //    the canonical file even when the hash already matches.
+            if let Some(source_rev) = &fm.source_rev {
+                let commits =
+                    commits_since(project_root, source_rev, &canonical_path).unwrap_or_default();
+                if !commits.is_empty() && reasons.is_empty() {
+                    // Hash matched but git rev shows commits — either no-op
+                    // commits (whitespace, frontmatter-only updates) or the
+                    // body was reverted. Still report so the user can ack.
+                    reasons.push(format!(
+                        "{} commit(s) touched canonical since source_rev (body unchanged — \
+                         consider bumping source_rev)",
+                        commits.len()
+                    ));
+                }
+            } else if reasons.is_empty() {
+                reasons.push("(no source_rev recorded)".to_string());
+            }
+
+            if reasons.is_empty() {
+                fresh += 1;
+            } else {
+                translation_stale.push((page.clone(), canonical_path, reasons));
+            }
+            continue;
+        }
+
+        // Canonical English page: check tracked_files against last_generated_rev.
+        let last_gen = match &fm.last_generated_rev {
+            Some(s) => s.clone(),
+            None => {
+                // Canonical page that wasn't generated by autodoc — treat
+                // as fresh for now (existing hand-written pages like
+                // architecture.md).
+                fresh += 1;
+                continue;
+            }
+        };
         let mut stales = Vec::new();
         for f in &fm.tracked_files {
-            let commits = commits_since(project_root, &fm.last_generated_rev, f)
-                .unwrap_or_default();
+            let commits = commits_since(project_root, &last_gen, f).unwrap_or_default();
             if !commits.is_empty() {
                 stales.push(StaleFile {
                     path: f.clone(),
@@ -936,7 +1092,13 @@ pub fn run_autodoc_check(config: &AutoreviewConfig) -> Result<(), String> {
         }
     }
 
-    write_outdated_report(project_root, fresh, &stale_pages, &no_frontmatter)?;
+    write_outdated_report(
+        project_root,
+        fresh,
+        &stale_pages,
+        &translation_stale,
+        &no_frontmatter,
+    )?;
     let report = outdated_report_path(project_root);
     println!(
         "Pages: {} fresh, {} stale, {} without frontmatter",
@@ -977,6 +1139,7 @@ fn write_outdated_report(
     project_root: &Path,
     fresh: usize,
     stale: &[(PathBuf, Vec<StaleFile>)],
+    translation_stale: &[(PathBuf, String, Vec<String>)],
     no_fm: &[PathBuf],
 ) -> Result<(), String> {
     let path = outdated_report_path(project_root);
@@ -986,13 +1149,17 @@ fn write_outdated_report(
     let mut s = String::new();
     s.push_str("# Autodoc — outdated check\n\n");
     s.push_str(&format!(
-        "- {} fresh pages\n- {} stale pages\n- {} pages without frontmatter\n\n",
+        "- {} fresh pages\n\
+         - {} stale canonical pages (tracked source files changed)\n\
+         - {} stale translations (canonical English changed since translation)\n\
+         - {} pages without frontmatter\n\n",
         fresh,
         stale.len(),
+        translation_stale.len(),
         no_fm.len()
     ));
     if !stale.is_empty() {
-        s.push_str("## Stale pages\n\n");
+        s.push_str("## Stale canonical pages\n\n");
         for (page, stales) in stale {
             let rel = page.strip_prefix(project_root).unwrap_or(page);
             s.push_str(&format!("### `{}`\n\n", rel.display()));
@@ -1005,6 +1172,21 @@ fn write_outdated_report(
                 for c in &st.commits {
                     s.push_str(&format!("  - `{}`\n", c));
                 }
+            }
+            s.push('\n');
+        }
+    }
+    if !translation_stale.is_empty() {
+        s.push_str("## Stale translations\n\n");
+        for (page, canonical, reasons) in translation_stale {
+            let rel = page.strip_prefix(project_root).unwrap_or(page);
+            s.push_str(&format!(
+                "### `{}`\n- canonical: `{}`\n",
+                rel.display(),
+                canonical
+            ));
+            for r in reasons {
+                s.push_str(&format!("- {}\n", r));
             }
             s.push('\n');
         }

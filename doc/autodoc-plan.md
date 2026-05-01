@@ -101,17 +101,56 @@ errors; `stub` pages have their code blocks marked `ignore`.
 
 ## 4. Translations
 
-**English is canonical.** Translations are downstream.
+**English is canonical.** Translations are downstream and carry pointers
+back to their source.
 
-- File layout: language is a **directory prefix**.
-  `doc/guide/en/<slug>.md` is canonical English; translations live at
-  `doc/guide/<lang>/<slug>.md` (e.g. `doc/guide/de/getting-started.md`).
-  Each language has its own `SUMMARY.md` and `screenshots/` directory.
-  Screenshots are per-language because slideshow XML carries page text
-  that differs across languages — a German "Hallo, Welt" PNG differs
-  from the English one.
-- URL routing: `/<lang>/guide/<slug>.html` for every language (English
-  uses `/en/...` like everything else; no special-case rooted URLs).
+- **File layout:** language is a directory prefix.
+  `doc/guide/en/<canonical-slug>.md` is canonical English; translations
+  live at `doc/guide/<lang>/<localized-slug>.md` (e.g.
+  `doc/guide/de/architektur.md` is the translation of
+  `doc/guide/en/architecture.md`).
+- **Localized URL slugs.** Each translation file's `slug` frontmatter
+  field is its localized URL component. The website routes
+  `/<lang>/<slug>` per file. So the German page renders at
+  `/de/architektur` (not `/de/architecture`).
+- **Per-language assets.** Each language has its own `SUMMARY.md` and
+  `screenshots/` directory. Screenshots are per-language because
+  slideshow XML carries page text that differs across languages — the
+  German "Hallo, Welt" PNG differs from the English one.
+- **Translation frontmatter** carries pointers back to the canonical
+  source so staleness is detectable:
+  ```yaml
+  ---
+  slug: architektur                     # localized URL slug
+  language: de
+  canonical_slug: architecture           # the English page this translates
+  title: Architektur
+  audience: external
+  maturity: mature
+  prerequisites: [hello-world]           # canonical (English) slugs;
+                                          # website resolves to localized URLs
+  source_rev: <git-sha-of-en-arch.md-at-translation-time>
+  source_hash: <sha256-of-en-arch.md-body-at-translation-time>
+  generated_at: <iso8601>
+  ---
+  ```
+- **Two staleness signals**, checked together:
+  1. **`source_hash` mismatch** is the authoritative "the canonical body
+     actually changed" signal. The release pipeline recomputes the
+     SHA-256 of `doc/guide/en/<canonical_slug>.md`'s body and refuses
+     to ship if any translation's recorded `source_hash` doesn't match.
+  2. **`source_rev` git check** lists *which* commits touched the
+     canonical file — useful for human triage even when the hash still
+     matches (no-op commits, frontmatter-only updates).
+- **Workflow.** Updating an English page bumps its body hash; on next
+  CI run the `autoreview autodoc-check` step lists every translation
+  whose `source_hash` no longer matches and the build fails. The
+  `autoreview translate --lang=de` subcommand re-runs against the
+  affected canonical files and writes new translations with the
+  current hash.
+- **Cross-language navigation.** The website joins translation files to
+  their canonical by `canonical_slug` to build the language-switcher
+  links (`/en/architecture` ↔ `/de/architektur` ↔ `/fr/architecture`).
 - A translation file declares its source revision in frontmatter:
   ```
   ---
