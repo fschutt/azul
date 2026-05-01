@@ -2,8 +2,8 @@
 //!
 //! Converts Azul's hierarchical `Menu` tree into the flat `DbusMenuGroup` /
 //! `DbusAction` lists expected by GNOME Shell's application menu protocol.
-//! Uses a two-pass approach: first converts menu items per level, then
-//! recursively processes submenus into additional groups.
+//! Walks the tree recursively, emitting one `DbusMenuGroup` per level and
+//! threading freshly assigned group IDs to each submenu.
 
 use std::sync::Arc;
 
@@ -34,16 +34,7 @@ impl MenuConversion {
         let mut groups = Vec::new();
         let mut next_group_id = 0u32;
 
-        // Root menu (group 0, menu 0)
-        let root_items = Self::convert_menu_items(&menu.items, &mut next_group_id)?;
-        groups.push(DbusMenuGroup {
-            group_id: 0,
-            menu_id: 0,
-            items: root_items,
-        });
-
-        // Recursively convert submenus
-        Self::convert_submenus(&menu.items, &mut groups, &mut next_group_id)?;
+        Self::convert_menu_recursive(&menu.items, &mut groups, &mut next_group_id, 0)?;
 
         debug_log(&format!(
             "Menu conversion complete: {} groups",
@@ -70,28 +61,35 @@ impl MenuConversion {
         Ok(actions)
     }
 
-    /// Convert menu items at a single level
-    fn convert_menu_items(
+    /// Recursively convert a level of menu items and their submenus into flat groups.
+    ///
+    /// Each level becomes a `DbusMenuGroup` with `current_group_id`. Submenu items
+    /// get assigned fresh group IDs, then those submenus are recursively processed
+    /// with the correct IDs.
+    fn convert_menu_recursive(
         items: &azul_core::menu::MenuItemVec,
+        groups: &mut Vec<DbusMenuGroup>,
         next_group_id: &mut u32,
-    ) -> Result<Vec<DbusMenuItem>, GnomeMenuError> {
+        current_group_id: u32,
+    ) -> Result<(), GnomeMenuError> {
         let mut dbus_items = Vec::new();
+        let mut submenus: Vec<(u32, &azul_core::menu::MenuItemVec)> = Vec::new();
 
         for item in items.as_ref().iter() {
             match item {
                 azul_core::menu::MenuItem::String(string_item) => {
-                    // Generate action name from label
                     let action_name = if string_item.callback.is_some() {
                         Some(Self::generate_action_name(&string_item.label))
                     } else {
                         None
                     };
 
-                    // Check if item has children (submenu)
                     let has_children = !string_item.children.as_ref().is_empty();
                     let submenu = if has_children {
                         *next_group_id += 1;
-                        Some((*next_group_id, 0))
+                        let assigned_id = *next_group_id;
+                        submenus.push((assigned_id, &string_item.children));
+                        Some((assigned_id, 0))
                     } else {
                         None
                     };
@@ -112,7 +110,6 @@ impl MenuConversion {
                     });
                 }
                 azul_core::menu::MenuItem::Separator => {
-                    // Separators are represented as sections in DBus menus
                     dbus_items.push(DbusMenuItem {
                         label: String::new(),
                         action: None,
@@ -123,38 +120,19 @@ impl MenuConversion {
                     });
                 }
                 azul_core::menu::MenuItem::BreakLine => {
-                    // BreakLine is not supported in DBus menus, skip it
                     continue;
                 }
             }
         }
 
-        Ok(dbus_items)
-    }
+        groups.push(DbusMenuGroup {
+            group_id: current_group_id,
+            menu_id: 0,
+            items: dbus_items,
+        });
 
-    /// Recursively convert submenus
-    fn convert_submenus(
-        items: &azul_core::menu::MenuItemVec,
-        groups: &mut Vec<DbusMenuGroup>,
-        next_group_id: &mut u32,
-    ) -> Result<(), GnomeMenuError> {
-        for item in items.as_ref().iter() {
-            if let azul_core::menu::MenuItem::String(string_item) = item {
-                if !string_item.children.as_ref().is_empty() {
-                    let group_id = *next_group_id;
-                    let submenu_items =
-                        Self::convert_menu_items(&string_item.children, next_group_id)?;
-
-                    groups.push(DbusMenuGroup {
-                        group_id,
-                        menu_id: 0,
-                        items: submenu_items,
-                    });
-
-                    // Recursively process submenus of this submenu
-                    Self::convert_submenus(&string_item.children, groups, next_group_id)?;
-                }
-            }
+        for (submenu_group_id, children) in submenus {
+            Self::convert_menu_recursive(children, groups, next_group_id, submenu_group_id)?;
         }
 
         Ok(())
@@ -230,40 +208,6 @@ impl MenuConversion {
         format!("app.{}", sanitized)
     }
 
-    /// Convert a single menu item to DBus format
-    #[allow(dead_code)]
-    fn convert_menu_item(
-        item_label: &str,
-        has_submenu: bool,
-        submenu_group: Option<(u32, u32)>,
-        action_name: Option<String>,
-    ) -> DbusMenuItem {
-        DbusMenuItem {
-            label: item_label.to_string(),
-            action: action_name,
-            target: None,
-            submenu: if has_submenu { submenu_group } else { None },
-            section: None,
-            enabled: true,
-        }
-    }
-
-    /// Create a DBus action from a menu item callback
-    #[allow(dead_code)]
-    fn create_action(
-        action_name: &str,
-        enabled: bool,
-        callback: impl Fn(Option<String>) + Send + Sync + 'static,
-    ) -> DbusAction {
-        DbusAction {
-            name: action_name.to_string(),
-            enabled,
-            parameter_type: None,
-            state: None,
-            callback: Arc::new(callback),
-            menu_callback: None,
-        }
-    }
 }
 
 #[cfg(test)]
@@ -272,7 +216,14 @@ mod tests {
 
     #[test]
     fn test_menu_item_conversion() {
-        let item = MenuConversion::convert_menu_item("File", true, Some((1, 0)), None);
+        let item = DbusMenuItem {
+            label: "File".to_string(),
+            action: None,
+            target: None,
+            submenu: Some((1, 0)),
+            section: None,
+            enabled: true,
+        };
 
         assert_eq!(item.label, "File");
         assert!(item.submenu.is_some());
@@ -287,9 +238,16 @@ mod tests {
         let called = Arc::new(AtomicBool::new(false));
         let called_clone = called.clone();
 
-        let action = MenuConversion::create_action("app.test", true, move |_| {
-            called_clone.store(true, Ordering::Relaxed);
-        });
+        let action = DbusAction {
+            name: "app.test".to_string(),
+            enabled: true,
+            parameter_type: None,
+            state: None,
+            callback: Arc::new(move |_| {
+                called_clone.store(true, Ordering::Relaxed);
+            }),
+            menu_callback: None,
+        };
 
         assert_eq!(action.name, "app.test");
         assert!(action.enabled);
