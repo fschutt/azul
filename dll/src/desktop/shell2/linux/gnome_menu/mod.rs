@@ -6,7 +6,6 @@
 //! ## Module Structure
 //!
 //! - `mod.rs` - Public API and detection logic (this file)
-//! - `dbus_connection.rs` - DBus connection management
 //! - `menu_protocol.rs` - org.gtk.Menus interface implementation
 //! - `actions_protocol.rs` - org.gtk.Actions interface implementation
 //! - `menu_conversion.rs` - Menu → DBus format conversion
@@ -26,8 +25,6 @@
 //! GnomeMenuManager (manager.rs)
 //!     ├── SharedDbusLib (shared_dbus.rs)
 //!     │   └── dlopen'd libdbus-1 instance
-//!     ├── DbusConnection (dbus_connection.rs)
-//!     │   └── Session bus, service registration
 //!     ├── MenuProtocol (menu_protocol.rs)
 //!     │   └── org.gtk.Menus interface
 //!     ├── actions_protocol.rs
@@ -39,7 +36,6 @@
 //! ```
 
 mod actions_protocol;
-mod dbus_connection;
 mod manager;
 mod menu_conversion;
 mod menu_protocol;
@@ -55,7 +51,6 @@ use crate::log_debug;
 pub use actions_protocol::{
     drain_pending_menu_callbacks, queue_menu_callback, DbusAction, PendingMenuCallback,
 };
-pub use dbus_connection::DbusConnection;
 pub use manager::GnomeMenuManager;
 pub use menu_conversion::MenuConversion;
 pub use menu_protocol::{DbusMenuGroup, DbusMenuItem, MenuProtocol};
