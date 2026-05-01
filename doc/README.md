@@ -375,6 +375,96 @@ the Telegram app has notification permission at the OS level.
 - Diff documents are capped at 1 MiB to keep slow phone connections
   responsive; oversized diffs get truncated with an explanatory tail line.
 
+## `autodoc` — Generate the User Guide in Parallel
+
+Reads `doc/autodoc-groups.toml` and dispatches one Claude agent per group.
+Each agent writes the markdown pages declared in its group to
+`doc/guide/en/`, with YAML frontmatter that records the git SHA and tracked
+source files at generation time. The companion `autodoc-check` command
+later flags pages whose tracked files have changed since.
+
+Full operational reference: [`AUTODOC.md`](./AUTODOC.md). Design rationale:
+[`autodoc-plan.md`](./autodoc-plan.md). Manifest: [`autodoc-groups.toml`](./autodoc-groups.toml).
+
+```bash
+azul-doc autoreview autodoc                  # Dispatch all 21 group agents
+azul-doc autoreview autodoc --agents=N       # Throttle concurrency
+azul-doc autoreview autodoc --file=GROUP_ID  # Run a single group
+azul-doc autoreview autodoc --dry-run        # Generate prompts only
+
+azul-doc autoreview autodoc-check            # Flag stale pages → outdated.md
+azul-doc autoreview autodoc-summary          # Regenerate doc/guide/en/SUMMARY.md
+azul-doc autoreview autodoc-screenshots      # Render azul-render fences to PNG
+```
+
+### Pipeline stages
+
+```
+autoreview ──► reference.md ──► autodoc ──► autodoc-screenshots ──► deploy
+(173 reports)  (amalgamated)    (21 agents)  (PNG renders)         (website)
+                                    │
+                                    └──► autodoc-summary ──► SUMMARY.md
+```
+
+1. `autoreview` produces 173 per-file reports under `doc/target/autoreview/reports/`.
+2. Reports are amalgamated into `doc/guide/en/reference.md` (one-time, hand-curated).
+3. `autodoc` reads `autodoc-groups.toml`, builds one prompt per group with
+   the group's tracked source, the matching reference.md sections, and the
+   global writing-style + max-effort thinking rules from `[meta]`.
+4. Agents write pages to their declared paths under `doc/guide/en/`.
+5. `autodoc-screenshots` renders any `azul-render` fences via `HeadlessWindow`
+   into `doc/guide/en/screenshots/<page-slug>/<name>.png`.
+6. `autodoc-summary` regenerates the per-language `SUMMARY.md` index.
+7. `deploy` walks `doc/guide/en/` at runtime, parses each page's
+   frontmatter for ordering, and emits the final HTML.
+
+### Manifest at a glance
+
+`doc/autodoc-groups.toml` (schema v3) defines three trees:
+
+| Tree | Audience | Contents |
+|------|----------|----------|
+| `getting-started` | external | Linear teaching path: hello-world (per-language) → architecture → understanding-refany → DOM → styling → layout → text → images → widgets → events → timers → animations → scrolling → windowing |
+| `advanced` | external | Non-core systems, ramps to web: debugging / profiling / e2e-testing → I/O (xml, file-dialogs, clipboard) → background-tasks + networking → a11y + headless → codegen + bindings → web-deployment → security |
+| `contributor` | contributor | Code organization, build-and-codegen, per-system internals (DOM, CSS, layout, text, images, events, rendering, shell2, menus, a11y, async, web) |
+
+Each `[[group]]` declares `id`, `tree`, `audience`, `agent_strategy`,
+`tracked_files` (or `tracked_globs`), and one or more `[[group.outputs]]`
+with `slug`, `path`, `title`, `maturity`, optional `guide_order` and
+`prerequisites`. The global `[meta.writing_style]` and
+`[meta.agent_thinking]` blocks ship into every prompt; agents are anchored
+on the Servo book style and the project's existing
+`shared_context_files` (AUTODOC.md, reference.md, architecture.md,
+scripts/ARCHITECTURE.md, api.json).
+
+### Two-signal staleness check
+
+`autodoc-check` writes `doc/target/autoreview/autodoc/outdated.md` listing:
+
+- **Source-changed** pages — `tracked_files` had commits since
+  `last_generated_rev` in the page's frontmatter (`git log` query).
+- **Translation-stale** pages — translated page's `source_hash` no longer
+  matches the SHA-256 of its canonical English body. CI fails on either.
+
+### Outputs
+
+```
+doc/target/autoreview/autodoc/
+├── prompts/<group-id>.md          # Generated agent prompts
+├── prompts/<group-id>.md.taken    # Sentinel: agent in flight
+├── prompts/<group-id>.md.done     # Sentinel: agent succeeded
+├── prompts/<group-id>.md.failed   # Sentinel: agent failed
+├── outdated.md                    # autodoc-check report
+└── screenshots-manifest-<lang>.json  # Cached render manifest
+
+doc/guide/en/
+├── SUMMARY.md                     # Auto-generated index
+├── reference.md                   # 173-section system catalog (canonical)
+├── architecture.md                # Canonical architecture doc
+├── <slug>.md                      # Generated guide pages
+└── screenshots/<page>/<name>.png  # Rendered azul-render fences
+```
+
 ## Website Deployment
 
 Builds the full azul.rs website (API docs, release pages, examples, reftest
