@@ -411,16 +411,42 @@ fn authoring_rules() -> &'static str {
         - `draft`: only set this if you bail out partway through. Mark explicitly.\n\
      5. **Code samples**: prefer concrete, copy-pasteable examples over prose. \
         Hidden setup lines (`# use azul::*;`) are encouraged.\n\
-     6. **Visual examples**: if you want a screenshot, embed a fenced block with \
-        the language tag `azul-render`:\n\
+     6. **Visual examples**: embed a fenced block with the `azul-render` \
+        language tag. The body is XHTML (NOT a Rust snippet) — the same dialect \
+        the reftest harness consumes. The release pipeline renders it via \
+        HeadlessWindow and saves a PNG. **Do not** add a separate markdown \
+        image link — the HTML preprocessor expands the fence into a \
+        `<figure>` automatically.\n\
+        \n\
+        Single screenshot:\n\
         ```\n\
-        ```azul-render screenshot=my-example\n\
-        <minimal Dom-construction code>\n\
+        ```azul-render screenshot=hello-world width=400 height=200 subtitle=\"The classic output\"\n\
+        <body><p style=\"font-size: 24px; padding: 20px;\">Hello, world!</p></body>\n\
         ```\n\
         ```\n\
-        The post-step renders these via HeadlessWindow and saves PNGs to \
-        `doc/guide/screenshots/<screenshot>.png`. Reference them in markdown as \
-        `![](./screenshots/<screenshot>.png)`.\n\
+        \n\
+        Sequence (slideshow): give multiple consecutive blocks the same \
+        `slideshow=ID`. They are grouped into one slideshow widget in source \
+        order, each with its own `subtitle`. Use this to show \
+        before/after/animation steps:\n\
+        ```\n\
+        ```azul-render screenshot=scroll-1 slideshow=scroll-demo subtitle=\"Initial state — scroll position 0\"\n\
+        <body>...</body>\n\
+        ```\n\
+        \n\
+        ```azul-render screenshot=scroll-2 slideshow=scroll-demo subtitle=\"After scrolling 100px\"\n\
+        <body>...</body>\n\
+        ```\n\
+        \n\
+        ```azul-render screenshot=scroll-3 slideshow=scroll-demo subtitle=\"At the bottom\"\n\
+        <body>...</body>\n\
+        ```\n\
+        ```\n\
+        \n\
+        Attribute reference: `screenshot=` (required, unique PNG name), \
+        `width=`/`height=` (optional, default 800x600), `subtitle=\"...\"` \
+        (optional caption — quote it if it contains spaces), \
+        `slideshow=ID` (optional, groups frames).\n\
      7. **Length**: aim for 200–800 lines of markdown per page. Internals pages \
         may be longer if the system is complex.\n\
      8. **Do not** create new directories you weren't asked to. Output paths in \
@@ -1100,13 +1126,74 @@ pub fn regenerate_summary(project_root: &Path, manifest: &Manifest) -> Result<()
 // renders them via the headless cpurender pipeline (same one the reftest
 // harness uses), and saves them as PNGs under doc/guide/screenshots/.
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RenderBlock {
     pub name: String,
     pub width: u32,
     pub height: u32,
+    /// Caption text shown beneath the image. Empty if no `subtitle=` attr.
+    #[serde(default)]
+    pub subtitle: String,
+    /// Slideshow identifier. Multiple blocks sharing the same slideshow id
+    /// are grouped into one slideshow widget at HTML render time, in source
+    /// order of appearance within the page.
+    #[serde(default)]
+    pub slideshow: Option<String>,
+    /// XML/XHTML body of the block — fed to the renderer.
+    #[serde(skip)]
     pub xml: String,
+    /// Source markdown page (relative to project root in the manifest).
     pub source_page: PathBuf,
+}
+
+/// Quote-aware attribute parser. Accepts:
+///   key=value
+///   key="value with spaces"
+/// Whitespace separates pairs. Bare keys (no `=`) are ignored.
+pub fn parse_attrs(s: &str) -> Vec<(String, String)> {
+    let bytes = s.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        // Read key
+        let key_start = i;
+        while i < bytes.len() && bytes[i] != b'=' && !bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        let key = std::str::from_utf8(&bytes[key_start..i]).unwrap_or("").to_string();
+        if key.is_empty() {
+            break;
+        }
+        if i >= bytes.len() || bytes[i] != b'=' {
+            // bare key, skip
+            continue;
+        }
+        i += 1; // consume '='
+        // Read value
+        let value = if i < bytes.len() && bytes[i] == b'"' {
+            i += 1;
+            let v_start = i;
+            while i < bytes.len() && bytes[i] != b'"' {
+                i += 1;
+            }
+            let v = std::str::from_utf8(&bytes[v_start..i]).unwrap_or("").to_string();
+            if i < bytes.len() {
+                i += 1; // consume closing quote
+            }
+            v
+        } else {
+            let v_start = i;
+            while i < bytes.len() && !bytes[i].is_ascii_whitespace() {
+                i += 1;
+            }
+            std::str::from_utf8(&bytes[v_start..i]).unwrap_or("").to_string()
+        };
+        out.push((key, value));
+    }
+    out
 }
 
 pub fn extract_render_blocks(content: &str, page_path: &Path) -> Vec<RenderBlock> {
@@ -1117,22 +1204,26 @@ pub fn extract_render_blocks(content: &str, page_path: &Path) -> Vec<RenderBlock
         if !trimmed.starts_with("```azul-render") {
             continue;
         }
-        let attrs = trimmed.trim_start_matches("```azul-render").trim();
+        let attrs_str = trimmed.trim_start_matches("```azul-render").trim();
+        let attrs = parse_attrs(attrs_str);
+
         let mut name = None;
         let mut width = 800u32;
         let mut height = 600u32;
-        for kv in attrs.split_whitespace() {
-            let (k, v) = match kv.split_once('=') {
-                Some(x) => x,
-                None => continue,
-            };
-            match k {
-                "screenshot" => name = Some(v.to_string()),
+        let mut subtitle = String::new();
+        let mut slideshow: Option<String> = None;
+
+        for (k, v) in &attrs {
+            match k.as_str() {
+                "screenshot" => name = Some(v.clone()),
                 "width" => width = v.parse().unwrap_or(width),
                 "height" => height = v.parse().unwrap_or(height),
+                "subtitle" => subtitle = v.clone(),
+                "slideshow" => slideshow = Some(v.clone()),
                 _ => {}
             }
         }
+
         let mut body = String::new();
         for inner in lines.by_ref() {
             if inner.trim_start().starts_with("```") {
@@ -1146,6 +1237,8 @@ pub fn extract_render_blocks(content: &str, page_path: &Path) -> Vec<RenderBlock
                 name: n,
                 width,
                 height,
+                subtitle,
+                slideshow,
                 xml: body,
                 source_page: page_path.to_path_buf(),
             });
@@ -1257,6 +1350,66 @@ fn wrap_xml_envelope(snippet: &str) -> String {
     )
 }
 
+/// Manifest describing all rendered screenshots and slideshow groupings.
+/// Written to `doc/guide/screenshots/manifest.json` after a successful
+/// run. Consumed by the HTML rendering pipeline to expand `azul-render`
+/// fences into figures and slideshow widgets.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScreenshotManifest {
+    pub version: u32,
+    pub generated_at: String,
+    pub screenshots: Vec<RenderBlock>,
+    /// slideshow_id → ordered list of screenshot names that belong to it
+    pub slideshows: BTreeMap<String, Vec<String>>,
+}
+
+pub fn screenshot_manifest_path(project_root: &Path) -> PathBuf {
+    project_root.join("doc/guide/screenshots/manifest.json")
+}
+
+fn write_screenshot_manifest(
+    project_root: &Path,
+    blocks: &[RenderBlock],
+) -> Result<(), String> {
+    let mut slideshows: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for b in blocks {
+        if let Some(sid) = &b.slideshow {
+            slideshows
+                .entry(sid.clone())
+                .or_default()
+                .push(b.name.clone());
+        }
+    }
+
+    // Make source_page relative to project_root for portability.
+    let mut entries = Vec::with_capacity(blocks.len());
+    for b in blocks {
+        let mut clone = b.clone();
+        clone.source_page = b
+            .source_page
+            .strip_prefix(project_root)
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|_| b.source_page.clone());
+        entries.push(clone);
+    }
+
+    let manifest = ScreenshotManifest {
+        version: 1,
+        generated_at: chrono::Utc::now().to_rfc3339(),
+        screenshots: entries,
+        slideshows,
+    };
+
+    let path = screenshot_manifest_path(project_root);
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let json = serde_json::to_string_pretty(&manifest)
+        .map_err(|e| format!("manifest json: {}", e))?;
+    fs::write(&path, json).map_err(|e| format!("write {}: {}", path.display(), e))?;
+    Ok(())
+}
+
 pub fn run_autodoc_screenshots(config: &AutoreviewConfig) -> Result<(), String> {
     let project_root = &config.project_root;
     let guide_dir = project_root.join("doc/guide");
@@ -1279,23 +1432,37 @@ pub fn run_autodoc_screenshots(config: &AutoreviewConfig) -> Result<(), String> 
         all_blocks.extend(extract_render_blocks(&content, page));
     }
 
+    let slideshow_count = all_blocks
+        .iter()
+        .filter_map(|b| b.slideshow.clone())
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
     println!(
-        "Found {} render block(s) across {} page(s)",
+        "Found {} render block(s) across {} page(s) — {} slideshow(s)",
         all_blocks.len(),
-        pages.len()
+        pages.len(),
+        slideshow_count,
     );
 
     let mut ok = 0usize;
+    let mut succeeded: Vec<RenderBlock> = Vec::new();
     let mut failed: Vec<(String, String)> = Vec::new();
     for block in &all_blocks {
         let out = screenshots_dir.join(format!("{}.png", block.name));
         match render_xml_to_png(&font_context, &block.xml, &out, block.width, block.height) {
             Ok(()) => {
+                let badge = match (&block.slideshow, block.subtitle.is_empty()) {
+                    (Some(sid), false) => format!(" [slide:{} | \"{}\"]", sid, block.subtitle),
+                    (Some(sid), true) => format!(" [slide:{}]", sid),
+                    (None, false) => format!(" [\"{}\"]", block.subtitle),
+                    (None, true) => String::new(),
+                };
                 println!(
-                    "  [ok] {}.png ({}x{})",
-                    block.name, block.width, block.height
+                    "  [ok] {}.png ({}x{}){}",
+                    block.name, block.width, block.height, badge
                 );
                 ok += 1;
+                succeeded.push(block.clone());
             }
             Err(e) => {
                 eprintln!("  [fail] {}: {}", block.name, e);
@@ -1304,9 +1471,152 @@ pub fn run_autodoc_screenshots(config: &AutoreviewConfig) -> Result<(), String> 
         }
     }
 
+    if !succeeded.is_empty() {
+        write_screenshot_manifest(project_root, &succeeded)?;
+        println!(
+            "Wrote manifest: {}",
+            screenshot_manifest_path(project_root).display()
+        );
+    }
+
     println!("\n{} ok, {} failed", ok, failed.len());
     if !failed.is_empty() {
         return Err(format!("{} screenshot(s) failed to render", failed.len()));
     }
     Ok(())
+}
+
+// ── Markdown → HTML expansion for azul-render fences ─────────────────
+//
+// Called by the docgen pipeline before comrak runs. Converts each
+// `azul-render` fenced block into either a `<figure>` (single screenshot)
+// or, when the block belongs to a slideshow, into a slideshow opener/closer
+// that wraps consecutive frames with the same slideshow id.
+
+/// Replace `azul-render` fenced blocks with figure/slideshow HTML.
+/// `screenshot_url_prefix` is prepended to PNG filenames (e.g. "./screenshots/"
+/// for relative-path use within a single guide page, or "/guide/screenshots/"
+/// for absolute URLs at site root).
+pub fn expand_azul_render_blocks(content: &str, screenshot_url_prefix: &str) -> String {
+    let mut out = String::with_capacity(content.len());
+    let mut lines = content.lines().peekable();
+    let mut current_slideshow: Option<String> = None;
+    let mut frames_in_current: Vec<(String, String, u32, u32)> = Vec::new(); // name, subtitle, w, h
+
+    fn flush_slideshow(
+        out: &mut String,
+        slideshow_id: &str,
+        frames: &[(String, String, u32, u32)],
+        prefix: &str,
+    ) {
+        out.push_str(&format!(
+            "<div class=\"azul-slideshow\" data-name=\"{}\">\n",
+            html_escape(slideshow_id)
+        ));
+        for (i, (name, subtitle, w, h)) in frames.iter().enumerate() {
+            out.push_str(&format!(
+                "  <figure class=\"azul-slide\" data-frame=\"{}\">\n    <img src=\"{}{}.png\" \
+                 width=\"{}\" height=\"{}\" loading=\"lazy\"/>\n    <figcaption>{}</figcaption>\n  </figure>\n",
+                i,
+                prefix,
+                name,
+                w,
+                h,
+                html_escape(subtitle),
+            ));
+        }
+        out.push_str("</div>\n");
+    }
+
+    while let Some(line) = lines.next() {
+        let trimmed = line.trim_start();
+        if !trimmed.starts_with("```azul-render") {
+            // Not an azul-render fence. If we were inside a slideshow, close it
+            // when we hit a non-empty unrelated line (preserve blank-line gaps).
+            if !line.trim().is_empty() && current_slideshow.is_some() {
+                if let Some(id) = current_slideshow.take() {
+                    flush_slideshow(&mut out, &id, &frames_in_current, screenshot_url_prefix);
+                    frames_in_current.clear();
+                }
+            }
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+
+        // Parse attrs
+        let attrs_str = trimmed.trim_start_matches("```azul-render").trim();
+        let attrs = parse_attrs(attrs_str);
+        let mut name = None;
+        let mut width = 800u32;
+        let mut height = 600u32;
+        let mut subtitle = String::new();
+        let mut slideshow: Option<String> = None;
+        for (k, v) in &attrs {
+            match k.as_str() {
+                "screenshot" => name = Some(v.clone()),
+                "width" => width = v.parse().unwrap_or(width),
+                "height" => height = v.parse().unwrap_or(height),
+                "subtitle" => subtitle = v.clone(),
+                "slideshow" => slideshow = Some(v.clone()),
+                _ => {}
+            }
+        }
+        // Consume body
+        for inner in lines.by_ref() {
+            if inner.trim_start().starts_with("```") {
+                break;
+            }
+        }
+        let name = match name {
+            Some(n) => n,
+            None => continue, // malformed, drop silently
+        };
+
+        match (slideshow.clone(), &current_slideshow) {
+            (Some(sid), Some(current)) if &sid == current => {
+                // continuing slideshow
+                frames_in_current.push((name, subtitle, width, height));
+            }
+            (Some(sid), _) => {
+                // starting new slideshow (or different one); flush previous
+                if let Some(id) = current_slideshow.take() {
+                    flush_slideshow(&mut out, &id, &frames_in_current, screenshot_url_prefix);
+                    frames_in_current.clear();
+                }
+                current_slideshow = Some(sid);
+                frames_in_current.push((name, subtitle, width, height));
+            }
+            (None, _) => {
+                // single figure; flush any open slideshow first
+                if let Some(id) = current_slideshow.take() {
+                    flush_slideshow(&mut out, &id, &frames_in_current, screenshot_url_prefix);
+                    frames_in_current.clear();
+                }
+                out.push_str(&format!(
+                    "<figure class=\"azul-screenshot\">\n  <img src=\"{}{}.png\" width=\"{}\" \
+                     height=\"{}\" loading=\"lazy\"/>\n",
+                    screenshot_url_prefix, name, width, height,
+                ));
+                if !subtitle.is_empty() {
+                    out.push_str(&format!(
+                        "  <figcaption>{}</figcaption>\n",
+                        html_escape(&subtitle)
+                    ));
+                }
+                out.push_str("</figure>\n");
+            }
+        }
+    }
+    if let Some(id) = current_slideshow.take() {
+        flush_slideshow(&mut out, &id, &frames_in_current, screenshot_url_prefix);
+    }
+    out
+}
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }

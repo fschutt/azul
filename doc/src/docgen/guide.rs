@@ -76,8 +76,14 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
     let sidebar = crate::docgen::get_sidebar();
     let prism_script = crate::docgen::get_prism_script();
 
-    // Pre-process content: remove first H1 header (we add our own) and mermaid diagrams
+    // Pre-process content: remove mermaid blocks and expand `azul-render`
+    // fences into <figure>/slideshow HTML (PNGs come from the
+    // autodoc-screenshots run; URLs are relative to the rendered guide).
     let processed_content = preprocess_markdown_content(&guide.content);
+    let processed_content = crate::reftest::autodoc::expand_azul_render_blocks(
+        &processed_content,
+        "./screenshots/",
+    );
 
     let content = comrak::markdown_to_html_with_plugins(
         &processed_content,
