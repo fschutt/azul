@@ -1752,6 +1752,11 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    autoreview apply-midlevel     - Interactively replay commits from a reference branch");
     println!("                                    --reference=<branch/tag> [--base=<ref>] [--model=<name>]");
     println!("                                    [--no-telegram]");
+    println!("    autoreview autodoc            - Generate guide pages from doc/autodoc-groups.toml");
+    println!("                                    [--agents=N] [--file=GROUP_ID] [--dry-run]");
+    println!("    autoreview autodoc-check      - Detect guide pages whose tracked source files have");
+    println!("                                    changed since generation (writes outdated.md)");
+    println!("    autoreview autodoc-summary    - Regenerate doc/guide/SUMMARY.md from the manifest");
     println!("    telegram-setup                - Pair azul-doc with a Telegram bot so prompts");
     println!("                                    (apply-midlevel etc.) mirror to your phone");
     println!();

@@ -37,6 +37,9 @@ pub enum AutoreviewSubcommand {
     Process,
     SmallFixes,
     MidlevelFixes,
+    Autodoc,
+    AutodocCheck,
+    AutodocSummary,
 }
 
 // ── Output directory layout ────────────────────────────────────────────
@@ -2076,6 +2079,9 @@ pub fn parse_autoreview_args(
             "process"        => config.subcommand = AutoreviewSubcommand::Process,
             "small-fixes"    => config.subcommand = AutoreviewSubcommand::SmallFixes,
             "midlevel-fixes" => config.subcommand = AutoreviewSubcommand::MidlevelFixes,
+            "autodoc"        => config.subcommand = AutoreviewSubcommand::Autodoc,
+            "autodoc-check"  => config.subcommand = AutoreviewSubcommand::AutodocCheck,
+            "autodoc-summary" => config.subcommand = AutoreviewSubcommand::AutodocSummary,
             "--retry-failed" => config.retry_failed = true,
             "--dry-run"      => config.dry_run = true,
             "--status"       => config.status_only = true,
@@ -2117,5 +2123,11 @@ pub fn run_autoreview(config: AutoreviewConfig) -> Result<(), String> {
         AutoreviewSubcommand::Process    => run_process(config),
         AutoreviewSubcommand::SmallFixes   => run_small_fixes(config),
         AutoreviewSubcommand::MidlevelFixes => run_midlevel_fixes(config),
+        AutoreviewSubcommand::Autodoc       => crate::reftest::autodoc::run_autodoc(&config),
+        AutoreviewSubcommand::AutodocCheck  => crate::reftest::autodoc::run_autodoc_check(&config),
+        AutoreviewSubcommand::AutodocSummary => {
+            let manifest = crate::reftest::autodoc::load_manifest(&config.project_root)?;
+            crate::reftest::autodoc::regenerate_summary(&config.project_root, &manifest)
+        }
     }
 }
