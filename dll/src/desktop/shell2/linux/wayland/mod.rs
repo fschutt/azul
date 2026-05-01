@@ -560,6 +560,9 @@ impl WaylandWindow {
         self.is_open
     }
     pub fn close(&mut self) {
+        if let Some(doc_id) = self.common.document_id {
+            crate::desktop::gl_texture_integration::remove_document_textures(&doc_id);
+        }
         self.is_open = false;
     }
     pub fn request_redraw(&mut self) {

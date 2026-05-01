@@ -614,6 +614,9 @@ impl X11Window {
     pub fn close(&mut self) {
         if self.is_open {
             self.is_open = false;
+            if let Some(doc_id) = self.common.document_id {
+                crate::desktop::gl_texture_integration::remove_document_textures(&doc_id);
+            }
             unsafe {
                 (self.xlib.XDestroyWindow)(self.display, self.window);
                 // Free the ARGB colormap if we created one

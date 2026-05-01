@@ -3525,6 +3525,9 @@ impl Win32Window {
             use self::dlopen::constants::WM_CLOSE;
             (self.win32.user32.PostMessageW)(self.hwnd, WM_CLOSE, 0, 0);
         }
+        if let Some(doc_id) = self.common.document_id {
+            crate::desktop::gl_texture_integration::remove_document_textures(&doc_id);
+        }
         self.is_open = false;
     }
 

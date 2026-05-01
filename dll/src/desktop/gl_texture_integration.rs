@@ -5,7 +5,7 @@
 use azul_core::{
     gl::Texture,
     hit_test::DocumentId,
-    resources::{Epoch, ExternalImageId, GlStoreImageFn},
+    resources::{Epoch, ExternalImageId},
 };
 
 /// Wrapper around `gl_texture_cache::insert_texture_by_id`. Used as the
@@ -25,34 +25,13 @@ pub fn insert_into_active_gl_textures(
     );
 }
 
-/// Returns a function pointer to insert_into_active_gl_textures
-///
-/// This is used when code expects a `GlStoreImageFn` type.
-pub fn get_gl_store_image_fn() -> GlStoreImageFn {
-    insert_into_active_gl_textures
-}
-
 /// Wrapper around `gl_texture_cache::remove_old_epochs`
 pub fn remove_old_gl_textures(document_id: &DocumentId, current_epoch: Epoch) {
     crate::desktop::gl_texture_cache::remove_old_epochs(document_id, current_epoch);
 }
 
-/// Wrapper around `gl_texture_cache::remove_document`
+/// Wrapper around `gl_texture_cache::remove_document`. Called from each shell's
+/// window-close path so closing a window evicts its GL textures from the cache.
 pub fn remove_document_textures(document_id: &DocumentId) {
     crate::desktop::gl_texture_cache::remove_document(document_id);
-}
-
-/// Wrapper around `gl_texture_cache::clear_all`
-pub fn clear_all_gl_textures() {
-    crate::desktop::gl_texture_cache::clear_all();
-}
-
-/// Wrapper around `gl_texture_cache::remove_texture_by_id`. The cache is keyed by
-/// `ExternalImageId`, so removal is a direct lookup with no decoding step.
-pub fn remove_single_gl_texture(
-    document_id: &DocumentId,
-    _epoch: &Epoch,
-    external_image_id: &ExternalImageId,
-) -> Option<()> {
-    crate::desktop::gl_texture_cache::remove_texture_by_id(document_id, external_image_id)
 }
