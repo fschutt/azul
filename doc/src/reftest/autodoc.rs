@@ -1087,3 +1087,226 @@ pub fn regenerate_summary(project_root: &Path, manifest: &Manifest) -> Result<()
     println!("Wrote {}", path.display());
     Ok(())
 }
+
+// ── Screenshot harness ────────────────────────────────────────────────
+//
+// Agents may emit ```azul-render fenced blocks like:
+//
+//   ```azul-render screenshot=hello-world width=400 height=200
+//   <body><p style="font-size: 24px;">Hello, world!</p></body>
+//   ```
+//
+// `autodoc-screenshots` walks every guide page, extracts these blocks,
+// renders them via the headless cpurender pipeline (same one the reftest
+// harness uses), and saves them as PNGs under doc/guide/screenshots/.
+
+#[derive(Debug, Clone)]
+pub struct RenderBlock {
+    pub name: String,
+    pub width: u32,
+    pub height: u32,
+    pub xml: String,
+    pub source_page: PathBuf,
+}
+
+pub fn extract_render_blocks(content: &str, page_path: &Path) -> Vec<RenderBlock> {
+    let mut out = Vec::new();
+    let mut lines = content.lines();
+    while let Some(line) = lines.next() {
+        let trimmed = line.trim_start();
+        if !trimmed.starts_with("```azul-render") {
+            continue;
+        }
+        let attrs = trimmed.trim_start_matches("```azul-render").trim();
+        let mut name = None;
+        let mut width = 800u32;
+        let mut height = 600u32;
+        for kv in attrs.split_whitespace() {
+            let (k, v) = match kv.split_once('=') {
+                Some(x) => x,
+                None => continue,
+            };
+            match k {
+                "screenshot" => name = Some(v.to_string()),
+                "width" => width = v.parse().unwrap_or(width),
+                "height" => height = v.parse().unwrap_or(height),
+                _ => {}
+            }
+        }
+        let mut body = String::new();
+        for inner in lines.by_ref() {
+            if inner.trim_start().starts_with("```") {
+                break;
+            }
+            body.push_str(inner);
+            body.push('\n');
+        }
+        if let Some(n) = name {
+            out.push(RenderBlock {
+                name: n,
+                width,
+                height,
+                xml: body,
+                source_page: page_path.to_path_buf(),
+            });
+        }
+    }
+    out
+}
+
+/// Initialize a FontContext suitable for rendering arbitrary XML snippets.
+/// Heavy — takes ~100–500ms depending on system font count. Call once per
+/// screenshot run, not per block.
+pub fn init_screenshot_font_context() -> Result<azul_layout::FontContext, String> {
+    let registry = azul_layout::FcFontRegistry::new();
+    let _ = registry.load_from_disk_cache();
+    registry.spawn_scout_and_builders();
+    let os = rust_fontconfig::OperatingSystem::current();
+    let common = rust_fontconfig::config::tokenize_common_families(os);
+    registry.request_fonts(&common);
+    let fc_cache = registry.shared_cache();
+    let mut font_context = azul_layout::FontContext::from_fc_cache(fc_cache);
+    let warmup = "<html xmlns=\"http://www.w3.org/1999/xhtml\"><body><p>x</p></body></html>";
+    if let Ok(dom) = azul_layout::xml::parse_xml_to_styled_dom(warmup) {
+        font_context.pre_resolve_chains_for_dom(&dom, &azul_css::system::Platform::current());
+    }
+    font_context.load_fonts_for_chains();
+    Ok(font_context)
+}
+
+/// Render an XML/XHTML snippet to a PNG file. Wraps the snippet in a
+/// minimal HTML envelope if the agent didn't supply one.
+pub fn render_xml_to_png(
+    font_context: &azul_layout::FontContext,
+    xml: &str,
+    output_path: &Path,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    use azul_core::dom::DomId;
+    use azul_core::geom::LogicalSize;
+    use azul_layout::callbacks::ExternalSystemCallbacks;
+    use azul_layout::window_state::FullWindowState;
+
+    let envelope = wrap_xml_envelope(xml);
+    let styled_dom = azul_layout::xml::parse_xml_to_styled_dom(&envelope)
+        .map_err(|e| format!("xml parse: {}", e))?;
+
+    let mut layout_window = azul_layout::LayoutWindow::from_font_context(font_context)
+        .map_err(|e| format!("LayoutWindow: {:?}", e))?;
+
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize {
+        width: width as f32,
+        height: height as f32,
+    };
+    ws.size.dpi = 96;
+    let mut rr = azul_core::resources::RendererResources::default();
+    let ext = ExternalSystemCallbacks::rust_internal();
+    let mut debug_messages = None;
+
+    layout_window
+        .layout_and_generate_display_list(styled_dom, &ws, &mut rr, &ext, &mut debug_messages)
+        .map_err(|e| format!("layout: {}", e))?;
+
+    let dl = layout_window
+        .layout_results
+        .remove(&DomId::ROOT_ID)
+        .ok_or("no layout result")?
+        .display_list;
+
+    let mut gc = azul_layout::glyph_cache::GlyphCache::new();
+    let pixmap = azul_layout::cpurender::render_with_font_manager(
+        &dl,
+        &rr,
+        &layout_window.font_manager,
+        azul_layout::cpurender::RenderOptions {
+            width: width as f32,
+            height: height as f32,
+            dpi_factor: 1.0,
+        },
+        &mut gc,
+    )
+    .map_err(|e| format!("render: {}", e))?;
+
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("mkdir {}: {}", parent.display(), e))?;
+    }
+
+    let img = image::RgbaImage::from_raw(width, height, pixmap.data().to_vec())
+        .ok_or_else(|| "image conversion failed".to_string())?;
+    img.save(output_path)
+        .map_err(|e| format!("save {}: {}", output_path.display(), e))?;
+    Ok(())
+}
+
+fn wrap_xml_envelope(snippet: &str) -> String {
+    let trimmed = snippet.trim();
+    if trimmed.starts_with("<html") || trimmed.starts_with("<?xml") {
+        return snippet.to_string();
+    }
+    if trimmed.starts_with("<body") {
+        return format!(
+            "<html xmlns=\"http://www.w3.org/1999/xhtml\">{}</html>",
+            snippet
+        );
+    }
+    format!(
+        "<html xmlns=\"http://www.w3.org/1999/xhtml\"><body>{}</body></html>",
+        snippet
+    )
+}
+
+pub fn run_autodoc_screenshots(config: &AutoreviewConfig) -> Result<(), String> {
+    let project_root = &config.project_root;
+    let guide_dir = project_root.join("doc/guide");
+    let screenshots_dir = guide_dir.join("screenshots");
+    fs::create_dir_all(&screenshots_dir)
+        .map_err(|e| format!("mkdir screenshots: {}", e))?;
+
+    println!("Initializing font context...");
+    let font_context = init_screenshot_font_context()?;
+
+    let mut pages = Vec::new();
+    walk_md(&guide_dir, &mut pages);
+
+    let mut all_blocks: Vec<RenderBlock> = Vec::new();
+    for page in &pages {
+        let content = match fs::read_to_string(page) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        all_blocks.extend(extract_render_blocks(&content, page));
+    }
+
+    println!(
+        "Found {} render block(s) across {} page(s)",
+        all_blocks.len(),
+        pages.len()
+    );
+
+    let mut ok = 0usize;
+    let mut failed: Vec<(String, String)> = Vec::new();
+    for block in &all_blocks {
+        let out = screenshots_dir.join(format!("{}.png", block.name));
+        match render_xml_to_png(&font_context, &block.xml, &out, block.width, block.height) {
+            Ok(()) => {
+                println!(
+                    "  [ok] {}.png ({}x{})",
+                    block.name, block.width, block.height
+                );
+                ok += 1;
+            }
+            Err(e) => {
+                eprintln!("  [fail] {}: {}", block.name, e);
+                failed.push((block.name.clone(), e));
+            }
+        }
+    }
+
+    println!("\n{} ok, {} failed", ok, failed.len());
+    if !failed.is_empty() {
+        return Err(format!("{} screenshot(s) failed to render", failed.len()));
+    }
+    Ok(())
+}

@@ -40,6 +40,7 @@ pub enum AutoreviewSubcommand {
     Autodoc,
     AutodocCheck,
     AutodocSummary,
+    AutodocScreenshots,
 }
 
 // ── Output directory layout ────────────────────────────────────────────
@@ -2082,6 +2083,7 @@ pub fn parse_autoreview_args(
             "autodoc"        => config.subcommand = AutoreviewSubcommand::Autodoc,
             "autodoc-check"  => config.subcommand = AutoreviewSubcommand::AutodocCheck,
             "autodoc-summary" => config.subcommand = AutoreviewSubcommand::AutodocSummary,
+            "autodoc-screenshots" => config.subcommand = AutoreviewSubcommand::AutodocScreenshots,
             "--retry-failed" => config.retry_failed = true,
             "--dry-run"      => config.dry_run = true,
             "--status"       => config.status_only = true,
@@ -2129,5 +2131,7 @@ pub fn run_autoreview(config: AutoreviewConfig) -> Result<(), String> {
             let manifest = crate::reftest::autodoc::load_manifest(&config.project_root)?;
             crate::reftest::autodoc::regenerate_summary(&config.project_root, &manifest)
         }
+        AutoreviewSubcommand::AutodocScreenshots =>
+            crate::reftest::autodoc::run_autodoc_screenshots(&config),
     }
 }
