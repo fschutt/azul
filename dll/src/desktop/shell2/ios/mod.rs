@@ -1,12 +1,23 @@
 //! iOS backend using raw FFI to UIKit, bootstrapped entirely from Rust.
 
 use crate::impl_platform_window_getters;
-use std::{ffi::c_void, ptr, sync::{Arc, Mutex, Condvar}, cell::RefCell};
+use std::{ffi::c_void, ptr, sync::{Arc, Once, Mutex, Condvar}, cell::RefCell};
 use objc::runtime::{Class, Object, Sel, Protocol};
 use objc::{class, msg_send, sel, sel_impl};
 use objc_id::{Id, ShareId};
 use objc_foundation::{INSObject, NSObject};
-use core_graphics_sys::base::CGRect;
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CGPoint { pub x: f64, pub y: f64 }
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CGSize { pub width: f64, pub height: f64 }
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CGRect { pub origin: CGPoint, pub size: CGSize }
 
 use crate::desktop::{
     shell2::common::{
@@ -86,19 +97,18 @@ extern "C" fn touches_began(self: &Object, _cmd: Sel, touches: *mut Object, even
 
 /// Dynamically creates and registers a `UIView` subclass named `AzulView`.
 fn get_or_create_view_class() -> &'static Class {
+    static ONCE: Once = Once::new();
     static mut AZUL_VIEW_CLASS: *const Class = ptr::null();
-    unsafe {
-        if AZUL_VIEW_CLASS.is_null() {
-            let superclass = class!(UIView);
-            let mut decl = objc::declare::ClassDecl::new("AzulView", superclass).unwrap();
+    ONCE.call_once(|| unsafe {
+        let superclass = class!(UIView);
+        let mut decl = objc::declare::ClassDecl::new("AzulView", superclass).unwrap();
 
-            decl.add_method(sel!(drawRect:), draw_rect as extern "C" fn(&Object, Sel, CGRect));
-            decl.add_method(sel!(touchesBegan:withEvent:), touches_began as extern "C" fn(&Object, Sel, *mut Object, *mut Object));
-            
-            AZUL_VIEW_CLASS = decl.register();
-        }
-        &*AZUL_VIEW_CLASS
-    }
+        decl.add_method(sel!(drawRect:), draw_rect as extern "C" fn(&Object, Sel, CGRect));
+        decl.add_method(sel!(touchesBegan:withEvent:), touches_began as extern "C" fn(&Object, Sel, *mut Object, *mut Object));
+
+        AZUL_VIEW_CLASS = decl.register();
+    });
+    unsafe { &*AZUL_VIEW_CLASS }
 }
 
 // --- Custom AppDelegate ---
@@ -108,10 +118,10 @@ extern "C" fn did_finish_launching(_self: &Object, _cmd: Sel, _app: *mut Object,
     // This is where the application UI is programmatically constructed.
     unsafe {
         // Retrieve the initial create options stored in the `run` function.
-        let (config, fc_cache, root_window) = super::run::INITIAL_OPTIONS.take().unwrap();
-        
+        let (app_data, config, fc_cache, _font_registry, root_window) = super::run::INITIAL_OPTIONS.take().unwrap();
+
         // Create the main IOSWindow instance.
-        let window = IOSWindow::new(root_window, fc_cache, config).unwrap();
+        let window = IOSWindow::new(root_window, fc_cache, config, app_data).unwrap();
         
         // Leak the window onto the heap and store the pointer in our global static.
         // This makes the window live for the duration of the application.
@@ -128,24 +138,23 @@ extern "C" fn did_finish_launching(_self: &Object, _cmd: Sel, _app: *mut Object,
 
 /// Dynamically creates and registers the `AppDelegate` class.
 fn get_or_create_app_delegate_class() -> &'static Class {
+    static ONCE: Once = Once::new();
     static mut APP_DELEGATE_CLASS: *const Class = ptr::null();
-    unsafe {
-        if APP_DELEGATE_CLASS.is_null() {
-            let superclass = class!(NSObject);
-            let mut decl = objc::declare::ClassDecl::new("AppDelegate", superclass).unwrap();
-            
-            decl.add_ivar::<*mut Object>("window");
-            decl.add_protocol(Protocol::get("UIApplicationDelegate").unwrap());
-            
-            decl.add_method(
-                sel!(application:didFinishLaunchingWithOptions:),
-                did_finish_launching as extern "C" fn(&Object, Sel, *mut Object, *mut Object) -> bool,
-            );
-            
-            APP_DELEGATE_CLASS = decl.register();
-        }
-        &*APP_DELEGATE_CLASS
-    }
+    ONCE.call_once(|| unsafe {
+        let superclass = class!(NSObject);
+        let mut decl = objc::declare::ClassDecl::new("AppDelegate", superclass).unwrap();
+
+        decl.add_ivar::<*mut Object>("window");
+        decl.add_protocol(Protocol::get("UIApplicationDelegate").unwrap());
+
+        decl.add_method(
+            sel!(application:didFinishLaunchingWithOptions:),
+            did_finish_launching as extern "C" fn(&Object, Sel, *mut Object, *mut Object) -> bool,
+        );
+
+        APP_DELEGATE_CLASS = decl.register();
+    });
+    unsafe { &*APP_DELEGATE_CLASS }
 }
 
 /// Public entry point for launching the iOS application from Rust.
@@ -181,6 +190,8 @@ pub enum IOSEvent { Close }
 pub struct IOSWindow {
     // Native handles
     ui_window: Id<Object>,
+    ui_view: Id<Object>,
+    ui_view_controller: Id<Object>,
     // Azul state
     backend: RenderBackend,
     is_open: bool,
@@ -194,10 +205,11 @@ impl IOSWindow {
         options: WindowCreateOptions,
         fc_cache: Arc<FcFontCache>,
         config: AppConfig,
+        app_data: RefAny,
     ) -> Result<Self, WindowError> {
 
         // --- 1. Create native UI components ---
-        let (ui_window, _view_controller, _custom_view) = unsafe {
+        let (ui_window, view_controller, custom_view) = unsafe {
             let screen: Id<Object> = msg_send![class!(UIScreen), mainScreen];
             let bounds: CGRect = msg_send![screen, bounds];
             let window: Id<Object> = msg_send![class!(UIWindow), alloc];
@@ -237,6 +249,8 @@ impl IOSWindow {
 
         Ok(Self {
             ui_window,
+            ui_view: custom_view,
+            ui_view_controller: view_controller,
             backend,
             is_open: true,
             common: event::CommonWindowState {
@@ -248,7 +262,7 @@ impl IOSWindow {
                 fc_cache: fc_cache.clone(),
                 gl_context_ptr: gl_context_ptr,
                 system_style: std::sync::Arc::new(azul_css::system::SystemStyle::default()),
-                app_data: std::sync::Arc::new(std::cell::RefCell::new(azul_core::callbacks::RefAny::default())),
+                app_data: std::sync::Arc::new(std::cell::RefCell::new(app_data)),
                 scrollbar_drag_state: None,
                 hit_tester: None,
                 cpu_hit_tester: Some(azul_layout::headless::CpuHitTester::new()),
@@ -283,8 +297,8 @@ impl PlatformWindow for IOSWindow {
     fn get_raw_window_handle(&self) -> RawWindowHandle {
         RawWindowHandle::IOS(IOSHandle {
             ui_window: Id::as_ptr(&self.ui_window) as *mut c_void,
-            ui_view: ptr::null_mut(), // TODO
-            ui_view_controller: ptr::null_mut(), // TODO
+            ui_view: Id::as_ptr(&self.ui_view) as *mut c_void,
+            ui_view_controller: Id::as_ptr(&self.ui_view_controller) as *mut c_void,
         })
     }
 
@@ -298,9 +312,7 @@ impl IOSWindow {
 
     /// Requests a display refresh by marking the view as needing redraw.
     pub fn present(&mut self) -> Result<(), WindowError> {
-        // Request a redraw from the system. This will trigger `drawRect:`.
-        let view: Id<Object> = unsafe { msg_send![self.ui_window, view] };
-        let _: () = unsafe { msg_send![view, setNeedsDisplay] };
+        let _: () = unsafe { msg_send![self.ui_view, setNeedsDisplay] };
         Ok(())
     }
 

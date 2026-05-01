@@ -607,7 +607,7 @@ pub fn run(
 // Store initial options globally for the AppDelegate to retrieve.
 // Unsafe, but simple for this minimal example.
 #[cfg(target_os = "ios")]
-pub(super) static mut INITIAL_OPTIONS: Option<(AppConfig, Arc<FcFontCache>, Option<Arc<FcFontRegistry>>, WindowCreateOptions)> =
+pub(super) static mut INITIAL_OPTIONS: Option<(RefAny, AppConfig, Arc<FcFontCache>, Option<Arc<FcFontRegistry>>, WindowCreateOptions)> =
     None;
 
 // On iOS, the `run` function doesn't manage an event loop.
