@@ -167,7 +167,7 @@ impl LinuxWindow {
 
 /// Which display server protocol to use on Linux.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BackendType {
+pub(crate) enum BackendType {
     X11,
     Wayland,
 }
