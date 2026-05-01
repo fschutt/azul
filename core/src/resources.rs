@@ -1452,11 +1452,10 @@ impl GlTextureCache {
         // Update the descriptor
         entry.1 = new_descriptor;
 
-        // Insert the new texture and get its external image ID
-        let external_image_id =
-            (insert_into_active_gl_textures_fn)(document_id, epoch, new_texture);
-
-        // Update the external image ID in the cache
+        // The ExternalImageId is deterministic from (dom_id, node_id), so the cache
+        // entry can keep referencing the same id across re-renders.
+        let external_image_id = texture_external_image_id(dom_id, node_id);
+        (insert_into_active_gl_textures_fn)(document_id, epoch, new_texture, external_image_id);
         entry.2 = external_image_id;
 
         Some(external_image_id)
@@ -2628,7 +2627,30 @@ pub type LoadFontFn = fn(&StyleFontFamily, &FcFontCache) -> Option<LoadedFontSou
 // function to parse the font given the loaded font source
 pub type ParseFontFn = fn(LoadedFontSource) -> Option<FontRef>; // = Option<Box<azul_text_layout::Font>>
 
-pub type GlStoreImageFn = fn(DocumentId, Epoch, Texture) -> ExternalImageId;
+pub type GlStoreImageFn = fn(DocumentId, Epoch, Texture, ExternalImageId);
+
+/// Compute the deterministic `ExternalImageId` that the OpenGL texture cache uses
+/// for a texture bound to a specific DOM node. The same `(DomId, NodeId)` always
+/// maps to the same `ExternalImageId`, so cached display lists keep working across
+/// frames.
+pub fn texture_external_image_id(dom_id: DomId, node_id: NodeId) -> ExternalImageId {
+    let dom = dom_id.inner as u64;
+    let node = node_id.index() as u64;
+    debug_assert!(dom <= u32::MAX as u64, "DomId exceeds 32-bit range");
+    debug_assert!(node <= u32::MAX as u64, "NodeId exceeds 32-bit range");
+    ExternalImageId {
+        inner: (dom << 32) | (node & 0xFFFFFFFF),
+    }
+}
+
+/// Compute the `ExternalImageId` for a static GL texture identified by its
+/// `ImageRefHash`. Mirrors `image_ref_hash_to_image_key` so a given image hash
+/// produces the same identifiers everywhere.
+pub fn image_ref_hash_to_external_image_id(hash: ImageRefHash) -> ExternalImageId {
+    ExternalImageId {
+        inner: hash.inner as u64,
+    }
+}
 
 /// Given the fonts of the current frame, returns `AddFont` and `AddFontInstance`s of
 /// which fonts / instances are currently not in the `current_registered_fonts` and
@@ -2835,9 +2857,17 @@ pub fn build_add_image_resource_updates(
                 DecodedImage::Gl(texture) => {
                     let descriptor = texture.get_descriptor();
                     let key = image_ref_hash_to_image_key(image_ref_hash, id_namespace);
+                    // The ExternalImageId is derived from the same stable hash that
+                    // produces the ImageKey, so the GL texture cache and WebRender
+                    // agree on a single identifier for this texture.
+                    let external_image_id = image_ref_hash_to_external_image_id(image_ref_hash);
                     // NOTE: The texture is not really cloned here,
-                    let external_image_id =
-                        (insert_into_active_gl_textures)(*document_id, epoch, texture.clone());
+                    (insert_into_active_gl_textures)(
+                        *document_id,
+                        epoch,
+                        texture.clone(),
+                        external_image_id,
+                    );
                     Some((
                         image_ref_hash,
                         AddImageMsg(AddImage {

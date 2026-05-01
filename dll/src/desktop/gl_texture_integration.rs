@@ -3,19 +3,26 @@
 //! This module provides the glue code to integrate the low-level gl_texture_cache
 //! with the high-level rendering and resource management system.
 use azul_core::{
-    dom::{DomId, NodeId},
     gl::Texture,
     hit_test::DocumentId,
     resources::{Epoch, ExternalImageId, GlStoreImageFn},
 };
 
-/// Wrapper around `gl_texture_cache::insert_texture`
+/// Wrapper around `gl_texture_cache::insert_texture_by_id`. Used as the
+/// `GlStoreImageFn` callback wired through `core::resources` so the cache stays
+/// keyed by a single `ExternalImageId` namespace.
 pub fn insert_into_active_gl_textures(
     document_id: DocumentId,
     epoch: Epoch,
     texture: Texture,
-) -> ExternalImageId {
-    crate::desktop::gl_texture_cache::insert_texture(document_id, epoch, texture)
+    external_image_id: ExternalImageId,
+) {
+    crate::desktop::gl_texture_cache::insert_texture_by_id(
+        document_id,
+        external_image_id,
+        epoch,
+        texture,
+    );
 }
 
 /// Returns a function pointer to insert_into_active_gl_textures
@@ -40,14 +47,12 @@ pub fn clear_all_gl_textures() {
     crate::desktop::gl_texture_cache::clear_all();
 }
 
-/// Wrapper around `gl_texture_cache::remove_texture_for_node`
+/// Wrapper around `gl_texture_cache::remove_texture_by_id`. The cache is keyed by
+/// `ExternalImageId`, so removal is a direct lookup with no decoding step.
 pub fn remove_single_gl_texture(
     document_id: &DocumentId,
     _epoch: &Epoch,
     external_image_id: &ExternalImageId,
 ) -> Option<()> {
-    // Decode (dom_id, node_id) from the external_image_id
-    let dom_id = DomId { inner: (external_image_id.inner >> 32) as usize };
-    let node_id = NodeId::new((external_image_id.inner & 0xFFFFFFFF) as usize);
-    crate::desktop::gl_texture_cache::remove_texture_for_node(document_id, dom_id, node_id)
+    crate::desktop::gl_texture_cache::remove_texture_by_id(document_id, external_image_id)
 }
