@@ -11,7 +11,6 @@ use std::{
     collections::HashMap,
     ffi::{CStr, CString},
     os::raw::{c_char, c_int, c_void},
-    rc::Rc,
     sync::{Arc, Mutex},
 };
 
@@ -24,14 +23,14 @@ use crate::desktop::shell2::linux::dbus::{
 
 /// Shared state for DBus message handlers
 struct HandlerState {
-    dbus_lib: Rc<DBusLib>,
+    dbus_lib: Arc<DBusLib>,
     menu_groups: Arc<Mutex<HashMap<u32, DbusMenuGroup>>>,
     actions: Arc<Mutex<HashMap<String, DbusAction>>>,
 }
 
 /// Register org.gtk.Menus interface with DBus using dlopen API
 pub fn register_menus_interface(
-    dbus_lib: &Rc<DBusLib>,
+    dbus_lib: &Arc<DBusLib>,
     connection: *mut DBusConnection,
     object_path: &str,
     menu_groups: Arc<Mutex<HashMap<u32, DbusMenuGroup>>>,
@@ -80,7 +79,7 @@ pub fn register_menus_interface(
 
 /// Register org.gtk.Actions interface with DBus using dlopen API
 pub fn register_actions_interface(
-    dbus_lib: &Rc<DBusLib>,
+    dbus_lib: &Arc<DBusLib>,
     connection: *mut DBusConnection,
     object_path: &str,
     actions: Arc<Mutex<HashMap<String, DbusAction>>>,

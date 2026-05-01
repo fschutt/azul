@@ -3053,14 +3053,13 @@ impl X11Window {
                 return;
             }
 
-            // Try to load D-Bus library
-            let dbus_lib = match dbus::DBusLib::new() {
-                Ok(lib) => lib,
-                Err(e) => {
+            // Get shared D-Bus library (loaded once, shared across all windows)
+            let dbus_lib = match super::gnome_menu::get_shared_dbus_lib() {
+                Some(lib) => lib,
+                None => {
                     log_warn!(
                         LogCategory::Platform,
-                        "[X11] Failed to load D-Bus library: {}",
-                        e
+                        "[X11] Failed to load D-Bus library"
                     );
                     log_warn!(
                         LogCategory::Platform,
@@ -3211,14 +3210,13 @@ impl X11Window {
                 None => return,
             };
 
-            // Try to load D-Bus library
-            let dbus_lib = match dbus::DBusLib::new() {
-                Ok(lib) => lib,
-                Err(e) => {
+            // Get shared D-Bus library
+            let dbus_lib = match super::gnome_menu::get_shared_dbus_lib() {
+                Some(lib) => lib,
+                None => {
                     log_warn!(
                         LogCategory::Platform,
-                        "[X11] Failed to load D-Bus library: {}",
-                        e
+                        "[X11] Failed to load D-Bus library"
                     );
                     return;
                 }

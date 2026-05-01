@@ -3,53 +3,35 @@
 //! This module provides a singleton DBusLib that can be shared across
 //! all windows in the application. The library is loaded once at startup.
 
-use std::{
-    rc::Rc,
-    sync::{Arc, Mutex, Once},
-};
+use std::sync::{Arc, OnceLock};
 
 use super::debug_log;
 use crate::desktop::shell2::linux::dbus::DBusLib;
 
-/// Global shared DBus library instance
-static mut DBUS_LIB: Option<Arc<Mutex<Option<Rc<DBusLib>>>>> = None;
-static INIT: Once = Once::new();
+/// Global shared DBus library instance, initialized once
+static DBUS_LIB: OnceLock<Option<Arc<DBusLib>>> = OnceLock::new();
 
 /// Get or initialize the shared DBus library instance
 ///
 /// This function is thread-safe and will load the library only once.
 /// Returns `None` if the library cannot be loaded.
-pub fn get_shared_dbus_lib() -> Option<Rc<DBusLib>> {
-    unsafe {
-        INIT.call_once(|| {
+pub fn get_shared_dbus_lib() -> Option<Arc<DBusLib>> {
+    DBUS_LIB
+        .get_or_init(|| {
             debug_log("Attempting to load libdbus-1.so");
 
             match DBusLib::new() {
                 Ok(lib) => {
                     debug_log("Successfully loaded libdbus-1.so");
-                    DBUS_LIB = Some(Arc::new(Mutex::new(Some(lib))));
+                    Some(lib)
                 }
                 Err(e) => {
                     debug_log(&format!("Failed to load libdbus-1.so: {}", e));
-                    DBUS_LIB = Some(Arc::new(Mutex::new(None)));
+                    None
                 }
             }
-        });
-
-        if let Some(ref lib_mutex) = DBUS_LIB {
-            let guard = lib_mutex.lock().unwrap();
-            guard.as_ref().cloned()
-        } else {
-            None
-        }
-    }
-}
-
-/// Check if DBus library is available
-///
-/// Returns `true` if the library can be (or has been) loaded successfully.
-pub fn is_dbus_available() -> bool {
-    get_shared_dbus_lib().is_some()
+        })
+        .clone()
 }
 
 #[cfg(test)]
@@ -62,13 +44,11 @@ mod tests {
     fn test_dbus_library_loading() {
         // This test requires libdbus-1.so to be installed
         match get_shared_dbus_lib() {
-            Some(lib) => {
+            Some(_lib) => {
                 println!("DBus library loaded successfully");
-                assert!(is_dbus_available());
             }
             None => {
                 println!("DBus library not available (expected if not installed)");
-                assert!(!is_dbus_available());
             }
         }
     }
@@ -76,14 +56,12 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)] // Miri doesn't support dlopen
     fn test_shared_instance() {
-        // Getting the library multiple times should return the same instance
         let lib1 = get_shared_dbus_lib();
         let lib2 = get_shared_dbus_lib();
 
         match (lib1, lib2) {
             (Some(l1), Some(l2)) => {
-                // Both should point to the same Rc
-                assert!(Rc::ptr_eq(&l1, &l2));
+                assert!(Arc::ptr_eq(&l1, &l2));
             }
             (None, None) => {
                 // Both None is also fine (library not available)

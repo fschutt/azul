@@ -13,7 +13,7 @@
 
 use std::{
     ffi::{c_char, c_int, c_uint, c_void},
-    rc::Rc,
+    sync::Arc,
 };
 
 use crate::desktop::shell2::common::{
@@ -98,6 +98,14 @@ pub struct DBusLib {
     pub dbus_error_is_set: unsafe extern "C" fn(*const DBusError) -> c_int,
     pub dbus_error_free: unsafe extern "C" fn(*mut DBusError),
 }
+
+// Safety: DBusLib only holds the dlopen handle (an opaque, process-wide
+// identifier) and function pointers loaded once at construction; nothing
+// inside is ever mutated after `new()` returns. Sharing read-only function
+// pointers across threads is sound. Thread-safety of the libdbus calls
+// themselves is the caller's responsibility at each call site.
+unsafe impl Send for DBusLib {}
+unsafe impl Sync for DBusLib {}
 
 /// Opaque DBus connection type
 #[repr(C)]
@@ -194,11 +202,11 @@ impl DBusLib {
     ///
     /// Returns an error if the library cannot be loaded or if any required
     /// function symbol cannot be found.
-    pub fn new() -> Result<Rc<Self>, DlError> {
+    pub fn new() -> Result<Arc<Self>, DlError> {
         let lib =
             load_first_available::<Library>(&["libdbus-1.so.3", "libdbus-1.so", "libdbus-1.so.0"])?;
 
-        Ok(Rc::new(Self {
+        Ok(Arc::new(Self {
             // Connection management
             dbus_bus_get: load_symbol!(
                 lib,

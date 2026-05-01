@@ -4118,14 +4118,13 @@ impl WaylandWindow {
                 return;
             }
 
-            // Try to load D-Bus library
-            let dbus_lib = match dbus::DBusLib::new() {
-                Ok(lib) => lib,
-                Err(e) => {
+            // Get shared D-Bus library (loaded once, shared across all windows)
+            let dbus_lib = match super::gnome_menu::get_shared_dbus_lib() {
+                Some(lib) => lib,
+                None => {
                     log_warn!(
                         LogCategory::Platform,
-                        "[Wayland] Failed to load D-Bus library: {}",
-                        e
+                        "[Wayland] Failed to load D-Bus library"
                     );
                     log_warn!(
                         LogCategory::Platform,
@@ -4280,14 +4279,13 @@ impl WaylandWindow {
                 None => return,
             };
 
-            // Try to load D-Bus library
-            let dbus_lib = match dbus::DBusLib::new() {
-                Ok(lib) => lib,
-                Err(e) => {
+            // Get shared D-Bus library
+            let dbus_lib = match super::gnome_menu::get_shared_dbus_lib() {
+                Some(lib) => lib,
+                None => {
                     log_warn!(
                         LogCategory::Platform,
-                        "[Wayland] Failed to load D-Bus library: {}",
-                        e
+                        "[Wayland] Failed to load D-Bus library"
                     );
                     return;
                 }
