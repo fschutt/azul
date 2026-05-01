@@ -7,7 +7,7 @@
 use azul_css::AzString;
 use azul_layout::callbacks::CallbackInfo;
 
-#[cfg(any(target_os = "windows", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 fn encode_rgba_png(pixels: Vec<u8>, width: u32, height: u32) -> Result<Vec<u8>, String> {
     let mut buf = Vec::new();
     {
@@ -33,7 +33,7 @@ pub trait NativeScreenshotExt {
     /// the title bar, window borders, and any OS-provided window decorations.
     ///
     /// # Platform Support
-    /// - **macOS**: Uses `screencapture` command with window ID
+    /// - **macOS**: Uses `CGWindowListCreateImage` (Core Graphics)
     /// - **Windows**: Uses PrintWindow API (BitBlt from window DC)
     /// - **Linux**: Uses XGetImage (X11) via dlopen
     ///
@@ -48,7 +48,8 @@ pub trait NativeScreenshotExt {
     /// Take a native OS-level screenshot and return the PNG data as bytes
     ///
     /// Same as `take_native_screenshot` but returns the PNG data directly
-    /// instead of saving to a file.
+    /// instead of saving to a file. The capture is performed entirely in
+    /// memory — no temporary files are touched.
     fn take_native_screenshot_bytes(&self) -> Result<Vec<u8>, AzString>;
 
     /// Take a native OS-level screenshot and return as a Base64 data URI
@@ -59,22 +60,29 @@ pub trait NativeScreenshotExt {
 
 impl NativeScreenshotExt for CallbackInfo {
     fn take_native_screenshot(&self, path: &str) -> Result<(), AzString> {
+        let png_bytes = NativeScreenshotExt::take_native_screenshot_bytes(self)?;
+        std::fs::write(path, png_bytes)
+            .map_err(|e| AzString::from(format!("Failed to write file: {}", e)))?;
+        Ok(())
+    }
+
+    fn take_native_screenshot_bytes(&self) -> Result<Vec<u8>, AzString> {
         use azul_core::window::RawWindowHandle;
 
         let window_handle = self.get_current_window_handle();
 
         match window_handle {
             #[cfg(target_os = "macos")]
-            RawWindowHandle::MacOS(handle) => take_native_screenshot_macos(handle.ns_window, path),
+            RawWindowHandle::MacOS(handle) => take_native_screenshot_macos_bytes(handle.ns_window),
             #[cfg(target_os = "windows")]
-            RawWindowHandle::Windows(handle) => take_native_screenshot_windows(handle.hwnd, path),
+            RawWindowHandle::Windows(handle) => take_native_screenshot_windows_bytes(handle.hwnd),
             #[cfg(target_os = "linux")]
             RawWindowHandle::Xlib(handle) => {
-                take_native_screenshot_xlib(handle.display, handle.window, path)
+                take_native_screenshot_xlib_bytes(handle.display, handle.window)
             }
             #[cfg(target_os = "linux")]
             RawWindowHandle::Xcb(handle) => {
-                take_native_screenshot_xcb(handle.connection, handle.window, path)
+                take_native_screenshot_xcb_bytes(handle.connection, handle.window)
             }
             #[cfg(target_os = "linux")]
             RawWindowHandle::Wayland(_) => Err(AzString::from(
@@ -84,21 +92,6 @@ impl NativeScreenshotExt for CallbackInfo {
                 "Native screenshot not supported on this platform",
             )),
         }
-    }
-
-    fn take_native_screenshot_bytes(&self) -> Result<Vec<u8>, AzString> {
-        let temp_path = std::env::temp_dir().join("azul_screenshot_temp.png");
-        let temp_path_str = temp_path.to_string_lossy().to_string();
-
-        // Explicitly call the trait method, not the inherent method on CallbackInfo
-        NativeScreenshotExt::take_native_screenshot(self, &temp_path_str)?;
-
-        let bytes = std::fs::read(&temp_path)
-            .map_err(|e| AzString::from(format!("Failed to read screenshot: {}", e)))?;
-
-        let _ = std::fs::remove_file(&temp_path);
-
-        Ok(bytes)
     }
 
     fn take_native_screenshot_base64(&self) -> Result<AzString, AzString> {
@@ -116,64 +109,196 @@ impl NativeScreenshotExt for CallbackInfo {
 // Platform-specific native screenshot implementations
 // ============================================================================
 
-/// Take a native screenshot on macOS using screencapture command
+/// Take a native screenshot on macOS using CGWindowListCreateImage.
+///
+/// Captures the target window's contents (including frame) entirely in memory
+/// and encodes the result as PNG without touching the filesystem.
 #[cfg(target_os = "macos")]
-fn take_native_screenshot_macos(
+fn take_native_screenshot_macos_bytes(
     ns_window: *mut core::ffi::c_void,
-    path: &str,
-) -> Result<(), AzString> {
-    use std::process::Command;
+) -> Result<Vec<u8>, AzString> {
+    use core::ffi::c_void;
 
     if ns_window.is_null() {
         return Err(AzString::from("Invalid window handle"));
     }
 
-    // Get the window ID from the NSWindow
-    let window_id = unsafe {
-        // Declare objc_msgSend as a non-variadic function pointer to ensure
-        // correct calling convention on ARM64 macOS (variadic and non-variadic
-        // functions use different ABIs on aarch64-apple-darwin).
-        type ObjcMsgSendFn = unsafe extern "C" fn(
-            receiver: *mut core::ffi::c_void,
-            sel: *const core::ffi::c_void,
-        ) -> i64;
+    type CGWindowID = u32;
+    type CGImageRef = *mut c_void;
+    type CGDataProviderRef = *mut c_void;
+    type CFDataRef = *const c_void;
+    type CFTypeRef = *const c_void;
+    type CGFloat = f64;
+    type CGWindowListOption = u32;
+    type CGWindowImageOption = u32;
 
-        #[link(name = "objc")]
-        extern "C" {
-            fn objc_msgSend();
-            fn sel_registerName(name: *const i8) -> *const core::ffi::c_void;
+    // kCGWindowListOptionIncludingWindow: capture only the named window.
+    const KCG_WINDOW_LIST_OPTION_INCLUDING_WINDOW: CGWindowListOption = 1 << 3;
+    // kCGWindowImageBoundsIgnoreFraming: exclude the drop shadow Apple draws
+    // around windows, matching the prior `screencapture -x` behavior.
+    const KCG_WINDOW_IMAGE_BOUNDS_IGNORE_FRAMING: CGWindowImageOption = 1 << 0;
+
+    #[repr(C)]
+    struct CGPoint {
+        x: CGFloat,
+        y: CGFloat,
+    }
+    #[repr(C)]
+    struct CGSize {
+        width: CGFloat,
+        height: CGFloat,
+    }
+    #[repr(C)]
+    struct CGRect {
+        origin: CGPoint,
+        size: CGSize,
+    }
+
+    // Declare objc_msgSend as a non-variadic function pointer to ensure
+    // correct calling convention on ARM64 macOS (variadic and non-variadic
+    // functions use different ABIs on aarch64-apple-darwin).
+    type ObjcMsgSendWindowNumberFn =
+        unsafe extern "C" fn(receiver: *mut c_void, sel: *const c_void) -> i64;
+
+    #[link(name = "objc")]
+    extern "C" {
+        fn objc_msgSend();
+        fn sel_registerName(name: *const i8) -> *const c_void;
+    }
+
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGWindowListCreateImage(
+            screenBounds: CGRect,
+            listOption: CGWindowListOption,
+            windowID: CGWindowID,
+            imageOption: CGWindowImageOption,
+        ) -> CGImageRef;
+        fn CGImageGetWidth(image: CGImageRef) -> usize;
+        fn CGImageGetHeight(image: CGImageRef) -> usize;
+        fn CGImageGetBytesPerRow(image: CGImageRef) -> usize;
+        fn CGImageGetBitsPerPixel(image: CGImageRef) -> usize;
+        fn CGImageGetDataProvider(image: CGImageRef) -> CGDataProviderRef;
+        fn CGImageRelease(image: CGImageRef);
+        fn CGDataProviderCopyData(provider: CGDataProviderRef) -> CFDataRef;
+    }
+
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        fn CFDataGetLength(data: CFDataRef) -> isize;
+        fn CFDataGetBytePtr(data: CFDataRef) -> *const u8;
+        fn CFRelease(cf: CFTypeRef);
+    }
+
+    unsafe {
+        let sel = sel_registerName(b"windowNumber\0".as_ptr() as *const i8);
+        let msg_send: ObjcMsgSendWindowNumberFn =
+            std::mem::transmute(objc_msgSend as *const ());
+        let window_id = msg_send(ns_window, sel);
+
+        if window_id <= 0 {
+            return Err(AzString::from("Failed to get window ID"));
         }
 
-        let sel = sel_registerName(b"windowNumber\0".as_ptr() as *const i8);
-        let msg_send: ObjcMsgSendFn = std::mem::transmute(objc_msgSend as *const ());
-        msg_send(ns_window, sel)
-    };
+        // CGRectNull — sentinel value telling CGWindowListCreateImage to use
+        // the captured window's natural bounds.
+        let null_rect = CGRect {
+            origin: CGPoint {
+                x: f64::INFINITY,
+                y: f64::INFINITY,
+            },
+            size: CGSize {
+                width: 0.0,
+                height: 0.0,
+            },
+        };
 
-    if window_id <= 0 {
-        return Err(AzString::from("Failed to get window ID"));
+        let image = CGWindowListCreateImage(
+            null_rect,
+            KCG_WINDOW_LIST_OPTION_INCLUDING_WINDOW,
+            window_id as CGWindowID,
+            KCG_WINDOW_IMAGE_BOUNDS_IGNORE_FRAMING,
+        );
+
+        if image.is_null() {
+            return Err(AzString::from("CGWindowListCreateImage failed"));
+        }
+
+        let result = (|| -> Result<Vec<u8>, AzString> {
+            let width = CGImageGetWidth(image);
+            let height = CGImageGetHeight(image);
+            let bytes_per_row = CGImageGetBytesPerRow(image);
+            let bits_per_pixel = CGImageGetBitsPerPixel(image);
+
+            if width == 0 || height == 0 {
+                return Err(AzString::from("Captured image has zero dimensions"));
+            }
+            if bits_per_pixel != 32 {
+                return Err(AzString::from(
+                    "Unsupported pixel format from CGWindowListCreateImage",
+                ));
+            }
+
+            let provider = CGImageGetDataProvider(image);
+            if provider.is_null() {
+                return Err(AzString::from("Failed to get CGImage data provider"));
+            }
+
+            let data = CGDataProviderCopyData(provider);
+            if data.is_null() {
+                return Err(AzString::from("Failed to copy CGImage pixel data"));
+            }
+
+            let inner = (|| -> Result<Vec<u8>, AzString> {
+                let length = CFDataGetLength(data);
+                let byte_ptr = CFDataGetBytePtr(data);
+                if byte_ptr.is_null() || length <= 0 {
+                    return Err(AzString::from("CGImage pixel data is empty"));
+                }
+                let length = length as usize;
+
+                let mut pixels: Vec<u8> = Vec::with_capacity(width * height * 4);
+                for y in 0..height {
+                    let row_start = y * bytes_per_row;
+                    for x in 0..width {
+                        let pixel_off = row_start + x * 4;
+                        if pixel_off + 3 >= length {
+                            return Err(AzString::from(
+                                "CGImage pixel data shorter than expected",
+                            ));
+                        }
+                        // CGWindowListCreateImage returns BGRA in host byte
+                        // order with kCGImageAlphaPremultipliedFirst. Window
+                        // captures are fully opaque (a == 255), so swizzle
+                        // BGRA -> RGBA without unpremultiplication.
+                        let b = *byte_ptr.add(pixel_off);
+                        let g = *byte_ptr.add(pixel_off + 1);
+                        let r = *byte_ptr.add(pixel_off + 2);
+                        let a = *byte_ptr.add(pixel_off + 3);
+                        pixels.push(r);
+                        pixels.push(g);
+                        pixels.push(b);
+                        pixels.push(a);
+                    }
+                }
+
+                encode_rgba_png(pixels, width as u32, height as u32).map_err(AzString::from)
+            })();
+
+            CFRelease(data);
+            inner
+        })();
+
+        CGImageRelease(image);
+        result
     }
-
-    let output = Command::new("screencapture")
-        .args(["-l", &window_id.to_string(), "-x", path])
-        .output()
-        .map_err(|e| AzString::from(format!("Failed to run screencapture: {}", e)))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(AzString::from(format!("screencapture failed: {}", stderr)));
-    }
-
-    Ok(())
 }
 
 /// Take a native screenshot on Windows using PrintWindow API
 #[cfg(target_os = "windows")]
-fn take_native_screenshot_windows(
+fn take_native_screenshot_windows_bytes(
     hwnd: *mut core::ffi::c_void,
-    path: &str,
-) -> Result<(), AzString> {
-    use std::ptr;
-
+) -> Result<Vec<u8>, AzString> {
     if hwnd.is_null() {
         return Err(AzString::from("Invalid window handle"));
     }
@@ -270,96 +395,103 @@ fn take_native_screenshot_windows(
 
         let old_bitmap = SelectObject(mem_dc, bitmap);
 
-        const PW_RENDERFULLCONTENT: u32 = 2;
-        if PrintWindow(hwnd, mem_dc, PW_RENDERFULLCONTENT) == 0 {
-            SelectObject(mem_dc, old_bitmap);
-            DeleteObject(bitmap);
-            DeleteDC(mem_dc);
-            ReleaseDC(hwnd, window_dc);
-            return Err(AzString::from("PrintWindow failed"));
-        }
+        let result = (|| -> Result<Vec<u8>, AzString> {
+            const PW_RENDERFULLCONTENT: u32 = 2;
+            if PrintWindow(hwnd, mem_dc, PW_RENDERFULLCONTENT) == 0 {
+                return Err(AzString::from("PrintWindow failed"));
+            }
 
-        let mut bmi = BITMAPINFOHEADER {
-            biSize: core::mem::size_of::<BITMAPINFOHEADER>() as u32,
-            biWidth: width,
-            biHeight: -height, // Top-down DIB
-            biPlanes: 1,
-            biBitCount: 32,
-            biCompression: 0, // BI_RGB
-            biSizeImage: 0,
-            biXPelsPerMeter: 0,
-            biYPelsPerMeter: 0,
-            biClrUsed: 0,
-            biClrImportant: 0,
-        };
+            let mut bmi = BITMAPINFOHEADER {
+                biSize: core::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: width,
+                biHeight: -height, // Top-down DIB
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: 0, // BI_RGB
+                biSizeImage: 0,
+                biXPelsPerMeter: 0,
+                biYPelsPerMeter: 0,
+                biClrUsed: 0,
+                biClrImportant: 0,
+            };
 
-        let row_bytes = (width * 4) as usize;
-        let mut pixels: Vec<u8> = vec![0u8; row_bytes * height as usize];
+            let row_bytes = (width * 4) as usize;
+            let mut pixels: Vec<u8> = vec![0u8; row_bytes * height as usize];
 
-        if GetDIBits(
-            mem_dc,
-            bitmap,
-            0,
-            height as u32,
-            pixels.as_mut_ptr(),
-            &mut bmi,
-            0,
-        ) == 0
-        {
-            SelectObject(mem_dc, old_bitmap);
-            DeleteObject(bitmap);
-            DeleteDC(mem_dc);
-            ReleaseDC(hwnd, window_dc);
-            return Err(AzString::from("GetDIBits failed"));
-        }
+            if GetDIBits(
+                mem_dc,
+                bitmap,
+                0,
+                height as u32,
+                pixels.as_mut_ptr(),
+                &mut bmi,
+                0,
+            ) == 0
+            {
+                return Err(AzString::from("GetDIBits failed"));
+            }
+
+            // Convert BGRA to RGBA
+            for chunk in pixels.chunks_exact_mut(4) {
+                chunk.swap(0, 2);
+            }
+
+            encode_rgba_png(pixels, width as u32, height as u32).map_err(AzString::from)
+        })();
 
         SelectObject(mem_dc, old_bitmap);
         DeleteObject(bitmap);
         DeleteDC(mem_dc);
         ReleaseDC(hwnd, window_dc);
 
-        // Convert BGRA to RGBA
-        for chunk in pixels.chunks_exact_mut(4) {
-            chunk.swap(0, 2);
-        }
-
-        let png_data = encode_rgba_png(pixels, width as u32, height as u32)
-            .map_err(|e| AzString::from(e))?;
-
-        std::fs::write(path, png_data)
-            .map_err(|e| AzString::from(format!("Failed to write file: {}", e)))?;
-
-        Ok(())
+        result
     }
 }
 
 /// Take a native screenshot on Linux/X11 using XGetImage via dlopen
 #[cfg(target_os = "linux")]
-fn take_native_screenshot_xlib(
+fn take_native_screenshot_xlib_bytes(
     display: *mut core::ffi::c_void,
     window: u64,
-    path: &str,
-) -> Result<(), AzString> {
+) -> Result<Vec<u8>, AzString> {
     use std::ffi::CString;
 
     if display.is_null() {
         return Err(AzString::from("Invalid display handle"));
     }
 
+    use core::ffi::{c_int, c_long, c_ulong, c_void};
+
     // X11 types
-    type Display = core::ffi::c_void;
+    type Display = c_void;
     type Window = u64;
-    type XImage = core::ffi::c_void;
+    type XImage = c_void;
 
     #[repr(C)]
     struct XWindowAttributes {
-        x: i32,
-        y: i32,
-        width: i32,
-        height: i32,
-        border_width: i32,
-        depth: i32,
-        _padding: [u8; 256],
+        x: c_int,
+        y: c_int,
+        width: c_int,
+        height: c_int,
+        border_width: c_int,
+        depth: c_int,
+        visual: *mut c_void,
+        root: c_ulong,
+        class: c_int,
+        bit_gravity: c_int,
+        win_gravity: c_int,
+        backing_store: c_int,
+        backing_planes: c_ulong,
+        backing_pixel: c_ulong,
+        save_under: c_int,
+        colormap: c_ulong,
+        map_installed: c_int,
+        map_state: c_int,
+        all_event_masks: c_long,
+        your_event_masks: c_long,
+        do_not_propagate_mask: c_long,
+        override_redirect: c_int,
+        screen: *mut c_void,
     }
 
     #[repr(C)]
@@ -403,100 +535,85 @@ fn take_native_screenshot_xlib(
         ));
     }
 
-    // Load function pointers
-    let get_window_attrs: XGetWindowAttributesFn = unsafe {
+    let result = unsafe {
+        // Load function pointers
         let sym_name = CString::new("XGetWindowAttributes").unwrap();
         let sym = libc::dlsym(lib, sym_name.as_ptr());
         if sym.is_null() {
             libc::dlclose(lib);
             return Err(AzString::from("Failed to find XGetWindowAttributes"));
         }
-        std::mem::transmute(sym)
-    };
+        let get_window_attrs: XGetWindowAttributesFn = std::mem::transmute(sym);
 
-    let get_image: XGetImageFn = unsafe {
         let sym_name = CString::new("XGetImage").unwrap();
         let sym = libc::dlsym(lib, sym_name.as_ptr());
         if sym.is_null() {
             libc::dlclose(lib);
             return Err(AzString::from("Failed to find XGetImage"));
         }
-        std::mem::transmute(sym)
-    };
+        let get_image: XGetImageFn = std::mem::transmute(sym);
 
-    let destroy_image: XDestroyImageFn = unsafe {
         let sym_name = CString::new("XDestroyImage").unwrap();
         let sym = libc::dlsym(lib, sym_name.as_ptr());
         if sym.is_null() {
             libc::dlclose(lib);
             return Err(AzString::from("Failed to find XDestroyImage"));
         }
-        std::mem::transmute(sym)
-    };
+        let destroy_image: XDestroyImageFn = std::mem::transmute(sym);
 
-    let result = unsafe {
-        let mut attr: XWindowAttributes = core::mem::zeroed();
-        if get_window_attrs(display, window, &mut attr) == 0 {
-            libc::dlclose(lib);
-            return Err(AzString::from("Failed to get window attributes"));
-        }
-
-        let width = attr.width as u32;
-        let height = attr.height as u32;
-
-        if width == 0 || height == 0 {
-            libc::dlclose(lib);
-            return Err(AzString::from("Invalid window dimensions"));
-        }
-
-        // ZPixmap = 2, AllPlanes = !0
-        let image = get_image(display, window, 0, 0, width, height, !0u64, 2);
-        if image.is_null() {
-            libc::dlclose(lib);
-            return Err(AzString::from("XGetImage failed"));
-        }
-
-        let img = &*(image as *const XImageData);
-
-        // Extract pixel data
-        let mut pixels: Vec<u8> = Vec::with_capacity((width * height * 4) as usize);
-
-        for y in 0..height {
-            for x in 0..width {
-                let offset =
-                    (y as i32 * img.bytes_per_line + x as i32 * (img.bits_per_pixel / 8)) as isize;
-                let pixel_ptr = img.data.offset(offset) as *const u8;
-
-                // BGRA format (common on X11 with 32-bit depth)
-                let b = *pixel_ptr;
-                let g = *pixel_ptr.offset(1);
-                let r = *pixel_ptr.offset(2);
-                let a = if img.bits_per_pixel == 32 {
-                    *pixel_ptr.offset(3)
-                } else {
-                    255
-                };
-
-                pixels.push(r);
-                pixels.push(g);
-                pixels.push(b);
-                pixels.push(a);
+        (|| -> Result<Vec<u8>, AzString> {
+            let mut attr: XWindowAttributes = core::mem::zeroed();
+            if get_window_attrs(display, window, &mut attr) == 0 {
+                return Err(AzString::from("Failed to get window attributes"));
             }
-        }
 
-        destroy_image(image);
+            let width = attr.width as u32;
+            let height = attr.height as u32;
 
-        // Create PNG using png crate
-        let png_data = encode_rgba_png(pixels, width, height)
-            .map_err(|e| AzString::from(e))?;
+            if width == 0 || height == 0 {
+                return Err(AzString::from("Invalid window dimensions"));
+            }
 
-        std::fs::write(path, png_data)
-            .map_err(|e| AzString::from(format!("Failed to write file: {}", e)))?;
+            // ZPixmap = 2, AllPlanes = !0
+            let image = get_image(display, window, 0, 0, width, height, !0u64, 2);
+            if image.is_null() {
+                return Err(AzString::from("XGetImage failed"));
+            }
 
-        Ok(())
+            let img = &*(image as *const XImageData);
+
+            // Extract pixel data
+            let mut pixels: Vec<u8> = Vec::with_capacity((width * height * 4) as usize);
+
+            for y in 0..height {
+                for x in 0..width {
+                    let offset = (y as i32 * img.bytes_per_line
+                        + x as i32 * (img.bits_per_pixel / 8))
+                        as isize;
+                    let pixel_ptr = img.data.offset(offset) as *const u8;
+
+                    let b = *pixel_ptr;
+                    let g = *pixel_ptr.offset(1);
+                    let r = *pixel_ptr.offset(2);
+                    let a = if img.bits_per_pixel == 32 {
+                        *pixel_ptr.offset(3)
+                    } else {
+                        255
+                    };
+
+                    pixels.push(r);
+                    pixels.push(g);
+                    pixels.push(b);
+                    pixels.push(a);
+                }
+            }
+
+            destroy_image(image);
+
+            encode_rgba_png(pixels, width, height).map_err(AzString::from)
+        })()
     };
 
-    // Close library
     unsafe {
         libc::dlclose(lib);
     }
@@ -506,11 +623,10 @@ fn take_native_screenshot_xlib(
 
 /// Take a native screenshot on Linux/X11 using xcb
 #[cfg(target_os = "linux")]
-fn take_native_screenshot_xcb(
+fn take_native_screenshot_xcb_bytes(
     connection: *mut core::ffi::c_void,
-    window: u32,
-    path: &str,
-) -> Result<(), AzString> {
+    _window: u32,
+) -> Result<Vec<u8>, AzString> {
     if connection.is_null() {
         return Err(AzString::from("Invalid XCB connection"));
     }
