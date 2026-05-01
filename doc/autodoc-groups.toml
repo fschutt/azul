@@ -1,0 +1,400 @@
+# azul-doc autodoc — group manifest
+#
+# Hand-curated grouping of the 173 entries in doc/guide/reference.md into
+# system-level documentation tasks. Consumed by `azul-doc autoreview autodoc`
+# to dispatch one agent per group.
+#
+# Layout:
+#   - one [[group]] per agent dispatch
+#   - each group declares its target audience(s) and the output files it owns
+#   - source_files are read-only inputs the agent uses to write the guide(s)
+#   - no two groups own the same output path → no agent collisions
+#
+# Audiences:
+#   "external"     — users of the azul crate (write apps, style with CSS, ...)
+#   "contributor"  — azul developers (read internals, fix bugs, refactor)
+#
+# Agent strategy:
+#   "single"  — one output file
+#   "split"   — multiple output files within the same audience
+#   "dual"    — output files for both audiences (shares read context, two writes)
+
+[meta]
+generated_from = "doc/guide/reference.md"
+total_groups = 20
+total_outputs = 27
+existing_guides = ["architecture"]
+
+# ── External-only ──────────────────────────────────────────────────────
+
+[[group]]
+id = "getting-started"
+audience = ["external"]
+agent_strategy = "split"
+outputs = [
+  { slug = "getting-started",        path = "doc/guide/getting-started.md",        title = "Getting Started" },
+  { slug = "bindings/rust",          path = "doc/guide/bindings/rust.md",          title = "Rust Bindings" },
+  { slug = "bindings/c",             path = "doc/guide/bindings/c.md",             title = "C Bindings" },
+  { slug = "bindings/cpp",           path = "doc/guide/bindings/cpp.md",           title = "C++ Bindings" },
+  { slug = "bindings/python",        path = "doc/guide/bindings/python.md",        title = "Python Bindings" },
+]
+source_files = [
+  "core/src/lib.rs", "core/src/app.rs",
+  "dll/src/lib.rs", "dll/src/python.rs",
+  "examples/hello-world.rs",
+  "api.json",
+]
+notes = "Install + hello world. Per-language entry pages share the structure but use language-native code samples."
+
+[[group]]
+id = "app-lifecycle"
+audience = ["external"]
+agent_strategy = "single"
+outputs = [
+  { slug = "app-lifecycle", path = "doc/guide/app-lifecycle.md", title = "App Lifecycle" },
+]
+source_files = [
+  "core/src/app.rs", "core/src/lib.rs",
+  "core/src/callbacks.rs",
+]
+
+# ── Contributor-only ───────────────────────────────────────────────────
+
+[[group]]
+id = "crate-layout"
+audience = ["contributor"]
+agent_strategy = "single"
+outputs = [
+  { slug = "internals/crate-layout", path = "doc/guide/internals/crate-layout.md", title = "Crate Layout" },
+]
+source_files = [
+  "core/src/lib.rs", "css/src/lib.rs",
+  "layout/src/lib.rs", "dll/src/lib.rs",
+]
+notes = "Reads each crate's lib.rs summary to explain the boundaries between core / css / layout / dll / shell."
+
+[[group]]
+id = "compact-cache"
+audience = ["contributor"]
+agent_strategy = "single"
+outputs = [
+  { slug = "internals/compact-cache", path = "doc/guide/internals/compact-cache.md", title = "Compact Property Cache" },
+]
+source_files = [
+  "core/src/compact_cache_builder.rs",
+  "css/src/css_property.rs",
+  "layout/src/prop_cache.rs",
+]
+notes = "Tier1/tier2/tier2b binary encoding, sentinel values. Existing planning docs in scripts/COMPACT_CACHE_*.md should inform but not duplicate."
+
+[[group]]
+id = "cascade-internals"
+audience = ["contributor"]
+agent_strategy = "single"
+outputs = [
+  { slug = "internals/cascade", path = "doc/guide/internals/cascade.md", title = "CSS Cascade Internals" },
+]
+source_files = [
+  "layout/src/restyle_unified.rs",
+  "layout/src/css_inheritance.rs",
+  "layout/src/state_preservation.rs",
+  "layout/src/dom_reconciliation.rs",
+  "layout/src/fingerprint.rs",
+]
+
+[[group]]
+id = "layout-solver"
+audience = ["contributor"]
+agent_strategy = "split"
+outputs = [
+  { slug = "internals/layout-solver",  path = "doc/guide/internals/layout-solver.md",  title = "Layout Solver" },
+  { slug = "internals/layout-inline",  path = "doc/guide/internals/layout-inline.md",  title = "Inline Layout" },
+]
+source_files = [
+  "layout/src/solver.rs",
+  "layout/src/text2/mod.rs", "layout/src/text2/layout.rs",
+  "layout/src/window.rs",
+]
+notes = "Block/flex/grid go in layout-solver.md; inline + line breaking go in layout-inline.md."
+
+[[group]]
+id = "compositor-pipeline"
+audience = ["contributor"]
+agent_strategy = "split"
+outputs = [
+  { slug = "internals/rendering",  path = "doc/guide/internals/rendering.md",  title = "Rendering Pipeline" },
+  { slug = "internals/gl-loading", path = "doc/guide/internals/gl-loading.md", title = "GL Function Loading" },
+]
+source_files = [
+  "dll/src/desktop/compositor.rs",
+  "dll/src/desktop/shell2/common/gl.rs",
+  "webrender/webrender/src/lib.rs",
+]
+notes = "rendering.md = WebRender integration, AA, GPU textures, backend selection. gl-loading.md = per-platform GL function pointer loading."
+
+[[group]]
+id = "shell2-backends"
+audience = ["contributor"]
+agent_strategy = "split"
+outputs = [
+  { slug = "internals/shell2-common",  path = "doc/guide/internals/shell2-common.md",  title = "Shell2 Common Layer" },
+  { slug = "internals/shell2-linux",   path = "doc/guide/internals/shell2-linux.md",   title = "Shell2 Linux (X11/Wayland)" },
+  { slug = "internals/shell2-windows", path = "doc/guide/internals/shell2-windows.md", title = "Shell2 Windows" },
+  { slug = "internals/shell2-macos",   path = "doc/guide/internals/shell2-macos.md",   title = "Shell2 macOS" },
+]
+source_files = [
+  "dll/src/desktop/shell2/common/mod.rs",
+  "dll/src/desktop/shell2/linux/mod.rs",
+  "dll/src/desktop/shell2/windows/mod.rs",
+  "dll/src/desktop/shell2/macos/mod.rs",
+]
+notes = "Largest group (~30 files). Common page covers the platform abstraction; per-platform pages cover backend specifics."
+
+[[group]]
+id = "menu-csd"
+audience = ["contributor"]
+agent_strategy = "single"
+outputs = [
+  { slug = "internals/menu-and-csd", path = "doc/guide/internals/menu-and-csd.md", title = "Menus and Client-Side Decorations" },
+]
+source_files = [
+  "dll/src/desktop/menu.rs",
+  "dll/src/desktop/menu_renderer.rs",
+  "dll/src/desktop/csd.rs",
+  "dll/src/desktop/shell2/linux/gnome_menu/protocol_impl.rs",
+]
+
+[[group]]
+id = "ffi-codegen"
+audience = ["contributor"]
+agent_strategy = "single"
+outputs = [
+  { slug = "internals/codegen", path = "doc/guide/internals/codegen.md", title = "FFI Code Generation" },
+]
+source_files = [
+  "dll/build.rs",
+  "doc/src/dllgen/mod.rs",
+  "api.json",
+]
+notes = "How api.json drives C / C++ / Python bindings via build.rs and doc/dllgen/."
+
+[[group]]
+id = "web-backend-internals"
+audience = ["contributor"]
+agent_strategy = "single"
+outputs = [
+  { slug = "internals/web-backend", path = "doc/guide/internals/web-backend.md", title = "Web Backend Internals" },
+]
+source_files = [
+  "dll/src/web/mod.rs",
+]
+notes = "AZ_BACKEND=web, WASM compilation, SSR rendering."
+
+[[group]]
+id = "async-internals"
+audience = ["contributor"]
+agent_strategy = "single"
+outputs = [
+  { slug = "internals/async", path = "doc/guide/internals/async.md", title = "Async, Timers, and Threading" },
+]
+source_files = [
+  "core/src/task.rs",
+]
+
+[[group]]
+id = "system-style-discovery"
+audience = ["contributor"]
+agent_strategy = "single"
+outputs = [
+  { slug = "internals/system-style", path = "doc/guide/internals/system-style.md", title = "System Style Discovery" },
+]
+source_files = [
+  "css/src/system_style.rs",
+]
+
+[[group]]
+id = "virtualview"
+audience = ["contributor"]
+agent_strategy = "single"
+outputs = [
+  { slug = "internals/virtualview", path = "doc/guide/internals/virtualview.md", title = "VirtualView Lazy Loading" },
+]
+source_files = [
+  "core/src/virtualized_view_manager.rs",
+]
+
+[[group]]
+id = "hit-testing-scrolling"
+audience = ["contributor"]
+agent_strategy = "single"
+outputs = [
+  { slug = "internals/hit-testing", path = "doc/guide/internals/hit-testing.md", title = "Hit Testing and Scrolling" },
+]
+source_files = [
+  "layout/src/hit_test.rs",
+  "core/src/scrolling.rs",
+]
+
+# ── Dual-audience (one agent → external + contributor pages) ───────────
+
+[[group]]
+id = "dom-and-callbacks"
+audience = ["external", "contributor"]
+agent_strategy = "dual"
+outputs = [
+  { slug = "dom",            path = "doc/guide/dom.md",            title = "DOM and Callbacks", audience = "external" },
+  { slug = "internals/dom",  path = "doc/guide/internals/dom.md",  title = "DOM Internals",     audience = "contributor" },
+]
+source_files = [
+  "core/src/dom.rs",
+  "core/src/callbacks.rs",
+  "core/src/id_tree.rs",
+  "core/src/xml.rs",
+]
+notes = "External page covers Dom builder, IdOrClass, callback wiring from user POV. Contributor page covers FastDom, StyledDom, XML parsing internals."
+
+[[group]]
+id = "styling-css"
+audience = ["external", "contributor"]
+agent_strategy = "dual"
+outputs = [
+  { slug = "css",                     path = "doc/guide/css.md",                     title = "CSS Styling", audience = "external" },
+  { slug = "internals/css-properties", path = "doc/guide/internals/css-properties.md", title = "CSS Property Internals", audience = "contributor" },
+]
+source_files = [
+  "css/src/parser.rs",
+  "css/src/css_property.rs",
+]
+source_globs = ["css/src/props/**/*.rs"]
+notes = "External page is the user-facing CSS reference (selectors, supported properties). Contributor page covers the property type system, per-property parsing in css/src/props/. ~50 files in props/."
+
+[[group]]
+id = "layout"
+audience = ["external"]
+agent_strategy = "single"
+outputs = [
+  { slug = "layout", path = "doc/guide/layout.md", title = "Layout" },
+]
+source_files = [
+  "layout/src/lib.rs",
+]
+notes = "Contributor coverage handled by `layout-solver` group. This page is user-facing only: box model, flexbox, grid, positioning behavior."
+
+[[group]]
+id = "text-and-fonts"
+audience = ["external", "contributor"]
+agent_strategy = "dual"
+outputs = [
+  { slug = "text",                  path = "doc/guide/text.md",                  title = "Text and Fonts", audience = "external" },
+  { slug = "internals/text-pipeline", path = "doc/guide/internals/text-pipeline.md", title = "Text Pipeline", audience = "contributor" },
+]
+source_files = [
+  "core/src/text2.rs",
+  "css/src/props/basic/font.rs",
+]
+source_globs = ["layout/src/text*/**/*.rs"]
+notes = "External page covers font loading, basic text styling, i18n usage. Contributor page covers text2/text3 shaping, glyph rasterization, ICU/Fluent integration, CPU vs GPU rendering paths."
+
+[[group]]
+id = "images-and-media"
+audience = ["external", "contributor"]
+agent_strategy = "dual"
+outputs = [
+  { slug = "images",                  path = "doc/guide/images.md",                  title = "Images, SVG, and Canvas", audience = "external" },
+  { slug = "internals/image-pipeline", path = "doc/guide/internals/image-pipeline.md", title = "Image Pipeline",         audience = "contributor" },
+]
+source_files = [
+  "core/src/app_resources.rs",
+]
+source_globs = ["core/src/svg*.rs", "css/src/props/basic/image.rs"]
+notes = "External page covers image loading, SVG, canvas API. Contributor page covers decoders, SVG tessellation, GPU upload, resource cache."
+
+[[group]]
+id = "widgets"
+audience = ["external", "contributor"]
+agent_strategy = "dual"
+outputs = [
+  { slug = "widgets",            path = "doc/guide/widgets.md",            title = "Widgets",          audience = "external" },
+  { slug = "internals/widgets",  path = "doc/guide/internals/widgets.md",  title = "Widget Internals", audience = "contributor" },
+]
+source_globs = ["layout/src/widgets/**/*.rs", "core/src/widgets.rs"]
+notes = "External page covers built-in widgets (button, text input, tab, tree view, node graph, ...) plus custom-widget API. Contributor page covers implementation patterns, native widget adapters."
+
+[[group]]
+id = "accessibility"
+audience = ["external", "contributor"]
+agent_strategy = "dual"
+outputs = [
+  { slug = "accessibility",                   path = "doc/guide/accessibility.md",                   title = "Accessibility",          audience = "external" },
+  { slug = "internals/accessibility-backends", path = "doc/guide/internals/accessibility-backends.md", title = "Accessibility Backends", audience = "contributor" },
+]
+source_files = [
+  "core/src/a11y.rs",
+  "layout/src/managers/a11y.rs",
+]
+source_globs = ["dll/src/desktop/shell2/*/accessibility*.rs"]
+notes = "External page covers ARIA support, AccessibilityInfo, role/state. Contributor page covers AT-SPI, AccessKit, NSAccessibility, UIA platform wiring."
+
+[[group]]
+id = "windowing"
+audience = ["external"]
+agent_strategy = "single"
+outputs = [
+  { slug = "windowing", path = "doc/guide/windowing.md", title = "Windows and Decorations" },
+]
+source_files = [
+  "core/src/window.rs",
+  "core/src/window_state.rs",
+]
+notes = "Contributor coverage handled by `shell2-backends`. This page is user-facing only: multi-window, monitor handling, window options, decorations from API perspective."
+
+[[group]]
+id = "clipboard"
+audience = ["external", "contributor"]
+agent_strategy = "dual"
+outputs = [
+  { slug = "clipboard",            path = "doc/guide/clipboard.md",            title = "Clipboard",         audience = "external" },
+  { slug = "internals/clipboard",  path = "doc/guide/internals/clipboard.md",  title = "Clipboard Internals", audience = "contributor" },
+]
+source_globs = ["dll/src/desktop/shell2/*/clipboard*.rs"]
+notes = "External: API + supported MIME types. Internal: per-platform impl (Wayland, X11 via PRIMARY/CLIPBOARD selections, NSPasteboard, OleSetClipboard)."
+
+[[group]]
+id = "event-system"
+audience = ["external", "contributor"]
+agent_strategy = "dual"
+outputs = [
+  { slug = "events",                path = "doc/guide/events.md",                title = "Events and Input",  audience = "external" },
+  { slug = "internals/event-system", path = "doc/guide/internals/event-system.md", title = "Event System",      audience = "contributor" },
+]
+source_files = [
+  "core/src/callbacks.rs",
+]
+source_globs = ["dll/src/desktop/shell2/*/event*.rs"]
+notes = "External: event types, listener patterns, input filtering. Internal: propagation, On/Window/Hover/Focus filter logic, key-event interpretation, IME."
+
+[[group]]
+id = "web-target"
+audience = ["external"]
+agent_strategy = "single"
+outputs = [
+  { slug = "web-target", path = "doc/guide/web-target.md", title = "Web Target (WASM/SSR)" },
+]
+source_files = [
+  "dll/src/web/mod.rs",
+]
+notes = "Contributor coverage handled by `web-backend-internals`. This page is user-facing only: how to build for WASM, how SSR works, what's supported."
+
+# ── Skip / defer ───────────────────────────────────────────────────────
+
+[[skip]]
+group = "animation"
+reason = "All reports flag this as premature: stub type definitions with no runtime integration. Revisit when animation types are actually wired through the layout/render pipeline."
+
+[[skip]]
+group = "string-formatting"
+reason = "Folded into text-and-fonts/internal — fluent + ICU + fmt are part of the text pipeline."
+
+[[skip]]
+group = "svg-tessellation"
+reason = "Folded into images-and-media/internal."
