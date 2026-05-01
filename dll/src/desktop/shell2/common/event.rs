@@ -266,14 +266,14 @@ fn get_system_clipboard() -> Option<String> {
     {
         crate::desktop::shell2::macos::clipboard::get_clipboard_content()
     }
-    #[cfg(all(target_os = "linux", feature = "x11"))]
+    #[cfg(target_os = "linux")]
     {
         crate::desktop::shell2::linux::x11::clipboard::get_clipboard_content()
     }
     #[cfg(not(any(
         target_os = "windows",
         target_os = "macos",
-        all(target_os = "linux", feature = "x11")
+        target_os = "linux",
     )))]
     {
         None
@@ -292,14 +292,14 @@ fn set_system_clipboard(text: String) -> bool {
     {
         crate::desktop::shell2::macos::clipboard::write_to_clipboard(&text).is_ok()
     }
-    #[cfg(all(target_os = "linux", feature = "x11"))]
+    #[cfg(target_os = "linux")]
     {
         crate::desktop::shell2::linux::x11::clipboard::write_to_clipboard(&text).is_ok()
     }
     #[cfg(not(any(
         target_os = "windows",
         target_os = "macos",
-        all(target_os = "linux", feature = "x11")
+        target_os = "linux",
     )))]
     {
         false
