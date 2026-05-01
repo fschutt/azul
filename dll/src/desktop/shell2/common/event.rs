@@ -170,6 +170,15 @@ use rust_fontconfig::FcFontCache;
 use crate::desktop::wr_translate2::{self, AsyncHitTester, WrRenderApi};
 use crate::{log_debug, log_warn};
 
+const AUTO_SCROLL_EDGE_THRESHOLD: f32 = 30.0;
+const AUTO_SCROLL_MAX_SPEED: f32 = 15.0;
+const KEYBOARD_SCROLL_LINE_PX: f32 = 20.0;
+const KEYBOARD_SCROLL_DOCUMENT_MAX: f32 = 100_000.0;
+const DEFAULT_VIEWPORT_HEIGHT: f32 = 600.0;
+
+#[repr(C)]
+struct EmptyRefAnyData(u8);
+
 /// Parse a node type string into a NodeType.
 /// Supports tag names ("div", "p", "span", "button", etc.)
 /// and text content ("text:Hello World").
@@ -367,8 +376,8 @@ extern "C" fn auto_scroll_timer_callback(
 
     // Calculate scroll delta based on mouse distance from container edges
     let container = scroll_info.container_rect;
-    let edge_threshold = 30.0_f32; // pixels from edge before auto-scroll starts
-    let max_speed = 15.0_f32; // max pixels per tick
+    let edge_threshold = AUTO_SCROLL_EDGE_THRESHOLD;
+    let max_speed = AUTO_SCROLL_MAX_SPEED;
 
     let mut delta_x = 0.0_f32;
     let mut delta_y = 0.0_f32;
@@ -2247,13 +2256,8 @@ pub trait PlatformWindow {
                         Some(id) => id,
                         None => return ProcessEventResult::DoNothing,
                     };
-                    let external = ExternalSystemCallbacks::rust_internal();
-                    let timestamp = (external.get_system_time_fn.cb)();
 
                     if let Some(operation) = layout_window.undo_redo_manager.pop_undo(node_id) {
-                        use azul_layout::managers::undo_redo::create_revert_changeset;
-                        let _revert_changeset = create_revert_changeset(&operation, timestamp);
-
                         let node_id_internal = target.node.into_crate_internal();
                         if let Some(node_id_internal) = node_id_internal {
                             use std::sync::Arc;
@@ -2285,25 +2289,62 @@ pub trait PlatformWindow {
             }
 
             SystemChange::RedoTextEdit { target } => {
-                if let Some(layout_window) = self.get_layout_window_mut() {
+                let affected_nodes = if let Some(layout_window) = self.get_layout_window_mut() {
                     let node_id = match target.node.into_crate_internal() {
                         Some(id) => id,
                         None => return ProcessEventResult::DoNothing,
                     };
 
                     if let Some(operation) = layout_window.undo_redo_manager.pop_redo(node_id) {
-                        let node_id_internal = target.node.into_crate_internal();
-                        if let Some(_node_id_internal) = node_id_internal {
+                        let affected = if let Some(_node_id_internal) = target.node.into_crate_internal() {
                             use azul_layout::managers::changeset::TextOperation;
                             if let TextOperation::InsertText(op) = &operation.changeset.operation {
-                                let _affected = layout_window.process_text_input(&op.text);
+                                layout_window.process_text_input(&op.text)
+                            } else {
+                                BTreeMap::new()
                             }
-                        }
+                        } else {
+                            BTreeMap::new()
+                        };
                         layout_window.undo_redo_manager.push_undo(operation);
-                        return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
+                        affected
+                    } else {
+                        return ProcessEventResult::DoNothing;
+                    }
+                } else {
+                    return ProcessEventResult::DoNothing;
+                };
+
+                let mut result = ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
+
+                if !affected_nodes.is_empty() {
+                    use azul_core::callbacks::Update;
+
+                    let now = {
+                        #[cfg(feature = "std")]
+                        { azul_core::task::Instant::from(std::time::Instant::now()) }
+                        #[cfg(not(feature = "std"))]
+                        { azul_core::task::Instant::Tick(azul_core::task::SystemTick::new(0)) }
+                    };
+
+                    let text_events: Vec<_> = affected_nodes.keys().map(|dom_node_id| {
+                        azul_core::events::SyntheticEvent::new(
+                            azul_core::events::EventType::Input,
+                            azul_core::events::EventSource::User,
+                            *dom_node_id,
+                            now.clone(),
+                            azul_core::events::EventData::None,
+                        )
+                    }).collect();
+
+                    let (text_changes_result, text_update, _) = self.dispatch_events_propagated(&text_events);
+                    result = result.max(text_changes_result);
+                    if matches!(text_update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+                        result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
                     }
                 }
-                ProcessEventResult::DoNothing
+
+                result
             }
 
             // === Multi-Cursor ===
@@ -3622,8 +3663,7 @@ pub trait PlatformWindow {
             let ctx = interpreter.ctx.as_ref()
                 .map(|r| r.clone())
                 .unwrap_or_else(|| {
-                    #[repr(C)] struct D(u8);
-                    azul_core::refany::RefAny::new(D(0))
+                    azul_core::refany::RefAny::new(EmptyRefAnyData(0))
                 });
             let info_ptr = &info as *const InputInterpreterInfo as *const InputInterpreterInfo<'static>;
             (interpreter.cb)(ctx, info_ptr)
@@ -3817,8 +3857,7 @@ pub trait PlatformWindow {
             let ctx = pf.ctx.as_ref()
                 .map(|r| r.clone())
                 .unwrap_or_else(|| {
-                    #[repr(C)] struct D(u8);
-                    azul_core::refany::RefAny::new(D(0))
+                    azul_core::refany::RefAny::new(EmptyRefAnyData(0))
                 });
             let result_vec: azul_core::events::SystemChangeVec = (pf.cb)(ctx, prevent_default, slice, old_dn, new_dn);
             result_vec.into_library_owned_vec()
@@ -3973,15 +4012,13 @@ pub trait PlatformWindow {
                                     if let Some(focused) = lw.focus_manager.focused_node {
                                         if let Some(ancestor) = lw.find_scrollable_ancestor(focused) {
                                             if let Some(anc_node) = ancestor.node.into_crate_internal() {
-                                                // Determine scroll delta based on amount
-                                                let line_px: f32 = 20.0;
                                                 let anc_bounds = lw.get_node_bounds(ancestor.dom, anc_node);
-                                                let vp_h = anc_bounds.map(|b| b.size.height as f32).unwrap_or(600.0);
+                                                let vp_h = anc_bounds.map(|b| b.size.height as f32).unwrap_or(DEFAULT_VIEWPORT_HEIGHT);
 
                                                 let magnitude = match amount {
-                                                    ScrollAmount::Line => line_px,
+                                                    ScrollAmount::Line => KEYBOARD_SCROLL_LINE_PX,
                                                     ScrollAmount::Page => vp_h * 0.9,
-                                                    ScrollAmount::Document => 100_000.0,
+                                                    ScrollAmount::Document => KEYBOARD_SCROLL_DOCUMENT_MAX,
                                                 };
 
                                                 let (dx, dy) = match direction {
