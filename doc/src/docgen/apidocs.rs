@@ -86,18 +86,7 @@ const API_CSS: &str = "
 pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
     let version_data = api_data.get_version(version).unwrap();
 
-    let notes = vec![
-        format!("<div style='box-shadow:none;padding: 0px; max-width: 700px;'>"),
-        format!("<h2>Notes for non-Rust languages</h2>"),
-        format!("<br/>"),
-        format!("<a href='https://azul.rs/guide/getting-started-python.html'>Notes for Python</a>"),
-        format!("<br/>"),
-        format!("<a href='https://azul.rs/guide/getting-started-c.html'>Notes for C</a>"),
-        format!("<br/>"),
-        format!("<a href='https://azul.rs/guide/getting-started-cpp.html'>Notes for C++</a>"),
-        format!("</div>"),
-    ]
-    .join("\r\n");
+    let notes = String::new();
 
     let title = format!("API v{version}");
     let content = generate_api_content(&version_data);

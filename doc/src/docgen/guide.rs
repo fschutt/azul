@@ -55,56 +55,6 @@ fn preprocess_markdown_content(content: &str) -> String {
 pub fn get_guide_list() -> Vec<Guide> {
     vec![
         guide_from_md(
-            "installation",
-            "Installation",
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/guide/installation.md"
-            )),
-        ),
-        guide_from_md(
-            "getting-started-rust",
-            "Getting Started (Rust)",
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/guide/getting-started-rust.md"
-            )),
-        ),
-        guide_from_md(
-            "getting-started-c",
-            "Getting Started (C)",
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/guide/getting-started-c.md"
-            )),
-        ),
-        guide_from_md(
-            "getting-started-cpp",
-            "Getting Started (C++)",
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/guide/getting-started-cpp.md"
-            )),
-        ),
-        guide_from_md(
-            "getting-started-python",
-            "Getting Started (Python)",
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/guide/getting-started-python.md"
-            )),
-        ),
-        guide_from_md(
-            "css-styling",
-            "CSS Styling",
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/css-styling.md")),
-        ),
-        guide_from_md(
-            "widgets",
-            "Widgets",
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/widgets.md")),
-        ),
-        guide_from_md(
             "architecture",
             "Architecture",
             include_str!(concat!(
@@ -113,9 +63,9 @@ pub fn get_guide_list() -> Vec<Guide> {
             )),
         ),
         guide_from_md(
-            "comparison",
-            "Comparison with Other Frameworks",
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/comparison.md")),
+            "reference",
+            "Documentation Backlog",
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/guide/reference.md")),
         ),
     ]
 }
