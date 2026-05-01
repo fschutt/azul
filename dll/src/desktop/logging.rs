@@ -7,6 +7,15 @@ use log::LevelFilter;
 /// Whether to show a message box to the user when a panic occurs.
 pub static SHOULD_ENABLE_PANIC_HOOK: AtomicBool = AtomicBool::new(false);
 
+/// Escape `<` and `>` so the panic dialog text renders as literal characters
+/// in `tinyfiledialogs` on Linux, which interprets the body as Pango markup.
+/// `&` is intentionally not escaped: doing so would double-escape any entity
+/// references that are already present in the input.
+#[cfg(any(target_os = "linux", test))]
+fn escape_dialog_html(s: &str) -> String {
+    s.replace('<', "&lt;").replace('>', "&gt;")
+}
+
 /// Configures the global logger using `fern` to write to stdout at the given level.
 #[cfg(all(feature = "use_fern_logger", not(feature = "use_pyo3_logger")))]
 pub fn set_up_logging(log_level: LevelFilter) {
@@ -90,25 +99,17 @@ pub fn set_up_panic_hooks() {
             backtrace_str
         );
 
-        #[cfg(target_os = "linux")]
-        let mut error_str_clone = error_str.clone();
-        #[cfg(target_os = "linux")]
-        {
-            error_str_clone = error_str_clone.replace("<", "&lt;");
-            error_str_clone = error_str_clone.replace(">", "&gt;");
-        }
-
         // TODO: invoke external app crash handler with the location to the log file
         log::error!("{}", error_str);
 
         if SHOULD_ENABLE_PANIC_HOOK.load(Ordering::SeqCst) {
             #[cfg(not(target_os = "linux"))]
-            tfd::MessageBox::new("Unexpected fatal error", &error_str)
-                .with_icon(tfd::MessageBoxIcon::Info)
-                .run_modal();
+            let dialog_str = &error_str;
 
             #[cfg(target_os = "linux")]
-            tfd::MessageBox::new("Unexpected fatal error", &error_str_clone)
+            let dialog_str = escape_dialog_html(&error_str);
+
+            tfd::MessageBox::new("Unexpected fatal error", &dialog_str)
                 .with_icon(tfd::MessageBoxIcon::Info)
                 .run_modal();
         }
@@ -185,4 +186,39 @@ pub fn set_up_panic_hooks() {
     }
 
     panic::set_hook(Box::new(panic_fn));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::escape_dialog_html;
+
+    #[test]
+    fn escapes_lt() {
+        assert_eq!(escape_dialog_html("<"), "&lt;");
+    }
+
+    #[test]
+    fn escapes_gt() {
+        assert_eq!(escape_dialog_html(">"), "&gt;");
+    }
+
+    #[test]
+    fn escapes_mixed_tag() {
+        assert_eq!(escape_dialog_html("<a>"), "&lt;a&gt;");
+    }
+
+    #[test]
+    fn leaves_plain_text_untouched() {
+        let plain = "panic at file.rs line 42 in thread main";
+        assert_eq!(escape_dialog_html(plain), plain);
+    }
+
+    #[test]
+    fn does_not_escape_ampersand() {
+        // Documents the intentional behavior: `&` is not escaped, so an input
+        // that already contains `&lt;` is double-escaped to `&lt;` only on the
+        // angle bracket, leaving the existing entity intact.
+        assert_eq!(escape_dialog_html("&lt;"), "&lt;");
+        assert_eq!(escape_dialog_html("a & b"), "a & b");
+    }
 }
