@@ -25,8 +25,8 @@
 //! GnomeMenuManager (manager.rs)
 //!     ├── SharedDbusLib (shared_dbus.rs)
 //!     │   └── dlopen'd libdbus-1 instance
-//!     ├── MenuProtocol (menu_protocol.rs)
-//!     │   └── org.gtk.Menus interface
+//!     ├── menu_protocol.rs
+//!     │   └── DbusMenuGroup / DbusMenuItem types
 //!     ├── actions_protocol.rs
 //!     │   └── org.gtk.Actions types and callback queue
 //!     ├── ProtocolImpl (protocol_impl.rs)
@@ -53,7 +53,7 @@ pub use actions_protocol::{
 };
 pub use manager::GnomeMenuManager;
 pub use menu_conversion::MenuConversion;
-pub use menu_protocol::{DbusMenuGroup, DbusMenuItem, MenuProtocol};
+pub use menu_protocol::{DbusMenuGroup, DbusMenuItem};
 pub use protocol_impl::{register_actions_interface, register_menus_interface};
 pub use shared_dbus::{get_shared_dbus_lib, is_dbus_available};
 pub use x11_properties::X11Properties;

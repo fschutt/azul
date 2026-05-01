@@ -1,35 +1,7 @@
-//! org.gtk.Menus Protocol Implementation
+//! org.gtk.Menus data types
 //!
-//! Implements the DBus interface for menu structure export.
-//!
-//! ## Interface Methods
-//!
-//! - `Start(subscriptions: au) → a(uuaa{sv})`
-//!   - Subscribe to menu groups
-//!   - Returns menu structure in DBus format
-//!
-//! - `End(subscriptions: au)`
-//!   - Unsubscribe from menu groups
-//!
-//! ## Menu Format
-//!
-//! ```text
-//! array of (group_id, menu_id, items)
-//! items = array of dict {
-//!     "label": variant<string>,
-//!     "action": variant<string>,
-//!     "target": variant<...>,
-//!     "submenu": variant<(uint, uint)>,
-//!     "section": variant<(uint, uint)>,
-//! }
-//! ```
-
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
-
-use super::{debug_log, GnomeMenuError};
+//! Defines the menu item and group types used by `protocol_impl.rs` and
+//! `menu_conversion.rs` for GNOME Shell DBus menu integration.
 
 /// Represents a menu item in DBus format
 #[derive(Debug, Clone)]
@@ -50,136 +22,36 @@ pub struct DbusMenuGroup {
     pub items: Vec<DbusMenuItem>,
 }
 
-/// org.gtk.Menus protocol handler
-pub struct MenuProtocol {
-    menu_groups: Arc<Mutex<HashMap<u32, DbusMenuGroup>>>,
-}
-
-impl MenuProtocol {
-    /// Create a new menu protocol handler
-    pub fn new() -> Self {
-        debug_log("Initializing org.gtk.Menus protocol");
-
-        Self {
-            menu_groups: Arc::new(Mutex::new(HashMap::new())),
-        }
-    }
-
-    /// Update menu structure
-    ///
-    /// Stores the menu groups for later retrieval by GNOME Shell.
-    pub fn update_menu(&self, groups: Vec<DbusMenuGroup>) -> Result<(), GnomeMenuError> {
-        let mut menu_groups = self.menu_groups.lock().unwrap();
-
-        menu_groups.clear();
-        for group in groups {
-            debug_log(&format!(
-                "Registering menu group {} with {} items",
-                group.group_id,
-                group.items.len()
-            ));
-            menu_groups.insert(group.group_id, group);
-        }
-
-        debug_log("Menu structure updated");
-        Ok(())
-    }
-
-    /// Handle Start method call
-    ///
-    /// Called by GNOME Shell to subscribe to menu groups.
-    /// Returns the menu structure for the requested groups.
-    pub fn handle_start(
-        &self,
-        subscriptions: Vec<u32>,
-    ) -> Result<Vec<DbusMenuGroup>, GnomeMenuError> {
-        debug_log(&format!(
-            "Start method called with subscriptions: {:?}",
-            subscriptions
-        ));
-
-        let menu_groups = self.menu_groups.lock().unwrap();
-        let mut result = Vec::new();
-
-        for group_id in subscriptions {
-            if let Some(group) = menu_groups.get(&group_id) {
-                result.push(group.clone());
-            } else {
-                debug_log(&format!(
-                    "Warning: Subscription for unknown group {}",
-                    group_id
-                ));
-            }
-        }
-
-        Ok(result)
-    }
-
-    /// Handle End method call
-    ///
-    /// Called by GNOME Shell to unsubscribe from menu groups.
-    /// Currently a no-op: Azul does not track per-group subscriptions or
-    /// emit `Changed` signals, so there is nothing to release.
-    pub fn handle_end(&self, subscriptions: Vec<u32>) -> Result<(), GnomeMenuError> {
-        debug_log(&format!(
-            "End method called with subscriptions: {:?}",
-            subscriptions
-        ));
-        Ok(())
-    }
-}
-
-impl Default for MenuProtocol {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_menu_protocol_creation() {
-        let protocol = MenuProtocol::new();
-        assert!(protocol.menu_groups.lock().unwrap().is_empty());
-    }
-
-    #[test]
-    fn test_menu_update() {
-        let protocol = MenuProtocol::new();
-
-        let group = DbusMenuGroup {
-            group_id: 0,
-            menu_id: 0,
-            items: vec![DbusMenuItem {
-                label: "File".to_string(),
-                action: None,
-                target: None,
-                submenu: Some((1, 0)),
-                section: None,
-                enabled: true,
-            }],
+    fn test_dbus_menu_item_creation() {
+        let item = DbusMenuItem {
+            label: "File".to_string(),
+            action: None,
+            target: None,
+            submenu: Some((1, 0)),
+            section: None,
+            enabled: true,
         };
 
-        assert!(protocol.update_menu(vec![group]).is_ok());
-        assert_eq!(protocol.menu_groups.lock().unwrap().len(), 1);
+        assert_eq!(item.label, "File");
+        assert!(item.submenu.is_some());
+        assert_eq!(item.submenu.unwrap(), (1, 0));
+        assert!(item.enabled);
     }
 
     #[test]
-    fn test_start_method() {
-        let protocol = MenuProtocol::new();
-
+    fn test_dbus_menu_group_creation() {
         let group = DbusMenuGroup {
             group_id: 0,
             menu_id: 0,
             items: vec![],
         };
 
-        protocol.update_menu(vec![group]).unwrap();
-
-        let result = protocol.handle_start(vec![0]).unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].group_id, 0);
+        assert_eq!(group.group_id, 0);
+        assert_eq!(group.items.len(), 0);
     }
 }
