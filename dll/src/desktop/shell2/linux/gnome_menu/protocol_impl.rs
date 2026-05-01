@@ -52,6 +52,10 @@ pub fn register_menus_interface(
     let vtable = DBusObjectPathVTable {
         unregister_function: Some(menus_unregister_handler),
         message_function: Some(menus_message_handler),
+        dbus_internal_padding1: None,
+        dbus_internal_padding2: None,
+        dbus_internal_padding3: None,
+        dbus_internal_padding4: None,
     };
 
     // Register object path
@@ -97,6 +101,10 @@ pub fn register_actions_interface(
     let vtable = DBusObjectPathVTable {
         unregister_function: Some(actions_unregister_handler),
         message_function: Some(actions_message_handler),
+        dbus_internal_padding1: None,
+        dbus_internal_padding2: None,
+        dbus_internal_padding3: None,
+        dbus_internal_padding4: None,
     };
 
     // Register object path

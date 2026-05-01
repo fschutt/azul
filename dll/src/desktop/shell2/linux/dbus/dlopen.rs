@@ -152,6 +152,10 @@ pub struct DBusObjectPathVTable {
     pub unregister_function: Option<unsafe extern "C" fn(*mut DBusConnection, *mut c_void)>,
     pub message_function:
         Option<unsafe extern "C" fn(*mut DBusConnection, *mut DBusMessage, *mut c_void) -> c_int>,
+    pub dbus_internal_padding1: Option<unsafe extern "C" fn(*mut c_void)>,
+    pub dbus_internal_padding2: Option<unsafe extern "C" fn(*mut c_void)>,
+    pub dbus_internal_padding3: Option<unsafe extern "C" fn(*mut c_void)>,
+    pub dbus_internal_padding4: Option<unsafe extern "C" fn(*mut c_void)>,
 }
 
 // DBus constants
