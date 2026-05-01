@@ -121,16 +121,6 @@ pub fn get_display_at_point(point: LogicalPosition) -> Option<DisplayInfo> {
         .find(|display| display.bounds.contains(point))
 }
 
-/// Get the display index containing the given point
-///
-/// Returns 0 (primary monitor) if the point is not on any display.
-pub fn get_display_index_at_point(point: LogicalPosition) -> usize {
-    get_displays()
-        .iter()
-        .position(|display| display.bounds.contains(point))
-        .unwrap_or(0)
-}
-
 /// Get the display containing the given window
 ///
 /// Uses platform-specific APIs to determine which monitor the window is on.
@@ -454,6 +444,13 @@ mod macos {
         let screens = NSScreen::screens(mtm);
         let mut displays = Vec::new();
 
+        // Primary screen height needed to flip macOS bottom-left origin to top-left
+        let primary_screen_height = screens
+            .iter()
+            .next()
+            .map(|s| s.frame().size.height as f32)
+            .unwrap_or(0.0);
+
         for (i, screen) in screens.iter().enumerate() {
             let frame = screen.frame();
             let visible_frame = screen.visibleFrame();
@@ -462,12 +459,20 @@ mod macos {
             // macOS uses flipped coordinates (origin at bottom-left)
             // Convert to top-left origin
             let bounds = LogicalRect::new(
-                LogicalPosition::new(frame.origin.x as f32, frame.origin.y as f32),
+                LogicalPosition::new(
+                    frame.origin.x as f32,
+                    primary_screen_height - frame.origin.y as f32 - frame.size.height as f32,
+                ),
                 LogicalSize::new(frame.size.width as f32, frame.size.height as f32),
             );
 
             let work_area = LogicalRect::new(
-                LogicalPosition::new(visible_frame.origin.x as f32, visible_frame.origin.y as f32),
+                LogicalPosition::new(
+                    visible_frame.origin.x as f32,
+                    primary_screen_height
+                        - visible_frame.origin.y as f32
+                        - visible_frame.size.height as f32,
+                ),
                 LogicalSize::new(
                     visible_frame.size.width as f32,
                     visible_frame.size.height as f32,
