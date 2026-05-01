@@ -5,7 +5,7 @@
 //!
 //! Architecture:
 //! - Menu popups are created using WindowCreateOptions with LayoutCallback
-//! - The layout callback uses menu_renderer::create_menu_styled_dom() for rendering
+//! - The layout callback uses menu_renderer::create_menu_dom_with_css() for rendering
 //! - Menu data (Menu struct) is passed as RefAny to the layout callback
 //! - Events are handled through normal Azul callback system
 

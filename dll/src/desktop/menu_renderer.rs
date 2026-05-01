@@ -15,7 +15,6 @@ use azul_core::{
     dom::{Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClassVec},
     menu::{Menu, MenuItem, MenuItemIcon, MenuItemState, OptionMenuItemIcon, StringMenuItem},
     refany::RefAny,
-    styled_dom::StyledDom,
 };
 use azul_css::{
     css::{Css, Stylesheet},
@@ -181,33 +180,10 @@ extern "C" fn submenu_hover_callback(mut data: RefAny, mut info: CallbackInfo) -
     Update::DoNothing
 }
 
-/// Create a styled menu DOM from a Menu structure
-///
-/// Returns a fully styled `StyledDom` with callbacks attached.
-/// See [`create_menu_dom_with_css`] for a variant that returns `Dom` with deferred CSS.
-pub fn create_menu_styled_dom(
-    menu: &Menu,
-    system_style: &SystemStyle,
-    menu_window_data: RefAny,
-) -> StyledDom {
-    // Create DOM structure with callbacks attached
-    let mut dom = create_menu_dom(menu, &menu_window_data);
-
-    // Create stylesheet from SystemStyle
-    let stylesheet = system_style.create_menu_stylesheet();
-
-    // Wrap in Css struct
-    let css = Css::new(vec![stylesheet]);
-
-    // Apply stylesheet to DOM
-    StyledDom::create(&mut dom, css)
-}
-
 /// Create a menu DOM with deferred CSS for use in layout callbacks.
 ///
-/// Same as `create_menu_styled_dom` but returns a `Dom` with CSS pushed
-/// via `.style()` (deferred cascade). Use this in `LayoutCallbackType` callbacks
-/// which now return `Dom` instead of `StyledDom`.
+/// Returns a `Dom` with CSS pushed via `.style()` (deferred cascade).
+/// Use this in `LayoutCallbackType` callbacks which return `Dom` instead of `StyledDom`.
 pub fn create_menu_dom_with_css(
     menu: &Menu,
     system_style: &SystemStyle,
@@ -447,16 +423,61 @@ fn create_separator_dom() -> Dom {
 ///
 /// Converts VirtualKeyCodeCombo to human-readable string like "Ctrl+C"
 fn format_accelerator(combo: &azul_core::window::VirtualKeyCodeCombo) -> AzString {
-    // For now, just format the keys in the combo
-    // TODO: Proper formatting with modifiers
-    let key_strs: Vec<String> = combo
+    let key_strs: Vec<&str> = combo
         .keys
         .as_slice()
         .iter()
-        .map(|k| format!("{:?}", k))
+        .map(|k| virtual_key_to_str(k))
         .collect();
 
     AzString::from(key_strs.join("+"))
+}
+
+fn virtual_key_to_str(key: &azul_core::window::VirtualKeyCode) -> &'static str {
+    use azul_core::window::VirtualKeyCode::*;
+    match key {
+        Key1 => "1", Key2 => "2", Key3 => "3", Key4 => "4", Key5 => "5",
+        Key6 => "6", Key7 => "7", Key8 => "8", Key9 => "9", Key0 => "0",
+        A => "A", B => "B", C => "C", D => "D", E => "E", F => "F",
+        G => "G", H => "H", I => "I", J => "J", K => "K", L => "L",
+        M => "M", N => "N", O => "O", P => "P", Q => "Q", R => "R",
+        S => "S", T => "T", U => "U", V => "V", W => "W", X => "X",
+        Y => "Y", Z => "Z",
+        Escape => "Esc", Tab => "Tab", Space => "Space",
+        Return => "Enter", Back => "Backspace", Delete => "Del",
+        Insert => "Ins", Home => "Home", End => "End",
+        PageUp => "Page Up", PageDown => "Page Down",
+        Left => "Left", Right => "Right", Up => "Up", Down => "Down",
+        F1 => "F1", F2 => "F2", F3 => "F3", F4 => "F4",
+        F5 => "F5", F6 => "F6", F7 => "F7", F8 => "F8",
+        F9 => "F9", F10 => "F10", F11 => "F11", F12 => "F12",
+        F13 => "F13", F14 => "F14", F15 => "F15", F16 => "F16",
+        F17 => "F17", F18 => "F18", F19 => "F19", F20 => "F20",
+        F21 => "F21", F22 => "F22", F23 => "F23", F24 => "F24",
+        LControl | RControl => "Ctrl",
+        LShift | RShift => "Shift",
+        LAlt | RAlt => "Alt",
+        LWin | RWin => "Super",
+        Numpad0 => "Num 0", Numpad1 => "Num 1", Numpad2 => "Num 2",
+        Numpad3 => "Num 3", Numpad4 => "Num 4", Numpad5 => "Num 5",
+        Numpad6 => "Num 6", Numpad7 => "Num 7", Numpad8 => "Num 8",
+        Numpad9 => "Num 9",
+        NumpadAdd => "Num +", NumpadSubtract => "Num -",
+        NumpadMultiply => "Num *", NumpadDivide => "Num /",
+        NumpadDecimal => "Num .", NumpadComma => "Num ,",
+        NumpadEnter => "Num Enter", NumpadEquals => "Num =",
+        Numlock => "Num Lock", Scroll => "Scroll Lock",
+        Snapshot => "Print Screen", Pause => "Pause",
+        Minus => "-", Plus => "+", Equals => "=",
+        LBracket => "[", RBracket => "]",
+        Semicolon => ";", Apostrophe => "'", Grave => "`",
+        Backslash => "\\", Slash => "/", Period => ".",
+        Comma => ",", Colon => ":", At => "@", Asterisk => "*",
+        Caret => "^", Underline => "_", Yen => "¥",
+        Copy => "Copy", Paste => "Paste", Cut => "Cut",
+        Compose => "Compose", Capital => "Caps Lock",
+        _ => "?",
+    }
 }
 
 /// Extension trait to add menu stylesheet creation to SystemStyle
