@@ -1,11 +1,14 @@
-# azul-doc autodoc — group manifest
+# azul-doc autodoc — group manifest (schema v3)
 #
-# Hand-curated grouping of the 173 entries in doc/guide/reference.md into
-# system-level documentation tasks. Consumed by `azul-doc autoreview autodoc`
-# to dispatch one agent per group.
+# Locks down the 3-tree shape of the azul book so that ~13 subagents can
+# each produce a coherent batch of guide pages in parallel.
+#
+#   Tree 1 "getting-started" — core GUI, linear teaching order
+#   Tree 2 "advanced"        — non-core systems, ramps to web deployment
+#   Tree 3 "contributor"     — code architecture and per-system internals
 #
 # Schema (per-group):
-#   id, audience[], agent_strategy, tracked_files[], tracked_globs[]
+#   id, tree, audience[], agent_strategy, tracked_files[], tracked_globs[]
 #
 # Schema (per-output, inside group.outputs):
 #   slug, path, title, audience (when group is dual),
@@ -14,472 +17,734 @@
 #   topic_only      bool — routes to /guide/topics/<slug>
 #   prerequisites   [slug] — earlier slugs the reader is assumed to know
 #
-# guide_order is sparse (10, 20, 30, ...) so insertions are cheap.
-# Only external + non-topic + non-stub pages need a guide_order.
+# guide_order is sparse so insertions are cheap. Sub-pages of a topic share
+# the parent's tens digit (e.g. layout=50, layout/flex=51, layout/grid=52).
 
 [meta]
 generated_from = "doc/guide/en/reference.md"
-total_groups = 33
-total_outputs = 50
-existing_guides = ["architecture"]
-schema_version = 2
+schema_version = 3
+existing_guides = ["architecture", "reference"]
+
+# Files every agent must read before starting, to anchor on the project's
+# big picture and writing conventions.
+shared_context_files = [
+  "doc/AUTODOC.md",                  # operational pipeline reference
+  "doc/autodoc-plan.md",             # design rationale
+  "doc/guide/en/SUMMARY.md",         # current tree of pages
+  "doc/guide/en/reference.md",       # 173-section system catalog
+  "doc/guide/en/architecture.md",    # canonical architecture doc
+  "scripts/ARCHITECTURE.md",         # contributor-side code map
+  "api.json",                        # FFI surface (read for type names)
+]
 
 # ──────────────────────────────────────────────────────────────────────
-# External linear guide (the spine)
+# Tree definitions (top-level book sections)
+# ──────────────────────────────────────────────────────────────────────
+
+[[meta.trees]]
+id = "getting-started"
+title = "Getting Started"
+audience = "external"
+description = """
+Linear teaching path for app authors. Each page may only use concepts \
+introduced in earlier pages. Covers core GUI authoring only — DOM, \
+styling, layout, text, images, widgets, events, timers, animations, \
+scrolling, windowing.
+"""
+
+[[meta.trees]]
+id = "advanced"
+title = "Advanced"
+audience = "external"
+description = """
+Topics beyond the core GUI loop: developer tooling (debugging, profiling, \
+e2e testing), I/O (clipboard, file dialogs), systems (XML, networking, \
+accessibility), packaging (bindings, codegen, web deployment), and \
+finally the security model. Pages are mostly standalone; a reader can \
+jump to any topic after finishing Tree 1.
+"""
+
+[[meta.trees]]
+id = "contributor"
+title = "Contributors"
+audience = "contributor"
+description = """
+For people hacking on azul itself. Starts with the overall code map and \
+build pipeline, then per-system internals (DOM, CSS, layout, text, \
+images, events, rendering, shell2 backends, menus, a11y, async, web). \
+Pages cite source paths with line numbers and assume Rust + systems-\
+programming background. No teaching order — read on demand.
+"""
+
+# ──────────────────────────────────────────────────────────────────────
+# Writing style — applied to every page
+# ──────────────────────────────────────────────────────────────────────
+
+[meta.writing_style]
+voice = "Direct, second-person, technical. Like a senior colleague explaining at a whiteboard."
+tone = "Clear and concrete. Never marketing, never academic, never condescending."
+length_target = "1500–3500 words per page (≈ 200–600 markdown lines). Sub-pages can be shorter."
+opening_pattern = "Each page opens with a one-sentence statement of *what this is for*, then a runnable code or visual example within the first 30 lines."
+code_examples = "Complete and copy-pasteable. No `…` placeholders. Hidden setup via leading `#` lines is encouraged. External pages prefer `\\`\\`\\`rust` blocks; stub-tagged pages use `\\`\\`\\`rust,ignore`."
+visuals = "Use `azul-render` fenced blocks for screenshots and slideshows. Add `subtitle=` for figure captions. Group sequence frames with `slideshow=ID`."
+cross_links = "Link to other guide pages by relative slug. Cite source code with file:line for contributor pages."
+avoid = [
+  "Marketing language: 'blazing fast', 'powerful', 'cutting-edge'",
+  "Filler verbs: 'simply', 'just', 'obviously', 'easily'",
+  "Forward references on external pages — never use a concept before its prerequisite page introduces it",
+  "Emojis (unless asked)",
+  "Multi-paragraph docstrings inside code samples",
+  "Restating section titles as the first sentence",
+]
+prefer = [
+  "Concrete > abstract: show the API call, then explain why",
+  "Tables for property/method enumerations",
+  "Numbered steps for procedures",
+  "Definitions inline on first use, with link to full page if it has one",
+  "Defensive sub-headings — H2 every ≈ 400 words so readers can skim",
+]
+
+# ──────────────────────────────────────────────────────────────────────
+# Agent thinking — max effort
+# ──────────────────────────────────────────────────────────────────────
+
+[meta.agent_thinking]
+mode = "max-effort"
+instructions = [
+  "Before writing, READ all `shared_context_files` plus the group's `tracked_files`. Do not skim — actually load the relevant sections.",
+  "For each output, READ the matching `## ` sections in `doc/guide/en/reference.md` (find by source-file path).",
+  "Think extended: outline each page's section structure before writing. Cross-check the outline against `prerequisites` — every concept used must already be introduced.",
+  "When citing internals, include `path/to/file.rs:LINE` so contributors can navigate. Verify the line number by re-reading the file.",
+  "When introducing a type, link to or quote its definition. Don't paraphrase the type.",
+  "After writing, RE-READ the page and check: (a) every code sample compiles in concept, (b) every cross-link target exists in the manifest, (c) frontmatter is complete and valid.",
+  "If a `tracked_file` doesn't exist, note it in the page as 'planned but not yet implemented' and tag the page `maturity = stub`.",
+]
+
+# ──────────────────────────────────────────────────────────────────────
+# TREE 1 — Getting Started (core GUI, linear)
 # ──────────────────────────────────────────────────────────────────────
 
 [[group]]
-id = "getting-started"
+id = "hello-world-and-install"
+tree = "getting-started"
 audience = ["external"]
 agent_strategy = "split"
-tracked_files = ["core/src/lib.rs", "core/src/app.rs", "dll/src/lib.rs", "dll/src/python.rs", "api.json"]
-notes = "Install + per-language entry pages."
-
-[[group.outputs]]
-slug = "getting-started"
-path = "doc/guide/en/getting-started.md"
-title = "Getting Started"
-maturity = "mature"
-guide_order = 10
-prerequisites = []
-
-[[group.outputs]]
-slug = "bindings/rust"
-path = "doc/guide/en/bindings/rust.md"
-title = "Rust Bindings"
-maturity = "wip"
-topic_only = true
-
-[[group.outputs]]
-slug = "bindings/c"
-path = "doc/guide/en/bindings/c.md"
-title = "C Bindings"
-maturity = "wip"
-topic_only = true
-
-[[group.outputs]]
-slug = "bindings/cpp"
-path = "doc/guide/en/bindings/cpp.md"
-title = "C++ Bindings"
-maturity = "wip"
-topic_only = true
-
-[[group.outputs]]
-slug = "bindings/python"
-path = "doc/guide/en/bindings/python.md"
-title = "Python Bindings"
-maturity = "wip"
-topic_only = true
-
-# ----
-
-[[group]]
-id = "hello-world"
-audience = ["external"]
-agent_strategy = "single"
-tracked_files = ["core/src/app.rs", "core/src/lib.rs", "core/src/callbacks.rs", "examples/hello-world.rs"]
-notes = "Minimal window. First page that runs code. Anchor for the linear guide."
+tracked_files = [
+  "core/src/lib.rs",
+  "core/src/app.rs",
+  "core/src/callbacks.rs",
+  "dll/src/lib.rs",
+  "dll/src/python.rs",
+  "examples/hello-world.rs",
+  "api.json",
+]
+notes = "Landing page introduces the book and points at language-specific install/first-program guides. Each per-language page is self-contained and ends with a working window."
 
 [[group.outputs]]
 slug = "hello-world"
 path = "doc/guide/en/hello-world.md"
 title = "Hello, World"
 maturity = "mature"
-guide_order = 20
-prerequisites = ["getting-started"]
+guide_order = 10
+prerequisites = []
+
+[[group.outputs]]
+slug = "hello-world/rust"
+path = "doc/guide/en/hello-world/rust.md"
+title = "Hello, World — Rust"
+maturity = "mature"
+guide_order = 11
+prerequisites = ["hello-world"]
+
+[[group.outputs]]
+slug = "hello-world/c"
+path = "doc/guide/en/hello-world/c.md"
+title = "Hello, World — C"
+maturity = "wip"
+guide_order = 12
+prerequisites = ["hello-world"]
+
+[[group.outputs]]
+slug = "hello-world/cpp"
+path = "doc/guide/en/hello-world/cpp.md"
+title = "Hello, World — C++"
+maturity = "wip"
+guide_order = 13
+prerequisites = ["hello-world"]
+
+[[group.outputs]]
+slug = "hello-world/python"
+path = "doc/guide/en/hello-world/python.md"
+title = "Hello, World — Python"
+maturity = "wip"
+guide_order = 14
+prerequisites = ["hello-world"]
 
 # ----
 
 [[group]]
-id = "architecture-overview"
+id = "architecture-and-state"
+tree = "getting-started"
 audience = ["external"]
-agent_strategy = "single"
-tracked_files = ["core/src/lib.rs", "css/src/lib.rs", "layout/src/lib.rs", "dll/src/lib.rs"]
-notes = "Existing architecture.md is the canonical text. autodoc only refreshes it on demand."
-maturity_default = "mature"
+agent_strategy = "split"
+tracked_files = [
+  "core/src/refany.rs",
+  "core/src/dom.rs",
+  "core/src/callbacks.rs",
+  "doc/guide/en/architecture.md",
+]
+notes = "The existing architecture.md is canonical — refresh it but do not rewrite from scratch. Then write a dedicated 'Understanding RefAny' page that explains the backreference pattern with a worked example."
 
 [[group.outputs]]
 slug = "architecture"
 path = "doc/guide/en/architecture.md"
 title = "Architecture"
 maturity = "mature"
-guide_order = 30
+guide_order = 20
 prerequisites = ["hello-world"]
+
+[[group.outputs]]
+slug = "understanding-refany"
+path = "doc/guide/en/understanding-refany.md"
+title = "Understanding RefAny"
+maturity = "mature"
+guide_order = 25
+prerequisites = ["architecture"]
 
 # ----
 
 [[group]]
-id = "dom-and-callbacks"
-audience = ["external", "contributor"]
-agent_strategy = "dual"
-tracked_files = ["core/src/dom.rs", "core/src/callbacks.rs", "core/src/id_tree.rs", "core/src/xml.rs"]
+id = "dom-and-components"
+tree = "getting-started"
+audience = ["external"]
+agent_strategy = "split"
+tracked_files = ["core/src/dom.rs", "core/src/id_tree.rs", "core/src/xml.rs"]
+notes = "Landing covers nodes, IDs, classes, IFrame. Components page covers composing reusable Dom-returning functions and the backreference pattern in practice."
 
 [[group.outputs]]
 slug = "dom"
 path = "doc/guide/en/dom.md"
-title = "DOM and Callbacks"
-audience = "external"
+title = "The DOM"
+maturity = "mature"
+guide_order = 30
+prerequisites = ["understanding-refany"]
+
+[[group.outputs]]
+slug = "dom/components"
+path = "doc/guide/en/dom/components.md"
+title = "Components"
+maturity = "mature"
+guide_order = 31
+prerequisites = ["dom"]
+
+# ----
+
+[[group]]
+id = "styling-tree"
+tree = "getting-started"
+audience = ["external"]
+agent_strategy = "split"
+tracked_files = ["css/src/lib.rs", "css/src/parser.rs"]
+tracked_globs = ["css/src/props/basic/*.rs", "css/src/props/style/*.rs"]
+notes = "Landing introduces selectors, the cascade, and how to attach a Css to a Dom. /properties is a cheatsheet of the most-used properties grouped by category. /themes covers system-style discovery (light/dark, native colors) from the user's POV."
+
+[[group.outputs]]
+slug = "styling"
+path = "doc/guide/en/styling.md"
+title = "Styling with CSS"
 maturity = "mature"
 guide_order = 40
-prerequisites = ["hello-world", "architecture"]
-
-[[group.outputs]]
-slug = "internals/dom"
-path = "doc/guide/en/internals/dom.md"
-title = "DOM Internals"
-audience = "contributor"
-maturity = "mature"
-
-# ----
-
-[[group]]
-id = "event-system"
-audience = ["external", "contributor"]
-agent_strategy = "dual"
-tracked_files = ["core/src/callbacks.rs"]
-tracked_globs = ["dll/src/desktop/shell2/*/event*.rs"]
-
-[[group.outputs]]
-slug = "events"
-path = "doc/guide/en/events.md"
-title = "Events and Input"
-audience = "external"
-maturity = "mature"
-guide_order = 50
 prerequisites = ["dom"]
 
 [[group.outputs]]
-slug = "internals/event-system"
-path = "doc/guide/en/internals/event-system.md"
-title = "Event System Internals"
-audience = "contributor"
+slug = "styling/properties"
+path = "doc/guide/en/styling/properties.md"
+title = "CSS Properties Cheatsheet"
 maturity = "mature"
+guide_order = 41
+prerequisites = ["styling"]
+
+[[group.outputs]]
+slug = "styling/themes"
+path = "doc/guide/en/styling/themes.md"
+title = "System Themes"
+maturity = "wip"
+guide_order = 42
+prerequisites = ["styling"]
 
 # ----
 
 [[group]]
-id = "styling-css"
-audience = ["external", "contributor"]
-agent_strategy = "dual"
-tracked_files = ["css/src/parser.rs", "css/src/css_property.rs"]
-tracked_globs = ["css/src/props/**/*.rs"]
-
-[[group.outputs]]
-slug = "css"
-path = "doc/guide/en/css.md"
-title = "CSS Styling"
-audience = "external"
-maturity = "mature"
-guide_order = 60
-prerequisites = ["dom"]
-
-[[group.outputs]]
-slug = "internals/css-properties"
-path = "doc/guide/en/internals/css-properties.md"
-title = "CSS Property Internals"
-audience = "contributor"
-maturity = "mature"
-
-# ----
-
-[[group]]
-id = "layout-external"
+id = "layout-and-text"
+tree = "getting-started"
 audience = ["external"]
-agent_strategy = "single"
-tracked_files = ["layout/src/lib.rs"]
-notes = "User-facing layout reference. Internals covered by `layout-solver`."
+agent_strategy = "split"
+tracked_files = [
+  "layout/src/lib.rs",
+  "core/src/text2.rs",
+  "css/src/props/basic/font.rs",
+]
+tracked_globs = [
+  "css/src/props/layout/*.rs",
+  "layout/src/text*/**/*.rs",
+]
+notes = "Linear teaching: layout landing → flex → grid → positioning → text-and-fonts. Each layout sub-page focuses on one model with copy-pasteable examples."
 
 [[group.outputs]]
 slug = "layout"
 path = "doc/guide/en/layout.md"
 title = "Layout"
 maturity = "mature"
-guide_order = 70
-prerequisites = ["css"]
-
-# ----
-
-[[group]]
-id = "text-and-fonts"
-audience = ["external", "contributor"]
-agent_strategy = "dual"
-tracked_files = ["core/src/text2.rs", "css/src/props/basic/font.rs"]
-tracked_globs = ["layout/src/text*/**/*.rs"]
+guide_order = 50
+prerequisites = ["styling"]
 
 [[group.outputs]]
-slug = "text"
-path = "doc/guide/en/text.md"
+slug = "layout/flex"
+path = "doc/guide/en/layout/flex.md"
+title = "Flexbox"
+maturity = "mature"
+guide_order = 51
+prerequisites = ["layout"]
+
+[[group.outputs]]
+slug = "layout/grid"
+path = "doc/guide/en/layout/grid.md"
+title = "Grid"
+maturity = "mature"
+guide_order = 52
+prerequisites = ["layout"]
+
+[[group.outputs]]
+slug = "layout/positioning"
+path = "doc/guide/en/layout/positioning.md"
+title = "Positioning and Overflow"
+maturity = "mature"
+guide_order = 53
+prerequisites = ["layout"]
+
+[[group.outputs]]
+slug = "text-and-fonts"
+path = "doc/guide/en/text-and-fonts.md"
 title = "Text and Fonts"
-audience = "external"
 maturity = "wip"
-guide_order = 80
-prerequisites = ["css", "layout"]
-
-[[group.outputs]]
-slug = "internals/text-pipeline"
-path = "doc/guide/en/internals/text-pipeline.md"
-title = "Text Pipeline"
-audience = "contributor"
-maturity = "wip"
+guide_order = 60
+prerequisites = ["layout"]
 
 # ----
 
 [[group]]
-id = "images-and-media"
-audience = ["external", "contributor"]
-agent_strategy = "dual"
-tracked_files = ["core/src/app_resources.rs"]
-tracked_globs = ["core/src/svg*.rs", "css/src/props/basic/image.rs"]
+id = "images-and-widgets"
+tree = "getting-started"
+audience = ["external"]
+agent_strategy = "split"
+tracked_files = [
+  "core/src/app_resources.rs",
+  "core/src/widgets.rs",
+]
+tracked_globs = [
+  "core/src/svg*.rs",
+  "css/src/props/basic/image.rs",
+  "layout/src/widgets/*.rs",
+]
+notes = "Images: raster (resource handle, decoding), svg (paths, drawing), canvas-gl (custom GPU drawing via GlTexture). Widgets: overview of built-ins, then inputs (text/number) and structural (list/tree/tabs/ribbon/node-graph)."
 
 [[group.outputs]]
 slug = "images"
 path = "doc/guide/en/images.md"
-title = "Images, SVG, and Canvas"
-audience = "external"
+title = "Images and Drawing"
 maturity = "wip"
-guide_order = 90
+guide_order = 70
 prerequisites = ["dom"]
 
 [[group.outputs]]
-slug = "internals/image-pipeline"
-path = "doc/guide/en/internals/image-pipeline.md"
-title = "Image Pipeline"
-audience = "contributor"
+slug = "images/svg"
+path = "doc/guide/en/images/svg.md"
+title = "SVG"
 maturity = "wip"
+guide_order = 71
+prerequisites = ["images"]
 
-# ----
-
-[[group]]
-id = "widgets"
-audience = ["external", "contributor"]
-agent_strategy = "dual"
-tracked_files = ["core/src/widgets.rs"]
-tracked_globs = ["layout/src/widgets/**/*.rs"]
+[[group.outputs]]
+slug = "images/canvas-gl"
+path = "doc/guide/en/images/canvas-gl.md"
+title = "Canvas and GL Textures"
+maturity = "wip"
+guide_order = 72
+prerequisites = ["images"]
 
 [[group.outputs]]
 slug = "widgets"
 path = "doc/guide/en/widgets.md"
-title = "Widgets"
-audience = "external"
+title = "Built-in Widgets"
 maturity = "wip"
-guide_order = 100
-prerequisites = ["events", "css"]
+guide_order = 80
+prerequisites = ["styling", "events"]
 
 [[group.outputs]]
-slug = "internals/widgets"
-path = "doc/guide/en/internals/widgets.md"
-title = "Widget Internals"
-audience = "contributor"
+slug = "widgets/inputs"
+path = "doc/guide/en/widgets/inputs.md"
+title = "Input Widgets"
 maturity = "wip"
+guide_order = 81
+prerequisites = ["widgets"]
+
+[[group.outputs]]
+slug = "widgets/structural"
+path = "doc/guide/en/widgets/structural.md"
+title = "Structural Widgets"
+maturity = "wip"
+guide_order = 82
+prerequisites = ["widgets"]
 
 # ----
 
 [[group]]
-id = "timers"
+id = "events-timers-windowing"
+tree = "getting-started"
 audience = ["external"]
-agent_strategy = "single"
-tracked_files = ["core/src/task.rs"]
-notes = "Frame-driven Timer types. Prerequisite for animations."
+agent_strategy = "split"
+tracked_files = [
+  "core/src/callbacks.rs",
+  "core/src/events.rs",
+  "core/src/task.rs",
+  "core/src/animation.rs",
+  "core/src/window.rs",
+  "core/src/window_state.rs",
+]
+tracked_globs = ["dll/src/desktop/shell2/*/event*.rs"]
+notes = "Closes Tree 1: events (mouse/keyboard/focus/default-actions) → timers (frame-driven Timer) → animations (stub) → scrolling-and-drag → windowing (multi-window, menus, decorations, user-side)."
+
+[[group.outputs]]
+slug = "events"
+path = "doc/guide/en/events.md"
+title = "Events and Input"
+maturity = "mature"
+guide_order = 90
+prerequisites = ["dom"]
 
 [[group.outputs]]
 slug = "timers"
 path = "doc/guide/en/timers.md"
 title = "Timers"
 maturity = "wip"
-guide_order = 110
+guide_order = 100
 prerequisites = ["events"]
-
-# ----
-
-[[group]]
-id = "animations"
-audience = ["external"]
-agent_strategy = "single"
-tracked_files = ["core/src/animation.rs"]
-notes = "Stub-tagged: type definitions exist but runtime is not wired up. Document the intent so the page is ready when the runtime lands."
 
 [[group.outputs]]
 slug = "animations"
 path = "doc/guide/en/animations.md"
 title = "Animations"
 maturity = "stub"
-guide_order = 120
+guide_order = 110
 prerequisites = ["timers"]
+
+[[group.outputs]]
+slug = "scrolling-and-drag"
+path = "doc/guide/en/scrolling-and-drag.md"
+title = "Scrolling and Drag-and-Drop"
+maturity = "wip"
+guide_order = 120
+prerequisites = ["events"]
+
+[[group.outputs]]
+slug = "windowing"
+path = "doc/guide/en/windowing.md"
+title = "Windows, Menus, Decorations"
+maturity = "mature"
+guide_order = 130
+prerequisites = ["hello-world", "events"]
+
+# ──────────────────────────────────────────────────────────────────────
+# TREE 2 — Advanced (non-core, ramps to web deployment)
+# ──────────────────────────────────────────────────────────────────────
+
+[[group]]
+id = "developer-tooling"
+tree = "advanced"
+audience = ["external"]
+agent_strategy = "split"
+tracked_files = [
+  "core/src/debug.rs",
+  "dll/src/desktop/logging.rs",
+  "dll/src/desktop/shell2/common/debug_server.rs",
+]
+notes = "Three tooling pages: AZ_DEBUG flags + debug overlay, memory profiling (heap/RefAny live counts, leak hunting), e2e testing harness (drive a built app via screenshots / web target with curl)."
+
+[[group.outputs]]
+slug = "debugging"
+path = "doc/guide/en/debugging.md"
+title = "Debugging"
+maturity = "wip"
+guide_order = 200
+prerequisites = ["hello-world"]
+
+[[group.outputs]]
+slug = "memory-profiling"
+path = "doc/guide/en/memory-profiling.md"
+title = "Memory and Profiling"
+maturity = "wip"
+guide_order = 210
+prerequisites = ["debugging"]
+
+[[group.outputs]]
+slug = "e2e-testing"
+path = "doc/guide/en/e2e-testing.md"
+title = "End-to-End Testing"
+maturity = "wip"
+guide_order = 220
+prerequisites = ["debugging"]
 
 # ----
 
 [[group]]
-id = "scrolling"
+id = "io-and-system-services"
+tree = "advanced"
 audience = ["external"]
-agent_strategy = "single"
-tracked_files = ["layout/src/hit_test.rs", "core/src/scrolling.rs"]
-notes = "User-side: scroll regions, scroll-into-view. Internals covered by `hit-testing-scrolling`."
+agent_strategy = "split"
+tracked_files = [
+  "core/src/xml.rs",
+  "layout/src/xml/mod.rs",
+  "dll/src/desktop/dialogs.rs",
+]
+tracked_globs = ["dll/src/desktop/shell2/*/clipboard*.rs"]
+notes = "User-side I/O: standalone XML parser (works without GUI), file dialogs (open/save/folder), clipboard (text/image/custom)."
 
 [[group.outputs]]
-slug = "scrolling"
-path = "doc/guide/en/scrolling.md"
-title = "Scrolling"
+slug = "xml"
+path = "doc/guide/en/xml.md"
+title = "XML Parsing (Standalone)"
 maturity = "wip"
-guide_order = 130
+guide_order = 230
+prerequisites = []
+
+[[group.outputs]]
+slug = "file-dialogs"
+path = "doc/guide/en/file-dialogs.md"
+title = "File Dialogs"
+maturity = "wip"
+guide_order = 240
+prerequisites = ["events"]
+
+[[group.outputs]]
+slug = "clipboard"
+path = "doc/guide/en/clipboard.md"
+title = "Clipboard"
+maturity = "wip"
+guide_order = 250
 prerequisites = ["events"]
 
 # ----
 
 [[group]]
-id = "background-tasks"
+id = "async-and-networking"
+tree = "advanced"
 audience = ["external"]
-agent_strategy = "single"
+agent_strategy = "split"
 tracked_files = ["core/src/task.rs"]
-notes = "User-side Threads + async work. Internals covered by `async-internals`."
+notes = "Background tasks (Threads, Timer-based polling, async-without-runtime). Networking will become its own concern when AzTcp/AzUdp land — for now document what you can do today via Threads, with explicit notes on what's coming."
 
 [[group.outputs]]
 slug = "background-tasks"
 path = "doc/guide/en/background-tasks.md"
 title = "Background Tasks"
 maturity = "wip"
-guide_order = 140
+guide_order = 260
 prerequisites = ["timers"]
 
-# ----
-
-[[group]]
-id = "clipboard"
-audience = ["external", "contributor"]
-agent_strategy = "dual"
-tracked_globs = ["dll/src/desktop/shell2/*/clipboard*.rs"]
-
 [[group.outputs]]
-slug = "clipboard"
-path = "doc/guide/en/clipboard.md"
-title = "Clipboard"
-audience = "external"
-maturity = "wip"
-guide_order = 150
-prerequisites = ["events"]
-
-[[group.outputs]]
-slug = "internals/clipboard"
-path = "doc/guide/en/internals/clipboard.md"
-title = "Clipboard Internals"
-audience = "contributor"
-maturity = "wip"
+slug = "networking"
+path = "doc/guide/en/networking.md"
+title = "Networking"
+maturity = "stub"
+guide_order = 270
+prerequisites = ["background-tasks"]
 
 # ----
 
 [[group]]
-id = "accessibility"
-audience = ["external", "contributor"]
-agent_strategy = "dual"
-tracked_files = ["core/src/a11y.rs", "layout/src/managers/a11y.rs"]
+id = "accessibility-and-headless"
+tree = "advanced"
+audience = ["external"]
+agent_strategy = "split"
+tracked_files = [
+  "core/src/a11y.rs",
+  "layout/src/managers/a11y.rs",
+  "layout/src/cpurender.rs",
+  "dll/src/desktop/native_screenshot.rs",
+]
 tracked_globs = ["dll/src/desktop/shell2/*/accessibility*.rs"]
+notes = "Accessibility from the app dev's POV (roles, labels, screen-reader testing). Headless rendering: cpurender, native screenshots, server-side use without a window manager."
 
 [[group.outputs]]
 slug = "accessibility"
 path = "doc/guide/en/accessibility.md"
 title = "Accessibility"
-audience = "external"
 maturity = "wip"
-guide_order = 160
+guide_order = 280
 prerequisites = ["dom"]
 
 [[group.outputs]]
-slug = "internals/accessibility-backends"
-path = "doc/guide/en/internals/accessibility-backends.md"
-title = "Accessibility Backends"
-audience = "contributor"
-maturity = "wip"
-
-# ----
-
-[[group]]
-id = "windowing"
-audience = ["external"]
-agent_strategy = "single"
-tracked_files = ["core/src/window.rs", "core/src/window_state.rs"]
-notes = "User-facing windowing. Internals covered by `shell2-backends`."
-
-[[group.outputs]]
-slug = "windowing"
-path = "doc/guide/en/windowing.md"
-title = "Windows and Decorations"
-maturity = "mature"
-guide_order = 170
-prerequisites = ["hello-world", "events"]
-
-# ----
-
-[[group]]
-id = "web-target"
-audience = ["external"]
-agent_strategy = "single"
-tracked_files = ["dll/src/web/mod.rs"]
-notes = "User-facing web target. Internals covered by `web-backend-internals`."
-
-[[group.outputs]]
-slug = "web-target"
-path = "doc/guide/en/web-target.md"
-title = "Web Target (WASM/SSR)"
-maturity = "wip"
-guide_order = 180
-prerequisites = ["hello-world", "architecture"]
-
-# ──────────────────────────────────────────────────────────────────────
-# External topic guides (standalone, not in linear order)
-# ──────────────────────────────────────────────────────────────────────
-
-[[group]]
-id = "topic-xml-parsing"
-audience = ["external"]
-agent_strategy = "single"
-tracked_files = ["core/src/xml.rs", "layout/src/xml.rs"]
-notes = "Standalone use of azul's XML parser as a library — not GUI-dependent."
-
-[[group.outputs]]
-slug = "topics/xml-parsing"
-path = "doc/guide/en/topics/xml-parsing.md"
-title = "XML Parsing (Standalone)"
-maturity = "wip"
-topic_only = true
-
-# ----
-
-[[group]]
-id = "topic-headless-render"
-audience = ["external"]
-agent_strategy = "single"
-tracked_files = ["layout/src/cpurender.rs", "layout/src/lib.rs"]
-notes = "Server-side rendering, screenshot generation, non-interactive use."
-
-[[group.outputs]]
-slug = "topics/headless-render"
-path = "doc/guide/en/topics/headless-render.md"
+slug = "headless-rendering"
+path = "doc/guide/en/headless-rendering.md"
 title = "Headless Rendering"
 maturity = "wip"
-topic_only = true
+guide_order = 290
+prerequisites = ["dom"]
+
+# ----
+
+[[group]]
+id = "codegen-and-bindings"
+tree = "advanced"
+audience = ["external"]
+agent_strategy = "split"
+tracked_files = ["dll/build.rs", "doc/src/dllgen/mod.rs", "api.json"]
+tracked_globs = ["doc/src/dllgen/*.rs"]
+notes = "First page: `code-generation` covers using azul's api.json + dllgen as a tool for your own FFI projects. Then four short language pages: how to set up Rust / C / C++ / Python bindings for your own azul-based app."
+
+[[group.outputs]]
+slug = "code-generation"
+path = "doc/guide/en/code-generation.md"
+title = "Code Generation"
+maturity = "wip"
+guide_order = 300
+prerequisites = []
+
+[[group.outputs]]
+slug = "bindings/rust"
+path = "doc/guide/en/bindings/rust.md"
+title = "Rust Bindings"
+maturity = "mature"
+guide_order = 310
+prerequisites = []
+
+[[group.outputs]]
+slug = "bindings/c"
+path = "doc/guide/en/bindings/c.md"
+title = "C Bindings"
+maturity = "wip"
+guide_order = 320
+prerequisites = []
+
+[[group.outputs]]
+slug = "bindings/cpp"
+path = "doc/guide/en/bindings/cpp.md"
+title = "C++ Bindings"
+maturity = "wip"
+guide_order = 330
+prerequisites = []
+
+[[group.outputs]]
+slug = "bindings/python"
+path = "doc/guide/en/bindings/python.md"
+title = "Python Bindings"
+maturity = "wip"
+guide_order = 340
+prerequisites = []
+
+# ----
+
+[[group]]
+id = "web-and-security"
+tree = "advanced"
+audience = ["external"]
+agent_strategy = "split"
+tracked_files = ["dll/src/web/mod.rs", "dll/src/web/transpiler.rs", "dll/src/web/server.rs"]
+tracked_globs = ["dll/src/web/*.rs"]
+notes = "Closes Tree 2 with the two hardest topics. web-deployment: WASM bundle, SSR, transpiler limits, deploying. security: trust boundaries, FFI safety, what RefAny does/doesn't guarantee, sandboxing assumptions for the web target."
+
+[[group.outputs]]
+slug = "web-deployment"
+path = "doc/guide/en/web-deployment.md"
+title = "Web Deployment"
+maturity = "wip"
+guide_order = 400
+prerequisites = ["hello-world", "architecture"]
+
+[[group.outputs]]
+slug = "security"
+path = "doc/guide/en/security.md"
+title = "Security Model"
+maturity = "wip"
+guide_order = 500
+prerequisites = ["architecture", "web-deployment"]
 
 # ──────────────────────────────────────────────────────────────────────
-# Contributor internals (no order, read on demand)
+# TREE 3 — Contributors (no order, read on demand)
 # ──────────────────────────────────────────────────────────────────────
 
 [[group]]
-id = "crate-layout"
+id = "contributor-architecture"
+tree = "contributor"
 audience = ["contributor"]
-agent_strategy = "single"
-tracked_files = ["core/src/lib.rs", "css/src/lib.rs", "layout/src/lib.rs", "dll/src/lib.rs"]
+agent_strategy = "split"
+tracked_files = [
+  "core/src/lib.rs",
+  "css/src/lib.rs",
+  "layout/src/lib.rs",
+  "dll/src/lib.rs",
+  "dll/build.rs",
+  "doc/src/dllgen/mod.rs",
+  "api.json",
+  "scripts/ARCHITECTURE.md",
+]
+notes = "Big-picture entry point for new maintainers. code-organization: workspace crates and why they exist. build-and-codegen: api.json → dll/build.rs → all language bindings, including how to add a new type."
 
 [[group.outputs]]
-slug = "internals/crate-layout"
-path = "doc/guide/en/internals/crate-layout.md"
-title = "Crate Layout"
+slug = "internals/code-organization"
+path = "doc/guide/en/internals/code-organization.md"
+title = "Code Organization"
+maturity = "mature"
+
+[[group.outputs]]
+slug = "internals/build-and-codegen"
+path = "doc/guide/en/internals/build-and-codegen.md"
+title = "Build System and FFI Codegen"
 maturity = "mature"
 
 # ----
 
 [[group]]
-id = "compact-cache"
+id = "contributor-dom-and-css"
+tree = "contributor"
 audience = ["contributor"]
-agent_strategy = "single"
-tracked_files = ["core/src/compact_cache_builder.rs", "css/src/css_property.rs", "layout/src/prop_cache.rs"]
+agent_strategy = "split"
+tracked_files = [
+  "core/src/dom.rs",
+  "core/src/id_tree.rs",
+  "core/src/diff.rs",
+  "css/src/parser.rs",
+  "css/src/css_property.rs",
+  "core/src/compact_cache_builder.rs",
+  "css/src/compact_cache.rs",
+]
+tracked_globs = [
+  "css/src/props/**/*.rs",
+  "layout/src/restyle_unified.rs",
+  "layout/src/css_inheritance.rs",
+  "layout/src/state_preservation.rs",
+  "layout/src/dom_reconciliation.rs",
+  "layout/src/fingerprint.rs",
+]
+notes = "DOM internals (id_tree, diff, fingerprinting) + CSS parser + cascade/inheritance/restyle pipeline + compact property cache."
+
+[[group.outputs]]
+slug = "internals/dom"
+path = "doc/guide/en/internals/dom.md"
+title = "DOM Internals"
+maturity = "mature"
+
+[[group.outputs]]
+slug = "internals/css-parser"
+path = "doc/guide/en/internals/css-parser.md"
+title = "CSS Parser"
+maturity = "mature"
+
+[[group.outputs]]
+slug = "internals/cascade"
+path = "doc/guide/en/internals/cascade.md"
+title = "Cascade, Inheritance, Restyle"
+maturity = "wip"
 
 [[group.outputs]]
 slug = "internals/compact-cache"
@@ -490,56 +755,118 @@ maturity = "mature"
 # ----
 
 [[group]]
-id = "cascade-internals"
-audience = ["contributor"]
-agent_strategy = "single"
-tracked_files = [
-  "layout/src/restyle_unified.rs",
-  "layout/src/css_inheritance.rs",
-  "layout/src/state_preservation.rs",
-  "layout/src/dom_reconciliation.rs",
-  "layout/src/fingerprint.rs",
-]
-
-[[group.outputs]]
-slug = "internals/cascade"
-path = "doc/guide/en/internals/cascade.md"
-title = "CSS Cascade Internals"
-maturity = "wip"
-
-# ----
-
-[[group]]
-id = "layout-solver"
+id = "contributor-layout-text-image"
+tree = "contributor"
 audience = ["contributor"]
 agent_strategy = "split"
-tracked_files = ["layout/src/solver.rs", "layout/src/window.rs"]
-tracked_globs = ["layout/src/text2/*.rs"]
+tracked_files = [
+  "layout/src/lib.rs",
+  "layout/src/window.rs",
+  "core/src/text2.rs",
+  "core/src/app_resources.rs",
+  "dll/src/desktop/gl_texture_cache.rs",
+  "dll/src/desktop/shader_cache.rs",
+]
+tracked_globs = [
+  "layout/src/solver*.rs",
+  "layout/src/text*/**/*.rs",
+]
+notes = "The numerical heart of azul: layout solver (flex/grid + fragmentation), inline layout and text shaping (text3), text pipeline (font loading, glyph cache), image pipeline (resource manager, GL texture cache, shader cache)."
 
 [[group.outputs]]
 slug = "internals/layout-solver"
 path = "doc/guide/en/internals/layout-solver.md"
-title = "Layout Solver"
+title = "Layout Solver (Flex/Grid)"
 maturity = "wip"
 
 [[group.outputs]]
-slug = "internals/layout-inline"
-path = "doc/guide/en/internals/layout-inline.md"
-title = "Inline Layout"
+slug = "internals/inline-text3"
+path = "doc/guide/en/internals/inline-text3.md"
+title = "Inline Layout and Text Shaping"
+maturity = "wip"
+
+[[group.outputs]]
+slug = "internals/fragmentation"
+path = "doc/guide/en/internals/fragmentation.md"
+title = "Fragmentation"
+maturity = "wip"
+
+[[group.outputs]]
+slug = "internals/text-pipeline"
+path = "doc/guide/en/internals/text-pipeline.md"
+title = "Text Pipeline"
+maturity = "wip"
+
+[[group.outputs]]
+slug = "internals/image-pipeline"
+path = "doc/guide/en/internals/image-pipeline.md"
+title = "Image Pipeline"
 maturity = "wip"
 
 # ----
 
 [[group]]
-id = "compositor-pipeline"
+id = "contributor-events-and-virtualview"
+tree = "contributor"
 audience = ["contributor"]
 agent_strategy = "split"
-tracked_files = ["dll/src/desktop/compositor.rs"]
-tracked_globs = ["dll/src/desktop/shell2/common/gl*.rs", "webrender/webrender/src/lib.rs"]
+tracked_files = [
+  "core/src/callbacks.rs",
+  "core/src/events.rs",
+  "core/src/hit_test.rs",
+  "core/src/hit_test_tag.rs",
+  "core/src/drag.rs",
+  "core/src/selection.rs",
+  "core/src/scrolling.rs",
+  "layout/src/hit_test.rs",
+  "layout/src/default_actions.rs",
+  "layout/src/managers/virtual_view.rs",
+  "core/src/virtualized_view_manager.rs",
+]
+notes = "Event flow from OS to callback (hit-testing, default actions, drag, selection, scrolling) and VirtualView lazy-loading manager."
 
 [[group.outputs]]
-slug = "internals/rendering"
-path = "doc/guide/en/internals/rendering.md"
+slug = "internals/event-system"
+path = "doc/guide/en/internals/event-system.md"
+title = "Event System Internals"
+maturity = "mature"
+
+[[group.outputs]]
+slug = "internals/hit-testing"
+path = "doc/guide/en/internals/hit-testing.md"
+title = "Hit Testing and Scrolling"
+maturity = "wip"
+
+[[group.outputs]]
+slug = "internals/virtual-view"
+path = "doc/guide/en/internals/virtual-view.md"
+title = "VirtualView Lazy Loading"
+maturity = "wip"
+
+# ----
+
+[[group]]
+id = "contributor-rendering"
+tree = "contributor"
+audience = ["contributor"]
+agent_strategy = "split"
+tracked_files = [
+  "dll/src/desktop/compositor2.rs",
+  "core/src/gl.rs",
+  "core/src/gl_fxaa.rs",
+  "core/src/glconst.rs",
+  "core/src/gpu.rs",
+]
+tracked_globs = [
+  "dll/src/desktop/shell2/common/gl*.rs",
+  "dll/src/desktop/shell2/common/*compositor*.rs",
+  "webrender/webrender/src/lib.rs",
+]
+notes = "Rendering pipeline: compositor2 (display lists → GPU), GL function loading via dlopen, the WebRender bridge."
+
+[[group.outputs]]
+slug = "internals/rendering-pipeline"
+path = "doc/guide/en/internals/rendering-pipeline.md"
 title = "Rendering Pipeline"
 maturity = "wip"
 
@@ -549,13 +876,21 @@ path = "doc/guide/en/internals/gl-loading.md"
 title = "GL Function Loading"
 maturity = "wip"
 
+[[group.outputs]]
+slug = "internals/webrender-bridge"
+path = "doc/guide/en/internals/webrender-bridge.md"
+title = "WebRender Bridge"
+maturity = "wip"
+
 # ----
 
 [[group]]
-id = "shell2-backends"
+id = "contributor-shell2"
+tree = "contributor"
 audience = ["contributor"]
 agent_strategy = "split"
 tracked_globs = ["dll/src/desktop/shell2/**/*.rs"]
+notes = "Per-OS shell layer. Common abstraction first, then each backend. Linux gets two pages (X11 + Wayland) plus DBus/GNOME menu integration as its own page because it's huge."
 
 [[group.outputs]]
 slug = "internals/shell2-common"
@@ -564,87 +899,70 @@ title = "Shell2 Common Layer"
 maturity = "wip"
 
 [[group.outputs]]
-slug = "internals/shell2-linux"
-path = "doc/guide/en/internals/shell2-linux.md"
-title = "Shell2 Linux (X11/Wayland)"
+slug = "internals/shell2-linux-x11"
+path = "doc/guide/en/internals/shell2-linux-x11.md"
+title = "Shell2 — Linux X11"
+maturity = "wip"
+
+[[group.outputs]]
+slug = "internals/shell2-linux-wayland"
+path = "doc/guide/en/internals/shell2-linux-wayland.md"
+title = "Shell2 — Linux Wayland"
+maturity = "wip"
+
+[[group.outputs]]
+slug = "internals/shell2-linux-dbus"
+path = "doc/guide/en/internals/shell2-linux-dbus.md"
+title = "Shell2 — Linux DBus and GNOME Menus"
 maturity = "wip"
 
 [[group.outputs]]
 slug = "internals/shell2-windows"
 path = "doc/guide/en/internals/shell2-windows.md"
-title = "Shell2 Windows"
+title = "Shell2 — Windows"
 maturity = "wip"
 
 [[group.outputs]]
 slug = "internals/shell2-macos"
 path = "doc/guide/en/internals/shell2-macos.md"
-title = "Shell2 macOS"
+title = "Shell2 — macOS"
 maturity = "wip"
 
 # ----
 
 [[group]]
-id = "menu-csd"
+id = "contributor-menus-a11y-system"
+tree = "contributor"
 audience = ["contributor"]
-agent_strategy = "single"
-tracked_files = ["dll/src/desktop/menu.rs", "dll/src/desktop/menu_renderer.rs", "dll/src/desktop/csd.rs"]
-tracked_globs = ["dll/src/desktop/shell2/*/menu*.rs"]
+agent_strategy = "split"
+tracked_files = [
+  "core/src/menu.rs",
+  "core/src/a11y.rs",
+  "dll/src/desktop/menu.rs",
+  "dll/src/desktop/menu_renderer.rs",
+  "dll/src/desktop/csd.rs",
+  "css/src/system.rs",
+  "css/src/system_native_linux.rs",
+  "css/src/system_native_macos.rs",
+  "css/src/system_native_windows.rs",
+]
+tracked_globs = [
+  "dll/src/desktop/shell2/*/menu*.rs",
+  "dll/src/desktop/shell2/*/accessibility*.rs",
+]
+notes = "Cross-cutting OS integration: menus + CSD (client-side decorations), per-OS a11y backends (atspi, NSAccessibility, UIA), and the system style discovery layer."
 
 [[group.outputs]]
-slug = "internals/menu-and-csd"
-path = "doc/guide/en/internals/menu-and-csd.md"
+slug = "internals/menus-and-csd"
+path = "doc/guide/en/internals/menus-and-csd.md"
 title = "Menus and Client-Side Decorations"
 maturity = "wip"
 
-# ----
-
-[[group]]
-id = "ffi-codegen"
-audience = ["contributor"]
-agent_strategy = "single"
-tracked_files = ["dll/build.rs", "doc/src/dllgen/mod.rs", "api.json"]
-
 [[group.outputs]]
-slug = "internals/codegen"
-path = "doc/guide/en/internals/codegen.md"
-title = "FFI Code Generation"
-maturity = "mature"
-
-# ----
-
-[[group]]
-id = "web-backend-internals"
-audience = ["contributor"]
-agent_strategy = "single"
-tracked_files = ["dll/src/web/mod.rs"]
-
-[[group.outputs]]
-slug = "internals/web-backend"
-path = "doc/guide/en/internals/web-backend.md"
-title = "Web Backend Internals"
+slug = "internals/accessibility-backends"
+path = "doc/guide/en/internals/accessibility-backends.md"
+title = "Accessibility Backends"
 maturity = "wip"
-
-# ----
-
-[[group]]
-id = "async-internals"
-audience = ["contributor"]
-agent_strategy = "single"
-tracked_files = ["core/src/task.rs"]
-
-[[group.outputs]]
-slug = "internals/async"
-path = "doc/guide/en/internals/async.md"
-title = "Async, Timers, and Threading Internals"
-maturity = "wip"
-
-# ----
-
-[[group]]
-id = "system-style-discovery"
-audience = ["contributor"]
-agent_strategy = "single"
-tracked_files = ["css/src/system_style.rs"]
 
 [[group.outputs]]
 slug = "internals/system-style"
@@ -655,27 +973,22 @@ maturity = "wip"
 # ----
 
 [[group]]
-id = "virtualview"
+id = "contributor-async-and-web"
+tree = "contributor"
 audience = ["contributor"]
-agent_strategy = "single"
-tracked_files = ["core/src/virtualized_view_manager.rs"]
+agent_strategy = "split"
+tracked_files = ["core/src/task.rs"]
+tracked_globs = ["dll/src/web/*.rs"]
+notes = "Async/timer/threading runtime in core/src/task.rs, and the web target backend (transpiler, classify, mini_gen, server, loader_js)."
 
 [[group.outputs]]
-slug = "internals/virtualview"
-path = "doc/guide/en/internals/virtualview.md"
-title = "VirtualView Lazy Loading"
+slug = "internals/async"
+path = "doc/guide/en/internals/async.md"
+title = "Async, Timers, Threading"
 maturity = "wip"
 
-# ----
-
-[[group]]
-id = "hit-testing-scrolling"
-audience = ["contributor"]
-agent_strategy = "single"
-tracked_files = ["layout/src/hit_test.rs", "core/src/scrolling.rs"]
-
 [[group.outputs]]
-slug = "internals/hit-testing"
-path = "doc/guide/en/internals/hit-testing.md"
-title = "Hit Testing and Scrolling Internals"
+slug = "internals/web-backend"
+path = "doc/guide/en/internals/web-backend.md"
+title = "Web Backend Internals"
 maturity = "wip"

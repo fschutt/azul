@@ -39,11 +39,61 @@ pub struct Meta {
     pub schema_version: u32,
     #[serde(default)]
     pub existing_guides: Vec<String>,
+    #[serde(default)]
+    pub shared_context_files: Vec<String>,
+    #[serde(default, rename = "trees")]
+    pub trees: Vec<TreeDef>,
+    #[serde(default)]
+    pub writing_style: Option<WritingStyle>,
+    #[serde(default)]
+    pub agent_thinking: Option<AgentThinking>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TreeDef {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub audience: String,
+    #[serde(default)]
+    pub description: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct WritingStyle {
+    #[serde(default)]
+    pub voice: String,
+    #[serde(default)]
+    pub tone: String,
+    #[serde(default)]
+    pub length_target: String,
+    #[serde(default)]
+    pub opening_pattern: String,
+    #[serde(default)]
+    pub code_examples: String,
+    #[serde(default)]
+    pub visuals: String,
+    #[serde(default)]
+    pub cross_links: String,
+    #[serde(default)]
+    pub avoid: Vec<String>,
+    #[serde(default)]
+    pub prefer: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct AgentThinking {
+    #[serde(default)]
+    pub mode: String,
+    #[serde(default)]
+    pub instructions: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Group {
     pub id: String,
+    #[serde(default)]
+    pub tree: String,
     pub audience: Vec<String>,
     pub agent_strategy: String,
     #[serde(default)]
@@ -275,7 +325,11 @@ pub fn relevant_reports(project_root: &Path, group: &Group) -> Vec<PathBuf> {
 const SOURCE_INCLUSION_BUDGET: usize = 40_000; // chars; agent reads larger files itself
 const REPORT_INCLUSION_BUDGET: usize = 30_000;
 
-pub fn build_autodoc_prompt(project_root: &Path, group: &Group) -> String {
+pub fn build_autodoc_prompt(
+    project_root: &Path,
+    manifest: &Manifest,
+    group: &Group,
+) -> String {
     let tracked = resolve_tracked(project_root, group);
     let reports = relevant_reports(project_root, group);
 
@@ -288,10 +342,86 @@ pub fn build_autodoc_prompt(project_root: &Path, group: &Group) -> String {
     s.push_str("**You are running in parallel with other agents writing other systems. \
                 You must ONLY write the output files listed below. Do NOT modify any other file.**\n\n");
 
+    // ── Tree context ──────────────────────────────────────────────
+    if !group.tree.is_empty() {
+        if let Some(td) = manifest.meta.trees.iter().find(|t| t.id == group.tree) {
+            s.push_str(&format!(
+                "## Book tree: `{}` — {}\n\n{}\n\n",
+                td.id, td.title, td.description.trim()
+            ));
+        } else {
+            s.push_str(&format!("## Book tree: `{}`\n\n", group.tree));
+        }
+    }
+
     s.push_str(&format!("## Strategy: `{}`\n\n", group.agent_strategy));
     s.push_str(&format!("Audience(s): {}\n\n", group.audience.join(", ")));
     if let Some(notes) = &group.notes {
         s.push_str(&format!("Notes: {}\n\n", notes));
+    }
+
+    // ── Shared context (read first) ───────────────────────────────
+    if !manifest.meta.shared_context_files.is_empty() {
+        s.push_str("## Shared context — READ THESE FIRST\n\n");
+        s.push_str("Before writing any output, load these files. They anchor your work \
+                    in the project's existing structure and conventions:\n\n");
+        for f in &manifest.meta.shared_context_files {
+            s.push_str(&format!("- `{f}`\n"));
+        }
+        s.push('\n');
+    }
+
+    // ── Writing style ─────────────────────────────────────────────
+    if let Some(ws) = &manifest.meta.writing_style {
+        s.push_str("## Writing style\n\n");
+        if !ws.voice.is_empty() {
+            s.push_str(&format!("- **Voice**: {}\n", ws.voice));
+        }
+        if !ws.tone.is_empty() {
+            s.push_str(&format!("- **Tone**: {}\n", ws.tone));
+        }
+        if !ws.length_target.is_empty() {
+            s.push_str(&format!("- **Length**: {}\n", ws.length_target));
+        }
+        if !ws.opening_pattern.is_empty() {
+            s.push_str(&format!("- **Opening**: {}\n", ws.opening_pattern));
+        }
+        if !ws.code_examples.is_empty() {
+            s.push_str(&format!("- **Code**: {}\n", ws.code_examples));
+        }
+        if !ws.visuals.is_empty() {
+            s.push_str(&format!("- **Visuals**: {}\n", ws.visuals));
+        }
+        if !ws.cross_links.is_empty() {
+            s.push_str(&format!("- **Links**: {}\n", ws.cross_links));
+        }
+        if !ws.avoid.is_empty() {
+            s.push_str("\n**Avoid**:\n");
+            for a in &ws.avoid {
+                s.push_str(&format!("- {a}\n"));
+            }
+        }
+        if !ws.prefer.is_empty() {
+            s.push_str("\n**Prefer**:\n");
+            for p in &ws.prefer {
+                s.push_str(&format!("- {p}\n"));
+            }
+        }
+        s.push('\n');
+    }
+
+    // ── Max-effort thinking ──────────────────────────────────────
+    if let Some(at) = &manifest.meta.agent_thinking {
+        let mode = if at.mode.is_empty() { "max-effort" } else { &at.mode };
+        s.push_str(&format!("## Thinking mode: `{mode}`\n\n"));
+        s.push_str("Use extended thinking. Do not skim — actually load and reason about \
+                    the source. Quality over speed.\n\n");
+        if !at.instructions.is_empty() {
+            for (i, inst) in at.instructions.iter().enumerate() {
+                s.push_str(&format!("{}. {inst}\n", i + 1));
+            }
+            s.push('\n');
+        }
     }
 
     s.push_str("## Output files (write each one)\n\n");
@@ -655,7 +785,7 @@ pub fn run_autodoc(config: &AutoreviewConfig) -> Result<(), String> {
         ) {
             continue;
         }
-        let prompt = build_autodoc_prompt(&project_root, group);
+        let prompt = build_autodoc_prompt(&project_root, &manifest, group);
         fs::write(&prompt_path, &prompt)
             .map_err(|e| format!("write {}: {}", prompt_path.display(), e))?;
         prompt_count += 1;
