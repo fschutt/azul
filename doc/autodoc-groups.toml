@@ -100,6 +100,9 @@ avoid = [
   "Forward references on external pages — never use a concept before its prerequisite page introduces it",
   "Multi-paragraph docstring inside code blocks",
   "Emojis",
+  "Singular 'they' for an unspecified reader — address the reader directly with 'you' / 'your'",
+  "Renamed terminology: write 'master' (not 'main') for the default git branch; 'blacklist' / 'whitelist' (not 'blocklist' / 'allowlist'); 'parent' / 'child' for tree relationships. Use the established technical term.",
+  "Gendered or anthropomorphizing language for code: don't say a function 'wants' something or 'knows' something — say what it does",
 ]
 prefer = [
   "Functional H2 headings the reader will Ctrl-F for: 'Adding a callback', 'Hit-test order', 'When the layout is invalidated' — not 'Overview' or 'Introduction'",
