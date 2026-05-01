@@ -81,27 +81,34 @@ programming background. No teaching order — read on demand.
 # ──────────────────────────────────────────────────────────────────────
 
 [meta.writing_style]
-voice = "Direct, second-person, technical. Like a senior colleague explaining at a whiteboard."
-tone = "Clear and concrete. Never marketing, never academic, never condescending."
-length_target = "1500–3500 words per page (≈ 200–600 markdown lines). Sub-pages can be shorter."
-opening_pattern = "Each page opens with a one-sentence statement of *what this is for*, then a runnable code or visual example within the first 30 lines."
-code_examples = "Complete and copy-pasteable. No `…` placeholders. Hidden setup via leading `#` lines is encouraged. External pages prefer `\\`\\`\\`rust` blocks; stub-tagged pages use `\\`\\`\\`rust,ignore`."
-visuals = "Use `azul-render` fenced blocks for screenshots and slideshows. Add `subtitle=` for figure captions. Group sequence frames with `slideshow=ID`."
-cross_links = "Link to other guide pages by relative slug. Cite source code with file:line for contributor pages."
+reference = "https://book.servo.org/contributing/guides/index.html — match this style. Dense, structural, zero throat-clearing. Headings carry the table of contents; prose only fills in what a heading + signature don't already say."
+reader_model = "Senior engineer skimming for the answer. They have read the architecture page. They know Rust. They will Ctrl-F your headings — every H2 must be a thing they'd search for."
+voice = "Declarative, second-person where unavoidable, otherwise impersonal. State facts. Don't narrate."
+length_target = "Aim for the *shortest page that fully covers the topic*. Hard cap 2000 words; most pages 600–1200. If you exceed 2000, split into sub-pages instead of trimming."
+opening_pattern = "First sentence states a fact about the subject — never 'In this guide…' or 'This page covers…'. First code or signature within 15 lines."
+code_examples = "Complete and copy-pasteable. No `…` placeholders. External pages: ```rust. Stub pages: ```rust,ignore. Hidden setup via leading `#` lines."
+visuals = "Use `azul-render` fences for screenshots / slideshows. `subtitle=` for captions. `slideshow=ID` to group frames."
+cross_links = "Inline links, not bibliography sections. Cite source as `core/src/foo.rs:LINE` on contributor pages."
 avoid = [
-  "Marketing language: 'blazing fast', 'powerful', 'cutting-edge'",
-  "Filler verbs: 'simply', 'just', 'obviously', 'easily'",
+  "Throat-clearing: 'In this guide…', 'Let's start by…', 'First, we will…', 'It is important to note…', 'As mentioned earlier…'",
+  "Recap paragraphs at section ends ('To summarize…', 'In short…')",
+  "Restating the H2 as the first sentence",
+  "Marketing words: blazing-fast, powerful, robust, seamless, cutting-edge, elegant",
+  "Filler adverbs: simply, just, obviously, easily, basically, essentially, actually",
+  "Hedging: 'tends to', 'often', 'in most cases' — be specific or omit",
+  "Long prose runs without code, signatures, tables, or lists",
   "Forward references on external pages — never use a concept before its prerequisite page introduces it",
-  "Emojis (unless asked)",
-  "Multi-paragraph docstrings inside code samples",
-  "Restating section titles as the first sentence",
+  "Multi-paragraph docstring inside code blocks",
+  "Emojis",
 ]
 prefer = [
-  "Concrete > abstract: show the API call, then explain why",
-  "Tables for property/method enumerations",
-  "Numbered steps for procedures",
-  "Definitions inline on first use, with link to full page if it has one",
-  "Defensive sub-headings — H2 every ≈ 400 words so readers can skim",
+  "Functional H2 headings the reader will Ctrl-F for: 'Adding a callback', 'Hit-test order', 'When the layout is invalidated' — not 'Overview' or 'Introduction'",
+  "Two- to three-sentence paragraphs. Break with a code block, table, or list before a 4th sentence.",
+  "Bullets for alternatives, options, and enumerations. Tables for cross-products (property × variant, OS × backend).",
+  "Type signatures and function signatures inline before the explanation",
+  "Numbered steps for ordered procedures only — not for explanations",
+  "One concept per H2. If you find yourself writing 'There are two kinds of X', that's two H2s.",
+  "End each H2 at the last fact. No closing paragraph.",
 ]
 
 # ──────────────────────────────────────────────────────────────────────

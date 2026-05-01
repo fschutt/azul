@@ -62,6 +62,10 @@ pub struct TreeDef {
 #[derive(Debug, Deserialize, Clone)]
 pub struct WritingStyle {
     #[serde(default)]
+    pub reference: String,
+    #[serde(default)]
+    pub reader_model: String,
+    #[serde(default)]
     pub voice: String,
     #[serde(default)]
     pub tone: String,
@@ -374,6 +378,12 @@ pub fn build_autodoc_prompt(
     // ── Writing style ─────────────────────────────────────────────
     if let Some(ws) = &manifest.meta.writing_style {
         s.push_str("## Writing style\n\n");
+        if !ws.reference.is_empty() {
+            s.push_str(&format!("**Reference style**: {}\n\n", ws.reference));
+        }
+        if !ws.reader_model.is_empty() {
+            s.push_str(&format!("**Reader**: {}\n\n", ws.reader_model));
+        }
         if !ws.voice.is_empty() {
             s.push_str(&format!("- **Voice**: {}\n", ws.voice));
         }
