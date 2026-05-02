@@ -4,33 +4,51 @@
 
 # Guide
 
-- [Getting Started](getting-started.md)
 - [Hello, World](hello-world.md)
+- [Hello, World — Rust](hello-world/rust.md)
+- [Hello, World — C (WIP)](hello-world/c.md)
+- [Hello, World — C++ (WIP)](hello-world/cpp.md)
+- [Hello, World — Python (WIP)](hello-world/python.md)
 - [Architecture](architecture.md)
-- [DOM and Callbacks](dom.md)
-- [Events and Input](events.md)
-- [CSS Styling](css.md)
+- [Understanding RefAny](understanding-refany.md)
+- [The DOM](dom.md)
+- [Components](dom/components.md)
+- [Styling with CSS](styling.md)
+- [CSS Properties Cheatsheet](styling/properties.md)
+- [System Themes (WIP)](styling/themes.md)
 - [Layout](layout.md)
-- [Text and Fonts (WIP)](text.md)
-- [Images, SVG, and Canvas (WIP)](images.md)
-- [Widgets (WIP)](widgets.md)
+- [Flexbox](layout/flex.md)
+- [Grid](layout/grid.md)
+- [Positioning and Overflow](layout/positioning.md)
+- [Text and Fonts (WIP)](text-and-fonts.md)
+- [Images and Drawing (WIP)](images.md)
+- [SVG (WIP)](images/svg.md)
+- [Canvas and GL Textures (WIP)](images/canvas-gl.md)
+- [Built-in Widgets (WIP)](widgets.md)
+- [Input Widgets (WIP)](widgets/inputs.md)
+- [Structural Widgets (WIP)](widgets/structural.md)
+- [Events and Input](events.md)
 - [Timers (WIP)](timers.md)
 - [Animations (not yet functional)](animations.md)
-- [Scrolling (WIP)](scrolling.md)
-- [Background Tasks (WIP)](background-tasks.md)
+- [Scrolling and Drag-and-Drop (WIP)](scrolling-and-drag.md)
+- [Windows, Menus, Decorations](windowing.md)
+- [Debugging (WIP)](debugging.md)
+- [Memory and Profiling (WIP)](memory-profiling.md)
+- [End-to-End Testing (WIP)](e2e-testing.md)
+- [XML Parsing (Standalone) (WIP)](xml.md)
+- [File Dialogs (WIP)](file-dialogs.md)
 - [Clipboard (WIP)](clipboard.md)
+- [Background Tasks (WIP)](background-tasks.md)
+- [Networking (not yet functional)](networking.md)
 - [Accessibility (WIP)](accessibility.md)
-- [Windows and Decorations](windowing.md)
-- [Web Target (WASM/SSR) (WIP)](web-target.md)
-
-# Topics
-
+- [Headless Rendering (WIP)](headless-rendering.md)
+- [Code Generation (WIP)](code-generation.md)
+- [Rust Bindings](bindings/rust.md)
 - [C Bindings (WIP)](bindings/c.md)
 - [C++ Bindings (WIP)](bindings/cpp.md)
 - [Python Bindings (WIP)](bindings/python.md)
-- [Rust Bindings (WIP)](bindings/rust.md)
-- [Headless Rendering (WIP)](topics/headless-render.md)
-- [XML Parsing (Standalone) (WIP)](topics/xml-parsing.md)
+- [Web Deployment (WIP)](web-deployment.md)
+- [Security Model (WIP)](security.md)
 
 # Contributor reference
 
@@ -41,31 +59,27 @@
 
 ## async
 
-- [Async, Timers, and Threading Internals (WIP)](internals/async.md)
+- [Async, Timers, Threading (WIP)](internals/async.md)
+
+## build
+
+- [Build System and FFI Codegen](internals/build-and-codegen.md)
 
 ## cascade
 
-- [CSS Cascade Internals (WIP)](internals/cascade.md)
+- [Cascade, Inheritance, Restyle (WIP)](internals/cascade.md)
 
-## clipboard
+## code
 
-- [Clipboard Internals (WIP)](internals/clipboard.md)
-
-## codegen
-
-- [FFI Code Generation](internals/codegen.md)
+- [Code Organization](internals/code-organization.md)
 
 ## compact
 
 - [Compact Property Cache](internals/compact-cache.md)
 
-## crate
-
-- [Crate Layout](internals/crate-layout.md)
-
 ## css
 
-- [CSS Property Internals](internals/css-properties.md)
+- [CSS Parser](internals/css-parser.md)
 
 ## dom
 
@@ -75,37 +89,46 @@
 
 - [Event System Internals](internals/event-system.md)
 
+## fragmentation
+
+- [Fragmentation (WIP)](internals/fragmentation.md)
+
 ## gl
 
 - [GL Function Loading (WIP)](internals/gl-loading.md)
 
 ## hit
 
-- [Hit Testing and Scrolling Internals (WIP)](internals/hit-testing.md)
+- [Hit Testing and Scrolling (WIP)](internals/hit-testing.md)
 
 ## image
 
 - [Image Pipeline (WIP)](internals/image-pipeline.md)
 
+## inline
+
+- [Inline Layout and Text Shaping (WIP)](internals/inline-text3.md)
+
 ## layout
 
-- [Inline Layout (WIP)](internals/layout-inline.md)
-- [Layout Solver (WIP)](internals/layout-solver.md)
+- [Layout Solver (Flex/Grid) (WIP)](internals/layout-solver.md)
 
-## menu
+## menus
 
-- [Menus and Client-Side Decorations (WIP)](internals/menu-and-csd.md)
+- [Menus and Client-Side Decorations (WIP)](internals/menus-and-csd.md)
 
 ## rendering
 
-- [Rendering Pipeline (WIP)](internals/rendering.md)
+- [Rendering Pipeline (WIP)](internals/rendering-pipeline.md)
 
 ## shell2
 
 - [Shell2 Common Layer (WIP)](internals/shell2-common.md)
-- [Shell2 Linux (X11/Wayland) (WIP)](internals/shell2-linux.md)
-- [Shell2 macOS (WIP)](internals/shell2-macos.md)
-- [Shell2 Windows (WIP)](internals/shell2-windows.md)
+- [Shell2 — Linux DBus and GNOME Menus (WIP)](internals/shell2-linux-dbus.md)
+- [Shell2 — Linux Wayland (WIP)](internals/shell2-linux-wayland.md)
+- [Shell2 — Linux X11 (WIP)](internals/shell2-linux-x11.md)
+- [Shell2 — macOS (WIP)](internals/shell2-macos.md)
+- [Shell2 — Windows (WIP)](internals/shell2-windows.md)
 
 ## system
 
@@ -115,14 +138,14 @@
 
 - [Text Pipeline (WIP)](internals/text-pipeline.md)
 
-## virtualview
+## virtual
 
-- [VirtualView Lazy Loading (WIP)](internals/virtualview.md)
+- [VirtualView Lazy Loading (WIP)](internals/virtual-view.md)
 
 ## web
 
 - [Web Backend Internals (WIP)](internals/web-backend.md)
 
-## widgets
+## webrender
 
-- [Widget Internals (WIP)](internals/widgets.md)
+- [WebRender Bridge (WIP)](internals/webrender-bridge.md)

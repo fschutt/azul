@@ -1,3 +1,22 @@
+---
+slug: architecture
+title: Architecture
+language: en
+canonical_slug: architecture
+audience: external
+maturity: mature
+guide_order: 20
+topic_only: false
+prerequisites: [hello-world]
+tracked_files:
+  - core/src/callbacks.rs
+  - core/src/dom.rs
+  - core/src/refany.rs
+  - doc/guide/en/architecture.md
+last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
+generated_at: 2026-05-01T17:30:00Z
+---
+
 # Towards A „Perfect“ GUI Toolkit
 
 For over 40 years, building graphical user interfaces (GUIs) has been one of the most 

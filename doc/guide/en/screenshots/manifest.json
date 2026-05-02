@@ -1,0 +1,175 @@
+{
+  "version": 1,
+  "generated_at": "2026-05-01T21:34:42.687866+00:00",
+  "screenshots": [
+    {
+      "name": "hello-world",
+      "width": 400,
+      "height": 240,
+      "subtitle": "The minimum viable Azul window — counter label plus a button.",
+      "slideshow": null,
+      "source_page": "doc/guide/en/hello-world.md"
+    },
+    {
+      "name": "text-heading",
+      "width": 480,
+      "height": 200,
+      "subtitle": "A heading and paragraph using system fonts",
+      "slideshow": null,
+      "source_page": "doc/guide/en/text-and-fonts.md"
+    },
+    {
+      "name": "text-justify",
+      "width": 400,
+      "height": 200,
+      "subtitle": "text-align: justify with default text-justify: auto",
+      "slideshow": null,
+      "source_page": "doc/guide/en/text-and-fonts.md"
+    },
+    {
+      "name": "text-weights",
+      "width": 400,
+      "height": 200,
+      "subtitle": "lighter / normal / bold weights side by side",
+      "slideshow": null,
+      "source_page": "doc/guide/en/text-and-fonts.md"
+    },
+    {
+      "name": "flex-sidebar",
+      "width": 480,
+      "height": 200,
+      "subtitle": "Fixed sidebar with growing content area",
+      "slideshow": null,
+      "source_page": "doc/guide/en/layout/flex.md"
+    },
+    {
+      "name": "flex-equal",
+      "width": 480,
+      "height": 160,
+      "subtitle": "Three equal columns via flex-grow: 1",
+      "slideshow": null,
+      "source_page": "doc/guide/en/layout/flex.md"
+    },
+    {
+      "name": "flex-center",
+      "width": 400,
+      "height": 200,
+      "subtitle": "Both axes centred",
+      "slideshow": null,
+      "source_page": "doc/guide/en/layout/flex.md"
+    },
+    {
+      "name": "flex-wrap",
+      "width": 480,
+      "height": 240,
+      "subtitle": "Cards wrap onto multiple lines as the container narrows",
+      "slideshow": null,
+      "source_page": "doc/guide/en/layout/flex.md"
+    },
+    {
+      "name": "pos-modal",
+      "width": 480,
+      "height": 300,
+      "subtitle": "Modal centred over a fixed-position backdrop",
+      "slideshow": null,
+      "source_page": "doc/guide/en/layout/positioning.md"
+    },
+    {
+      "name": "pos-sticky",
+      "width": 400,
+      "height": 300,
+      "subtitle": "position: sticky pins the header within a scroll container",
+      "slideshow": null,
+      "source_page": "doc/guide/en/layout/positioning.md"
+    },
+    {
+      "name": "pos-badge",
+      "width": 320,
+      "height": 160,
+      "subtitle": "Absolute-positioned badge on a relatively-positioned card",
+      "slideshow": null,
+      "source_page": "doc/guide/en/layout/positioning.md"
+    },
+    {
+      "name": "grid-holy-grail",
+      "width": 480,
+      "height": 320,
+      "subtitle": "Header / nav / main / aside / footer with grid-template-areas",
+      "slideshow": null,
+      "source_page": "doc/guide/en/layout/grid.md"
+    },
+    {
+      "name": "grid-cards",
+      "width": 480,
+      "height": 240,
+      "subtitle": "Auto-flowing cards in a 3-column grid",
+      "slideshow": null,
+      "source_page": "doc/guide/en/layout/grid.md"
+    },
+    {
+      "name": "grid-minmax",
+      "width": 480,
+      "height": 200,
+      "subtitle": "Tracks that clamp to a range with minmax()",
+      "slideshow": null,
+      "source_page": "doc/guide/en/layout/grid.md"
+    },
+    {
+      "name": "headless-hello",
+      "width": 400,
+      "height": 200,
+      "subtitle": "A free-standing render — no window, no display server",
+      "slideshow": null,
+      "source_page": "doc/guide/en/headless-rendering.md"
+    },
+    {
+      "name": "props-borders",
+      "width": 400,
+      "height": 120,
+      "subtitle": "border-style sample",
+      "slideshow": null,
+      "source_page": "doc/guide/en/styling/properties.md"
+    },
+    {
+      "name": "props-gradients",
+      "width": 400,
+      "height": 160,
+      "subtitle": "linear, radial, and conic gradients",
+      "slideshow": null,
+      "source_page": "doc/guide/en/styling/properties.md"
+    },
+    {
+      "name": "styling-card",
+      "width": 400,
+      "height": 160,
+      "subtitle": "Card layout from the snippet above",
+      "slideshow": null,
+      "source_page": "doc/guide/en/styling.md"
+    },
+    {
+      "name": "layout-block",
+      "width": 480,
+      "height": 200,
+      "subtitle": "Default block flow — each element on its own line",
+      "slideshow": null,
+      "source_page": "doc/guide/en/layout.md"
+    },
+    {
+      "name": "layout-flex",
+      "width": 480,
+      "height": 160,
+      "subtitle": "Same children with display: flex",
+      "slideshow": null,
+      "source_page": "doc/guide/en/layout.md"
+    },
+    {
+      "name": "layout-grid",
+      "width": 480,
+      "height": 200,
+      "subtitle": "Same children with display: grid",
+      "slideshow": null,
+      "source_page": "doc/guide/en/layout.md"
+    }
+  ],
+  "slideshows": {}
+}
