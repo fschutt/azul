@@ -1438,6 +1438,21 @@ fn main() -> anyhow::Result<()> {
                 println!("  [OK] Generated: {}", path);
             }
 
+            // Re-render any azul-render screenshots whose source XML has
+            // changed since the last deploy. The hash sidecars under
+            // doc/guide/en/screenshots/<name>.png.hash track the inputs.
+            match reftest::autodoc::render_stale_screenshots(&project_root) {
+                Ok((re, sk)) if re > 0 => {
+                    println!("  [OK] Re-rendered {} screenshot(s), {} up-to-date", re, sk);
+                }
+                Ok((_, sk)) => {
+                    println!("  [OK] {} screenshot(s) already up-to-date", sk);
+                }
+                Err(e) => {
+                    eprintln!("  [WARN] Screenshot regeneration failed: {}", e);
+                }
+            }
+
             // Copy screenshot PNGs from doc/guide/en/screenshots/ to
             // <deploy>/guide/screenshots/ so the absolute URLs in
             // <figure>/slideshow HTML resolve.

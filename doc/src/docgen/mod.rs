@@ -193,7 +193,7 @@ impl ExampleRendered {
             id: name.clone(),
             title: e.title.join("<br>"), // Join multiline titles with <br>
             description: comrak::markdown_to_html(
-                &e.description.join("\r\n"),
+                &guide::transform_german_quotes(&e.description.join("\r\n")),
                 &comrak::Options::default(),
             ),
             alt: e.alt.clone(),

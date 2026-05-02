@@ -81,7 +81,7 @@ fn preprocess_markdown_content(content: &str) -> String {
         result.push(line);
     }
 
-    result.join("\n")
+    crate::docgen::guide::transform_german_quotes(&result.join("\n"))
 }
 
 /// Get a list of all blog posts

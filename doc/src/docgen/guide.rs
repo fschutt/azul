@@ -26,6 +26,7 @@ pub struct Guide {
 
 /// Pre-process markdown content:
 /// - Remove mermaid code blocks (not supported in HTML output)
+/// - Transform straight `"` into German-style „…" quotes outside of code
 /// (Frontmatter is stripped earlier, in `get_guide_list`, so it never
 /// reaches this stage.)
 fn preprocess_markdown_content(content: &str) -> String {
@@ -49,7 +50,49 @@ fn preprocess_markdown_content(content: &str) -> String {
         result.push(line);
     }
 
-    result.join("\n")
+    let joined = result.join("\n");
+    transform_german_quotes(&joined)
+}
+
+/// Replace straight `"` with German-style „ (opening) / " (closing),
+/// alternating per occurrence. Skips fenced code blocks (``` ... ```)
+/// and inline code spans (`...`). HTML attribute quotes inside
+/// markdown body would also be rewritten, so avoid raw `<tag attr="...">`
+/// in body prose.
+pub fn transform_german_quotes(content: &str) -> String {
+    const OPEN: char = '\u{201E}'; // „
+    const CLOSE: char = '\u{201C}'; // "
+
+    let mut out = String::with_capacity(content.len());
+    let mut in_fence = false;
+    let mut quote_open = true;
+
+    for line in content.split_inclusive('\n') {
+        if line.trim_start().starts_with("```") {
+            in_fence = !in_fence;
+            out.push_str(line);
+            continue;
+        }
+        if in_fence {
+            out.push_str(line);
+            continue;
+        }
+        let mut in_inline_code = false;
+        for ch in line.chars() {
+            match ch {
+                '`' => {
+                    in_inline_code = !in_inline_code;
+                    out.push(ch);
+                }
+                '"' if !in_inline_code => {
+                    out.push(if quote_open { OPEN } else { CLOSE });
+                    quote_open = !quote_open;
+                }
+                _ => out.push(ch),
+            }
+        }
+    }
+    out
 }
 
 /// Walk `doc/guide/en/` at runtime and return one Guide per .md file.
@@ -174,7 +217,13 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
     let content = comrak::markdown_to_html_with_plugins(
         &processed_content,
         &comrak::Options {
-            render: Render::default(),
+            render: Render {
+                // We control the input - the <figure>/<img> emitted by
+                // expand_azul_render_blocks would otherwise be stripped to
+                // <!-- raw HTML omitted -->.
+                r#unsafe: true,
+                ..Render::default()
+            },
             parse: Parse::default(),
             extension: Extension {
                 strikethrough: true,
@@ -226,17 +275,18 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
             h1 { font-size: 1.8em; }
         }
         h2, h3, h4 { cursor: pointer; }
-        h2 { 
+        h2 {
             font-family: 'Instrument Serif', Georgia, serif;
             font-size: 2em;
             font-weight: normal;
-            margin-top: 40px; 
+            margin-top: 25px;
             margin-bottom: 15px;
             text-shadow: 0.3px 0 0 currentColor, -0.3px 0 0 currentColor;
         }
-        h3 { margin-top: 35px; margin-bottom: 10px; font-size: 1.3em; }
-        h4 { margin-top: 25px; margin-bottom: 8px; font-size: 1.1em; }
+        h3 { margin-top: 22px; margin-bottom: 10px; font-size: 1.3em; }
+        h4 { margin-top: 18px; margin-bottom: 8px; font-size: 1.1em; }
         #guide { max-width: 700px; line-height: 1.7; font-size: 1.1em; }
+        #guide p { margin-bottom: 1em; }
         #guide img { max-width: 700px; margin-top: 15px; margin-bottom: 15px;}
         #guide ul, #guide ol {
             margin-top: 15px;
@@ -245,7 +295,10 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
         }
         #guide li {
             font-size: 16px;
+            margin-bottom: 0.6em;
         }
+        #guide li > p { margin-bottom: 0.3em; }
+        #guide li:last-child { margin-bottom: 0; }
         #guide code {
             font-family: monospace;
             font-weight: bold;
@@ -265,6 +318,99 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
             white-space: pre;
             overflow-x: auto;
         }
+        /* Dark theme for fenced code blocks - guide pages only.
+           The index/landing pages don't render `#guide`, so main.css's
+           light Prism theme stays in effect there. */
+        #guide pre[class*=\"language-\"],
+        #guide pre code[class*=\"language-\"],
+        #guide pre code {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            text-shadow: none;
+            padding: 12px 14px;
+            border-radius: 4px;
+        }
+        #guide pre .token.comment,
+        #guide pre .token.prolog,
+        #guide pre .token.doctype,
+        #guide pre .token.cdata { color: #6a9955; font-style: italic; }
+        #guide pre .token.punctuation { color: #d4d4d4; }
+        #guide pre .token.property,
+        #guide pre .token.tag,
+        #guide pre .token.boolean,
+        #guide pre .token.number,
+        #guide pre .token.constant,
+        #guide pre .token.symbol,
+        #guide pre .token.deleted { color: #b5cea8; }
+        #guide pre .token.selector,
+        #guide pre .token.attr-name,
+        #guide pre .token.string,
+        #guide pre .token.char,
+        #guide pre .token.builtin,
+        #guide pre .token.inserted { color: #ce9178; }
+        #guide pre .token.operator,
+        #guide pre .token.entity,
+        #guide pre .token.url { color: #d4d4d4; background: transparent; }
+        #guide pre .token.atrule,
+        #guide pre .token.attr-value,
+        #guide pre .token.keyword { color: #c586c0; }
+        #guide pre .token.function,
+        #guide pre .token.class-name { color: #dcdcaa; }
+        #guide pre .token.regex,
+        #guide pre .token.important,
+        #guide pre .token.variable { color: #9cdcfe; }
+        #guide pre .token.lifetime-annotation { color: #4ec9b0; }
+        /* Fake-window chrome for azul-render screenshots. The figure wraps
+           a window-shaped frame so the reader sees a screenshot, not an
+           embedded UI. The subtitle goes in the titlebar instead of a
+           separate <figcaption> below. */
+        .azul-screenshot { margin: 24px 0; text-align: center; }
+        .azul-window {
+            display: inline-block;
+            text-align: left;
+            border: 1px solid #b8b8b8;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+            background: #fff;
+            max-width: 100%;
+        }
+        .azul-titlebar {
+            display: flex;
+            align-items: center;
+            padding: 7px 12px;
+            background: linear-gradient(to bottom, #ececec, #d6d6d6);
+            border-bottom: 1px solid #b8b8b8;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-size: 12px;
+            color: #444;
+            user-select: none;
+        }
+        .azul-tb-traffic {
+            display: inline-flex;
+            gap: 6px;
+            margin-right: 12px;
+            flex-shrink: 0;
+        }
+        .azul-tb-traffic > span {
+            display: inline-block;
+            width: 11px;
+            height: 11px;
+            border-radius: 50%;
+            border: 0.5px solid rgba(0, 0, 0, 0.18);
+        }
+        .azul-tb-close { background: #ff5f57; }
+        .azul-tb-min { background: #febc2e; }
+        .azul-tb-max { background: #28c840; }
+        .azul-tb-title {
+            flex: 1;
+            text-align: center;
+            padding-right: 60px; /* offset traffic-light width so title is visually centred */
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .azul-window img { display: block; max-width: 100%; height: auto; }
         .markdown-alert-warning {
             padding: 10px;
             border-radius: 5px;
@@ -496,12 +642,13 @@ fn render_tree(pages: &[&Guide]) -> String {
 fn render_li(g: &Guide, children: &std::collections::BTreeMap<String, Vec<&Guide>>) -> String {
     let mut s = format!(
         "<li><a href=\"{HTML_ROOT}/guide/{}.html\">{}</a>",
-        g.file_name, g.title,
+        g.file_name,
+        transform_german_quotes(&g.title),
     );
     if let Some(desc) = &g.description {
         s.push_str(&format!(
             "\n<div class=\"page-desc\">{}</div>",
-            html_escape(desc),
+            transform_german_quotes(&html_escape(desc)),
         ));
     }
     if let Some(kids) = children.get(g.file_name.as_str()) {

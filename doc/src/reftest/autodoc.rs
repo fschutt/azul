@@ -1830,14 +1830,9 @@ pub fn expand_azul_render_blocks(content: &str, screenshot_url_prefix: &str) -> 
         ));
         for (i, (name, subtitle, w, h)) in frames.iter().enumerate() {
             out.push_str(&format!(
-                "  <figure class=\"azul-slide\" data-frame=\"{}\">\n    <img src=\"{}{}.png\" \
-                 width=\"{}\" height=\"{}\" loading=\"lazy\"/>\n    <figcaption>{}</figcaption>\n  </figure>\n",
+                "  <figure class=\"azul-slide\" data-frame=\"{}\">\n{}  </figure>\n",
                 i,
-                prefix,
-                name,
-                w,
-                h,
-                html_escape(subtitle),
+                window_chrome_html(prefix, name, subtitle, *w, *h, "    "),
             ));
         }
         out.push_str("</div>\n");
@@ -1908,17 +1903,15 @@ pub fn expand_azul_render_blocks(content: &str, screenshot_url_prefix: &str) -> 
                     flush_slideshow(&mut out, &id, &frames_in_current, screenshot_url_prefix);
                     frames_in_current.clear();
                 }
-                out.push_str(&format!(
-                    "<figure class=\"azul-screenshot\">\n  <img src=\"{}{}.png\" width=\"{}\" \
-                     height=\"{}\" loading=\"lazy\"/>\n",
-                    screenshot_url_prefix, name, width, height,
+                out.push_str("<figure class=\"azul-screenshot\">\n");
+                out.push_str(&window_chrome_html(
+                    screenshot_url_prefix,
+                    &name,
+                    &subtitle,
+                    width,
+                    height,
+                    "  ",
                 ));
-                if !subtitle.is_empty() {
-                    out.push_str(&format!(
-                        "  <figcaption>{}</figcaption>\n",
-                        html_escape(&subtitle)
-                    ));
-                }
                 out.push_str("</figure>\n");
             }
         }
@@ -1934,4 +1927,140 @@ fn html_escape(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+/// Wrap a screenshot in a fake window-chrome (titlebar with traffic-light
+/// buttons + centred title). The title text uses the block's `subtitle` so
+/// the reader can tell at a glance that the figure is a screenshot, not
+/// embedded UI.
+fn window_chrome_html(
+    prefix: &str,
+    name: &str,
+    subtitle: &str,
+    width: u32,
+    height: u32,
+    indent: &str,
+) -> String {
+    let title = if subtitle.is_empty() {
+        String::new()
+    } else {
+        html_escape(subtitle)
+    };
+    format!(
+        "{i}<div class=\"azul-window\" style=\"width:{w}px\">\n\
+         {i}  <div class=\"azul-titlebar\">\n\
+         {i}    <span class=\"azul-tb-traffic\"><span class=\"azul-tb-close\"></span><span class=\"azul-tb-min\"></span><span class=\"azul-tb-max\"></span></span>\n\
+         {i}    <span class=\"azul-tb-title\">{t}</span>\n\
+         {i}  </div>\n\
+         {i}  <img src=\"{p}{n}.png\" width=\"{w}\" height=\"{h}\" loading=\"lazy\"/>\n\
+         {i}</div>\n",
+        i = indent,
+        p = prefix,
+        n = name,
+        t = title,
+        w = width,
+        h = height,
+    )
+}
+
+// Bumped when the rendering pipeline (envelope, layout, default fonts, …)
+// changes in a way that should invalidate every cached screenshot.
+const SCREENSHOT_RENDERER_VERSION: &str = "v1";
+
+/// Hash of the inputs that determine the *pixel content* of a rendered
+/// screenshot. `subtitle` and `slideshow` are deliberately excluded — they
+/// only affect the surrounding HTML, not the PNG.
+pub fn block_render_hash(block: &RenderBlock) -> String {
+    let mut h = Sha256::new();
+    h.update(SCREENSHOT_RENDERER_VERSION.as_bytes());
+    h.update([0u8]);
+    h.update(block.name.as_bytes());
+    h.update([0u8]);
+    h.update(block.width.to_le_bytes());
+    h.update(block.height.to_le_bytes());
+    h.update([0u8]);
+    h.update(block.xml.as_bytes());
+    let result = h.finalize();
+    let mut hex = String::with_capacity(64);
+    for b in result {
+        use std::fmt::Write;
+        let _ = write!(hex, "{:02x}", b);
+    }
+    hex
+}
+
+/// Walk every guide page, collect `azul-render` blocks, and re-render any
+/// PNG whose sidecar hash file is missing or stale. Returns
+/// `(re_rendered, skipped)` counts. Initialises the heavy font context
+/// lazily — only if at least one block needs to be (re-)rendered.
+pub fn render_stale_screenshots(project_root: &Path) -> Result<(usize, usize), String> {
+    let guide_dir = project_root.join("doc/guide");
+
+    let mut pages = Vec::new();
+    walk_md(&guide_dir, &mut pages);
+
+    let mut by_lang: BTreeMap<String, Vec<RenderBlock>> = BTreeMap::new();
+    for page in &pages {
+        let lang = match page_language_from_path(page, project_root) {
+            Some(l) => l,
+            None => continue,
+        };
+        let content = match fs::read_to_string(page) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        for block in extract_render_blocks(&content, page) {
+            by_lang.entry(lang.clone()).or_default().push(block);
+        }
+    }
+
+    // First pass: figure out which blocks are stale, without paying for
+    // font-context init if everything is already up-to-date.
+    let mut stale: Vec<(String, RenderBlock, String)> = Vec::new();
+    let mut skipped = 0usize;
+    for (lang, blocks) in &by_lang {
+        let dir = guide_dir.join(lang).join("screenshots");
+        for block in blocks {
+            let png = dir.join(format!("{}.png", block.name));
+            let hash_file = dir.join(format!("{}.png.hash", block.name));
+            let want = block_render_hash(block);
+            let have = fs::read_to_string(&hash_file).ok();
+            if png.exists() && have.as_deref() == Some(want.as_str()) {
+                skipped += 1;
+            } else {
+                stale.push((lang.clone(), block.clone(), want));
+            }
+        }
+    }
+
+    if stale.is_empty() {
+        return Ok((0, skipped));
+    }
+
+    println!(
+        "Regenerating {} stale screenshot(s) ({} up-to-date)...",
+        stale.len(),
+        skipped,
+    );
+    let font_context = init_screenshot_font_context()?;
+    let mut rendered = 0usize;
+    for (lang, block, want_hash) in &stale {
+        let dir = guide_dir.join(lang).join("screenshots");
+        fs::create_dir_all(&dir)
+            .map_err(|e| format!("mkdir {}: {}", dir.display(), e))?;
+        let png = dir.join(format!("{}.png", block.name));
+        let hash_file = dir.join(format!("{}.png.hash", block.name));
+        match render_xml_to_png(&font_context, &block.xml, &png, block.width, block.height) {
+            Ok(()) => {
+                fs::write(&hash_file, want_hash)
+                    .map_err(|e| format!("write {}: {}", hash_file.display(), e))?;
+                println!("  [{}/regen] {}.png ({}x{})", lang, block.name, block.width, block.height);
+                rendered += 1;
+            }
+            Err(e) => {
+                eprintln!("  [{}/fail] {}: {}", lang, block.name, e);
+            }
+        }
+    }
+    Ok((rendered, skipped))
 }
