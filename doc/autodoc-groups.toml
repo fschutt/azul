@@ -29,7 +29,6 @@ existing_guides = ["architecture", "reference"]
 # big picture and writing conventions.
 shared_context_files = [
   "doc/AUTODOC.md",                  # operational pipeline reference
-  "doc/autodoc-plan.md",             # design rationale
   "doc/guide/en/SUMMARY.md",         # current tree of pages
   "doc/guide/en/reference.md",       # 173-section system catalog
   "doc/guide/en/architecture.md",    # canonical architecture doc

@@ -1,9 +1,7 @@
 # azul-doc autodoc — operational guide
 
 Operational reference for the documentation pipeline built into `azul-doc`.
-For the design rationale (audience model, maturity, l10n strategy), see
-[`autodoc-plan.md`](./autodoc-plan.md). This document covers **what
-exists today and how to use it**.
+This document covers **what exists today and how to use it**.
 
 ---
 
@@ -406,7 +404,6 @@ will be flipped to `/<lang>/...` when a second language lands.
 ```
 doc/
 ├── autodoc-groups.toml         ← manifest (committed, hand-curated)
-├── autodoc-plan.md             ← design memo (committed)
 ├── AUTODOC.md                  ← this document
 ├── guide/
 │   ├── en/                     ← canonical English (committed)

@@ -383,8 +383,8 @@ Each agent writes the markdown pages declared in its group to
 source files at generation time. The companion `autodoc-check` command
 later flags pages whose tracked files have changed since.
 
-Full operational reference: [`AUTODOC.md`](./AUTODOC.md). Design rationale:
-[`autodoc-plan.md`](./autodoc-plan.md). Manifest: [`autodoc-groups.toml`](./autodoc-groups.toml).
+Full operational reference: [`AUTODOC.md`](./AUTODOC.md). Manifest:
+[`autodoc-groups.toml`](./autodoc-groups.toml).
 
 ```bash
 azul-doc autoreview autodoc                  # Dispatch all 21 group agents
