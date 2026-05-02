@@ -5,7 +5,7 @@ struct DataModel;
 extern "C" fn my_layout_func(mut _data: RefAny, _: LayoutCallbackInfo) -> Dom {
     // Create a container with overflow: auto and many block items
     let mut container = Dom::create_div();
-    container.set_inline_style(
+    container.set_css(
         "height: 300px; width: 400px; overflow: auto; \
          background-color: #ffff00; border: 4px solid #ff00ff; margin: 20px;",
     );
@@ -15,12 +15,12 @@ extern "C" fn my_layout_func(mut _data: RefAny, _: LayoutCallbackInfo) -> Dom {
         let mut item = Dom::create_div();
         let color = if i % 2 == 0 { "#ff0000" } else { "#00ff00" };
         let style = format!("height: 80px; margin: 10px; background-color: {};", color);
-        item.set_inline_style(style.as_str());
+        item.set_css(style.as_str());
         container.add_child(item);
     }
 
     let mut body = Dom::create_body();
-    body.set_inline_style(
+    body.set_css(
         "display: flex; flex-direction: column; height: 100%; \
          background-color: #00ffff; margin: 0; padding: 10px;",
     );

@@ -4,6 +4,7 @@
 //! the visible portion using VirtualView.
 
 use azul::prelude::*;
+use azul::option::OptionDom;
 
 #[derive(Default)]
 struct InfinityState {
@@ -23,11 +24,11 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     };
 
     let title = Dom::create_text(format!("Pictures - {} images", file_count))
-        .with_inline_style("font-size: 20px; margin-bottom: 10px;");
+        .with_css("font-size: 20px; margin-bottom: 10px;");
 
     // Now we can pass the function pointer directly - the API builds the wrapper internally
     let vview = Dom::create_virtual_view(data.clone(), render_virtual_view)
-        .with_inline_style("flex-grow: 1; overflow: scroll; background: #f5f5f5;")
+        .with_css("flex-grow: 1; overflow: scroll; background: #f5f5f5;")
         .with_callback(
             EventFilter::Hover(HoverEventFilter::Scroll),
             data.clone(),
@@ -35,7 +36,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         );
 
     Dom::create_body()
-        .with_inline_style("padding: 20px; font-family: sans-serif;")
+        .with_css("padding: 20px; font-family: sans-serif;")
         .with_child(title)
         .with_child(vview)
 }
@@ -47,12 +48,12 @@ extern "C" fn render_virtual_view(mut data: RefAny, info: VirtualViewCallbackInf
     };
 
     let mut container = Dom::create_div()
-        .with_inline_style("display: flex; flex-wrap: wrap; gap: 10px; padding: 10px;");
+        .with_css("display: flex; flex-wrap: wrap; gap: 10px; padding: 10px;");
 
     let end = (d.visible_start + d.visible_count).min(d.file_paths.len());
     for i in d.visible_start..end {
         let item = Dom::create_div()
-            .with_inline_style(
+            .with_css(
                 "
                 width: 150px; 
                 height: 150px; 
@@ -65,7 +66,7 @@ extern "C" fn render_virtual_view(mut data: RefAny, info: VirtualViewCallbackInf
             )
             .with_child(
                 Dom::create_text(d.file_paths[i].clone())
-                    .with_inline_style("font-size: 10px; text-align: center;"),
+                    .with_css("font-size: 10px; text-align: center;"),
             );
 
         container.add_child(item);
@@ -77,10 +78,10 @@ extern "C" fn render_virtual_view(mut data: RefAny, info: VirtualViewCallbackInf
 
     VirtualViewReturn {
         dom: OptionDom::Some(container),
-        scroll_size: LogicalSize::new(0.0, virtual_height),
-        scroll_offset: LogicalPosition::new(0.0, 0.0),
-        virtual_scroll_size: LogicalSize::new(0.0, virtual_height),
-        virtual_scroll_offset: LogicalPosition::new(0.0, d.visible_start as f32 * 40.0),
+        scroll_size: LogicalSize::create(0.0, virtual_height),
+        scroll_offset: LogicalPosition::create(0.0, 0.0),
+        virtual_scroll_size: LogicalSize::create(0.0, virtual_height),
+        virtual_scroll_offset: LogicalPosition::create(0.0, d.visible_start as f32 * 40.0),
     }
 }
 

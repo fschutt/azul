@@ -17,11 +17,11 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
 
     // Build the calculator DOM using CSS Grid
     let display = Dom::create_div()
-        .with_inline_style(DISPLAY_STYLE)
+        .with_css(DISPLAY_STYLE)
         .with_child(Dom::create_text(display_text));
 
     let buttons = Dom::create_div()
-        .with_inline_style(BUTTONS_STYLE)
+        .with_css(BUTTONS_STYLE)
         // Row 1: C, +/-, %, ÷
         .with_child(calc_button(&data, "C", CalcEvent::Clear, BUTTON_STYLE))
         .with_child(calc_button(&data, "+/-", CalcEvent::InvertSign, BUTTON_STYLE))
@@ -48,7 +48,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         .with_child(calc_button(&data, "=", CalcEvent::Equals, OPERATOR_STYLE));
 
     Dom::create_div()
-        .with_inline_style(CALCULATOR_STYLE)
+        .with_css(CALCULATOR_STYLE)
         .with_child(display)
         .with_child(buttons)
 }
@@ -269,7 +269,7 @@ fn calc_button(calc: &RefAny, label: &str, event: CalcEvent, style: &str) -> Dom
     });
 
     Dom::create_div()
-        .with_inline_style(style)
+        .with_css(style)
         .with_child(Dom::create_text(label))
         .with_callback(
             EventFilter::Hover(HoverEventFilter::MouseUp),

@@ -55,7 +55,7 @@ int main() {
         state.file_paths.push_back(filename.str());
     }
 
-    RefAny data = RefAny::create<InfinityState>(std::move(state));
+    RefAny data = RefAny::create(std::move(state));
     WindowCreateOptions window = WindowCreateOptions::create(layout);
 
     App app = App::create(std::move(data), AppConfig::default_());

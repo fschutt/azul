@@ -1,5 +1,6 @@
 use azul::prelude::*;
 use azul::widgets::*;
+use azul::css::ColorU;
 
 #[derive(Default, Clone)]
 struct WidgetShowcase {
@@ -28,45 +29,45 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     // Button
     let mut button = Button::create(toggle_text);
     button.set_on_click(data.clone(), toggle_padding);
-    let button_dom = button.dom().with_inline_style(margin);
+    let button_dom = button.dom().with_css(margin);
 
     // Checkbox
     let mut checkbox = CheckBox::create(enable_padding);
     checkbox.set_on_toggle(data.clone(), toggle_padding_checkbox);
-    let checkbox_dom = checkbox.dom().with_inline_style("margin-bottom: 10px;");
+    let checkbox_dom = checkbox.dom().with_css("margin-bottom: 10px;");
 
     // Progress Bar
     let progress_bar = ProgressBar::create(progress)
         .dom()
-        .with_inline_style("margin-bottom: 10px; width: 200px;");
+        .with_css("margin-bottom: 10px; width: 200px;");
 
     // Text Input
     let text_input = TextInput::create()
         .with_placeholder("Type something...")
         .dom()
-        .with_inline_style(margin);
+        .with_css(margin);
 
     // Number Input
-    let number_input = NumberInput::create(42.0).dom().with_inline_style(margin);
+    let number_input = NumberInput::create(42.0).dom().with_css(margin);
 
     // Color Input
     let color_input = ColorInput::create(ColorU::from_str("#FF5733"))
         .dom()
-        .with_inline_style(margin);
+        .with_css(margin);
 
     // Increase progress button (with callback)
     let mut increase_button = Button::create("Increase Progress");
     increase_button.set_on_click(data.clone(), increase_progress);
-    let increase_dom = increase_button.dom().with_inline_style(margin);
+    let increase_dom = increase_button.dom().with_css(margin);
 
     // Heading
     let heading = Dom::create_p()
         .with_child(Dom::create_text("Widget Showcase"))
-        .with_inline_style("font-size: 24px; font-weight: bold; margin-bottom: 20px;");
+        .with_css("font-size: 24px; font-weight: bold; margin-bottom: 20px;");
 
     // Final DOM composition
     Dom::create_body()
-        .with_inline_style(padding)
+        .with_css(padding)
         .with_child(heading)
         .with_child(button_dom)
         .with_child(checkbox_dom)

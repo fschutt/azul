@@ -68,7 +68,7 @@ Dom make_button(RefAny& calc, const char* label, EventType evt, char digit, Oper
     Dom btn = Dom::create_div();
     btn.set_css(String(style));
     btn.add_child(Dom::create_text(String(label)));
-    btn.add_callback(AzEventFilter_hover(AzHoverEventFilter_MouseUp), RefAny::create<ButtonData>(std::move(bd)), on_click);
+    btn.add_callback(AzEventFilter_hover(AzHoverEventFilter_MouseUp), RefAny::create(std::move(bd)), on_click);
     return btn;
 }
 
@@ -155,7 +155,7 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
 
 int main() {
     Calculator model;
-    RefAny data = RefAny::create<Calculator>(std::move(model));
+    RefAny data = RefAny::create(std::move(model));
 
     WindowCreateOptions window = WindowCreateOptions::create(layout);
 

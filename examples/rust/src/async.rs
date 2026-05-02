@@ -14,7 +14,6 @@ struct MyDataModel {
     connection_status: ConnectionStatus,
 }
 
-#[derive(Debug)]
 enum ConnectionStatus {
     NotConnected {
         // which database to connect to
@@ -55,7 +54,7 @@ impl Default for ConnectionStatus {
 extern "C" fn render_ui(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     use self::ConnectionStatus::*;
 
-    let mut body = Dom::create_body().with_inline_style(
+    let mut body = Dom::create_body().with_css(
         "font-family: sans-serif;
         align-items: center;
         justify-content: center;
@@ -70,7 +69,7 @@ extern "C" fn render_ui(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
 
     body.add_child(
         Dom::create_div()
-            .with_inline_style(
+            .with_css(
                 "flex-direction: column; 
                 align-items: center; 
                 justify-content: center;",
@@ -79,7 +78,7 @@ extern "C" fn render_ui(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 downcasted
                     .connection_status
                     .dom(data_clone)
-                    .with_inline_style("max-width: 350px; display:block;"),
+                    .with_css("max-width: 350px; display:block;"),
             ),
     );
 
@@ -358,7 +357,7 @@ extern "C" fn background_thread(
     };
 
     // if in the meantime we got a "cancel" message, quit the thread
-    if recv.recv().into_option() == Some(ThreadSendMsg::TerminateThread) {
+    if matches!(recv.recv().into_option(), Some(ThreadSendMsg::TerminateThread)) {
         return;
     }
 
@@ -379,7 +378,7 @@ extern "C" fn background_thread(
 
     for row in postgres::query_rows(&connection, query) {
         // If in the meantime we got a "cancel" message, quit the thread
-        if recv.recv().into_option() == Some(ThreadSendMsg::TerminateThread) {
+        if matches!(recv.recv().into_option(), Some(ThreadSendMsg::TerminateThread)) {
             return;
         } else {
             items_loaded += row.len();

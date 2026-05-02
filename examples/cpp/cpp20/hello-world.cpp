@@ -61,7 +61,7 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
 
 int main() {
     MyDataModel model = { 5 };
-    RefAny data = RefAny::create<MyDataModel>(std::move(model));
+    RefAny data = RefAny::create(std::move(model));
 
     // Build a small Vec and view it as std::span without a copy.
     U8Vec bytes = U8Vec::from_item(0);

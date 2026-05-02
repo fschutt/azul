@@ -270,6 +270,7 @@ fn generate_prelude(builder: &mut CodeBuilder, modules: &BTreeMap<String, Vec<Ty
         // CSS types - includes EventFilter types and StyledDom
         "Css",
         "CssProperty",
+        "ColorU",
         "StyledDom",
         "EventFilter",
         "HoverEventFilter",
@@ -283,9 +284,17 @@ fn generate_prelude(builder: &mut CodeBuilder, modules: &BTreeMap<String, Vec<Ty
         "LayoutPoint",
         "LogicalRect",
         "LayoutRect",
-        // Option types
+        // Option / Result wrappers that callers reach for routinely
         "OptionStyledDom",
         "OptionLogicalPosition",
+        "OptionRefAny",
+        "OptionDom",
+        "OptionString",
+        "ResultXmlXmlError",
+        "ResultUrlUrlParseError",
+        // XML / parsing helpers
+        "Xml",
+        "XmlError",
         // Window types
         "WindowCreateOptions",
         "WindowState",

@@ -34,7 +34,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
 int main() {
     OpenGlState state;
-    RefAny data = RefAny::create<OpenGlState>(std::move(state));
+    RefAny data = RefAny::create(std::move(state));
 
     WindowCreateOptions window = WindowCreateOptions::create(layout);
 

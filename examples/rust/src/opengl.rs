@@ -10,9 +10,9 @@ use azul::gl::Texture;
 use azul::image::{ImageRef, RawImageFormat};
 use azul::svg::*;
 use azul::task::TerminateTimer;
-use azul::vec::{TessellatedSvgNodeVec, U8VecRef};
+use azul::vec::U8VecRef;
 use azul::window::WindowFrame;
-use azul::{prelude::*, str::String as AzString, widgets::Button};
+use azul::{prelude::*, widgets::Button};
 
 use serde::Deserialize;
 
@@ -26,20 +26,22 @@ struct Dataset {
     coordinates: Vec<Vec<Vec<[f32; 2]>>>,
 }
 
-#[derive(Debug)]
+// AzTessellatedSvgNode / AzTessellatedGPUSvgNode don't impl Debug at the FFI
+// boundary (they wrap SvgVertexVec / GLuint handles), so we can't derive
+// Debug on the wrapper. Manual impl skipping the GPU-resource fields.
 struct OpenGlAppState {
     rotation_deg: f32,
     // vertices, uploaded on startup
     fill_vertices_to_upload: Option<TessellatedSvgNode>,
     stroke_vertices_to_upload: Option<TessellatedSvgNode>,
-    // vertex (+ index) buffer ID of the uploaded tesselated node
+    // vertex (+ index) buffer ID of the uploaded tessellated node
     fill_vertex_buffer_id: Option<TessellatedGPUSvgNode>,
     stroke_vertex_buffer_id: Option<TessellatedGPUSvgNode>,
 }
 
 extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     Dom::create_body()
-        .with_inline_style(
+        .with_css(
             "
             background: linear-gradient(blue, black);
             padding: 10px;
@@ -50,7 +52,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 RenderImageCallback::create(render_my_texture).to_core(),
                 data.clone(),
             ))
-            .with_inline_style(
+            .with_css(
                 "
                 flex-grow: 1;
                 border-radius: 50px;
@@ -61,7 +63,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
             .with_child(
                 Button::create("Button drawn on top of OpenGL!")
                     .dom()
-                    .with_inline_style(
+                    .with_css(
                         "
                 margin-top: 50px;
                 margin-left: 50px;
@@ -72,10 +74,6 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
 }
 
 extern "C" fn render_my_texture(mut data: RefAny, mut info: RenderImageCallbackInfo) -> ImageRef {
-    // size = the calculated size that the div has AFTER LAYOUTING
-    // this way you can render the OpenGL texture with the correct size
-    // even if you don't know upfront what the size of the texture in the UI is going to be
-
     let size = info.get_bounds().get_physical_size();
     let invalid = ImageRef::null_image(
         size.width as usize,
@@ -96,7 +94,7 @@ fn render_my_texture_inner(
     texture_size: PhysicalSizeU32,
 ) -> Option<ImageRef> {
     let mut data = data.downcast_mut::<OpenGlAppState>()?;
-    let mut data = &mut *data;
+    let data = &mut *data;
 
     let gl_context = info.get_gl_context().into_option()?;
     let fill_vertex_buffer = data.fill_vertex_buffer_id.as_ref()?;
@@ -111,7 +109,7 @@ fn render_my_texture_inner(
     texture.clear();
 
     texture.draw_tesselated_svg_gpu_node(
-        fill_vertex_buffer.clone(),
+        TessellatedGPUSvgNode::clone(fill_vertex_buffer),
         texture_size,
         ColorU::from_str("#cc00cc"),
         vec![
@@ -124,7 +122,7 @@ fn render_my_texture_inner(
     );
 
     texture.draw_tesselated_svg_gpu_node(
-        stroke_vertex_buffer.clone(),
+        TessellatedGPUSvgNode::clone(stroke_vertex_buffer),
         texture_size,
         ColorU::from_str("#158DE3"),
         vec![StyleTransform::Rotate(AngleValue::deg(rotation_deg))],
@@ -146,19 +144,19 @@ extern "C" fn startup_window(mut data: RefAny, mut info: CallbackInfo) -> Update
 // allocate all textures and upload vertex buffer to GPU
 fn startup_window_inner(data: &mut RefAny, info: &mut CallbackInfo) -> Option<()> {
     {
-        let mut data = data.downcast_mut::<OpenGlAppState>()?;
-        let fill_vertex_buffer = data.fill_vertices_to_upload.take()?;
-        let stroke_vertex_buffer = data.stroke_vertices_to_upload.take()?;
+        let mut state = data.downcast_mut::<OpenGlAppState>()?;
+        let fill_vertex_buffer = state.fill_vertices_to_upload.take()?;
+        let stroke_vertex_buffer = state.stroke_vertices_to_upload.take()?;
         let gl_context = info.get_gl_context().into_option()?;
 
-        data.fill_vertex_buffer_id = Some(TessellatedGPUSvgNode::new(
+        state.fill_vertex_buffer_id = Some(TessellatedGPUSvgNode::create(
             fill_vertex_buffer,
             gl_context.clone(),
         ));
 
-        data.stroke_vertex_buffer_id = Some(TessellatedGPUSvgNode::new(
+        state.stroke_vertex_buffer_id = Some(TessellatedGPUSvgNode::create(
             stroke_vertex_buffer,
-            gl_context.clone(),
+            gl_context,
         ));
     }
 
@@ -193,7 +191,7 @@ fn parse_multipolygons(data: &str) -> Vec<SvgMultiPolygon> {
                         items: r
                             .iter()
                             .filter_map(|i| {
-                                let last_point = last.clone();
+                                let last_point = last;
 
                                 let mut current = SvgPoint { x: i[0], y: i[1] };
                                 current.x -= 13.804483;
@@ -224,7 +222,7 @@ fn parse_multipolygons(data: &str) -> Vec<SvgMultiPolygon> {
 }
 
 /// Animation function rotating the map constantly
-extern "C" fn animate(mut timer_data: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
+extern "C" fn animate(mut timer_data: RefAny, _info: TimerCallbackInfo) -> TimerCallbackReturn {
     TimerCallbackReturn {
         should_terminate: TerminateTimer::Continue,
         should_update: match timer_data.downcast_mut::<OpenGlAppState>() {
@@ -244,26 +242,27 @@ fn main() {
 
     println!("parsed {} multipolygons!", multipolygons.len());
 
-    // tesselate fill
-    let tessellated_fill: TessellatedSvgNodeVec = multipolygons
+    // Tessellate fills as a plain Vec<TessellatedSvgNode>; pass to from_nodes
+    // via the From<&[TessellatedSvgNode]> impl on TessellatedSvgNodeVecRef.
+    let tessellated_fill: Vec<TessellatedSvgNode> = multipolygons
         .iter()
         .map(|mp| mp.tessellate_fill(SvgFillStyle::default()))
-        .collect::<Vec<_>>()
-        .into();
+        .collect();
 
-    let tessellated_fill_join = TessellatedSvgNode::from_nodes(tessellated_fill.as_ref_vec());
+    let tessellated_fill_join =
+        TessellatedSvgNode::from_nodes(tessellated_fill.as_slice().into());
 
     let mut stroke_style = SvgStrokeStyle::default();
     stroke_style.line_width = 4.0;
 
-    // tesselate stroke
-    let tessellated_stroke: TessellatedSvgNodeVec = multipolygons
+    // Tessellate strokes the same way.
+    let tessellated_stroke: Vec<TessellatedSvgNode> = multipolygons
         .iter()
         .map(|mp| mp.tessellate_stroke(stroke_style))
-        .collect::<Vec<_>>()
-        .into();
+        .collect();
 
-    let tessellated_stroke_join = TessellatedSvgNode::from_nodes(tessellated_stroke.as_ref_vec());
+    let tessellated_stroke_join =
+        TessellatedSvgNode::from_nodes(tessellated_stroke.as_slice().into());
 
     // initalize data
     let data = RefAny::new(OpenGlAppState {
@@ -276,7 +275,7 @@ fn main() {
     });
 
     println!("starting app");
-    let mut app = App::create(data, AppConfig::create());
+    let app = App::create(data, AppConfig::create());
 
     let mut window = WindowCreateOptions::create(layout);
     window.window_state.flags.frame = WindowFrame::Maximized;

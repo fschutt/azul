@@ -12,15 +12,15 @@ extern "C" fn my_layout_func(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     };
 
     let mut label = Dom::create_text(counter.as_str());
-    label.set_inline_style("font-size: 50px");
+    label.set_css("font-size: 50px");
 
     let mut button = Button::create("Update counter");
     button.set_on_click(data.clone(), my_on_click);
     let mut button = button.dom();
-    button.set_inline_style("flex-grow: 1");
+    button.set_css("flex-grow: 1");
 
     let mut body = Dom::create_body();
-    body.set_inline_style("background-color: green");
+    body.set_css("background-color: green");
     
     body
         .with_child(label)

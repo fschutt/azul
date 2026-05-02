@@ -44,7 +44,7 @@ int main() {
     if (RefAny::type_id_v<MyDataModel> == 0) return 1;
 
     MyDataModel model = { 5 };
-    RefAny data = RefAny::create<MyDataModel>(std::move(model));
+    RefAny data = RefAny::create(std::move(model));
 
     WindowCreateOptions window = WindowCreateOptions::create(layout);
     App app = App::create(std::move(data), AppConfig::default_());

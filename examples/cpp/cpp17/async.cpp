@@ -98,7 +98,7 @@ AzUpdate reset_connection(AzRefAny data, AzCallbackInfo info) {
 
 int main() {
     AsyncState state = { Stage_NotConnected, "postgres://localhost:5432/mydb", {}, 0.0f };
-    RefAny data = RefAny::create<AsyncState>(std::move(state));
+    RefAny data = RefAny::create(std::move(state));
 
     WindowCreateOptions window = WindowCreateOptions::create(layout);
 

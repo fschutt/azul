@@ -63,7 +63,7 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
 
 int main() {
     MyDataModel model = { 5 };
-    RefAny data = RefAny::create<MyDataModel>(std::move(model));
+    RefAny data = RefAny::create(std::move(model));
 
     WindowCreateOptions window = WindowCreateOptions::create(layout);
     App app = App::create(std::move(data), AppConfig::default_());

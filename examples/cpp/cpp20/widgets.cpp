@@ -55,7 +55,7 @@ AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info) {
 
 int main() {
     WidgetShowcase model;
-    RefAny data = RefAny::create<WidgetShowcase>(std::move(model));
+    RefAny data = RefAny::create(std::move(model));
 
     WindowCreateOptions window = WindowCreateOptions::create(layout);
 
