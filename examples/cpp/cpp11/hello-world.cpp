@@ -11,40 +11,45 @@ struct MyDataModel {
     uint32_t counter;
 };
 
-// All callbacks use the wrapper types - the codegen emits an extern "C"
-// trampoline behind the scenes that adapts our azul::* signature to the
-// raw Az* function pointer the framework dispatches through.
-Update on_click(RefAny data, CallbackInfo info);
+// Callback signatures stay on the raw Az* types because the framework
+// dispatches through C function pointers. The body adopts the raw handle
+// into RAII wrappers immediately.
+AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
 
-Dom layout(RefAny data, LayoutCallbackInfo info) {
-    // azul::downcast_ref<T>(RefAny) -> const T* (or nullptr). Per-type
-    // identity is derived from the address of a function-local static,
-    // so the compiler stamps a unique tag per template instantiation.
-    auto* d = downcast_ref<MyDataModel>(data);
-    if (!d) return Dom::body();
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+    RefAny data_wrapper(data);
+
+    // azul::downcast_ref<T>(RefAny&) -> const T* (or nullptr). Per-type
+    // identity is derived from the address of a template-instantiated
+    // static, so the compiler stamps a unique tag per T at link time.
+    auto* d = downcast_ref<MyDataModel>(data_wrapper);
+    if (!d) return Dom::body().release();
+
+    Dom label = Dom::p_with_text(String(std::to_string(d->counter).c_str()))
+        .with_inline_style("font-size: 50px;");
+
+    Button button = Button::create("Increase counter")
+        .with_button_type(AzButtonType_Primary)
+        .with_on_click(data_wrapper.clone(), on_click);
 
     return Dom::body()
-        .with_child(Dom::p_with_text(std::to_string(d->counter))
-            .with_inline_style("font-size: 50px;"))
-        .with_child(Button::create("Increase counter")
-            .with_button_type(ButtonType::Primary)
-            .with_on_click(data.clone(), on_click)
-            .dom())
-        .style(Css::empty());
-    // No .release(): returning a wrapper from a layout callback transparently
-    // transfers ownership through the trampoline.
+        .with_child(std::move(label))
+        .with_child(button.dom())
+        .style(Css::empty())
+        .release();
 }
 
-Update on_click(RefAny data, CallbackInfo info) {
-    auto* d = downcast_mut<MyDataModel>(data);
-    if (!d) return Update::DoNothing;
+AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
+    RefAny data_wrapper(data);
+    auto* d = downcast_mut<MyDataModel>(data_wrapper);
+    if (!d) return AzUpdate_DoNothing;
     d->counter += 1;
-    return Update::RefreshDom;
+    return AzUpdate_RefreshDom;
 }
 
 int main() {
     MyDataModel model = { 5 };
-    RefAny data = upcast(std::move(model));
+    RefAny data = upcast<MyDataModel>(std::move(model));
 
     WindowCreateOptions window = WindowCreateOptions::create(layout);
     App app = App::create(std::move(data), AppConfig::default_());

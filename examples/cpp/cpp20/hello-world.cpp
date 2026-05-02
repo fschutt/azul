@@ -23,38 +23,39 @@ template<ReflectableModel T>
 constexpr bool is_reflectable_v = true;
 static_assert(is_reflectable_v<MyDataModel>);
 
-Update on_click(RefAny data, CallbackInfo info);
+AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
 
-Dom layout(RefAny data, LayoutCallbackInfo info) {
-    auto* d = downcast_ref<MyDataModel>(data);
-    if (!d) return Dom::body();
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+    RefAny data_wrapper(data);
+    auto* d = downcast_ref<MyDataModel>(data_wrapper);
+    if (!d) return AzDom_createBody();
 
     return Dom::body()
-        .with_child(Dom::p_with_text(std::to_string(d->counter))
+        .with_child(Dom::p_with_text(String(std::to_string(d->counter).c_str()))
             .with_inline_style("font-size: 50px;"))
         .with_child(Button::create("Increase counter")
-            .with_button_type(ButtonType::Primary)
-            .with_on_click(data.clone(), on_click)
+            .with_button_type(AzButtonType_Primary)
+            .with_on_click(data_wrapper.clone(), on_click)
             .dom())
-        .style(Css::empty());
+        .style(Css::empty())
+        .release();
 }
 
-Update on_click(RefAny data, CallbackInfo info) {
-    auto* d = downcast_mut<MyDataModel>(data);
-    if (!d) return Update::DoNothing;
+AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
+    RefAny data_wrapper(data);
+    auto* d = downcast_mut<MyDataModel>(data_wrapper);
+    if (!d) return AzUpdate_DoNothing;
     d->counter += 1;
-    return Update::RefreshDom;
+    return AzUpdate_RefreshDom;
 }
 
 int main() {
     MyDataModel model = { 5 };
-    RefAny data = upcast(std::move(model));
+    RefAny data = upcast<MyDataModel>(std::move(model));
 
     // Designated initializers on the in-header builder helpers - emitted by
     // the codegen for POD-shaped option structs (window state, app config).
     WindowCreateOptions window = WindowCreateOptions::create(layout);
-    window.window_state.title = "Hello World";
-    window.window_state.size = { .width = 400.0, .height = 300.0 };
 
     App app = App::create(std::move(data), AppConfig::default_());
     app.run(std::move(window));
