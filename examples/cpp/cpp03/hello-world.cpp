@@ -5,56 +5,77 @@
 
 using namespace azul;
 
+// Data model: plain old struct - the "single source of truth" for app state.
 struct MyDataModel {
     uint32_t counter;
 };
-AZ_REFLECT(MyDataModel);
 
+// In C++03 the wrapper has no template magic, so the destructor cannot be
+// synthesised - supply it explicitly, just like in C.
+void MyDataModel_destructor(void* m) { (void)m; }
+
+// AZ_REFLECT in C++03 takes the destructor and emits the C-style reflection
+// surface, mirroring the C macro:
+//
+//   MyDataModel_upcast(MyDataModel)                      -> AzRefAny
+//   MyDataModelRef_create(AzRefAny*)                     -> MyDataModelRef
+//   MyDataModel_downcastRef(AzRefAny*, MyDataModelRef*)  -> bool
+//   MyDataModelRef_delete(MyDataModelRef*)
+//   MyDataModelRefMut_create(AzRefAny*)                  -> MyDataModelRefMut
+//   MyDataModel_downcastMut(AzRefAny*, MyDataModelRefMut*)-> bool
+//   MyDataModelRefMut_delete(MyDataModelRefMut*)
+AZ_REFLECT(MyDataModel, MyDataModel_destructor);
+
+// All callbacks use the raw Az* types - no wrapper-side coercion in C++03.
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
 
-// Callback must use C types for FFI compatibility
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
-    RefAny data_wrapper(data);
-    const MyDataModel* d = MyDataModel_downcast_ref(data_wrapper);
-    if (!d) return AzDom_createBody();
-    
-    char buffer[32];
-    std::snprintf(buffer, 32, "%u", d->counter);
-    
-    Dom label = Dom::create_text(String(buffer));
-    label.set_inline_style(String("font-size: 50px;"));
-    
-    AzEventFilter event = AzEventFilter_hover(AzHoverEventFilter_mouseUp());
-    Dom button_text = Dom::create_text(String("Increase counter"));
-    Dom button = Dom::create_div();
-    button.set_inline_style(String("flex-grow: 1;"));
-    button.add_child(button_text);
-    button.add_callback(event, data_wrapper.clone(), on_click);
-    
-    Dom body = Dom::create_body();
-    body.add_child(label);
-    body.add_child(button);
-    
-    return body.style(Css::empty()).release();
+    (void)info;
+
+    MyDataModelRef d = MyDataModelRef_create(&data);
+    if (!MyDataModel_downcastRef(&data, &d)) {
+        return AzDom_createBody();
+    }
+
+    char buffer[20];
+    int written = std::snprintf(buffer, sizeof(buffer), "%u", d.ptr->counter);
+    MyDataModelRef_delete(&d);
+
+    AzString label_text = AzString_copyFromBytes(
+        (const uint8_t*)buffer, 0, (size_t)written);
+    AzDom label = AzDom_pWithText(label_text);
+
+    AzButton button = AzButton_create(AzString_fromConstStr("Increase counter"));
+    AzButton_setButtonType(&button, AzButtonType_Primary);
+    AzRefAny data_clone = AzRefAny_clone(&data);
+    AzButton_setOnClick(&button, data_clone, on_click);
+    AzDom button_dom = AzButton_dom(button);
+
+    AzDom body = AzDom_createBody();
+    AzDom_addChild(&body, label);
+    AzDom_addChild(&body, button_dom);
+    return body;
 }
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
-    RefAny data_wrapper(data);
-    MyDataModel* d = MyDataModel_downcast_mut(data_wrapper);
-    if (!d) return AzUpdate_DoNothing;
-    d->counter += 1;
+    (void)info;
+
+    MyDataModelRefMut d = MyDataModelRefMut_create(&data);
+    if (!MyDataModel_downcastMut(&data, &d)) {
+        return AzUpdate_DoNothing;
+    }
+    d.ptr->counter += 1;
+    MyDataModelRefMut_delete(&d);
     return AzUpdate_RefreshDom;
 }
 
 int main() {
     MyDataModel model;
     model.counter = 5;
-    RefAny data = MyDataModel_upcast(model);
-    
-    WindowCreateOptions window = WindowCreateOptions::create(layout);
-    window.inner().window_state.title = AzString_copyFromBytes((const uint8_t*)"Hello World", 0, 11);
-    
-    App app = App::create(data, AppConfig::default_());
-    app.run(window);
+    AzRefAny data = MyDataModel_upcast(model);
+
+    AzWindowCreateOptions window = AzWindowCreateOptions_create(layout);
+    AzApp app = AzApp_create(data, AzAppConfig_default());
+    AzApp_run(app, window);
     return 0;
 }
