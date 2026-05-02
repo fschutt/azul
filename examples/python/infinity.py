@@ -1,61 +1,46 @@
 # Infinite Scrolling - Python
 # python infinity.py
+#
+# NOTE: VirtualView requires custom callbacks plus an OptionDom return,
+# both of which are still experimental in the Python binding. This example
+# falls back to a plain scrolling container that pre-renders a windowed slice.
 
 from azul import *
 
+
 class InfinityState:
     def __init__(self):
-        self.file_paths = []
+        self.file_paths = [f"image_{i:04d}.png" for i in range(1000)]
         self.visible_start = 0
-        self.visible_count = 20
-        
-        # Generate dummy file names
-        for i in range(1000):
-            self.file_paths.append(f"image_{i:04d}.png")
+        self.visible_count = 50
+
 
 def layout(data, info):
-    title = Dom.text(f"Infinite Gallery - {len(data.file_paths)} images")
-    title.set_inline_style("font-size: 20px; margin-bottom: 10px;")
-    
-    vview = Dom.virtual_view(data, render_virtual_view)
-    vview.set_inline_style("flex-grow: 1; overflow: scroll; background: #f5f5f5;")
-    vview.set_callback(On.Scroll, data, on_scroll)
-    
-    body = Dom.body()
-    body.set_inline_style("padding: 20px; font-family: sans-serif;")
-    body.add_child(title)
-    body.add_child(vview)
-    
-    return body
+    title = (Dom.create_text(
+        f"Infinite Gallery - {len(data.file_paths)} images")
+        .with_css("font-size:20px;margin-bottom:10px;"))
 
-def render_virtual_view(data, info):
-    container = Dom.div()
-    container.set_inline_style("display: flex; flex-wrap: wrap; gap: 10px; padding: 10px;")
-    
     end = min(data.visible_start + data.visible_count, len(data.file_paths))
-    for i in range(data.visible_start, end):
-        item = Dom.div()
-        item.set_inline_style("width: 150px; height: 150px; background: white; border: 1px solid #ddd;")
-        item.add_child(Dom.text(data.file_paths[i]))
-        container.add_child(item)
-    
-    return container
+    container = Dom.create_div().with_css(
+        "display:flex;flex-wrap:wrap;gap:10px;padding:10px;"
+        "flex-grow:1;overflow:scroll;background:#f5f5f5;")
 
-def on_scroll(data, info):
-    scroll_pos = info.get_scroll_position()
-    if not scroll_pos:
-        return Update.DoNothing
-    
-    new_start = int(scroll_pos.y / 160) * 4
-    if new_start != data.visible_start:
-        data.visible_start = min(new_start, len(data.file_paths))
-        return Update.RefreshDom
-    
-    return Update.DoNothing
+    for i in range(data.visible_start, end):
+        item = (Dom.create_div()
+                .with_css("width:150px;height:150px;background:white;"
+                          "border:1px solid #ddd;display:flex;"
+                          "align-items:center;justify-content:center;")
+                .with_child(Dom.create_text(data.file_paths[i])))
+        container = container.with_child(item)
+
+    body = (Dom.create_body()
+            .with_css("padding:20px;font-family:sans-serif;")
+            .with_child(title)
+            .with_child(container))
+    return body.style(Css.empty())
+
 
 state = InfinityState()
-
 window = WindowCreateOptions.create(layout)
-
 app = App.create(state, AppConfig.create())
 app.run(window)

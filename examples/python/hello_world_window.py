@@ -32,19 +32,16 @@ def layout(data, info):
         Dom: The styled DOM tree to render
     """
     # Create a simple label
-    label = azul.Dom.text(f"Hello from Python! Counter: {data.counter}")
-    
+    label = azul.Dom.create_text(f"Hello from Python! Counter: {data.counter}")
+
     # Create a button that increments the counter
-    button = azul.Button.new("Click me!")
-    button_dom = button.dom()
-    
-    # Build the body
-    body = azul.Dom.body()
-    body.add_child(label)
-    body.add_child(button_dom)
-    
-    # Return the body directly (Dom is the return type)
-    return body
+    button_dom = azul.Button.create("Click me!").dom()
+
+    # Build the body via the builder API (set_*/add_* aren't exposed
+    # in the Python binding for Dom; use with_child / with_css).
+    return (azul.Dom.create_body()
+            .with_child(label)
+            .with_child(button_dom))
 
 def main():
     print("Starting Azul GUI application...")

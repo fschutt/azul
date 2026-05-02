@@ -2264,9 +2264,13 @@ extern "C" fn invoke_py_layout_callback(
             return false;
         }
 
-        // Skip C-API direct types that don't have .inner field
+        // Skip C-API direct types that don't have .inner field.
+        //
+        // `String` is deliberately *not* in this list: AzString has
+        // FromPyObject/IntoPyObject impls so Python `str` flows in
+        // directly, and `generate_pymethod` knows how to shadow the
+        // String-typed parameter with the AzString conversion.
         const CAPI_DIRECT: &[&str] = &[
-            "String",
             "U8Vec",
             "StringVec",
             "GLuintVec",

@@ -1,27 +1,34 @@
 from azul import *
 
+
 class DataModel:
     def __init__(self, counter):
         self.counter = counter
 
+
 def layout(data, info):
-    label = Dom.text(str(data.counter))
-    label.set_inline_style("font-size:50px;")
+    label = (Dom.create_text(str(data.counter))
+             .with_css("font-size:50px;"))
 
-    button = Dom.div()
-    button.set_inline_style("flex-grow:1;")
-    button.add_child(Dom.text("Increase counter"))
-    button.set_callback(On.MouseUp, data, on_click)
+    button = (Dom.create_div()
+              .with_css("flex-grow:1;")
+              .with_child(Dom.create_text("Increase counter"))
+              .with_callback(
+                  EventFilter.Hover(HoverEventFilter.MouseUp()),
+                  data,
+                  on_click))
 
-    body = Dom.body()
-    body.add_child(label)
-    body.add_child(button)
+    body = (Dom.create_body()
+            .with_child(label)
+            .with_child(button))
 
     return body.style(Css.empty())
 
+
 def on_click(data, info):
     data.counter += 1
-    return Update.RefreshDom
+    return Update.RefreshDom()
+
 
 model = DataModel(5)
 window = WindowCreateOptions.create(layout)
