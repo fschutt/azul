@@ -141,10 +141,14 @@ impl CppDialect for Cpp11Generator {
 
         code.push_str("public:\r\n");
 
-        // Constructor from C type
+        // Constructor from C type. Copy types skip `explicit` so methods that
+        // return `Void` from an `AzVoid`-returning C function compile via the
+        // implicit conversion. Non-Copy types keep `explicit` to prevent
+        // accidental ownership-stealing copies.
+        let ctor_explicit = if is_copy_type { "" } else { "explicit " };
         code.push_str(&format!(
-            "    explicit {}({} inner) noexcept : inner_(inner) {{}}\r\n",
-            class_name, c_type_name
+            "    {}{}({} inner) noexcept : inner_(inner) {{}}\r\n",
+            ctor_explicit, class_name, c_type_name
         ));
 
         // Copy/move semantics

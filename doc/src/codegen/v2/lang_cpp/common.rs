@@ -144,10 +144,17 @@ pub fn should_skip_method(func: &FunctionDef) -> bool {
 }
 
 /// Check if callback substitution should be applied for a function
-/// This should be true for Constructor and Method, but NOT for EnumVariantConstructor, Delete, DeepCopy
+/// True for any "user-facing" function (constructors, instance methods both
+/// const and mut, static methods); skipped for trait-generated functions and
+/// enum-variant constructors.
 pub fn should_substitute_callbacks(func: &FunctionDef) -> bool {
-    matches!(func.kind, FunctionKind::Constructor | FunctionKind::Method)
-        || func.kind.is_default_constructor()
+    matches!(
+        func.kind,
+        FunctionKind::Constructor
+            | FunctionKind::Method
+            | FunctionKind::MethodMut
+            | FunctionKind::StaticMethod
+    ) || func.kind.is_default_constructor()
 }
 
 // ============================================================================
@@ -273,14 +280,20 @@ pub fn get_option_inner_type(struct_def: &StructDef) -> Option<String> {
 // ============================================================================
 
 /// Check if a type has a C++ wrapper class (not a typedef or callback)
+///
+/// Must agree with `should_skip_class`: a type with no wrapper emitted should
+/// not claim it has one, otherwise call sites will reference an undeclared
+/// wrapper name and the header won't compile.
 pub fn type_has_wrapper(type_name: &str, ir: &CodegenIR) -> bool {
     if let Some(struct_def) = ir.find_struct(type_name) {
-        // Skip callback typedefs
-        if matches!(struct_def.category, TypeCategory::CallbackTypedef) {
-            return false;
-        }
-        // Skip generic templates
-        if matches!(struct_def.category, TypeCategory::GenericTemplate) {
+        // Skip categories that should_skip_class() also skips
+        if matches!(
+            struct_def.category,
+            TypeCategory::CallbackTypedef
+                | TypeCategory::GenericTemplate
+                | TypeCategory::Recursive
+                | TypeCategory::DestructorOrClone
+        ) {
             return false;
         }
         // Skip types that render as simple type aliases
