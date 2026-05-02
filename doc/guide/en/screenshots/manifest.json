@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-05-01T21:34:42.687866+00:00",
+  "generated_at": "2026-05-02T06:34:59.637542+00:00",
   "screenshots": [
     {
       "name": "hello-world",
@@ -123,26 +123,34 @@
       "source_page": "doc/guide/en/headless-rendering.md"
     },
     {
-      "name": "props-borders",
-      "width": 400,
-      "height": 120,
-      "subtitle": "border-style sample",
+      "name": "styling-gradients",
+      "width": 480,
+      "height": 200,
+      "subtitle": "Linear, radial, and conic backgrounds",
       "slideshow": null,
       "source_page": "doc/guide/en/styling/properties.md"
     },
     {
-      "name": "props-gradients",
+      "name": "themes-light",
       "width": 400,
-      "height": 160,
-      "subtitle": "linear, radial, and conic gradients",
-      "slideshow": null,
-      "source_page": "doc/guide/en/styling/properties.md"
+      "height": 180,
+      "subtitle": "Light theme — system colors resolve to OS defaults",
+      "slideshow": "themes-toggle",
+      "source_page": "doc/guide/en/styling/themes.md"
     },
     {
-      "name": "styling-card",
+      "name": "themes-dark",
+      "width": 400,
+      "height": 180,
+      "subtitle": "Dark theme — same selectors, OS-supplied palette",
+      "slideshow": "themes-toggle",
+      "source_page": "doc/guide/en/styling/themes.md"
+    },
+    {
+      "name": "styling-panel",
       "width": 400,
       "height": 160,
-      "subtitle": "Card layout from the snippet above",
+      "subtitle": "A class-styled panel with hover-ready rules",
       "slideshow": null,
       "source_page": "doc/guide/en/styling.md"
     },
@@ -171,5 +179,10 @@
       "source_page": "doc/guide/en/layout.md"
     }
   ],
-  "slideshows": {}
+  "slideshows": {
+    "themes-toggle": [
+      "themes-light",
+      "themes-dark"
+    ]
+  }
 }
