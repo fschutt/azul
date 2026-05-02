@@ -86,6 +86,10 @@ impl CppDialect for Cpp11Generator {
             self.generate_method_implementations(&mut code, struct_def, ir, config);
         }
 
+        // Template-based reflection - C++11+ alternative to AZ_REFLECT.
+        // Emitted at the end so RefAny's inline methods are visible.
+        code.push_str(&generate_template_reflection(std));
+
         // Close namespace
         code.push_str("} // namespace azul\r\n\r\n");
 

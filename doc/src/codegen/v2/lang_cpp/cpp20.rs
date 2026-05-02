@@ -95,6 +95,9 @@ impl CppDialect for Cpp20Generator {
             self.generate_method_implementations(&mut code, struct_def, ir, config);
         }
 
+        // Template-based reflection - C++11+ alternative to AZ_REFLECT.
+        code.push_str(&generate_template_reflection(std));
+
         // Close namespace
         code.push_str("} // namespace azul\r\n\r\n");
 
@@ -487,6 +490,9 @@ impl CppDialect for Cpp23Generator {
             }
             self.generate_method_implementations(&mut code, struct_def, ir, config);
         }
+
+        // Template-based reflection - C++11+ alternative to AZ_REFLECT.
+        code.push_str(&generate_template_reflection(std));
 
         code.push_str("} // namespace azul\r\n\r\n");
         code.push_str(&generate_include_guards_end(std));

@@ -780,3 +780,89 @@ pub fn generate_reflect_macro(standard: CppStandard) -> String {
 
     code
 }
+
+/// Template-based reflection for C++11+ headers.
+///
+/// Emits `azul::upcast<T>`, `azul::downcast_ref<T>`, `azul::downcast_mut<T>`
+/// function templates plus a `azul::type_id<T>()` helper. Per-type identity
+/// is derived from the address of a template-instantiated `static const
+/// uint64_t` - unique per `T`, with program-lifetime storage.
+///
+/// Must be emitted inside `namespace azul { ... }` after `class RefAny` is
+/// fully declared (the templates inline-call `RefAny::inner()`).
+///
+/// C++14 picks up the `type_id_v<T>` variable template; older standards skip it.
+pub fn generate_template_reflection(standard: CppStandard) -> String {
+    if !standard.has_move_semantics() {
+        return String::new();
+    }
+
+    let mut code = String::new();
+
+    code.push_str("// =============================================================================\r\n");
+    code.push_str("// Template-based reflection - C++11+ alternative to AZ_REFLECT macro\r\n");
+    code.push_str("// =============================================================================\r\n\r\n");
+
+    code.push_str("namespace detail {\r\n");
+    code.push_str("    // Per-type runtime tag, derived from the address of a template-instantiated\r\n");
+    code.push_str("    // static. The address is unique per T and has program-lifetime storage.\r\n");
+    code.push_str("    template<class T>\r\n");
+    code.push_str("    struct type_id_holder { static const uint64_t value; };\r\n");
+    code.push_str("    template<class T>\r\n");
+    code.push_str("    const uint64_t type_id_holder<T>::value = 0;\r\n\r\n");
+    code.push_str("    template<class T>\r\n");
+    code.push_str("    inline void type_destructor(void* ptr) noexcept {\r\n");
+    code.push_str("        delete static_cast<T*>(ptr);\r\n");
+    code.push_str("    }\r\n");
+    code.push_str("} // namespace detail\r\n\r\n");
+
+    code.push_str("/// Per-type runtime tag - unique per T, stable across translation units.\r\n");
+    code.push_str("template<class T>\r\n");
+    code.push_str("inline uint64_t type_id() noexcept {\r\n");
+    code.push_str("    return reinterpret_cast<uint64_t>(&detail::type_id_holder<T>::value);\r\n");
+    code.push_str("}\r\n\r\n");
+
+    if standard >= CppStandard::Cpp14 {
+        code.push_str("/// Variable-template shorthand for `type_id<T>()` (C++14+).\r\n");
+        code.push_str("template<class T>\r\n");
+        code.push_str("constexpr uint64_t type_id_v = reinterpret_cast<uint64_t>(&detail::type_id_holder<T>::value);\r\n\r\n");
+    }
+
+    code.push_str("/// Move T into a heap allocation and wrap as a `RefAny`. Equivalent to the\r\n");
+    code.push_str("/// per-type `MyType_upcast` the AZ_REFLECT macro emits, but works for any T\r\n");
+    code.push_str("/// without registration.\r\n");
+    code.push_str("template<class T>\r\n");
+    code.push_str("inline RefAny upcast(T model) {\r\n");
+    code.push_str("    T* heap = new T(std::move(model));\r\n");
+    code.push_str("    AzGlVoidPtrConst ptr = { heap, true };\r\n");
+    code.push_str("    AzString name = az_string_from_literal(\"\");\r\n");
+    code.push_str("    return RefAny(AzRefAny_newC(\r\n");
+    code.push_str("        ptr,\r\n");
+    code.push_str("        sizeof(T),\r\n");
+    code.push_str("        alignof(T),\r\n");
+    code.push_str("        type_id<T>(),\r\n");
+    code.push_str("        name,\r\n");
+    code.push_str("        &detail::type_destructor<T>,\r\n");
+    code.push_str("        0,\r\n");
+    code.push_str("        0\r\n");
+    code.push_str("    ));\r\n");
+    code.push_str("}\r\n\r\n");
+
+    code.push_str("/// Read-only borrow of the `T` inside a `RefAny`. Returns `nullptr` if the\r\n");
+    code.push_str("/// `RefAny` holds a different type or is already mutably borrowed.\r\n");
+    code.push_str("template<class T>\r\n");
+    code.push_str("inline const T* downcast_ref(RefAny& data) noexcept {\r\n");
+    code.push_str("    if (!AzRefAny_isType(&data.inner(), type_id<T>())) return nullptr;\r\n");
+    code.push_str("    return static_cast<const T*>(AzRefAny_getDataPtr(&data.inner()));\r\n");
+    code.push_str("}\r\n\r\n");
+
+    code.push_str("/// Mutable borrow of the `T` inside a `RefAny`. Returns `nullptr` if the\r\n");
+    code.push_str("/// `RefAny` holds a different type or is already borrowed.\r\n");
+    code.push_str("template<class T>\r\n");
+    code.push_str("inline T* downcast_mut(RefAny& data) noexcept {\r\n");
+    code.push_str("    if (!AzRefAny_isType(&data.inner(), type_id<T>())) return nullptr;\r\n");
+    code.push_str("    return static_cast<T*>(const_cast<void*>(AzRefAny_getDataPtr(&data.inner())));\r\n");
+    code.push_str("}\r\n\r\n");
+
+    code
+}
