@@ -235,9 +235,7 @@ let _ = Dom::create_div().with_css("
 | `@media (prefers-reduced-motion)` | macOS `AXReduceMotion`, Windows `SPI_GETCLIENTAREAANIMATION`, Linux `enable-animations` |
 | `@media (prefers-contrast)` | macOS `AXIncreaseContrast`, Windows `SPI_GETHIGHCONTRAST`, Linux `high-contrast` |
 
-Honour `prefers-reduced-motion` for any non-essential animation. The OS
-settings page is the canonical opt-out — apps that ignore it fail
-platform-store certifications.
+Honour `prefers-reduced-motion` for any non-essential animation.
 
 ## `@media` viewport queries
 

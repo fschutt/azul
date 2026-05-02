@@ -157,7 +157,7 @@ import azul
 - **`TypeError: layout() takes 0 positional arguments but 2 were given`** — your callback signature is wrong. `layout` and click handlers must accept exactly `(data, info)`.
 - **Mutation isn't sticking** — you mutated a *copy* of the model instead of the instance bound to the framework. The binding always passes the same instance back; check that you are not shadowing `data` with a fresh `DataModel(...)` somewhere inside the callback.
 
-## Up Next
+## Coming Up Next
 
 - [DOM and Callbacks](../dom.md) — building richer trees, event filters, the full callback API. Same surface as Rust, written with `Dom.*` constructors instead of the Rust types.
 - [Python Bindings](../bindings/python.md) — full reference for the Python module, including type stubs and packaging.

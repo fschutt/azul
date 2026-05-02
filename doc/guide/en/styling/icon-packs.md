@@ -29,7 +29,7 @@ Registration happens once at `AppConfig` time; the lookup runs before
 every layout pass and resolves the name to a `StyledDom` subtree —
 typically an `<img>` or a glyph in an icon font.
 
-```rust,no_run
+```rust
 # use azul::prelude::*;
 let mut config = AppConfig::default();
 

@@ -232,7 +232,7 @@ You should see the window pictured on the [hello-world landing page](../hello-wo
 - **The window opens blank** — verify your layout callback actually returns a `Dom::create_body()` with children. An empty `Dom` renders to a blank window.
 - **The counter does not update** — your click callback returned `Update::DoNothing`. Change to `Update::RefreshDom`.
 
-## Up Next
+## Coming Up Next
 
 - [DOM and Callbacks](../dom.md) — explains how to build richer trees, accessibility
 - [Events and Input](../events.md) — beyond `MouseUp`: hover, focus, keyboard.
