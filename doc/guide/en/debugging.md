@@ -7,13 +7,14 @@ audience: external
 maturity: wip
 guide_order: 200
 topic_only: false
+short_desc: Built-in debug overlays, the inspector, structured logging, and how to enable each at runtime.
 prerequisites: [hello-world]
 tracked_files:
   - core/src/debug.rs
   - dll/src/desktop/logging.rs
   - dll/src/desktop/shell2/common/debug_server.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:34:08Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T00:00:00Z
 ---
 
 # Debugging
@@ -159,7 +160,7 @@ The debug server keeps its own ring buffer of recent log entries; query it with 
 
 ## Crash handling
 
-`set_up_panic_hooks` (`dll/src/desktop/logging.rs:54`) installs a panic handler that:
+`set_up_panic_hooks` (`dll/src/desktop/logging.rs:62`) installs a panic handler that:
 
 1. Captures and demangles the backtrace (frames pruned to file + line + symbol).
 2. Logs the formatted panic at `error!` level — visible in stdout, in `RUST_LOG`, in `AZ_RECORD`, and in `{"op":"get_logs"}`.

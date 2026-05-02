@@ -7,19 +7,20 @@ audience: external
 maturity: wip
 guide_order: 12
 topic_only: false
+short_desc: Linking against the C ABI and translating the counter app to C.
 prerequisites: [hello-world]
 tracked_files:
   - api.json
   - core/src/callbacks.rs
   - core/src/lib.rs
   - dll/src/lib.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:34:08Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T00:00:00Z
 ---
 
 # Hello, World — C
 
-> **WIP** — the C bindings are auto-generated from `api.json`. The header file `azul.h` is committed in the repository, but the surface area still shifts. Pin to a specific commit until the API is stable.
+> **WIP** — the C bindings are auto-generated from `api.json`. The header `azul.h` is committed in the repository, but the surface area still shifts. Pin to a specific commit until the API is stable.
 
 A complete Azul GUI in one C file. The example matches `examples/c/hello-world.c` in the repository and links against the dynamic library built from `dll/`.
 
@@ -31,7 +32,7 @@ Build the dynamic library once from a checkout of the repository:
 cargo build -p azul-dll --release --no-default-features --features build-dll
 ```
 
-The output lands at `target/release/libazul.so` (Linux), `libazul.dylib` (macOS), or `azul.dll` (Windows). The header file is at `target/codegen/azul.h` after running `azul-doc codegen all` once. Copy both somewhere your C compiler can find them.
+The output lands at `target/release/libazul.so` (Linux), `libazul.dylib` (macOS), or `azul.dll` (Windows). The header is at `target/codegen/azul.h` after running `azul-doc codegen all` once. Copy both somewhere your C compiler can find them.
 
 ## Imports and a small string helper
 
@@ -57,7 +58,7 @@ AZ_REFLECT_JSON(MyDataModel, MyDataModel_destructor,
                 MyDataModel_toJson, MyDataModel_fromJson);
 ```
 
-`AZ_REFLECT_JSON` is a macro that generates the boilerplate the C API needs to upcast your struct into a `RefAny` and downcast it back. It expands into:
+`AZ_REFLECT_JSON` generates the boilerplate the C API needs to upcast your struct into a `RefAny` and downcast it back. It expands into:
 
 - `MyDataModel_upcast(MyDataModel)` — wraps the struct in a `RefAny`.
 - `MyDataModel_downcastRef(AzRefAny*, MyDataModelRef*)` — returns a const pointer.
@@ -66,7 +67,7 @@ AZ_REFLECT_JSON(MyDataModel, MyDataModel_destructor,
 
 The destructor is called when the framework drops the last `RefAny` referencing your struct. Hello-world's struct contains no heap data, so the body is empty.
 
-The JSON callbacks are not used in hello-world; they exist so that any `RefAny` can be serialized for state hot-reload. Stub implementations satisfy the reflection macro:
+The JSON callbacks are not used in hello-world; they exist so any `RefAny` can be serialised for state hot-reload. Stub implementations satisfy the reflection macro:
 
 ```c
 AzJson MyDataModel_toJson(AzRefAny refany) {

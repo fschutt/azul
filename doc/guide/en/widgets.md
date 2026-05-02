@@ -5,9 +5,10 @@ language: en
 canonical_slug: widgets
 audience: external
 maturity: wip
-guide_order: 80
+guide_order: 140
 topic_only: false
-prerequisites: [styling, events]
+short_desc: Built-in widgets — buttons, labels, lists, dialogs — and the conventions for writing your own.
+prerequisites: [styling, events, text-input]
 tracked_files:
   - layout/src/widgets/button.rs
   - layout/src/widgets/check_box.rs
@@ -19,8 +20,8 @@ tracked_files:
   - layout/src/widgets/mod.rs
   - layout/src/widgets/progressbar.rs
   - layout/src/widgets/titlebar.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:31:47Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T05:54:43Z
 ---
 
 # Built-in Widgets
@@ -98,7 +99,9 @@ let dom = Button::create("Save".into())
 
 The button registers `HoverEventFilter::MouseUp` for clicks and is
 focusable (`TabIndex::Auto`). Pass an `ImageRef` via `set_image` to put
-an icon next to the label.
+an icon next to the label. Each variant attaches the corresponding
+`__azul-btn-*` class (e.g. `__azul-btn-primary`) so a stylesheet can
+override the platform default.
 
 ## Label
 
@@ -181,7 +184,7 @@ filename refreshes after the callback completes.
 
 ## DropDown
 
-`DropDown` (`layout/src/widgets/drop_down.rs:199`) shows the currently
+`DropDown` (`layout/src/widgets/drop_down.rs`) shows the currently
 selected choice plus a `▾` icon. Receiving focus opens a native menu
 populated from `choices`; selecting an item invokes the callback with the
 chosen index:
@@ -201,7 +204,9 @@ let dom = DropDown::new(choices)
 ```
 
 Because the popup is a real OS menu (via `azul_core::menu`), it stays open
-across window resizes and respects the platform's menu styling.
+across window resizes and respects the platform's menu styling. The
+trigger node is focusable; tabbing to it and pressing Space opens the
+menu just like a click.
 
 ## ProgressBar
 
@@ -237,7 +242,7 @@ let dom = Frame::create(
 ## Titlebar
 
 `Titlebar` (`layout/src/widgets/titlebar.rs:104`) renders a custom window
-chrome bar with two modes (`titlebar.rs:73`):
+chrome bar with two modes:
 
 | Mode | Method | When to use |
 |---|---|---|
@@ -248,6 +253,10 @@ Default sizes match each platform: 28 px on macOS, 32 px on Windows, 30 px
 on Linux. `Titlebar::from_system_style` and `from_system_style_csd`
 populate the metrics from the runtime `SystemStyle` so the bar matches
 discovered system fonts and accent colours.
+
+Pair the CSD form with `WindowDecorations::None` and
+`has_decorations: true` (see [Windowing](windowing.md)) to draw the
+entire title bar yourself.
 
 ## What about styling?
 

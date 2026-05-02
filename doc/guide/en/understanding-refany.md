@@ -7,13 +7,14 @@ audience: external
 maturity: mature
 guide_order: 25
 topic_only: false
+short_desc: Type-erased reference-counted state — how to share data between the layout callback and event handlers safely.
 prerequisites: [architecture]
 tracked_files:
   - core/src/refany.rs
   - core/src/callbacks.rs
   - core/src/dom.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T17:30:00Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T05:48:36Z
 ---
 
 # Understanding RefAny

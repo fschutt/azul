@@ -7,6 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
+short_desc: Linux X11 shell — Xlib event loop, GLX context, clipboard selections, and XInput2 routing.
 prerequisites: [shell2-common]
 tracked_files:
   - dll/src/desktop/shell2/linux/mod.rs
@@ -25,8 +26,8 @@ tracked_files:
   - dll/src/desktop/shell2/linux/x11/menu.rs
   - dll/src/desktop/shell2/linux/x11/mod.rs
   - dll/src/desktop/shell2/linux/x11/tooltip.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:32:00Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T00:00:00Z
 ---
 
 > **WIP** — XRandR DPI handling and the override-redirect tooltip path
@@ -59,7 +60,7 @@ which wraps `libc::dlopen` with `RTLD_LAZY`. Each `Xlib`, `Egl`,
 pointers populated by the `load_symbol!` macro.
 
 `load_first_available::<Library>(&["libX11.so.6", "libX11.so"])`
-(`common/dlopen.rs:46`) is the cross-platform helper used here for
+(`common/dlopen.rs:44`) is the cross-platform helper used here for
 each library. The Xrender and GTK IM libs are optional —
 `new_with_resources` falls back gracefully when they fail to load
 (no ARGB transparency, no IME).
@@ -251,7 +252,7 @@ The libdbus-1 SO is loaded via `dbus::DBusLib::new`
 
 ## Timers (timerfd)
 
-`linux/timer.rs:11` (`start_timerfd`) wraps `timerfd_create(CLOCK_MONOTONIC,
+`linux/timer.rs:12` (`start_timerfd`) wraps `timerfd_create(CLOCK_MONOTONIC,
 TFD_NONBLOCK | TFD_CLOEXEC)` and `timerfd_settime`. Each Azul
 timer registered on the window allocates one timerfd; when the fd
 becomes readable the timer has fired. `check_timers_and_threads`
@@ -306,7 +307,7 @@ ABI exactly. When adding event-mask bits, cross-check against
 ## Known issues / TODOs
 
 - `check_gpu_blacklist` is defined but never called from the X11 GPU
-  init path (`compositor.rs:197`). When wired, an llvmpipe / NVIDIA-with-no-GLSL
+  init path (`compositor.rs:177`). When wired, an llvmpipe / NVIDIA-with-no-GLSL
   / old-Intel detection should fall through to `RenderMode::Cpu`.
 - Tooltip rendering is still bitmap text via `XDrawString`; styled
   tooltips will rebuild on top of the same `pending_window_creates`

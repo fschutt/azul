@@ -7,12 +7,13 @@ audience: external
 maturity: wip
 guide_order: 280
 topic_only: false
+short_desc: Screen-reader integration — the accessibility tree, ARIA roles, the `SmallAriaInfo` struct, and platform back-ends.
 prerequisites: [dom]
 tracked_files:
   - core/src/a11y.rs
   - layout/src/managers/a11y.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T17:30:00Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T12:00:00Z
 ---
 
 > **WIP.** Accessibility is opt-in behind the `a11y` Cargo feature.

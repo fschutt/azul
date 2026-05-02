@@ -7,14 +7,15 @@ audience: external
 maturity: mature
 guide_order: 20
 topic_only: false
+short_desc: How an Azul app is structured — App, AppConfig, layout callback, the Dom tree, and the per-frame pipeline.
 prerequisites: [hello-world]
 tracked_files:
   - core/src/callbacks.rs
   - core/src/dom.rs
   - core/src/refany.rs
   - doc/guide/en/architecture.md
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T17:30:00Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T05:48:36Z
 ---
 
 # Towards A „Perfect“ GUI Toolkit

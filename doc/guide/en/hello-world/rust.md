@@ -7,14 +7,15 @@ audience: external
 maturity: mature
 guide_order: 11
 topic_only: false
+short_desc: Installation, project layout, and the full Rust source for the counter app.
 prerequisites: [hello-world]
 tracked_files:
   - api.json
   - core/src/callbacks.rs
   - core/src/lib.rs
   - dll/src/lib.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:34:08Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T00:00:00Z
 ---
 
 # Hello, World — Rust
@@ -33,7 +34,7 @@ edition = "2021"
 azul = { git = "https://github.com/maps4print/azul" }
 ```
 
-The `azul` crate is the public-facing wrapper around `azul-dll`. It re-exports the prelude, widgets, and platform shell. The first build will compile the framework and its WebRender fork; subsequent builds are incremental.
+The `azul` crate is the public-facing wrapper around `azul-dll`. It re-exports the prelude, widgets, and platform shell. The first build compiles the framework and its WebRender fork (~10 min on a recent laptop); subsequent builds are incremental.
 
 ## Imports
 
@@ -54,7 +55,7 @@ struct DataModel {
 }
 ```
 
-No traits to implement, no inheritance, no `Component<…>` superclass. The framework will hold this struct inside a `RefAny` (see [architecture](../architecture.md) for the design rationale).
+No traits to implement, no inheritance, no `Component<…>` superclass. The framework will hold this struct inside a `RefAny` — see [architecture](../architecture.md) for the design rationale.
 
 ## The layout callback
 
@@ -90,13 +91,13 @@ extern "C" fn my_layout_func(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
 
 Five things to notice.
 
-- **`extern "C"`** — every callback crosses the FFI boundary. The signature must be `extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom`; see `core/src/callbacks.rs:91`.
+- **`extern "C"`** — every callback crosses the FFI boundary. The signature must be `extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom`; see `core/src/callbacks.rs:113`.
 - **`downcast_ref::<DataModel>()`** — the runtime cast that recovers your concrete struct from the type-erased `RefAny`. It returns `Option<&DataModel>` because, at the FFI boundary, the framework cannot statically know the type.
 - **`Dom::create_text`, `Dom::create_div`, `Dom::create_body`** — the three primitive node constructors. Everything else (buttons, lists, scroll regions) builds on top of them.
 - **`set_inline_style("…")`** — accepts a CSS string. Multi-property strings are valid: `"font-size: 50px; color: white;"`.
 - **`data.clone()`** — `RefAny::clone` bumps the reference count, it does not deep-copy your struct. The clone is given to the button so the click handler can downcast it later.
 
-The `_: LayoutCallbackInfo` parameter carries read-only access to the system font cache, image cache, GL context, window size, and active route (see `core/src/callbacks.rs:493`). Hello-world does not use any of it.
+The `_: LayoutCallbackInfo` parameter carries read-only access to the system font cache, image cache, GL context, window size, and active route — see `core/src/callbacks.rs:506`. Hello-world does not use any of it.
 
 ## The click callback
 
@@ -144,9 +145,7 @@ fn main() {
 cargo run --release
 ```
 
-The first build compiles the framework (~10 minutes on a recent laptop). Incremental rebuilds finish in a few seconds.
-
-You should see the same window pictured on the [hello-world landing page](../hello-world.md). Click the button: the counter increments, the layout callback re-runs, and the new value renders.
+You should see the window pictured on the [hello-world landing page](../hello-world.md). Click the button: the counter increments, the layout callback re-runs, and the new value renders.
 
 ## What just happened
 

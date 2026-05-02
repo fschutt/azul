@@ -7,14 +7,15 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
+short_desc: Discovering OS theme, accent, fonts, and accessibility settings — the per-platform back-ends and update notifications.
 prerequisites: [code-organization]
 tracked_files:
   - css/src/system.rs
   - dll/src/desktop/shell2/linux/system_style.rs
   - dll/src/desktop/shell2/macos/system_style.rs
   - dll/src/desktop/shell2/windows/system_style.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T17:30:00Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T00:00:00Z
 ---
 
 # System Style Discovery
@@ -185,8 +186,8 @@ pub(crate) fn discover() -> SystemStyle {
 }
 ```
 
-ClearType subpixel orientation is detected via `SPI_GETFONTSMOOTHINGTYPE`
-([`shell2/windows/system_style.rs:200-210`](../../../../dll/src/desktop/shell2/windows/system_style.rs)) — defaults to RGB; a separate `SPI_GETFONTSMOOTHINGORIENTATION` is read to switch to BGR.
+ClearType is detected via `SPI_GETFONTSMOOTHINGTYPE`
+([`shell2/windows/system_style.rs:200-214`](../../../../dll/src/desktop/shell2/windows/system_style.rs)) — when the smoothing type is `FE_FONTSMOOTHINGCLEARTYPE` the subpixel layout is set to `Rgb` (ClearType's horizontal default), otherwise `None`. The BGR / vertical variants of `SubpixelType` are not currently produced by Windows discovery.
 
 ## Linux: D-Bus first, then CLI, then defaults
 

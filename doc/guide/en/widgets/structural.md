@@ -1,12 +1,13 @@
 ---
-slug: structural
+slug: widgets/structural
 title: Structural Widgets
 language: en
-canonical_slug: structural
+canonical_slug: widgets/structural
 audience: external
 maturity: wip
-guide_order: 82
+guide_order: 142
 topic_only: false
+short_desc: Container widgets — panels, splitters, tab views, list views, and tree views.
 prerequisites: [widgets]
 tracked_files:
   - layout/src/widgets/list_view.rs
@@ -14,8 +15,8 @@ tracked_files:
   - layout/src/widgets/ribbon.rs
   - layout/src/widgets/tabs.rs
   - layout/src/widgets/tree_view.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:31:47Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T05:54:43Z
 ---
 
 # Structural Widgets
@@ -138,7 +139,7 @@ The widget supports lazy-loading: pass an explicit `content_height` to
 size the scroll region for unloaded rows, and use `on_lazy_load_scroll` to
 fetch more data as the user scrolls.
 
-> **Known limitation:** The current `dom()` implementation does not yet
+> **Known limitation:** the current `dom()` implementation does not yet
 > attach the `on_column_click`, `on_row_click`, `on_lazy_load_scroll`, or
 > `column_context_menu` to event filters in the produced DOM. Configure
 > them now to keep your call sites stable, but plan to handle clicks via

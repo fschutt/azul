@@ -7,25 +7,106 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
-prerequisites: [code-organization, layout-solver, css-properties]
+short_desc: Pagination — page-break properties, widow / orphan handling, and how the solver fragments boxes for PDF output.
+prerequisites: [layout-solver, inline-text3]
 tracked_files:
+  - layout/src/lib.rs
+  - layout/src/window.rs
   - layout/src/fragmentation.rs
   - layout/src/paged.rs
   - layout/src/solver3/pagination.rs
   - layout/src/solver3/paged_layout.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:32:10Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T05:55:41Z
 ---
 
 # Fragmentation
 
-> **WIP** — paged layout currently has two parallel implementations. `solver3::pagination` is the active engine used by `layout_document_paged`; `layout/src/fragmentation.rs` is the older break-classification machinery, kept for break-before/after rule resolution and headers/footers. They will eventually merge.
+> **WIP** — two parallel pagination paths exist. The active production path is the "infinite-canvas with physical spacers" model in `solver3/pagination.rs` + `solver3/paged_layout.rs`. The original `layout/src/fragmentation.rs` (CSS css-break-3 integrated splitting) has been mostly superseded but its types are still public and re-exported.
 
-Fragmentation is azul's CSS [css-break-3](https://www.w3.org/TR/css-break-3/) implementation: turning a continuous logical document into one display list per page, column, or region. It runs as part of normal layout — there is no post-hoc splitter. Content's page assignment is computed *during* layout based on its absolute Y position on an "infinite canvas with physical spacers."
+CSS Fragmentation Module Level 3 ([css-break-3](https://www.w3.org/TR/css-break-3/)) covers breaking content across pages, columns, and regions. Azul implements paged media for PDF generation; column and region fragmentation are scaffolded but not active.
 
-The active entry point is [`solver3::paged_layout::layout_document_paged`](../../../../layout/src/solver3/paged_layout.rs) at `solver3/paged_layout.rs:67`. It returns `Vec<DisplayList>` — one per page, with Y coordinates relative to the page's own origin.
+## Two implementations, briefly
+
+| Module | Status | Approach |
+|---|---|---|
+| `layout/src/fragmentation.rs` | partially superseded | CSS-spec-style "decide breaks during layout"; defines `FragmentationLayoutContext`, `BoxBreakBehavior`, `BreakPoint` |
+| `layout/src/paged.rs` | active container model | `FragmentationContext` enum: `Continuous`, `Paged`, `MultiColumn`, `Regions`; defines `Fragmentainer`, `FragmentationState` |
+| `layout/src/solver3/pagination.rs` | active | `PageGeometer` — infinite-canvas coordinate model; `FakePageConfig` for header/footer config without `@page` parsing |
+| `layout/src/solver3/paged_layout.rs` | active | `layout_document_paged` — drives the paged path: layout once on a tall canvas, split into pages by Y position, filter the display list |
+
+The note on `fragmentation.rs:23` says explicitly: *"`solver3/pagination.rs` provides an alternative page-layout implementation with its own `PageGeometer`, `PageTemplate`, and `PageMargins`. See that module for the currently active paged-layout pipeline."* The original design proposed integrated mid-layout splitting; the implementation took the simpler post-hoc filter approach (visible in commit history and in `paged_layout.rs:1` "page_index is assigned to nodes DURING layout based on Y position").
+
+## Active path: infinite canvas with physical spacers
+
+`solver3/pagination.rs` lays content out on a single tall canvas, with "dead zones" between pages representing margins, headers, and footers:
+
+```
+0px      ─────────────────────────────
+         │ Page 1 Content             │
+1000px   ─────────────────────────────
+         │ Dead Space (Footer+Margin) │   ← page break zone
+1100px   ─────────────────────────────
+         │ Page 2 Content             │
+2100px   ─────────────────────────────
+         │ Dead Space (Footer+Margin) │
+2200px   ─────────────────────────────
+```
+
+The advantage: the existing block/inline solver runs unchanged on the tall canvas. The downside: `break-inside: avoid` and orphans/widows aren't honoured by the layout — the splitter has to do its best after the fact. CSS `@page` rules aren't parsed yet (`FakePageConfig` is the programmatic surrogate).
+
+## `FragmentationContext` (paged.rs)
 
 ```rust,ignore
+pub enum FragmentationContext {
+    Continuous {
+        width: f32,
+        container: Fragmentainer,         // grows infinitely
+    },
+    Paged {
+        page_size: LogicalSize,
+        pages: Vec<Fragmentainer>,        // fixed-size pages
+    },
+    MultiColumn {
+        column_width: f32,
+        column_height: f32,
+        gap: f32,
+        columns: Vec<Fragmentainer>,
+    },
+    Regions {
+        regions: Vec<Fragmentainer>,      // pre-defined; cannot grow
+    },
+}
+```
+
+`MultiColumn` and `Regions` exist as enum variants but are not yet driven by any layout path. `Continuous` and `Paged` are the only ones that production code constructs.
+
+A `Fragmentainer` tracks `size`, `used_block_size`, `is_fixed_size`. `remaining_space()` returns `f32::MAX` for non-fixed (continuous) and `(size.height - used).max(0.0)` for fixed (pages). `advance()` creates the next fragmentainer; for `Continuous` it's a no-op (containers grow), for `Regions` it returns `Err` if no more regions exist.
+
+## `FragmentationState`
+
+`paged.rs:287`. The simpler per-layout-pass tracker for paged mode. Doesn't own fragmentainers; just tracks `current_page`, `current_page_y`, `available_height`, and `page_content_height`.
+
+```rust,ignore
+pub struct FragmentationState {
+    pub current_page: usize,
+    pub current_page_y: f32,
+    pub available_height: f32,
+    pub page_content_height: f32,
+    pub margins_top: f32,
+    pub margins_bottom: f32,
+    pub total_pages: usize,
+}
+```
+
+Helpers: `can_fit(height)`, `would_fit_on_empty_page(height)`, `use_space(height)`, `advance_page()`, `page_for_y(y) -> usize`, `page_y_offset(page) -> f32`.
+
+`page_for_y` is the splitter: given the absolute Y position of a display-list item, it computes which page the item belongs on. `paged_layout.rs:layout_document_paged` uses this to build per-page display lists from the single tall layout pass.
+
+## Driving paged layout (`solver3/paged_layout.rs`)
+
+```rust,ignore
+#[cfg(feature = "text_layout")]
 pub fn layout_document_paged<T, F>(
     cache: &mut LayoutCache,
     text_cache: &mut TextLayoutCache,
@@ -43,259 +124,135 @@ pub fn layout_document_paged<T, F>(
     image_cache: &ImageCache,
     get_system_time_fn: GetSystemTimeCallback,
 ) -> Result<Vec<DisplayList>>
+where
+    T: ParsedFontTrait + Sync + 'static,
+    F: Fn(Arc<FontBytes>, usize) -> std::result::Result<T, LayoutError>;
 ```
 
-## FragmentationContext
+Returns one `DisplayList` per page. Internally:
 
-[`paged::FragmentationContext`](../../../../layout/src/paged.rs) at `paged.rs:34` selects the fragmentainer geometry:
+1. Run normal `layout_document` against a `viewport` whose height is `f32::MAX` (the infinite canvas).
+2. Compute `page_size` and per-page geometry from `FragmentationContext::Paged.page_size` plus `FakePageConfig`.
+3. Walk `display_list.items` and split by `page_for_y(item.bounds.origin.y)`. Y coordinates are converted to page-relative by subtracting `page_y_offset(page)`.
+4. For each page, append header/footer items from `FakePageConfig`.
+
+Re-exports through `layout/src/lib.rs`:
 
 ```rust,ignore
-pub enum FragmentationContext {
-    Continuous {  // screen rendering, never breaks
-        width: f32,
-        container: Fragmentainer,
-    },
-    Paged {       // print / PDF
-        page_size: LogicalSize,
-        pages: Vec<Fragmentainer>,
-    },
-    MultiColumn { /* future */ },
-    Regions     { /* future */ },
-}
+pub use solver3::paged_layout::layout_document_paged;
+pub use paged::FragmentationState;
+pub use fragmentation::{
+    BoxBreakBehavior, BreakDecision, FragmentationDefaults, FragmentationLayoutContext,
+    KeepTogetherPriority, PageCounter, PageFragment, PageMargins, PageNumberStyle, PageSlot,
+    PageSlotContent, PageSlotPosition, PageTemplate,
+};
 ```
 
-`Continuous` is the default for screen — the layout solver runs unchanged and produces one display list. `Paged` triggers the paged path. `MultiColumn` and `Regions` are placeholder variants; the runtime is not yet wired up for either.
+## `FakePageConfig` and page templates
 
-## Infinite canvas with physical spacers
+`solver3/pagination.rs:FakePageConfig` is the programmatic substitute for unparsed `@page` rules. Configures:
 
-The active paged engine in [`solver3::pagination`](../../../../layout/src/solver3/pagination.rs) lays out the entire document on a single tall vertical canvas, with "dead zones" where page breaks would land:
+- Page size, margins, header height, footer height
+- Per-slot dynamic content via `PageSlotContent` (Text, PageNumber, PageOfTotal, RunningHeader, Dynamic closure)
+- Six slot positions (`PageSlotPosition::TopLeft`, `TopCenter`, `TopRight`, `BottomLeft`, `BottomCenter`, `BottomRight`)
+- Optional left/right (verso/recto) overrides via `PageTemplate::slots_for_page(page_number)` which selects between `slots`, `left_page_slots`, and `right_page_slots`
+- `header_on_first_page` / `footer_on_first_page` toggles for cover-page styling
 
-```text
-0px      ─────────────────────────────
-         │ Page 1 Content             │
-1000px   ─────────────────────────────
-         │ Dead Space (Footer+Margin) │  ← Page break zone
-1100px   ─────────────────────────────
-         │ Page 2 Content             │
-2100px   ─────────────────────────────
-         │ Dead Space (Footer+Margin) │
-2200px   ─────────────────────────────
-```
+`PageNumberStyle` covers `Decimal`, `LowerRoman`, `UpperRoman`, `LowerAlpha`, `UpperAlpha`. `PageCounter::format_page_number(style)` produces the string; `format_page_of_total()` renders "Page X of Y".
 
-Each block-flow element computes its Y position normally; the dead-zone spacers nudge content past the page boundary when it would otherwise sit on a break. The advantage: every existing layout algorithm (block, flex, grid, inline, table) keeps working unchanged. Only the post-layout slicer needs to know about pages.
-
-[`PageGeometer`](../../../../layout/src/solver3/pagination.rs) at `pagination.rs:56` owns the page-size + margins + header/footer state:
+`PageSlotContent::Dynamic(Arc<DynamicSlotContentFn>)` lets a caller produce per-page content from a closure:
 
 ```rust,ignore
-pub struct PageGeometer {
-    pub page_size: LogicalSize,
-    pub page_margins: PageMargins,
-    pub header_height: f32,
-    pub footer_height: f32,
-    pub current_y: f32,
-}
+let func = DynamicSlotContentFn::new(|counter| {
+    format!("Page {}", counter.page_number)
+});
+let content = PageSlotContent::Dynamic(Arc::new(func));
 ```
 
-`current_y` advances as content is placed. When a block doesn't fit on the current page, the engine emits a spacer to the next page boundary and re-positions the block at the new `current_y`.
+`Send + Sync` is required because the function is `Arc`-shared across pages.
 
-## Break behavior classification
+## CSS break properties (defined, partially honoured)
 
-[`fragmentation::BoxBreakBehavior`](../../../../layout/src/fragmentation.rs) at `fragmentation.rs:351` is the policy each layout box reports:
+From `azul_css::props::layout::fragmentation`, defined and parseable, but only partially consumed:
+
+| Property | Type | Honoured by |
+|---|---|---|
+| `break-before`, `break-after` | `PageBreak` | `BreakPoint::is_forced()` in `fragmentation.rs`; not consumed by paged splitter |
+| `break-inside` | `BreakInside` (`Auto` / `Avoid`) | `FragmentationLayoutContext::break_inside_avoid_depth` (counter incremented on entry); not consumed by paged splitter |
+| `orphans` | `u32` (default 2) | Defined; not enforced by Knuth–Plass |
+| `widows` | `u32` (default 2) | Defined; not enforced by Knuth–Plass |
+| `box-decoration-break` | `BoxDecorationBreak` (`Slice` / `Clone`) | Defined; not honoured |
+
+`BoxBreakBehavior` (`fragmentation.rs:351`) classifies a box's break behaviour:
 
 ```rust,ignore
 pub enum BoxBreakBehavior {
-    Splittable {                        // paragraphs, generic containers
-        min_before_break: f32,           // orphans-like
-        min_after_break: f32,            // widows-like
+    Splittable {
+        min_before_break: f32,
+        min_after_break: f32,
     },
-    KeepTogether {                      // headers + following content
+    KeepTogether {
         estimated_height: f32,
-        priority: KeepTogetherPriority,  // Low | Normal | High | Critical
+        priority: KeepTogetherPriority,
     },
-    Monolithic {                        // images, replaced elements
+    Monolithic {
         height: f32,
     },
 }
 ```
 
-`KeepTogetherPriority::Critical` is reserved for figure+caption pairs and table-header+first-row pairs. `Normal` is the default for `break-inside: avoid`. The classifier walks the DOM once and emits a `BoxBreakBehavior` per box; the slicer uses this when picking which break point to take.
+`KeepTogetherPriority`: `Low | Normal | High | Critical`. Headers with following content are `High`, figures with captions are `Critical`. The original design used these to drive break decisions during layout; the active path doesn't read them yet.
 
-## Break points
+## `FragmentationDefaults` (heuristics)
 
-[`BreakPoint`](../../../../layout/src/fragmentation.rs) at `fragmentation.rs:387` records every legal break opportunity:
-
-```rust,ignore
-pub struct BreakPoint {
-    pub y_position: f32,
-    pub break_class: BreakClass,         // ClassA | ClassB | ClassC
-    pub break_before: PageBreak,
-    pub break_after: PageBreak,
-    pub ancestor_avoid_depth: usize,     // > 0 → break-inside: avoid in scope
-    pub preceding_node: Option<NodeId>,
-    pub following_node: Option<NodeId>,
-}
-```
-
-The three classes follow CSS-Break-3 §3.1:
-
-- **Class A** — between sibling block-level boxes
-- **Class B** — between line boxes inside a block container
-- **Class C** — between content edge and child margin edge
-
-`is_allowed()` enforces the precedence rules: forced breaks (`page`, `always`) always allowed, `avoid` blocks the break, ancestor `break-inside: avoid` propagates downward via `ancestor_avoid_depth`. Orphans/widows are checked at a higher level by the slicer, not at the break-point level.
-
-## Page templates
-
-[`PageTemplate`](../../../../layout/src/fragmentation.rs) at `fragmentation.rs:223` describes headers, footers, and running content:
-
-```rust,ignore
-pub struct PageTemplate {
-    pub header_height: f32,
-    pub footer_height: f32,
-    pub slots: Vec<PageSlot>,
-    pub header_on_first_page: bool,
-    pub footer_on_first_page: bool,
-    pub left_page_slots: Option<Vec<PageSlot>>,   // even pages
-    pub right_page_slots: Option<Vec<PageSlot>>,  // odd pages
-}
-
-pub struct PageSlot {
-    pub position: PageSlotPosition,  // TopLeft | TopCenter | TopRight | Bottom*
-    pub content: PageSlotContent,
-    pub font_size_pt: Option<f32>,
-    pub color: Option<ColorU>,
-}
-
-pub enum PageSlotContent {
-    Text(String),
-    PageNumber(PageNumberStyle),     // Decimal | Lower/UpperRoman | Lower/UpperAlpha
-    PageOfTotal,
-    RunningHeader(String),
-    Dynamic(Arc<DynamicSlotContentFn>),
-}
-```
-
-Builder helpers cover the common cases:
-
-```rust,ignore
-let template = PageTemplate::new()
-    .with_book_header("Chapter 1".to_string(), 30.0)
-    .with_page_number_footer(20.0);
-```
-
-`PageTemplate::content_area_height(page_height, page_number)` returns the usable height after subtracting header + footer. `slots_for_page(page_number)` honors the left/right alternation.
-
-## Page counters
-
-[`PageCounter`](../../../../layout/src/fragmentation.rs) at `fragmentation.rs:56` tracks the running page number, optional total, optional chapter number, and a `BTreeMap<String, i32>` of named counters (CSS `counter()` function):
-
-```rust,ignore
-pub struct PageCounter {
-    pub page_number: usize,
-    pub total_pages: Option<usize>,
-    pub chapter: Option<usize>,
-    pub named_counters: BTreeMap<String, i32>,
-}
-```
-
-`format_page_number(PageNumberStyle::LowerRoman)` produces `"iii"` for page 3. `format_page_of_total()` produces `"Page 3 of 12"` when `total_pages.is_some()`, or `"Page 3"` otherwise (the total is unknown during the first pass).
-
-`PageNumberStyle::LowerAlpha` and `UpperAlpha` go past `z` / `Z` with `aa`, `ab`, … (spreadsheet column scheme).
-
-## FragmentationLayoutContext
-
-[`FragmentationLayoutContext`](../../../../layout/src/fragmentation.rs) at `fragmentation.rs:464` is the per-pass scratch state passed alongside `LayoutContext` when fragmentation is active:
-
-```rust,ignore
-pub struct FragmentationLayoutContext {
-    pub page_size: LogicalSize,
-    pub margins: PageMargins,
-    pub template: PageTemplate,
-    pub current_page: usize,
-    pub current_y: f32,
-    pub available_height: f32,
-    pub page_content_height: f32,
-    pub break_inside_avoid_depth: usize,
-    pub orphans: u32,
-    pub widows: u32,
-    pub fragments: Vec<PageFragment>,
-    pub counter: PageCounter,
-    pub defaults: FragmentationDefaults,
-    pub break_points: Vec<BreakPoint>,
-    pub avoid_break_before_next: bool,
-}
-```
-
-`break_inside_avoid_depth` increases when entering a subtree with `break-inside: avoid` and decreases on exit. While > 0, no `BreakPoint::is_allowed()` returns `true` (except forced breaks).
-
-`avoid_break_before_next` is set by `break-after: avoid` on the previous sibling — it suppresses the next available break opportunity.
-
-## Defaults — the smart layer
-
-[`FragmentationDefaults`](../../../../layout/src/fragmentation.rs) at `fragmentation.rs:537` controls heuristics that go beyond the spec:
+`fragmentation.rs:537`. The "smart" defaults that the integrated splitter would apply when CSS doesn't dictate otherwise:
 
 ```rust,ignore
 pub struct FragmentationDefaults {
-    pub keep_headers_with_content: bool,    // h1–h6 stick to following block
-    pub min_paragraph_lines: u32,           // <3 lines → KeepTogether
-    pub keep_figures_together: bool,
-    pub keep_table_headers: bool,
-    pub keep_list_markers: bool,
-    pub small_block_threshold_lines: u32,   // small block → Monolithic
-    pub default_orphans: u32,               // 2
-    pub default_widows: u32,                // 2
+    pub keep_headers_with_content: bool,         // default true
+    pub min_paragraph_lines: u32,                 // default 3
+    pub keep_figures_together: bool,              // default true
+    pub keep_table_headers: bool,                 // default true
+    pub keep_list_markers: bool,                  // default true
+    pub small_block_threshold_lines: u32,         // default 3
+    pub default_orphans: u32,                     // default 2
+    pub default_widows: u32,                      // default 2
 }
 ```
 
-Defaults match common book typography: 2/2 orphans+widows, headers stick, figures stay together, small blocks (≤ 3 lines) are treated as monolithic. Override per-document by passing a custom `FragmentationDefaults`.
+These are exposed but unused by `paged_layout.rs`. Implementing them requires switching to integrated splitting (the original design) or layering them on top of the post-hoc splitter.
 
-## PageFragment
+## Page templates and verso/recto
 
-[`PageFragment`](../../../../layout/src/fragmentation.rs) at `fragmentation.rs:447` is the per-page output of the slicer:
+`PageTemplate::slots_for_page(page_number)` picks the slot list:
 
 ```rust,ignore
-pub struct PageFragment {
-    pub page_index: usize,
-    pub bounds: LogicalRect,                // page-local
-    pub items: Vec<DisplayListItem>,
-    pub source_node: Option<NodeId>,
-    pub is_continuation: bool,              // continued from previous page
-    pub continues_on_next: bool,            // continues on next page
-}
+let override_slots = if page_number % 2 == 0 {
+    self.left_page_slots.as_deref()       // verso (even)
+} else {
+    self.right_page_slots.as_deref()       // recto (odd)
+};
+override_slots.unwrap_or(&self.slots)
 ```
 
-`is_continuation` and `continues_on_next` flag boxes that span pages. The compositor uses them to suppress border-top on continuations and border-bottom on splits, per CSS `box-decoration-break: slice`.
+`FragmentationLayoutContext::advance_to_left_page` and `advance_to_right_page` insert blank pages as needed to land on an even or odd page (chapter-start convention in print typography).
 
-## Two parallel implementations
+## Inline content flow across fragments
 
-There are two pagination modules and they share types but not the runtime:
+The text engine's stage-5 line breaker (`text3/cache.rs:layout_flow`) accepts `flow_chain: &[LayoutFragment]`. A `BreakCursor` records where one fragment stopped; the next fragment continues from there. This is how text would flow across columns or pages without re-shaping. Today only the paged splitter uses it indirectly (one big fragment per layout pass, then split by Y); column layout is not wired up.
 
-| module | purpose | status |
-|---|---|---|
-| [`solver3::pagination`](../../../../layout/src/solver3/pagination.rs) | active page-layout (`PageGeometer`, `FakePageConfig`) | wired to `layout_document_paged` |
-| [`fragmentation`](../../../../layout/src/fragmentation.rs) | break classification + page templates + counters | wired into the slicer that consumes `solver3::pagination` output |
+## Activating fragmentation in `LayoutWindow`
 
-`solver3::pagination` exists because the `fragmentation` module's break-during-layout integration ran into ordering problems with the inline engine — page breaks need to land between line boxes (Class B), which means the inline breaker has to be aware of the fragmentainer height. The infinite-canvas approach sidesteps this: the inline breaker doesn't change at all, and the slicer comes after with full Y-coordinate visibility.
+`LayoutWindow::new_paged(fc_cache, page_size)` (`window.rs:702`, behind `feature = "pdf"`) constructs a window with `fragmentation_context: FragmentationContext::new_paged(page_size)`. The paged layout path then calls `layout_document_paged` instead of `layout_document`. The screen path (`new` and `new_with_shared_fonts`) uses `FragmentationContext::new_continuous(800.0)` which makes `paged_layout.rs` a no-op (one page, infinite height).
 
-The current direction is to keep `fragmentation::BoxBreakBehavior`, `BreakPoint`, `PageTemplate`, `PageCounter` (these are good abstractions) and to migrate the slicer + integration into `solver3::pagination`. Treat the duplication as transitional.
+## Known divergence from the original design
 
-## CSS GCPM-3 status
+The original design (`layout/src/fragmentation.rs`) called for break decisions made *during* layout: as content is laid out, check `can_fit(height)`, apply `break-before`/`break-after` rules, defer or split `KeepTogether` blocks, enforce orphans/widows. The implementation in `solver3/paged_layout.rs` lays content out continuously and splits afterwards, which is simpler but cannot honour `break-inside: avoid` or orphans/widows correctly. The original design proposed `BreakDecision` and `BreakPoint::is_allowed()` to drive integrated splitting; those types remain public and re-exported from `lib.rs`, but no caller consumes them in the paged path.
 
-[`solver3::pagination`](../../../../layout/src/solver3/pagination.rs) declares partial CSS Generated Content for Paged Media (Level 3) support:
+If a contributor wants integrated splitting, the path forward is:
 
-| feature | status |
-|---|---|
-| Page counters (`counter(page)`, `counter(pages)`) | functional |
-| Header / footer slot configuration | functional |
-| Running elements (`position: running(name)`) | stub |
-| Named strings (`string-set`, `content: string(name)`) | stub |
-| Page selectors (`@page :first`, `@page :left/:right`) | stub |
-| `@page` rule parsing | not implemented — programmatic via `FakePageConfig` |
+1. Wire `FragmentationContext` into `LayoutContext` (already done — `LayoutContext::fragmentation_context: Option<&'a mut FragmentationContext>`).
+2. In `solver3/fc.rs:layout_bfc`, before placing each child, check `ctx.fragmentation_context` and call `can_fit(child_height)`. If false, advance the fragmentainer, leave a gap, and re-issue the layout with the child placed at the new page Y.
+3. In `solver3/fc.rs:layout_ifc`, plumb the fragment list through to `text_cache.layout_flow(flow_chain: &[LayoutFragment])` so Knuth–Plass produces fragment-aware breaks.
 
-`FakePageConfig` ([`solver3::pagination::FakePageConfig`](../../../../layout/src/solver3/pagination.rs)) is the temporary programmatic interface for setting page decoration before the full `@page` parser lands. It is *not* user-facing — the public API is `layout_document_paged` with a `FragmentationContext::Paged { page_size, … }`.
-
-## See also
-
-- [Layout Solver (Flex/Grid)](layout-solver.md) — the underlying `layout_document` that paged layout dispatches into
-- [Inline Layout and Text Shaping](inline-text3.md) — the breaker that produces line-box break points (Class B)
-- [CSS Property Internals](css-properties.md) — `break-before`, `break-after`, `break-inside`, `orphans`, `widows`
+Today neither step is done; `LayoutContext.fragmentation_context` is always `None` in production calls.

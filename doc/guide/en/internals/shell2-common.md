@@ -7,6 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
+short_desc: Shared shell infrastructure — windowing event loop, the per-window state machine, and the platform trait.
 prerequisites: []
 tracked_files:
   - dll/src/desktop/shell2/mod.rs
@@ -22,8 +23,8 @@ tracked_files:
   - dll/src/desktop/shell2/common/debug_server.rs
   - dll/src/desktop/shell2/common/e2e_test.rs
   - dll/src/desktop/shell2/headless/mod.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:32:00Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T00:00:00Z
 ---
 
 > **WIP** — the trait surface is settled but the CPU compositor and several
@@ -88,7 +89,7 @@ cfg_if::cfg_if! {
 
 ## `AzBackend` resolution
 
-`AzBackend` (`common/compositor.rs:65`) is the unified backend selector.
+`AzBackend` (`common/compositor.rs:73`) is the unified backend selector.
 It supersedes the older `AZUL_HEADLESS` / `AZUL_RENDERER` / `AZ_COMPOSITOR`
 trio.
 
@@ -102,7 +103,7 @@ pub enum AzBackend {
 }
 ```
 
-Resolution order, set by `AzBackend::resolve` (`compositor.rs:97`):
+Resolution order, set by `AzBackend::resolve` (`compositor.rs:101`):
 
 1. `AZ_BACKEND` env var. Accepted values: `headless`, `cpu`, `gpu` /
    `opengl` / `gl`, `auto`, and (when the `web` feature is on) anything
@@ -119,24 +120,24 @@ Resolution order, set by `AzBackend::resolve` (`compositor.rs:97`):
 
 ## `CompositorMode` and the GPU blacklist
 
-`CompositorMode` (`compositor.rs:13`) is the lower-level
+`CompositorMode` (`compositor.rs:28`) is the lower-level
 `GPU | CPU | Auto` choice consumed by `Compositor` impls. It deliberately
 duplicates a subset of `AzBackend` so a single window can flip between GPU
 and CPU at runtime via `Compositor::try_switch_mode` without touching the
 process-wide `AzBackend`.
 
-`GpuInfo` (`compositor.rs:158`) is the populated GL string set
+`GpuInfo` (`compositor.rs:145`) is the populated GL string set
 (`GL_VENDOR`, `GL_RENDERER`, `GL_VERSION`, `GL_SHADING_LANGUAGE_VERSION`).
-`check_gpu_blacklist` (`compositor.rs:197`) returns `GpuCheckResult`:
+`check_gpu_blacklist` (`compositor.rs:177`) returns `GpuCheckResult`:
 
 | Pattern | Reason | Source |
 |---|---|---|
-| `llvmpipe` / `softpipe` in `GL_RENDERER` | Mesa software rasteriser — `cpurender` is faster | `compositor.rs:204` |
-| NVIDIA vendor + empty `GL_SHADING_LANGUAGE_VERSION` | azul#220 — driver loads but cannot compile shaders | `compositor.rs:213` |
-| Intel + GL major version `< 3` | WebRender requires GL 3.0+ | `compositor.rs:225` |
+| `llvmpipe` / `softpipe` in `GL_RENDERER` | Mesa software rasteriser — `cpurender` is faster | `compositor.rs:184` |
+| NVIDIA vendor + empty `GL_SHADING_LANGUAGE_VERSION` | azul#220 — driver loads but cannot compile shaders | `compositor.rs:193` |
+| Intel + GL major version `< 3` | WebRender requires GL 3.0+ | `compositor.rs:205` |
 
 `check_gpu_blacklist` has no production call site yet (autoreview report
-flagged this as `[HIGH] Dead Code`). It is wired up to be called after a
+flagged this as `[HIGH]` dead code). It is wired up to be called after a
 successful GL context creation in `Auto` mode; the call site is pending.
 
 ## The `Compositor` trait
@@ -154,7 +155,7 @@ pub trait Compositor {
 }
 ```
 
-`RenderContext` (`compositor.rs:251`) carries platform-specific GPU handles
+`RenderContext` (`compositor.rs:230`) carries platform-specific GPU handles
 as raw pointers (`OpenGL`, `Metal`, `D3D11`) or `u64` Vulkan handles.
 `Send`/`Sync` are unsafely implemented; the caller must keep cross-thread
 access to these contexts synchronised via `wglMakeCurrent` /
@@ -228,7 +229,7 @@ breakpoint crossings (the per-OS handlers in
 
 ## `DynamicLibrary` trait
 
-`common/dlopen.rs:16`:
+`common/dlopen.rs:20`:
 
 ```rust,ignore
 pub trait DynamicLibrary {
@@ -238,7 +239,7 @@ pub trait DynamicLibrary {
 }
 ```
 
-`load_first_available::<L>(&["libX11.so.6", "libX11.so"])` (`dlopen.rs:46`)
+`load_first_available::<L>(&["libX11.so.6", "libX11.so"])` (`dlopen.rs:44`)
 walks a name list and returns the first one that loads, with a
 `DlError::LibraryNotFound { name, tried, suggestion }` aggregating the
 errors otherwise. Linux backends use this with `Library` (a thin wrapper
@@ -249,7 +250,7 @@ Windows backend defines its own non-trait `DynamicLibrary` struct in
 inconsistency as `[MEDIUM]` — both implementations work but
 `load_first_available` is unreachable on Windows.
 
-The `load_symbol!` macro (`common/dlopen.rs:7`) wraps the unsafe
+The `load_symbol!` macro (`common/dlopen.rs:10`) wraps the unsafe
 `get_symbol` call with early-return error propagation; the entire
 mechanical part of every `Xlib::new` / `Wayland::new` / `Egl::new` is
 hundreds of lines of `load_symbol!(...)` invocations.
@@ -359,7 +360,7 @@ deterministic resize/tick harness used to reproduce memory leaks
 without standing up a real window. Activated by setting
 `AZ_E2E_TEST=path/to/scenario.json`.
 
-The JSON schema (`Step` enum at `e2e_test.rs:50`):
+The JSON schema (`Step` enum at `e2e_test.rs:41`):
 
 | Action | Effect |
 |---|---|
@@ -380,7 +381,7 @@ and configure `rss_probes` to:
   `TextLayoutCache` / manager field that exposes a count or
   `memory_report()`.
 
-`run_e2e_scenario` (`e2e_test.rs:144`) bypasses `NSApplication` /
+`run_e2e_scenario` (`e2e_test.rs:133`) bypasses `NSApplication` /
 `select(2)` entirely — it constructs a `HeadlessWindow`, runs warmup
 ticks, then drives the scripted steps in-thread and exits the process
 with code 0 (pass) or 1 (RSS budget breached).
@@ -393,10 +394,10 @@ scenarios that run alongside a normal window) — see
 
 | Need | File |
 |---|---|
-| Add a new backend selector value | `common/compositor.rs:65` (`AzBackend`) + dispatch in `run.rs` |
-| Add a GPU blacklist entry | `common/compositor.rs:197` (`check_gpu_blacklist`) |
-| Add a window error variant | `common/error.rs:13` (`WindowError`) |
+| Add a new backend selector value | `common/compositor.rs:73` (`AzBackend`) + dispatch in `run.rs` |
+| Add a GPU blacklist entry | `common/compositor.rs:177` (`check_gpu_blacklist`) |
+| Add a window error variant | `common/error.rs:14` (`WindowError`) |
 | Add a default `PlatformWindow` method | `common/event.rs:138` |
 | Tweak the layout-regeneration order | `common/layout.rs` |
-| Add a new debug-server event | `common/debug_server.rs` (`process_debug_event`, line ~5873) |
+| Add a new debug-server event | `common/debug_server.rs` (`process_debug_event`, line ~5919) |
 | Add a leak-test scenario | `research/calc-regression-triage/leak-deep-dive/scripts/` + `AZ_E2E_TEST` |

@@ -254,12 +254,13 @@ id = "styling-tree"
 tree = "getting-started"
 audience = ["external"]
 agent_strategy = "split"
-tracked_files = ["css/src/lib.rs", "css/src/parser.rs", "css/src/system.rs"]
+tracked_files = ["css/src/lib.rs", "css/src/parser.rs", "css/src/system.rs", "core/src/icon.rs", "layout/src/icon.rs"]
 tracked_globs = ["css/src/props/basic/*.rs", "css/src/props/style/*.rs", "css/src/system_native_*.rs"]
 design_docs = [
   "SYSTEMSTYLE.md",
+  "ICON_SYSTEM_ANALYSIS.md",
 ]
-notes = "Landing introduces selectors, the cascade, and how to attach a Css to a Dom. /properties is a cheatsheet of the most-used properties grouped by category. /themes covers system-style discovery (light/dark, native colors) from the user's POV — design doc covers Win32/Cocoa/GTK native API patterns vs CLI wrapping."
+notes = "Landing introduces selectors, the cascade, and how to attach a Css to a Dom. /properties is a cheatsheet of the most-used properties grouped by category. /themes covers system-style discovery (light/dark, native colors). /text-and-fonts covers font-family, weight, alignment, and the system: keywords. /icon-packs covers registering image and font icons via IconProviderHandle."
 
 [[group.outputs]]
 slug = "styling"
@@ -285,6 +286,22 @@ maturity = "wip"
 guide_order = 42
 prerequisites = ["styling"]
 
+[[group.outputs]]
+slug = "styling/text-and-fonts"
+path = "doc/guide/en/styling/text-and-fonts.md"
+title = "Text and Fonts"
+maturity = "wip"
+guide_order = 43
+prerequisites = ["styling"]
+
+[[group.outputs]]
+slug = "styling/icon-packs"
+path = "doc/guide/en/styling/icon-packs.md"
+title = "Icon Packs"
+maturity = "wip"
+guide_order = 44
+prerequisites = ["styling"]
+
 # ----
 
 [[group]]
@@ -301,7 +318,7 @@ tracked_globs = [
   "css/src/props/layout/*.rs",
   "layout/src/text*/**/*.rs",
 ]
-notes = "Linear teaching: layout landing → flex → grid → positioning → text-and-fonts. Each layout sub-page focuses on one model with copy-pasteable examples."
+notes = "Linear teaching: simple → complex. Landing introduces all four formatting modes. Blocks covers display/position/sizing first (the default). Inline covers inline-block, the text3 engine, and fragmentainer flow. Then flex (one-axis) and grid (two-axis) as the opt-in container modes."
 
 [[group.outputs]]
 slug = "layout"
@@ -312,11 +329,27 @@ guide_order = 50
 prerequisites = ["styling"]
 
 [[group.outputs]]
+slug = "layout/blocks"
+path = "doc/guide/en/layout/blocks.md"
+title = "Blocks, Sizing, and Positioning"
+maturity = "mature"
+guide_order = 51
+prerequisites = ["layout"]
+
+[[group.outputs]]
+slug = "layout/inline"
+path = "doc/guide/en/layout/inline.md"
+title = "Inline, Inline-Block, and Text Flow"
+maturity = "mature"
+guide_order = 52
+prerequisites = ["layout/blocks"]
+
+[[group.outputs]]
 slug = "layout/flex"
 path = "doc/guide/en/layout/flex.md"
 title = "Flexbox"
 maturity = "mature"
-guide_order = 51
+guide_order = 53
 prerequisites = ["layout"]
 
 [[group.outputs]]
@@ -324,23 +357,7 @@ slug = "layout/grid"
 path = "doc/guide/en/layout/grid.md"
 title = "Grid"
 maturity = "mature"
-guide_order = 52
-prerequisites = ["layout"]
-
-[[group.outputs]]
-slug = "layout/positioning"
-path = "doc/guide/en/layout/positioning.md"
-title = "Positioning and Overflow"
-maturity = "mature"
-guide_order = 53
-prerequisites = ["layout"]
-
-[[group.outputs]]
-slug = "text-and-fonts"
-path = "doc/guide/en/text-and-fonts.md"
-title = "Text and Fonts"
-maturity = "wip"
-guide_order = 60
+guide_order = 54
 prerequisites = ["layout"]
 
 # ----

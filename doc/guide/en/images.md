@@ -7,12 +7,13 @@ audience: external
 maturity: wip
 guide_order: 70
 topic_only: false
+short_desc: Loading and rendering raster images — `ImageRef`, formats, scaling, and CSS background images.
 prerequisites: [dom]
 tracked_files:
   - core/src/svg.rs
   - core/src/svg_path_parser.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:31:47Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T12:00:00Z
 ---
 
 # Images and Drawing
@@ -140,7 +141,7 @@ with the available GL context and the laid-out bounds, and returns an
 # use azul::vec::U8VecRef;
 extern "C" fn render(_data: RefAny, mut info: RenderImageCallbackInfo) -> ImageRef {
     let size = info.get_bounds().get_physical_size();
-    // ...allocate a texture, draw into it, return ImageRef::gl_texture(tex)
+    // allocate a texture, draw into it, return ImageRef::gl_texture(tex)
     ImageRef::null_image(size.width as usize, size.height as usize,
                         RawImageFormat::RGBA8, U8VecRef::from(&[][..]))
 }

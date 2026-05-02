@@ -7,6 +7,7 @@ audience: external
 maturity: wip
 guide_order: 300
 topic_only: false
+short_desc: How `azul-doc` regenerates the C / C++ / Python bindings from `api.json`, and what to do when the generation diverges from hand edits.
 prerequisites: [hello-world, architecture]
 tracked_files:
   - api.json
@@ -15,8 +16,8 @@ tracked_files:
   - doc/src/dllgen/deploy.rs
   - doc/src/dllgen/license.rs
   - doc/src/dllgen/mod.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:40:52Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T05:50:43Z
 ---
 
 # Code Generation
@@ -51,7 +52,7 @@ api.json
    └─► target/codegen/azul{03,11,14,17,20,23}.hpp
 ```
 
-The IR is built once per run (`build_ir_from_api` in `doc/src/codegen/v2/mod.rs`), every output is then a string formatter that walks the IR with a different `CodegenConfig`. Files land under `target/codegen/` because they are not committed — `dll/build.rs` re-runs the generator if any required file is missing.
+The IR is built once per run (`build_ir_from_api` in `doc/src/codegen/v2/mod.rs`); each output is then a string formatter that walks the IR with a different `CodegenConfig`. Files land under `target/codegen/` because they are not committed — `dll/build.rs` re-runs the generator if any required file is missing.
 
 ## Running the generator
 
@@ -123,7 +124,7 @@ Generated outputs are paired with three Cargo feature combinations the consumer 
 | mode | feature | what gets compiled in |
 |---|---|---|
 | `build-dll` | `cabi_export` + `rust_api` + full backend | the shared library itself (`libazul.{so,dylib,dll}`) — exports `#[no_mangle]` symbols. |
-| `link-static` | same as `build-dll` minus `cabi_export` toggling | static linking from a Rust binary; full crate stack compiled in. |
+| `link-static` | `cabi_export` + `rust_api` (no `cabi_external`) | static linking from a Rust binary; full crate stack compiled in. |
 | `link-dynamic` | `cabi_external` + `rust_api` only | extern declarations only; expects `libazul.{so,dylib,dll}` at runtime. The internal crates (`azul-core`, `azul-css`, `azul-layout`) are not compiled. |
 
 The C, C++, and Python bindings are downstream of `build-dll`: they consume the produced shared library plus the matching header. The Rust binding can use any of the three modes (covered on [Rust Bindings](bindings/rust.md)).

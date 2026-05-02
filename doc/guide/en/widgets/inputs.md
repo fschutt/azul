@@ -1,18 +1,19 @@
 ---
-slug: inputs
+slug: widgets/inputs
 title: Input Widgets
 language: en
-canonical_slug: inputs
+canonical_slug: widgets/inputs
 audience: external
 maturity: wip
-guide_order: 81
+guide_order: 141
 topic_only: false
-prerequisites: [widgets]
+short_desc: Text fields, checkboxes, radios, sliders, dropdowns, and the small-aria info struct that wires accessibility.
+prerequisites: [widgets, text-input, text-selection]
 tracked_files:
   - layout/src/widgets/text_input.rs
   - layout/src/widgets/number_input.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:31:47Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T05:54:43Z
 ---
 
 # Input Widgets
@@ -166,7 +167,7 @@ let dom = NumberInput::create(0.0)
 pub struct NumberInputState {
     pub previous: f32,           // value before the most recent change
     pub number:   f32,           // current value
-    pub min:      f32,           // default: f32::MIN
+    pub min:      f32,           // default: 0.0 (see note)
     pub max:      f32,           // default: f32::MAX
 }
 ```
@@ -174,6 +175,11 @@ pub struct NumberInputState {
 `previous` is set to the prior `number` whenever a successful edit
 commits, so the value-change callback can compute deltas without storing
 its own history.
+
+> **Default min:** the constructor leaves `min` at `0.0`, which is
+> surprising for a general-purpose number input. Set
+> `state.inner.min = f32::MIN` after `create` if your input must accept
+> negative numbers.
 
 ### Callbacks
 

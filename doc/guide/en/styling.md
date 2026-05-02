@@ -7,11 +7,11 @@ audience: external
 maturity: mature
 guide_order: 40
 topic_only: false
+short_desc: Stylesheets and the cascade — selectors, pseudo-classes, at-rules, specificity, and the three ways to attach styles to a Dom.
 prerequisites: [dom]
 tracked_files:
   - css/src/lib.rs
   - css/src/css.rs
-  - css/src/parser2.rs
   - css/src/props/basic/angle.rs
   - css/src/props/basic/animation.rs
   - css/src/props/basic/color.rs
@@ -38,270 +38,277 @@ tracked_files:
   - css/src/props/style/selection.rs
   - css/src/props/style/text.rs
   - css/src/props/style/transform.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T17:30:00Z
+  - css/src/system.rs
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T12:00:00Z
 ---
 
 # Styling with CSS
 
-Style is attached to a `Dom` by parsing a CSS string into a `Css` value and
-calling `dom.style(css)`. The result is a `StyledDom` — the same `Dom` plus
-matched declarations per node, ready for layout.
+A `Css` is a parsed stylesheet. You build one from a string, attach it to a
+`Dom` subtree with `.style(css)`, and the cascade applies it on the next
+layout pass. The dialect is a strict subset of standard CSS: tag, class, id,
+and attribute selectors; descendant, child, sibling, and pseudo-class
+combinators; the `@media`, `@os`, `@theme`, and `@lang` at-rules; and
+shorthand properties for the common cases.
 
-```rust
-# extern crate azul;
-use azul::prelude::*;
+```rust,no_run
+# use azul::prelude::*;
+let css = Css::from_string("
+    body { font-family: sans-serif; padding: 20px; }
+    .panel { background: #f0f0f0; border: 1px solid #ccc; padding: 12px; }
+    .panel:hover { background: #e8e8e8; }
+".into());
 
-const STYLE: &str = r#"
-    body { padding: 20px; background: #fafafa; }
-    .card { padding: 16px; background: white; border-radius: 8px; }
-    .card > h1 { font-size: 20px; color: #333; }
-"#;
-
-extern "C" fn layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-    let css = Css::from_string(STYLE.into());
-    Dom::create_body()
-        .with_child(
-            Dom::create_div()
-                .with_class("card".into())
-                .with_child(Dom::h1("Hello".into()))
-        )
-        .style(css)
-}
+let _ = Dom::create_body()
+    .with_child(Dom::create_div().with_class("panel".into()))
+    .style(css);
 ```
 
-```azul-render screenshot=styling-card width=400 height=160 subtitle="Card layout from the snippet above"
-<body style="padding: 20px; background: #fafafa;">
-  <div style="padding: 16px; background: white; border-radius: 8px;">
-    <h1 style="font-size: 20px; color: #333;">Hello</h1>
-  </div>
-</body>
+```azul-render screenshot=styling-panel width=400 height=160 subtitle="A class-styled panel with hover-ready rules"
+<html>
+<head><style>
+body { font-family: sans-serif; padding: 20px; background: white; }
+.panel { background: #f0f0f0; border: 1px solid #ccc; padding: 12px; border-radius: 4px; }
+</style></head>
+<body><div class="panel">A panel with class-based styling</div></body>
+</html>
 ```
 
-## Css and Stylesheet
+## Three ways to attach styles
 
-`Css` is a flat list of `Stylesheet`s; each `Stylesheet` is a list of
-`CssRuleBlock`s; each block pairs a selector path with declarations.
+Pick the one that matches scope. They all parse to the same `CssProperty`
+enum and feed the same cascade — the difference is *where* the rules live.
 
-```rust,ignore
-pub struct Css { pub stylesheets: StylesheetVec }
-pub struct Stylesheet { pub rules: CssRuleBlockVec }
-pub struct CssRuleBlock {
-    pub path: CssPath,                 // selectors
-    pub declarations: CssDeclarationVec,
-    pub conditions: DynamicSelectorVec, // @media / @os / @theme conditions
-}
-```
-
-Constructors:
-
-| Function | Returns | Notes |
+| API | Scope | When to use |
 |---|---|---|
-| `Css::empty()` | `Css` | No rules. Equivalent to `Css::default()`. |
-| `Css::from_string(s)` | `Css` | Parses CSS source. Errors become warnings; partial CSS still produces output. |
+| `Dom::with_css(s)` | This node only | Inline tweaks; component-local styles |
+| `Dom::style(css)` | This subtree | Component themes; per-page stylesheets |
+| `Dom::with_css_property(p)` | This node | Programmatic single-property values |
 
-`from_string` never fails. Unrecognized properties, malformed selectors and
-unbalanced braces are downgraded to warnings — the rest of the stylesheet is
-parsed normally. To collect those warnings during development, call
-`azul_css::css::Css::from_string_with_warnings` directly on the underlying
-crate type, which returns `(Css, Vec<CssParseWarnMsgOwned>)`.
+```rust,no_run
+# use azul::prelude::*;
+// 1. Inline string on one node
+let _ = Dom::create_div()
+    .with_css("color: blue; padding: 4px; :hover { color: red; }");
+
+// 2. Stylesheet attached to a subtree
+let theme = Css::from_string(".btn { background: #1976d2; color: white; }".into());
+let _ = Dom::create_body()
+    .style(theme)
+    .with_child(
+        Dom::create_button("Save", SmallAriaInfo::label("Save"))
+            .with_class("btn".into())
+    );
+```
+
+`with_css` parses on every call. For a static stylesheet shared across many
+nodes, build the `Css` once at app startup and pass it through `style()`.
+Multiple `style()` calls stack: later ones override earlier ones at equal
+specificity (`core/src/dom.rs:4906`).
 
 ## Selectors
 
-Selectors map onto the W3C model. The full grammar lives in
-`css/src/css.rs:1435`.
+The selector language matches W3C Selectors Level 3 minus a few rarely-used
+pseudo-classes. From `css/src/css.rs:1432`:
 
-| Selector | Matches |
-|---|---|
-| `*` | Every node |
-| `div`, `p`, `h1`, `body`, `span`, ... | Nodes whose `NodeType` matches the tag |
-| `.name` | Nodes whose class list contains `name` |
-| `#name` | The (single) node whose id is `name` |
-| `[attr]`, `[attr="v"]`, `[attr~="v"]`, `[attr|="v"]`, `[attr^="v"]`, `[attr$="v"]`, `[attr*="v"]` | Attribute presence and string-match operators |
-| `A B` | Descendant: `B` inside `A` |
-| `A > B` | Direct child |
-| `A + B` | Adjacent sibling |
-| `A ~ B` | General sibling |
+| Selector | Example | Matches |
+|---|---|---|
+| `*` | `*` | every node |
+| Type | `div`, `button`, `h1` | nodes whose `NodeType` matches the tag |
+| Class | `.panel` | nodes with `with_class("panel")` |
+| Id | `#sidebar` | nodes with `with_id("sidebar")` |
+| Attribute | `[lang]`, `[lang="en"]`, `[lang^="en"]` | attribute presence/match |
+| Descendant | `nav a` | `<a>` anywhere under `<nav>` |
+| Child | `nav > a` | direct `<a>` child of `<nav>` |
+| Adjacent sibling | `h2 + p` | `<p>` immediately after `<h2>` |
+| General sibling | `h2 ~ p` | any `<p>` after `<h2>` at the same level |
+| Pseudo-class | `:hover`, `:focus`, `:nth-child(2n+1)` | runtime-evaluated state |
 
-Pseudo-classes:
+Attribute operators follow the standard set (`=`, `~=`, `|=`, `^=`, `$=`,
+`*=`) — see `AttributeMatchOp` at `css/src/css.rs:1481`.
 
-| Pseudo | Trigger |
-|---|---|
-| `:hover` | Cursor is over the node |
-| `:active` | Cursor is pressed and over the node |
-| `:focus` | Node holds keyboard focus |
-| `:first`, `:last` | First / last child of its parent |
-| `:nth-child(N)`, `:nth-child(even)`, `:nth-child(odd)`, `:nth-child(An+B)` | Position in parent's child list |
-| `:lang(de)` | Node language matches BCP 47 tag |
-| `:backdrop` | Window has lost focus (GTK convention) |
-| `:dragging`, `:drag-over` | Drag-and-drop states |
+## Pseudo-classes
 
-The `NodeTypeTag` enum lists every supported tag — `Div`, `P`, `Body`,
-`Span`, `Button`, `Input`, `Svg`, and the rest of the HTML5 + SVG element
-set (`css/src/css.rs:598`).
+State pseudo-classes evaluate on every frame. From `CssPathPseudoSelector`
+at `css/src/css.rs:1556`:
 
-```css
-button:hover { background: #e0e0e0; }
-.row > .cell:nth-child(odd) { background: #f5f5f5; }
-input[type="email"]:focus { border-color: #0078d4; }
-li:lang(en) { list-style-type: disc; }
+- `:hover` — pointer is over the element
+- `:active` — pointer is pressed and over the element
+- `:focus` — element has keyboard focus
+- `:first`, `:last` — first/last child of its parent
+- `:nth-child(n)`, `:nth-child(2n+1)`, `:nth-child(odd)`, `:nth-child(even)` — positional
+- `:lang(en)` — system locale matches the BCP 47 prefix
+- `:backdrop` — the containing window is unfocused (use this for inactive-window styling)
+- `:dragging`, `:drag-over` — drag-and-drop states
+
+These run through `DynamicSelector::PseudoState` (`css/src/dynamic_selector.rs:78`)
+without re-parsing the stylesheet.
+
+## At-rules
+
+Conditional rule blocks. The condition is evaluated per frame, so changing
+the system theme or rotating a window adapts without re-cascading.
+
+```rust,no_run
+# use azul::prelude::*;
+let _ = Dom::create_div().with_css("
+    color: black;
+    @theme dark { color: white; }
+    @os linux { font-family: 'Cantarell'; }
+    @os windows { font-family: 'Segoe UI'; }
+    @os macos { font-family: '.SF NS'; }
+    @media (max-width: 600px) { font-size: 14px; }
+");
 ```
 
-## The cascade
+| At-rule | Backed by | Notes |
+|---|---|---|
+| `@os <name>` | `DynamicSelector::Os` | `windows`, `macos`, `linux`, `android`, `ios` |
+| `@os-version` | `DynamicSelector::OsVersion` | `>= win-11`, `>= macos-14`, `linux gnome`, ... |
+| `@theme <variant>` | `DynamicSelector::Theme` | `dark`, `light`, custom string |
+| `@media (orientation: ...)` | `DynamicSelector::Orientation` | `portrait`, `landscape` |
+| `@media (min-width: Npx)` etc. | `DynamicSelector::ViewportWidth/Height` | numeric viewport ranges |
+| `@media (prefers-reduced-motion)` | `DynamicSelector::PrefersReducedMotion` | accessibility |
+| `@media (prefers-contrast)` | `DynamicSelector::PrefersHighContrast` | accessibility |
+| `@container` | `DynamicSelector::ContainerWidth/Height/Name` | container queries |
+| `@lang(<bcp47>)` | `DynamicSelector::Language` | matches by prefix |
 
-When several rules match the same node, the rule with the highest specificity
-wins. Specificity is the (id, class, type, universal) tuple defined by CSS:
+Conditions nest: an `@os linux` block can contain a `:hover` block, and the
+two conditions both have to hold for the rule to apply
+(`css/src/css.rs:528`, the `conditions` field on `CssRuleBlock`).
 
-| Selector kind | id | class | type |
-|---|---|---|---|
-| `#nav` | 1 | 0 | 0 |
-| `.row` | 0 | 1 | 0 |
-| `div` | 0 | 0 | 1 |
-| `div.row.active` | 0 | 2 | 1 |
-| `*` | 0 | 0 | 0 |
+The full enum is at `css/src/dynamic_selector.rs:50`. See [System Themes](styling/themes.md)
+for how the system populates these values from OS settings.
 
-`Css::sort_by_specificity()` orders rule blocks within each stylesheet so the
-matcher can apply them in cascade order. Calling it is idempotent. Inline CSS
-on a `Dom` node (set via `with_css(...)` or `with_css_property(...)`) is
-treated as if it had highest specificity and overrides matched rules.
+## The cascade and specificity
 
-Inheritable properties (`color`, `font-family`, `font-size`, `line-height`,
-text properties, `cursor`, `visibility`) propagate from parent to child unless
-the child overrides them. Layout properties — `width`, `padding`, `display`,
-`flex-*`, `grid-*` — never inherit.
+When more than one rule sets the same property, the cascade picks one. The
+rules, in order:
 
-## Attaching CSS to a DOM
+1. Higher specificity wins.
+2. Equal specificity → later rule wins.
+3. `style()` calls stack; a later `style()` is "later" than an earlier one.
+4. `with_css` (inline) outranks any stylesheet for that node.
 
-`Dom::style(css) -> StyledDom` runs selector matching against every node and
-caches the resolved declarations on each node. The resulting `StyledDom` is
-what the layout solver consumes.
+Specificity is the W3C tuple `(ids, classes+pseudo+attrs, types, total)`,
+computed by `get_specificity` at `css/src/css.rs:1693`. Call
+`Css::sort_by_specificity()` (or `Stylesheet::sort_by_specificity()`) once
+after parsing if you need deterministic order — the parser does not sort by
+default. The framework runs the sort during cascade.
+
+## Property values: the keyword set
+
+Every typed property is wrapped in `CssPropertyValue<T>` (`css/src/css.rs:374`):
 
 ```rust,ignore
-let css = Css::from_string(SOURCE.into());
-let body: Dom = build_dom();
-let styled: StyledDom = body.style(css);
-```
-
-Two equivalent ways exist to set styles per-node without writing CSS strings:
-
-- **Inline CSS** — `Dom::with_css("color: red; padding: 4px")` parses a CSS
-  declaration list and attaches it to a node, or `Dom::with_css_property(prop)`
-  attaches one already-typed `CssProperty`. Useful for one-off overrides
-  ("this exact button should be red") without polluting a global stylesheet.
-- **IDs and classes** — `Dom::with_id("name")` and `Dom::with_class("name")`
-  add identifiers so a global rule like `.name { ... }` or `#name { ... }`
-  can match the node.
-
-Both compose: a node can carry classes *and* inline CSS, and the inline CSS
-will win if it sets the same property the matched rule sets.
-
-## Dynamic CSS variables
-
-Property values can refer to a runtime-mutable variable using CSS variable
-syntax with a default:
-
-```css
-#avatar { padding: var(--avatar_pad, 16px); }
-```
-
-A callback can override `--avatar_pad` for the next frame; the default value
-is used until then. Internally these are represented as
-`CssDeclaration::Dynamic(DynamicCssProperty)` (`css/src/css.rs:127`). The
-override path is documented under [DOM and Callbacks](dom.md).
-
-## Conditional rules: @-blocks
-
-Rules can be nested inside `@`-blocks that gate them on runtime conditions.
-The conditions are recorded on each `CssRuleBlock` as a
-`DynamicSelectorVec` (`css/src/dynamic_selector.rs:50`).
-
-| At-rule | Example | Condition |
-|---|---|---|
-| `@media (min-width: 800px)` | viewport width / height ranges, orientation, aspect-ratio | `MinMaxRange` evaluated against the window |
-| `@os(linux)` | `windows`, `macos`, `linux`, `android`, `ios` | Detected platform |
-| `@os-version(macos >= sonoma)` | OS family + version comparison | `OsVersionCondition` |
-| `@theme(dark)` | `light`, `dark`, `system` | User's OS theme |
-| `@lang("de-DE")` | BCP 47 language tag | Document or system language |
-| `@container (min-width: 400px)` | size of nearest container-sized ancestor | `ContainerWidth` / `ContainerHeight` |
-
-```css
-@media (max-width: 600px) {
-    .sidebar { display: none; }
-}
-
-@theme(dark) {
-    body { background: #1e1e1e; color: #ddd; }
-}
-
-@os(macos) {
-    button { font-family: "SF Pro Text"; }
+pub enum CssPropertyValue<T> {
+    Auto,
+    None,
+    Initial,
+    Inherit,
+    Revert,
+    Unset,
+    Exact(T),
 }
 ```
 
-Conditions stack: a rule block inside `@media (...) { @theme(dark) { ... } }`
-must satisfy both. Multiple conditions on the same block are AND-combined.
+Most properties accept the CSS-wide keywords. `inherit` walks to the parent's
+resolved value; `initial` resets to the property's spec default; `unset`
+behaves as `inherit` for inheritable properties and `initial` otherwise.
+`revert` returns to the user-agent default (the same defaults `core/src/ua_css.rs`
+loads). The parser preserves the keyword and the cascade picks an explicit
+value at the latest moment.
 
-## Property categories
+## Inheritable properties
 
-Every recognized property is one variant of `CssProperty` (~250 variants
-total, declared in `css/src/props/property.rs:561`). They group into:
+Some properties propagate from parent to child by default; others do not.
+Inheritability is fixed by the property and queryable via
+`CssDeclaration::is_inheritable()` (`css/src/css.rs:161`). The inheritable
+set follows CSS conventions:
 
-- **Box model**: `width`, `height`, `min/max-*`, `padding-*`, `margin-*`,
-  `box-sizing`, `border-*`, `border-radius`, `box-shadow`, `outline-*`.
-- **Background**: `background`, `background-color`, `background-image`,
-  `background-position`, `background-size`, `background-repeat`. Image values
-  accept solid colors, linear/radial/conic gradients, and `url(...)`
-  references.
-- **Text**: `color`, `font-family`, `font-size`, `font-weight`, `font-style`,
-  `line-height`, `letter-spacing`, `word-spacing`, `text-align`,
-  `text-decoration`, `white-space`, `word-break`, `hyphens`,
-  `text-transform`, `direction`, `writing-mode`.
-- **Layout**: `display` (`flex`, `grid`, `block`, `inline-block`, `none`),
-  `position`, `top/right/bottom/left`, `z-index`, `flex-*`, `grid-*`,
-  `justify-*`, `align-*`, `gap`.
-- **Effects**: `opacity`, `visibility`, `transform`, `filter`,
-  `backdrop-filter`, `mix-blend-mode`, `cursor`.
-- **Scrollbar**: `overflow-x`, `overflow-y`, `scrollbar-width`,
-  `scrollbar-color`, plus `scrollbar-track`, `scrollbar-thumb`,
-  `scrollbar-button`, `scrollbar-corner` for per-part theming.
-- **Selection**: `selection-background-color`, `selection-color`,
-  `selection-radius` (Azul-specific).
+- Text: `color`, `font-family`, `font-size`, `font-weight`, `line-height`,
+  `text-align`, `letter-spacing`, `word-spacing`
+- Cursor: `cursor`
+- Visibility: `visibility`
+- Custom: `hyphenation-language`
 
-The full table with values per property is in
-[CSS Properties Cheatsheet](styling/properties.md).
+Layout properties (`width`, `padding`, `flex-grow`, ...) and most visual
+properties (`background`, `border`, ...) do not inherit — write `inherit`
+explicitly if you want one to.
 
-## Units
+## Dynamic properties (`var(...)`)
 
-| Unit | Use |
-|---|---|
-| `px` | CSS pixels (resolution-independent) |
-| `em` | Multiple of the current `font-size` |
-| `rem` | Multiple of the root `font-size` |
-| `pt` | 1pt = 4/3 px |
-| `%` | Percentage of the parent's resolved value (per-property semantics) |
-| `vw` / `vh` | Percentage of the viewport's width / height |
-| `deg` / `rad` / `grad` / `turn` | Angles (`transform`, `gradient`, `filter`) |
-| `s` / `ms` | Time (`transition`, `animation`, `caret-animation-duration`) |
+A `Dynamic` declaration is a CSS value swappable from Rust per frame.
+Syntax in CSS: `var(--my_id, <default>)`. It compiles to `DynamicCssProperty`
+(`css/src/css.rs:210`):
 
-A bare number with no unit is degrees in angle context (`rotate(45)`),
-otherwise it parses as `px` for length-typed properties.
+```rust,ignore
+pub struct DynamicCssProperty {
+    pub dynamic_id: AzString,
+    pub default_value: CssProperty,
+}
+```
 
-## Errors and warnings
+Use them when you want to change a single value (an accent color, a
+spacing unit) without re-parsing the stylesheet. The override path lives
+on `Dom::with_css_property`, which feeds a `CssPropertyWithConditions`
+directly into the node's prop vector.
 
-The CSS parser never panics and never fails outright — bad rules are
-dropped, good rules are kept. To inspect what was rejected during
-development, call `azul_css::css::Css::from_string_with_warnings` directly
-on the underlying crate type. It returns the same `Css` plus a
-`Vec<CssParseWarnMsgOwned>`. Each warning carries the source byte position
-(`ErrorLocation`) and an enum describing the cause: unknown property name,
-invalid value for a known property, unbalanced braces, malformed selector.
+## Parsing CSS
 
-## Where to look next
+`Css::from_string` returns the parsed stylesheet; the warning-collecting
+variant returns parser diagnostics for unrecognised properties:
 
-- [CSS Properties Cheatsheet](styling/properties.md) — every supported
-  property with its value grammar, grouped by category.
-- [System Themes](styling/themes.md) — discovering the user's OS theme,
-  reading native colors and fonts, and writing themeable apps.
-- [Layout](layout.md) — how the layout solver consumes a `StyledDom`.
-- [Animations](animations.md) — `transition` and `animation` property
-  semantics.
+```rust,no_run
+# use azul::prelude::*;
+let (css, warnings) = Css::from_string_with_warnings("
+    color: rebeccapurple;
+    bogus-property: 1;
+".into());
+
+for w in &warnings {
+    eprintln!("css warning at line {}: {:?}", w.location.line, w.warning);
+}
+```
+
+The parser is feature-gated behind `parser` (always enabled in the
+default build). Internals: `css/src/parser2.rs` is the entry point;
+each property's `parse_*` function lives next to its type.
+
+## Where styles meet the DOM
+
+The cascade runs once per layout pass. Inputs:
+
+1. The user-agent stylesheet (`core/src/ua_css.rs`) sets HTML defaults
+   (`h1` font sizes, `<button>` padding, `<a>` color, ...).
+2. Each `Css` attached to the subtree, in `style()` push order.
+3. Inline `with_css` rules on each node.
+4. Programmatic `with_css_property` overrides (highest priority short of `!important`).
+
+Output is a `StyledDom` — a flat, indexed view that the layout solver
+consumes. From your side this is invisible: you build a `Dom`, return it,
+and the framework runs cascade → layout → paint.
+
+Sub-pages cover the catalogue of properties, the platform integration,
+and the icon and text-styling primitives:
+
+- [CSS Properties Cheatsheet](styling/properties.md) — every property and the
+  values it accepts.
+- [System Themes](styling/themes.md) — `system:*` colors and fonts, `@theme`,
+  `@os`, and accessibility queries.
+- [Text and Fonts](styling/text-and-fonts.md) — `font-family`, weight, style,
+  alignment, and the `system:` font keywords.
+- [Icon Packs](styling/icon-packs.md) — registering image and font icons under
+  named packs.
+
+## Where to read the source
+
+- `css/src/css.rs:25` — `Css` and `Stylesheet` definitions
+- `css/src/css.rs:528` — `CssRuleBlock` (selector + declarations + conditions)
+- `css/src/css.rs:1432` — `CssPathSelector` (selector AST)
+- `css/src/css.rs:1556` — `CssPathPseudoSelector` (pseudo-class AST)
+- `css/src/css.rs:1693` — `get_specificity`
+- `css/src/dynamic_selector.rs:50` — `DynamicSelector` (`@os`, `@theme`, `@media`, `@lang`)
+- `core/src/dom.rs:4906` — `Dom::style`
+- `core/src/dom.rs:5099` — `Dom::with_css`

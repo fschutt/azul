@@ -7,6 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
+short_desc: WASM target — DOM-attachment, OffscreenCanvas, and how the desktop pipeline maps onto the browser.
 prerequisites: []
 tracked_files:
   - dll/src/web/cb_gen.rs
@@ -18,8 +19,8 @@ tracked_files:
   - dll/src/web/mod.rs
   - dll/src/web/server.rs
   - dll/src/web/transpiler.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:40:13Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T05:50:16Z
 ---
 
 > **WIP — Phase 0**: of the five planned phases (A–E), only **D** (HTML
@@ -34,8 +35,8 @@ The web backend turns an Azul application into an HTTP server: setting
 layout callback runs natively on the server, the resulting `StyledDom`
 is serialized to HTML + a per-node `#az_N { … }` stylesheet, and a
 small bootstrap JavaScript wires up callback dispatch. There is **no**
-client-side WASM today; that is the long-term goal that Phases A–C
-are placeholders for.
+client-side WASM today; that is the long-term goal that Phases A–C are
+placeholders for.
 
 ## Backend selection — `web://ip:port`
 
@@ -46,8 +47,8 @@ pub fn parse_web_url(s: &str) -> Option<SocketAddr>
 ```
 
 Accepts `web://127.0.0.1:8080`, `web://0.0.0.0:3000`,
-`web://[::1]:8080`. The `web://` prefix is case-insensitive; an
-optional `?query` (e.g. `?tls=cert.pem`) is stripped before
+`web://[::1]:8080`. The `web://` prefix is case-insensitive; an optional
+`?query` (e.g. `?tls=cert.pem`) is stripped before
 `SocketAddr::from_str`. The result is wrapped in
 `AzBackend::Web(SocketAddr)` and consumed by `dll/src/desktop/run.rs`,
 which calls `run_web` instead of the native shell.
@@ -88,9 +89,9 @@ forever serving HTTP.
 
 ## Phase A — `classify`
 
-`dll/src/web/classify.rs` decompresses an embedded brotli'd
-`api.json` (~120 KB compressed, ~3.7 MB raw) and bins every C function
-into one of three categories:
+`dll/src/web/classify.rs` decompresses an embedded brotli'd `api.json`
+(~120 KB compressed, ~3.7 MB raw) and bins every C function into one of
+three categories:
 
 ```rust,ignore
 pub enum FnClass {
@@ -114,10 +115,9 @@ fn classify_fn(name: &str) -> FnClass {
 ```
 
 The brotli blob is built at codegen time
-(`target/codegen/api.json.br`, produced by
-`azul-doc codegen all`). `classify_api_functions` is called from
-`run_web` for diagnostics only — Phase 0 doesn't act on the
-classification.
+(`target/codegen/api.json.br`, produced by `azul-doc codegen all`).
+`classify_api_functions` is called from `run_web` for diagnostics only —
+Phase 0 doesn't act on the classification.
 
 ## Phase B — `mini_gen`
 
@@ -132,9 +132,9 @@ const WASM_HEADER: [u8; 8] = [
 
 Browsers will load and parse this 8-byte module without complaint, so
 the `<link rel="preload" href="/az/mini.{hash}.wasm">` hint in the
-generated HTML resolves rather than 404'ing. The eventual
-implementation will lift ~200 framework C functions from the running
-binary through `Transpiler::lift_and_link_framework`.
+generated HTML resolves rather than 404'ing. The eventual implementation
+will lift ~200 framework C functions from the running binary through
+`Transpiler::lift_and_link_framework`.
 
 ## Phase C — `transpiler` and `cb_gen`
 
@@ -178,8 +178,9 @@ pipeline:
 1. **Run the layout callback** with a `LayoutCallbackInfo` constructed
    from the same `RefAny` and `FullWindowState` the desktop backend
    uses. `image_cache` and `gl_context` are empty — no GPU on the
-   server. Active route info is threaded through `LayoutCallbackInfoRefData`
-   so route-aware layout callbacks see the matched pattern.
+   server. Active route info is threaded through
+   `LayoutCallbackInfoRefData` so route-aware layout callbacks see the
+   matched pattern.
 
 2. **Run the cascade**: `StyledDom::create_from_dom(dom)` resolves all
    conditional CSS (OS, theme, viewport, container queries, language)
@@ -195,8 +196,9 @@ pipeline:
      `data-az-cb` is present iff the node has callbacks; `data-az-ev`
      records the JS event name (e.g. `click`, `mousedown`) derived from
      the first callback's `EventFilter`.
-   - Image nodes encode the bitmap to PNG via `azul_layout::image::encode_png`,
-     push a `CollectedImage`, and rewrite the `src` to `/az/img/{id}`.
+   - Image nodes encode the bitmap to PNG via
+     `azul_layout::image::encode_png`, push a `CollectedImage`, and
+     rewrite the `src` to `/az/img/{id}`.
    - The `id` and `class` attributes from the DOM are preserved as
      `data-az-id` and `class=`, since `id="az_N"` is reserved for the
      synthetic node ID.
@@ -212,7 +214,8 @@ pipeline:
 5. **Bundle fonts** as `@font-face` rules pointing at `/az/font/{id}`,
    then concatenate everything into a single `<style>` block.
 
-6. **Inject the loader JS** via `loader_js::generate_loader_js("stub", &cb_wasms)`.
+6. **Inject the loader JS** via
+   `loader_js::generate_loader_js("stub", &cb_wasms)`.
 
 `RenderOutput` carries the assembled HTML plus the collected image and
 font vectors that the server will serve under `/az/img/` and
@@ -288,8 +291,8 @@ the layout system) is unimplemented.
 1. Direct lookup in `state.rendered_routes` keyed by the literal path.
 2. Loop through registered routes and call
    `azul_core::resources::match_route(&pattern, path)` — for
-   parameterized patterns like `/users/{id}` this finds a template,
-   but Phase 0 serves the un-parameterized template HTML rather than
+   parameterized patterns like `/users/{id}` this finds a template, but
+   Phase 0 serves the un-parameterized template HTML rather than
    re-rendering with the captured params.
 3. Fall back to the `/` route, then to any registered route, then to
    `404 No routes configured`.
@@ -319,13 +322,13 @@ per-connection state.
 
 ## `loader_js` — bootstrap script
 
-`dll/src/web/loader_js.rs:18` returns a fixed JavaScript string.
-Three things happen on `DOMContentLoaded`:
+`dll/src/web/loader_js.rs:13` returns a fixed JavaScript string. Three
+things happen on `DOMContentLoaded`:
 
-1. **Callback wiring**: every element with `data-az-cb` gets an
-   event listener bound to its `data-az-ev` event type. The listener
-   POSTs to `/az/exec/{cb-id}` with `{x, y, button, key}` JSON and
-   replaces the document with the response via
+1. **Callback wiring**: every element with `data-az-cb` gets an event
+   listener bound to its `data-az-ev` event type. The listener POSTs
+   to `/az/exec/{cb-id}` with `{x, y, button, key}` JSON and replaces
+   the document with the response via
    `document.open() / document.write() / document.close()`.
 
 2. **Link interception**: every `<a href="/...">` (excluding `/az/`)
@@ -372,14 +375,14 @@ matched against registered routes.
 - `dll/src/web/mod.rs:45` — `run_web` orchestrator.
 - `dll/src/web/server.rs:67` — `run_server` accept loop and dispatch.
 - `dll/src/web/html_render.rs:62` — `render_initial_page`.
-- `dll/src/web/loader_js.rs:18` — `generate_loader_js`.
+- `dll/src/web/loader_js.rs:13` — `generate_loader_js`.
 - `dll/src/web/transpiler.rs:39` — `Transpiler` trait.
 - `dll/src/desktop/run.rs` — the four call sites that route into
   `run_web` based on `AzBackend::Web(addr)`.
 - `target/codegen/api.json.br` — embedded brotli'd API descriptor.
 - [DOM Internals](dom.md) — the `Dom` / `NodeData` / `NodeType` model
   the renderer walks.
-- [CSS Cascade Internals](cascade.md) — the `StyledDom` and property
-  cache the renderer reads.
+- [Cascade, Inheritance, Restyle](cascade.md) — the `StyledDom` and
+  property cache the renderer reads.
 - [Event System Internals](event-system.md) — the `EventFilter` enum
   mapped to JS event names.

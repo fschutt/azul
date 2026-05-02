@@ -5,14 +5,15 @@ language: en
 canonical_slug: layout/grid
 audience: external
 maturity: mature
-guide_order: 52
+guide_order: 54
 topic_only: false
+short_desc: Two-axis container layout — explicit and auto tracks, areas, placement, alignment, and dense packing.
 prerequisites: [layout]
 tracked_files:
   - css/src/props/layout/grid.rs
   - css/src/props/layout/spacing.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T00:00:00Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T05:49:28Z
 ---
 
 `display: grid` lays out children on a two-dimensional grid of explicit columns

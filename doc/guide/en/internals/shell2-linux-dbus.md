@@ -7,6 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
+short_desc: Linux DBus integration — accessibility, file dialogs, system notifications, and screen-reader hand-off.
 prerequisites: [shell2-common, shell2-linux-x11]
 tracked_files:
   - dll/src/desktop/shell2/linux/dbus/dlopen.rs
@@ -19,8 +20,8 @@ tracked_files:
   - dll/src/desktop/shell2/linux/gnome_menu/protocol_impl.rs
   - dll/src/desktop/shell2/linux/gnome_menu/shared_dbus.rs
   - dll/src/desktop/shell2/linux/gnome_menu/x11_properties.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:32:00Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T00:00:00Z
 ---
 
 > **WIP** — works on Wayland-on-Mutter and X11-on-GNOME 3+ when the

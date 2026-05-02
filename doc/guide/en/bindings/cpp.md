@@ -7,6 +7,7 @@ audience: external
 maturity: wip
 guide_order: 330
 topic_only: false
+short_desc: C++ wrapper headers — RAII helpers, namespace layout, and the differences from the raw C API.
 prerequisites: [hello-world, code-generation]
 tracked_files:
   - api.json
@@ -15,8 +16,8 @@ tracked_files:
   - doc/src/dllgen/deploy.rs
   - doc/src/dllgen/license.rs
   - doc/src/dllgen/mod.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:40:52Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T05:50:43Z
 ---
 
 # C++ Bindings
@@ -99,7 +100,7 @@ The release pipeline ships all six in every archive so you can pick the highest 
 
 Each header opens with this pattern:
 
-```cpp,ignore
+```cpp
 namespace azul {
     using Dom = AzDom;       // alias
     class String { /* RAII over AzString */ };
@@ -110,7 +111,7 @@ namespace azul {
 
 C-ABI types remain accessible under their `Az` prefix. Wrapper classes manage the lifecycle (constructor calls `Az<Type>_create`, destructor calls `Az<Type>_delete`). `release()` extracts the underlying C struct without running the destructor — needed when handing a value back across the C-ABI boundary, e.g. returning from a layout callback:
 
-```cpp,ignore
+```cpp
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     azul::Dom body = azul::Dom::create_body();
     return body.style(azul::Css::empty()).release();
@@ -123,7 +124,7 @@ The `AZ_REFLECT(MyType)` macro (defined per-header) generates the boilerplate fo
 
 A `.cpp` file can include `azul.h` and the corresponding `azulNN.hpp`. The C header is `extern "C"`-guarded internally; the C++ wrapper sits on top and shares the same ABI. This is how callbacks declared in the layout function (which must use C signatures for FFI) coexist with C++ types in the rest of the file.
 
-```cpp,ignore
+```cpp
 #include "azul17.hpp"  // pulls in azul.h transparently
 ```
 

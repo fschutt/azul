@@ -7,26 +7,27 @@ audience: external
 maturity: stub
 guide_order: 270
 topic_only: false
+short_desc: HTTP and TCP / UDP from a callback — the async runtime, request / response types, and how requests re-enter the layout pipeline.
 prerequisites: [background-tasks]
 tracked_files:
   - core/src/task.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T12:00:00Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T12:00:00Z
 ---
 
 # Networking
 
-> **Not yet functional.** Azul does not ship a built-in networking layer.
-> The `AzTcp` / `AzUdp` types described below are planned but unimplemented.
-> Today, do networking the same way you do any other blocking I/O: from
-> inside a [`Thread`](background-tasks.md).
+> **Not yet functional.** Azul does not ship a built-in networking
+> layer. The `AzTcp` / `AzUdp` types described under "planned API" below
+> are unimplemented. Today, do networking the same way you do any other
+> blocking I/O: from inside a [`Thread`](background-tasks.md).
 
 ## Status
 
 | Component | State |
 |---|---|
 | `AzTcp`, `AzUdp` socket types | not implemented |
-| `ConnectionStatus` enum integrated with the event loop | not implemented |
+| `ConnectionStatus` integrated with the event loop | not implemented |
 | Async runtime integration | not planned — bring your own |
 | `Thread`-based blocking I/O | works today (see [background-tasks](background-tasks.md)) |
 
@@ -43,8 +44,8 @@ calls in a `Thread` callback and post results back via
 ```rust,ignore
 extern "C" fn http_get(
     mut initial: RefAny,
-    mut sender: ThreadSender,
-    mut recv: ThreadReceiver,
+    mut sender:  ThreadSender,
+    mut recv:    ThreadReceiver,
 ) {
     let url = match initial.downcast_ref::<String>() {
         Some(s) => s.clone(),
@@ -52,33 +53,38 @@ extern "C" fn http_get(
     };
 
     // any blocking HTTP client works here — ureq, reqwest::blocking, etc.
-    let body: Vec<u8> = match ureq::get(&url).call().and_then(|r| {
-        let mut buf = Vec::new();
-        r.into_reader().read_to_end(&mut buf).map_err(Into::into).map(|_| buf)
-    }) {
-        Ok(b)  => b,
-        Err(e) => {
-            sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
-                refany:   RefAny::new(FetchError(format!("{e}"))),
-                callback: WriteBackCallback { cb: apply_error, ctx: OptionRefAny::None },
-            }));
-            return;
-        }
-    };
+    let result: Result<Vec<u8>, String> = ureq::get(&url).call()
+        .map_err(|e| e.to_string())
+        .and_then(|r| {
+            let mut buf = Vec::new();
+            r.into_reader().read_to_end(&mut buf)
+                .map(|_| buf)
+                .map_err(|e| e.to_string())
+        });
 
     // cooperative cancellation
-    if recv.recv().into_option() == Some(ThreadSendMsg::TerminateThread) { return; }
+    if let OptionThreadSendMsg::Some(ThreadSendMsg::TerminateThread) = recv.recv() {
+        return;
+    }
 
-    sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
-        refany:   RefAny::new(FetchOk(body)),
-        callback: WriteBackCallback { cb: apply_body, ctx: OptionRefAny::None },
-    }));
+    let msg = match result {
+        Ok(body) => ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
+            refany:   RefAny::new(FetchOk(body)),
+            callback: WriteBackCallback { cb: apply_body, ctx: OptionRefAny::None },
+        }),
+        Err(e) => ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
+            refany:   RefAny::new(FetchError(e)),
+            callback: WriteBackCallback { cb: apply_error, ctx: OptionRefAny::None },
+        }),
+    };
+    sender.send(msg);
 }
 ```
 
-The `apply_body` and `apply_error` callbacks run on the main thread and
-mutate the application's `RefAny` model in the usual way — see
-[background-tasks](background-tasks.md) for the full pattern.
+`apply_body` and `apply_error` run on the main thread and mutate the
+application's `RefAny` model in the usual way — see
+[background-tasks](background-tasks.md) for the full pattern and the
+`WriteBackCallback` signature.
 
 ## Modelling connection state
 
@@ -89,7 +95,7 @@ enum ConnectionStatus {
     Idle,
     Connecting { thread_id: ThreadId, started: Instant },
     Open       { stream:    RefAny    /* hold the live socket */ },
-    Closed     { reason:    String   },
+    Closed     { reason:    String },
 }
 ```
 
@@ -104,9 +110,9 @@ running one inside a `Thread`:
 
 ```rust,ignore
 extern "C" fn tokio_worker(
-    initial: RefAny,
+    _initial:   RefAny,
     mut sender: ThreadSender,
-    mut recv: ThreadReceiver,
+    mut _recv:  ThreadReceiver,
 ) {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -136,18 +142,18 @@ event.add_connection(id, socket, on_data, on_close);
 - `on_data` runs on the main thread on each readable chunk; it returns
   `Update`, mirroring `WriteBackCallback`.
 - `on_close` runs once when the connection ends — clean or not.
-- `ConnectionStatus` is a frame-coherent snapshot the layout callback can
-  read for status displays without locking.
+- `ConnectionStatus` is a frame-coherent snapshot the layout callback
+  can read for status displays without locking.
 
 This page will be promoted from `stub` to `wip` when the runtime side
 lands. Until then, treat networking as "do it in a `Thread`."
 
 ## What this page does not cover
 
-- TLS — out of scope for the framework. Use `rustls`, `native-tls`, or
-  whatever HTTP client you prefer inside the worker.
-- Mid-frame cancellation of in-flight DNS or TCP handshakes — `std::net`
-  does not expose this. Use `socket2` or a third-party client if you need
-  it.
-- WebSockets, gRPC, or HTTP/2 — same answer: any blocking client works
+- **TLS** — out of scope for the framework. Use `rustls`, `native-tls`,
+  or whatever HTTP client you prefer inside the worker.
+- **Mid-frame cancellation of in-flight DNS or TCP handshakes** —
+  `std::net` does not expose this. Use `socket2` or a third-party client
+  if you need it.
+- **WebSockets, gRPC, HTTP/2** — same answer: any blocking client works
   inside a `Thread`.

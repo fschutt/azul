@@ -7,6 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
+short_desc: Linux Wayland shell — wl_surface lifecycle, xdg-shell, libinput integration, and protocol fallbacks.
 prerequisites: [shell2-common, shell2-linux-x11]
 tracked_files:
   - dll/src/desktop/shell2/linux/wayland/clipboard.rs
@@ -17,8 +18,8 @@ tracked_files:
   - dll/src/desktop/shell2/linux/wayland/menu.rs
   - dll/src/desktop/shell2/linux/wayland/mod.rs
   - dll/src/desktop/shell2/linux/wayland/tooltip.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:32:00Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T00:00:00Z
 ---
 
 > **WIP** — `xdg_popup` for menus, `text-input v3` IME, and KDE blur

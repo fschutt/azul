@@ -7,6 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
+short_desc: Windows shell — Win32 message pump, DirectComposition, theme integration, and IME.
 prerequisites: [shell2-common]
 tracked_files:
   - dll/src/desktop/shell2/windows/accessibility.rs
@@ -21,8 +22,8 @@ tracked_files:
   - dll/src/desktop/shell2/windows/tooltip.rs
   - dll/src/desktop/shell2/windows/wcreate.rs
   - dll/src/desktop/shell2/windows/win_event.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:32:00Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T00:00:00Z
 ---
 
 > **WIP** — main lifecycle is stable, the per-monitor DPI path and IME
@@ -131,7 +132,7 @@ way to get GL 1.0–1.1 functions, so both lookups are needed.
 
 ## DPI awareness
 
-`dpi.rs:62` — `DpiFunctions` runtime-loads the entire DPI API surface
+`dpi.rs:64` — `DpiFunctions` runtime-loads the entire DPI API surface
 because it spans Windows Vista (`SetProcessDPIAware`) through Windows
 10 1703 (`SetProcessDpiAwarenessContext` with
 `PER_MONITOR_AWARE_V2`). Each `Option<fn>` is `Some` only on

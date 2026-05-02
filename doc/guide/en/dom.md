@@ -7,12 +7,13 @@ audience: external
 maturity: mature
 guide_order: 30
 topic_only: false
+short_desc: Building UIs from the Dom tree — node types, hierarchy, and the layout callback contract.
 prerequisites: [understanding-refany]
 tracked_files:
   - core/src/dom.rs
   - core/src/xml.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:41:06Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T05:53:30Z
 ---
 
 # The DOM
@@ -32,7 +33,7 @@ let dom: Dom = Dom::create_body()
 ## `Dom` and `NodeData`
 
 `Dom` is a recursive node value defined in
-[`core/src/dom.rs:3247`](../../core/src/dom.rs):
+[`core/src/dom.rs:3248`](../../core/src/dom.rs):
 
 ```rust,ignore
 pub struct Dom {
@@ -356,7 +357,7 @@ converts back to the tree form when needed.
 ## Where to read the source
 
 - `core/src/dom.rs:1511` — `NodeData` definition
-- `core/src/dom.rs:3247` — `Dom` definition
+- `core/src/dom.rs:3248` — `Dom` definition
 - `core/src/dom.rs:3291` — `FastDom` definition
 - `core/src/dom.rs:239` — `NodeType` variants
 - `core/src/dom.rs:1257` — `AttributeType` variants

@@ -7,43 +7,25 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
+short_desc: Loading the GL function pointers per platform — the runtime symbol table and the loader fallbacks.
 prerequisites: []
 tracked_files:
   - core/src/gl.rs
-  - core/src/gl_fxaa.rs
   - core/src/glconst.rs
   - dll/src/desktop/shell2/common/gl_loader.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T12:00:00Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T12:00:00Z
 ---
 
-> **WIP** — `gl.rs` is still cleaning up its FFI surface
-> (vestigial `run_destructor` flags, `static mut` texture cache).
-> Public types are stable; private internals may shift.
+> **WIP** — `GenericGlContext` may move to a slimmer subset; the rest of the
+> loader interface is stable.
 
-`azul` does not link `libGL` at compile time. Each platform shell opens the
-appropriate driver library at runtime and resolves every entry point of
-`gl_context_loader::GenericGlContext` through one shared loader,
-[`load_gl_context`](#the-shared-loader) in
-`dll/src/desktop/shell2/common/gl_loader.rs`. The result is wrapped in
-`Rc<GenericGlContext>` and handed to `core::gl::GlContextPtr::new`, which
-compiles the three built-in shaders and stores them on `GlContextPtrInner`.
+OpenGL is loaded at runtime, never linked. Each platform shell opens the system
+GL library, hands a symbol-resolution closure to `load_gl_context`, and gets
+back a `GenericGlContext` with ~800 function pointers populated. WebRender,
+the SVG renderer, and the FXAA pass all run against that single struct.
 
-## Layered structure
-
-| Layer | Crate / file | Responsibility |
-|---|---|---|
-| Constants table | `core/src/glconst.rs` | 1624 `pub const NAME: GLenum = 0xNNNN;` |
-| Loader trampoline | `gl_context_loader::GenericGlContext` (external) | `*mut c_void` per GL entry point |
-| Shared field-by-field assignment | `dll/src/desktop/shell2/common/gl_loader.rs` | Calls `get_func("glX")` for every field |
-| Per-platform symbol resolution | `shell2/{linux/common, macos, windows}/gl.rs` | `eglGetProcAddress` / `dlsym` / `wglGetProcAddress` |
-| Azul wrapper + shaders | `core/src/gl.rs` (`GlContextPtr`) | Refcounting, FFI types, built-in programs, texture cache |
-| Constants re-export | `core/src/gl.rs:28` (`pub use crate::glconst::*`) | Single import surface for users |
-
-## The shared loader
-
-`load_gl_context` exists so each platform writes ~30 lines of resolution code
-instead of ~800 field assignments:
+The shared loader lives at `dll/src/desktop/shell2/common/gl_loader.rs:12`:
 
 ```rust,ignore
 pub fn load_gl_context(
@@ -52,307 +34,205 @@ pub fn load_gl_context(
     GenericGlContext {
         glAccum: get_func("glAccum"),
         glActiveTexture: get_func("glActiveTexture"),
-        // ...one line per GL entry point
+        // ...~800 more entries
         glEndTilingQCOM: get_func("glEndTilingQCOM"),
     }
 }
 ```
 
-Source: `dll/src/desktop/shell2/common/gl_loader.rs:12-794`. The closure is
-called once per symbol; missing symbols come back as null pointers. Callers
-that try to invoke an unloaded symbol get a null-deref — `gl_context_loader`
-does not gate at the wrapper level.
+The struct definition is in the `gl_context_loader` crate. Every field is a raw
+function pointer (`*mut c_void`) cast at the call site. Missing symbols stay
+null; calling them is undefined behaviour, so the platform layer must verify
+the GL version before calling extension-only functions.
 
-## Per-platform resolution
+## Per-platform resolvers
 
-### macOS
+Each platform owns one file that constructs a `GlFunctions` wrapper around the
+`Rc<GenericGlContext>` and a handle to whatever needs to stay alive (DLL,
+framework, or `Library`).
 
-`dll/src/desktop/shell2/macos/gl.rs:46-71`. Uses `dlopen` against the system
-OpenGL framework, then `dlsym` per symbol:
-
-```rust,ignore
-let framework_path =
-    CString::new("/System/Library/Frameworks/OpenGL.framework/OpenGL").unwrap();
-let handle = unsafe { dlopen(framework_path.as_ptr(), RTLD_NOW | RTLD_GLOBAL) };
-if handle.is_null() { return Err("Could not dlopen OpenGL.framework/OpenGL".to_string()); }
-
-let context = load_gl_context(|s| {
-    let c_string = CString::new(s).unwrap();
-    unsafe { dlsym(handle, c_string.as_ptr()) } as *mut _
-});
-```
-
-`dlclose` runs from `GlFunctions::Drop`. macOS deprecated OpenGL but still
-ships the framework; once Metal-only systems drop OpenGL entirely, this loader
-will need a translation layer (e.g. ANGLE on Metal).
-
-### Linux (X11 + Wayland)
-
-`dll/src/desktop/shell2/linux/common/gl.rs:32-55`. Two-stage resolution:
-`eglGetProcAddress` first, falling back to `libGL.so.1` for pre-EGL symbols
-that EGL refuses to vend:
+### Linux — `dll/src/desktop/shell2/linux/common/gl.rs`
 
 ```rust,ignore
-let opengl_lib = Library::load("libGL.so.1").ok();
+pub fn initialize(egl: &Rc<Egl>) -> Result<Self, String> {
+    let opengl_lib = Library::load("libGL.so.1").ok();
 
-let context = load_gl_context(|s| {
-    let symbol_name = CString::new(s).unwrap();
-    let addr = unsafe { (egl.eglGetProcAddress)(symbol_name.as_ptr()) };
-    if !addr.is_null() {
-        return addr as *mut gl_context_loader::c_void;
-    }
-    if let Some(lib) = &opengl_lib {
-        if let Ok(addr) = unsafe { lib.get_symbol::<*mut c_void>(s) } {
+    let context = load_gl_context(|s| {
+        let symbol_name = CString::new(s).unwrap();
+        let addr = unsafe { (egl.eglGetProcAddress)(symbol_name.as_ptr()) };
+        if !addr.is_null() {
             return addr as *mut gl_context_loader::c_void;
         }
+        if let Some(lib) = &opengl_lib {
+            if let Ok(addr) = unsafe { lib.get_symbol::<*mut c_void>(s) } {
+                return addr as *mut gl_context_loader::c_void;
+            }
+        }
+        std::ptr::null_mut()
+    });
+    // ...
+}
+```
+
+`eglGetProcAddress` is the primary path — it works for all GL/GLES extensions
+and modern entry points. `libGL.so.1` is the fallback for legacy 1.x core
+symbols that some EGL implementations don't expose through `eglGetProcAddress`.
+Used by both the X11 and Wayland backends.
+
+### macOS — `dll/src/desktop/shell2/macos/gl.rs:46`
+
+```rust,ignore
+pub fn initialize() -> Result<Self, String> {
+    const RTLD_NOW: i32 = 2;
+    const RTLD_GLOBAL: i32 = 8;
+    let framework_path = CString::new(
+        "/System/Library/Frameworks/OpenGL.framework/OpenGL"
+    ).unwrap();
+    let handle = unsafe { dlopen(framework_path.as_ptr(), RTLD_NOW | RTLD_GLOBAL) };
+    if handle.is_null() {
+        return Err("Could not dlopen OpenGL.framework/OpenGL".to_string());
     }
-    std::ptr::null_mut()
-});
+
+    let context = load_gl_context(|s| {
+        let c_string = CString::new(s).unwrap();
+        (unsafe { dlsym(handle, c_string.as_ptr()) }) as *mut _
+    });
+    // ...
+}
 ```
 
-`Egl` itself is loaded via the dlopen plumbing in
-`dll/src/desktop/shell2/linux/x11/dlopen.rs`. Both X11 and Wayland backends
-share this loader because both create EGL contexts (X11 via `eglCreateWindow
-Surface` on the X drawable, Wayland via the `EGL_KHR_platform_wayland`
-platform).
+There is no `eglGetProcAddress` on macOS; every symbol comes from a single
+`dlopen` of the framework binary. The hardcoded path bypasses dyld's search
+logic — the framework lives at a fixed location on every supported macOS
+version. `dlclose` runs in `Drop`.
 
-### Windows
+The framework is deprecated by Apple but still present on every macOS release.
+Migration to Metal would replace this entire file (and the WebRender backend),
+not just the loader.
 
-`dll/src/desktop/shell2/windows/gl.rs:67-83`. Two-stage resolution:
-`wglGetProcAddress` for OpenGL ≥ 1.2 (extensions and modern functions),
-`GetProcAddress` against `opengl32.dll` for the GL 1.0/1.1 base set that
-`wglGetProcAddress` returns null for:
+### Windows — `dll/src/desktop/shell2/windows/gl.rs:67`
 
 ```rust,ignore
-self.functions = Rc::new(load_gl_context(|s| {
-    let mut func_name = super::encode_ascii(s);
-    let addr1 = unsafe { wglGetProcAddress(func_name.as_mut_ptr() as *const i8) };
-    (if addr1 != ptr::null_mut() {
-        addr1
-    } else if let Some(opengl32_dll) = opengl32_dll {
-        unsafe { GetProcAddress(opengl32_dll, func_name.as_mut_ptr() as *const i8) }
-    } else {
-        addr1
-    }) as *mut gl_context_loader::c_void
-}));
+pub fn load(&mut self) {
+    let opengl32_dll = self._opengl32_dll_handle;
+    self.functions = Rc::new(load_gl_context(|s| {
+        use winapi::um::{
+            libloaderapi::GetProcAddress,
+            wingdi::wglGetProcAddress,
+        };
+        let mut func_name = super::encode_ascii(s);
+        let addr1 = unsafe {
+            wglGetProcAddress(func_name.as_mut_ptr() as *const i8)
+        };
+        (if addr1 != ptr::null_mut() {
+            addr1
+        } else if let Some(opengl32_dll) = opengl32_dll {
+            unsafe {
+                GetProcAddress(opengl32_dll, func_name.as_mut_ptr() as *const i8)
+            }
+        } else {
+            addr1
+        }) as *mut gl_context_loader::c_void
+    }));
+}
 ```
 
-The `ExtraWglFunctions` struct (`shell2/windows/gl.rs:99-235`) bootstraps WGL
-extension functions (`wglCreateContextAttribsARB`, `wglChoosePixelFormatARB`,
-`wglSwapIntervalEXT`) by opening a temporary dummy window and a transient
-WGL context — the same chicken-and-egg dance as Khronos's reference loader.
+`wglGetProcAddress` only resolves entry points beyond OpenGL 1.1 — the 1.1
+core (`glClear`, `glViewport`, etc.) must come from `opengl32.dll` directly.
+That's why the DLL handle is loaded eagerly in `initialize()` and the loader
+falls back to `GetProcAddress` on it. Any function that returns null after
+both paths is unavailable on this driver.
 
-### When to call `load`
+`load()` is split from `initialize()` because `wglGetProcAddress` requires a
+**current** WGL context. The platform shell creates a dummy context, calls
+`load()`, then destroys the dummy context.
 
-Per platform, `load` must run **after** the GL context is current on the
-current thread. `wglGetProcAddress`, `eglGetProcAddress`, and `dlsym` all
-return symbols scoped to the active context. This is why the Windows shell
-splits `initialize` (zero-init the function pointers, open `opengl32.dll`)
-from `load` (call `load_gl_context` once a real context is current).
+## Initialization order
 
-## Constants — `core/src/glconst.rs`
+1. The platform shell creates the native GL surface (GLX FBConfig, NSOpenGLContext, or
+   WGL pixel format + dummy context).
+2. The shell makes that context current.
+3. The shell calls `GlFunctions::initialize(...)` (or `.load()` on Windows),
+   which calls `load_gl_context` to resolve every entry point.
+4. The shell hands the resulting `Rc<GenericGlContext>` to
+   `GlContextPtr::new` (`core/src/gl.rs:1027`), which compiles the SVG and
+   FXAA shader programs and stores the program IDs in `GlContextPtrInner`.
+5. WebRender is initialized against the same `Rc<GenericGlContext>`.
 
-A flat 1624-entry table:
+If any of steps 1–3 are out of order — particularly making the context current
+*after* loading on Windows — the resulting `GenericGlContext` is full of
+nulls. Every subsequent call returns a black frame or crashes in WebRender.
+
+## Why one giant struct
+
+`GenericGlContext` sits in the `gl_context_loader` crate (third-party fork)
+and exposes every GL entry point as a public field. Three reasons it's shaped
+this way:
+
+- **No global state.** Static GL bindings (the typical C/C++ pattern) require
+  a single context per process. Azul wants per-window contexts and headless
+  test contexts to coexist; one struct per context is the only design that
+  scales.
+- **Ad-hoc context substitution.** Tests and `cpurender` swap a real
+  `GenericGlContext` for a stub by constructing the struct directly with
+  `mem::zeroed()` (Windows takes this path during `initialize()` before the
+  real context is current).
+- **Lifetimes are obvious.** `Rc<GenericGlContext>` is the GL context. When
+  the last refcount drops, the struct is freed and so is every cached pointer
+  — no orphaned function pointers that outlive their library.
+
+`GlContextPtr` (`core/src/gl.rs:858`) wraps the `Rc` and adds the compiled SVG
+and FXAA program IDs. The wrapper is `repr(C)` and exposed across the FFI
+boundary; the compiled shaders live alongside the function pointers because
+they share the same lifetime.
+
+## `glconst.rs`
+
+`core/src/glconst.rs` declares 1624 OpenGL enum constants — every named
+`GL_*` value the implementation may need. The file is purely declarative:
 
 ```rust,ignore
-pub const ACCUM: types::GLenum = 0x0100;
-pub const ACTIVE_TEXTURE: types::GLenum = 0x84E0;
+pub const ACTIVE_ATTRIBUTES: types::GLenum = 0x8B89;
+pub const ACTIVE_ATTRIBUTE_MAX_LENGTH: types::GLenum = 0x8B8A;
 // ...
-pub const ZOOM_X: types::GLenum = 0x0D16;
 ```
 
-Re-exported from `core/src/gl.rs:28` as `pub use crate::glconst::*`, so
-downstream code uses `gl::TEXTURE_2D`, not `glconst::TEXTURE_2D`. The file is
-gated by `#![allow(dead_code, non_upper_case_globals)]` (`glconst.rs:3`)
-because most GL programs use a fraction of the table.
+`pub use crate::glconst::*` at `gl.rs:28` re-exports them so call sites use
+`gl::TEXTURE_2D` and similar without further qualification. The constants are
+GL-spec-defined; if you need a value that isn't here, look it up in the OpenGL
+registry and add a single `pub const` line.
 
-## `GlContextPtr` and the FFI surface
+## What's not in `GenericGlContext`
 
-The Rust API surface lives on `core::gl::GlContextPtr`:
+A few functions the renderer needs are *not* in `GenericGlContext`:
 
-```rust,ignore
-#[repr(C)]
-pub struct GlContextPtr {
-    pub ptr: Box<Rc<GlContextPtrInner>>,
-    pub renderer_type: RendererType,
-    pub run_destructor: bool,
-}
+- **WGL extensions** — `wglCreateContextAttribsARB`, `wglSwapIntervalEXT`,
+  `wglChoosePixelFormatARB`. Loaded into a separate `ExtraWglFunctions` struct
+  (`shell2/windows/gl.rs:99`) via a dummy context.
+- **GLX/EGL setup** — `eglGetDisplay`, `eglCreateContext`, etc. Loaded
+  directly through the EGL `Library` (X11 and Wayland) before any GL function
+  pointer exists.
+- **Platform context-creation primitives** — `wglMakeCurrent`,
+  `[NSOpenGLContext makeCurrentContext]`, `eglMakeCurrent`. Called by the
+  platform shell, never by `core` or `layout`.
 
-#[repr(C)]
-pub struct GlContextPtrInner {
-    pub ptr: Rc<GenericGlContext>,
-    pub svg_shader: GLuint,
-    pub svg_multicolor_shader: GLuint,
-    pub fxaa_shader: GLuint,
-}
-```
+Anything else missing is a bug in `gl_context_loader`. File a PR there rather
+than working around it in the loader closure.
 
-`gl.rs:858-900`. The double `Box<Rc<…>>` exists for two reasons:
+## Failure modes
 
-1. `#[repr(C)]` requires a known size; `Rc` is `repr(Rust)`, so it's wrapped
-   in a `Box` to expose a single pointer field across the FFI boundary.
-2. Cloning bumps the inner `Rc` count; the outer `Box` is cheap to copy.
+| Symptom | Likely cause |
+|---|---|
+| All draws produce a black frame | Loader closure ran without a current GL context. On Windows, `load()` was called before `wglMakeCurrent`. |
+| Some draws work, others crash on entry | Driver doesn't expose that entry point. Check for null in the consuming code, or guard with `GlApiVersion`. |
+| Linux backend fails entirely | `libGL.so.1` not installed (`mesa`/`nvidia-driver` package missing). EGL alone cannot resolve every legacy symbol. |
+| macOS backend fails to dlopen | OpenGL framework removed (rare; no shipping macOS version has done this). |
+| Windows backend works in dev but fails in installer | `opengl32.dll` not on the load path of the installed binary, or the installer renamed the DLL. |
 
-`Drop` on `GlContextPtrInner` (`gl.rs:902-908`) deletes all three programs.
-`Drop` on `GlContextPtr` itself only flips `run_destructor = false`
-(`gl.rs:876-880`); the actual cleanup is in `GlContextPtrInner::Drop` once the
-last `Rc` is gone.
-
-The `run_destructor` field appears on most `gl.rs` types
-(`GlVoidPtrConst`, `GLsyncPtr`, `GlContextPtr`, `Texture`,
-`VertexArrayObject`, `VertexBuffer`). It is a vestigial pattern: only `Texture`
-and `VertexArrayObject` actually look at it before running cleanup
-(`gl.rs:2846-2856`, `3079-3089`). The other `Drop` impls just clear the flag
-without doing work — the field can be removed once the FFI codegen is updated
-to stop emitting it. Treat it as historical noise when reading.
-
-## Built-in shader compilation
-
-`GlContextPtr::new(renderer_type, gl_context)` (`gl.rs:1027-1107`) compiles
-three programs sequentially before returning. Each follows the same shape:
-
-```rust,ignore
-let vs = gl_context.create_shader(gl::VERTEX_SHADER);
-gl_context.shader_source(vs, &[VERTEX_SOURCE]);
-gl_context.compile_shader(vs);
-check_shader_compile(&gl_context, vs, "label");
-
-let fs = gl_context.create_shader(gl::FRAGMENT_SHADER);
-gl_context.shader_source(fs, &[FRAGMENT_SOURCE]);
-gl_context.compile_shader(fs);
-check_shader_compile(&gl_context, fs, "label");
-
-let program = gl_context.create_program();
-gl_context.attach_shader(program, vs);
-gl_context.attach_shader(program, fs);
-gl_context.bind_attrib_location(program, 0, "vAttrXY".into());
-gl_context.link_program(program);
-check_program_link(&gl_context, program, "label");
-
-gl_context.delete_shader(vs);
-gl_context.delete_shader(fs);
-```
-
-The three resulting program IDs go into `GlContextPtrInner` and are read back
-by `get_svg_shader()`, `get_fxaa_shader()`, etc. Compile / link errors print
-to stderr via `eprintln!` but do not abort — a missing program degrades
-silently (SVG paths render as solid black). For long-term hardening this
-should be a Result.
-
-| Program | Vertex source | Fragment source |
-|---|---|---|
-| `svg_shader` | `gl.rs:923-940` | `gl.rs:942-956` |
-| `svg_multicolor_shader` | `gl.rs:958-978` | `gl.rs:980-…` |
-| `fxaa_shader` | `gl_fxaa.rs:FXAA_VERTEX_SHADER` | `gl_fxaa.rs:FXAA_FRAGMENT_SHADER` |
-
-## FXAA configuration
-
-`core/src/gl_fxaa.rs` exposes `FxaaConfig`:
-
-```rust,ignore
-pub struct FxaaConfig {
-    pub enabled: bool,
-    pub edge_threshold: f32,      // 0.063 - 0.333, default 0.125
-    pub edge_threshold_min: f32,  // 0.0312 - 0.0833, default 0.0312
-}
-```
-
-Presets: `enabled()`, `high_quality()` (threshold 0.063), `balanced()` (default
-threshold 0.125), `performance()` (threshold 0.25). Currently only
-`FxaaConfig::enabled()` is wired up — it's read by
-`layout/src/xml/svg.rs:apply_fxaa`. The FXAA pass runs after SVG triangulation
-to soften aliased edges; `enabled = false` skips it entirely.
-
-The shader algorithm is the standard NVIDIA FXAA 3.11 reference: sample the
-4-neighbourhood luminance, early-exit if the contrast is below threshold,
-otherwise blur along the detected edge direction
-(`gl_fxaa.rs:FXAA_FRAGMENT_SHADER`). Tuning the `edge_threshold` trades
-sharpness for AA coverage.
-
-## Vertex layout abstraction
-
-`gl.rs` includes a small VAO/VBO abstraction (`VertexLayout`, `VertexAttribute`,
-`VertexAttributeType`, `VertexArrayObject`, `VertexBuffer`) used by the SVG
-renderer. The interesting type is `VertexLayout::bind`
-(`gl.rs:2921-2950`), which iterates the field list and calls
-`vertex_attrib_pointer` + `enable_vertex_attrib_array` per attribute, computing
-strides and offsets from `VertexAttribute::get_stride()`. There's no global
-state; rebinding the layout is cheap and stateless from the Rust side.
-
-`VertexAttributeType` carries five variants (`Float`, `Double`, `UnsignedByte`,
-`UnsignedShort`, `UnsignedInt`) with `get_gl_id()` mapping each to the GL
-enum. Adding a new attribute type requires extending both methods.
-
-## Shader compilation as a public API
-
-`GlShader::new(&GlContextPtr, &str, &str) -> Result<Self, GlShaderCreateError>`
-(`gl.rs:3478`) is the user-facing path for custom shaders. It first checks
-`gl::SHADER_COMPILER` to detect drivers that only accept binary shaders
-(returns `NoShaderCompiler`), then runs the same compile/attach/link/check
-sequence as the built-in shaders, returning structured errors:
-
-```rust,ignore
-pub enum GlShaderCreateError {
-    Compile(GlShaderCompileError),  // Vertex(VertexShaderCompileError) | Fragment(...)
-    Link(GlShaderLinkError),
-    NoShaderCompiler,
-}
-```
-
-`GlShader::Drop` (`gl.rs:3373-3377`) deletes the linked program. `GlShader`
-holds a `GlContextPtr` clone so the program outlives the borrow that produced
-it.
-
-## Texture cache (process-global)
-
-A process-global `static mut ACTIVE_GL_TEXTURES` lives at `gl.rs:733`. It maps
-`DocumentId → Epoch → ExternalImageId → Texture` and exists so WebRender can
-hold an `ExternalImageId` referencing a GL texture without taking ownership.
-
-```rust,ignore
-static mut ACTIVE_GL_TEXTURES:
-    Option<OrderedMap<DocumentId, GlTextureStorage>> = None;
-```
-
-API: `insert_into_active_gl_textures` (`gl.rs:739`), `get_opengl_texture`
-(`gl.rs:835`), `gl_textures_remove_epochs_from_pipeline` (`gl.rs:765`),
-`gl_textures_remove_active_pipeline` (`gl.rs:808`),
-`gl_textures_clear_opengl_cache` (`gl.rs:819`).
-
-The `static mut` is **not thread-safe** and Rust 2024 will refuse the
-reference style. The current rationale is that `Texture` itself is `!Send`
-and lives on the renderer thread, so concurrent access does not arise in
-practice — but this is an invariant the type system does not enforce. The
-right long-term fix is `Mutex<Option<…>>` or a thread-local with documented
-ownership.
-
-## Putting it together
-
-A simplified construction sequence on Linux:
-
-```rust,ignore
-// 1. shell2/linux/x11/dlopen.rs — dlopen libEGL.so.1, libwayland-client.so, etc.
-let egl: Rc<Egl> = Egl::load()?;
-
-// 2. shell2/linux/common/gl.rs — resolve every GL entry point.
-let gl_funcs = GlFunctions::initialize(&egl)?;
-let gl: Rc<GenericGlContext> = gl_funcs.functions.clone();
-
-// 3. core/src/gl.rs — compile built-in shaders and wrap.
-let ctx_ptr = GlContextPtr::new(RendererType::Hardware, gl);
-
-// 4. WebRender / SVG renderer call methods on `ctx_ptr` from here on.
-ctx_ptr.clear(gl::COLOR_BUFFER_BIT);
-let prog = ctx_ptr.get_svg_shader();
-```
-
-macOS swaps step 1 for `dlopen("/System/Library/Frameworks/OpenGL.framework/
-OpenGL")`; Windows swaps it for `LoadLibraryA("opengl32.dll")` plus the WGL
-dummy-context dance in `ExtraWglFunctions::load`.
-
-## Related pages
-
-- [Rendering pipeline](rendering-pipeline.md) — what the GL context is used
-  for once it's built.
-- [WebRender bridge](webrender-bridge.md) — how textures registered through
-  `ACTIVE_GL_TEXTURES` reach the WebRender display list as external images.
+The Linux fallback to `libGL.so.1` is the only path that swallows a missing
+symbol silently; the others either return null (per-symbol failure) or refuse
+to construct the loader at all (whole-context failure). If a single function
+pointer is null and you call it, the program segfaults — there is no runtime
+guard. The OpenGL ES tile-control entries (`glStartTilingQCOM`,
+`glEndTilingQCOM`) are present in the struct for completeness but only
+populate on Adreno-class mobile GPUs; desktop drivers leave them null.

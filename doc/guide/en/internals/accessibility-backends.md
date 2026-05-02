@@ -7,6 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
+short_desc: Per-platform accessibility back-ends (UIA, AT-SPI, NSAccessibility) and the common tree they expose.
 prerequisites: [code-organization]
 tracked_files:
   - core/src/a11y.rs
@@ -14,8 +15,8 @@ tracked_files:
   - dll/src/desktop/shell2/linux/x11/accessibility.rs
   - dll/src/desktop/shell2/macos/accessibility.rs
   - dll/src/desktop/shell2/windows/accessibility.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T17:30:00Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T00:00:00Z
 ---
 
 # Accessibility Backends
@@ -52,7 +53,7 @@ dll::desktop::shell2::*::*AccessibilityAdapter::update_tree(tu)
 
 ## Data model: `AccessibilityInfo`
 
-[`core/src/a11y.rs:30`](../../../../core/src/a11y.rs) defines the per-node
+[`core/src/a11y.rs:27`](../../../../core/src/a11y.rs) defines the per-node
 record. `#[repr(C)]`, FFI-safe, `Hash`:
 
 ```rust,ignore
@@ -74,7 +75,7 @@ pub struct AccessibilityInfo {
 
 The lighter-weight constructor for the common case is
 [`SmallAriaInfo`](../../../../core/src/a11y.rs)
-([`a11y.rs:760`](../../../../core/src/a11y.rs)) — `label`, `role`,
+([`a11y.rs:764`](../../../../core/src/a11y.rs)) — `label`, `role`,
 `description`. It expands to `AccessibilityInfo` via
 `SmallAriaInfo::to_full_info()`.
 
@@ -91,7 +92,7 @@ The non-self-explanatory fields:
 ## Roles
 
 [`AccessibilityRole`](../../../../core/src/a11y.rs) at
-[`a11y.rs:138`](../../../../core/src/a11y.rs) is a `#[repr(C)]` enum modelled
+[`a11y.rs:156`](../../../../core/src/a11y.rs) is a `#[repr(C)]` enum modelled
 after MSAA / IAccessible role constants. It is wider than accesskit's `Role`
 enum — the manager collapses several variants:
 
@@ -122,7 +123,7 @@ or screen readers receive `Role::Unknown`.
 ## States
 
 [`AccessibilityState`](../../../../core/src/a11y.rs) at
-[`a11y.rs:590`](../../../../core/src/a11y.rs) — focus, selection, expansion,
+[`a11y.rs:608`](../../../../core/src/a11y.rs) — focus, selection, expansion,
 checkboxes, etc.:
 
 ```rust,ignore
@@ -146,7 +147,7 @@ individually onto the accesskit `Node` (`set_focused`, `set_selected`, ...).
 ## Actions
 
 [`AccessibilityAction`](../../../../core/src/a11y.rs) at
-[`a11y.rs:67`](../../../../core/src/a11y.rs) is a `#[repr(C, u8)]` superset of
+[`a11y.rs:66`](../../../../core/src/a11y.rs) is a `#[repr(C, u8)]` superset of
 `accesskit::Action` plus payload-carrying variants:
 
 ```rust,ignore

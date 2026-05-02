@@ -7,12 +7,13 @@ audience: external
 maturity: wip
 guide_order: 230
 topic_only: false
+short_desc: Loading a Dom from an XML string — the syntax, supported tags, and how it interacts with components.
 prerequisites: []
 tracked_files:
   - core/src/xml.rs
   - layout/src/xml/mod.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T22:00:00Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T00:00:00Z
 ---
 
 # XML Parsing (Standalone)
@@ -170,7 +171,7 @@ The classification heuristics live in `core/src/xml.rs:662-720`: extension first
 
 ## Components
 
-> **WIP** — the `ComponentMap` API in `core/src/xml.rs:1085+` replaces the older `XmlComponentTrait`; the migration is partial. Treat names below as load-bearing but signatures as moving targets.
+> **WIP** — the `ComponentMap` API in `core/src/xml.rs:2172` replaces the older `XmlComponentTrait`; the migration is partial. Treat names below as load-bearing but signatures as moving targets.
 
 The XML format supports custom tags (`<my-card title="hi">…</my-card>`) that expand to user-defined components. Components are registered in a `ComponentMap`; each `ComponentId` is a `(collection, name)` pair so you can scope sets — `builtin:div`, `shadcn:avatar`, `myproject:my-card`. The parser does not instantiate components on its own; that step happens in `domxml_from_str` and is consumed by tooling like the `.azul` compile pipeline.
 

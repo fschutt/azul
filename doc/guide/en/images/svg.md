@@ -7,12 +7,13 @@ audience: external
 maturity: wip
 guide_order: 71
 topic_only: false
+short_desc: Parsing and rendering SVG documents — the embedded engine, supported features, and known gaps.
 prerequisites: [images]
 tracked_files:
   - core/src/svg.rs
   - core/src/svg_path_parser.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:31:47Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T12:00:00Z
 ---
 
 # SVG
@@ -59,7 +60,7 @@ primitives so a single value can describe an entire `<path>` element:
 
 ## Parsing path data
 
-`parse_svg_path_d` (`core/src/svg_path_parser.rs:182`) takes the contents of
+`parse_svg_path_d` (`core/src/svg_path_parser.rs:329`) takes the contents of
 an SVG `d=""` attribute and returns an `SvgMultiPolygon`. Every command
 described in the SVG 1.1 path grammar is supported, including arcs (`A`),
 which are converted to up to four cubic Béziers per quarter turn (the

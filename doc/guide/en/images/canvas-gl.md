@@ -7,11 +7,13 @@ audience: external
 maturity: wip
 guide_order: 72
 topic_only: false
+short_desc: Embedding an OpenGL canvas inside a Dom node for custom 3-D and 2-D rendering.
 prerequisites: [images]
 tracked_files:
   - core/src/svg.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:31:47Z
+  - core/src/svg_path_parser.rs
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T12:00:00Z
 ---
 
 # Canvas and GL Textures

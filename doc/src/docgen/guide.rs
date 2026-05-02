@@ -18,9 +18,9 @@ pub struct Guide {
     pub audience: Option<String>,
     /// Linear teaching order (Tree 1: 10–199, Tree 2: 200+).
     pub guide_order: Option<i32>,
-    /// One-liner shown beneath the link in the guide index. Extracted from
-    /// the first paragraph after the H1 (the writing style mandates that
-    /// first sentence is a fact about the subject).
+    /// One-liner shown beneath the link in the guide index. Comes from
+    /// the page's `short_desc` frontmatter field — localised per page and
+    /// authored by hand (not extracted from prose).
     pub description: Option<String>,
 }
 
@@ -104,8 +104,8 @@ fn walk_collect(
             let stem = rel.with_extension("");
             let file_name = stem.to_string_lossy().replace('\\', "/");
             let content = fs::read_to_string(&p).unwrap_or_default();
-            let (title, body, guide_order, audience) = extract_metadata(&content, &file_name);
-            let description = extract_first_paragraph(&body);
+            let (title, body, guide_order, audience, description) =
+                extract_metadata(&content, &file_name);
             out.push((
                 guide_order,
                 file_name.clone(),
@@ -125,9 +125,9 @@ fn walk_collect(
 fn extract_metadata(
     content: &str,
     fallback_name: &str,
-) -> (String, String, Option<i32>, Option<String>) {
+) -> (String, String, Option<i32>, Option<String>, Option<String>) {
     if let Some((fm, body)) = crate::reftest::autodoc::parse_frontmatter(content) {
-        return (fm.title, body, fm.guide_order, fm.audience);
+        return (fm.title, body, fm.guide_order, fm.audience, fm.short_desc);
     }
     // No frontmatter — first H1, else fallback name.
     let mut title = fallback_name.to_string();
@@ -137,146 +137,7 @@ fn extract_metadata(
             break;
         }
     }
-    (title, content.to_string(), None, None)
-}
-
-/// Extract the first paragraph after the H1 as a one-liner description.
-/// Strips markdown syntax (inline code, bold, italics, links). Returns the
-/// first sentence (up to ~200 chars). Returns None if the page has no prose
-/// before the next heading or code block.
-fn extract_first_paragraph(body: &str) -> Option<String> {
-    let mut seen_h1 = false;
-    let mut paragraph = String::new();
-
-    for line in body.lines() {
-        let trimmed = line.trim();
-        // Skip until we've passed the H1.
-        if !seen_h1 {
-            if trimmed.starts_with("# ") {
-                seen_h1 = true;
-            }
-            continue;
-        }
-        // Skip empty lines before the first paragraph starts.
-        if paragraph.is_empty() {
-            if trimmed.is_empty() {
-                continue;
-            }
-            // First-paragraph rejects: heading, code fence, quote, list, HTML,
-            // azul-render expansion (figure/img tags emitted by the preprocessor).
-            if trimmed.starts_with('#')
-                || trimmed.starts_with("```")
-                || trimmed.starts_with('>')
-                || trimmed.starts_with("- ")
-                || trimmed.starts_with("* ")
-                || trimmed.starts_with("<")
-            {
-                return None;
-            }
-        }
-        // Empty line ends the paragraph.
-        if trimmed.is_empty() {
-            break;
-        }
-        if !paragraph.is_empty() {
-            paragraph.push(' ');
-        }
-        paragraph.push_str(trimmed);
-    }
-
-    if paragraph.is_empty() {
-        return None;
-    }
-
-    let cleaned = strip_markdown_inline(&paragraph);
-    let one_liner = first_sentence(&cleaned, 200);
-    if one_liner.is_empty() {
-        None
-    } else {
-        Some(one_liner)
-    }
-}
-
-/// Strip inline markdown so plain text remains: code spans, bold, italic,
-/// link syntax `[text](url)` → `text`, image syntax `![alt](url)` → `alt`.
-fn strip_markdown_inline(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let bytes = s.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        let b = bytes[i];
-        // Inline code `…`
-        if b == b'`' {
-            i += 1;
-            while i < bytes.len() && bytes[i] != b'`' {
-                out.push(bytes[i] as char);
-                i += 1;
-            }
-            if i < bytes.len() {
-                i += 1; // skip closing backtick
-            }
-            continue;
-        }
-        // Bold/italic markers — just drop them.
-        if b == b'*' || b == b'_' {
-            i += 1;
-            continue;
-        }
-        // Link / image: `[text](url)` or `![alt](url)`.
-        if b == b'!' && i + 1 < bytes.len() && bytes[i + 1] == b'[' {
-            i += 1;
-            continue;
-        }
-        if b == b'[' {
-            i += 1;
-            let start = i;
-            while i < bytes.len() && bytes[i] != b']' {
-                i += 1;
-            }
-            let text = &s[start..i];
-            out.push_str(text);
-            // Skip `](...)` if present.
-            if i < bytes.len() && bytes[i] == b']' {
-                i += 1;
-                if i < bytes.len() && bytes[i] == b'(' {
-                    while i < bytes.len() && bytes[i] != b')' {
-                        i += 1;
-                    }
-                    if i < bytes.len() {
-                        i += 1;
-                    }
-                }
-            }
-            continue;
-        }
-        out.push(b as char);
-        i += 1;
-    }
-    out
-}
-
-/// Return the first sentence of `s`, capped at `max_chars`. A "sentence"
-/// ends at `.`, `?`, or `!` followed by whitespace or end-of-string.
-fn first_sentence(s: &str, max_chars: usize) -> String {
-    let trimmed = s.trim();
-    let chars: Vec<char> = trimmed.chars().collect();
-    let mut end = chars.len();
-    for (i, c) in chars.iter().enumerate() {
-        if matches!(c, '.' | '?' | '!')
-            && (i + 1 >= chars.len() || chars[i + 1].is_whitespace())
-        {
-            end = i + 1;
-            break;
-        }
-    }
-    let cut = end.min(max_chars);
-    let s: String = chars[..cut].iter().collect();
-    let s = s.trim_end_matches(' ').to_string();
-    if cut < chars.len() && cut == max_chars && !s.ends_with(['.', '?', '!']) {
-        format!("{}…", s)
-    } else {
-        s
-    }
+    (title, content.to_string(), None, None, None)
 }
 
 /// Three-tree bucket for the guide index.

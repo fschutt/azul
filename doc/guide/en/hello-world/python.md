@@ -7,14 +7,15 @@ audience: external
 maturity: wip
 guide_order: 14
 topic_only: false
+short_desc: Installing the Python wheel and writing the counter app in Python.
 prerequisites: [hello-world]
 tracked_files:
   - api.json
   - core/src/callbacks.rs
   - core/src/lib.rs
   - dll/src/lib.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:34:08Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T00:00:00Z
 ---
 
 # Hello, World — Python
@@ -87,7 +88,7 @@ Read top-down; each block is one concept.
 Three observations.
 
 - **No upcast / downcast boilerplate.** Pass a regular Python instance into `App.create` or `set_callback`; the binding layer wraps it in a `RefAny` automatically and gives it back to your callback as the same instance. The framework holds a strong reference until you drop the `App`.
-- **No `extern "C"` qualifier.** Python callbacks are stored alongside the `RefAny` (in the `ctx: OptionRefAny` field of `LayoutCallback` — see `core/src/callbacks.rs:104`). A small Rust trampoline extracts the Python callable and dispatches.
+- **No `extern "C"` qualifier.** Python callbacks are stored alongside the `RefAny` in the `ctx: OptionRefAny` field of `LayoutCallback` — see `core/src/callbacks.rs:128`. A small Rust trampoline extracts the Python callable and dispatches.
 - **Strings are plain Python `str`.** The `Az*` string handling vanishes; the binding converts UTF-8 at the boundary.
 
 ## Event filters

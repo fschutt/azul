@@ -7,13 +7,14 @@ audience: external
 maturity: wip
 guide_order: 250
 topic_only: false
+short_desc: Reading and writing the system clipboard — text, image, and platform-specific MIME types.
 prerequisites: [events]
 tracked_files:
   - layout/src/managers/clipboard.rs
   - layout/src/managers/selection.rs
   - layout/src/callbacks.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T22:00:00Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T00:00:00Z
 ---
 
 # Clipboard

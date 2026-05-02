@@ -7,6 +7,7 @@ audience: contributor
 maturity: mature
 guide_order: null
 topic_only: false
+short_desc: Event dispatch — hit-testing, callback invocation, the Update protocol, and how state changes cascade into a re-layout.
 prerequisites: []
 tracked_files:
   - core/src/callbacks.rs
@@ -18,13 +19,13 @@ tracked_files:
   - layout/src/default_actions.rs
   - layout/src/hit_test.rs
   - layout/src/managers/virtual_view.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:31:55Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T05:54:52Z
 ---
 
 # Event System Internals
 
-Every interactive callback in azul is reached the same way: the platform shell pushes a raw OS event into `FullWindowState`, the input interpreter turns it into one or more `SyntheticEvent`s plus framework-internal `SystemChange`s, the dispatcher walks the DOM in capture/target/bubble order to collect matching `EventFilter`s, the user callbacks run against the matched nodes, and the unprevented default actions are applied last. The pipeline lives in [`core/src/events.rs`](../../../../core/src/events.rs), [`layout/src/default_actions.rs`](../../../../layout/src/default_actions.rs), and the dispatch glue in [`dll/src/desktop/shell2/common/event.rs`](../../../../dll/src/desktop/shell2/common/event.rs).
+Every interactive callback in azul reaches the user the same way: the platform shell pushes a raw OS event into `FullWindowState`, the input interpreter turns it into one or more `SyntheticEvent`s plus framework-internal `SystemChange`s, the dispatcher walks the DOM in capture/target/bubble order to collect matching `EventFilter`s, the user callbacks run against the matched nodes, and the unprevented default actions are applied last. The pipeline lives in [`core/src/events.rs`](../../../../core/src/events.rs), [`layout/src/default_actions.rs`](../../../../layout/src/default_actions.rs), and the dispatch glue in [`dll/src/desktop/shell2/common/event.rs`](../../../../dll/src/desktop/shell2/common/event.rs).
 
 ```text
 OS event ─► FullWindowState diff ─► SyntheticEvent
@@ -35,7 +36,7 @@ OS event ─► FullWindowState diff ─► SyntheticEvent
    └─► user_events
                   │
                   ▼
-   dispatch_events_propagated()      (event.rs:2865)
+   dispatch_events_propagated()      (event.rs)
    ├─► event_type_to_filters()       (events.rs:2206)
    └─► propagate_event()             (events.rs:793)
             ├─► Capture
@@ -47,7 +48,7 @@ OS event ─► FullWindowState diff ─► SyntheticEvent
                   │
                   ▼
    determine_keyboard_default_action()   (default_actions.rs:49)
-   default_post_filter()                 (events.rs:2760)
+   default_post_filter()                 (events.rs:3056)
 ```
 
 ## Pipeline order in `process_events`
@@ -55,13 +56,13 @@ OS event ─► FullWindowState diff ─► SyntheticEvent
 The shell entry point `PlatformWindowV2::process_events` (in [`dll/src/desktop/shell2/common/event.rs`](../../../../dll/src/desktop/shell2/common/event.rs)) executes the steps below for every input batch:
 
 1. **State diff.** The shell mutates `current_window_state` with raw input. Diffing it against `previous_window_state` produces `SyntheticEvent`s for cursor moves, button transitions, key presses, focus, theme changes, etc.
-2. **Manager events.** Managers that need temporal context (`GestureManager`, `ScrollManager`, `CursorManager`, `TextEditManager`) implement `EventProvider::get_pending_events` ([`core/src/events.rs:2151`](../../../../core/src/events.rs)) and contribute additional `SyntheticEvent`s.
+2. **Manager events.** Managers that need temporal context (`GestureManager`, `ScrollManager`, `CursorManager`, `TextEditManager`) implement `EventProvider::get_pending_events` and contribute additional `SyntheticEvent`s.
 3. **Pre-callback filter.** `default_input_interpreter` (overridable via `InputInterpreterCallback` on `LayoutWindow`) folds those events into a `PreCallbackFilterResult { system_changes, user_events }`. System changes are applied immediately (focus, scroll, drag activation, selection updates).
 4. **Dispatch.** `dispatch_events_propagated(&user_events)` runs each event through `propagate_event` and invokes the planned `CoreCallback`s. Callbacks return `Update` and may call `event.prevent_default()`, `stop_propagation()`, or `stop_immediate_propagation()`.
-5. **Default actions.** If no callback prevented default and any `KeyDown` was in the batch, `determine_keyboard_default_action` (in [`layout/src/default_actions.rs:49`](../../../../layout/src/default_actions.rs)) returns a `DefaultActionResult`. Tab/Shift+Tab/Home/End/Escape are converted via `default_action_to_focus_target` and applied through `SystemChange::SetFocus`. Enter/Space on activatable elements synthesises a `Click` event and re-enters dispatch.
-6. **Post filter.** `default_post_filter` (overridable via `PostFilterCallback`) inspects `(prevent_default, pre_changes, old_focus, new_focus)` and emits final `SystemChange`s — e.g. clearing selections on focus change, finalising IME composition state.
+5. **Default actions.** If no callback prevented default and any `KeyDown` was in the batch, `determine_keyboard_default_action` ([`layout/src/default_actions.rs:49`](../../../../layout/src/default_actions.rs)) returns a `DefaultActionResult`. Tab/Shift+Tab/Home+Ctrl/End+Ctrl/Escape are converted via `default_action_to_focus_target` and applied through `SystemChange::SetFocus`. Enter/Space on activatable elements synthesise a `Click` event and re-enter dispatch.
+6. **Post filter.** `default_post_filter` (overridable via `PostFilterCallback`) inspects `(prevent_default, pre_changes, old_focus, new_focus)` and emits final `SystemChange`s — clearing selections on focus change, finalising IME composition state, scrolling the new focus into view.
 
-The dispatch loop recurses up to `MAX_EVENT_RECURSION_DEPTH` so that `Update::RefreshDom` returned from a callback rebuilds the DOM, runs lifecycle reconciliation, and re-enters event delivery for synthetic Mount/Unmount/Resize events.
+The dispatch loop recurses up to a fixed `MAX_EVENT_RECURSION_DEPTH` so that `Update::RefreshDom` returned from a callback rebuilds the DOM, runs lifecycle reconciliation, and re-enters event delivery for synthetic Mount/Unmount/Resize events.
 
 ## `SyntheticEvent`
 
@@ -80,7 +81,7 @@ pub struct SyntheticEvent {
 }
 ```
 
-Defined in [`core/src/events.rs:646`](../../../../core/src/events.rs). The `source` field is load-bearing: `EventSource::Lifecycle` short-circuits propagation (`propagate_target_phase` is the only phase used), `EventSource::Synthetic` events generated by the framework (e.g. activation clicks) re-enter dispatch as if they were user events, and `EventSource::Programmatic` is set on API-driven scrolls and focus changes so that scroll callbacks can distinguish.
+Defined at [`core/src/events.rs:646`](../../../../core/src/events.rs). The `source` field is load-bearing: `EventSource::Lifecycle` short-circuits propagation (`propagate_target_phase` is the only phase used), `EventSource::Synthetic` events generated by the framework (e.g. activation clicks) re-enter dispatch as if they were user events, and `EventSource::Programmatic` is set on API-driven scrolls and focus changes so that scroll callbacks can distinguish.
 
 `stop_propagation()` halts the current phase boundary (capture stops before target, target stops before bubble). `stop_immediate_propagation()` additionally drops remaining handlers on the current node. `prevent_default()` only suppresses the post-dispatch default action — it does not stop callback delivery.
 
@@ -102,9 +103,9 @@ Callbacks are registered against one of five filter categories ([`core/src/event
 | `Component(ComponentEventFilter)` | The reconciler's target node | `AfterMount`, `BeforeUnmount`, `Updated`, `NodeResized` |
 | `Application(ApplicationEventFilter)` | Same as Window | Reserved for monitor-connect/disconnect-style events |
 
-`EventFilter::Not` exists in the type but `matches_filter_phase` (in [`core/src/events.rs:1063`](../../../../core/src/events.rs)) returns `false` for it — registering a `Not` filter today never fires.
+`EventFilter::Not` exists in the type but `matches_filter_phase` returns `false` for it — registering a `Not` filter today never fires.
 
-`From<On> for EventFilter` ([`core/src/events.rs:2105`](../../../../core/src/events.rs)) routes the public `On` enum to the right category. Two cases are non-obvious:
+`From<On> for EventFilter` routes the public `On` enum to the right category. Two cases are non-obvious:
 
 - `On::TextInput` becomes `Focus(TextInput)` — text input is delivered to whatever currently owns focus, not to whichever node was hit.
 - `On::VirtualKeyDown` / `On::VirtualKeyUp` become `Window(VirtualKeyDown/Up)` — keyboard events fan out window-wide so layout-driven shortcuts can register on the root.
@@ -115,7 +116,7 @@ Callbacks are registered against one of five filter categories ([`core/src/event
 pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> Vec<EventFilter>;
 ```
 
-Defined at [`core/src/events.rs:2206`](../../../../core/src/events.rs). One incoming event can match several filters — for example, `EventType::MouseDown` with a `MouseEventData { button: Left, .. }` returns both the generic `Hover(MouseDown)` and the button-specific `Hover(LeftMouseDown)`. `EventType::Click` only matches `Hover(LeftMouseDown)` (W3C: click is left-button only). Drag events fan out to both `Hover(...)` and `Window(...)` so a global drop handler on the root works.
+Defined at [`core/src/events.rs:2206`](../../../../core/src/events.rs). One incoming event can match several filters — `EventType::MouseDown` with a `MouseEventData { button: Left, .. }` returns both the generic `Hover(MouseDown)` and the button-specific `Hover(LeftMouseDown)`. `EventType::Click` only matches `Hover(LeftMouseDown)` (W3C: click is left-button only). Drag events fan out to both `Hover(...)` and `Window(...)` so a global drop handler on the root works.
 
 This function is the single source of truth for the dispatch plan. `propagate_event` uses it implicitly by reading the per-node filter list.
 
@@ -217,11 +218,11 @@ pub type InputInterpreterCallbackType = extern "C" fn(
 
 Replace `LayoutWindow::input_interpreter_callback` to implement vim modes, game controls, or custom shortcut tables. Native Rust callers wrap a `fn` via `InputInterpreterCallback::from(fn_ptr)` (sets `ctx = None`); FFI callers use the trampoline pattern with `ctx: OptionRefAny` holding the foreign callable.
 
-Two helper enums live alongside:
+Three helper enums live alongside:
 
-- `ArrowDirection::from_key(vk, ctrl)` ([`core/src/events.rs:2606`](../../../../core/src/events.rs)) maps `(VirtualKeyCode, ctrl)` to `Left/Right/Up/Down/LineStart/LineEnd/DocumentStart/DocumentEnd`.
-- `KeyboardShortcut::from_key(vk, ctrl, shift)` ([`core/src/events.rs:2721`](../../../../core/src/events.rs)) recognises `Ctrl+C/X/V/A/Z` and `Ctrl+Y` / `Ctrl+Shift+Z`.
-- `SelectionOp { direction, step, mode, repeat }` ([`core/src/events.rs:2693`](../../../../core/src/events.rs)) is the unified cursor/selection/delete operation produced by the interpreter from arrow/backspace/delete keys.
+- `ArrowDirection::from_key(vk, ctrl)` maps `(VirtualKeyCode, ctrl)` to `Left/Right/Up/Down/LineStart/LineEnd/DocumentStart/DocumentEnd`.
+- `KeyboardShortcut::from_key(vk, ctrl, shift)` recognises `Ctrl+C/X/V/A/Z` and `Ctrl+Y` / `Ctrl+Shift+Z`.
+- `SelectionOp { direction, step, mode, repeat }` is the unified cursor/selection/delete operation produced by the interpreter from arrow/backspace/delete keys.
 
 ## Post-callback filter
 
@@ -235,7 +236,7 @@ pub type PostFilterCallbackType = extern "C" fn(
 ) -> SystemChangeVec;
 ```
 
-[`core/src/events.rs:2540`](../../../../core/src/events.rs). Runs after user callbacks return, given the merged `prevent_default` flag, the `SystemChange`s the interpreter produced before dispatch, and the focus delta. It returns more `SystemChange`s — typically `ClearAllSelections`, `FinalizePendingFocusChanges`, `ScrollSelectionIntoView`. The default impl is `default_post_filter`; override `LayoutWindow::post_filter_callback` to customise.
+[`core/src/events.rs:2540`](../../../../core/src/events.rs). Runs after user callbacks return, given the merged `prevent_default` flag, the `SystemChange`s the interpreter produced before dispatch, and the focus delta. It returns more `SystemChange`s — typically `ClearAllSelections`, `FinalizePendingFocusChanges`, `ScrollSelectionIntoView`. The default impl is `default_post_filter` ([`core/src/events.rs:3056`](../../../../core/src/events.rs)); override `LayoutWindow::post_filter_callback` to customise.
 
 ## Lifecycle reconciliation
 
@@ -252,16 +253,27 @@ pub fn detect_lifecycle_events_with_reconciliation(
 ) -> LifecycleEventResult;
 ```
 
-[`core/src/events.rs:1482`](../../../../core/src/events.rs). After a `RefreshDom` rebuild the reconciler emits `Mount`, `Unmount`, `Resize`, `Update` synthetic events tagged `EventSource::Lifecycle`. It also returns `node_id_mapping: OrderedMap<old NodeId, new NodeId>` so the shell can migrate focus, scroll position, drag context and selection across the rebuild. The match strategy is: stable reconciliation key first (`.with_reconciliation_key()`), then content hash, then mount/unmount fallback. The simpler index-based `detect_lifecycle_events` exists for cases where reconciliation isn't required.
+[`core/src/events.rs:1482`](../../../../core/src/events.rs). After a `RefreshDom` rebuild the reconciler emits `Mount`, `Unmount`, `Resize`, `Update` synthetic events tagged `EventSource::Lifecycle`. It also returns `node_id_mapping: OrderedMap<old NodeId, new NodeId>` so the shell can migrate focus, scroll position, drag context and selection across the rebuild. The match strategy is: stable reconciliation key first (`.with_reconciliation_key()`), then content hash, then mount/unmount fallback. The simpler index-based `detect_lifecycle_events` ([`core/src/events.rs:1276`](../../../../core/src/events.rs)) exists for cases where reconciliation isn't required.
 
 `Component` filters fire only on the lifecycle event's `target` — `propagate_event` is bypassed for them and `matches_component_filter` is the predicate the dispatcher consults.
 
 ## Callback invocation surface
 
-User callbacks attach to `NodeData` as `CoreCallbackData { event: EventFilter, callback: CoreCallback, refany: RefAny }` ([`core/src/callbacks.rs:801`](../../../../core/src/callbacks.rs)). `CoreCallback` ([`callbacks.rs:774`](../../../../core/src/callbacks.rs)) stores the function pointer as a `usize` (`CoreCallbackType` at [`callbacks.rs:762`](../../../../core/src/callbacks.rs)) plus an optional FFI `ctx: OptionRefAny`:
+User callbacks attach to `NodeData` as `CoreCallbackData { event: EventFilter, callback: CoreCallback, refany: RefAny }`. `CoreCallback` stores the function pointer as a `usize` plus an optional FFI `ctx: OptionRefAny`:
 
 ```rust,ignore
 pub type CoreCallbackType = usize;  // actually: extern "C" fn(RefAny, CallbackInfo) -> Update
+
+pub struct CoreCallback {
+    pub cb: CoreCallbackType,
+    pub ctx: OptionRefAny,
+}
+
+pub struct CoreCallbackData {
+    pub event: EventFilter,
+    pub callback: CoreCallback,
+    pub refany: RefAny,
+}
 ```
 
 The `usize` masks a circular dependency: the real callback signature is in `azul-layout` (`CallbackType` and the `CallbackInfo` struct), but `azul-core` has to store the pointer without depending on layout. The dispatcher in the shell is the only code that performs the unsafe `transmute` back to the function pointer at invoke time; everything in `azul-core` keeps it opaque.
@@ -278,7 +290,7 @@ pub enum Update {
 }
 ```
 
-`Update::max_self` ([`core/src/callbacks.rs:88`](../../../../core/src/callbacks.rs)) merges results across all callbacks in a batch; the dispatcher uses the merged value to decide whether to recurse with a fresh layout pass.
+`Update::max_self` ([`core/src/callbacks.rs`](../../../../core/src/callbacks.rs)) merges results across all callbacks in a batch; the dispatcher uses the merged value to decide whether to recurse with a fresh layout pass.
 
 ## Event source distinctions
 
@@ -289,14 +301,27 @@ The shell sets `EventSource` deliberately so downstream consumers can diverge:
 - `EventSource::Synthetic` — emitted by the framework on behalf of the user. The clearest example is `create_activation_click_event` for Enter/Space activation. Treated identically to `User` by callback filters.
 - `EventSource::Lifecycle` — emitted by `detect_lifecycle_events*` after a DOM rebuild. Bypasses `propagate_event` (target-only).
 
+## Callback invocation paths
+
+The shell drives four callback paths through `LayoutWindow`, all wrapping the same six-step pattern (build `CallbackInfo`, invoke the callback, drain the `Arc<Mutex<Vec<CallbackChange>>>`, apply changes via `apply_callback_changes`, merge into `CallCallbacksResult`, return):
+
+| Path | Trigger | Driven by |
+|---|---|---|
+| `run_single_timer` | A `Timer` expired | `invoke_expired_timers` in the shell tick |
+| `run_all_threads` | Background `Thread` posted a message | `invoke_thread_callbacks` after epoll/select |
+| `invoke_single_callback` | One filter matched during dispatch | `dispatch_events_propagated` |
+| `invoke_menu_callback` | Native menu item clicked | platform menu handlers (macOS/Win/Linux) |
+
+The unification proposal in `scripts/CALLBACK_INVOCATION_UNIFICATION.md` collapses the duplication into a `CallbackChangeResult::merge_into` method plus a generic `invoke_and_collect` helper. The audit at the bottom of that doc lists six fields (`image_callbacks_changed`, `update_all_image_callbacks`, `queued_window_states`, `text_input_triggered`, …) that today are forwarded only on the timer path; treat that as the canonical to-do list when adding new fields to `CallbackChangeResult`.
+
 ## Where the pieces live
 
 | Concern | File |
 |---|---|
 | `SyntheticEvent`, `EventType`, `EventData`, `EventFilter`, `propagate_event`, default-action enums | [`core/src/events.rs`](../../../../core/src/events.rs) |
-| `default_input_interpreter`, `SystemChange`, `SelectionOp`, `KeyboardShortcut`, `ArrowDirection` | [`core/src/events.rs`](../../../../core/src/events.rs) (lower half, ~line 2335 onwards) |
+| `default_input_interpreter`, `SystemChange`, `SelectionOp`, `KeyboardShortcut`, `ArrowDirection`, `default_post_filter` | [`core/src/events.rs`](../../../../core/src/events.rs) (lower half, ~line 2348 onwards) |
 | `Update`, `CoreCallback`, `CoreCallbackData`, `LayoutCallback`, FFI trampoline pattern | [`core/src/callbacks.rs`](../../../../core/src/callbacks.rs) |
 | `determine_keyboard_default_action`, `default_action_to_focus_target`, `create_activation_click_event` | [`layout/src/default_actions.rs`](../../../../layout/src/default_actions.rs) |
 | Dispatch loop (`dispatch_events_propagated`), recursion guard, default-action wiring, synthetic-click re-entry | [`dll/src/desktop/shell2/common/event.rs`](../../../../dll/src/desktop/shell2/common/event.rs) |
 
-Hit-testing and scroll dispatch flow into this pipeline; see [Hit Testing and Scrolling](hit-testing.md). VirtualView callbacks also generate events the interpreter sees; see [VirtualView Lazy Loading](virtual-view.md).
+Hit-testing and scroll dispatch flow into this pipeline; see [Hit Testing and Scrolling](hit-testing.md). VirtualView callbacks also generate events the interpreter sees; see [VirtualView Lazy Loading](virtual-view.md). For the IFrame-specific scroll routing problem, see [IFrame Scroll and Display Lists](iframe-scroll.md).

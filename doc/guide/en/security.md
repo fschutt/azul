@@ -7,6 +7,7 @@ audience: external
 maturity: wip
 guide_order: 500
 topic_only: false
+short_desc: Security model — how callbacks, RefAny, and external data sources are isolated, and what threats the framework does and does not defend against.
 prerequisites: [architecture, web-deployment]
 tracked_files:
   - core/src/refany.rs
@@ -15,8 +16,8 @@ tracked_files:
   - dll/src/web/mod.rs
   - dll/src/web/server.rs
   - dll/src/web/transpiler.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:42:39Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T12:00:00Z
 ---
 
 # Security Model

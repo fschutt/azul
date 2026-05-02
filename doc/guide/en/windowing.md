@@ -7,13 +7,12 @@ audience: external
 maturity: mature
 guide_order: 130
 topic_only: false
+short_desc: Creating windows, the window options struct, multi-window apps, and per-window state.
 prerequisites: [hello-world, events]
 tracked_files:
   - core/src/window.rs
-  - core/src/menu.rs
-  - core/src/callbacks.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:34:08Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T05:54:43Z
 ---
 
 # Windows, Menus, Decorations
@@ -44,7 +43,7 @@ win.window_state.flags.is_resizable = true;
 win.size_to_content = false;
 ```
 
-`WindowCreateOptions` (`layout/src/window_state.rs:27`):
+`WindowCreateOptions`:
 
 ```rust,ignore
 pub struct WindowCreateOptions {
@@ -57,7 +56,7 @@ pub struct WindowCreateOptions {
 }
 ```
 
-`FullWindowState` (`layout/src/window_state.rs:78`) carries title, size, flags, position, theme, and the layout callback. The framework keeps it in sync with the OS as the user resizes/moves the window.
+`FullWindowState` carries title, size, flags, position, theme, and the layout callback. The framework keeps it in sync with the OS as the user resizes and moves the window.
 
 ## Window flags
 
@@ -128,7 +127,7 @@ Setting `frame` and calling `modify_window_state` performs the corresponding OS-
 
 ## Background materials
 
-`WindowBackgroundMaterial` selects the platform compositor's blur/transparency effect:
+`WindowBackgroundMaterial` (`core/src/window.rs:991`) selects the platform compositor's blur/transparency effect:
 
 | variant | macOS | Windows |
 |---|---|---|
@@ -140,7 +139,7 @@ Setting `frame` and calling `modify_window_state` performs the corresponding OS-
 | `Titlebar` | Titlebar material | Mica |
 | `MicaAlt` | (= Titlebar) | Mica Alt |
 
-X11 / Wayland ignore this field. To use a transparent material, also set the layout body's CSS `background-color` to a translucent value.
+X11 and Wayland ignore this field. To use a transparent material, also set the layout body's CSS `background-color` to a translucent value.
 
 ## Multiple windows
 
@@ -182,7 +181,7 @@ extern "C" fn on_close(_: RefAny, mut info: CallbackInfo) -> Update {
 
 ## Menus
 
-`Menu` (`core/src/menu.rs:40`) is a tree of `MenuItem`s, used for both menu bars and context menus:
+`Menu` is a tree of `MenuItem`s, used for both menu bars and context menus:
 
 ```rust,no_run
 # use azul::prelude::*;
@@ -242,7 +241,7 @@ Attach a context menu to any node:
 let mut node = Dom::create_div().with_context_menu(build_menu());
 ```
 
-The default trigger is right-click; change `Menu::context_mouse_btn` to `ContextMenuMouseButton::Left` or `Middle` for other triggers.
+The default trigger is right-click; change `Menu::context_mouse_btn` (`ContextMenuMouseButton::Right | Left | Middle`) for other triggers.
 
 To open a menu programmatically (e.g. from a hamburger button click):
 
@@ -298,9 +297,9 @@ Write via `modify_window_state(new_state)` or `queue_window_state_sequence(state
 
 ## Monitors
 
-`Monitor` (`core/src/window.rs:765`) describes a connected display. Window-DPI changes (`WindowEventFilter::DpiChanged`) and monitor-changes (`WindowEventFilter::MonitorChanged`) fire when the user drags a window to another display. `MonitorId::PRIMARY` always identifies the primary monitor.
+`Monitor` (`core/src/window.rs:765`) describes a connected display. Window-DPI changes (`WindowEventFilter::DpiChanged`) and monitor changes (`WindowEventFilter::MonitorChanged`) fire when the user drags a window to another display. `MonitorId::PRIMARY` always identifies the primary monitor.
 
-Monitor-connected/disconnected events are application-scoped (`ApplicationEventFilter::MonitorConnected` / `MonitorDisconnected`).
+Monitor-connected and monitor-disconnected events are application-scoped (`ApplicationEventFilter::MonitorConnected` / `MonitorDisconnected`).
 
 ## Window icons and taskbar
 

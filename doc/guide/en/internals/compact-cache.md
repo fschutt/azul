@@ -7,12 +7,13 @@ audience: contributor
 maturity: mature
 guide_order: null
 topic_only: false
+short_desc: The compact-cache layout — how layout results are stored across frames for incremental updates.
 prerequisites: []
 tracked_files:
   - css/src/compact_cache.rs
   - core/src/compact_cache_builder.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:43:38Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T00:00:00Z
 ---
 
 The compact cache is a four-array, fixed-layout encoding of the ~50 layout-hot CSS properties. Layout reads them by node index in O(1), with no `BTreeMap` lookups and no cascade walks. Built once per restyle by `build_compact_cache_with_inheritance` (see [Cascade, Inheritance, Restyle](cascade.md)); read on every layout pass.

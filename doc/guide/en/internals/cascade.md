@@ -7,14 +7,15 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
+short_desc: The cascade pipeline — selector matching, specificity, dynamic conditions, and how computed values are produced.
 prerequisites: []
 tracked_files:
   - core/src/compact_cache_builder.rs
   - core/src/prop_cache.rs
   - core/src/styled_dom.rs
   - core/src/ua_css.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:43:38Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T00:00:00Z
 ---
 
 > **WIP** — the cascade pipeline still has two parallel build paths (`build_compact_cache` and `build_compact_cache_with_inheritance`) pending consolidation. The shape described below reflects the inheritance variant, which is the production path called from `StyledDom::restyle`.

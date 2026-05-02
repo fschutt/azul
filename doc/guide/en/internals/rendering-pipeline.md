@@ -7,6 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
+short_desc: From `StyledDom` to pixels — display lists, painter setup, GPU upload, and the WebRender bridge.
 prerequisites: []
 tracked_files:
   - core/src/gl.rs
@@ -15,143 +16,207 @@ tracked_files:
   - core/src/gpu.rs
   - dll/src/desktop/compositor2.rs
   - dll/src/desktop/shell2/common/gl_loader.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T12:00:00Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T12:00:00Z
 ---
 
 > **WIP** — APIs in `compositor2` and `gpu` are still moving. The shape
 > documented here matches HEAD; signatures may shift before 1.0.
 
-The frame pipeline: `LayoutWindow::layout_and_generate_display_list()` produces an
-`azul_layout::solver3::display_list::DisplayList`; `compositor2::translate_displaylist_to_wr`
-converts it into a WebRender `BuiltDisplayList`; the [WebRender bridge](webrender-bridge.md)
-submits the resulting `Transaction` to the WebRender backend thread. Hardware (GPU
-WebRender) and software (CPU `cpurender`) paths share the same display list — the split
-is purely in the sink.
+A frame moves through three boundaries. The layout engine emits an
+`azul_layout::solver3::display_list::DisplayList` (a flat `Vec<DisplayListItem>`
+in absolute window coordinates). `dll/src/desktop/compositor2.rs:165`
+(`translate_displaylist_to_wr`) walks that list and pushes equivalent items
+into a WebRender `DisplayListBuilder`. The [WebRender bridge](webrender-bridge.md)
+wraps the resulting `BuiltDisplayList` in a `Transaction` and ships it to the
+WebRender backend thread. Hardware (GPU WebRender) and software (CPU
+`cpurender`) paths share this exact display list — the split is in the sink, not
+the source.
 
-## Where each stage lives
+## Stage map
 
 | Stage | Code | Output |
 |---|---|---|
-| Layout → display list | `layout/src/window.rs:484` (`layout_and_generate_display_list`) | `DisplayList` (Vec of `DisplayListItem`) |
-| GPU key sync | `core/src/gpu.rs` (`GpuValueCache::synchronize`) | `GpuEventChanges` |
-| Display list translation | `dll/src/desktop/compositor2.rs:165` (`translate_displaylist_to_wr`) | `WrBuiltDisplayList` + nested pipelines |
+| Layout → display list | `layout/src/window.rs` (`layout_and_generate_display_list`) | `DisplayList` (`Vec<DisplayListItem>`) |
+| GPU key sync | `core/src/gpu.rs:84` (`GpuValueCache::synchronize`) | `GpuEventChanges` |
+| Display list translation | `dll/src/desktop/compositor2.rs:165` (`translate_displaylist_to_wr`) | `WrBuiltDisplayList`, nested pipelines, resource updates |
 | Resource translation | `dll/src/desktop/wr_translate2.rs` | `Vec<WrResourceUpdate>` |
-| Frame submission | `dll/src/desktop/wr_translate2.rs` (`generate_frame`) | WebRender `Transaction` |
-| GL function loading | `core/src/gl.rs` + `dll/src/desktop/shell2/common/gl_loader.rs` | `Rc<GenericGlContext>` |
-| Built-in shaders | `core/src/gl.rs:1027` (`GlContextPtr::new`) | SVG / multicolor / FXAA programs |
+| Frame submission | `dll/src/desktop/wr_translate2.rs:1548` (`generate_frame`) | `Transaction` to WebRender backend |
+| GL function loading | `dll/src/desktop/shell2/common/gl_loader.rs:12` (`load_gl_context`) | `GenericGlContext` |
+| Library shaders | `core/src/gl.rs:1027` (`GlContextPtr::new`) | SVG, multicolor SVG, FXAA programs |
 
-## Per-frame call order
+The `LayoutWindow` owns the layout side; `dll/src/desktop/window.rs` owns the
+WebRender side and the GL context. Read [WebRender bridge](webrender-bridge.md)
+for the transaction shape and [GL function loading](gl-loading.md) for the
+per-platform symbol resolution.
 
-1. `LayoutWindow` runs cascade + layout, producing `DomLayoutResult` per `DomId`.
-2. `GpuValueCache::synchronize(&styled_dom)` walks every node, diffs CSS `transform` and
-   `opacity` against the previous frame, and emits `GpuTransformKeyEvent` /
-   `GpuOpacityKeyEvent` deltas (`core/src/gpu.rs:103`).
-3. `wr_translate2` converts new resources (fonts, images) into `WrResourceUpdate`s.
-4. `compositor2::translate_displaylist_to_wr` walks the `DisplayList`, building the
-   WebRender display list and spawning recursive translations for `VirtualView` items.
-5. WebRender's `Transaction` is sent to the render backend thread; on completion,
-   the OS-driven repaint (`WM_PAINT`, `drawRect:`, `xdg_surface.configure`, …) blits
-   the framebuffer.
-6. GPU-only updates (CSS `transform` / `opacity` animations) skip steps 1 and 4.
-   `GpuValueCache::synchronize` produces a `GpuEventChanges` that
-   `append_dynamic_properties` ships to WebRender without a fresh display list.
-
-## Display list items
-
-`DisplayListItem` is the `enum` defined in `layout/src/solver3/display_list.rs:176`.
-The `compositor2` match arms cover the full set:
-
-| Variant | WebRender API call |
-|---|---|
-| `Rect`, `SelectionRect`, `CursorRect` | `builder.push_rect` (with optional rounded clip) |
-| `Border` | `builder.push_border` |
-| `ScrollBar`, `ScrollBarStyled` | `push_rect` + `push_hit_test` (+ optional opacity stacking context) |
-| `PushClip` / `PopClip` | `define_clip_rect` / `define_clip_rounded_rect` + `define_clip_chain` |
-| `PushScrollFrame` / `PopScrollFrame` | `define_scroll_frame` |
-| `HitTestArea` | `push_hit_test` |
-| `Underline` | `push_text_decoration_rect` (helper at `compositor2.rs:128`) |
-| `Text` | `push_text` (`compositor2.rs:2334`) |
-| `Image` | `push_image` |
-| `PushStackingContext` / `PopStackingContext` | `push_simple_stacking_context` / `pop_stacking_context` |
-| `PushReferenceFrame` / `PopReferenceFrame` | `push_reference_frame` (with `PropertyBinding`) |
-| `VirtualView` | recursive `translate_displaylist_to_wr` + `push_iframe` |
-| `LinearGradient`, `RadialGradient`, `ConicGradient` | `create_*_gradient` + `push_gradient` |
-| `BoxShadow` | `push_box_shadow` |
-| `PushFilter` / `PopFilter` | `push_simple_stacking_context_with_filters` (filters mapped via `translate_style_filters_to_wr`) |
-| `PushBackdropFilter` / `PopBackdropFilter` | stacking context with `backdrop_filters` |
-| `PushOpacity` / `PopOpacity` | stacking context with `WrFilterOp::Opacity` |
-| `PushTextShadow` / `PopTextShadow` | `push_shadow` / `pop_all_shadows` |
-| `PushImageMaskClip` / `PopImageMaskClip` | `define_clip_image_mask` + clip chain |
-
-## The three coordinate stacks
-
-`translate_displaylist_to_wr` carries three parallel stacks
-(`compositor2.rs:230-239`):
+## `translate_displaylist_to_wr`
 
 ```rust,ignore
-let mut clip_stack: Vec<WrClipChainId> = vec![root_clip_chain_id];
-let mut spatial_stack: Vec<SpatialId>   = vec![spatial_id];
-let     offset_stack: Vec<(f32, f32)>   = vec![(0.0, 0.0)];
+pub fn translate_displaylist_to_wr(
+    display_list: &DisplayList,
+    pipeline_id: PipelineId,
+    viewport_size: DeviceIntSize,
+    renderer_resources: &azul_core::resources::RendererResources,
+    dpi: DpiScaleFactor,
+    wr_resources: Vec<WrResourceUpdate>,
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
+    document_id: u32,
+) -> Result<
+    (Vec<WrResourceUpdate>, WrBuiltDisplayList, Vec<(PipelineId, WrBuiltDisplayList)>),
+    String,
+>
 ```
 
-- **`clip_stack`** is pushed by `PushClip`, `PushScrollFrame`, `PushImageMaskClip`;
-  popped by their `Pop*` counterparts. The current top is the `clip_chain_id` for
-  every primitive.
-- **`spatial_stack`** is pushed by `PushScrollFrame` and `PushReferenceFrame`. Every
-  primitive's `spatial_id` is the current top.
-- **`offset_stack`** subtracts a coarse origin from absolute window coordinates. It
-  exists for non-scroll-frame, non-reference-frame contexts that *do* shift the
-  origin. **Scroll frames and reference frames deliberately do not push an offset**
-  — see the comment at `compositor2.rs:950`. WebRender scroll frames share the
-  parent's coordinate space; subtracting `frame_rect.origin` would push content
-  above the viewport clip.
+The function (`compositor2.rs:165`) is a single sequential walk. There is no
+intermediate IR; each `DisplayListItem` translates directly into one or more
+`builder.push_*` calls. Three stacks track the WebRender-side context:
 
-`PopScrollFrame` returning a stack underflow is treated as a hard error
-(`compositor2.rs:1051`). `PopClip` and `PopImageMaskClip` skip silently when only
-the root entry remains, since underflow there merely produces a degraded paint
-rather than a corrupt scene.
+- `clip_stack: Vec<WrClipChainId>` — current clip chain (rounded-rect, image
+  mask, scroll-frame viewport).
+- `spatial_stack: Vec<SpatialId>` — current spatial node (root scroll node,
+  scroll frame, transform reference frame).
+- `offset_stack: Vec<(f32, f32)>` — coordinate origin offset. The display list
+  uses absolute window coordinates; WebRender wants frame-relative coordinates
+  for stacking contexts. Push when entering a `PushStackingContext`, subtract
+  on every coordinate translation, pop on `PopStackingContext`.
 
-## Coordinate model
+The call sites are `wr_translate2.rs:1712`, `wr_translate2.rs:2634`, and
+`wr_translate2.rs:3145` — each builds a transaction containing one or more
+display lists.
 
-Display list items hold logical CSS pixels in `WindowLogicalRect` (absolute window
-coordinates). `compositor2` converts every coordinate in two steps:
+### `resolve_rect` — the coordinate gate
 
-1. Multiply by `dpi.inner.get()` (DPI scale factor).
-2. Subtract the current `offset_stack` top.
-
-The `resolve_rect` and `resolve_point` helpers (`compositor2.rs:81-107`) bundle
-both steps so callers cannot forget one. Any `LayoutTransform` translation
-component is also pre-multiplied by DPI (`compositor2.rs:1336-1345`) — transforms
-share the post-DPI coordinate space.
-
-A scroll frame defines its `frame_rect` (viewport) and `content_rect` (scrollable
-extent) both in **parent space**. Children inside a scroll frame keep their
-absolute window coordinates because the scroll frame is not a reference frame.
-The viewport clip is defined in parent space so it stays stationary while content
-scrolls (`compositor2.rs:967-969`).
-
-## GPU-resident state
-
-`core/src/gpu.rs` caches WebRender keys for animatable CSS properties so that GPU
-updates can bypass display-list rebuilds.
+Every coordinate that crosses into WebRender goes through `resolve_rect`
+(`compositor2.rs:81`):
 
 ```rust,ignore
-pub struct GpuValueCache {
-    pub css_transform_keys: HashMap<NodeId, TransformKey>,
-    pub css_current_transform_values: HashMap<NodeId, ComputedTransform3D>,
-    pub opacity_keys: HashMap<NodeId, OpacityKey>,
-    pub current_opacity_values: HashMap<NodeId, f32>,
-    pub transform_keys: HashMap<NodeId, TransformKey>,            // scrollbar v thumb
-    pub h_transform_keys: HashMap<NodeId, TransformKey>,          // scrollbar h thumb
-    pub scrollbar_v_opacity_keys: HashMap<(DomId, NodeId), OpacityKey>,
-    pub scrollbar_h_opacity_keys: HashMap<(DomId, NodeId), OpacityKey>,
-    // ...current_values and current_opacity_values mirrors
+fn resolve_rect(
+    bounds: &azul_layout::solver3::display_list::WindowLogicalRect,
+    dpi: f32,
+    offset: (f32, f32),
+) -> LayoutRect {
+    let raw = scale_bounds_to_layout_rect(bounds.inner(), dpi);
+    LayoutRect::from_origin_and_size(
+        LayoutPoint::new(raw.min.x - offset.0, raw.min.y - offset.1),
+        LayoutSize::new(raw.width(), raw.height()),
+    )
 }
 ```
 
-`synchronize(&mut self, &StyledDom) -> GpuEventChanges` walks every node and emits
-one of three event variants per changed property:
+The two adjustments — DPI scale and stacking-context offset subtraction — are
+fused so callers cannot forget one. `resolve_point` is the equivalent for
+single points (used for `push_simple_stacking_context`). See
+`scripts/SCROLL_COORDINATE_ARCHITECTURE.md` for the rationale.
+
+### Item dispatch
+
+The matcher (`compositor2.rs:268`) routes each `DisplayListItem`. Common
+patterns:
+
+| Item | Pattern |
+|---|---|
+| `Rect`, `SelectionRect`, `CursorRect` | `resolve_rect` → `CommonItemProperties` → `builder.push_rect`. Optional rounded-corner `define_border_radius_clip` (`compositor2.rs:2234`). |
+| `Border` | Resolve rect, call `wr_translate2::get_webrender_border` for per-side widths, call `builder.push_border`. |
+| `ScrollBarStyled` | Push optional opacity stacking context bound to `opacity_key`, define rounded clip if container has border-radius, render track, optional buttons, then thumb (which may be wrapped in its own reference frame for GPU-driven `transform`). |
+| `PushClip` / `PopClip` | `define_clip_rect` (or `define_clip_rounded_rect`) → `define_clip_chain(parent)` → push to `clip_stack`. |
+| `PushScrollFrame` / `PopScrollFrame` | See [scroll-frame clipping](#scroll-frame-clipping). |
+| `Text` | Look up `FontInstanceKey`, scale glyph positions by DPI, subtract scroll offset, `builder.push_text`. |
+| `Image` | Resolve `ImageRefHash` to `WrImageKey`, optional rounded clip, `builder.push_image`. |
+| `LinearGradient` / `RadialGradient` / `ConicGradient` | Compute start/end points from the CSS direction, convert stops, `push_stops` immediately followed by `push_gradient` / `push_radial_gradient` / `push_conic_gradient` (no clip items between the two — WebRender requires they be adjacent). |
+| `BoxShadow` | Convert blur, offset, spread; `push_box_shadow` with the appropriate `BoxShadowClipMode`. |
+| `PushStackingContext` / `PopStackingContext` | `push_simple_stacking_context` at the resolved origin; offset stack tracks the CSS origin for nested children. |
+| `PushReferenceFrame` / `PopReferenceFrame` | GPU transform animation. Translation components scaled by DPI; spatial node bound to `transform_key`. Pushes spatial only — no offset. |
+| `VirtualView` | Recursively call `translate_displaylist_to_wr` for the child DOM, accumulate its built list under `nested_pipelines`, `builder.push_iframe` to splice it in. |
+| `PushImageMaskClip` / `PopImageMaskClip` | `define_clip_image_mask` for SVG mask-style clipping. |
+| `HitTestArea` | `builder.push_hit_test` with the supplied `ItemTag`. Under `debug_assertions` the area is also rendered as a 30%-opaque red rect. |
+
+`TextLayout` items are no-ops here — they were consumed by an earlier pass that
+emitted the resolved `Text` items.
+
+### Scroll-frame clipping
+
+A `ScrollFrame` in WebRender is *only* a transformation node — it does not clip.
+The viewport clip must be defined separately, in **parent space**, so it stays
+stationary while content scrolls. The `PushScrollFrame` arm (`compositor2.rs:872`)
+performs four steps:
+
+```rust,ignore
+// 1. Define the spatial node (transformation only)
+let scroll_spatial_id = builder.define_scroll_frame(
+    parent_space,
+    external_scroll_id,
+    content_rect,        // total scrollable size, origin = frame_rect.origin
+    adjusted_frame_rect, // visible viewport, in parent space
+    LayoutVector2D::zero(),
+    0,
+    HasScrollLinkedEffect::No,
+    SpatialTreeItemKey::new(*scroll_id, 0),
+);
+spatial_stack.push(scroll_spatial_id);
+
+// 2. Define the viewport clip in PARENT space
+let scroll_clip_id = builder.define_clip_rect(parent_space, adjusted_frame_rect);
+
+// 3. Chain it onto the current clip
+let scroll_clip_chain = builder.define_clip_chain(parent_clip, [scroll_clip_id]);
+clip_stack.push(scroll_clip_chain);
+
+// 4. Push a scroll-container hit-test in parent space (TAG_TYPE_SCROLL_CONTAINER)
+builder.push_hit_test(adjusted_frame_rect, scroll_clip_chain, parent_space, ..., scroll_container_tag);
+```
+
+Three things will silently break clipping if you get them wrong:
+
+- **Clip in scroll space.** `define_clip_rect(scroll_spatial_id, ...)` makes the
+  clip scroll *with* the content — content disappears off-screen. The clip must
+  be in `parent_space`.
+- **Content origin ≠ frame origin.** If `content_rect.origin` is `LayoutPoint::zero()`
+  while `frame_rect.origin` is non-zero, the content is shifted by exactly that
+  delta and items render outside the viewport.
+- **Forgetting to push the clip chain.** `clip_stack.push(scroll_clip_chain)`
+  must run before any inner item is processed; otherwise items inherit the parent
+  clip and bleed past the viewport.
+
+`scripts/WEBRENDER_CLIPPING_ANALYSIS.md` walks through the diagnosis of this
+class of bug. The compositor2 implementation matches the doc's "correct"
+recipe; if you see clip-leak symptoms, the divergence is more likely to be in
+the *consumer* of the scroll frame (a `Text` or `Rect` arm that forgets to
+apply `current_offset!()`) than in the `PushScrollFrame` arm itself.
+
+`PopScrollFrame` (`compositor2.rs:1030`) pops both the spatial and clip stacks
+and returns `Err("Scroll frame stack underflow")` if either underflows — the
+caller (`generate_frame`) treats that as a fatal frame error.
+
+### Coordinate offset, stacking context, scroll frame
+
+Three coordinate concepts collide in this file. Read carefully:
+
+- The display list emits **absolute window** coordinates for everything.
+  A `Text` item's clip rect at `(11, 53)` means *the window position*, not the
+  position inside its parent.
+- A **scroll frame** in WebRender shares its parent's coordinate space. It does
+  *not* create a new origin. `offset_stack` is **not** pushed on
+  `PushScrollFrame` (`compositor2.rs:950`). The scroll-frame transform handles
+  scroll movement; absolute coordinates remain absolute.
+- A **stacking context** (`PushStackingContext`) *does* shift the origin —
+  WebRender offsets every child by the stacking context's origin. The
+  compositor pushes the scaled origin onto `offset_stack` so that children
+  subtract it back out (yielding net zero offset, with the visible effect being
+  paint order and z-index). The same applies to `PushReferenceFrame`, but for
+  stacking-context-style filters (opacity, transform).
+
+If a scroll-container clip suddenly stops working, the first thing to check is
+that no intervening `PushStackingContext` was added that pushed onto the offset
+stack but failed to pop. Run with `LogCategory::DisplayList` enabled — the arm
+prints `clip_stack.len` and `spatial_stack.len` on every push/pop.
+
+## GPU value cache
+
+`core/src/gpu.rs` decouples the layout pass from per-frame GPU updates.
+`GpuValueCache::synchronize` (`gpu.rs:84`) walks the `StyledDom` once per
+frame, comparing each node's current CSS `transform` and `opacity` against the
+previously-stored values, and emits a `GpuEventChanges` describing the deltas:
 
 ```rust,ignore
 pub enum GpuTransformKeyEvent {
@@ -159,101 +224,151 @@ pub enum GpuTransformKeyEvent {
     Changed(NodeId, TransformKey, ComputedTransform3D, ComputedTransform3D),
     Removed(NodeId, TransformKey),
 }
+
+pub enum GpuOpacityKeyEvent {
+    Added(NodeId, OpacityKey, f32),
+    Changed(NodeId, OpacityKey, f32, f32),
+    Removed(NodeId, OpacityKey),
+}
 ```
 
-The hot path is short-circuited by the compact property cache
-(`gpu.rs:106` for transforms, `gpu.rs:171` for opacity): if the node has neither a
-prior cached value nor a non-default property, the loop returns `None` immediately
-without walking the cascade. Only nodes with a non-default `transform` or `opacity`
-pay the slow read.
+Two compact-cache fast paths short-circuit the cascade walk:
 
-CPU feature detection (SSE / AVX) for matrix math runs once on first call
-(`gpu.rs:113-126`); the flags are stored in `core::transform::USE_SSE` / `USE_AVX`.
+- `cc.has_transform(node_id.index())` is a single bit — if unset and the cache
+  has no prior key, skip the node entirely.
+- `cc.get_opacity_raw(node_id.index())` returns a `u8`. The sentinel
+  `OPACITY_SENTINEL` means "unset", which decodes to `1.0` and lets the loop
+  bail out without invoking `css_property_cache.get_opacity`.
 
-## Dynamic property updates
+The result feeds two consumers:
 
-A reference frame pushed for a CSS `transform` uses
-`PropertyBinding::Binding(PropertyBindingKey::new(transform_key.id as u64),
-initial)`:
+- `Added` events generate fresh `TransformKey` / `OpacityKey` values via
+  `unique()`, which wrap WebRender `PropertyBindingKey`s.
+- `Changed` events go to `Transaction::append_dynamic_properties`, which
+  WebRender applies *without* rebuilding the display list. This is the path that
+  makes scrollbar fade-out and CSS `transform` animation cheap — a scroll
+  doesn't trigger a re-layout, just a property update.
 
-```rust,ignore
-let binding = PropertyBinding::Binding(
-    webrender::api::PropertyBindingKey::new(transform_key.id as u64),
-    wr_transform,
-);
-let new_spatial_id = builder.push_reference_frame(
-    LayoutPoint::zero(), parent_spatial_id, TransformStyle::Flat,
-    binding,
-    ReferenceFrameKind::Transform { /* ... */ },
-    SpatialTreeItemKey::new(transform_key.id as u64, 0),
-);
-```
+`GpuScrollbarOpacityEvent` is the parallel for scrollbar fade timers; it is
+maintained by `layout/src/managers/scroll_state.rs` rather than `synchronize`.
 
-`compositor2.rs:1320-1378`. Subsequent frames update the transform via
-`Transaction::append_dynamic_properties` keyed on the same `transform_key.id` —
-no new display list, no relayout.
+The cache is owned per-window and survives across frames; only the `_changes`
+struct is consumed each frame.
 
-`PushOpacity` and `ScrollBar` opacity wrap their children in
-`push_simple_stacking_context_with_filters` whose `WrFilterOp::Opacity` carries
-the same kind of `PropertyBinding` (`compositor2.rs:434-451`, `2052-2073`).
+## Library shaders
 
-## Built-in shaders
+`GlContextPtr::new` (`core/src/gl.rs:1027`) compiles three shader programs at
+context creation and stores them in `GlContextPtrInner`:
 
-`GlContextPtr::new` (`core/src/gl.rs:1027`) compiles three programs at construction
-and stores their GL program IDs on `GlContextPtrInner`:
-
-| Program | Source | Use |
+| Field | Purpose | Source |
 |---|---|---|
-| `svg_shader` | `SVG_VERTEX_SHADER` / `SVG_FRAGMENT_SHADER` (`gl.rs:923-956`) | Solid-color SVG path fill |
-| `svg_multicolor_shader` | `SVG_MULTICOLOR_*_SHADER` (`gl.rs:958-1018`) | Per-vertex coloured SVG (gradient meshes) |
-| `fxaa_shader` | `core/src/gl_fxaa.rs:FXAA_VERTEX_SHADER` / `FXAA_FRAGMENT_SHADER` | Post-process anti-aliasing |
+| `svg_shader` | Solid-color SVG path fills | `core/src/gl.rs:923` (`SVG_VERTEX_SHADER`, `SVG_FRAGMENT_SHADER`) |
+| `svg_multicolor_shader` | Per-vertex coloured SVG | `core/src/gl.rs:958` |
+| `fxaa_shader` | Post-process anti-aliasing | `core/src/gl_fxaa.rs:71` (`FXAA_VERTEX_SHADER`, `FXAA_FRAGMENT_SHADER`) |
 
-`GlContextPtrInner::Drop` (`gl.rs:902-908`) deletes all three programs when the
-context is destroyed. The FXAA pass is wired up in `layout/src/xml/svg.rs` —
-see the [WebRender bridge](webrender-bridge.md) page for the full SVG render path.
+Compilation is checked through `check_shader_compile` and `check_program_link`
+(`gl.rs:1001` and `gl.rs:1014`). Both log to stderr under `feature = "std"`;
+under `no_std` they swallow the failure. There is no recovery — a failed shader
+compile leaves the program ID present but unusable; subsequent draws produce no
+output. If you hit a black SVG, run with `RUST_LOG` and look for "shader
+compile error".
 
-## Texture lifecycle
+`GlContextPtrInner::Drop` (`gl.rs:902`) calls `delete_program` on all three
+when the context is destroyed.
 
-WebRender owns its own GPU textures for primitives in the display list. Custom
-GL textures (e.g. SVG render targets, user-drawn `Texture` callbacks) are kept
-alive by a process-global cache in `core/src/gl.rs:733`:
+### FXAA pass
+
+`FxaaConfig` (`gl_fxaa.rs:16`) carries the runtime tunables:
 
 ```rust,ignore
-static mut ACTIVE_GL_TEXTURES: Option<OrderedMap<DocumentId, GlTextureStorage>> = None;
+pub struct FxaaConfig {
+    pub enabled: bool,
+    pub edge_threshold: f32,      // 0.063 – 0.333, default 0.125
+    pub edge_threshold_min: f32,  // 0.0312 – 0.0833, default 0.0312
+}
 ```
 
-The map is keyed `DocumentId → Epoch → ExternalImageId → Texture`. WebRender
-holds an `ExternalImageId` referring to the texture; the `Drop` impl on `Texture`
-runs only when both WebRender has released the image and the cache entry has
-been evicted.
+Presets (`enabled`, `high_quality`, `balanced`, `performance`) are convenience
+constructors. The fragment shader is the standard NVIDIA FXAA 3.11 algorithm:
+sample center + N/S/E/W luminance, compute `lumRange`, early-exit below the
+threshold, otherwise sample along the detected edge direction and blend.
 
-Cache management functions:
+The actual FXAA render pass lives in `layout/src/xml/svg.rs` (`apply_fxaa` /
+`apply_fxaa_with_config`), not in `core/src/gl_fxaa.rs`. The `core` crate owns
+the data + GLSL strings; the SVG render pipeline owns the FBO setup, fullscreen
+quad, and state save/restore.
 
-| Function | When called |
-|---|---|
-| `insert_into_active_gl_textures` (`gl.rs:739`) | Display list referenced a new external texture |
-| `gl_textures_remove_epochs_from_pipeline` (`gl.rs:765`) | After WebRender publishes a frame; older epochs are safe to drop |
-| `gl_textures_remove_active_pipeline` (`gl.rs:808`) | Document destroyed |
-| `gl_textures_clear_opengl_cache` (`gl.rs:819`) | Before the GL context itself is torn down |
-| `get_opengl_texture` (`gl.rs:835`) | WebRender external-image callback resolves an ID back to a `(GLuint, (w, h))` pair |
+## Texture cache
 
-The cache is **not thread-safe**; the `Texture` itself is `!Send`, so all access
-happens from the renderer thread that owns the GL context.
+`core/src/gl.rs:733` declares the active texture map:
 
-## Headless / CPU path
+```rust,ignore
+static mut ACTIVE_GL_TEXTURES:
+    Option<OrderedMap<DocumentId, GlTextureStorage>> = None;
 
-The same `DisplayList` feeds `cpurender` for headless rendering and reftests.
-The `dll/src/desktop/shell2/headless` backend installs a CPU `WebRender` instance
-and a software `GenericGlContext` so that `compositor2` runs unchanged. The PNG
-output of `azul-render` fenced examples in this guide is produced by that path.
+pub type GlTextureStorage =
+    OrderedMap<Epoch, OrderedMap<ExternalImageId, Texture>>;
+```
 
-## Reading order for new contributors
+The keying — `DocumentId → Epoch → ExternalImageId → Texture` — exists because
+WebRender may still be rendering against an old frame's textures while the
+application is generating the next frame. Textures are kept alive until the
+backend thread acknowledges that the epoch is no longer in use, then
+`gl_textures_remove_epochs_from_pipeline` (`gl.rs:765`) drops everything
+strictly older than the supplied epoch.
 
-1. `layout/src/solver3/display_list.rs` — the `DisplayListItem` enum.
-2. `dll/src/desktop/compositor2.rs:165` (`translate_displaylist_to_wr`) — the main
-   match.
-3. [`webrender-bridge.md`](webrender-bridge.md) — coordinate, clip, and resource
-   translation in detail.
-4. [`gl-loading.md`](gl-loading.md) — how the `GenericGlContext` arrives in the
-   first place.
-5. `core/src/gpu.rs` — how animatable properties bypass relayout.
+The map is **not** thread-safe. The doc comment at `gl.rs:731` argues that
+`Texture` itself is not `Send`/`Sync`, so accidental concurrent access is
+unlikely, but the warning still applies: do not call any of
+`insert_into_active_gl_textures`, `gl_textures_remove_epochs_from_pipeline`,
+`gl_textures_remove_active_pipeline`, `gl_textures_clear_opengl_cache`, or
+`get_opengl_texture` from anything other than the main thread. Rust 2024 will
+also forbid `static mut` references; replacement with a `Mutex<...>` or
+`thread_local!` is on the cleanup list.
+
+`Texture` (`gl.rs:2540`) carries a refcount, the `GLuint` ID, and a clone of
+the `GlContextPtr`. Its `Drop` (`gl.rs:2887`) decrements the refcount and, on
+last drop, calls `delete_textures` on the held context. `Texture::create`,
+`Texture::allocate_rgba8`, and `Texture::clear` cover the construction
+surface; `GlShader::draw` (`gl.rs:3563`) is the single render entry point that
+reads from the cache.
+
+## Hardware vs software path
+
+`RendererType` (in `core/src/window.rs`) selects between:
+
+- **Hardware (GPU)** — WebRender renders into a real OpenGL context. The
+  context is created by the platform shell ([GL function loading](gl-loading.md)),
+  the WebRender renderer is built on top of `GenericGlContext`, and frames go
+  through the standard transaction pipeline.
+- **Software (CPU)** — `cpurender` rasterises into a `Vec<u8>` framebuffer.
+  The display list is the same; the sink is different. Used for headless
+  rendering, the reftest harness, and machines without GL.
+
+The split happens at `dll/src/desktop/window.rs` when the renderer is
+constructed; everything upstream of that (layout, display list, GPU value
+cache, [WebRender bridge](webrender-bridge.md)) is identical.
+
+## Debugging clip and spatial bugs
+
+The most common WebRender visual bug is "items render in the wrong place".
+The compositor logs every push/pop to `LogCategory::DisplayList`. Useful
+patterns:
+
+- `[CLIP DEBUG] Rect: adjusted=..., clip_chain=..., spatial=...` — every Rect
+  prints its resolved bounds and stack heads. Cross-reference against the
+  intended clip chain.
+- `[compositor2] PushScrollFrame START` ... `DONE` brackets the scroll frame.
+  The `clip_stack.len` and `spatial_stack.len` deltas should both be `+1`. If
+  one of them stays the same, an arm above failed to push.
+- `[compositor2] PopClip: SKIPPED (clip_stack.len=1, would underflow)` —
+  unbalanced `PushClip` / `PopClip`. Means the display list generator is
+  buggy, not the compositor.
+
+WebRender's own debug flags are also useful: enable `DebugFlags::PRIMITIVE_DBG
+| DebugFlags::CLIP_DBG | DebugFlags::SPATIAL_DBG` in the renderer config to
+get on-screen overlays.
+
+If clipping is wrong, the diagnosis is almost always: clip defined in the
+wrong space, or clip chain not chained to its parent. See
+`scripts/WEBRENDER_CLIPPING_ANALYSIS.md` for the failure modes.

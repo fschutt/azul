@@ -7,12 +7,13 @@ audience: external
 maturity: mature
 guide_order: 90
 topic_only: false
+short_desc: Callback registration, event filters, the Update enum, and how the framework re-runs layout when state changes.
 prerequisites: [hello-world]
 tracked_files:
   - core/src/events.rs
   - core/src/callbacks.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:34:08Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T05:51:14Z
 ---
 
 # Events and Input
@@ -61,7 +62,7 @@ Returning `RefreshDom` from a non-mutating handler is wasteful; returning `DoNot
 | filter | fires when |
 |---|---|
 | `Hover(HoverEventFilter)` | Mouse cursor is over this node when the event happens. |
-| `Focus(FocusEventFilter)` | This node has keyboard focus when the event happens. Requires `tabindex`. |
+| `Focus(FocusEventFilter)` | This node has keyboard focus when the event happens. Requires a tab index. |
 | `Window(WindowEventFilter)` | The event happens anywhere in the focused window. |
 | `Component(ComponentEventFilter)` | The node was mounted, unmounted, resized, or updated. |
 | `Application(ApplicationEventFilter)` | A device or monitor was plugged in / removed. |
@@ -89,13 +90,14 @@ For "click", use `LeftMouseUp` rather than `MouseDown`: it matches the W3C activ
 
 ### `FocusEventFilter`
 
-Same vocabulary as `HoverEventFilter`, but the node must currently hold keyboard focus. Add `tabindex="0"` (or set focus programmatically) for the filter to ever fire:
+Same vocabulary as `HoverEventFilter`, but the node must currently hold keyboard focus. Set a tab index (or focus programmatically) for the filter to ever fire:
 
 ```rust,no_run
 # use azul::prelude::*;
-let mut input = Dom::create_div();
-input.set_inline_style("tabindex: 0");
+let input = Dom::create_div().with_tab_index(TabIndex::Auto);
 ```
+
+`TabIndex::Auto` makes the node focusable in source order. `TabIndex::NoKeyboardFocus` makes it focusable programmatically but skips it in tab navigation. `TabIndex::OverrideInParent(n)` pins the node at slot `n` within its parent's tab order.
 
 Common focus filters:
 
@@ -307,12 +309,12 @@ Dom::create_body().with_callback(
 );
 ```
 
-**Tab order**: set `tabindex="0"` on the node to make it focusable; tab/shift-tab move through nodes in DOM order. Use `tabindex="-1"` to make a node focusable programmatically but skip it in tab navigation.
+**Tab order**: call `.with_tab_index(TabIndex::Auto)` on the node to make it focusable; tab/shift-tab move through nodes in DOM order. Use `TabIndex::NoKeyboardFocus` to make a node focusable programmatically but skip it in tab navigation. Definitions in `core/src/dom.rs:1923`.
 
 ## Where it goes wrong
 
 - **Callback never fires** — check the filter scope. `Hover(LeftMouseUp)` only fires when the cursor is over the node *at the moment of release*. If the user pressed inside, dragged out, and released outside, no click event fires on either node.
-- **`Focus(...)` never fires** — the node has no `tabindex`. Add `tabindex="0"` to the inline style.
+- **`Focus(...)` never fires** — the node has no tab index. Add `.with_tab_index(TabIndex::Auto)` so the node can receive focus.
 - **Counter does not update** — the callback returned `Update::DoNothing`. Return `Update::RefreshDom` after mutating the model.
 - **Default action still happens after `prevent_default`** — verify the call is on `CallbackInfo`, not on a stale copy. The change is applied after the callback returns; calling it twice is harmless.
 

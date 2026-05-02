@@ -7,14 +7,15 @@ audience: external
 maturity: wip
 guide_order: 13
 topic_only: false
+short_desc: Using the C++ header bindings and idiomatic C++ wrappers for the counter app.
 prerequisites: [hello-world]
 tracked_files:
   - api.json
   - core/src/callbacks.rs
   - core/src/lib.rs
   - dll/src/lib.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:34:08Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T00:00:00Z
 ---
 
 # Hello, World — C++
@@ -51,9 +52,9 @@ struct MyDataModel {
 AZ_REFLECT(MyDataModel);
 ```
 
-`AZ_REFLECT(MyDataModel)` generates `MyDataModel_upcast`, `MyDataModel_downcast_ref`, and `MyDataModel_downcast_mut`. The destructor is synthesised; for structs that own heap data you can supply your own with `AZ_REFLECT_DESTRUCTOR(MyDataModel, fn)`.
+`AZ_REFLECT(MyDataModel)` generates `MyDataModel_upcast`, `MyDataModel_downcast_ref`, and `MyDataModel_downcast_mut`. The destructor is synthesised; for structs that own heap data, supply your own with `AZ_REFLECT_DESTRUCTOR(MyDataModel, fn)`.
 
-The `using namespace azul;` import brings in the C++ wrapper types (`RefAny`, `Dom`, `App`, `String`, `WindowCreateOptions`); raw C types remain `Az*`-prefixed.
+`using namespace azul;` brings in the C++ wrapper types (`RefAny`, `Dom`, `App`, `String`, `WindowCreateOptions`); raw C types remain `Az*`-prefixed.
 
 ## The layout callback
 
@@ -101,7 +102,7 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
 }
 ```
 
-`auto d` is a smart-pointer-like guard that releases the mutable borrow on scope exit. There is no explicit `_delete` step here; the wrapper does it for you.
+`auto d` is a smart-pointer-like guard that releases the mutable borrow on scope exit. There is no explicit `_delete` step; the wrapper does it for you.
 
 ## main
 
@@ -134,7 +135,7 @@ g++ -std=c++17 hello-world.cpp \
 ./hello-world
 ```
 
-C++03 (matching the comment at the top of `examples/cpp/cpp03/hello-world.cpp`):
+C++03 (matching `examples/cpp/cpp03/hello-world.cpp`):
 
 ```sh
 g++ -std=c++03 hello-world.cpp -I/path/to/azul-headers \

@@ -676,6 +676,11 @@ pub struct Frontmatter {
     pub guide_order: Option<i32>,
     #[serde(default)]
     pub topic_only: bool,
+    /// One-line summary of *this* page (not its first sentence). Localised
+    /// per language. Rendered indented under the page title in the guide
+    /// index. Aim for "section summary" granularity, not topic.
+    #[serde(default)]
+    pub short_desc: Option<String>,
     /// Prerequisite *canonical* slugs (English). The website resolves
     /// these to localized URLs at render time so a German page reading
     /// `prerequisites: [hello-world]` links to the German "hallo-welt"

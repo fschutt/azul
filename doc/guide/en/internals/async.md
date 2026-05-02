@@ -7,14 +7,17 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
+short_desc: The async runtime — how timers, threads, and IO callbacks share state with the layout thread.
 prerequisites: []
 tracked_files:
   - core/src/task.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:40:13Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T05:50:16Z
 ---
 
-> **WIP**: the runtime is functional but `tick_timers` (`layout/src/window.rs:1977`) currently returns every timer ID instead of filtering by readiness. Per-timer gating happens inside `Timer::invoke`.
+> **WIP**: the runtime is functional but `tick_timers`
+> (`layout/src/window.rs:1977`) currently returns every timer ID instead of
+> filtering by readiness. Per-timer gating happens inside `Timer::invoke`.
 
 The async runtime in `core/src/task.rs` is the FFI-safe substrate for two
 runtime systems that the layout crate builds on top: **timers** (callbacks
@@ -55,12 +58,12 @@ across windows.
 | `0x0003` | `DRAG_AUTOSCROLL_TIMER_ID` | Edge auto-scroll during drag |
 | `0x0004` | `TOOLTIP_DELAY_TIMER_ID` | Hover-delay before tooltip shows |
 
-Defined at `core/src/task.rs:46-74`. Wiring is partial: the cursor blink
+Defined at `core/src/task.rs:46-74`. Wiring is partial: the cursor-blink
 and scroll-momentum timers are driven by the platform event loop;
-`DRAG_AUTOSCROLL_TIMER_ID` is referenced in `dll/src/desktop/shell2/common/event.rs`
-but the autoscroll body is not yet implemented. There is **no**
-`DOUBLE_CLICK_TIMER_ID` — double-click detection lives in
-`GestureManager::detect_double_click`.
+`DRAG_AUTOSCROLL_TIMER_ID` is referenced in
+`dll/src/desktop/shell2/common/event.rs` but the autoscroll body is not
+yet implemented. There is **no** `DOUBLE_CLICK_TIMER_ID` — double-click
+detection lives in `GestureManager::detect_double_click`.
 
 ## Time types
 
@@ -82,9 +85,9 @@ pub enum Duration {
 ```
 
 Mixing variants panics: `Instant::System.duration_since(Instant::Tick)`
-hits the `_ => panic!(...)` arm at `core/src/task.rs:262`, as does
-adding a `Duration::Tick` to an `Instant::System`. The convention is that
-a runtime picks one variant at startup (via `GetSystemTimeCallback`) and
+hits the `_ => panic!(...)` arm at `core/src/task.rs:285`, as does adding
+a `Duration::Tick` to an `Instant::System`. The convention is that a
+runtime picks one variant at startup (via `GetSystemTimeCallback`) and
 stays on it.
 
 ### `InstantPtr` — FFI-safe wrapper around `std::time::Instant`
@@ -106,7 +109,7 @@ pub struct InstantPtr {
 The default `clone_fn` is `std_instant_clone` and the default destructor
 is the no-op `std_instant_drop` (the box's own destructor handles
 deallocation). When constructed via `From<StdInstant>`, both are wired
-automatically (`core/src/task.rs:380-403`).
+automatically.
 
 `run_destructor` is set to `false` after the destructor fires once, so
 moving an `InstantPtr` through FFI without an explicit clone does not
@@ -132,8 +135,8 @@ same function via `ExternalSystemCallbacks::rust_internal()`.
 
 `Duration` derives `PartialOrd` and `Ord`, so `>` and `<` already work.
 The named methods (`core/src/task.rs:526-571`) duplicate this with
-explicit panic branches for mismatched variants. They predate the derived
-impls; new code should prefer the comparison operators.
+explicit panic branches for mismatched variants. They predate the
+derived impls; new code should prefer the comparison operators.
 
 ## Timer system
 
@@ -158,14 +161,14 @@ Three timing knobs:
 
 - `delay` — wait this long before the *first* run.
 - `interval` — minimum gap between runs after the first.
-- `timeout` — total lifetime; once exceeded, the next invocation
-  forces `TerminateTimer::Terminate`.
+- `timeout` — total lifetime; once exceeded, the next invocation forces
+  `TerminateTimer::Terminate`.
 
 All three are checked inside `Timer::invoke` (`layout/src/timer.rs:194`).
 If the timer is not ready, it returns
 `TimerCallbackReturn { should_update: DoNothing, should_terminate: Continue }`
-without firing the user callback. If the timer is past its `timeout`,
-it fires once more and then returns `Terminate`.
+without firing the user callback. If the timer is past its `timeout`, it
+fires once more and then returns `Terminate`.
 
 ### Lifecycle
 
@@ -201,8 +204,8 @@ pub fn time_until_next_timer_ms(
 ```
 
 Defined at `layout/src/window.rs:1999`. Returns the minimum number of
-milliseconds until any timer's `instant_of_next_run()` arrives, or `None`
-if there are no timers (in which case the caller may block
+milliseconds until any timer's `instant_of_next_run()` arrives, or
+`None` if there are no timers (in which case the caller may block
 indefinitely). The Linux X11 and Wayland backends pass this to
 `poll`/`epoll_wait` so they don't busy-loop at 16 ms when nothing is
 pending.
@@ -225,8 +228,8 @@ pub struct TimerCallbackInfo {
 Wraps the regular `CallbackInfo` (so timer callbacks have full DOM /
 hit-test access) and adds:
 
-- `frame_start` — the `Instant` captured at the start of this tick.
-  All timers in the same tick see the same `frame_start`, so animations
+- `frame_start` — the `Instant` captured at the start of this tick. All
+  timers in the same tick see the same `frame_start`, so animations
   driven by multiple timers stay in lockstep.
 - `call_count` — number of prior invocations.
 - `is_about_to_finish` — `true` when this is the last call before the
@@ -249,10 +252,11 @@ let thread = Thread::create(
 `Thread::create` calls `create_thread_libstd` (`layout/src/thread.rs:812`)
 which:
 
-1. Creates a `Sender<ThreadReceiveMsg>` / `Receiver<ThreadReceiveMsg>` pair
-   for thread → main writeback messages.
-2. Creates a `Sender<ThreadSendMsg>` / `Receiver<ThreadSendMsg>` pair for
-   main → thread control messages (`Tick`, `TerminateThread`, `Custom`).
+1. Creates a `Sender<ThreadReceiveMsg>` / `Receiver<ThreadReceiveMsg>`
+   pair for thread → main writeback messages.
+2. Creates a `Sender<ThreadSendMsg>` / `Receiver<ThreadSendMsg>` pair
+   for main → thread control messages (`Tick`, `TerminateThread`,
+   `Custom`).
 3. Spawns a `std::thread::spawn` that calls
    `thread_callback(thread_initialize_data, ThreadSender, ThreadReceiver)`.
 4. Holds an `Arc<()>` strong/weak pair as a "drop check" — when the
@@ -303,9 +307,9 @@ clone/drop callbacks (`core/src/task.rs:570-625` and
 callable (e.g., a Python `PyFunction`) so foreign-language thread
 callbacks can be re-entered from the C side.
 
-`#[cfg(not(feature = "std"))]` builds compile to no-ops: `recv`
-returns `OptionThreadSendMsg::None` and `send` returns `false`. There is
-no real thread on no_std.
+`#[cfg(not(feature = "std"))]` builds compile to no-ops: `recv` returns
+`OptionThreadSendMsg::None` and `send` returns `false`. There is no
+real thread on no_std.
 
 ### `WriteBackCallback`
 
@@ -321,8 +325,8 @@ Bundled with the `RefAny` payload into `ThreadWriteBackMsg`. When the
 main thread pulls a `ThreadReceiveMsg::WriteBack` off the channel,
 `run_all_threads` constructs a `CallbackInfo` (same shape as a regular
 event callback — full DOM access, scroll states, hit-test, monitor
-list) and invokes the writeback. The return `Update` is folded into the
-event-loop's outgoing change set.
+list) and invokes the writeback. The return `Update` is folded into
+the event loop's outgoing change set.
 
 This is the only path by which a background thread is allowed to
 mutate UI state. Direct `RefAny::downcast_mut` from the spawned thread

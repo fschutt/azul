@@ -7,6 +7,7 @@ audience: external
 maturity: mature
 guide_order: 310
 topic_only: false
+short_desc: Using the Rust API directly without going through the C ABI — workspace setup, feature flags, and target builds.
 prerequisites: [hello-world, code-generation]
 tracked_files:
   - api.json
@@ -15,13 +16,13 @@ tracked_files:
   - doc/src/dllgen/deploy.rs
   - doc/src/dllgen/license.rs
   - doc/src/dllgen/mod.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:40:52Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T05:50:43Z
 ---
 
 # Rust Bindings
 
-The Rust binding is the `azul` crate (the published wrapper around `azul-dll`). The same crate compiles in three modes, selected at the consumer's Cargo feature flags. This page covers a fresh project that depends on azul; for the program itself, see [Hello, World — Rust](hello-world/rust.md).
+The Rust binding is the `azul` crate (the published wrapper around `azul-dll`). The same crate compiles in three modes, selected at the consumer's Cargo feature flags. This page covers a fresh project that depends on azul; for the program itself, see [Hello, World — Rust](../hello-world/rust.md).
 
 ## Cargo.toml — link-static (default)
 
@@ -61,7 +62,7 @@ export AZUL_DLL_PATH=/opt/azul/lib
 cargo build --release
 ```
 
-A local (non-system) match is copied into `OUT_DIR`, `target/{debug,release}/`, `target/{debug,release}/examples/`, and `target/{debug,release}/deps/`. On macOS, `install_name_tool -id @executable_path/libazul.dylib` rewrites the install name so the binary finds the dylib at runtime without `DYLD_LIBRARY_PATH`. On Linux, an rpath of `$ORIGIN` is set for the same effect.
+A local (non-system) match is copied into `OUT_DIR`, `target/{debug,release}/`, `target/{debug,release}/examples/`, and `target/{debug,release}/deps/`. On macOS, `install_name_tool -id @executable_path/libazul.dylib` rewrites the install name so the binary finds the dylib at runtime without `DYLD_LIBRARY_PATH`. On Linux, copying the dylib next to the binary yields the same effect via the default loader search path.
 
 If only the static archive (`azul.lib` / `libazul.a`) is found, the build falls back to static linking against it.
 
@@ -71,7 +72,7 @@ If only the static archive (`azul.lib` / `libazul.a`) is found, the build falls 
 cargo build -p azul-dll --release --no-default-features --features build-dll
 ```
 
-The output is `target/release/libazul.{so,dylib}` or `target/release/azul.dll`. The matching import library on Windows is `target/release/azul.dll.lib`. Copy these to a stable directory and point `AZUL_LINK_PATH` (legacy) or `AZUL_DLL_PATH` at it.
+The output is `target/release/libazul.{so,dylib}` or `target/release/azul.dll`. The matching import library on Windows is `target/release/azul.dll.lib`. Copy these to a stable directory and point `AZUL_DLL_PATH` at it.
 
 ## Workspace setup with both modes
 
@@ -105,7 +106,7 @@ If the build aborts with `Missing generated file: dll_api_external.rs`, `target/
 cargo run --release -p azul-doc -- codegen all
 ```
 
-once, then rebuild. See [Code Generation](code-generation.md) for what this command produces.
+once, then rebuild. See [Code Generation](../code-generation.md) for what this command produces.
 
 ## Required `extern "C"` on callbacks
 

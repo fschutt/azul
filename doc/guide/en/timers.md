@@ -7,36 +7,64 @@ audience: external
 maturity: wip
 guide_order: 100
 topic_only: false
-prerequisites: [events]
+short_desc: Frame-rate independent timers, threads, and how scheduled work re-enters the layout pipeline.
+prerequisites: [hello-world, events]
 tracked_files:
   - core/src/task.rs
-  - core/src/callbacks.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:34:08Z
+  - layout/src/timer.rs
+  - layout/src/callbacks.rs
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T06:00:00Z
 ---
 
 # Timers
 
-> **WIP** — `Timer` and `TimerCallbackReturn` are stable; the host loop tick semantics may shift if the framework moves to a per-window event-loop scheduler.
+> WIP. The Timer API is functional today; field names may shift before 1.0.
 
-A `Timer` is a function the framework runs on the main thread on a recurring schedule. You register it with the window via `CallbackInfo::add_timer`; the host event loop wakes it on its interval and invokes the callback. The return value tells the framework whether to refresh the DOM and whether to keep the timer alive.
+A `Timer` is a function that runs on the main UI thread on its own schedule, independently of input events. You install it from inside an event callback and tear it down the same way. The framework wakes the event loop to fire it; the callback receives a normal `CallbackInfo` plus a `TimerCallbackInfo` wrapper.
 
 ```rust,no_run
 # use azul::prelude::*;
-extern "C" fn tick(_: RefAny, _: TimerCallbackInfo) -> TimerCallbackReturn {
-    TimerCallbackReturn::continue_and_refresh_dom()
-}
+# extern crate azul_core;
+# use azul_core::task::{Duration, SystemTimeDiff};
+# extern "C" fn tick(_: RefAny, _: TimerCallbackInfo) -> TimerCallbackReturn {
+#     TimerCallbackReturn::continue_and_refresh_dom()
+# }
+# extern "C" fn on_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+let timer = Timer::create(data.clone(), tick, info.get_system_time_fn())
+    .with_interval(Duration::System(SystemTimeDiff::from_millis(16)));
+
+info.add_timer(TimerId::unique(), timer);
+#     Update::DoNothing
+# }
 ```
 
-## The timer signature
+## When to reach for a timer
 
-A timer callback has the same `RefAny`-erased shape as any other callback, but returns `TimerCallbackReturn` instead of `Update`:
+Use a timer when something must happen on a clock, not in response to input:
+
+| Need | Timer? | Notes |
+|---|---|---|
+| React to a click, hover, or key | No | Use an event filter ([events](events.md)). |
+| Re-paint every frame | Yes | Interval = 16 ms; return `continue_and_refresh_dom()`. |
+| Run something once after a delay | Yes | `with_delay(d)`; terminate from the callback. |
+| Poll a long-running operation | No | Use a background thread (covered later in [background-tasks](background-tasks.md)). |
+| Animate a CSS property | Not yet | The animation runtime is a stub; see [animations](animations.md). |
+
+Timers run on the UI thread. Heavy work blocks input. For anything I/O-bound or CPU-heavy, spawn a thread.
+
+## The signature
+
+A timer callback has the same C-ABI shape as an event callback, but the second argument and return type differ.
 
 ```rust,ignore
-extern "C" fn(RefAny, TimerCallbackInfo) -> TimerCallbackReturn
+pub type TimerCallbackType = extern "C" fn(
+    RefAny,
+    TimerCallbackInfo,
+) -> TimerCallbackReturn;
 ```
 
-`TimerCallbackReturn` carries two flags (`core/src/callbacks.rs:441`):
+Defined at `layout/src/timer.rs:35`. The `RefAny` is whatever you handed to `Timer::create` — most often the same data you handed to your layout callback. `TimerCallbackInfo` is documented in the next section. The return value is two enums packed into one struct:
 
 ```rust,ignore
 pub struct TimerCallbackReturn {
@@ -45,200 +73,203 @@ pub struct TimerCallbackReturn {
 }
 ```
 
-`should_update` is the same `Update` enum used elsewhere (`DoNothing`, `RefreshDom`, `RefreshDomAllWindows`). `should_terminate` is `TerminateTimer::Continue` to keep the timer running, or `TerminateTimer::Terminate` to remove it. Convenience constructors:
+`Update` is the same enum event callbacks return — `DoNothing`, `RefreshDom`, `RefreshDomAllWindows`. `TerminateTimer` is `Continue` or `Terminate`. Four convenience constructors match the common combinations:
 
 ```rust,ignore
-TimerCallbackReturn::continue_unchanged()       // DoNothing + Continue
-TimerCallbackReturn::continue_and_refresh_dom() // RefreshDom + Continue
-TimerCallbackReturn::terminate_unchanged()      // DoNothing + Terminate
-TimerCallbackReturn::terminate_and_refresh_dom()// RefreshDom + Terminate
+TimerCallbackReturn::continue_unchanged()        // keep ticking, no relayout
+TimerCallbackReturn::continue_and_refresh_dom()  // keep ticking, re-run layout
+TimerCallbackReturn::terminate_unchanged()       // stop, no relayout
+TimerCallbackReturn::terminate_and_refresh_dom() // stop, re-run layout
 ```
 
-## Registering a timer
+## TimerCallbackInfo
 
-Inside any callback, build a `Timer` and pass it to `info.add_timer(id, timer)`:
+The wrapper type gives the callback two things the event API doesn't: which call this is and when the frame started.
+
+| Field | Use |
+|---|---|
+| `call_count: usize` | 0 on first invocation, monotonic from there. Useful for "after N ticks, do X". |
+| `frame_start: Instant` | Monotonic timestamp captured before the callback runs. Use for animation interpolation rather than calling `Instant::now()` again. |
+| `is_about_to_finish: bool` | `true` only on the final invocation when a timeout is configured (see below). |
+| `node_id: OptionDomNodeId` | The node the timer was attached to, if any. |
+| `callback_info: CallbackInfo` | The full event-API surface, exposed via `get_callback_info_mut()`. |
+
+`TimerCallbackInfo` re-exports the methods you'd reach for from `CallbackInfo` directly — `add_timer`, `remove_timer`, `add_thread`, `remove_thread`, `modify_window_state`, `scroll_to`, `scroll_to_unclamped`, `set_cursor_visibility`, `reset_cursor_blink` (full list at `layout/src/timer.rs:325`). Mutations are recorded as `CallbackChange`s and applied after the callback returns, exactly as in event callbacks.
+
+## Scheduling a timer
+
+`Timer` uses a builder. The constructor takes the data, the callback, and a system-time function (passed in from the event loop):
+
+```rust,ignore
+pub fn create<C: Into<TimerCallback>>(
+    refany: RefAny,
+    callback: C,
+    get_system_time_fn: GetSystemTimeCallback,
+) -> Self
+```
+
+The three modifier methods cover all common scheduling shapes:
+
+```rust,ignore
+impl Timer {
+    pub fn with_delay(self, delay: Duration) -> Self;     // wait before first fire
+    pub fn with_interval(self, interval: Duration) -> Self; // gap between fires
+    pub fn with_timeout(self, timeout: Duration) -> Self;   // stop after this much elapsed
+}
+```
+
+A timer with no `interval` set defaults to a 10 ms tick (`DEFAULT_TIMER_TICK_MS`, `layout/src/timer.rs:32`). A timer with no `timeout` runs until the callback returns `TerminateTimer::Terminate` or you call `remove_timer`.
 
 ```rust,no_run
 # use azul::prelude::*;
-# struct App { ticks: usize }
-extern "C" fn on_start(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let timer = Timer::create(data.clone(), tick, info.get_system_time_fn())
-        .with_interval(Duration::System(SystemTimeDiff::from_millis(33)));
-    info.add_timer(TimerId::unique(), timer);
-    Update::DoNothing
-}
-
-extern "C" fn tick(mut data: RefAny, _: TimerCallbackInfo) -> TimerCallbackReturn {
-    if let Some(mut a) = data.downcast_mut::<App>() {
-        a.ticks += 1;
-    }
-    TimerCallbackReturn::continue_and_refresh_dom()
-}
-```
-
-`Timer::create` takes the `RefAny` to pass to the callback, the function pointer, and a system-time callback (used to record the timer's creation instant). `info.get_system_time_fn()` returns the framework-provided implementation.
-
-The change is queued and applied after the callback returns. The next event-loop iteration picks the timer up and starts ticking it.
-
-## Tuning the schedule
-
-`Timer` exposes three optional knobs as builder methods:
-
-| method | meaning | default |
-|---|---|---|
-| `.with_delay(d)` | Wait `d` before the first invocation. | fire on the next tick |
-| `.with_interval(d)` | Minimum gap between invocations. | every frame (~10ms) |
-| `.with_timeout(d)` | Force-terminate after `d` since creation. | never |
-
-```rust,no_run
-# use azul::prelude::*;
-# struct State;
-# extern "C" fn cb(_: RefAny, _: TimerCallbackInfo) -> TimerCallbackReturn { TimerCallbackReturn::continue_unchanged() }
-# fn build(data: RefAny, sys: GetSystemTimeCallback) {
-let timer = Timer::create(data, cb, sys)
+# extern crate azul_core;
+# use azul_core::task::{Duration, SystemTimeDiff};
+# extern "C" fn tick(_: RefAny, _: TimerCallbackInfo) -> TimerCallbackReturn {
+#     TimerCallbackReturn::continue_and_refresh_dom()
+# }
+# extern "C" fn on_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+// Run after 500ms, then every 16ms, for at most 5 seconds.
+let timer = Timer::create(data.clone(), tick, info.get_system_time_fn())
     .with_delay(Duration::System(SystemTimeDiff::from_millis(500)))
     .with_interval(Duration::System(SystemTimeDiff::from_millis(16)))
-    .with_timeout(Duration::System(SystemTimeDiff::from_secs(10)));
+    .with_timeout(Duration::System(SystemTimeDiff::from_secs(5)));
+
+info.add_timer(TimerId::unique(), timer);
+#     Update::DoNothing
 # }
 ```
 
-A timer with `with_interval(16ms)` fires up to 60 times per second. The host loop is frame-driven; a long callback delays the next tick. Don't sleep or block inside a timer callback — start a `Thread` instead (covered in `background-tasks.md`).
+## Stopping a timer
 
-When the timeout elapses, the framework forces `should_terminate = Terminate` regardless of what the callback returned.
+Three ways, in order of preference:
 
-## `Duration` and `Instant`
+1. **Return `TerminateTimer::Terminate`** from the callback when its work is done. The normal teardown path.
+2. **Set `with_timeout`** when the schedule is bounded. The runtime forces termination on the tick that crosses the deadline; the callback sees `is_about_to_finish == true` on its final call so it can flush state.
+3. **Call `info.remove_timer(timer_id)`** from any other callback when an external event (a window close, a cancel button) needs to kill the timer.
 
-Time types live in `core/src/task.rs`. They have two variants each:
+Returning `Terminate` does not drop the `RefAny` immediately — the framework releases its clone after the callback returns.
 
-```rust,ignore
-pub enum Instant  { System(InstantPtr),    Tick(SystemTick) }
-pub enum Duration { System(SystemTimeDiff), Tick(SystemTickDiff) }
-```
+## TimerId — the handle
 
-`System` uses `std::time::Instant`; `Tick` is a counter for embedded targets without a real-time clock. On desktop you only ever see the `System` variant.
-
-Construct durations with the typed constructors:
+`TimerId` is a `usize` wrapper used to look up and remove timers. IDs in `0x0000`..`0x00FF` are reserved for the framework (`core/src/task.rs:60`). Always create user IDs with `TimerId::unique()`:
 
 ```rust,ignore
-SystemTimeDiff::from_millis(16)   // 16 ms
-SystemTimeDiff::from_secs(2)      // 2 s
-SystemTimeDiff::from_nanos(1_000) // 1 µs
-```
-
-`Instant::now()` returns the current instant on `std`-targets and `Instant::Tick(SystemTick::new(0))` elsewhere.
-
-## Inside the callback
-
-`TimerCallbackInfo` (`layout/src/timer.rs:278`) wraps a regular `CallbackInfo` plus timer-specific fields:
-
-```rust,ignore
-pub struct TimerCallbackInfo {
-    pub callback_info: CallbackInfo,
-    pub node_id: OptionDomNodeId,    // node this timer was attached to (if any)
-    pub frame_start: Instant,         // when the host began this frame
-    pub call_count: usize,            // 0-based, increments per fire
-    pub is_about_to_finish: bool,     // true on the last invocation before timeout
-    // ...
+pub fn unique() -> Self {
+    TimerId { id: MAX_TIMER_ID.fetch_add(1, Ordering::SeqCst) }
 }
 ```
 
-The full `CallbackInfo` API (focus, scroll, mutations) is reachable via `info.get_callback_info_mut()`. Use `frame_start` for animation interpolation; use `call_count` for one-time setup on the first tick:
+The reserved IDs you may encounter:
 
-```rust,no_run
-# use azul::prelude::*;
-extern "C" fn tick(_: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
-    if info.call_count == 0 {
-        // first run
-    }
-    if info.is_about_to_finish {
-        // last run before timeout
-    }
-    TimerCallbackReturn::continue_unchanged()
-}
+| Constant | Purpose |
+|---|---|
+| `CURSOR_BLINK_TIMER_ID` (0x0001) | Caret blink in `<input>` / contenteditable elements. |
+| `SCROLL_MOMENTUM_TIMER_ID` (0x0002) | Scroll inertia / smooth scroll animation. |
+| `DRAG_AUTOSCROLL_TIMER_ID` (0x0003) | Auto-scrolling when a drag approaches the edge of a scroll container. |
+| `TOOLTIP_DELAY_TIMER_ID` (0x0004) | Delay before a hover tooltip appears (`SystemStyle::input_metrics.hover_time_ms`). |
+
+Don't reuse these IDs — `add_timer` with one of them replaces the framework's own timer and breaks the corresponding feature.
+
+## How a tick reaches the callback
+
+1. The event loop computes the next wake-up time as the minimum of every active timer's `instant_of_next_run()` (current time + delay or + interval).
+2. The platform shell waits at most until that time.
+3. On wake, `LayoutWindow::tick_timers(now)` collects every timer whose next-run is `<= now`.
+4. Each timer's `invoke()` is called sequentially. The framework re-checks `delay` and `interval` inside `invoke()` — if the timer is not actually ready, it returns `continue_unchanged()` without running the user callback.
+5. Each timer's `CallbackChange`s are applied between calls, so a timer that adds a second timer makes the new one visible to subsequent ticks in the same event-loop iteration.
+
+Implemented in `dll/src/desktop/shell2/common/event.rs::invoke_expired_timers`.
+
+## Duration and Instant
+
+`Instant` and `Duration` live in `core/src/task.rs`. They have two variants each: `System` (wraps `std::time::Instant` / `Duration` on platforms with `std`) and `Tick` (a counter for embedded targets). Mixing variants panics — but since every `Instant` you'll see comes from the framework's own `GetSystemTimeCallback`, all values you compose match.
+
+The constants you'll use most:
+
+```rust,ignore
+use azul_core::task::{Duration, SystemTimeDiff};
+
+Duration::System(SystemTimeDiff::from_millis(16))    // 60 fps tick
+Duration::System(SystemTimeDiff::from_millis(500))   // 0.5 s
+Duration::System(SystemTimeDiff::from_secs(5))       // 5 s
+Duration::System(SystemTimeDiff::from_nanos(16_667_000)) // 60 fps, exact
 ```
 
-## Removing a timer
+`Instant::linear_interpolate(start, end) -> f32` is the single most useful method on `Instant`: given the current time and an `(start, end)` pair, it returns a clamped 0.0..=1.0 fraction. The building block for the [animation runtime](animations.md) once it lands.
 
-Two options:
+## Timers that re-render images, not the DOM
 
-1. **Inside the callback**: return a `should_terminate` of `TerminateTimer::Terminate`.
-2. **From any other callback**: call `info.remove_timer(timer_id)`. Save the `TimerId` returned by `TimerId::unique()` somewhere your handler can reach it (typically inside your `RefAny`).
+When a timer animates pixels — a video frame, a GL texture, a canvas — re-running the layout pass for every tick is wasteful. Two narrower triggers exist:
 
-```rust,no_run
-# use azul::prelude::*;
-# struct App { timer: Option<TimerId> }
-extern "C" fn on_stop(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    if let Some(a) = data.downcast_ref::<App>() {
-        if let Some(id) = a.timer {
-            info.remove_timer(id);
-        }
-    }
-    Update::DoNothing
-}
-```
+- `info.update_all_image_callbacks()` re-invokes every `ImageCallback` in the tree without touching layout. Pair with `TimerCallbackReturn::continue_unchanged()`.
+- `info.trigger_virtual_view_rerender(dom_id, node_id)` re-invokes a single `VirtualViewCallback` for lazy-rendered scroll regions.
 
-A timer also dies when the window closes. The `RefAny` it holds drops at that point.
-
-## Reserved timer IDs
-
-User timers start at `0x0100`. IDs `0x0001..0x00FF` are reserved for framework-internal timers (`core/src/task.rs:65`):
-
-| ID | name | purpose |
-|---|---|---|
-| `0x0001` | `CURSOR_BLINK_TIMER_ID` | Caret blink in `contenteditable` |
-| `0x0002` | `SCROLL_MOMENTUM_TIMER_ID` | Inertia / fling scroll |
-| `0x0003` | `DRAG_AUTOSCROLL_TIMER_ID` | Auto-scroll while drag is near edge |
-| `0x0004` | `TOOLTIP_DELAY_TIMER_ID` | Hover-to-tooltip delay |
-
-`TimerId::unique()` allocates the next free user ID. Don't construct a `TimerId { id: ... }` literal in user code.
+Both are `CallbackChange`s applied after the callback returns. Use them in preference to `RefreshDom` whenever the DOM structure isn't changing.
 
 ## Common patterns
 
-**Re-render on a clock tick**:
+### Run once after a delay
 
 ```rust,no_run
 # use azul::prelude::*;
-# struct Clock;
-extern "C" fn tick(_: RefAny, _: TimerCallbackInfo) -> TimerCallbackReturn {
-    TimerCallbackReturn::continue_and_refresh_dom()
-}
-```
-
-The `RefreshDom` return causes the layout callback to re-run; reading `Instant::now()` inside layout produces a wall clock that updates every interval.
-
-**One-shot delayed action**:
-
-```rust,no_run
-# use azul::prelude::*;
-extern "C" fn fire_once(_: RefAny, _: TimerCallbackInfo) -> TimerCallbackReturn {
-    // ... do the thing ...
+# extern crate azul_core;
+# use azul_core::task::{Duration, SystemTimeDiff};
+extern "C" fn run_once(_: RefAny, _: TimerCallbackInfo) -> TimerCallbackReturn {
+    // ... do the deferred work ...
     TimerCallbackReturn::terminate_and_refresh_dom()
 }
+
+# extern "C" fn on_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+let timer = Timer::create(data.clone(), run_once, info.get_system_time_fn())
+    .with_delay(Duration::System(SystemTimeDiff::from_millis(300)));
+info.add_timer(TimerId::unique(), timer);
+#     Update::DoNothing
+# }
 ```
 
-Pair with `.with_delay(...)` and no `.with_interval(...)`, or use `.with_timeout(d)` so the framework forces termination.
-
-**Polling external state**:
+### Tick at 60 fps until a flag flips
 
 ```rust,no_run
 # use azul::prelude::*;
-# struct App { last_check: Option<Instant> }
-extern "C" fn poll(mut data: RefAny, _: TimerCallbackInfo) -> TimerCallbackReturn {
-    // read external value, decide whether to refresh
-    TimerCallbackReturn::continue_and_refresh_dom()
+# extern crate azul_core;
+# use azul_core::task::{Duration, SystemTimeDiff};
+# struct State { running: bool }
+extern "C" fn frame(data: RefAny, _: TimerCallbackInfo) -> TimerCallbackReturn {
+    let state = data.downcast_ref::<State>().unwrap();
+    if !state.running {
+        TimerCallbackReturn::terminate_unchanged()
+    } else {
+        TimerCallbackReturn::continue_and_refresh_dom()
+    }
 }
+
+# extern "C" fn on_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+let timer = Timer::create(data.clone(), frame, info.get_system_time_fn())
+    .with_interval(Duration::System(SystemTimeDiff::from_millis(16)));
+info.add_timer(TimerId::unique(), timer);
+#     Update::DoNothing
+# }
 ```
 
-For genuinely blocking work (file I/O, network), don't poll — spawn a `Thread` and let it message the main loop on completion.
+### Cancel from somewhere else
 
-## What is not covered
+Stash the `TimerId` in your model when you create the timer; remove it from any callback that owns the model.
 
-- Background threads with `ThreadSendMsg` — see `background-tasks.md`.
-- Frame-locked animation tweens — see [Animations](animations.md).
-- Scroll momentum (uses a reserved internal timer) — see [Scrolling and Drag-and-Drop](scrolling-and-drag.md).
+```rust,no_run
+# use azul::prelude::*;
+# struct State { spinner_timer: Option<TimerId> }
+# extern "C" fn on_cancel(data: RefAny, mut info: CallbackInfo) -> Update {
+let mut state = data.downcast_mut::<State>().unwrap();
+if let Some(id) = state.spinner_timer.take() {
+    info.remove_timer(id);
+}
+Update::RefreshDom
+# }
+```
 
-## Next
+## Limits
 
-- [Animations](animations.md) — the planned animation runtime built on timers.
-- [Scrolling and Drag-and-Drop](scrolling-and-drag.md) — scroll events.
-- [Windows, Menus, Decorations](windowing.md) — multi-window apps.
+- Timers fire on the UI thread. A callback that takes 50 ms blocks input for 50 ms.
+- Tick precision is bounded by the platform timer resolution and by competing input. Don't expect sub-millisecond accuracy.
+- A timer's `RefAny` is held alive by the framework until the timer terminates. A timer that holds the only reference to your model keeps the model alive for the lifetime of the timer.
+- The `delay`/`interval` schedule is enforced inside `invoke()` — if a system stall bunches several ticks together, the callback fires once per tick, not once per millisecond of elapsed catch-up time. Compute deltas from `frame_start`, not from `call_count`.

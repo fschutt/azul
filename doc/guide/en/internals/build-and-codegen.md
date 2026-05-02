@@ -7,14 +7,15 @@ audience: contributor
 maturity: mature
 guide_order: null
 topic_only: false
+short_desc: How `cargo build` cascades through the workspace, what the codegen pass produces, and how to regenerate the FFI files.
 prerequisites: [code-organization]
 tracked_files:
   - api.json
   - dll/build.rs
   - dll/src/lib.rs
   - doc/src/dllgen/mod.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T17:30:00Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T12:00:00Z
 ---
 
 # Build System and FFI Codegen
@@ -48,7 +49,7 @@ Whenever you edit `api.json` (or any generator), run:
 cd doc && cargo run --release -- codegen all
 ```
 
-This walks every standard target — see `doc/src/codegen/v2/generator.rs:95-160` (`GenerationTargets::generate_all`). Granular targets exist if you want to iterate quickly:
+This walks every standard target — see [`GenerationTargets::generate_all`](../../../../doc/src/codegen/v2/generator.rs) in `doc/src/codegen/v2/generator.rs:95-160`. Granular targets exist if you want to iterate quickly:
 
 ```bash
 cargo run --release -p azul-doc -- codegen rust    # → target/codegen/azul.rs
@@ -57,7 +58,7 @@ cargo run --release -p azul-doc -- codegen cpp     # → target/codegen/azul11.h
 cargo run --release -p azul-doc -- codegen python  # → target/codegen/python_api.rs
 ```
 
-`dll/build.rs:26-58` (`check_generated_files`) refuses to compile when a feature is enabled but the matching generated file is missing — the panic message tells you exactly which command to run.
+`check_generated_files()` in `dll/build.rs:29-65` refuses to compile when a feature is enabled but the matching generated file is missing — the panic message tells you exactly which command to run.
 
 ## `api.json` schema
 
@@ -140,7 +141,7 @@ Adding a new emission target is a config + emitter change — nothing else in th
 
 ## Three link modes
 
-`dll/Cargo.toml:139-213` defines three mutually exclusive feature compositions. They differ in which generated file is included and which platform code is compiled.
+`dll/Cargo.toml:139-213` defines the feature compositions. They differ in which generated file is included and which platform code is compiled.
 
 | feature | gates | binding source | use case |
 |---|---|---|---|
@@ -155,7 +156,7 @@ The granular building blocks:
 - **`cabi_external`** — emits `extern "C" { fn ... }` declarations only. No bodies, no internal crates. The cdylib must be on the link path at compile time and at runtime.
 - **`rust_api`** — pulls in `target/codegen/reexports.rs`, exposing `azul::dom::Dom`, `azul::app::App`, etc.
 
-`dll/src/lib.rs:140-185` shows how the feature gates choose which `include!()` to take.
+`dll/src/lib.rs:113-156` shows how the feature gates choose which `include!()` to take.
 
 ```rust,ignore
 #[cfg(feature = "cabi_internal")]
@@ -185,7 +186,7 @@ The two `cabi_*` features are wired so `cabi_internal` wins if both are on (see 
 
 ## How `dll/build.rs` resolves a dynamic library
 
-`configure_dynamic_linking` (`dll/build.rs:94-247`) only fires when `cabi_external` is on and `cabi_internal` is off. Search order, top to bottom:
+`configure_dynamic_linking` (`dll/build.rs:81-227`) only fires when `cabi_external` is on and `cabi_internal` is off. Search order, top to bottom:
 
 1. **`AZUL_DLL_PATH`** — comma-separated, absolute or workspace-relative. Per-entry, `printf cargo:warning=Linking against ...`.
 2. **`target/release/`**, **`target/debug/`** — local builds. `target/debug/` triggers an extra warning so contributors don't accidentally link against an unoptimized library.
@@ -201,7 +202,7 @@ If only a static library (`libazul.a` / `azul.lib`) is found, the script falls b
 
 ## Allocator selection
 
-`dll/src/lib.rs:58-66` picks one global allocator at compile time:
+`dll/src/lib.rs:46-53` picks one global allocator at compile time:
 
 | feature | allocator | call to release pages |
 |---|---|---|
@@ -211,28 +212,28 @@ If only a static library (`libazul.a` / `azul.lib`) is found, the script falls b
 
 These are mutually exclusive (enabling both is a compile error in `Cargo.toml`'s feature graph). Because azul exposes a C ABI, the host application keeps its own allocator unchanged — only azul's internal allocations route through the chosen one.
 
-`az_purge_allocator()` (`dll/src/lib.rs:75-110`, gated on `cabi_export`) is the one-shot pressure-relief hook. Call it after large transient allocations are freed (e.g. after a layout pass). The desktop event loop wires this in as part of frame-end cleanup.
+`az_purge_allocator()` (`dll/src/lib.rs:62-101`, gated on `cabi_export`) is the one-shot pressure-relief hook. Call it after large transient allocations are freed (e.g. after a layout pass). The desktop event loop wires this in as part of frame-end cleanup.
 
 ## Compressed asset embedding
 
-`dll/build.rs:303-340` brotli-compresses three debugger UI files at build time:
+`compress_debugger_assets()` in `dll/build.rs:265-294` brotli-compresses three debugger UI files at build time:
 
 - `dll/src/desktop/shell2/common/debugger/debugger.{css,js,html}` → `OUT_DIR/{name}.br`
 
 These are then `include_bytes!`ed and served with `Content-Encoding: br`. Quality is hard-coded at 11 (max), which is slow but only runs when the source changes (`cargo:rerun-if-changed=...`).
 
-`doc/src/codegen/v2/mod.rs:235-330` does the same for two larger payloads during `codegen all`:
+`generate_compressed_api_json` and `compress_material_icons_font` in [`doc/src/codegen/v2/mod.rs`](../../../../doc/src/codegen/v2/mod.rs) (lines 238-334) do the same for two larger payloads during `codegen all`:
 
 - `api.json` → `target/codegen/api.json.br` (~3.7 MB → ~150 KB). Embedded into the web backend so it can classify functions at runtime without shipping the full JSON.
 - `MaterialIcons-Regular.ttf` → `target/codegen/material_icons.ttf.br` (~348 KB → ~80 KB). The compressed font replaces the raw `material_icons::FONT` constant; the linker dead-code-eliminates the uncompressed copy because nothing references it directly.
 
 ## iOS automation
 
-`configure_ios()` (`dll/build.rs:249-300`) runs only on iOS targets and only when `AZUL_IOS_SETUP` isn't `"disable"`. It checks for `xcode-select` and `ios-deploy`, then writes a default `.cargo/config.toml` and `scripts/ios-runner.sh` so `cargo run --target aarch64-apple-ios` deploys to a connected device. Existing files are preserved.
+`configure_ios()` (`dll/build.rs:229-260`) runs only on iOS targets and only when `AZUL_IOS_SETUP` isn't `"disable"`. It checks for `xcode-select` and `ios-deploy`, then writes a default `.cargo/config.toml` and `scripts/ios-runner.sh` so `cargo run --target aarch64-apple-ios` deploys to a connected device. Existing files are preserved.
 
 ## Python extension
 
-`python-extension` is a meta-feature that enables `build-dll` + `pyo3` + `use_pyo3_logger` + `link-static`. The build emits a cdylib whose `PyInit_azul` is generated from `target/codegen/python_api.rs` (`dll/src/lib.rs:198-210`):
+`python-extension` is a meta-feature that enables `build-dll` + `pyo3` + `use_pyo3_logger` + `link-static`. The build emits a cdylib whose `PyInit_azul` is generated from `target/codegen/python_api.rs` (`dll/src/lib.rs:160-180`):
 
 ```rust,ignore
 #[cfg(feature = "python-extension")]
@@ -247,9 +248,9 @@ mod python {
 pub use python::azul;
 ```
 
-Build with `cargo build --release -p azul-dll --features python-extension`; on macOS `dll/build.rs:30-34` adds `-Wl,-undefined,dynamic_lookup` so the symbol references into the Python interpreter resolve at load time.
+Build with `cargo build --release -p azul-dll --features python-extension`; on macOS `dll/build.rs:11-13` adds `-Wl,-undefined,dynamic_lookup` so the symbol references into the Python interpreter resolve at load time.
 
-The Python codegen lives in `doc/src/codegen/v2/lang_python.rs` and uses its own `PythonConfig::python_extension()` because PyO3 needs different attributes and trait routing — see the design note in `doc/src/codegen/v2/mod.rs:48-58`.
+The Python codegen lives in [`doc/src/codegen/v2/lang_python.rs`](../../../../doc/src/codegen/v2/lang_python.rs) and uses its own `PythonConfig::python_extension()` because PyO3 needs different attributes and trait routing — see the design note in `doc/src/codegen/v2/mod.rs:49-60`.
 
 ## Memtest
 

@@ -7,12 +7,13 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
+short_desc: The virtual view layer — what it caches, how it survives across layouts, and how it talks to the windowing back-end.
 prerequisites: []
 tracked_files:
   - core/src/callbacks.rs
   - layout/src/managers/virtual_view.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:31:55Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T05:54:52Z
 ---
 
 # VirtualView Lazy Loading
@@ -57,7 +58,7 @@ pub struct VirtualViewCallbackInfo {
 
 [`core/src/callbacks.rs:206`](../../../../core/src/callbacks.rs). The two raw pointers (`system_fonts`, `image_cache`) are accessed through internal helper methods that re-borrow them with the callback-info lifetime; the unsafe deref is centralised so user code does not see it.
 
-`bounds.get_physical_size()` ([`core/src/callbacks.rs:705`](../../../../core/src/callbacks.rs)) gives the size in physical pixels accounting for DPI. `get_image(image_id)` and `get_system_fonts()` are convenience accessors that walk `image_cache` and `system_fonts` respectively.
+`bounds.get_physical_size()` ([`core/src/callbacks.rs:475`](../../../../core/src/callbacks.rs)) gives the size in physical pixels accounting for DPI. `get_image(image_id)` and `get_system_fonts()` are convenience accessors that walk `image_cache` and `system_fonts` respectively.
 
 `set_callable_ptr(&OptionRefAny)` and `get_ctx()` are the FFI hooks for binding the foreign callable through the info struct (parallel to the `LayoutCallbackInfo` mechanism). Native Rust code does not call them; the trampoline in foreign bindings does.
 
@@ -73,7 +74,7 @@ pub enum VirtualViewCallbackReason {
 }
 ```
 
-[`core/src/callbacks.rs:181`](../../../../core/src/callbacks.rs). Today `VirtualViewManager::check_reinvoke` produces `InitialRender`, `BoundsExpanded`, and `EdgeScrolled(Bottom|Right)`. `DomRecreated` is set when the parent DOM rebuilds and the runtime has to re-prime the manager via `reset_all_invocation_flags`. `ScrollBeyondContent` is reserved for the future case of programmatic scroll past `virtual_scroll_size`; the predicate is not implemented yet.
+[`core/src/callbacks.rs:181`](../../../../core/src/callbacks.rs). Today `VirtualViewManager::check_reinvoke` produces `InitialRender`, `BoundsExpanded`, and `EdgeScrolled(Bottom|Right)`. `DomRecreated` is set when the parent DOM rebuilds and the runtime has to re-prime the manager via `reset_all_invocation_flags`; the resulting `check_reinvoke` call returns `InitialRender` rather than `DomRecreated`, since the per-state flag was cleared. `ScrollBeyondContent` is reserved for the future case of programmatic scroll past `virtual_scroll_size`; the predicate is not implemented yet.
 
 The reason lets the callback short-circuit: an `InitialRender` may build a different fallback DOM than an `EdgeScrolled(Bottom)` extension fetch, and a `DomRecreated` callback usually re-emits the existing slice without re-querying the data source.
 
@@ -96,7 +97,7 @@ impl VirtualViewReturn {
 }
 ```
 
-[`core/src/callbacks.rs:307`](../../../../core/src/callbacks.rs). The two size pairs encode the virtualisation contract:
+[`core/src/callbacks.rs:280`](../../../../core/src/callbacks.rs). The two size pairs encode the virtualisation contract:
 
 - `scroll_size` / `scroll_offset` — the size and position of the actually-rendered DOM slice. For a table showing rows 10–30 at 30 px per row, `scroll_size = (full_width, 600)` and `scroll_offset = (0, 300)`.
 - `virtual_scroll_size` / `virtual_scroll_offset` — the size the scrollbar represents. For a 1000-row table that is `(full_width, 30000)` regardless of which slice is rendered. `virtual_scroll_offset` is normally `(0, 0)` unless the virtual space starts at a non-zero origin.
@@ -115,11 +116,11 @@ pub struct VirtualViewManager {
 
 [`layout/src/managers/virtual_view.rs:28`](../../../../layout/src/managers/virtual_view.rs). One state per `(parent DomId, NodeId of the virtualised element)`. The manager owns:
 
-- `get_or_create_nested_dom_id(parent_dom, node_id) -> DomId` — allocates the child DOM identifier the callback's returned `Dom` will live under.
-- `get_or_create_pipeline_id(parent_dom, node_id) -> PipelineId` — assigns the WebRender pipeline so the nested DOM has its own scroll frame.
+- `get_or_create_nested_dom_id(parent_dom, node_id) -> DomId` ([`virtual_view.rs:100`](../../../../layout/src/managers/virtual_view.rs)) — allocates the child DOM identifier the callback's returned `Dom` will live under.
+- `get_or_create_pipeline_id(parent_dom, node_id) -> PipelineId` ([`virtual_view.rs:126`](../../../../layout/src/managers/virtual_view.rs)) — assigns the WebRender pipeline so the nested DOM has its own scroll frame. Encoded as `PipelineId(dom_id.inner as u32, node_id.index() as u32)` — deterministic, not counter-allocated, so the same VirtualView gets the same pipeline across rebuilds.
 - `get_scroll_size`, `get_virtual_scroll_size`, `was_virtual_view_invoked` — accessors used during display-list generation and hit-testing.
-- `update_virtual_view_info(parent_dom, node_id, scroll_size, virtual_scroll_size)` — called after the callback returns to record the reported sizes; if the new `scroll_size` exceeds the old one, the `invoked_for_current_expansion` latch is reset so the next layout pass can request more.
-- `mark_invoked(parent_dom, node_id, reason)` — flips the per-reason latches (`virtual_view_was_invoked`, `invoked_for_current_expansion`, `invoked_for_current_edge`, `last_edge_triggered`).
+- `update_virtual_view_info(parent_dom, node_id, scroll_size, virtual_scroll_size)` ([`virtual_view.rs:160`](../../../../layout/src/managers/virtual_view.rs)) — called after the callback returns to record the reported sizes; if the new `scroll_size` exceeds the old one, the `invoked_for_current_expansion` latch is reset so the next layout pass can request more.
+- `mark_invoked(parent_dom, node_id, reason)` ([`virtual_view.rs:185`](../../../../layout/src/managers/virtual_view.rs)) — flips the per-reason latches (`virtual_view_was_invoked`, `invoked_for_current_expansion`, `invoked_for_current_edge`, `last_edge_triggered`).
 
 The `next_dom_id` counter starts at 1 because `DomId { inner: 0 }` is reserved for the root window DOM.
 
@@ -169,12 +170,16 @@ Top and left edge variants are computed (`current_edges.top`, `current_edges.lef
 │        b. Invoke callback → VirtualViewReturn { dom, sizes... }       │
 │        c. update_virtual_view_info(scroll_size, virtual_scroll_size)  │
 │        d. mark_invoked(reason)                                        │
-│        e. If dom is Some, replace nested DOM under nested_dom_id      │
+│        e. If dom is Some, replace VirtualViewPlaceholder with         │
+│           VirtualView { child_dom_id, bounds, clip_rect } in the      │
+│           parent's display list (window.rs:1262)                      │
 │                                                                       │
 │   3. ScrollManager records virtual_scroll_size / virtual_scroll_offset│
 │      so scrollbar geometry reflects the virtual content rectangle.    │
 └──────────────────────────────────────────────────────────────────────┘
 ```
+
+The placeholder/replacement mechanism is documented in [IFrame Scroll and Display Lists](iframe-scroll.md).
 
 ## Latch reset rules
 
@@ -187,15 +192,13 @@ The latches in `VirtualViewState` ([`virtual_view.rs:42`](../../../../layout/src
 | `invoked_for_current_edge` | `force_reinvoke()` or `reset_all_invocation_flags()` |
 | `last_edge_triggered.{top,bottom,left,right}` | `force_reinvoke()` or `reset_all_invocation_flags()` |
 
-`reset_all_invocation_flags` ([`virtual_view.rs:213`](../../../../layout/src/managers/virtual_view.rs)) is called from `layout_and_generate_display_list` after the layout cache is cleared — the child DOMs no longer exist in `layout_results`, so the callback must run again from scratch. `force_reinvoke(dom_id, node_id)` is the per-VirtualView equivalent used by `trigger_virtual_view_rerender`.
+`reset_all_invocation_flags` ([`virtual_view.rs:213`](../../../../layout/src/managers/virtual_view.rs)) is called from `layout_and_generate_display_list` after the layout cache is cleared — the child DOMs no longer exist in `layout_results`, so the callback must run again from scratch. `force_reinvoke(dom_id, node_id)` ([`virtual_view.rs:226`](../../../../layout/src/managers/virtual_view.rs)) is the per-VirtualView equivalent used by `trigger_virtual_view_rerender`.
 
 `last_edge_triggered` is *not* cleared when the user scrolls away from an edge. That is currently a deliberate choice — once you have requested more content for the bottom, you do not want to re-request it every time the user scrolls back to the bottom. The trade-off is that callers must use `force_reinvoke` to allow the same edge to fire again.
 
 ## Coordination with `ScrollManager`
 
-The nested DOM has its own scroll frame in `ScrollManager` ([`layout/src/managers/scroll_state.rs:297`](../../../../layout/src/managers/scroll_state.rs)). When a callback returns `virtual_scroll_size` larger than `scroll_size`, the scroll manager's `AnimatedScrollState.virtual_scroll_size` is set to that value — clamping logic for the nested DOM then uses it instead of `content_rect.size`, so the scrollbar can scroll past the actually-rendered content into the virtual area. When the user scrolls past `scroll_offset + scroll_size`, the next `check_reinvoke` call reads the new `scroll_offset` and detects the edge condition.
-
-`PipelineId` ([`core/src/hit_test.rs:163`](../../../../core/src/hit_test.rs)) is allocated as `PipelineId(dom_id.inner as u32, node_id.index() as u32)` — a deterministic mapping rather than a counter, so the same VirtualView gets the same pipeline across rebuilds (assuming `(DomId, NodeId)` is stable).
+The nested DOM has its own scroll frame in `ScrollManager` ([`layout/src/managers/scroll_state.rs:297`](../../../../layout/src/managers/scroll_state.rs)). When a callback returns `virtual_scroll_size` larger than `scroll_size`, the scroll manager's `AnimatedScrollState.virtual_scroll_size` is set to that value via `set_virtual_scroll_size` — clamping logic for the nested DOM then uses it instead of `content_rect.size`, so the scrollbar can scroll past the actually-rendered content into the virtual area. When the user scrolls past `scroll_offset + scroll_size`, the next `check_reinvoke` call reads the new `scroll_offset` and detects the edge condition.
 
 ## Hit-testing nested DOMs
 
@@ -241,5 +244,6 @@ The threshold is hardcoded; per-VirtualView configuration would require a field 
 | Manager (`VirtualViewManager`, `VirtualViewState`, `EdgeFlags`, `VirtualViewDebugInfo`, `EDGE_THRESHOLD`) | [`layout/src/managers/virtual_view.rs`](../../../../layout/src/managers/virtual_view.rs) |
 | Scroll-state coordination (`AnimatedScrollState.virtual_scroll_size`, `ScrollManager`) | [`layout/src/managers/scroll_state.rs`](../../../../layout/src/managers/scroll_state.rs) |
 | Hit-test result `is_virtual_view_hit` | [`core/src/hit_test.rs`](../../../../core/src/hit_test.rs) |
+| Display-list placeholder + replacement | [`layout/src/solver3/display_list.rs`](../../../../layout/src/solver3/display_list.rs), [`layout/src/window.rs`](../../../../layout/src/window.rs) |
 
-For how the nested DOM enters the event pipeline, see [Event System Internals](event-system.md). For how the hit-test result distinguishes virtual-view children from regular nodes, see [Hit Testing and Scrolling](hit-testing.md).
+For how the placeholder is replaced and how the nested DOM is composited into the parent's pipeline, see [IFrame Scroll and Display Lists](iframe-scroll.md). For how the nested DOM enters the event pipeline, see [Event System Internals](event-system.md). For how the hit-test result distinguishes virtual-view children from regular nodes, see [Hit Testing and Scrolling](hit-testing.md).

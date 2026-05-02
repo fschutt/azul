@@ -7,6 +7,7 @@ audience: external
 maturity: wip
 guide_order: 320
 topic_only: false
+short_desc: C ABI surface, header layout, memory ownership rules, and how to integrate with an existing C project.
 prerequisites: [hello-world, code-generation]
 tracked_files:
   - api.json
@@ -15,8 +16,8 @@ tracked_files:
   - doc/src/dllgen/deploy.rs
   - doc/src/dllgen/license.rs
   - doc/src/dllgen/mod.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:40:52Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T05:50:43Z
 ---
 
 # C Bindings

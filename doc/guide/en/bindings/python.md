@@ -7,6 +7,7 @@ audience: external
 maturity: wip
 guide_order: 340
 topic_only: false
+short_desc: Installing the Python wheel, the `azul.*` module layout, and how Rust callbacks bridge to Python functions.
 prerequisites: [hello-world, code-generation]
 tracked_files:
   - api.json
@@ -15,8 +16,8 @@ tracked_files:
   - doc/src/dllgen/deploy.rs
   - doc/src/dllgen/license.rs
   - doc/src/dllgen/mod.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:40:52Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T05:50:43Z
 ---
 
 # Python Bindings
@@ -37,7 +38,7 @@ Download the matching artifact from `azul.rs/release/<version>/` and rename it t
 
 Place the file in your project directory, then:
 
-```python,ignore
+```python
 from azul import *
 ```
 
@@ -104,7 +105,7 @@ with a minimal `pyproject.toml` that pulls `azul.so` in via `package_data`. PyPI
 
 The Python build enables PyO3's `pyo3-log` integration. Rust `log!` macros inside azul are forwarded to Python's standard `logging` module:
 
-```python,ignore
+```python
 import logging
 logging.basicConfig(level=logging.DEBUG)
 import azul
@@ -123,7 +124,7 @@ For typical interactive apps the GIL is uncontested — layout and one click cal
 
 The Python hello-world is at [Hello, World — Python](../hello-world/python.md), referenced from `api.json`'s `examples[].code.python` field as `python/hello-world.py`. The full source:
 
-```python,ignore
+```python
 from azul import *
 
 class DataModel:

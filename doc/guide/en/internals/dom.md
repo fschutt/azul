@@ -7,12 +7,13 @@ audience: contributor
 maturity: mature
 guide_order: null
 topic_only: false
+short_desc: How the public `Dom` type is built and stored — `NodeData`, the tree representation, and the cleanup path.
 prerequisites: []
 tracked_files:
   - core/src/dom.rs
   - core/src/diff.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:43:38Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T00:00:00Z
 ---
 
 The DOM is a `#[repr(C)]` tree of `NodeData` plus per-subtree `Css` stylesheets. Two representations exist: the recursive [`Dom`](https://github.com/maps4print/azul/blob/master/core/src/dom.rs) used by the public builder API, and [`FastDom`](https://github.com/maps4print/azul/blob/master/core/src/dom.rs) — a flat parent/sibling arena built directly by the XML parser. Both feed `StyledDom`, which is what the layout solver sees.

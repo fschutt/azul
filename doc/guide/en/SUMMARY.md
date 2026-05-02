@@ -16,22 +16,26 @@
 - [Styling with CSS](styling.md)
 - [CSS Properties Cheatsheet](styling/properties.md)
 - [System Themes (WIP)](styling/themes.md)
+- [Text and Fonts (WIP)](styling/text-and-fonts.md)
+- [Icon Packs (WIP)](styling/icon-packs.md)
 - [Layout](layout.md)
+- [Blocks, Sizing, and Positioning](layout/blocks.md)
+- [Inline, Inline-Block, and Text Flow](layout/inline.md)
 - [Flexbox](layout/flex.md)
 - [Grid](layout/grid.md)
-- [Positioning and Overflow](layout/positioning.md)
-- [Text and Fonts (WIP)](text-and-fonts.md)
 - [Images and Drawing (WIP)](images.md)
 - [SVG (WIP)](images/svg.md)
 - [Canvas and GL Textures (WIP)](images/canvas-gl.md)
-- [Built-in Widgets (WIP)](widgets.md)
-- [Input Widgets (WIP)](widgets/inputs.md)
-- [Structural Widgets (WIP)](widgets/structural.md)
 - [Events and Input](events.md)
+- [Text Input and Contenteditable (WIP)](text-input.md)
+- [Text Selection (WIP)](text-selection.md)
 - [Timers (WIP)](timers.md)
 - [Animations (not yet functional)](animations.md)
 - [Scrolling and Drag-and-Drop (WIP)](scrolling-and-drag.md)
 - [Windows, Menus, Decorations](windowing.md)
+- [Built-in Widgets (WIP)](widgets.md)
+- [Input Widgets (WIP)](widgets/inputs.md)
+- [Structural Widgets (WIP)](widgets/structural.md)
 - [Debugging (WIP)](debugging.md)
 - [Memory and Profiling (WIP)](memory-profiling.md)
 - [End-to-End Testing (WIP)](e2e-testing.md)
@@ -77,6 +81,10 @@
 
 - [Compact Property Cache](internals/compact-cache.md)
 
+## component
+
+- [Component Type System (WIP)](internals/component-types.md)
+
 ## css
 
 - [CSS Parser](internals/css-parser.md)
@@ -100,6 +108,10 @@
 ## hit
 
 - [Hit Testing and Scrolling (WIP)](internals/hit-testing.md)
+
+## iframe
+
+- [IFrame Scroll and Display Lists (WIP)](internals/iframe-scroll.md)
 
 ## image
 

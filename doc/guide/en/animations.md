@@ -7,118 +7,154 @@ audience: external
 maturity: stub
 guide_order: 110
 topic_only: false
-prerequisites: [timers]
+short_desc: CSS transitions and the animation system — how `transition` and `@keyframes` interact with the per-frame pipeline.
+prerequisites: [hello-world, events, timers]
 tracked_files:
   - core/src/animation.rs
-  - core/src/callbacks.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:34:08Z
+  - layout/src/timer.rs
+  - core/src/task.rs
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T06:00:00Z
 ---
 
 # Animations
 
-> **Not yet functional.** The animation type definitions exist (`core/src/animation.rs`) but the runtime that ticks animations and drives layout updates is not yet wired up. This page describes the **planned** API. Until the runtime lands, hand-roll animations with [Timers](timers.md) — the gap is small.
+> **Not yet functional.** Azul has no CSS-animation runtime today. `core/src/animation.rs` contains a single 2-variant enum (`UpdateImageType`) and nothing else. CSS `animation:` / `transition:` properties parse but do not interpolate. This page documents the shape the animation runtime is expected to take and the interim pattern that works now: drive interpolation by hand from a [timer](timers.md).
 
-A future `Animation` will be a declarative tween over a CSS property: a target value, a duration, an easing function, and an `UpdateImageType` flag controlling whether the property animates the element's background or main content. The framework will tick it on every frame, interpolate the property, and apply the result to the layout/render pipeline without re-running the user's `layout` callback.
+A frame-driven animation is a function of `t ∈ [0.0, 1.0]` that produces a CSS property value. Until the runtime is wired up, you build it by hand: install a timer, compute `t` from the elapsed time, push the new value into the DOM via `info.modify_window_state` or by mutating your model and returning `Update::RefreshDom`.
+
+```rust,ignore
+# use azul::prelude::*;
+extern "C" fn animate(data: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
+    let mut state = data.downcast_mut::<MyState>().unwrap();
+    let t = info.frame_start.linear_interpolate(state.start, state.end);
+    state.opacity = lerp(0.0, 1.0, t);
+    if t >= 1.0 {
+        TimerCallbackReturn::terminate_and_refresh_dom()
+    } else {
+        TimerCallbackReturn::continue_and_refresh_dom()
+    }
+}
+```
 
 ## What exists today
 
+`core/src/animation.rs` in full:
+
 ```rust,ignore
-// core/src/animation.rs
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(C)]
 pub enum UpdateImageType {
-    Background,  // animation targets the element's background image
-    Content,     // animation targets the element's main content image
+    Background,
+    Content,
 }
 ```
 
-That is the entire current surface. The intent is for `UpdateImageType` to discriminate which image layer of an element a value-animation should drive when the framework hands the result to the GPU compositor.
+That's the entire module. `UpdateImageType` is a sentinel for image-replacement animations — which image layer of an element a frame update should target — but the surrounding plumbing isn't in place. There is no `Animation` struct, no `Easing` enum, no per-frame interpolation pass, and no integration with the CSS cascade. CSS `animation-*` and `transition-*` properties parse via the CSS parser but the layout solver never reads them.
 
-There is no `Animation` struct yet. There is no `AnimationManager`. The CSS `transition:` and `animation:` properties parse but do not actually run.
+The `Instant` type does carry the one piece of math the future runtime will need: `Instant::linear_interpolate(start, end) -> f32` returns a clamped 0..=1 fraction (`core/src/task.rs:191`). A real easing library can build on this.
 
-## What you can do today
+## The interim pattern: animate from a timer
 
-For visual effects that need to update on every frame, register a [Timer](timers.md) at ~16 ms intervals and have it return `Update::RefreshDom`. Read `Instant::now()` (or the timer's `frame_start`) inside your `layout` callback and compute the current value:
+The pattern below is what the animation runtime will eventually replace. It works today and won't disappear when the runtime lands — animations driven by application logic (game state, simulation, custom physics) will always need a timer-based path.
 
-```rust,no_run
-# use azul::prelude::*;
-# struct State { started_at: Instant, animating: bool }
-extern "C" fn tick(_: RefAny, _: TimerCallbackInfo) -> TimerCallbackReturn {
-    TimerCallbackReturn::continue_and_refresh_dom()
+### 1. Pick the property to animate
+
+Anything you can express as a CSS property in your DOM. The cheapest properties to animate are GPU-uploaded ones — opacity and transform — because the layout pass doesn't need to re-run. Width, height, padding, and font-size all force a relayout per frame.
+
+### 2. Stash the animation start time and the target
+
+Put the animation parameters in your model so the timer callback can read them:
+
+```rust,ignore
+struct State {
+    /// When the current animation started; None when idle
+    anim_start: Option<Instant>,
+    anim_duration: Duration,
+    anim_from_opacity: f32,
+    anim_to_opacity: f32,
+    /// The current interpolated value the layout callback reads
+    current_opacity: f32,
 }
+```
 
-extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
-    let state = match data.downcast_ref::<State>() {
+### 3. Install a timer when the animation should kick off
+
+```rust,ignore
+extern "C" fn on_click(data: RefAny, mut info: CallbackInfo) -> Update {
+    {
+        let mut state = data.downcast_mut::<State>().unwrap();
+        state.anim_start = Some(info.get_current_time());
+        state.anim_from_opacity = state.current_opacity;
+        state.anim_to_opacity = 1.0;
+    }
+    let timer = Timer::create(data.clone(), animate, info.get_system_time_fn())
+        .with_interval(Duration::System(SystemTimeDiff::from_millis(16)));
+    info.add_timer(TimerId::unique(), timer);
+    Update::DoNothing
+}
+```
+
+### 4. The timer interpolates and terminates itself
+
+```rust,ignore
+extern "C" fn animate(data: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
+    let mut state = data.downcast_mut::<State>().unwrap();
+    let start = match state.anim_start {
         Some(s) => s,
-        None => return Dom::create_body(),
+        None => return TimerCallbackReturn::terminate_unchanged(),
     };
-
-    let t = if state.animating {
-        let now = Instant::now();
-        let elapsed = now.duration_since(&state.started_at);
-        // 0.0..=1.0
-        elapsed.div(&Duration::System(SystemTimeDiff::from_millis(300))).clamp(0.0, 1.0)
+    let end = start.clone().add_optional_duration(Some(&state.anim_duration));
+    let t = info.frame_start.linear_interpolate(start, end);
+    let eased = ease_out_cubic(t);
+    state.current_opacity =
+        state.anim_from_opacity + (state.anim_to_opacity - state.anim_from_opacity) * eased;
+    if t >= 1.0 {
+        state.anim_start = None;
+        TimerCallbackReturn::terminate_and_refresh_dom()
     } else {
-        1.0
-    };
+        TimerCallbackReturn::continue_and_refresh_dom()
+    }
+}
 
-    let opacity = (t * 100.0) as i32;
-
-    let mut body = Dom::create_body();
-    body.set_inline_style(format!("opacity: {}%", opacity).as_str());
-    body
+fn ease_out_cubic(t: f32) -> f32 {
+    let inv = 1.0 - t;
+    1.0 - inv * inv * inv
 }
 ```
 
-The downside vs. a real animation runtime: each frame re-runs `layout()` and the framework re-styles everything. For most UIs at 60 Hz that is fine — Azul's layout cache is incremental — but transform and opacity changes that should stay GPU-only will go through the full pipeline.
-
-## Easing functions exist for scrolling
-
-The `EasingFunction` enum (`core/src/events.rs:26`) is wired up only for smooth-scroll right now:
+### 5. The layout callback reads the current value
 
 ```rust,ignore
-pub enum EasingFunction {
-    Linear,
-    EaseInOut,
-    EaseOut,
+extern "C" fn layout(data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
+    let state = data.downcast_ref::<State>().unwrap();
+    let style = format!("opacity: {};", state.current_opacity);
+    Dom::div().with_inline_style(style.into()).style(Css::empty())
 }
 ```
 
-When the animation runtime lands it will reuse this enum. For now, if you implement easing manually, copy the curve formula you want — `EaseInOut` is `t < 0.5 ? 2t² : 1 - (−2t + 2)²/2`.
+This pattern is the floor — what the framework will provide once the animation runtime is wired is a more declarative version with the same end behaviour.
 
-## Planned shape
+## Animating images, not the DOM
 
-The eventual API will look approximately like:
+For animations whose only effect is a pixel change — sprite sheet, video frame, GL texture — `info.update_all_image_callbacks()` re-invokes every `ImageCallback` without touching layout. The `UpdateImageType` enum in `core/src/animation.rs` is the planned per-element variant of this trigger: `Background` will repaint the element's background-image layer, `Content` will repaint the foreground content. Neither variant is wired in yet — `update_all_image_callbacks` is the only available trigger today.
 
-```rust,ignore
-// PLANNED — DOES NOT EXIST YET
-let anim = Animation::create(
-    CssPropertyType::Opacity,
-    CssProperty::Opacity(StyleOpacity::const_new(0.0)),  // from
-    CssProperty::Opacity(StyleOpacity::const_new(1.0)),  // to
-    Duration::System(SystemTimeDiff::from_millis(300)),
-    AnimationInterpolationFunction::EaseOut,
-);
+## What the future runtime will provide
 
-info.add_animation(node_id, anim);
-```
+Tracked in the manifest; not yet implemented. Once landed, expect:
 
-The runtime would tick on every frame against the `GpuStateManager` (`layout/src/managers/gpu_state.rs`), interpolate, and push only the changed property into the WebRender display list — no DOM rebuild, no layout pass.
+| Today | Planned |
+|---|---|
+| Hand-written timer, hand-written easing | `Animation::new(prop, from, to, duration, easing)` value type |
+| `f32` time interpolation | `Easing::EaseInOutCubic`, `Bezier(p1, p2)`, etc. |
+| Mutate model, `RefreshDom` | GPU-only path for `opacity` / `transform` — no layout pass |
+| Manual cleanup in callback | Auto-removal when `t == 1.0` |
+| No CSS `transition:` / `animation:` | CSS `transition: opacity 200ms ease-out` triggers an animation when the property changes |
 
-The CSS `transition` and `animation` shorthands would compile down to the same `Animation` struct at parse time, so authors who write CSS animations would get the same runtime for free.
+Until then, the timer pattern above is the supported approach. None of the API choices on this page will be invalidated by the runtime — the timer-driven path will remain available for animations driven by application state rather than by CSS.
 
-When the runtime lands, this page will be regenerated as a `mature` page with copy-pasteable examples.
+## Cross-references
 
-## What's missing
-
-- `Animation` / `AnimationId` / `AnimationManager` types
-- `CallbackInfo::add_animation` / `remove_animation`
-- A frame-driven animation tick separate from the layout tick (so opacity/transform animate without rebuilding the DOM)
-- Animation events (`AnimationStart`, `AnimationEnd`) on the `EventFilter` enum
-- CSS `transition:` and `animation:` runtime support
-
-If you need animations now, use [Timers](timers.md) and `Update::RefreshDom`. The pattern works; it is just less efficient than a dedicated runtime.
-
-## Next
-
-- [Scrolling and Drag-and-Drop](scrolling-and-drag.md) — the one place easing actually runs (smooth scroll).
-- [Timers](timers.md) — what to use until the runtime lands.
+- [`timers`](timers.md) — the timer mechanics this page builds on.
+- `Instant::linear_interpolate` — `core/src/task.rs:191`.
+- The animation runtime issue / planning lives in the autodoc manifest under group `animation` (currently `maturity = stub`).

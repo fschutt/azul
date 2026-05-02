@@ -7,6 +7,7 @@ audience: contributor
 maturity: mature
 guide_order: null
 topic_only: false
+short_desc: The hand-written CSS parser — tokeniser, property dispatch, and the warning channel.
 prerequisites: []
 tracked_files:
   - css/src/parser2.rs
@@ -54,8 +55,8 @@ tracked_files:
   - css/src/props/style/selection.rs
   - css/src/props/style/text.rs
   - css/src/props/style/transform.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:43:38Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T00:00:00Z
 ---
 
 The CSS parser turns a `&str` stylesheet into a `Css` value (`css/src/css.rs`) — a `Vec<Stylesheet>` of typed [`CssRuleBlock`](https://github.com/maps4print/azul/blob/master/css/src/css.rs) entries, each pairing a [`CssPath`](https://github.com/maps4print/azul/blob/master/css/src/css.rs) selector with a `Vec<CssDeclaration>`. The entry point is `new_from_str` (`css/src/parser2.rs:658`); it never panics.

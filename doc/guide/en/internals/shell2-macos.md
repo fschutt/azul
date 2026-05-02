@@ -7,6 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
+short_desc: macOS shell — Cocoa NSWindow integration, AppKit event loop, IME, and accessibility hooks.
 prerequisites: [shell2-common]
 tracked_files:
   - dll/src/desktop/shell2/macos/accessibility.rs
@@ -20,8 +21,8 @@ tracked_files:
   - dll/src/desktop/shell2/macos/registry.rs
   - dll/src/desktop/shell2/macos/system_style.rs
   - dll/src/desktop/shell2/macos/tooltip.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:32:00Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T00:00:00Z
 ---
 
 > **WIP** — main lifecycle and rendering are stable; the iOS branch
@@ -62,7 +63,7 @@ display ID enumeration, and the optional `MacOSAccessibilityAdapter`.
    API, but still the only way to handle this on older macOS).
 6. Create `NSWindow` with the requested `NSWindowStyleMask`.
 7. Create the `GLView` (defined inline via `objc2::define_class!` at
-   `mod.rs:142`) — a custom `NSOpenGLView` subclass that owns the
+   `mod.rs:151`) — a custom `NSOpenGLView` subclass that owns the
    GL context, tracking area, IME state, and a back-pointer to
    `MacOSWindow`.
 8. `setup_gl_view_back_pointer()` and `finalize_delegate_pointer()`
@@ -76,7 +77,7 @@ The window is registered in `macos::registry` (thread-local
 
 ## Run loop — two strategies
 
-`run.rs:236` (`pub fn run` for macOS) chooses one of two event-loop
+`run.rs:237` (`pub fn run` for macOS) chooses one of two event-loop
 strategies based on `AppTerminationBehavior`:
 
 ### `RunForever` — `NSApplication.run()`
@@ -133,7 +134,7 @@ to process any new `NSEvent`s.
 
 ## GLView — receiving events
 
-`GLView` (`mod.rs:142`, defined via `objc2::define_class!`) overrides
+`GLView` (`mod.rs:151`, defined via `objc2::define_class!`) overrides
 the relevant `NSResponder` methods:
 
 - `mouseDown:`, `mouseUp:`, `mouseDragged:`, `mouseMoved:`,
@@ -244,7 +245,7 @@ layout layer.
 
 ## Menus — `NSMenu`
 
-`menu.rs:38` (`AzulMenuTarget`, defined via `define_class!`) is an
+`menu.rs:33` (`AzulMenuTarget`, defined via `define_class!`) is an
 NSObject that receives menu actions. Its `menuItemAction:` selector
 fires when any menu item with this target is clicked; the item's
 `tag` (which encodes a `command_id`) is pushed to the global
@@ -264,7 +265,7 @@ window menu; it survives the closure of all windows.
 
 ## Tooltips — `NSPanel`
 
-`tooltip.rs:39` wraps an `NSPanel` (a borderless utility window) with
+`tooltip.rs:40` wraps an `NSPanel` (a borderless utility window) with
 an `NSTextField` for the body. Width is computed by character count
 heuristics (`POINTS_PER_CHAR = 7.0`, capped at
 `TOOLTIP_MAX_WIDTH = 400`). Position uses
@@ -280,7 +281,7 @@ arbitrary styled DOM.
 
 ## Keep-screen-awake — `IOPMAssertion`
 
-`mod.rs:111` declares the IOKit FFI for `IOPMAssertionCreateWithName`
+`mod.rs:109` declares the IOKit FFI for `IOPMAssertionCreateWithName`
 + `IOPMAssertionRelease`. When `WindowFlags::keep_screen_awake`
 flips on, the window calls `IOPMAssertionCreateWithName(
 "PreventUserIdleDisplaySleep", kIOPMAssertionLevelOn, "Azul")` and

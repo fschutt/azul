@@ -7,6 +7,7 @@ audience: contributor
 maturity: mature
 guide_order: null
 topic_only: false
+short_desc: Top-level crate map and the boundary between core / layout / shell / dll.
 prerequisites: []
 tracked_files:
   - core/src/lib.rs
@@ -14,8 +15,8 @@ tracked_files:
   - layout/src/lib.rs
   - dll/src/lib.rs
   - scripts/ARCHITECTURE.md
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T17:30:00Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T12:00:00Z
 ---
 
 # Code Organization
@@ -61,7 +62,7 @@ The crate sets `#![cfg_attr(not(feature = "std"), no_std)]` and depends on `allo
 
 Platform-independent definitions for the GUI loop: DOM construction, the CSSOM, callbacks, hit-testing, resources, OpenGL, and SVG. Foundational; depends only on `azul-css`.
 
-The crate is large but well-partitioned (modules declared in `core/src/lib.rs:49-117`):
+The crate is large but well-partitioned (modules declared in `core/src/lib.rs:47-134`):
 
 | module | what it owns |
 |---|---|
@@ -94,13 +95,13 @@ The runtime layer. Owns the layout solver, text shaping, font management, hit-te
 
 Five sub-systems do most of the work:
 
-- **[`solver3`](../../../../layout/src/solver3/)** — block, inline, flex, grid, and table formatting contexts. Block/inline are azul's; flex/grid delegate to [Taffy](../../../../layout/src/solver3/taffy_bridge.rs). Entry point: [`layout_document`](../../../../layout/src/solver3/mod.rs) at `layout/src/solver3/mod.rs:402`.
+- **[`solver3`](../../../../layout/src/solver3/)** — block, inline, flex, grid, and table formatting contexts. Block/inline are azul's; flex/grid delegate to [Taffy](../../../../layout/src/solver3/taffy_bridge.rs). Entry point: `layout_document` in [`layout/src/solver3/mod.rs`](../../../../layout/src/solver3/mod.rs).
 - **[`text3`](../../../../layout/src/text3/)** — third-generation text engine. Bidi via `unicode-bidi`, shaping via [allsorts](../../../../layout/src/font.rs), Knuth–Plass line breaking, hyphenation. Caches in `text3::cache::TextShapingCache` (re-exported as `TextLayoutCache` for back-compat).
-- **[`managers/`](../../../../layout/src/managers/)** — stateful per-window components: `ScrollManager`, `FocusManager`, `SelectionManager`, `CursorManager`, `IFrameManager`, `GpuStateManager`, `GestureManager`. Each is a struct on `LayoutWindow`; see `scripts/ARCHITECTURE.md` §3 for the full table.
-- **[`window`](../../../../layout/src/window.rs)** — `LayoutWindow` is the per-window aggregate; `layout_and_generate_display_list()` at `layout/src/window.rs:790` is the relayout entry point called by every platform shell each frame.
+- **[`managers/`](../../../../layout/src/managers/)** — stateful per-window components: `ScrollManager`, `FocusManager`, `SelectionManager`, `CursorManager`, `IFrameManager`, `GpuStateManager`, `GestureManager`. Each is a struct on `LayoutWindow`; see [`scripts/ARCHITECTURE.md`](../../../../scripts/ARCHITECTURE.md) §3 for the full table.
+- **[`window`](../../../../layout/src/window.rs)** — `LayoutWindow` is the per-window aggregate; `layout_and_generate_display_list()` is the relayout entry point called by every platform shell each frame.
 - **[`widgets/`](../../../../layout/src/widgets/)** — built-in widgets: button, text input, tabs, tree view, node graph. Optional via the `widgets` feature.
 
-Smaller modules in `layout/src/lib.rs:46-236`:
+Smaller modules in `layout/src/lib.rs:46-235`:
 
 | module | feature gate | purpose |
 |---|---|---|
@@ -158,7 +159,7 @@ dll/src/
 
 The `desktop/` tree is only compiled when `cabi_internal` is on (i.e. `build-dll` or `link-static`). For `link-dynamic`, only the `extern "C"` declarations in `dll_api_external.rs` are pulled in.
 
-`dll/src/lib.rs:58-110` enables one of three mutually exclusive global allocators (mimalloc, jemalloc, system) and exposes `az_purge_allocator()` so live apps can hint memory release after large transient allocations.
+`dll/src/lib.rs:46-101` enables one of three mutually exclusive global allocators (mimalloc, jemalloc, system) and exposes `az_purge_allocator()` so live apps can hint memory release after large transient allocations.
 
 `dll/Cargo.toml` is the source of truth for which features compose which build modes — see [`build-and-codegen`](build-and-codegen.md) for the matrix.
 

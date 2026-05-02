@@ -1,18 +1,19 @@
 ---
-slug: text-and-fonts
+slug: styling/text-and-fonts
 title: Text and Fonts
 language: en
-canonical_slug: text-and-fonts
+canonical_slug: styling/text-and-fonts
 audience: external
 maturity: wip
-guide_order: 60
+guide_order: 43
 topic_only: false
-prerequisites: [layout]
+short_desc: Text styling — font-family, size, weight, style, alignment, line metrics, decoration, and the system font keywords.
+prerequisites: [styling]
 tracked_files:
   - css/src/props/basic/font.rs
   - css/src/props/layout/text.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T00:00:00Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T05:49:28Z
 ---
 
 > **WIP.** Font fallback and the text shaper are stable; some advanced
@@ -205,7 +206,8 @@ StyleUnicodeBidi      // bidi-override embedding for the inline element
 ```
 
 For vertical scripts, set `writing-mode` on the block container — see
-[Layout](layout.md#writing-modes) for the values.
+[Inline and Text Flow](../layout/inline.md#direction-and-writing-modes) for
+the values.
 
 ## Text decoration and selection
 

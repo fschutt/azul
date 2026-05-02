@@ -7,234 +7,305 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
-prerequisites: [code-organization, dom, css-properties]
+short_desc: Decoding, caching, and uploading raster images — the `ImageRef` lifetime, formats, and the GPU-upload path.
+prerequisites: [layout-solver, dom-internals]
 tracked_files:
+  - layout/src/lib.rs
+  - layout/src/window.rs
+  - layout/src/image.rs
   - dll/src/desktop/gl_texture_cache.rs
   - dll/src/desktop/shader_cache.rs
-  - dll/src/desktop/wr_translate2.rs
-  - dll/src/desktop/gl_texture_integration.rs
-  - core/src/resources.rs
-last_generated_rev: 2acdeae71299faed9a65b0dddeea8d53c350e9ac
-generated_at: 2026-05-01T20:32:10Z
+last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+generated_at: 2026-05-02T05:55:41Z
 ---
 
 # Image Pipeline
 
-> **WIP** — three caches feed images into WebRender (`ImageCache`, `RendererResources`, `gl_texture_cache::TEXTURE_CACHE`). The story is currently spread across `core/src/resources.rs` and `dll/src/desktop/`; the duplicated `GlTextureCache` name is a known wart.
+> **WIP** — image and texture handling is split across multiple caches with overlapping names. The "image pipeline" here covers raster image decoding, the WebRender-facing texture caches, and shader-binary disk caching.
 
-The image pipeline turns CSS `background-image: url(…)` declarations and `NodeType::Image` nodes into GPU-resident textures referenced by WebRender. It also caches compiled shader binaries on disk so the WebRender renderer skips its 10–50 ms compile/link step on every launch.
+There are four caches, two layers, and one disk format. This page maps them so a contributor can find the right one to extend.
 
-```
-url("…") in CSS  ┐
-                 ├─►  ImageCache (user-managed AzString → ImageRef)
-NodeType::Image  ┘                 │
-                                   ▼
-                            ImageRefHash (content hash)
-                                   │
-                                   ▼
-                       RendererResources::currently_registered_images
-                                   │  ⟵ azul-allocated ImageKey
-                                   ▼
-                              WebRender RenderApi
-                                   │
-                       ┌───────────┴────────────┐
-                       ▼                        ▼
-              CPU-decoded pixels         External GL texture
-              (PNG, JPEG, …)             (gl_texture_cache::TEXTURE_CACHE)
-                                                │
-                                                ▼  ⟵ ExternalImageId
-                                         GpuRender callback
-```
+## File map
 
-Shader caching is parallel infrastructure: WebRender programs are compiled lazily on first use; the binaries are saved to disk via `ShaderDiskCache` so the next launch loads them with `glProgramBinary()` instead of recompiling.
+| File | Purpose |
+|---|---|
+| `layout/src/image.rs` | Raster image decode (`decode_raw_image_from_any_bytes`) and encode (PNG, JPEG, BMP, TGA, TIFF, GIF, PNM) — wraps the `image` crate |
+| `core/src/resources.rs` | `ImageRef`, `ImageRefHash`, `RawImage`, `RawImageFormat`, `ImageDescriptor`, `ImageCache`, `RendererResources`, `GlTextureCache` (the *layout-side* one), `ExternalImageId` |
+| `dll/src/desktop/gl_texture_cache.rs` | Runtime OpenGL texture store keyed by `ExternalImageId`. Used by `wr_translate2.rs` and the GL callback path |
+| `dll/src/desktop/gl_texture_integration.rs` | WebRender external-image handler that satisfies WR's image lookups from the texture store |
+| `dll/src/desktop/shader_cache.rs` | `ShaderDiskCache` — WebRender `ProgramCacheObserver` that persists shader binaries between runs |
+| `layout/src/window.rs` | `LayoutWindow.image_cache`, `gl_texture_cache: GlTextureCache`, `epoch: Epoch` for resource lifetime |
 
-## Three caches, three roles
+## The four caches
 
-| cache | location | role | lifetime |
-|---|---|---|---|
-| `ImageCache` | [`core/src/resources.rs:1115`](../../../../core/src/resources.rs) | maps user CSS `url(...)` strings to `ImageRef` | user-managed |
-| `RendererResources::currently_registered_images` | [`core/src/resources.rs:1227`](../../../../core/src/resources.rs) | maps `ImageRefHash` → `(ImageKey, ImageDescriptor)` | per-window, auto-managed |
-| `TEXTURE_CACHE` (thread-local) | [`dll/src/desktop/gl_texture_cache.rs`](../../../../dll/src/desktop/gl_texture_cache.rs) | stores live GL `Texture` handles for external image refs | per-window, GL-thread-local |
+Naming is overlapping; the table disambiguates:
 
-The user only ever touches `ImageCache`. The other two are bookkeeping driven by layout + frame lifecycle.
+| Name | Type | Where | Holds | Lifetime |
+|---|---|---|---|---|
+| **`ImageCache`** | `core/src/resources.rs:1115` | `LayoutWindow.image_cache` | CSS `background-image: url(...)` URL → `ImageRef` decoded raster, plus image-mask resolution table | Window |
+| **`GlTextureCache` (layout side)** | `core/src/resources.rs:1403` | `LayoutWindow.gl_texture_cache` | Per-DOM-node texture metadata: `(DomId, NodeId) → (ImageKey, ImageDescriptor, ExternalImageId)`. *Solved* by layout, *consumed* by WebRender translation | Window |
+| **`gl_texture_cache` (runtime store)** | `dll/src/desktop/gl_texture_cache.rs` | thread-local `TEXTURE_CACHE` | Actual `Texture` objects keyed by `ExternalImageId`, with `Epoch` for cleanup | Thread-local (the GL thread) |
+| **`ShaderDiskCache`** | `dll/src/desktop/shader_cache.rs` | per-process | WebRender shader binaries (`ProgramBinary`) on disk by source digest | Persistent (cache directory) |
 
-## ImageCache
+The naming clash between layout's `GlTextureCache` (solved metadata) and the runtime `gl_texture_cache` module (actual textures) is flagged in `doc/target/autoreview/reports/dll__src__desktop__gl_texture_cache.md`. They serve distinct roles: layout writes the *solved* table, the runtime store holds the *physical* textures referenced by WebRender display lists.
 
-User-facing entry point. Holds `OrderedMap<AzString, ImageRef>`:
+## Stable `ExternalImageId`
+
+`core/src/resources.rs:2314`:
 
 ```rust,ignore
-pub struct ImageCache {
-    pub image_id_map: OrderedMap<AzString, ImageRef>,
-}
-
-impl ImageCache {
-    pub fn add_css_image_id(&mut self, css_id: AzString, image: ImageRef);
-    pub fn get_css_image_id(&self, css_id: &AzString) -> Option<&ImageRef>;
-    pub fn delete_css_image_id(&mut self, css_id: &AzString);
+#[repr(C)]
+pub struct ExternalImageId {
+    pub inner: u64,
 }
 ```
 
-Calling `cache.add_css_image_id("logo".into(), image_ref)` makes `background-image: url("logo")` resolve to that `ImageRef` during layout. The map is the *only* lifecycle-managed cache; everything downstream is reference-counted.
+WebRender caches display lists across frames. When a display list references an `ExternalImageId`, that ID must remain valid across frames and point to the current texture. If IDs were generated fresh each frame, cached display lists would reference stale IDs.
 
-`ImageRef` is a refcounted handle to either CPU pixel data, a callback-driven `RawImage` (for procedural images), or a GL `Texture`. `ImageRefHash` is a SipHash of the content — equality of hashes ⟹ equality of pixels, modulo collision risk.
-
-## RendererResources
-
-The per-window resource registry that owns WebRender keys. Backs the `RendererResourcesTrait` ([`core/src/resources.rs:1159`](../../../../core/src/resources.rs)) used by display-list generation:
+Two id-derivation strategies, both deterministic:
 
 ```rust,ignore
-pub trait RendererResourcesTrait: Debug {
-    fn get_font_family(&self, h: &StyleFontFamiliesHash) -> Option<&StyleFontFamilyHash>;
-    fn get_font_key(&self, h: &StyleFontFamilyHash) -> Option<&FontKey>;
-    fn get_registered_font(&self, k: &FontKey)
-        -> Option<&(FontRef, OrderedMap<(Au, DpiScaleFactor), FontInstanceKey>)>;
-    fn get_image(&self, h: &ImageRefHash) -> Option<&ResolvedImage>;
-    fn update_image(&mut self, h: &ImageRefHash, d: ImageDescriptor);
+// Per (DomId, NodeId), used for canvas/GL callback textures:
+pub(crate) struct TextureSlotKey {
+    pub dom_id: DomId,
+    pub node_id: NodeId,
 }
+
+impl TextureSlotKey {
+    pub fn to_external_image_id(&self) -> ExternalImageId {
+        let dom = self.dom_id.inner as u64;
+        let node = self.node_id.index() as u64;
+        let combined = (dom << 32) | (node & 0xFFFFFFFF);
+        ExternalImageId { inner: combined }
+    }
+}
+
+// Per ImageRef hash, used for raster images:
+ExternalImageId { inner: image_ref_hash.inner as u64 }
 ```
 
-`get_image(hash)` returns `Some(ResolvedImage { key, descriptor })` if the image is already registered with WebRender. New images go through `add_image` (called from frame setup), which decodes pixel data, allocates a WebRender `ImageKey`, and inserts both into `currently_registered_images`.
+The same DOM node (or the same `ImageRef`) thus always produces the same `ExternalImageId`, so WebRender's cached display lists keep working.
 
-GC is automatic: the wrapper `start_frame_gc` / `end_frame_gc` pair around each frame drops keys that no `ImageRef` references anymore. This is what lets users `delete_css_image_id` without manually releasing GPU memory.
+## Texture insertion API
 
-## GL texture cache (external images)
-
-[`dll/src/desktop/gl_texture_cache.rs`](../../../../dll/src/desktop/gl_texture_cache.rs) handles textures that azul allocates and hands to WebRender via the **external image API**. Use cases: GPU canvases drawn by user callbacks, video frames, OpenGL widgets.
-
-The cache is thread-local (the GL context is per-thread) and indexed by `DocumentId → ExternalImageId → TextureEntry`:
+`dll/src/desktop/gl_texture_cache.rs` exposes two insertion functions, both routing through the same internal cache:
 
 ```rust,ignore
-type GlTextureStorage = OrderedMap<ExternalImageId, TextureEntry>;
-
-thread_local! {
-    static TEXTURE_CACHE: RefCell<Option<OrderedMap<DocumentId, GlTextureStorage>>>
-        = RefCell::new(None);
-}
-
-struct TextureEntry {
-    texture: Texture,
-    epoch: Epoch,
-}
-```
-
-`ExternalImageId` is the single key WebRender uses for external images. Callers compute it deterministically from whatever stable identity they have:
-
-- DOM-bound textures (per `(DomId, NodeId)`): use `TextureSlotKey::to_external_image_id`, which packs `dom_id << 32 | node_id` into the 64-bit id space
-- Hash-bound textures (per `ImageRef`): use `ExternalImageId { inner: hash.inner as u64 }`
-
-```rust,ignore
+// (DomId, NodeId) → ExternalImageId via TextureSlotKey
 pub fn insert_texture_for_node(
     document_id: DocumentId,
     dom_id: DomId,
     node_id: NodeId,
     epoch: Epoch,
     texture: Texture,
-) -> ExternalImageId
+) -> ExternalImageId;
+
+// Caller-supplied ExternalImageId (already derived from an ImageRefHash)
+pub fn insert_texture_by_id(
+    document_id: DocumentId,
+    external_image_id: ExternalImageId,
+    epoch: Epoch,
+    texture: Texture,
+);
 ```
 
-The same DOM node always produces the same `ExternalImageId`, so WebRender's cached display lists keep working across frames. If the cache assigned fresh IDs each frame, every cached display list would hold dangling references after the first re-render.
+`insert_texture_for_node` calls `insert_texture_by_id` internally — single keyspace, two convenience entry points.
 
-## Why epochs
+The cache layout is `DocumentId → ExternalImageId → TextureEntry { texture, epoch }`. Per-document because WebRender keeps one document per window.
 
-Textures live for *at least* the current and previous frame:
+## Epoch-based eviction
+
+`Epoch` (defined in `core/src/resources.rs`) is a per-document u32 frame counter incremented each render. `remove_old_epochs(document_id, current_epoch)` walks the cache and drops entries whose epoch is older than `current_epoch - 1`. The "− 1" is for double-buffering: a frame that's actively rendering (or queued for compositor) may still be referencing textures from the previous epoch.
 
 ```rust,ignore
-pub fn remove_old_epochs(document_id: &DocumentId, current_epoch: Epoch) {
-    // … find entries where entry.epoch < (current_epoch − 1) …
-    // … remove them …
+let current = current_epoch.into_u32();
+let min_epoch_to_keep = if current >= 2 {
+    Epoch::from(current - 1)
+} else {
+    Epoch::new()
+};
+```
+
+The shell calls `remove_old_epochs` after each frame. Textures unused for 2+ frames are dropped (and their underlying GL texture freed).
+
+## Thread-local enforcement
+
+The runtime texture store uses `thread_local!`:
+
+```rust,ignore
+thread_local! {
+    static TEXTURE_CACHE: RefCell<Option<OrderedMap<DocumentId, GlTextureStorage>>> =
+        RefCell::new(None);
 }
 ```
 
-WebRender pipelines a frame ahead, so the GL backend may still be reading texture N while the next frame starts. Holding two frames' worth of textures (current + previous) gives the renderer a safety margin without unbounded growth. The retention rule is implemented in `remove_old_epochs`: anything strictly older than `current_epoch − 1` is freed.
+Texture creation requires an OpenGL context, which is single-threaded by API contract. Putting the cache in `thread_local!` enforces this at the type system level — a function that touches `TEXTURE_CACHE` cannot be called from a non-GL thread without panic.
 
-## The naming wart
+## Raster image decode (`layout/src/image.rs`)
 
-There are two `GlTextureCache`s and they serve different purposes:
+Behind `feature = "image_decoding"`. Wraps the [`image`](https://crates.io/crates/image) crate behind FFI-friendly types.
 
-| name | location | role |
-|---|---|---|
-| module `gl_texture_cache` | `dll/src/desktop/gl_texture_cache.rs` | runtime: live `Texture` handles + GL bindings |
-| struct `GlTextureCache` | `core/src/resources.rs:1403` | layout-time: `(ImageKey, ImageDescriptor, ExternalImageId)` triples per `(DomId, NodeId)` |
-
-The core struct is read by display-list generation when emitting `PushImage` items (it tells the layout pass which ImageKey to push without going through the full `RendererResources` lookup). The desktop module is what actually owns the GPU memory.
-
-The duplicate name is documented in the autoreview report as a medium finding ([`doc/target/autoreview/reports/dll__src__desktop__gl_texture_cache.md`](../../../../doc/target/autoreview/reports/dll__src__desktop__gl_texture_cache.md)). A future rename to `gl_texture_store` (runtime) and `GlTextureSolvedCache` (layout) is on the cleanup list. Until then: think of one as *handles* and the other as *bindings*.
-
-## ShaderDiskCache
-
-[`dll/src/desktop/shader_cache.rs`](../../../../dll/src/desktop/shader_cache.rs) implements WebRender's [`ProgramCacheObserver`](../../../../webrender/core/src/device/gl.rs) trait against an on-disk binary cache. After WebRender lazily compiles + links a shader on first use, the binary is extracted via `glGetProgramBinary()` and written to disk. On the next launch, the binary is loaded back via `glProgramBinary()` — usually 100× faster than recompiling.
-
-Cache layout:
-
-```
-Linux:    $XDG_CACHE_HOME/azul/shaders/<renderer_hash>/
-                or  $HOME/.cache/azul/shaders/<renderer_hash>/
-macOS:    $HOME/Library/Caches/azul/shaders/<renderer_hash>/
-Windows:  %LOCALAPPDATA%\azul\shaders\<renderer_hash>\
+```rust,ignore
+pub fn decode_raw_image_from_any_bytes(image_bytes: &[u8]) -> ResultRawImageDecodeImageError;
 ```
 
-Each cached shader is two files:
+Format detection is `image::guess_format`. Supported pixel formats map to `RawImageFormat`:
 
-- `<digest_hex>.bin` — raw program binary bytes
-- `<digest_hex>.meta` — 12 bytes: `format` (u32 LE) + `digest` (u64 LE)
+| `image` variant | `RawImageFormat` |
+|---|---|
+| `ImageLuma8` | `R8` |
+| `ImageLumaA8` | `RG8` |
+| `ImageRgb8` | `RGB8` |
+| `ImageRgba8` | `RGBA8` |
+| `ImageLuma16` | `R16` |
+| `ImageLumaA16` | `RG16` |
+| `ImageRgb16` | `RGB16` |
+| `ImageRgba16` | `RGBA16` |
+| `ImageRgb32F` | `RGBF32` |
+| `ImageRgba32F` | `RGBAF32` |
 
-`<renderer_hash>` is `DefaultHasher::new(); gl_renderer.hash(); gl_version.hash(); finish()`. When the GPU driver changes (renderer string or version differs), the new launch hashes to a different subdirectory and the cache is effectively invalidated without an explicit purge step.
+`RawImage` carries pixel data as `RawImageData` (`U8` / `U16` / `F32`) plus dimensions, format, and `premultiplied_alpha: bool`. The decoder always returns `premultiplied_alpha = false` — premultiplication happens later (in WebRender translation) if the descriptor flags request it.
 
-## ProgramCacheObserver impl
+`DecodeImageError`:
+
+```rust,ignore
+#[repr(C)]
+pub enum DecodeImageError {
+    InsufficientMemory,
+    DimensionError,
+    UnsupportedImageFormat,
+    Unknown,
+}
+```
+
+`InsufficientMemory` and `DimensionError` come from `image::error::LimitErrorKind`. Image-format errors collapse into `Unknown` because the underlying error variants don't have stable C ABI shape.
+
+## Encoding
+
+`encode_png`, `encode_jpeg(image, quality)`, `encode_bmp`, `encode_tga`, `encode_tiff`, `encode_gif`, `encode_pnm`. Each is gated behind a per-format feature flag (`png`, `jpeg`, `bmp`, …). When the flag is off, the function returns `EncoderNotAvailable` so callers don't crash on a missing codec — just degrade.
+
+`translate_rawimage_colortype` handles `BGR8`/`BGRA8` → `Rgb8`/`Rgba8` mapping. The TODO marker in the source flags an inconsistency: BGR/RGB conversion isn't actually applied, just relabelled. Loaders that produce `BGRA8` and round-trip through `encode_*` will get colour-channel-swapped output.
+
+## `ImageRef` and reference counting
+
+`core/src/resources.rs:790`:
+
+```rust,ignore
+#[repr(C)]
+pub struct ImageRef {
+    pub data: *const DecodedImage,
+    pub copies: *const AtomicUsize,
+    pub run_destructor: bool,
+}
+```
+
+C-ABI-compatible reference counting. `data` points to a heap `DecodedImage` (the variant of which is hidden from C), `copies` points to a heap `AtomicUsize` reference counter. `Clone` bumps `copies`; `Drop` decrements and frees on zero.
+
+`ImageRef::into_inner()` extracts `DecodedImage` if `*copies == 1` (no other holders); `ImageRef::deep_copy()` clones the underlying image. Deep copy of `DecodedImage::Gl(tex)` returns `NullImage` because GL textures cannot be cloned without the GL context — that's a known limitation in the OpenGL trait surface.
+
+`DecodedImage` covers raster (`Raw`), GL texture (`Gl`), null image (`NullImage`), and callback-driven images (`Callback`). The callback variant lets the layout postpone resolution until rendering — the callback runs once we have a GL context and produces the actual `Texture`.
+
+## `ImageRefHash` for content-addressed deduplication
+
+`ImageRefHash { inner: usize }` is a stable hash of the `ImageRef`'s content. Two `ImageRef`s pointing at byte-identical decoded images compare equal; two pointing at different bytes don't. Used as the `ExternalImageId` derivation key for raster images (so two `<img src="x.png">` tags pointing at the same file get the same texture).
+
+`image_ref_get_hash(image_ref)` is the canonical hasher.
+
+## `RendererResources`
+
+`core/src/resources.rs:1227`. Holds parsed font and image resources per renderer (per window). Layout reads from this when measuring image intrinsic sizes (`InlineImage::intrinsic_size`) — the image's natural width and height come from the decoded `RawImage`'s dimensions.
+
+The split is: `ImageCache` (in `LayoutWindow`) is the *DOM-side* lookup keyed by URL, `RendererResources` (also in `LayoutWindow`) is the *renderer-side* lookup keyed by `ImageKey` / `FontKey`.
+
+## Shader binary disk cache (`shader_cache.rs`)
+
+WebRender lazily compiles + links each shader on first use; the cost is ~10–50 ms per shader. `ShaderDiskCache` extracts the linked binary via `glGetProgramBinary` and persists it. On the next run, `glProgramBinary` skips compile + link.
+
+Disk layout:
+
+```
+~/Library/Caches/azul/shaders/<renderer_hash>/        (macOS)
+~/.cache/azul/shaders/<renderer_hash>/                 (Linux, $XDG_CACHE_HOME aware)
+%LOCALAPPDATA%\azul\shaders\<renderer_hash>\           (Windows)
+
+<renderer_hash>/<digest_hex>.bin    raw program binary
+<renderer_hash>/<digest_hex>.meta   12 bytes: format (u32 LE) + digest (u64 LE)
+```
+
+The `<renderer_hash>` subdirectory is `hash(gl_renderer_string + gl_version)`. When the user upgrades their GPU driver, `<renderer_hash>` changes and old binaries are no longer found — automatic invalidation, no version-gating logic needed.
+
+`ShaderDiskCache` implements WebRender's `ProgramCacheObserver`:
 
 ```rust,ignore
 impl ProgramCacheObserver for ShaderDiskCache {
-    fn save_shaders_to_disk(&self, entries: Vec<Arc<ProgramBinary>>) { /* write *.bin + *.meta */ }
-    fn set_startup_shaders(&self, _entries: Vec<Arc<ProgramBinary>>) { /* no-op */ }
-    fn try_load_shader_from_disk(&self, digest: &ProgramSourceDigest, cache: &Rc<ProgramCache>);
-    fn notify_program_binary_failed(&self, binary: &Arc<ProgramBinary>) { /* delete *.bin + *.meta */ }
+    fn save_shaders_to_disk(&self, entries: Vec<Arc<ProgramBinary>>);
+    fn set_startup_shaders(&self, _entries: Vec<Arc<ProgramBinary>>);  // no-op
+    fn try_load_shader_from_disk(
+        &self,
+        digest: &ProgramSourceDigest,
+        program_cache: &Rc<ProgramCache>,
+    );
+    fn notify_program_binary_failed(&self, program_binary: &Arc<ProgramBinary>);
 }
 ```
 
-`set_startup_shaders` is a no-op because azul preloads *all* cached binaries at startup via `load_all_from_disk`, not a separate startup-shader list. `notify_program_binary_failed` deletes the corrupt entry so the next launch skips it and falls through to a fresh compile.
+`set_startup_shaders` is a no-op — `load_all_from_disk` is called explicitly at startup and loads every cached binary, so a separate "startup set" is redundant.
 
-## create_program_cache
+`notify_program_binary_failed` removes both `.bin` and `.meta` from disk: a cached binary that fails to re-link (driver bug, GPU change WebRender didn't catch) is treated as poison and not retried.
 
-[`wr_translate2::create_program_cache`](../../../../dll/src/desktop/wr_translate2.rs) at `wr_translate2.rs:132` ties it together:
+## Pipeline: from CSS image to GPU texture
 
-```rust,ignore
-pub fn create_program_cache(
-    gl: &Rc<GenericGlContext>,
-) -> Option<Rc<webrender::ProgramCache>> {
-    let renderer = gl.get_string(RENDERER);
-    let version = gl.get_string(VERSION);
-    if renderer.is_empty() || version.is_empty() { return None; }
-
-    let observer = ShaderDiskCache::new(&renderer, &version)?;
-    let loader   = ShaderDiskCache::new(&renderer, &version)?;
-    let cache    = webrender::ProgramCache::new(Some(Box::new(observer)));
-    let count    = loader.load_all_from_disk(&cache);
-    // … log the count …
-    Some(cache)
-}
+```
+CSS background-image: url("logo.png")
+   │
+   ▼  parser stores StyleBackgroundContent::Image(CssImageId)
+   │
+   ▼  build_compact_cache(): extract CssImageId → records in tier2 props
+   │
+   ▼  layout_dom_recursive (window.rs)
+   │   resolves CssImageId via ImageCache, gets ImageRef
+   │
+   ▼  solver3 sizing.rs measures intrinsic size from ImageRef
+   │
+   ▼  display_list.rs emits ImageCommand { image_ref, descriptor, bounds }
+   │
+   ▼  dll/src/desktop/wr_translate2.rs translates to WebRender display list
+   │   computes ExternalImageId from ImageRefHash
+   │   inserts texture into GlTextureCache (runtime store) if needed
+   │   emits WR ImageDisplayItem with the ExternalImageId
+   │
+   ▼  WebRender composites; on image lookup, gl_texture_integration.rs
+   │   serves the GL Texture from the runtime store
+   │
+   ▼  glDrawElements with the texture bound
 ```
 
-Two `ShaderDiskCache` instances point at the same directory: one is moved into the `ProgramCache` as the observer, one is kept on the side as a loader because `ProgramCache::new` takes ownership of its observer. The loader does the bulk preload; the observer handles save/load callbacks for the rest of the session.
+For GL callback / canvas content, the same pipeline runs but the `ImageRef`'s `DecodedImage::Callback` variant is invoked at translation time. The callback produces a `Texture` that's inserted into the runtime store keyed by `(DomId, NodeId).to_external_image_id()`.
 
-`Option<Rc<ProgramCache>>` returns `None` when GL strings are unavailable (e.g. CPU fallback path) or when the cache directory cannot be created (read-only filesystem, missing `$HOME`, etc.). WebRender works fine without it — the cache is purely a startup latency optimization.
+## CSS image masks and effects
 
-## What images look like in the display list
+`ImageDescriptor` (`core/src/resources.rs:640`) carries `format`, `size`, `flags`, and an `OptionImageMask`. When a node has `image-mask: url(...)`, the layout side resolves the mask to an `ImageRef` and includes it in the `ImageDescriptor`. WebRender uses the mask as an alpha brush during composition.
 
-When `display_list::generate_display_list` walks an image node, it emits a `DisplayListItem::PushImage`:
+## Adding a new image format
 
-```rust,ignore
-DisplayListItem::PushImage {
-    rect: LogicalRect,
-    image_ref: ImageRef,
-    descriptor: ImageDescriptor,
-    image_rendering: StyleImageRendering,  // pixelated | crisp-edges | auto
-}
-```
+For raster formats handled by the `image` crate:
 
-The compositor (`wr_translate2.rs` for WebRender, `cpurender.rs` for CPU) resolves the `ImageRef` against `RendererResources` to a concrete `ImageKey` and pushes a WebRender `image_display_item`. For external images (GL textures), the `ImageDescriptor::ExternalImage` variant points to a stable `ExternalImageId` that WebRender resolves through the registered `ExternalImageHandler`, which goes back to `gl_texture_cache::get_texture`.
+1. Add a feature flag in `layout/Cargo.toml` (e.g. `webp = ["image/webp"]`).
+2. The `image` crate auto-supports the new format through `image::guess_format`; `decode_raw_image_from_any_bytes` requires no change.
+3. For encoding: add an `encode_<fmt>` line via the `encode_func!` macro in `image.rs`.
+4. If the format has a unique `DynamicImage::Image*` variant, extend the match in `decode_raw_image_from_any_bytes`.
 
-## See also
+For non-raster formats (SVG, PDF page images, video frames):
 
-- [Text Pipeline](text-pipeline.md) — parallel infrastructure for fonts and glyphs (similar ref/key/cache layering)
-- [Layout Solver (Flex/Grid)](layout-solver.md) — where `image_cache` is consulted during background-image resolution
-- [Rendering Pipeline](rendering.md) — how the display list ends up on screen via WebRender or CPU compositor
+1. Add a `DecodedImage` variant in `core/src/resources.rs` (`SvgImage(parsed_svg)`, `Pdf(...)`).
+2. Extend `deep_copy` to handle the new variant.
+3. Extend the renderer-side translator (`dll/src/desktop/wr_translate2.rs`) to convert the variant to a WebRender display item.
+4. Update `RawImage` translation only if the new format can be rasterized to RGBA — otherwise it stays in its native form for as long as possible.
+
+## Known gotchas
+
+- **Naming collision**: `core::resources::GlTextureCache` (solved metadata, layout-owned) vs the `gl_texture_cache` module in `dll/src/desktop/` (runtime texture store, thread-local). They are not the same thing despite sharing a name. Tracked in the autoreview report; renaming is queued behind API stability.
+- **GL textures cannot be `Clone`d**: `ImageRef::deep_copy` returns `NullImage` for `DecodedImage::Gl`. Code that needs an owned copy of a GL texture must blit it explicitly through GL.
+- **`BGR8`/`BGRA8` encode mislabel**: `translate_rawimage_colortype` maps both to `Rgb8`/`Rgba8` without channel swap. A `BGRA8` image round-tripped through `encode_png` will have R and B swapped in the output. Decoder side is fine — only encoder.
+- **`RawImage::premultiplied_alpha` is always `false` from the decoder**: premultiplication happens at WebRender translation time based on `ImageDescriptorFlags`. Decoders don't premultiply.
+- **Thread-local `TEXTURE_CACHE` panics if accessed off-thread**: any test or callback that touches the runtime texture store must run on the GL thread or use a stub. CPU-only headless tests skip this code path entirely.
