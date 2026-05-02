@@ -15,7 +15,7 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
 // because the trampoline at the wrapper boundary releases on return.
 auto layout(AzRefAny data, AzLayoutCallbackInfo info) -> AzDom {
     RefAny data_wrapper(data);
-    auto d = downcast_ref<MyDataModel>(data_wrapper);  // const MyDataModel*
+    auto d = data_wrapper.downcast_ref<MyDataModel>();  // const MyDataModel*
     if (!d) return AzDom_createBody();
 
     return Dom::create_body()
@@ -31,20 +31,20 @@ auto layout(AzRefAny data, AzLayoutCallbackInfo info) -> AzDom {
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
     RefAny data_wrapper(data);
-    auto d = downcast_mut<MyDataModel>(data_wrapper);
+    auto d = data_wrapper.downcast_mut<MyDataModel>();
     if (!d) return AzUpdate_DoNothing;
     d->counter += 1;
     return AzUpdate_RefreshDom;
 }
 
 int main() {
-    // type_id_v is a variable template - shorthand for type_id<T>().
+    // type_id_v is a variable template - shorthand for RefAny::type_id<T>().
     // The address-of-static trick that backs it isn't a constant expression,
     // so we can't static_assert; just verify at runtime.
-    if (type_id_v<MyDataModel> == 0) return 1;
+    if (RefAny::type_id_v<MyDataModel> == 0) return 1;
 
     MyDataModel model = { 5 };
-    RefAny data = upcast<MyDataModel>(std::move(model));
+    RefAny data = RefAny::create<MyDataModel>(std::move(model));
 
     WindowCreateOptions window = WindowCreateOptions::create(layout);
     App app = App::create(std::move(data), AppConfig::default_());

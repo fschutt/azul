@@ -29,7 +29,7 @@ static std::expected<AzUrl, AzUrlParseError> parse_homepage_url() {
 
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     RefAny data_wrapper(data);
-    auto* d = downcast_ref<MyDataModel>(data_wrapper);
+    auto* d = data_wrapper.downcast_ref<MyDataModel>();
     if (!d) return AzDom_createBody();
 
     auto homepage = parse_homepage_url();
@@ -55,7 +55,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
     RefAny data_wrapper(data);
-    auto* d = downcast_mut<MyDataModel>(data_wrapper);
+    auto* d = data_wrapper.downcast_mut<MyDataModel>();
     if (!d) return AzUpdate_DoNothing;
     d->counter += 1;
     return AzUpdate_RefreshDom;
@@ -63,7 +63,7 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
 
 int main() {
     MyDataModel model = { 5 };
-    RefAny data = upcast<MyDataModel>(std::move(model));
+    RefAny data = RefAny::create<MyDataModel>(std::move(model));
 
     WindowCreateOptions window = WindowCreateOptions::create(layout);
     App app = App::create(std::move(data), AppConfig::default_());

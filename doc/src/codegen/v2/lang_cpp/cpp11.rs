@@ -68,6 +68,12 @@ impl CppDialect for Cpp11Generator {
         }
         code.push_str("\r\n");
 
+        // Template-reflection scaffolding (detail::type_id_holder /
+        // detail::type_destructor). Must precede the class declarations
+        // because RefAny's template members reference these names at parse
+        // time (non-dependent lookup).
+        code.push_str(&generate_template_reflection(std));
+
         // Class declarations
         code.push_str("// Wrapper class declarations\r\n\r\n");
         for struct_def in &all_structs {
@@ -99,10 +105,6 @@ impl CppDialect for Cpp11Generator {
             self.generate_method_implementations(&mut code, struct_def, ir, config);
         }
 
-        // Template-based reflection - C++11+ alternative to AZ_REFLECT.
-        // Emitted at the end so RefAny's inline methods are visible.
-        code.push_str(&generate_template_reflection(std));
-
         // Close namespace
         code.push_str("} // namespace azul\r\n\r\n");
 
@@ -119,103 +121,7 @@ impl CppDialect for Cpp11Generator {
         ir: &CodegenIR,
         config: &CodegenConfig,
     ) {
-        if should_skip_class(struct_def) {
-            return;
-        }
-
-        let class_name = &struct_def.name;
-        let c_type_name = config.apply_prefix(class_name);
-        let is_copy_type = is_copy(struct_def);
-        let needs_dtor = needs_destructor(struct_def);
-
-        // Simple type alias for empty Copy types
-        if renders_as_type_alias(struct_def) {
-            code.push_str(&format!("using {} = {};\r\n\r\n", class_name, c_type_name));
-            return;
-        }
-
-        // Class declaration
-        code.push_str(&format!("class {} {{\r\n", class_name));
-
-        code.push_str("private:\r\n");
-        code.push_str(&format!("    {} inner_;\r\n\r\n", c_type_name));
-
-        // Delete copy for non-Copy types
-        if !is_copy_type {
-            code.push_str(&format!(
-                "    {}(const {}&) = delete;\r\n",
-                class_name, class_name
-            ));
-            code.push_str(&format!(
-                "    {}& operator=(const {}&) = delete;\r\n\r\n",
-                class_name, class_name
-            ));
-        }
-
-        code.push_str("public:\r\n");
-
-        // Constructor from C type. Copy types skip `explicit` so methods that
-        // return `Void` from an `AzVoid`-returning C function compile via the
-        // implicit conversion. Non-Copy types keep `explicit` to prevent
-        // accidental ownership-stealing copies.
-        let ctor_explicit = if is_copy_type { "" } else { "explicit " };
-        code.push_str(&format!(
-            "    {}{}({} inner) noexcept : inner_(inner) {{}}\r\n",
-            ctor_explicit, class_name, c_type_name
-        ));
-
-        // Copy/move semantics
-        self.generate_copy_move_semantics(code, class_name, &c_type_name, is_copy_type, needs_dtor);
-
-        // Destructor
-        self.generate_destructor(code, class_name, &c_type_name, needs_dtor);
-
-        // Constructors (static factory methods)
-        self.generate_constructor_declarations(code, class_name, ir, config);
-
-        // Instance methods
-        self.generate_method_declarations(code, class_name, ir, config);
-
-        // Accessor methods
-        code.push_str("\r\n");
-        code.push_str(&format!(
-            "    const {}& inner() const {{ return inner_; }}\r\n",
-            c_type_name
-        ));
-        code.push_str(&format!(
-            "    {}& inner() {{ return inner_; }}\r\n",
-            c_type_name
-        ));
-        code.push_str(&format!(
-            "    const {}* ptr() const {{ return &inner_; }}\r\n",
-            c_type_name
-        ));
-        code.push_str(&format!(
-            "    {}* ptr() {{ return &inner_; }}\r\n",
-            c_type_name
-        ));
-
-        // release() - C++11 version uses brace initialization
-        code.push_str(&format!(
-            "    {} release() {{ {} result = inner_; inner_ = {{}}; return result; }}\r\n",
-            c_type_name, c_type_name
-        ));
-
-        // Type-specific methods
-        if is_vec_type(struct_def) {
-            self.generate_vec_methods(code, struct_def, config);
-        }
-        if is_string_type(struct_def) {
-            self.generate_string_methods(code, struct_def, config);
-        }
-        if is_option_type(struct_def) {
-            self.generate_option_methods(code, struct_def, ir, config);
-        }
-        if is_result_type(struct_def) {
-            self.generate_result_methods(code, struct_def, ir, config);
-        }
-
-        code.push_str("};\r\n\r\n");
+        emit_class_declaration_cpp11_or_later(self, code, struct_def, ir, config);
     }
 
     fn generate_method_implementations(
@@ -653,4 +559,99 @@ impl Cpp11Generator {
         }
         code.push_str(&format!("using {} = {};\r\n\r\n", enum_name, c_type_name));
     }
+}
+
+/// Emit a wrapper-class declaration for C++11+ generators (cpp11, cpp14).
+/// `gen.standard()` is consulted only for the RefAny template-member hook;
+/// the rest of the body is standard-agnostic. The cpp17/20/23 generators
+/// use a sibling helper in cpp20.rs (deducing-this etc.) instead.
+pub fn emit_class_declaration_cpp11_or_later(
+    gen: &(impl CppDialect + ?Sized),
+    code: &mut String,
+    struct_def: &StructDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) {
+    if should_skip_class(struct_def) {
+        return;
+    }
+
+    let class_name = &struct_def.name;
+    let c_type_name = config.apply_prefix(class_name);
+    let is_copy_type = is_copy(struct_def);
+    let needs_dtor = needs_destructor(struct_def);
+
+    if renders_as_type_alias(struct_def) {
+        code.push_str(&format!("using {} = {};\r\n\r\n", class_name, c_type_name));
+        return;
+    }
+
+    code.push_str(&format!("class {} {{\r\n", class_name));
+    code.push_str("private:\r\n");
+    code.push_str(&format!("    {} inner_;\r\n\r\n", c_type_name));
+
+    if !is_copy_type {
+        code.push_str(&format!(
+            "    {}(const {}&) = delete;\r\n",
+            class_name, class_name
+        ));
+        code.push_str(&format!(
+            "    {}& operator=(const {}&) = delete;\r\n\r\n",
+            class_name, class_name
+        ));
+    }
+
+    code.push_str("public:\r\n");
+
+    let ctor_explicit = if is_copy_type { "" } else { "explicit " };
+    code.push_str(&format!(
+        "    {}{}({} inner) noexcept : inner_(inner) {{}}\r\n",
+        ctor_explicit, class_name, c_type_name
+    ));
+
+    gen.generate_copy_move_semantics(code, class_name, &c_type_name, is_copy_type, needs_dtor);
+    gen.generate_destructor(code, class_name, &c_type_name, needs_dtor);
+
+    Cpp11Generator.generate_constructor_declarations(code, class_name, ir, config);
+    Cpp11Generator.generate_method_declarations(code, class_name, ir, config);
+
+    code.push_str("\r\n");
+    code.push_str(&format!(
+        "    const {}& inner() const {{ return inner_; }}\r\n",
+        c_type_name
+    ));
+    code.push_str(&format!(
+        "    {}& inner() {{ return inner_; }}\r\n",
+        c_type_name
+    ));
+    code.push_str(&format!(
+        "    const {}* ptr() const {{ return &inner_; }}\r\n",
+        c_type_name
+    ));
+    code.push_str(&format!(
+        "    {}* ptr() {{ return &inner_; }}\r\n",
+        c_type_name
+    ));
+    code.push_str(&format!(
+        "    {} release() {{ {} result = inner_; inner_ = {{}}; return result; }}\r\n",
+        c_type_name, c_type_name
+    ));
+
+    if is_vec_type(struct_def) {
+        gen.generate_vec_methods(code, struct_def, config);
+    }
+    if is_string_type(struct_def) {
+        gen.generate_string_methods(code, struct_def, config);
+    }
+    if is_option_type(struct_def) {
+        gen.generate_option_methods(code, struct_def, ir, config);
+    }
+    if is_result_type(struct_def) {
+        gen.generate_result_methods(code, struct_def, ir, config);
+    }
+    if matches!(struct_def.category, TypeCategory::RefAny) {
+        code.push_str(&generate_refany_template_members(gen.standard()));
+    }
+
+    code.push_str("};\r\n\r\n");
 }

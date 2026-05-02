@@ -6,6 +6,7 @@
 
 use super::super::config::*;
 use super::super::ir::*;
+use super::cpp11::emit_class_declaration_cpp11_or_later;
 use super::{common::*, CppDialect, Cpp11Generator};
 use anyhow::Result;
 
@@ -49,6 +50,10 @@ impl CppDialect for Cpp14Generator {
         }
         code.push_str("\r\n");
 
+        // Template-reflection scaffolding before class declarations so
+        // RefAny::create<T> can resolve detail::type_id_holder at parse time.
+        code.push_str(&generate_template_reflection(std));
+
         code.push_str("// Wrapper class declarations\r\n\r\n");
         for struct_def in &all_structs {
             if !config.should_include_type(&struct_def.name) {
@@ -89,7 +94,9 @@ impl CppDialect for Cpp14Generator {
             self.generate_method_implementations(&mut code, struct_def, ir, config);
         }
 
-        code.push_str(&generate_template_reflection(std));
+        // Out-of-class definition for RefAny::type_id_v (C++14 only).
+        code.push_str(&generate_refany_type_id_v_definition(std));
+
         code.push_str("} // namespace azul\r\n\r\n");
         // Structured bindings on Result types use std::optional + if-constexpr,
         // which are C++17 features.
@@ -111,7 +118,7 @@ impl CppDialect for Cpp14Generator {
         ir: &CodegenIR,
         config: &CodegenConfig,
     ) {
-        Cpp11Generator.generate_class_declaration(code, struct_def, ir, config);
+        emit_class_declaration_cpp11_or_later(self, code, struct_def, ir, config);
     }
 
     fn generate_method_implementations(

@@ -74,6 +74,11 @@ impl CppDialect for Cpp20Generator {
         }
         code.push_str("\r\n");
 
+        // Template-reflection scaffolding (detail::type_id_holder /
+        // detail::type_destructor + ReflectableModel concept) before class
+        // declarations so RefAny's template members can resolve the names.
+        code.push_str(&generate_template_reflection(std));
+
         // Class declarations
         code.push_str("// Wrapper class declarations\r\n\r\n");
         for struct_def in &all_structs {
@@ -104,9 +109,6 @@ impl CppDialect for Cpp20Generator {
             }
             self.generate_method_implementations(&mut code, struct_def, ir, config);
         }
-
-        // Template-based reflection - C++11+ alternative to AZ_REFLECT.
-        code.push_str(&generate_template_reflection(std));
 
         // Close namespace
         code.push_str("} // namespace azul\r\n\r\n");
@@ -372,7 +374,12 @@ impl CppDialect for Cpp23Generator {
         code.push_str("// =============================================================================\r\n\r\n");
         code.push_str(&generate_include_guards_begin(std));
         code.push_str(&generate_includes(std));
-        code.push_str(&generate_reflect_macro(std));
+        // C++11+ uses template-reflection helpers instead of AZ_REFLECT.
+        if !std.has_move_semantics() {
+            code.push_str(&generate_reflect_macro(std));
+        } else {
+            code.push_str(&generate_az_string_from_literal_helper(std));
+        }
 
         code.push_str("namespace azul {\r\n\r\n");
 
@@ -393,6 +400,9 @@ impl CppDialect for Cpp23Generator {
             code.push_str(&format!("class {};\r\n", struct_def.name));
         }
         code.push_str("\r\n");
+
+        // Template-reflection scaffolding before class declarations.
+        code.push_str(&generate_template_reflection(std));
 
         // Class declarations
         code.push_str("// Wrapper class declarations\r\n\r\n");
@@ -422,9 +432,6 @@ impl CppDialect for Cpp23Generator {
             }
             self.generate_method_implementations(&mut code, struct_def, ir, config);
         }
-
-        // Template-based reflection - C++11+ alternative to AZ_REFLECT.
-        code.push_str(&generate_template_reflection(std));
 
         code.push_str("} // namespace azul\r\n\r\n");
 
@@ -613,6 +620,9 @@ fn emit_class_declaration_cpp20_or_later(
         if gen.standard() >= CppStandard::Cpp23 {
             emit_cpp23_result_extras(code, struct_def, ir, config);
         }
+    }
+    if matches!(struct_def.category, TypeCategory::RefAny) {
+        code.push_str(&generate_refany_template_members(gen.standard()));
     }
 
     code.push_str("};\r\n\r\n");

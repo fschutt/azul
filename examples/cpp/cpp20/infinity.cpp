@@ -19,7 +19,7 @@ struct InfinityState {
 
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     RefAny data_wrapper(data);
-    const InfinityState* d = downcast_ref<InfinityState>(data_wrapper);
+    const InfinityState* d = data_wrapper.downcast_ref<InfinityState>();
     if (!d) return AzDom_createBody();
 
     std::ostringstream title_text;
@@ -55,7 +55,7 @@ int main() {
         state.file_paths.push_back(filename.str());
     }
 
-    RefAny data = upcast<InfinityState>(std::move(state));
+    RefAny data = RefAny::create<InfinityState>(std::move(state));
     WindowCreateOptions window = WindowCreateOptions::create(layout);
 
     App app = App::create(std::move(data), AppConfig::default_());

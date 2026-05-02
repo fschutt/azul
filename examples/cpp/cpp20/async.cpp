@@ -27,7 +27,7 @@ AzUpdate reset_connection(AzRefAny data, AzCallbackInfo info);
 
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     RefAny data_wrapper(data);
-    const AsyncState* d = downcast_ref<AsyncState>(data_wrapper);
+    const AsyncState* d = data_wrapper.downcast_ref<AsyncState>();
     if (!d) return AzDom_createBody();
 
     Dom title = Dom::create_text(String("Async Database Connection"))
@@ -78,7 +78,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
 AzUpdate start_connection(AzRefAny data, AzCallbackInfo info) {
     RefAny data_wrapper(data);
-    AsyncState* d = downcast_mut<AsyncState>(data_wrapper);
+    AsyncState* d = data_wrapper.downcast_mut<AsyncState>();
     if (!d) return AzUpdate_DoNothing;
     d->stage = Stage_Connecting;
     d->progress = 0.0f;
@@ -88,7 +88,7 @@ AzUpdate start_connection(AzRefAny data, AzCallbackInfo info) {
 
 AzUpdate reset_connection(AzRefAny data, AzCallbackInfo info) {
     RefAny data_wrapper(data);
-    AsyncState* d = downcast_mut<AsyncState>(data_wrapper);
+    AsyncState* d = data_wrapper.downcast_mut<AsyncState>();
     if (!d) return AzUpdate_DoNothing;
     d->stage = Stage_NotConnected;
     d->progress = 0.0f;
@@ -98,7 +98,7 @@ AzUpdate reset_connection(AzRefAny data, AzCallbackInfo info) {
 
 int main() {
     AsyncState state = { Stage_NotConnected, "postgres://localhost:5432/mydb", {}, 0.0f };
-    RefAny data = upcast<AsyncState>(std::move(state));
+    RefAny data = RefAny::create<AsyncState>(std::move(state));
 
     WindowCreateOptions window = WindowCreateOptions::create(layout);
 

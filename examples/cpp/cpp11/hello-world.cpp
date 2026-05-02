@@ -19,10 +19,10 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     RefAny data_wrapper(data);
 
-    // azul::downcast_ref<T>(RefAny&) -> const T* (or nullptr). Per-type
-    // identity is derived from the address of a template-instantiated
-    // static, so the compiler stamps a unique tag per T at link time.
-    auto* d = downcast_ref<MyDataModel>(data_wrapper);
+    // refany.downcast_ref<T>() -> const T* (or nullptr). Per-type identity
+    // is derived from the address of a template-instantiated static, so the
+    // compiler stamps a unique tag per T at link time.
+    auto* d = data_wrapper.downcast_ref<MyDataModel>();
     if (!d) return Dom::create_body().release();
 
     Dom label = Dom::p_with_text(String(std::to_string(d->counter).c_str()))
@@ -41,7 +41,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
     RefAny data_wrapper(data);
-    auto* d = downcast_mut<MyDataModel>(data_wrapper);
+    auto* d = data_wrapper.downcast_mut<MyDataModel>();
     if (!d) return AzUpdate_DoNothing;
     d->counter += 1;
     return AzUpdate_RefreshDom;
@@ -49,7 +49,7 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
 
 int main() {
     MyDataModel model = { 5 };
-    RefAny data = upcast<MyDataModel>(std::move(model));
+    RefAny data = RefAny::create<MyDataModel>(std::move(model));
 
     WindowCreateOptions window = WindowCreateOptions::create(layout);
     App app = App::create(std::move(data), AppConfig::default_());

@@ -23,7 +23,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
 int main() {
     AppData model{0};
-    RefAny data = upcast<AppData>(std::move(model));
+    RefAny data = RefAny::create<AppData>(std::move(model));
 
     WindowCreateOptions window = WindowCreateOptions::create(layout);
 

@@ -15,7 +15,7 @@ struct OpenGlState {
 
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     RefAny data_wrapper(data);
-    const OpenGlState* d = downcast_ref<OpenGlState>(data_wrapper);
+    const OpenGlState* d = data_wrapper.downcast_ref<OpenGlState>();
     if (!d) return AzDom_createBody();
 
     Dom title = Dom::create_text(String("OpenGL Integration Demo"));
@@ -34,7 +34,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
 int main() {
     OpenGlState state;
-    RefAny data = upcast<OpenGlState>(std::move(state));
+    RefAny data = RefAny::create<OpenGlState>(std::move(state));
 
     WindowCreateOptions window = WindowCreateOptions::create(layout);
 

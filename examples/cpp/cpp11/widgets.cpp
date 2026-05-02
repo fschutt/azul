@@ -20,7 +20,7 @@ AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info);
 
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     RefAny data_wrapper(data);
-    const WidgetShowcase* d = downcast_ref<WidgetShowcase>(data_wrapper);
+    const WidgetShowcase* d = data_wrapper.downcast_ref<WidgetShowcase>();
     if (!d) return AzDom_createBody();
 
     // Create button
@@ -44,7 +44,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
 AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info) {
     RefAny data_wrapper(data);
-    WidgetShowcase* d = downcast_mut<WidgetShowcase>(data_wrapper);
+    WidgetShowcase* d = data_wrapper.downcast_mut<WidgetShowcase>();
     if (!d) return AzUpdate_DoNothing;
     d->progress_value += 10.0f;
     if (d->progress_value > 100.0f) {
@@ -55,7 +55,7 @@ AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info) {
 
 int main() {
     WidgetShowcase model;
-    RefAny data = upcast<WidgetShowcase>(std::move(model));
+    RefAny data = RefAny::create<WidgetShowcase>(std::move(model));
 
     WindowCreateOptions window = WindowCreateOptions::create(layout);
 

@@ -65,6 +65,12 @@ impl CppDialect for Cpp17Generator {
         }
         code.push_str("\r\n");
 
+        // Template-reflection scaffolding (detail::type_id_holder /
+        // detail::type_destructor + ReflectableModel concept). Must precede
+        // the class declarations because RefAny's template members reference
+        // these names at parse time (non-dependent lookup).
+        code.push_str(&generate_template_reflection(std));
+
         // Class declarations
         code.push_str("// Wrapper class declarations\r\n\r\n");
         for struct_def in &all_structs {
@@ -95,9 +101,6 @@ impl CppDialect for Cpp17Generator {
             }
             self.generate_method_implementations(&mut code, struct_def, ir, config);
         }
-
-        // Template-based reflection - C++11+ alternative to AZ_REFLECT.
-        code.push_str(&generate_template_reflection(std));
 
         // Close namespace
         code.push_str("} // namespace azul\r\n\r\n");
@@ -210,6 +213,9 @@ impl CppDialect for Cpp17Generator {
         }
         if is_result_type(struct_def) {
             self.generate_result_methods(code, struct_def, ir, config);
+        }
+        if matches!(struct_def.category, TypeCategory::RefAny) {
+            code.push_str(&generate_refany_template_members(self.standard()));
         }
 
         code.push_str("};\r\n\r\n");

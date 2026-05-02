@@ -37,7 +37,7 @@ static size_t count_zero_bytes(std::span<const uint8_t> bytes) {
 
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     RefAny data_wrapper(data);
-    auto* d = downcast_ref<MyDataModel>(data_wrapper);
+    auto* d = data_wrapper.downcast_ref<MyDataModel>();
     if (!d) return AzDom_createBody();
 
     return Dom::create_body()
@@ -53,7 +53,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
     RefAny data_wrapper(data);
-    auto* d = downcast_mut<MyDataModel>(data_wrapper);
+    auto* d = data_wrapper.downcast_mut<MyDataModel>();
     if (!d) return AzUpdate_DoNothing;
     d->counter += 1;
     return AzUpdate_RefreshDom;
@@ -61,7 +61,7 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
 
 int main() {
     MyDataModel model = { 5 };
-    RefAny data = upcast<MyDataModel>(std::move(model));
+    RefAny data = RefAny::create<MyDataModel>(std::move(model));
 
     // Build a small Vec and view it as std::span without a copy.
     U8Vec bytes = U8Vec::from_item(0);

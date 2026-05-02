@@ -68,13 +68,13 @@ Dom make_button(RefAny& calc, const char* label, EventType evt, char digit, Oper
     Dom btn = Dom::create_div();
     btn.set_css(String(style));
     btn.add_child(Dom::create_text(String(label)));
-    btn.add_callback(AzEventFilter_hover(AzHoverEventFilter_MouseUp), upcast<ButtonData>(std::move(bd)), on_click);
+    btn.add_callback(AzEventFilter_hover(AzHoverEventFilter_MouseUp), RefAny::create<ButtonData>(std::move(bd)), on_click);
     return btn;
 }
 
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     RefAny data_wrapper(data);
-    const Calculator* c = downcast_ref<Calculator>(data_wrapper);
+    const Calculator* c = data_wrapper.downcast_ref<Calculator>();
     if (!c) return AzDom_createBody();
 
     Dom display = Dom::create_div();
@@ -115,11 +115,11 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
     RefAny data_wrapper(data);
-    const ButtonData* bd = downcast_ref<ButtonData>(data_wrapper);
+    const ButtonData* bd = data_wrapper.downcast_ref<ButtonData>();
     if (!bd) return AzUpdate_DoNothing;
 
     RefAny calc_wrapper(AzRefAny_clone(&bd->calc));
-    Calculator* c = downcast_mut<Calculator>(calc_wrapper);
+    Calculator* c = calc_wrapper.downcast_mut<Calculator>();
     if (!c) return AzUpdate_DoNothing;
 
     switch (bd->evt) {
@@ -155,7 +155,7 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
 
 int main() {
     Calculator model;
-    RefAny data = upcast<Calculator>(std::move(model));
+    RefAny data = RefAny::create<Calculator>(std::move(model));
 
     WindowCreateOptions window = WindowCreateOptions::create(layout);
 

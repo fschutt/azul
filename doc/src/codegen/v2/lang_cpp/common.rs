@@ -315,15 +315,9 @@ pub fn generate_module_partition(
         }
         code.push_str(&format!("    using azul::{};\r\n", struct_def.name));
     }
-    // Reflection helpers
-    code.push_str("    using azul::RefAny;\r\n");
-    code.push_str("    using azul::upcast;\r\n");
-    code.push_str("    using azul::downcast_ref;\r\n");
-    code.push_str("    using azul::downcast_mut;\r\n");
-    code.push_str("    using azul::type_id;\r\n");
-    if standard >= CppStandard::Cpp14 {
-        code.push_str("    using azul::type_id_v;\r\n");
-    }
+    // RefAny carries the template-reflection API (create<T>, type_id<T>,
+    // downcast_ref<T>, downcast_mut<T>) as members. The concept is the only
+    // namespace-level entry point that needs an explicit re-export.
     if standard >= CppStandard::Cpp20 {
         code.push_str("    using azul::ReflectableModel;\r\n");
     }
@@ -1177,15 +1171,22 @@ pub fn generate_reflect_macro(standard: CppStandard) -> String {
 /// fully declared (the templates inline-call `RefAny::inner()`).
 ///
 /// C++14 picks up the `type_id_v<T>` variable template; older standards skip it.
+/// Emit the namespace-level scaffolding the `RefAny` template member
+/// functions need: per-type tag holder, type-erased destructor, and (in
+/// C++20+) the `ReflectableModel` concept that constrains them.
+///
+/// The actual user-facing API — `RefAny::create<T>(T)`,
+/// `RefAny::type_id<T>()`, `refany.downcast_ref<T>()`,
+/// `refany.downcast_mut<T>()` — is emitted inside the `RefAny` class body
+/// itself (via `generate_refany_template_members`).
 pub fn generate_template_reflection(standard: CppStandard) -> String {
     if !standard.has_move_semantics() {
         return String::new();
     }
 
     let mut code = String::new();
-
     code.push_str("// =============================================================================\r\n");
-    code.push_str("// Template-based reflection - C++11+ alternative to AZ_REFLECT macro\r\n");
+    code.push_str("// Template-based reflection scaffolding for RefAny::create<T> et al.\r\n");
     code.push_str("// =============================================================================\r\n\r\n");
 
     code.push_str("namespace detail {\r\n");
@@ -1201,76 +1202,104 @@ pub fn generate_template_reflection(standard: CppStandard) -> String {
     code.push_str("    }\r\n");
     code.push_str("} // namespace detail\r\n\r\n");
 
-    // C++20+: a structural concept that gates the reflection helpers.
-    let (template_intro, type_constraint) = if standard >= CppStandard::Cpp20 {
+    if standard >= CppStandard::Cpp20 {
         code.push_str("/// Structural concept: any object type T can be reflected as long as it is\r\n");
-        code.push_str("/// destructible and isn't `RefAny` itself (we'd recursively wrap RefAny in\r\n");
-        code.push_str("/// a RefAny otherwise). No per-class registration.\r\n");
+        code.push_str("/// destructible and isn't `RefAny` itself (wrapping a RefAny in a RefAny is\r\n");
+        code.push_str("/// not what anyone wants). No per-class registration needed.\r\n");
         code.push_str("template<class T>\r\n");
         code.push_str("concept ReflectableModel = std::is_object_v<T> && std::is_destructible_v<T>\r\n");
         code.push_str("    && !std::is_same_v<T, RefAny>;\r\n\r\n");
-        ("template<ReflectableModel T>", "ReflectableModel T")
-    } else {
-        ("template<class T>", "class T")
-    };
-    let _ = type_constraint;
+    }
 
-    code.push_str("/// Per-type runtime tag - unique per T, stable across translation units.\r\n");
+    code
+}
+
+/// Emit the user-facing template member functions of `RefAny`:
+/// - `RefAny::create<T>(T model) -> RefAny` (static factory)
+/// - `RefAny::type_id<T>() -> uint64_t` (static, runtime tag)
+/// - `refany.downcast_ref<T>() -> const T*` (instance)
+/// - `refany.downcast_mut<T>() -> T*` (instance)
+///
+/// Injected inside the `RefAny` class body so the API surface reads like
+/// any other wrapper class - no namespace-level free functions.
+pub fn generate_refany_template_members(standard: CppStandard) -> String {
+    if !standard.has_move_semantics() {
+        return String::new();
+    }
+    let mut code = String::new();
+    let template_intro = if standard >= CppStandard::Cpp20 {
+        "    template<ReflectableModel T>"
+    } else {
+        "    template<class T>"
+    };
+
+    code.push_str("\r\n    // Template-based reflection - C++11+ replacement for AZ_REFLECT.\r\n");
+
+    code.push_str("    /// Per-type runtime tag - unique per T, stable across translation units.\r\n");
     code.push_str(&format!("{}\r\n", template_intro));
-    code.push_str("inline uint64_t type_id() noexcept {\r\n");
-    code.push_str("    return reinterpret_cast<uint64_t>(&detail::type_id_holder<T>::value);\r\n");
-    code.push_str("}\r\n\r\n");
+    code.push_str("    static uint64_t type_id() noexcept {\r\n");
+    code.push_str("        return reinterpret_cast<uint64_t>(&detail::type_id_holder<T>::value);\r\n");
+    code.push_str("    }\r\n\r\n");
 
     if standard >= CppStandard::Cpp14 {
-        // Not constexpr: reinterpret_cast<uint64_t>(&...) is not a constant
-        // expression. C++17+ allows `inline` variable templates; C++14 doesn't,
-        // so we elide the storage qualifier there and rely on the linker
-        // collapsing duplicates via the inline-template rule.
-        code.push_str("/// Variable-template shorthand for `type_id<T>()` (C++14+).\r\n");
+        code.push_str("    /// Variable-template shorthand for `type_id<T>()` (C++14+).\r\n");
         code.push_str(&format!("{}\r\n", template_intro));
         if standard >= CppStandard::Cpp17 {
-            code.push_str("inline const uint64_t type_id_v = reinterpret_cast<uint64_t>(&detail::type_id_holder<T>::value);\r\n\r\n");
+            // C++17 inline variable template - definition can live in-class.
+            code.push_str("    static inline const uint64_t type_id_v = reinterpret_cast<uint64_t>(&detail::type_id_holder<T>::value);\r\n\r\n");
         } else {
-            code.push_str("const uint64_t type_id_v = reinterpret_cast<uint64_t>(&detail::type_id_holder<T>::value);\r\n\r\n");
+            // C++14: declaration in-class, definition out-of-class (emitted
+            // by `generate_refany_type_id_v_definition` after the class
+            // body closes).
+            code.push_str("    static const uint64_t type_id_v;\r\n\r\n");
         }
     }
 
-    code.push_str("/// Move T into a heap allocation and wrap as a `RefAny`. Equivalent to the\r\n");
-    code.push_str("/// per-type `MyType_upcast` the AZ_REFLECT macro emits, but works for any T\r\n");
-    code.push_str("/// without registration.\r\n");
+    code.push_str("    /// Move T into a heap allocation and wrap it as a RefAny. The Rust-side\r\n");
+    code.push_str("    /// equivalent of `RefAny::new(model)`.\r\n");
     code.push_str(&format!("{}\r\n", template_intro));
-    code.push_str("inline RefAny upcast(T model) {\r\n");
-    code.push_str("    T* heap = new T(std::move(model));\r\n");
-    code.push_str("    AzGlVoidPtrConst ptr = { heap, true };\r\n");
-    code.push_str("    AzString name = az_string_from_literal(\"\");\r\n");
-    code.push_str("    return RefAny(AzRefAny_newC(\r\n");
-    code.push_str("        ptr,\r\n");
-    code.push_str("        sizeof(T),\r\n");
-    code.push_str("        alignof(T),\r\n");
-    code.push_str("        type_id<T>(),\r\n");
-    code.push_str("        name,\r\n");
-    code.push_str("        &detail::type_destructor<T>,\r\n");
-    code.push_str("        0,\r\n");
-    code.push_str("        0\r\n");
-    code.push_str("    ));\r\n");
-    code.push_str("}\r\n\r\n");
+    code.push_str("    static RefAny create(T model) {\r\n");
+    code.push_str("        T* heap = new T(std::move(model));\r\n");
+    code.push_str("        AzGlVoidPtrConst ptr = { heap, true };\r\n");
+    code.push_str("        AzString name = az_string_from_literal(\"\");\r\n");
+    code.push_str("        return RefAny(AzRefAny_newC(\r\n");
+    code.push_str("            ptr,\r\n");
+    code.push_str("            sizeof(T),\r\n");
+    code.push_str("            alignof(T),\r\n");
+    code.push_str("            RefAny::type_id<T>(),\r\n");
+    code.push_str("            name,\r\n");
+    code.push_str("            &detail::type_destructor<T>,\r\n");
+    code.push_str("            0,\r\n");
+    code.push_str("            0\r\n");
+    code.push_str("        ));\r\n");
+    code.push_str("    }\r\n\r\n");
 
-    code.push_str("/// Read-only borrow of the `T` inside a `RefAny`. Returns `nullptr` if the\r\n");
-    code.push_str("/// `RefAny` holds a different type or is already mutably borrowed.\r\n");
+    code.push_str("    /// Read-only borrow of the T inside this RefAny. nullptr on type mismatch.\r\n");
     code.push_str(&format!("{}\r\n", template_intro));
-    code.push_str("inline const T* downcast_ref(RefAny& data) noexcept {\r\n");
-    code.push_str("    if (!AzRefAny_isType(&data.inner(), type_id<T>())) return nullptr;\r\n");
-    code.push_str("    return static_cast<const T*>(AzRefAny_getDataPtr(&data.inner()));\r\n");
-    code.push_str("}\r\n\r\n");
+    code.push_str("    const T* downcast_ref() const noexcept {\r\n");
+    code.push_str("        if (!AzRefAny_isType(&inner_, RefAny::type_id<T>())) return nullptr;\r\n");
+    code.push_str("        return static_cast<const T*>(AzRefAny_getDataPtr(&inner_));\r\n");
+    code.push_str("    }\r\n\r\n");
 
-    code.push_str("/// Mutable borrow of the `T` inside a `RefAny`. Returns `nullptr` if the\r\n");
-    code.push_str("/// `RefAny` holds a different type or is already borrowed.\r\n");
+    code.push_str("    /// Mutable borrow of the T inside this RefAny. nullptr on type mismatch.\r\n");
     code.push_str(&format!("{}\r\n", template_intro));
-    code.push_str("inline T* downcast_mut(RefAny& data) noexcept {\r\n");
-    code.push_str("    if (!AzRefAny_isType(&data.inner(), type_id<T>())) return nullptr;\r\n");
-    code.push_str("    return static_cast<T*>(const_cast<void*>(AzRefAny_getDataPtr(&data.inner())));\r\n");
-    code.push_str("}\r\n\r\n");
+    code.push_str("    T* downcast_mut() noexcept {\r\n");
+    code.push_str("        if (!AzRefAny_isType(&inner_, RefAny::type_id<T>())) return nullptr;\r\n");
+    code.push_str("        return static_cast<T*>(const_cast<void*>(AzRefAny_getDataPtr(&inner_)));\r\n");
+    code.push_str("    }\r\n");
 
+    code
+}
+
+/// Emit the out-of-class definition for `RefAny::type_id_v` on C++14 (where
+/// inline variable templates aren't supported).
+pub fn generate_refany_type_id_v_definition(standard: CppStandard) -> String {
+    if standard != CppStandard::Cpp14 {
+        return String::new();
+    }
+    let mut code = String::new();
+    code.push_str("template<class T>\r\n");
+    code.push_str("const uint64_t RefAny::type_id_v = reinterpret_cast<uint64_t>(&detail::type_id_holder<T>::value);\r\n\r\n");
     code
 }
 
