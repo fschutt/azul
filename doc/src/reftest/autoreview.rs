@@ -28,6 +28,7 @@ pub struct AutoreviewConfig {
     pub retry_failed: bool,
     pub dry_run: bool,
     pub status_only: bool,
+    pub strict: bool,
     pub subcommand: AutoreviewSubcommand,
 }
 
@@ -2071,6 +2072,7 @@ pub fn parse_autoreview_args(
         retry_failed: false,
         dry_run: false,
         status_only: false,
+        strict: false,
         subcommand: AutoreviewSubcommand::Run,
     };
 
@@ -2087,6 +2089,7 @@ pub fn parse_autoreview_args(
             "--retry-failed" => config.retry_failed = true,
             "--dry-run"      => config.dry_run = true,
             "--status"       => config.status_only = true,
+            "--strict"       => config.strict = true,
             _ if arg.starts_with("--agents=") => {
                 let n = arg.strip_prefix("--agents=").unwrap();
                 config.agents = n.parse()

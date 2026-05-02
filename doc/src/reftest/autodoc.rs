@@ -1241,12 +1241,21 @@ pub fn run_autodoc_check(config: &AutoreviewConfig) -> Result<(), String> {
     )?;
     let report = outdated_report_path(project_root);
     println!(
-        "Pages: {} fresh, {} stale, {} without frontmatter",
+        "Pages: {} fresh, {} stale, {} without frontmatter, {} translation-stale",
         fresh,
         stale_pages.len(),
-        no_frontmatter.len()
+        no_frontmatter.len(),
+        translation_stale.len(),
     );
     println!("Report: {}", report.display());
+    if config.strict && (!stale_pages.is_empty() || !translation_stale.is_empty()) {
+        return Err(format!(
+            "autodoc-check --strict: {} stale, {} translation-stale (see {})",
+            stale_pages.len(),
+            translation_stale.len(),
+            report.display(),
+        ));
+    }
     Ok(())
 }
 

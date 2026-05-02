@@ -890,6 +890,12 @@ jobs:
           echo '[]' > doc/target/reftest/results.json
           echo '<html><body>Placeholder</body></html>' > doc/target/reftest/index.html
 
+      - name: Verify guide is up to date
+        run: cargo run --manifest-path doc/Cargo.toml --release -- autoreview autodoc-check --strict
+
+      - name: Render guide screenshots
+        run: cargo run --manifest-path doc/Cargo.toml --release -- autoreview autodoc-screenshots
+
       - name: Build website with placeholders
         run: cargo run --manifest-path doc/Cargo.toml --release -- deploy
 
