@@ -16,13 +16,13 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     if (!d) return AzDom_createBody();
     
     Dom title = Dom::create_text(String("OpenGL Integration Demo"));
-    title.set_inline_style(String("color: white; font-size: 24px; margin-bottom: 20px;"));
+    title.set_css(String("color: white; font-size: 24px; margin-bottom: 20px;"));
     
     Dom placeholder = Dom::create_text(String("OpenGL texture would render here"));
-    placeholder.set_inline_style(String("flex-grow: 1; min-height: 300px; border-radius: 10px; background: #333; color: white; display: flex; align-items: center; justify-content: center;"));
+    placeholder.set_css(String("flex-grow: 1; min-height: 300px; border-radius: 10px; background: #333; color: white; display: flex; align-items: center; justify-content: center;"));
     
     Dom body = Dom::create_body();
-    body.set_inline_style(String("background: linear-gradient(#1a1a2e, #16213e); padding: 20px;"));
+    body.set_css(String("background: linear-gradient(#1a1a2e, #16213e); padding: 20px;"));
     body.add_child(title);
     body.add_child(placeholder);
     

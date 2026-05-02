@@ -35,7 +35,7 @@ Dom make_button(RefAny& calc, const char* label, int evt, char digit, int op, co
     
     Dom text = Dom::create_text(String(label));
     Dom btn = Dom::create_div();
-    btn.set_inline_style(String(style));
+    btn.set_css(String(style));
     btn.add_child(text);
     btn.add_callback(AzEventFilter_hover(AzHoverEventFilter_MouseUp), ButtonData_upcast(bd), on_click);
     return btn;
@@ -48,11 +48,11 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     
     Dom display_text = Dom::create_text(String(c->display));
     Dom display = Dom::create_div();
-    display.set_inline_style(String("background:#2d2d2d;color:white;font-size:48px;text-align:right;padding:20px;min-height:80px;"));
+    display.set_css(String("background:#2d2d2d;color:white;font-size:48px;text-align:right;padding:20px;min-height:80px;"));
     display.add_child(display_text);
     
     Dom buttons = Dom::create_div();
-    buttons.set_inline_style(String("flex-grow:1;display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:1px;"));
+    buttons.set_css(String("flex-grow:1;display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:1px;"));
     
     buttons.add_child(make_button(data_wrapper, "C", 4, 0, 0, "background:#d1d1d6;font-size:24px;padding:20px;"));
     buttons.add_child(make_button(data_wrapper, "7", 0, '7', 0, "background:#d1d1d6;font-size:24px;padding:20px;"));
@@ -70,7 +70,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     buttons.add_child(make_button(data_wrapper, "0", 0, '0', 0, "background:#d1d1d6;font-size:24px;padding:20px;"));
     
     Dom body = Dom::create_div();
-    body.set_inline_style(String("height:100%;display:flex;flex-direction:column;font-family:sans-serif;"));
+    body.set_css(String("height:100%;display:flex;flex-direction:column;font-family:sans-serif;"));
     body.add_child(display);
     body.add_child(buttons);
     

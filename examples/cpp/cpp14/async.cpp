@@ -1,4 +1,4 @@
-// g++ -std=c++11 -o async async.cpp -lazul
+// g++ -std=c++14 -o async async.cpp -lazul
 
 #include "azul14.hpp"
 #include <vector>
@@ -21,26 +21,25 @@ struct AsyncState {
     std::vector<std::string> loaded_data;
     float progress;
 };
-AZ_REFLECT(AsyncState);
 
 AzUpdate start_connection(AzRefAny data, AzCallbackInfo info);
 AzUpdate reset_connection(AzRefAny data, AzCallbackInfo info);
 
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     RefAny data_wrapper(data);
-    const AsyncState* d = AsyncState_downcast_ref(data_wrapper);
+    const AsyncState* d = downcast_ref<AsyncState>(data_wrapper);
     if (!d) return AzDom_createBody();
-    
+
     Dom title = Dom::create_text(String("Async Database Connection"))
-        .with_inline_style(String("font-size: 24px; margin-bottom: 20px;"));
-    
+        .with_css(String("font-size: 24px; margin-bottom: 20px;"));
+
     Dom content = Dom::create_div();
-    AzEventFilter event = AzEventFilter_hover(AzHoverEventFilter_mouseUp());
-    
+    AzEventFilter event = AzEventFilter_hover(AzHoverEventFilter_MouseUp);
+
     switch (d->stage) {
         case Stage_NotConnected: {
             content = Dom::create_div()
-                .with_inline_style(String("padding: 10px 20px; background: #4CAF50; color: white; cursor: pointer;"))
+                .with_css(String("padding: 10px 20px; background: #4CAF50; color: white; cursor: pointer;"))
                 .with_child(Dom::create_text(String("Connect")))
                 .with_callback(event, data_wrapper.clone(), start_connection);
             break;
@@ -59,7 +58,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
             content = Dom::create_div()
                 .with_child(Dom::create_text(String(ss.str().c_str())))
                 .with_child(Dom::create_div()
-                    .with_inline_style(String("padding: 10px; background: #2196F3; color: white; cursor: pointer;"))
+                    .with_css(String("padding: 10px; background: #2196F3; color: white; cursor: pointer;"))
                     .with_child(Dom::create_text(String("Reset")))
                     .with_callback(event, data_wrapper.clone(), reset_connection));
             break;
@@ -68,18 +67,18 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
             content = Dom::create_text(String("Error occurred"));
             break;
     }
-    
+
     Dom body = Dom::create_body()
-        .with_inline_style(String("padding: 30px; font-family: sans-serif;"))
+        .with_css(String("padding: 30px; font-family: sans-serif;"))
         .with_child(std::move(title))
         .with_child(std::move(content));
-    
+
     return body.style(Css::empty()).release();
 }
 
 AzUpdate start_connection(AzRefAny data, AzCallbackInfo info) {
     RefAny data_wrapper(data);
-    AsyncState* d = AsyncState_downcast_mut(data_wrapper);
+    AsyncState* d = downcast_mut<AsyncState>(data_wrapper);
     if (!d) return AzUpdate_DoNothing;
     d->stage = Stage_Connecting;
     d->progress = 0.0f;
@@ -89,7 +88,7 @@ AzUpdate start_connection(AzRefAny data, AzCallbackInfo info) {
 
 AzUpdate reset_connection(AzRefAny data, AzCallbackInfo info) {
     RefAny data_wrapper(data);
-    AsyncState* d = AsyncState_downcast_mut(data_wrapper);
+    AsyncState* d = downcast_mut<AsyncState>(data_wrapper);
     if (!d) return AzUpdate_DoNothing;
     d->stage = Stage_NotConnected;
     d->progress = 0.0f;
@@ -99,12 +98,12 @@ AzUpdate reset_connection(AzRefAny data, AzCallbackInfo info) {
 
 int main() {
     AsyncState state = { Stage_NotConnected, "postgres://localhost:5432/mydb", {}, 0.0f };
-    RefAny data = AsyncState_upcast(state);
-    
+    RefAny data = upcast<AsyncState>(std::move(state));
+
     WindowCreateOptions window = WindowCreateOptions::create(layout);
-    
+
     App app = App::create(std::move(data), AppConfig::default_());
     app.run(std::move(window));
-    
+
     return 0;
 }

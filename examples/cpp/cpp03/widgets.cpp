@@ -18,15 +18,15 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     
     Dom button_text = Dom::create_text(String("Click me!"));
     Dom button = Dom::create_div();
-    button.set_inline_style(String("margin-bottom: 10px; padding: 10px; background: #4CAF50; color: white;"));
+    button.set_css(String("margin-bottom: 10px; padding: 10px; background: #4CAF50; color: white;"));
     button.add_child(button_text);
     button.add_callback(AzEventFilter_hover(AzHoverEventFilter_MouseUp), data_wrapper.clone(), on_button_click);
 
     Dom title = Dom::create_text(String("Widget Showcase"));
-    title.set_inline_style(String("font-size: 24px; margin-bottom: 20px;"));
+    title.set_css(String("font-size: 24px; margin-bottom: 20px;"));
 
     Dom body = Dom::create_body();
-    body.set_inline_style(String("padding: 20px; font-family: sans-serif;"));
+    body.set_css(String("padding: 20px; font-family: sans-serif;"));
     body.add_child(title);
     body.add_child(button);
 

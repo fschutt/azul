@@ -24,10 +24,10 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     }
     
     Dom label = Dom::create_text(String(status_text));
-    label.set_inline_style(String("font-size: 32px;"));
+    label.set_css(String("font-size: 32px;"));
     
     Dom body = Dom::create_body();
-    body.set_inline_style(String("padding: 20px; font-family: sans-serif;"));
+    body.set_css(String("padding: 20px; font-family: sans-serif;"));
     body.add_child(label);
     
     return body.style(Css::empty()).release();

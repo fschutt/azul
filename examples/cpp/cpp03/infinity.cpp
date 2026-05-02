@@ -22,10 +22,10 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     std::snprintf(title_buf, 64, "Infinite Gallery - %d images", d->file_count);
     
     Dom title = Dom::create_text(String(title_buf));
-    title.set_inline_style(String("font-size: 20px; margin-bottom: 10px;"));
+    title.set_css(String("font-size: 20px; margin-bottom: 10px;"));
     
     Dom container = Dom::create_div();
-    container.set_inline_style(String("display: flex; flex-wrap: wrap; gap: 10px; padding: 10px; flex-grow: 1; overflow: scroll; background: #f5f5f5;"));
+    container.set_css(String("display: flex; flex-wrap: wrap; gap: 10px; padding: 10px; flex-grow: 1; overflow: scroll; background: #f5f5f5;"));
     
     int end = d->visible_start + d->visible_count;
     if (end > d->file_count) end = d->file_count;
@@ -35,13 +35,13 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         std::snprintf(item_buf, 32, "image_%04d.png", i);
         
         Dom item = Dom::create_div();
-        item.set_inline_style(String("width: 150px; height: 150px; background: white; display: flex; align-items: center; justify-content: center;"));
+        item.set_css(String("width: 150px; height: 150px; background: white; display: flex; align-items: center; justify-content: center;"));
         item.add_child(Dom::create_text(String(item_buf)));
         container.add_child(item);
     }
     
     Dom body = Dom::create_body();
-    body.set_inline_style(String("padding: 20px; font-family: sans-serif;"));
+    body.set_css(String("padding: 20px; font-family: sans-serif;"));
     body.add_child(title);
     body.add_child(container);
     

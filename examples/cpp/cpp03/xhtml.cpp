@@ -16,25 +16,25 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     if (!d) return AzDom_createBody();
     
     Dom title = Dom::create_text(String("XHTML Spreadsheet Demo"));
-    title.set_inline_style(String("font-size: 24px; font-weight: bold; margin-bottom: 20px;"));
+    title.set_css(String("font-size: 24px; font-weight: bold; margin-bottom: 20px;"));
     
     Dom cell1 = Dom::create_text(String("Cell A1"));
-    cell1.set_inline_style(String("padding: 8px; border: 1px solid #ccc; background: #f9f9f9;"));
+    cell1.set_css(String("padding: 8px; border: 1px solid #ccc; background: #f9f9f9;"));
     
     Dom cell2 = Dom::create_text(String("Cell B1"));
-    cell2.set_inline_style(String("padding: 8px; border: 1px solid #ccc; background: #f9f9f9;"));
+    cell2.set_css(String("padding: 8px; border: 1px solid #ccc; background: #f9f9f9;"));
     
     Dom row = Dom::create_div();
-    row.set_inline_style(String("display: flex; gap: 0;"));
+    row.set_css(String("display: flex; gap: 0;"));
     row.add_child(cell1);
     row.add_child(cell2);
     
     Dom table = Dom::create_div();
-    table.set_inline_style(String("border: 1px solid #333; display: inline-block;"));
+    table.set_css(String("border: 1px solid #333; display: inline-block;"));
     table.add_child(row);
     
     Dom body = Dom::create_body();
-    body.set_inline_style(String("padding: 20px; font-family: sans-serif;"));
+    body.set_css(String("padding: 20px; font-family: sans-serif;"));
     body.add_child(title);
     body.add_child(table);
     

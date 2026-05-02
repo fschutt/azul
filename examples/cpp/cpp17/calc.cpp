@@ -1,4 +1,4 @@
-// g++ -std=c++11 -o calc calc.cpp -lazul
+// g++ -std=c++17 -o calc calc.cpp -lazul
 
 #include "azul17.hpp"
 #include <string>
@@ -14,10 +14,9 @@ struct Calculator {
     Operation pending_op;
     double pending_value;
     bool clear_next;
-    
+
     Calculator() : display("0"), current_value(0.0), pending_op(Operation::None), pending_value(0.0), clear_next(false) {}
 };
-AZ_REFLECT(Calculator);
 
 enum class EventType { Digit, Op, Equals, Clear, Invert, Percent };
 
@@ -27,7 +26,6 @@ struct ButtonData {
     char digit;
     Operation op;
 };
-AZ_REFLECT(ButtonData);
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
 
@@ -66,28 +64,26 @@ Dom make_button(RefAny& calc, const char* label, EventType evt, char digit, Oper
     bd.evt = evt;
     bd.digit = digit;
     bd.op = op;
-    
-    Dom text = Dom::create_text(label);
+
     Dom btn = Dom::create_div();
-    btn.set_inline_style(style);
-    btn.add_child(std::move(text));
-    btn.add_callback(AzEventFilter_hover(AzHoverEventFilter_MouseUp), ButtonData_upcast(bd), on_click);
+    btn.set_css(String(style));
+    btn.add_child(Dom::create_text(String(label)));
+    btn.add_callback(AzEventFilter_hover(AzHoverEventFilter_MouseUp), upcast<ButtonData>(std::move(bd)), on_click);
     return btn;
 }
 
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     RefAny data_wrapper(data);
-    const Calculator* c = Calculator_downcast_ref(data_wrapper);
+    const Calculator* c = downcast_ref<Calculator>(data_wrapper);
     if (!c) return AzDom_createBody();
-    
-    Dom display_text = Dom::create_text(c->display.c_str());
+
     Dom display = Dom::create_div();
-    display.set_inline_style(DISPLAY_STYLE);
-    display.add_child(std::move(display_text));
-    
+    display.set_css(String(DISPLAY_STYLE));
+    display.add_child(Dom::create_text(String(c->display.c_str())));
+
     Dom buttons = Dom::create_div();
-    buttons.set_inline_style(BUTTONS_STYLE);
-    
+    buttons.set_css(String(BUTTONS_STYLE));
+
     // Row 1-5
     buttons.add_child(make_button(data_wrapper, "C", EventType::Clear, 0, Operation::None, BTN_STYLE));
     buttons.add_child(make_button(data_wrapper, "+/-", EventType::Invert, 0, Operation::None, BTN_STYLE));
@@ -108,24 +104,24 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     buttons.add_child(make_button(data_wrapper, "0", EventType::Digit, '0', Operation::None, ZERO_STYLE));
     buttons.add_child(make_button(data_wrapper, ".", EventType::Digit, '.', Operation::None, BTN_STYLE));
     buttons.add_child(make_button(data_wrapper, "=", EventType::Equals, 0, Operation::None, OP_STYLE));
-    
+
     Dom body = Dom::create_div();
-    body.set_inline_style(CALC_STYLE);
+    body.set_css(String(CALC_STYLE));
     body.add_child(std::move(display));
     body.add_child(std::move(buttons));
-    
+
     return body.style(Css::empty()).release();
 }
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
     RefAny data_wrapper(data);
-    const ButtonData* bd = ButtonData_downcast_ref(data_wrapper);
+    const ButtonData* bd = downcast_ref<ButtonData>(data_wrapper);
     if (!bd) return AzUpdate_DoNothing;
-    
+
     RefAny calc_wrapper(AzRefAny_clone(&bd->calc));
-    Calculator* c = Calculator_downcast_mut(calc_wrapper);
+    Calculator* c = downcast_mut<Calculator>(calc_wrapper);
     if (!c) return AzUpdate_DoNothing;
-    
+
     switch (bd->evt) {
         case EventType::Digit:
             if (c->clear_next) { c->display.clear(); c->clear_next = false; }
@@ -159,11 +155,10 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
 
 int main() {
     Calculator model;
-    RefAny data = Calculator_upcast(model);
-    
+    RefAny data = upcast<Calculator>(std::move(model));
+
     WindowCreateOptions window = WindowCreateOptions::create(layout);
-    window.inner().window_state.title = AzString_copyFromBytes((const uint8_t*)"Calculator", 0, 10);
-    
+
     App app = App::create(std::move(data), AppConfig::default_());
     app.run(std::move(window));
     return 0;
