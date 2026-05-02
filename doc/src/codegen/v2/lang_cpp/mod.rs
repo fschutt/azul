@@ -20,12 +20,15 @@
 mod common;
 mod cpp03;
 mod cpp11;
+mod cpp14;
 mod cpp17;
 mod cpp20;
 
 pub use common::*;
+pub use common::generate_module_partition;
 pub use cpp03::Cpp03Generator;
 pub use cpp11::Cpp11Generator;
+pub use cpp14::Cpp14Generator;
 pub use cpp17::Cpp17Generator;
 pub use cpp20::{Cpp20Generator, Cpp23Generator};
 
@@ -186,19 +189,24 @@ pub trait CppDialect: Sync {
         config: &CodegenConfig,
     );
 
-    /// Generate Option-specific methods (isSome, isNone, unwrap, toStdOptional)
+    /// Generate Option-specific methods (isSome, isNone, unwrap, toStdOptional).
+    /// `ir` is needed to look up the sibling enum's `Some` payload type when
+    /// the simple prefix-strip is wrong (e.g. `OptionU32` → `u32`, not `U32`).
     fn generate_option_methods(
         &self,
         code: &mut String,
         struct_def: &StructDef,
+        ir: &CodegenIR,
         config: &CodegenConfig,
     );
 
-    /// Generate Result-specific methods (isOk, isErr, unwrap, toStdExpected)
+    /// Generate Result-specific methods (isOk, isErr, unwrap, toStdExpected).
+    /// `ir` is needed for the sibling enum's `Ok`/`Err` payload types.
     fn generate_result_methods(
         &self,
         code: &mut String,
         struct_def: &StructDef,
+        ir: &CodegenIR,
         config: &CodegenConfig,
     );
 }
@@ -212,7 +220,7 @@ pub fn get_generator(standard: CppStandard) -> Box<dyn CppDialect> {
     match standard {
         CppStandard::Cpp03 => Box::new(Cpp03Generator),
         CppStandard::Cpp11 => Box::new(Cpp11Generator),
-        CppStandard::Cpp14 => Box::new(Cpp11Generator), // C++14 uses same generator as C++11
+        CppStandard::Cpp14 => Box::new(Cpp14Generator),
         CppStandard::Cpp17 => Box::new(Cpp17Generator),
         CppStandard::Cpp20 => Box::new(Cpp20Generator),
         CppStandard::Cpp23 => Box::new(Cpp23Generator),
@@ -229,17 +237,28 @@ pub fn generate_cpp_header(
     generator.generate(ir, config)
 }
 
-/// Generate all C++ headers (all standards)
+/// Generate all C++ headers (all standards). C++20+ also yields a sibling
+/// `azul.cppm` module-partition file (one shared file across cpp20/cpp23,
+/// since the contents are identical re-exports).
 pub fn generate_all_cpp_headers(
     ir: &CodegenIR,
     config: &CodegenConfig,
 ) -> Result<Vec<(String, String)>> {
     let mut results = Vec::new();
+    let mut module_emitted = false;
 
     for &standard in CppStandard::all() {
         let filename = standard.header_filename();
         let code = generate_cpp_header(ir, config, standard)?;
         results.push((filename, code));
+
+        if standard >= CppStandard::Cpp20 && !module_emitted {
+            results.push((
+                "azul.cppm".to_string(),
+                generate_module_partition(ir, config, standard),
+            ));
+            module_emitted = true;
+        }
     }
 
     Ok(results)

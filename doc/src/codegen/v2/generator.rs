@@ -136,6 +136,22 @@ impl GenerationTargets {
             )?;
         }
 
+        // C++20+: emit a single shared `azul.cppm` module partition for
+        // modules-aware toolchains. Re-exports the wrapper class names and
+        // reflection helpers; users `import azul;` instead of #include.
+        let cppm_path = codegen_dir.join("azul.cppm");
+        let cppm_code = super::lang_cpp::generate_module_partition(
+            ir,
+            &CodegenConfig::cpp_header(CppStandard::Cpp20),
+            CppStandard::Cpp20,
+        );
+        fs::write(&cppm_path, &cppm_code)?;
+        println!(
+            "[OK] Generated {} ({} bytes)",
+            cppm_path.display(),
+            cppm_code.len()
+        );
+
         // 11. Public Rust API (legacy, may be removed)
         println!("[11/13] Generating public Rust API...");
         CodeGenerator::generate_to_file(

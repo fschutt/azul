@@ -42,12 +42,15 @@ impl CppDialect for Cpp03Generator {
         // Open namespace
         code.push_str("namespace azul {\r\n\r\n");
 
-        // Sort structs by dependency order
+        // Synthesize struct entries for Option/Result tagged-union enums.
+        let synthesized = synthesize_option_result_structs(ir);
         let sorted_structs = self.sort_types_by_dependencies(ir);
+        let all_structs: Vec<&StructDef> =
+            sorted_structs.iter().copied().chain(synthesized.iter()).collect();
 
         // Forward declarations
         code.push_str("// Forward declarations\r\n");
-        for struct_def in &sorted_structs {
+        for struct_def in &all_structs {
             if !config.should_include_type(&struct_def.name) {
                 continue;
             }
@@ -60,16 +63,19 @@ impl CppDialect for Cpp03Generator {
 
         // Class declarations
         code.push_str("// Wrapper class declarations\r\n\r\n");
-        for struct_def in &sorted_structs {
+        for struct_def in &all_structs {
             if !config.should_include_type(&struct_def.name) {
                 continue;
             }
             self.generate_class_declaration(&mut code, struct_def, ir, config);
         }
 
-        // Enum wrappers (simple typedefs)
+        // Enum wrappers (skip Option/Result — those got real classes above).
         for enum_def in &ir.enums {
             if !config.should_include_type(&enum_def.name) {
+                continue;
+            }
+            if matches!(enum_def.category, TypeCategory::Option | TypeCategory::Result) {
                 continue;
             }
             self.generate_enum_wrapper(&mut code, enum_def, config);
@@ -79,7 +85,7 @@ impl CppDialect for Cpp03Generator {
         code.push_str("// Method implementations\r\n");
         code.push_str("// (Implemented after all classes are declared to avoid incomplete type errors)\r\n\r\n");
 
-        for struct_def in &sorted_structs {
+        for struct_def in &all_structs {
             if !config.should_include_type(&struct_def.name) {
                 continue;
             }
@@ -139,10 +145,13 @@ impl CppDialect for Cpp03Generator {
 
         code.push_str("public:\r\n");
 
-        // Constructor from C type
+        // Constructor from C type. Copy types skip `explicit` so that methods
+        // returning a wrapper from a C-returning function compile via implicit
+        // conversion (mirrors the cpp11+ Bug 2 fix).
+        let ctor_explicit = if is_copy_type { "" } else { "explicit " };
         code.push_str(&format!(
-            "    explicit {}({} inner) : inner_(inner) {{}}\r\n",
-            class_name, c_type_name
+            "    {}{}({} inner) : inner_(inner) {{}}\r\n",
+            ctor_explicit, class_name, c_type_name
         ));
 
         // Copy/move semantics
@@ -190,10 +199,10 @@ impl CppDialect for Cpp03Generator {
             self.generate_string_methods(code, struct_def, config);
         }
         if is_option_type(struct_def) {
-            self.generate_option_methods(code, struct_def, config);
+            self.generate_option_methods(code, struct_def, ir, config);
         }
         if is_result_type(struct_def) {
-            self.generate_result_methods(code, struct_def, config);
+            self.generate_result_methods(code, struct_def, ir, config);
         }
 
         code.push_str("};\r\n\r\n");
@@ -267,7 +276,15 @@ impl CppDialect for Cpp03Generator {
                 "inline {} {}::{}({}) {{\r\n",
                 cpp_return_type, class_name, cpp_fn_name, cpp_args
             ));
-            code.push_str(&format!("    return {}({});\r\n", c_fn_name, call_args));
+            let return_type_str = func.return_type.as_deref().unwrap_or("");
+            if type_has_wrapper(return_type_str, ir) {
+                code.push_str(&format!(
+                    "    return {}({}({}));\r\n",
+                    return_type_str, c_fn_name, call_args
+                ));
+            } else {
+                code.push_str(&format!("    return {}({});\r\n", c_fn_name, call_args));
+            }
             code.push_str("}\r\n\r\n");
         }
 
@@ -479,10 +496,12 @@ impl CppDialect for Cpp03Generator {
         &self,
         code: &mut String,
         struct_def: &StructDef,
+        ir: &CodegenIR,
         config: &CodegenConfig,
     ) {
         let c_type_name = config.apply_prefix(&struct_def.name);
-        let inner_type = get_option_inner_type(struct_def).unwrap_or_else(|| "void".to_string());
+        let inner_type =
+            get_option_inner_type_ir(struct_def, ir).unwrap_or_else(|| "void".to_string());
         let c_inner_type = if is_primitive(&inner_type) {
             primitive_to_c(&inner_type)
         } else {
@@ -516,6 +535,7 @@ impl CppDialect for Cpp03Generator {
         &self,
         code: &mut String,
         struct_def: &StructDef,
+        _ir: &CodegenIR,
         config: &CodegenConfig,
     ) {
         let c_type_name = config.apply_prefix(&struct_def.name);

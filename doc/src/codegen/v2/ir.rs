@@ -745,6 +745,16 @@ pub enum TypeCategory {
     /// No separate Python wrapper struct
     Vec,
 
+    /// Option types (OptionDom, OptionString, etc.) - regular wrappers but
+    /// with special isSome/isNone/unwrap/toStdOptional helpers in C++
+    /// Detected by name prefix "Option" + sibling enum with Some/None variants
+    Option,
+
+    /// Result types (ResultCss_CssParseError, etc.) - regular wrappers but
+    /// with special isOk/isErr/unwrap/toStdExpected helpers in C++
+    /// Detected by name prefix "Result" + sibling enum with Ok/Err variants
+    Result,
+
     /// RefAny type - opaque pointer to Python object
     /// Used for storing Python callables in callbacks
     /// No separate wrapper, uses C-API type directly
@@ -832,6 +842,8 @@ impl TypeCategory {
             TypeCategory::Primitive => "primitive type",
             TypeCategory::String => "string type (AzString)",
             TypeCategory::Vec => "vec type (AzU8Vec, etc.)",
+            TypeCategory::Option => "option type (Some/None wrapper)",
+            TypeCategory::Result => "result type (Ok/Err wrapper)",
             TypeCategory::RefAny => "RefAny (opaque callback data)",
             TypeCategory::CallbackTypedef => "callback typedef (fn pointer)",
             TypeCategory::CallbackDataPair => "callback+data pair",

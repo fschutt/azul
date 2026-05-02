@@ -2127,6 +2127,54 @@ const CAPI_DIRECT_TYPES: &[&str] = &[
     "StringMenuItem",
 ];
 
+/// Detect whether `class_data` (regardless of struct/enum kind) describes an
+/// Option-shaped tagged union: name prefix + sibling/own enum_fields with
+/// `Some` and `None` variants. Cheap pre-filter on the name keeps us from
+/// scanning every enum body.
+fn is_option_shaped(name: &str, class_data: &ClassData) -> bool {
+    if !name.starts_with("Option") {
+        return false;
+    }
+    let Some(enum_fields) = &class_data.enum_fields else {
+        return false;
+    };
+    let mut has_some = false;
+    let mut has_none = false;
+    for variant_map in enum_fields {
+        for variant_name in variant_map.keys() {
+            if variant_name == "Some" {
+                has_some = true;
+            } else if variant_name == "None" {
+                has_none = true;
+            }
+        }
+    }
+    has_some && has_none
+}
+
+/// Detect whether `class_data` describes a Result-shaped tagged union: name
+/// prefix + enum_fields with `Ok` and `Err` variants.
+fn is_result_shaped(name: &str, class_data: &ClassData) -> bool {
+    if !name.starts_with("Result") {
+        return false;
+    }
+    let Some(enum_fields) = &class_data.enum_fields else {
+        return false;
+    };
+    let mut has_ok = false;
+    let mut has_err = false;
+    for variant_map in enum_fields {
+        for variant_name in variant_map.keys() {
+            if variant_name == "Ok" {
+                has_ok = true;
+            } else if variant_name == "Err" {
+                has_err = true;
+            }
+        }
+    }
+    has_ok && has_err
+}
+
 /// Classify a struct type based on its properties
 /// This is the central classification function that replaces all ad-hoc checks
 pub fn classify_struct_type(
@@ -2148,6 +2196,16 @@ pub fn classify_struct_type(
     // This is the primary detection method - if vec_element_type is set, it's a Vec
     if class_data.vec_element_type.is_some() || VEC_TYPE_NAMES.contains(&name) {
         return TypeCategory::Vec;
+    }
+
+    // 3a. Option/Result tagged unions (defensive: api.json encodes these as
+    // `enum_fields` so this branch is rarely hit on the struct path, but it
+    // keeps the classifier consistent if someone adds a struct-form variant.)
+    if is_option_shaped(name, class_data) {
+        return TypeCategory::Option;
+    }
+    if is_result_shaped(name, class_data) {
+        return TypeCategory::Result;
     }
 
     // 4. Check for types that use C-API directly (no Python wrapper)
@@ -2222,7 +2280,16 @@ pub fn classify_enum_type(
         return TypeCategory::DestructorOrClone;
     }
 
-    // 3. Check for generic templates
+    // 3. Option/Result tagged unions - this is where api.json actually encodes
+    // them (with `enum_fields`).
+    if is_option_shaped(name, class_data) {
+        return TypeCategory::Option;
+    }
+    if is_result_shaped(name, class_data) {
+        return TypeCategory::Result;
+    }
+
+    // 4. Check for generic templates
     if class_data.generic_params.is_some()
         && !class_data
             .generic_params
@@ -2233,7 +2300,7 @@ pub fn classify_enum_type(
         return TypeCategory::GenericTemplate;
     }
 
-    // 4. Default to Regular
+    // 5. Default to Regular
     TypeCategory::Regular
 }
 

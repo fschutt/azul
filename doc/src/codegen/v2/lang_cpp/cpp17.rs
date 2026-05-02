@@ -35,18 +35,26 @@ impl CppDialect for Cpp17Generator {
         // Includes
         code.push_str(&generate_includes(std));
 
-        // AZ_REFLECT macro
-        code.push_str(&generate_reflect_macro(std));
+        // AZ_REFLECT macro - C++11+ uses template-reflection helpers instead.
+        if !std.has_move_semantics() {
+            code.push_str(&generate_reflect_macro(std));
+        } else {
+            code.push_str(&generate_az_string_from_literal_helper(std));
+        }
 
         // Open namespace
         code.push_str("namespace azul {\r\n\r\n");
 
-        // Sort structs by dependency order
+        // Synthesize struct entries for Option/Result tagged-union enums so the
+        // existing wrapper-class generation path picks them up uniformly.
+        let synthesized = synthesize_option_result_structs(ir);
         let sorted_structs = self.sort_types_by_dependencies(ir);
+        let all_structs: Vec<&StructDef> =
+            sorted_structs.iter().copied().chain(synthesized.iter()).collect();
 
         // Forward declarations
         code.push_str("// Forward declarations\r\n");
-        for struct_def in &sorted_structs {
+        for struct_def in &all_structs {
             if !config.should_include_type(&struct_def.name) {
                 continue;
             }
@@ -59,16 +67,19 @@ impl CppDialect for Cpp17Generator {
 
         // Class declarations
         code.push_str("// Wrapper class declarations\r\n\r\n");
-        for struct_def in &sorted_structs {
+        for struct_def in &all_structs {
             if !config.should_include_type(&struct_def.name) {
                 continue;
             }
             self.generate_class_declaration(&mut code, struct_def, ir, config);
         }
 
-        // Enum wrappers
+        // Enum wrappers (skip Option/Result — those got real classes above).
         for enum_def in &ir.enums {
             if !config.should_include_type(&enum_def.name) {
+                continue;
+            }
+            if matches!(enum_def.category, TypeCategory::Option | TypeCategory::Result) {
                 continue;
             }
             self.generate_enum_wrapper(&mut code, enum_def, config);
@@ -78,7 +89,7 @@ impl CppDialect for Cpp17Generator {
         code.push_str("// Method implementations\r\n");
         code.push_str("// (Implemented after all classes are declared to avoid incomplete type errors)\r\n\r\n");
 
-        for struct_def in &sorted_structs {
+        for struct_def in &all_structs {
             if !config.should_include_type(&struct_def.name) {
                 continue;
             }
@@ -90,6 +101,9 @@ impl CppDialect for Cpp17Generator {
 
         // Close namespace
         code.push_str("} // namespace azul\r\n\r\n");
+
+        // Structured-binding specializations live in `namespace std`.
+        code.push_str(&generate_structured_binding_specs(ir));
 
         // Include guards end
         code.push_str(&generate_include_guards_end(std));
@@ -192,10 +206,10 @@ impl CppDialect for Cpp17Generator {
             self.generate_string_methods(code, struct_def, config);
         }
         if is_option_type(struct_def) {
-            self.generate_option_methods(code, struct_def, config);
+            self.generate_option_methods(code, struct_def, ir, config);
         }
         if is_result_type(struct_def) {
-            self.generate_result_methods(code, struct_def, config);
+            self.generate_result_methods(code, struct_def, ir, config);
         }
 
         code.push_str("};\r\n\r\n");
@@ -237,6 +251,23 @@ impl CppDialect for Cpp17Generator {
                 class_name, c_fn_name, call_args
             ));
             code.push_str("}\r\n\r\n");
+
+            if func_takes_string_arg(func) {
+                let sv_args = generate_args_signature_sv_overload(
+                    &func.args, ir, config, false, class_name, substitute,
+                );
+                let sv_call_args =
+                    generate_call_args_sv_overload(&func.args, ir, false, class_name);
+                code.push_str(&format!(
+                    "inline {} {}::{}({}) {{\r\n",
+                    class_name, class_name, cpp_fn_name, sv_args
+                ));
+                code.push_str(&format!(
+                    "    return {}::{}({});\r\n",
+                    class_name, cpp_fn_name, sv_call_args
+                ));
+                code.push_str("}\r\n\r\n");
+            }
         }
 
         // Factory methods
@@ -258,8 +289,33 @@ impl CppDialect for Cpp17Generator {
                 "inline {} {}::{}({}) {{\r\n",
                 cpp_return_type, class_name, cpp_fn_name, cpp_args
             ));
-            code.push_str(&format!("    return {}({});\r\n", c_fn_name, call_args));
+            let return_type_str = func.return_type.as_deref().unwrap_or("");
+            if type_has_wrapper(return_type_str, ir) {
+                code.push_str(&format!(
+                    "    return {}({}({}));\r\n",
+                    return_type_str, c_fn_name, call_args
+                ));
+            } else {
+                code.push_str(&format!("    return {}({});\r\n", c_fn_name, call_args));
+            }
             code.push_str("}\r\n\r\n");
+
+            if func_takes_string_arg(func) {
+                let sv_args = generate_args_signature_sv_overload(
+                    &func.args, ir, config, false, class_name, substitute,
+                );
+                let sv_call_args =
+                    generate_call_args_sv_overload(&func.args, ir, false, class_name);
+                code.push_str(&format!(
+                    "inline {} {}::{}({}) {{\r\n",
+                    cpp_return_type, class_name, cpp_fn_name, sv_args
+                ));
+                code.push_str(&format!(
+                    "    return {}::{}({});\r\n",
+                    class_name, cpp_fn_name, sv_call_args
+                ));
+                code.push_str("}\r\n\r\n");
+            }
         }
 
         // Instance methods
@@ -318,6 +374,30 @@ impl CppDialect for Cpp17Generator {
                 }
             }
             code.push_str("}\r\n\r\n");
+
+            if func_takes_string_arg(func) {
+                let sv_args = generate_args_signature_sv_overload(
+                    &func.args, ir, config, true, class_name, substitute,
+                );
+                let sv_call_args =
+                    generate_call_args_sv_overload(&func.args, ir, true, class_name);
+
+                code.push_str(&format!(
+                    "inline {} {}::{}({}){} {{\r\n",
+                    cpp_return_type, class_name, cpp_fn_name, sv_args, const_suffix
+                ));
+                let static_or_method_call = if has_self {
+                    format!("this->{}({})", cpp_fn_name, sv_call_args)
+                } else {
+                    format!("{}::{}({})", class_name, cpp_fn_name, sv_call_args)
+                };
+                if cpp_return_type == "void" {
+                    code.push_str(&format!("    {};\r\n", static_or_method_call));
+                } else {
+                    code.push_str(&format!("    return {};\r\n", static_or_method_call));
+                }
+                code.push_str("}\r\n\r\n");
+            }
         }
     }
 
@@ -456,10 +536,12 @@ impl CppDialect for Cpp17Generator {
         &self,
         code: &mut String,
         struct_def: &StructDef,
+        ir: &CodegenIR,
         config: &CodegenConfig,
     ) {
         let c_type_name = config.apply_prefix(&struct_def.name);
-        let inner_type = get_option_inner_type(struct_def).unwrap_or_else(|| "void".to_string());
+        let inner_type =
+            get_option_inner_type_ir(struct_def, ir).unwrap_or_else(|| "void".to_string());
         let c_inner_type = if is_primitive(&inner_type) {
             primitive_to_c(&inner_type)
         } else {
@@ -503,6 +585,7 @@ impl CppDialect for Cpp17Generator {
         &self,
         code: &mut String,
         struct_def: &StructDef,
+        _ir: &CodegenIR,
         config: &CodegenConfig,
     ) {
         let c_type_name = config.apply_prefix(&struct_def.name);
@@ -558,6 +641,15 @@ impl Cpp17Generator {
                     "    [[nodiscard]] static {} {}({});\r\n",
                     class_name, cpp_fn_name, cpp_args
                 ));
+                if func_takes_string_arg(func) {
+                    let sv_args = generate_args_signature_sv_overload(
+                        &func.args, ir, config, false, class_name, substitute,
+                    );
+                    code.push_str(&format!(
+                        "    [[nodiscard]] static {} {}({});\r\n",
+                        class_name, cpp_fn_name, sv_args
+                    ));
+                }
             }
         }
 
@@ -579,6 +671,15 @@ impl Cpp17Generator {
                 "    [[nodiscard]] static {} {}({});\r\n",
                 cpp_return_type, cpp_fn_name, cpp_args
             ));
+            if func_takes_string_arg(func) {
+                let sv_args = generate_args_signature_sv_overload(
+                    &func.args, ir, config, false, class_name, substitute,
+                );
+                code.push_str(&format!(
+                    "    [[nodiscard]] static {} {}({});\r\n",
+                    cpp_return_type, cpp_fn_name, sv_args
+                ));
+            }
         }
     }
 
@@ -614,6 +715,15 @@ impl Cpp17Generator {
                     "    {}{} {}({}){};\r\n",
                     static_prefix, cpp_return_type, cpp_fn_name, cpp_args, const_suffix
                 ));
+                if func_takes_string_arg(func) {
+                    let sv_args = generate_args_signature_sv_overload(
+                        &func.args, ir, config, true, class_name, substitute,
+                    );
+                    code.push_str(&format!(
+                        "    {}{} {}({}){};\r\n",
+                        static_prefix, cpp_return_type, cpp_fn_name, sv_args, const_suffix
+                    ));
+                }
             }
         }
     }

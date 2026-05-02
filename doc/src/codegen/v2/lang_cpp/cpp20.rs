@@ -45,18 +45,25 @@ impl CppDialect for Cpp20Generator {
         // Includes
         code.push_str(&generate_includes(std));
 
-        // AZ_REFLECT macro
-        code.push_str(&generate_reflect_macro(std));
+        // AZ_REFLECT macro - C++11+ uses template-reflection helpers instead.
+        if !std.has_move_semantics() {
+            code.push_str(&generate_reflect_macro(std));
+        } else {
+            code.push_str(&generate_az_string_from_literal_helper(std));
+        }
 
         // Open namespace
         code.push_str("namespace azul {\r\n\r\n");
 
-        // Sort structs by dependency order
+        // Synthesize struct entries for Option/Result tagged-union enums.
+        let synthesized = synthesize_option_result_structs(ir);
         let sorted_structs = self.sort_types_by_dependencies(ir);
+        let all_structs: Vec<&StructDef> =
+            sorted_structs.iter().copied().chain(synthesized.iter()).collect();
 
         // Forward declarations
         code.push_str("// Forward declarations\r\n");
-        for struct_def in &sorted_structs {
+        for struct_def in &all_structs {
             if !config.should_include_type(&struct_def.name) {
                 continue;
             }
@@ -69,16 +76,19 @@ impl CppDialect for Cpp20Generator {
 
         // Class declarations
         code.push_str("// Wrapper class declarations\r\n\r\n");
-        for struct_def in &sorted_structs {
+        for struct_def in &all_structs {
             if !config.should_include_type(&struct_def.name) {
                 continue;
             }
             self.generate_class_declaration(&mut code, struct_def, ir, config);
         }
 
-        // Enum wrappers
+        // Enum wrappers (skip Option/Result — those got real classes above).
         for enum_def in &ir.enums {
             if !config.should_include_type(&enum_def.name) {
+                continue;
+            }
+            if matches!(enum_def.category, TypeCategory::Option | TypeCategory::Result) {
                 continue;
             }
             self.generate_enum_wrapper(&mut code, enum_def, config);
@@ -88,7 +98,7 @@ impl CppDialect for Cpp20Generator {
         code.push_str("// Method implementations\r\n");
         code.push_str("// (Implemented after all classes are declared to avoid incomplete type errors)\r\n\r\n");
 
-        for struct_def in &sorted_structs {
+        for struct_def in &all_structs {
             if !config.should_include_type(&struct_def.name) {
                 continue;
             }
@@ -100,6 +110,9 @@ impl CppDialect for Cpp20Generator {
 
         // Close namespace
         code.push_str("} // namespace azul\r\n\r\n");
+
+        // Structured-binding specializations (namespace std).
+        code.push_str(&generate_structured_binding_specs(ir));
 
         // Include guards end
         code.push_str(&generate_include_guards_end(std));
@@ -114,101 +127,7 @@ impl CppDialect for Cpp20Generator {
         ir: &CodegenIR,
         config: &CodegenConfig,
     ) {
-        if should_skip_class(struct_def) {
-            return;
-        }
-
-        let class_name = &struct_def.name;
-        let c_type_name = config.apply_prefix(class_name);
-        let is_copy_type = is_copy(struct_def);
-        let needs_dtor = needs_destructor(struct_def);
-
-        // Simple type alias for empty Copy types
-        if renders_as_type_alias(struct_def) {
-            code.push_str(&format!("using {} = {};\r\n\r\n", class_name, c_type_name));
-            return;
-        }
-
-        // Class declaration
-        code.push_str(&format!("class {} {{\r\n", class_name));
-
-        code.push_str("private:\r\n");
-        code.push_str(&format!("    {} inner_;\r\n\r\n", c_type_name));
-
-        // Delete copy for non-Copy types
-        if !is_copy_type {
-            code.push_str(&format!(
-                "    {}(const {}&) = delete;\r\n",
-                class_name, class_name
-            ));
-            code.push_str(&format!(
-                "    {}& operator=(const {}&) = delete;\r\n\r\n",
-                class_name, class_name
-            ));
-        }
-
-        code.push_str("public:\r\n");
-
-        // Constructor from C type. Copy types skip `explicit` so methods that
-        // return a wrapper from a C-returning function compile via implicit
-        // conversion. Non-Copy types keep `explicit` to prevent accidental
-        // ownership-stealing copies.
-        let ctor_explicit = if is_copy_type { "" } else { "explicit " };
-        code.push_str(&format!(
-            "    {}{}({} inner) noexcept : inner_(inner) {{}}\r\n",
-            ctor_explicit, class_name, c_type_name
-        ));
-
-        // Copy/move semantics
-        self.generate_copy_move_semantics(code, class_name, &c_type_name, is_copy_type, needs_dtor);
-
-        // Destructor
-        self.generate_destructor(code, class_name, &c_type_name, needs_dtor);
-
-        // Constructors
-        self.generate_constructor_declarations(code, class_name, ir, config);
-
-        // Instance methods
-        self.generate_method_declarations(code, class_name, ir, config);
-
-        // Accessor methods
-        code.push_str("\r\n");
-        code.push_str(&format!(
-            "    const {}& inner() const {{ return inner_; }}\r\n",
-            c_type_name
-        ));
-        code.push_str(&format!(
-            "    {}& inner() {{ return inner_; }}\r\n",
-            c_type_name
-        ));
-        code.push_str(&format!(
-            "    const {}* ptr() const {{ return &inner_; }}\r\n",
-            c_type_name
-        ));
-        code.push_str(&format!(
-            "    {}* ptr() {{ return &inner_; }}\r\n",
-            c_type_name
-        ));
-        code.push_str(&format!(
-            "    {} release() {{ {} result = inner_; inner_ = {{}}; return result; }}\r\n",
-            c_type_name, c_type_name
-        ));
-
-        // Type-specific methods
-        if is_vec_type(struct_def) {
-            self.generate_vec_methods(code, struct_def, config);
-        }
-        if is_string_type(struct_def) {
-            self.generate_string_methods(code, struct_def, config);
-        }
-        if is_option_type(struct_def) {
-            self.generate_option_methods(code, struct_def, config);
-        }
-        if is_result_type(struct_def) {
-            self.generate_result_methods(code, struct_def, config);
-        }
-
-        code.push_str("};\r\n\r\n");
+        emit_class_declaration_cpp20_or_later(self, code, struct_def, ir, config);
     }
 
     fn generate_method_implementations(
@@ -368,10 +287,12 @@ impl CppDialect for Cpp20Generator {
         &self,
         code: &mut String,
         struct_def: &StructDef,
+        ir: &CodegenIR,
         config: &CodegenConfig,
     ) {
         let c_type_name = config.apply_prefix(&struct_def.name);
-        let inner_type = get_option_inner_type(struct_def).unwrap_or_else(|| "void".to_string());
+        let inner_type =
+            get_option_inner_type_ir(struct_def, ir).unwrap_or_else(|| "void".to_string());
         let c_inner_type = if is_primitive(&inner_type) {
             primitive_to_c(&inner_type)
         } else {
@@ -414,6 +335,7 @@ impl CppDialect for Cpp20Generator {
         &self,
         code: &mut String,
         struct_def: &StructDef,
+        _ir: &CodegenIR,
         config: &CodegenConfig,
     ) {
         let c_type_name = config.apply_prefix(&struct_def.name);
@@ -454,11 +376,14 @@ impl CppDialect for Cpp23Generator {
 
         code.push_str("namespace azul {\r\n\r\n");
 
+        let synthesized = synthesize_option_result_structs(ir);
         let sorted_structs = self.sort_types_by_dependencies(ir);
+        let all_structs: Vec<&StructDef> =
+            sorted_structs.iter().copied().chain(synthesized.iter()).collect();
 
         // Forward declarations
         code.push_str("// Forward declarations\r\n");
-        for struct_def in &sorted_structs {
+        for struct_def in &all_structs {
             if !config.should_include_type(&struct_def.name) {
                 continue;
             }
@@ -471,7 +396,7 @@ impl CppDialect for Cpp23Generator {
 
         // Class declarations
         code.push_str("// Wrapper class declarations\r\n\r\n");
-        for struct_def in &sorted_structs {
+        for struct_def in &all_structs {
             if !config.should_include_type(&struct_def.name) {
                 continue;
             }
@@ -482,13 +407,16 @@ impl CppDialect for Cpp23Generator {
             if !config.should_include_type(&enum_def.name) {
                 continue;
             }
+            if matches!(enum_def.category, TypeCategory::Option | TypeCategory::Result) {
+                continue;
+            }
             self.generate_enum_wrapper(&mut code, enum_def, config);
         }
 
         code.push_str("// Method implementations\r\n");
         code.push_str("// (Implemented after all classes are declared to avoid incomplete type errors)\r\n\r\n");
 
-        for struct_def in &sorted_structs {
+        for struct_def in &all_structs {
             if !config.should_include_type(&struct_def.name) {
                 continue;
             }
@@ -499,6 +427,10 @@ impl CppDialect for Cpp23Generator {
         code.push_str(&generate_template_reflection(std));
 
         code.push_str("} // namespace azul\r\n\r\n");
+
+        // Structured-binding specializations (namespace std).
+        code.push_str(&generate_structured_binding_specs(ir));
+
         code.push_str(&generate_include_guards_end(std));
 
         Ok(code)
@@ -511,8 +443,7 @@ impl CppDialect for Cpp23Generator {
         ir: &CodegenIR,
         config: &CodegenConfig,
     ) {
-        // Mostly same as C++20, delegate to shared
-        Cpp20Generator.generate_class_declaration(code, struct_def, ir, config);
+        emit_class_declaration_cpp20_or_later(self, code, struct_def, ir, config);
     }
 
     fn generate_method_implementations(
@@ -574,34 +505,161 @@ impl CppDialect for Cpp23Generator {
         &self,
         code: &mut String,
         struct_def: &StructDef,
+        ir: &CodegenIR,
         config: &CodegenConfig,
     ) {
-        Cpp20Generator.generate_option_methods(code, struct_def, config);
+        Cpp20Generator.generate_option_methods(code, struct_def, ir, config);
     }
 
     fn generate_result_methods(
         &self,
         code: &mut String,
         struct_def: &StructDef,
+        ir: &CodegenIR,
         config: &CodegenConfig,
     ) {
-        let c_type_name = config.apply_prefix(&struct_def.name);
-
-        code.push_str("\r\n    // Result methods\r\n");
-        code.push_str(&format!(
-            "    bool isOk() const {{ return inner_.Ok.tag == {}_Tag_Ok; }}\r\n",
-            c_type_name
-        ));
-        code.push_str(&format!(
-            "    bool isErr() const {{ return inner_.Ok.tag == {}_Tag_Err; }}\r\n",
-            c_type_name
-        ));
-        code.push_str("    explicit operator bool() const { return isOk(); }\r\n");
-
-        // C++23: std::expected (simplified - would need actual Ok/Err types)
-        // For now just add a comment since we don't have the payload types easily available
-        code.push_str("    // C++23: Use toStdExpected() when Ok/Err types are available\r\n");
+        Cpp20Generator.generate_result_methods(code, struct_def, ir, config);
     }
+}
+
+/// Emit a wrapper class declaration for a struct on the C++20-or-later path.
+/// The C++23 generator uses this same body but its `standard()` returns
+/// `Cpp23`, so the conditional Result extras kick in automatically.
+fn emit_class_declaration_cpp20_or_later(
+    gen: &(impl CppDialect + ?Sized),
+    code: &mut String,
+    struct_def: &StructDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) {
+    if should_skip_class(struct_def) {
+        return;
+    }
+
+    let class_name = &struct_def.name;
+    let c_type_name = config.apply_prefix(class_name);
+    let is_copy_type = is_copy(struct_def);
+    let needs_dtor = needs_destructor(struct_def);
+
+    if renders_as_type_alias(struct_def) {
+        code.push_str(&format!("using {} = {};\r\n\r\n", class_name, c_type_name));
+        return;
+    }
+
+    code.push_str(&format!("class {} {{\r\n", class_name));
+    code.push_str("private:\r\n");
+    code.push_str(&format!("    {} inner_;\r\n\r\n", c_type_name));
+
+    if !is_copy_type {
+        code.push_str(&format!(
+            "    {}(const {}&) = delete;\r\n",
+            class_name, class_name
+        ));
+        code.push_str(&format!(
+            "    {}& operator=(const {}&) = delete;\r\n\r\n",
+            class_name, class_name
+        ));
+    }
+
+    code.push_str("public:\r\n");
+    let ctor_explicit = if is_copy_type { "" } else { "explicit " };
+    code.push_str(&format!(
+        "    {}{}({} inner) noexcept : inner_(inner) {{}}\r\n",
+        ctor_explicit, class_name, c_type_name
+    ));
+
+    gen.generate_copy_move_semantics(code, class_name, &c_type_name, is_copy_type, needs_dtor);
+    gen.generate_destructor(code, class_name, &c_type_name, needs_dtor);
+
+    // Constructor & method declarations are not on the trait, so we have to
+    // delegate to a generator that has them. Cpp20Generator owns these helpers
+    // and they don't depend on the standard, so we always call its versions.
+    Cpp20Generator.generate_constructor_declarations(code, class_name, ir, config);
+    Cpp20Generator.generate_method_declarations(code, class_name, ir, config);
+
+    code.push_str("\r\n");
+    code.push_str(&format!(
+        "    const {}& inner() const {{ return inner_; }}\r\n",
+        c_type_name
+    ));
+    code.push_str(&format!(
+        "    {}& inner() {{ return inner_; }}\r\n",
+        c_type_name
+    ));
+    code.push_str(&format!(
+        "    const {}* ptr() const {{ return &inner_; }}\r\n",
+        c_type_name
+    ));
+    code.push_str(&format!(
+        "    {}* ptr() {{ return &inner_; }}\r\n",
+        c_type_name
+    ));
+    code.push_str(&format!(
+        "    {} release() {{ {} result = inner_; inner_ = {{}}; return result; }}\r\n",
+        c_type_name, c_type_name
+    ));
+
+    if is_vec_type(struct_def) {
+        gen.generate_vec_methods(code, struct_def, config);
+    }
+    if is_string_type(struct_def) {
+        gen.generate_string_methods(code, struct_def, config);
+    }
+    if is_option_type(struct_def) {
+        gen.generate_option_methods(code, struct_def, ir, config);
+    }
+    if is_result_type(struct_def) {
+        gen.generate_result_methods(code, struct_def, ir, config);
+        if gen.standard() >= CppStandard::Cpp23 {
+            emit_cpp23_result_extras(code, struct_def, ir, config);
+        }
+    }
+
+    code.push_str("};\r\n\r\n");
+}
+
+/// Emit C++23-specific Result extras: `toStdExpected() &&` and an implicit
+/// `operator std::expected<Ok, Err>()`. The Ok/Err payload types are looked
+/// up from the sibling enum's `EnumVariantKind::Tuple` shape — generic for
+/// every `ResultXxx` enum.
+fn emit_cpp23_result_extras(
+    code: &mut String,
+    struct_def: &StructDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) {
+    let enum_def = match ir.find_enum(&struct_def.name) {
+        Some(e) => e,
+        None => return,
+    };
+    let (ok_t, err_t) = match get_result_payload_types(enum_def) {
+        Some(p) => p,
+        None => return,
+    };
+
+    let c_ok = if is_primitive(&ok_t) {
+        primitive_to_c(&ok_t)
+    } else {
+        format!("Az{}", ok_t)
+    };
+    let c_err = if is_primitive(&err_t) {
+        primitive_to_c(&err_t)
+    } else {
+        format!("Az{}", err_t)
+    };
+    let c_type_name = config.apply_prefix(&struct_def.name);
+
+    code.push_str(&format!(
+        "    std::expected<{ok}, {err}> toStdExpected() && {{\r\n        if (isOk()) {{\r\n            {ok} v = inner_.Ok.payload;\r\n            inner_ = {{}};\r\n            return std::expected<{ok}, {err}>(std::move(v));\r\n        }} else {{\r\n            {err} e = inner_.Err.payload;\r\n            inner_ = {{}};\r\n            return std::expected<{ok}, {err}>(std::unexpected<{err}>(std::move(e)));\r\n        }}\r\n    }}\r\n",
+        ok = c_ok,
+        err = c_err,
+    ));
+    code.push_str(&format!(
+        "    operator std::expected<{ok}, {err}>() && {{ return std::move(*this).toStdExpected(); }}\r\n",
+        ok = c_ok,
+        err = c_err,
+    ));
+    let _ = c_type_name;
 }
 
 // ============================================================================
@@ -788,7 +846,15 @@ fn generate_method_implementations_shared(
             "inline {} {}::{}({}) {{\r\n",
             cpp_return_type, class_name, cpp_fn_name, cpp_args
         ));
-        code.push_str(&format!("    return {}({});\r\n", c_fn_name, call_args));
+        let return_type_str = func.return_type.as_deref().unwrap_or("");
+        if type_has_wrapper(return_type_str, ir) {
+            code.push_str(&format!(
+                "    return {}({}({}));\r\n",
+                return_type_str, c_fn_name, call_args
+            ));
+        } else {
+            code.push_str(&format!("    return {}({});\r\n", c_fn_name, call_args));
+        }
         code.push_str("}\r\n\r\n");
     }
 

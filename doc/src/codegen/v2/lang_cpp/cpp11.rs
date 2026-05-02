@@ -36,18 +36,28 @@ impl CppDialect for Cpp11Generator {
         // Includes
         code.push_str(&generate_includes(std));
 
-        // AZ_REFLECT macro
-        code.push_str(&generate_reflect_macro(std));
+        // AZ_REFLECT macro - only emitted for C++03; C++11+ uses the
+        // template-reflection helpers (`azul::upcast`, etc.) instead. The
+        // `az_string_from_literal` helper still has to be emitted because
+        // `azul::upcast` calls it.
+        if !std.has_move_semantics() {
+            code.push_str(&generate_reflect_macro(std));
+        } else {
+            code.push_str(&generate_az_string_from_literal_helper(std));
+        }
 
         // Open namespace
         code.push_str("namespace azul {\r\n\r\n");
 
-        // Sort structs by dependency order
+        // Synthesize struct entries for Option/Result tagged-union enums.
+        let synthesized = synthesize_option_result_structs(ir);
         let sorted_structs = self.sort_types_by_dependencies(ir);
+        let all_structs: Vec<&StructDef> =
+            sorted_structs.iter().copied().chain(synthesized.iter()).collect();
 
         // Forward declarations
         code.push_str("// Forward declarations\r\n");
-        for struct_def in &sorted_structs {
+        for struct_def in &all_structs {
             if !config.should_include_type(&struct_def.name) {
                 continue;
             }
@@ -60,16 +70,19 @@ impl CppDialect for Cpp11Generator {
 
         // Class declarations
         code.push_str("// Wrapper class declarations\r\n\r\n");
-        for struct_def in &sorted_structs {
+        for struct_def in &all_structs {
             if !config.should_include_type(&struct_def.name) {
                 continue;
             }
             self.generate_class_declaration(&mut code, struct_def, ir, config);
         }
 
-        // Enum wrappers
+        // Enum wrappers (skip Option/Result — those got real classes above).
         for enum_def in &ir.enums {
             if !config.should_include_type(&enum_def.name) {
+                continue;
+            }
+            if matches!(enum_def.category, TypeCategory::Option | TypeCategory::Result) {
                 continue;
             }
             self.generate_enum_wrapper(&mut code, enum_def, config);
@@ -79,7 +92,7 @@ impl CppDialect for Cpp11Generator {
         code.push_str("// Method implementations\r\n");
         code.push_str("// (Implemented after all classes are declared to avoid incomplete type errors)\r\n\r\n");
 
-        for struct_def in &sorted_structs {
+        for struct_def in &all_structs {
             if !config.should_include_type(&struct_def.name) {
                 continue;
             }
@@ -196,10 +209,10 @@ impl CppDialect for Cpp11Generator {
             self.generate_string_methods(code, struct_def, config);
         }
         if is_option_type(struct_def) {
-            self.generate_option_methods(code, struct_def, config);
+            self.generate_option_methods(code, struct_def, ir, config);
         }
         if is_result_type(struct_def) {
-            self.generate_result_methods(code, struct_def, config);
+            self.generate_result_methods(code, struct_def, ir, config);
         }
 
         code.push_str("};\r\n\r\n");
@@ -262,7 +275,15 @@ impl CppDialect for Cpp11Generator {
                 "inline {} {}::{}({}) {{\r\n",
                 cpp_return_type, class_name, cpp_fn_name, cpp_args
             ));
-            code.push_str(&format!("    return {}({});\r\n", c_fn_name, call_args));
+            let return_type_str = func.return_type.as_deref().unwrap_or("");
+            if type_has_wrapper(return_type_str, ir) {
+                code.push_str(&format!(
+                    "    return {}({}({}));\r\n",
+                    return_type_str, c_fn_name, call_args
+                ));
+            } else {
+                code.push_str(&format!("    return {}({});\r\n", c_fn_name, call_args));
+            }
             code.push_str("}\r\n\r\n");
         }
 
@@ -460,10 +481,12 @@ impl CppDialect for Cpp11Generator {
         &self,
         code: &mut String,
         struct_def: &StructDef,
+        ir: &CodegenIR,
         config: &CodegenConfig,
     ) {
         let c_type_name = config.apply_prefix(&struct_def.name);
-        let inner_type = get_option_inner_type(struct_def).unwrap_or_else(|| "void".to_string());
+        let inner_type =
+            get_option_inner_type_ir(struct_def, ir).unwrap_or_else(|| "void".to_string());
         let c_inner_type = if is_primitive(&inner_type) {
             primitive_to_c(&inner_type)
         } else {
@@ -498,6 +521,7 @@ impl CppDialect for Cpp11Generator {
         &self,
         code: &mut String,
         struct_def: &StructDef,
+        _ir: &CodegenIR,
         config: &CodegenConfig,
     ) {
         let c_type_name = config.apply_prefix(&struct_def.name);
