@@ -446,6 +446,65 @@ scripts/ARCHITECTURE.md, api.json).
 - **Translation-stale** pages — translated page's `source_hash` no longer
   matches the SHA-256 of its canonical English body. CI fails on either.
 
+### Translations
+
+Translations live in language-prefixed sibling directories under
+`doc/guide/`. The English tree is canonical; every other language mirrors
+it page-for-page with localized slugs.
+
+```
+doc/guide/
+├── en/                                  # canonical (the only tree autodoc writes)
+│   ├── SUMMARY.md
+│   ├── reference.md
+│   ├── architecture.md                  # slug: architecture
+│   ├── hello-world.md                   # slug: hello-world
+│   ├── layout/flex.md                   # slug: layout/flex
+│   └── screenshots/<page>/<name>.png
+└── de/                                  # German translation (manual or future `translate` agent)
+    ├── SUMMARY.md
+    ├── architektur.md                   # slug: architektur,    canonical_slug: architecture
+    ├── hallo-welt.md                    # slug: hallo-welt,     canonical_slug: hello-world
+    └── layout/flexbox.md                # slug: layout/flexbox, canonical_slug: layout/flex
+```
+
+A translated page's frontmatter carries five extra fields beyond the
+canonical set:
+
+```yaml
+---
+slug: architektur                        # localized URL — used in the URL path
+title: Architektur
+language: de
+canonical_slug: architecture             # English-side identity (the page this mirrors)
+audience: external
+maturity: mature
+prerequisites: [hello-world]             # always English canonical_slugs; deploy localizes
+source_rev: 99be42b08ac44fcb01f1508e8...  # git SHA of canonical/architecture.md at translation time
+source_hash: a1b2c3d4...                  # SHA-256 of canonical body bytes (post-frontmatter)
+generated_at: 2026-05-02T12:00:00Z
+---
+```
+
+How the pieces interact:
+
+| Field | Role |
+|-------|------|
+| `slug` | URL segment under `/<lang>/`. Localized so `/de/architektur` reads naturally in German. |
+| `canonical_slug` | Anchor to the English page. Deploy uses it to find sibling translations and resolve `prerequisites`. |
+| `prerequisites` | Always lists English canonical slugs. Deploy maps each to the localized slug for the current `language` at render time, so `prerequisites: [hello-world]` on a German page links to `/de/hallo-welt`, not `/en/hello-world`. |
+| `source_rev` | Git SHA of the canonical at translation time. Cheap drift signal (grep `git log` for changes). |
+| `source_hash` | SHA-256 of the canonical body bytes (after frontmatter). Authoritative drift signal — `autodoc-check --strict` fails CI when this no longer matches the current canonical. |
+| `tracked_files` | **Empty on translations.** Translations inherit staleness from their canonical, not from source files. |
+
+When you edit a canonical English page, its body bytes change → SHA-256
+changes → every translation's `source_hash` no longer matches → next CI
+deploy fails until each translation is regenerated.
+
+There is no `translate` subcommand yet. Translations are produced
+manually (or by a future agent dispatch); the spec above is what the
+website and `autodoc-check` already understand.
+
 ### Outputs
 
 ```
@@ -457,12 +516,12 @@ doc/target/autoreview/autodoc/
 ├── outdated.md                    # autodoc-check report
 └── screenshots-manifest-<lang>.json  # Cached render manifest
 
-doc/guide/en/
-├── SUMMARY.md                     # Auto-generated index
-├── reference.md                   # 173-section system catalog (canonical)
-├── architecture.md                # Canonical architecture doc
+doc/guide/<lang>/
+├── SUMMARY.md                     # Auto-generated index (per language)
+├── reference.md                   # 173-section system catalog (en only — canonical)
+├── architecture.md                # Canonical architecture doc (en only)
 ├── <slug>.md                      # Generated guide pages
-└── screenshots/<page>/<name>.png  # Rendered azul-render fences
+└── screenshots/<page>/<name>.png  # Rendered azul-render fences (en only)
 ```
 
 ## Website Deployment
