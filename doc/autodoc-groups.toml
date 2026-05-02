@@ -84,7 +84,7 @@ programming background. No teaching order — read on demand.
 reference = "https://book.servo.org/contributing/guides/index.html — match this style. Dense, structural, zero throat-clearing. Headings carry the table of contents; prose only fills in what a heading + signature don't already say."
 reader_model = "Senior engineer skimming for the answer. They have read the architecture page. They know Rust. They will Ctrl-F your headings — every H2 must be a thing they'd search for."
 voice = "Declarative, second-person where unavoidable, otherwise impersonal. State facts. Don't narrate."
-length_target = "Aim for the *shortest page that fully covers the topic*. Hard cap 2000 words; most pages 600–1200. If you exceed 2000, split into sub-pages instead of trimming."
+length_target = "Aim for the *shortest page that fully covers the topic*. Soft target 800–1500 words; hard cap 4000. Architecture / system-deep-dive pages (cascade, layout-solver, contenteditable, shell2-*, rendering-pipeline) can legitimately reach 3000–4000. If you exceed 4000, split into sub-pages rather than trim."
 opening_pattern = "First sentence states a fact about the subject — never 'In this guide…' or 'This page covers…'. First code or signature within 15 lines."
 code_examples = "Complete and copy-pasteable. No `…` placeholders. External pages: ```rust. Stub pages: ```rust,ignore. Hidden setup via leading `#` lines."
 visuals = "Use `azul-render` fences for screenshots / slideshows. `subtitle=` for captions. `slideshow=ID` to group frames."
@@ -254,9 +254,12 @@ id = "styling-tree"
 tree = "getting-started"
 audience = ["external"]
 agent_strategy = "split"
-tracked_files = ["css/src/lib.rs", "css/src/parser.rs"]
-tracked_globs = ["css/src/props/basic/*.rs", "css/src/props/style/*.rs"]
-notes = "Landing introduces selectors, the cascade, and how to attach a Css to a Dom. /properties is a cheatsheet of the most-used properties grouped by category. /themes covers system-style discovery (light/dark, native colors) from the user's POV."
+tracked_files = ["css/src/lib.rs", "css/src/parser.rs", "css/src/system.rs"]
+tracked_globs = ["css/src/props/basic/*.rs", "css/src/props/style/*.rs", "css/src/system_native_*.rs"]
+design_docs = [
+  "SYSTEMSTYLE.md",
+]
+notes = "Landing introduces selectors, the cascade, and how to attach a Css to a Dom. /properties is a cheatsheet of the most-used properties grouped by category. /themes covers system-style discovery (light/dark, native colors) from the user's POV — design doc covers Win32/Cocoa/GTK native API patterns vs CLI wrapping."
 
 [[group.outputs]]
 slug = "styling"
@@ -343,20 +346,20 @@ prerequisites = ["layout"]
 # ----
 
 [[group]]
-id = "images-and-widgets"
+id = "images-and-drawing"
 tree = "getting-started"
 audience = ["external"]
 agent_strategy = "split"
-tracked_files = [
-  "core/src/app_resources.rs",
-  "core/src/widgets.rs",
-]
+tracked_files = ["core/src/app_resources.rs"]
 tracked_globs = [
   "core/src/svg*.rs",
   "css/src/props/basic/image.rs",
-  "layout/src/widgets/*.rs",
 ]
-notes = "Images: raster (resource handle, decoding), svg (paths, drawing), canvas-gl (custom GPU drawing via GlTexture). Widgets: overview of built-ins, then inputs (text/number) and structural (list/tree/tabs/ribbon/node-graph)."
+design_docs = [
+  "IMAGE_PIPELINE_ANALYSIS.md",
+  "ICON_SYSTEM_ANALYSIS.md",
+]
+notes = "Images: raster (resource handle, decoding), svg (paths, drawing), canvas-gl (custom GPU drawing via GlTexture). Design docs cover the unified DOM/CSS/inline/icon pipeline and the pack→icon resolution model."
 
 [[group.outputs]]
 slug = "images"
@@ -382,47 +385,23 @@ maturity = "wip"
 guide_order = 72
 prerequisites = ["images"]
 
-[[group.outputs]]
-slug = "widgets"
-path = "doc/guide/en/widgets.md"
-title = "Built-in Widgets"
-maturity = "wip"
-guide_order = 80
-prerequisites = ["styling", "events"]
-
-[[group.outputs]]
-slug = "widgets/inputs"
-path = "doc/guide/en/widgets/inputs.md"
-title = "Input Widgets"
-maturity = "wip"
-guide_order = 81
-prerequisites = ["widgets"]
-
-[[group.outputs]]
-slug = "widgets/structural"
-path = "doc/guide/en/widgets/structural.md"
-title = "Structural Widgets"
-maturity = "wip"
-guide_order = 82
-prerequisites = ["widgets"]
-
 # ----
 
 [[group]]
-id = "events-timers-windowing"
+id = "events-and-input"
 tree = "getting-started"
 audience = ["external"]
 agent_strategy = "split"
 tracked_files = [
   "core/src/callbacks.rs",
   "core/src/events.rs",
-  "core/src/task.rs",
-  "core/src/animation.rs",
-  "core/src/window.rs",
-  "core/src/window_state.rs",
 ]
 tracked_globs = ["dll/src/desktop/shell2/*/event*.rs"]
-notes = "Closes Tree 1: events (mouse/keyboard/focus/default-actions) → timers (frame-driven Timer) → animations (stub) → scrolling-and-drag → windowing (multi-window, menus, decorations, user-side)."
+design_docs = [
+  "EVENT_ARCHITECTURE_ANALYSIS.md",
+  "click_event_analysis.md",
+]
+notes = "Events from mouse/keyboard/focus/default-actions. Design docs cover the W3C-compliant state-diffing event model and the click-event filter mismatch story."
 
 [[group.outputs]]
 slug = "events"
@@ -431,6 +410,62 @@ title = "Events and Input"
 maturity = "mature"
 guide_order = 90
 prerequisites = ["dom"]
+
+# ----
+
+[[group]]
+id = "text-foundation"
+tree = "getting-started"
+audience = ["external"]
+agent_strategy = "split"
+tracked_files = [
+  "core/src/selection.rs",
+  "core/src/text2.rs",
+  "core/src/hit_test.rs",
+  "layout/src/widgets/text_input.rs",
+]
+design_docs = [
+  "TEXT_INPUT_ARCHITECTURE_V4.md",
+  "TEXT_SELECTION_ARCHITECTURE.md",
+  "SCROLL_CURSOR_TEXT_INPUT_ARCHITECTURE.md",
+]
+notes = "Foundational text-editing layer between events and widgets. text-input covers the dual-path (Full DOM vs Incremental Display List) contenteditable architecture. text-selection covers the W3C Selection model — range-based, multi-node — that ranges over arbitrary DOM, not just inside a text-input widget. These are prerequisite for understanding the widgets/inputs page later in the tree."
+
+[[group.outputs]]
+slug = "text-input"
+path = "doc/guide/en/text-input.md"
+title = "Text Input and Contenteditable"
+maturity = "wip"
+guide_order = 92
+prerequisites = ["events"]
+
+[[group.outputs]]
+slug = "text-selection"
+path = "doc/guide/en/text-selection.md"
+title = "Text Selection"
+maturity = "wip"
+guide_order = 94
+prerequisites = ["events", "text-input"]
+
+# ----
+
+[[group]]
+id = "timers-animations-scrolling"
+tree = "getting-started"
+audience = ["external"]
+agent_strategy = "split"
+tracked_files = [
+  "core/src/task.rs",
+  "core/src/animation.rs",
+  "core/src/scrolling.rs",
+  "core/src/drag.rs",
+  "layout/src/hit_test.rs",
+]
+design_docs = [
+  "SCROLL_ARCHITECTURE.md",
+  "DRAG_DROP_REPORT.md",
+]
+notes = "Frame-driven Timer + animation runtime + scroll-and-drag user-side. Design docs cover scroll-clip vs content size (viewport-free design, virtualized IFrame scrolling) and the three-part drag architecture (visual feedback, drop-zone filtering, CSS pseudo-classes)."
 
 [[group.outputs]]
 slug = "timers"
@@ -456,6 +491,21 @@ maturity = "wip"
 guide_order = 120
 prerequisites = ["events"]
 
+# ----
+
+[[group]]
+id = "windowing-and-widgets"
+tree = "getting-started"
+audience = ["external"]
+agent_strategy = "split"
+tracked_files = [
+  "core/src/window.rs",
+  "core/src/window_state.rs",
+  "core/src/widgets.rs",
+]
+tracked_globs = ["layout/src/widgets/*.rs"]
+notes = "Closes Tree 1. Windowing: multi-window, menus, decorations from the user side. Widgets: the built-in widget set, picked up after the reader has seen events, text-input, text-selection."
+
 [[group.outputs]]
 slug = "windowing"
 path = "doc/guide/en/windowing.md"
@@ -463,6 +513,30 @@ title = "Windows, Menus, Decorations"
 maturity = "mature"
 guide_order = 130
 prerequisites = ["hello-world", "events"]
+
+[[group.outputs]]
+slug = "widgets"
+path = "doc/guide/en/widgets.md"
+title = "Built-in Widgets"
+maturity = "wip"
+guide_order = 140
+prerequisites = ["styling", "events", "text-input"]
+
+[[group.outputs]]
+slug = "widgets/inputs"
+path = "doc/guide/en/widgets/inputs.md"
+title = "Input Widgets"
+maturity = "wip"
+guide_order = 141
+prerequisites = ["widgets", "text-input", "text-selection"]
+
+[[group.outputs]]
+slug = "widgets/structural"
+path = "doc/guide/en/widgets/structural.md"
+title = "Structural Widgets"
+maturity = "wip"
+guide_order = 142
+prerequisites = ["widgets"]
 
 # ──────────────────────────────────────────────────────────────────────
 # TREE 2 — Advanced (non-core, ramps to web deployment)
@@ -478,7 +552,11 @@ tracked_files = [
   "dll/src/desktop/logging.rs",
   "dll/src/desktop/shell2/common/debug_server.rs",
 ]
-notes = "Three tooling pages: AZ_DEBUG flags + debug overlay, memory profiling (heap/RefAny live counts, leak hunting), e2e testing harness (drive a built app via screenshots / web target with curl)."
+design_docs = [
+  "DEBUG_API.md",
+  "INTERACTION_MATRIX.md",
+]
+notes = "Three tooling pages: AZ_DEBUG flags + debug overlay, memory profiling (heap/RefAny live counts, leak hunting), e2e testing harness (drive a built app via screenshots / web target with curl). DEBUG_API.md covers the HTTP/JSON remote-control surface; INTERACTION_MATRIX.md is the 8-cell headless × debug × e2e capability matrix."
 
 [[group.outputs]]
 slug = "debugging"
@@ -736,7 +814,12 @@ tracked_globs = [
   "layout/src/dom_reconciliation.rs",
   "layout/src/fingerprint.rs",
 ]
-notes = "DOM internals (id_tree, diff, fingerprinting) + CSS parser + cascade/inheritance/restyle pipeline + compact property cache."
+design_docs = [
+  "DEFERRED_CASCADE_DESIGN.md",
+  "COMPACT_CACHE_PLAN.md",
+  "COMPONENT_TYPE_SYSTEM_DESIGN.md",
+]
+notes = "DOM internals (id_tree, diff, fingerprinting) + CSS parser + cascade/inheritance/restyle pipeline + compact property cache + component-type system. Design docs cover the deferred-cascade architecture (per-component styling efficiency), the L2-cache-friendly tier architecture (67.5% CPU time elimination), and the ComponentFieldType/ComponentDef widget extension model."
 
 [[group.outputs]]
 slug = "internals/dom"
@@ -762,6 +845,12 @@ path = "doc/guide/en/internals/compact-cache.md"
 title = "Compact Property Cache"
 maturity = "mature"
 
+[[group.outputs]]
+slug = "internals/component-types"
+path = "doc/guide/en/internals/component-types.md"
+title = "Component Type System"
+maturity = "wip"
+
 # ----
 
 [[group]]
@@ -781,7 +870,12 @@ tracked_globs = [
   "layout/src/solver*.rs",
   "layout/src/text*/**/*.rs",
 ]
-notes = "The numerical heart of azul: layout solver (flex/grid + fragmentation), inline layout and text shaping (text3), text pipeline (font loading, glyph cache), image pipeline (resource manager, GL texture cache, shader cache)."
+design_docs = [
+  "INCREMENTAL_LAYOUT_ARCHITECTURE.md",
+  "PERCENTAGE_LAYOUT_ANALYSIS.md",
+  "FONT_INVALIDATION_AND_MEMORY_LAYOUT_ANALYSIS.md",
+]
+notes = "The numerical heart of azul: layout solver (flex/grid + fragmentation), inline layout and text shaping (text3), text pipeline (font loading, glyph cache), image pipeline (resource manager, GL texture cache, shader cache). Design docs cover incremental relayout (RelayoutScope, instant typing perf), percentage units & taffy integration, and the font_stacks_hash XOR fingerprint that skips the font pipeline when fonts are unchanged."
 
 [[group.outputs]]
 slug = "internals/layout-solver"
@@ -833,7 +927,14 @@ tracked_files = [
   "layout/src/managers/virtual_view.rs",
   "core/src/virtualized_view_manager.rs",
 ]
-notes = "Event flow from OS to callback (hit-testing, default actions, drag, selection, scrolling) and VirtualView lazy-loading manager."
+design_docs = [
+  "CALLBACK_INVOCATION_UNIFICATION.md",
+  "CURSOR_HIT_TEST_ARCHITECTURE_REPORT.md",
+  "HIT_TEST_TAG_ANALYSIS.md",
+  "SCROLL_COORDINATE_ARCHITECTURE.md",
+  "IFRAME_SCROLL_DISPLAY_LIST_ARCHITECTURE.md",
+]
+notes = "Event flow from OS to callback (hit-testing, default actions, drag, selection, scrolling) and VirtualView lazy-loading manager. Design docs cover the four callback paths and unification proposal, the three hit-test depth-logic problems, the bit-field tag-id migration, the absolute→relative scroll coordinate fix, and the IFrame scroll spatial-node ordering."
 
 [[group.outputs]]
 slug = "internals/event-system"
@@ -845,6 +946,12 @@ maturity = "mature"
 slug = "internals/hit-testing"
 path = "doc/guide/en/internals/hit-testing.md"
 title = "Hit Testing and Scrolling"
+maturity = "wip"
+
+[[group.outputs]]
+slug = "internals/iframe-scroll"
+path = "doc/guide/en/internals/iframe-scroll.md"
+title = "IFrame Scroll and Display Lists"
 maturity = "wip"
 
 [[group.outputs]]
@@ -872,7 +979,10 @@ tracked_globs = [
   "dll/src/desktop/shell2/common/*compositor*.rs",
   "webrender/webrender/src/lib.rs",
 ]
-notes = "Rendering pipeline: compositor2 (display lists → GPU), GL function loading via dlopen, the WebRender bridge."
+design_docs = [
+  "WEBRENDER_CLIPPING_ANALYSIS.md",
+]
+notes = "Rendering pipeline: compositor2 (display lists → GPU), GL function loading via dlopen, the WebRender bridge. Design doc covers the WebRender clip chain & spatial node integration."
 
 [[group.outputs]]
 slug = "internals/rendering-pipeline"
@@ -900,7 +1010,10 @@ tree = "contributor"
 audience = ["contributor"]
 agent_strategy = "split"
 tracked_globs = ["dll/src/desktop/shell2/**/*.rs"]
-notes = "Per-OS shell layer. Common abstraction first, then each backend. Linux gets two pages (X11 + Wayland) plus DBus/GNOME menu integration as its own page because it's huge."
+design_docs = [
+  "PLATFORM_WINDOW_REFACTORING.md",
+]
+notes = "Per-OS shell layer. Common abstraction first, then each backend. Linux gets two pages (X11 + Wayland) plus DBus/GNOME menu integration as its own page because it's huge. Design doc covers the PlatformWindow V1/V2 abstraction debt — 28 duplicated getters across 5 platforms."
 
 [[group.outputs]]
 slug = "internals/shell2-common"

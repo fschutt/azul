@@ -429,13 +429,21 @@ autoreview ──► reference.md ──► autodoc ──► autodoc-screenshot
 | `contributor` | contributor | Code organization, build-and-codegen, per-system internals (DOM, CSS, layout, text, images, events, rendering, shell2, menus, a11y, async, web) |
 
 Each `[[group]]` declares `id`, `tree`, `audience`, `agent_strategy`,
-`tracked_files` (or `tracked_globs`), and one or more `[[group.outputs]]`
-with `slug`, `path`, `title`, `maturity`, optional `guide_order` and
-`prerequisites`. The global `[meta.writing_style]` and
-`[meta.agent_thinking]` blocks ship into every prompt; agents are anchored
-on the Servo book style and the project's existing
-`shared_context_files` (AUTODOC.md, reference.md, architecture.md,
-scripts/ARCHITECTURE.md, api.json).
+`tracked_files` (or `tracked_globs`), an optional `design_docs` list,
+and one or more `[[group.outputs]]` with `slug`, `path`, `title`,
+`maturity`, optional `guide_order` and `prerequisites`. The global
+`[meta.writing_style]` and `[meta.agent_thinking]` blocks ship into
+every prompt; agents are anchored on the Servo book style and the
+project's existing `shared_context_files` (AUTODOC.md, reference.md,
+architecture.md, scripts/ARCHITECTURE.md, api.json).
+
+`design_docs` lists files in `scripts/` (e.g. `TEXT_INPUT_ARCHITECTURE_V4.md`)
+that capture the original system design. They are *intent*, not authoritative
+source — the prompt explicitly tells the agent: **the code is truth, the
+design docs are context**. The agent must verify each claim against
+`tracked_files` and document divergences inline (e.g. *"the original design
+proposed X; the implementation took approach Y"*) rather than reproducing
+stale content.
 
 ### Two-signal staleness check
 

@@ -104,6 +104,12 @@ pub struct Group {
     pub tracked_files: Vec<String>,
     #[serde(default)]
     pub tracked_globs: Vec<String>,
+    /// Design docs in `scripts/` (e.g. `TEXT_INPUT_ARCHITECTURE_V4.md`).
+    /// These are *intent*, not authoritative source. The agent must
+    /// verify against `tracked_files` (the real code) and document
+    /// divergences explicitly.
+    #[serde(default)]
+    pub design_docs: Vec<String>,
     #[serde(default)]
     pub notes: Option<String>,
     #[serde(default)]
@@ -480,7 +486,7 @@ pub fn build_autodoc_prompt(
         head_sha(project_root).unwrap_or_else(|_| "UNKNOWN".to_string())
     ));
 
-    s.push_str("## Tracked source files\n\n");
+    s.push_str("## Tracked source files (TRUTH)\n\n");
     if tracked.is_empty() {
         s.push_str("(none — agent must read source files directly with the Read tool)\n\n");
     } else {
@@ -488,6 +494,47 @@ pub fn build_autodoc_prompt(
             s.push_str(&format!("- `{}`\n", p.display()));
         }
         s.push('\n');
+    }
+
+    // ── Design docs (INTENT, may be outdated) ────────────────────
+    if !group.design_docs.is_empty() {
+        s.push_str("## Design docs (INTENT — read after the source)\n\n");
+        s.push_str("These files in `scripts/` are *design intent*. They were written \
+                    when the system was being planned and may now disagree with the \
+                    code. Read them to understand the **why** and the original mental \
+                    model — then verify everything against the tracked source files \
+                    above. **The code is truth, the design docs are context.**\n\n");
+        s.push_str("If the doc and the code disagree, document what the code does. \
+                    If a divergence is significant (e.g. a planned approach was \
+                    abandoned), add a one-line note like *\"The original design \
+                    proposed X; the implementation took approach Y because [reason \
+                    visible in commit history or comments].\"*\n\n");
+        for d in &group.design_docs {
+            s.push_str(&format!("- `scripts/{d}`\n"));
+        }
+        s.push('\n');
+
+        // Embed the design docs (subject to the same source budget — they
+        // count against `SOURCE_INCLUSION_BUDGET` so we don't double-count.)
+        s.push_str("### Embedded design docs\n\n");
+        let mut design_budget = SOURCE_INCLUSION_BUDGET / 2;
+        let mut embedded = 0usize;
+        for d in &group.design_docs {
+            let abs = project_root.join("scripts").join(d);
+            let content = match fs::read_to_string(&abs) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            if content.len() > design_budget {
+                continue;
+            }
+            design_budget -= content.len();
+            embedded += 1;
+            s.push_str(&format!("\n#### `scripts/{d}`\n\n```markdown\n{content}\n```\n"));
+        }
+        if embedded == 0 {
+            s.push_str("(All design docs exceeded the inline budget. Read with the Read tool.)\n\n");
+        }
     }
 
     s.push_str("### Embedded source (small files only)\n\n");
