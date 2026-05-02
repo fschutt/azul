@@ -8,8 +8,10 @@
 #include "azul23.hpp"
 #include <expected>
 #include <string>
+#include <string_view>
 
 using namespace azul;
+using namespace std::string_view_literals;
 
 struct MyDataModel {
     uint32_t counter;
@@ -17,30 +19,33 @@ struct MyDataModel {
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
 
+// Every ResultXxx wrapper has `toStdExpected() &&` (and an implicit conversion
+// operator) generated from its sibling enum's Ok/Err payload types. The
+// Url::parse demo here returns AzResultUrlUrlParseError — moved into a
+// std::expected, monadic chaining via and_then/or_else just works.
+static std::expected<AzUrl, AzUrlParseError> parse_homepage_url() {
+    return Url::parse("https://example.com/"sv);
+}
+
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     RefAny data_wrapper(data);
     auto* d = downcast_ref<MyDataModel>(data_wrapper);
     if (!d) return AzDom_createBody();
 
-    // Css::from_string returns Css directly (no error path) — for a Result-
-    // typed example, see docs on `Url::parse`, which yields a wrapper that
-    // converts to std::expected via `toStdExpected()` (and the matching
-    // implicit conversion).
-    Css css = Css::from_string(String(R"(body { background-color: #efefef; })"));
+    auto homepage = parse_homepage_url();
+    Css css = Css::from_string(homepage.has_value()
+        ? String(R"(body { background-color: #efefef; })")
+        : String(R"(body { background-color: #ffaaaa; })"));
 
     return Dom::create_body()
         .with_child(Dom::p_with_text(String(std::to_string(d->counter).c_str()))
-            .with_css("font-size: 50px;"))
-        .with_child(Button::create("Increase counter")
+            .with_css("font-size: 50px;"sv))
+        .with_child(Button::create("Increase counter"sv)
             .with_button_type(AzButtonType_Primary)
             .with_on_click(data_wrapper.clone(), on_click)
             .dom())
         .style(std::move(css))
         .release();
-    // Deducing-this in the wrapper means the same .with_* method works on
-    // l-values and r-values without separate const&/&& overloads. The user
-    // never sees this directly - it just keeps the chains above legal even
-    // when 'css' is an l-value.
 }
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
