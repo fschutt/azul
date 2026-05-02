@@ -245,12 +245,16 @@ that produced it" possible. It is set automatically when a component is
 registered through the component system (XML or builder); plain functions do
 not need to opt in.
 
-## XML components
+## XML components and named registration
 
-XML components are an alternative authoring surface: a component is defined
-in `.azul` markup with a typed argument list, the toolchain produces a Rust
-function that returns `Dom`, callers invoke it as if it were any other
-component:
+A second authoring surface is XML: a component is declared in `.azul`
+markup with a typed argument list, registered into a `ComponentLibrary`,
+and called by name (`<card title="…"/>`). The runtime path is
+`xml::str_to_dom_unstyled(root_nodes, &component_map)` introduced in
+[The DOM — Loading XML and XHTML](../dom.md#loading-xml-and-xhtml); the
+ahead-of-time path is `xml::str_to_rust_code(root_nodes, imports,
+&component_map)` which emits the equivalent Rust source for compile-time
+inclusion.
 
 ```xml
 <component name="card" args="title: String, body: String">
@@ -266,19 +270,17 @@ component:
 </app>
 ```
 
-The XML side lives in `core/src/xml.rs`. The runtime path is
-`xml::str_to_dom_unstyled(root_nodes, &component_map)` (introduced in
-[The DOM — Loading XML and XHTML](../dom.md#loading-xml-and-xhtml)); the AOT
-path is `xml::str_to_rust_code(root_nodes, imports, &component_map)`, which
-emits the equivalent Rust source for compile-time inclusion.
-
-Whether a component is hand-written Rust or XML-generated, the result is the
-same value: a function from arguments and a `RefAny` to a `Dom`. Mix freely
-— a Rust component can call into an XML component and vice versa.
+Whether a component is hand-written Rust or XML-defined, the result is the
+same value: a function from arguments and a `RefAny` to a `Dom`. The
+mechanics of *registering* a component (or a whole library of components)
+so the framework can resolve `<card …/>` by name — plus the live-preview
+and code-generation roundtrip the design-time tools rely on — are covered
+in [Component Packs](component-packs.md).
 
 ## Where to read the source
 
 - `core/src/dom.rs:1588` — `ComponentOrigin`
 - `core/src/xml.rs:1090` — `ComponentId`, registry types
+- `core/src/xml.rs:2094` — `ComponentDef` (live-preview + compile shape)
 - `core/src/xml.rs:4314` — `str_to_dom_unstyled` runtime entry
 - `core/src/xml.rs:4362` — `str_to_rust_code` AOT entry
