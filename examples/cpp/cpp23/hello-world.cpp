@@ -1,16 +1,13 @@
 // g++ -std=c++23 -o hello-world hello-world.cpp -lazul
-// or, on a modules-aware toolchain:
-//   g++ -std=c++23 -fmodules-ts -c azul.cppm
-//   g++ -std=c++23 -fmodules-ts -o hello-world hello-world.cpp -lazul
+//
+// On a modules-aware toolchain you can replace the includes below with
+// `import std; import azul;` after precompiling the sibling `azul.cppm`:
+//   clang++ -std=c++23 -fmodules -c azul.cppm
+//   clang++ -std=c++23 -fmodules -o hello-world hello-world.cpp -lazul
 
-#if __has_include(<azul.cppm>)
-import std;
-import azul;
-#else
 #include "azul23.hpp"
 #include <expected>
 #include <string>
-#endif
 
 using namespace azul;
 
@@ -25,16 +22,15 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     auto* d = downcast_ref<MyDataModel>(data_wrapper);
     if (!d) return AzDom_createBody();
 
-    // Result<Ok, Err> converts implicitly to std::expected<Ok, Err> in C++23 -
-    // chain monadically with .and_then / .or_else.
-    std::expected<Css, CssParseError> sheet = Css::parse(R"(
-        body { background-color: #efefef; }
-    )");
-    Css css = std::move(sheet).value_or(Css::empty());
+    // Css::from_string returns Css directly (no error path) — for a Result-
+    // typed example, see docs on `Url::parse`, which yields a wrapper that
+    // converts to std::expected via `toStdExpected()` (and the matching
+    // implicit conversion).
+    Css css = Css::from_string(String(R"(body { background-color: #efefef; })"));
 
-    return Dom::body()
+    return Dom::create_body()
         .with_child(Dom::p_with_text(String(std::to_string(d->counter).c_str()))
-            .with_inline_style("font-size: 50px;"))
+            .with_css("font-size: 50px;"))
         .with_child(Button::create("Increase counter")
             .with_button_type(AzButtonType_Primary)
             .with_on_click(data_wrapper.clone(), on_click)

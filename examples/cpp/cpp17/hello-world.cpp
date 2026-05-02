@@ -18,9 +18,9 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     auto* d = downcast_ref<MyDataModel>(data_wrapper);
     if (!d) return AzDom_createBody();
 
-    return Dom::body()
+    return Dom::create_body()
         .with_child(Dom::p_with_text(String(std::to_string(d->counter).c_str()))
-            .with_inline_style("font-size: 50px;"sv))
+            .with_css("font-size: 50px;"sv))
         .with_child(Button::create("Increase counter"sv)
             .with_button_type(AzButtonType_Primary)
             .with_on_click(data_wrapper.clone(), on_click)

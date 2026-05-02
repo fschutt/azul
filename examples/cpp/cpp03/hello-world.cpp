@@ -2,6 +2,7 @@
 
 #include "azul03.hpp"
 #include <cstdio>
+#include <cstring>
 
 using namespace azul;
 
@@ -10,21 +11,13 @@ struct MyDataModel {
     uint32_t counter;
 };
 
-// In C++03 the wrapper has no template magic, so the destructor cannot be
-// synthesised - supply it explicitly, just like in C.
-void MyDataModel_destructor(void* m) { (void)m; }
-
-// AZ_REFLECT in C++03 takes the destructor and emits the C-style reflection
-// surface, mirroring the C macro:
+// AZ_REFLECT(structName) emits per-type registration helpers. In C++03 there's
+// no template metaprogramming, so this macro is the only path:
 //
-//   MyDataModel_upcast(MyDataModel)                      -> AzRefAny
-//   MyDataModelRef_create(AzRefAny*)                     -> MyDataModelRef
-//   MyDataModel_downcastRef(AzRefAny*, MyDataModelRef*)  -> bool
-//   MyDataModelRef_delete(MyDataModelRef*)
-//   MyDataModelRefMut_create(AzRefAny*)                  -> MyDataModelRefMut
-//   MyDataModel_downcastMut(AzRefAny*, MyDataModelRefMut*)-> bool
-//   MyDataModelRefMut_delete(MyDataModelRefMut*)
-AZ_REFLECT(MyDataModel, MyDataModel_destructor);
+//   MyDataModel_upcast(MyDataModel)            -> azul::RefAny
+//   MyDataModel_downcast_ref(azul::RefAny&)    -> const MyDataModel*
+//   MyDataModel_downcast_mut(azul::RefAny&)    -> MyDataModel*
+AZ_REFLECT(MyDataModel)
 
 // All callbacks use the raw Az* types - no wrapper-side coercion in C++03.
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
@@ -32,21 +25,20 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     (void)info;
 
-    MyDataModelRef d = MyDataModelRef_create(&data);
-    if (!MyDataModel_downcastRef(&data, &d)) {
-        return AzDom_createBody();
-    }
+    azul::RefAny data_wrapper(data);
+    const MyDataModel* d = MyDataModel_downcast_ref(data_wrapper);
+    if (!d) return AzDom_createBody();
 
     char buffer[20];
-    int written = std::snprintf(buffer, sizeof(buffer), "%u", d.ptr->counter);
-    MyDataModelRef_delete(&d);
+    int written = std::snprintf(buffer, sizeof(buffer), "%u", d->counter);
 
     AzString label_text = AzString_copyFromBytes(
         (const uint8_t*)buffer, 0, (size_t)written);
     AzDom label = AzDom_pWithText(label_text);
 
-    AzButton button = AzButton_create(AzString_fromConstStr("Increase counter"));
-    AzButton_setButtonType(&button, AzButtonType_Primary);
+    const char* btn_label = "Increase counter";
+    AzString btn_label_str = AzString_copyFromBytes((const uint8_t*)btn_label, 0, strlen(btn_label));
+    AzButton button = AzButton_create(btn_label_str);
     AzRefAny data_clone = AzRefAny_clone(&data);
     AzButton_setOnClick(&button, data_clone, on_click);
     AzDom button_dom = AzButton_dom(button);
@@ -60,22 +52,20 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
     (void)info;
 
-    MyDataModelRefMut d = MyDataModelRefMut_create(&data);
-    if (!MyDataModel_downcastMut(&data, &d)) {
-        return AzUpdate_DoNothing;
-    }
-    d.ptr->counter += 1;
-    MyDataModelRefMut_delete(&d);
+    azul::RefAny data_wrapper(data);
+    MyDataModel* d = MyDataModel_downcast_mut(data_wrapper);
+    if (!d) return AzUpdate_DoNothing;
+    d->counter += 1;
     return AzUpdate_RefreshDom;
 }
 
 int main() {
     MyDataModel model;
     model.counter = 5;
-    AzRefAny data = MyDataModel_upcast(model);
+    azul::RefAny data = MyDataModel_upcast(model);
 
     AzWindowCreateOptions window = AzWindowCreateOptions_create(layout);
-    AzApp app = AzApp_create(data, AzAppConfig_default());
-    AzApp_run(app, window);
+    AzApp app = AzApp_create(data.release(), AzAppConfig_default());
+    AzApp_run(&app, window);
     return 0;
 }

@@ -18,9 +18,9 @@ auto layout(AzRefAny data, AzLayoutCallbackInfo info) -> AzDom {
     auto d = downcast_ref<MyDataModel>(data_wrapper);  // const MyDataModel*
     if (!d) return AzDom_createBody();
 
-    return Dom::body()
+    return Dom::create_body()
         .with_child(Dom::p_with_text(String(std::to_string(d->counter).c_str()))
-            .with_inline_style("font-size: 50px;"))
+            .with_css(String("font-size: 50px;")))
         .with_child(Button::create("Increase counter")
             .with_button_type(AzButtonType_Primary)
             .with_on_click(data_wrapper.clone(), on_click)
@@ -39,7 +39,9 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
 
 int main() {
     // type_id_v is a variable template - shorthand for type_id<T>().
-    static_assert(type_id_v<MyDataModel> != 0, "MyDataModel must have a type id");
+    // The address-of-static trick that backs it isn't a constant expression,
+    // so we can't static_assert; just verify at runtime.
+    if (type_id_v<MyDataModel> == 0) return 1;
 
     MyDataModel model = { 5 };
     RefAny data = upcast<MyDataModel>(std::move(model));

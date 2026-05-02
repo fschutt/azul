@@ -23,16 +23,16 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // identity is derived from the address of a template-instantiated
     // static, so the compiler stamps a unique tag per T at link time.
     auto* d = downcast_ref<MyDataModel>(data_wrapper);
-    if (!d) return Dom::body().release();
+    if (!d) return Dom::create_body().release();
 
     Dom label = Dom::p_with_text(String(std::to_string(d->counter).c_str()))
-        .with_inline_style("font-size: 50px;");
+        .with_css(String("font-size: 50px;"));
 
     Button button = Button::create("Increase counter")
         .with_button_type(AzButtonType_Primary)
         .with_on_click(data_wrapper.clone(), on_click);
 
-    return Dom::body()
+    return Dom::create_body()
         .with_child(std::move(label))
         .with_child(button.dom())
         .style(Css::empty())

@@ -1,13 +1,11 @@
 // g++ -std=c++20 -o hello-world hello-world.cpp -lazul
-// or, on a modules-aware toolchain:
-//   g++ -std=c++20 -fmodules-ts -c azul.cppm
-//   g++ -std=c++20 -fmodules-ts -o hello-world hello-world.cpp -lazul
+//
+// On a modules-aware toolchain you can replace the include below with
+// `import azul;` after precompiling the sibling `azul.cppm`:
+//   clang++ -std=c++20 -fmodules -c azul.cppm
+//   clang++ -std=c++20 -fmodules -o hello-world hello-world.cpp -lazul
 
-#if __has_include(<azul.cppm>)
-import azul;
-#else
 #include "azul20.hpp"
-#endif
 #include <string>
 
 using namespace azul;
@@ -30,9 +28,9 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     auto* d = downcast_ref<MyDataModel>(data_wrapper);
     if (!d) return AzDom_createBody();
 
-    return Dom::body()
+    return Dom::create_body()
         .with_child(Dom::p_with_text(String(std::to_string(d->counter).c_str()))
-            .with_inline_style("font-size: 50px;"))
+            .with_css("font-size: 50px;"))
         .with_child(Button::create("Increase counter")
             .with_button_type(AzButtonType_Primary)
             .with_on_click(data_wrapper.clone(), on_click)
