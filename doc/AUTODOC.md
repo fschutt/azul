@@ -33,9 +33,6 @@ This document covers **what exists today and how to use it**.
    │                        plus screenshots/manifest.json.
    │       │
    │       ▼
-   │   autodoc-summary   ── doc/guide/en/SUMMARY.md from frontmatter.
-   │       │
-   │       ▼
    │   translate (TODO)  ── per-language agent runs that copy the
    │                        English files into doc/guide/<lang>/
    │                        with `canonical_slug` + `source_hash`.
@@ -71,29 +68,26 @@ All under `azul-doc autoreview <subcommand>`. The full list:
 | `midlevel-fixes` | (existing) sequential agents apply cross-file refactors |
 | `apply-midlevel` | (existing) interactive replay of commits from a reference branch |
 | **`autodoc`** | one agent per group from the manifest writes guide pages |
-| **`autodoc-summary`** | regenerate per-language `SUMMARY.md` from frontmatter |
 | **`autodoc-screenshots`** | render every `azul-render` fence to PNG; emit `manifest.json` |
-| **`autodoc-check`** | detect canonical pages with stale source files and translations whose body hash no longer matches |
+| **`autodoc-check`** | detect canonical pages with stale source files and translations whose body hash no longer matches; pass `--strict` to exit non-zero on any staleness (used in CI) |
 
 Common flags: `--agents=N`, `--file=GROUP_ID` (filter by group id),
-`--dry-run`, `--retry-failed`, `--timeout=SECS`, `--model=NAME`.
+`--dry-run`, `--retry-failed`, `--timeout=SECS`, `--model=NAME`,
+`--strict` (autodoc-check only — fail the process on stale pages).
 
 ### Typical local workflow
 
 ```sh
-# 1. Generate per-system guide pages (33 groups, run in parallel)
+# 1. Generate per-system guide pages (one agent per group, run in parallel)
 azul-doc autoreview autodoc --agents=10
 
 # 2. Render visual examples
 azul-doc autoreview autodoc-screenshots
 
-# 3. Update navigation
-azul-doc autoreview autodoc-summary
-
-# 4. Verify nothing's stale before pushing
+# 3. Verify nothing's stale before pushing
 azul-doc autoreview autodoc-check
 
-# 5. Build the site
+# 4. Build the site
 azul-doc deploy
 ```
 
@@ -115,20 +109,56 @@ azul-doc autoreview autodoc-screenshots
 Hand-curated. Source of truth for what gets documented and how it's
 audience-targeted, ordered, and tracked.
 
-### Structure
+### Top-level `[meta]`
 
 ```toml
 [meta]
-schema_version = 2
-total_groups   = N
-total_outputs  = M
+schema_version       = 3
+existing_guides      = ["architecture", "reference"]   # pages NOT regenerated
+shared_context_files = ["doc/AUTODOC.md", "doc/autodoc-groups.toml", ...]
 
+[[meta.trees]]
+id          = "getting-started"
+title       = "Getting Started"
+audience    = "external"
+description = "Core GUI authoring — what every app needs."
+
+[[meta.trees]]
+id          = "advanced"
+title       = "Advanced"
+audience    = "external"
+description = "Topics beyond core GUI authoring — debugging, profiling, I/O, ..."
+
+[[meta.trees]]
+id          = "contributor"
+title       = "Contributors"
+audience    = "contributor"
+description = "Internal architecture, by sub-system."
+
+[meta.writing_style]
+reference     = "https://book.servo.org/contributing/guides/index.html"
+reader_model  = "Senior systems programmer evaluating azul..."
+voice         = "Direct, technical, second-person ('you/your')..."
+length_target = "Soft target 800-1500 words; hard cap 4000."
+avoid         = ["throat-clearing", "marketing terms", ...]
+prefer        = ["fact-first sentences", "tables", ...]
+
+[meta.agent_thinking]
+mode         = "max-effort"
+instructions = ["Think for at least N tokens before writing", ...]
+```
+
+### Per-group structure
+
+```toml
 [[group]]
 id              = "scrolling"           # unique, used as prompt filename
+tree            = "getting-started"     # which top-level tree this lives in
 audience        = ["external"]          # or ["contributor"] or both
 agent_strategy  = "single"              # | "split" | "dual"
 tracked_files   = ["layout/src/hit_test.rs", "core/src/scrolling.rs"]
 tracked_globs   = ["dll/src/desktop/shell2/*/scroll*.rs"]
+design_docs     = ["SCROLL_ARCHITECTURE.md"]   # files in scripts/ — INTENT, not truth
 notes           = "..."                 # optional, shown in prompt
 
 [[group.outputs]]
@@ -138,9 +168,20 @@ title           = "Scrolling"
 audience        = "external"            # only when group is dual
 maturity        = "wip"                 # mature | wip | stub | draft (default mature)
 guide_order     = 130                   # position in linear external guide
-topic_only      = false                 # true → /guide/topics/<slug>
+topic_only      = false                 # true → standalone topic page
 prerequisites   = ["events"]            # canonical slugs of earlier pages
 ```
+
+### `tree` and `design_docs`
+
+- **`tree`** assigns the group to one of the `[[meta.trees]]` buckets. The
+  guide index renders one section per tree.
+- **`design_docs`** lists files in `scripts/` (the design-memo folder).
+  These are passed to the agent as **INTENT** context — the original
+  design proposals — *not* as authoritative source. The disclaimer
+  rendered into the prompt is **the code is truth, the design docs are
+  context**. Out-of-date design docs are common; agents should defer to
+  the source files in `tracked_files` if the two disagree.
 
 ### Strategies
 
@@ -179,6 +220,9 @@ audience: external
 maturity: wip
 guide_order: 130
 topic_only: false
+short_desc: One-line summary of this page, rendered indented under the
+  link in the guide index. Hand-authored per page (not extracted from
+  prose); localised per language.
 prerequisites: [events]
 tracked_files:
   - layout/src/hit_test.rs
@@ -292,12 +336,12 @@ harness wraps as needed.
 
 Every output declares one. Affects badge rendering and doctest behaviour.
 
-| tag | meaning | rendered prefix in SUMMARY | doctest behaviour |
-|---|---|---|---|
-| `mature` | Public API stable; examples must compile and run | (none) | strict |
-| `wip` | Works today but API may shift | ` (WIP)` | warnings |
-| `stub` | Type definitions exist; runtime not wired up | ` (not yet functional)` | code blocks marked `ignore` |
-| `draft` | Page exists but content is incomplete | ` (draft)` | as-is |
+| tag | meaning | doctest behaviour |
+|---|---|---|
+| `mature` | Public API stable; examples must compile and run | strict |
+| `wip` | Works today but API may shift | warnings |
+| `stub` | Type definitions exist; runtime not wired up | code blocks marked `ignore` |
+| `draft` | Page exists but content is incomplete | as-is |
 
 **No skipping.** Immature systems (e.g., the animation runtime is
 defined but not wired through layout) get a `stub`-tagged page so the
@@ -342,15 +386,19 @@ without hash drift is just a warning.
 
 ### Wiring `autodoc-check` into CI
 
+Pass `--strict`. The check exits non-zero on any staleness (canonical or
+translation), prints the offending pages, and fails the build:
+
 ```yaml
-# .github/workflows/release.yml (sketch)
-- run: cargo run -p azul-doc -- autoreview autodoc-check
-- run: |
-    if grep -q "Stale translations" doc/target/autoreview/autodoc/outdated.md; then
-      cat doc/target/autoreview/autodoc/outdated.md
-      exit 1
-    fi
+# .github/workflows/rust.yml (excerpt)
+- name: Verify guide is up to date
+  run: cargo run --manifest-path doc/Cargo.toml --release -- \
+       autoreview autodoc-check --strict
 ```
+
+Without `--strict` the command writes the report to
+`doc/target/autoreview/autodoc/outdated.md` and exits 0 — useful for
+local "what's stale right now" runs.
 
 ---
 
@@ -407,17 +455,16 @@ doc/
 ├── AUTODOC.md                  ← this document
 ├── guide/
 │   ├── en/                     ← canonical English (committed)
-│   │   ├── SUMMARY.md          ← auto-generated from frontmatter
 │   │   ├── architecture.md
 │   │   ├── reference.md        ← per-source-file backlog
-│   │   ├── <slug>.md           ← agent-generated linear-guide pages
-│   │   ├── topics/<slug>.md    ← standalone topic guides
+│   │   ├── <slug>.md           ← agent-generated guide pages
+│   │   ├── <parent>/<child>.md ← nested pages render as a sub-tree
+│   │   │                         under <parent>.md in the index
 │   │   ├── internals/<slug>.md ← contributor-audience pages
 │   │   └── screenshots/
 │   │       ├── manifest.json   ← per-language metadata (subtitles, slideshows)
 │   │       └── *.png           ← rendered visual examples
 │   └── <lang>/                 ← future translations (de/, fr/, ja/, ...)
-│       ├── SUMMARY.md
 │       ├── ...
 │       └── screenshots/        ← per-language because PNGs bake in text
 └── target/
@@ -443,8 +490,8 @@ A few rules the pipeline enforces:
 - **One canonical English page per system.** No duplicate slugs in
   the manifest; `autodoc` validates this on load.
 - **Output paths are language-prefixed.** Every path in the manifest
-  starts with `doc/guide/<lang>/`; SUMMARY generation infers the
-  language from the path.
+  starts with `doc/guide/<lang>/`; deploy infers the language from the
+  path component after `doc/guide/`.
 - **Translations point at canonical via `canonical_slug`**, not via
   filename. A German page named `architektur.md` is a translation of
   `architecture` because its frontmatter says so, not because of the
@@ -490,12 +537,9 @@ azul-doc autoreview autodoc --file=<group-id>
 # Render PNGs from azul-render fences
 azul-doc autoreview autodoc-screenshots
 
-# Update navigation
-azul-doc autoreview autodoc-summary
-
-# CI gate
-azul-doc autoreview autodoc-check
-# → exits 0 if everything fresh; check doc/target/autoreview/autodoc/outdated.md
+# CI gate (pass --strict to fail on any staleness)
+azul-doc autoreview autodoc-check --strict
+# → exits 0 if everything fresh; report at doc/target/autoreview/autodoc/outdated.md
 
 # Deploy
 azul-doc deploy             # production (inline CSS)

@@ -29,8 +29,8 @@ existing_guides = ["architecture", "reference"]
 # big picture and writing conventions.
 shared_context_files = [
   "doc/AUTODOC.md",                  # operational pipeline reference
-  "doc/guide/en/SUMMARY.md",         # current tree of pages
-  "doc/guide/en/reference.md",       # 173-section system catalog
+  "doc/autodoc-groups.toml",         # this manifest — the page tree, prerequisites, design_docs
+  "doc/guide/en/reference.md",       # per-source-file backlog
   "doc/guide/en/architecture.md",    # canonical architecture doc
   "scripts/ARCHITECTURE.md",         # contributor-side code map
   "api.json",                        # FFI surface (read for type names)

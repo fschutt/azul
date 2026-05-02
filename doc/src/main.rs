@@ -1784,7 +1784,7 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("                                    [--agents=N] [--file=GROUP_ID] [--dry-run]");
     println!("    autoreview autodoc-check      - Detect guide pages whose tracked source files have");
     println!("                                    changed since generation (writes outdated.md)");
-    println!("    autoreview autodoc-summary    - Regenerate doc/guide/SUMMARY.md from the manifest");
+    println!("                                    [--strict] (exits non-zero on any staleness)");
     println!("    autoreview autodoc-screenshots - Render `azul-render` blocks in guide pages to PNG");
     println!("    telegram-setup                - Pair azul-doc with a Telegram bot so prompts");
     println!("                                    (apply-midlevel etc.) mirror to your phone");

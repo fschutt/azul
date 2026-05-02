@@ -93,10 +93,6 @@ fn walk_collect(
             }
             walk_collect(root, &p, out);
         } else if p.extension().map(|e| e == "md").unwrap_or(false) {
-            let n = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
-            if n == "SUMMARY.md" {
-                continue;
-            }
             let rel = match p.strip_prefix(root) {
                 Ok(r) => r,
                 Err(_) => continue,

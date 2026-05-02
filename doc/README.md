@@ -387,13 +387,13 @@ Full operational reference: [`AUTODOC.md`](./AUTODOC.md). Manifest:
 [`autodoc-groups.toml`](./autodoc-groups.toml).
 
 ```bash
-azul-doc autoreview autodoc                  # Dispatch all 21 group agents
+azul-doc autoreview autodoc                  # Dispatch one agent per group
 azul-doc autoreview autodoc --agents=N       # Throttle concurrency
 azul-doc autoreview autodoc --file=GROUP_ID  # Run a single group
 azul-doc autoreview autodoc --dry-run        # Generate prompts only
 
 azul-doc autoreview autodoc-check            # Flag stale pages → outdated.md
-azul-doc autoreview autodoc-summary          # Regenerate doc/guide/en/SUMMARY.md
+azul-doc autoreview autodoc-check --strict   # Same, exit non-zero on any stale page (CI)
 azul-doc autoreview autodoc-screenshots      # Render azul-render fences to PNG
 ```
 
@@ -401,22 +401,22 @@ azul-doc autoreview autodoc-screenshots      # Render azul-render fences to PNG
 
 ```
 autoreview ──► reference.md ──► autodoc ──► autodoc-screenshots ──► deploy
-(173 reports)  (amalgamated)    (21 agents)  (PNG renders)         (website)
-                                    │
-                                    └──► autodoc-summary ──► SUMMARY.md
+(per-file)     (amalgamated)    (per-group)  (PNG renders)         (website)
 ```
 
-1. `autoreview` produces 173 per-file reports under `doc/target/autoreview/reports/`.
+1. `autoreview` produces per-file reports under `doc/target/autoreview/reports/`.
 2. Reports are amalgamated into `doc/guide/en/reference.md` (one-time, hand-curated).
 3. `autodoc` reads `autodoc-groups.toml`, builds one prompt per group with
-   the group's tracked source, the matching reference.md sections, and the
-   global writing-style + max-effort thinking rules from `[meta]`.
+   the group's tracked source, the matching reference.md sections, the
+   per-group `design_docs` (intent, not truth), and the global
+   writing-style + max-effort thinking rules from `[meta]`.
 4. Agents write pages to their declared paths under `doc/guide/en/`.
 5. `autodoc-screenshots` renders any `azul-render` fences via `HeadlessWindow`
    into `doc/guide/en/screenshots/<page-slug>/<name>.png`.
-6. `autodoc-summary` regenerates the per-language `SUMMARY.md` index.
-7. `deploy` walks `doc/guide/en/` at runtime, parses each page's
-   frontmatter for ordering, and emits the final HTML.
+6. `deploy` walks `doc/guide/en/` at runtime, parses each page's
+   frontmatter for ordering, and emits the final HTML. The guide index
+   page is built from the frontmatter (`title`, `short_desc`, `audience`,
+   `guide_order`, slug hierarchy) — no separate SUMMARY file is involved.
 
 ### Manifest at a glance
 
@@ -463,14 +463,12 @@ it page-for-page with localized slugs.
 ```
 doc/guide/
 ├── en/                                  # canonical (the only tree autodoc writes)
-│   ├── SUMMARY.md
 │   ├── reference.md
 │   ├── architecture.md                  # slug: architecture
 │   ├── hello-world.md                   # slug: hello-world
 │   ├── layout/flex.md                   # slug: layout/flex
 │   └── screenshots/<page>/<name>.png
 └── de/                                  # German translation (manual or future `translate` agent)
-    ├── SUMMARY.md
     ├── architektur.md                   # slug: architektur,    canonical_slug: architecture
     ├── hallo-welt.md                    # slug: hallo-welt,     canonical_slug: hello-world
     └── layout/flexbox.md                # slug: layout/flexbox, canonical_slug: layout/flex
@@ -525,10 +523,10 @@ doc/target/autoreview/autodoc/
 └── screenshots-manifest-<lang>.json  # Cached render manifest
 
 doc/guide/<lang>/
-├── SUMMARY.md                     # Auto-generated index (per language)
-├── reference.md                   # 173-section system catalog (en only — canonical)
+├── reference.md                   # per-source-file backlog (en only — canonical)
 ├── architecture.md                # Canonical architecture doc (en only)
 ├── <slug>.md                      # Generated guide pages
+├── <parent>/<child>.md            # Nested pages render as a sub-tree under <parent>.md
 └── screenshots/<page>/<name>.png  # Rendered azul-render fences (en only)
 ```
 

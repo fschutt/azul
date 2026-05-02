@@ -40,7 +40,6 @@ pub enum AutoreviewSubcommand {
     MidlevelFixes,
     Autodoc,
     AutodocCheck,
-    AutodocSummary,
     AutodocScreenshots,
 }
 
@@ -2084,7 +2083,6 @@ pub fn parse_autoreview_args(
             "midlevel-fixes" => config.subcommand = AutoreviewSubcommand::MidlevelFixes,
             "autodoc"        => config.subcommand = AutoreviewSubcommand::Autodoc,
             "autodoc-check"  => config.subcommand = AutoreviewSubcommand::AutodocCheck,
-            "autodoc-summary" => config.subcommand = AutoreviewSubcommand::AutodocSummary,
             "autodoc-screenshots" => config.subcommand = AutoreviewSubcommand::AutodocScreenshots,
             "--retry-failed" => config.retry_failed = true,
             "--dry-run"      => config.dry_run = true,
@@ -2130,10 +2128,6 @@ pub fn run_autoreview(config: AutoreviewConfig) -> Result<(), String> {
         AutoreviewSubcommand::MidlevelFixes => run_midlevel_fixes(config),
         AutoreviewSubcommand::Autodoc       => crate::reftest::autodoc::run_autodoc(&config),
         AutoreviewSubcommand::AutodocCheck  => crate::reftest::autodoc::run_autodoc_check(&config),
-        AutoreviewSubcommand::AutodocSummary => {
-            let manifest = crate::reftest::autodoc::load_manifest(&config.project_root)?;
-            crate::reftest::autodoc::regenerate_summary(&config.project_root, &manifest)
-        }
         AutoreviewSubcommand::AutodocScreenshots =>
             crate::reftest::autodoc::run_autodoc_screenshots(&config),
     }
