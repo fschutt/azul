@@ -14,6 +14,10 @@ pub struct Guide {
     pub file_name: String,
     /// Markdown content with the YAML frontmatter already stripped.
     pub content: String,
+    /// `external` or `contributor`. Used by the index to bucket into trees.
+    pub audience: Option<String>,
+    /// Linear teaching order (Tree 1: 10–199, Tree 2: 200+).
+    pub guide_order: Option<i32>,
 }
 
 /// Pre-process markdown content:
@@ -96,7 +100,7 @@ fn walk_collect(
             let stem = rel.with_extension("");
             let file_name = stem.to_string_lossy().replace('\\', "/");
             let content = fs::read_to_string(&p).unwrap_or_default();
-            let (title, body, guide_order) = extract_metadata(&content, &file_name);
+            let (title, body, guide_order, audience) = extract_metadata(&content, &file_name);
             out.push((
                 guide_order,
                 file_name.clone(),
@@ -104,15 +108,20 @@ fn walk_collect(
                     title,
                     file_name,
                     content: body,
+                    audience,
+                    guide_order,
                 },
             ));
         }
     }
 }
 
-fn extract_metadata(content: &str, fallback_name: &str) -> (String, String, Option<i32>) {
+fn extract_metadata(
+    content: &str,
+    fallback_name: &str,
+) -> (String, String, Option<i32>, Option<String>) {
     if let Some((fm, body)) = crate::reftest::autodoc::parse_frontmatter(content) {
-        return (fm.title, body, fm.guide_order);
+        return (fm.title, body, fm.guide_order, fm.audience);
     }
     // No frontmatter — first H1, else fallback name.
     let mut title = fallback_name.to_string();
@@ -122,7 +131,22 @@ fn extract_metadata(content: &str, fallback_name: &str) -> (String, String, Opti
             break;
         }
     }
-    (title, content.to_string(), None)
+    (title, content.to_string(), None, None)
+}
+
+/// Three-tree bucket for the guide index.
+fn classify_tree(g: &Guide) -> &'static str {
+    match g.audience.as_deref() {
+        Some("contributor") => "contributor",
+        _ => match g.guide_order {
+            Some(n) if n >= 200 => "advanced",
+            Some(_) => "getting-started",
+            // External pages without guide_order (e.g. binding subpages)
+            // — group with advanced unless slug starts with internals/.
+            None if g.file_name.starts_with("internals/") => "contributor",
+            None => "advanced",
+        },
+    }
 }
 
 /// Generate HTML for a specific guide
@@ -141,6 +165,9 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
         &processed_content,
         &screenshot_prefix,
     );
+    // Rewrite cross-page markdown links: `[text](other.md)` → `[text](other.html)`.
+    // Agents write `.md` per markdown convention; deploy serves `.html`.
+    let processed_content = rewrite_md_links(&processed_content);
 
     let content = comrak::markdown_to_html_with_plugins(
         &processed_content,
@@ -166,6 +193,7 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
                 subscript: true,
                 spoiler: true,
                 greentext: true,
+                header_ids: Some(String::new()),
                 ..Default::default()
             },
         },
@@ -293,16 +321,64 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
 }
 
 pub fn generate_guide_mainpage(version: &str) -> String {
-    let mut version_items = String::new();
-    for guide_page in get_guide_list() {
-        version_items.push_str(&format!(
-            "<li><a href=\"{HTML_ROOT}/guide/{}.html\">{}</a></li>\n",
-            guide_page.file_name, guide_page.title,
-        ));
+    let pages = get_guide_list();
+
+    // Bucket pages by tree.
+    let mut tree1: Vec<&Guide> = Vec::new(); // getting-started
+    let mut tree2: Vec<&Guide> = Vec::new(); // advanced
+    let mut tree3: Vec<&Guide> = Vec::new(); // contributor
+    for g in &pages {
+        match classify_tree(g) {
+            "contributor" => tree3.push(g),
+            "advanced" => tree2.push(g),
+            _ => tree1.push(g),
+        }
     }
+
+    let getting_started = render_tree(&tree1);
+    let advanced = render_tree(&tree2);
+    let contributor = render_tree(&tree3);
 
     let header_tags = crate::docgen::get_common_head_tags(false);
     let sidebar = crate::docgen::get_sidebar();
+
+    let css = "
+        #guide-index { max-width: 720px; }
+        #guide-index h2 {
+            font-family: 'Instrument Serif', Georgia, serif;
+            font-size: 1.6em;
+            font-weight: normal;
+            margin-top: 32px;
+            margin-bottom: 8px;
+            text-shadow: 0.3px 0 0 currentColor, -0.3px 0 0 currentColor;
+        }
+        #guide-index h2:first-child { margin-top: 8px; }
+        #guide-index ul {
+            list-style: none;
+            padding-left: 0;
+            margin: 0;
+        }
+        #guide-index ul ul {
+            padding-left: 18px;
+            margin: 2px 0 4px 0;
+            border-left: 1px dashed #ccc;
+        }
+        #guide-index li {
+            line-height: 1.35;
+            margin: 0;
+            padding: 1px 0;
+            font-size: 15px;
+        }
+        #guide-index ul ul li { font-size: 14px; }
+        #guide-index a { text-decoration: none; }
+        #guide-index a:hover { text-decoration: underline; }
+        #guide-index .tree-desc {
+            color: #666;
+            font-size: 13px;
+            margin: 0 0 6px 0;
+            font-style: italic;
+        }
+    ";
 
     format!(
         "<!DOCTYPE html>
@@ -326,14 +402,167 @@ pub fn generate_guide_mainpage(version: &str) -> String {
         </aside>
         <main>
             <h1>User Guide</h1>
-            <div>
-            <ul style='font-size: 18px;'>{version_items}</ul>
+            <style>{css}</style>
+            <div id='guide-index'>
+                <h2 id='getting-started'><a href='#getting-started' style='text-decoration:none;color:inherit;'>Getting Started</a></h2>
+                <p class='tree-desc'>Linear teaching path for app authors. Read top-to-bottom; each page assumes the previous ones.</p>
+                {getting_started}
+
+                <h2 id='advanced'><a href='#advanced' style='text-decoration:none;color:inherit;'>Advanced</a></h2>
+                <p class='tree-desc'>Topics beyond core GUI authoring — debugging, profiling, I/O, networking, bindings, web deployment, security. Pages are mostly standalone.</p>
+                {advanced}
+
+                <h2 id='contributors'><a href='#contributors' style='text-decoration:none;color:inherit;'>Contributors</a></h2>
+                <p class='tree-desc'>Per-system internals for people hacking on azul itself. No teaching order — read on demand.</p>
+                {contributor}
             </div>
         </main>
         </div>
         </body>
         </html>"
     )
+}
+
+/// Render a flat list of pages as a nested tree based on slug `/` hierarchy.
+/// A page with file_name `parent/child` becomes a sub-bullet under the page
+/// with file_name `parent` (when that page exists in the same bucket); else
+/// it's promoted to the top level under a synthetic group label.
+fn render_tree(pages: &[&Guide]) -> String {
+    use std::collections::BTreeMap;
+
+    // Index by file_name for O(1) parent lookup.
+    let by_name: BTreeMap<&str, &Guide> = pages
+        .iter()
+        .map(|g| (g.file_name.as_str(), *g))
+        .collect();
+
+    // Pages whose parent slug is also in this bucket are children; the rest
+    // are top-level. Children get bucketed under their parent's file_name.
+    let mut top_level: Vec<&Guide> = Vec::new();
+    let mut children: BTreeMap<String, Vec<&Guide>> = BTreeMap::new();
+    let mut orphan_groups: BTreeMap<String, Vec<&Guide>> = BTreeMap::new();
+
+    for g in pages {
+        if let Some(idx) = g.file_name.rfind('/') {
+            let parent_slug = &g.file_name[..idx];
+            if by_name.contains_key(parent_slug) {
+                children
+                    .entry(parent_slug.to_string())
+                    .or_default()
+                    .push(g);
+                continue;
+            }
+            // No parent page exists — promote, but group under the prefix.
+            orphan_groups
+                .entry(parent_slug.to_string())
+                .or_default()
+                .push(g);
+            continue;
+        }
+        top_level.push(g);
+    }
+
+    // Sort each level by guide_order, then by title.
+    let sort_key = |g: &&Guide| (g.guide_order.unwrap_or(i32::MAX), g.title.clone());
+    top_level.sort_by_key(sort_key);
+    for v in children.values_mut() {
+        v.sort_by_key(sort_key);
+    }
+    for v in orphan_groups.values_mut() {
+        v.sort_by_key(sort_key);
+    }
+
+    let mut s = String::new();
+    s.push_str("<ul>\n");
+    for g in &top_level {
+        s.push_str(&render_li(g, &children));
+    }
+    // Render orphan groups (e.g. `bindings/` without a `bindings.md` parent).
+    for (group_slug, kids) in &orphan_groups {
+        let label = group_slug.rsplit('/').next().unwrap_or(group_slug);
+        let label_titled = title_case(label);
+        s.push_str(&format!(
+            "<li><span style='font-weight:600;'>{label_titled}</span>\n<ul>\n"
+        ));
+        for k in kids {
+            s.push_str(&render_li(k, &children));
+        }
+        s.push_str("</ul>\n</li>\n");
+    }
+    s.push_str("</ul>\n");
+    s
+}
+
+fn render_li(g: &Guide, children: &std::collections::BTreeMap<String, Vec<&Guide>>) -> String {
+    let mut s = format!(
+        "<li><a href=\"{HTML_ROOT}/guide/{}.html\">{}</a>",
+        g.file_name, g.title,
+    );
+    if let Some(kids) = children.get(g.file_name.as_str()) {
+        s.push_str("\n<ul>\n");
+        for k in kids {
+            s.push_str(&render_li(k, children));
+        }
+        s.push_str("</ul>\n");
+    }
+    s.push_str("</li>\n");
+    s
+}
+
+fn title_case(s: &str) -> String {
+    s.split('-')
+        .map(|w| {
+            let mut c = w.chars();
+            match c.next() {
+                Some(f) => f.to_uppercase().chain(c).collect::<String>(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Rewrite `[text](path.md)` and `[text](path.md#anchor)` to `.html`.
+/// Only touches link targets — `.md` inside prose / code stays untouched.
+fn rewrite_md_links(content: &str) -> String {
+    let mut out = String::with_capacity(content.len());
+    let bytes = content.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        // Look for a markdown link target: `](...)`
+        if i + 1 < bytes.len() && bytes[i] == b']' && bytes[i + 1] == b'(' {
+            out.push(']');
+            out.push('(');
+            i += 2;
+            // Capture target up to the matching `)`. Markdown allows balanced
+            // parens but autodoc-written links don't use them — bail at first `)`.
+            let start = i;
+            while i < bytes.len() && bytes[i] != b')' && bytes[i] != b'\n' {
+                i += 1;
+            }
+            let target = &content[start..i];
+            // Rewrite `.md` immediately before `#fragment` or end.
+            if let Some(hash) = target.find('#') {
+                let (path, frag) = target.split_at(hash);
+                if path.ends_with(".md") {
+                    out.push_str(&path[..path.len() - 3]);
+                    out.push_str(".html");
+                } else {
+                    out.push_str(path);
+                }
+                out.push_str(frag);
+            } else if target.ends_with(".md") {
+                out.push_str(&target[..target.len() - 3]);
+                out.push_str(".html");
+            } else {
+                out.push_str(target);
+            }
+            continue;
+        }
+        out.push(content[i..].chars().next().unwrap());
+        i += content[i..].chars().next().unwrap().len_utf8();
+    }
+    out
 }
 
 /// Generate a combined guide index page

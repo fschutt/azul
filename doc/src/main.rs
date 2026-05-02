@@ -1426,7 +1426,15 @@ fn main() -> anyhow::Result<()> {
                 if let Some(parent) = path_real.parent() {
                     let _ = fs::create_dir_all(parent);
                 }
-                fs::write(&path_real, &html)?;
+                // In debug mode, strip the production hostname so links resolve
+                // against the local server (`python -m http.server`). Files keep
+                // their `.html` extension because static servers don't rewrite.
+                let html_out = if is_debug {
+                    html.replace("https://azul.rs", "")
+                } else {
+                    html
+                };
+                fs::write(&path_real, &html_out)?;
                 println!("  [OK] Generated: {}", path);
             }
 
