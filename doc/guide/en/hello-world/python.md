@@ -51,30 +51,30 @@ class DataModel:
 # after every callback that returns Update.RefreshDom.
 def layout(data, layoutcallbackinfo):
 
-    # Rendered counter label. We need to use "p_with_text" here, because "_create_text()" 
-    # only creates the raw inline "::text" node, without the necessary wrapping "<p>" 
-    # paragraph node.
-    label_dom = Dom.create_p_with_text(str(data.counter))
-    # accepts css, you can also use ":hover {}" or "@media {}" / "@os linux {}"
-    # directly inline (in difference to regular CSS)
-    label_dom.set_inline_style("font-size: 50px;")
+    # Rendered counter label. p_with_text wraps the text node in a <p>;
+    # .with_css(...) is the builder counterpart of set_css(...) - it
+    # consumes self and returns a new Dom, so we can chain inline.
+    label_dom = (Dom.p_with_text(str(data.counter))
+                 .with_css("font-size: 50px;"))
 
     # Button widget: custom widget from the "azul.widgets" module
     button = Button.create("Increase counter")
     button.set_on_click(data, on_click)
     button_dom = button.dom()
-    
-    # Final wrapup
-    body = Dom.body()
-    body.add_child(label_dom)
-    body.add_child(button_dom)
-    return body
+
+    # Final wrapup - Dom.create_body builds the root, then .with_child(...)
+    # appends children. Mutating set_/add_ methods are also available; the
+    # builder form just chains nicer.
+    return (Dom.create_body()
+            .with_child(label_dom)
+            .with_child(button_dom))
 
 # Click callback: f(DataModel) -> Update. 'data' is the same Python
-# instance you passed to App.create, it is mutated in place (thread safe)
+# instance you passed to App.create, it is mutated in place (thread safe).
+# Update variants in Python are constructor calls, hence the trailing ().
 def on_click(data, info):
     data.counter += 1
-    return Update.RefreshDom
+    return Update.RefreshDom()
 
 # main function
 if __name__ == "__main__":

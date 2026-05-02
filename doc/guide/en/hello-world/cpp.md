@@ -79,12 +79,14 @@ What you actually get per standard, in code:
   `StructName_upcast` / `_downcast_ref` / `_downcast_mut`. No template
   metaprogramming on the user side.
 - **`azul11.hpp`** — `noexcept` everywhere, real move semantics, lambdas.
-  `AZ_REFLECT` is replaced by template-based reflection: `azul::upcast<T>`,
-  `azul::downcast_ref<T>`, `azul::downcast_mut<T>`, `azul::type_id<T>()`.
-  No per-type macro line — any `T` you hand to `upcast<T>` registers itself
-  the first time it is instantiated.
-- **`azul14.hpp`** — same as C++11 plus `azul::type_id_v<T>` (variable
-  template shorthand for `type_id<T>()`) and `auto`-return functions.
+  `AZ_REFLECT` is replaced by template members on `RefAny` itself:
+  `RefAny::create<T>(model)` (factory; T is deduced from the argument),
+  `refany.downcast_ref<T>()`, `refany.downcast_mut<T>()`,
+  `RefAny::type_id<T>()`. No per-type macro line — any `T` you hand to
+  `RefAny::create` registers itself the first time it is instantiated.
+- **`azul14.hpp`** — same as C++11 plus `RefAny::type_id_v<T>` (variable-
+  template shorthand for `RefAny::type_id<T>()`) and `auto`-return
+  functions.
 - **`azul17.hpp`** — adds:
   - `std::string_view` sibling overloads on every `String`-taking method,
     so `"foo"sv` flows in without a `String(...)` wrapping step;
@@ -94,10 +96,11 @@ What you actually get per standard, in code:
   - structured bindings on every `ResultXxx` wrapper:
     `auto [ok, err] = std::move(result);` works without per-class hooks.
 - **`azul20.hpp`** — adds:
-  - the `azul::ReflectableModel` concept; `upcast` / `downcast_*` /
-    `type_id` are constrained by it, so feeding a non-reflectable type
-    produces a readable requires-clause error rather than a wall of
-    template-instantiation noise;
+  - the `azul::ReflectableModel` concept; the `RefAny::create` /
+    `downcast_ref` / `downcast_mut` / `type_id` template members are
+    constrained by it, so feeding a non-reflectable type produces a
+    readable requires-clause error rather than a wall of template-
+    instantiation noise;
   - `Vec<T>::toSpan() -> std::span<T>` for zero-copy access;
   - a sibling `azul.cppm` module partition file. With a modules-aware
     toolchain you can `import azul;` instead of `#include "azul20.hpp"`.
@@ -106,6 +109,10 @@ What you actually get per standard, in code:
     matching implicit conversion. Methods returning a `ResultXxx` wrapper
     can be assigned straight into a `std::expected<Ok, Err>`, then chained
     monadically with `.and_then` / `.or_else`.
+  - Deducing-`this` builder methods: every `with_*` is emitted as a
+    `template<class Self> auto with_xxx(this Self&& self, …)` so the
+    same method body works on l-values and r-values without separate
+    `const&` / `&&` overloads.
 
 The example below is C++17 — representative of what most projects write.
 The full set of C++ examples lives under `examples/cpp/cpp<NN>/` in the
@@ -154,11 +161,11 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // framework handed us); .clone() bumps the count.
     RefAny data_wrapper(data);
 
-    // azul::downcast_ref<T>(RefAny&) -> const T* (or nullptr). Per-type
+    // refany.downcast_ref<T>() -> const T* (or nullptr). Per-type
     // identity is derived from the address of a template-instantiated
     // static, so the compiler stamps a unique tag per T at link time -
     // no per-type registration line, no AZ_REFLECT macro.
-    auto* d = downcast_ref<MyDataModel>(data_wrapper);
+    auto* d = data_wrapper.downcast_ref<MyDataModel>();
     if (!d) return AzDom_createBody();
 
     // Counter label. String-taking methods all gained std::string_view
@@ -188,7 +195,7 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
     // downcast_mut is the mutable counterpart - the borrow tracking is
     // identical; nullptr means either the type doesn't match or the
     // RefAny is already borrowed elsewhere.
-    auto* d = downcast_mut<MyDataModel>(data_wrapper);
+    auto* d = data_wrapper.downcast_mut<MyDataModel>();
     if (!d) return AzUpdate_DoNothing;
 
     d->counter += 1;
@@ -217,10 +224,12 @@ int main() {
     MyDataModel model = { 5, std::nullopt };
     (void)demo_structured_bindings;
 
-    // Move ownership of the model into a RefAny via azul::upcast<T>.
-    // No AZ_REFLECT line was needed - upcast<T> registers T's identity
-    // the first time it's instantiated.
-    RefAny data = upcast<MyDataModel>(std::move(model));
+    // Move ownership of the model into a RefAny via RefAny::create<T>(model).
+    // T is deduced from the argument; the spelling
+    //     RefAny::create<MyDataModel>(std::move(model))
+    // also works if you want it explicit. No AZ_REFLECT line was needed -
+    // RefAny::create registers T's identity the first time it's instantiated.
+    RefAny data = RefAny::create(std::move(model));
 
     // Configure the window(s) to spawn on startup. layout() is the
     // "/" default route; SPA-style routing is done later by swapping
@@ -242,8 +251,8 @@ int main() {
 
 Six things to notice.
 
-- **No `AZ_REFLECT` line for C++11+** — `azul::upcast<T>` / `downcast_ref<T>` / `downcast_mut<T>` are templates over your model type. The compiler stamps a unique runtime tag per `T` via the address of a template-instantiated `static`, so identity is stable across translation units without per-type registration. The `AZ_REFLECT` macro is still emitted in `azul03.hpp` for C++03 compatibility.
-- **RAII over manual `_delete`** — `auto* d = downcast_ref<MyDataModel>(...)` returns a borrowed pointer that reflects the runtime borrow state. There is no explicit pairing with `_delete` like in C, which removes a whole class of bugs.
+- **No `AZ_REFLECT` line for C++11+** — `RefAny::create<T>` / `refany.downcast_ref<T>()` / `refany.downcast_mut<T>()` are template members on `RefAny` itself, so the API reads like every other wrapper class. The compiler stamps a unique runtime tag per `T` via the address of a template-instantiated `static`, so identity is stable across translation units without per-type registration. The `AZ_REFLECT(StructName)` macro is still emitted in `azul03.hpp` for C++03 compatibility (no template member functions there).
+- **RAII over manual `_delete`** — `auto* d = data_wrapper.downcast_ref<MyDataModel>()` returns a borrowed pointer that reflects the runtime borrow state. There is no explicit pairing with `_delete` like in C, which removes a whole class of bugs.
 - **`.release()` at the end of `layout`** — wrapper types own their underlying `Az*` handle and free it on destruction. When you return one to the framework, you must call `.release()` to *transfer* ownership; otherwise the wrapper's destructor will run on the way out and free the tree before the framework consumes it.
 - **`.with_*` builder methods consume `*this`** — they return a new value rather than mutating in place. Chain them inline; they do not allocate beyond what the underlying `Az*_set*` would. The corresponding `set_*` methods (e.g. `Button::set_on_click`) mutate in place if you prefer that style.
 - **`std::move` for ownership transfer** — `App::run(std::move(window))`, `App::create(std::move(data), ...)`. A copy would leave you with two handles competing to free the same memory; if there's a debug build you'll get a double-free at exit. Modern compilers warn when a value is implicitly copied where a move was wanted.
@@ -258,9 +267,9 @@ Things we did not use that you may want to explore next.
 ### What changes for older / newer standards
 
 - `examples/cpp/cpp03/hello-world.cpp` keeps the explicit `AZ_REFLECT(MyDataModel)` line and uses `MyDataModel_upcast` / `MyDataModel_downcast_ref` / `MyDataModel_downcast_mut` directly. No move semantics, no string-view, no `std::optional`.
-- `examples/cpp/cpp14/hello-world.cpp` adds `auto`-return on `layout` and a runtime sanity check on `azul::type_id_v<MyDataModel>` (the address-of-static trick that backs it isn't a constant expression, so it can't be `static_assert`-ed).
+- `examples/cpp/cpp14/hello-world.cpp` adds `auto`-return on `layout` and a runtime sanity check on `RefAny::type_id_v<MyDataModel>` (the address-of-static trick that backs it isn't a constant expression, so it can't be `static_assert`-ed).
 - `examples/cpp/cpp20/hello-world.cpp` `static_assert`s on `azul::ReflectableModel<MyDataModel>` (the concept itself is `constexpr`-friendly, the *value* of `type_id_v` isn't), and feeds a `U8Vec` straight into a function taking `std::span<const uint8_t>` via the implicit `toSpan()` conversion.
-- `examples/cpp/cpp23/hello-world.cpp` returns a `std::expected<AzUrl, AzUrlParseError>` directly from a function whose body just does `return Url::parse("…"sv);`. The implicit `operator std::expected<Ok, Err>() &&` on the `Result` wrapper does the conversion.
+- `examples/cpp/cpp23/hello-world.cpp` returns a `std::expected<AzUrl, AzUrlParseError>` directly from a function whose body just does `return Url::parse("…"sv);`. The implicit `operator std::expected<Ok, Err>() &&` on the `Result` wrapper does the conversion. The example also exercises the deducing-`this` builders by chaining `.with_*` on a mix of l-value and r-value `Dom`s in the same expression.
 
 ## Build and run
 

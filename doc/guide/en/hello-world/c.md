@@ -67,10 +67,12 @@ The C version of the counter is about ~60 lines (without comments):
 #include <string.h>
 
 // Tiny helper: turn a compile-time string literal into an AzString.
-// AzString_fromConstStr just points at the literal (which lives in
-// .rodata) with a NoDestructor - zero allocation. For runtime-built
-// strings, see AzString_copyFromBytes further down.
-#define AZ_CONST_STR(s) AzString_fromConstStr(s)
+// AzString_fromConstStr is a designated-initializer macro - in expression
+// context it needs a compound-literal cast to `(AzString){...}`. The
+// resulting AzString just points at the literal (which lives in .rodata)
+// with a NoDestructor - zero allocation. For runtime-built strings, see
+// AzString_copyFromBytes further down.
+#define AZ_CONST_STR(s) ((AzString)AzString_fromConstStr(s))
 
 // Data model: Plain old struct - the "single source of truth" for app state.
 typedef struct { uint32_t counter; } MyDataModel;
@@ -127,7 +129,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // AzDom_create_text would just creates the raw inline text node
     // ("p::text" in CSS) - but we have to wrap it in a <p> block here
     AzDom label_dom = AzDom_createPWithText(label_text);
-    AzDom_setInlineStyle(&label_dom, AZ_CONST_STR(
+    AzDom_setCss(&label_dom, AZ_CONST_STR(
         "font-size: 50px;"
     ));
 
@@ -220,7 +222,7 @@ Five things to notice.
 - **`FooRef_create` / `FooRef_delete`** — every downcast must be paired with a delete before the function returns. This is the C version of Rust's `RefMut` going out of scope: it releases the runtime borrow on this RefAny instance.
 - **`AzRefAny_clone`** — bumps the reference count, does not deep-copy your struct. The second `RefAny` is moved into the button so the click handler can downcast it later. Cloning is thread-safe (refcount is atomic).
 - **`AzString_fromConstStr` vs `AzString_copyFromBytes`** — strings cross the FFI as length-prefixed UTF-8 buffers, not `const char*`. For compile-time string literals, `AzString_fromConstStr` (wrapped in our `AZ_CONST_STR` macro) is a zero-allocation designated initializer: the resulting `AzString` just points at `.rodata` and carries a `NoDestructor` so the framework will not try to free it. For runtime-built strings (e.g. the counter `snprintf`'d into a stack buffer above), use `AzString_copyFromBytes` instead — it copies the bytes into a refcounted heap buffer so the framework can outlive your stack frame.
-- **`AzDom_setInlineStyle("...")`** — accepts a CSS string, the C analogue of Rust's `set_inline_style`. Multi-property strings are valid: `"font-size: 50px; color: white;"`. You can also embed `:hover { }`, `:focus { }`, `@media ... { }`, `@os macos >= sonoma { }` dynamic queries directly inline — in difference to regular CSS. The string is parsed once on the first cascade and cached, so this is not a per-frame cost. (For programmatic, type-safe access without a CSS string round-trip, use `AzDom_addCssProperty` with the `AzCssProperty_*` constructors instead.)
+- **`AzDom_setCss("...")`** — accepts a CSS string, the C analogue of Rust's `set_css`. Multi-property strings are valid: `"font-size: 50px; color: white;"`. You can also embed `:hover { }`, `:focus { }`, `@media ... { }`, `@os macos >= sonoma { }` dynamic queries directly inline — in difference to regular CSS. The string is parsed once on the first cascade and cached, so this is not a per-frame cost. (For programmatic, type-safe access without a CSS string round-trip, use `AzDom_addCssProperty` with the `AzCssProperty_*` constructors instead.)
 
 Things we did not use that you may want to explore next.
 

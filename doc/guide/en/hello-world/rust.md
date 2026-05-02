@@ -135,10 +135,11 @@ fn my_layout_func(data: RefAny, _: LayoutCallbackInfo) -> Dom {
         None => return Dom::create_body(),
     };
 
-    // Dom::create_text just creates the raw inline text node
-    // ("p::text" in CSS) - but we have to wrap it in a <p> block here
-    let mut label_dom = Dom::create_p_with_text(counter.as_str());
-    label_dom.set_inline_style("font-size: 50px");
+    // Dom::p_with_text builds a `<p>` block with the given text node inside.
+    // .with_css("...") is the builder counterpart of .set_css(...) - it
+    // consumes self and returns a new Dom, so we can chain it inline.
+    let label_dom = Dom::p_with_text(counter.as_str())
+        .with_css("font-size: 50px");
 
     // We use the "button" widget with its own API
     let mut button = Button::create("Update counter");
@@ -147,10 +148,8 @@ fn my_layout_func(data: RefAny, _: LayoutCallbackInfo) -> Dom {
     // when the button is actually clicked
     button.set_on_click(data.clone(), my_on_click);
 
-    // Then we convert the "button" into its own "dumb Dom object", 
-    // so we can override styling
-    let mut button_dom = button.dom();
-    button_dom.set_inline_style("flex-grow: 1");
+    // Convert the button to a Dom, then override styling via the builder.
+    let button_dom = button.dom().with_css("flex-grow: 1");
 
     // Final setup and return
     Dom::create_body()
@@ -203,8 +202,8 @@ Five things to notice.
 
 - **`extern "C"`** — every callback crosses the FFI boundary, even in the "Rust-native" case. The signature must be `extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom`, as Azul uses the `C` calling convention instead of the unstable `Rust` calling convention.
 - **`downcast_ref::<DataModel>()`** — the runtime cast that recovers your concrete struct from the type-erased `RefAny`. It returns `Option<RefMut<DataModel>>` because at the FFI boundary, the framework cannot statically know the type. The borrow is checked at runtime; if another part of the program already holds a borrow, the cast fails and you must return `Update::DoNothing`.
-- **`Dom::create_p_with_text`, `Dom::create_div`, `Dom::create_body`** - primitive node constructors. Everything else (buttons, lists, scroll regions) builds on top of them.
-- **`set_inline_style("...")`** — accepts a CSS string. Multi-property strings are valid: `"font-size: 50px; color: white;"`. Also you can directly configure `:hover { }`, `:focus { }` and `@media ... { }`, `@os macos >= sonoma { }` dynamic queries directly inline - in difference to regular CSS.
+- **`Dom::p_with_text`, `Dom::create_div`, `Dom::create_body`** — primitive node constructors. Everything else (buttons, lists, scroll regions) builds on top of them.
+- **`with_css("...") / set_css("...")`** — both accept a CSS string. `with_css` is the builder form (consumes `self`, returns a new `Dom`), `set_css` mutates in place. Multi-property strings are valid: `"font-size: 50px; color: white;"`. You can also directly configure `:hover { }`, `:focus { }` and `@media ... { }`, `@os macos >= sonoma { }` dynamic queries directly inline — in difference to regular CSS.
 - **`data.clone()`** — `RefAny::clone` bumps the reference count, does not deep-copy your struct. The clone is handed to the button so the click handler can downcast it later.
 
 There are some parts we didn't use such as, which might be interesting to explore next.
