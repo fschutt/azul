@@ -575,7 +575,7 @@ fn emit_class_declaration_cpp20_or_later(
     // delegate to a generator that has them. Cpp20Generator owns these helpers
     // and they don't depend on the standard, so we always call its versions.
     Cpp20Generator.generate_constructor_declarations(code, class_name, ir, config);
-    Cpp20Generator.generate_method_declarations(code, class_name, ir, config);
+    emit_method_declarations(gen.standard(), code, class_name, ir, config);
 
     code.push_str("\r\n");
     code.push_str(&format!(
@@ -729,33 +729,7 @@ impl Cpp20Generator {
         ir: &CodegenIR,
         config: &CodegenConfig,
     ) {
-        let methods: Vec<_> = ir
-            .functions
-            .iter()
-            .filter(|f| f.class_name == class_name)
-            .filter(|f| !is_constructor_or_default(f))
-            .collect();
-
-        if !methods.is_empty() {
-            code.push_str("\r\n");
-            for func in methods {
-                let cpp_fn_name = escape_method_name(&func.method_name);
-                let has_self = func_has_self(func);
-                let is_const =
-                    has_self && (matches!(func.kind, FunctionKind::Method) || func.is_const);
-                let const_suffix = if is_const { " const" } else { "" };
-                let static_prefix = if !has_self { "static " } else { "" };
-                let cpp_return_type = get_cpp_return_type(func.return_type.as_deref(), ir);
-                let substitute = should_substitute_callbacks(func);
-                let cpp_args = generate_args_signature_ex(
-                    &func.args, ir, config, true, class_name, substitute,
-                );
-                code.push_str(&format!(
-                    "    {}{} {}({}){};\r\n",
-                    static_prefix, cpp_return_type, cpp_fn_name, cpp_args, const_suffix
-                ));
-            }
-        }
+        emit_method_declarations(CppStandard::Cpp20, code, class_name, ir, config);
     }
 
     fn generate_enum_wrapper(&self, code: &mut String, enum_def: &EnumDef, config: &CodegenConfig) {
@@ -785,6 +759,64 @@ impl Cpp23Generator {
 
     fn generate_enum_wrapper(&self, code: &mut String, enum_def: &EnumDef, config: &CodegenConfig) {
         Cpp20Generator.generate_enum_wrapper(code, enum_def, config);
+    }
+}
+
+/// Emit instance-method declarations into the class body. Standard-aware so
+/// the C++23 path can swap the `&`-qualified builder form for a deducing-`this`
+/// `template<class Self> auto with_xxx(this Self&& self, …)` declaration.
+fn emit_method_declarations(
+    standard: CppStandard,
+    code: &mut String,
+    class_name: &str,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) {
+    let methods: Vec<_> = ir
+        .functions
+        .iter()
+        .filter(|f| f.class_name == class_name)
+        .filter(|f| !is_constructor_or_default(f))
+        .collect();
+
+    if methods.is_empty() {
+        return;
+    }
+
+    code.push_str("\r\n");
+    for func in methods {
+        let cpp_fn_name = escape_method_name(&func.method_name);
+        let has_self = func_has_self(func);
+        let cpp_return_type = get_cpp_return_type(func.return_type.as_deref(), ir);
+        let substitute = should_substitute_callbacks(func);
+
+        // C++23 deducing-`this` form for builder methods (`with_*` /
+        // `_with_*`). The declaration goes here; the matching template
+        // definition is emitted out-of-class in
+        // `generate_method_implementations_shared` (parameter types may be
+        // forward-declared at this point, so the body can't be parsed yet).
+        if standard >= CppStandard::Cpp23 && is_builder_method(func) {
+            let cpp_args = generate_args_signature_ex(
+                &func.args, ir, config, true, class_name, substitute,
+            );
+            let comma = if cpp_args.is_empty() { "" } else { ", " };
+            code.push_str(&format!(
+                "    template<class Self> {} {}(this Self&& self{}{});\r\n",
+                cpp_return_type, cpp_fn_name, comma, cpp_args
+            ));
+            continue;
+        }
+
+        let is_const =
+            has_self && (matches!(func.kind, FunctionKind::Method) || func.is_const);
+        let const_suffix = if is_const { " const" } else { "" };
+        let static_prefix = if !has_self { "static " } else { "" };
+        let cpp_args =
+            generate_args_signature_ex(&func.args, ir, config, true, class_name, substitute);
+        code.push_str(&format!(
+            "    {}{} {}({}){};\r\n",
+            static_prefix, cpp_return_type, cpp_fn_name, cpp_args, const_suffix
+        ));
     }
 }
 
@@ -865,6 +897,56 @@ fn generate_method_implementations_shared(
         .filter(|f| f.class_name == *class_name)
         .filter(|f| !is_constructor_or_default(f))
     {
+        // C++23 deducing-`this` builder methods get an out-of-class template
+        // definition matching the `template<class Self>` declaration emitted
+        // by `emit_method_declarations`.
+        if dialect.standard() >= CppStandard::Cpp23 && is_builder_method(func) {
+            let cpp_fn_name = escape_method_name(&func.method_name);
+            let cpp_return_type = get_cpp_return_type(func.return_type.as_deref(), ir);
+            let substitute = should_substitute_callbacks(func);
+            let cpp_args = generate_args_signature_ex(
+                &func.args, ir, config, true, class_name, substitute,
+            );
+            let call_args =
+                generate_call_args_ex(&func.args, ir, true, class_name, substitute);
+            let self_is_value = func
+                .args
+                .first()
+                .map(|a| a.ref_kind == ArgRefKind::Owned)
+                .unwrap_or(false);
+            // The C signature dictates whether the wrapper passes self by
+            // value or by pointer. Mirror what the non-deducing-this path
+            // would produce.
+            let self_arg = if self_is_value {
+                "self.inner_"
+            } else {
+                "&self.inner_"
+            };
+            let comma = if cpp_args.is_empty() { "" } else { ", " };
+            let full_call_args = if call_args.is_empty() {
+                self_arg.to_string()
+            } else {
+                format!("{}, {}", self_arg, call_args)
+            };
+            let return_type_str = func.return_type.as_deref().unwrap_or("");
+            code.push_str(&format!(
+                "template<class Self>\r\ninline {} {}::{}(this Self&& self{}{}) {{\r\n",
+                cpp_return_type, class_name, cpp_fn_name, comma, cpp_args
+            ));
+            if cpp_return_type == "void" {
+                code.push_str(&format!("    {}({});\r\n", func.c_name, full_call_args));
+            } else if type_has_wrapper(return_type_str, ir) {
+                code.push_str(&format!(
+                    "    return {}({}({}));\r\n",
+                    return_type_str, func.c_name, full_call_args
+                ));
+            } else {
+                code.push_str(&format!("    return {}({});\r\n", func.c_name, full_call_args));
+            }
+            code.push_str("}\r\n\r\n");
+            continue;
+        }
+
         let cpp_fn_name = escape_method_name(&func.method_name);
         let c_fn_name = &func.c_name;
         let has_self = func_has_self(func);

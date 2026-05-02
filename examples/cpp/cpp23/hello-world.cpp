@@ -37,15 +37,20 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         ? String(R"(body { background-color: #efefef; })")
         : String(R"(body { background-color: #ffaaaa; })"));
 
-    return Dom::create_body()
-        .with_child(Dom::p_with_text(String(std::to_string(d->counter).c_str()))
-            .with_css("font-size: 50px;"sv))
-        .with_child(Button::create("Increase counter"sv)
-            .with_button_type(AzButtonType_Primary)
-            .with_on_click(data_wrapper.clone(), on_click)
-            .dom())
-        .style(std::move(css))
-        .release();
+    // Deducing-`this`: every `with_*` method is a member template
+    // `auto with_xxx(this Self&& self, …)`. Same one method body works on
+    // l-values and r-values - so the chain can mix freely. Below: `body` is
+    // an l-value passed to `.with_child` (deducing-`this` substitutes
+    // `Self = Dom&`); the chain on the right starts from an r-value
+    // (`Self = Dom`).
+    Dom body = Dom::create_body();
+    body = body.with_child(Dom::p_with_text(String(std::to_string(d->counter).c_str()))
+        .with_css("font-size: 50px;"sv));
+    body = body.with_child(Button::create("Increase counter"sv)
+        .with_button_type(AzButtonType_Primary)
+        .with_on_click(data_wrapper.clone(), on_click)
+        .dom());
+    return body.style(std::move(css)).release();
 }
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {

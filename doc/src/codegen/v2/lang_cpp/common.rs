@@ -630,6 +630,23 @@ pub fn func_has_self(func: &FunctionDef) -> bool {
         .unwrap_or(false)
 }
 
+/// Check if a function is a "builder" method — an instance method whose
+/// `method_name` is `with_*` or contains `_with_`. These are the methods
+/// that, in C++23, get a `template<class Self> ... (this Self&& self, …)`
+/// deducing-`this` form so they chain on l-values and r-values uniformly.
+///
+/// Static factories like `p_with_text` are excluded by the `func_has_self`
+/// gate even though their name pattern matches.
+pub fn is_builder_method(func: &FunctionDef) -> bool {
+    if !func_has_self(func) {
+        return false;
+    }
+    if !matches!(func.kind, FunctionKind::Method | FunctionKind::MethodMut) {
+        return false;
+    }
+    func.method_name.starts_with("with_") || func.method_name.contains("_with_")
+}
+
 // ============================================================================
 // Argument and Return Type Conversion
 // ============================================================================
