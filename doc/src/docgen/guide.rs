@@ -18,6 +18,10 @@ pub struct Guide {
     pub audience: Option<String>,
     /// Linear teaching order (Tree 1: 10–199, Tree 2: 200+).
     pub guide_order: Option<i32>,
+    /// One-liner shown beneath the link in the guide index. Extracted from
+    /// the first paragraph after the H1 (the writing style mandates that
+    /// first sentence is a fact about the subject).
+    pub description: Option<String>,
 }
 
 /// Pre-process markdown content:
@@ -101,6 +105,7 @@ fn walk_collect(
             let file_name = stem.to_string_lossy().replace('\\', "/");
             let content = fs::read_to_string(&p).unwrap_or_default();
             let (title, body, guide_order, audience) = extract_metadata(&content, &file_name);
+            let description = extract_first_paragraph(&body);
             out.push((
                 guide_order,
                 file_name.clone(),
@@ -110,6 +115,7 @@ fn walk_collect(
                     content: body,
                     audience,
                     guide_order,
+                    description,
                 },
             ));
         }
@@ -132,6 +138,145 @@ fn extract_metadata(
         }
     }
     (title, content.to_string(), None, None)
+}
+
+/// Extract the first paragraph after the H1 as a one-liner description.
+/// Strips markdown syntax (inline code, bold, italics, links). Returns the
+/// first sentence (up to ~200 chars). Returns None if the page has no prose
+/// before the next heading or code block.
+fn extract_first_paragraph(body: &str) -> Option<String> {
+    let mut seen_h1 = false;
+    let mut paragraph = String::new();
+
+    for line in body.lines() {
+        let trimmed = line.trim();
+        // Skip until we've passed the H1.
+        if !seen_h1 {
+            if trimmed.starts_with("# ") {
+                seen_h1 = true;
+            }
+            continue;
+        }
+        // Skip empty lines before the first paragraph starts.
+        if paragraph.is_empty() {
+            if trimmed.is_empty() {
+                continue;
+            }
+            // First-paragraph rejects: heading, code fence, quote, list, HTML,
+            // azul-render expansion (figure/img tags emitted by the preprocessor).
+            if trimmed.starts_with('#')
+                || trimmed.starts_with("```")
+                || trimmed.starts_with('>')
+                || trimmed.starts_with("- ")
+                || trimmed.starts_with("* ")
+                || trimmed.starts_with("<")
+            {
+                return None;
+            }
+        }
+        // Empty line ends the paragraph.
+        if trimmed.is_empty() {
+            break;
+        }
+        if !paragraph.is_empty() {
+            paragraph.push(' ');
+        }
+        paragraph.push_str(trimmed);
+    }
+
+    if paragraph.is_empty() {
+        return None;
+    }
+
+    let cleaned = strip_markdown_inline(&paragraph);
+    let one_liner = first_sentence(&cleaned, 200);
+    if one_liner.is_empty() {
+        None
+    } else {
+        Some(one_liner)
+    }
+}
+
+/// Strip inline markdown so plain text remains: code spans, bold, italic,
+/// link syntax `[text](url)` → `text`, image syntax `![alt](url)` → `alt`.
+fn strip_markdown_inline(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        // Inline code `…`
+        if b == b'`' {
+            i += 1;
+            while i < bytes.len() && bytes[i] != b'`' {
+                out.push(bytes[i] as char);
+                i += 1;
+            }
+            if i < bytes.len() {
+                i += 1; // skip closing backtick
+            }
+            continue;
+        }
+        // Bold/italic markers — just drop them.
+        if b == b'*' || b == b'_' {
+            i += 1;
+            continue;
+        }
+        // Link / image: `[text](url)` or `![alt](url)`.
+        if b == b'!' && i + 1 < bytes.len() && bytes[i + 1] == b'[' {
+            i += 1;
+            continue;
+        }
+        if b == b'[' {
+            i += 1;
+            let start = i;
+            while i < bytes.len() && bytes[i] != b']' {
+                i += 1;
+            }
+            let text = &s[start..i];
+            out.push_str(text);
+            // Skip `](...)` if present.
+            if i < bytes.len() && bytes[i] == b']' {
+                i += 1;
+                if i < bytes.len() && bytes[i] == b'(' {
+                    while i < bytes.len() && bytes[i] != b')' {
+                        i += 1;
+                    }
+                    if i < bytes.len() {
+                        i += 1;
+                    }
+                }
+            }
+            continue;
+        }
+        out.push(b as char);
+        i += 1;
+    }
+    out
+}
+
+/// Return the first sentence of `s`, capped at `max_chars`. A "sentence"
+/// ends at `.`, `?`, or `!` followed by whitespace or end-of-string.
+fn first_sentence(s: &str, max_chars: usize) -> String {
+    let trimmed = s.trim();
+    let chars: Vec<char> = trimmed.chars().collect();
+    let mut end = chars.len();
+    for (i, c) in chars.iter().enumerate() {
+        if matches!(c, '.' | '?' | '!')
+            && (i + 1 >= chars.len() || chars[i + 1].is_whitespace())
+        {
+            end = i + 1;
+            break;
+        }
+    }
+    let cut = end.min(max_chars);
+    let s: String = chars[..cut].iter().collect();
+    let s = s.trim_end_matches(' ').to_string();
+    if cut < chars.len() && cut == max_chars && !s.ends_with(['.', '?', '!']) {
+        format!("{}…", s)
+    } else {
+        s
+    }
 }
 
 /// Three-tree bucket for the guide index.
@@ -343,13 +488,13 @@ pub fn generate_guide_mainpage(version: &str) -> String {
     let sidebar = crate::docgen::get_sidebar();
 
     let css = "
-        #guide-index { max-width: 720px; }
+        #guide-index { max-width: 760px; }
         #guide-index h2 {
             font-family: 'Instrument Serif', Georgia, serif;
             font-size: 1.6em;
             font-weight: normal;
             margin-top: 32px;
-            margin-bottom: 8px;
+            margin-bottom: 12px;
             text-shadow: 0.3px 0 0 currentColor, -0.3px 0 0 currentColor;
         }
         #guide-index h2:first-child { margin-top: 8px; }
@@ -360,24 +505,25 @@ pub fn generate_guide_mainpage(version: &str) -> String {
         }
         #guide-index ul ul {
             padding-left: 18px;
-            margin: 2px 0 4px 0;
+            margin: 4px 0 8px 0;
             border-left: 1px dashed #ccc;
         }
         #guide-index li {
             line-height: 1.35;
             margin: 0;
-            padding: 1px 0;
+            padding: 4px 0;
             font-size: 15px;
         }
-        #guide-index ul ul li { font-size: 14px; }
-        #guide-index a { text-decoration: none; }
+        #guide-index ul ul li { font-size: 14px; padding: 3px 0; }
+        #guide-index a { text-decoration: none; font-weight: 500; }
         #guide-index a:hover { text-decoration: underline; }
-        #guide-index .tree-desc {
-            color: #666;
+        #guide-index .page-desc {
+            color: #555;
             font-size: 13px;
-            margin: 0 0 6px 0;
-            font-style: italic;
+            margin: 1px 0 0 16px;
+            line-height: 1.4;
         }
+        #guide-index ul ul .page-desc { margin-left: 14px; }
     ";
 
     format!(
@@ -405,15 +551,12 @@ pub fn generate_guide_mainpage(version: &str) -> String {
             <style>{css}</style>
             <div id='guide-index'>
                 <h2 id='getting-started'><a href='#getting-started' style='text-decoration:none;color:inherit;'>Getting Started</a></h2>
-                <p class='tree-desc'>Linear teaching path for app authors. Read top-to-bottom; each page assumes the previous ones.</p>
                 {getting_started}
 
                 <h2 id='advanced'><a href='#advanced' style='text-decoration:none;color:inherit;'>Advanced</a></h2>
-                <p class='tree-desc'>Topics beyond core GUI authoring — debugging, profiling, I/O, networking, bindings, web deployment, security. Pages are mostly standalone.</p>
                 {advanced}
 
                 <h2 id='contributors'><a href='#contributors' style='text-decoration:none;color:inherit;'>Contributors</a></h2>
-                <p class='tree-desc'>Per-system internals for people hacking on azul itself. No teaching order — read on demand.</p>
                 {contributor}
             </div>
         </main>
@@ -498,6 +641,12 @@ fn render_li(g: &Guide, children: &std::collections::BTreeMap<String, Vec<&Guide
         "<li><a href=\"{HTML_ROOT}/guide/{}.html\">{}</a>",
         g.file_name, g.title,
     );
+    if let Some(desc) = &g.description {
+        s.push_str(&format!(
+            "\n<div class=\"page-desc\">{}</div>",
+            html_escape(desc),
+        ));
+    }
     if let Some(kids) = children.get(g.file_name.as_str()) {
         s.push_str("\n<ul>\n");
         for k in kids {
@@ -507,6 +656,12 @@ fn render_li(g: &Guide, children: &std::collections::BTreeMap<String, Vec<&Guide
     }
     s.push_str("</li>\n");
     s
+}
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 fn title_case(s: &str) -> String {
