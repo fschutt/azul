@@ -1,13 +1,13 @@
 ---
 slug: hello-world/python
-title: Hello, World — Python
+title: Hello World [Python]
 language: en
 canonical_slug: hello-world/python
 audience: external
 maturity: wip
 guide_order: 14
 topic_only: false
-short_desc: Installing the Python wheel and writing the counter app in Python.
+short_desc: Hello World example in Python - install with pip and write a simple "counter" app
 prerequisites: [hello-world]
 tracked_files:
   - api.json
@@ -18,17 +18,114 @@ last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T00:00:00Z
 ---
 
-# Hello, World — Python
+# Hello World [Python]
 
-> **WIP** — the Python extension is generated from `api.json` and currently targets Python 3.10+. The high-level shape is stable; some methods may still rename as the C ABI settles.
+Python is the easiest way to use Azul. You can write idiomatic Python — plain classes, 
+plain `str`, plain method calls — and the binding (uses Rusts `pyo3`) takes care of the rest.
 
-A complete Azul GUI in one Python file. The example matches `examples/python/hello-world.py` in the repository.
-
-## Build the extension
-
-The Python module is the same library as the C dynamic library, compiled with the `python-extension` feature. Build it once from a checkout:
+## Installation
 
 ```sh
+pip install azul
+```
+
+The wheel bundles the prebuilt native library, so there are no system dependencies 
+to worry about. Targets **Python 3.10+** - make sure you have the right version.
+
+> ![NOTE]
+> If `pip install` does not yet have a wheel for your platform, 
+> see "[Building the extension](#building-the-extension)" below for the 
+> manual route.
+
+## Simple "Counter" Example
+
+```python
+from azul import *
+
+# Plain Python class - "single source of truth" for app state
+class DataModel:
+    def __init__(self, counter):
+        self.counter = counter
+
+# Layout callback: f(DataModel) -> Dom. Runs once on startup and again
+# after every callback that returns Update.RefreshDom.
+def layout(data, layoutcallbackinfo):
+
+    # Rendered counter label. We need to use "p_with_text" here, because "_create_text()" 
+    # only creates the raw inline "::text" node, without the necessary wrapping "<p>" 
+    # paragraph node.
+    label_dom = Dom.create_p_with_text(str(data.counter))
+    # accepts css, you can also use ":hover {}" or "@media {}" / "@os linux {}"
+    # directly inline (in difference to regular CSS)
+    label_dom.set_inline_style("font-size: 50px;")
+
+    # Button widget: custom widget from the "azul.widgets" module
+    button = Button.create("Increase counter")
+    button.set_on_click(data, on_click)
+    button_dom = button.dom()
+    
+    # Final wrapup
+    body = Dom.body()
+    body.add_child(label_dom)
+    body.add_child(button_dom)
+    return body
+
+# Click callback: f(DataModel) -> Update. 'data' is the same Python
+# instance you passed to App.create, it is mutated in place (thread safe)
+def on_click(data, info):
+    data.counter += 1
+    return Update.RefreshDom
+
+# main function
+if __name__ == "__main__":
+
+    # Initialize the data model (here we set counter=5 on startup)
+    model = DataModel(5)
+
+    # Configure the window. layout is the "/" default route; SPA-style
+    # routing is done later by swapping the layout callback.
+    window = WindowCreateOptions.create(layout)
+    window.window_state.title = "Hello World!"
+    window.window_state.size.dimensions.width = 400.0
+    window.window_state.size.dimensions.height = 300.0
+
+    # AppConfig discovers system-native styling, monitor layout, etc.
+    # App.run blocks until the last window closes.
+    app = App.create(model, AppConfig.create())
+    app.run(window)
+```
+
+Three things to notice.
+
+- **Pass plain Python objects.** No upcast, no downcast, no reflection macro. The binding wraps your `DataModel` instance for you and hands the *same* instance back to your callbacks. The framework holds a strong reference until you drop the `App`, so the GC will not eat it under your feet.
+- **Strings are `str`, styles are CSS strings.** No `AzString`, no `String(...)` wrapper, no `AZ_CONST_STR` macro. Pass UTF-8 Python strings; the binding converts at the boundary.
+- **Callbacks are regular functions** with the signature `(data, info) -> Update` (or `-> Dom` for layout). No `extern "C"`, no boxing, no decorators — just `def`.
+
+Things we did not use that you may want to explore next.
+
+- The `info` argument — read-only access to the system font cache, image cache, GL context, current window size, routing, and localization dictionaries in `layout`; lots of mutation helpers in `on_click` (DOM navigation, CSS overrides without rebuilding, computed-layout queries).
+- `WindowCreateOptions` — title, size, decorations, transparency, monitor pinning. Covered in [windowing](../windowing.md).
+
+## Run it
+
+```sh
+python3 hello-world.py
+```
+
+You should see the window pictured on the [hello-world landing page](../hello-world.md). Click the button: the counter increments, the layout callback re-runs, and the new value renders.
+
+1. `app.run(window)` opened a native window and ran `layout()` once with your `DataModel` on startup.
+2. The returned `Dom` was styled, laid out, and rendered.
+3. On click, the framework matched the button's event filter, called `on_click(data, info)`, observed the `Update.RefreshDom` return, and re-invoked `layout()`.
+4. The new `Dom` was diffed against the previous one; only the changed text node was repainted.
+
+## Building the extension
+
+Only needed if `pip install azul` does not yet have a wheel for your platform, or if you want to track `master`. From a checkout:
+
+```sh
+# git clone https://github.com/fschutt/azul
+# cd myfolder/azul
 cargo build -p azul-dll --release \
     --no-default-features --features python-extension
 ```
@@ -44,91 +141,23 @@ cp target/release/libazul_dll.so target/release/azul.so
 copy target\release\azul_dll.dll target\release\azul.pyd
 ```
 
-Then either run Python from the directory containing the file, or prepend that path to `sys.path` (see `examples/python/hello_world.py` for the boilerplate that does this for the in-repo example).
-
-## The whole program
+Then either run Python from the directory containing the file, or prepend that path to `sys.path`:
 
 ```python
-from azul import *
-
-class DataModel:
-    def __init__(self, counter):
-        self.counter = counter
-
-def layout(data, info):
-    label = Dom.text(str(data.counter))
-    label.set_inline_style("font-size:50px;")
-
-    button = Dom.div()
-    button.set_inline_style("flex-grow:1;")
-    button.add_child(Dom.text("Increase counter"))
-    button.set_callback(On.MouseUp, data, on_click)
-
-    body = Dom.body()
-    body.add_child(label)
-    body.add_child(button)
-
-    return body.style(Css.empty())
-
-def on_click(data, info):
-    data.counter += 1
-    return Update.RefreshDom
-
-model = DataModel(5)
-window = WindowCreateOptions.create(layout)
-
-app = App.create(model, AppConfig.create())
-app.run(window)
+import sys, os
+sys.path.insert(0,
+    os.path.join(os.path.dirname(__file__), 'target', 'release'))
+import azul
 ```
-
-Read top-down; each block is one concept.
-
-## What changes from Rust or C
-
-Three observations.
-
-- **No upcast / downcast boilerplate.** Pass a regular Python instance into `App.create` or `set_callback`; the binding layer wraps it in a `RefAny` automatically and gives it back to your callback as the same instance. The framework holds a strong reference until you drop the `App`.
-- **No `extern "C"` qualifier.** Python callbacks are stored alongside the `RefAny` in the `ctx: OptionRefAny` field of `LayoutCallback` — see `core/src/callbacks.rs:128`. A small Rust trampoline extracts the Python callable and dispatches.
-- **Strings are plain Python `str`.** The `Az*` string handling vanishes; the binding converts UTF-8 at the boundary.
-
-## Event filters
-
-Where Rust uses `Button::set_on_click`, Python uses `Dom.set_callback(On.MouseUp, data, callback)`. The `On.*` enum mirrors the Rust `EventFilter`:
-
-| Python | Rust equivalent |
-|---|---|
-| `On.MouseUp` | `EventFilter::Hover(HoverEventFilter::MouseUp)` |
-| `On.MouseDown` | `EventFilter::Hover(HoverEventFilter::LeftMouseDown)` |
-| `On.MouseEnter` | `EventFilter::Hover(HoverEventFilter::MouseEnter)` |
-| `On.FocusGained` | `EventFilter::Focus(FocusEventFilter::FocusReceived)` |
-| `On.TextInput` | `EventFilter::Focus(FocusEventFilter::TextInput)` |
-
-The full list lives in `core/src/events.rs`; the binding generator walks it.
-
-## Run it
-
-```sh
-cd target/release
-python3 path/to/hello-world.py
-```
-
-You should see the same window pictured on the [hello-world landing page](../hello-world.md). Click increments the counter; the layout function re-runs.
 
 ## Common errors
 
-- **`ImportError: dynamic module does not define module export function (PyInit_azul)`** — the library was built without `--features python-extension`. Rebuild.
-- **`ModuleNotFoundError: No module named 'azul'`** — the renamed `azul.so` / `azul.pyd` is not on `sys.path`. Either `cd` into its directory or prepend the path:
+- **`ModuleNotFoundError: No module named 'azul'`** — `pip install azul` either failed silently or got installed into a different interpreter than the one you're running. Verify that `which python3` and `pip --version` point at the same Python install.
+- **Counter does not advance** — the click callback returned `Update.DoNothing`, or it implicitly returned `None` (which the binding treats as `DoNothing`). Always end a mutating handler with `return Update.RefreshDom`.
+- **`TypeError: layout() takes 0 positional arguments but 2 were given`** — your callback signature is wrong. `layout` and click handlers must accept exactly `(data, info)`.
+- **Mutation isn't sticking** — you mutated a *copy* of the model instead of the instance bound to the framework. The binding always passes the same instance back; check that you are not shadowing `data` with a fresh `DataModel(...)` somewhere inside the callback.
 
-  ```python
-  import sys, os
-  sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'target', 'release'))
-  import azul
-  ```
+## Up Next
 
-- **Counter does not advance** — the click callback returned `Update.DoNothing` (or implicitly `None`). Always return `Update.RefreshDom` from a handler that mutates the model.
-- **`TypeError: layout() takes 0 positional arguments but 2 were given`** — the layout callable must accept exactly `(data, info)`.
-
-## Next
-
-- [DOM and Callbacks](../dom.md) — the same DOM surface, written with `Dom.text`, `Dom.div`, `Dom.body` instead of the Rust constructors.
-- [Python Bindings](../bindings/python.md) — full reference for the Python module surface, including type stubs and packaging.
+- [DOM and Callbacks](../dom.md) — building richer trees, event filters, the full callback API. Same surface as Rust, written with `Dom.*` constructors instead of the Rust types.
+- [Python Bindings](../bindings/python.md) — full reference for the Python module, including type stubs and packaging.

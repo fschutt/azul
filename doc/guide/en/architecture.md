@@ -1,13 +1,13 @@
 ---
 slug: architecture
-title: Architecture
+title: Application Architecture
 language: en
 canonical_slug: architecture
 audience: external
 maturity: mature
 guide_order: 20
 topic_only: false
-short_desc: How an Azul app is structured — App, AppConfig, layout callback, the Dom tree, and the per-frame pipeline.
+short_desc: Important - explains the concepts of structuring a larger Azul application - "What makes Azul special?"
 prerequisites: [hello-world]
 tracked_files:
   - core/src/callbacks.rs
@@ -18,9 +18,9 @@ last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T05:48:36Z
 ---
 
-# Towards A „Perfect“ GUI Toolkit
+# Application Architecture
 
-For over 40 years, building graphical user interfaces (GUIs) has been one of the most 
+For over 40 years, building graphical user interfaces has been one of the most 
 difficult problems in software engineering. Despite a constant evolution of languages, 
 libraries, and design patterns, developers face the same fundamental problems: managing 
 state, synchronizing data with the view, and enabling communication between distant 
