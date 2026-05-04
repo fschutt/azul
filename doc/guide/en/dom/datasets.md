@@ -5,7 +5,7 @@ language: en
 canonical_slug: dom/datasets
 audience: external
 maturity: mature
-guide_order: 33
+guide_order: 32
 topic_only: false
 short_desc: Attaching arbitrary state to a node — for navigation in callbacks, for ephemeral RefAnys, and as the slot widgets use to keep instance-local state.
 prerequisites: [dom]

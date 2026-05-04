@@ -5,10 +5,10 @@ language: en
 canonical_slug: dom/merge-callbacks
 audience: external
 maturity: mature
-guide_order: 34
+guide_order: 33
 topic_only: false
 short_desc: Surviving the next layout() rebuild — the reconcile-style protocol that hands a widget its previous dataset so heavy resources (video decoders, GL textures, websockets) don't get freed and reopened every frame.
-prerequisites: [dom, dom/datasets]
+prerequisites: [dom, dom/datasets, dom/reconciliation]
 tracked_files:
   - core/src/dom.rs
   - core/src/diff.rs
@@ -64,31 +64,26 @@ reconciliation.
 
 ## When the framework calls it
 
-The diff pass classifies every node into one of:
-
-- **Stable** — same key (or same structural hash) as last frame at the
-  same path. Old node id ↔ new node id.
-- **Moved** — same key but different parent or sibling order.
-- **Created** — no match in the previous tree.
-- **Destroyed** — previous tree had a node here, the new tree does not.
-
-The merge callback fires on **moves and stable nodes that ended up in
-`node_moves`**. Created / destroyed nodes get whatever the new layout
-function puts on them, with no merge.
-
-A reliable [`with_key(...)`](../dom.md#callbacks-keys-datasets-virtualview)
-on the node is what makes the difference between "moved" and
-"destroyed + created". For a list that can reorder, **use a key** — the
-structural-hash fallback works only when the order is fixed.
-
-The framework runs the merge for any node where:
+The merge callback runs for every node where:
 
 1. The new node has a `with_merge_callback(...)` attached, *and*
-2. Both the old and the new node have datasets.
+2. Both the old and the new node have datasets, *and*
+3. The diff classified the node as **Stable** or **Moved** — not
+   Created and not Destroyed.
 
-If either side is missing a dataset the framework leaves both alone:
-the new node keeps whatever you put on it in `layout()`, the old one
-drops normally.
+The classification ladder (Stable / Moved / Created / Destroyed), how
+the diff uses keys and structural hashes to match old ↔ new, and what
+governs whether your nodes survive across a `RefreshDom`, is covered
+in [Reconciliation, Diffing, and Lazy Paint](reconciliation.md). Two
+points worth keeping in mind here:
+
+- A reliable [`with_key(...)`](../dom.md#callbacks-keys-datasets-virtualview)
+  on the node is what makes the difference between "moved" and
+  "destroyed + created". For a list that can reorder, **use a key** —
+  the structural-hash fallback works only when the order is fixed.
+- If either side is missing a dataset the framework leaves both alone:
+  the new node keeps whatever you put on it in `layout()`, the old one
+  drops normally.
 
 ## A worked example: a video encoder pipeline
 

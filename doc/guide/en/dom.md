@@ -34,7 +34,7 @@ reflows triggered by JavaScript. State changes always go through the
 *next* `layout()` call: a callback returns `Update::RefreshDom`, the
 framework re-invokes the layout callback, you build a fresh `Dom` from
 your application data, and the framework reconciles the new tree against
-the previous one (see [the diff pass](dom/merge-callbacks.md#when-the-framework-calls-it)).
+the previous one (see [Reconciliation, Diffing, and Lazy Paint](dom/reconciliation.md)).
 Anything that needs to *survive* a tree rebuild — a video decoder, a GL
 texture, the typing buffer of a focused input — sits on the **node** as a
 dataset, not in the tree shape.
@@ -50,7 +50,7 @@ This page covers the shape of a `Dom`, the two ways to build one, how CSS
 attaches and when it gets applied, clipping, XML loading, and what the
 debugger sees on the other side. The component model — and how reusable
 fragments hand themselves to the live debugger — is one level deeper, in
-[Components](dom/components.md) and [Component Packs](dom/component-packs.md).
+[Components and Component Packs](dom/components.md).
 
 ## `Dom` and `NodeData`
 
@@ -375,9 +375,10 @@ recognises SVG tags, the resulting nodes carry `SvgNodeData` on their
 extra-state slot, and a `clip-path` attribute on an XHTML element resolves
 the same way a CSS `clip-path:` property would.
 
-`ComponentMap` is the registry of XML-defined components — see
-[Component Packs](dom/component-packs.md) for how the framework looks up
-`<card title="…"/>` against a registered library.
+`ComponentMap` is the registry of XML-defined components — see the
+component-packs section of [Components](dom/components.md#component-packs)
+for how the framework looks up `<card title="…"/>` against a registered
+library.
 
 ## Callbacks, keys, datasets, `VirtualView`
 
@@ -481,8 +482,8 @@ uses to draw a Component Tree alongside the DOM Tree:
 The inspector clicks-through: pick a node in the DOM Tree, get the
 component that produced it, and (if its render function lives in a
 registered library) jump back to the source. That round-trip is what makes
-the live design-time tools work; see
-[Component Packs](dom/component-packs.md) for how a library wires its
+the live design-time tools work; see the component-packs section of
+[Components](dom/components.md#component-packs) for how a library wires its
 components into the registry.
 
 ## Where to read the source
