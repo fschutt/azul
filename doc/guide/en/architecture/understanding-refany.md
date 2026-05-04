@@ -1,8 +1,8 @@
 ---
-slug: understanding-refany
+slug: architecture/understanding-refany
 title: Understanding RefAny
 language: en
-canonical_slug: understanding-refany
+canonical_slug: architecture/understanding-refany
 audience: external
 maturity: mature
 guide_order: 25

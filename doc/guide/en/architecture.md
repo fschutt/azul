@@ -729,5 +729,5 @@ their pain points in GUI programming - because someone who cannot articulate a p
 
 ## Coming Up Next
 
-- [Understanding RefAny](./understanding-refany.md) — technical dive into RefAny, to avoid pitfalls
+- [Understanding RefAny](./architecture/understanding-refany.md) — technical dive into RefAny, to avoid pitfalls
 - [Document Object Model](./dom.md) — explains various ways how to quickly build `Dom`s without sacrificing performance
