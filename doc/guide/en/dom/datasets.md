@@ -1,62 +1,51 @@
 ---
-slug: dom/datasets-and-merge-callbacks
-title: Datasets and Merge Callbacks
+slug: dom/datasets
+title: Datasets and Marker Structs
 language: en
-canonical_slug: dom/datasets-and-merge-callbacks
+canonical_slug: dom/datasets
 audience: external
 maturity: mature
 guide_order: 33
 topic_only: false
-short_desc: Attaching arbitrary state to a node — and surviving the next layout() rebuild without losing video decoders, GL textures, or focus-buffers.
+short_desc: Attaching arbitrary state to a node — for navigation in callbacks, for ephemeral RefAnys, and as the slot widgets use to keep instance-local state.
 prerequisites: [dom]
 tracked_files:
   - core/src/dom.rs
-  - core/src/diff.rs
   - core/src/callbacks.rs
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T05:53:30Z
 ---
 
-# Datasets and Merge Callbacks
+# Datasets and Marker Structs
 
-The `Dom` is rebuilt from scratch every time a callback returns
-`Update::RefreshDom`. The application data lives in a `RefAny` you own;
-the tree is a fresh value. That works fine until you have **state that
-exists only because the widget exists** — a video decoder mid-frame, a
-GL texture cache, the typing buffer of a focused `<input>`, the scroll
-offset of a scrollable region. None of that belongs in the application
-data model, and you don't want to lose it just because the parent
-re-rendered.
+The [`Dom` is frozen the moment you return it from `layout()`](../dom.md).
+Application data lives in a `RefAny` you own; the tree is a fresh value
+every time. So where do you put the state that exists only because *this
+particular widget instance* exists — the cursor inside an `<input>`, the
+expansion flag of a tree-view row, an "I am the save button"
+self-identification a callback can use to navigate the new tree?
 
-Datasets are the slot. A merge callback is the protocol that survives a
-tree rebuild.
+`Dom::with_dataset(OptionRefAny)` (`core/src/dom.rs:5145`) is the slot.
+It stamps a `RefAny` onto a node. The framework doesn't read it; it just
+hands it back to your callback when the user interacts with the node. The
+dataset is your scratch slot for per-node, per-instance state — and, as
+this page covers, also the canonical way to identify *which* node a
+generic callback was fired from.
+
+For widgets that hold *resources expensive to recreate* (a video decoder,
+a GL texture, a websocket), the dataset pairs with a merge callback that
+the framework runs during reconciliation. That side of the story is on
+its own page: see [Merge Callbacks](merge-callbacks.md).
 
 ## What a dataset is
 
-`Dom::with_dataset(OptionRefAny)` (`core/src/dom.rs:5145`) stamps a
-`RefAny` onto a single node. The `RefAny` is yours — same type-erased,
-atomically reference-counted handle as
-[anywhere else in the framework](../architecture/understanding-refany.md).
-What makes the dataset slot special is *where* it lives: on the node, in
-the tree, traveling with the widget instead of in your application data.
-
 ```rust,no_run
 # use azul::prelude::*;
-struct EditorState {
-    text: String,
-    cursor: usize,
-    undo: Vec<String>,
-}
+struct EditorState { text: String, cursor: usize }
 
-fn editor_node(initial: &str) -> Dom {
-    let state = RefAny::new(EditorState {
-        text: initial.to_string(),
-        cursor: 0,
-        undo: Vec::new(),
-    });
-    Dom::create_input_no_a11y("text".into(), "editor".into(), initial.into())
-        .with_dataset(OptionRefAny::Some(state))
-}
+let state = RefAny::new(EditorState { text: "hello".into(), cursor: 0 });
+let _ = Dom::create_input_no_a11y("text".into(), "editor".into(), "hello".into())
+    .with_dataset(OptionRefAny::Some(state));
 ```
 
 The dataset is **read-write at callback time** via
@@ -65,242 +54,183 @@ during a click handler:
 
 ```rust,no_run
 # use azul::prelude::*;
-# struct EditorState { text: String, cursor: usize, undo: Vec<String> }
+# struct EditorState { text: String, cursor: usize }
 extern "C" fn on_keydown(_unused: RefAny, mut info: CallbackInfo) -> Update {
     let hit = info.get_hit_node();
-    let mut ds = match info.get_dataset(hit) {
-        Some(d) => d,
-        None => return Update::DoNothing,
-    };
-    let mut state = match ds.downcast_mut::<EditorState>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
-    };
+    let mut ds = match info.get_dataset(hit) { Some(d) => d, None => return Update::DoNothing };
+    let mut state = match ds.downcast_mut::<EditorState>() { Some(s) => s, None => return Update::DoNothing };
     state.text.push_str("…");
     Update::RefreshDom
 }
 ```
 
-The dataset survives the *current* frame because the wrapper class holds
-the only handle. What survives the *next* frame is the question this page
-exists to answer.
+Borrows follow the [`RefAny` rules](../architecture/understanding-refany.md):
+a `downcast_ref` blocks `downcast_mut` and vice versa. Drop the guard
+before triggering anything that might re-enter the same dataset.
 
-## When does a dataset disappear?
+## Marker structs — datasets as navigation handles
 
-Every `layout()` call returns a fresh `Dom` tree. The framework reconciles
-the new tree against the previous one (see `core/src/diff.rs`), figures
-out what moved, what was created, what was destroyed. A node that the
-diff considers "freshly created" gets whatever `with_dataset(...)` you
-called in the new layout function — which means **the dataset on the new
-node is whatever you put there in `layout()`**, not what was there a
-frame ago.
-
-For most widgets this is fine. The application data is the source of
-truth; the dataset is computed each frame from it; resources held by the
-dataset (an iterator state, a parsed glyph cache) are cheap to recompute.
-
-For widgets where the dataset *holds something expensive* — a 4K video
-decoder mid-frame, a thread-bound GL context, a websocket — recomputing
-isn't an option. The merge callback is how the framework hands you the
-old dataset so you can transfer the resources before the old node is
-freed.
-
-## How reconciliation finds the old state
-
-The diff pass classifies every node into one of:
-
-- **Stable**: same key (or same structural hash) as last frame at the
-  same path. Old node id ↔ new node id.
-- **Moved**: same key but different parent or sibling order.
-- **Created**: no match in the previous tree.
-- **Destroyed**: the previous tree had a node here, the new tree does not.
-
-The merge callback fires on **moves only** (`core/src/diff.rs:793`).
-Stable nodes already share their dataset across frames implicitly because
-the framework keeps the previous node alive. Created / destroyed nodes
-get whatever the new layout function puts on them, with no merge.
-
-A reliable [`with_key(...)`](../dom.md#callbacks-keys-datasets-virtualview)
-on the node is what makes the difference between "moved" and "destroyed +
-created". For a list that can reorder, **use a key** — the structural-hash
-fallback works only when the order is fixed.
-
-## The merge callback
-
-```rust,ignore
-pub type DatasetMergeCallbackType =
-    extern "C" fn(new_data: RefAny, old_data: RefAny) -> RefAny;
-```
-
-The framework, during reconciliation, sees:
-
-1. The new node has a `with_merge_callback(merge_video)`.
-2. Both the old and the new node have datasets.
-
-…and calls `merge_video(new_data_clone, old_data_clone) -> merged`. The
-returned `RefAny` becomes the new node's dataset. The old node and its
-dataset get dropped after the call, **so any resources you want to keep
-have to be moved across** — `Option::take()` is your friend.
-
-## Worked example: a video player
+A dataset doesn't have to *carry* state. It can just *identify* the
+node, so a callback that runs at the page level can navigate to the
+node it was fired against without selectors or hit-test math.
 
 ```rust,no_run
 # use azul::prelude::*;
-# struct VideoDecoder;
-# struct GlTexture;
-struct VideoState {
-    src: String,
-    decoder: Option<VideoDecoder>,
-    gl_texture: Option<GlTexture>,
-    last_frame_idx: u64,
-    paused: bool,
-}
+// Marker structs - they hold no fields, they exist only to identify a slot.
+struct SaveButtonMarker;
+struct CancelButtonMarker;
 
-extern "C" fn merge_video(new_data: RefAny, old_data: RefAny) -> RefAny {
-    // Both clones are cheap (refcount bumps). The actual VideoState lives
-    // behind the RefAny, accessible only after a downcast_mut/ref.
-    let mut new = new_data.clone();
-    let mut new_state = match new.downcast_mut::<VideoState>() {
-        Some(s) => s,
-        None => return new_data, // type mismatch -> let the new one win
-    };
-    let mut old = old_data.clone();
-    let mut old_state = match old.downcast_mut::<VideoState>() {
-        Some(s) => s,
-        None => return new_data,
-    };
-
-    if new_state.src == old_state.src {
-        // Same video. Move heavy resources from old to new.
-        new_state.decoder       = old_state.decoder.take();
-        new_state.gl_texture    = old_state.gl_texture.take();
-        new_state.last_frame_idx = old_state.last_frame_idx;
-        new_state.paused        = old_state.paused;
-    }
-    // else: different src -> let the new VideoState start fresh; the old
-    // decoder / GL texture get dropped when `old_data` falls out of scope.
-
-    drop(new_state); drop(old_state);
-    new
-}
-
-pub fn video_player(src: &str) -> Dom {
-    let state = RefAny::new(VideoState {
-        src: src.to_string(),
-        decoder: None,
-        gl_texture: None,
-        last_frame_idx: 0,
-        paused: false,
-    });
+fn dialog_buttons() -> Dom {
     Dom::create_div()
-        .with_class("video-player".into())
-        .with_dataset(OptionRefAny::Some(state))
-        .with_merge_callback(merge_video)
-        .with_key(hash_str(src))   // key on src so reorder == same video
+        .with_child(
+            Dom::create_button_no_a11y("Save".into())
+                .with_dataset(OptionRefAny::Some(RefAny::new(SaveButtonMarker)))
+                .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp),
+                               RefAny::new(()), on_dialog_click))
+        .with_child(
+            Dom::create_button_no_a11y("Cancel".into())
+                .with_dataset(OptionRefAny::Some(RefAny::new(CancelButtonMarker)))
+                .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp),
+                               RefAny::new(()), on_dialog_click))
 }
 
-# fn hash_str(s: &str) -> u64 { 0 }
+extern "C" fn on_dialog_click(_unused: RefAny, mut info: CallbackInfo) -> Update {
+    let hit = info.get_hit_node();
+    let mut ds = match info.get_dataset(hit) { Some(d) => d, None => return Update::DoNothing };
+    if ds.downcast_ref::<SaveButtonMarker>().is_some() {
+        // Save path
+    } else if ds.downcast_ref::<CancelButtonMarker>().is_some() {
+        // Cancel path
+    }
+    Update::RefreshDom
+}
 ```
 
-What this gets you across a `RefreshDom`:
+Both buttons point at the same callback function. The callback uses the
+dataset's *type* to dispatch — no string matching, no node-id juggling,
+no `get_node_by_class("save-button")` round-trip through the styled DOM.
+This is the cheapest possible "tell me which thing was clicked" channel.
 
-- The *parent* re-rendered for whatever reason (state change far up the
-  tree, route switch, debug-server-driven re-layout).
-- The new tree contains a `<div class="video-player">` for `"movie.mp4"`
-  with a fresh `VideoState { decoder: None, gl_texture: None, ... }` in
-  its dataset. That's because `layout()` just builds the value naively.
-- The diff pass matches old ↔ new (same key on the same path),
-  classifies it as a move (or a stable node — they take the same path
-  through `node_moves`), and fires `merge_video`.
-- `merge_video` moves the decoder + texture out of the old `VideoState`
-  and into the new one. The old `VideoState` drops empty: nothing to free.
-- The video keeps playing. The user never noticed.
+The pattern composes upward. A dataset can hold a struct of fields too:
 
-The same pattern fits anything *the widget owns and `layout()` cannot
-recreate cheaply*:
+```rust,no_run
+# use azul::prelude::*;
+// One dataset, one callback, many rows.
+#[derive(Debug)]
+struct RowMarker {
+    row_id: u64,
+    column: ColumnKind,
+}
+#[derive(Debug, Copy, Clone)]
+enum ColumnKind { Name, Email, Avatar, DeleteButton }
 
-- **Text input**: typing buffer + cursor + undo stack, so the user
-  doesn't lose edits when something else triggers a re-render.
-- **Scroll regions**: the current scroll offset for a node that shows
-  data from a `RefAny` — the framework already handles raw scroll, but
-  if you want sticky-scroll-to-bottom semantics you keep the flag here.
-- **WebGL / Skia surfaces**: the GPU-side resource handle.
-- **Subscriptions**: a websocket that's mid-receive, a timer with a
-  pending tick.
+fn row(row_id: u64, kind: ColumnKind, label: &str) -> Dom {
+    Dom::create_td()
+        .with_child(Dom::create_text(label))
+        .with_dataset(OptionRefAny::Some(RefAny::new(RowMarker { row_id, column: kind })))
+        .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp),
+                       RefAny::new(()), on_cell_click)
+}
 
-If the widget reorders or its parent re-keys, the framework follows the
-key and your `merge_*` keeps the resources on the right node.
+extern "C" fn on_cell_click(_unused: RefAny, mut info: CallbackInfo) -> Update {
+    let hit = info.get_hit_node();
+    let mut ds = match info.get_dataset(hit) { Some(d) => d, None => return Update::DoNothing };
+    let marker = match ds.downcast_ref::<RowMarker>() { Some(m) => m, None => return Update::DoNothing };
+    // marker.row_id and marker.column tell us exactly which cell fired.
+    let _ = marker;
+    Update::RefreshDom
+}
+```
 
-## Where this differs from "use a RefAny on App state"
+The callback is one function for the whole table. The dataset narrows
+the call site to "which row, which column" without traversing the tree.
 
-A reasonable question: why not just put the `VideoState` on the
-application's data model and have `layout()` look it up by key?
+## Walking the tree from a marker
 
-You can. For widgets that are always-singletons (the main video viewer
-on the home screen) it's even cleaner. The dataset pattern wins when:
-
-1. **The widget instance is the lifetime boundary.** A video player
-   nested inside a list of search results that the user can re-query —
-   the application data model has *search results*, not "the video that
-   was playing in the row that is now row 4". The widget itself is the
-   thing whose disappearance should free the resources.
-2. **You have many of them and they are dynamic.** Putting per-instance
-   state on app data turns into a `HashMap<WidgetId, VideoState>`
-   that's parallel to the DOM. The dataset slot is that hashmap, but
-   handed to you by the framework, indexed by the diff key, and
-   garbage-collected when the node is destroyed.
-3. **The state is genuinely "UI-layer".** The application doesn't care
-   about cursor position inside a text input, scroll offset, an undo
-   stack inside an editor widget. Putting that on the model pollutes the
-   data layer with view-only state.
-
-A useful split:
-- **Application data → `RefAny`** at app construction, accessed in
-  `layout()` to decide what to render.
-- **Widget-instance state → dataset on the widget's root node**, with a
-  merge callback if it owns expensive resources.
-
-## Backreferences from a dataset
-
-Datasets can hold a back-pointer to the higher-level component (the
-[backreference pattern](components.md#the-backreference-pattern)). When
-the inner widget fires its private callback, it follows the
-backreference up to the application-level callback to forward whatever
-event the widget computed.
+Once you have a node id (typically `info.get_hit_node()`), `CallbackInfo`
+exposes navigation getters that read the styled-DOM hierarchy:
 
 ```rust,ignore
-pub struct NumberInput {
-    value: i64,
-    on_change: Option<(RefAny, OnNumberChange)>,
-    parent: RefAny,   // the back-pointer
-}
+let hit = info.get_hit_node();
+
+// Up:
+let parent  = info.get_parent(hit);
+
+// Sideways (returns OptionDomNodeId):
+let next    = info.get_next_sibling(hit);
+let prev    = info.get_previous_sibling(hit);
+
+// Down:
+let first   = info.get_first_child(hit);
+let last    = info.get_last_child(hit);
 ```
 
-The merge callback for a wrapper like this typically transfers the
-`on_change` slot if it was set, while letting the new `value` win — the
-parent doesn't change between frames, but the displayed value might.
+Combine the marker pattern with the navigators when a callback needs to
+reach a *related* node — e.g. the row's "delete" button knows its
+`row_id` from its marker, and walks up to the row container, then to the
+row's avatar cell, all without needing to thread node ids through the
+state model.
 
-## Reading datasets in callbacks
+For deeper queries, `info.get_dataset(some_other_node_id)` works against
+any node — useful when, e.g., a parent row's dataset holds the row's
+data and a click on a child cell wants to read the parent's state.
+
+## Ephemeral `RefAny` instances
+
+A subtle but important point: the `RefAny` you hand to `with_dataset` is
+**created during `layout()`** and lives only as long as the framework
+holds the node. When the next `layout()` returns a fresh tree, the old
+node and its dataset get dropped. Three implications:
+
+- **The dataset is rebuilt every frame.** Anything you read from it in
+  a callback must come back into application state via the callback's
+  own `RefAny` — otherwise the next `layout()` call will overwrite it
+  with whatever you put on the new node.
+- **Marker structs cost nothing.** A zero-field struct wrapped in a
+  `RefAny` is one allocation per node per frame, but the allocator is
+  well-suited to that pattern, and the marker doesn't even need a
+  destructor body.
+- **Heavy resources need a merge callback.** If the dataset *owns*
+  something expensive (a decoder, a GPU texture, a websocket), you
+  don't want it to be rebuilt and the old one freed every frame. That
+  is exactly what [Merge Callbacks](merge-callbacks.md) are for.
+
+There is also a related pattern called the *double update*, where a
+callback writes once to the application data and a second time to the
+node-attached dataset to give an input field "what the user just typed"
+semantics in the same frame. That shows up most prominently in text
+input handling — covered in [Text Input and Selection](../text-input.md)
+once that page lands; the gist is that the dataset is the only "hot"
+slot a callback can touch *between* the application-data write and the
+next `layout()`.
+
+## Reading datasets in callbacks — the full surface
 
 `CallbackInfo` exposes:
 
-- `info.get_dataset(node_id)` — borrow the node's dataset.
-  `node_id` is usually `info.get_hit_node()` for click handlers, or
-  whatever `info.get_first_child(...)` / `get_node_by_class(...)` /
-  `get_dom_node_id_at(x, y)` returns for less-direct access.
-- `info.get_hit_node()` — node id of the node the event landed on
-  (after event-filter propagation).
+- **`info.get_dataset(node_id)`** — returns the node's dataset as a
+  `RefAny`, or `None`. Borrow rules follow the underlying `RefAny`.
+- **`info.get_hit_node()`** — node id of the node the event landed on,
+  after event-filter propagation. The standard "which node was
+  clicked" call.
+- **`info.get_focused_node()`** — node id of whichever node currently
+  has keyboard focus, useful for keyboard-driven callbacks.
+- **`info.get_parent(node_id)`** / **`get_next_sibling`** /
+  **`get_previous_sibling`** / **`get_first_child`** /
+  **`get_last_child`** — hierarchy navigation; each returns an
+  `OptionDomNodeId`.
+- **`info.get_string_contents(node_id)`** — returns the node's text
+  content (after layout has resolved any `Text` children), useful for
+  reading what the user typed into an editable node.
 
-The borrow follows the `RefAny` rules: a `downcast_ref` blocks
-`downcast_mut` and vice versa. Drop the guard before triggering anything
-that might re-enter the same dataset.
+Drop the dataset borrow before calling any of these that might
+internally re-borrow the same `RefAny`.
 
 ## Where to read the source
 
 - `core/src/dom.rs:1781` — `NodeDataExt.dataset: Option<RefAny>` slot
-- `core/src/dom.rs:1794` — `dataset_merge_callback` slot
-- `core/src/dom.rs:1828` — `DatasetMergeCallback` struct
-- `core/src/dom.rs:1872` — `DatasetMergeCallbackType` signature
 - `core/src/dom.rs:5145` — `Dom::with_dataset`
-- `core/src/dom.rs:5056` — `Dom::with_merge_callback`
-- `core/src/diff.rs:793` — where the merge callback fires during reconciliation
+- `core/src/dom.rs:2503` — `NodeData::set_dataset`
+- `core/src/dom.rs:2497` — `NodeData::get_dataset`
+- `core/src/callbacks.rs` — `CallbackInfo::get_dataset` and the
+  `get_*_sibling` / `get_first_child` / `get_last_child` navigators

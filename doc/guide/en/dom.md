@@ -34,7 +34,7 @@ reflows triggered by JavaScript. State changes always go through the
 *next* `layout()` call: a callback returns `Update::RefreshDom`, the
 framework re-invokes the layout callback, you build a fresh `Dom` from
 your application data, and the framework reconciles the new tree against
-the previous one (see [the diff pass](dom/datasets-and-merge-callbacks.md#how-reconciliation-finds-the-old-state)).
+the previous one (see [the diff pass](dom/merge-callbacks.md#when-the-framework-calls-it)).
 Anything that needs to *survive* a tree rebuild — a video decoder, a GL
 texture, the typing buffer of a focused input — sits on the **node** as a
 dataset, not in the tree shape.
@@ -409,25 +409,30 @@ diffing falls back to a structural-hash match — correct, but loses cursor
 position, focus, and dataset state when items reorder.
 
 `with_dataset(OptionRefAny)` attaches arbitrary user data to a node,
-queryable in callbacks via `CallbackInfo::get_dataset`. For state that
-must survive subtree replacement (video decoder, GL texture, network
-connection), pair the dataset with `with_merge_callback`: the framework
-calls it with the old and new `RefAny`s during reconciliation so heavy
-resources can move across. This is the canonical place to keep
-*UI-layer* state — the kind of state that exists only because the widget
-exists, not because the application data has it. See
-[Datasets and Merge Callbacks](dom/datasets-and-merge-callbacks.md) for
-the full pattern, including the worked video-player example.
+queryable in callbacks via `CallbackInfo::get_dataset`. The dataset is
+the canonical place to keep *UI-layer* state — the cursor inside an
+input, the expansion flag of a tree-view row, a marker struct that
+identifies "I am the save button" so a generic callback can dispatch.
+See [Datasets and Marker Structs](dom/datasets.md) for the navigation
+patterns and the ephemeral-`RefAny` semantics.
 
-A `VirtualView` is azul's iframe-equivalent: a node whose contents come from
-a separate callback that runs *only* when the framework needs the contents
-— first paint, bounds change, or scroll-edge crossing. It is the mechanism
-for infinite lists, lazy panels, and embedded component roots. The callback
-gets a `VirtualViewCallbackReason`
-([`core/src/callbacks.rs:181`](../../core/src/callbacks.rs)) explaining why
-it was called (`InitialRender`, `DomRecreated`, `BoundsExpanded`,
-`EdgeScrolled(_)`, `ScrollBeyondContent`); use the reason to skip work when
-the call is just a parent re-render.
+For state that must *survive* a subtree replacement (a video decoder, a
+GL texture, a websocket), pair the dataset with `with_merge_callback`:
+the framework calls it with the old and new `RefAny`s during
+reconciliation so heavy resources can move across. See
+[Merge Callbacks](dom/merge-callbacks.md) for the full reconcile-style
+pattern with a worked FFmpeg example.
+
+A `VirtualView` is azul's iframe-equivalent: a single node whose
+contents come from a separate callback that runs *only* when the
+framework needs them. It is the mechanism for infinite lists, lazy
+panels, and embedded sub-DOMs that own their own scroll math. The
+callback receives a `VirtualViewCallbackReason` explaining why it was
+called (`InitialRender`, `DomRecreated`, `BoundsExpanded`,
+`EdgeScrolled(_)`, `ScrollBeyondContent`); use the reason to skip work
+when the call is just a parent re-render. See
+[Virtual Views](dom/virtual-views.md) for the rendered-vs-virtual
+coordinate model and a virtualised-table walkthrough.
 
 ## Inspecting a live tree: the `AZ_DEBUG` server
 
