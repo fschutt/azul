@@ -33,12 +33,14 @@ inline, flex, or grid — selected by its `display` property. The four
 sub-pages cover each mode from simple to complex: blocks first (the
 default), then inline text flow, then the two opt-in container modes.
 
-| Mode | Used for | See |
-|---|---|---|
-| Block | The default; full-width stacked boxes | [Blocks, Sizing, and Positioning](layout/blocks.md) |
-| Inline | Text and inline-block runs inside a block | [Inline, Inline-Block, and Text Flow](layout/inline.md) |
-| Flex | One-axis containers (rows, columns) | [Flexbox](layout/flex.md) |
-| Grid | Two-axis containers (columns *and* rows) | [Grid](layout/grid.md) |
+- **Block** — the default; full-width stacked boxes. See
+  [Blocks, Sizing, and Positioning](layout/blocks.md).
+- **Inline** — text and inline-block runs inside a block. See
+  [Inline, Inline-Block, and Text Flow](layout/inline.md).
+- **Flex** — one-axis containers (rows or columns). See
+  [Flexbox](layout/flex.md).
+- **Grid** — two-axis containers (columns *and* rows). See
+  [Grid](layout/grid.md).
 
 ## Picking a mode
 

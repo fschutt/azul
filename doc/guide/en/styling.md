@@ -80,11 +80,15 @@ body { font-family: sans-serif; padding: 20px; background: white; }
 Pick the one that matches scope. They all parse to the same `CssProperty`
 enum and feed the same cascade — the difference is *where* the rules live.
 
-| API | Scope | When to use |
-|---|---|---|
-| `Dom::with_css(s)` | This node only | Inline tweaks; component-local styles |
-| `Dom::style(css)` | This subtree | Component themes; per-page stylesheets |
-| `Dom::with_css_property(p)` | This node | Programmatic single-property values |
+- **`Dom::with_css(s)`** — scopes to *this node only*. CSS string is
+  parsed and pushed onto the node's inline-property vec. Use for inline
+  tweaks and component-local styles.
+- **`Dom::style(css)`** — scopes to *this subtree*. The parsed `Css` is
+  attached to the subtree root and the cascade walks it during the
+  per-frame pass. Use for component themes and per-page stylesheets.
+- **`Dom::with_css_property(p)`** — scopes to *this node*, programmatic
+  single-property override. Use when you have a typed `CssProperty`
+  value and don't want to round-trip through string parsing.
 
 ```rust,no_run
 # use azul::prelude::*;
@@ -118,21 +122,22 @@ later ones override earlier ones at equal specificity (`core/src/dom.rs:4906`).
 The selector language matches W3C Selectors Level 3 minus a few rarely-used
 pseudo-classes. From `css/src/css.rs:1432`:
 
-| Selector | Example | Matches |
-|---|---|---|
-| `*` | `*` | every node |
-| Type | `div`, `button`, `h1` | nodes whose `NodeType` matches the tag |
-| Class | `.panel` | nodes with `with_class("panel")` |
-| Id | `#sidebar` | nodes with `with_id("sidebar")` |
-| Attribute | `[lang]`, `[lang="en"]`, `[lang^="en"]` | attribute presence/match |
-| Descendant | `nav a` | `<a>` anywhere under `<nav>` |
-| Child | `nav > a` | direct `<a>` child of `<nav>` |
-| Adjacent sibling | `h2 + p` | `<p>` immediately after `<h2>` |
-| General sibling | `h2 ~ p` | any `<p>` after `<h2>` at the same level |
-| Pseudo-class | `:hover`, `:focus`, `:nth-child(2n+1)` | runtime-evaluated state |
-
-Attribute operators follow the standard set (`=`, `~=`, `|=`, `^=`, `$=`,
-`*=`) — see `AttributeMatchOp` at `css/src/css.rs:1481`.
+- **Universal** — `*` matches every node.
+- **Type** — `div`, `button`, `h1` match nodes whose `NodeType` matches
+  the tag.
+- **Class** — `.panel` matches nodes with `with_class("panel")`.
+- **Id** — `#sidebar` matches nodes with `with_id("sidebar")`.
+- **Attribute** — `[lang]`, `[lang="en"]`, `[lang^="en"]` test attribute
+  presence and match. Operators `=`, `~=`, `|=`, `^=`, `$=`, `*=` —
+  see `AttributeMatchOp` at `css/src/css.rs:1481`.
+- **Descendant** — `nav a` matches an `<a>` anywhere under `<nav>`.
+- **Child** — `nav > a` matches a direct `<a>` child of `<nav>`.
+- **Adjacent sibling** — `h2 + p` matches a `<p>` immediately after
+  `<h2>`.
+- **General sibling** — `h2 ~ p` matches any `<p>` after `<h2>` at the
+  same level.
+- **Pseudo-class** — `:hover`, `:focus`, `:nth-child(2n+1)` are
+  runtime-evaluated state.
 
 ## Pseudo-classes
 
@@ -168,17 +173,25 @@ let _ = Dom::create_div().with_css("
 ");
 ```
 
-| At-rule | Backed by | Notes |
-|---|---|---|
-| `@os <name>` | `DynamicSelector::Os` | `windows`, `macos`, `linux`, `android`, `ios` |
-| `@os-version` | `DynamicSelector::OsVersion` | `>= win-11`, `>= macos-14`, `linux gnome`, ... |
-| `@theme <variant>` | `DynamicSelector::Theme` | `dark`, `light`, custom string |
-| `@media (orientation: ...)` | `DynamicSelector::Orientation` | `portrait`, `landscape` |
-| `@media (min-width: Npx)` etc. | `DynamicSelector::ViewportWidth/Height` | numeric viewport ranges |
-| `@media (prefers-reduced-motion)` | `DynamicSelector::PrefersReducedMotion` | accessibility |
-| `@media (prefers-contrast)` | `DynamicSelector::PrefersHighContrast` | accessibility |
-| `@container` | `DynamicSelector::ContainerWidth/Height/Name` | container queries |
-| `@lang(<bcp47>)` | `DynamicSelector::Language` | matches by prefix |
+- **`@os <name>`** — backed by `DynamicSelector::Os`. Names: `windows`,
+  `macos`, `linux`, `android`, `ios`.
+- **`@os-version`** — backed by `DynamicSelector::OsVersion`. Examples:
+  `>= win-11`, `>= macos-14`, `linux gnome`, ...
+- **`@theme <variant>`** — backed by `DynamicSelector::Theme`. Variants:
+  `dark`, `light`, plus any custom string.
+- **`@media (orientation: …)`** — backed by `DynamicSelector::Orientation`.
+  Values: `portrait`, `landscape`.
+- **`@media (min-width: Npx)`** and friends — backed by
+  `DynamicSelector::ViewportWidth` / `ViewportHeight`. Numeric viewport
+  ranges.
+- **`@media (prefers-reduced-motion)`** — backed by
+  `DynamicSelector::PrefersReducedMotion`. Accessibility query.
+- **`@media (prefers-contrast)`** — backed by
+  `DynamicSelector::PrefersHighContrast`. Accessibility query.
+- **`@container`** — backed by `DynamicSelector::ContainerWidth` /
+  `ContainerHeight` / `ContainerName`. Container queries.
+- **`@lang(<bcp47>)`** — backed by `DynamicSelector::Language`. Matches
+  by prefix.
 
 Conditions nest: an `@os linux` block can contain a `:hover` block, and the
 two conditions both have to hold for the rule to apply
