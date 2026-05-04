@@ -73,6 +73,41 @@ A few properties apply regardless of the formatting mode:
 Block-specific details — float, `clear`, and `display: table*` — live on
 the [Blocks](layout/blocks.md) and [Inline](layout/inline.md) pages.
 
+## What the solver actually reads
+
+The layout solver does not walk the cascade output as a `BTreeMap` of
+properties. By the time it runs, [the cascade has already been
+flattened](styling.md#where-styles-meet-the-dom--the-deferred-cascade)
+into a **compact cache** keyed by node id:
+
+- **Tier 1** — `Vec<u64>`: 21 enum properties bit-packed into 8 B per node
+  (`display`, `position`, `float`, `overflow_x/y`, `flex_direction`,
+  `flex_wrap`, `justify_content`, `align_items`, `align_content`,
+  `font_weight`, `text_align`, `vertical_align`, `visibility`,
+  `white_space`, `direction`, `writing_mode`, `clear`, `box_sizing`,
+  `font_style`, `border_collapse`).
+- **Tier 2 hot** — `Vec<CompactNodeProps>`: the layout-critical numeric
+  dimensions in 68 B per node (`width`, `height`, `min/max-width/height`,
+  the four `padding`s, the four `margin`s, the four `border-width`s,
+  `flex-basis`, `flex-grow`, `flex-shrink`).
+- **Tier 2 cold** — `Vec<CompactNodePropsCold>`: paint-only properties in
+  28 B per node (color, opacity, …) — read by the display-list builder,
+  not by the solver.
+- **Tier 2b** — `Vec<CompactTextProps>`: text/IFC properties in 24 B per
+  node — read by the inline-formatting context.
+
+Reading `display` for a node is a single `u64` load and bit-mask, not a
+map lookup. Reading `width` is one `u32` decode. The solver issues one
+linear pass over the tree, getting the data it needs from these arrays
+directly — `layout/src/solver3/getters.rs` is full of fast-path getters
+named `get_<property>_property` that decode the compact cache, with a slow
+fall-through to the full cascade for properties that don't need a fast
+path (background, transform, box-shadow).
+
+That's why the [deferred-cascade design](dom.md#when-does-css-actually-apply-not-until-after-layout)
+matters performance-wise: the heavy work happens once before layout, and
+the solver pays cache-friendly array-indexing cost per node from then on.
+
 ## Where the solver lives
 
 The integration point is `layout/src/solver3/` (`layout/src/lib.rs:58`).
@@ -84,6 +119,8 @@ It takes a styled DOM and returns positioned boxes for every node:
 - `solver3/grid.rs` — grid.
 - `solver3/positioning.rs` — `position: absolute | fixed | sticky` resolution.
 - `solver3/calc.rs` — `calc()` evaluation.
+- `solver3/getters.rs` — the typed wrappers around the compact cache the
+  formatting contexts call into.
 
 These are contributor-facing details; app code interacts with the solver
 only through CSS properties and `Dom::style(...)`.

@@ -102,10 +102,16 @@ let _ = Dom::create_body()
     );
 ```
 
-`with_css` parses on every call. For a static stylesheet shared across many
-nodes, build the `Css` once at app startup and pass it through `style()`.
-Multiple `style()` calls stack: later ones override earlier ones at equal
-specificity (`core/src/dom.rs:4906`).
+`with_css` parses on every call but does *not* cascade — the parsed
+properties just get pushed onto the node's `css_props` vector. The actual
+matching, inheritance, and compaction happens once after `layout()`
+returns, in a single pass. The "Where styles meet the DOM" section below
+covers the pipeline, and [The DOM — when does CSS actually apply?](dom.md#when-does-css-actually-apply-not-until-after-layout)
+walks through the timing.
+
+For a static stylesheet shared across many nodes, build the `Css` once at
+app startup and pass it through `style()`. Multiple `style()` calls stack:
+later ones override earlier ones at equal specificity (`core/src/dom.rs:4906`).
 
 ## Selectors
 
@@ -255,6 +261,29 @@ spacing unit) without re-parsing the stylesheet. The override path lives
 on `Dom::with_css_property`, which feeds a `CssPropertyWithConditions`
 directly into the node's prop vector.
 
+## `system:` keywords
+
+Anywhere a colour or font is expected, `system:<name>` resolves at cascade
+time against the running OS / theme:
+
+```rust,no_run
+# use azul::prelude::*;
+let _ = Dom::create_div().with_css("
+    background: system:control;
+    color: system:control-text;
+    border: 1px solid system:separator;
+    font-family: system:body;
+    @theme dark { background: system:control; }
+");
+```
+
+The lookup runs through `SystemStyle::detect()` at `AppConfig::create()`
+time and re-evaluates per frame, so a theme switch (light → dark) updates
+without re-parsing the stylesheet. The available names — `system:control`,
+`system:accent`, `system:body`, `system:monospace`, … — are catalogued in
+[System Themes](styling/themes.md). They compose with `@theme` and `@os`
+the same way any other property would.
+
 ## Parsing CSS
 
 `Css::from_string` returns the parsed stylesheet; the warning-collecting
@@ -276,19 +305,44 @@ The parser is feature-gated behind `parser` (always enabled in the
 default build). Internals: `css/src/parser2.rs` is the entry point;
 each property's `parse_*` function lives next to its type.
 
-## Where styles meet the DOM
+## Where styles meet the DOM — the deferred cascade
 
-The cascade runs once per layout pass. Inputs:
+The cascade runs **once** per layout pass, after your `LayoutCallback`
+returns. Inputs, in priority order (low → high):
 
 1. The user-agent stylesheet (`core/src/ua_css.rs`) sets HTML defaults
    (`h1` font sizes, `<button>` padding, `<a>` color, ...).
-2. Each `Css` attached to the subtree, in `style()` push order.
+2. Each `Css` attached to a subtree via `Dom::style(...)`, in `style()`
+   push order.
 3. Inline `with_css` rules on each node.
 4. Programmatic `with_css_property` overrides (highest priority short of `!important`).
 
-Output is a `StyledDom` — a flat, indexed view that the layout solver
-consumes. From your side this is invisible: you build a `Dom`, return it,
-and the framework runs cascade → layout → paint.
+Inside `StyledDom::create_from_dom()` the framework collects every CSS
+attachment from the recursive `Dom` tree, strips them off the nodes,
+flattens the tree into a `CompactDom`, merges the stylesheets in push
+order, and runs the cascade in a single sweep. The output is a `StyledDom`
+— a flat, indexed view of the cascaded properties.
+
+Then a second pass — `CssPropertyCache::build_compact_cache`
+([`core/src/compact_cache_builder.rs:35`](../../core/src/compact_cache_builder.rs))
+— re-encodes the layout-hot subset of properties into three packed tiers
+the layout solver reads directly: a `Vec<u64>` for the 21 enum properties
+(display, position, float, overflow, flex/grid alignment, font weight,
+text-align, …), a hot dimensions array (width, height, padding, margin,
+border, flex-basis), a cold paint-only array, and a text-properties array.
+Less common properties (background, box-shadow, transform) stay in the
+slow cascade path because the layout engine doesn't read them on hot
+paths.
+
+The reason this matters even at the styling layer: every CSS string you
+parse via `with_css` or `Css::from_string` is "free" in the sense that it
+is one parse and one push onto a vector. Selector matching, inheritance,
+and the compact-cache build all happen once after you return — and the
+framework only re-runs them on the deltas that need a recascade.
+
+See [The DOM — when does CSS actually apply?](dom.md#when-does-css-actually-apply-not-until-after-layout)
+for the per-frame walkthrough, and [Layout — what the solver actually reads](layout.md#what-the-solver-actually-reads)
+for how the compact cache feeds the formatting algorithms.
 
 Sub-pages cover the catalogue of properties, the platform integration,
 and the icon and text-styling primitives:
@@ -312,3 +366,6 @@ and the icon and text-styling primitives:
 - `css/src/dynamic_selector.rs:50` — `DynamicSelector` (`@os`, `@theme`, `@media`, `@lang`)
 - `core/src/dom.rs:4906` — `Dom::style`
 - `core/src/dom.rs:5099` — `Dom::with_css`
+- `core/src/styled_dom.rs:1169` — `create_from_dom` (collect → cascade)
+- `core/src/compact_cache_builder.rs:35` — `build_compact_cache` (the post-cascade compaction pass)
+- `css/src/compact_cache.rs` — three-tier numeric encoding
