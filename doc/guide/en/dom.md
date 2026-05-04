@@ -1,6 +1,6 @@
 ---
 slug: dom
-title: The DOM
+title: Document Object Model
 language: en
 canonical_slug: dom
 audience: external
@@ -8,7 +8,7 @@ maturity: mature
 guide_order: 30
 topic_only: false
 short_desc: Building UIs from the Dom tree — node types, hierarchy, allocation patterns, and how CSS, clipping, and components fit in.
-prerequisites: [understanding-refany]
+prerequisites: [architecture/understanding-refany]
 tracked_files:
   - core/src/dom.rs
   - core/src/styled_dom.rs
@@ -20,12 +20,24 @@ last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T05:53:30Z
 ---
 
-# The DOM
+# Document Object Model
 
 A `Dom` is a tree of `NodeData`. Your `LayoutCallback` returns one each time the
 framework needs a fresh view of the application. Construction is the only
 thing you do with it — it is write-only from your side; the framework consumes
 it, runs the cascade, and produces a `StyledDom` for layout.
+
+**The `Dom` is frozen the moment you return it from `layout()`.** Unlike the
+browser DOM, there is no `appendChild` / `removeChild` / `setAttribute` once
+the framework has the tree — no live nodes, no mutation observers, no
+reflows triggered by JavaScript. State changes always go through the
+*next* `layout()` call: a callback returns `Update::RefreshDom`, the
+framework re-invokes the layout callback, you build a fresh `Dom` from
+your application data, and the framework reconciles the new tree against
+the previous one (see [the diff pass](dom/datasets-and-merge-callbacks.md#how-reconciliation-finds-the-old-state)).
+Anything that needs to *survive* a tree rebuild — a video decoder, a GL
+texture, the typing buffer of a focused input — sits on the **node** as a
+dataset, not in the tree shape.
 
 ```rust,no_run
 # use azul::prelude::*;
@@ -397,12 +409,15 @@ diffing falls back to a structural-hash match — correct, but loses cursor
 position, focus, and dataset state when items reorder.
 
 `with_dataset(OptionRefAny)` attaches arbitrary user data to a node,
-queryable in callbacks via `CallbackInfo::get_dataset`. The dataset is what
-makes the backreference pattern work: it carries the `RefAny` chain back to
-the higher-level component that owns the logic. For state that must survive
-subtree replacement (video decoder, GL texture, network connection), pair
-the dataset with `with_merge_callback`: the framework calls it with the old
-and new `RefAny`s during reconciliation so heavy resources can move across.
+queryable in callbacks via `CallbackInfo::get_dataset`. For state that
+must survive subtree replacement (video decoder, GL texture, network
+connection), pair the dataset with `with_merge_callback`: the framework
+calls it with the old and new `RefAny`s during reconciliation so heavy
+resources can move across. This is the canonical place to keep
+*UI-layer* state — the kind of state that exists only because the widget
+exists, not because the application data has it. See
+[Datasets and Merge Callbacks](dom/datasets-and-merge-callbacks.md) for
+the full pattern, including the worked video-player example.
 
 A `VirtualView` is azul's iframe-equivalent: a node whose contents come from
 a separate callback that runs *only* when the framework needs the contents
