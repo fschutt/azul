@@ -1,6 +1,6 @@
 ---
 slug: styling/properties
-title: CSS Properties Cheatsheet
+title: CSS Properties
 language: en
 canonical_slug: styling/properties
 audience: external

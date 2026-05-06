@@ -18,19 +18,20 @@ generated_at: 2026-05-02T05:53:30Z
 
 # Virtual Views
 
-A `VirtualView` is azul's iframe-equivalent: a single node whose
-contents are produced by a *separate callback* that the framework only
-invokes when it actually needs the content. Use it when:
+A `VirtualView` is a single node. Its inner content comes from a separate
+callback. That callback only runs when needed.
 
-- The full content would be expensive to build every frame — an
-  infinite list, a 100,000-row table, an editor with many decoration
-  layers.
-- The content is genuinely independent from the rest of the layout —
-  a settings panel that should not re-render when the surrounding
-  toolbar updates.
-- You want explicit control over the scroll model — separating the
-  *rendered* size from the *virtual* size, so a scrollbar can pretend
-  to span 30,000 rows while only 30 are actually in the DOM.
+It's azul's iframe-equivalent. Use it when the inner content would be too
+expensive to build every frame. Common cases:
+
+- An infinite list.
+- A 100,000-row table.
+- An editor with heavy decoration layers.
+- A panel that's logically independent from its surroundings.
+
+The outer `Dom` containing the `VirtualView` is built inside `layout()` like
+any other node. The inside isn't built until the framework calls the
+callback.
 
 ```rust,no_run
 # use azul::prelude::*;
@@ -51,78 +52,75 @@ let list_state = RefAny::new(ListData { items: vec!["A".into(), "B".into()] });
 let _ = Dom::create_virtual_view(list_state, VirtualViewCallback::create(render_list));
 ```
 
-The outer `Dom` containing the `VirtualView` is built inside `layout()`
-like any other tree. The *inside* of the `VirtualView` only materialises
-when the framework calls `render_list`.
-
-## When the framework invokes the callback
-
-`VirtualViewCallbackReason` (`core/src/callbacks.rs:181`) tells the
-callback why it was called:
-
-- **`InitialRender`** — the first time the `VirtualView` appears in
-  layout. You always render content here.
-- **`DomRecreated`** — the parent tree was rebuilt from scratch (not
-  just re-laid-out). The framework lost the cached subtree, so the
-  callback has to rebuild it.
-- **`BoundsExpanded`** — the window grew and the `VirtualView`'s bounds
-  now exceed its previous `scroll_size`. The callback is invited to
-  enlarge its rendered content. This fires *once* per expansion, not on
-  every resize tick.
-- **`EdgeScrolled(EdgeType)`** — the user scrolled within
-  `EDGE_THRESHOLD` (200 px) of one of the four edges of the rendered
-  content. Time to lazy-load more rows or fetch the next page. Fires
-  *once* per edge approach; the flag clears when the scroll moves away.
-- **`ScrollBeyondContent`** — programmatic scroll
-  (`set_scroll_position`) jumped the offset past the rendered
-  `scroll_size`. Same constraints as the threshold rule.
-
-The callback does *not* fire on small resizes that stay within the
-already-rendered `scroll_size`, on shrinking the window, or on parent
-re-renders that don't recreate the parent DOM. That's the optimisation
-the abstraction is built around.
-
 ## Two coordinate systems: rendered vs virtual
 
-The `VirtualViewReturn` value carries two size/offset pairs. The
-distinction is what makes "30,000 rows of scrollbar, 30 rows of DOM"
-work without the framework needing to know what's behind the
-abstraction:
+The key idea is that the rendered size and the virtual size are separate
+numbers. That's what lets a scrollbar pretend to span 30,000 rows while
+only 30 rows actually live in the DOM.
 
-- **`scroll_size`** + **`scroll_offset`** describe the *actual rendered
-  content*. This is the box of DOM you're handing back, where it sits
-  in virtual coordinates, and how big it is.
-- **`virtual_scroll_size`** + **`virtual_scroll_offset`** describe what
-  the `VirtualView` *pretends* to have — the size the scrollbar should
-  represent, and where the visible window's top-left sits in that
-  pretended space.
+`VirtualViewReturn` carries two pairs:
 
-For a non-virtualised `VirtualView` (every row materialised), the
-rendered and virtual values match — the abstraction collapses to a
-plain scrollable subtree.
+- `scroll_size` and `scroll_offset` describe the actual rendered content.
+  This is the box of DOM you're handing back. `scroll_offset` is where it
+  sits in virtual coordinates.
 
-For a virtualised list — say, rows 10..30 of a million-row table — the
-shape is:
+- `virtual_scroll_size` and `virtual_scroll_offset` describe what the view
+  pretends to be. `virtual_scroll_size` is the size the scrollbar
+  represents. `virtual_scroll_offset` is usually `LogicalPosition::zero()`.
 
-- `scroll_size` = `(width, 20 * row_height)` — the 20 actual rows.
-- `scroll_offset` = `(0, 10 * row_height)` — those 20 rows start at
-  y = 10 × row_height in virtual coords.
-- `virtual_scroll_size` = `(width, 1_000_000 * row_height)` — what the
-  scrollbar represents.
-- `virtual_scroll_offset` = `(0, 0)` — usually origin.
+If every row is materialised, the rendered values match the virtual values.
+The abstraction collapses to a plain scrollable subtree.
 
-Read the framework's interpretation as: "the scrollbar paints based on
-`virtual_scroll_size`; the rendered content is clipped to a viewport
-that lives at `scroll_offset` and is `scroll_size` big; if the user
-scrolls outside the rendered window, re-invoke the callback."
+For a virtualised slice, say rows 10..30 of a million-row table:
 
-## Skipping unnecessary work — `OptionDom::None`
+- `scroll_size` is `(width, 20 * row_height)`. That's the 20 actual rows.
+- `scroll_offset` is `(0, 10 * row_height)`. The rendered rows start at
+  y = 10 × row_height in virtual coordinates.
+- `virtual_scroll_size` is `(width, 1_000_000 * row_height)`. The
+  scrollbar represents the whole table.
+- `virtual_scroll_offset` is `(0, 0)`.
 
-If the callback determines that the current rendered window is still
-fine (the user scrolled, but stayed inside the already-rendered area;
-or a parent re-rendered without invalidating this subtree), it can
-return `OptionDom::None`. The framework keeps the previous DOM and only
-updates the scroll bounds.
+The framework paints the scrollbar from `virtual_scroll_size`. It clips the
+rendered DOM to a viewport at `scroll_offset` of size `scroll_size`. If the
+user scrolls outside the rendered window, it re-invokes the callback.
+
+## Why the callback was invoked
+
+Each invocation carries a `VirtualViewCallbackReason`. The variants are
+defined in `core/src/callbacks.rs`:
+
+- `InitialRender`. The first time the `VirtualView` appears. You always
+  return content here.
+
+- `DomRecreated`. The parent tree was rebuilt from scratch. The cached
+  subtree was thrown away. The callback has to rebuild.
+
+- `BoundsExpanded`. The window grew. The view's bounds now exceed its
+  previous `scroll_size`. Time to enlarge the rendered content. This fires
+  once per expansion, not on every resize tick.
+
+- `EdgeScrolled(EdgeType)`. The user scrolled within `EDGE_THRESHOLD`
+  (200 px) of one of the four edges of the rendered content. Time to
+  lazy-load more rows. `EdgeType` is one of `Top`, `Bottom`, `Left`,
+  `Right`. Fires once per edge approach. The flag clears once the scroll
+  moves away.
+
+- `ScrollBeyondContent`. A programmatic scroll (e.g. `set_scroll_position`)
+  jumped the offset past the rendered `scroll_size`.
+
+The callback does not fire on small resizes that stay inside the rendered
+`scroll_size`. It does not fire when the window shrinks. It does not fire
+on parent re-renders that don't recreate the parent DOM. That's the
+optimisation.
+
+## Returning `OptionDom::None`
+
+Sometimes the existing DOM is fine. The user scrolled, but stayed inside
+the already-rendered area. Or the parent re-rendered without invalidating
+the subtree.
+
+Set `dom: OptionDom::None` in the return value. The previous DOM stays in
+place. Only the scroll bounds are updated.
 
 ```rust,ignore
 fn render_table(data: &mut TableData, info: VirtualViewCallbackInfo) -> VirtualViewReturn {
@@ -141,8 +139,11 @@ fn render_table(data: &mut TableData, info: VirtualViewCallbackInfo) -> VirtualV
 }
 ```
 
-This is the cheapest re-invocation. The most expensive — `InitialRender`
-or `DomRecreated` — has to rebuild from nothing.
+`VirtualViewReturn::keep_current(...)` is a shortcut for the same return
+shape.
+
+This is the cheapest re-invocation. The most expensive ones are
+`InitialRender` and `DomRecreated`, since both rebuild from nothing.
 
 ## A virtualised table, end to end
 
@@ -195,30 +196,30 @@ extern "C" fn table_render(
 }
 ```
 
-The user sees a scrollbar that represents all million rows. The DOM
-contains ~25 row nodes. The callback fires only when the user scrolls
-near an edge, the parent rebuilds, or the window grows — not on every
+The user sees a scrollbar that represents all million rows. The DOM holds
+about 25 row nodes. The callback runs only when the user scrolls near an
+edge, the parent rebuilds, or the window grows. It doesn't run every
 frame.
 
 ## Pairing with merge callbacks
 
-A `VirtualView`'s data parameter is a `RefAny` that the framework keeps
-alive across re-renders of the *parent* DOM, but the inner `Dom` returned
-by the callback is rebuilt each time the callback fires. If the inner
-content owns expensive resources (per-row decoders, GL textures), pair
-each row's root with [`with_dataset(...)`](datasets.md) and a
-[merge callback](merge-callbacks.md) so the resources transfer when the
-table is re-rendered.
+The data parameter on a `VirtualView` is a `RefAny`. The framework keeps
+it alive across re-renders of the parent DOM. The inner `Dom` returned by
+the callback is rebuilt each time the callback fires.
 
-The `VirtualView`'s outer `RefAny` (the data parameter) is the natural
-place to *also* keep the live state — what's rendered now, the cached
-fetcher, in-flight requests — so the callback can look at "what we
-rendered last time" before deciding whether to return `OptionDom::None`.
+If the inner content owns expensive resources (per-row decoders, GL
+textures), pair each row's root with [`with_dataset(...)`](datasets.md)
+and a [merge callback](merge-callbacks.md). That way the resources
+transfer when the table is re-rendered.
+
+The outer `RefAny` is also a good place to keep live state: what was
+rendered last time, the cached fetcher, in-flight requests. The callback
+can look at that state before deciding whether to return `OptionDom::None`.
 
 ## Where to read the source
 
-- `core/src/dom.rs:2195` — `NodeData::create_virtual_view`
-- `core/src/dom.rs:3627` — `Dom::create_virtual_view`
-- `core/src/callbacks.rs:181` — `VirtualViewCallbackReason`
-- `core/src/callbacks.rs:204` — `VirtualViewCallbackInfo`
-- `core/src/callbacks.rs:307` — `VirtualViewReturn`
+- `core/src/dom.rs` defines `Dom::create_virtual_view` and
+  `NodeData::create_virtual_view`.
+- `core/src/callbacks.rs` defines `VirtualViewCallback`,
+  `VirtualViewCallbackReason`, `EdgeType`, `VirtualViewCallbackInfo`, and
+  `VirtualViewReturn`.

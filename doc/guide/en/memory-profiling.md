@@ -1,6 +1,6 @@
 ---
 slug: memory-profiling
-title: Memory and Profiling
+title: Profiling
 language: en
 canonical_slug: memory-profiling
 audience: external

@@ -1,6 +1,6 @@
 ---
 slug: dom/datasets
-title: Datasets and Marker Structs
+title: Datasets
 language: en
 canonical_slug: dom/datasets
 audience: external
@@ -16,28 +16,40 @@ last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T05:53:30Z
 ---
 
-# Datasets and Marker Structs
+# Datasets
 
-The [`Dom` is frozen the moment you return it from `layout()`](../dom.md).
-Application data lives in a `RefAny` you own; the tree is a fresh value
-every time. So where do you put the state that exists only because *this
-particular widget instance* exists — the cursor inside an `<input>`, the
-expansion flag of a tree-view row, an "I am the save button"
-self-identification a callback can use to navigate the new tree?
+A dataset is a `RefAny` attached to a single node. You attach it with
+`Dom::with_dataset(OptionRefAny)` (`core/src/dom.rs`). The framework
+doesn't read the contents. It stores the `RefAny` on the node and hands
+it back to your callback through `info.get_dataset(node_id)`
+(`layout/src/callbacks.rs`).
 
-`Dom::with_dataset(OptionRefAny)` (`core/src/dom.rs:5145`) is the slot.
-It stamps a `RefAny` onto a node. The framework doesn't read it; it just
-hands it back to your callback when the user interacts with the node. The
-dataset is your scratch slot for per-node, per-instance state — and, as
-this page covers, also the canonical way to identify *which* node a
-generic callback was fired from.
+That's the whole mechanism. Everything on this page follows from it.
 
-For widgets that hold *resources expensive to recreate* (a video decoder,
-a GL texture, a websocket), the dataset pairs with a merge callback that
-the framework runs during reconciliation. That side of the story is on
-its own page: see [Merge Callbacks](merge-callbacks.md).
+The dataset is the slot for state that exists only because a specific
+node exists. The cursor inside one text input. The expanded flag on one
+tree row. A marker that tells a shared callback which button fired.
+When `layout()` returns a fresh tree, the old node's dataset is dropped
+along with the node. The dataset's lifetime is the node's lifetime.
 
-## What a dataset is
+There are two main use cases.
+
+The first is **marker structs**: zero-field types whose only job is to
+identify the node so a shared callback can dispatch on type. The second
+is **per-instance state**: a struct of fields the callback reads and
+mutates on every interaction.
+
+For widgets that own resources expensive to recreate (a video decoder,
+a GL texture, a websocket), the dataset is paired with a merge callback
+so the framework can carry the `RefAny` across reconciliation instead
+of dropping and rebuilding it. That mechanism has its own page. See
+[Merge Callbacks](merge-callbacks.md).
+
+## Attaching a dataset
+
+The signature is `Dom::with_dataset(OptionRefAny) -> Dom`. Pass
+`OptionRefAny::Some(RefAny::new(my_value))` to attach. Pass
+`OptionRefAny::None` to leave the slot empty.
 
 ```rust,no_run
 # use azul::prelude::*;
@@ -48,35 +60,46 @@ let _ = Dom::create_input_no_a11y("text".into(), "editor".into(), "hello".into()
     .with_dataset(OptionRefAny::Some(state));
 ```
 
-The dataset is **read-write at callback time** via
-`CallbackInfo::get_dataset(node_id)` — typically `info.get_hit_node()`
-during a click handler:
+`NodeData::set_dataset` and `NodeData::get_dataset` (`core/src/dom.rs`)
+are the underlying mutators if you build `NodeData` directly.
+
+## Reading a dataset in a callback
+
+Inside a callback, `info.get_hit_node()` returns the `DomNodeId` of the
+node the event landed on. `info.get_dataset(node_id)` returns the
+`RefAny` attached to that node, or `None`.
 
 ```rust,no_run
 # use azul::prelude::*;
 # struct EditorState { text: String, cursor: usize }
 extern "C" fn on_keydown(_unused: RefAny, mut info: CallbackInfo) -> Update {
     let hit = info.get_hit_node();
-    let mut ds = match info.get_dataset(hit) { Some(d) => d, None => return Update::DoNothing };
-    let mut state = match ds.downcast_mut::<EditorState>() { Some(s) => s, None => return Update::DoNothing };
-    state.text.push_str("…");
+    let mut ds = match info.get_dataset(hit) {
+        Some(d) => d,
+        None => return Update::DoNothing,
+    };
+    let mut state = match ds.downcast_mut::<EditorState>() {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
+    state.text.push_str("...");
     Update::RefreshDom
 }
 ```
 
-Borrows follow the [`RefAny` rules](../architecture/understanding-refany.md):
-a `downcast_ref` blocks `downcast_mut` and vice versa. Drop the guard
-before triggering anything that might re-enter the same dataset.
+Borrow rules follow `RefAny`. A `downcast_ref` blocks a `downcast_mut`.
+Drop the guard before calling anything that may borrow the same
+dataset. The full rules are in
+[Understanding RefAny](../architecture/understanding-refany.md).
 
-## Marker structs — datasets as navigation handles
+## Marker structs
 
-A dataset doesn't have to *carry* state. It can just *identify* the
-node, so a callback that runs at the page level can navigate to the
-node it was fired against without selectors or hit-test math.
+A dataset doesn't have to carry data. A zero-field struct works as a
+type-level tag. One callback handles many nodes. The dataset's *type*
+tells the callback which node fired.
 
 ```rust,no_run
 # use azul::prelude::*;
-// Marker structs - they hold no fields, they exist only to identify a slot.
 struct SaveButtonMarker;
 struct CancelButtonMarker;
 
@@ -96,31 +119,34 @@ fn dialog_buttons() -> Dom {
 
 extern "C" fn on_dialog_click(_unused: RefAny, mut info: CallbackInfo) -> Update {
     let hit = info.get_hit_node();
-    let mut ds = match info.get_dataset(hit) { Some(d) => d, None => return Update::DoNothing };
+    let mut ds = match info.get_dataset(hit) {
+        Some(d) => d,
+        None => return Update::DoNothing,
+    };
     if ds.downcast_ref::<SaveButtonMarker>().is_some() {
-        // Save path
+        // Save path.
     } else if ds.downcast_ref::<CancelButtonMarker>().is_some() {
-        // Cancel path
+        // Cancel path.
     }
     Update::RefreshDom
 }
 ```
 
-Both buttons point at the same callback function. The callback uses the
-dataset's *type* to dispatch — no string matching, no node-id juggling,
-no `get_node_by_class("save-button")` round-trip through the styled DOM.
-This is the cheapest possible "tell me which thing was clicked" channel.
+Both buttons share `on_dialog_click`. Dispatch happens on the dataset
+type. There's no string match on a class name. There's no second
+hit-test pass.
 
-The pattern composes upward. A dataset can hold a struct of fields too:
+A marker can also carry fields. That's how a single callback handles a
+whole table.
 
 ```rust,no_run
 # use azul::prelude::*;
-// One dataset, one callback, many rows.
 #[derive(Debug)]
 struct RowMarker {
     row_id: u64,
     column: ColumnKind,
 }
+
 #[derive(Debug, Copy, Clone)]
 enum ColumnKind { Name, Email, Avatar, DeleteButton }
 
@@ -134,103 +160,96 @@ fn row(row_id: u64, kind: ColumnKind, label: &str) -> Dom {
 
 extern "C" fn on_cell_click(_unused: RefAny, mut info: CallbackInfo) -> Update {
     let hit = info.get_hit_node();
-    let mut ds = match info.get_dataset(hit) { Some(d) => d, None => return Update::DoNothing };
-    let marker = match ds.downcast_ref::<RowMarker>() { Some(m) => m, None => return Update::DoNothing };
-    // marker.row_id and marker.column tell us exactly which cell fired.
-    let _ = marker;
+    let mut ds = match info.get_dataset(hit) {
+        Some(d) => d,
+        None => return Update::DoNothing,
+    };
+    let marker = match ds.downcast_ref::<RowMarker>() {
+        Some(m) => m,
+        None => return Update::DoNothing,
+    };
+    let _ = marker.row_id;
+    let _ = marker.column;
     Update::RefreshDom
 }
 ```
 
-The callback is one function for the whole table. The dataset narrows
-the call site to "which row, which column" without traversing the tree.
+`marker.row_id` and `marker.column` identify the cell directly. No tree
+walk. No DOM query.
 
-## Walking the tree from a marker
+## Walking the tree from a hit node
 
-Once you have a node id (typically `info.get_hit_node()`), `CallbackInfo`
-exposes navigation getters that read the styled-DOM hierarchy:
+`CallbackInfo` exposes a small set of navigators. Each takes a
+`DomNodeId` and returns `Option<DomNodeId>`. They read the styled-DOM
+hierarchy.
 
 ```rust,ignore
 let hit = info.get_hit_node();
 
-// Up:
-let parent  = info.get_parent(hit);
-
-// Sideways (returns OptionDomNodeId):
-let next    = info.get_next_sibling(hit);
-let prev    = info.get_previous_sibling(hit);
-
-// Down:
-let first   = info.get_first_child(hit);
-let last    = info.get_last_child(hit);
+let parent = info.get_parent(hit);
+let next   = info.get_next_sibling(hit);
+let prev   = info.get_previous_sibling(hit);
+let first  = info.get_first_child(hit);
+let last   = info.get_last_child(hit);
 ```
 
-Combine the marker pattern with the navigators when a callback needs to
-reach a *related* node — e.g. the row's "delete" button knows its
-`row_id` from its marker, and walks up to the row container, then to the
-row's avatar cell, all without needing to thread node ids through the
-state model.
+`info.get_dataset(other_node_id)` works against any node, not just the
+hit node. A click on a child cell can read the parent row's dataset
+without any application-side mapping.
 
-For deeper queries, `info.get_dataset(some_other_node_id)` works against
-any node — useful when, e.g., a parent row's dataset holds the row's
-data and a click on a child cell wants to read the parent's state.
+`info.get_focused_node()` returns the node that currently holds
+keyboard focus, useful for keyboard-driven callbacks where there's no
+mouse hit.
 
-## Ephemeral `RefAny` instances
+## Datasets are rebuilt every frame
 
-A subtle but important point: the `RefAny` you hand to `with_dataset` is
-**created during `layout()`** and lives only as long as the framework
-holds the node. When the next `layout()` returns a fresh tree, the old
-node and its dataset get dropped. Three implications:
+Each `layout()` call returns a fresh `Dom`. Each `with_dataset` call
+inside that `layout()` builds a fresh `RefAny`. The previous tree's
+nodes (and their datasets) get dropped.
 
-- **The dataset is rebuilt every frame.** Anything you read from it in
-  a callback must come back into application state via the callback's
-  own `RefAny` — otherwise the next `layout()` call will overwrite it
-  with whatever you put on the new node.
-- **Marker structs cost nothing.** A zero-field struct wrapped in a
-  `RefAny` is one allocation per node per frame, but the allocator is
-  well-suited to that pattern, and the marker doesn't even need a
-  destructor body.
-- **Heavy resources need a merge callback.** If the dataset *owns*
-  something expensive (a decoder, a GPU texture, a websocket), you
-  don't want it to be rebuilt and the old one freed every frame. That
-  is exactly what [Merge Callbacks](merge-callbacks.md) are for.
+This has consequences.
 
-There is also a related pattern called the *double update*, where a
-callback writes once to the application data and a second time to the
-node-attached dataset to give an input field "what the user just typed"
-semantics in the same frame. That shows up most prominently in text
-input handling — covered in [Text Input and Selection](../text-input.md)
-once that page lands; the gist is that the dataset is the only "hot"
-slot a callback can touch *between* the application-data write and the
-next `layout()`.
+Anything a callback writes into a dataset is gone after the next
+`layout()` unless the callback also writes it back into the
+application-level `RefAny`. The dataset is short-term scratch. The
+application data is the system of record.
 
-## Reading datasets in callbacks — the full surface
+Marker structs are cheap. A zero-field marker has no destructor body.
+The allocation cost is the price of attaching it.
 
-`CallbackInfo` exposes:
+Heavy resources don't belong in a dataset that gets rebuilt. Use a
+merge callback to carry them across reconciliation. See
+[Merge Callbacks](merge-callbacks.md).
 
-- **`info.get_dataset(node_id)`** — returns the node's dataset as a
-  `RefAny`, or `None`. Borrow rules follow the underlying `RefAny`.
-- **`info.get_hit_node()`** — node id of the node the event landed on,
-  after event-filter propagation. The standard "which node was
-  clicked" call.
-- **`info.get_focused_node()`** — node id of whichever node currently
-  has keyboard focus, useful for keyboard-driven callbacks.
-- **`info.get_parent(node_id)`** / **`get_next_sibling`** /
-  **`get_previous_sibling`** / **`get_first_child`** /
-  **`get_last_child`** — hierarchy navigation; each returns an
-  `OptionDomNodeId`.
-- **`info.get_string_contents(node_id)`** — returns the node's text
-  content (after layout has resolved any `Text` children), useful for
-  reading what the user typed into an editable node.
+There's also a related pattern called the **double update**. A text
+input callback writes the new character to the application data and
+also writes it directly into the node's dataset, so the input shows
+the latest keystroke before the next `layout()` runs. That's covered
+in [Text Input and Selection](../text-input.md).
 
-Drop the dataset borrow before calling any of these that might
-internally re-borrow the same `RefAny`.
+## What `CallbackInfo` exposes for dataset work
 
-## Where to read the source
+The handful of methods that matter on this page:
 
-- `core/src/dom.rs:1781` — `NodeDataExt.dataset: Option<RefAny>` slot
-- `core/src/dom.rs:5145` — `Dom::with_dataset`
-- `core/src/dom.rs:2503` — `NodeData::set_dataset`
-- `core/src/dom.rs:2497` — `NodeData::get_dataset`
-- `core/src/callbacks.rs` — `CallbackInfo::get_dataset` and the
-  `get_*_sibling` / `get_first_child` / `get_last_child` navigators
+- `info.get_hit_node()` returns the `DomNodeId` of the node the event
+  landed on.
+- `info.get_dataset(node_id)` returns the dataset `RefAny` attached to
+  any node, or `None`.
+- `info.get_focused_node()` returns the focused node id when there is
+  one.
+- `info.get_parent` / `get_next_sibling` / `get_previous_sibling` /
+  `get_first_child` / `get_last_child` walk the styled-DOM hierarchy.
+- `info.get_string_contents(node_id)` returns the node's resolved text
+  content, useful for reading what was typed into an editable node.
+
+Drop any active dataset borrow before calling another method that
+might re-borrow the same `RefAny`.
+
+## Source
+
+- `core/src/dom.rs` for `Dom::with_dataset`, `NodeData::set_dataset`,
+  `NodeData::get_dataset`, and the `OptionRefAny` slot.
+- `core/src/refany.rs` for `RefAny`, `OptionRefAny`, and the downcast
+  rules.
+- `layout/src/callbacks.rs` for `CallbackInfo::get_dataset`,
+  `get_hit_node`, `get_focused_node`, and the navigation getters.

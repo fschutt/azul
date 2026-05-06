@@ -1,6 +1,6 @@
 ---
 slug: inline-text3
-title: Inline Layout and Text Shaping
+title: Text Shaping
 language: en
 canonical_slug: inline-text3
 audience: contributor

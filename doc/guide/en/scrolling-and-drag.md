@@ -1,6 +1,6 @@
 ---
 slug: scrolling-and-drag
-title: Scrolling and Drag-and-Drop
+title: Scrolling
 language: en
 canonical_slug: scrolling-and-drag
 audience: external

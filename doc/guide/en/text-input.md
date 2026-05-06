@@ -1,6 +1,6 @@
 ---
 slug: text-input
-title: Text Input and Contenteditable
+title: Text Input
 language: en
 canonical_slug: text-input
 audience: external

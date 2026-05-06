@@ -1,6 +1,6 @@
 ---
 slug: internals/iframe-scroll
-title: IFrame Scroll and Display Lists
+title: IFrame Scroll
 language: en
 canonical_slug: internals/iframe-scroll
 audience: contributor

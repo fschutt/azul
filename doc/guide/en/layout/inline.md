@@ -1,6 +1,6 @@
 ---
 slug: layout/inline
-title: Inline, Inline-Block, and Text Flow
+title: Inline Layout
 language: en
 canonical_slug: layout/inline
 audience: external

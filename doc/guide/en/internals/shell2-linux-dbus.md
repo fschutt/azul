@@ -1,6 +1,6 @@
 ---
 slug: shell2-linux-dbus
-title: Shell2 — Linux DBus and GNOME Menus
+title: Shell2 — Linux DBus
 language: en
 canonical_slug: shell2-linux-dbus
 audience: contributor

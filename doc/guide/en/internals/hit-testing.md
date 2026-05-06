@@ -1,6 +1,6 @@
 ---
 slug: internals/hit-testing
-title: Hit Testing and Scrolling
+title: Hit Testing
 language: en
 canonical_slug: internals/hit-testing
 audience: contributor

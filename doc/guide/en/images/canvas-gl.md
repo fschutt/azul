@@ -1,6 +1,6 @@
 ---
 slug: canvas-gl
-title: Canvas and GL Textures
+title: GL Canvas
 language: en
 canonical_slug: canvas-gl
 audience: external

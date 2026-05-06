@@ -18,102 +18,78 @@ generated_at: 2026-05-02T05:53:30Z
 
 # Merge Callbacks
 
-A [dataset](datasets.md) attached to a node is rebuilt every time
-`layout()` returns a new tree. That's fine for marker structs and
-small per-instance state — they're cheap to recreate. It is **not** fine
-for state that owns expensive resources: an FFmpeg encoder mid-frame, a
-GL texture, a thread-bound decoder, an open websocket. You don't want
-those to be freed and reopened every time something far up the tree
-re-renders.
+## The problem
 
-A **merge callback** is the protocol the framework uses to hand the
-*new* dataset a chance to claim the *old* dataset's resources before the
-old one gets dropped. It is a `Reconcile()` in the Kubernetes sense: the
-new value is the desired state expressed by the latest `layout()`; the
-merge function reconciles it against what was actually there a frame
-ago.
+A [dataset](datasets.md) is rebuilt every time `layout()` runs. For a marker struct that's free. For an FFmpeg encoder it's a disaster.
 
-```
-                       layout()  →  fresh Dom (desired state)
-                                          │
-                                          ▼
-                                 ┌─────────────────┐
-                                 │   diff pass     │   per node
-                                 └─────────────────┘
-                                          │
-                          stable / moved? │  no  → drop old, install new
-                                          │ yes
-                                          ▼
-                              ┌────────────────────────┐
-                              │ merge_fn(new, old) → m │   reconcile
-                              └────────────────────────┘
-                                          │
-                                          ▼
-                                 install m on new node
-```
+Imagine a video pane whose dataset holds an open encoder, a GL texture, and a frame counter. The user toggles a checkbox somewhere far up the tree. `layout()` runs again. The pane appears in the new tree with a fresh dataset value. The old dataset drops. The encoder closes. The texture is freed. The next frame reopens everything.
 
-The function pointer signature is plain:
+That isn't acceptable for resources you can't recreate cheaply.
+
+## The fix
+
+A merge callback is a function attached to a node that gets to claim resources from the previous frame's dataset before that dataset is dropped.
 
 ```rust,ignore
 pub type DatasetMergeCallbackType =
     extern "C" fn(new_data: RefAny, old_data: RefAny) -> RefAny;
 ```
 
-…and the framework invokes it from `core/src/diff.rs:793` during
-reconciliation.
+You receive the new dataset (built fresh by `layout()` this frame) and the old dataset (the one from the previous frame). You move whatever you want to keep from `old` into `new`. You return the merged value. The framework installs it on the new node. Whatever you didn't take drops with the old `RefAny`.
 
-## When the framework calls it
+This is a `Reconcile()` in the Kubernetes sense. The new value is the desired state. The old value is the actual state. The callback brings the world into alignment.
 
-The merge callback runs for every node where:
+```
+              layout()  →  fresh Dom (desired state)
+                                  │
+                                  ▼
+                         ┌─────────────────┐
+                         │   diff pass     │
+                         └─────────────────┘
+                                  │
+                  matched node?   │  no  → drop old, install new
+                                  │ yes
+                                  ▼
+                      ┌────────────────────────┐
+                      │ merge_fn(new, old) → m │
+                      └────────────────────────┘
+                                  │
+                                  ▼
+                         install m on new node
+```
 
-1. The new node has a `with_merge_callback(...)` attached, *and*
-2. Both the old and the new node have datasets, *and*
-3. The diff classified the node as **Stable** or **Moved** — not
-   Created and not Destroyed.
+## When it fires
 
-The classification ladder (Stable / Moved / Created / Destroyed), how
-the diff uses keys and structural hashes to match old ↔ new, and what
-governs whether your nodes survive across a `RefreshDom`, is covered
-in [Reconciliation, Diffing, and Lazy Paint](reconciliation.md). Two
-points worth keeping in mind here:
+The callback runs in `transfer_states` (see `core/src/diff.rs`). The conditions are strict.
 
-- A reliable [`with_key(...)`](../dom.md#callbacks-keys-datasets-virtualview)
-  on the node is what makes the difference between "moved" and
-  "destroyed + created". For a list that can reorder, **use a key** —
-  the structural-hash fallback works only when the order is fixed.
-- If either side is missing a dataset the framework leaves both alone:
-  the new node keeps whatever you put on it in `layout()`, the old one
-  drops normally.
+- The new node has a merge callback registered via `with_merge_callback(...)`.
+- Both the old node and the new node have a dataset attached.
+- The diff matched the two nodes (Stable or Moved). Created and Destroyed nodes don't qualify.
 
-## A worked example: a video encoder pipeline
+If any of those fails, nothing happens. The new dataset stays as `layout()` built it. The old one drops normally.
 
-Say you have a small video pane that holds an FFmpeg encoder
-configured against a JSON-described pipeline. The application data
-model stores the *desired* configuration (resolution, codec, bitrate,
-overlay text); the widget owns the actual encoder instance plus a GL
-texture that mirrors the current decode frame. The desired
-configuration changes from time to time — bitrate adjusts, the user
-toggles an overlay — and the widget needs to reconcile its live encoder
-to match without tearing it down and rebuilding it.
+The matching rules belong to the diff. `with_key(...)` is what makes a node survive a reorder. Without a key, the diff falls back to structural hashing, which only works if the order is fixed. See [Reconciliation](reconciliation.md) for how that works.
+
+## Worked example: a video encoder
+
+Take a video pane backed by FFmpeg. The application data describes the desired pipeline. The widget owns the live encoder and a GL texture. The user can change the bitrate, toggle an overlay, or switch the source path.
+
+Two structs:
 
 ```rust,ignore
 use azul::prelude::*;
 
-/// Application-side configuration. This is what `layout()` sees; this
-/// is what describes the *desired* encoder state.
 #[derive(Clone, PartialEq)]
 pub struct VideoConfig {
     pub source_path: String,
     pub width: u32, pub height: u32,
-    pub codec: String,         // "h264" / "hevc" / ...
+    pub codec: String,
     pub bitrate_kbps: u32,
     pub overlay_text: Option<String>,
 }
 
-/// Widget-side state. Holds the live encoder and its render target.
-/// Built and torn down by the widget itself, never seen by app data.
 pub struct VideoPaneState {
-    pub config: VideoConfig,           // last applied config
+    pub config: VideoConfig,
     pub encoder: Option<FfmpegEncoder>,
     pub gl_texture: Option<GlTexture>,
     pub last_frame_idx: u64,
@@ -123,28 +99,30 @@ pub struct VideoPaneState {
 #     pub fn open(_: &VideoConfig) -> Self { Self }
 #     pub fn reconfigure(&mut self, _: &VideoConfig) {}
 # }
+```
 
-/// The reconcile function. Same signature as a Kubernetes reconciler:
-/// "the world should look like X; bring it there."
+`VideoConfig` is what the application stores. `VideoPaneState` is widget-owned. The application never sees the encoder.
+
+The merge function does three things. It takes the encoder out of the old state. It checks whether the new config is compatible. If yes, it reconfigures and keeps the encoder; if no, it lets the old encoder drop.
+
+```rust,ignore
 extern "C" fn reconcile_video(new_data: RefAny, old_data: RefAny) -> RefAny {
     let new = new_data.clone();
     let mut new_state = match new.downcast_mut::<VideoPaneState>() {
-        Some(s) => s, None => return new_data,    // unrecognised: let new win
+        Some(s) => s,
+        None => return new_data,
     };
     let old = old_data.clone();
     let mut old_state = match old.downcast_mut::<VideoPaneState>() {
-        Some(s) => s, None => return new_data,
+        Some(s) => s,
+        None => return new_data,
     };
 
-    // Take ownership of old encoder + texture, reuse them if compatible.
     if let Some(mut enc) = old_state.encoder.take() {
         if encoder_compatible(&new_state.config, &old_state.config) {
-            enc.reconfigure(&new_state.config);   // bitrate / overlay tweak
+            enc.reconfigure(&new_state.config);
             new_state.encoder = Some(enc);
         }
-        // else: the source path or resolution changed. `enc` drops here,
-        // releasing the FFmpeg context; the widget will lazy-open a fresh
-        // one on the next render-image callback.
     }
     if let Some(tex) = old_state.gl_texture.take() {
         if texture_compatible(&new_state.config, &old_state.config) {
@@ -153,7 +131,8 @@ extern "C" fn reconcile_video(new_data: RefAny, old_data: RefAny) -> RefAny {
     }
     new_state.last_frame_idx = old_state.last_frame_idx;
 
-    drop(new_state); drop(old_state);
+    drop(new_state);
+    drop(old_state);
     new
 }
 
@@ -163,10 +142,11 @@ fn encoder_compatible(a: &VideoConfig, b: &VideoConfig) -> bool {
 fn texture_compatible(a: &VideoConfig, b: &VideoConfig) -> bool {
     a.width == b.width && a.height == b.height
 }
+```
 
-/// Building the widget. The dataset is a *fresh* VideoPaneState each
-/// frame — empty encoder, empty texture, the new config baked in. The
-/// merge callback is what fills in the heavy fields from the old state.
+Building the widget is straightforward. Each frame `layout()` produces a `VideoPaneState` with the new config and empty resource slots. The merge callback fills the slots from the previous frame.
+
+```rust,ignore
 pub fn video_pane(config: VideoConfig) -> Dom {
     let key = stable_key_for(&config.source_path);
     let state = RefAny::new(VideoPaneState {
@@ -184,99 +164,42 @@ pub fn video_pane(config: VideoConfig) -> Dom {
 # fn stable_key_for(_: &str) -> u64 { 0 }
 ```
 
-What this gets you across a `RefreshDom`:
+What happens on a `RefreshDom`:
 
-1. The parent re-renders for any reason (state change far up the tree,
-   route switch, debug-server-driven re-layout).
-2. The new tree contains a `<div class="video-pane">` with a fresh
-   `VideoPaneState { config: <new>, encoder: None, gl_texture: None, ... }`
-   in its dataset. That's because `layout()` just builds the value
-   naively from the new config.
-3. The diff pass matches old ↔ new (same key on the same path),
-   classifies it as a stable-or-moved node, and fires `reconcile_video`.
-4. `reconcile_video` looks at the two configs:
-   - Same source + codec → take the live encoder, call `reconfigure`
-     (bitrate / overlay toggle), keep going.
-   - Different source or codec → drop the old encoder, let the widget
-     re-open it on the next render frame.
-   - Texture compatible (same resolution) → reuse it; otherwise drop it.
-5. The new node's dataset is now populated with the merged state. The
-   old node's `VideoPaneState` drops empty.
+1. The parent re-renders.
+2. `layout()` builds a fresh `VideoPaneState` with `encoder: None` and `gl_texture: None`.
+3. The diff matches old and new by key.
+4. `reconcile_video` runs. The encoder moves over if the source and codec are unchanged. The texture moves over if the resolution is unchanged.
+5. The new node now owns the live encoder. The old `VideoPaneState` drops empty.
 
-The shape mirrors the Kubernetes pattern exactly: `layout()` describes
-the desired state declaratively, the reconciler runs against the actual
-live state and brings the world into alignment with the smallest
-possible delta. `take()` is the load-bearing primitive.
+If the user navigates away and the pane disappears from the new tree, the diff classifies the old node as destroyed. No callback fires. The old `VideoPaneState` drops normally. `Drop` on `FfmpegEncoder` and `GlTexture` releases the resources.
 
 ## Designing a merge function
 
-Three rules of thumb:
+A few rules.
 
-- **Default to `new_data`.** The merge function returns whatever should
-  *be* the new dataset. If you can't make sense of either side
-  (downcast failed, type mismatch), return `new_data` and let the new
-  state win — same outcome as if no merge callback were registered.
-- **Use `take()` for resources.** Anything you want to move from old
-  into new should be `Option<T>` and pulled out with `Option::take()`.
-  When the function returns, the old `RefAny` drops; whatever you
-  haven't taken gets freed.
-- **Compare configs before reusing.** The new dataset carries the
-  desired state; the old dataset has the actual state plus the resource
-  it built last time. If the configs disagree (different codec,
-  different source), the *resource* is no longer valid for the new
-  config — drop it and let the widget rebuild.
+Default to the new value. If you can't downcast, return `new_data` as-is. The new node ends up with whatever `layout()` built. That matches the behaviour of having no merge callback at all.
 
-The framework hands you cheap shallow clones of both `RefAny`s — the
-encoder, texture, and other heavy fields don't move until you call
-`take()` on them.
+Use `Option<T>` for resources you might want to move. `Option::take()` is what transfers ownership. Whatever you don't take drops with the old `RefAny`.
 
-## What changes if the user navigates away
+Compare configs before reusing a resource. The new dataset has the desired config. The old dataset has the actual config plus the resource that was built for it. If the configs disagree, the resource is stale. Drop it and let the widget rebuild on the next render.
 
-If the new layout function doesn't include a node that matches the old
-one, the diff classifies the old node as **destroyed**. No merge fires;
-the old `VideoPaneState` drops normally and `Drop` on the inner
-`FfmpegEncoder` and `GlTexture` cleans up. This is the correct
-behaviour: the user navigated away, the encoder is no longer needed,
-the GPU memory comes back.
+The clones the framework hands you are shallow. Heavy fields stay in place until you call `take()`.
 
-If the user navigates *back* later, a fresh `VideoPaneState` gets
-created with no inherited encoder/texture, and the widget lazy-opens a
-new pipeline on its next render-image callback.
+## When to use this versus app-state RefAny
 
-## Where this differs from "use a RefAny on App state"
+Putting expensive resources on the application's data model works if the resource is a singleton. One main viewer on the home screen is fine.
 
-Putting the encoder on the application's data model *works* if the
-encoder is a singleton — the main viewer on the home screen, say. The
-merge-callback pattern wins when:
+Merge callbacks are the right tool when the widget instance defines the lifetime. A video pane inside a search-result row is the canonical case. The application data has search results. It doesn't have "the encoder for the row that used to be at index 4". The widget's presence in the tree is what should keep the encoder alive.
 
-- **The widget instance is the lifetime boundary.** A video pane
-  embedded inside a search-result row that the user can re-query. The
-  application data has search results, not "the video that was playing
-  in the row that is now row 4". The widget itself is the thing whose
-  disappearance should free the resources.
-- **You have many of them, dynamically.** Without merge-callbacks,
-  per-instance state on app data turns into a `HashMap<WidgetId,
-  VideoPaneState>` that you maintain in parallel with the DOM. The
-  dataset slot is *that hashmap*, indexed by the diff key, freed when
-  the node is destroyed.
-- **The state is genuinely UI-layer.** The application doesn't care
-  about the cursor position inside a text input, the scroll offset of
-  a list, the GL texture that's currently mirroring a decode frame.
-  Putting that on the model pollutes the data layer with view-only
-  state.
+Merge callbacks are also right when there are many instances created dynamically. Without them, you'd maintain a `HashMap<WidgetId, VideoPaneState>` on the application side that mirrors the DOM. The dataset slot is that hashmap, indexed by the diff key, freed when the node disappears.
 
 A useful split:
 
-- **Application data → `RefAny`** at app construction, accessed in
-  `layout()` to decide what to render and which configs to pass to
-  widgets.
-- **Widget-instance state → dataset on the widget's root node**, with a
-  merge callback if it owns expensive resources.
+- Application data lives in a `RefAny` at app construction. `layout()` reads it to decide what to render.
+- Widget-instance state lives on the widget's root node as a dataset. Add a merge callback if the state owns expensive resources.
 
-## Where to read the source
+## Source
 
-- `core/src/dom.rs:1794` — `NodeDataExt.dataset_merge_callback` slot
-- `core/src/dom.rs:1828` — `DatasetMergeCallback` struct
-- `core/src/dom.rs:1872` — `DatasetMergeCallbackType` signature
-- `core/src/dom.rs:5056` — `Dom::with_merge_callback`
-- `core/src/diff.rs:793` — where the merge callback fires during reconciliation
+- `core/src/dom.rs` — `Dom::with_merge_callback`, `DatasetMergeCallback`, `DatasetMergeCallbackType`
+- `core/src/diff.rs` — `transfer_states` runs the callback during reconciliation

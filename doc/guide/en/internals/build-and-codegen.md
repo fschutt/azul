@@ -1,6 +1,6 @@
 ---
 slug: build-and-codegen
-title: Build System and FFI Codegen
+title: FFI Codegen
 language: en
 canonical_slug: build-and-codegen
 audience: contributor

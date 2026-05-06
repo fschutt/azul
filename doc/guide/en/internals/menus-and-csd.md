@@ -1,6 +1,6 @@
 ---
 slug: menus-and-csd
-title: Menus and Client-Side Decorations
+title: Window Menus
 language: en
 canonical_slug: menus-and-csd
 audience: contributor

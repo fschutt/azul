@@ -1,6 +1,6 @@
 ---
 slug: images
-title: Images and Drawing
+title: Images
 language: en
 canonical_slug: images
 audience: external

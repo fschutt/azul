@@ -1,6 +1,6 @@
 ---
 slug: events
-title: Events and Input
+title: Events
 language: en
 canonical_slug: events
 audience: external
