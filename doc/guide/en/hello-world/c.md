@@ -7,7 +7,6 @@ audience: external
 maturity: wip
 guide_order: 12
 topic_only: false
-short_desc: Hello World example in C - covers installation, project layout, and simple "counter" app
 prerequisites: [hello-world]
 tracked_files:
   - api.json
@@ -20,15 +19,20 @@ generated_at: 2026-05-02T00:00:00Z
 
 # Hello World [C]
 
-C is the "native" surface of Azul. Every other language binding (Rust, C++, Python, ...) ultimately calls into the same `azul.h` symbols described here, so anything that works in C works everywhere — but the price is that you write the upcast / downcast / lifetime plumbing yourself.
+C is the "native" surface of Azul. Every other language binding (Rust, C++, Python, ...) 
+ultimately calls into the same `azul.h` symbols described here, so anything that works in 
+C works everywhere.
 
-The good news is that you do not have to build Azul "from scratch" as a C user. The library ships as a prebuilt DLL and a single header file, both of which you can drop into an existing project and link like any other system library. If your operating system has a package manager, that is the recommended path.
+The good news is that you do not have to build Azul "from scratch" as a C user. The 
+library ships as a prebuilt DLL and a single header file, both of which you can drop 
+into an existing project and link like any other system library. 
 
 ## Installation
 
 ### Pre-built DLL (recommended)
 
-Ideally, you can simply use your systems package manager to install libazul:
+If your operating system has a package manager, that is the recommended path. You can 
+simply use your systems package manager to install `libazul`:
 
 ```sh
 # windows
@@ -214,7 +218,7 @@ int main() {
     AzApp_delete(&app);
     return 0;
 }
-```
+```rust
 
 Five things to notice.
 
@@ -271,7 +275,7 @@ cc hello-world.c \
 # Windows (MSVC) — drop azul.dll next to the .exe at run time
 cl hello-world.c /I path\to\azul-headers ^
    /link /LIBPATH:path\to\azul-lib azul.lib
-```
+```rust
 
 You should see the window pictured on the [hello-world landing page](../hello-world.md). Click the button: the counter increments, the layout callback re-runs, and the new value renders.
 
@@ -305,5 +309,6 @@ Notice the required `--features build-dll`, as this is a flag to "build the DLL,
 
 ## Coming Up Next
 
-- [DOM and Callbacks](../dom.md) — building richer trees, `IdOrClass`, the full callback API. Same surface as Rust, just translate the `Az*` prefixes.
-- [C Bindings](../bindings/c.md) — full reference for the C ABI surface.
+- [Application Architecture](../architecture.md) — Explains the concepts of architecting a larger Azul application - "What makes Azul special?"
+- [Document Object Model](../dom.md) — The Dom tree - node types, hierarchy, and CSS
+- [Hello World [C++]](cpp.md)

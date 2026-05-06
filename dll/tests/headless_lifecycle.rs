@@ -113,8 +113,8 @@ extern "C" fn layout_cb(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                 unmount_cb,
             );
             Dom::create_body()
-                .with_child(Dom::from_data(a))
-                .with_child(Dom::from_data(b))
+                .with_child(Dom::create_from_data(a))
+                .with_child(Dom::create_from_data(b))
         }
         2 => {
             // Keep B (so it'll see BeforeUnmount) — no, we *remove* both A and B
@@ -131,7 +131,7 @@ extern "C" fn layout_cb(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                 RefAny::new(counters.clone()),
                 update_cb,
             );
-            Dom::create_body().with_child(Dom::from_data(c))
+            Dom::create_body().with_child(Dom::create_from_data(c))
         }
         _ => {
             // Same keyed C, but with new content — this is the Updated path.
@@ -146,7 +146,7 @@ extern "C" fn layout_cb(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                 RefAny::new(counters.clone()),
                 update_cb,
             );
-            Dom::create_body().with_child(Dom::from_data(c))
+            Dom::create_body().with_child(Dom::create_from_data(c))
         }
     }
 }

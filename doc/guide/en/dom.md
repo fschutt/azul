@@ -45,8 +45,8 @@ the node as a dataset. See [Datasets](dom/datasets.md) and
 ```rust,no_run
 # use azul::prelude::*;
 let dom: Dom = Dom::create_body()
-    .with_child(Dom::h1("Hello"))
-    .with_child(Dom::p_with_text("A paragraph."));
+    .with_child(Dom::create_h1_with_text("Hello"))
+    .with_child(Dom::create_p_with_text("A paragraph."));
 ```
 
 This page covers the type definitions, how CSS is attached, when it
@@ -103,12 +103,12 @@ the element:
 
 ```rust,no_run
 # use azul::prelude::*;
-let _ = Dom::h1("Title");
-let _ = Dom::h2("Section");
-let _ = Dom::p_with_text("A paragraph.");
-let _ = Dom::span("inline");
-let _ = Dom::strong("important");
-let _ = Dom::code("println!()");
+let _ = Dom::create_h1_with_text("Title");
+let _ = Dom::create_h2_with_text("Section");
+let _ = Dom::create_p_with_text("A paragraph.");
+let _ = Dom::create_span_with_text("inline");
+let _ = Dom::create_strong_with_text("important");
+let _ = Dom::create_code_with_text("println!()");
 let _ = Dom::create_text("standalone text node");
 ```
 
@@ -136,15 +136,15 @@ Three ways to attach children:
 # use azul::prelude::*;
 // 1. One at a time. Each call grows .children by one.
 let a = Dom::create_div()
-    .with_child(Dom::h2("Title"))
-    .with_child(Dom::p_with_text("Body"));
+    .with_child(Dom::create_h2_with_text("Title"))
+    .with_child(Dom::create_p_with_text("Body"));
 
 // 2. Replace the child vec wholesale.
-let kids: DomVec = vec![Dom::span("x"), Dom::span("y"), Dom::span("z")].into();
+let kids: DomVec = vec![Dom::create_span_with_text("x"), Dom::create_span_with_text("y"), Dom::create_span_with_text("z")].into();
 let b = Dom::create_div().with_children(kids);
 
 // 3. Collect from an iterator into a parent.
-let c: Dom = (0..3).map(|i| Dom::li_with_text(format!("Item {}", i))).collect();
+let c: Dom = (0..3).map(|i| Dom::create_li_with_text(format!("Item {}", i))).collect();
 // Produces a NodeType::Div containing three <li> children.
 ```
 
@@ -262,14 +262,14 @@ For the internal cache layout that the layout engine reads, see
 
 ## Loading XML and XHTML
 
-`Dom::from_parsed_xml` is the public entry point. Pass it an `Xml`
+`Dom::create_from_parsed_xml` is the public entry point. Pass it an `Xml`
 value and you get a `Dom` back, ready to return from `layout()`:
 
 ```rust,no_run
 # use azul::prelude::*;
 # let xml_text = "";
 let parsed = Xml::from_str(xml_text.into()).unwrap();
-let dom: Dom = Dom::from_parsed_xml(parsed);
+let dom: Dom = Dom::create_from_parsed_xml(parsed);
 ```
 
 The XML parser walks `<html><head><style>...</style></head><body>...</body>`,

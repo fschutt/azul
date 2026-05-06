@@ -3349,7 +3349,7 @@ impl Dom {
         }
     }
     #[inline(always)]
-    pub fn from_data(node_data: NodeData) -> Self {
+    pub fn create_from_data(node_data: NodeData) -> Self {
         Self {
             root: node_data,
             children: Vec::new().into(),
@@ -3558,19 +3558,27 @@ impl Dom {
         }
     }
 
-    /// Creates a summary element for details.
+    /// Creates an empty summary element for details.
     ///
     /// **Accessibility**: The visible heading/label for `<details>`.
     /// Must be the first child of details. Keyboard accessible (Enter/Space to toggle).
-    #[inline]
-    pub fn summary<S: Into<AzString>>(text: S) -> Self {
+    #[inline(always)]
+    pub const fn create_summary() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Summary),
             children: DomVec::from_const_slice(&[]),
             css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
-        .with_child(Self::create_text(text))
+    }
+
+    /// Creates a summary element with text for details.
+    ///
+    /// **Accessibility**: The visible heading/label for `<details>`.
+    /// Must be the first child of details. Keyboard accessible (Enter/Space to toggle).
+    #[inline]
+    pub fn create_summary_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_summary().with_child(Self::create_text(text))
     }
 
     /// Creates a dialog element.
@@ -3625,7 +3633,7 @@ impl Dom {
 
     #[inline(always)]
     pub fn create_virtual_view(data: RefAny, callback: impl Into<VirtualViewCallback>) -> Self {
-        Self::from_data(NodeData::create_virtual_view(data, callback))
+        Self::create_from_data(NodeData::create_virtual_view(data, callback))
     }
 
     // Semantic HTML Elements with Accessibility Guidance
@@ -3643,7 +3651,21 @@ impl Dom {
         }
     }
 
-    /// Creates a heading level 1 element.
+    /// Creates an empty heading level 1 element.
+    ///
+    /// **Accessibility**: Use `h1` for the main page title. There should typically be only one `h1`
+    /// per page.
+    #[inline(always)]
+    pub const fn create_h1() -> Self {
+        Self {
+            root: NodeData::create_node(NodeType::H1),
+            children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates a heading level 1 element with text.
     ///
     /// **Accessibility**: Use `h1` for the main page title. There should typically be only one `h1`
     /// per page.
@@ -3651,96 +3673,133 @@ impl Dom {
     /// **Parameters:**
     /// - `text`: Heading text
     #[inline]
-    pub fn h1<S: Into<AzString>>(text: S) -> Self {
-        Self {
-            root: NodeData::create_node(NodeType::H1),
-            children: DomVec::from_const_slice(&[]),
-            css: azul_css::css::CssVec::from_const_slice(&[]),
-            estimated_total_children: 0,
-        }
-        .with_child(Self::create_text(text))
+    pub fn create_h1_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_h1().with_child(Self::create_text(text))
     }
 
-    /// Creates a heading level 2 element.
+    /// Creates an empty heading level 2 element.
     ///
     /// **Accessibility**: Use `h2` for major section headings under `h1`.
-    ///
-    /// **Parameters:**
-    /// - `text`: Heading text
-    #[inline]
-    pub fn h2<S: Into<AzString>>(text: S) -> Self {
+    #[inline(always)]
+    pub const fn create_h2() -> Self {
         Self {
             root: NodeData::create_node(NodeType::H2),
             children: DomVec::from_const_slice(&[]),
             css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
-        .with_child(Self::create_text(text))
     }
 
-    /// Creates a heading level 3 element.
+    /// Creates a heading level 2 element with text.
     ///
-    /// **Accessibility**: Use `h3` for subsections under `h2`.
+    /// **Accessibility**: Use `h2` for major section headings under `h1`.
     ///
     /// **Parameters:**
     /// - `text`: Heading text
     #[inline]
-    pub fn h3<S: Into<AzString>>(text: S) -> Self {
+    pub fn create_h2_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_h2().with_child(Self::create_text(text))
+    }
+
+    /// Creates an empty heading level 3 element.
+    ///
+    /// **Accessibility**: Use `h3` for subsections under `h2`.
+    #[inline(always)]
+    pub const fn create_h3() -> Self {
         Self {
             root: NodeData::create_node(NodeType::H3),
             children: DomVec::from_const_slice(&[]),
             css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
-        .with_child(Self::create_text(text))
     }
 
-    /// Creates a heading level 4 element.
+    /// Creates a heading level 3 element with text.
+    ///
+    /// **Accessibility**: Use `h3` for subsections under `h2`.
     ///
     /// **Parameters:**
     /// - `text`: Heading text
     #[inline]
-    pub fn h4<S: Into<AzString>>(text: S) -> Self {
+    pub fn create_h3_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_h3().with_child(Self::create_text(text))
+    }
+
+    /// Creates an empty heading level 4 element.
+    #[inline(always)]
+    pub const fn create_h4() -> Self {
         Self {
             root: NodeData::create_node(NodeType::H4),
             children: DomVec::from_const_slice(&[]),
             css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
-        .with_child(Self::create_text(text))
     }
 
-    /// Creates a heading level 5 element.
+    /// Creates a heading level 4 element with text.
     ///
     /// **Parameters:**
     /// - `text`: Heading text
     #[inline]
-    pub fn h5<S: Into<AzString>>(text: S) -> Self {
+    pub fn create_h4_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_h4().with_child(Self::create_text(text))
+    }
+
+    /// Creates an empty heading level 5 element.
+    #[inline(always)]
+    pub const fn create_h5() -> Self {
         Self {
             root: NodeData::create_node(NodeType::H5),
             children: DomVec::from_const_slice(&[]),
             css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
-        .with_child(Self::create_text(text))
     }
 
-    /// Creates a heading level 6 element.
+    /// Creates a heading level 5 element with text.
     ///
     /// **Parameters:**
     /// - `text`: Heading text
     #[inline]
-    pub fn h6<S: Into<AzString>>(text: S) -> Self {
+    pub fn create_h5_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_h5().with_child(Self::create_text(text))
+    }
+
+    /// Creates an empty heading level 6 element.
+    #[inline(always)]
+    pub const fn create_h6() -> Self {
         Self {
             root: NodeData::create_node(NodeType::H6),
             children: DomVec::from_const_slice(&[]),
             css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
-        .with_child(Self::create_text(text))
     }
 
-    /// Creates a generic inline container (span).
+    /// Creates a heading level 6 element with text.
+    ///
+    /// **Parameters:**
+    /// - `text`: Heading text
+    #[inline]
+    pub fn create_h6_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_h6().with_child(Self::create_text(text))
+    }
+
+    /// Creates an empty generic inline container (span).
+    ///
+    /// **Accessibility**: Prefer semantic elements like `strong`, `em`, `code`, etc. when
+    /// applicable.
+    #[inline(always)]
+    pub const fn create_span() -> Self {
+        Self {
+            root: NodeData::create_node(NodeType::Span),
+            children: DomVec::from_const_slice(&[]),
+            css: azul_css::css::CssVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        }
+    }
+
+    /// Creates a generic inline container (span) with text.
     ///
     /// **Accessibility**: Prefer semantic elements like `strong`, `em`, `code`, etc. when
     /// applicable.
@@ -3748,17 +3807,24 @@ impl Dom {
     /// **Parameters:**
     /// - `text`: Span content
     #[inline]
-    pub fn span<S: Into<AzString>>(text: S) -> Self {
+    pub fn create_span_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_span().with_child(Self::create_text(text))
+    }
+
+    /// Creates an empty strong importance element.
+    ///
+    /// **Accessibility**: Use `strong` instead of `b` for semantic meaning.
+    #[inline(always)]
+    pub const fn create_strong() -> Self {
         Self {
-            root: NodeData::create_node(NodeType::Span),
+            root: NodeData::create_node(NodeType::Strong),
             children: DomVec::from_const_slice(&[]),
             css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
-        .with_child(Self::create_text(text))
     }
 
-    /// Creates a strongly emphasized text element (strong importance).
+    /// Creates a strongly emphasized text element with text (strong importance).
     ///
     /// **Accessibility**: Use `strong` instead of `b` for semantic meaning. Screen readers can
     /// convey the importance. Use for text that has strong importance, seriousness, or urgency.
@@ -3766,17 +3832,24 @@ impl Dom {
     /// **Parameters:**
     /// - `text`: Text to emphasize
     #[inline]
-    pub fn strong<S: Into<AzString>>(text: S) -> Self {
+    pub fn create_strong_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_strong().with_child(Self::create_text(text))
+    }
+
+    /// Creates an empty emphasis element (stress emphasis).
+    ///
+    /// **Accessibility**: Use `em` instead of `i` for semantic meaning.
+    #[inline(always)]
+    pub const fn create_em() -> Self {
         Self {
-            root: NodeData::create_node(NodeType::Strong),
+            root: NodeData::create_node(NodeType::Em),
             children: DomVec::from_const_slice(&[]),
             css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
-        .with_child(Self::create_text(text))
     }
 
-    /// Creates an emphasized text element (stress emphasis).
+    /// Creates an emphasized text element with text (stress emphasis).
     ///
     /// **Accessibility**: Use `em` instead of `i` for semantic meaning. Screen readers can
     /// convey the emphasis. Use for text that has stress emphasis.
@@ -3784,17 +3857,19 @@ impl Dom {
     /// **Parameters:**
     /// - `text`: Text to emphasize
     #[inline]
-    pub fn em<S: Into<AzString>>(text: S) -> Self {
-        Self {
-            root: NodeData::create_node(NodeType::Em),
-            children: DomVec::from_const_slice(&[]),
-            css: azul_css::css::CssVec::from_const_slice(&[]),
-            estimated_total_children: 0,
-        }
-        .with_child(Self::create_text(text))
+    pub fn create_em_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_em().with_child(Self::create_text(text))
     }
 
-    /// Creates a code/computer code element.
+    /// Creates an empty code element.
+    ///
+    /// **Accessibility**: Represents a fragment of computer code.
+    #[inline(always)]
+    pub fn create_code() -> Self {
+        Self::create_node(NodeType::Code)
+    }
+
+    /// Creates a code/computer code element with text.
     ///
     /// **Accessibility**: Represents a fragment of computer code. Screen readers can identify
     /// this as code content.
@@ -3802,11 +3877,19 @@ impl Dom {
     /// **Parameters:**
     /// - `code`: Code content
     #[inline]
-    pub fn code<S: Into<AzString>>(code: S) -> Self {
-        Self::create_node(NodeType::Code).with_child(Self::create_text(code))
+    pub fn create_code_with_text<S: Into<AzString>>(code: S) -> Self {
+        Self::create_code().with_child(Self::create_text(code))
     }
 
-    /// Creates a preformatted text element.
+    /// Creates an empty preformatted text element.
+    ///
+    /// **Accessibility**: Preserves whitespace and line breaks.
+    #[inline(always)]
+    pub fn create_pre() -> Self {
+        Self::create_node(NodeType::Pre)
+    }
+
+    /// Creates a preformatted text element with text.
     ///
     /// **Accessibility**: Preserves whitespace and line breaks. Useful for code blocks or
     /// ASCII art. Screen readers will read the content as-is.
@@ -3814,11 +3897,19 @@ impl Dom {
     /// **Parameters:**
     /// - `text`: Preformatted content
     #[inline]
-    pub fn pre<S: Into<AzString>>(text: S) -> Self {
-        Self::create_node(NodeType::Pre).with_child(Self::create_text(text))
+    pub fn create_pre_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_pre().with_child(Self::create_text(text))
     }
 
-    /// Creates a blockquote element.
+    /// Creates an empty blockquote element.
+    ///
+    /// **Accessibility**: Represents a section quoted from another source.
+    #[inline(always)]
+    pub fn create_blockquote() -> Self {
+        Self::create_node(NodeType::BlockQuote)
+    }
+
+    /// Creates a blockquote element with text.
     ///
     /// **Accessibility**: Represents a section quoted from another source. Screen readers
     /// can identify quoted content. Consider adding a `cite` attribute.
@@ -3826,11 +3917,19 @@ impl Dom {
     /// **Parameters:**
     /// - `text`: Quote content
     #[inline]
-    pub fn blockquote<S: Into<AzString>>(text: S) -> Self {
-        Self::create_node(NodeType::BlockQuote).with_child(Self::create_text(text))
+    pub fn create_blockquote_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_blockquote().with_child(Self::create_text(text))
     }
 
-    /// Creates a citation element.
+    /// Creates an empty citation element.
+    ///
+    /// **Accessibility**: Represents a reference to a creative work.
+    #[inline(always)]
+    pub fn create_cite() -> Self {
+        Self::create_node(NodeType::Cite)
+    }
+
+    /// Creates a citation element with text.
     ///
     /// **Accessibility**: Represents a reference to a creative work. Screen readers can
     /// identify citations.
@@ -3838,26 +3937,43 @@ impl Dom {
     /// **Parameters:**
     /// - `text`: Citation text
     #[inline]
-    pub fn cite<S: Into<AzString>>(text: S) -> Self {
-        Self::create_node(NodeType::Cite).with_child(Self::create_text(text))
+    pub fn create_cite_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_cite().with_child(Self::create_text(text))
     }
 
-    /// Creates an abbreviation element.
+    /// Creates an empty abbreviation element.
     ///
     /// **Accessibility**: Represents an abbreviation or acronym. Use with a `title` attribute
     /// to provide the full expansion for screen readers.
+    #[inline(always)]
+    pub fn create_abbr() -> Self {
+        Self::create_node(NodeType::Abbr)
+    }
+
+    /// Creates an abbreviation element with abbreviated text and a `title` expansion.
+    ///
+    /// **Accessibility**: Represents an abbreviation or acronym. The `title` attribute
+    /// provides the full expansion for screen readers.
     ///
     /// **Parameters:**
     /// - `abbr_text`: Abbreviated text
     /// - `title`: Full expansion
     #[inline]
-    pub fn create_abbr(abbr_text: AzString, title: AzString) -> Self {
+    pub fn create_abbr_with_title(abbr_text: AzString, title: AzString) -> Self {
         Self::create_node(NodeType::Abbr)
             .with_attribute(AttributeType::Title(title))
             .with_child(Self::create_text(abbr_text))
     }
 
-    /// Creates a keyboard input element.
+    /// Creates an empty keyboard input element.
+    ///
+    /// **Accessibility**: Represents keyboard input or key combinations.
+    #[inline(always)]
+    pub fn create_kbd() -> Self {
+        Self::create_node(NodeType::Kbd)
+    }
+
+    /// Creates a keyboard input element with text.
     ///
     /// **Accessibility**: Represents keyboard input or key combinations. Screen readers can
     /// identify keyboard instructions.
@@ -3865,106 +3981,170 @@ impl Dom {
     /// **Parameters:**
     /// - `text`: Keyboard instruction
     #[inline]
-    pub fn kbd<S: Into<AzString>>(text: S) -> Self {
-        Self::create_node(NodeType::Kbd).with_child(Self::create_text(text))
+    pub fn create_kbd_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_kbd().with_child(Self::create_text(text))
     }
 
-    /// Creates a sample output element.
+    /// Creates an empty sample output element.
+    ///
+    /// **Accessibility**: Represents sample output from a program or computing system.
+    #[inline(always)]
+    pub fn create_samp() -> Self {
+        Self::create_node(NodeType::Samp)
+    }
+
+    /// Creates a sample output element with text.
     ///
     /// **Accessibility**: Represents sample output from a program or computing system.
     ///
     /// **Parameters:**
     /// - `text`: Sample text
     #[inline]
-    pub fn samp<S: Into<AzString>>(text: S) -> Self {
-        Self::create_node(NodeType::Samp).with_child(Self::create_text(text))
+    pub fn create_samp_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_samp().with_child(Self::create_text(text))
     }
 
-    /// Creates a variable element.
+    /// Creates an empty variable element.
+    ///
+    /// **Accessibility**: Represents a variable in mathematical expressions or programming.
+    #[inline(always)]
+    pub fn create_var() -> Self {
+        Self::create_node(NodeType::Var)
+    }
+
+    /// Creates a variable element with text.
     ///
     /// **Accessibility**: Represents a variable in mathematical expressions or programming.
     ///
     /// **Parameters:**
     /// - `text`: Variable name
     #[inline]
-    pub fn var<S: Into<AzString>>(text: S) -> Self {
-        Self::create_node(NodeType::Var).with_child(Self::create_text(text))
+    pub fn create_var_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_var().with_child(Self::create_text(text))
     }
 
-    /// Creates a subscript element.
+    /// Creates an empty subscript element.
+    #[inline(always)]
+    pub fn create_sub() -> Self {
+        Self::create_node(NodeType::Sub)
+    }
+
+    /// Creates a subscript element with text.
     ///
     /// **Accessibility**: Screen readers may announce subscript formatting.
     ///
     /// **Parameters:**
     /// - `text`: Subscript content
     #[inline]
-    pub fn sub<S: Into<AzString>>(text: S) -> Self {
-        Self::create_node(NodeType::Sub).with_child(Self::create_text(text))
+    pub fn create_sub_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_sub().with_child(Self::create_text(text))
     }
 
-    /// Creates a superscript element.
+    /// Creates an empty superscript element.
+    #[inline(always)]
+    pub fn create_sup() -> Self {
+        Self::create_node(NodeType::Sup)
+    }
+
+    /// Creates a superscript element with text.
     ///
     /// **Accessibility**: Screen readers may announce superscript formatting.
     ///
     /// **Parameters:**
     /// - `text`: Superscript content
     #[inline]
-    pub fn sup<S: Into<AzString>>(text: S) -> Self {
-        Self::create_node(NodeType::Sup).with_child(Self::create_text(text))
+    pub fn create_sup_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_sup().with_child(Self::create_text(text))
     }
 
-    /// Creates an underline text element.
+    /// Creates an empty underline element.
+    #[inline(always)]
+    pub fn create_u() -> Self {
+        Self::create_node(NodeType::U)
+    }
+
+    /// Creates an underline text element with text.
     ///
     /// **Accessibility**: Screen readers typically don't announce underline formatting.
     /// Use semantic elements when possible (e.g., `<em>` for emphasis).
     #[inline]
-    pub fn u<S: Into<AzString>>(text: S) -> Self {
-        Self::create_node(NodeType::U).with_child(Self::create_text(text))
+    pub fn create_u_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_u().with_child(Self::create_text(text))
     }
 
-    /// Creates a strikethrough text element.
+    /// Creates an empty strikethrough element.
+    #[inline(always)]
+    pub fn create_s() -> Self {
+        Self::create_node(NodeType::S)
+    }
+
+    /// Creates a strikethrough text element with text.
     ///
     /// **Accessibility**: Represents text that is no longer accurate or relevant.
     /// Consider using `<del>` for deleted content with datetime attribute.
     #[inline]
-    pub fn s<S: Into<AzString>>(text: S) -> Self {
-        Self::create_node(NodeType::S).with_child(Self::create_text(text))
+    pub fn create_s_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_s().with_child(Self::create_text(text))
     }
 
-    /// Creates a marked/highlighted text element.
+    /// Creates an empty mark element.
+    #[inline(always)]
+    pub fn create_mark() -> Self {
+        Self::create_node(NodeType::Mark)
+    }
+
+    /// Creates a marked/highlighted text element with text.
     ///
     /// **Accessibility**: Represents text marked for reference or notation purposes.
     /// Screen readers may announce this as "highlighted".
     #[inline]
-    pub fn mark<S: Into<AzString>>(text: S) -> Self {
-        Self::create_node(NodeType::Mark).with_child(Self::create_text(text))
+    pub fn create_mark_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_mark().with_child(Self::create_text(text))
     }
 
-    /// Creates a deleted text element.
+    /// Creates an empty deleted text element.
+    #[inline(always)]
+    pub fn create_del() -> Self {
+        Self::create_node(NodeType::Del)
+    }
+
+    /// Creates a deleted text element with text.
     ///
     /// **Accessibility**: Represents deleted content in document edits.
     /// Use with `datetime` and `cite` attributes for edit tracking.
     #[inline]
-    pub fn del<S: Into<AzString>>(text: S) -> Self {
-        Self::create_node(NodeType::Del).with_child(Self::create_text(text))
+    pub fn create_del_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_del().with_child(Self::create_text(text))
     }
 
-    /// Creates an inserted text element.
+    /// Creates an empty inserted text element.
+    #[inline(always)]
+    pub fn create_ins() -> Self {
+        Self::create_node(NodeType::Ins)
+    }
+
+    /// Creates an inserted text element with text.
     ///
     /// **Accessibility**: Represents inserted content in document edits.
     /// Use with `datetime` and `cite` attributes for edit tracking.
     #[inline]
-    pub fn ins<S: Into<AzString>>(text: S) -> Self {
-        Self::create_node(NodeType::Ins).with_child(Self::create_text(text))
+    pub fn create_ins_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_ins().with_child(Self::create_text(text))
     }
 
-    /// Creates a definition element.
+    /// Creates an empty definition element.
+    #[inline(always)]
+    pub fn create_dfn() -> Self {
+        Self::create_node(NodeType::Dfn)
+    }
+
+    /// Creates a definition element with text.
     ///
     /// **Accessibility**: Represents the defining instance of a term.
     /// Often used within a definition list or with `<abbr>`.
     #[inline]
-    pub fn dfn<S: Into<AzString>>(text: S) -> Self {
-        Self::create_node(NodeType::Dfn).with_child(Self::create_text(text))
+    pub fn create_dfn_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_dfn().with_child(Self::create_text(text))
     }
 
     /// Creates a time element.
@@ -3987,12 +4167,206 @@ impl Dom {
         element
     }
 
-    /// Creates a bi-directional override element.
+    /// Creates an empty bi-directional override element.
+    ///
+    /// **Accessibility**: Overrides text direction. Use `dir` attribute (ltr/rtl).
+    #[inline(always)]
+    pub fn create_bdo() -> Self {
+        Self::create_node(NodeType::Bdo)
+    }
+
+    /// Creates a bi-directional override element with text.
     ///
     /// **Accessibility**: Overrides text direction. Use `dir` attribute (ltr/rtl).
     #[inline]
-    pub fn bdo<S: Into<AzString>>(text: S) -> Self {
-        Self::create_node(NodeType::Bdo).with_child(Self::create_text(text))
+    pub fn create_bdo_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_bdo().with_child(Self::create_text(text))
+    }
+
+    // Additional inline / text-level elements
+
+    /// Creates an empty bold element.
+    ///
+    /// **Accessibility**: Prefer `<strong>` for semantic emphasis. `<b>` is purely stylistic.
+    #[inline(always)]
+    pub fn create_b() -> Self {
+        Self::create_node(NodeType::B)
+    }
+
+    /// Creates a bold element with text.
+    ///
+    /// **Accessibility**: Prefer `<strong>` for semantic emphasis. `<b>` is purely stylistic.
+    ///
+    /// **Parameters:**
+    /// - `text`: Bold text content
+    #[inline]
+    pub fn create_b_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_b().with_child(Self::create_text(text))
+    }
+
+    /// Creates an empty italic element.
+    ///
+    /// **Accessibility**: Prefer `<em>` for stress emphasis. `<i>` is purely stylistic.
+    #[inline(always)]
+    pub fn create_i() -> Self {
+        Self::create_node(NodeType::I)
+    }
+
+    /// Creates an italic element with text.
+    ///
+    /// **Accessibility**: Prefer `<em>` for stress emphasis. `<i>` is purely stylistic.
+    ///
+    /// **Parameters:**
+    /// - `text`: Italic text content
+    #[inline]
+    pub fn create_i_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_i().with_child(Self::create_text(text))
+    }
+
+    /// Creates an empty small text element.
+    ///
+    /// **Accessibility**: Represents side-comments and small print like copyright/legal text.
+    #[inline(always)]
+    pub fn create_small() -> Self {
+        Self::create_node(NodeType::Small)
+    }
+
+    /// Creates a small text element with text.
+    ///
+    /// **Parameters:**
+    /// - `text`: Small text content
+    #[inline]
+    pub fn create_small_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_small().with_child(Self::create_text(text))
+    }
+
+    /// Creates an empty `<big>` element.
+    ///
+    /// **Note**: Deprecated in HTML5. Prefer CSS `font-size`.
+    #[inline(always)]
+    pub fn create_big() -> Self {
+        Self::create_node(NodeType::Big)
+    }
+
+    /// Creates a `<big>` element with text.
+    ///
+    /// **Note**: Deprecated in HTML5. Prefer CSS `font-size`.
+    #[inline]
+    pub fn create_big_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_big().with_child(Self::create_text(text))
+    }
+
+    /// Creates an empty bi-directional isolate element.
+    ///
+    /// **Accessibility**: Used to isolate text whose direction is unknown,
+    /// keeping it from affecting surrounding bidi layout.
+    #[inline(always)]
+    pub fn create_bdi() -> Self {
+        Self::create_node(NodeType::Bdi)
+    }
+
+    /// Creates a bi-directional isolate element with text.
+    ///
+    /// **Accessibility**: Used to isolate text whose direction is unknown,
+    /// keeping it from affecting surrounding bidi layout.
+    #[inline]
+    pub fn create_bdi_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_bdi().with_child(Self::create_text(text))
+    }
+
+    /// Creates an empty word break opportunity element.
+    ///
+    /// **Note**: `<wbr>` is a self-closing element that suggests a line-break opportunity.
+    /// It does not take text content.
+    #[inline(always)]
+    pub fn create_wbr() -> Self {
+        Self::create_node(NodeType::Wbr)
+    }
+
+    /// Creates an empty ruby annotation element.
+    ///
+    /// **Accessibility**: Used for East Asian typography to provide
+    /// pronunciation/translation annotations. Wraps `<rt>`/`<rp>` children.
+    #[inline(always)]
+    pub fn create_ruby() -> Self {
+        Self::create_node(NodeType::Ruby)
+    }
+
+    /// Creates an empty ruby text element.
+    ///
+    /// **Accessibility**: Pronunciation/translation annotation inside `<ruby>`.
+    #[inline(always)]
+    pub fn create_rt() -> Self {
+        Self::create_node(NodeType::Rt)
+    }
+
+    /// Creates a ruby text element with text.
+    ///
+    /// **Parameters:**
+    /// - `text`: Ruby annotation content
+    #[inline]
+    pub fn create_rt_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_rt().with_child(Self::create_text(text))
+    }
+
+    /// Creates an empty ruby text container element.
+    ///
+    /// **Accessibility**: Container for ruby text annotations.
+    #[inline(always)]
+    pub fn create_rtc() -> Self {
+        Self::create_node(NodeType::Rtc)
+    }
+
+    /// Creates an empty ruby fallback parenthesis element.
+    ///
+    /// **Accessibility**: Provides parentheses around `<rt>` for browsers without ruby support.
+    #[inline(always)]
+    pub fn create_rp() -> Self {
+        Self::create_node(NodeType::Rp)
+    }
+
+    /// Creates a ruby fallback parenthesis element with text.
+    ///
+    /// **Parameters:**
+    /// - `text`: Parenthesis text (typically "(" or ")")
+    #[inline]
+    pub fn create_rp_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_rp().with_child(Self::create_text(text))
+    }
+
+    /// Creates a `<data>` element binding a machine-readable value to its content.
+    ///
+    /// **Parameters:**
+    /// - `value`: Machine-readable value for the `value` attribute.
+    #[inline]
+    pub fn create_data(value: AzString) -> Self {
+        Self::create_node(NodeType::Data).with_attribute(AttributeType::Value(value))
+    }
+
+    /// Creates a `<data>` element with both a machine-readable value and visible text.
+    ///
+    /// **Parameters:**
+    /// - `value`: Machine-readable value for the `value` attribute.
+    /// - `text`: Human-readable text content.
+    #[inline]
+    pub fn create_data_with_text(value: AzString, text: AzString) -> Self {
+        Self::create_data(value).with_child(Self::create_text(text))
+    }
+
+    /// Creates an empty directory list element.
+    ///
+    /// **Note**: Deprecated in HTML5. Use `<ul>` instead.
+    #[inline(always)]
+    pub fn create_dir() -> Self {
+        Self::create_node(NodeType::Dir)
+    }
+
+    /// Creates an empty SVG container element.
+    ///
+    /// **Accessibility**: Provide `aria-label` or `<title>` child for assistive tech.
+    #[inline(always)]
+    pub fn create_svg() -> Self {
+        Self::create_node(NodeType::Svg)
     }
 
     /// Creates an anchor/hyperlink element without accessibility information.
@@ -4319,17 +4693,25 @@ impl Dom {
         }
     }
 
-    /// Creates an acronym element.
+    /// Creates an empty acronym element.
     ///
-    /// **Note**: Deprecated in HTML5. Consider using `abbr()` instead.
+    /// **Note**: Deprecated in HTML5. Consider using `create_abbr()` instead.
     #[inline(always)]
-    pub const fn acronym() -> Self {
+    pub const fn create_acronym() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Acronym),
             children: DomVec::from_const_slice(&[]),
             css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
+    }
+
+    /// Creates an acronym element with text.
+    ///
+    /// **Note**: Deprecated in HTML5. Consider using `create_abbr_with_title()` instead.
+    #[inline]
+    pub fn create_acronym_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_acronym().with_child(Self::create_text(text))
     }
 
     /// Creates a menu element.
@@ -4346,18 +4728,27 @@ impl Dom {
         }
     }
 
-    /// Creates a menu item element.
+    /// Creates an empty menu item element.
     ///
     /// **Accessibility**: Represents a command in a menu. Use with appropriate role/aria
     /// attributes.
     #[inline(always)]
-    pub const fn menuitem() -> Self {
+    pub const fn create_menuitem() -> Self {
         Self {
             root: NodeData::create_node(NodeType::MenuItem),
             children: DomVec::from_const_slice(&[]),
             css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
+    }
+
+    /// Creates a menu item element with text.
+    ///
+    /// **Accessibility**: Represents a command in a menu. Use with appropriate role/aria
+    /// attributes.
+    #[inline]
+    pub fn create_menuitem_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_menuitem().with_child(Self::create_text(text))
     }
 
     /// Creates an output element.
@@ -4573,20 +4964,28 @@ impl Dom {
 
     // Metadata Elements
 
-    /// Creates a title element for document title.
+    /// Creates an empty title element for document title.
+    ///
+    /// **Accessibility**: Required for all pages. Screen readers announce this first.
+    #[inline(always)]
+    pub fn create_title() -> Self {
+        Self::create_node(NodeType::Title)
+    }
+
+    /// Creates a title element for document title with text.
     ///
     /// **Accessibility**: Required for all pages. Screen readers announce this first.
     /// Should be unique and descriptive. Keep under 60 characters.
     #[inline]
-    pub fn title<S: Into<AzString>>(text: S) -> Self {
-        Self::create_node(NodeType::Title).with_child(Self::create_text(text))
+    pub fn create_title_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_title().with_child(Self::create_text(text))
     }
 
     /// Creates a meta element.
     ///
     /// **Accessibility**: Use for charset, viewport, description. Crucial for proper text display.
     #[inline(always)]
-    pub const fn meta() -> Self {
+    pub const fn create_meta() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Meta),
             children: DomVec::from_const_slice(&[]),
@@ -4623,12 +5022,12 @@ impl Dom {
         }
     }
 
-    /// Creates a style element for embedded CSS.
+    /// Creates an empty style element for embedded CSS.
     ///
     /// **Note**: In Azul, use the `.style()` method instead for styling.
     /// This creates a `<style>` HTML element for embedded stylesheets.
     #[inline(always)]
-    pub const fn style_element() -> Self {
+    pub const fn create_style() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Style),
             children: DomVec::from_const_slice(&[]),
@@ -4637,12 +5036,21 @@ impl Dom {
         }
     }
 
+    /// Creates a style element for embedded CSS with the given stylesheet text.
+    ///
+    /// **Note**: In Azul, use the `.style()` method instead for styling.
+    /// This creates a `<style>` HTML element for embedded stylesheets.
+    #[inline]
+    pub fn create_style_with_text<S: Into<AzString>>(text: S) -> Self {
+        Self::create_style().with_child(Self::create_text(text))
+    }
+
     /// Creates a base element for document base URL.
     ///
     /// **Parameters:**
     /// - `href`: Base URL for relative URLs in the document
     #[inline]
-    pub fn base(href: AzString) -> Self {
+    pub fn create_base(href: AzString) -> Self {
         Self::create_node(NodeType::Base).with_attribute(AttributeType::Href(href))
     }
 
@@ -4656,7 +5064,7 @@ impl Dom {
     ///
     /// **Accessibility**: The scope attribute is crucial for associating headers with data cells.
     #[inline]
-    pub fn th_with_scope(scope: AzString, text: AzString) -> Self {
+    pub fn create_th_with_scope(scope: AzString, text: AzString) -> Self {
         Self::create_node(NodeType::Th)
             .with_attribute(AttributeType::Scope(scope))
             .with_child(Self::create_text(text))
@@ -4667,7 +5075,7 @@ impl Dom {
     /// **Parameters:**
     /// - `text`: Cell content
     #[inline]
-    pub fn td_with_text<S: Into<AzString>>(text: S) -> Self {
+    pub fn create_td_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_td().with_child(Self::create_text(text))
     }
 
@@ -4676,7 +5084,7 @@ impl Dom {
     /// **Parameters:**
     /// - `text`: Header text
     #[inline]
-    pub fn th_with_text<S: Into<AzString>>(text: S) -> Self {
+    pub fn create_th_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_th().with_child(Self::create_text(text))
     }
 
@@ -4685,7 +5093,7 @@ impl Dom {
     /// **Parameters:**
     /// - `text`: List item content
     #[inline]
-    pub fn li_with_text<S: Into<AzString>>(text: S) -> Self {
+    pub fn create_li_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_li().with_child(Self::create_text(text))
     }
 
@@ -4694,7 +5102,7 @@ impl Dom {
     /// **Parameters:**
     /// - `text`: Paragraph content
     #[inline]
-    pub fn p_with_text<S: Into<AzString>>(text: S) -> Self {
+    pub fn create_p_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_p().with_child(Self::create_text(text))
     }
 

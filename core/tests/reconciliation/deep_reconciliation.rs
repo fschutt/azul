@@ -81,12 +81,12 @@ fn deep_nested_mount_produces_mount_events_for_each_new_node() {
     // Old: empty wrapper; New: same wrapper with two children, each wired up
     // for AfterMount. We expect two SyntheticEvent{Mount,..} entries targeted
     // at the two new child NodeIds.
-    let old_dom = Dom::from_data(NodeData::create_div());
+    let old_dom = Dom::create_from_data(NodeData::create_div());
 
     let mount_cb = lifecycle_cb(ComponentEventFilter::AfterMount);
-    let new_dom = Dom::from_data(NodeData::create_div())
-        .with_child(Dom::from_data(mount_cb(NodeData::create_text("inner1"))))
-        .with_child(Dom::from_data(mount_cb(NodeData::create_text("inner2"))));
+    let new_dom = Dom::create_from_data(NodeData::create_div())
+        .with_child(Dom::create_from_data(mount_cb(NodeData::create_text("inner1"))))
+        .with_child(Dom::create_from_data(mount_cb(NodeData::create_text("inner2"))));
 
     let (old_nd, old_hier) = flatten(old_dom);
     let (new_nd, new_hier) = flatten(new_dom);
@@ -128,11 +128,11 @@ fn deep_nested_unmount_fires_for_removed_subtree_root_only() {
     // the child that actually has the callback — which proves the unmount
     // walker respects `has_unmount_callback`.
     let unmount_cb = lifecycle_cb(ComponentEventFilter::BeforeUnmount);
-    let old_dom = Dom::from_data(NodeData::create_div()).with_child(
-        Dom::from_data(unmount_cb(NodeData::create_div()))
-            .with_child(Dom::from_data(NodeData::create_text("leaf"))),
+    let old_dom = Dom::create_from_data(NodeData::create_div()).with_child(
+        Dom::create_from_data(unmount_cb(NodeData::create_div()))
+            .with_child(Dom::create_from_data(NodeData::create_text("leaf"))),
     );
-    let new_dom = Dom::from_data(NodeData::create_div());
+    let new_dom = Dom::create_from_data(NodeData::create_div());
 
     let (old_nd, old_hier) = flatten(old_dom);
     let (new_nd, new_hier) = flatten(new_dom);
@@ -171,11 +171,11 @@ fn nth_of_type_distinguishes_siblings_of_same_type() {
     // unmount. A hierarchy-blind match would pair them arbitrarily.
     let unmount_cb = lifecycle_cb(ComponentEventFilter::BeforeUnmount);
 
-    let old_dom = Dom::from_data(NodeData::create_div())
-        .with_child(Dom::from_data(unmount_cb(NodeData::create_div())))
-        .with_child(Dom::from_data(unmount_cb(NodeData::create_div())));
+    let old_dom = Dom::create_from_data(NodeData::create_div())
+        .with_child(Dom::create_from_data(unmount_cb(NodeData::create_div())))
+        .with_child(Dom::create_from_data(unmount_cb(NodeData::create_div())));
     let new_dom =
-        Dom::from_data(NodeData::create_div()).with_child(Dom::from_data(unmount_cb(NodeData::create_div())));
+        Dom::create_from_data(NodeData::create_div()).with_child(Dom::create_from_data(unmount_cb(NodeData::create_div())));
 
     let (old_nd, old_hier) = flatten(old_dom);
     let (new_nd, new_hier) = flatten(new_dom);
@@ -241,16 +241,16 @@ fn identical_leaves_under_different_parents_do_not_match() {
     let mount_cb = lifecycle_cb(ComponentEventFilter::AfterMount);
 
     let build = || -> Dom {
-        Dom::from_data(NodeData::create_div())
+        Dom::create_from_data(NodeData::create_div())
             .with_child(
-                Dom::from_data(NodeData::create_div())
+                Dom::create_from_data(NodeData::create_div())
                     .with_class("X".into())
-                    .with_child(Dom::from_data(mount_cb(NodeData::create_text("leaf")))),
+                    .with_child(Dom::create_from_data(mount_cb(NodeData::create_text("leaf")))),
             )
             .with_child(
-                Dom::from_data(NodeData::create_div())
+                Dom::create_from_data(NodeData::create_div())
                     .with_class("Y".into())
-                    .with_child(Dom::from_data(mount_cb(NodeData::create_text("leaf")))),
+                    .with_child(Dom::create_from_data(mount_cb(NodeData::create_text("leaf")))),
             )
     };
 
@@ -303,8 +303,8 @@ fn deep_resize_event_fires_when_bounds_change_on_matched_node() {
     let resize_cb = lifecycle_cb(ComponentEventFilter::NodeResized);
 
     let build = |label: &str| -> Dom {
-        Dom::from_data(NodeData::create_div())
-            .with_child(Dom::from_data(resize_cb(NodeData::create_text(label))))
+        Dom::create_from_data(NodeData::create_div())
+            .with_child(Dom::create_from_data(resize_cb(NodeData::create_text(label))))
     };
 
     let (old_nd, old_hier) = flatten(build("content"));
@@ -371,7 +371,7 @@ fn keyed_update_fires_on_content_change() {
     // Update would NOT fire, so this test defends against a regression that
     // would collapse Tier 1 → Tier 2.
     let make = |text: &str| -> Dom {
-        Dom::from_data(NodeData::create_div()).with_child(Dom::from_data(
+        Dom::create_from_data(NodeData::create_div()).with_child(Dom::create_from_data(
             lifecycle_cb(ComponentEventFilter::Updated)(
                 NodeData::create_text(text).with_key(42u64),
             ),

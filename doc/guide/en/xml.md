@@ -25,7 +25,7 @@ Azul ships an XML/HTML5-lite parser that runs without a window, a renderer, or a
 The parser is exposed in two layers:
 
 - Tree (`Xml::from_str`) returns an `Xml` value with a `root: Vec<XmlNodeChild>`. A generic XML tree to walk, mutate, or scan.
-- Direct-to-DOM (`Dom::from_parsed_xml`) consumes an `XmlNode` and returns a `Dom` ready for layout.
+- Direct-to-DOM (`Dom::create_from_parsed_xml`) consumes an `XmlNode` and returns a `Dom` ready for layout.
 
 Both layers handle the same HTML5-lite quirks: BOM stripping, `<?xml?>` and `<!DOCTYPE>` skipping, void elements (`<br>`, `<img>`, `<meta>`), entity decoding, and `<style>` text extraction.
 
@@ -72,7 +72,7 @@ if let XmlNodeChild::Element(a) = &doc.root.as_ref()[0] {
 
 ## Parsing into a Dom
 
-`Dom::from_parsed_xml` takes one `XmlNode` and returns a `Dom`. Pull the root element from your `Xml` first:
+`Dom::create_from_parsed_xml` takes one `XmlNode` and returns a `Dom`. Pull the root element from your `Xml` first:
 
 ```rust,ignore
 use azul::xml::{Xml, XmlNodeChild};
@@ -84,7 +84,7 @@ let root = doc.root.as_ref().iter().find_map(|c| match c {
     _ => None,
 }).unwrap();
 
-let dom: Dom = Dom::from_parsed_xml(root);
+let dom: Dom = Dom::create_from_parsed_xml(root);
 ```rust
 
 Errors during DOM construction surface as `DomXmlParseError`: `Xml`, `MalformedHierarchy`, `MultipleHtmlRootNodes`, `MultipleBodyNodes`, `NoHtmlNode`, `NoBodyInHtml`, `Component`, `Css`, `RenderDom`.
@@ -154,12 +154,12 @@ for r in resources.as_ref() {
 
 > WIP. The component layer (`ComponentMap`, `ComponentId`) is the entry point for custom tags like `<my-card title="hi">…</my-card>`. The migration to it is partial.
 
-Each `ComponentId` is a `(collection, name)` pair so you can scope sets: `builtin:div`, `myproject:my-card`. The parser doesn't instantiate components on its own. For the standalone library use cases on this page (parsing, validation, resource scraping), the component layer can be ignored: call `Xml::from_str` or `Dom::from_parsed_xml` directly and you get raw HTML semantics with no custom expansion.
+Each `ComponentId` is a `(collection, name)` pair so you can scope sets: `builtin:div`, `myproject:my-card`. The parser doesn't instantiate components on its own. For the standalone library use cases on this page (parsing, validation, resource scraping), the component layer can be ignored: call `Xml::from_str` or `Dom::create_from_parsed_xml` directly and you get raw HTML semantics with no custom expansion.
 
 ## When to choose which entry point
 
 - Need a generic XML tree to walk, mutate, or serialize. Use `Xml::from_str`.
-- Need to render the document or feed it to layout. Use `Xml::from_str` then `Dom::from_parsed_xml` on the root.
+- Need to render the document or feed it to layout. Use `Xml::from_str` then `Dom::create_from_parsed_xml` on the root.
 - Need to scan a document's outbound URLs. Use `Xml::from_str` then `scan_external_resources`.
 
 ## Coming Up Next

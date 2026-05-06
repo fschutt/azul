@@ -14,7 +14,7 @@ fn test_fixed_element_static_position() {
     let mut styled_dom = create_test_dom(); // Helper function to create a test DOM
 
     // Add a fixed positioned div inside a parent div
-    let parent_div = Dom::from_data(NodeData::create_div())
+    let parent_div = Dom::create_from_data(NodeData::create_div())
         .with_css_props(
             vec![
                 CssPropertyWithConditions::simple(CssProperty::Position(
@@ -27,7 +27,7 @@ fn test_fixed_element_static_position() {
             .into(),
         )
         .with_child(
-            Dom::from_data(NodeData::create_div()).with_css_props(
+            Dom::create_from_data(NodeData::create_div()).with_css_props(
                 vec![
                     CssPropertyWithConditions::simple(CssProperty::Position(
                         CssPropertyValue::Exact(LayoutPosition::Fixed),
@@ -1712,18 +1712,18 @@ mod context {
             .with_children(
                 vec![
                     // Text node - should be inline by default
-                    Dom::from_data(NodeData::text("Hello world")),
+                    Dom::create_from_data(NodeData::text("Hello world")),
                     // Div node - should be block by default
-                    Dom::from_data(NodeData::create_div()),
+                    Dom::create_from_data(NodeData::create_div()),
                     // Image node - should be inline by default
-                    Dom::from_data(NodeData::image(ImageRef::null_image(
+                    Dom::create_from_data(NodeData::image(ImageRef::null_image(
                         10,
                         10,
                         azul_core::app_resources::RawImageFormat::BGR8,
                         Vec::new(),
                     ))),
                     // Br node - should be inline by default
-                    Dom::from_data(NodeData::br()),
+                    Dom::create_from_data(NodeData::br()),
                 ]
                 .into(),
             );
@@ -1767,13 +1767,13 @@ mod context {
             .with_children(
                 vec![
                     // Make text display as block
-                    Dom::from_data(NodeData::text("Hello world")).with_css_props(
+                    Dom::create_from_data(NodeData::text("Hello world")).with_css_props(
                         vec![CssPropertyWithConditions::simple(CssProperty::Display(
                             CssPropertyValue::Exact(LayoutDisplay::Block),
                         ))]
                         .into(),
                     ),
-                    Dom::from_data(NodeData::create_div()).with_css_props(
+                    Dom::create_from_data(NodeData::create_div()).with_css_props(
                         vec![CssPropertyWithConditions::simple(CssProperty::Display(
                             CssPropertyValue::Exact(LayoutDisplay::Inline),
                         ))]
@@ -1848,9 +1848,9 @@ mod caching {
         let mut dom = Dom::create_node(NodeType::Body)
             .with_children(
                 vec![
-                    Dom::from_data(NodeData::text("Hello")),
-                    Dom::from_data(NodeData::create_div())
-                        .with_children(vec![Dom::from_data(NodeData::text("World"))].into()),
+                    Dom::create_from_data(NodeData::text("Hello")),
+                    Dom::create_from_data(NodeData::create_div())
+                        .with_children(vec![Dom::create_from_data(NodeData::text("World"))].into()),
                 ]
                 .into(),
             );

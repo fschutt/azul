@@ -7,7 +7,6 @@ audience: external
 maturity: mature
 guide_order: 11
 topic_only: false
-short_desc: Hello World example in Rust - covers installation, project layout, and simple "counter" app
 prerequisites: [hello-world]
 tracked_files:
   - api.json
@@ -20,19 +19,32 @@ generated_at: 2026-05-02T00:00:00Z
 
 # Hello World [Rust]
 
-Azul is a GUI library written in Rust, however while working on applications, there are simply some serious problems with Rusts "statically link everything" approach:
+Azul is a GUI library written in Rust itself. 
 
-- Long (re-)compilation times: GUI frameworks need to be compiled in `--release` mode while the "user code" can run in `debug` mode: if we compile statically, the actual performance would be way too slow, even for development
-- Recompilation bloats the `/target` directory 
-- Compiled binaries cannot make use of OS-native package managers such as `apt`, `yum` or `brew`: your binary will be self-contained but also at least 25MB large with duplicated code on your users systems
+Therefore, it might seem strange for newcomers to see the first step being "please download a 
+precompiled `.dll` / `.so` file". However, in practice there are very significant benefits
+once you get over this initial hurdle, that massively outweigh the small disadvantage of having 
+to download one `.dll` file:
 
-All of this is why Azul is rather built as a "C DLL, that happens to be written in Rust" than a "native Rust library", which makes binding to other non-Rust languages also very easy. The public C API is defined in the `/api.json` file, and the `azul-doc` codegen system generates the necessary bindings for various languages, adapting to each languages conventions, "extras", etc. - so you will not notice any difference to a regular Rust library, only that your Rust code will recompile much faster.
+- Fast recompilation times: only one depdency (the API) instead of hundreds from crates.io
+- Library can be optimized layout code (hot path) while your UI binary can be unoptimized callback code (slow path)
+- `/target` directory now only uses a couple MiB instead of GiB of space
+- DLLs can integrate with the OS-native package managers such as `apt`, `yum` or `brew` for self-updates
+- Multiple Azul applications don't duplicate the library code: one update and all applications are patched
+- Faster CI builds: no more recompilation of hundreds of crates
+
+Additionally, it makes binding to other non-Rust languages also very easy, as Rust isn't the only language on the 
+planet (yet). The `azul-doc` codegen system generates the necessary bindings for various languages from the 
+"single source of truth" in the `api.json`. It adapts to each languages conventions and generates "wrapepr extras" 
+such as integrations with the languages generic, string, vector, optional and error types - so you will, in 
+practice, not notice any difference to a regular "crates.io" Rust library. You will only notice that your 
+Rust code will recompile much faster and your binary size is now in the kilobyte range.
 
 ## Installation
 
 ### Dynamic "DLL" linking
 
-Even for Rust, which usually links everything statically, the recommended path is that you can download a prebuilt DLL for your OS from the [/releases](/releases) page or use your systems pacakge manager:
+Ideally, simply install `libazul` from your system package manager.
 
 ```sh
 # windows
@@ -45,14 +57,11 @@ yum install libazul
 brew install libazul
 ```
 
-```sh
-cargo new --bin hello-azul
-cargo add azul --version 0.3.0
-```
-
 You will now only have one "Rust dependency" when executing `cargo tree`, as the code in the DLL is already precompiled.
 
-Alternatively, download the DLL 'manually' (or in your CI, for faster builds):
+Download a prebuilt DLL for your OS from the [/releases](/releases) page
+
+Alternatively, download prebuilt DLL for your OS from the [/releases](/releases) page:
 
 ```sh
 # windows
@@ -75,9 +84,22 @@ In the latter case, you then have to export `AZUL_LINK_PATH=/path/to/libazul.dyl
 export AZUL_LINK_PATH=/my/path/to/libazul.so
 ```
 
-The `build.rs` will then automatically configure cargo to link against that library (important for shipping to users). Otherwise, it will try to link against the system-installed azul library or panic with a helpful message if your system isn't correctly configured.
+Now, you only have to add the main crate (the API bindings) to your project:
 
-Now your application will only be a couple hundred KB large and (re-)compile much faster, since rustc only has to optimized your code, not the azul library code again. This is the default option (enabled with `features = ["link-dynamic"]` by default).
+```sh
+# create new project
+cargo new --bin hello-azul
+# add api bindings from crates.io
+cargo add azul --version 0.3.0
+```
+
+The `build.rs` will then automatically configure cargo to link against that library 
+(important for shipping to users). Otherwise, it will try to link against the system-installed 
+libazul library or panic with a helpful message if your system isn't correctly configured.
+
+Now your application will only be a couple hundred KB large and (re-)compile very fast, 
+since rustc only has to recompile your couple of functions, not the azul library code. 
+This is the default option (enabled with `features = ["link-dynamic"]` by default).
 
 ```toml
 [dependencies.azul]
@@ -85,11 +107,15 @@ version = "0.3"
 features = ["link-dynamic"]
 ```
 
-The `build.rs` system is relatively smart: if you have azul installed on your system, but `AZUL_DLL_PATH` is missing, it will link against the system library. So, a simple `brew install libazul` followed by `cargo run` should work (if not, open a ticket).
+The `build.rs` system is relatively smart: if you have azul installed on your system, 
+but `AZUL_DLL_PATH` is missing, it will link against the system library. So, a simple 
+`brew install libazul` followed by `cargo run` should work (if not, open a ticket).
 
 ### Static "Rust-native" linking
 
-The non-recommended, but still "easiest way" to "simply install" Azul is by enabling the `link-static` feature, which does a full "build from source" build. Because it's _really not recommended_ to do this, you have to enable it with `--features link-static`.
+The non-recommended, but still "easiest way" to "simply install" Azul is by enabling 
+the `link-static` feature, which does a full "build from source" build. Because it's 
+_really not recommended_ to do this, you have to enable it with `--features link-static`.
 
 ```toml
  # build from source from crates.io
@@ -100,9 +126,16 @@ version = "0.3"
 features = ["link-static"]
 ```
 
-This will give you a guaranteed build, but it will download all dependencies from crates.io and compile the ~300 dependencies into a bloated ~20MB binary instead of a few hundred KB. You'll also have to compile your code in `--release` mode, as usually the performance of the framework will be too slow in debug mode. Compiling from source should take about 2 - 4 minutes. It is also slow to recompile, as rustc will re-link all dependencies.
+This will give you a guaranteed build, but it will download all dependencies from crates.io 
+and compile the ~300 dependencies into a bloated ~20MB binary instead of a few hundred KB. 
+You'll also have to compile your code in `--release` mode, as usually the performance of the 
+framework will be too slow in debug mode. Compiling from source should take about 2 - 4 minutes. 
+It is also slow to recompile, as rustc will re-link all dependencies.
 
-The only upside is that your binary is now a self-contained executable without any external dependencies. However, you can get the same end-user experience by simply bundling the `.dylib` / `.dll` / `.so`, or just downloading the `.a` file instead of the `.dylib` file - then your code will still be statically linked in a single binary, but recompile faster.
+The only upside is that your binary is now a self-contained executable without any external 
+dependencies. However, you can get the same end-user experience by simply bundling the `.dylib` / `.dll` / `.so`, 
+or just downloading the `.a` file instead of the `.dylib` file - then your code will still be 
+statically linked in a single binary, but recompile faster.
 
 ## Simple "Counter" Example
 
@@ -135,10 +168,10 @@ fn my_layout_func(data: RefAny, _: LayoutCallbackInfo) -> Dom {
         None => return Dom::create_body(),
     };
 
-    // Dom::p_with_text builds a `<p>` block with the given text node inside.
+    // Dom::create_p_with_text builds a `<p>` block with the given text node inside.
     // .with_css("...") is the builder counterpart of .set_css(...) - it
     // consumes self and returns a new Dom, so we can chain it inline.
-    let label_dom = Dom::p_with_text(counter.as_str())
+    let label_dom = Dom::create_p_with_text(counter.as_str())
         .with_css("font-size: 50px");
 
     // We use the "button" widget with its own API
@@ -196,13 +229,13 @@ fn main() {
     // On other systems it depends on the window_config settings 
     app.run(window_config);
 }
-```
+```rust
 
 Five things to notice.
 
 - **`extern "C"`** — every callback crosses the FFI boundary, even in the "Rust-native" case. The signature must be `extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom`, as Azul uses the `C` calling convention instead of the unstable `Rust` calling convention.
 - **`downcast_ref::<DataModel>()`** — the runtime cast that recovers your concrete struct from the type-erased `RefAny`. It returns `Option<RefMut<DataModel>>` because at the FFI boundary, the framework cannot statically know the type. The borrow is checked at runtime; if another part of the program already holds a borrow, the cast fails and you must return `Update::DoNothing`.
-- **`Dom::p_with_text`, `Dom::create_div`, `Dom::create_body`** — primitive node constructors. Everything else (buttons, lists, scroll regions) builds on top of them.
+- **`Dom::create_p_with_text`, `Dom::create_div`, `Dom::create_body`** — primitive node constructors. Everything else (buttons, lists, scroll regions) builds on top of them.
 - **`with_css("...") / set_css("...")`** — both accept a CSS string. `with_css` is the builder form (consumes `self`, returns a new `Dom`), `set_css` mutates in place. Multi-property strings are valid: `"font-size: 50px; color: white;"`. You can also directly configure `:hover { }`, `:focus { }` and `@media ... { }`, `@os macos >= sonoma { }` dynamic queries directly inline — in difference to regular CSS.
 - **`data.clone()`** — `RefAny::clone` bumps the reference count, does not deep-copy your struct. The clone is handed to the button so the click handler can downcast it later.
 
@@ -233,5 +266,6 @@ You should see the window pictured on the [hello-world landing page](../hello-wo
 
 ## Coming Up Next
 
-- [DOM and Callbacks](../dom.md) — explains how to build richer trees, accessibility
-- [Events and Input](../events.md) — beyond `MouseUp`: hover, focus, keyboard.
+- [Application Architecture](../architecture.md) — Explains the concepts of architecting a larger Azul application - "What makes Azul special?"
+- [Document Object Model](../dom.md) — The Dom tree - node types, hierarchy, and CSS
+- [Hello World [Python]](python.md)

@@ -16,7 +16,7 @@ fn test_margin_collapsing() {
     let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("root".into())].into())
         .with_child(
-            Dom::h1("Heading").with_ids_and_classes(vec![IdOrClass::Class("my-h1".into())].into()),
+            Dom::create_h1_with_text("Heading").with_ids_and_classes(vec![IdOrClass::Class("my-h1".into())].into()),
         )
         .with_child(
             Dom::create_p()

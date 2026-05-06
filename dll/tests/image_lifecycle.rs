@@ -72,7 +72,7 @@ extern "C" fn layout_cb(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
 
     if ctx.include_image.load(Ordering::SeqCst) {
         Dom::create_body()
-            .with_child(Dom::from_data(NodeData::create_image(ctx.image.clone())))
+            .with_child(Dom::create_from_data(NodeData::create_image(ctx.image.clone())))
     } else {
         Dom::create_body()
     }

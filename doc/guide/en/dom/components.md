@@ -28,8 +28,8 @@ There's no component trait. There's no derive macro. There's no special syntax. 
 fn card(title: &str, body: &str) -> Dom {
     Dom::create_div()
         .with_class("card".into())
-        .with_child(Dom::h2(title))
-        .with_child(Dom::p_with_text(body))
+        .with_child(Dom::create_h2_with_text(title))
+        .with_child(Dom::create_p_with_text(body))
 }
 
 let _ = Dom::create_body()
@@ -53,7 +53,7 @@ pub fn badge(text: &str, kind: BadgeKind) -> Dom {
         BadgeKind::Warn  => "badge badge-warn",
         BadgeKind::Error => "badge badge-error",
     };
-    Dom::span(text).with_class(class.into())
+    Dom::create_span_with_text(text).with_class(class.into())
 }
 
 pub enum BadgeKind { Info, Warn, Error }
@@ -79,7 +79,7 @@ impl Counter {
             None => return Dom::create_div(),
         };
         Dom::create_div()
-            .with_child(Dom::span(label))
+            .with_child(Dom::create_span_with_text(label))
             .with_child(
                 Dom::create_button_no_a11y("+1".into())
                     .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), state, increment)
@@ -194,12 +194,12 @@ pub fn breadcrumb(parts: &[&str]) -> Dom {
         .enumerate()
         .map(|(i, &p)| {
             if i == 0 {
-                Dom::span(p)
+                Dom::create_span_with_text(p)
             } else {
                 Dom::create_div()
                     .with_class("crumb".into())
-                    .with_child(Dom::span(" / "))
-                    .with_child(Dom::span(p))
+                    .with_child(Dom::create_span_with_text(" / "))
+                    .with_child(Dom::create_span_with_text(p))
             }
         })
         .collect::<Dom>()
@@ -238,7 +238,7 @@ There's a second authoring surface in the same pipeline. A component can be decl
 </app>
 ```rust
 
-The runtime path is `Dom::from_parsed_xml`, introduced in [The DOM - Loading XML and XHTML](../dom.md#loading-xml-and-xhtml). It walks the parsed XML, resolves each tag against the registered component libraries, and produces the corresponding `Dom`.
+The runtime path is `Dom::create_from_parsed_xml`, introduced in [The DOM - Loading XML and XHTML](../dom.md#loading-xml-and-xhtml). It walks the parsed XML, resolves each tag against the registered component libraries, and produces the corresponding `Dom`.
 
 Whether a component is hand-written Rust or XML-defined, the value is the same. It's a function from arguments and a `RefAny` to a `Dom`. The rest of this section is about *registering* those functions so the framework can look them up by name.
 
@@ -361,7 +361,7 @@ When the XML parser encounters `<card title="First" body="alpha"/>`, it resolves
 4. Call the def's `render_fn` with the populated data model and the component map.
 5. Stamp every root node of the returned `StyledDom` with a component-origin record. The qualified component id is `"shadcn:card"` and the JSON-serialised data model is the populated one. That's what lets the debugger reconstruct the invocation later.
 
-The `ComponentMap` is what `Dom::from_parsed_xml` consults under the hood. The `AppConfig`'s `component_libraries` field carries the registered libraries, which are folded into a `ComponentMap` at app-create time.
+The `ComponentMap` is what `Dom::create_from_parsed_xml` consults under the hood. The `AppConfig`'s `component_libraries` field carries the registered libraries, which are folded into a `ComponentMap` at app-create time.
 
 ## Compile: code generation roundtrip
 

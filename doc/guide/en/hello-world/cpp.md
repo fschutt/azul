@@ -165,23 +165,26 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // static, so the compiler stamps a unique tag per T at link time -
     // no per-type registration line, no AZ_REFLECT macro.
     auto* d = data_wrapper.downcast_ref<MyDataModel>();
-    if (!d) return AzDom_createBody();
+    if (!d) return Dom::create_body().release();
 
     // Counter label. String-taking methods all gained std::string_view
     // sibling overloads in C++17, so "..."sv literals flow straight in.
     // .with_* methods consume *this and return a new value, so chain
     // them inline.
     return Dom::create_body()
-        .with_child(Dom::p_with_text(String(std::to_string(d->counter).c_str()))
+        .with_child(Dom::create_p_with_text(String(std::to_string(d->counter).c_str()))
             .with_css("font-size: 50px;"sv))
         .with_child(Button::create("Increase counter"sv)
             .with_button_type(AzButtonType_Primary)
             .with_on_click(data_wrapper.clone(), on_click)
             .dom())
         .style(Css::empty())
-        // .release() yields the raw AzDom and zeroes out the wrapper.
-        // Without it, the destructor would run on the way out and free
-        // the tree before the framework consumed it.
+        // .release() is the FFI-boundary type conversion: it yields
+        // the raw AzDom and zeroes out the wrapper. std::move can't
+        // do this job because the source type (Dom) and the return
+        // type (AzDom) differ; std::move only handles same-type
+        // ownership transfer. Inside C++ (Dom -> Dom, RefAny -> RefAny)
+        // we use std::move; only the C-ABI return needs .release().
         .release();
 }
 
@@ -252,7 +255,7 @@ Six things to notice.
 
 - **No `AZ_REFLECT` line for C++11+** — `RefAny::create<T>` / `refany.downcast_ref<T>()` / `refany.downcast_mut<T>()` are template members on `RefAny` itself, so the API reads like every other wrapper class. The compiler stamps a unique runtime tag per `T` via the address of a template-instantiated `static`, so identity is stable across translation units without per-type registration. The `AZ_REFLECT(StructName)` macro is still emitted in `azul03.hpp` for C++03 compatibility (no template member functions there).
 - **RAII over manual `_delete`** — `auto* d = data_wrapper.downcast_ref<MyDataModel>()` returns a borrowed pointer that reflects the runtime borrow state. There is no explicit pairing with `_delete` like in C, which removes a whole class of bugs.
-- **`.release()` at the end of `layout`** — wrapper types own their underlying `Az*` handle and free it on destruction. When you return one to the framework, you must call `.release()` to *transfer* ownership; otherwise the wrapper's destructor will run on the way out and free the tree before the framework consumes it.
+- **`.release()` only at the C-ABI boundary** — wrapper types own their underlying `Az*` handle and free it on destruction. Inside C++ you transfer ownership with `std::move` (`App::create(std::move(data), ...)`, `app.run(std::move(window))`); the wrapper's move constructor zeroes the source so the destructor on the way out is a no-op. The one place `std::move` cannot help is the layout callback's return: its signature is fixed by the C ABI to `AzDom`, and `std::move(dom)` produces a `Dom&&`, not an `AzDom`. `.release()` performs the type-boundary conversion (yields the inner `AzDom`, zeroes the wrapper) so the destructor doesn't free a tree the framework now owns. Treat `.release()` as a C-ABI escape hatch, not a general ownership-transfer mechanism.
 - **`.with_*` builder methods consume `*this`** — they return a new value rather than mutating in place. Chain them inline; they do not allocate beyond what the underlying `Az*_set*` would. The corresponding `set_*` methods (e.g. `Button::set_on_click`) mutate in place if you prefer that style.
 - **`std::move` for ownership transfer** — `App::run(std::move(window))`, `App::create(std::move(data), ...)`. A copy would leave you with two handles competing to free the same memory; if there's a debug build you'll get a double-free at exit. Modern compilers warn when a value is implicitly copied where a move was wanted.
 - **`std::string_view` flows in** — `Button::create("Increase counter"sv)` and `with_css("font-size: 50px;"sv)` use the C++17 sv-literal directly. The codegen emits sibling `(std::string_view)` overloads on every method whose original signature took a `String`, so there is no `String("...")` wrapping step.
@@ -331,12 +334,12 @@ You should see the window pictured on the [hello-world landing page](../hello-wo
 
 ## Common errors
 
-- **Double-free at exit** — you forgot `.release()` on a wrapper returned to the framework, or you copied a wrapper that should have been moved. Use `std::move`, and check that every `Dom` / `RefAny` / `WindowCreateOptions` / `Button` you hand back to the framework is `release`'d or `std::move`'d.
+- **Double-free at exit** — you copied a wrapper that should have been moved, or you forgot `.release()` on the `Dom` returned from the layout callback (the one C-ABI return where `std::move` can't help, because the return type is the raw `AzDom`). Inside C++, use `std::move` for every `RefAny` / `WindowCreateOptions` / `Button` / `Dom` you hand off; reserve `.release()` for the layout callback's return.
 - **Linker error: `undefined reference to AzApp_create`** — the dynamic library is not linked. Add `-lazul` and confirm the rpath (`-Wl,-rpath,/path/to/azul-lib` on Linux, `@executable_path/.` on macOS, place `azul.dll` next to the `.exe` on Windows).
 - **Counter does not update on click** — the click callback returned `AzUpdate_DoNothing`, or the downcast silently returned `nullptr`. Verify with an `assert(d != nullptr)` or a print before the increment.
 - **The window opens blank** — the layout callback returned an empty body, or you forgot a `.with_child(...)` somewhere in the chain.
 - **`error: 'auto' not allowed`** — you are compiling with `-std=c++03`. Either upgrade to `c++11`, or use the `azul03.hpp` example template, which goes through the `AZ_REFLECT(StructName)` macro and the raw `Az*` types directly.
-- **`no member named 'p_with_text' in 'azul::Dom'`** — you copied an old example that used `Dom::p` or `Dom::body`. The actual codegen surface uses the api.json names verbatim: `Dom::create_body()` / `Dom::p_with_text(...)` / `Dom::with_css(...)`.
+- **`no member named 'create_p_with_text' in 'azul::Dom'`** — you copied an old example that used `Dom::p` or `Dom::body`, or a pre-rename one that used `Dom::create_p_with_text`. The actual codegen surface uses the api.json names verbatim: `Dom::create_body()` / `Dom::create_p_with_text(...)` / `Dom::create_h1_with_text(...)` / `Dom::with_css(...)`.
 
 
 ### Building from source

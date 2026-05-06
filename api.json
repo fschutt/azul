@@ -8822,15 +8822,15 @@
                                 ],
                                 "fn_body": "azul_core::dom::Dom::create_node(node_type)"
                             },
-                            "from_data": {
+                            "create_from_data": {
                                 "fn_args": [
                                     {
                                         "node_data": "NodeData"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::from_data(node_data)"
+                                "fn_body": "azul_core::dom::Dom::create_from_data(node_data)"
                             },
-                            "from_parsed_xml": {
+                            "create_from_parsed_xml": {
                                 "doc": [
                                     "Creates a Dom from an already-parsed Xml structure.",
                                     "CSS from <style> tags is attached to the Dom.css field",
@@ -8966,9 +8966,19 @@
                                 "fn_args": [],
                                 "fn_body": "azul_core::dom::Dom::create_details()"
                             },
-                            "summary": {
+                            "create_summary": {
                                 "doc": [
-                                    "Creates a summary element for details.",
+                                    "Creates an empty summary element for details.",
+                                    "",
+                                    "**Accessibility**: The visible heading/label for `<details>`.",
+                                    "Must be the first child of details. Keyboard accessible (Enter/Space to toggle)."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_summary()"
+                            },
+                            "create_summary_with_text": {
+                                "doc": [
+                                    "Creates a summary element with text for details.",
                                     "",
                                     "**Accessibility**: The visible heading/label for `<details>`.",
                                     "Must be the first child of details. Keyboard accessible (Enter/Space to toggle)."
@@ -8978,7 +8988,7 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::summary(text)"
+                                "fn_body": "azul_core::dom::Dom::create_summary_with_text(text)"
                             },
                             "create_dialog": {
                                 "doc": [
@@ -9000,9 +9010,19 @@
                                 "fn_args": [],
                                 "fn_body": "azul_core::dom::Dom::create_p()"
                             },
-                            "h1": {
+                            "create_h1": {
                                 "doc": [
-                                    "Creates a heading level 1 element.",
+                                    "Creates an empty heading level 1 element.",
+                                    "",
+                                    "**Accessibility**: Use `h1` for the main page title. There should typically be only one `h1`",
+                                    "per page."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_h1()"
+                            },
+                            "create_h1_with_text": {
+                                "doc": [
+                                    "Creates a heading level 1 element with text.",
                                     "",
                                     "**Accessibility**: Use `h1` for the main page title. There should typically be only one `h1`",
                                     "per page.",
@@ -9015,11 +9035,20 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::h1(text)"
+                                "fn_body": "azul_core::dom::Dom::create_h1_with_text(text)"
                             },
-                            "h2": {
+                            "create_h2": {
                                 "doc": [
-                                    "Creates a heading level 2 element.",
+                                    "Creates an empty heading level 2 element.",
+                                    "",
+                                    "**Accessibility**: Use `h2` for major section headings under `h1`."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_h2()"
+                            },
+                            "create_h2_with_text": {
+                                "doc": [
+                                    "Creates a heading level 2 element with text.",
                                     "",
                                     "**Accessibility**: Use `h2` for major section headings under `h1`.",
                                     "",
@@ -9031,11 +9060,20 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::h2(text)"
+                                "fn_body": "azul_core::dom::Dom::create_h2_with_text(text)"
                             },
-                            "h3": {
+                            "create_h3": {
                                 "doc": [
-                                    "Creates a heading level 3 element.",
+                                    "Creates an empty heading level 3 element.",
+                                    "",
+                                    "**Accessibility**: Use `h3` for subsections under `h2`."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_h3()"
+                            },
+                            "create_h3_with_text": {
+                                "doc": [
+                                    "Creates a heading level 3 element with text.",
                                     "",
                                     "**Accessibility**: Use `h3` for subsections under `h2`.",
                                     "",
@@ -9047,11 +9085,18 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::h3(text)"
+                                "fn_body": "azul_core::dom::Dom::create_h3_with_text(text)"
                             },
-                            "h4": {
+                            "create_h4": {
                                 "doc": [
-                                    "Creates a heading level 4 element.",
+                                    "Creates an empty heading level 4 element."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_h4()"
+                            },
+                            "create_h4_with_text": {
+                                "doc": [
+                                    "Creates a heading level 4 element with text.",
                                     "",
                                     "**Parameters:**",
                                     "- `text`: Heading text"
@@ -9061,11 +9106,18 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::h4(text)"
+                                "fn_body": "azul_core::dom::Dom::create_h4_with_text(text)"
                             },
-                            "h5": {
+                            "create_h5": {
                                 "doc": [
-                                    "Creates a heading level 5 element.",
+                                    "Creates an empty heading level 5 element."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_h5()"
+                            },
+                            "create_h5_with_text": {
+                                "doc": [
+                                    "Creates a heading level 5 element with text.",
                                     "",
                                     "**Parameters:**",
                                     "- `text`: Heading text"
@@ -9075,11 +9127,18 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::h5(text)"
+                                "fn_body": "azul_core::dom::Dom::create_h5_with_text(text)"
                             },
-                            "h6": {
+                            "create_h6": {
                                 "doc": [
-                                    "Creates a heading level 6 element.",
+                                    "Creates an empty heading level 6 element."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_h6()"
+                            },
+                            "create_h6_with_text": {
+                                "doc": [
+                                    "Creates a heading level 6 element with text.",
                                     "",
                                     "**Parameters:**",
                                     "- `text`: Heading text"
@@ -9089,11 +9148,21 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::h6(text)"
+                                "fn_body": "azul_core::dom::Dom::create_h6_with_text(text)"
                             },
-                            "span": {
+                            "create_span": {
                                 "doc": [
-                                    "Creates a generic inline container (span).",
+                                    "Creates an empty generic inline container (span).",
+                                    "",
+                                    "**Accessibility**: Prefer semantic elements like `strong`, `em`, `code`, etc. when",
+                                    "applicable."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_span()"
+                            },
+                            "create_span_with_text": {
+                                "doc": [
+                                    "Creates a generic inline container (span) with text.",
                                     "",
                                     "**Accessibility**: Prefer semantic elements like `strong`, `em`, `code`, etc. when",
                                     "applicable.",
@@ -9106,11 +9175,20 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::span(text)"
+                                "fn_body": "azul_core::dom::Dom::create_span_with_text(text)"
                             },
-                            "strong": {
+                            "create_strong": {
                                 "doc": [
-                                    "Creates a strongly emphasized text element (strong importance).",
+                                    "Creates an empty strong importance element.",
+                                    "",
+                                    "**Accessibility**: Use `strong` instead of `b` for semantic meaning."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_strong()"
+                            },
+                            "create_strong_with_text": {
+                                "doc": [
+                                    "Creates a strongly emphasized text element with text (strong importance).",
                                     "",
                                     "**Accessibility**: Use `strong` instead of `b` for semantic meaning. Screen readers can",
                                     "convey the importance. Use for text that has strong importance, seriousness, or urgency.",
@@ -9123,11 +9201,20 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::strong(text)"
+                                "fn_body": "azul_core::dom::Dom::create_strong_with_text(text)"
                             },
-                            "em": {
+                            "create_em": {
                                 "doc": [
-                                    "Creates an emphasized text element (stress emphasis).",
+                                    "Creates an empty emphasis element (stress emphasis).",
+                                    "",
+                                    "**Accessibility**: Use `em` instead of `i` for semantic meaning."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_em()"
+                            },
+                            "create_em_with_text": {
+                                "doc": [
+                                    "Creates an emphasized text element with text (stress emphasis).",
                                     "",
                                     "**Accessibility**: Use `em` instead of `i` for semantic meaning. Screen readers can",
                                     "convey the emphasis. Use for text that has stress emphasis.",
@@ -9140,11 +9227,20 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::em(text)"
+                                "fn_body": "azul_core::dom::Dom::create_em_with_text(text)"
                             },
-                            "code": {
+                            "create_code": {
                                 "doc": [
-                                    "Creates a code/computer code element.",
+                                    "Creates an empty code element.",
+                                    "",
+                                    "**Accessibility**: Represents a fragment of computer code."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_code()"
+                            },
+                            "create_code_with_text": {
+                                "doc": [
+                                    "Creates a code/computer code element with text.",
                                     "",
                                     "**Accessibility**: Represents a fragment of computer code. Screen readers can identify",
                                     "this as code content.",
@@ -9157,11 +9253,20 @@
                                         "code": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::code(code)"
+                                "fn_body": "azul_core::dom::Dom::create_code_with_text(code)"
                             },
-                            "pre": {
+                            "create_pre": {
                                 "doc": [
-                                    "Creates a preformatted text element.",
+                                    "Creates an empty preformatted text element.",
+                                    "",
+                                    "**Accessibility**: Preserves whitespace and line breaks."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_pre()"
+                            },
+                            "create_pre_with_text": {
+                                "doc": [
+                                    "Creates a preformatted text element with text.",
                                     "",
                                     "**Accessibility**: Preserves whitespace and line breaks. Useful for code blocks or",
                                     "ASCII art. Screen readers will read the content as-is.",
@@ -9174,11 +9279,20 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::pre(text)"
+                                "fn_body": "azul_core::dom::Dom::create_pre_with_text(text)"
                             },
-                            "blockquote": {
+                            "create_blockquote": {
                                 "doc": [
-                                    "Creates a blockquote element.",
+                                    "Creates an empty blockquote element.",
+                                    "",
+                                    "**Accessibility**: Represents a section quoted from another source."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_blockquote()"
+                            },
+                            "create_blockquote_with_text": {
+                                "doc": [
+                                    "Creates a blockquote element with text.",
                                     "",
                                     "**Accessibility**: Represents a section quoted from another source. Screen readers",
                                     "can identify quoted content. Consider adding a `cite` attribute.",
@@ -9191,11 +9305,20 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::blockquote(text)"
+                                "fn_body": "azul_core::dom::Dom::create_blockquote_with_text(text)"
                             },
-                            "cite": {
+                            "create_cite": {
                                 "doc": [
-                                    "Creates a citation element.",
+                                    "Creates an empty citation element.",
+                                    "",
+                                    "**Accessibility**: Represents a reference to a creative work."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_cite()"
+                            },
+                            "create_cite_with_text": {
+                                "doc": [
+                                    "Creates a citation element with text.",
                                     "",
                                     "**Accessibility**: Represents a reference to a creative work. Screen readers can",
                                     "identify citations.",
@@ -9208,14 +9331,24 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::cite(text)"
+                                "fn_body": "azul_core::dom::Dom::create_cite_with_text(text)"
                             },
                             "create_abbr": {
                                 "doc": [
-                                    "Creates an abbreviation element.",
+                                    "Creates an empty abbreviation element.",
                                     "",
                                     "**Accessibility**: Represents an abbreviation or acronym. Use with a `title` attribute",
-                                    "to provide the full expansion for screen readers.",
+                                    "to provide the full expansion for screen readers."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_abbr()"
+                            },
+                            "create_abbr_with_title": {
+                                "doc": [
+                                    "Creates an abbreviation element with abbreviated text and a `title` expansion.",
+                                    "",
+                                    "**Accessibility**: Represents an abbreviation or acronym. The `title` attribute",
+                                    "provides the full expansion for screen readers.",
                                     "",
                                     "**Parameters:**",
                                     "- `abbr_text`: Abbreviated text",
@@ -9229,11 +9362,20 @@
                                         "title": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::create_abbr(abbr_text, title)"
+                                "fn_body": "azul_core::dom::Dom::create_abbr_with_title(abbr_text, title)"
                             },
-                            "kbd": {
+                            "create_kbd": {
                                 "doc": [
-                                    "Creates a keyboard input element.",
+                                    "Creates an empty keyboard input element.",
+                                    "",
+                                    "**Accessibility**: Represents keyboard input or key combinations."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_kbd()"
+                            },
+                            "create_kbd_with_text": {
+                                "doc": [
+                                    "Creates a keyboard input element with text.",
                                     "",
                                     "**Accessibility**: Represents keyboard input or key combinations. Screen readers can",
                                     "identify keyboard instructions.",
@@ -9246,11 +9388,20 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::kbd(text)"
+                                "fn_body": "azul_core::dom::Dom::create_kbd_with_text(text)"
                             },
-                            "samp": {
+                            "create_samp": {
                                 "doc": [
-                                    "Creates a sample output element.",
+                                    "Creates an empty sample output element.",
+                                    "",
+                                    "**Accessibility**: Represents sample output from a program or computing system."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_samp()"
+                            },
+                            "create_samp_with_text": {
+                                "doc": [
+                                    "Creates a sample output element with text.",
                                     "",
                                     "**Accessibility**: Represents sample output from a program or computing system.",
                                     "",
@@ -9262,11 +9413,20 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::samp(text)"
+                                "fn_body": "azul_core::dom::Dom::create_samp_with_text(text)"
                             },
-                            "var": {
+                            "create_var": {
                                 "doc": [
-                                    "Creates a variable element.",
+                                    "Creates an empty variable element.",
+                                    "",
+                                    "**Accessibility**: Represents a variable in mathematical expressions or programming."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_var()"
+                            },
+                            "create_var_with_text": {
+                                "doc": [
+                                    "Creates a variable element with text.",
                                     "",
                                     "**Accessibility**: Represents a variable in mathematical expressions or programming.",
                                     "",
@@ -9278,11 +9438,18 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::var(text)"
+                                "fn_body": "azul_core::dom::Dom::create_var_with_text(text)"
                             },
-                            "sub": {
+                            "create_sub": {
                                 "doc": [
-                                    "Creates a subscript element.",
+                                    "Creates an empty subscript element."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_sub()"
+                            },
+                            "create_sub_with_text": {
+                                "doc": [
+                                    "Creates a subscript element with text.",
                                     "",
                                     "**Accessibility**: Screen readers may announce subscript formatting.",
                                     "",
@@ -9294,11 +9461,18 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::sub(text)"
+                                "fn_body": "azul_core::dom::Dom::create_sub_with_text(text)"
                             },
-                            "sup": {
+                            "create_sup": {
                                 "doc": [
-                                    "Creates a superscript element.",
+                                    "Creates an empty superscript element."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_sup()"
+                            },
+                            "create_sup_with_text": {
+                                "doc": [
+                                    "Creates a superscript element with text.",
                                     "",
                                     "**Accessibility**: Screen readers may announce superscript formatting.",
                                     "",
@@ -9310,11 +9484,18 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::sup(text)"
+                                "fn_body": "azul_core::dom::Dom::create_sup_with_text(text)"
                             },
-                            "u": {
+                            "create_u": {
                                 "doc": [
-                                    "Creates an underline text element.",
+                                    "Creates an empty underline element."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_u()"
+                            },
+                            "create_u_with_text": {
+                                "doc": [
+                                    "Creates an underline text element with text.",
                                     "",
                                     "**Accessibility**: Screen readers typically don't announce underline formatting.",
                                     "Use semantic elements when possible (e.g., `<em>` for emphasis)."
@@ -9324,11 +9505,18 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::u(text)"
+                                "fn_body": "azul_core::dom::Dom::create_u_with_text(text)"
                             },
-                            "s": {
+                            "create_s": {
                                 "doc": [
-                                    "Creates a strikethrough text element.",
+                                    "Creates an empty strikethrough element."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_s()"
+                            },
+                            "create_s_with_text": {
+                                "doc": [
+                                    "Creates a strikethrough text element with text.",
                                     "",
                                     "**Accessibility**: Represents text that is no longer accurate or relevant.",
                                     "Consider using `<del>` for deleted content with datetime attribute."
@@ -9338,11 +9526,18 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::s(text)"
+                                "fn_body": "azul_core::dom::Dom::create_s_with_text(text)"
                             },
-                            "mark": {
+                            "create_mark": {
                                 "doc": [
-                                    "Creates a marked/highlighted text element.",
+                                    "Creates an empty mark element."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_mark()"
+                            },
+                            "create_mark_with_text": {
+                                "doc": [
+                                    "Creates a marked/highlighted text element with text.",
                                     "",
                                     "**Accessibility**: Represents text marked for reference or notation purposes.",
                                     "Screen readers may announce this as \"highlighted\"."
@@ -9352,11 +9547,18 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::mark(text)"
+                                "fn_body": "azul_core::dom::Dom::create_mark_with_text(text)"
                             },
-                            "del": {
+                            "create_del": {
                                 "doc": [
-                                    "Creates a deleted text element.",
+                                    "Creates an empty deleted text element."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_del()"
+                            },
+                            "create_del_with_text": {
+                                "doc": [
+                                    "Creates a deleted text element with text.",
                                     "",
                                     "**Accessibility**: Represents deleted content in document edits.",
                                     "Use with `datetime` and `cite` attributes for edit tracking."
@@ -9366,11 +9568,18 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::del(text)"
+                                "fn_body": "azul_core::dom::Dom::create_del_with_text(text)"
                             },
-                            "ins": {
+                            "create_ins": {
                                 "doc": [
-                                    "Creates an inserted text element.",
+                                    "Creates an empty inserted text element."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_ins()"
+                            },
+                            "create_ins_with_text": {
+                                "doc": [
+                                    "Creates an inserted text element with text.",
                                     "",
                                     "**Accessibility**: Represents inserted content in document edits.",
                                     "Use with `datetime` and `cite` attributes for edit tracking."
@@ -9380,11 +9589,18 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::ins(text)"
+                                "fn_body": "azul_core::dom::Dom::create_ins_with_text(text)"
                             },
-                            "dfn": {
+                            "create_dfn": {
                                 "doc": [
-                                    "Creates a definition element.",
+                                    "Creates an empty definition element."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_dfn()"
+                            },
+                            "create_dfn_with_text": {
+                                "doc": [
+                                    "Creates a definition element with text.",
                                     "",
                                     "**Accessibility**: Represents the defining instance of a term.",
                                     "Often used within a definition list or with `<abbr>`."
@@ -9394,7 +9610,7 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::dfn(text)"
+                                "fn_body": "azul_core::dom::Dom::create_dfn_with_text(text)"
                             },
                             "create_time": {
                                 "doc": [
@@ -9417,9 +9633,18 @@
                                 ],
                                 "fn_body": "azul_core::dom::Dom::create_time(text, datetime)"
                             },
-                            "bdo": {
+                            "create_bdo": {
                                 "doc": [
-                                    "Creates a bi-directional override element.",
+                                    "Creates an empty bi-directional override element.",
+                                    "",
+                                    "**Accessibility**: Overrides text direction. Use `dir` attribute (ltr/rtl)."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_bdo()"
+                            },
+                            "create_bdo_with_text": {
+                                "doc": [
+                                    "Creates a bi-directional override element with text.",
                                     "",
                                     "**Accessibility**: Overrides text direction. Use `dir` attribute (ltr/rtl)."
                                 ],
@@ -9428,7 +9653,7 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::bdo(text)"
+                                "fn_body": "azul_core::dom::Dom::create_bdo_with_text(text)"
                             },
                             "create_a": {
                                 "doc": [
@@ -9956,14 +10181,27 @@
                                 "fn_args": [],
                                 "fn_body": "azul_core::dom::Dom::create_q()"
                             },
-                            "acronym": {
+                            "create_acronym": {
                                 "doc": [
-                                    "Creates an acronym element.",
+                                    "Creates an empty acronym element.",
                                     "",
-                                    "**Note**: Deprecated in HTML5. Consider using `abbr()` instead."
+                                    "**Note**: Deprecated in HTML5. Consider using `create_abbr()` instead."
                                 ],
                                 "fn_args": [],
-                                "fn_body": "azul_core::dom::Dom::acronym()"
+                                "fn_body": "azul_core::dom::Dom::create_acronym()"
+                            },
+                            "create_acronym_with_text": {
+                                "doc": [
+                                    "Creates an acronym element with text.",
+                                    "",
+                                    "**Note**: Deprecated in HTML5. Consider using `create_abbr_with_title()` instead."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "text": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_acronym_with_text(text)"
                             },
                             "create_menu": {
                                 "doc": [
@@ -9975,15 +10213,29 @@
                                 "fn_args": [],
                                 "fn_body": "azul_core::dom::Dom::create_menu()"
                             },
-                            "menuitem": {
+                            "create_menuitem": {
                                 "doc": [
-                                    "Creates a menu item element.",
+                                    "Creates an empty menu item element.",
                                     "",
                                     "**Accessibility**: Represents a command in a menu. Use with appropriate role/aria",
                                     "attributes."
                                 ],
                                 "fn_args": [],
-                                "fn_body": "azul_core::dom::Dom::menuitem()"
+                                "fn_body": "azul_core::dom::Dom::create_menuitem()"
+                            },
+                            "create_menuitem_with_text": {
+                                "doc": [
+                                    "Creates a menu item element with text.",
+                                    "",
+                                    "**Accessibility**: Represents a command in a menu. Use with appropriate role/aria",
+                                    "attributes."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "text": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_menuitem_with_text(text)"
                             },
                             "create_output": {
                                 "doc": [
@@ -10169,9 +10421,18 @@
                                 "fn_args": [],
                                 "fn_body": "azul_core::dom::Dom::create_area()"
                             },
-                            "title": {
+                            "create_title": {
                                 "doc": [
-                                    "Creates a title element for document title.",
+                                    "Creates an empty title element for document title.",
+                                    "",
+                                    "**Accessibility**: Required for all pages. Screen readers announce this first."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_title()"
+                            },
+                            "create_title_with_text": {
+                                "doc": [
+                                    "Creates a title element for document title with text.",
                                     "",
                                     "**Accessibility**: Required for all pages. Screen readers announce this first.",
                                     "Should be unique and descriptive. Keep under 60 characters."
@@ -10181,16 +10442,16 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::title(text)"
+                                "fn_body": "azul_core::dom::Dom::create_title_with_text(text)"
                             },
-                            "meta": {
+                            "create_meta": {
                                 "doc": [
                                     "Creates a meta element.",
                                     "",
                                     "**Accessibility**: Use for charset, viewport, description. Crucial for proper text display."
                                 ],
                                 "fn_args": [],
-                                "fn_body": "azul_core::dom::Dom::meta()"
+                                "fn_body": "azul_core::dom::Dom::create_meta()"
                             },
                             "create_link": {
                                 "doc": [
@@ -10212,17 +10473,31 @@
                                 "fn_args": [],
                                 "fn_body": "azul_core::dom::Dom::create_script()"
                             },
-                            "style_element": {
+                            "create_style": {
                                 "doc": [
-                                    "Creates a style element for embedded CSS.",
+                                    "Creates an empty style element for embedded CSS.",
                                     "",
                                     "**Note**: In Azul, use the `.style()` method instead for styling.",
                                     "This creates a `<style>` HTML element for embedded stylesheets."
                                 ],
                                 "fn_args": [],
-                                "fn_body": "azul_core::dom::Dom::style_element()"
+                                "fn_body": "azul_core::dom::Dom::create_style()"
                             },
-                            "base": {
+                            "create_style_with_text": {
+                                "doc": [
+                                    "Creates a style element for embedded CSS with the given stylesheet text.",
+                                    "",
+                                    "**Note**: In Azul, use the `.style()` method instead for styling.",
+                                    "This creates a `<style>` HTML element for embedded stylesheets."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "text": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_style_with_text(text)"
+                            },
+                            "create_base": {
                                 "doc": [
                                     "Creates a base element for document base URL.",
                                     "",
@@ -10234,9 +10509,253 @@
                                         "href": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::base(href)"
+                                "fn_body": "azul_core::dom::Dom::create_base(href)"
                             },
-                            "th_with_scope": {
+                            "create_b": {
+                                "doc": [
+                                    "Creates an empty bold element.",
+                                    "",
+                                    "**Accessibility**: Prefer `<strong>` for semantic emphasis. `<b>` is purely stylistic."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_b()"
+                            },
+                            "create_b_with_text": {
+                                "doc": [
+                                    "Creates a bold element with text.",
+                                    "",
+                                    "**Accessibility**: Prefer `<strong>` for semantic emphasis. `<b>` is purely stylistic.",
+                                    "",
+                                    "**Parameters:**",
+                                    "- `text`: Bold text content"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "text": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_b_with_text(text)"
+                            },
+                            "create_i": {
+                                "doc": [
+                                    "Creates an empty italic element.",
+                                    "",
+                                    "**Accessibility**: Prefer `<em>` for stress emphasis. `<i>` is purely stylistic."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_i()"
+                            },
+                            "create_i_with_text": {
+                                "doc": [
+                                    "Creates an italic element with text.",
+                                    "",
+                                    "**Accessibility**: Prefer `<em>` for stress emphasis. `<i>` is purely stylistic.",
+                                    "",
+                                    "**Parameters:**",
+                                    "- `text`: Italic text content"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "text": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_i_with_text(text)"
+                            },
+                            "create_small": {
+                                "doc": [
+                                    "Creates an empty small text element.",
+                                    "",
+                                    "**Accessibility**: Represents side-comments and small print like copyright/legal text."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_small()"
+                            },
+                            "create_small_with_text": {
+                                "doc": [
+                                    "Creates a small text element with text.",
+                                    "",
+                                    "**Parameters:**",
+                                    "- `text`: Small text content"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "text": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_small_with_text(text)"
+                            },
+                            "create_big": {
+                                "doc": [
+                                    "Creates an empty `<big>` element.",
+                                    "",
+                                    "**Note**: Deprecated in HTML5. Prefer CSS `font-size`."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_big()"
+                            },
+                            "create_big_with_text": {
+                                "doc": [
+                                    "Creates a `<big>` element with text.",
+                                    "",
+                                    "**Note**: Deprecated in HTML5. Prefer CSS `font-size`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "text": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_big_with_text(text)"
+                            },
+                            "create_bdi": {
+                                "doc": [
+                                    "Creates an empty bi-directional isolate element.",
+                                    "",
+                                    "**Accessibility**: Used to isolate text whose direction is unknown,",
+                                    "keeping it from affecting surrounding bidi layout."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_bdi()"
+                            },
+                            "create_bdi_with_text": {
+                                "doc": [
+                                    "Creates a bi-directional isolate element with text.",
+                                    "",
+                                    "**Accessibility**: Used to isolate text whose direction is unknown,",
+                                    "keeping it from affecting surrounding bidi layout."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "text": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_bdi_with_text(text)"
+                            },
+                            "create_wbr": {
+                                "doc": [
+                                    "Creates an empty word break opportunity element.",
+                                    "",
+                                    "**Note**: `<wbr>` is a self-closing element that suggests a line-break opportunity.",
+                                    "It does not take text content."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_wbr()"
+                            },
+                            "create_ruby": {
+                                "doc": [
+                                    "Creates an empty ruby annotation element.",
+                                    "",
+                                    "**Accessibility**: Used for East Asian typography to provide",
+                                    "pronunciation/translation annotations. Wraps `<rt>`/`<rp>` children."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_ruby()"
+                            },
+                            "create_rt": {
+                                "doc": [
+                                    "Creates an empty ruby text element.",
+                                    "",
+                                    "**Accessibility**: Pronunciation/translation annotation inside `<ruby>`."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_rt()"
+                            },
+                            "create_rt_with_text": {
+                                "doc": [
+                                    "Creates a ruby text element with text.",
+                                    "",
+                                    "**Parameters:**",
+                                    "- `text`: Ruby annotation content"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "text": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_rt_with_text(text)"
+                            },
+                            "create_rtc": {
+                                "doc": [
+                                    "Creates an empty ruby text container element.",
+                                    "",
+                                    "**Accessibility**: Container for ruby text annotations."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_rtc()"
+                            },
+                            "create_rp": {
+                                "doc": [
+                                    "Creates an empty ruby fallback parenthesis element.",
+                                    "",
+                                    "**Accessibility**: Provides parentheses around `<rt>` for browsers without ruby support."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_rp()"
+                            },
+                            "create_rp_with_text": {
+                                "doc": [
+                                    "Creates a ruby fallback parenthesis element with text.",
+                                    "",
+                                    "**Parameters:**",
+                                    "- `text`: Parenthesis text (typically \"(\" or \")\")"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "text": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_rp_with_text(text)"
+                            },
+                            "create_data": {
+                                "doc": [
+                                    "Creates a `<data>` element binding a machine-readable value to its content.",
+                                    "",
+                                    "**Parameters:**",
+                                    "- `value`: Machine-readable value for the `value` attribute."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "value": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_data(value)"
+                            },
+                            "create_data_with_text": {
+                                "doc": [
+                                    "Creates a `<data>` element with both a machine-readable value and visible text.",
+                                    "",
+                                    "**Parameters:**",
+                                    "- `value`: Machine-readable value for the `value` attribute.",
+                                    "- `text`: Human-readable text content."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "value": "String"
+                                    },
+                                    {
+                                        "text": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_data_with_text(value, text)"
+                            },
+                            "create_dir": {
+                                "doc": [
+                                    "Creates an empty directory list element.",
+                                    "",
+                                    "**Note**: Deprecated in HTML5. Use `<ul>` instead."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_dir()"
+                            },
+                            "create_svg": {
+                                "doc": [
+                                    "Creates an empty SVG container element.",
+                                    "",
+                                    "**Accessibility**: Provide `aria-label` or `<title>` child for assistive tech."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::Dom::create_svg()"
+                            },
+                            "create_th_with_scope": {
                                 "doc": [
                                     "Creates a table header cell with scope.",
                                     "",
@@ -10254,9 +10773,9 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::th_with_scope(scope, text)"
+                                "fn_body": "azul_core::dom::Dom::create_th_with_scope(scope, text)"
                             },
-                            "td_with_text": {
+                            "create_td_with_text": {
                                 "doc": [
                                     "Creates a table data cell with text.",
                                     "",
@@ -10268,9 +10787,9 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::td_with_text(text)"
+                                "fn_body": "azul_core::dom::Dom::create_td_with_text(text)"
                             },
-                            "th_with_text": {
+                            "create_th_with_text": {
                                 "doc": [
                                     "Creates a table header cell with text.",
                                     "",
@@ -10282,9 +10801,9 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::th_with_text(text)"
+                                "fn_body": "azul_core::dom::Dom::create_th_with_text(text)"
                             },
-                            "li_with_text": {
+                            "create_li_with_text": {
                                 "doc": [
                                     "Creates a list item with text.",
                                     "",
@@ -10296,9 +10815,9 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::li_with_text(text)"
+                                "fn_body": "azul_core::dom::Dom::create_li_with_text(text)"
                             },
-                            "p_with_text": {
+                            "create_p_with_text": {
                                 "doc": [
                                     "Creates a paragraph with text.",
                                     "",
@@ -10310,7 +10829,7 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::p_with_text(text)"
+                                "fn_body": "azul_core::dom::Dom::create_p_with_text(text)"
                             }
                         },
                         "functions": {

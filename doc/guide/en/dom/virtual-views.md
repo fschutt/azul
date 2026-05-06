@@ -42,7 +42,7 @@ extern "C" fn render_list(
     info: VirtualViewCallbackInfo,
 ) -> VirtualViewReturn {
     let d = match data.downcast_ref::<ListData>() { Some(d) => d, None => return VirtualViewReturn::default() };
-    let dom: Dom = d.items.iter().map(|s| Dom::li_with_text(s.clone())).collect();
+    let dom: Dom = d.items.iter().map(|s| Dom::create_li_with_text(s.clone())).collect();
     let row_h = 24.0_f32;
     let total = LogicalSize::create(info.bounds.logical_size.width, row_h * d.items.len() as f32);
     VirtualViewReturn::with_dom(dom, total, LogicalPosition::zero(), total, LogicalPosition::zero())

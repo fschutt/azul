@@ -103,7 +103,7 @@ extern "C" fn layout_cb(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         mount_cb,
     );
 
-    Dom::create_body().with_child(Dom::from_data(child))
+    Dom::create_body().with_child(Dom::create_from_data(child))
 }
 
 fn make_window(state: TestState) -> HeadlessWindow {
