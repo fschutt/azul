@@ -49,7 +49,8 @@ extern "C" fn render_list(
 }
 
 let list_state = RefAny::new(ListData { items: vec!["A".into(), "B".into()] });
-let _ = Dom::create_virtual_view(list_state, VirtualViewCallback::create(render_list));
+let cb = VirtualViewCallback { cb: render_list, ctx: OptionRefAny::None };
+let _ = Dom::create_virtual_view(list_state, cb);
 ```
 
 ## Two coordinate systems: rendered vs virtual
@@ -99,8 +100,8 @@ defined in `core/src/callbacks.rs`:
   previous `scroll_size`. Time to enlarge the rendered content. This fires
   once per expansion, not on every resize tick.
 
-- `EdgeScrolled(EdgeType)`. The user scrolled within `EDGE_THRESHOLD`
-  (200 px) of one of the four edges of the rendered content. Time to
+- `EdgeScrolled(EdgeType)`. The user scrolled within approximately
+  200 px of one of the four edges of the rendered content. Time to
   lazy-load more rows. `EdgeType` is one of `Top`, `Bottom`, `Left`,
   `Right`. Fires once per edge approach. The flag clears once the scroll
   moves away.

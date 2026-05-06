@@ -19,10 +19,9 @@ generated_at: 2026-05-02T05:53:30Z
 # Datasets
 
 A dataset is a `RefAny` attached to a single node. You attach it with
-`Dom::with_dataset(OptionRefAny)` (`core/src/dom.rs`). The framework
-doesn't read the contents. It stores the `RefAny` on the node and hands
-it back to your callback through `info.get_dataset(node_id)`
-(`layout/src/callbacks.rs`).
+`Dom::with_dataset(OptionRefAny)`. The framework doesn't read the
+contents. It stores the `RefAny` on the node and hands it back to your
+callback through `info.get_dataset(node_id)`.
 
 That's the whole mechanism. Everything on this page follows from it.
 
@@ -60,8 +59,8 @@ let _ = Dom::create_input_no_a11y("text".into(), "editor".into(), "hello".into()
     .with_dataset(OptionRefAny::Some(state));
 ```
 
-`NodeData::set_dataset` and `NodeData::get_dataset` (`core/src/dom.rs`)
-are the underlying mutators if you build `NodeData` directly.
+`NodeData::set_dataset` is the underlying setter if you build
+`NodeData` directly.
 
 ## Reading a dataset in a callback
 
@@ -248,8 +247,8 @@ might re-borrow the same `RefAny`.
 ## Source
 
 - `core/src/dom.rs` for `Dom::with_dataset`, `NodeData::set_dataset`,
-  `NodeData::get_dataset`, and the `OptionRefAny` slot.
+  and the `OptionRefAny` slot.
 - `core/src/refany.rs` for `RefAny`, `OptionRefAny`, and the downcast
   rules.
-- `layout/src/callbacks.rs` for `CallbackInfo::get_dataset`,
+- `core/src/callbacks.rs` for `CallbackInfo::get_dataset`,
   `get_hit_node`, `get_focused_node`, and the navigation getters.

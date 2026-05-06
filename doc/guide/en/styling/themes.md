@@ -20,17 +20,17 @@ generated_at: 2026-05-02T12:00:00Z
 
 # System Themes
 
-> **WIP** — discovery (theme, accent, fonts, accessibility) is wired up
+> **WIP.** Discovery (theme, accent, fonts, accessibility) is wired up
 > across all desktop platforms. The user-facing CSS hooks (`system:*`
 > colors, `system:*` fonts, `@theme dark`) work today. Some discovered
 > values still arrive via CLI wrappers; the FFI-direct paths and ricing
 > overrides are still being stabilized.
 
-A native-feeling app reads its colors, fonts, and metrics from the host OS.
+A native-feeling app reads its colors and fonts from the host OS.
 Azul exposes those values through three CSS hooks:
 
 - `system:<color>` for colors that follow the user's accent and theme.
-- `system:<font>` for the platform's UI / monospace / serif fonts.
+- `system:<font>` for the platform's UI, monospace, or serif fonts.
 - `@theme dark { ... }` and `@os <name>` for conditional rules that
   re-evaluate per frame when the user toggles dark mode or moves to a
   different desktop environment.
@@ -49,48 +49,47 @@ let _ = Dom::create_div().with_css("
 ");
 ```
 
-```azul-render screenshot=themes-light slideshow=themes-toggle width=400 height=180 subtitle="Light theme — system colors resolve to OS defaults"
+```azul-render screenshot=themes-light slideshow=themes-toggle width=400 height=180 subtitle="Light theme"
 <html>
 <head><style>
 body { font-family: sans-serif; padding: 20px; background: #fafafa; }
 .card { background: white; color: #222; border: 1px solid #1976d2; padding: 16px; border-radius: 6px; }
 </style></head>
-<body><div class="card">Adaptive surface — light theme</div></body>
+<body><div class="card">Adaptive surface, light theme</div></body>
 </html>
 ```
 
-```azul-render screenshot=themes-dark slideshow=themes-toggle width=400 height=180 subtitle="Dark theme — same selectors, OS-supplied palette"
+```azul-render screenshot=themes-dark slideshow=themes-toggle width=400 height=180 subtitle="Dark theme, OS-supplied palette"
 <html>
 <head><style>
 body { font-family: sans-serif; padding: 20px; background: #0d0d0f; }
 .card { background: #1c1c1e; color: #f0f0f0; border: 1px solid #0a84ff; padding: 16px; border-radius: 6px; }
 </style></head>
-<body><div class="card">Adaptive surface — dark theme</div></body>
+<body><div class="card">Adaptive surface, dark theme</div></body>
 </html>
 ```
 
 ## System colors
 
 Use a `system:<name>` keyword wherever a color is accepted. The framework
-resolves it at cascade time using the user's current settings — no work on
-your side. The set is `SystemColorRef` at `css/src/props/basic/color.rs:879`:
+resolves it at frame time using the user's current settings:
 
 | Keyword | Resolves to |
 |---|---|
 | `system:text` | Primary text color |
 | `system:background` | Content background |
-| `system:accent` | The user's accent color (Windows / macOS / GNOME) |
+| `system:accent` | The user's accent color (Windows, macOS, GNOME) |
 | `system:accent-text` | Readable text on an accent fill |
-| `system:button-face` | Button / control background |
-| `system:button-text` | Button / control text |
+| `system:button-face` | Button or control background |
+| `system:button-text` | Button or control text |
 | `system:window-background` | Window chrome background |
 | `system:selection-background` | Selected-text background |
 | `system:selection-text` | Selected-text foreground |
 
 The resolver picks the user's current value if the OS reported one, and
-falls back to a standard color if the discovery returned `None`. The full
-collection — including link, separator, grid, sidebar, and inactive-window
-variants — is on `SystemColors` (`css/src/system.rs:320`).
+falls back to a standard color otherwise. The full collection (link,
+separator, grid, sidebar, and inactive-window variants) is on
+`SystemColors`.
 
 ```rust,no_run
 # use azul::prelude::*;
@@ -105,8 +104,8 @@ let _ = Dom::create_button("Save", SmallAriaInfo::label("Save")).with_css("
 
 ## System fonts
 
-`system:<role>` keywords pick the right face on each platform. From
-`SystemFontType` at `css/src/system.rs:172`:
+`system:<role>` keywords pick the right face on each platform.
+`SystemFontType` enumerates the roles:
 
 | Keyword | macOS | Windows | Linux (default) |
 |---|---|---|---|
@@ -122,10 +121,8 @@ let _ = Dom::create_button("Save", SmallAriaInfo::label("Save")).with_css("
 | `system:serif` | New York | Cambria | DejaVu Serif |
 | `system:serif:bold` | Georgia Bold | Cambria Bold | DejaVu Serif Bold |
 
-Fallback chains live in `SystemFontType::get_fallback_chain`
-(`css/src/system.rs:1057`); the framework walks the chain at font
-resolution and falls through to `sans-serif` / `monospace` / `serif`
-generics if none match.
+The framework walks a fallback chain at font resolution and falls through
+to the `sans-serif`, `monospace`, or `serif` generics if none match.
 
 ```rust,no_run
 # use azul::prelude::*;
@@ -133,18 +130,13 @@ let _ = Dom::create_div().with_css("
     font-family: system:ui;
     font-size: 14px;
 ");
-let _ = Dom::create_pre().with_css("
-    font-family: system:monospace;
-    font-size: 13px;
-");
 ```
 
 ## `@theme` adaptation
 
 `@theme <variant> { ... }` blocks evaluate per frame. The variant matches
-the system's current preference (light/dark) and updates the moment the
-user toggles their OS-wide setting — no `regenerate_dom()` required. The
-match table is `ThemeCondition` at `css/src/dynamic_selector.rs:601`:
+the system's current preference (light or dark) and updates the moment the
+user toggles their OS-wide setting (no DOM rebuild required):
 
 ```rust,no_run
 # use azul::prelude::*;
@@ -162,22 +154,22 @@ let _ = Dom::create_div().with_css("
 ");
 ```
 
-The variants:
+The variants follow `ThemeCondition`:
 
-- `@theme light` — system reports light theme.
-- `@theme dark` — system reports dark theme.
-- `@theme <name>` — custom string passed to `AppConfig::theme_override`
-  (treat this as user-defined; the system resolver doesn't emit it).
+- `@theme light`: system reports light theme.
+- `@theme dark`: system reports dark theme.
+- `@theme <name>`: a custom string treated as user-defined. The system
+  resolver doesn't emit it on its own.
 
 For typical apps, define the base style for light mode and override
 selected properties under `@theme dark`. Combine with `@os` for
-platform-flavoured dark mode (a Mac-style sheen vs a Windows-style flat
+platform-flavoured dark mode (a Mac-style sheen vs. a Windows-style flat
 fill).
 
 ## `@os` and `@os-version`
 
-`@os <name> { ... }` matches the host platform. The name set is
-`OsCondition` at `css/src/dynamic_selector.rs:185`:
+`@os <name> { ... }` matches the host platform. The names follow
+`OsCondition`:
 
 | Name | Matches |
 |---|---|
@@ -190,8 +182,7 @@ fill).
 | `web` | WASM target |
 | `any` | always matches |
 
-`@os-version` narrows further. Versions use named constants — readable
-enough that you don't need to remember NT numbers:
+`@os-version` narrows further. Versions use named constants:
 
 ```rust,no_run
 # use azul::prelude::*;
@@ -205,15 +196,14 @@ let _ = Dom::create_div().with_css("
 ");
 ```
 
-The full version constant set is in `css/src/dynamic_selector.rs:307`
-(`WIN_*`, `MACOS_*`, `IOS_*`, `LINUX_*`, ...). Comparisons across OS
-families always evaluate to false — `@os-version(>= macos-sonoma)` on
-Windows is just inert, not a parse error.
+Comparisons across OS families always evaluate to false.
+`@os-version(>= macos-sonoma)` on Windows is just inert, not a parse
+error.
 
 ## Accessibility queries
 
-These map to the OS's accessibility settings. They live in
-`AccessibilitySettings` (`css/src/system.rs:275`) and re-evaluate per frame.
+These map to the OS's accessibility settings. They live on
+`AccessibilitySettings` and re-evaluate per frame.
 
 ```rust,no_run
 # use azul::prelude::*;
@@ -256,8 +246,8 @@ let _ = Dom::create_div().with_css("
 ");
 ```
 
-The viewport size comes from the current window. On a multi-window app each
-window has its own viewport, evaluated independently.
+The viewport size comes from the current window. On a multi-window app
+each window has its own viewport, evaluated independently.
 
 ## `@lang(<bcp47>)`
 
@@ -274,38 +264,23 @@ let _ = Dom::create_div().with_css("
 ");
 ```
 
-The active locale is `SystemStyle::language` (BCP 47, e.g., `"en-US"`).
-Detection runs at startup; a future revision will subscribe to
-locale-change notifications.
+The active locale field is `SystemStyle.language` (BCP 47, e.g.,
+`"en-US"`).
 
 ## Reading discovered values from Rust
 
-The full snapshot is `SystemStyle` (`css/src/system.rs:93`). Every field
-ends up populating the dynamic selectors and the `system:*` resolver. From
-a callback you can read it via `CallbackInfo::get_system_style()`:
-
-```rust,ignore
-# use azul::prelude::*;
-extern "C" fn cb(_data: RefAny, info: CallbackInfo) -> Update {
-    let sys = info.get_system_style();
-    let accent = sys.colors.accent.as_option().copied();
-    let dark = sys.theme == Theme::Dark;
-    // ... pick a Dom shape based on it ...
-    Update::DoNothing
-}
-```
-
-In Rust code you generally don't need to. Stick with `system:*` and
-`@theme` / `@os` in your CSS — those expressions stay ergonomic and
-re-evaluate automatically.
+The full snapshot is `SystemStyle`. Every field ends up populating the
+dynamic selectors and the `system:*` resolver. In Rust code you generally
+don't need to touch it. Stick with `system:*` and `@theme` or `@os` in
+your CSS. Those expressions stay ergonomic and re-evaluate automatically.
 
 ## Application-specific overrides
 
-Three escape hatches when the discovery isn't enough:
+A few escape hatches when the discovery isn't enough:
 
 - **Inline override**: a `with_css_property(...)` call wins over the
   cascade for that node.
-- **Stylesheet override**: stack a second `Css` via `style(css)` — later
+- **Stylesheet override**: stack a second `Css` via `style(css)`. Later
   stylesheets win at equal specificity.
 - **End-user ricing**: when the `io` feature is enabled and
   `AZUL_DISABLE_RICING` is unset, azul reads
@@ -315,17 +290,5 @@ Three escape hatches when the discovery isn't enough:
   given install with `AZUL_DISABLE_RICING=1`.
 
 The Linux-specific `AZUL_SMOKE_AND_MIRRORS` env var skips the standard
-GNOME / KDE detection and prefers the riced-desktop sources (Hyprland
+GNOME or KDE detection and prefers the riced-desktop sources (Hyprland
 config, pywal cache).
-
-## Where to read the source
-
-- `css/src/system.rs:93` — `SystemStyle` (top-level snapshot)
-- `css/src/system.rs:320` — `SystemColors` (the resolved palette)
-- `css/src/system.rs:172` — `SystemFontType` and platform fallback chains
-- `css/src/system.rs:275` — `AccessibilitySettings`
-- `css/src/props/basic/color.rs:879` — `SystemColorRef` (`system:*` parsing)
-- `css/src/dynamic_selector.rs:50` — `DynamicSelector` (the at-rule AST)
-- `css/src/dynamic_selector.rs:601` — `ThemeCondition`
-- `css/src/dynamic_selector.rs:185` — `OsCondition`
-- `css/src/dynamic_selector.rs:307` — OS version constants

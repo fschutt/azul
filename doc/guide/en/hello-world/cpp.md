@@ -7,7 +7,6 @@ audience: external
 maturity: wip
 guide_order: 13
 topic_only: false
-short_desc: Hello World example in C++ - covers installation, project layout, and simple "counter" app
 prerequisites: [hello-world]
 tracked_files:
   - api.json

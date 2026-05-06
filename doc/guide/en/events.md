@@ -16,9 +16,8 @@ last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T05:51:14Z
 ---
 
-# Events and Input
-
-A callback is a function pointer plus a `RefAny`, registered against an event filter on a DOM node. When the framework detects that an event matches a registered filter, it borrows your `RefAny`, calls the callback, and reads the returned `Update` to decide whether to re-run the layout.
+# Events
+A callback is a function pointer plus a `RefAny`, registered against an event filter on a DOM node. When an event matches a registered filter, the framework borrows your `RefAny`, calls the callback, and reads the returned `Update` to decide whether to re-run the layout.
 
 ```rust,no_run
 # use azul::prelude::*;
@@ -45,29 +44,25 @@ let mut node = Dom::create_div()
     .with_callback(EventFilter::Focus(FocusEventFilter::FocusReceived), data, handler);
 ```
 
-The callback signature is in `core/src/callbacks.rs`. The `Update` enum has three variants:
+The `Update` enum has three variants:
 
-| variant | effect |
-|---|---|
-| `Update::DoNothing` | No re-layout. The frame already on screen stays. |
-| `Update::RefreshDom` | Re-run the layout callback for this window. |
-| `Update::RefreshDomAllWindows` | Re-run the layout callback for every window. |
+- `Update::DoNothing`: no re-layout. The current frame stays on screen.
+- `Update::RefreshDom`: re-run the layout callback for this window.
+- `Update::RefreshDomAllWindows`: re-run the layout callback for every window.
 
-Returning `RefreshDom` from a non-mutating handler is wasteful; returning `DoNothing` from a handler that mutated the model leaves the screen out of sync. Match the return value to what you actually changed.
+Returning `RefreshDom` from a non-mutating handler is wasteful. Returning `DoNothing` from a handler that mutated the model leaves the screen out of sync. Match the return value to what you actually changed.
 
 ## Event filters
 
 `EventFilter` is the enum you pass to `add_callback`. It has five variants, each scoped to a different fire condition:
 
-| filter | fires when |
-|---|---|
-| `Hover(HoverEventFilter)` | Mouse cursor is over this node when the event happens. |
-| `Focus(FocusEventFilter)` | This node has keyboard focus when the event happens. Requires a tab index. |
-| `Window(WindowEventFilter)` | The event happens anywhere in the focused window. |
-| `Component(ComponentEventFilter)` | The node was mounted, unmounted, resized, or updated. |
-| `Application(ApplicationEventFilter)` | A device or monitor was plugged in / removed. |
+- `EventFilter::Hover(HoverEventFilter)`: fires when the cursor is over this node.
+- `EventFilter::Focus(FocusEventFilter)`: fires when this node has keyboard focus. The node needs a tab index.
+- `EventFilter::Window(WindowEventFilter)`: fires for events anywhere in the focused window.
+- `EventFilter::Component(ComponentEventFilter)`: fires when the node is mounted, unmounted, resized, or updated.
+- `EventFilter::Application(ApplicationEventFilter)`: fires when a device or monitor is plugged in or removed.
 
-The same physical event can match multiple filters. A left mouse-button release while the cursor is inside `<button>` matches `Hover(MouseUp)`, `Hover(LeftMouseUp)`, and — if the button has focus — `Focus(MouseUp)` and `Focus(LeftMouseUp)`. All registered handlers fire.
+The same physical event can match multiple filters. A left mouse-button release while the cursor is inside a button matches `Hover(MouseUp)`, `Hover(LeftMouseUp)`, and, if the button has focus, `Focus(MouseUp)` and `Focus(LeftMouseUp)`. All registered handlers fire.
 
 ### `HoverEventFilter`
 
@@ -78,7 +73,7 @@ HoverEventFilter::MouseOver        // mouse moves while over the node
 HoverEventFilter::MouseDown        // any button pressed
 HoverEventFilter::LeftMouseDown    // left only (also Right/Middle)
 HoverEventFilter::MouseUp          // any button released
-HoverEventFilter::LeftMouseUp      // left only — use this for "click"
+HoverEventFilter::LeftMouseUp      // left only; use this for "click"
 HoverEventFilter::DoubleClick      // double-click detected
 HoverEventFilter::MouseEnter       // cursor crossed into the node
 HoverEventFilter::MouseLeave       // cursor crossed out of the node
@@ -86,11 +81,11 @@ HoverEventFilter::Scroll           // wheel / trackpad over the node
 HoverEventFilter::DroppedFile      // a file was dropped on the node
 ```
 
-For "click", use `LeftMouseUp` rather than `MouseDown`: it matches the W3C activation pattern (press, move out, release does not click).
+For "click", use `LeftMouseUp` rather than `MouseDown`. It matches the W3C activation pattern: press, move out, release does not click.
 
 ### `FocusEventFilter`
 
-Same vocabulary as `HoverEventFilter`, but the node must currently hold keyboard focus. Set a tab index (or focus programmatically) for the filter to ever fire:
+Same vocabulary as `HoverEventFilter`, but the node must currently hold keyboard focus. Set a tab index (or focus programmatically) for the filter to fire:
 
 ```rust,no_run
 # use azul::prelude::*;
@@ -109,7 +104,7 @@ FocusEventFilter::VirtualKeyDown   // a non-text key (arrow, F1, ...)
 FocusEventFilter::VirtualKeyUp
 ```
 
-`FocusEventFilter::TextInput` carries the produced character, respecting the OS keyboard layout (German `ä`, IME composition, etc.). `VirtualKeyDown` carries a layout-independent key code — use it for shortcuts and games.
+`FocusEventFilter::TextInput` carries the produced character, respecting the OS keyboard layout (German `ä`, IME composition, etc.). `VirtualKeyDown` carries a layout-independent key code. Use it for shortcuts and games.
 
 ### `WindowEventFilter`
 
@@ -124,11 +119,11 @@ WindowEventFilter::DpiChanged        // window moved to monitor with different D
 WindowEventFilter::VirtualKeyDown    // any keypress in the window
 ```
 
-Use `Window` for global shortcuts (Ctrl+S, Esc) where the source node does not matter.
+Use `Window` for global shortcuts (Ctrl+S, Esc) where the source node doesn't matter.
 
 ### `ComponentEventFilter`
 
-Lifecycle events fire after the framework reconciles a new DOM against the previous frame:
+Lifecycle events fire after a new DOM is reconciled against the previous frame:
 
 ```rust,ignore
 ComponentEventFilter::AfterMount     // node appeared this frame
@@ -137,11 +132,11 @@ ComponentEventFilter::NodeResized    // layout bounds of this node changed
 ComponentEventFilter::Updated        // a keyed node's content changed
 ```
 
-Reconciliation matches nodes across frames by stable key (`Dom::with_key("id")`) first, then by content hash. Keyed nodes track identity across reorders, so `Updated` only fires when the keyed content actually changes.
+Reconciliation matches nodes across frames by stable key (`Dom::with_id("id")`) first, then by content hash. Keyed nodes track identity across reorders, so `Updated` only fires when keyed content actually changes.
 
 ### `ApplicationEventFilter`
 
-Fires for global hardware changes — useful only on the root DOM node:
+Fires for global hardware changes. Useful only on the root DOM node:
 
 ```rust,ignore
 ApplicationEventFilter::DeviceConnected
@@ -154,11 +149,11 @@ ApplicationEventFilter::MonitorDisconnected
 
 For each event the framework computes the path from root to target and calls handlers in three phases (W3C DOM Level 2):
 
-1. **Capture** — root → target (rarely used; only nodes with capture-phase handlers are visited).
-2. **Target** — handlers on the target node itself.
-3. **Bubble** — target → root.
+1. **Capture**: root to target. Rare; only nodes with capture-phase handlers are visited.
+2. **Target**: handlers on the target node itself.
+3. **Bubble**: target to root.
 
-A click on a deeply nested `<span>` walks back up through its ancestors, firing `Hover(MouseUp)` handlers on every node along the way that registered one. To stop the walk, call one of the propagation methods on `CallbackInfo`:
+A click on a deeply nested span walks back up through its ancestors, firing `Hover(MouseUp)` handlers on every node along the way that registered one. To stop the walk, call one of the propagation methods on `CallbackInfo`:
 
 ```rust,no_run
 # use azul::prelude::*;
@@ -169,20 +164,18 @@ extern "C" fn handler(_: RefAny, mut info: CallbackInfo) -> Update {
 }
 ```
 
-`stop_propagation` matches W3C `event.stopPropagation()`. `stop_immediate_propagation` matches `event.stopImmediatePropagation()`. See `core/src/events.rs:793` for the propagation implementation.
+`stop_propagation` matches W3C `event.stopPropagation()`. `stop_immediate_propagation` matches `event.stopImmediatePropagation()`.
 
 ## Default actions
 
-Some events have built-in behaviour that runs *after* every callback returns, unless a callback prevented it:
+Some events have built-in behaviour that runs after every callback returns, unless a callback prevented it:
 
-| event | default action |
-|---|---|
-| `Tab` | Move focus to next focusable element |
-| `Shift+Tab` | Move focus to previous focusable element |
-| `Enter` / `Space` on focused button | Synthetic click on the button |
-| `Escape` | Clear focus or close modal |
-| `Ctrl+A` in text input | Select all |
-| Arrow keys in scroll container | Scroll by line |
+- `Tab`: move focus to next focusable element.
+- `Shift+Tab`: move focus to previous focusable element.
+- `Enter` / `Space` on focused button: synthetic click on the button.
+- `Escape`: clear focus or close modal.
+- `Ctrl+A` in text input: select all.
+- Arrow keys in scroll container: scroll by line.
 
 To suppress the default action from a callback:
 
@@ -194,7 +187,7 @@ extern "C" fn on_keydown(_: RefAny, mut info: CallbackInfo) -> Update {
 }
 ```
 
-`prevent_default` corresponds to W3C `event.preventDefault()`. The W3C semantics are: the default action does not fire, but other callbacks for the same event still run. Combine with `stop_propagation` to also halt the propagation walk.
+`prevent_default` corresponds to W3C `event.preventDefault()`. The W3C semantics: the default action doesn't fire, but other callbacks for the same event still run. Combine with `stop_propagation` to also halt the propagation walk.
 
 ## Reading input state
 
@@ -207,16 +200,19 @@ let win:  WindowFlags  = info.get_current_window_flags();
 let state: &FullWindowState = info.get_current_window_state();
 ```
 
-`KeyboardState` carries `pressed_virtual_keycodes` (a vec of currently held keys), `current_virtual_keycode` (the most recent), and helpers `shift_down()`, `ctrl_down()`, `alt_down()`, `super_down()`. `MouseState` carries `cursor_position`, `left_down`, `right_down`, `middle_down`. Definitions live in `core/src/window.rs:315` and `core/src/window.rs:418`.
+`KeyboardState` carries `pressed_virtual_keycodes` (a vec of currently held keys) and `current_virtual_keycode` (the most recent). `MouseState` carries `cursor_position`, `left_down`, `right_down`, `middle_down`.
 
-Reading state inside the callback is the right way to check modifier keys for shortcuts:
+Read state inside the callback to check modifier keys for shortcuts:
 
 ```rust,no_run
 # use azul::prelude::*;
 # struct App;
 extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let kbd = info.get_current_keyboard_state();
-    if kbd.ctrl_down() && kbd.is_key_down(VirtualKeyCode::S) {
+    let pressed = kbd.pressed_virtual_keycodes.as_slice();
+    let ctrl = pressed.iter().any(|k| matches!(k, VirtualKeyCode::LControl | VirtualKeyCode::RControl));
+    let s = pressed.iter().any(|k| *k == VirtualKeyCode::S);
+    if ctrl && s {
         info.prevent_default();
         // ... save ...
         return Update::RefreshDom;
@@ -224,47 +220,6 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     Update::DoNothing
 }
 ```
-
-## Accelerator chords
-
-`AcceleratorKey` lets you check a fixed chord against the current keyboard state:
-
-```rust,no_run
-# use azul::prelude::*;
-# extern "C" fn handler(_: RefAny, info: CallbackInfo) -> Update {
-let chord = [
-    AcceleratorKey::Ctrl,
-    AcceleratorKey::Shift,
-    AcceleratorKey::Key(VirtualKeyCode::S),
-];
-let kbd = info.get_current_keyboard_state();
-if kbd.matches_accelerator(&chord) {
-    // Ctrl+Shift+S
-}
-# Update::DoNothing
-# }
-```
-
-Use this for menu accelerators and global shortcuts. The implementation is in `core/src/window.rs:363`.
-
-## The `On` shorthand
-
-For the most common filters, `dom::On` covers the cases without making you spell out the variant:
-
-```rust,no_run
-# use azul::prelude::*;
-# struct State;
-# extern "C" fn cb(_: RefAny, _: CallbackInfo) -> Update { Update::DoNothing }
-# let data: RefAny = RefAny::new(State);
-let node = Dom::create_div()
-    .with_callback(On::MouseUp.into(),     data.clone(), cb)
-    .with_callback(On::TextInput.into(),   data.clone(), cb)
-    .with_callback(On::FocusReceived.into(), data,       cb);
-```
-
-`On` converts to `EventFilter` automatically (`From<On> for EventFilter`). The mapping is opinionated: `On::TextInput` becomes a `Focus` filter; `On::VirtualKeyDown` becomes a `Window` filter; mouse events become `Hover`. See `core/src/events.rs:2105`.
-
-When you need a non-default scope (e.g. text input on a `Hover`-scoped node), spell out `EventFilter::Hover(HoverEventFilter::TextInput)` directly.
 
 ## Common patterns
 
@@ -295,7 +250,7 @@ Dom::create_div()
     .with_callback(EventFilter::Hover(HoverEventFilter::MouseLeave), data,        leave);
 ```
 
-**Window-level keyboard shortcut**:
+**Window-level keyboard shortcut:**
 
 ```rust,no_run
 # use azul::prelude::*;
@@ -309,17 +264,17 @@ Dom::create_body().with_callback(
 );
 ```
 
-**Tab order**: call `.with_tab_index(TabIndex::Auto)` on the node to make it focusable; tab/shift-tab move through nodes in DOM order. Use `TabIndex::NoKeyboardFocus` to make a node focusable programmatically but skip it in tab navigation. Definitions in `core/src/dom.rs:1923`.
+**Tab order:** call `.with_tab_index(TabIndex::Auto)` to make a node focusable. Tab and Shift+Tab move through nodes in DOM order. Use `TabIndex::NoKeyboardFocus` to make a node focusable programmatically but skip it in tab navigation.
 
 ## Where it goes wrong
 
-- **Callback never fires** — check the filter scope. `Hover(LeftMouseUp)` only fires when the cursor is over the node *at the moment of release*. If the user pressed inside, dragged out, and released outside, no click event fires on either node.
-- **`Focus(...)` never fires** — the node has no tab index. Add `.with_tab_index(TabIndex::Auto)` so the node can receive focus.
-- **Counter does not update** — the callback returned `Update::DoNothing`. Return `Update::RefreshDom` after mutating the model.
-- **Default action still happens after `prevent_default`** — verify the call is on `CallbackInfo`, not on a stale copy. The change is applied after the callback returns; calling it twice is harmless.
+- **Callback never fires.** Check the filter scope. `Hover(LeftMouseUp)` only fires when the cursor is over the node at the moment of release. If the user pressed inside, dragged out, and released outside, no click event fires on either node.
+- **`Focus(...)` never fires.** The node has no tab index. Add `.with_tab_index(TabIndex::Auto)` so the node can receive focus.
+- **Counter doesn't update.** The callback returned `Update::DoNothing`. Return `Update::RefreshDom` after mutating the model.
+- **Default action still happens after `prevent_default`.** Verify the call is on `CallbackInfo`, not on a stale copy. The change is applied after the callback returns. Calling it twice is harmless.
 
 ## Next
 
-- [Timers](timers.md) — frame-driven callbacks for animation and polling.
-- [Scrolling and Drag-and-Drop](scrolling-and-drag.md) — scroll events and drag tracking.
-- [Windows, Menus, Decorations](windowing.md) — multi-window, menu bars, context menus.
+- [Timers](timers.md): frame-driven callbacks for animation and polling.
+- [Scrolling](scrolling-and-drag.md): scroll events and drag tracking.
+- [Windows, Menus, Decorations](windowing.md): multi-window, menu bars, context menus.

@@ -7,7 +7,7 @@ audience: external
 maturity: stub
 guide_order: 270
 topic_only: false
-short_desc: HTTP and TCP/UDP from a callback
+short_desc: HTTP from a callback
 prerequisites: [background-tasks]
 tracked_files:
   - core/src/task.rs
@@ -17,29 +17,18 @@ generated_at: 2026-05-02T12:00:00Z
 
 # Networking
 
-> **Not yet functional.** Azul does not ship a built-in networking
-> layer. The `AzTcp` / `AzUdp` types described under "planned API" below
-> are unimplemented. Today, do networking the same way you do any other
-> blocking I/O: from inside a [`Thread`](background-tasks.md).
+> Stub. The framework ships a small blocking HTTP helper (`HttpRequestConfig`, `HttpResponse`) you can call from inside a [`Thread`](background-tasks.md). For raw sockets, async I/O, WebSockets, or anything else, do networking the same way you do any other blocking I/O: from a `Thread`.
 
-## Status
+## What's available
 
-| Component | State |
-|---|---|
-| `AzTcp`, `AzUdp` socket types | not implemented |
-| `ConnectionStatus` integrated with the event loop | not implemented |
-| Async runtime integration | not planned — bring your own |
-| `Thread`-based blocking I/O | works today (see [background-tasks](background-tasks.md)) |
+- `HttpRequestConfig`. A small blocking HTTP client. Configure timeouts, headers, max response size, and TLS verification, then call `http_get`, `download_bytes`, or `is_url_reachable`. The convenience constructors `http_get_default` and `download_bytes_default` skip configuration.
+- `HttpResponse`. The result. Carries `status_code`, `body` (`U8Vec`), `headers`, `content_type`, `content_length`. Use `is_success`, `is_redirect`, `is_client_error`, `is_server_error`, `body_as_string` to inspect it.
 
-The framework is intentionally runtime-agnostic. The eventual networking
-API will be a thin FFI-safe wrapper over the OS socket APIs, surfacing
-events through the same `WriteBackCallback` mechanism `Thread` uses.
+The framework is intentionally runtime-agnostic. There's no built-in raw-socket type and no async runtime integration. Heavy networking belongs in a worker thread.
 
-## Today: blocking I/O inside a thread
+## Calling HTTP from a thread
 
-The interim pattern is identical to any blocking task. Wrap `std::net`
-calls in a `Thread` callback and post results back via
-`ThreadReceiveMsg::WriteBack`:
+Wrap an `HttpRequestConfig` call in a `Thread` callback and post the result back via `ThreadReceiveMsg::WriteBack`:
 
 ```rust,ignore
 extern "C" fn http_get(
@@ -52,28 +41,23 @@ extern "C" fn http_get(
         None    => return,
     };
 
-    // any blocking HTTP client works here — ureq, reqwest::blocking, etc.
-    let result: Result<Vec<u8>, String> = ureq::get(&url).call()
-        .map_err(|e| e.to_string())
-        .and_then(|r| {
-            let mut buf = Vec::new();
-            r.into_reader().read_to_end(&mut buf)
-                .map(|_| buf)
-                .map_err(|e| e.to_string())
-        });
+    let cfg = HttpRequestConfig::create()
+        .with_timeout(10)
+        .with_user_agent("my-app/1.0");
 
-    // cooperative cancellation
+    let result = cfg.http_get(url.as_str().into());
+
     if let OptionThreadSendMsg::Some(ThreadSendMsg::TerminateThread) = recv.recv() {
         return;
     }
 
     let msg = match result {
-        Ok(body) => ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
-            refany:   RefAny::new(FetchOk(body)),
-            callback: WriteBackCallback { cb: apply_body, ctx: OptionRefAny::None },
+        ResultHttpResponseHttpError::Ok(resp) => ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
+            refany:   RefAny::new(resp),
+            callback: WriteBackCallback { cb: apply_response, ctx: OptionRefAny::None },
         }),
-        Err(e) => ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
-            refany:   RefAny::new(FetchError(e)),
+        ResultHttpResponseHttpError::Err(e) => ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
+            refany:   RefAny::new(e),
             callback: WriteBackCallback { cb: apply_error, ctx: OptionRefAny::None },
         }),
     };
@@ -81,10 +65,7 @@ extern "C" fn http_get(
 }
 ```
 
-`apply_body` and `apply_error` run on the main thread and mutate the
-application's `RefAny` model in the usual way — see
-[background-tasks](background-tasks.md) for the full pattern and the
-`WriteBackCallback` signature.
+`apply_response` and `apply_error` run on the main thread and mutate the application's `RefAny` model the usual way. See [background-tasks](background-tasks.md) for the full `WriteBackCallback` pattern.
 
 ## Modelling connection state
 
@@ -94,19 +75,16 @@ Use a plain enum on the application data side. A typical shape:
 enum ConnectionStatus {
     Idle,
     Connecting { thread_id: ThreadId, started: Instant },
-    Open       { stream:    RefAny    /* hold the live socket */ },
-    Closed     { reason:    String },
+    Done       { response:  HttpResponse },
+    Failed     { reason:    String },
 }
 ```
 
-Cancel by calling `event.remove_thread(thread_id)` from a click handler;
-the `Thread::Drop` impl sends `TerminateThread` and joins. If your
-worker checks `recv.recv()` between operations, cancellation is prompt.
+Cancel by calling `event.remove_thread(thread_id)` from a click handler. The thread destructor sends `TerminateThread` and joins. If your worker checks `recv.recv()` between operations, cancellation is prompt.
 
 ## Using an async runtime
 
-The framework does not host a runtime, but nothing prevents you from
-running one inside a `Thread`:
+The framework doesn't host a runtime, but nothing prevents you from running one inside a `Thread`:
 
 ```rust,ignore
 extern "C" fn tokio_worker(
@@ -125,35 +103,10 @@ extern "C" fn tokio_worker(
 }
 ```
 
-A current-thread runtime keeps everything on the worker. Use a
-multi-threaded runtime if you need a worker pool — but spawn it once and
-reuse, runtimes are expensive to construct.
+A current-thread runtime keeps everything on the worker. Use a multi-threaded runtime if you need a worker pool, but spawn it once and reuse. Runtimes are expensive to construct.
 
-## Planned API (not implemented)
+## What this page doesn't cover
 
-The intended shape, once `AzTcp` lands:
-
-```rust,ignore
-let socket = AzTcp::connect("api.example.com:443")?;
-let id     = ConnectionId::unique();
-event.add_connection(id, socket, on_data, on_close);
-```
-
-- `on_data` runs on the main thread on each readable chunk; it returns
-  `Update`, mirroring `WriteBackCallback`.
-- `on_close` runs once when the connection ends — clean or not.
-- `ConnectionStatus` is a frame-coherent snapshot the layout callback
-  can read for status displays without locking.
-
-This page will be promoted from `stub` to `wip` when the runtime side
-lands. Until then, treat networking as "do it in a `Thread`."
-
-## What this page does not cover
-
-- **TLS** — out of scope for the framework. Use `rustls`, `native-tls`,
-  or whatever HTTP client you prefer inside the worker.
-- **Mid-frame cancellation of in-flight DNS or TCP handshakes** —
-  `std::net` does not expose this. Use `socket2` or a third-party client
-  if you need it.
-- **WebSockets, gRPC, HTTP/2** — same answer: any blocking client works
-  inside a `Thread`.
+- TLS configuration beyond `disable_tls_cert_verification`. For custom TLS stacks, use `rustls`, `native-tls`, or a third-party HTTP client inside the worker.
+- Mid-frame cancellation of in-flight DNS or TCP handshakes. `std::net` doesn't expose this. Use `socket2` or a third-party client if you need it.
+- WebSockets, gRPC, HTTP/2. Any blocking client works inside a `Thread`.

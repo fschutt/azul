@@ -210,14 +210,7 @@ pub fn breadcrumb(parts: &[&str]) -> Dom {
 
 ## Component-origin tracking
 
-When a component's `dom()` returns, the framework can stamp the root nodes of its output with a `ComponentOrigin` (defined in `core/src/dom.rs`):
-
-```rust,ignore
-pub struct ComponentOrigin {
-    pub component_id: AzString,        // e.g. "shadcn:card"
-    pub data_model_json: crate::json::Json,
-}
-```
+When a component's `dom()` returns, the framework can stamp the root nodes of its output with a component-origin record. That's the field the inspector populates with the qualified component id (like `"shadcn:card"`) and the JSON-serialised data model.
 
 The origin tag has three uses. The live debugger uses it to display a Component Tree alongside the DOM Tree. The code-generation roundtrip uses it to recover the source invocation. And clicking a node to jump to the component that produced it relies on it.
 
@@ -245,7 +238,7 @@ There's a second authoring surface in the same pipeline. A component can be decl
 </app>
 ```
 
-The runtime path is `xml::str_to_dom_unstyled(root_nodes, &component_map)`, introduced in [The DOM - Loading XML and XHTML](../dom.md#loading-xml-and-xhtml). The ahead-of-time path is `xml::str_to_rust_code(root_nodes, imports, &component_map)`, which emits the equivalent Rust source for compile-time inclusion.
+The runtime path is `Dom::from_parsed_xml`, introduced in [The DOM - Loading XML and XHTML](../dom.md#loading-xml-and-xhtml). It walks the parsed XML, resolves each tag against the registered component libraries, and produces the corresponding `Dom`.
 
 Whether a component is hand-written Rust or XML-defined, the value is the same. It's a function from arguments and a `RefAny` to a `Dom`. The rest of this section is about *registering* those functions so the framework can look them up by name.
 
@@ -292,13 +285,13 @@ let mut config = AppConfig::create();
 
 // 1. Register a single component into a named library.
 config.add_component(
-    AzString::from_const_str("mylib"),
+    AzString::from("mylib"),
     my_register_card_fn,        // extern "C" fn() -> ComponentDef
 );
 
 // 2. Register an entire pre-built library.
 config.add_component_library(
-    AzString::from_const_str("shadcn"),
+    AzString::from("shadcn"),
     register_shadcn,            // extern "C" fn() -> ComponentLibrary
 );
 ```
@@ -309,20 +302,11 @@ Why the function-pointer indirection instead of a direct `ComponentDef` paramete
 
 ### Built-in libraries use the same registration API
 
-The 112 built-in HTML element components are themselves registered through `add_component_library`, in `AppConfig::create()` inside `core/src/resources.rs`:
-
-```rust,ignore
-s.add_component_library(
-    AzString::from_const_str("builtin"),
-    crate::xml::register_builtin_components as extern "C" fn() -> ComponentLibrary,
-);
-```
-
-`register_builtin_components` (in `core/src/xml.rs`) returns a fully populated `ComponentLibrary`. Its render functions are the same `Dom::create_<tag>()` constructors documented in [DOM](../dom.md). Your own packs follow the same shape.
+The 112 built-in HTML element components are themselves registered through `add_component_library` inside `AppConfig::create()`. The render functions are the same `Dom::create_<tag>()` constructors documented in [DOM](../dom.md). Your own packs follow the same shape.
 
 ### From C
 
-The `RegisterComponentLibraryFn` callback type is `repr(C)`, so a plain function pointer is enough on the C side.
+The registration callback is a `repr(C)` function pointer, so a plain function pointer is enough on the C side.
 
 ```c
 extern AzComponentLibrary register_shadcn(void);
@@ -331,8 +315,8 @@ void main(void) {
     AzAppConfig config = AzAppConfig_create();
     AzAppConfig_addComponentLibrary(
         &config,
-        AzString_fromConstStr("shadcn"),
-        register_shadcn          // converts to AzRegisterComponentLibraryFn implicitly
+        AzString_fromCStr("shadcn"),
+        register_shadcn
     );
     /* ... */
 }
@@ -369,15 +353,15 @@ That's what powers the live preview. The design-time tool reads the component's 
 
 ## Instantiation: from XML to DOM
 
-When the XML parser encounters `<card title="First" body="alpha"/>`, it resolves `card` against the `ComponentMap`.
+When the XML parser encounters `<card title="First" body="alpha"/>`, it resolves `card` against the registered `ComponentMap`.
 
 1. Strip the namespace if present. `<shadcn:card .../>` becomes `("shadcn", "card")`. A bare `<card .../>` falls back to `"builtin"` and is resolved like any built-in tag.
-2. Look up the corresponding `ComponentDef` via `ComponentMap::get`.
-3. Take the def's `data_model` and populate each field's `default_value` from the XML attributes. Coercion is typed, based on `ComponentDataModelField`.
-4. Call `render_fn(&def, &populated_data_model, &component_map)`.
-5. Stamp every root node of the returned `StyledDom` with a `ComponentOrigin`. The `component_id` is `"shadcn:card"` and the `data_model_json` is the populated model. That's what lets the debugger reconstruct the invocation later.
+2. Look up the corresponding `ComponentDef`.
+3. Take the def's `data_model` and populate each field's default value from the XML attributes. Coercion is typed.
+4. Call the def's `render_fn` with the populated data model and the component map.
+5. Stamp every root node of the returned `StyledDom` with a component-origin record. The qualified component id is `"shadcn:card"` and the JSON-serialised data model is the populated one. That's what lets the debugger reconstruct the invocation later.
 
-The `ComponentMap` is what `str_to_dom_unstyled` and `str_to_dom` take as their second argument. The `AppConfig`'s `component_libraries` are folded into a `ComponentMap` at app-create time via `ComponentMap::from_libraries` (in `core/src/xml.rs`).
+The `ComponentMap` is what `Dom::from_parsed_xml` consults under the hood. The `AppConfig`'s `component_libraries` field carries the registered libraries, which are folded into a `ComponentMap` at app-create time.
 
 ## Compile: code generation roundtrip
 
@@ -402,15 +386,15 @@ That's what closes the round-trip for the design-time tool.
                           fn card(title: &str, body: &str) -> Dom { … }
 ```
 
-A node clicked in the inspector carries `ComponentOrigin { component_id, data_model_json }`. The inspector calls `compile_fn` with that data model plus a target language (`Rust`, `C`, or `Python`) and gets back source. From there the source can be pasted into the user's project, or handed to the codegen path that lives next to `api.json`. The round-trip is closed.
+A node clicked in the inspector carries the component-origin record (the qualified component id and its data model JSON). The inspector calls `compile_fn` with that data model plus a `CompileTarget` (`Rust`, `C`, `Cpp`, or `Python`) and gets back source. From there the source can be pasted into the user's project, or handed to the codegen path that lives next to `api.json`. The round-trip is closed.
 
 ## What the data model looks like
 
 `ComponentDataModel` is a flat list of named fields. Each field has:
 
 - a name, like `"title"`, `"body"`, `"on_click"`, or `"children"`
-- a `field_type` (one of `Value(ComponentValueType)`, `Callback(callback signature)`, `Children`, `StructRef("OtherType")`, `EnumRef("OtherEnum")`, plus a few framework-specific cases)
-- a `default_value: ComponentValue`. That's the initial value the inspector shows, and it's the value `render_fn` reads when nothing has overridden it.
+- a `ComponentFieldType` (`Bool`, `F32`, `Callback`, `EnumRef`, `OptionType`, and so on)
+- a `ComponentDefaultValue`. That's the initial value the inspector shows, and it's the value `render_fn` reads when nothing has overridden it.
 
 For non-trivial types like a struct of struct of enum, `data_models` and `enum_models` on the enclosing `ComponentLibrary` carry the type definitions. References between fields use the type's name. The inspector walks those references when it builds an editor for nested data.
 
@@ -418,8 +402,6 @@ That's what makes user-defined types editable in the inspector. A C callback lik
 
 ## Where to read the source
 
-- `ComponentOrigin` in `core/src/dom.rs`
-- `ComponentId`, registry types, `ComponentRenderFn`, `ComponentCompileFn`, `RegisterComponentFnType`, `RegisterComponentLibraryFnType`, `ComponentDef`, `ComponentLibrary`, `ComponentMap` in `core/src/xml.rs`
-- `register_builtin_components` in `core/src/xml.rs`
-- `str_to_dom_unstyled` (runtime entry) and `str_to_rust_code` (AOT entry) in `core/src/xml.rs`
+- `ComponentId`, `ComponentDef`, `ComponentLibrary`, `ComponentMap`, `ComponentRenderFn`, `ComponentCompileFn` in `core/src/xml.rs`
+- `Dom::from_parsed_xml` in `core/src/dom.rs` (XML runtime entry)
 - `AppConfig::add_component` and `AppConfig::add_component_library` in `core/src/resources.rs`

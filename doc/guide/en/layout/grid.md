@@ -16,6 +16,8 @@ last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T05:49:28Z
 ---
 
+# Grid
+
 `display: grid` lays out children on a two-dimensional grid of explicit columns
 and rows. Tracks (`grid-template-columns` / `grid-template-rows`) decide where
 the lines go; placement properties (`grid-column`, `grid-row`) decide which
@@ -39,23 +41,18 @@ cells each child occupies.
 
 ## Track sizing
 
-`grid-template-columns` and `grid-template-rows` accept a space-separated list
-of `GridTrackSizing` values (`css/src/props/layout/grid.rs:42`).
+`grid-template-columns` and `grid-template-rows` accept a space-separated
+list of track sizes:
 
-| value | meaning |
-|---|---|
-| `<length>` (`100px`, `2em`, `30%`) | fixed size |
-| `Nfr` (e.g. `1fr`, `0.5fr`, `2.5fr`) | fraction of remaining space |
-| `auto` | size from content |
-| `min-content` | smallest size that doesn't overflow content |
-| `max-content` | size to fit unwrapped content |
-| `minmax(<min>, <max>)` | clamp track to a range |
-| `fit-content(<length>)` | `min(max-content, max(min-content, <length>))` |
-
-`fr` units are stored as `i32` scaled by `FR_SCALING_FACTOR = 100`
-(`css/src/props/layout/grid.rs:446`), so `1fr` = `Fr(100)` and `0.5fr` =
-`Fr(50)`. The type stays `Eq + Ord + Hash`; the visible behaviour matches CSS
-exactly — fractional values work.
+- `<length>` (`100px`, `2em`, `30%`). Fixed size.
+- `Nfr` (`1fr`, `0.5fr`, `2.5fr`). Fraction of remaining space.
+  Fractional values are supported.
+- `auto`. Sizes from content.
+- `min-content`. Smallest size that doesn't overflow content.
+- `max-content`. Sized to fit unwrapped content.
+- `minmax(<min>, <max>)`. Clamps the track to a range.
+- `fit-content(<length>)`. Equivalent to
+  `min(max-content, max(min-content, <length>))`.
 
 ```rust
 # fn body() -> &'static str {
@@ -68,8 +65,8 @@ exactly — fractional values work.
 
 ### `repeat()`
 
-`repeat(N, <track-list>)` expands inline. The track list may contain multiple
-tracks, which all repeat together:
+`repeat(N, <track-list>)` expands inline. The track list may contain
+multiple tracks, which all repeat together:
 
 | input | expands to |
 |---|---|
@@ -77,8 +74,7 @@ tracks, which all repeat together:
 | `repeat(2, 100px 1fr)` | `100px 1fr 100px 1fr` |
 | `100px repeat(2, 1fr) auto` | `100px 1fr 1fr auto` |
 
-The repeat count is capped at 10,000 to prevent runaway expansion
-(`MAX_GRID_REPEAT_COUNT` in `css/src/props/layout/grid.rs:402`).
+The repeat count is capped at 10,000 to prevent runaway expansion.
 
 ## `grid-template-areas`
 
@@ -104,13 +100,12 @@ means "no area".
 # }
 ```
 
-Every row string must have the same number of cells, and a named area must form
-a rectangle. The parser normalises `name → (row_start, row_end, column_start,
-column_end)` in 1-based grid-line numbers (`css/src/props/layout/grid.rs:1316`).
+Every row string must have the same number of cells, and a named area
+must form a rectangle.
 
 ## Item placement: `grid-column` / `grid-row`
 
-`GridPlacement` (`css/src/props/layout/grid.rs:266`) is `<start> / <end>`:
+`grid-column` and `grid-row` take `<start> / <end>`:
 
 | form | meaning |
 |---|---|
@@ -120,7 +115,7 @@ column_end)` in 1-based grid-line numbers (`css/src/props/layout/grid.rs:1316`).
 | `2 / span 3` | start at line 2, span 3 tracks |
 | `span 2` | span 2 tracks, position auto |
 | `header / footer` | named lines |
-| `-1` | last line; counts from the end |
+| `-1` | last line, counts from the end |
 
 ```rust
 # fn body() -> &'static str {
@@ -133,24 +128,22 @@ column_end)` in 1-based grid-line numbers (`css/src/props/layout/grid.rs:1316`).
 
 ## Auto-placement
 
-Children without explicit placement flow into the next free cell. `grid-auto-flow`
-controls the direction:
+Children without explicit placement flow into the next free cell.
+`grid-auto-flow` controls the direction:
 
-```rust,ignore
-LayoutGridAutoFlow::Row          // default — fill rows left-to-right
-LayoutGridAutoFlow::Column       // fill columns top-to-bottom
-LayoutGridAutoFlow::RowDense     // backfill earlier holes
-LayoutGridAutoFlow::ColumnDense  // backfill earlier holes, column-first
-```
+- `row` (default). Fill rows left-to-right.
+- `column`. Fill columns top-to-bottom.
+- `row dense`. Backfill earlier holes.
+- `column dense`. Backfill earlier holes, column-first.
 
-`grid-auto-rows` and `grid-auto-columns` size implicitly-created tracks. For
-example, if you've defined three columns but place a child on column 5, columns
-4 and 5 are sized by `grid-auto-columns`.
+`grid-auto-rows` and `grid-auto-columns` size implicitly-created tracks.
+For example, if you've defined three columns but place a child on column
+5, columns 4 and 5 are sized by `grid-auto-columns`.
 
 ## `gap`, `row-gap`, `column-gap`
 
-`gap: <row> <column>`. The longhands take a single `<length>`. Same property as
-flexbox, same `LayoutGap` type (`css/src/props/layout/grid.rs:762`).
+`gap: <row> <column>`. The longhands take a single `<length>`. Same as
+flexbox.
 
 ```rust
 # fn body() -> &'static str {
@@ -162,27 +155,18 @@ flexbox, same `LayoutGap` type (`css/src/props/layout/grid.rs:762`).
 
 ## Alignment
 
-Grid uses two pairs of axes (rows × columns) and reuses the flex names:
+Grid uses two pairs of axes (rows by columns) and reuses the flex names:
 
 | axis | container | item override |
 |---|---|---|
 | row (cross) | `align-items` | `align-self` |
 | column (main) | `justify-items` | `justify-self` |
-| line spacing within tracks | `align-content` | — |
-| line spacing within tracks | `justify-content` | — |
+| line spacing within tracks | `align-content` | (none) |
+| line spacing within tracks | `justify-content` | (none) |
 
-```rust,ignore
-LayoutJustifyItems::Stretch  // default — fill the cell horizontally
-LayoutJustifyItems::Start
-LayoutJustifyItems::End
-LayoutJustifyItems::Center
-
-LayoutJustifySelf::Auto      // default — inherit justify-items
-LayoutJustifySelf::Stretch
-LayoutJustifySelf::Start
-LayoutJustifySelf::End
-LayoutJustifySelf::Center
-```
+`justify-items` accepts `stretch` (default), `start`, `end`, `center`.
+`justify-self` accepts `auto` (default, inherits `justify-items`),
+`stretch`, `start`, `end`, `center`.
 
 ## Recipes
 

@@ -78,16 +78,16 @@ body { font-family: sans-serif; padding: 20px; background: white; }
 ## Three ways to attach styles
 
 Pick the one that matches scope. They all parse to the same `CssProperty`
-enum and feed the same cascade — the difference is *where* the rules live.
+enum and feed the same cascade. The difference is *where* the rules live.
 
-- **`Dom::with_css(s)`** — scopes to *this node only*. CSS string is
-  parsed and pushed onto the node's inline-property vec. Use for inline
-  tweaks and component-local styles.
-- **`Dom::style(css)`** — scopes to *this subtree*. The parsed `Css` is
+- **`Dom::with_css(s)`** scopes to *this node only*. The CSS string is
+  parsed and pushed onto the node's inline-property list. Use it for
+  inline tweaks and component-local styles.
+- **`Dom::style(css)`** scopes to *this subtree*. The parsed `Css` is
   attached to the subtree root and the cascade walks it during the
-  per-frame pass. Use for component themes and per-page stylesheets.
-- **`Dom::with_css_property(p)`** — scopes to *this node*, programmatic
-  single-property override. Use when you have a typed `CssProperty`
+  per-frame pass. Use it for component themes and per-page stylesheets.
+- **`Dom::with_css_property(p)`** scopes to *this node*, programmatic
+  single-property override. Use it when you have a typed `CssProperty`
   value and don't want to round-trip through string parsing.
 
 ```rust,no_run
@@ -106,55 +106,50 @@ let _ = Dom::create_body()
     );
 ```
 
-`with_css` parses on every call but does *not* cascade — the parsed
-properties just get pushed onto the node's `css_props` vector. The actual
-matching, inheritance, and compaction happens once after `layout()`
-returns, in a single pass. The "Where styles meet the DOM" section below
-covers the pipeline, and [The DOM — when does CSS actually apply?](dom.md#when-does-css-actually-apply-not-until-after-layout)
+`with_css` parses on every call but doesn't cascade. The parsed
+properties get pushed onto the node's inline-property list. Matching and
+inheritance happen once after `layout()` returns, in a single pass.
+[The DOM page](dom.md#when-does-css-actually-apply-not-until-after-layout)
 walks through the timing.
 
 For a static stylesheet shared across many nodes, build the `Css` once at
-app startup and pass it through `style()`. Multiple `style()` calls stack:
-later ones override earlier ones at equal specificity (`core/src/dom.rs:4906`).
+app startup and pass it through `style()`. Multiple `style()` calls stack.
+A later one overrides earlier ones at equal specificity.
 
 ## Selectors
 
 The selector language matches W3C Selectors Level 3 minus a few rarely-used
-pseudo-classes. From `css/src/css.rs:1432`:
+pseudo-classes:
 
-- **Universal** — `*` matches every node.
-- **Type** — `div`, `button`, `h1` match nodes whose `NodeType` matches
-  the tag.
-- **Class** — `.panel` matches nodes with `with_class("panel")`.
-- **Id** — `#sidebar` matches nodes with `with_id("sidebar")`.
-- **Attribute** — `[lang]`, `[lang="en"]`, `[lang^="en"]` test attribute
-  presence and match. Operators `=`, `~=`, `|=`, `^=`, `$=`, `*=` —
-  see `AttributeMatchOp` at `css/src/css.rs:1481`.
-- **Descendant** — `nav a` matches an `<a>` anywhere under `<nav>`.
-- **Child** — `nav > a` matches a direct `<a>` child of `<nav>`.
-- **Adjacent sibling** — `h2 + p` matches a `<p>` immediately after
-  `<h2>`.
-- **General sibling** — `h2 ~ p` matches any `<p>` after `<h2>` at the
+- **Universal**: `*` matches every node.
+- **Type**: `div`, `button`, `h1` match nodes whose tag matches.
+- **Class**: `.panel` matches nodes with `with_class("panel")`.
+- **Id**: `#sidebar` matches nodes with `with_id("sidebar")`.
+- **Attribute**: `[lang]`, `[lang="en"]`, `[lang^="en"]` test attribute
+  presence and match. The operators are `=`, `~=`, `|=`, `^=`, `$=`, `*=`
+  (see `AttributeMatchOp`).
+- **Descendant**: `nav a` matches an `<a>` anywhere under `<nav>`.
+- **Child**: `nav > a` matches a direct `<a>` child of `<nav>`.
+- **Adjacent sibling**: `h2 + p` matches a `<p>` immediately after `<h2>`.
+- **General sibling**: `h2 ~ p` matches any `<p>` after `<h2>` at the
   same level.
-- **Pseudo-class** — `:hover`, `:focus`, `:nth-child(2n+1)` are
+- **Pseudo-class**: `:hover`, `:focus`, `:nth-child(2n+1)` are
   runtime-evaluated state.
 
 ## Pseudo-classes
 
-State pseudo-classes evaluate on every frame. From `CssPathPseudoSelector`
-at `css/src/css.rs:1556`:
+State pseudo-classes evaluate on every frame:
 
-- `:hover` — pointer is over the element
-- `:active` — pointer is pressed and over the element
-- `:focus` — element has keyboard focus
-- `:first`, `:last` — first/last child of its parent
-- `:nth-child(n)`, `:nth-child(2n+1)`, `:nth-child(odd)`, `:nth-child(even)` — positional
-- `:lang(en)` — system locale matches the BCP 47 prefix
-- `:backdrop` — the containing window is unfocused (use this for inactive-window styling)
-- `:dragging`, `:drag-over` — drag-and-drop states
+- `:hover`: pointer is over the element.
+- `:active`: pointer is pressed and over the element.
+- `:focus`: element has keyboard focus.
+- `:first`, `:last`: first or last child of its parent.
+- `:nth-child(n)`, `:nth-child(2n+1)`, `:nth-child(odd)`, `:nth-child(even)`: positional.
+- `:lang(en)`: system locale matches the BCP 47 prefix.
+- `:backdrop`: the containing window is unfocused. Use it for inactive-window styling.
+- `:dragging`, `:drag-over`: drag-and-drop states.
 
-These run through `DynamicSelector::PseudoState` (`css/src/dynamic_selector.rs:78`)
-without re-parsing the stylesheet.
+These run without re-parsing the stylesheet.
 
 ## At-rules
 
@@ -173,32 +168,24 @@ let _ = Dom::create_div().with_css("
 ");
 ```
 
-- **`@os <name>`** — backed by `DynamicSelector::Os`. Names: `windows`,
-  `macos`, `linux`, `android`, `ios`.
-- **`@os-version`** — backed by `DynamicSelector::OsVersion`. Examples:
-  `>= win-11`, `>= macos-14`, `linux gnome`, ...
-- **`@theme <variant>`** — backed by `DynamicSelector::Theme`. Variants:
-  `dark`, `light`, plus any custom string.
-- **`@media (orientation: …)`** — backed by `DynamicSelector::Orientation`.
-  Values: `portrait`, `landscape`.
-- **`@media (min-width: Npx)`** and friends — backed by
-  `DynamicSelector::ViewportWidth` / `ViewportHeight`. Numeric viewport
-  ranges.
-- **`@media (prefers-reduced-motion)`** — backed by
-  `DynamicSelector::PrefersReducedMotion`. Accessibility query.
-- **`@media (prefers-contrast)`** — backed by
-  `DynamicSelector::PrefersHighContrast`. Accessibility query.
-- **`@container`** — backed by `DynamicSelector::ContainerWidth` /
-  `ContainerHeight` / `ContainerName`. Container queries.
-- **`@lang(<bcp47>)`** — backed by `DynamicSelector::Language`. Matches
-  by prefix.
+- `@os <name>` matches the host platform. Names: `windows`, `macos`,
+  `linux`, `android`, `ios`.
+- `@os-version` narrows to a version. Examples: `>= win-11`,
+  `>= macos-14`, `linux gnome`.
+- `@theme <variant>` matches the system theme. Variants: `dark`, `light`,
+  plus any custom string.
+- `@media (orientation: ...)` accepts `portrait` or `landscape`.
+- `@media (min-width: Npx)` and friends match numeric viewport ranges.
+- `@media (prefers-reduced-motion)` is the accessibility query for motion.
+- `@media (prefers-contrast)` is the accessibility query for contrast.
+- `@container` enables container queries by width, height, or name.
+- `@lang(<bcp47>)` matches the system language by prefix.
 
-Conditions nest: an `@os linux` block can contain a `:hover` block, and the
-two conditions both have to hold for the rule to apply
-(`css/src/css.rs:528`, the `conditions` field on `CssRuleBlock`).
+Conditions nest. An `@os linux` block can contain a `:hover` block, and
+both conditions have to hold for the rule to apply.
 
-The full enum is at `css/src/dynamic_selector.rs:50`. See [System Themes](styling/themes.md)
-for how the system populates these values from OS settings.
+See [System Themes](styling/themes.md) for how the system populates these
+values from OS settings.
 
 ## The cascade and specificity
 
@@ -206,19 +193,18 @@ When more than one rule sets the same property, the cascade picks one. The
 rules, in order:
 
 1. Higher specificity wins.
-2. Equal specificity → later rule wins.
-3. `style()` calls stack; a later `style()` is "later" than an earlier one.
+2. Equal specificity. The later rule wins.
+3. `style()` calls stack. A later `style()` is "later" than an earlier one.
 4. `with_css` (inline) outranks any stylesheet for that node.
 
-Specificity is the W3C tuple `(ids, classes+pseudo+attrs, types, total)`,
-computed by `get_specificity` at `css/src/css.rs:1693`. Call
-`Css::sort_by_specificity()` (or `Stylesheet::sort_by_specificity()`) once
-after parsing if you need deterministic order — the parser does not sort by
-default. The framework runs the sort during cascade.
+Specificity is the W3C tuple `(ids, classes+pseudo+attrs, types, total)`.
+Call `Css::sort_by_specificity()` once after parsing if you need
+deterministic order. The parser doesn't sort by default. The framework
+runs the sort during cascade.
 
 ## Property values: the keyword set
 
-Every typed property is wrapped in `CssPropertyValue<T>` (`css/src/css.rs:374`):
+Every typed property is wrapped in `CssPropertyValue<T>`:
 
 ```rust,ignore
 pub enum CssPropertyValue<T> {
@@ -233,34 +219,32 @@ pub enum CssPropertyValue<T> {
 ```
 
 Most properties accept the CSS-wide keywords. `inherit` walks to the parent's
-resolved value; `initial` resets to the property's spec default; `unset`
+resolved value. `initial` resets to the property's spec default. `unset`
 behaves as `inherit` for inheritable properties and `initial` otherwise.
-`revert` returns to the user-agent default (the same defaults `core/src/ua_css.rs`
-loads). The parser preserves the keyword and the cascade picks an explicit
-value at the latest moment.
+`revert` returns to the user-agent default. The parser preserves the
+keyword and the cascade picks an explicit value at the latest moment.
 
 ## Inheritable properties
 
-Some properties propagate from parent to child by default; others do not.
-Inheritability is fixed by the property and queryable via
-`CssDeclaration::is_inheritable()` (`css/src/css.rs:161`). The inheritable
-set follows CSS conventions:
+Some properties propagate from parent to child by default; others don't.
+Inheritability is fixed by the property. The inheritable set follows CSS
+conventions:
 
 - Text: `color`, `font-family`, `font-size`, `font-weight`, `line-height`,
-  `text-align`, `letter-spacing`, `word-spacing`
-- Cursor: `cursor`
-- Visibility: `visibility`
-- Custom: `hyphenation-language`
+  `text-align`, `letter-spacing`, `word-spacing`.
+- Cursor: `cursor`.
+- Visibility: `visibility`.
+- Custom: `hyphenation-language`.
 
 Layout properties (`width`, `padding`, `flex-grow`, ...) and most visual
-properties (`background`, `border`, ...) do not inherit — write `inherit`
+properties (`background`, `border`, ...) don't inherit. Write `inherit`
 explicitly if you want one to.
 
 ## Dynamic properties (`var(...)`)
 
-A `Dynamic` declaration is a CSS value swappable from Rust per frame.
-Syntax in CSS: `var(--my_id, <default>)`. It compiles to `DynamicCssProperty`
-(`css/src/css.rs:210`):
+A dynamic declaration is a CSS value swappable from Rust per frame.
+Syntax in CSS: `var(--my_id, <default>)`. It compiles to
+`DynamicCssProperty`:
 
 ```rust,ignore
 pub struct DynamicCssProperty {
@@ -271,13 +255,12 @@ pub struct DynamicCssProperty {
 
 Use them when you want to change a single value (an accent color, a
 spacing unit) without re-parsing the stylesheet. The override path lives
-on `Dom::with_css_property`, which feeds a `CssPropertyWithConditions`
-directly into the node's prop vector.
+on `Dom::with_css_property`.
 
 ## `system:` keywords
 
 Anywhere a colour or font is expected, `system:<name>` resolves at cascade
-time against the running OS / theme:
+time against the running OS and theme:
 
 ```rust,no_run
 # use azul::prelude::*;
@@ -290,95 +273,62 @@ let _ = Dom::create_div().with_css("
 ");
 ```
 
-The lookup runs through `SystemStyle::detect()` at `AppConfig::create()`
-time and re-evaluates per frame, so a theme switch (light → dark) updates
-without re-parsing the stylesheet. The available names — `system:control`,
-`system:accent`, `system:body`, `system:monospace`, … — are catalogued in
-[System Themes](styling/themes.md). They compose with `@theme` and `@os`
-the same way any other property would.
+The lookup re-evaluates per frame, so a theme switch (light to dark)
+updates without re-parsing the stylesheet. The available names
+(`system:control`, `system:accent`, `system:body`, `system:monospace`,
+...) are catalogued in [System Themes](styling/themes.md). They compose
+with `@theme` and `@os` the same way any other property would.
 
 ## Parsing CSS
 
-`Css::from_string` returns the parsed stylesheet; the warning-collecting
-variant returns parser diagnostics for unrecognised properties:
+`Css::from_string` returns the parsed stylesheet:
 
 ```rust,no_run
 # use azul::prelude::*;
-let (css, warnings) = Css::from_string_with_warnings("
+let css = Css::from_string("
     color: rebeccapurple;
-    bogus-property: 1;
 ".into());
-
-for w in &warnings {
-    eprintln!("css warning at line {}: {:?}", w.location.line, w.warning);
-}
 ```
 
 The parser is feature-gated behind `parser` (always enabled in the
-default build). Internals: `css/src/parser2.rs` is the entry point;
-each property's `parse_*` function lives next to its type.
+default build).
 
-## Where styles meet the DOM — the deferred cascade
+## Where styles meet the DOM
 
-The cascade runs **once** per layout pass, after your `LayoutCallback`
-returns. Inputs, in priority order (low → high):
+The cascade runs once per layout pass, after your `LayoutCallback` returns.
+Inputs, in priority order (low to high):
 
-1. The user-agent stylesheet (`core/src/ua_css.rs`) sets HTML defaults
-   (`h1` font sizes, `<button>` padding, `<a>` color, ...).
+1. The user-agent stylesheet sets HTML defaults (`h1` font sizes,
+   `<button>` padding, `<a>` color, ...).
 2. Each `Css` attached to a subtree via `Dom::style(...)`, in `style()`
    push order.
 3. Inline `with_css` rules on each node.
-4. Programmatic `with_css_property` overrides (highest priority short of `!important`).
+4. Programmatic `with_css_property` overrides (highest priority short of
+   `!important`).
 
-Inside `StyledDom::create_from_dom()` the framework collects every CSS
-attachment from the recursive `Dom` tree, strips them off the nodes,
-flattens the tree into a `CompactDom`, merges the stylesheets in push
-order, and runs the cascade in a single sweep. The output is a `StyledDom`
-— a flat, indexed view of the cascaded properties.
-
-Then a second pass — `CssPropertyCache::build_compact_cache`
-([`core/src/compact_cache_builder.rs:35`](../../core/src/compact_cache_builder.rs))
-— re-encodes the layout-hot subset of properties into three packed tiers
-the layout solver reads directly: a `Vec<u64>` for the 21 enum properties
-(display, position, float, overflow, flex/grid alignment, font weight,
-text-align, …), a hot dimensions array (width, height, padding, margin,
-border, flex-basis), a cold paint-only array, and a text-properties array.
-Less common properties (background, box-shadow, transform) stay in the
-slow cascade path because the layout engine doesn't read them on hot
-paths.
+Internally the framework collects every CSS attachment from the recursive
+`Dom` tree, merges the stylesheets in push order, and runs the cascade in
+a single sweep. The output is a `StyledDom`: a flat, indexed view of the
+cascaded properties. Subsequent frames only re-cascade the nodes whose
+inputs actually changed.
 
 The reason this matters even at the styling layer: every CSS string you
 parse via `with_css` or `Css::from_string` is "free" in the sense that it
-is one parse and one push onto a vector. Selector matching, inheritance,
-and the compact-cache build all happen once after you return — and the
-framework only re-runs them on the deltas that need a recascade.
+is one parse and one push onto a list. Selector matching and inheritance
+happen once after you return.
 
-See [The DOM — when does CSS actually apply?](dom.md#when-does-css-actually-apply-not-until-after-layout)
-for the per-frame walkthrough, and [Layout — what the solver actually reads](layout.md#what-the-solver-actually-reads)
-for how the compact cache feeds the formatting algorithms.
+See [The DOM](dom.md#when-does-css-actually-apply-not-until-after-layout)
+for the per-frame walkthrough, and [Layout](layout.md) for how the
+cascaded properties feed the formatting algorithms.
 
 Sub-pages cover the catalogue of properties, the platform integration,
 and the icon and text-styling primitives:
 
-- [CSS Properties Cheatsheet](styling/properties.md) — every property and the
-  values it accepts.
-- [System Themes](styling/themes.md) — `system:*` colors and fonts, `@theme`,
-  `@os`, and accessibility queries.
-- [Text and Fonts](styling/text-and-fonts.md) — `font-family`, weight, style,
-  alignment, and the `system:` font keywords.
-- [Icon Packs](styling/icon-packs.md) — registering image and font icons under
-  named packs.
-
-## Where to read the source
-
-- `css/src/css.rs:25` — `Css` and `Stylesheet` definitions
-- `css/src/css.rs:528` — `CssRuleBlock` (selector + declarations + conditions)
-- `css/src/css.rs:1432` — `CssPathSelector` (selector AST)
-- `css/src/css.rs:1556` — `CssPathPseudoSelector` (pseudo-class AST)
-- `css/src/css.rs:1693` — `get_specificity`
-- `css/src/dynamic_selector.rs:50` — `DynamicSelector` (`@os`, `@theme`, `@media`, `@lang`)
-- `core/src/dom.rs:4906` — `Dom::style`
-- `core/src/dom.rs:5099` — `Dom::with_css`
-- `core/src/styled_dom.rs:1169` — `create_from_dom` (collect → cascade)
-- `core/src/compact_cache_builder.rs:35` — `build_compact_cache` (the post-cascade compaction pass)
-- `css/src/compact_cache.rs` — three-tier numeric encoding
+- [CSS Properties Cheatsheet](styling/properties.md). Every property and
+  the values it accepts.
+- [System Themes](styling/themes.md). `system:*` colors and fonts,
+  `@theme`, `@os`, and accessibility queries.
+- [Text and Fonts](styling/text-and-fonts.md). `font-family`, weight,
+  style, alignment, plus the `system:` font keywords.
+- [Icon Packs](styling/icon-packs.md). Registering image and font icons
+  under named packs.

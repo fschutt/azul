@@ -19,30 +19,26 @@ last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T05:49:28Z
 ---
 
-# Blocks, Sizing, and Positioning
-
-Every element in a `Dom` starts at `display: block`. A block element takes the
-full width of its parent, stacks below the previous sibling, and is sized by
-the box-model properties (`width`, `height`, `padding`, `border`, `margin`).
-Block layout is what runs by default — flexbox and grid are opt-in modes you
-reach for when the default isn't enough.
+# Simple Layout
+Every element in a `Dom` starts at `display: block`. A block element takes
+the full width of its parent, stacks below the previous sibling, and is
+sized by the box-model properties (`width`, `height`, `padding`, `border`,
+`margin`). Block layout runs by default. Flexbox and grid are opt-in.
 
 ## `display: block` and `inline-block`
 
-`LayoutDisplay` (`css/src/props/layout/display.rs:13`):
+The `display` property:
 
-| value | when to use |
-|---|---|
-| `block` (default) | full-width box; stacks vertically with siblings |
-| `inline-block` | flow with text but accept `width` / `height` |
-| `flex` | one-axis container — see [Flexbox](flex.md) |
-| `grid` | two-axis container — see [Grid](grid.md) |
-| `none` | remove from layout (keeps the element in the DOM) |
+- `block` (default). Full-width box. Stacks vertically with siblings.
+- `inline-block`. Flows with text but accepts `width` and `height`.
+- `flex`. One-axis container. See [Flexbox](flex.md).
+- `grid`. Two-axis container. See [Grid](grid.md).
+- `none`. Removes from layout. The element stays in the DOM.
 
-`inline` (without `-block`) is covered on [Inline and inline-block](inline.md);
-the table values (`table`, `table-row`, `table-cell`, `list-item`,
-`flow-root`, `run-in`, `marker`, `contents`) parse and store, and the solver
-honours the table values. They're rare in app code.
+`inline` (without `-block`) is covered on
+[Inline and inline-block](inline.md). The table values (`table`,
+`table-row`, `table-cell`, `list-item`, `flow-root`) are honoured but rare
+in app code.
 
 ```rust
 # fn body() -> &'static str {
@@ -53,17 +49,16 @@ honours the table values. They're rare in app code.
 
 ## Sizing: `width`, `height`, and `min-` / `max-` constraints
 
-`LayoutWidth` and `LayoutHeight` (`css/src/props/layout/dimensions.rs:302`)
-accept:
+`width` and `height` accept:
 
-- `auto` — the default; size from content (block) or stretch to container.
-- `<length>` — pixels (`px`), points (`pt`), em (`em`), root em (`rem`),
+- `auto`. The default. Sizes from content (block) or stretches to container.
+- `<length>`. Pixels (`px`), points (`pt`), em (`em`), root em (`rem`),
   viewport (`vw` / `vh`), or `<percentage>`.
-- `min-content`, `max-content`, `fit-content(<length>)` — content-driven.
-- `calc(<expr>)` — arithmetic over the above. See [`calc()`](#calc) below.
+- `min-content`, `max-content`, `fit-content(<length>)`. Content-driven.
+- `calc(<expr>)`. Arithmetic over the above. See [`calc()`](#calc) below.
 
-`LayoutMinWidth`, `LayoutMinHeight`, `LayoutMaxWidth`, `LayoutMaxHeight` take
-a single pixel value. Defaults: `min-*` = `0px`, `max-*` = unconstrained.
+`min-width`, `min-height`, `max-width`, and `max-height` take a single
+pixel value. Defaults: `min-*` is `0px`, `max-*` is unconstrained.
 
 ```rust
 # fn body() -> &'static str {
@@ -76,20 +71,13 @@ a single pixel value. Defaults: `min-*` = `0px`, `max-*` = unconstrained.
 
 ### `box-sizing`
 
-```rust,ignore
-LayoutBoxSizing::ContentBox  // default — width / height applies to content only
-LayoutBoxSizing::BorderBox   // width / height includes padding and border
-```
+- `content-box` (default). `width` and `height` apply to content only.
+- `border-box`. `width` and `height` include padding and border.
 
-`box-sizing: border-box` is the option you usually want for forms and grids;
-the content-box default matches the original CSS 1 behaviour.
+`box-sizing: border-box` is what you usually want for forms and grids.
+The `content-box` default matches the original CSS 1 behaviour.
 
 ### `calc()`
-
-`calc()` is parsed into a flat stack-machine encoded as `CalcAstItemVec`
-(`CalcAstItem` at `css/src/props/layout/dimensions.rs:45`). The solver in
-`layout/src/solver3/calc.rs` evaluates it left-to-right, resolving each
-parenthesised span when the matching `BraceClose` is reached.
 
 ```rust
 # fn body() -> &'static str {
@@ -98,8 +86,9 @@ parenthesised span when the matching `BraceClose` is reached.
 # }
 ```
 
-Operators: `+`, `-`, `*`, `/`. Negative numeric literals are recognised when
-they follow an operator or `(`; otherwise `-` is a subtraction operator.
+Operators: `+`, `-`, `*`, `/`. Negative numeric literals are recognised
+when they follow an operator or `(`. Otherwise `-` is a subtraction
+operator.
 
 ## `margin` and `padding`
 
@@ -113,30 +102,27 @@ siblings:
 # }
 ```
 
-The shorthand expands the standard CSS way: 1 value = all four sides; 2 =
-vertical horizontal; 3 = top, horizontal, bottom; 4 = top, right, bottom,
-left (`css/src/props/layout/spacing.rs:188`). `padding-inline-start` and
-`padding-inline-end` follow `writing-mode` and `direction`.
+The shorthand expands the standard CSS way. One value sets all four
+sides. Two values set vertical and horizontal. Three values set top,
+horizontal, bottom. Four values set top, right, bottom, left.
+`padding-inline-start` and `padding-inline-end` follow `writing-mode` and
+`direction`.
 
-Margins on `position: static` block elements collapse vertically the way CSS
-specifies. Margins inside `display: flex` and `display: grid` containers do
-*not* collapse — use `gap` instead.
+Margins on `position: static` block elements collapse vertically the way
+CSS specifies. Margins inside `display: flex` and `display: grid`
+containers do not collapse. Use `gap` instead.
 
 ## `position`
 
-`LayoutPosition` (`css/src/props/layout/position.rs:22`):
+The `position` property:
 
-| value | placed by |
-|---|---|
-| `static` (default) | normal flow; offsets are ignored |
-| `relative` | normal flow, then shifted by `top` / `right` / `bottom` / `left` |
-| `absolute` | offsets, relative to the nearest positioned ancestor |
-| `fixed` | offsets, relative to the window |
-| `sticky` | flow until offsets would be violated, then pinned to the scroll container |
+- `static` (default). Normal flow. Offsets are ignored.
+- `relative`. Normal flow, then shifted by `top`, `right`, `bottom`, `left`.
+- `absolute`. Offsets, relative to the nearest positioned ancestor.
+- `fixed`. Offsets, relative to the window.
+- `sticky`. Flow until offsets would be violated, then pinned to the scroll container.
 
-`LayoutPosition::is_positioned` returns `true` for everything except
-`Static`. "Positioned ancestor" means *any* ancestor whose `position` is not
-`static`.
+"Positioned ancestor" means any ancestor whose `position` is not `static`.
 
 ```rust
 # fn body() -> &'static str {
@@ -152,17 +138,16 @@ specifies. Margins inside `display: flex` and `display: grid` containers do
 Each offset is a `<length>` or `<percentage>`. `auto` (the default) means
 "no constraint" and lets the solver compute it.
 
-| value | resolves against |
-|---|---|
-| `<length>` | a fixed pixel distance |
-| `<percentage>` | the *containing block*'s width (`left` / `right`) or height (`top` / `bottom`) |
+- `<length>` is a fixed pixel distance.
+- `<percentage>` resolves against the containing block's width
+  (`left`/`right`) or height (`top`/`bottom`).
 
 For `position: absolute`:
 
-- Setting `top` *and* `bottom` stretches the element vertically.
-- Setting `left` *and* `right` stretches it horizontally.
-- Combined with `width: auto` / `height: auto`, this is how you fill a
-  positioned ancestor exactly.
+- Setting `top` and `bottom` stretches the element vertically.
+- Setting `left` and `right` stretches it horizontally.
+- Combined with `width: auto` / `height: auto`, this fills a positioned
+  ancestor exactly.
 
 ```rust
 # fn body() -> &'static str {
@@ -196,53 +181,42 @@ sticky element pins to the window.
 
 ## `z-index`
 
-`LayoutZIndex` (`css/src/props/layout/position.rs:202`):
+`z-index` accepts:
 
-```rust,ignore
-LayoutZIndex::Auto         // default — same stacking level as parent
-LayoutZIndex::Integer(i32) // explicit stacking order; +ve above, -ve below
-```
+- `auto` (default). Same stacking level as parent.
+- `<integer>`. Explicit stacking order. Positive values stack above,
+  negative below.
 
-`z-index` only takes effect on positioned elements (`position` ≠ `static`).
-A positioned element with `z-index: <integer>` creates a new *stacking
-context* — its descendants then stack relative to it, not the document
-root.
+`z-index` only takes effect on positioned elements (`position` is not
+`static`). A positioned element with `z-index: <integer>` creates a new
+*stacking context*. Its descendants then stack relative to it, not the
+document root.
 
 ## `overflow`
 
-`LayoutOverflow` (`css/src/props/layout/overflow.rs:16`) controls clipping
-and scrolling. Apply `overflow-x` / `overflow-y` independently, or set both
-with the shorthand `overflow`.
+`overflow` controls clipping and scrolling. Apply `overflow-x` and
+`overflow-y` independently, or set both with the shorthand `overflow`.
 
-| value | clips | scrolls | scrollbar |
-|---|---|---|---|
-| `visible` (default) | no | no | — |
-| `hidden` | yes | programmatic only | none |
-| `clip` | yes | no | — |
-| `scroll` | yes | yes | always shown |
-| `auto` | yes | when needed | when content overflows |
-
-`LayoutOverflow::is_clipped` reports whether an axis clips content;
-`LayoutOverflow::needs_scrollbar(currently_overflowing)` decides if the
-scrollbar is visible *now*.
+- `visible` (default). No clip, no scroll.
+- `hidden`. Clips. Programmatic scrolling only. No scrollbar.
+- `clip`. Clips. No scrolling.
+- `scroll`. Clips and scrolls. Scrollbar always shown.
+- `auto`. Clips and scrolls. Scrollbar shown when content overflows.
 
 ### `clip` vs `hidden`
 
 `clip` is a stricter form of `hidden`:
 
 - Both clip overflowing content.
-- `hidden` permits programmatic scrolling (`element.scrollTo(...)`
-  analogues); `clip` does not. `clip` makes the element a "non-scroll
-  container".
-- `overflow-clip-margin` extends the clip region outside the box; it has no
-  effect on `hidden`.
+- `hidden` permits programmatic scrolling. `clip` does not. `clip` makes
+  the element a "non-scroll container".
+- `overflow-clip-margin` extends the clip region outside the box. It has
+  no effect on `hidden`.
 
 ### Computed-value coupling
 
-CSS Overflow 3 § 3.1 specifies that `visible` / `clip` on one axis becomes
-`auto` / `hidden` if the *other* axis is scrollable.
-`LayoutOverflow::resolve_computed` (`css/src/props/layout/overflow.rs:85`)
-runs the ratchet at computed-value time, before layout sees the property:
+CSS Overflow 3 § 3.1 specifies that `visible` or `clip` on one axis
+becomes `auto` or `hidden` if the other axis is scrollable:
 
 ```text
 overflow-x: visible, overflow-y: scroll  →  computed: auto / scroll
@@ -252,15 +226,12 @@ overflow-x: visible, overflow-y: visible →  unchanged
 
 ### `scrollbar-gutter`
 
-`StyleScrollbarGutter` (`css/src/props/layout/overflow.rs:182`) reserves
-space for the scrollbar so layout doesn't shift when content starts
-overflowing.
+`scrollbar-gutter` reserves space for the scrollbar so layout doesn't
+shift when content starts overflowing.
 
-| value | behaviour |
-|---|---|
-| `auto` (default) | gutter only when scrollbar is shown |
-| `stable` | gutter always reserved on the scrollbar's edge |
-| `stable both-edges` | gutter on both edges (visual symmetry) |
+- `auto` (default). Gutter only when the scrollbar is shown.
+- `stable`. Gutter always reserved on the scrollbar's edge.
+- `stable both-edges`. Gutter on both edges for visual symmetry.
 
 ```rust
 # fn body() -> &'static str {
@@ -270,10 +241,10 @@ overflowing.
 
 ### `overflow-clip-margin`
 
-`StyleOverflowClipMargin` (`css/src/props/layout/overflow.rs:300`) extends
-the clip region outside the box. Only applies when `overflow: clip` is set.
+`overflow-clip-margin` extends the clip region outside the box. It only
+applies when `overflow: clip` is set.
 
-Syntax: `<visual-box> || <length>`. The box defaults to `padding-box`; the
+Syntax: `<visual-box> || <length>`. The box defaults to `padding-box`. The
 length defaults to `0px`.
 
 ```rust
@@ -284,9 +255,9 @@ length defaults to `0px`.
 
 ### The legacy `clip: rect(...)` property
 
-`StyleClipRect` (`css/src/props/layout/overflow.rs:417`) implements the
-deprecated CSS 2.1 `clip` property used with `position: absolute`. Each
-edge is either `auto` (the corresponding box edge) or a `<length>`:
+`clip: rect(...)` is the deprecated CSS 2.1 property used with
+`position: absolute`. Each edge is either `auto` (the corresponding box
+edge) or a `<length>`:
 
 ```rust
 # fn body() -> &'static str {
@@ -294,12 +265,12 @@ edge is either `auto` (the corresponding box edge) or a `<length>`:
 # }
 ```
 
-Prefer `clip-path` for new code (covered in CSS Shapes; see the contributor
-docs).
+Prefer `clip-path` for new code.
 
 ## `gap`, `row-gap`, `column-gap`
 
-`gap` adds space between flex / grid items without a margin on each child:
+`gap` adds space between flex and grid items without a margin on each
+child:
 
 ```rust
 # fn body() -> &'static str {
@@ -308,11 +279,9 @@ docs).
 # }
 ```
 
-The shorthand `gap: <row> <column>` and the longhands `row-gap` /
-`column-gap` all take a single `<length>` (`css/src/props/layout/spacing.rs:126`,
-`css/src/props/layout/grid.rs:762`).
-
-`gap` does nothing on plain block children (it is flex / grid only).
+The shorthand `gap: <row> <column>` and the longhands `row-gap` and
+`column-gap` all take a single `<length>`. `gap` does nothing on plain
+block children. It's flex and grid only.
 
 ## Recipes
 
@@ -356,7 +325,7 @@ The shorthand `gap: <row> <column>` and the longhands `row-gap` /
 
 ### Default block flow
 
-```azul-render screenshot=layout-block width=480 height=200 subtitle="Default block flow — each element on its own line"
+```azul-render screenshot=layout-block width=480 height=200 subtitle="Default block flow. Each element on its own line"
 <body style="font-family: sans-serif;">
   <div style="background: #e0e7ff; padding: 8px;">first</div>
   <div style="background: #ddd6fe; padding: 8px;">second</div>

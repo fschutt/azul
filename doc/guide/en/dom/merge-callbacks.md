@@ -60,7 +60,7 @@ This is a `Reconcile()` in the Kubernetes sense. The new value is the desired st
 
 ## When it fires
 
-The callback runs in `transfer_states` (see `core/src/diff.rs`). The conditions are strict.
+The callback runs during reconciliation. The conditions are strict.
 
 - The new node has a merge callback registered via `with_merge_callback(...)`.
 - Both the old node and the new node have a dataset attached.
@@ -202,4 +202,3 @@ A useful split:
 ## Source
 
 - `core/src/dom.rs` — `Dom::with_merge_callback`, `DatasetMergeCallback`, `DatasetMergeCallbackType`
-- `core/src/diff.rs` — `transfer_states` runs the callback during reconciliation

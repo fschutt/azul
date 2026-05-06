@@ -22,97 +22,75 @@ generated_at: 2026-05-02T05:50:43Z
 
 # Rust Bindings
 
-The Rust binding is the `azul` crate (the published wrapper around `azul-dll`). The same crate compiles in three modes, selected at the consumer's Cargo feature flags. This page covers a fresh project that depends on azul; for the program itself, see [Hello, World — Rust](../hello-world/rust.md).
+The Rust binding is the `azul` crate. It compiles in two modes selected by Cargo features. This page covers a fresh project that depends on azul; for the program itself, see [Hello, World — Rust](../hello-world/rust.md).
 
-## Cargo.toml — link-static (default)
+## Adding the dependency
 
-```toml
-[package]
-name = "my-app"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-azul = { git = "https://github.com/maps4print/azul" }
+```sh
+cargo add azul
 ```
 
-`link-static` is the default feature set. Cargo compiles `azul-dll`, `azul-core`, `azul-css`, `azul-layout`, and the bundled WebRender fork into your binary. First build runs ten minutes on a recent laptop; subsequent builds are incremental.
-
-## Cargo.toml — link-dynamic
-
-Use this when the dylib already exists on the build machine (CI cache, vendored release archive) and you do not want to recompile the framework.
+Or in `Cargo.toml`:
 
 ```toml
 [dependencies]
-azul = { git = "https://github.com/maps4print/azul", default-features = false, features = ["link-dynamic"] }
+azul = "0.3"
 ```
 
-The `cabi_external` feature compiles in only `extern "C" { … }` declarations from `target/codegen/dll_api_external.rs`. None of the internal crates are pulled into the dependency graph.
+The default mode is `link-dynamic`. The crate links against a prebuilt `libazul` shared library on the system.
 
-## Pointing the linker at the dylib
+## link-dynamic (default)
 
-`dll/build.rs` searches the following directories, in order, for `libazul.dylib` / `libazul.so` / `azul.dll`:
+Use this when the dylib is installed on the build machine. Install via the system package manager:
 
-1. Each entry in `AZUL_DLL_PATH` (comma-separated, absolute or relative to the workspace root).
-2. `target/release/`, then `target/debug/` of the workspace root.
-3. On macOS: `/opt/homebrew/lib`, then `/usr/local/lib`. On Linux: `/usr/local/lib`, then `/usr/lib`.
+```sh
+# Windows
+choco install libazul
+# Debian
+apt install libazul
+# Arch
+yum install libazul
+# macOS
+brew install libazul
+```
+
+Or download the prebuilt artifact from `azul.rs/release/<version>/` and point `AZUL_DLL_PATH` at the directory:
 
 ```sh
 export AZUL_DLL_PATH=/opt/azul/lib
 cargo build --release
 ```
 
-A local (non-system) match is copied into `OUT_DIR`, `target/{debug,release}/`, `target/{debug,release}/examples/`, and `target/{debug,release}/deps/`. On macOS, `install_name_tool -id @executable_path/libazul.dylib` rewrites the install name so the binary finds the dylib at runtime without `DYLD_LIBRARY_PATH`. On Linux, copying the dylib next to the binary yields the same effect via the default loader search path.
+`AZUL_DLL_PATH` is a comma-separated list. Entries are absolute or relative to the workspace root. If unset, the build looks under `target/release` and `target/debug`, then falls back to system locations (`/opt/homebrew/lib`, `/usr/local/lib` on macOS; `/usr/local/lib`, `/usr/lib` on Linux).
 
-If only the static archive (`azul.lib` / `libazul.a`) is found, the build falls back to static linking against it.
+A local match is copied next to your binary so the dylib is found at run time without `LD_LIBRARY_PATH` or `DYLD_LIBRARY_PATH`. If only the static archive is found (`libazul.a` or `azul.lib`), the build falls back to static linking.
 
-## Building the dylib once
+## link-static
 
-```sh
-cargo build -p azul-dll --release --no-default-features --features build-dll
-```
-
-The output is `target/release/libazul.{so,dylib}` or `target/release/azul.dll`. The matching import library on Windows is `target/release/azul.dll.lib`. Copy these to a stable directory and point `AZUL_DLL_PATH` at it.
-
-## Workspace setup with both modes
-
-A workspace can expose two binary targets — one statically linked, one dynamically linked — by feature-gating the `azul` dependency:
+Compiles the framework into your binary. Slower first build, larger output, no external dylib to ship.
 
 ```toml
-[features]
-default = ["static"]
-static = ["azul/link-static"]
-dynamic = ["azul/link-dynamic"]
-
 [dependencies]
-azul = { git = "https://github.com/maps4print/azul", default-features = false }
+azul = { version = "0.3", default-features = false, features = ["link-static"] }
 ```
 
-Then build with `cargo build --features static` or `cargo build --features dynamic`. The chosen feature flips which generated file (`dll_api_internal.rs` vs `dll_api_external.rs`) is included by `dll/src/lib.rs`.
+## The prelude
 
-## Verifying the link
-
-`AZUL_DLL_PATH` and the chosen mode are echoed by `dll/build.rs` as `cargo:warning=` lines:
-
-```
-warning: Linking against libazul.dylib [local]: /Users/me/azul/target/release
+```rust
+use azul::prelude::*;
 ```
 
-If the build prints `Linking against libazul.a [static fallback]`, the dylib was not found and the build downgraded to static archive linking. Set `AZUL_DLL_PATH` and re-run.
+The prelude pulls in `App`, `AppConfig`, `Dom`, `RefAny`, `Update`, `LayoutCallbackInfo`, `CallbackInfo`, and `WindowCreateOptions`. Widgets are imported separately:
 
-If the build aborts with `Missing generated file: dll_api_external.rs`, `target/codegen/` is empty. Run:
-
-```sh
-cargo run --release -p azul-doc -- codegen all
+```rust
+use azul::widgets::Button;
 ```
-
-once, then rebuild. See [Code Generation](../code-generation.md) for what this command produces.
 
 ## Required `extern "C"` on callbacks
 
-All callbacks crossing the C-ABI must be `extern "C"`, including in pure-Rust applications using `link-static`. The framework holds raw function pointers internally and dispatches them through the same C-ABI surface that the C and Python bindings use.
+All callbacks must be `extern "C"`, including in pure-Rust applications using `link-static`. The framework holds raw function pointers and dispatches them through the same C ABI used by the C and Python bindings.
 
-```rust,no_run
+```rust
 use azul::prelude::*;
 
 extern "C" fn my_layout(_: RefAny, _: LayoutCallbackInfo) -> Dom {
@@ -124,11 +102,19 @@ extern "C" fn my_on_click(_: RefAny, _: CallbackInfo) -> Update {
 }
 ```
 
-Forgetting `extern "C"` produces a type-mismatch error at the `App::create` / `set_on_click` call site, not at the callback definition.
+Forgetting `extern "C"` produces a type-mismatch error at the `App::create` or `Button::set_on_click` call site, not at the callback definition.
+
+## Choosing between the modes
+
+- Greenfield Rust binary that ships azul as part of itself: `link-static`.
+- CI matrix where you want short build times after the first job: `link-dynamic` with the dylib cached.
+- Plug-in host that already ships `libazul.dylib`: `link-dynamic`.
+
+Pick `link-dynamic` if you have no other constraints. Switch to `link-static` only when shipping a single self-contained binary outweighs the build-time and binary-size cost.
 
 ## Cross-compiling
 
-`build-dll` works for any target the underlying dependencies support. The release pipeline (`doc/src/dllgen/build.rs`) drives:
+Cross-compilation works for any target the underlying dependencies support. Add the target with `rustup target add <triple>` first.
 
 | target triple | output |
 |---|---|
@@ -136,33 +122,18 @@ Forgetting `extern "C"` produces a type-mismatch error at the `App::create` / `s
 | `x86_64-unknown-linux-musl` | `libazul.so`, `libazul.linux.a`, `azul.cpython.so` |
 | `x86_64-apple-darwin` | `libazul.dylib`, `libazul.macos.a`, `azul.so` |
 
-Add the target with `rustup target add <triple>` first; the build script does this automatically when invoked through `azul-doc deploy --build=all`.
-
 ## iOS
 
-Setting target to `aarch64-apple-ios` is supported but requires Xcode and `ios-deploy`:
+`aarch64-apple-ios` is supported but requires Xcode and `ios-deploy`:
 
 ```sh
 brew install ios-deploy
 xcode-select --install
-cargo build -p azul-dll --target aarch64-apple-ios --features build-dll
+cargo build --target aarch64-apple-ios
 ```
-
-`dll/build.rs` writes `.cargo/config.toml` and `scripts/ios-runner.sh` on the first iOS build so `cargo run --target aarch64-apple-ios` can deploy to a connected device. Set `AZUL_IOS_SETUP=disable` to suppress this auto-configuration.
-
-## Choosing between the modes
-
-| use case | mode |
-|---|---|
-| Greenfield Rust binary that ships azul as part of itself | `link-static` |
-| CI matrix where you want short build times after the first job | `link-dynamic` with the dylib cached |
-| Plug-in host that already ships `libazul.dylib` | `link-dynamic` |
-| Building the dylib for distribution | `build-dll` |
-
-Pick `link-static` if you have no other constraints. Switch to `link-dynamic` only when the binary size or build-time penalty of compiling the framework is unacceptable.
 
 ## Next
 
 - [C Bindings](c.md) — link the same dylib from a C compiler.
-- [C++ Bindings](cpp.md) — header-only wrapper over the C ABI, one header per C++ standard.
+- [C++ Bindings](cpp.md) — header-only wrapper over the C ABI.
 - [Python Bindings](python.md) — `azul.so` / `azul.pyd` as a CPython extension.

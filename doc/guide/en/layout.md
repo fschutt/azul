@@ -27,28 +27,27 @@ generated_at: 2026-05-02T05:49:28Z
 
 # Layout
 
-Azul lays out a `Dom` by feeding its CSS-resolved styles into a single
-solver. Every element runs through one of four formatting modes — block,
-inline, flex, or grid — selected by its `display` property. The four
-sub-pages cover each mode from simple to complex: blocks first (the
-default), then inline text flow, then the two opt-in container modes.
+Azul lays out a `Dom` from its CSS-resolved styles. Every element runs
+through one of four formatting modes selected by its `display` property:
+block, inline, flex, or grid. The four sub-pages cover each mode from
+simple to complex. Blocks first (the default), then inline text flow,
+then the two opt-in container modes.
 
-- **Block** — the default; full-width stacked boxes. See
+- **Block**. The default. Full-width stacked boxes. See
   [Blocks, Sizing, and Positioning](layout/blocks.md).
-- **Inline** — text and inline-block runs inside a block. See
+- **Inline**. Text and inline-block runs inside a block. See
   [Inline, Inline-Block, and Text Flow](layout/inline.md).
-- **Flex** — one-axis containers (rows or columns). See
+- **Flex**. One-axis containers (rows or columns). See
   [Flexbox](layout/flex.md).
-- **Grid** — two-axis containers (columns *and* rows). See
+- **Grid**. Two-axis containers (columns and rows). See
   [Grid](layout/grid.md).
 
 ## Picking a mode
 
 Most apps use blocks for the page chrome, flex inside each block for rows
-and columns, and grid for the few places where you need a true 2-D layout
-(dashboards, image galleries, form labels-and-fields). Inline shows up
-naturally inside any block that contains text — you usually don't choose
-it explicitly.
+and columns, and grid where you need a true 2-D layout (dashboards, image
+galleries, form labels with fields). Inline shows up naturally inside any
+block that contains text. You usually don't choose it explicitly.
 
 ```rust
 # fn body() -> &'static str {
@@ -70,68 +69,19 @@ A few properties apply regardless of the formatting mode:
 - `padding` and `margin`. See [`margin` and `padding`](layout/blocks.md#margin-and-padding).
 - `box-sizing`. See [`box-sizing`](layout/blocks.md#box-sizing).
 - `position`, `z-index`, and `overflow`. See [`position`](layout/blocks.md#position) and [`overflow`](layout/blocks.md#overflow).
-- `gap`, `row-gap`, `column-gap`. Honoured by flex and grid; ignored on plain block.
+- `gap`, `row-gap`, `column-gap`. Honoured by flex and grid. Ignored on plain block.
 
-Block-specific details — float, `clear`, and `display: table*` — live on
+Block-specific details (float, `clear`, and `display: table*`) live on
 the [Blocks](layout/blocks.md) and [Inline](layout/inline.md) pages.
 
-## What the solver actually reads
-
-The layout solver does not walk the cascade output as a `BTreeMap` of
-properties. By the time it runs, [the cascade has already been
-flattened](styling.md#where-styles-meet-the-dom--the-deferred-cascade)
-into a **compact cache** keyed by node id:
-
-- **Tier 1** — `Vec<u64>`: 21 enum properties bit-packed into 8 B per node
-  (`display`, `position`, `float`, `overflow_x/y`, `flex_direction`,
-  `flex_wrap`, `justify_content`, `align_items`, `align_content`,
-  `font_weight`, `text_align`, `vertical_align`, `visibility`,
-  `white_space`, `direction`, `writing_mode`, `clear`, `box_sizing`,
-  `font_style`, `border_collapse`).
-- **Tier 2 hot** — `Vec<CompactNodeProps>`: the layout-critical numeric
-  dimensions in 68 B per node (`width`, `height`, `min/max-width/height`,
-  the four `padding`s, the four `margin`s, the four `border-width`s,
-  `flex-basis`, `flex-grow`, `flex-shrink`).
-- **Tier 2 cold** — `Vec<CompactNodePropsCold>`: paint-only properties in
-  28 B per node (color, opacity, …) — read by the display-list builder,
-  not by the solver.
-- **Tier 2b** — `Vec<CompactTextProps>`: text/IFC properties in 24 B per
-  node — read by the inline-formatting context.
-
-Reading `display` for a node is a single `u64` load and bit-mask, not a
-map lookup. Reading `width` is one `u32` decode. The solver issues one
-linear pass over the tree, getting the data it needs from these arrays
-directly — `layout/src/solver3/getters.rs` is full of fast-path getters
-named `get_<property>_property` that decode the compact cache, with a slow
-fall-through to the full cascade for properties that don't need a fast
-path (background, transform, box-shadow).
-
-That's why the [deferred-cascade design](dom.md#when-does-css-actually-apply-not-until-after-layout)
-matters performance-wise: the heavy work happens once before layout, and
-the solver pays cache-friendly array-indexing cost per node from then on.
-
-## Where the solver lives
-
-The integration point is `layout/src/solver3/` (`layout/src/lib.rs:58`).
-It takes a styled DOM and returns positioned boxes for every node:
-
-- `solver3/block.rs` — block formatting context.
-- `solver3/inline/` — inline / line layout, used inside any block.
-- `solver3/flex.rs` — flexbox.
-- `solver3/grid.rs` — grid.
-- `solver3/positioning.rs` — `position: absolute | fixed | sticky` resolution.
-- `solver3/calc.rs` — `calc()` evaluation.
-- `solver3/getters.rs` — the typed wrappers around the compact cache the
-  formatting contexts call into.
-
-These are contributor-facing details; app code interacts with the solver
-only through CSS properties and `Dom::style(...)`.
+App code interacts with layout only through CSS properties and
+`Dom::style(...)` / `Dom::with_css(...)`.
 
 ## Visual examples
 
 Same three children, three formatting modes:
 
-```azul-render screenshot=layout-block width=480 height=200 subtitle="Default block flow — each element on its own line"
+```azul-render screenshot=layout-block width=480 height=200 subtitle="Default block flow. Each element on its own line"
 <body style="font-family: sans-serif;">
   <div style="background: #e0e7ff; padding: 8px;">first</div>
   <div style="background: #ddd6fe; padding: 8px;">second</div>

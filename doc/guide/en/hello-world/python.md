@@ -7,7 +7,6 @@ audience: external
 maturity: wip
 guide_order: 14
 topic_only: false
-short_desc: Hello World example in Python - install with pip and write a simple "counter" app
 prerequisites: [hello-world]
 tracked_files:
   - api.json

@@ -7,7 +7,7 @@ audience: external
 maturity: mature
 guide_order: 10
 topic_only: false
-short_desc: Introduction - simple counter app showing window setup, state management, DOM creation, and handling mouse clicks
+short_desc: Window setup, state management, DOM creation, handling mouse clicks for a "counter" app
 prerequisites: []
 tracked_files:
   - api.json

@@ -18,25 +18,23 @@ generated_at: 2026-05-02T00:00:00Z
 
 # XML Parsing (Standalone)
 
-> **WIP** — public surface is stable but the component-instantiation pipeline (`ComponentMap`, `<my-widget>` style custom tags) is mid-migration; APIs marked *component* below may shift.
+> WIP. Public surface is stable. The component-instantiation pipeline (`<my-widget>` style custom tags via `ComponentMap`) is mid-migration; treat names as load-bearing but signatures as moving targets.
 
-Azul ships an XML/HTML5-lite parser that runs without a window, a renderer, or any GPU dependency. Use it as a tooling library: validate `.azul` files in CI, scrape resource URLs from a static site, build a `StyledDom` for headless screenshot rendering, or feed XHTML into custom layout code.
+Azul ships an XML/HTML5-lite parser that runs without a window, a renderer, or any GPU dependency. Use it as a tooling library: validate `.azul` files in CI, scrape resource URLs from a static site, build a DOM for headless rendering, or feed XHTML into custom layout code.
 
 The parser is exposed in two layers:
 
-| Layer | Crate | What it produces |
-|---|---|---|
-| Tree (mutable) | `azul_layout::xml::parse_xml_string` | `Vec<XmlNodeChild>` — a generic XML tree |
-| Direct-to-DOM | `azul_layout::xml::parse_xml_to_styled_dom` | `StyledDom` — ready for layout, with `<style>` blocks already applied |
+- Tree (`Xml::from_str`) returns an `Xml` value with a `root: Vec<XmlNodeChild>`. A generic XML tree to walk, mutate, or scan.
+- Direct-to-DOM (`Dom::from_parsed_xml`) consumes an `XmlNode` and returns a `Dom` ready for layout.
 
-Both layers handle the same HTML5-lite quirks: BOM stripping, `<?xml?>` and `<!DOCTYPE>` skipping, void elements (`<br>`, `<img>`, `<meta>` …), entity decoding, and `<style>` text extraction.
+Both layers handle the same HTML5-lite quirks: BOM stripping, `<?xml?>` and `<!DOCTYPE>` skipping, void elements (`<br>`, `<img>`, `<meta>`), entity decoding, and `<style>` text extraction.
 
 ## Parsing into an XML tree
 
-`parse_xml_string` consumes a string and returns the document's child list — the parser tolerates multiple root nodes so you can paste a fragment without an enclosing element.
+`Xml::from_str` consumes a string and returns an `Xml` whose `root` is the document's child list. The parser tolerates multiple root nodes so you can paste a fragment without an enclosing element.
 
 ```rust,no_run
-use azul_layout::xml::{parse_xml_string, XmlNodeChild, XmlNode};
+use azul::xml::{Xml, XmlNodeChild};
 
 let src = r#"
     <article id="p1" class="post">
@@ -45,9 +43,9 @@ let src = r#"
     </article>
 "#;
 
-let children: Vec<XmlNodeChild> = parse_xml_string(src).unwrap();
-assert_eq!(children.len(), 1);
-match &children[0] {
+let doc = Xml::from_str(src.into()).unwrap();
+assert_eq!(doc.root.as_ref().len(), 1);
+match &doc.root.as_ref()[0] {
     XmlNodeChild::Element(node) => {
         assert_eq!(node.node_type.as_str(), "article");
         assert_eq!(node.children.as_ref().len(), 2); // <h1>, <p>
@@ -56,14 +54,14 @@ match &children[0] {
 }
 ```
 
-`XmlNode` (`core/src/xml.rs:60`) carries the tag name, an attribute map (`StringPairVec`), and an ordered list of `XmlNodeChild`. A child is either another `Element` or a `Text` leaf. The parser decodes the standard XML entities (`&lt;`, `&gt;`, `&amp;`, `&apos;`, `&quot;`, `&nbsp;`, plus numeric and hex character references) on the way in; you read decoded UTF-8 strings.
+`XmlNode` carries the tag name (`node_type`), an attribute map (`StringPairVec`), and an ordered list of `XmlNodeChild`. A child is either another `Element` or a `Text` leaf. The parser decodes the standard XML entities (`&lt;`, `&gt;`, `&amp;`, `&apos;`, `&quot;`, `&nbsp;`, plus numeric and hex character references) on the way in. You read decoded UTF-8 strings.
 
 ```rust,no_run
-use azul_layout::xml::{parse_xml_string, XmlNodeChild};
+use azul::xml::{Xml, XmlNodeChild};
 
 let xml = "<a href=\"/foo?x=1&amp;y=2\">link</a>";
-let children = parse_xml_string(xml).unwrap();
-if let XmlNodeChild::Element(a) = &children[0] {
+let doc = Xml::from_str(xml.into()).unwrap();
+if let XmlNodeChild::Element(a) = &doc.root.as_ref()[0] {
     let href = a.attributes.as_ref().iter()
         .find(|p| p.key.as_str() == "href")
         .map(|p| p.value.as_str())
@@ -72,76 +70,59 @@ if let XmlNodeChild::Element(a) = &children[0] {
 }
 ```
 
-`parse_xml(s)` is a thin wrapper that returns `Xml { root: ... }` — the same data, packaged so you can call resource-scanning helpers on it directly (see below).
+## Parsing into a Dom
+
+`Dom::from_parsed_xml` takes one `XmlNode` and returns a `Dom`. Pull the root element from your `Xml` first:
+
+```rust,ignore
+use azul::xml::{Xml, XmlNodeChild};
+use azul::dom::Dom;
+
+let doc = Xml::from_str(html.into()).unwrap();
+let root = doc.root.as_ref().iter().find_map(|c| match c {
+    XmlNodeChild::Element(node) => Some(node.clone()),
+    _ => None,
+}).unwrap();
+
+let dom: Dom = Dom::from_parsed_xml(root);
+```
+
+Errors during DOM construction surface as `DomXmlParseError`: `Xml`, `MalformedHierarchy`, `MultipleHtmlRootNodes`, `MultipleBodyNodes`, `NoHtmlNode`, `NoBodyInHtml`, `Component`, `Css`, `RenderDom`.
 
 ## HTML5-lite quirks
 
 The tokenizer is strict XML, but the tree-builder layer adds enough HTML5 leniency that most real-world fragments parse without an `xmlns` declaration or strict closing rules.
 
-| Behaviour | Triggered by | Example |
-|---|---|---|
-| Void elements auto-close | tag name ∈ `area, base, br, col, embed, hr, img, input, link, meta, param, source, track, wbr` | `<br>` ≡ `<br/>` |
-| Auto-close on conflict | `<li>` before `<li>`, `<p>` before block-level, `<td>/<tr>/<th>` siblings, `<dt>/<dd>`, `<option>/<optgroup>` | `<p>a<p>b</p>` parses as two siblings |
-| Mismatched close tags | walks the tag stack to find the matching opener, pops everything between | `<a><b></a>` closes both |
-| BOM, `<?xml?>`, `<!DOCTYPE …>`, leading `<!-- … -->` | skipped before tokenization | `\u{FEFF}<!DOCTYPE html>\n<x/>` parses fine |
-
-The auto-close rules live in `layout/src/xml/mod.rs:700-744` and apply only to the tree-building path; `parse_xml_to_fast_dom_with_css` (the FastDom path) honours void elements but does *not* auto-close conflicting parents.
-
-## Parsing directly into a StyledDom
-
-`parse_xml_to_styled_dom` skips the intermediate `XmlNode` tree. It feeds tokenizer events straight into a `CompactDomBuilder`, collects every `<style>` block as CSS, runs the cascade, and returns a `StyledDom`. This is the path the layout engine uses for `.azul` files; on a typical document it allocates ~3–5× less than the two-step parse + `str_to_dom` path.
-
-```rust,no_run
-use azul_layout::xml::parse_xml_to_styled_dom;
-
-let html = r#"
-    <html>
-      <head>
-        <style>
-          body { background-color: white; }
-          .big { font-size: 32px; color: #2563eb; }
-        </style>
-      </head>
-      <body>
-        <p class="big">Headless render target.</p>
-      </body>
-    </html>
-"#;
-
-let styled = parse_xml_to_styled_dom(html).unwrap();
-let node_count = styled.node_hierarchy.as_ref().len();
-println!("parsed {} nodes", node_count);
-```
-
-The path drops everything inside `<head>` from the DOM (it is for stylesheet collection only), keeps `<body>` and its children, and applies the CSS via the standard cascade. Inline `style="…"` attributes are also parsed — the same way `azul_css::parser2::parse_css_declaration` parses them when set from Rust code.
-
-Set `AZUL_MEM_BREAKDOWN=1` in the environment to print per-phase RSS and timing for the three sub-passes (tokenize+fast_dom, css attach, cascade). This is the same instrumentation the layout window uses and is the fastest way to localize a parse-time regression.
+- Void elements auto-close: `area`, `base`, `br`, `col`, `embed`, `hr`, `img`, `input`, `link`, `meta`, `param`, `source`, `track`, `wbr`. So `<br>` is the same as `<br/>`.
+- Auto-close on conflict: `<li>` before `<li>`, `<p>` before block-level, `<td>`/`<tr>`/`<th>` siblings, `<dt>`/`<dd>`, `<option>`/`<optgroup>`. So `<p>a<p>b</p>` parses as two siblings.
+- Mismatched close tags walk the tag stack to find the matching opener and pop everything between. `<a><b></a>` closes both.
+- BOM, `<?xml?>`, `<!DOCTYPE …>`, and leading `<!-- … -->` are skipped before tokenization.
 
 ## Errors
 
-Parse errors carry line and column positions. The top-level enum is `XmlError` (`core/src/xml.rs:941`), which wraps tokenizer errors (`XmlParseError`), structural errors (`MalformedHierarchy`, `UnexpectedCloseTag`, `NoRootNode`), and a few resource-limit variants (`NodesLimitReached`, `AttributesLimitReached`).
+Parse errors carry line and column positions. The top-level enum is `XmlError`. It wraps tokenizer errors, structural errors (`MalformedHierarchy`, `UnexpectedCloseTag`, `NoRootNode`), and a few resource-limit variants (`NodesLimitReached`, `AttributesLimitReached`).
 
 ```rust,no_run
-use azul_layout::xml::{parse_xml_string, XmlError};
+use azul::xml::{Xml, XmlError};
 
 let bad = "<a><b></a>"; // mismatched close
-match parse_xml_string(bad) {
+match Xml::from_str(bad.into()) {
     Ok(_) => {} // tolerated by HTML5-lite walking
     Err(XmlError::MalformedHierarchy(e)) => {
         eprintln!("expected </{}>, got </{}>", e.expected, e.got);
     }
-    Err(other) => eprintln!("{}", other),
+    Err(other) => eprintln!("{:?}", other),
 }
 ```
 
-Every error implements `Display` and prints in `line N:M` form — paste the message into an editor's go-to-line dialog and you land on the offending byte.
+`MalformedHierarchyError` carries `expected` and `got`. `UnexpectedCloseTagError` carries `expected`, `actual`, and `pos`.
 
 ## Scanning external resources
 
-`Xml::scan_external_resources` (`core/src/xml.rs:323`) walks the parsed document and returns every URL it would need to fetch to render the page: `<img src>`, `<img srcset>`, `<link href>`, `<script src>`, `<video|audio|source src>`, `<a href>` when the URL has a resource-like extension, deprecated `background=`, plus `url(…)` and `@import` inside `<style>` blocks and inline `style=` attributes.
+`Xml::scan_external_resources` walks the parsed document and returns every URL it would need to fetch to render the page: `<img src>`, `<link href>`, `<script src>`, `<video|audio|source src>`, `<a href>` when the URL has a resource-like extension, plus `url(…)` and `@import` inside `<style>` blocks and inline `style=` attributes.
 
 ```rust,no_run
-use azul_layout::xml::{parse_xml, ExternalResourceKind};
+use azul::xml::{Xml, ExternalResourceKind};
 
 let html = r#"
     <html>
@@ -150,13 +131,13 @@ let html = r#"
         <style>@import "/print.css";</style>
       </head>
       <body>
-        <img src="/banner.png" srcset="/banner@2x.png 2x">
+        <img src="/banner.png">
         <a href="/manual.pdf">manual</a>
       </body>
     </html>
 "#;
 
-let doc = parse_xml(html).unwrap();
+let doc = Xml::from_str(html.into()).unwrap();
 let resources = doc.scan_external_resources();
 
 for r in resources.as_ref() {
@@ -167,19 +148,16 @@ for r in resources.as_ref() {
 }
 ```
 
-The classification heuristics live in `core/src/xml.rs:662-720`: extension first, then a `category` hint derived from the source element. Use it to bundle assets, prefetch fonts, or audit a third-party fragment before letting your renderer load anything from the network.
+`ExternalResource` carries `kind`, `mime_type`, `source_attribute`, `source_element`, and `url`. `ExternalResourceKind` is one of `Audio`, `Font`, `Icon`, `Image`, `Script`, `Stylesheet`, `Unknown`, `Video`. Use it to bundle assets, prefetch fonts, or audit a third-party fragment before letting your renderer load anything from the network.
 
 ## Components
 
-> **WIP** — the `ComponentMap` API in `core/src/xml.rs:2172` replaces the older `XmlComponentTrait`; the migration is partial. Treat names below as load-bearing but signatures as moving targets.
+> WIP. The component layer (`ComponentMap`, `ComponentId`) is the entry point for custom tags like `<my-card title="hi">…</my-card>`. The migration to it is partial.
 
-The XML format supports custom tags (`<my-card title="hi">…</my-card>`) that expand to user-defined components. Components are registered in a `ComponentMap`; each `ComponentId` is a `(collection, name)` pair so you can scope sets — `builtin:div`, `shadcn:avatar`, `myproject:my-card`. The parser does not instantiate components on its own; that step happens in `domxml_from_str` and is consumed by tooling like the `.azul` compile pipeline.
-
-For the standalone library use cases on this page (parsing, validation, resource scraping), the component layer can be ignored — call `parse_xml_string` or `parse_xml_to_styled_dom` directly and you get raw HTML semantics with no custom expansion.
+Each `ComponentId` is a `(collection, name)` pair so you can scope sets: `builtin:div`, `myproject:my-card`. The parser doesn't instantiate components on its own. For the standalone library use cases on this page (parsing, validation, resource scraping), the component layer can be ignored: call `Xml::from_str` or `Dom::from_parsed_xml` directly and you get raw HTML semantics with no custom expansion.
 
 ## When to choose which entry point
 
-- Need a generic XML tree to walk, mutate, or serialize → `parse_xml_string` / `parse_xml`.
-- Need to render the document headlessly or feed it to layout → `parse_xml_to_styled_dom`.
-- Need both styled output *and* the original tree — parse twice, or call `parse_xml_string` and convert via `domxml_from_str` (slower; allocates the intermediate tree).
-- Need to scan a document's outbound URLs → `parse_xml` then `Xml::scan_external_resources`.
+- Need a generic XML tree to walk, mutate, or serialize. Use `Xml::from_str`.
+- Need to render the document or feed it to layout. Use `Xml::from_str` then `Dom::from_parsed_xml` on the root.
+- Need to scan a document's outbound URLs. Use `Xml::from_str` then `scan_external_resources`.

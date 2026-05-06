@@ -16,6 +16,8 @@ last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T05:49:28Z
 ---
 
+# Flexbox
+
 `display: flex` lays out children along one axis and aligns them on the other.
 The axis is set by `flex-direction`; the rest of the properties decide how
 remaining space is distributed and where items align.
@@ -36,26 +38,19 @@ These apply to the element with `display: flex` (or `inline-flex`).
 
 ### `flex-direction`
 
-`LayoutFlexDirection` (`css/src/props/layout/flex.rs:250`):
+- `row` (default). Main axis is horizontal. Items run first to last.
+- `row-reverse`. Main axis is horizontal. Items run last to first.
+- `column`. Main axis is vertical. Items run first to last.
+- `column-reverse`. Main axis is vertical. Items run last to first.
 
-| value | main axis | order |
-|---|---|---|
-| `row` (default) | horizontal | first → last |
-| `row-reverse` | horizontal | last → first |
-| `column` | vertical | first → last |
-| `column-reverse` | vertical | last → first |
-
-`row` makes the *inline* axis the main axis; `column` makes the *block* axis the
-main axis. `LayoutFlexDirection::get_axis` and `is_reverse` expose this on the
-type.
+`row` makes the inline axis the main axis. `column` makes the block axis
+the main axis.
 
 ### `flex-wrap`
 
-```rust,ignore
-LayoutFlexWrap::NoWrap        // default — single line, items shrink to fit
-LayoutFlexWrap::Wrap          // overflow wraps to a new line
-LayoutFlexWrap::WrapReverse   // wraps in reverse cross-axis order
-```
+- `nowrap` (default). Single line. Items shrink to fit.
+- `wrap`. Overflow wraps to a new line.
+- `wrap-reverse`. Wraps in reverse cross-axis order.
 
 ```rust
 # fn body() -> &'static str {
@@ -67,40 +62,33 @@ LayoutFlexWrap::WrapReverse   // wraps in reverse cross-axis order
 # }
 ```
 
-### `justify-content` — main-axis alignment
+### `justify-content`: main-axis alignment
 
-`LayoutJustifyContent` (`css/src/props/layout/flex.rs:426`):
+`justify-content` distributes free space along the main axis:
 
-| value | distributes free space |
-|---|---|
-| `flex-start` / `start` (default) | at the end |
-| `flex-end` / `end` | at the start |
-| `center` | equally on both ends |
-| `space-between` | between items, none at ends |
-| `space-around` | half-space at ends, full between |
-| `space-evenly` | equal everywhere |
+- `flex-start` / `start` (default). Free space at the end.
+- `flex-end` / `end`. Free space at the start.
+- `center`. Free space split equally on both ends.
+- `space-between`. Space between items, none at ends.
+- `space-around`. Half-space at ends, full between.
+- `space-evenly`. Equal space everywhere.
 
-Default is `Start` (alias of `flex-start`). The CSS-Box-Alignment names
-(`start`, `end`) and the legacy flex names (`flex-start`, `flex-end`) parse to
-distinct enum variants but produce the same layout.
+The CSS-Box-Alignment names (`start`, `end`) and the legacy flex names
+(`flex-start`, `flex-end`) produce the same layout.
 
-### `align-items` — cross-axis alignment for every line
+### `align-items`: cross-axis alignment for every line
 
-`LayoutAlignItems` (`css/src/props/layout/flex.rs:517`):
+- `stretch` (default). Fills the cross axis.
+- `start` / `flex-start`. Aligns to cross-start.
+- `end` / `flex-end`. Aligns to cross-end.
+- `center`. Centres on cross axis.
+- `baseline`. Aligns text baselines.
 
-| value | effect |
-|---|---|
-| `stretch` (default) | fill the cross axis |
-| `start` / `flex-start` | align to cross-start |
-| `end` / `flex-end` | align to cross-end |
-| `center` | align centred |
-| `baseline` | align text baselines |
-
-### `align-content` — cross-axis alignment between lines
+### `align-content`: cross-axis alignment between lines
 
 Only takes effect when `flex-wrap: wrap` produces multiple lines.
-`LayoutAlignContent` (`css/src/props/layout/flex.rs:599`) accepts the same set as
-`align-items` plus `space-between` and `space-around`.
+`align-content` accepts the same set as `align-items` plus
+`space-between` and `space-around`.
 
 ### `gap`, `row-gap`, `column-gap`
 
@@ -121,13 +109,12 @@ These apply to children of a flex container.
 
 ### `flex-grow` and `flex-shrink`
 
-`LayoutFlexGrow` (`css/src/props/layout/flex.rs:25`) is a non-negative number;
-default `0`. `LayoutFlexShrink` (`css/src/props/layout/flex.rs:143`) is the
-mirror; default `1`.
+`flex-grow` is a non-negative number, default `0`. `flex-shrink` is its
+mirror, default `1`.
 
 When the container has free space on the main axis, items split it in
-proportion to `flex-grow`. When the container is *over*flowing, items shrink in
-proportion to `flex-shrink`.
+proportion to `flex-grow`. When the container is overflowing, items
+shrink in proportion to `flex-shrink`.
 
 ```rust
 # fn body() -> &'static str {
@@ -139,34 +126,24 @@ proportion to `flex-shrink`.
 # }
 ```
 
-`flex-grow: 0; flex-shrink: 0` pins an item to its `flex-basis` size — useful
-for sidebars and toolbars.
+`flex-grow: 0; flex-shrink: 0` pins an item to its `flex-basis` size.
+That's useful for sidebars and toolbars.
 
 ### `flex-basis`
 
-`LayoutFlexBasis` (`css/src/props/layout/flex.rs:783`):
+- `auto` (default). Uses `width` or `height`.
+- `<length>`. Fixed size before grow/shrink applies.
 
-```rust,ignore
-LayoutFlexBasis::Auto              // default — use width/height
-LayoutFlexBasis::Exact(PixelValue) // fixed size before grow/shrink applies
-```
+`flex-basis` is the size the item starts at before `flex-grow` or
+`flex-shrink` redistribute space. `auto` falls back to `width` (in `row`)
+or `height` (in `column`).
 
-`flex-basis` is the size the item starts at *before* `flex-grow` or
-`flex-shrink` redistribute space. `auto` falls back to `width` (in `row`) or
-`height` (in `column`).
+### `align-self`: override `align-items` for one item
 
-### `align-self` — override `align-items` for one item
+`align-self` accepts:
 
-`LayoutAlignSelf` (`css/src/props/layout/flex.rs:684`):
-
-```rust,ignore
-LayoutAlignSelf::Auto      // default — inherit container's align-items
-LayoutAlignSelf::Stretch
-LayoutAlignSelf::Start
-LayoutAlignSelf::End
-LayoutAlignSelf::Center
-LayoutAlignSelf::Baseline
-```
+- `auto` (default). Inherits the container's `align-items`.
+- `stretch`, `start`, `end`, `center`, `baseline`.
 
 ```rust
 # fn body() -> &'static str {

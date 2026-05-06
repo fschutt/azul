@@ -18,15 +18,9 @@ generated_at: 2026-05-02T12:00:00Z
 
 # SVG
 
-> **WIP** — SVG geometry types are stable; the higher-level `usvg`-backed
-> `Svg` parser and the GPU stroke pipeline still have rough edges.
+> WIP. SVG geometry types are stable. The higher-level `Svg` parser and the GPU stroke pipeline still have rough edges.
 
-SVG support in azul is built around a small, copy-friendly geometry model in
-`core/src/svg.rs`. You construct paths in memory (or parse them from a `d`
-string), tessellate them once, and either upload the result to a GPU buffer
-or rasterize it via the CPU SVG path. Higher-level XML-driven SVG (image
-embedding, gradients, full document parsing) goes through the `Svg`
-helper backed by `usvg`.
+SVG support in azul is built around a small, copy-friendly geometry model. You construct paths in memory, tessellate them once, and either upload the result to a GPU buffer or rasterize it via the CPU SVG path. Higher-level XML-driven SVG (image embedding, gradients, full document parsing) goes through the `Svg` helper.
 
 ## Geometry types
 
@@ -41,63 +35,19 @@ pub struct SvgPath { pub items: SvgPathElementVec }
 pub struct SvgMultiPolygon { pub rings: SvgPathVec }
 ```
 
-A `SvgPath` is one open or closed contour built from line and Bézier
-segments. Several paths combine into an `SvgMultiPolygon` — interior holes
-are represented by reversing the winding order of a ring (see
-`core/src/svg.rs:439`). The fill rule is `NonZero` by default; switch to
-`EvenOdd` via `SvgFillStyle` when interior overlaps need to cancel.
+An `SvgPath` is one open or closed contour built from line and Bézier segments. Several paths combine into an `SvgMultiPolygon`. Interior holes are represented by reversing the winding order of a ring. The fill rule defaults to `Winding`. Switch to `EvenOdd` via `SvgFillStyle.fill_rule` when interior overlaps need to cancel.
 
-`SvgNode` (`core/src/svg.rs:500`) wraps any of the above plus a couple of
-primitives so a single value can describe an entire `<path>` element:
+Construct a path with `SvgPath::create(items)` and a multi-polygon with `SvgMultiPolygon::create(rings)`. Inspect with `SvgPath::is_closed`, `get_start`, `get_end`, `get_bounds`. Modify with `SvgPath::close`, `reverse`, `join_with`.
 
-| Variant | Holds |
-|---|---|
-| `Path` | one contour |
-| `MultiPolygon` | a polygon with optional holes |
-| `MultiPolygonCollection` | many polygons rendered as one batch |
-| `MultiShape` | mixed paths, circles, rects, holes |
-| `Circle`, `Rect` | analytic primitives |
-
-## Parsing path data
-
-`parse_svg_path_d` (`core/src/svg_path_parser.rs:329`) takes the contents of
-an SVG `d=""` attribute and returns an `SvgMultiPolygon`. Every command
-described in the SVG 1.1 path grammar is supported, including arcs (`A`),
-which are converted to up to four cubic Béziers per quarter turn (the
-constant `KAPPA = 0.5522847498` is the standard quarter-circle Bézier
-approximation).
-
-```rust,no_run
-# use azul::svg::parse_svg_path_d;
-let polygon = parse_svg_path_d(
-    "M 10 80 C 40 10, 65 10, 95 80 S 150 150, 180 80"
-).expect("invalid path");
-```
-
-Implicit command repeats (e.g. multiple coordinate pairs after one `M`)
-work as in the spec: subsequent pairs after `M`/`m` become `L`/`l`. Errors
-surface as `SvgPathParseError`:
-
-| Variant | Means |
-|---|---|
-| `EmptyPath` | the input was whitespace only |
-| `UnexpectedChar { pos, ch }` | a non-command byte where one was expected |
-| `ExpectedNumber { pos }` | the parser hit a delimiter expecting a coordinate |
-| `InvalidArcFlag { pos }` | the large-arc / sweep flag was not 0 or 1 |
+`SvgRect` covers analytic rectangles with optional corner radii (`x`, `y`, `width`, `height`, `radius_top_left`, `radius_top_right`, `radius_bottom_left`, `radius_bottom_right`). Use `SvgRect::expand`, `get_center` for layout helpers.
 
 ## Closed and open paths
 
-`SvgPath::is_closed()` returns `true` when the last segment's end equals
-the first segment's start. `close()` appends an explicit line segment if
-the path is not already closed (matching the SVG `Z` command). Tessellation
-treats open paths as strokes only — a fill on an open path produces an
-empty triangle list.
+`SvgPath::is_closed()` returns `true` when the last segment's end equals the first segment's start. `close()` appends an explicit line segment if the path isn't already closed (matching the SVG `Z` command). Tessellation treats open paths as strokes only. A fill on an open path produces an empty triangle list.
 
 ## Tessellation
 
-A polygon becomes triangles via the `tessellate_fill` and
-`tessellate_stroke` methods on `SvgMultiPolygon`. Each returns a
-`TessellatedSvgNode` (`core/src/svg.rs:740`):
+A polygon becomes triangles via `tessellate_fill` and `tessellate_stroke` on `SvgMultiPolygon`. Each returns a `TessellatedSvgNode`:
 
 ```rust,ignore
 pub struct TessellatedSvgNode {
@@ -106,9 +56,13 @@ pub struct TessellatedSvgNode {
 }
 ```
 
-Tessellation tolerance defaults to `0.1` CSS pixels — finer than that adds
-vertices without visible benefit. Set a larger value for far-away or
-small-on-screen polygons:
+`SvgFillStyle` controls fill behavior:
+
+- `fill_rule: SvgFillRule`. `Winding` (default) or `EvenOdd`.
+- `tolerance: f32`. Curve subdivision tolerance in CSS pixels.
+- `anti_alias: bool`, `high_quality_aa: bool`.
+- `line_join: SvgLineJoin`, `miter_limit: f32`.
+- `transform`. An optional pre-tessellation transform.
 
 ```rust,no_run
 # use azul::svg::{SvgFillStyle, SvgMultiPolygon};
@@ -120,72 +74,39 @@ let mesh = polygon().tessellate_fill(style);
 
 Stroke options live in `SvgStrokeStyle`:
 
-| Field | Meaning |
-|---|---|
-| `line_width` | stroke width in user units |
-| `start_cap` / `end_cap` | `Butt`, `Square`, `Round` |
-| `line_join` | `Miter`, `MiterClip`, `Round`, `Bevel` |
-| `miter_limit` | ratio of miter length to stroke width (default `4.0`) |
-| `dash_pattern` | optional `SvgDashPattern` for dashed strokes |
+- `line_width`. Stroke width in user units.
+- `start_cap` / `end_cap`. `SvgLineCap::Butt`, `SvgLineCap::Square`, `SvgLineCap::Round`.
+- `line_join`. `SvgLineJoin::Miter`, `MiterClip`, `Round`, `Bevel`.
+- `miter_limit`. Ratio of miter length to stroke width.
+- `dash_pattern`. Optional `SvgDashPattern` for dashed strokes.
 
 ## Drawing on the GPU
 
-Once tessellated, a node can be uploaded once and drawn many times by
-wrapping it in a `TessellatedGPUSvgNode`:
+Once tessellated, a node can be uploaded once and drawn many times by wrapping it in a `TessellatedGPUSvgNode`:
 
 ```rust,no_run
 # use azul::svg::*;
 # use azul::gl::GlContextPtr;
 # fn ctx() -> GlContextPtr { panic!() }
 # fn mesh() -> TessellatedSvgNode { panic!() }
-let gpu_mesh = TessellatedGPUSvgNode::new(&mesh(), ctx());
+let gpu_mesh = TessellatedGPUSvgNode::create(&mesh(), ctx());
 ```
 
-Per-frame drawing happens inside an image-rendering callback (see
-[Canvas and GL Textures](canvas-gl.md)) by calling
-`Texture::draw_tesselated_svg_gpu_node`, optionally with a transform list
-to translate, rotate, or scale the geometry.
-
-## Drawing on the CPU
-
-Two helpers in `core/src/svg_path_parser.rs` build common shapes without
-parsing:
-
-| Function | Returns |
-|---|---|
-| `svg_circle_to_paths(cx, cy, r)` | one `SvgPath` (4 cubic Béziers, kappa-approximated) |
-| `svg_rect_to_path(x, y, w, h, rx, ry)` | a rectangle with optional corner radii |
-
-Both produce `SvgPath`, the same type your tessellator consumes. CPU
-rasterization is performed by the layout crate when the geometry is set as
-a node-data SVG attribute; this path is a good fallback for printing,
-testing, and headless rendering.
+Per-frame drawing happens inside an image-rendering callback (see [Canvas and GL Textures](canvas-gl.md)) by calling `Texture::draw_tesselated_svg_gpu_node`, optionally with a transform list to translate, rotate, or scale the geometry.
 
 ## XML-level SVG
 
-`Svg` and `SvgXmlNode` (`core/src/svg.rs:1268`/`:1262`) are opaque handles
-to a `usvg` document. The crate-internal `parse_svg` constructor reads a
-full SVG document with `SvgParseOptions`:
+`Svg` is a handle to a parsed SVG document. The constructors `Svg::from_string` and `Svg::from_bytes` read a full SVG document with `SvgParseOptions`:
 
-| Option | Default |
-|---|---|
-| `dpi` | `96.0` |
-| `default_font_family` | `"Times New Roman"` |
-| `font_size` | `12.0` |
-| `shape_rendering` | `GeometricPrecision` |
-| `text_rendering` | `OptimizeLegibility` |
-| `image_rendering` | `OptimizeQuality` |
-| `fontdb` | `System` |
+- `dpi`. Default `96.0`.
+- `default_font_family`.
+- `font_size`.
+- `shape_rendering`, `text_rendering`, `image_rendering`.
+- `fontdb`.
+- `keep_named_groups`, `languages`, `relative_image_path`.
 
-The result is rendered to a `RawImage` via `SvgRenderOptions`, which lets
-you fix the output size (`SvgFitTo::Width`, `SvgFitTo::Height`,
-`SvgFitTo::Zoom`) or use the document's intrinsic viewport. Wrap the
-returned image in `ImageRef::new_rawimage` and insert it like any other
-raster image.
+The result is rendered to a `RawImage` via `SvgRenderOptions`, which lets you fix the output size (`SvgFitTo::Width`, `SvgFitTo::Height`, `SvgFitTo::Zoom`, `SvgFitTo::Original`) or use the document's intrinsic viewport, plus `target_size`, `background_color`, and `transform`. Wrap the returned image in `ImageRef::new_rawimage` and insert it like any other raster image.
 
 ## Combining many polygons
 
-`TessellatedSvgNode::from_nodes` flattens a slice of meshes into a single
-vertex/index buffer. This matters for performance when drawing thousands
-of tiny polygons (for example, the `opengl` example tessellates thousands
-of map polygons and uploads exactly one fill mesh and one stroke mesh).
+`TessellatedSvgNode::from_nodes` flattens a slice of meshes into a single vertex/index buffer. This matters for performance when drawing thousands of tiny polygons (for example, the `opengl` example tessellates thousands of map polygons and uploads exactly one fill mesh and one stroke mesh).

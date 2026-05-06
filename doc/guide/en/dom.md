@@ -12,10 +12,7 @@ prerequisites: [architecture/understanding-refany]
 tracked_files:
   - core/src/dom.rs
   - core/src/styled_dom.rs
-  - core/src/compact_cache_builder.rs
   - core/src/xml.rs
-  - css/src/compact_cache.rs
-  - dll/src/desktop/shell2/common/debug_server.rs
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T05:53:30Z
 ---
@@ -26,7 +23,8 @@ Azul's DOM is data-oriented. Internally it lives as parallel arrays. There's
 a `NodeHierarchyItemVec` (each entry is a `NodeHierarchyItem` with `parent`,
 `previous_sibling`, `next_sibling`, and `last_child` indices) and a parallel
 `NodeDataVec` of `NodeData`. That's the format the layout engine actually
-consumes.
+consumes. The framework converts your `Dom` into this flat form internally.
+You don't construct the flat arrays yourself.
 
 The DOM is also frozen the moment you return it from `layout()`. There's no
 `appendChild`. There's no `setAttribute`. There are no mutation observers.
@@ -36,11 +34,8 @@ build a fresh `Dom` from your application data, and the previous tree is
 diffed against the new one. See
 [Reconciliation, Diffing, and Lazy Paint](dom/reconciliation.md).
 
-You build the tree in one of two shapes. `Dom` is a recursive value: a
-`NodeData` root plus a `DomVec` of children. It's easy to write by hand.
-`FastDom` is the flat-arena form, the same parallel arrays the framework
-uses internally. It skips the tree-to-arena conversion. The XML parser
-emits this form.
+You build the tree as a recursive `Dom` value: a `NodeData` root plus a
+`DomVec` of children.
 
 State that has to survive a tree rebuild (a video decoder, a GL texture,
 the cursor inside a focused input) doesn't live in the tree. It hangs off
@@ -54,10 +49,9 @@ let dom: Dom = Dom::create_body()
     .with_child(Dom::p_with_text("A paragraph."));
 ```
 
-This page covers the type definitions, both build shapes, how CSS is
-attached, when it actually applies, XML loading, clipping, and the live
-debugger. Reusable fragments are covered separately in
-[Components](dom/components.md).
+This page covers the type definitions, how CSS is attached, when it
+actually applies, XML loading, clipping, and the live debugger. Reusable
+fragments are covered separately in [Components](dom/components.md).
 
 ## `Dom` and `NodeData`
 
@@ -81,40 +75,12 @@ A `Dom` is a subtree. Its root is a `NodeData`. `NodeData` (also in
   conditional rules like `:hover` and `@theme dark`.
 - `flags: NodeFlags`. Packed bits for tab index, contenteditable, anonymous.
 - `accessibility: Option<Box<AccessibilityInfo>>`. ATK/MSAA payload, optional.
-- `extra: Option<Box<NodeDataExt>>`. Less-common state, boxed so the common
-  case stays small.
-
-`NodeDataExt` is where attributes, dataset, virtual-view payload, menus,
-SVG data, key, merge callback, and component-origin marker all live. About
-95% of nodes don't have any of these, so the box stays unallocated.
+- `extra`. Less-common state (attributes, dataset, virtual-view payload,
+  menus, merge callback) boxed so the common case stays small. About 95%
+  of nodes don't have any of these, so the box stays unallocated.
 
 Every builder method on `Dom` (like `with_class` or `with_callback`) is a
 shorthand that delegates to the same method on `self.root`.
-
-## `FastDom`: the flat-arena form
-
-`FastDom` (also in `core/src/dom.rs`) holds the arena form directly:
-
-```rust,ignore
-pub struct FastDom {
-    pub node_hierarchy: NodeHierarchyItemVec,
-    pub node_data: NodeDataVec,
-    pub css: CssWithNodeIdVec,
-}
-```
-
-The two vectors are parallel. Index `i` in `node_hierarchy` describes the
-parent and sibling links for the node whose data is at index `i` in
-`node_data`. The `css` field holds stylesheets keyed by node id, so a
-`<style>` block found inside `<head>` can be associated with the right
-scope.
-
-Use `Dom` for hand-written UI. Use `FastDom` when the source is already
-flat. XML and JSON inputs are typical cases. Going via the recursive `Dom`
-would just allocate a tree that immediately gets flattened.
-`StyledDom::create_from_fast_dom()` (in `core/src/styled_dom.rs`) consumes
-the arena directly. `FastDom::into_dom()` goes the other way if you need
-to splice the result into a hand-written tree.
 
 ## Node constructors
 
@@ -184,9 +150,7 @@ let c: Dom = (0..3).map(|i| Dom::li_with_text(format!("Item {}", i))).collect();
 
 `with_child` calls `add_child`, which pushes onto the underlying `Vec` and
 updates `estimated_total_children`. That's amortised O(1) per call.
-`with_children(DomVec)` is one allocation total. For really wide trees
-built from a flat data source, build a `FastDom` instead. One big
-allocation beats N small ones.
+`with_children(DomVec)` is one allocation total.
 
 `estimated_total_children` is maintained by every `add_child` and
 `set_children` call. The framework reads it to pre-size the flat arena
@@ -219,43 +183,27 @@ serialization.
 
 ## Clipping a node
 
-Three mechanisms, one for each shape of clip region:
+Two public mechanisms cover the common cases:
 
 - `with_clip_mask(ImageMask)` takes a raster alpha mask. Use it for
   irregular shapes that already exist as image data.
-- `with_svg_clip_path(SvgMultiPolygon)` takes a vector clip path. Same
-  geometry the SVG renderer uses for `<clipPath>`.
 - `with_css("clip-path: ...;")` parses the CSS property into the node's
   inline-CSS list. Applied during the cascade.
 
 ```rust,no_run
 # use azul::prelude::*;
-# use azul::svg::SvgMultiPolygon;
-# fn build(mask: ImageMask, polygon: SvgMultiPolygon) -> Dom {
+# fn build(mask: ImageMask) -> Dom {
 let raster = Dom::create_image(ImageRef::null_image(0, 0, RawImageFormat::R8, U8VecRef::from(&[][..])))
     .with_clip_mask(mask);
-
-let vector = Dom::create_div()
-    .with_svg_clip_path(polygon);
 
 let css_form = Dom::create_div()
     .with_css("clip-path: circle(40px at 50% 50%);");
 
-# Dom::create_body().with_child(raster).with_child(vector).with_child(css_form)
+# Dom::create_body().with_child(raster).with_child(css_form)
 # }
 ```
 
-All three end up at the same place inside the renderer. `with_clip_mask`
-stores an `ImageMask` on the SVG-data slot. `with_svg_clip_path` stores
-an `SvgNodeData::Path` on the same slot. CSS `clip-path` parses to a
-`ClipPathValue` during the cascade. The display-list builder reads the
-slot when it builds the clip stack for the subtree, so a `clip-path` set
-on a parent applies to every descendant.
-
-`with_svg_clip_path` is the seam to the SVG side. Parsed `<svg>` content
-arrives as `SvgMultiPolygon` values (in `core/src/svg.rs`), and the same
-value can drive either the SVG renderer or a regular DOM node's clip
-region.
+A `clip-path` set on a parent applies to every descendant.
 
 ## CSS: per-node and per-subtree
 
@@ -304,79 +252,36 @@ CSS as opaque state:
 - Per-node: a `CssPropertyWithConditionsVec` (parsed but not cascaded).
 - Per-subtree: a `CssVec` of parsed-but-unmerged stylesheets.
 
-The cascade runs once, after the layout callback returns, in
-`StyledDom::create_from_dom()` (in `core/src/styled_dom.rs`). The steps
-are:
+The cascade runs once after your layout callback returns. CSS work
+inside `layout()` is cheap because each operation is just a parse and a
+push. Selector matching, inheritance, and the compact cache build all
+run once after you return.
 
-1. Collect every `Dom::style(...)` `Css` from the recursive tree.
-2. Strip the now-collected CSS from the nodes so it doesn't apply twice.
-3. Flatten the recursive `Dom` into the parallel-array form.
-4. Merge the collected stylesheets in push order.
-5. Match selectors against the flattened tree, fold in `apply_ua_css` and
-   `compute_inherited_values`.
-6. Build the compact cache via `build_compact_cache` (in
-   `core/src/compact_cache_builder.rs`).
-
-The compact cache is the "CSS compression" pass. A naive cascade output
-would be a `BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>`. The
-compact cache (in `css/src/compact_cache.rs`) re-encodes the layout-hot
-subset into packed tiers:
-
-- Tier 1: `Vec<u64>`. 21 enum properties bit-packed into 8 B per node.
-  Includes `display`, `position`, `float`, `overflow_x/y`, `flex_direction`,
-  `justify_content`, `align_items`, `font_weight`, `text_align`, and others.
-- Tier 2 hot: `Vec<CompactNodeProps>`. Layout-critical numeric dimensions
-  in 68 B per node. `width`, `height`, `padding`, `margin`, `border`,
-  `flex_basis`, and so on.
-- Tier 2 cold: `Vec<CompactNodePropsCold>`. Paint-only properties in 28 B
-  per node. Color, opacity, others.
-- Tier 2b: `Vec<CompactTextProps>`. Text and IFC properties in 24 B per
-  node.
-
-Layout reads the compact cache directly. No map lookups, no enum-tag
-dispatch on hot paths. Less common properties (background, box-shadow,
-transform) stay in the slow cascade path. The layout engine doesn't need
-them.
-
-For you, the API consumer, this means CSS operations inside `layout()`
-are cheap. Each one is one parse and one push. The expensive work
-(selector matching, inheritance, compact cache) runs once after you
-return.
+For the internal cache layout that the layout engine reads, see
+[internals/compact-cache.md](internals/compact-cache.md).
 
 ## Loading XML and XHTML
 
-XML/XHTML parsing has two entry points. `str_to_dom_unstyled` (in
-`core/src/xml.rs`) returns a `Dom` you can return from `layout()`:
+`Dom::from_parsed_xml` is the public entry point. Pass it an `Xml`
+value and you get a `Dom` back, ready to return from `layout()`:
 
 ```rust,no_run
 # use azul::prelude::*;
-# use azul_core::xml::{Xml, ComponentMap, str_to_dom_unstyled};
-# use azul_layout::xml::parse_xml;
 # let xml_text = "";
-let parsed: Xml = parse_xml(xml_text).unwrap();
-let components = ComponentMap::default();
-let dom: Dom = str_to_dom_unstyled(parsed.root.as_ref(), &components).unwrap();
+let parsed = Xml::from_str(xml_text.into()).unwrap();
+let dom: Dom = Dom::from_parsed_xml(parsed);
 ```
-
-`str_to_dom` is the related entry point that goes through `FastDom`
-internally and returns a fully-styled `StyledDom`. Use it for one-shot
-rendering outside a window.
 
 The XML parser walks `<html><head><style>...</style></head><body>...</body>`,
 parses each `<style>` block into a `Css`, and attaches it scoped to the
 node it was found inside. The cascade runs on the next layout pass like
 any other DOM.
 
-`<svg>` content embedded in XHTML flows through the same path. The
-parser recognises SVG tags. The resulting nodes carry `SvgNodeData` on
-their extra-state slot. A `clip-path` attribute on an XHTML element
-resolves the same way a CSS `clip-path:` property would.
-
 `ComponentMap` is the registry of XML-defined components. See
 [Components](dom/components.md#component-packs) for how the framework
 looks up `<card title="..."/>` against a registered library.
 
-## Callbacks, keys, datasets, virtual views
+## Callbacks, datasets, virtual views
 
 ```rust,no_run
 # use azul::prelude::*;
@@ -393,17 +298,14 @@ Dom::create_button_no_a11y("+1".into())
 ```
 
 `with_callback(filter, data, callback)` attaches a `RefAny` and a function
-pointer. The handler fires when the matching event reaches the node. The
-`On` enum (in `core/src/dom.rs`) is a shorthand: `On::MouseUp.into()` is
-the same as `EventFilter::Hover(HoverEventFilter::MouseUp)`. Event
-filtering, propagation order, and the `CallbackInfo` API are covered in
-[Events and Input](events.md).
+pointer. The handler fires when the matching event reaches the node.
+Event filtering, propagation order, and the `CallbackInfo` API are
+covered in [Events and Input](events.md).
 
-`with_key(k)` stamps a node with a hashable key so reconciliation can
-match it to the prior frame's node when sibling order changes. Without
-keys, diffing falls back to a structural-hash match. That's still
-correct, but it loses cursor position, focus, and dataset state when
-items reorder.
+The framework's reconciler matches new nodes against old ones when you
+return a fresh tree. Cursor position, focus, and dataset state migrate
+across the diff for matched nodes. See
+[Reconciliation](dom/reconciliation.md).
 
 `with_dataset(OptionRefAny)` attaches arbitrary user data to a node.
 Callbacks read it via `CallbackInfo::get_dataset`. The dataset is the
@@ -430,12 +332,10 @@ walkthrough.
 
 ## Inspecting a live tree: `AZ_DEBUG`
 
-When `AZ_DEBUG=<port>` is set, `App::create` starts an HTTP debug server
-on that port (defined in
-`dll/src/desktop/shell2/common/debug_server.rs`). It accepts JSON
-commands and returns JSON responses, all serialised on the timer
-callback. The inspector sees the same tree the renderer is about to
-draw.
+When `AZ_DEBUG=<port>` is set, `App::create` starts an HTTP debug
+server on that port. It accepts JSON commands and returns JSON
+responses, all serialised on the timer callback. The inspector sees
+the same tree the renderer is about to draw.
 
 ```bash
 AZ_DEBUG=8765 cargo run --bin my_app
@@ -454,9 +354,8 @@ curl -X POST http://localhost:8765/ -d '{"type":"text_input", "text":"hello"}'
 ```
 
 The `get_node_hierarchy` response carries a `component` field for each
-node. It's populated from the node's `ComponentOrigin` (in
-`core/src/dom.rs`). The inspector uses it to draw a Component Tree
-alongside the DOM Tree:
+node so you can navigate to the component that produced it. The
+inspector uses it to draw a Component Tree alongside the DOM Tree:
 
 ```json
 {
@@ -479,15 +378,7 @@ library wires its components into the registry.
 
 ## Where to read the source
 
-- `core/src/dom.rs`: `Dom`, `FastDom`, `NodeData`, `NodeDataExt`,
-  `NodeType`, `AttributeType`, `On`, `ComponentOrigin`, the builder
-  methods.
-- `core/src/styled_dom.rs`: `NodeHierarchyItem`, `create_from_dom`,
-  `create_from_fast_dom`.
-- `core/src/compact_cache_builder.rs`: `build_compact_cache`.
-- `css/src/compact_cache.rs`: `CompactNodeProps`, `CompactNodePropsCold`,
-  `CompactTextProps`, the three-tier numeric encoding.
-- `core/src/xml.rs`: `str_to_dom_unstyled`, `str_to_dom`,
-  `render_dom_from_body_node_fast`.
-- `dll/src/desktop/shell2/common/debug_server.rs`: the `AZ_DEBUG` HTTP
-  server.
+- `core/src/dom.rs`: `Dom`, `NodeData`, `NodeType`, `AttributeType`,
+  the builder methods.
+- `core/src/styled_dom.rs`: `StyledDom` and `NodeHierarchyItem`.
+- `core/src/xml.rs`: `Dom::from_parsed_xml` and the XML parser.

@@ -17,22 +17,19 @@ last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T12:00:00Z
 ---
 
-# Text Input and Contenteditable
+# Text Input
+> **WIP.** The text-input runtime is wired but several pieces are still missing. macOS IME / CJK support is incomplete. APIs may change.
 
-> **WIP.** The text-input runtime is wired but several pieces are still missing: macOS lacks `NSTextInputClient` conformance (CJK / IME does not work), text from the default callback is appended at the end rather than inserted at `cursor_pos`, and `TextInputState::max_len` is not enforced. APIs may change. The shapes below are the current ones.
+There are two ways to make text editable:
 
-Two ways to make text editable in Azul:
+- The [`TextInput`](#the-textinput-widget) widget: a single-line input field with platform-native styling, placeholder, focus border, and blinking cursor.
+- The [`contenteditable`](#the-contenteditable-flag) flag on any DOM node: for code-editor lines, multi-line text areas, or rich-text spans.
 
-| API | Use when |
-|---|---|
-| [`TextInput`](#the-textinput-widget) widget | You want a single-line input field with platform-native styling, placeholder, focus border, blinking cursor. |
-| [`NodeData::set_contenteditable(true)`](#the-contenteditable-flag) | You want any DOM node to accept keyboard editing — code editor lines, multi-line text areas, rich-text spans. |
-
-Both share the same event plumbing: a focused, contenteditable node receives `Focus(TextInput)` and `Focus(VirtualKeyDown)` events, and the framework applies the resulting edits through an incremental display-list path that does **not** re-run the layout callback.
+Both share the same event plumbing. A focused, editable node receives `Focus(TextInput)` and `Focus(VirtualKeyDown)` events. IME composition is handled by the platform shell; from your callback's point of view, you receive the produced character once composition commits.
 
 ## The `TextInput` widget
 
-`layout/src/widgets/text_input.rs:539`. `TextInput::create()` returns a default-styled widget; `dom()` consumes it into a `Dom`.
+`TextInput::create()` returns a default-styled widget; `dom()` consumes it into a `Dom`.
 
 ```rust,no_run
 # use azul::prelude::*;
@@ -43,17 +40,15 @@ let input = TextInput::create()
     .dom();
 ```
 
-The produced subtree is a `<div tabindex="0">` container with three children: a placeholder text node, a label text node holding the buffer, and an absolutely-positioned cursor `<div>`. The container carries the focus border, padding, and `overflow: hidden`.
+The produced subtree is a focusable container with a placeholder text node, a label text node holding the buffer, and a cursor.
 
 ### Wiring callbacks
 
 Three optional callbacks fire in addition to the default key/text handlers:
 
-| setter | fires on | callback signature |
-|---|---|---|
-| `with_on_text_input(data, cb)` | every accepted character | `extern "C" fn(RefAny, CallbackInfo, TextInputState) -> OnTextInputReturn` |
-| `with_on_virtual_key_down(data, cb)` | non-text keys (arrows, backspace) | same as above |
-| `with_on_focus_lost(data, cb)` | focus moved elsewhere | `extern "C" fn(RefAny, CallbackInfo, TextInputState) -> Update` |
+- `with_on_text_input(data, cb)`: fires for every accepted character. Signature: `extern "C" fn(RefAny, CallbackInfo, TextInputState) -> OnTextInputReturn`.
+- `with_on_virtual_key_down(data, cb)`: fires for non-text keys (arrows, backspace). Same signature.
+- `with_on_focus_lost(data, cb)`: fires when focus moves elsewhere. Signature: `extern "C" fn(RefAny, CallbackInfo, TextInputState) -> Update`.
 
 ```rust,no_run
 # use azul::prelude::*;
@@ -76,77 +71,57 @@ let dom = azul::widgets::TextInput::create()
     .dom();
 ```
 
-`OnTextInputReturn::valid` is the gate that lets the application reject a character (e.g. "only digits"). Returning `TextInputValid::No` causes the widget to roll back the edit before mutating the DOM. `OnTextInputReturn::update` follows the usual `Update` semantics from [Events and Input](events.md).
+`OnTextInputReturn::valid` is the gate that lets you reject a character (e.g. "only digits"). Returning `TextInputValid::No` rolls back the edit before mutating the DOM. `OnTextInputReturn::update` follows the usual `Update` semantics from [Events](events.md).
 
 ### `TextInputState`
 
-```rust,ignore
-use azul::widgets::TextInputState;
-fn fields(s: TextInputState) {
-    let _: U32Vec       = s.text;          // chars as u32, FFI-friendly
-    let _: OptionString = s.placeholder;
-    let _: usize        = s.max_len;
-    let _: usize        = s.cursor_pos;
-}
-```
+`TextInputState` carries:
 
-`get_text() -> String` reconstructs a normal Rust string from the `u32` buffer. The `selection` field exists but is not yet read by the default callbacks — text input ignores selection state today.
+- `text: U32Vec` (characters as `u32`, FFI-friendly).
+- `placeholder: OptionString`.
+- `max_len: usize`.
+- `cursor_pos: usize`.
+- `selection: TextInputSelection`.
+
+`TextInputState::get_text()` reconstructs a normal Rust string from the buffer.
 
 ## The `contenteditable` flag
 
-`NodeData::set_contenteditable(true)` (or `with_contenteditable(true)` for builders) marks any node as an editable region. The flag is a packed bit on `NodeFlags`, not a string attribute, so the cost of checking it is one shift-and-mask:
+`NodeData::set_contenteditable(true)` (or `Dom::with_contenteditable(true)` for builders) marks any node as an editable region:
 
 ```rust,no_run
 # use azul::prelude::*;
-let mut line = Dom::create_div();
-line.set_contenteditable(true);
-line.set_inline_style("tabindex: 0");
+let line = Dom::create_div()
+    .with_contenteditable(true)
+    .with_tab_index(TabIndex::Auto);
 ```
 
-Once the node has focus and the `contenteditable` bit is set, every printable key press the OS produces (after shaping by the keyboard layout) is delivered as a `PendingTextEdit` and applied to the inline content of that node. No widget code is involved — the platform shell records the edit, the layout managers compute the changeset, and the renderer consumes it.
+Once the node has focus and the contenteditable bit is set, every printable key press the OS produces is delivered to that node. The platform shell records the edit, the framework computes the changeset, and the renderer consumes it.
 
-### How edits avoid a full re-layout
+### Edits avoid a full re-layout
 
-Text edits run through an **incremental display-list path** that bypasses the user's `layout_callback`. The motivation: if every keystroke triggered a full DOM rebuild, the user-supplied callback would return a fresh DOM with the *original* text and overwrite the edit. The path is documented in `scripts/TEXT_INPUT_ARCHITECTURE_V4.md`.
+Text edits run through an incremental display-list path that bypasses the user's `layout_callback`. The motivation: if every keystroke triggered a full DOM rebuild, the layout callback would return a fresh DOM with the original text and overwrite the edit.
 
 The framework distinguishes three levels of post-event work:
 
-| level | trigger | layout_callback runs? |
-|---|---|---|
-| `RequestRedraw` | scroll offsets, GPU transforms | no |
-| `UpdateDisplayList` | text edits, incremental relayout | no |
-| `RegenerateDisplayList` | `Update::RefreshDom`, focus changes that move the DOM, hit-tester invalidation | yes |
+- Redraw only: scroll offsets, GPU transforms. Layout callback doesn't run.
+- Display-list update: text edits, incremental relayout. Layout callback doesn't run.
+- Full regeneration: `Update::RefreshDom`, focus changes that move the DOM. Layout callback runs.
 
-A keystroke that does not change line dimensions takes the second path: the text cache is patched in place, the display list is regenerated from the *existing* layout tree, and a transaction is sent to WebRender. A keystroke that changes the line's measured width (e.g. inserting a wide glyph) escalates to `ShouldIncrementalRelayout`, which re-runs solver3 on the existing styled DOM but still does not call `layout_callback`.
+Returning `Update::RefreshDom` from a text-input callback forces the third path. Do this only when the edit changes something the layout callback needs to see, such as adding a new sibling node or hiding a section.
 
-Returning `Update::RefreshDom` from a text-input callback forces the third path. Do this only when the edit changes something the layout callback needs to see — adding a new sibling node, hiding a section, etc.
+## The double-update pattern
 
-## Multi-cursor
+Because the layout callback is bypassed during a text edit, your application model and the live DOM can drift out of sync if you only write to one of them. The double-update pattern keeps both in sync:
 
-`MultiCursorState` (`core/src/selection.rs:255`) is the Sublime-style multi-cursor type used by contenteditable nodes:
+1. Inside `on_text_input`, write the new text to your `RefAny` model so a future re-layout reads the right value.
+2. Update the node's dataset with `Dom::with_dataset` (set during layout) and a `DatasetMergeCallback` so the in-place display list patch reflects the edit.
 
-```rust,ignore
-use azul_core::selection::*;
-use azul_core::dom::DomNodeId;
-fn make(node: DomNodeId, primary: TextCursor) {
-    let mut state = MultiCursorState::new_with_cursor(primary, node, /* ce_key */ 0);
-    let _id: SelectionId = state.add_cursor(primary);   // Ctrl+Click
-    state.move_all_cursors(false, |c| *c);              // typing, motion, ...
-    state.merge_overlapping();
-}
-```
-
-Each cursor / range carries a stable `SelectionId` so external code can refer to a specific cursor across edits. The **primary** cursor — the one used for IME composition, scroll-into-view, and clipboard target — is always the last entry in `selections`. Mutations call `merge_overlapping()` to maintain the "sorted, non-overlapping" invariant.
-
-`MultiCursorState::remap_node_ids` rewrites the stored `node_id` after a DOM rebuild reassigns `NodeId` values; if the previous node is gone the state clears itself. This is what keeps a contenteditable's cursor alive across a `RefreshDom`.
-
-## Cursor blink and animation
-
-`TextInputStateWrapper::cursor_animation: OptionTimerId` holds the timer that toggles cursor opacity. The widget registers this timer when the container receives focus and tears it down on focus loss. Timers survive the incremental display-list path; if focus triggers a full DOM regeneration, the timer ID is re-mapped along with the node.
+The widget's internal callbacks already do this for you. If you write a custom contenteditable that maintains its own buffer, mirror both.
 
 ## Reading edits inside a callback
 
-`CallbackInfo::get_text_changeset()` returns `Option<&PendingTextEdit>` — the framework's record of "this is what the OS produced since the last frame". The widget consults this rather than the deprecated `keyboard_state.current_char`:
+`CallbackInfo::get_text_changeset()` returns the current `PendingTextEdit`:
 
 ```rust,no_run
 # use azul::prelude::*;
@@ -158,34 +133,30 @@ extern "C" fn on_key(_data: RefAny, info: CallbackInfo) -> Update {
 }
 ```
 
-`change_node_text(node_id, text)` is the corresponding write side: it replaces the text content of a node and queues an incremental display-list update. The `TextInput` widget calls it from the default text callback (`text_input.rs:1038`).
+`CallbackInfo::change_node_text(node_id, text)` is the corresponding write side. It replaces the text content of a node and queues an incremental display-list update.
 
 ## Default actions
 
 These keystrokes are handled by the framework after every callback returns, unless a callback called `info.prevent_default()`:
 
-| key | effect on contenteditable |
-|---|---|
-| Backspace | delete grapheme before the primary cursor |
-| Delete | delete grapheme after the primary cursor |
-| Left/Right arrow | move cursor by one grapheme |
-| Home/End | move cursor to line start/end |
-| Ctrl+Home / Ctrl+End | move cursor to document start/end |
-| Ctrl+A | select all (scoped to the focused contenteditable) |
-| Escape | collapse multi-cursor to primary |
+- Backspace: delete the grapheme before the cursor.
+- Delete: delete the grapheme after the cursor.
+- Left/Right arrow: move the cursor by one grapheme.
+- Home/End: move the cursor to line start/end.
+- Ctrl+Home / Ctrl+End: move the cursor to document start/end.
+- Ctrl+A: select all (scoped to the focused contenteditable).
+- Escape: collapse selection.
 
-Suppress with `info.prevent_default()` to override; the rest of the callback chain still runs (W3C semantics — see [Events and Input](events.md#default-actions)).
+Suppress with `info.prevent_default()` to override. The rest of the callback chain still runs (W3C semantics; see [Events](events.md#default-actions)).
 
 ## Where it goes wrong
 
-- **macOS: typing CJK or dead keys produces nothing.** `NSTextInputClient` conformance is not declared on `GLView` / `CPUView`, so `interpretKeyEvents:` is bypassed and IME composition never starts. ASCII works because the shell extracts the character directly from the `NSEvent`. Tracked in `scripts/TEXT_INPUT_ARCHITECTURE_V4.md`.
-- **Default `TextInput` callback ignores `cursor_pos`.** `text_input.rs:1029` always appends with `internal.extend(...)`. To insert at the caret, install your own `on_text_input` that splices into `TextInputState::text` at `cursor_pos`.
-- **Default backspace removes the last char, not the one before `cursor_pos`.** Same root cause (`text_input.rs:1066` calls `internal.pop()`).
-- **`max_len` is set but never enforced.** Add a length check in your `on_text_input` and return `TextInputValid::No` when the buffer is full.
-- **First click positions the cursor at the start, not at the click.** The cursor is initialised at end-of-text in `finalize_pending_focus_changes`. The `ProcessTextSelectionClick` system change can fire before focus is granted on the first click, so the click misses. Subsequent clicks behave normally.
-- **`TextInputSelection` / `TextInputSelectionRange` are dead types.** They appear in the public API but are never read; selection inside a `TextInput` widget is not wired through. Multi-node selection (drag across nodes) goes through `TextSelection` instead — see [Text Selection](text-selection.md).
+- **Edit lost after `RefreshDom`.** The layout callback rebuilt the DOM with stale text. Either keep the contenteditable subtree out of the rebuild, or apply the double-update pattern so the rebuild reads from the same model the edit wrote to.
+- **`max_len` is not enforced.** Add a length check in your `on_text_input` and return `TextInputValid::No` when the buffer is full.
+- **First click positions the cursor at the start.** The cursor is initialised at end-of-text on focus; the first click can race with focus acquisition. Subsequent clicks behave normally.
+- **`TextInputSelection` / `TextInputSelectionRange` are not yet wired through the default callbacks.** Multi-node selection across nodes goes through the cross-DOM selection model; see [Text Selection](text-selection.md).
 
 ## Next
 
-- [Text Selection](text-selection.md) — anchor/focus model that ranges over arbitrary DOM, not just inside a `TextInput`.
-- [Events and Input](events.md) — the underlying event plumbing.
+- [Text Selection](text-selection.md): anchor/focus model that ranges over arbitrary DOM, not just inside a `TextInput`.
+- [Events](events.md): the underlying event plumbing.

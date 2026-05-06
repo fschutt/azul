@@ -16,19 +16,20 @@ last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T05:49:28Z
 ---
 
-> **WIP.** Font fallback and the text shaper are stable; some advanced
-> typography (`font-feature-settings`, variable axes) is not yet wired through
-> from CSS to the layout engine. The properties below all parse and apply.
+# Styling Text
 
-Text rendering is driven by four font properties (`font-family`, `font-size`,
-`font-weight`, `font-style`) and modulated by alignment, justification, and
-line metrics. The shaper turns the resolved style plus a `&str` into glyph
-runs; the layout solver decides where each line breaks and how text fits inside
-its box.
+> **WIP.** Font fallback and the text shaper are stable; some advanced
+> typography (`font-feature-settings`, variable axes) is not yet wired
+> through from CSS to the layout engine. The properties below all parse
+> and apply.
+
+Text rendering is driven by four font properties (`font-family`,
+`font-size`, `font-weight`, `font-style`) and modulated by alignment,
+justification, and line metrics.
 
 ## `font-family`
 
-`StyleFontFamily` (`css/src/props/basic/font.rs:287`) is one of:
+`StyleFontFamily` is one of:
 
 | variant | example CSS | resolved at runtime to |
 |---|---|---|
@@ -37,9 +38,9 @@ its box.
 | `File(url)` | `url(/fonts/Inter.ttf)` | a font file loaded from the URL |
 | `Ref(FontRef)` | not addressable from CSS | a pre-loaded font handle |
 
-The property takes a comma-separated *fallback list*. Each entry is tried in
-order; the first one that resolves to a face containing the requested glyph
-wins.
+The property takes a comma-separated *fallback list*. Each entry is tried
+in order; the first one that resolves to a face containing the requested
+glyph wins.
 
 ```rust
 # fn body() -> &'static str {
@@ -51,8 +52,8 @@ code { font-family: system:monospace, \"SF Mono\", Menlo, monospace; }"
 ### `system:` fonts
 
 The `system:<role>[:<variant>]` prefix selects a platform UI font without
-hard-coding a family name. It resolves to the OS's preferred face for that
-role:
+hard-coding a family name. It resolves to the OS's preferred face for
+that role:
 
 | selector | role |
 |---|---|
@@ -60,7 +61,7 @@ role:
 | `system:ui:bold` | the UI bold variant |
 | `system:monospace`, `system:monospace:bold`, `system:monospace:italic` | platform monospace |
 | `system:title`, `system:title:bold` | larger UI text |
-| `system:menu` | menu/menu-item label font |
+| `system:menu` | menu and menu-item label font |
 | `system:small` | small-print UI font |
 | `system:serif`, `system:serif:bold` | platform serif |
 
@@ -70,16 +71,14 @@ If the role isn't recognised, the parser keeps the literal string as a
 
 ### `FontRef` and pre-loaded fonts
 
-`FontRef` (`css/src/props/basic/font.rs:176`) is a reference-counted handle
-backed by an atomic counter. It points at parsed font data (the
-`ParsedFont` from the layout crate). You won't construct `FontRef` from CSS,
-but you'll see it on the Rust side when binding a font once and using it
-across multiple DOMs.
+`FontRef` is a reference-counted handle that points at parsed font data.
+You won't construct `FontRef` from CSS, but you'll see it on the Rust side
+when binding a font once and using it across multiple DOMs.
 
 ## `font-size`
 
-`StyleFontSize` (`css/src/props/basic/font.rs:144`) wraps a `PixelValue`. The
-default is `12pt` — pick whatever your design system needs:
+`StyleFontSize` wraps a `PixelValue`. The default is `12pt`. Pick whatever
+your design system needs:
 
 ```rust
 # fn body() -> &'static str {
@@ -89,30 +88,30 @@ small { font-size: 80%; }"
 # }
 ```
 
-`em` is relative to the parent's `font-size`; `rem` is relative to the root.
-`%` resolves the same way as `em`.
+`em` is relative to the parent's `font-size`. `rem` is relative to the
+root. `%` resolves the same way as `em`.
 
 ## `font-weight`
 
-`StyleFontWeight` (`css/src/props/basic/font.rs:45`):
+`StyleFontWeight`:
 
 | value | numeric |
 |---|---|
 | `lighter` | lighter than parent |
-| `100` … `300` | `W100` … `W300` |
+| `100` ... `300` | `W100` ... `W300` |
 | `normal`, `400` | `Normal` |
 | `500`, `600` | `W500`, `W600` |
 | `bold`, `700` | `Bold` |
 | `800`, `900` | `W800`, `W900` |
 | `bolder` | heavier than parent |
 
-The numeric scale is the OpenType weight class; the parser maps standard
+The numeric scale is the OpenType weight class. The parser maps standard
 numbers to enum variants. `450` and other in-between numbers are *not*
-accepted — use the named variant for the closest weight.
+accepted; use the named variant for the closest weight.
 
 ## `font-style`
 
-`StyleFontStyle` (`css/src/props/basic/font.rs:107`):
+`StyleFontStyle`:
 
 ```rust,ignore
 StyleFontStyle::Normal   // upright (default)
@@ -134,8 +133,7 @@ Horizontal alignment of inline content within its line box:
 
 ## `text-justify`
 
-`LayoutTextJustify` (`css/src/props/layout/text.rs:14`) refines what
-`text-align: justify` does:
+`LayoutTextJustify` refines what `text-align: justify` does:
 
 | value | distributes whitespace by |
 |---|---|
@@ -145,8 +143,7 @@ Horizontal alignment of inline content within its line box:
 | `inter-character` | between every character (CJK-friendly) |
 | `distribute` | legacy alias of `inter-character` |
 
-The legacy `distribute` value computes to `inter-character` per the spec
-(`css/src/props/layout/text.rs:88`).
+The legacy `distribute` value computes to `inter-character` per the spec.
 
 ## Line metrics
 
@@ -191,8 +188,8 @@ StyleOverflowWrap::Anywhere // break anywhere to prevent overflow
 StyleOverflowWrap::BreakWord
 ```
 
-`hyphens: none | manual | auto` enables soft-hyphen breaking. `auto` requires
-the layout crate's hyphenation resources for the active language.
+`hyphens: none | manual | auto` enables soft-hyphen breaking. `auto`
+requires the layout crate's hyphenation resources for the active language.
 
 ## Direction and writing mode
 
@@ -205,9 +202,9 @@ StyleDirection::Rtl   // right-to-left
 StyleUnicodeBidi      // bidi-override embedding for the inline element
 ```
 
-For vertical scripts, set `writing-mode` on the block container — see
-[Inline and Text Flow](../layout/inline.md#direction-and-writing-modes) for
-the values.
+For vertical scripts, set `writing-mode` on the block container. See
+[Inline and Text Flow](../layout/inline.md#direction-and-writing-modes)
+for the values.
 
 ## Text decoration and selection
 
@@ -222,7 +219,7 @@ double-click text selection from overlapping the click.
 
 ## Recipes
 
-### Heading + body
+### Heading and body
 
 ```azul-render screenshot=text-heading width=480 height=200 subtitle="A heading and paragraph using system fonts"
 <body style="font-family: system:ui, sans-serif; padding: 16px;">
@@ -255,20 +252,6 @@ double-click text selection from overlapping the click.
   <p style="font-weight: bold;">Bold (700)</p>
 </body>
 ```
-
-## Font metrics
-
-`FontMetrics` (`css/src/props/basic/font.rs:655`) exposes the OpenType `head`,
-`hhea`, and `OS/2` tables for an installed face. The layout solver reads these
-to position baselines, line boxes, and the `vertical-align` keyword set
-(`text-top`, `text-bottom`, `super`, `sub`).
-
-App code rarely touches `FontMetrics` directly — the metrics drive the
-positioning of glyphs you've already styled with `font-size`,
-`vertical-align`, and `line-height`. They're documented here because the
-layout solver's behaviour around `vertical-align: middle` and the
-`leading-trim` half-leading rule depends on the OS/2 v2+ `sxHeight` and
-`sCapHeight` fields, which not every font ships.
 
 ## Default values at a glance
 
