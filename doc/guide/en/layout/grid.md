@@ -59,7 +59,7 @@ list of track sizes:
  </div>
 ```
 
-### `repeat()`
+### repeat()
 
 `repeat(N, <track-list>)` expands inline. The track list may contain
 multiple tracks, which all repeat together:
@@ -70,7 +70,7 @@ multiple tracks, which all repeat together:
 
 The repeat count is capped at 10,000 to prevent runaway expansion.
 
-## `grid-template-areas`
+## grid-template-areas
 
 Names regions of the grid using quoted row strings. Each cell is a token; `.`
 means "no area".
@@ -95,7 +95,7 @@ means "no area".
 Every row string must have the same number of cells, and a named area
 must form a rectangle.
 
-## Item placement: `grid-column` / `grid-row`
+## Item placement: grid-column / grid-row
 
 `grid-column` and `grid-row` take `<start> / <end>`:
 
@@ -128,7 +128,7 @@ Children without explicit placement flow into the next free cell.
 For example, if you've defined three columns but place a child on column
 5, columns 4 and 5 are sized by `grid-auto-columns`.
 
-## `gap`, `row-gap`, `column-gap`
+## gap, row-gap, column-gap
 
 `gap: <row> <column>`. The longhands take a single `<length>`. Same as
 flexbox.

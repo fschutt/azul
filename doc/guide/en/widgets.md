@@ -40,7 +40,7 @@ mix widgets and hand-rolled markup freely.
 # use azul::prelude::*;
 let dom = Dom::create_div()
     .with_child(Button::create("OK".into()).dom());
-```
+```rust
 
 This page covers the leaf widgets. For text and numeric input, and the larger
 composite widgets, see:
@@ -185,7 +185,7 @@ let dom = Frame::create(
     "Network".into(),
     Dom::create_div(),
 ).dom();
-```
+```rust
 
 ## Titlebar
 

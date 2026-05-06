@@ -80,7 +80,7 @@ The window is registered in `macos::registry` (thread-local
 `run.rs:237` (`pub fn run` for macOS) chooses one of two event-loop
 strategies based on `AppTerminationBehavior`:
 
-### `RunForever` — `NSApplication.run()`
+### RunForever — NSApplication.run()
 
 Standard macOS behaviour: the application runs forever, even when all
 its windows are closed. `app.run()` blocks until `terminate:` is sent
@@ -88,7 +88,7 @@ its windows are closed. `app.run()` blocks until `terminate:` is sent
 choice for menu-bar apps and document-based apps that want to stay
 in the Dock.
 
-### `ReturnToMain` / `EndProcess` — manual loop
+### ReturnToMain / EndProcess — manual loop
 
 Suitable for one-shot applications. The pattern (`run.rs:433`):
 
@@ -158,7 +158,7 @@ The IME methods set `ime_key_handled.set(true)` so that
 `handle_key_down` doesn't double-process the same key event during
 composition.
 
-## Tracking areas and `mouseExited:`
+## Tracking areas and mouseExited:
 
 macOS doesn't deliver `mouseMoved:` to a view by default — you must
 either enable `acceptsMouseMovedEvents` on the window (no per-view
@@ -169,7 +169,7 @@ NSTrackingActiveInActiveApp`. The area must be re-created on every
 `viewDidChangeFrame` because tracking areas don't follow geometry
 changes.
 
-## Render path — OpenGL via `NSOpenGLContext`
+## Render path — OpenGL via NSOpenGLContext
 
 `mod.rs:RenderBackend` selects `OpenGL` or `CPU`. GPU mode wires:
 
@@ -197,7 +197,7 @@ CPU mode goes through the same `cpurender` path as the other
 backends, with the framebuffer drawn into an `NSBitmapImageRep` and
 composited via `NSImage::drawInRect:`.
 
-## VSYNC via `CVDisplayLink`
+## VSYNC via CVDisplayLink
 
 `corevideo.rs` exposes `CoreVideoFunctions`, dlopen'd from
 `/System/Library/Frameworks/CoreVideo.framework/CoreVideo`.
@@ -214,7 +214,7 @@ CoreVideo is dlopen'd because the framework moved between OS
 versions and `extern { ... }` linkage broke older macOS. Loading
 it dynamically lets the same binary run on 10.14 through 14.x.
 
-## Display IDs — `CGDirectDisplayID`
+## Display IDs — CGDirectDisplayID
 
 `coregraphics.rs:17` (`CoreGraphicsFunctions`) loads
 `ApplicationServices.framework` (which transitively contains
@@ -224,7 +224,7 @@ for monitor enumeration. The full multi-monitor enumeration uses
 `NSScreen::screens(mtm)` — `coregraphics` is mostly used to build
 stable `MonitorId`s that survive screen reconfiguration.
 
-## IME — `NSTextInputClient`
+## IME — NSTextInputClient
 
 The GLView conforms to `NSTextInputClient`. AppKit calls
 `insertText:replacementRange:` to commit, and
@@ -243,7 +243,7 @@ called, it sets the flag so `handle_key_down` (which AppKit also
 calls for the same key event) skips sending a key event to the
 layout layer.
 
-## Menus — `NSMenu`
+## Menus — NSMenu
 
 `menu.rs:33` (`AzulMenuTarget`, defined via `define_class!`) is an
 NSObject that receives menu actions. Its `menuItemAction:` selector
@@ -263,7 +263,7 @@ The macOS app menu (the "{appname}" menu with About / Quit) is
 installed by `setup_main_menu` in `run.rs` independently from any
 window menu; it survives the closure of all windows.
 
-## Tooltips — `NSPanel`
+## Tooltips — NSPanel
 
 `tooltip.rs:40` wraps an `NSPanel` (a borderless utility window) with
 an `NSTextField` for the body. Width is computed by character count
@@ -279,7 +279,7 @@ flow through the same `pending_window_creates` queue used for popup
 menus, rendered via the standard layout pipeline so they support
 arbitrary styled DOM.
 
-## Keep-screen-awake — `IOPMAssertion`
+## Keep-screen-awake — IOPMAssertion
 
 `mod.rs:109` declares the IOKit FFI for `IOPMAssertionCreateWithName`
 + `IOPMAssertionRelease`. When `WindowFlags::keep_screen_awake`
@@ -288,7 +288,7 @@ flips on, the window calls `IOPMAssertionCreateWithName(
 stores the resulting `IOPMAssertionID`. Release on flip-off or
 window close.
 
-## Clipboard — `NSPasteboard`
+## Clipboard — NSPasteboard
 
 `clipboard.rs` wraps the deprecated `objc` (not `objc2`) crate to
 talk to `NSPasteboard` via dynamic message dispatch. The flow:
@@ -305,7 +305,7 @@ there is no async API.
 `extern "C" {}` block forces `NSPasteboard` to be in the class
 resolver's path even though no symbols are imported.
 
-## Accessibility — `accesskit_macos`
+## Accessibility — accesskit_macos
 
 `accessibility.rs` uses `accesskit_macos::SubclassingAdapter` when
 the `a11y` feature is on. The adapter swizzles `NSAccessibility`
@@ -337,7 +337,7 @@ target for popup menus and dialogs — each entry is a fresh
 `WindowCreateOptions` that produces a new `MacOSWindow` registered
 into the same map.
 
-## `system_style`
+## system_style
 
 `macos/system_style.rs` (`SystemStyle::detect_macos`, ~671 lines)
 queries:

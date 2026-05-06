@@ -60,7 +60,7 @@ pub fn restyle(&mut self, mut css: Css) {
 
 Step 4 is in a separate function because the layout pipeline calls it explicitly with `prev_font_hashes` from the previous frame to compute `font_dirty_nodes`.
 
-## `CssPropertyCache`
+## CssPropertyCache
 
 ```rust,ignore
 pub struct CssPropertyCache {
@@ -96,7 +96,7 @@ The flat arena indexes nodes in pre-order: parent index < all child indices. Eve
 
 If you ever reorder the arena or build it bottom-up, the cascade breaks silently. Values from later siblings can leak into earlier ones.
 
-## `build_compact_cache_with_inheritance`
+## build_compact_cache_with_inheritance
 
 The production cascade build is one loop over the arena (`core/src/compact_cache_builder.rs::build_compact_cache_with_inheritance`). Per-node steps:
 
@@ -121,7 +121,7 @@ const INHERITABLE_TIER1_MASK: u64 =
   | (WHITE_SPACE_MASK   << WHITE_SPACE_SHIFT)
   | (DIRECTION_MASK     << DIRECTION_SHIFT)
   | (BORDER_COLLAPSE_MASK << BORDER_COLLAPSE_SHIFT);
-```
+```rust
 
 (`core/src/compact_cache_builder.rs::INHERITABLE_TIER1_MASK`)
 
@@ -135,7 +135,7 @@ For tier 2, the inheritable fields are `font_size` (dims), `border_spacing_h/v` 
 
 Hard-coding the UA defaults in compact form skips a full cascade walk per node for the common case where author CSS doesn't override. The cost is that adding a new `NodeType` requires a matching arm in `apply_ua_css_to_compact`.
 
-## Global `*` rules
+## Global * rules
 
 A `*` rule applies to all *elements* — but per CSS spec, text nodes are not elements. The cascade enforces this:
 
@@ -145,7 +145,7 @@ if !nd.is_text_node() {
         apply_css_property_to_compact(prop, ...);
     }
 }
-```
+```rust
 
 (`core/src/compact_cache_builder.rs::build_compact_cache_with_inheritance`)
 
@@ -153,7 +153,7 @@ Without that check, `* { color: red }` would overwrite the inherited `color` on 
 
 `global_css_props` is hoisted out of `cascaded_props` during `restyle()` so it doesn't get cloned into every node's per-node prop list. That saved ~50K clones on real pages.
 
-## The four-level `RelayoutScope`
+## The four-level RelayoutScope
 
 Every `CssPropertyType` is classified by `relayout_scope(conservative: bool) -> RelayoutScope`:
 
@@ -170,7 +170,7 @@ pub enum RelayoutScope {
 
 This is the cascade's contribution to incremental layout. Taffy uses a binary clean/dirty flag; the four-level classification lets the layout solver skip subtree walks when only an IFC's text needs reshaping, or skip a parent's reflow when only a child's color changed. `ChangeAccumulator::max_scope` (see [DOM Internals](dom.md)) propagates the worst case.
 
-## `restyle_on_state_change`: hover, focus, active
+## restyle_on_state_change: hover, focus, active
 
 Pseudo-state changes don't re-run `restyle()`. Instead, `restyle_on_state_change` (`core/src/styled_dom.rs::restyle_on_state_change`) walks only the affected nodes and produces a `RestyleResult { changed_nodes: Vec<(NodeId, Vec<ChangedCssProperty>)> }` with the deltas. The result feeds back through `ChangeAccumulator::merge_restyle_result` so the rest of the pipeline doesn't care whether a change came from a DOM diff or a hover toggle.
 
@@ -193,7 +193,7 @@ After encoding, it compares each `tier2b_text[i].font_family_hash` against `prev
 
 On the very first build (`prev_font_hashes` is empty), every text node is marked dirty.
 
-## Slow path: `get_property_slow`
+## Slow path: get_property_slow
 
 The compact cache covers ~50 hot properties. Anything else (background, box-shadow, transform, filter, content, transitions, …) falls through to `CssPropertyCache::get_property_slow(node, node_id, prop_type, state)`. The slow path:
 

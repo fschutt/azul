@@ -51,7 +51,7 @@ OS event -> FullWindowState diff -> SyntheticEvent
    default_post_filter()                 (events.rs)
 ```
 
-## Pipeline order in `process_events`
+## Pipeline order in process_events
 
 The shell entry point `PlatformWindowV2::process_events` (in [`dll/src/desktop/shell2/common/event.rs`](../../../../dll/src/desktop/shell2/common/event.rs)) executes the steps below for every input batch:
 
@@ -64,7 +64,7 @@ The shell entry point `PlatformWindowV2::process_events` (in [`dll/src/desktop/s
 
 The dispatch loop recurses up to a fixed `MAX_EVENT_RECURSION_DEPTH` so that `Update::RefreshDom` returned from a callback rebuilds the DOM, runs lifecycle reconciliation, and re-enters event delivery for synthetic Mount/Unmount/Resize events.
 
-## `SyntheticEvent`
+## SyntheticEvent
 
 ```rust,ignore
 pub struct SyntheticEvent {
@@ -85,13 +85,13 @@ Defined at [`core/src/events.rs`](../../../../core/src/events.rs). The `source` 
 
 `stop_propagation()` halts the current phase boundary. Capture stops before target, and target stops before bubble. `stop_immediate_propagation()` additionally drops remaining handlers on the current node. `prevent_default()` only suppresses the post-dispatch default action. It doesn't stop callback delivery.
 
-## `EventType` and `EventData`
+## EventType and EventData
 
 `EventType` ([`core/src/events.rs`](../../../../core/src/events.rs)) is the W3C-aligned superset: mouse, keyboard, IME composition, focus, input/change/submit, scroll, drag, touch, gesture, clipboard, media, lifecycle, window, application, file. `EventData` carries type-specific payloads (`MouseEventData`, `KeyboardEventData`, `ScrollEventData`, `TouchEventData`, `ClipboardEventData`, `LifecycleEventData`, `WindowEventData`, or `None`). The data variant must match the event type. `dispatch_events_propagated` doesn't validate this; callers (the input interpreter and manager `get_pending_events` impls) are responsible.
 
 `KeyModifiers { shift, ctrl, alt, meta }` is duplicated inside `MouseEventData` and `KeyboardEventData` rather than read from `KeyboardState` because gesture managers may produce events with stale modifier snapshots.
 
-## `EventFilter` taxonomy
+## EventFilter taxonomy
 
 Callbacks are registered against one of five filter categories ([`core/src/events.rs`](../../../../core/src/events.rs)):
 
@@ -108,7 +108,7 @@ Callbacks are registered against one of five filter categories ([`core/src/event
 - `On::TextInput` becomes `Focus(TextInput)`. Text input is delivered to whatever currently owns focus, not to whichever node was hit.
 - `On::VirtualKeyDown` and `On::VirtualKeyUp` become `Window(VirtualKeyDown/Up)`. Keyboard events fan out window-wide so layout-driven shortcuts can register on the root.
 
-## `event_type_to_filters`
+## event_type_to_filters
 
 ```rust,ignore
 pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> Vec<EventFilter>;
@@ -118,7 +118,7 @@ Defined at [`core/src/events.rs`](../../../../core/src/events.rs). One incoming 
 
 This function is the single source of truth for the dispatch plan. `propagate_event` uses it implicitly by reading the per-node filter list.
 
-## Capture/target/bubble in `propagate_event`
+## Capture/target/bubble in propagate_event
 
 ```rust,ignore
 pub fn propagate_event(
@@ -126,7 +126,7 @@ pub fn propagate_event(
     node_hierarchy: &NodeHierarchy,
     callbacks: &BTreeMap<NodeId, Vec<EventFilter>>,
 ) -> PropagationResult;
-```
+```rust
 
 [`core/src/events.rs::propagate_event`](../../../../core/src/events.rs). The path is computed by walking `parent` pointers from the target to the root, then reversed:
 
@@ -193,7 +193,7 @@ pub fn determine_keyboard_default_action(
 
 `default_action_to_focus_target` ([`layout/src/default_actions.rs`](../../../../layout/src/default_actions.rs)) bridges the focus variants to the `FocusTarget` consumed by `FocusManager::resolve_focus_target`. `create_activation_click_event` ([`layout/src/default_actions.rs`](../../../../layout/src/default_actions.rs)) builds the `SyntheticEvent { event_type: Click, source: Synthetic, ... }` re-fed to `dispatch_events_propagated` for Enter/Space activation.
 
-## Pre-callback interpreter (`SystemChange`)
+## Pre-callback interpreter (SystemChange)
 
 `SystemChange` ([`core/src/events.rs`](../../../../core/src/events.rs)) is the framework-side counterpart to user callbacks. Variants cover text selection, IME, drag-and-drop, focus, scroll, and the auto-scroll timer. They're produced by `default_input_interpreter` and consumed by `apply_system_change` on the shell. Adding a variant deliberately causes a compile error there, so every change is handled exhaustively.
 
@@ -210,7 +210,7 @@ pub type InputInterpreterCallbackType = extern "C" fn(
     RefAny,
     *const InputInterpreterInfo<'static>,
 ) -> PreCallbackFilterResult;
-```
+```rust
 
 Replace `LayoutWindow::input_interpreter_callback` to implement vim modes, game controls, or custom shortcut tables. Native Rust callers wrap a `fn` via `InputInterpreterCallback::from(fn_ptr)` (sets `ctx = None`); FFI callers use the trampoline pattern with `ctx: OptionRefAny` holding the foreign callable.
 
@@ -230,7 +230,7 @@ pub type PostFilterCallbackType = extern "C" fn(
     DomNodeId,               // old_focus (0xFFFF = None)
     DomNodeId,               // new_focus
 ) -> SystemChangeVec;
-```
+```rust
 
 [`core/src/events.rs`](../../../../core/src/events.rs). It runs after user callbacks return, given the merged `prevent_default` flag, the `SystemChange`s the interpreter produced before dispatch, and the focus delta. It returns more `SystemChange`s. Typical examples are `ClearAllSelections`, `FinalizePendingFocusChanges`, and `ScrollSelectionIntoView`. The default impl is `default_post_filter` in the same file. Override `LayoutWindow::post_filter_callback` to customise.
 
@@ -247,7 +247,7 @@ pub fn detect_lifecycle_events_with_reconciliation(
     new_layout: &OrderedMap<NodeId, LogicalRect>,
     timestamp: Instant,
 ) -> LifecycleEventResult;
-```
+```rust
 
 [`core/src/events.rs::detect_lifecycle_events_with_reconciliation`](../../../../core/src/events.rs). After a `RefreshDom` rebuild the reconciler emits `Mount`, `Unmount`, `Resize`, `Update` synthetic events tagged `EventSource::Lifecycle`. It also returns `node_id_mapping: OrderedMap<old NodeId, new NodeId>` so the shell can migrate focus, scroll position, drag context, and selection across the rebuild. The match strategy starts with the stable reconciliation key (`.with_reconciliation_key()`), then content hash, then mount/unmount fallback. The simpler index-based `detect_lifecycle_events` in the same file exists for cases where reconciliation isn't required.
 

@@ -63,7 +63,7 @@ extern "C" fn http_get(
     };
     sender.send(msg);
 }
-```
+```rust
 
 `apply_response` and `apply_error` run on the main thread and mutate the application's `RefAny` model the usual way. See [background-tasks](background-tasks.md) for the full `WriteBackCallback` pattern.
 

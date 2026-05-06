@@ -33,7 +33,7 @@ pub enum SvgPathElement {
 
 pub struct SvgPath { pub items: SvgPathElementVec }
 pub struct SvgMultiPolygon { pub rings: SvgPathVec }
-```
+```rust
 
 An `SvgPath` is one open or closed contour built from line and Bézier segments. Several paths combine into an `SvgMultiPolygon`. Interior holes are represented by reversing the winding order of a ring. The fill rule defaults to `Winding`. Switch to `EvenOdd` via `SvgFillStyle.fill_rule` when interior overlaps need to cancel.
 

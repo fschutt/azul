@@ -47,7 +47,7 @@ VirtualViewPlaceholder {
 
 `WindowLogicalRect` is the newtype that flags the rect as window-absolute (see the coordinate-space invariant in [Hit Testing and Scrolling](hit-testing.md)). The compositor converts to scroll-frame-relative inside `resolve_rect()`.
 
-## Replacement in `LayoutWindow`
+## Replacement in LayoutWindow
 
 After the parent's layout pass completes, `LayoutWindow::scan_for_virtual_views` ([`layout/src/window.rs::scan_for_virtual_views`](../../../../layout/src/window.rs)) walks the layout tree, picks every node with `NodeType::VirtualView`, and reads the calculated position and used size as `(NodeId, LogicalRect)`. For each entry the runtime invokes the VirtualView callback (see [VirtualView Lazy Loading](virtual-view.md)) and, if the callback produced a child DOM, swaps the placeholder for the real item:
 

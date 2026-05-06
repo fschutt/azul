@@ -52,7 +52,7 @@ Each platform owns one file that constructs a `GlFunctions` wrapper around the
 `Rc<GenericGlContext>` and a handle to whatever needs to stay alive (DLL,
 framework, or `Library`).
 
-### Linux — `dll/src/desktop/shell2/linux/common/gl.rs`
+### Linux — dll/src/desktop/shell2/linux/common/gl.rs
 
 ```rust,ignore
 pub fn initialize(egl: &Rc<Egl>) -> Result<Self, String> {
@@ -80,7 +80,7 @@ and modern entry points. `libGL.so.1` is the fallback for legacy 1.x core
 symbols that some EGL implementations don't expose through `eglGetProcAddress`.
 Used by both the X11 and Wayland backends.
 
-### macOS — `dll/src/desktop/shell2/macos/gl.rs`
+### macOS — dll/src/desktop/shell2/macos/gl.rs
 
 ```rust,ignore
 pub fn initialize() -> Result<Self, String> {
@@ -111,7 +111,7 @@ The framework is deprecated by Apple but still present on every macOS release.
 Migration to Metal would replace this entire file (and the WebRender backend),
 not just the loader.
 
-### Windows — `dll/src/desktop/shell2/windows/gl.rs`
+### Windows — dll/src/desktop/shell2/windows/gl.rs
 
 ```rust,ignore
 pub fn load(&mut self) {
@@ -136,7 +136,7 @@ pub fn load(&mut self) {
         }) as *mut gl_context_loader::c_void
     }));
 }
-```
+```rust
 
 `wglGetProcAddress` only resolves entry points beyond OpenGL 1.1 — the 1.1
 core (`glClear`, `glViewport`, etc.) must come from `opengl32.dll` directly.
@@ -189,7 +189,7 @@ lifetime.
 
 - `core/src/gl.rs::GlContextPtr`
 
-## `glconst.rs`
+## glconst.rs
 
 `core/src/glconst.rs` declares 1624 OpenGL enum constants — every named
 `GL_*` value the implementation may need. The file is purely declarative:
@@ -205,7 +205,7 @@ use `gl::TEXTURE_2D` and similar without further qualification. The constants
 are GL-spec-defined. If you need a value that isn't here, look it up in the
 OpenGL registry and add a single `pub const` line.
 
-## What's not in `GenericGlContext`
+## What's not in GenericGlContext
 
 A few functions the renderer needs are *not* in `GenericGlContext`:
 

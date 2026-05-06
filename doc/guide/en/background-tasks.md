@@ -59,7 +59,7 @@ extern "C" fn on_click(mut data: RefAny, mut event: CallbackInfo) -> Update {
     event.add_thread(ThreadId::unique(), thread);
     Update::DoNothing
 }
-```
+```rust
 
 `Thread::create(thread_initialize_data, writeback_data, callback)` takes:
 
@@ -117,7 +117,7 @@ extern "C" fn worker(
     sender.send(msg);
 }
 # fn blocking_query() -> Vec<u32> { Vec::new() }
-```
+```rust
 
 The first `RefAny` argument of `apply_loaded` is the `writeback_data` passed to `Thread::create`; the second is the payload the worker sent. Return `Update::RefreshDom` to trigger a re-layout. `Update::DoNothing` keeps the existing DOM.
 
@@ -132,7 +132,7 @@ For the no-payload case (a thread that just wants to tell the UI to refresh) sen
 # fn _stub(mut sender: ThreadSender) {
 sender.send(ThreadReceiveMsg::Update(Update::RefreshDom));
 # }
-```
+```rust
 
 The framework applies the `Update` value verbatim. No callback runs.
 
@@ -189,7 +189,7 @@ extern "C" fn on_cancel(mut data: RefAny, mut event: CallbackInfo) -> Update {
 Thread::sleep_ms(milliseconds);
 Thread::sleep_us(microseconds);
 Thread::sleep_ns(nanoseconds);
-```
+```rust
 
 These are FFI-safe wrappers around `std::thread::sleep`. They exist so non-Rust bindings can sleep. Inside a Rust callback `std::thread::sleep` works equally well.
 
@@ -200,7 +200,7 @@ The thread API uses `Instant` and `Duration` from the framework rather than the 
 ```rust,ignore
 pub enum Instant  { System(InstantPtr),    Tick(SystemTick) }
 pub enum Duration { System(SystemTimeDiff), Tick(SystemTickDiff) }
-```
+```rust
 
 On `std` targets, `Instant::System` wraps `std::time::Instant`. On embedded or WASM targets that lack a real-time clock the variant is `Instant::Tick(SystemTick)`, a frame counter you advance from your event loop. Mixing variants panics, so pick one per platform and stay consistent.
 

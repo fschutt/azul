@@ -215,7 +215,7 @@ The pending state ends up at the standard
 `process_text_input(text)` path on `LayoutWindow`, identical to the
 X11 / macOS / Win32 input path.
 
-## Tooltips via `wl_subsurface`
+## Tooltips via wl_subsurface
 
 `TooltipWindow` (`wayland/tooltip.rs:30`) creates a child surface:
 
@@ -238,7 +238,7 @@ the same `cpurender` path used for window content; the constants
 `TOOLTIP_CHAR_WIDTH_PX = 7` etc. (`tooltip.rs:17`) will go away
 once that lands.
 
-## Menus via `xdg_popup` (planned)
+## Menus via xdg_popup (planned)
 
 Menu popups currently take the same path as X11 — `wayland/menu.rs:84`
 (`create_menu_popup_options`) returns `WindowCreateOptions` for a
@@ -272,7 +272,7 @@ effect.
 This protocol is KDE-only; GNOME (`mutter`) and other Wayland
 compositors ignore the request.
 
-## Multi-monitor — `wl_output`
+## Multi-monitor — wl_output
 
 Wayland delivers outputs through the registry as
 `wl_output_interface` globals. Each `wl_output` fires

@@ -94,7 +94,7 @@ enum RenderMode {
     Gpu(gl::GlContext, GlFunctions),
     Cpu(Option<GC>),                  // X11 GC for XPutImage in CPU path
 }
-```
+```rust
 
 `gl::GlContext` (`x11/gl.rs:15`) wraps EGL: `eglGetDisplay` →
 `eglInitialize` → `eglBindAPI(EGL_OPENGL_API)` → `eglChooseConfig` with

@@ -58,7 +58,7 @@ A component is the unit of azul's GUI builder: a typed bundle of (data model, re
 - **`user_defined_render_fn`.** Render function for user-defined components.
   - `core/src/xml.rs::user_defined_render_fn`
 
-## `ComponentDef`
+## ComponentDef
 
 ```rust,ignore
 #[repr(C)]
@@ -82,7 +82,7 @@ pub struct ComponentDef {
 
 The earlier proposal had separate `parameters`, `callback_slots`, `accepts_text`, `child_policy`, and `template` fields; all were folded into `data_model`. A field of type `StyledDom` is a child slot, a field of type `Callback(...)` is a callback slot, and child acceptance is derived from the model's shape. The `template` was dropped in favour of source-edit-recompile.
 
-## `ComponentFieldType`
+## ComponentFieldType
 
 ```rust,ignore
 #[repr(C, u8)]
@@ -108,7 +108,7 @@ pub enum ComponentFieldType {
     /// Reference to an enum defined in the same library
     EnumRef(AzString),
 }
-```
+```rust
 
 (`core/src/xml.rs::ComponentFieldType`)
 
@@ -121,7 +121,7 @@ The variants split into five groups:
 - **References.** `RefAny(type_hint)`, `StructRef(name)`, and `EnumRef(name)` resolve names against `ComponentLibrary::data_models` and `ComponentLibrary::enum_models`.
 - **Containers.** `OptionType(Box)` and `VecType(Box)` recurse via `ComponentFieldTypeBox`. The names are `OptionType`/`VecType` in code (not bare `Option`/`Vec`) to avoid clashing with `core::option::Option` and `alloc::vec::Vec`.
 
-### `ComponentFieldTypeBox` — recursive types across FFI
+### ComponentFieldTypeBox — recursive types across FFI
 
 ```rust,ignore
 #[repr(C)]
@@ -136,7 +136,7 @@ A `Box<ComponentFieldType>` doesn't survive the C ABI, so the recursion is broke
 
 `ComponentFieldValueBox` (`core/src/xml.rs::ComponentFieldValueBox`) uses the same pattern for the runtime-value enum.
 
-## `ComponentDataModel` and `ComponentDataField`
+## ComponentDataModel and ComponentDataField
 
 ```rust,ignore
 #[repr(C)]
@@ -154,7 +154,7 @@ pub struct ComponentDataField {
     pub required: bool,
     pub description: AzString,
 }
-```
+```rust
 
 (`core/src/xml.rs::ComponentDataModel`, `core/src/xml.rs::ComponentDataField`)
 
@@ -162,7 +162,7 @@ The model's `name` is what the code generator emits as the input struct name (e.
 
 A library can also expose **shared** struct types in `ComponentLibrary::data_models`. Components reference them via `StructRef(name)`. Each component still has its own *main* `data_model` on `ComponentDef`; the library list is for types reused across multiple components (e.g. `UserProfile`).
 
-## `ComponentDefaultValue`
+## ComponentDefaultValue
 
 ```rust,ignore
 #[repr(C, u8)]
@@ -180,13 +180,13 @@ pub enum ComponentDefaultValue {
     /// JSON string representing a complex default value
     Json(AzString),
 }
-```
+```rust
 
 (`core/src/xml.rs::ComponentDefaultValue`)
 
 The variants line up with `ComponentFieldType` for primitives. `ComponentInstance` carries a `library`, `component`, and a list of `ComponentFieldOverride { field_name, source }` so a `StyledDom` slot can default to a sub-component already configured. `CallbackFnPointer` is a fully-qualified function name (`"my_app::handlers::on_click"`); compiled components resolve it via `dladdr`, dynamic components emit it as a code-gen `use` import. `Json` is the escape hatch for complex defaults that don't fit any other variant. The serializer at `core/src/xml.rs::serde_json_default` re-parses and re-emits the JSON in place.
 
-## `ComponentFieldValueSource` — Literal vs Binding
+## ComponentFieldValueSource — Literal vs Binding
 
 ```rust,ignore
 #[repr(C, u8)]
@@ -195,7 +195,7 @@ pub enum ComponentFieldValueSource {
     Literal(AzString),
     Binding(AzString),
 }
-```
+```rust
 
 (`core/src/xml.rs::ComponentFieldValueSource`)
 
@@ -206,7 +206,7 @@ This is the per-instance counterpart of `ComponentDefaultValue`. The debugger ha
 
 `ComponentFieldOverride { field_name, source }` carries one of these for each overridden field of a default component instance.
 
-## `ComponentFieldValue` — the runtime value enum
+## ComponentFieldValue — the runtime value enum
 
 ```rust,ignore
 #[repr(C, u8)]
@@ -223,13 +223,13 @@ pub enum ComponentFieldValue {
     Callback(AzString),
     RefAny(RefAny),
 }
-```
+```rust
 
 (`core/src/xml.rs::ComponentFieldValue`)
 
 Where `ComponentFieldType` is the *class*, `ComponentFieldValue` is the *instance*. It carries actual `StyledDom` subtrees, `RefAny`s, and resolved literals. The intended render-function signature passes a `ComponentFieldNamedValueVec` of these; the current signature still passes a `&ComponentDataModel` with `default_value` doubling as "current value". See the divergence note at the end of the page.
 
-## `ComponentSource`
+## ComponentSource
 
 ```rust,ignore
 #[repr(C)]
@@ -244,7 +244,7 @@ pub enum ComponentSource {
 
 Drives editability in the debugger: `Builtin` (the HTML elements baked into the DLL) and `Compiled` (Rust widgets like `Button`, `TextInput`) are read-only. Their data model is generated from compiled code, and the type cannot be edited. `UserDefined` components are JSON/XML-imported or built in the debugger and are fully editable. The `exportable` flag on `ComponentLibrary` follows: `builtin` and compiled libraries are not exportable; user-defined libraries are.
 
-## `ComponentRenderFn` and `ComponentCompileFn`
+## ComponentRenderFn and ComponentCompileFn
 
 ```rust,ignore
 pub type ComponentRenderFn = fn(
@@ -259,7 +259,7 @@ pub type ComponentCompileFn = fn(
     &ComponentDataModel,
     indent: usize,
 ) -> ResultStringCompileError;
-```
+```rust
 
 (`core/src/xml.rs::ComponentRenderFn`, `core/src/xml.rs::ComponentCompileFn`)
 
@@ -269,7 +269,7 @@ For `Builtin` HTML elements, `builtin_render_fn` (`core/src/xml.rs::builtin_rend
 
 For user-defined components, `user_defined_render_fn` (`core/src/xml.rs::user_defined_render_fn`) is a generic walker: it iterates `data.fields`, dispatches on each `default_value` variant, and for `ComponentInstance` looks up the sub-component in the `ComponentMap` and recurses. The `def.css` string is parsed via `Css::from_string(...)` and applied to the wrapper.
 
-## `ComponentLibrary` and `ComponentMap`
+## ComponentLibrary and ComponentMap
 
 ```rust,ignore
 #[repr(C)]

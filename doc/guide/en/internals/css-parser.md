@@ -92,7 +92,7 @@ Three layers, top to bottom:
 
 Errors at every layer are non-fatal. Syntax errors become `CssParseWarnMsg` items in the warnings vector; an unparseable property is dropped while the rest of the rule survives.
 
-## Top-level entry: `new_from_str`
+## Top-level entry: new_from_str
 
 ```rust,ignore
 use azul_css::parser2::new_from_str;
@@ -103,13 +103,13 @@ let (css, warnings) = new_from_str("\
 ");
 
 assert!(warnings.is_empty());
-```
+```rust
 
 The signature is `pub fn new_from_str<'a>(css_string: &'a str) -> (Css, Vec<CssParseWarnMsg<'a>>)` (`css/src/parser2.rs::new_from_str`). The warnings borrow from `css_string`; the returned `Css` is owned (selectors and values are copied into `AzString` / typed values).
 
 A hard tokenizer error wraps the whole stylesheet into a single `ParseError` warning; the `Css` value is returned empty rather than `None`. This lets the renderer keep going on malformed user CSS.
 
-## Selectors: `CssPath` and `parse_css_path`
+## Selectors: CssPath and parse_css_path
 
 `parse_css_path(input) -> Result<CssPath, CssPathParseError>` (`css/src/parser2.rs::parse_css_path`) handles the selector half of a rule independently. It's used by:
 
@@ -124,7 +124,7 @@ use azul_css::css::CssPathSelector;
 let path = parse_css_path("div > .item:hover").unwrap();
 // path.selectors is a Vec<CssPathSelector> in order:
 //   Type(Div), DirectChildren, Class("item"), PseudoSelector(Hover)
-```
+```rust
 
 Supported tokens map 1:1 to `azul_simplecss::Token`:
 
@@ -140,7 +140,7 @@ Supported tokens map 1:1 to `azul_simplecss::Token`:
 
 Attribute selectors (`[lang="de"]`) are *not* parsed by this function. They live in `azul_css::dynamic_selector::DynamicSelector` and are wired in by the surrounding `@lang` / conditional infrastructure.
 
-## Property dispatch: `parse_css_property`
+## Property dispatch: parse_css_property
 
 ```rust,ignore
 use azul_css::props::property::{CssPropertyType, parse_css_property};
@@ -169,7 +169,7 @@ match key {
     CssPropertyType::FlexGrow => parse_layout_flex_grow(value)?.into(),
     // …
 }
-```
+```rust
 
 Each `parse_<prop>` function lives next to the type it produces.
 
@@ -185,7 +185,7 @@ The split is what enables the `RelayoutScope` classification in `CssPropertyType
 
 ## Primitive value types
 
-### `PixelValue` and `FloatValue`
+### PixelValue and FloatValue
 
 ```rust,ignore
 #[repr(C)]
@@ -196,13 +196,13 @@ pub struct PixelValue {
     pub metric: SizeMetric,                       // Px, Em, Pt, Percent, In, Cm, Mm
     pub number: FloatValue,
 }
-```
+```rust
 
 `FloatValue` is fixed-point at 0.001 precision (`length.rs::FloatValue`, multiplier = 1000). The fixed-point representation is what makes pixel values usable in `const` context. `FloatValue::const_new(45)` works at compile time because there's no `f32`. The `FP_PRECISION_MULTIPLIER` is also why integer-only sizes like `5px` round-trip exactly.
 
 `PixelValue::px(5.0)`, `PixelValue::em(1.5)`, `PixelValue::percent(50.0)` are the runtime constructors. The `const_*` variants are used by codegen and hand-rolled UA-CSS tables.
 
-### `AngleValue`
+### AngleValue
 
 ```rust,ignore
 #[repr(C)]
@@ -210,24 +210,24 @@ pub struct AngleValue {
     pub metric: AngleMetric,                      // Degree, Radians, Grad, Turn, Percent
     pub number: FloatValue,
 }
-```
+```rust
 
 `AngleValue::to_degrees()` normalizes to `[0, 360)` modulo. `AngleValue::to_degrees_raw()` does *not* normalize, since conic gradients need to distinguish 360deg from 0deg. Parser at `angle.rs::parse_angle_value`; bare numbers default to degrees.
 
-### `ColorU`, `ColorF`
+### ColorU, ColorF
 
 `ColorU` is `[r, g, b, a]: u8` — the canonical color representation throughout the engine. `ColorF` is the f32 variant, used by WebRender and the GPU compositor. `ColorOrSystem` (`color.rs`) carries either a literal color or a system-color name like `Canvas` / `CanvasText` so dark-mode resolution can defer until paint.
 
-### `CssDuration`
+### CssDuration
 
 ```rust,ignore
 #[repr(C)]
 pub struct CssDuration { pub inner: u32 }   // milliseconds
-```
+```rust
 
 `parse_duration("1.5s") == CssDuration { inner: 1500 }`. Negative durations error.
 
-## Macros: `impl_pixel_value!` and `css_property_from_type!`
+## Macros: impl_pixel_value! and css_property_from_type!
 
 `css/src/props/macros.rs` exists to keep the per-property files boilerplate-free.
 
@@ -237,7 +237,7 @@ pub struct CssDuration { pub inner: u32 }   // milliseconds
 
 `css_property_from_type!($key, $variant)` (`macros.rs::css_property_from_type`) is the giant match table that maps a `CssPropertyType` discriminant to a `CssProperty(CssPropertyValue::Variant)` constructor. It's invoked from `CssProperty::auto(key)`, `CssProperty::none(key)`, `CssProperty::initial(key)`, `CssProperty::inherit(key)` so that the four generic CSS keywords don't need 180 manual match arms.
 
-## Shared parsing helpers in `basic/parse.rs`
+## Shared parsing helpers in basic/parse.rs
 
 - The `split_string_respect_comma(input)` helper turns `url(a,b), url(c)` into `["url(a,b)", "url(c)"]`. It tracks paren depth.
 - The `split_string_respect_whitespace(input)` helper turns `"translateX(10px) rotate(90deg)"` into two items. Same depth tracking.

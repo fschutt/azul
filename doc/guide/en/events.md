@@ -28,7 +28,7 @@ let mut button = Dom::create_div();
 button.add_callback(EventFilter::Hover(HoverEventFilter::MouseUp), data, on_click);
 # button
 # }
-```
+```rust
 
 ## Adding a callback
 
@@ -42,7 +42,7 @@ The primitive is `Dom::add_callback` (and the builder form `Dom::with_callback`)
 let mut node = Dom::create_div()
     .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), data.clone(), handler)
     .with_callback(EventFilter::Focus(FocusEventFilter::FocusReceived), data, handler);
-```
+```rust
 
 The `Update` enum has three variants:
 
@@ -64,7 +64,7 @@ Returning `RefreshDom` from a non-mutating handler is wasteful. Returning `DoNot
 
 The same physical event can match multiple filters. A left mouse-button release while the cursor is inside a button matches `Hover(MouseUp)`, `Hover(LeftMouseUp)`, and, if the button has focus, `Focus(MouseUp)` and `Focus(LeftMouseUp)`. All registered handlers fire.
 
-### `HoverEventFilter`
+### HoverEventFilter
 
 The element the mouse is currently over. Common variants:
 
@@ -83,14 +83,14 @@ HoverEventFilter::DroppedFile      // a file was dropped on the node
 
 For "click", use `LeftMouseUp` rather than `MouseDown`. It matches the W3C activation pattern: press, move out, release does not click.
 
-### `FocusEventFilter`
+### FocusEventFilter
 
 Same vocabulary as `HoverEventFilter`, but the node must currently hold keyboard focus. Set a tab index (or focus programmatically) for the filter to fire:
 
 ```rust,no_run
 # use azul::prelude::*;
 let input = Dom::create_div().with_tab_index(TabIndex::Auto);
-```
+```rust
 
 `TabIndex::Auto` makes the node focusable in source order. `TabIndex::NoKeyboardFocus` makes it focusable programmatically but skips it in tab navigation. `TabIndex::OverrideInParent(n)` pins the node at slot `n` within its parent's tab order.
 
@@ -106,7 +106,7 @@ FocusEventFilter::VirtualKeyUp
 
 `FocusEventFilter::TextInput` carries the produced character, respecting the OS keyboard layout (German `ä`, IME composition, etc.). `VirtualKeyDown` carries a layout-independent key code. Use it for shortcuts and games.
 
-### `WindowEventFilter`
+### WindowEventFilter
 
 Fires on any node registered with this filter regardless of where the cursor or focus is, as long as the window has OS focus:
 
@@ -121,7 +121,7 @@ WindowEventFilter::VirtualKeyDown    // any keypress in the window
 
 Use `Window` for global shortcuts (Ctrl+S, Esc) where the source node doesn't matter.
 
-### `ComponentEventFilter`
+### ComponentEventFilter
 
 Lifecycle events fire after a new DOM is reconciled against the previous frame:
 
@@ -130,11 +130,11 @@ ComponentEventFilter::AfterMount     // node appeared this frame
 ComponentEventFilter::BeforeUnmount  // node will disappear next frame
 ComponentEventFilter::NodeResized    // layout bounds of this node changed
 ComponentEventFilter::Updated        // a keyed node's content changed
-```
+```rust
 
 Reconciliation matches nodes across frames by stable key (`Dom::with_id("id")`) first, then by content hash. Keyed nodes track identity across reorders, so `Updated` only fires when keyed content actually changes.
 
-### `ApplicationEventFilter`
+### ApplicationEventFilter
 
 Fires for global hardware changes. Useful only on the root DOM node:
 

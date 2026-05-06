@@ -38,13 +38,13 @@ small bootstrap JavaScript wires up callback dispatch. There is **no**
 client-side WASM today; that is the long-term goal that Phases A–C are
 placeholders for.
 
-## Backend selection — `web://ip:port`
+## Backend selection — web://ip:port
 
 Parsed at `dll/src/web/config.rs:18`:
 
 ```rust,ignore
 pub fn parse_web_url(s: &str) -> Option<SocketAddr>
-```
+```rust
 
 Accepts `web://127.0.0.1:8080`, `web://0.0.0.0:3000`,
 `web://[::1]:8080`. The `web://` prefix is case-insensitive; an optional
@@ -53,7 +53,7 @@ Accepts `web://127.0.0.1:8080`, `web://0.0.0.0:3000`,
 `AzBackend::Web(SocketAddr)` and consumed by `dll/src/desktop/run.rs`,
 which calls `run_web` instead of the native shell.
 
-## `run_web` — the five-phase orchestrator
+## run_web — the five-phase orchestrator
 
 `dll/src/web/mod.rs:45`:
 
@@ -66,7 +66,7 @@ pub fn run_web(
     root_window: WindowCreateOptions,
     bind_addr: SocketAddr,
 ) -> Result<(), WindowError>
-```
+```rust
 
 - **Phase A.** Functional: decompresses embedded `api.json` and classifies. Output is unused downstream.
   - `dll/src/web/classify.rs::classify_api_functions`
@@ -90,7 +90,7 @@ collide.
 Phase E hands the merged state to `server::run_server`, which blocks
 forever serving HTTP.
 
-## Phase A — `classify`
+## Phase A — classify
 
 `dll/src/web/classify.rs` decompresses an embedded brotli'd `api.json`
 (roughly 120 KB compressed, 3.7 MB raw) and bins every C function into one of
@@ -122,7 +122,7 @@ The brotli blob is built at codegen time
 `classify_api_functions` is called from `run_web` for diagnostics only.
 Phase 0 doesn't act on the classification.
 
-## Phase B — `mini_gen`
+## Phase B — mini_gen
 
 `dll/src/web/mini_gen.rs` returns the smallest valid WASM module:
 
@@ -139,7 +139,7 @@ generated HTML resolves rather than 404'ing. The eventual implementation
 will lift ~200 framework C functions from the running binary through
 `Transpiler::lift_and_link_framework`.
 
-## Phase C — `transpiler` and `cb_gen`
+## Phase C — transpiler and cb_gen
 
 `dll/src/web/transpiler.rs` defines the trait:
 
@@ -164,7 +164,7 @@ running native binary
   ─ remill-rs   ─►  LLVM IR
   ─ llc -mtriple=wasm32 ─► WASM
   ─ wasm-link   ─►  module that imports `Az*` from azul-mini.wasm
-```
+```rust
 
 `dll/src/web/cb_gen.rs` is the consumer. It would walk `config.routes`,
 collect every callback function pointer in the resulting DOM, resolve
@@ -173,7 +173,7 @@ each pointer to a symbol via `dladdr`, and feed them into
 the HTML emitter has no `<link rel="preload" href="/az/cb/*.wasm">`
 hints to add and the server's `/az/cb/{name}.wasm` route always 404s.
 
-## Phase D — `html_render`
+## Phase D — html_render
 
 `dll/src/web/html_render.rs::render_initial_page` produces a full HTML document. The
 pipeline:
@@ -231,7 +231,7 @@ that route 0's `/az/img/3` becomes route 1's `/az/img/8` (or whatever
 the offset is). The simple `.replace(&old, &new)` is safe because the
 URLs include a leading `/` and unambiguous numeric suffix.
 
-## Phase E — `server`
+## Phase E — server
 
 `dll/src/web/server.rs::run_server`:
 
@@ -260,7 +260,7 @@ Image, font, and WASM responses include
 `Cache-Control: public, max-age=31536000, immutable` because their URLs
 embed a content hash. HTML responses are not cached.
 
-### `POST /az/exec/{node_id}` — Phase 0 callback dispatch
+### POST /az/exec/{node_id} — Phase 0 callback dispatch
 
 In `dll/src/web/server.rs`, the current implementation is a placeholder:
 
@@ -274,7 +274,7 @@ In `dll/src/web/server.rs`, the current implementation is a placeholder:
     let html = re_render_body(state);
     send_response(&mut stream, 200, "text/html; charset=utf-8", html.as_bytes())
 }
-```
+```rust
 
 The node ID is parsed but unused. The body is read but discarded.
 `re_render_body` re-runs the layout callback with the current
@@ -298,7 +298,7 @@ In `dll/src/web/server.rs`, the three-stage fallback for `GET /<path>` is:
 3. Fall back to the `/` route, then to any registered route, then to
    `404 No routes configured`.
 
-### `WebServerState`
+### WebServerState
 
 ```rust,ignore
 pub struct WebServerState {
@@ -314,14 +314,14 @@ pub struct WebServerState {
     pub images: Vec<CollectedImage>,
     pub fonts: Vec<CollectedFont>,
 }
-```
+```rust
 
 `Arc<Mutex<RefAny>>` is the only synchronization point. `re_render_body`
 locks it, calls into `render_initial_page`, and drops the lock.
 Concurrent requests serialize through this mutex. There is no
 per-connection state.
 
-## `loader_js` — bootstrap script
+## loader_js — bootstrap script
 
 `dll/src/web/loader_js.rs::generate_loader_js` returns a fixed JavaScript string. Three
 things happen on `DOMContentLoaded`:
@@ -349,7 +349,7 @@ The `_mini_wasm_hash` and `_callbacks` parameters are accepted but
 ignored in the Phase 0 generator. The `<link rel="preload">` hints
 are emitted by `html_render`, not by `loader_js`.
 
-### `loader_js_hash`
+### loader_js_hash
 
 FNV-1a 64-bit hash of the loader JS, used for cache-busting URLs.
 Mirrors `html_render::content_hash` exactly (same constants:

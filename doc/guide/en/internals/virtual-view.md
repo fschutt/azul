@@ -32,13 +32,13 @@ pub struct VirtualViewCallback {
     pub cb: VirtualViewCallbackType,
     pub ctx: OptionRefAny,  // foreign callable for FFI; None for native Rust
 }
-```
+```rust
 
 `VirtualViewCallbackType` and the `VirtualViewCallback` struct live in [`core/src/callbacks.rs`](../../../../core/src/callbacks.rs). Native Rust callers construct the wrapper via `VirtualViewCallback::create(fn_ptr)`. FFI bindings store the user's foreign callable in `ctx` and a trampoline in `cb` that extracts both `RefAny`s and dispatches.
 
 The two `RefAny`s a foreign callable receives are the user's data (held in the wrapping `RefAny` that bound this callback to the DOM) and the foreign-language callable itself (extracted from `ctx`). Native Rust closures live entirely in the `cb` function pointer.
 
-## `VirtualViewCallbackInfo`
+## VirtualViewCallbackInfo
 
 ```rust,ignore
 pub struct VirtualViewCallbackInfo {
@@ -62,7 +62,7 @@ pub struct VirtualViewCallbackInfo {
 
 `set_callable_ptr(&OptionRefAny)` and `get_ctx()` are the FFI hooks for binding the foreign callable through the info struct (parallel to the `LayoutCallbackInfo` mechanism). Native Rust code doesn't call them; the trampoline in foreign bindings does.
 
-## Why the callback is invoked: `VirtualViewCallbackReason`
+## Why the callback is invoked: VirtualViewCallbackReason
 
 ```rust,ignore
 pub enum VirtualViewCallbackReason {
@@ -78,7 +78,7 @@ pub enum VirtualViewCallbackReason {
 
 The reason lets the callback short-circuit: an `InitialRender` may build a different fallback DOM than an `EdgeScrolled(Bottom)` extension fetch, and a `DomRecreated` callback usually re-emits the existing slice without re-querying the data source.
 
-## Return value: `VirtualViewReturn`
+## Return value: VirtualViewReturn
 
 ```rust,ignore
 pub struct VirtualViewReturn {
@@ -104,7 +104,7 @@ impl VirtualViewReturn {
 
 Returning `dom: OptionDom::None` (`keep_current(...)`) is the optimisation path. The rendered slice is still adequate for the current scroll position, and only the scroll bounds need updating. The runtime won't rebuild the nested DOM.
 
-## `VirtualViewManager`
+## VirtualViewManager
 
 ```rust,ignore
 pub struct VirtualViewManager {
@@ -112,7 +112,7 @@ pub struct VirtualViewManager {
     pipeline_ids:  BTreeMap<(DomId, NodeId), PipelineId>,
     next_dom_id:   usize,        // starts at 1; 0 is the root DOM
 }
-```
+```rust
 
 [`layout/src/managers/virtual_view.rs::VirtualViewManager`](../../../../layout/src/managers/virtual_view.rs). One state per `(parent DomId, NodeId of the virtualised element)`. The manager owns:
 
@@ -128,7 +128,7 @@ pub struct VirtualViewManager {
 
 The `next_dom_id` counter starts at 1 because `DomId { inner: 0 }` is reserved for the root window DOM.
 
-## Re-invocation logic: `check_reinvoke`
+## Re-invocation logic: check_reinvoke
 
 ```rust,ignore
 pub fn check_reinvoke(
@@ -198,7 +198,7 @@ The latches in `VirtualViewState` ([`layout/src/managers/virtual_view.rs::Virtua
 
 `last_edge_triggered` is *not* cleared when the user scrolls away from an edge. That's currently a deliberate choice. Once you've requested more content for the bottom, you don't want to re-request it every time the user scrolls back to the bottom. The trade-off is that callers must use `force_reinvoke` to allow the same edge to fire again.
 
-## Coordination with `ScrollManager`
+## Coordination with ScrollManager
 
 The nested DOM has its own scroll frame in `ScrollManager` ([`layout/src/managers/scroll_state.rs`](../../../../layout/src/managers/scroll_state.rs)). When a callback returns `virtual_scroll_size` larger than `scroll_size`, the scroll manager's `AnimatedScrollState.virtual_scroll_size` is set to that value via `set_virtual_scroll_size`. Clamping logic for the nested DOM then uses it instead of `content_rect.size`, so the scrollbar can scroll past the actually-rendered content into the virtual area. When the user scrolls past `scroll_offset + scroll_size`, the next `check_reinvoke` call reads the new `scroll_offset` and detects the edge condition.
 

@@ -37,7 +37,7 @@ The DOM is a `#[repr(C)]` tree of `NodeData` plus per-subtree `Css` stylesheets.
 - **`Node`, `NodeHierarchy`.** The flat arena hierarchy primitive: parent, prev_sibling, next_sibling, last_child.
   - `core/src/id.rs`
 
-## `NodeData`
+## NodeData
 
 ```rust,ignore
 #[repr(C)]
@@ -49,7 +49,7 @@ pub struct NodeData {
     pub accessibility: Option<Box<AccessibilityInfo>>,
     extra: Option<Box<NodeDataExt>>,
 }
-```
+```rust
 
 The struct is split into a hot 32-byte fast path (the first five fields) and a heap-allocated `NodeDataExt` (`core/src/dom.rs::NodeDataExt`) for attributes, dataset (`RefAny`), virtual_view, svg_data, and menus. ~95% of nodes never allocate `extra`.
 
@@ -57,7 +57,7 @@ The struct is split into a hot 32-byte fast path (the first five fields) and a h
 
 `callbacks` are tuples of `(On, Callback, RefAny)` where `RefAny` is the data pointer the callback receives. Hashing `NodeData` (`core/src/dom.rs::Hash for NodeData`) intentionally hashes the `RefAny`'s type id rather than its contents, so reconciliation does not see two clones of the same data as different.
 
-## `NodeType` and the 50+ HTML elements
+## NodeType and the 50+ HTML elements
 
 `NodeType` (`core/src/dom.rs::NodeType`) covers all HTML5 semantic tags plus media (`Image`, `Audio`, `Video`), inline framing (`IFrame`, `OpenGl`), forms (`Input`, `Select`, `Textarea`, `Button`, `Label`), tables, lists, and SVG-style virtual nodes. Most variants are unit-like. Only `Text(AzString)`, `Image(ImageRef)`, `IFrame(IFrameNodeData)`, `OpenGl(GlCallbackData)`, and `Input(InputType, ...)` carry data.
 
@@ -69,7 +69,7 @@ To add a node type:
 4. Add UA CSS defaults in `core/src/ua_css.rs` if it should match a built-in stylesheet entry.
 5. Update the XML parser's tag table in `layout/src/xml/mod.rs` so XML / XHTML round-trips.
 
-## `NodeFlags` packing
+## NodeFlags packing
 
 Tab index, contenteditable, and anonymous-box are packed into a single u32 (`core/src/dom.rs::NodeFlags`):
 
@@ -78,11 +78,11 @@ Tab index, contenteditable, and anonymous-box are packed into a single u32 (`cor
 [30:29]  tab_index variant: 00=None, 01=Auto, 10=OverrideInParent, 11=NoKeyboardFocus
 [28]     is_anonymous (table layout fixup)
 [27:0]   OverrideInParent value (0..2^28)
-```
+```rust
 
 Anonymous boxes are inserted by the table-layout fixup pass (`layout/src/solver3/`) when a `<table>` ancestor needs to wrap stray inline content in implicit `<tbody>`/`<tr>`/`<td>` boxes. They are flagged so the diff and accessibility tree can ignore them.
 
-## Building a `Dom`
+## Building a Dom
 
 The builder API is method-chained. `Dom::create_div()`, `Dom::create_p()`, `Dom::create_text()` are `const fn` constructors; `with_child`, `with_id`, `with_class`, `with_callback` consume `self` and return it.
 
@@ -101,13 +101,13 @@ let dom = Dom::create_div()
         Dom::create_button()
             .with_callback(On::MouseUp.into(), my_data, my_callback)
     );
-```
+```rust
 
 `with_child` (`core/src/dom.rs::with_child`) updates `estimated_total_children` so the tree→arena flatten step can pre-size its allocations. `add_child` (`core/src/dom.rs::add_child`) is the `&mut self` variant.
 
 `Dom` also carries a per-subtree `CssVec`. `Dom::create_div().with_css(my_stylesheet)` attaches a `<style>`-scoped sheet that applies only to this subtree.
 
-## Tree → arena: from `Dom` to `StyledDom`
+## Tree → arena: from Dom to StyledDom
 
 The recursive `Dom` is a builder representation. Layout never sees it; instead `StyledDom::from_dom(...)` flattens the tree into parallel arrays:
 
@@ -120,14 +120,14 @@ Pre-order indexing is invariant: parent index < child index, which lets every ca
 
 For bulk construction (XML parsing, code-generated DOM), `FastDom` skips the recursive intermediate by populating the flat vectors directly. `StyledDom::create_from_fast_dom()` consumes it without conversion.
 
-## `IdOrClass` and CSS attachment
+## IdOrClass and CSS attachment
 
 ```rust,ignore
 pub enum IdOrClass {
     Id(AzString),
     Class(AzString),
 }
-```
+```rust
 
 These live in `NodeData::attributes()` (off the `NodeDataExt` heap path). `IdOrClass::as_id()` and `as_class()` are used by the cascade and by the diff's reconciliation key (`core/src/diff.rs::calculate_reconciliation_key`).
 
@@ -174,7 +174,7 @@ For each match, `reconcile_dom` fires:
 
 Unmatched old nodes → `Unmount` events. Unmatched new nodes → `Mount` events.
 
-## `compute_node_changes` and `NodeChangeSet`
+## compute_node_changes and NodeChangeSet
 
 Once Tier-1/2/3 matched a node pair, `compute_node_changes(old, new, old_state, new_state) -> NodeChangeSet` (`core/src/diff.rs::compute_node_changes`) does field-by-field comparison and returns bitflags:
 
@@ -192,11 +192,11 @@ STYLED_STATE            0x0200   (paint-only — hover/focus/active changed)
 CALLBACKS               0x0400   (no visual effect)
 DATASET                 0x0800
 ACCESSIBILITY           0x1000
-```
+```rust
 
 Composite masks: `AFFECTS_LAYOUT` (low 8 bits + `IMAGE_CHANGED`) and `AFFECTS_PAINT` (`INLINE_STYLE_PAINT | STYLED_STATE`). `is_visually_unchanged()` returns true when only `CALLBACKS | DATASET | ACCESSIBILITY` changed.
 
-## `ChangeAccumulator` — the unified change stream
+## ChangeAccumulator — the unified change stream
 
 `ChangeAccumulator` (`core/src/diff.rs::ChangeAccumulator`) is the single source of truth for "what work runs this frame". It merges three input paths:
 
@@ -214,7 +214,7 @@ The accumulator tracks `max_scope: RelayoutScope` (None / IfcOnly / SizingOnly /
 - `IMAGE_CHANGED | CONTENTEDITABLE` → `SizingOnly`
 - paint-only flags → `None`
 
-## State migration: `transfer_states` and `create_migration_map`
+## State migration: transfer_states and create_migration_map
 
 Some state lives outside `NodeData` but is keyed by `NodeId`: scroll offsets, focus, cursor position, drag state. After a diff, those node IDs are stale.
 
@@ -224,7 +224,7 @@ Some state lives outside `NodeData` but is keyed by `NodeId`: scroll offsets, fo
 
 Both must run **before** the old DOM is dropped.
 
-## `NodeDataFingerprint` — the fast pre-check
+## NodeDataFingerprint — the fast pre-check
 
 `NodeDataFingerprint` (`core/src/diff.rs::NodeDataFingerprint`) is a 6×u64 struct that fingerprints a node's fields independently:
 
@@ -241,7 +241,7 @@ pub struct NodeDataFingerprint {
 
 `NodeDataFingerprint::compute(node, styled_state)` is O(1) per node. Comparing two fingerprints tells you which categories changed without running the full `compute_node_changes` walk. The reconciliation pipeline uses this as Tier 1: if all six hashes match, the node didn't change at all and `compute_node_changes` is skipped entirely.
 
-## Adding a new field to `NodeData`
+## Adding a new field to NodeData
 
 A checklist for safely extending `NodeData` without breaking the diff or hashing:
 

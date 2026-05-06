@@ -39,7 +39,7 @@ The struct holds the `HWND`, `HINSTANCE`, render mode (GPU via
 DPI helpers, the IME composition string, the tooltip window, and the
 optional accessibility adapter.
 
-## `Win32Libraries` and `dlopen`
+## Win32Libraries and dlopen
 
 `windows/dlopen.rs:1` declares one struct per DLL — `User32`, `Gdi32`,
 `Kernel32`, `OpenGL32`, `Imm32`, `Shcore`, `UxTheme`, `Dwmapi` — each
@@ -64,7 +64,7 @@ pub type HIMC       = *mut c_void;   // IME context handle
 pub type WPARAM     = usize;
 pub type LPARAM     = isize;
 pub type LRESULT    = isize;
-```
+```rust
 
 Win32 structs (`MSG`, `WNDCLASSW`, `RECT`, `POINT`, `TRACKMOUSEEVENT`,
 `COMPOSITIONFORM`, …) are `#[repr(C)]` mirrors of the headers in
@@ -154,7 +154,7 @@ Per-window DPI is queried via `GetDpiForWindow(hwnd)` on each
 `WM_DPICHANGED` message; the layout viewport is updated and
 `regenerate_layout` fires.
 
-## Event loop — `WindowProc` + main loop
+## Event loop — WindowProc + main loop
 
 The Win32 message dispatch is split:
 
@@ -192,7 +192,7 @@ emulation on European keyboards, and the dance between `WM_KEYDOWN`
 by `UpdateWindow(hwnd)` — Win32 will deliver the resulting
 `WM_PAINT` before the next `PeekMessage` returns.
 
-## IME — `Imm32`
+## IME — Imm32
 
 The `Imm32` library functions live in `dlopen.rs`. The flow:
 
@@ -280,7 +280,7 @@ when non-empty, only the listed regions need painting; the WebRender
 transaction sets the same rects so the GPU compositor can skip
 unchanged tiles.
 
-## `system_style` and dynamic theming
+## system_style and dynamic theming
 
 `windows/system_style.rs` (`SystemStyle::detect_windows`) reads from
 the registry (`HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`)

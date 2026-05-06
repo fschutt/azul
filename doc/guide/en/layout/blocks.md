@@ -25,7 +25,7 @@ the full width of its parent, stacks below the previous sibling, and is
 sized by the box-model properties (`width`, `height`, `padding`, `border`,
 `margin`). Block layout runs by default. Flexbox and grid are opt-in.
 
-## `display: block` and `inline-block`
+## display: block and inline-block
 
 The `display` property:
 
@@ -45,7 +45,7 @@ in app code.
 <div style='display: block; padding: 16px; background: #ddd6fe;'>second</div>
 ```
 
-## Sizing: `width`, `height`, and `min-` / `max-` constraints
+## Sizing: width, height, and min- / max- constraints
 
 `width` and `height` accept:
 
@@ -63,7 +63,7 @@ pixel value. Defaults: `min-*` is `0px`, `max-*` is unconstrained.
 .fluid { width: calc(50% - 20px); }
 ```
 
-### `box-sizing`
+### box-sizing
 
 - `content-box` (default). `width` and `height` apply to content only.
 - `border-box`. `width` and `height` include padding and border.
@@ -71,7 +71,7 @@ pixel value. Defaults: `min-*` is `0px`, `max-*` is unconstrained.
 `box-sizing: border-box` is what you usually want for forms and grids.
 The `content-box` default matches the original CSS 1 behaviour.
 
-### `calc()`
+### calc()
 
 ```css
 .sidebar { width: calc(33.333% - 10px); }
@@ -82,7 +82,7 @@ Operators: `+`, `-`, `*`, `/`. Negative numeric literals are recognised
 when they follow an operator or `(`. Otherwise `-` is a subtraction
 operator.
 
-## `margin` and `padding`
+## margin and padding
 
 Padding insets the content within the box; margin separates the box from its
 siblings:
@@ -102,7 +102,7 @@ Margins on `position: static` block elements collapse vertically the way
 CSS specifies. Margins inside `display: flex` and `display: grid`
 containers do not collapse. Use `gap` instead.
 
-## `position`
+## position
 
 The `position` property:
 
@@ -121,7 +121,7 @@ The `position` property:
  </div>
 ```
 
-### Offsets: `top`, `right`, `bottom`, `left`
+### Offsets: top, right, bottom, left
 
 Each offset is a `<length>` or `<percentage>`. `auto` (the default) means
 "no constraint" and lets the solver compute it.
@@ -145,7 +145,7 @@ For `position: absolute`:
  </div>
 ```
 
-### `position: sticky`
+### position: sticky
 
 A sticky element behaves like `relative` until the user scrolls past the
 offsets, at which point it pins to the scroll container's edge:
@@ -163,7 +163,7 @@ The nearest scroll container is whatever ancestor has `overflow: auto |
 scroll | hidden | clip`. If the document body is the scroll container, the
 sticky element pins to the window.
 
-## `z-index`
+## z-index
 
 `z-index` accepts:
 
@@ -176,7 +176,7 @@ sticky element pins to the window.
 *stacking context*. Its descendants then stack relative to it, not the
 document root.
 
-## `overflow`
+## overflow
 
 `overflow` controls clipping and scrolling. Apply `overflow-x` and
 `overflow-y` independently, or set both with the shorthand `overflow`.
@@ -187,7 +187,7 @@ document root.
 - `scroll`. Clips and scrolls. Scrollbar always shown.
 - `auto`. Clips and scrolls. Scrollbar shown when content overflows.
 
-### `clip` vs `hidden`
+### clip vs hidden
 
 `clip` is a stricter form of `hidden`:
 
@@ -208,7 +208,7 @@ overflow-x: clip,    overflow-y: hidden  →  computed: hidden / hidden
 overflow-x: visible, overflow-y: visible →  unchanged
 ```
 
-### `scrollbar-gutter`
+### scrollbar-gutter
 
 `scrollbar-gutter` reserves space for the scrollbar so layout doesn't
 shift when content starts overflowing.
@@ -221,7 +221,7 @@ shift when content starts overflowing.
 .pane { overflow-y: auto; scrollbar-gutter: stable; }
 ```
 
-### `overflow-clip-margin`
+### overflow-clip-margin
 
 `overflow-clip-margin` extends the clip region outside the box. It only
 applies when `overflow: clip` is set.
@@ -233,7 +233,7 @@ length defaults to `0px`.
 .badge { overflow: clip; overflow-clip-margin: padding-box 4px; }
 ```
 
-### The legacy `clip: rect(...)` property
+### The legacy clip: rect(...) property
 
 `clip: rect(...)` is the deprecated CSS 2.1 property used with
 `position: absolute`. Each edge is either `auto` (the corresponding box
@@ -245,7 +245,7 @@ edge) or a `<length>`:
 
 Prefer `clip-path` for new code.
 
-## `gap`, `row-gap`, `column-gap`
+## gap, row-gap, column-gap
 
 `gap` adds space between flex and grid items without a margin on each
 child:

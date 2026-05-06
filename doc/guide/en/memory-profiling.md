@@ -30,7 +30,7 @@ AZ_PROFILE=heap,jsonl AZ_PROFILE_OUT=/tmp/run.jsonl ./my_app       # phase bound
 AZ_PROFILE=heap,jsonl,detail AZ_PROFILE_OUT=/tmp/d.jsonl ./my_app  # add per-step probes
 ```
 
-## `AZ_PROFILE` tokens
+## AZ_PROFILE tokens
 
 `AZ_PROFILE` is a comma-separated list. Tokens are independent flags, not modes; combine freely. Whitespace is trimmed, matching is case-insensitive, unknown tokens are ignored.
 
@@ -89,7 +89,7 @@ A leak in your code shows up in both. A leak that shows up only in RSS but not i
 
 Heap delta between adjacent labels with the same `call` id is the bytes retained by that phase. If `start` and `end` differ, that frame leaked. Run a few hundred frames, group by label, and fit a linear trend per label — anything that climbs is a suspect.
 
-## Hunting a leak with `AZ_E2E_TEST`
+## Hunting a leak with AZ_E2E_TEST
 
 `AZ_E2E_TEST=<scenario.json>` (gated by a build feature) takes over `main()` to run a deterministic resize/tick scenario against a headless backend. It probes RSS at a configurable cadence, compares against caps, and exits 0/1.
 
@@ -116,7 +116,7 @@ Heap delta between adjacent labels with the same `call` id is the bytes retained
     "summary_path": "/tmp/calc.summary.jsonl"
   }
 }
-```
+```rust
 
 `assert_growth_mib_max` is the per-run delta between baseline (after warmup) and the final RSS sample; `assert_absolute_mib_max` caps total RSS at any point. Either breach exits the process with code `1`. With `memory_breakdown: true` each probe also emits a flat `mem` event covering every measurable byte across the layout caches. Feed the JSONL to a regression analyzer and let it pick the field whose slope grew.
 

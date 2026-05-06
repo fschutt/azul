@@ -42,7 +42,7 @@ cargo run --release -p azul-doc -- codegen all
 
 The generated files land under `target/codegen/`. Nothing in that directory is committed. The build script re-runs the generator if any required file is missing.
 
-## Anatomy of `api.json`
+## Anatomy of api.json
 
 The file is a top-level map of version strings (`"1.0.0-alpha1"`, …) to version data. Within a version the relevant keys are:
 

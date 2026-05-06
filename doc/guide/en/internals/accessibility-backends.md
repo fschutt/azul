@@ -36,7 +36,7 @@ the layout result, and the per-OS bridge under
 update to the platform-specific `accesskit_*` adapter. Action requests flow
 back up the stack.
 
-```
+```rust
 core::a11y::AccessibilityInfo  (FFI-safe data)
         │
         ▼
@@ -51,7 +51,7 @@ dll::desktop::shell2::*::*AccessibilityAdapter::update_tree(tu)
         └─ Windows: accesskit_windows::SubclassingAdapter → UIA
 ```
 
-## Data model: `AccessibilityInfo`
+## Data model: AccessibilityInfo
 
 [`core/src/a11y.rs`](../../../../core/src/a11y.rs) defines the per-node
 record. `#[repr(C)]`, FFI-safe, `Hash`:
@@ -71,7 +71,7 @@ pub struct AccessibilityInfo {
     pub role: AccessibilityRole,
     pub is_live_region: bool,
 }
-```
+```rust
 
 The lighter-weight constructor for the common case is
 [`SmallAriaInfo`](../../../../core/src/a11y.rs) in `core/src/a11y.rs`,
@@ -134,7 +134,7 @@ pub enum AccessibilityState {
     Linked, Traversed, Multiselectable,
     Protected,
 }
-```
+```rust
 
 The `Vec<AccessibilityState>` carries multiple states per node (e.g., a
 focused, focusable, selectable list item). The manager expands flags
@@ -172,7 +172,7 @@ the AT*. When the AT performs one, accesskit returns the action via its
 [`layout/src/managers/a11y.rs::map_accesskit_action`](../../../../layout/src/managers/a11y.rs)
 and dispatches it as a synthetic event.
 
-## The manager: `A11yManager`
+## The manager: A11yManager
 
 [`layout/src/managers/a11y.rs`](../../../../layout/src/managers/a11y.rs)
 holds per-window state:
@@ -231,7 +231,7 @@ moves the caret in a `contenteditable` node, the manager attaches
 `text_selection` to that node so screen readers can announce cursor position
 without a full tree rebuild.
 
-## The Linux bridge — AT-SPI via `accesskit_unix`
+## The Linux bridge — AT-SPI via accesskit_unix
 
 [`dll/src/desktop/shell2/linux/x11/accessibility.rs`](../../../../dll/src/desktop/shell2/linux/x11/accessibility.rs).
 Same module is used for Wayland (the adapter does not care about the
@@ -243,7 +243,7 @@ pub struct LinuxAccessibilityAdapter {
     adapter: Arc<Mutex<Option<Adapter>>>,
     pending_actions: Arc<Mutex<Vec<ActionRequest>>>,
 }
-```
+```rust
 
 Lifecycle:
 
@@ -256,7 +256,7 @@ Lifecycle:
 `update_if_active` is the load-bearing call: if the AT is not currently
 listening, the closure is never invoked and no D-Bus traffic is generated.
 
-## The macOS bridge — NSAccessibility via `accesskit_macos`
+## The macOS bridge — NSAccessibility via accesskit_macos
 
 [`dll/src/desktop/shell2/macos/accessibility.rs`](../../../../dll/src/desktop/shell2/macos/accessibility.rs):
 
@@ -267,7 +267,7 @@ pub struct MacOSAccessibilityAdapter {
     action_receiver: Receiver<ActionRequest>,
     tree_provider: Arc<Mutex<Option<TreeUpdate>>>,
 }
-```
+```rust
 
 Constructed with `MacOSAccessibilityAdapter::new(view: *mut c_void)` —
 `view` is the raw `NSView` pointer the platform window owns.
@@ -292,7 +292,7 @@ Action requests flow through an `mpsc::channel` rather than a mutex-guarded
 vec. The macOS AT may invoke action handlers off the main thread, and the
 event loop drains the receiver each frame.
 
-## The Windows bridge — UIA via `accesskit_windows`
+## The Windows bridge — UIA via accesskit_windows
 
 [`dll/src/desktop/shell2/windows/accessibility.rs`](../../../../dll/src/desktop/shell2/windows/accessibility.rs):
 

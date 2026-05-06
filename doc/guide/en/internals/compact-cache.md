@@ -47,7 +47,7 @@ For a 1000-node DOM:
 
 Properties that don't fit (background, box-shadow, transform, filter, ...) live on the slow `CssPropertyCache::get_property_slow` path and are not duplicated here.
 
-## `CompactLayoutCache`
+## CompactLayoutCache
 
 ```rust,ignore
 pub struct CompactLayoutCache {
@@ -60,7 +60,7 @@ pub struct CompactLayoutCache {
     pub font_hash_to_families: BTreeMap<u64, Vec<StyleFontFamily>>,
     // …a few DOM-level flags described below
 }
-```
+```rust
 
 (`css/src/compact_cache.rs::CompactLayoutCache`)
 
@@ -99,7 +99,7 @@ Every `enum`-valued layout property fits in a few bits. Tier 1 packs 21 of them 
 [60:59]  grid_auto_flow   2 bits
 [62:61]  justify_items    2 bits
 [63]     TIER1_POPULATED  1 bit
-```
+```rust
 
 (`css/src/compact_cache.rs::tier1`)
 
@@ -118,7 +118,7 @@ pub fn decode_display(t1: u64) -> LayoutDisplay {
 
 The `_from_u8` / `_to_u8` pairs in `css/src/compact_cache.rs` are the per-enum codec. They use `match` rather than `transmute` so the compiler can prove every input maps to a defined output.
 
-## Tier 2 hot — `CompactNodeProps`
+## Tier 2 hot — CompactNodeProps
 
 ```rust,ignore
 #[repr(C)]
@@ -152,7 +152,7 @@ pub struct CompactNodeProps {
 
 68 bytes, layout-critical, accessed in every iteration of the constraint-solving loop. The integer encodings use the top of their unsigned/signed range as sentinels for "value doesn't fit, fall through to slow path".
 
-## Tier 2 cold — `CompactNodePropsCold`
+## Tier 2 cold — CompactNodePropsCold
 
 28 bytes of paint-only and rare-but-typed properties: border colors as `u32` RGBA, border radii as `i16`×10, `z_index`, `border_styles_packed` (4 bits per side), grid placement (`grid_col/row_start/end` as `i16` with `I16_AUTO` sentinel), `tab_size`, `border_spacing_h/v`, `opacity` (×254 with 255 = unset).
 
@@ -183,7 +183,7 @@ These are negative fast paths. When `hot_flags & HOT_FLAG_HAS_TRANSFORM == 0`, t
 
 `CompactLayoutCache` itself carries a parallel set of DOM-level flags (`DOM_HAS_TEXT_INDENT`, `DOM_HAS_LINE_HEIGHT`, ...) at `css/src/compact_cache.rs::CompactLayoutCache`. They mark "some node in this DOM declared this property". When clear, the cascade walks for that prop are skipped across the whole DOM.
 
-## Tier 2b — `CompactTextProps`
+## Tier 2b — CompactTextProps
 
 ```rust,ignore
 #[repr(C)]
@@ -195,7 +195,7 @@ pub struct CompactTextProps {
     pub word_spacing: i16,
     pub text_indent: i16,
 }
-```
+```rust
 
 (`css/src/compact_cache.rs::CompactTextProps`)
 
@@ -237,7 +237,7 @@ pub fn encode_border_styles_packed(
   | ((border_style_to_u8(bottom) as u16) << 8)
   | ((border_style_to_u8(left)   as u16) << 12)
 }
-```
+```rust
 
 (`css/src/compact_cache.rs::encode_border_styles_packed`)
 
@@ -291,7 +291,7 @@ if let Some(val) = self.get_width(nd, &node_id, &default_state) {
     result.tier2_dims[i].width = encode_layout_width(val);
 }
 // …
-```
+```rust
 
 Each `get_*` call cascades through `CssPropertyCache` (UA → global → cascaded → inline → user override). The result is an `Option<CssPropertyValue<T>>`; `None` leaves the slot at `Default::default()`.
 

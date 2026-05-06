@@ -54,7 +54,7 @@ shell2/linux/
     └── x11_properties.rs      (sets _GTK_* atoms on the X11 window)
 ```
 
-## `DBusLib` — the dlopen layer
+## DBusLib — the dlopen layer
 
 `dbus/dlopen.rs:27` defines `DBusLib`:
 
@@ -76,7 +76,7 @@ pub struct DBusLib {
     pub dbus_message_iter_get_arg_type: unsafe extern "C" fn(*mut DBusMessageIter) -> c_int,
     // … ~30 more function pointers, one per libdbus-1 entry point we use
 }
-```
+```rust
 
 `DBusLib::new` calls `Library::load("libdbus-1.so.3")` then
 `load_first_available::<Library>(&["libdbus-1.so.3", "libdbus-1.so"])`
@@ -100,7 +100,7 @@ and `pad*` field names mirror the upstream
 `/usr/include/dbus-1.0/dbus/dbus-types.h` — these are not stub
 fields, they are the layout libdbus expects.
 
-## `should_use_gnome_menus`
+## should_use_gnome_menus
 
 `gnome_menu/mod.rs:66` is the gate:
 
@@ -121,7 +121,7 @@ bar in the title-bar area as part of the client-side decorations.
 `AZUL_GNOME_MENU_DEBUG=1` enables verbose logging via `debug_log` —
 useful when GNOME Shell silently ignores a published menu.
 
-## `GnomeMenuManager`
+## GnomeMenuManager
 
 `manager.rs:22`:
 
@@ -135,7 +135,7 @@ pub struct GnomeMenuManager {
     menu_groups: Arc<Mutex<HashMap<u32, DbusMenuGroup>>>,
     actions: Arc<Mutex<HashMap<String, DbusAction>>>,
 }
-```
+```rust
 
 `GnomeMenuManager::new(app_name, dbus_lib)`:
 
@@ -159,7 +159,7 @@ The `*mut DBusConnection` is **not** wrapped in `Arc` —
 `Drop for GnomeMenuManager` calls `dbus_connection_unref` when the
 window is closed.
 
-## `org.gtk.Menus` interface
+## org.gtk.Menus interface
 
 `menu_protocol.rs:8`:
 
@@ -178,7 +178,7 @@ pub struct DbusMenuGroup {
     pub menu_id: u32,
     pub items: Vec<DbusMenuItem>,
 }
-```
+```rust
 
 `menu_conversion.rs:29` (`MenuConversion::convert_menu`) walks the
 recursive `azul_core::menu::Menu` tree and flattens it: each level of
@@ -197,7 +197,7 @@ The `menu_protocol.rs` autoreview report flags that `DbusMenuItem.enabled`
 may not be serialised into the DBus variant dict — verify against
 `protocol_impl.rs::menus_message_handler` before relying on it.
 
-## `org.gtk.Actions` interface
+## org.gtk.Actions interface
 
 `actions_protocol.rs` documents the four DBus methods Azul implements
 on its `org.gtk.Actions` object:

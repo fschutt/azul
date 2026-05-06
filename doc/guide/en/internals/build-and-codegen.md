@@ -22,7 +22,7 @@ generated_at: 2026-05-02T12:00:00Z
 
 Azul's public surface is generated from a single source of truth: [`api.json`](../../../../api.json) at the workspace root. A tool crate (`azul-doc`) reads it, builds an intermediate representation, and emits Rust/C/C++/Python bindings into `target/codegen/`. The `azul-dll` crate then `include!()`s those generated files behind feature flags. Every binding for every language stays in lockstep because they all derive from the same JSON.
 
-```
+```rust
 api.json ──► azul-doc codegen all ──► target/codegen/
                                        ├── dll_api_internal.rs    (C-ABI bodies)
                                        ├── dll_api_external.rs    (extern "C" decls)
@@ -56,11 +56,11 @@ cargo run --release -p azul-doc -- codegen rust    # → target/codegen/azul.rs
 cargo run --release -p azul-doc -- codegen c       # → target/codegen/azul.h
 cargo run --release -p azul-doc -- codegen cpp     # → target/codegen/azul11.hpp
 cargo run --release -p azul-doc -- codegen python  # → target/codegen/python_api.rs
-```
+```rust
 
 `check_generated_files()` in `dll/build.rs` refuses to compile when a feature is enabled but the matching generated file is missing. The panic message tells you exactly which command to run.
 
-## `api.json` schema
+## api.json schema
 
 Top-level shape: `{ "<version>": { "api": { "<module>": { "classes": { "<TypeName>": { ... } }, "functions": { ... } }, ... }, ... } }`. The current version is keyed `"1.0.0-alpha1"` in `api.json`.
 
@@ -96,7 +96,7 @@ cargo run --release -p azul-doc -- normalize
        ],
        "repr": "C"
    }
-   ```
+   ```rust
 
 3. **Define the type in Rust.** It must live at the path declared in `external`, be `#[repr(C)]`, and match the field layout exactly. Field name and order must match `api.json`.
 4. **Run `normalize`** to canonicalize the new entry: `cargo run -p azul-doc -- normalize`.
@@ -120,7 +120,7 @@ Inside the same module entry in `api.json`:
         "returns": { "type": "AzString" }
     }
 }
-```
+```rust
 
 Implement the function in the appropriate crate (`azul-core`, `azul-layout`, or `azul-dll`). The codegen emits `extern "C" fn AzMyType_do_thing(...)` whose body `transmute`s arguments to internal types and calls your Rust function. See `doc/src/codegen/v2/rust/static_binding.rs` for the exact emission rules.
 
@@ -182,7 +182,7 @@ include!(concat!(
 
 The two `cabi_*` features are wired so `cabi_internal` wins if both are on (see the `not(feature = "cabi_internal")` guard on the external import). `link-dynamic` therefore deliberately omits `cabi_internal`.
 
-## How `dll/build.rs` resolves a dynamic library
+## How dll/build.rs resolves a dynamic library
 
 `configure_dynamic_linking` in `dll/build.rs` only fires when `cabi_external` is on and `cabi_internal` is off. Search order, top to bottom:
 
@@ -242,7 +242,7 @@ mod python {
 
 #[cfg(feature = "python-extension")]
 pub use python::azul;
-```
+```rust
 
 Build with `cargo build --release -p azul-dll --features python-extension`. On macOS `dll/build.rs` adds `-Wl,-undefined,dynamic_lookup` so the symbol references into the Python interpreter resolve at load time.
 

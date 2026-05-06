@@ -41,7 +41,7 @@ like a small block), but otherwise still rides along inline content.
 </p>
 ```
 
-## Choosing between `inline` and `inline-block`
+## Choosing between inline and inline-block
 
 - `inline`. Doesn't accept `width`/`height`. Breaks across lines. Use for
   text emphasis, anchors, icons inside prose.
@@ -59,7 +59,7 @@ The engine shapes glyphs, picks line breaks, reorders bidirectional runs,
 and positions output at layout time. For the architecture, see
 [Inline Layout and Text Shaping](../internals/inline-text3.md).
 
-## Wrapping: `white-space`, `word-break`, `overflow-wrap`
+## Wrapping: white-space, word-break, overflow-wrap
 
 `white-space` controls whitespace collapsing and wrapping:
 
@@ -173,7 +173,7 @@ breaks may occur:
 These have no visible effect inside a window. They fire when the layout
 is rendered to PDF.
 
-## Floats and `clear`
+## Floats and clear
 
 `clear: left | right | both | none` interacts only with floats. It's
 honoured on block elements next to `float` siblings. Floats are rare in

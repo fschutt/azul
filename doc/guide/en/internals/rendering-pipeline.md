@@ -56,7 +56,7 @@ WebRender side and the GL context. Read [WebRender bridge](webrender-bridge.md)
 for the transaction shape and [GL function loading](gl-loading.md) for the
 per-platform symbol resolution.
 
-## `translate_displaylist_to_wr`
+## translate_displaylist_to_wr
 
 ```rust,ignore
 pub fn translate_displaylist_to_wr(
@@ -91,7 +91,7 @@ WebRender-side context:
 The call sites are in `dll/src/desktop/wr_translate2.rs`. Each builds a
 transaction containing one or more display lists.
 
-### `resolve_rect` — the coordinate gate
+### resolve_rect — the coordinate gate
 
 Every coordinate that crosses into WebRender goes through
 `compositor2.rs::resolve_rect`:
@@ -193,7 +193,7 @@ clip_stack.push(scroll_clip_chain);
 
 // 4. Push a scroll-container hit-test in parent space (TAG_TYPE_SCROLL_CONTAINER)
 builder.push_hit_test(adjusted_frame_rect, scroll_clip_chain, parent_space, ..., scroll_container_tag);
-```
+```rust
 
 Three things will silently break clipping if you get them wrong:
 
@@ -263,7 +263,7 @@ pub enum GpuOpacityKeyEvent {
     Changed(NodeId, OpacityKey, f32, f32),
     Removed(NodeId, OpacityKey),
 }
-```
+```rust
 
 Two compact-cache fast paths short-circuit the cascade walk:
 

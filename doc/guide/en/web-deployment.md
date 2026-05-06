@@ -35,7 +35,7 @@ AZ_BACKEND=web://127.0.0.1:8080 ./my-azul-app
 
 The layout callback runs natively in the server process. Its output is rendered to HTML with a `<style>` block built from the resolved CSS cascade, then served at `/`. Images and fonts are extracted and served under `/az/`.
 
-## `AZ_BACKEND` URL format
+## AZ_BACKEND URL format
 
 Accepted forms:
 

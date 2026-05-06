@@ -25,7 +25,7 @@ generated_at: 2026-05-02T05:54:52Z
 
 Hit-testing maps a viewport pixel to four parallel result sets at once: the DOM nodes underneath the cursor, the scroll containers underneath them, the cursor icon to display, and the text-selection regions for selection drags. WebRender returns hit results in front-to-back z-order; azul disambiguates result kinds by tagging each hittable display item with a 16-bit namespace marker. The tag scheme lives in [`core/src/hit_test_tag.rs`](../../../../core/src/hit_test_tag.rs); the result types in [`core/src/hit_test.rs`](../../../../core/src/hit_test.rs); the cursor-resolution algorithm in [`layout/src/hit_test.rs`](../../../../layout/src/hit_test.rs).
 
-## WebRender `ItemTag` namespace layout
+## WebRender ItemTag namespace layout
 
 Display items are pushed with `ItemTag = (u64, u16)`. The upper byte of `tag.1` selects the namespace:
 
@@ -42,7 +42,7 @@ Each namespace is its own depth-sorted bucket, so a selection hit and a DOM-node
 
 Before namespace markers, every push went out as `(tag_value, 0u16)`. WebRender returns small, sequential `tag_value`s for normal DOM nodes (1, 2, 3, ...). The compositor's scrollbar decoder in `dll/src/desktop/wr_translate2.rs` read `(tag_value >> 62) & 0x3` to recover the scrollbar component. For a tag value of 673 that expression is `0`, the same encoding the decoder uses for `VerticalTrack`. Every normal click was misclassified as a scrollbar hit and the button callback never ran. The history is in `scripts/HIT_TEST_TAG_ANALYSIS.md`; the namespace constants in `core/src/hit_test_tag.rs` are the fix.
 
-## `HitTestTag`
+## HitTestTag
 
 ```rust,ignore
 pub enum HitTestTag {
@@ -56,7 +56,7 @@ impl HitTestTag {
     pub fn to_item_tag(&self) -> (u64, u16);
     pub fn from_item_tag(tag: (u64, u16)) -> Option<Self>;
 }
-```
+```rust
 
 [`core/src/hit_test_tag.rs::HitTestTag`](../../../../core/src/hit_test_tag.rs). Round-trip encode/decode is covered by tests in the same file. `from_item_tag` accepts `tag.1 == 0` as a legacy DOM-node tag so older display lists still hit-test correctly.
 
@@ -64,7 +64,7 @@ impl HitTestTag {
 
 The intent is for display-list construction to use `HitTestTag::to_item_tag()` and the dispatch path to use `HitTestTag::from_item_tag()`. In practice the codebase still uses raw bit operations. Treat `HitTestTag` as the authoritative reference for the encoding, not as a wrapper to plug into.
 
-## `HitTestItem` and `HitTest`
+## HitTestItem and HitTest
 
 ```rust,ignore
 pub struct HitTestItem {
@@ -104,20 +104,20 @@ pub struct OverflowingScrollNode {
 
 `ScrollbarHitId` in the same file keys scrollbar-component results by `(DomId, NodeId)` plus the orientation/component encoded into the variant (`VerticalTrack`, `VerticalThumb`, `HorizontalTrack`, `HorizontalThumb`).
 
-## `FullHitTest`
+## FullHitTest
 
 ```rust,ignore
 pub struct FullHitTest {
     pub hovered_nodes: BTreeMap<DomId, HitTest>,
     pub focused_node: OptionDomNodeId,
 }
-```
+```rust
 
 [`core/src/hit_test.rs::FullHitTest`](../../../../core/src/hit_test.rs). The shell calls `HoverManager::push_hit_test(InputPointId::Mouse, hit_test)` after every cursor move. Downstream consumers (`dispatch_events_propagated`, `CursorTypeHitTest::new`, the input interpreter) read from this snapshot.
 
 `is_empty()` reports `hovered_nodes.is_empty()` only. A `FullHitTest` with no hovered nodes but a focused node still counts as empty. `focused_node` is the authoritative focus state for the hit-test snapshot, typically `FocusManager::focused_node` at the moment the cursor moved.
 
-## Cursor resolution: `CursorTypeHitTest`
+## Cursor resolution: CursorTypeHitTest
 
 ```rust,ignore
 pub struct CursorTypeHitTest {
@@ -128,7 +128,7 @@ pub struct CursorTypeHitTest {
 impl CursorTypeHitTest {
     pub fn new(hit_test: &FullHitTest, layout_window: &LayoutWindow) -> Self;
 }
-```
+```rust
 
 [`layout/src/hit_test.rs::CursorTypeHitTest::new`](../../../../layout/src/hit_test.rs). Two independent passes find the frontmost `cursor_node`:
 
@@ -151,7 +151,7 @@ The current logic intentionally inverts an earlier buggy iteration (documented i
 
 The thumb-length formula (`viewport / content * track`) and the scrollable-track derivation (`track - thumb`) match the standard proportional scrollbar math. The interpreter passes the result back to `ScrollManager::set_scroll_position` (see [`layout/src/managers/scroll_state.rs`](../../../../layout/src/managers/scroll_state.rs)).
 
-## `ScrollState` and `ScrollStates`
+## ScrollState and ScrollStates
 
 ```rust,ignore
 pub struct ScrollState  { pub scroll_position: LogicalPosition }

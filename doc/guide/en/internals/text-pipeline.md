@@ -74,7 +74,7 @@ StyledDom
 
 `text_cache.layout_flow` then reads `font_manager.font_chain_cache` (per-stack chains) + `font_manager.parsed_fonts` (loaded faces) without holding any locks during shaping.
 
-## Per-node `font_family_hash` and the `font_dirty_nodes` set
+## Per-node font_family_hash and the font_dirty_nodes set
 
 `build_compact_cache` (`core/src/compact_cache_builder.rs`) computes a per-node `font_family_hash`:
 
@@ -123,7 +123,7 @@ The current design fixes (1) by checking `font_dirty_nodes.len()`, which is comp
 
 The full discussion is in `scripts/FONT_INVALIDATION_AND_MEMORY_LAYOUT_ANALYSIS.md` § Part 1.
 
-## `FontChainKey` and the chain cache
+## FontChainKey and the chain cache
 
 `FontChainKey` (defined in `text3/cache.rs`) keys a fallback chain by `(font_family_hash, weight, style)`. Two font stacks with the same hash but different weights resolve to different chains.
 
@@ -133,13 +133,13 @@ pub struct FontFallbackChain {
     pub fallbacks: Vec<FontId>,                  // unicode-fallback ladder
     pub coverage: BTreeMap<UnicodeRange, FontId>, // per-range overrides
 }
-```
+```rust
 
 `FontId` is a stable identifier into `font_manager.parsed_fonts: Arc<Mutex<HashMap<FontId, T>>>`. The chain is read-only during shaping; shapers walk `primary → fallbacks` checking codepoint coverage.
 
 `FontFallbackChain::resolve_char(c)` is the per-codepoint hot path. Coverage is precomputed per font during `ParsedFont::from_bytes`.
 
-## `ParsedFont` (allsorts-backed, lazy)
+## ParsedFont (allsorts-backed, lazy)
 
 `font/parsed/ParsedFont` (`font.rs:292`) is the parsed in-memory font. It holds:
 
@@ -155,7 +155,7 @@ Lazy parsing is critical for memory: parsing a 20 MiB CJK font's GSUB table take
 
 `from_bytes(bytes, index, warnings)` is the entry point. It parses headers + cmap eagerly and populates `LocaGlyfState::Deferred` for the outline tables. `get_or_decode_glyph(glyph_id)` triggers full decode on first miss, with two-step double-check inside a `Mutex<Option<...>>` to keep the expensive `LocaGlyf::load` outside the critical section.
 
-## `LocaGlyfState` — eviction-aware lazy decode
+## LocaGlyfState — eviction-aware lazy decode
 
 ```rust,ignore
 pub(crate) enum LocaGlyfState {
@@ -166,13 +166,13 @@ pub(crate) enum LocaGlyfState {
         loaded: Arc<Mutex<Option<Arc<Mutex<LocaGlyf>>>>>,
     },
 }
-```
+```rust
 
 `Loaded(None)` means CFF or no outline data — cannot be evicted because there are no source bytes to re-decode from. The eager `from_bytes` path (tests, PDF generation via `with_source_bytes`) produces this variant.
 
 `Deferred` keeps an `Arc<FontBytes>` so `FontManager::evict_unused` can drop the parsed `LocaGlyf` and force re-decode on next access. The `Mutex<Option<...>>` wrapper (rather than `OnceLock`) is what makes idle-eviction possible.
 
-## `MockFont` for testing
+## MockFont for testing
 
 `font::mock::MockFont` (`font.rs:71`) implements `ParsedFontTrait` without any allsorts dependency. Tests that exercise text layout without real fonts construct a `MockFont` with explicit per-glyph advance widths and use `FontManager<MockFont>`:
 
@@ -184,11 +184,11 @@ pub struct MockFont {
     pub glyph_sizes: BTreeMap<u16, (i32, i32)>,
     pub glyph_indices: BTreeMap<u32, u16>,
 }
-```
+```rust
 
 `MockFont::new(metrics).with_space_width(10).with_glyph_advance(65, 600)` builds a font where 'A' has 600 font-units of advance. Tests assert exact pixel positions, which would be brittle against real font versions.
 
-## `FontLoaderTrait` and `PathLoader`
+## FontLoaderTrait and PathLoader
 
 `font_traits::FontLoaderTrait` defines how `FontManager::load_missing_for_chains` reads bytes. The default `PathLoader` (`text3/default.rs`) is disk-based:
 
@@ -215,11 +215,11 @@ pub fn parse_font_fn(source: LoadedFontSource) -> Option<FontRef> {
     )
     .map(parsed_font_to_font_ref)
 }
-```
+```rust
 
 `parsed_font_to_font_ref` boxes the `ParsedFont` and stores it as `*const c_void` with a destructor pointer; `font_ref_to_parsed_font` reverses the cast. The unsafe cast is sound iff every `FontRef` was created by `parsed_font_to_font_ref` — by convention in the codebase.
 
-## `FcFontCache` and rust-fontconfig 4.1
+## FcFontCache and rust-fontconfig 4.1
 
 `rust-fontconfig` is the system-fontconfig replacement. Version 4.1 (current) made `FcFontCache` an `Arc<RwLock>` shared handle internally — clone is cheap, and writes from a builder thread are immediately visible to all readers without an explicit refresh dance.
 
@@ -229,13 +229,13 @@ The scout-on-demand path matters for headless rendering: parsing every system fo
 
 Under `cfg(miri)`, `build_font_cache()` returns a default empty cache so Miri test runs don't try to walk the filesystem.
 
-## `LoadedFonts<T>` — the per-window pool
+## LoadedFonts<T> — the per-window pool
 
 `text3::cache::LoadedFonts<T>` is the pool that shaping reads. It wraps `font_manager.parsed_fonts: Arc<Mutex<HashMap<FontId, T>>>`. The `Arc` is shared across windows that opt into pooling via `LayoutWindow::new_with_shared_fonts(fc_cache, parsed_fonts)`.
 
 Sharing matters when the app opens multiple windows: each window does its own font *resolution* (chains depend on the per-window DOM), but all windows pull parsed faces from the same pool. Without sharing, each window re-parses every font on first use.
 
-## `FontContext` (the app-wide handle)
+## FontContext (the app-wide handle)
 
 `FontContext` (`text3/cache.rs:533`) is the `App`-owned warmup handle:
 
@@ -254,7 +254,7 @@ pub struct FontContext {
 
 `to_font_manager()` clones `FontContext` into a `FontManager<FontRef>` for a window, sharing the `parsed_fonts` Arc.
 
-## `Script` and `Language`
+## Script and Language
 
 `text3/script.rs:Script` is an enum over Unicode script codes (ISO 15924). `script_to_language(script) -> Option<Language>` maps a script to a default language tag (Latin → English, Hangul → Korean, …). Used by the shaper for OpenType locale-aware features (`locl`, `liga` variants).
 
@@ -262,13 +262,13 @@ Script detection on a string runs `unicode-script` per codepoint and groups runs
 
 `scripts_present_in_styled_dom(styled_dom)` (in `solver3/getters.rs`) walks every text node, returning the `BTreeSet<Script>` of scripts that appear. This drives Unicode-fallback pruning during chain resolution: don't pull in CJK fallbacks if no CJK character is present.
 
-## `glyph_cache.rs` — CPU rendering only
+## glyph_cache.rs — CPU rendering only
 
 Distinct from shaping: this is the cell-and-path cache for the CPU rasterizer (`feature = "cpurender"`). It memoises rasterized glyph cells (small bitmaps) keyed by `(FontId, glyph_id, size, subpixel_position)` and decoded glyph paths for SDF/distance-field rendering. Hardware (WebRender) rendering doesn't use this cache — WebRender has its own glyph-rasterization cache.
 
 The split keeps CPU-rendering memory off the GPU path. Headless tests under `feature = "cpurender"` populate `glyph_cache` and serve from it; production GPU renders never touch it.
 
-## Memory eviction (`evict_unused`)
+## Memory eviction (evict_unused)
 
 `FontManager::evict_unused(threshold)` walks `parsed_fonts`, finds `ParsedFont` entries whose `last_used` is older than the threshold, and:
 

@@ -38,7 +38,7 @@ There are two entry points. `SmallAriaInfo` covers the common case (label,
 role, description). `AccessibilityInfo` carries the full record (states,
 actions, accelerators, live regions, label/describe-by relationships).
 
-## Adding a label, role, and description with `SmallAriaInfo`
+## Adding a label, role, and description with SmallAriaInfo
 
 `SmallAriaInfo` is a builder over three optional fields:
 
@@ -48,7 +48,7 @@ pub struct SmallAriaInfo {
     pub role: OptionAccessibilityRole,
     pub description: OptionString,
 }
-```
+```rust
 
 Construct with `SmallAriaInfo::label(text)` and chain `with_role` and
 `with_description`:
@@ -58,7 +58,7 @@ Construct with `SmallAriaInfo::label(text)` and chain `with_role` and
 let aria = SmallAriaInfo::label("Submit form".into())
     .with_role(AccessibilityRole::PushButton)
     .with_description("Sends the form to the server.".into());
-```
+```rust
 
 `label` is the accessible name screen readers announce. `role` overrides the
 role that would otherwise be inferred from the HTML tag. `description` is read
@@ -89,7 +89,7 @@ whose name comes from a sibling image's alt text.
 For elements you build with `Dom::create_div().with_child(...)`, attach a label
 through `Dom::with_accessibility_info(AccessibilityInfo)`.
 
-## Going beyond labels: `AccessibilityInfo`
+## Going beyond labels: AccessibilityInfo
 
 `AccessibilityInfo` is the full record:
 
@@ -112,7 +112,7 @@ pub struct AccessibilityInfo {
 Set this when you need any of: dynamic states, custom action lists, keyboard
 accelerators, label-by/describe-by relationships, or live regions.
 
-## `AccessibilityRole`: what kind of element this is
+## AccessibilityRole: what kind of element this is
 
 `AccessibilityRole` is an enum over the standard role set. Most HTML tags are
 mapped automatically. You set `role` only when the visual element does not
@@ -147,7 +147,7 @@ Roles commonly used in app code:
 `Unknown` is the default fallback and tells the platform to infer from the
 tag. `Nothing` explicitly hides the element from assistive tech.
 
-## `AccessibilityState`: dynamic state
+## AccessibilityState: dynamic state
 
 States live on `AccessibilityInfo.states`. Push them whenever the visual state
 changes. A toggled checkbox flips `CheckedFalse` to `CheckedTrue`. A busy
@@ -171,7 +171,7 @@ State changes only become visible to assistive tech after the next layout pass
 rebuilds the a11y tree. Return `Update::RefreshDom` from your callback when
 you mutate states so the new tree is shipped.
 
-## `AccessibilityAction`: what assistive tech can do
+## AccessibilityAction: what assistive tech can do
 
 Actions populate `AccessibilityInfo.supported_actions`. The platform routes
 incoming requests back to your DOM node:

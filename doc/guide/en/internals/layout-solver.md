@@ -50,7 +50,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     system_style: Option<Arc<SystemStyle>>,
     get_system_time_fn: GetSystemTimeCallback,
 ) -> Result<DisplayList>;
-```
+```rust
 
 `new_dom` is borrowed (not owned). Earlier revisions took ownership, which forced every shell to clone the DOM (~2 MiB on `excel.html`); the borrow eliminates that copy.
 
@@ -103,7 +103,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
 - **Step 4.** Emit the `DisplayList`.
   - `display_list::generate_display_list`
 
-## `LayoutContext`
+## LayoutContext
 
 The single per-pass context (`mod.rs:201`). Holds borrows of the DOM, font manager, image cache, scroll offsets, debug-message vec, plus owned working state (counters, fragmentation context, cache map).
 
@@ -127,13 +127,13 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     pub scrollbar_style_cache:
         RefCell<HashMap<NodeId, ComputedScrollbarStyle>>,
 }
-```
+```rust
 
 `cache_map` is moved out of `LayoutCache` via `std::mem::take` for the duration of the pass and moved back at the end. This avoids `&mut LayoutCache` aliasing during sizing/positioning, which both need `&mut tree` and `&cache_map` simultaneously.
 
 `scrollbar_style_cache` uses `RefCell` so the Taffy bridge's `&self` `get_core_container_style` can mutate it without lifting the whole context to `&mut`. `compute_scrollbar_info_core` walks the cascade nine times per node per pass on a cold lookup; the cache eliminates that fan-out for repeated calls in the same render.
 
-## `LayoutTree` and the hot/warm/cold split
+## LayoutTree and the hot/warm/cold split
 
 `layout_tree.rs:LayoutNode` was historically a ~550-byte AoS struct. The current layout splits each node into three slabs indexed by the same `usize`:
 
@@ -145,7 +145,7 @@ A 64-byte cache line now loads multiple hot records' fields together instead of 
 
 `children` lives in a single `children_arena: Vec<usize>` arena keyed by `(start, len)` per node — replaces the old `Vec<usize>` per node, eliminating N heap allocations.
 
-## `DirtyFlag` (3-level)
+## DirtyFlag (3-level)
 
 ```rust,ignore
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
@@ -159,7 +159,7 @@ pub enum DirtyFlag {
 
 `PartialOrd` makes `mark_dirty(idx, flag)` cheap: walking ancestors stops as soon as it hits a node already at `>= flag`. `mark_subtree_dirty(flag)` marks every descendant — used for inherited CSS changes.
 
-## Reconciliation (`reconcile_and_invalidate`)
+## Reconciliation (reconcile_and_invalidate)
 
 `cache.rs:838`. Builds a new `LayoutTree` from the current `StyledDom` and produces a `ReconciliationResult`:
 
@@ -187,7 +187,7 @@ pub struct NodeDataFingerprint {
 
 After the recursive pass, redundant `layout_roots` are pruned: if a parent is already a root, its children are removed (the parent's top-down pass will re-position them).
 
-## `LayoutCacheMap` — Taffy-style 9+1 slots
+## LayoutCacheMap — Taffy-style 9+1 slots
 
 `cache.rs:NodeCache`. One per layout-tree node, kept in a flat `Vec<NodeCache>` parallel to `tree.nodes`. Each node has 9 measurement slots + 1 full-layout slot:
 
@@ -204,7 +204,7 @@ After the recursive pass, redundant `layout_roots` are pruned: if a parent is al
 
 `mod.rs:540` remaps `cache_map.entries` from old layout indices to new ones via two passes: first by `(dom_id → layout_idx)` on both trees, then anonymous wrappers (no DOM id) by `(parent_new_idx, ordinal)`. Without the second pass, anonymous box wrappers re-allocate empty every reconcile and invalidate their ancestors via `mark_dirty`.
 
-## Formatting-context dispatch (`fc.rs:layout_formatting_context`)
+## Formatting-context dispatch (fc.rs:layout_formatting_context)
 
 ```rust,ignore
 match node.formatting_context {
@@ -228,7 +228,7 @@ match node.formatting_context {
 
 `InlineBlock` always establishes a fresh BFC for its children even though it participates as an atomic inline in its parent IFC. Table-internal flex items are blockified at tree-build time (`blockify_flex_item_if_table_internal` in `layout_tree.rs`), so they arrive here as `Block`.
 
-## BFC layout (`fc.rs:layout_bfc`)
+## BFC layout (fc.rs:layout_bfc)
 
 CSS 2.2 § 9.4.1. Two-pass design:
 
@@ -237,7 +237,7 @@ CSS 2.2 § 9.4.1. Two-pass design:
 
 Margin collapse handling is the bulk of `layout_bfc`. The pen tracks accumulated top margin until a non-margin "blocker" (border, padding, content) resolves it; bottom margins of the last child can "escape" upward to the parent if no blocker intervenes. Floats from `float_cache` are placed exclusion-aware.
 
-## IFC layout (`fc.rs:layout_ifc`)
+## IFC layout (fc.rs:layout_ifc)
 
 CSS 2.2 § 9.4.2. The IFC root is the LayoutNode whose `inline_layout_result: Arc<CachedInlineLayout>` holds the shaped/positioned text. Descendant text nodes don't store their own — they record `IfcMembership { ifc_id, ifc_root_layout_index, run_index }` (`layout_tree.rs:71`) pointing back at the root.
 
@@ -250,13 +250,13 @@ pub struct CachedInlineLayout {
     pub item_metrics: Vec<InlineItemMetrics>,
     pub line_breaks: Option<CachedLineBreaks>,
 }
-```
+```rust
 
 `available_width` and `has_floats` are the cache-validity key — a layout shaped under min-content cannot be reused for the final pass. `item_metrics` and `line_breaks` enable incremental reshape (Phase 2c/d in `INCREMENTAL_LAYOUT_ARCHITECTURE.md`); the current path uses them as a cache-hit fast path. Real per-character incremental relayout for text edits lives in `LayoutWindow::try_incremental_text_relayout` and bypasses `layout_ifc` entirely.
 
 `IfcId` (`layout_tree.rs:29`) is generated from a global `AtomicU32` counter that resets at the start of each `layout_document` call (`mod.rs:424`). Stable IDs across frames depend on stable DOM structure — same DOM → same IFC IDs.
 
-## Flex/Grid via Taffy (`taffy_bridge.rs`)
+## Flex/Grid via Taffy (taffy_bridge.rs)
 
 `solver3` does not implement flex or grid directly. `layout_flex_grid` constructs a `TaffyBridge<'a, T>` over the current sub-tree and calls Taffy's `compute_root_layout`. The bridge implements:
 
@@ -286,13 +286,13 @@ fn from_layout_width(val: LayoutWidth) -> Dimension {
 
 The `ProgressBar` widget (`layout/src/widgets/progressbar.rs`) historically used a `flex-grow: 10000000` hack to simulate percentage widths because the bridge previously returned `None` for `SizeMetric::Percent`. Taffy now supports them; the hack is documented as removable in `PERCENTAGE_LAYOUT_ANALYSIS.md` § Phase 1.
 
-## Sizing pass (`sizing.rs:calculate_intrinsic_sizes`)
+## Sizing pass (sizing.rs:calculate_intrinsic_sizes)
 
 Bottom-up, ancestor-closure-pruned. `dirty_closure` is the union of `dirty_nodes` and every ancestor up to root. A node not in the closure with a populated `intrinsic_sizes` skips its entire subtree walk — before the closure was added, every render walked the full tree from root, costing ~2 ms even when 3 nodes were dirty.
 
 `tree.subtree_needs_intrinsic` (a static-DOM bitmap precomputed at tree-build time) is true if the node or any descendant establishes a shrink-to-fit context. When the caller is non-STF and the subtree is non-STF too, no one will ever read the intrinsic — the descent is skipped entirely.
 
-## Positioning pass (`positioning.rs`)
+## Positioning pass (positioning.rs)
 
 Run in this exact order (`mod.rs:884`):
 
@@ -323,7 +323,7 @@ Two cache levels in `mod.rs`:
 
 The structural cache fires whenever the DOM is structurally unchanged but a new `StyledDom` instance was passed (e.g., user's `layout_callback` returned a fresh `StyledDom::clone`). It saves the ~4 ms display-list emission step.
 
-## `LayoutWindow` — the per-window orchestrator (`window.rs`)
+## LayoutWindow — the per-window orchestrator (window.rs)
 
 `LayoutWindow` (`window.rs:374`) owns:
 
@@ -337,7 +337,7 @@ The structural cache fires whenever the DOM is structurally unchanged but a new 
 
 Three constructors share most of the body: `new(fc_cache)` for screens, `new_with_shared_fonts(fc_cache, parsed_fonts)` for shared font pools, and `new_paged(fc_cache, page_size)` for PDF (under `feature = "pdf"`). The duplication is flagged in `doc/target/autoreview/reports/layout__src__window.md` for cleanup; today each constructor sets `~50` fields verbatim.
 
-### `layout_and_generate_display_list`
+### layout_and_generate_display_list
 
 `window.rs:790`. The shell-level entry point. In order:
 
@@ -347,7 +347,7 @@ Three constructors share most of the body: `new(fc_cache)` for screens, `new_wit
 4. (with `feature = "a11y"`) `update_a11y_tree`.
 5. `scroll_focused_cursor_into_view`.
 
-### Font resolution skip via `font_stacks_hash`
+### Font resolution skip via font_stacks_hash
 
 `window.rs:887`. Before calling `layout_document`, `LayoutWindow` decides whether the font-resolution pipeline can be skipped entirely. Two signals:
 

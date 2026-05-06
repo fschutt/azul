@@ -59,7 +59,7 @@ block that contains text. You usually don't choose it explicitly.
   </main>
 </body>"
 # }
-```
+```rust
 
 ## Cross-mode properties
 

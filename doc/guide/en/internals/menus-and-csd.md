@@ -32,7 +32,7 @@ splices above the user's content. Both pipelines share `Menu` from
 [`core/src/menu.rs`](../../../../core/src/menu.rs) and a stylesheet generator
 on [`SystemStyle`](../../../../css/src/system.rs).
 
-## The shared `Menu` model
+## The shared Menu model
 
 [`core/src/menu.rs:40`](../../../../core/src/menu.rs) defines the cross-platform
 data model. `#[repr(C)]` so the same bytes pass through the FFI boundary.
@@ -59,7 +59,7 @@ ten variants — `AutoCursor`, `AutoHitRect`, four explicit cursor anchors, and
 four explicit hit-rect anchors. Only `AutoCursor` and `AutoHitRect` flip on
 overflow; the explicit variants clamp.
 
-## Why callbacks are `usize`
+## Why callbacks are usize
 
 `StringMenuItem.callback` is `OptionCoreMenuCallback`, where
 [`CoreMenuCallback`](../../../../core/src/menu.rs) holds a `CoreCallback`
@@ -71,7 +71,7 @@ pub struct CoreMenuCallback {
     pub refany: RefAny,
     pub callback: CoreCallback, // usize-encoded fn pointer
 }
-```
+```rust
 
 `azul-core` cannot reference `azul-layout`'s `CallbackInfo` struct without
 creating a dependency cycle, so the function pointer ships as an opaque
@@ -173,7 +173,7 @@ Per-item HTML structure ([`menu_renderer.rs:264`](../../../../dll/src/desktop/me
   <div class="menu-item-shortcut">Ctrl+C</div>
   <div class="menu-item-arrow">▶</div>  <!-- only if has children -->
 </div>
-```
+```rust
 
 Two callbacks are wired per item, only when `menu_item_state` is `Normal`:
 
@@ -286,7 +286,7 @@ It looks at the user DOM's root `NodeData` for an attached `Menu`
 The container is a `Dom::create_html()` (not a body) so the titlebar and user
 content do not double-nest under `<body>`.
 
-## CSD: the `csd-*` stylesheet
+## CSD: the csd-* stylesheet
 
 [`SystemStyle::create_csd_stylesheet`](../../../../css/src/system.rs) at
 [`css/src/system.rs:1512`](../../../../css/src/system.rs) emits these classes:

@@ -32,7 +32,7 @@ The text engine lives at `layout/src/text3/`. It owns shaping, line breaking, Bi
 
 ```rust,ignore
 pub use text3::cache::TextShapingCache as TextLayoutCache;
-```
+```rust
 
 ## File map
 
@@ -116,7 +116,7 @@ pub fn begin_generation(&mut self) {
 
 The cap is `PER_ITEM_CACHE_MAX = 4096`; exceeding it forces a generation flush early.
 
-## `InlineContent` and `LogicalItem`
+## InlineContent and LogicalItem
 
 `InlineContent` (defined in `azul-core` and re-exported through `text3`) is the externally-visible inline-level "atom":
 
@@ -154,7 +154,7 @@ let base_direction = if unicode_bidi_val == UnicodeBidi::Plaintext {
 } else {
     first_constraints.direction.unwrap_or(BidiDirection::Ltr)
 };
-```
+```rust
 
 CSS Writing Modes § 8.3: `plaintext` auto-detects from the first strong character; empty paragraphs fall back to the containing block's direction.
 
@@ -210,7 +210,7 @@ pub struct PositionedItem {
 
 `UnifiedLayout` is wrapped in `Arc` and stored on the IFC root's `LayoutNode.warm.inline_layout_result: Option<Arc<CachedInlineLayout>>` (see [Layout Solver](layout-solver.md)).
 
-## `UnifiedConstraints`
+## UnifiedConstraints
 
 `cache.rs:1047`. The full per-IFC layout input. Built by `solver3/fc.rs:layout_ifc` from CSS getters on the IFC root:
 
@@ -253,7 +253,7 @@ pub struct UnifiedConstraints {
     pub line_break: LineBreakStrictness,
     pub unicode_bidi: UnicodeBidi,
 }
-```
+```rust
 
 `available_width: AvailableSpace` is the cache-validity key. A layout shaped under `MinContent` cannot be reused for `Definite(actual_column_width)` — the line breaks would be at the wrong positions. This was the root cause of the table-cell width bug fixed by storing `constraints` alongside the layout in `CachedInlineLayout`.
 
@@ -261,7 +261,7 @@ pub struct UnifiedConstraints {
 
 `PartialEq` on `UnifiedConstraints` uses `round_eq` for floats so jitter from CSS recomputation does not invalidate the cache. `Hash` uses `f.round() as usize` for the same reason.
 
-## `FontManager` and the font chain cache
+## FontManager and the font chain cache
 
 `cache.rs:678`. `FontManager<T>` is parameterised over the parsed-font type (`FontRef` for production, `MockFont` for tests).
 
@@ -275,7 +275,7 @@ pub struct FontManager<T> {
     pub registry: Option<Arc<FcFontRegistry>>,
     pub last_resolved_font_stacks_sig: Option<u64>,
 }
-```
+```rust
 
 `fc_cache` is a `rust-fontconfig` v4.1 shared handle (internally `Arc<RwLock>`); cloning is cheap and builder-thread writes are immediately visible. No more snapshot-refresh dance.
 
@@ -283,7 +283,7 @@ pub struct FontManager<T> {
 
 `last_resolved_font_stacks_sig` is the rolling-hash signature of `compact_cache.prev_font_hashes` at the moment the chain cache was last populated. `LayoutWindow.layout_dom_recursive` (`window.rs:887`) reads this to skip the resolver when the DOM's font stacks haven't changed since the last successful resolution. See [Layout Solver](layout-solver.md) for the skip logic.
 
-## `FontContext` vs `FontManager`
+## FontContext vs FontManager
 
 `FontContext` (`cache.rs:533`) is the *application-wide* shared font state — owned by `App`. `FontManager` is the *per-window* one — owned by `LayoutWindow`. They share the same `parsed_fonts` Arc; `FontContext::to_font_manager` clones into a `FontManager` while keeping the parsed-fonts pool shared.
 
@@ -347,7 +347,7 @@ pub fn use_old_layout(
 
 A pure color change on a paragraph thus keeps the same `UnifiedLayout` and only triggers display-list regeneration.
 
-## `solver3/fc.rs:layout_ifc` — the call site
+## solver3/fc.rs:layout_ifc — the call site
 
 `fc.rs:2373`. `layout_ifc` is the bridge from box layout to text layout. It:
 

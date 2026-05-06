@@ -139,7 +139,7 @@ A test rolls steps up:
 
 `final_screenshot` is the screenshot from the last step that requested one, or `null`.
 
-## Driving with `curl`
+## Driving with curl
 
 The debug server's `POST /` accepts a `run_e2e_tests` op that bypasses the file-based runner:
 

@@ -78,7 +78,7 @@ pub enum Duration {
     System(SystemTimeDiff),  // (secs: u64, nanos: u32) — mirrors std::time::Duration
     Tick(SystemTickDiff),    // tick_diff: u64
 }
-```
+```rust
 
 Mixing variants panics: `Instant::System.duration_since(Instant::Tick)`
 hits the `_ => panic!(...)` arm in `core/src/task.rs`, as does adding
@@ -86,7 +86,7 @@ a `Duration::Tick` to an `Instant::System`. The convention is that a
 runtime picks one variant at startup (via `GetSystemTimeCallback`) and
 stays on it.
 
-### `InstantPtr` — FFI-safe wrapper around `std::time::Instant`
+### InstantPtr — FFI-safe wrapper around std::time::Instant
 
 `std::time::Instant` is opaque and not `#[repr(C)]`, so `InstantPtr`
 boxes it and carries clone/destructor function pointers so that the
@@ -111,7 +111,7 @@ automatically.
 moving an `InstantPtr` through FFI without an explicit clone does not
 double-free.
 
-### `GetSystemTimeCallback`
+### GetSystemTimeCallback
 
 ```rust,ignore
 pub type GetSystemTimeCallbackType = extern "C" fn() -> Instant;
@@ -119,7 +119,7 @@ pub type GetSystemTimeCallbackType = extern "C" fn() -> Instant;
 pub extern "C" fn get_system_time_libstd() -> Instant {
     StdInstant::now().into()  // panics on wasm32, falls back to Tick(0)
 }
-```
+```rust
 
 The runtime never calls `Instant::now()` directly — it calls the
 configured `GetSystemTimeCallback` so that embedded targets and WASM
@@ -127,7 +127,7 @@ configured `GetSystemTimeCallback` so that embedded targets and WASM
 desktop shell wires `get_system_time_libstd`; the web backend uses the
 same function via `ExternalSystemCallbacks::rust_internal()`.
 
-### `Duration::greater_than` / `smaller_than`
+### Duration::greater_than / smaller_than
 
 `Duration` derives `PartialOrd` and `Ord`, so `>` and `<` already work.
 The named methods in `core/src/task.rs` duplicate this with
@@ -190,7 +190,7 @@ event-loop turn through `LayoutWindow::run_all_timers`. The existing
 `tick_timers` in `layout/src/window.rs` returns all IDs unfiltered.
 The per-timer readiness check happens inside `invoke`.
 
-### `time_until_next_timer_ms`
+### time_until_next_timer_ms
 
 ```rust,ignore
 pub fn time_until_next_timer_ms(
@@ -206,7 +206,7 @@ indefinitely). The Linux X11 and Wayland backends pass this to
 `poll`/`epoll_wait` so they don't busy-loop at 16 ms when nothing is
 pending.
 
-### `TimerCallbackInfo`
+### TimerCallbackInfo
 
 ```rust,ignore
 #[repr(C)]
@@ -243,7 +243,7 @@ let thread = Thread::create(
     writeback_data,          // RefAny: state owned by main thread
     thread_callback,         // extern "C" fn
 );
-```
+```rust
 
 `Thread::create` calls `create_thread_libstd` in `layout/src/thread.rs`,
 which:
@@ -281,7 +281,7 @@ pub enum ThreadReceiveMsg {
     WriteBack(ThreadWriteBackMsg),
     Update(Update),
 }
-```
+```rust
 
 `ThreadSendMsg::Tick` is sent by `run_all_threads` once per turn so the
 thread can use it as a frame heartbeat. `ThreadSendMsg::Custom` carries
@@ -293,7 +293,7 @@ inspect. `ThreadReceiveMsg::WriteBack` is the heavyweight path: the
 thread sends a `RefAny` payload and a function pointer that runs on the
 main thread with full `CallbackInfo` access.
 
-### `ThreadReceiver` / `ThreadSender`
+### ThreadReceiver / ThreadSender
 
 Both are FFI-safe wrappers around the std `mpsc` channels with manual
 clone/drop callbacks. They live in `core/src/task.rs` and
@@ -307,7 +307,7 @@ callbacks can be re-entered from the C side.
 `OptionThreadSendMsg::None` and `send` returns `false`. There is no
 real thread on no_std.
 
-### `WriteBackCallback`
+### WriteBackCallback
 
 ```rust,ignore
 pub type WriteBackCallbackType = extern "C" fn(
@@ -315,7 +315,7 @@ pub type WriteBackCallbackType = extern "C" fn(
     /* data to write back   */ RefAny,
     /* callback info        */ CallbackInfo,
 ) -> Update;
-```
+```rust
 
 Bundled with the `RefAny` payload into `ThreadWriteBackMsg`. When the
 main thread pulls a `ThreadReceiveMsg::WriteBack` off the channel,
@@ -329,7 +329,7 @@ mutate UI state. Direct `RefAny::downcast_mut` from the spawned thread
 would race with the main thread; the writeback callback runs on the
 main thread holding the borrow.
 
-### `run_all_threads`
+### run_all_threads
 
 Defined in `layout/src/window.rs`. The per-thread loop is:
 
@@ -349,7 +349,7 @@ Only **one** message is drained per thread per turn. A thread that
 floods the channel will be polled across multiple turns rather than
 starving the event loop.
 
-### `is_finished` and the dropcheck
+### is_finished and the dropcheck
 
 `ThreadInner.dropcheck: Box<Weak<()>>` holds a weak reference to an
 `Arc<()>` that is bound as `_thread_check_guard` inside the spawned

@@ -69,7 +69,7 @@ runtime `gl_texture_cache` module (actual textures) is flagged in
 serve distinct roles: layout writes the *solved* table, the runtime store
 holds the *physical* textures referenced by WebRender display lists.
 
-## Stable `ExternalImageId`
+## Stable ExternalImageId
 
 In `core/src/resources.rs::ExternalImageId`:
 
@@ -161,7 +161,7 @@ thread_local! {
 
 Texture creation requires an OpenGL context, which is single-threaded by API contract. Putting the cache in `thread_local!` enforces this at the type system level — a function that touches `TEXTURE_CACHE` cannot be called from a non-GL thread without panic.
 
-## Raster image decode (`layout/src/image.rs`)
+## Raster image decode (layout/src/image.rs)
 
 Behind `feature = "image_decoding"`. Wraps the [`image`](https://crates.io/crates/image) crate behind FFI-friendly types.
 
@@ -187,7 +187,7 @@ pub enum DecodeImageError {
     UnsupportedImageFormat,
     Unknown,
 }
-```
+```rust
 
 `InsufficientMemory` and `DimensionError` come from `image::error::LimitErrorKind`. Image-format errors collapse into `Unknown` because the underlying error variants don't have stable C ABI shape.
 
@@ -197,7 +197,7 @@ pub enum DecodeImageError {
 
 `translate_rawimage_colortype` handles `BGR8`/`BGRA8` → `Rgb8`/`Rgba8` mapping. The TODO marker in the source flags an inconsistency: BGR/RGB conversion isn't actually applied, just relabelled. Loaders that produce `BGRA8` and round-trip through `encode_*` will get colour-channel-swapped output.
 
-## `ImageRef` and reference counting
+## ImageRef and reference counting
 
 In `core/src/resources.rs::ImageRef`:
 
@@ -208,7 +208,7 @@ pub struct ImageRef {
     pub copies: *const AtomicUsize,
     pub run_destructor: bool,
 }
-```
+```rust
 
 C-ABI-compatible reference counting. `data` points to a heap `DecodedImage` (the variant of which is hidden from C), `copies` points to a heap `AtomicUsize` reference counter. `Clone` bumps `copies`; `Drop` decrements and frees on zero.
 
@@ -216,13 +216,13 @@ C-ABI-compatible reference counting. `data` points to a heap `DecodedImage` (the
 
 `DecodedImage` covers raster (`Raw`), GL texture (`Gl`), null image (`NullImage`), and callback-driven images (`Callback`). The callback variant lets the layout postpone resolution until rendering — the callback runs once we have a GL context and produces the actual `Texture`.
 
-## `ImageRefHash` for content-addressed deduplication
+## ImageRefHash for content-addressed deduplication
 
 `ImageRefHash { inner: usize }` is a stable hash of the `ImageRef`'s content. Two `ImageRef`s pointing at byte-identical decoded images compare equal; two pointing at different bytes don't. Used as the `ExternalImageId` derivation key for raster images (so two `<img src="x.png">` tags pointing at the same file get the same texture).
 
 `image_ref_get_hash(image_ref)` is the canonical hasher.
 
-## `RendererResources`
+## RendererResources
 
 `core/src/resources.rs::RendererResources` holds parsed font and image
 resources per renderer (per window). Layout reads from this when measuring
@@ -231,7 +231,7 @@ width and height come from the decoded `RawImage`'s dimensions.
 
 The split is: `ImageCache` (in `LayoutWindow`) is the *DOM-side* lookup keyed by URL, `RendererResources` (also in `LayoutWindow`) is the *renderer-side* lookup keyed by `ImageKey` / `FontKey`.
 
-## Shader binary disk cache (`shader_cache.rs`)
+## Shader binary disk cache (shader_cache.rs)
 
 WebRender lazily compiles + links each shader on first use; the cost is ~10–50 ms per shader. `ShaderDiskCache` extracts the linked binary via `glGetProgramBinary` and persists it. On the next run, `glProgramBinary` skips compile + link.
 

@@ -57,7 +57,7 @@ let raw = RawImage {
 };
 let image_ref = ImageRef::new_rawimage(raw).expect("invalid pixel data");
 let dom = Dom::create_image(image_ref);
-```
+```rust
 
 `RawImageData` is one of `U8`, `U16`, `F32`. Decoded image dimensions are reported by `ImageRef::get_size()`. The size is fixed once the buffer is created. To resize at render time, wrap the image in a styled element and let CSS scale the box (set `width` / `height` via `Dom::with_css` or `Dom::with_css_property`).
 

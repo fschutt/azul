@@ -122,7 +122,7 @@ font-family: system:ui;
 font-size: 14px;
 ```
 
-## `@theme` adaptation
+## @theme adaptation
 
 `@theme <variant> { ... }` blocks evaluate per frame. The variant matches
 the system's current preference (light or dark) and updates the moment the
@@ -153,7 +153,7 @@ selected properties under `@theme dark`. Combine with `@os` for
 platform-flavoured dark mode (a Mac-style sheen vs. a Windows-style flat
 fill).
 
-## `@os` and `@os-version`
+## @os and @os-version
 
 `@os <name> { ... }` matches the host platform. The names follow
 `OsCondition`:
@@ -204,7 +204,7 @@ transition: background 200ms ease;
 
 Honour `prefers-reduced-motion` for any non-essential animation.
 
-## `@media` viewport queries
+## @media viewport queries
 
 Standard CSS:
 
@@ -223,7 +223,7 @@ font-size: 16px;
 The viewport size comes from the current window. On a multi-window app
 each window has its own viewport, evaluated independently.
 
-## `@lang(<bcp47>)`
+## @lang(<bcp47>)
 
 Match the system locale. Prefix matching: `@lang(de)` matches `de`,
 `de-DE`, `de-AT`. Useful for locale-specific quotes, hyphenation, and

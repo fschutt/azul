@@ -26,7 +26,7 @@ render as a single-line box, both raise the same lifecycle events, and
 `NumberInput` is implemented as a thin wrapper that adds numeric validation on
 top of `TextInput`.
 
-## `TextInput`
+## TextInput
 
 `TextInput` is the one-line text field. State and callbacks live together in
 the widget value:
@@ -116,7 +116,7 @@ Three slots accept CSS replacements.
 - `label_style` targets the actual text node.
 - `placeholder_style` targets the placeholder text shown when empty.
 
-## `NumberInput`
+## NumberInput
 
 `NumberInput` wraps `TextInput` and adds `f32` validation. Construction takes
 the initial value:

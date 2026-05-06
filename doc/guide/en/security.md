@@ -40,7 +40,7 @@ Azul is a library, not an isolation boundary. Application code runs with full pr
 
 Inside a single desktop process, all callbacks share an address space and can corrupt each other if they break Rust's aliasing rules through `unsafe`. The framework provides no in-process sandbox.
 
-## What `RefAny` guarantees
+## What RefAny guarantees
 
 Every callback receives a `RefAny` and downcasts it to a typed reference. The framework guards five invariants:
 
@@ -64,7 +64,7 @@ assert!(data.downcast_ref::<u32>().is_none());        // wrong type → None
 assert!(data.downcast_ref::<i32>().is_some());
 ```
 
-## What `RefAny` does not guarantee
+## What RefAny does not guarantee
 
 Where the safety story stops:
 

@@ -34,7 +34,7 @@ remaining space is distributed and where items align.
 
 These apply to the element with `display: flex` (or `inline-flex`).
 
-### `flex-direction`
+### flex-direction
 
 - `row` (default). Main axis is horizontal. Items run first to last.
 - `row-reverse`. Main axis is horizontal. Items run last to first.
@@ -44,7 +44,7 @@ These apply to the element with `display: flex` (or `inline-flex`).
 `row` makes the inline axis the main axis. `column` makes the block axis
 the main axis.
 
-### `flex-wrap`
+### flex-wrap
 
 - `nowrap` (default). Single line. Items shrink to fit.
 - `wrap`. Overflow wraps to a new line.
@@ -58,7 +58,7 @@ the main axis.
  </div>
 ```
 
-### `justify-content`: main-axis alignment
+### justify-content: main-axis alignment
 
 `justify-content` distributes free space along the main axis:
 
@@ -72,7 +72,7 @@ the main axis.
 The CSS-Box-Alignment names (`start`, `end`) and the legacy flex names
 (`flex-start`, `flex-end`) produce the same layout.
 
-### `align-items`: cross-axis alignment for every line
+### align-items: cross-axis alignment for every line
 
 - `stretch` (default). Fills the cross axis.
 - `start` / `flex-start`. Aligns to cross-start.
@@ -80,13 +80,13 @@ The CSS-Box-Alignment names (`start`, `end`) and the legacy flex names
 - `center`. Centres on cross axis.
 - `baseline`. Aligns text baselines.
 
-### `align-content`: cross-axis alignment between lines
+### align-content: cross-axis alignment between lines
 
 Only takes effect when `flex-wrap: wrap` produces multiple lines.
 `align-content` accepts the same set as `align-items` plus
 `space-between` and `space-around`.
 
-### `gap`, `row-gap`, `column-gap`
+### gap, row-gap, column-gap
 
 Adds space between items without margins. In `flex-direction: row`, `column-gap`
 is the main-axis gap and `row-gap` is the cross-axis gap (between wrapped lines).
@@ -101,7 +101,7 @@ is the main-axis gap and `row-gap` is the cross-axis gap (between wrapped lines)
 
 These apply to children of a flex container.
 
-### `flex-grow` and `flex-shrink`
+### flex-grow and flex-shrink
 
 `flex-grow` is a non-negative number, default `0`. `flex-shrink` is its
 mirror, default `1`.
@@ -121,7 +121,7 @@ shrink in proportion to `flex-shrink`.
 `flex-grow: 0; flex-shrink: 0` pins an item to its `flex-basis` size.
 That's useful for sidebars and toolbars.
 
-### `flex-basis`
+### flex-basis
 
 - `auto` (default). Uses `width` or `height`.
 - `<length>`. Fixed size before grow/shrink applies.
@@ -130,7 +130,7 @@ That's useful for sidebars and toolbars.
 `flex-shrink` redistribute space. `auto` falls back to `width` (in `row`)
 or `height` (in `column`).
 
-### `align-self`: override `align-items` for one item
+### align-self: override align-items for one item
 
 `align-self` accepts:
 

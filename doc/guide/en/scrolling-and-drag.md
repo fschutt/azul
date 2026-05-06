@@ -175,7 +175,7 @@ A node that doesn't call `accept_drop()` isn't a drop target. The cursor shows t
 
 `Drop` fires once on the accepted target with the drop position and the data. `DragEnd` fires once on the source, even if the drop was cancelled or rejected, so the source can finish the move/copy/link operation.
 
-### `DropEffect` and `DragEffect`
+### DropEffect and DragEffect
 
 Two related enums:
 

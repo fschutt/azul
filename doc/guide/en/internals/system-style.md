@@ -32,7 +32,7 @@ rendering, scrollbar drawing, focus ring drawing, and most widgets all consult
 it. Ricing: a CSS file at `~/.config/azul/styles/<exe-name>.css` is loaded into
 `app_specific_stylesheet` and applied last in the cascade.
 
-## The shape of `SystemStyle`
+## The shape of SystemStyle
 
 [`css/src/system.rs`](../../../../css/src/system.rs):
 
@@ -62,7 +62,7 @@ pub struct SystemStyle {
     pub icon_style: IconStyleOptions,
     pub audio: AudioMetrics,
 }
-```
+```rust
 
 `Box<Stylesheet>` and `Box<ComputedScrollbarStyle>` are heap-indirected so
 the struct's FFI size is stable across feature flags.
@@ -226,7 +226,7 @@ pub(crate) fn discover() -> SystemStyle {
     // ... + ricing
     style
 }
-```
+```rust
 
 ### XDG Desktop Portal (raw D-Bus)
 
@@ -305,7 +305,7 @@ discarded. Invalid user CSS does not abort discovery.
 `exe` is the `Path::file_stem()` of the running executable. `myapp` matches
 both `myapp` and `myapp.exe`.
 
-## Stylesheet generators on `SystemStyle`
+## Stylesheet generators on SystemStyle
 
 `SystemStyle` carries two CSS-emitting methods used by the menu / CSD
 pipeline (see [Menus and Client-Side Decorations](./menus-and-csd.md)):
@@ -339,7 +339,7 @@ suffixes and `:`-separated alternatives, and normalises `de_DE` to `de-DE`.
 Returns `"en-US"` on failure. Native discovery overrides this on macOS
 (via `NSLocale`) and Windows.
 
-## Where `SystemStyle` is read
+## Where SystemStyle is read
 
 The struct is consumed in:
 

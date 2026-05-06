@@ -27,7 +27,7 @@ Text rendering is driven by four font properties (`font-family`,
 `font-size`, `font-weight`, `font-style`) and modulated by alignment,
 justification, and line metrics.
 
-## `font-family`
+## font-family
 
 `StyleFontFamily` is one of:
 
@@ -45,7 +45,7 @@ body { font-family: "Inter", system:ui, sans-serif; }
 code { font-family: system:monospace, "SF Mono", Menlo, monospace; }
 ```
 
-### `system:` fonts
+### system: fonts
 
 The `system:<role>[:<variant>]` prefix selects a platform UI font without
 hard-coding a family name. It resolves to the OS's preferred face for
@@ -63,13 +63,13 @@ If the role isn't recognised, the parser keeps the literal string as a
 `System` family (so `system:invalid` becomes the family named
 `"system:invalid"`).
 
-### `FontRef` and pre-loaded fonts
+### FontRef and pre-loaded fonts
 
 `FontRef` is a reference-counted handle that points at parsed font data.
 You won't construct `FontRef` from CSS, but you'll see it on the Rust side
 when binding a font once and using it across multiple DOMs.
 
-## `font-size`
+## font-size
 
 `StyleFontSize` wraps a `PixelValue`. The default is `12pt`. Pick whatever
 your design system needs:
@@ -83,7 +83,7 @@ small { font-size: 80%; }
 `em` is relative to the parent's `font-size`. `rem` is relative to the
 root. `%` resolves the same way as `em`.
 
-## `font-weight`
+## font-weight
 
 `StyleFontWeight`:
 
@@ -99,7 +99,7 @@ The numeric scale is the OpenType weight class. The parser maps standard
 numbers to enum variants. `450` and other in-between numbers are *not*
 accepted; use the named variant for the closest weight.
 
-## `font-style`
+## font-style
 
 `StyleFontStyle`:
 
@@ -109,7 +109,7 @@ StyleFontStyle::Italic   // italic face
 StyleFontStyle::Oblique  // oblique (synthesised slant if no italic face)
 ```
 
-## `text-align`
+## text-align
 
 Horizontal alignment of inline content within its line box:
 
@@ -119,7 +119,7 @@ Horizontal alignment of inline content within its line box:
 - `center`. Centred.
 - `justify`. Spread to fill the line. See `text-justify` below.
 
-## `text-justify`
+## text-justify
 
 `LayoutTextJustify` refines what `text-align: justify` does:
 

@@ -57,7 +57,7 @@ struct EditorState { text: String, cursor: usize }
 let state = RefAny::new(EditorState { text: "hello".into(), cursor: 0 });
 let _ = Dom::create_input_no_a11y("text".into(), "editor".into(), "hello".into())
     .with_dataset(OptionRefAny::Some(state));
-```
+```rust
 
 `NodeData::set_dataset` is the underlying setter if you build
 `NodeData` directly.
@@ -84,7 +84,7 @@ extern "C" fn on_keydown(_unused: RefAny, mut info: CallbackInfo) -> Update {
     state.text.push_str("...");
     Update::RefreshDom
 }
-```
+```rust
 
 Borrow rules follow `RefAny`. A `downcast_ref` blocks a `downcast_mut`.
 Drop the guard before calling anything that may borrow the same
@@ -226,7 +226,7 @@ also writes it directly into the node's dataset, so the input shows
 the latest keystroke before the next `layout()` runs. That's covered
 in [Text Input and Selection](../text-input.md).
 
-## What `CallbackInfo` exposes for dataset work
+## What CallbackInfo exposes for dataset work
 
 The handful of methods that matter on this page:
 
@@ -244,14 +244,6 @@ The handful of methods that matter on this page:
 Drop any active dataset borrow before calling another method that
 might re-borrow the same `RefAny`.
 
-## Source
-
-- `core/src/dom.rs` for `Dom::with_dataset`, `NodeData::set_dataset`,
-  and the `OptionRefAny` slot.
-- `core/src/refany.rs` for `RefAny`, `OptionRefAny`, and the downcast
-  rules.
-- `core/src/callbacks.rs` for `CallbackInfo::get_dataset`,
-  `get_hit_node`, `get_focused_node`, and the navigation getters.
 
 ## Coming Up Next
 

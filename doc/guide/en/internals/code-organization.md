@@ -35,11 +35,11 @@ members = [
     "examples/rust",
     "examples/https-test",
 ]
-```
+```rust
 
 The repository layout mirrors that order. Read the crates top-to-bottom and you read the dependency graph in reverse.
 
-## `css/` — parser and property types
+## css/ — parser and property types
 
 Pure data definitions for the CSS engine. `no_std`-compatible, no platform code, no dependencies on other azul crates. The `corety` module re-exports the FFI-safe primitives (`AzString`, `AzVec<T>`, `OptionT`) that travel through the C API; everything else in the workspace consumes these.
 
@@ -64,7 +64,7 @@ Key modules declared in `css/src/lib.rs`:
 
 The crate sets `#![cfg_attr(not(feature = "std"), no_std)]` and depends on `alloc` only, so the parser can run in restricted environments (e.g. embedded CSS in a WASM payload).
 
-## `core/` — shared data types
+## core/ — shared data types
 
 Platform-independent definitions for the GUI loop: DOM construction, the CSSOM, callbacks, hit-testing, resources, OpenGL, and SVG. Foundational; depends only on `azul-css`.
 
@@ -117,7 +117,7 @@ The crate is large but well-partitioned. Modules are declared in `core/src/lib.r
 
 `core` has the same `no_std` surface as `css`, but most consumers enable the `std` feature. Type aliases `OrderedMap<K, V>` (a `BTreeMap`) and `FastBTreeSet<T>` are defined at the crate root because `HashMap` is unavailable under `no_std`.
 
-## `layout/` — solver, text, managers
+## layout/ — solver, text, managers
 
 The runtime layer. Owns the layout solver, text shaping, font management, hit-testing, and the per-frame state machines that the platform shells drive. Depends on `azul-core` and `azul-css`.
 
@@ -176,7 +176,7 @@ Smaller modules in `layout/src/lib.rs`:
 
 Everything large is feature-gated so a minimal build (e.g. WASM target, headless CI) only compiles what it needs.
 
-## `dll/` — FFI, platform shells, web, Python
+## dll/ — FFI, platform shells, web, Python
 
 The library entry point. `dll/src/lib.rs` is mostly a feature-gated dispatch hub: it pulls in the codegen output (`include!(...dll_api_internal.rs)` / `dll_api_external.rs` / `reexports.rs` / `python_api.rs` / `memtest.rs`) and conditionally compiles the desktop and web modules.
 
@@ -203,7 +203,7 @@ dll/src/
 │   │   └── headless/
 │   └── ...
 └── web/              ← AZ_BACKEND=web HTML server (feature = "web")
-```
+```rust
 
 The `desktop/` tree is only compiled when `cabi_internal` is on (i.e. `build-dll` or `link-static`). For `link-dynamic`, only the `extern "C"` declarations in `dll_api_external.rs` are pulled in.
 
@@ -211,7 +211,7 @@ The `desktop/` tree is only compiled when `cabi_internal` is on (i.e. `build-dll
 
 `dll/Cargo.toml` is the source of truth for which features compose which build modes — see [`build-and-codegen`](build-and-codegen.md) for the matrix.
 
-## `doc/` — codegen, autodoc, reftests, deploy
+## doc/ — codegen, autodoc, reftests, deploy
 
 A multi-purpose tool crate. Run as a CLI (`cargo run --release -p azul-doc -- <subcommand>`).
 

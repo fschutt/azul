@@ -125,7 +125,7 @@ fn ease_out_cubic(t: f32) -> f32 {
     let inv = 1.0 - t;
     1.0 - inv * inv * inv
 }
-```
+```rust
 
 `Instant::linear_interpolate(start, end)` returns a clamped 0..=1 fraction. Layer easing on top.
 

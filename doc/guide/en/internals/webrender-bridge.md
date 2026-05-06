@@ -97,7 +97,7 @@ One `WrPipelineId` per `DomId`. `wr_translate_pipeline_id` packs the ID:
 
 ```rust,ignore
 PipelineId(dom_id.inner as u32, layout_window.document_id.id)
-```
+```rust
 
 The root DOM gets `PipelineId(0, document_id)`. IFrames and `VirtualView`s get
 the child DOM's ID. `translate_displaylist_to_wr` returns a flat
@@ -247,7 +247,7 @@ Layout decides which path to take based on the `Update` value returned from
 callbacks. `Update::RefreshDom` means full rebuild. `Update::DoNothing` with
 only GPU or scroll changes means property-only.
 
-## Software path (`cpurender`)
+## Software path (cpurender)
 
 The bridge does *not* know about `cpurender`. The split happens one layer
 above, in `dll/src/desktop/window.rs`, where the renderer is constructed.

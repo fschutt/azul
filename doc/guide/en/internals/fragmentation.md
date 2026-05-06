@@ -53,7 +53,7 @@ The note on `fragmentation.rs:23` says explicitly: *"`solver3/pagination.rs` pro
 
 The advantage: the existing block/inline solver runs unchanged on the tall canvas. The downside: `break-inside: avoid` and orphans/widows aren't honoured by the layout — the splitter has to do its best after the fact. CSS `@page` rules aren't parsed yet (`FakePageConfig` is the programmatic surrogate).
 
-## `FragmentationContext` (paged.rs)
+## FragmentationContext (paged.rs)
 
 ```rust,ignore
 pub enum FragmentationContext {
@@ -81,7 +81,7 @@ pub enum FragmentationContext {
 
 A `Fragmentainer` tracks `size`, `used_block_size`, `is_fixed_size`. `remaining_space()` returns `f32::MAX` for non-fixed (continuous) and `(size.height - used).max(0.0)` for fixed (pages). `advance()` creates the next fragmentainer; for `Continuous` it's a no-op (containers grow), for `Regions` it returns `Err` if no more regions exist.
 
-## `FragmentationState`
+## FragmentationState
 
 `paged.rs:287`. The simpler per-layout-pass tracker for paged mode. Doesn't own fragmentainers; just tracks `current_page`, `current_page_y`, `available_height`, and `page_content_height`.
 
@@ -95,13 +95,13 @@ pub struct FragmentationState {
     pub margins_bottom: f32,
     pub total_pages: usize,
 }
-```
+```rust
 
 Helpers: `can_fit(height)`, `would_fit_on_empty_page(height)`, `use_space(height)`, `advance_page()`, `page_for_y(y) -> usize`, `page_y_offset(page) -> f32`.
 
 `page_for_y` is the splitter: given the absolute Y position of a display-list item, it computes which page the item belongs on. `paged_layout.rs:layout_document_paged` uses this to build per-page display lists from the single tall layout pass.
 
-## Driving paged layout (`solver3/paged_layout.rs`)
+## Driving paged layout (solver3/paged_layout.rs)
 
 ```rust,ignore
 #[cfg(feature = "text_layout")]
@@ -144,9 +144,9 @@ pub use fragmentation::{
     KeepTogetherPriority, PageCounter, PageFragment, PageMargins, PageNumberStyle, PageSlot,
     PageSlotContent, PageSlotPosition, PageTemplate,
 };
-```
+```rust
 
-## `FakePageConfig` and page templates
+## FakePageConfig and page templates
 
 `solver3/pagination.rs:FakePageConfig` is the programmatic substitute for unparsed `@page` rules. Configures:
 
@@ -165,7 +165,7 @@ let func = DynamicSlotContentFn::new(|counter| {
     format!("Page {}", counter.page_number)
 });
 let content = PageSlotContent::Dynamic(Arc::new(func));
-```
+```rust
 
 `Send + Sync` is required because the function is `Arc`-shared across pages.
 
@@ -199,7 +199,7 @@ pub enum BoxBreakBehavior {
 
 `KeepTogetherPriority`: `Low | Normal | High | Critical`. Headers with following content are `High`, figures with captions are `Critical`. The original design used these to drive break decisions during layout; the active path doesn't read them yet.
 
-## `FragmentationDefaults` (heuristics)
+## FragmentationDefaults (heuristics)
 
 `fragmentation.rs:537`. The "smart" defaults that the integrated splitter would apply when CSS doesn't dictate otherwise:
 
@@ -214,7 +214,7 @@ pub struct FragmentationDefaults {
     pub default_orphans: u32,                     // default 2
     pub default_widows: u32,                      // default 2
 }
-```
+```rust
 
 These are exposed but unused by `paged_layout.rs`. Implementing them requires switching to integrated splitting (the original design) or layering them on top of the post-hoc splitter.
 
@@ -237,7 +237,7 @@ override_slots.unwrap_or(&self.slots)
 
 The text engine's stage-5 line breaker (`text3/cache.rs:layout_flow`) accepts `flow_chain: &[LayoutFragment]`. A `BreakCursor` records where one fragment stopped; the next fragment continues from there. This is how text would flow across columns or pages without re-shaping. Today only the paged splitter uses it indirectly (one big fragment per layout pass, then split by Y); column layout is not wired up.
 
-## Activating fragmentation in `LayoutWindow`
+## Activating fragmentation in LayoutWindow
 
 `LayoutWindow::new_paged(fc_cache, page_size)` (`window.rs:702`, behind `feature = "pdf"`) constructs a window with `fragmentation_context: FragmentationContext::new_paged(page_size)`. The paged layout path then calls `layout_document_paged` instead of `layout_document`. The screen path (`new` and `new_with_shared_fonts`) uses `FragmentationContext::new_continuous(800.0)` which makes `paged_layout.rs` a no-op (one page, infinite height).
 

@@ -53,7 +53,7 @@ This page covers the type definitions, how CSS is attached, when it
 actually applies, XML loading, clipping, and the live debugger. Reusable
 fragments are covered separately in [Components](dom/components.md).
 
-## `Dom` and `NodeData`
+## Dom and NodeData
 
 `Dom` (in `core/src/dom.rs`) is the recursive form:
 
@@ -64,7 +64,7 @@ pub struct Dom {
     pub css: azul_css::css::CssVec,
     pub estimated_total_children: usize,
 }
-```
+```rust
 
 A `Dom` is a subtree. Its root is a `NodeData`. `NodeData` (also in
 `core/src/dom.rs`) is the per-node payload:
@@ -295,7 +295,7 @@ extern "C" fn on_click(mut data: RefAny, _info: CallbackInfo) -> Update {
 Dom::create_button_no_a11y("+1".into())
     .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), state, on_click)
 # }
-```
+```rust
 
 `with_callback(filter, data, callback)` attaches a `RefAny` and a function
 pointer. The handler fires when the matching event reaches the node.
@@ -330,7 +330,7 @@ just a parent re-render. See [Virtual Views](dom/virtual-views.md) for
 the rendered-vs-virtual coordinate model and a virtualised-table
 walkthrough.
 
-## Inspecting a live tree: `AZ_DEBUG`
+## Inspecting a live tree: AZ_DEBUG
 
 When `AZ_DEBUG=<port>` is set, `App::create` starts an HTTP debug
 server on that port. It accepts JSON commands and returns JSON
@@ -376,12 +376,6 @@ its render function lives in a registered library) jump back to the
 source. See [Components](dom/components.md#component-packs) for how a
 library wires its components into the registry.
 
-## Where to read the source
-
-- `core/src/dom.rs`: `Dom`, `NodeData`, `NodeType`, `AttributeType`,
-  the builder methods.
-- `core/src/styled_dom.rs`: `StyledDom` and `NodeHierarchyItem`.
-- `core/src/xml.rs`: `Dom::from_parsed_xml` and the XML parser.
 
 ## Coming Up Next
 

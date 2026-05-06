@@ -87,7 +87,7 @@ cfg_if::cfg_if! {
 }
 ```
 
-## `AzBackend` resolution
+## AzBackend resolution
 
 `AzBackend` (`common/compositor.rs:73`) is the unified backend selector.
 It supersedes the older `AZUL_HEADLESS` / `AZUL_RENDERER` / `AZ_COMPOSITOR`
@@ -101,7 +101,7 @@ pub enum AzBackend {
     Headless,                                    // CPU + no native window
     #[cfg(feature = "web")] Web(SocketAddr),    // serve as HTML over HTTP
 }
-```
+```rust
 
 Resolution order, set by `AzBackend::resolve` (`compositor.rs:101`):
 
@@ -118,7 +118,7 @@ Resolution order, set by `AzBackend::resolve` (`compositor.rs:101`):
 - `Headless` → `run_headless` builds a `HeadlessWindow` and enters its loop.
 - Anything else → the OS-specific event loop in `run.rs`.
 
-## `CompositorMode` and the GPU blacklist
+## CompositorMode and the GPU blacklist
 
 `CompositorMode` (`compositor.rs:28`) is the lower-level
 `GPU | CPU | Auto` choice consumed by `Compositor` impls. It deliberately
@@ -141,7 +141,7 @@ process-wide `AzBackend`.
 flagged this as `[HIGH]` dead code). It is wired up to be called after a
 successful GL context creation in `Auto` mode; the call site is pending.
 
-## The `Compositor` trait
+## The Compositor trait
 
 ```rust,ignore
 pub trait Compositor {
@@ -154,7 +154,7 @@ pub trait Compositor {
     fn flush(&mut self);
     fn present(&mut self) -> Result<(), CompositorError>;
 }
-```
+```rust
 
 `RenderContext` (`compositor.rs:230`) carries platform-specific GPU handles
 as raw pointers (`OpenGL`, `Metal`, `D3D11`) or `u64` Vulkan handles.
@@ -168,7 +168,7 @@ white in `rasterize`; the autoreview reports flag the whole file as a stub
 (`HIGH` finding). The real GPU path lives in WebRender via `wr_translate2`,
 not in this trait.
 
-## `PlatformWindow` and `CommonWindowState`
+## PlatformWindow and CommonWindowState
 
 The shared event-processing logic lives in `common/event.rs:138`. Every
 backend embeds a `CommonWindowState` field (named `common`) that holds
@@ -226,7 +226,7 @@ breakpoint crossings (the per-OS handlers in
 [Windows](shell2-windows.md), [macOS](shell2-macos.md) compare the
 `DynamicSelectorContext` against `CSS_BREAKPOINTS`).
 
-## `DynamicLibrary` trait
+## DynamicLibrary trait
 
 `common/dlopen.rs:20`:
 
@@ -291,7 +291,7 @@ propagates it back up.
 
 ```rust,ignore
 pub fn load_gl_context(get_func: impl Fn(&str) -> *mut c_void) -> GenericGlContext;
-```
+```rust
 
 The body is ~800 lines of `glFoo: get_func("glFoo")` field assignments
 into `GenericGlContext`. Each backend supplies a closure that resolves
@@ -300,7 +300,7 @@ GL symbols through the platform's preferred mechanism:
 `wglGetProcAddress` on Windows. Keeping the closure caller-supplied is
 how this single function services every backend without `cfg`-gating.
 
-## `run()` — per-OS event loop entry
+## run() — per-OS event loop entry
 
 `run.rs` exposes one `pub fn run(...)` per `target_os`. The first
 ~30 lines of every variant are identical: read `AZUL_DEBUG` /
@@ -352,7 +352,7 @@ methods that have no in-tree callers (`inject_events`,
 `has_active_timers`, `pending_window_count`); they are intended for
 external test harnesses, not internal use.
 
-## `AZ_E2E_TEST` scenario runner
+## AZ_E2E_TEST scenario runner
 
 `common/e2e_test.rs:1` (gated by the `e2e-test` cargo feature) is a
 deterministic resize/tick harness used to reproduce memory leaks

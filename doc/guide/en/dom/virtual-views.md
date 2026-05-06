@@ -51,7 +51,7 @@ extern "C" fn render_list(
 let list_state = RefAny::new(ListData { items: vec!["A".into(), "B".into()] });
 let cb = VirtualViewCallback { cb: render_list, ctx: OptionRefAny::None };
 let _ = Dom::create_virtual_view(list_state, cb);
-```
+```rust
 
 ## Two coordinate systems: rendered vs virtual
 
@@ -114,7 +114,7 @@ The callback does not fire on small resizes that stay inside the rendered
 on parent re-renders that don't recreate the parent DOM. That's the
 optimisation.
 
-## Returning `OptionDom::None`
+## Returning OptionDom::None
 
 Sometimes the existing DOM is fine. The user scrolled, but stayed inside
 the already-rendered area. Or the parent re-rendered without invalidating
@@ -138,7 +138,7 @@ fn render_table(data: &mut TableData, info: VirtualViewCallbackInfo) -> VirtualV
     /* ... */
     # VirtualViewReturn::default()
 }
-```
+```rust
 
 `VirtualViewReturn::keep_current(...)` is a shortcut for the same return
 shape.
@@ -217,13 +217,6 @@ The outer `RefAny` is also a good place to keep live state: what was
 rendered last time, the cached fetcher, in-flight requests. The callback
 can look at that state before deciding whether to return `OptionDom::None`.
 
-## Where to read the source
-
-- `core/src/dom.rs` defines `Dom::create_virtual_view` and
-  `NodeData::create_virtual_view`.
-- `core/src/callbacks.rs` defines `VirtualViewCallback`,
-  `VirtualViewCallbackReason`, `EdgeType`, `VirtualViewCallbackInfo`, and
-  `VirtualViewReturn`.
 
 ## Coming Up Next
 

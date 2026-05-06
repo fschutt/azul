@@ -23,7 +23,7 @@ generated_at: 2026-05-02T12:00:00Z
 
 Selection in Azul follows the W3C Selection API model: a directed range with an **anchor** (where the user pressed) and a **focus** (where the user is now). The range can span any subtree of the DOM, not just the inside of a single text input.
 
-## Positions: `TextCursor`
+## Positions: TextCursor
 
 A position in editable text is a `TextCursor`:
 
@@ -42,7 +42,7 @@ let cursor = TextCursor {
 
 The pair `(cluster, Leading)` and `(previous-cluster, Trailing)` describe the same visual point, but only one is correct after a line wrap or a Bidi run boundary.
 
-## Ranges: `SelectionRange` and `Selection`
+## Ranges: SelectionRange and Selection
 
 ```rust,ignore
 use azul::prelude::*;
