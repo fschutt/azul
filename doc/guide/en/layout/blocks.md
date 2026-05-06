@@ -1,13 +1,13 @@
 ---
 slug: layout/blocks
-title: Blocks, Sizing, and Positioning
+title: Simple Layout
 language: en
 canonical_slug: layout/blocks
 audience: external
 maturity: mature
 guide_order: 51
 topic_only: false
-short_desc: Block formatting context — display, position, width / height / box-sizing, margin / padding, overflow, and z-index.
+short_desc: Explains block formatting, sizing, positioning, the box model and how to handle overflowing content
 prerequisites: [layout]
 tracked_files:
   - css/src/props/layout/display.rs

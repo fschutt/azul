@@ -7,7 +7,7 @@ audience: external
 maturity: wip
 guide_order: 142
 topic_only: false
-short_desc: Container widgets — panels, splitters, tab views, list views, and tree views.
+short_desc: Panels, splitters, tab views, list views, tree views
 prerequisites: [widgets]
 tracked_files:
   - layout/src/widgets/list_view.rs

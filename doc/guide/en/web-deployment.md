@@ -7,7 +7,7 @@ audience: external
 maturity: wip
 guide_order: 400
 topic_only: false
-short_desc: Building for the browser via WASM — toolchain, bundle layout, asset paths, and runtime caveats.
+short_desc: Building for the browser via WASM
 prerequisites: [hello-world, architecture]
 tracked_files:
   - dll/src/web/cb_gen.rs

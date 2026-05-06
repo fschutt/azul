@@ -7,7 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
-short_desc: Windows shell — Win32 message pump, DirectComposition, theme integration, and IME.
+short_desc: Windows shell - Win32 messages, DirectComposition, IME
 prerequisites: [shell2-common]
 tracked_files:
   - dll/src/desktop/shell2/windows/accessibility.rs

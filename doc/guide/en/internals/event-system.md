@@ -7,7 +7,7 @@ audience: contributor
 maturity: mature
 guide_order: null
 topic_only: false
-short_desc: Event dispatch — hit-testing, callback invocation, the Update protocol, and how state changes cascade into a re-layout.
+short_desc: Hit-testing, callback invocation, the Update protocol
 prerequisites: []
 tracked_files:
   - core/src/callbacks.rs

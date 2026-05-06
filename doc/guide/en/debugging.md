@@ -7,7 +7,7 @@ audience: external
 maturity: wip
 guide_order: 200
 topic_only: false
-short_desc: Built-in debug overlays, the inspector, structured logging, and how to enable each at runtime.
+short_desc: Debug overlays, the inspector, and structured logging
 prerequisites: [hello-world]
 tracked_files:
   - core/src/debug.rs

@@ -7,7 +7,7 @@ audience: external
 maturity: wip
 guide_order: 140
 topic_only: false
-short_desc: Built-in widgets — buttons, labels, lists, dialogs — and the conventions for writing your own.
+short_desc: Built-in widgets and how to write your own
 prerequisites: [styling, events, text-input]
 tracked_files:
   - layout/src/widgets/button.rs

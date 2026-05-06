@@ -7,7 +7,7 @@ audience: external
 maturity: wip
 guide_order: 141
 topic_only: false
-short_desc: Text fields, checkboxes, radios, sliders, dropdowns, and the small-aria info struct that wires accessibility.
+short_desc: Text fields, checkboxes, radios, sliders, dropdowns
 prerequisites: [widgets, text-input, text-selection]
 tracked_files:
   - layout/src/widgets/text_input.rs

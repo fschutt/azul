@@ -7,7 +7,7 @@ audience: external
 maturity: wip
 guide_order: 210
 topic_only: false
-short_desc: Tracking allocations and per-frame budgets — the profiler hooks and how to read its output.
+short_desc: Tracking allocations and per-frame budgets
 prerequisites: [debugging]
 tracked_files:
   - core/src/debug.rs

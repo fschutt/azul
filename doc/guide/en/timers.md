@@ -7,7 +7,7 @@ audience: external
 maturity: wip
 guide_order: 100
 topic_only: false
-short_desc: Frame-rate independent timers, threads, and how scheduled work re-enters the layout pipeline.
+short_desc: Timers, threads, and scheduled work
 prerequisites: [hello-world, events]
 tracked_files:
   - core/src/task.rs

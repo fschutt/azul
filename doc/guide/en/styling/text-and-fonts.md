@@ -1,13 +1,13 @@
 ---
 slug: styling/text-and-fonts
-title: Text and Fonts
+title: Styling Text
 language: en
 canonical_slug: styling/text-and-fonts
 audience: external
 maturity: wip
 guide_order: 43
 topic_only: false
-short_desc: Text styling — font-family, size, weight, style, alignment, line metrics, decoration, and the system font keywords.
+short_desc: Font family, size, weight, alignment, decoration, and the system font keywords
 prerequisites: [styling]
 tracked_files:
   - css/src/props/basic/font.rs

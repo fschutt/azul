@@ -7,7 +7,7 @@ audience: external
 maturity: wip
 guide_order: 71
 topic_only: false
-short_desc: Parsing and rendering SVG documents — the embedded engine, supported features, and known gaps.
+short_desc: Parsing and rendering SVG documents
 prerequisites: [images]
 tracked_files:
   - core/src/svg.rs

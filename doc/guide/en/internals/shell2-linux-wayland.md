@@ -7,7 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
-short_desc: Linux Wayland shell — wl_surface lifecycle, xdg-shell, libinput integration, and protocol fallbacks.
+short_desc: Linux Wayland shell - wl_surface, xdg-shell, libinput
 prerequisites: [shell2-common, shell2-linux-x11]
 tracked_files:
   - dll/src/desktop/shell2/linux/wayland/clipboard.rs

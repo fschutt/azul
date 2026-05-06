@@ -7,7 +7,7 @@ audience: external
 maturity: wip
 guide_order: 42
 topic_only: false
-short_desc: System-aware styling — `system:*` colors and fonts, `@theme` light/dark, `@os`, and accessibility queries that re-evaluate per frame.
+short_desc: System colors, `@theme`, `@os`, and accessibility queries
 prerequisites: [styling]
 tracked_files:
   - css/src/system.rs

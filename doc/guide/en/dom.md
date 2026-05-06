@@ -7,7 +7,7 @@ audience: external
 maturity: mature
 guide_order: 30
 topic_only: false
-short_desc: Building UIs from the Dom tree — node types, hierarchy, allocation patterns, and how CSS, clipping, and components fit in.
+short_desc: The Dom tree - node types, hierarchy, and CSS
 prerequisites: [architecture/understanding-refany]
 tracked_files:
   - core/src/dom.rs

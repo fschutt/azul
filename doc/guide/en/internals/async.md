@@ -7,7 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
-short_desc: The async runtime — how timers, threads, and IO callbacks share state with the layout thread.
+short_desc: Timers, threads, and IO callbacks across the layout thread
 prerequisites: []
 tracked_files:
   - core/src/task.rs

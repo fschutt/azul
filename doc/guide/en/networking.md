@@ -7,7 +7,7 @@ audience: external
 maturity: stub
 guide_order: 270
 topic_only: false
-short_desc: HTTP and TCP / UDP from a callback — the async runtime, request / response types, and how requests re-enter the layout pipeline.
+short_desc: HTTP and TCP/UDP from a callback
 prerequisites: [background-tasks]
 tracked_files:
   - core/src/task.rs

@@ -7,7 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
-short_desc: Discovering OS theme, accent, fonts, and accessibility settings — the per-platform back-ends and update notifications.
+short_desc: Discovering OS theme, accent, fonts, and a11y settings
 prerequisites: [code-organization]
 tracked_files:
   - css/src/system.rs

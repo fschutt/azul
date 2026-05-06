@@ -7,7 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
-short_desc: How azul talks to WebRender — display-list construction, scroll roots, clip chains, and stacking contexts.
+short_desc: How azul talks to WebRender
 prerequisites: []
 tracked_files:
   - core/src/gpu.rs

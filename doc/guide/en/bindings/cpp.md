@@ -7,7 +7,7 @@ audience: external
 maturity: wip
 guide_order: 330
 topic_only: false
-short_desc: C++ wrapper headers — RAII helpers, namespace layout, and the differences from the raw C API.
+short_desc: C++ wrapper headers, RAII helpers, namespace layout
 prerequisites: [hello-world, code-generation]
 tracked_files:
   - api.json

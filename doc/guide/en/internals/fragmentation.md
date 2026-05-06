@@ -7,7 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
-short_desc: Pagination — page-break properties, widow / orphan handling, and how the solver fragments boxes for PDF output.
+short_desc: Page breaks, widows, orphans, and PDF fragmentation
 prerequisites: [layout-solver, inline-text3]
 tracked_files:
   - layout/src/lib.rs

@@ -7,7 +7,7 @@ audience: external
 maturity: stub
 guide_order: 110
 topic_only: false
-short_desc: CSS transitions and the animation system — how `transition` and `@keyframes` interact with the per-frame pipeline.
+short_desc: CSS transitions and @keyframes
 prerequisites: [hello-world, events, timers]
 tracked_files:
   - core/src/animation.rs

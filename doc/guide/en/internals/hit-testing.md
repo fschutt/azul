@@ -7,7 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
-short_desc: Hit-test tag generation, ray-cast vs. box-test, and how scroll containers complicate cursor-to-node routing.
+short_desc: Hit-test tag generation and cursor-to-node routing
 prerequisites: []
 tracked_files:
   - core/src/hit_test.rs

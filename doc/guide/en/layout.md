@@ -7,7 +7,7 @@ audience: external
 maturity: mature
 guide_order: 50
 topic_only: false
-short_desc: Overview of the layout solver and the four formatting modes — block, inline, flex, and grid.
+short_desc: Overview of the layout solver
 prerequisites: [styling]
 tracked_files:
   - css/src/props/layout/mod.rs

@@ -7,7 +7,7 @@ audience: external
 maturity: wip
 guide_order: 220
 topic_only: false
-short_desc: Driving an Azul app from a script — `curl`-style HTTP debug API, snapshot tests, and CI integration.
+short_desc: Driving an Azul app from a script for tests
 prerequisites: [debugging]
 tracked_files:
   - core/src/debug.rs

@@ -7,7 +7,7 @@ audience: external
 maturity: mature
 guide_order: 52
 topic_only: false
-short_desc: Inline formatting context — text flow, white-space, word-break, hyphens, writing-mode, multi-column, and fragmentation.
+short_desc: Text flow, word breaks, writing modes, multi-column
 prerequisites: [layout/blocks]
 tracked_files:
   - css/src/props/layout/text.rs

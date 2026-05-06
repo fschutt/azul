@@ -7,7 +7,7 @@ audience: contributor
 maturity: mature
 guide_order: null
 topic_only: false
-short_desc: The hand-written CSS parser — tokeniser, property dispatch, and the warning channel.
+short_desc: The hand-written CSS parser
 prerequisites: []
 tracked_files:
   - css/src/parser2.rs

@@ -7,7 +7,7 @@ audience: external
 maturity: mature
 guide_order: 31
 topic_only: false
-short_desc: How the framework matches the new tree against the old, classifies what changed at the level of single CSS properties, and only repaints the rectangles that the change actually touched.
+short_desc: Diffing, restyle scope, and damage-rect repaint
 prerequisites: [dom]
 tracked_files:
   - core/src/diff.rs

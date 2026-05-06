@@ -7,7 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
-short_desc: The virtual view layer — what it caches, how it survives across layouts, and how it talks to the windowing back-end.
+short_desc: What the virtual view layer caches and how it survives layouts
 prerequisites: []
 tracked_files:
   - core/src/callbacks.rs

@@ -7,7 +7,7 @@ audience: external
 maturity: mature
 guide_order: 90
 topic_only: false
-short_desc: Callback registration, event filters, the Update enum, and how the framework re-runs layout when state changes.
+short_desc: Callbacks, event filters, and how state triggers relayout
 prerequisites: [hello-world]
 tracked_files:
   - core/src/events.rs

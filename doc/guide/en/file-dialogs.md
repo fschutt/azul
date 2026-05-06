@@ -7,7 +7,7 @@ audience: external
 maturity: wip
 guide_order: 240
 topic_only: false
-short_desc: Native open / save dialogs and folder pickers — the synchronous API and how it interacts with the layout thread.
+short_desc: Native open/save dialogs and folder pickers
 prerequisites: [events]
 tracked_files:
   - layout/src/desktop/dialogs.rs

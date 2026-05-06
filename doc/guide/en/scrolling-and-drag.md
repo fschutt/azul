@@ -7,7 +7,7 @@ audience: external
 maturity: wip
 guide_order: 120
 topic_only: false
-short_desc: Scroll containers, drag-and-drop, the cursor pseudo-classes, and how hit-testing routes events to the right node.
+short_desc: Scroll containers, drag-and-drop, hit testing
 prerequisites: [hello-world, events]
 tracked_files:
   - core/src/drag.rs

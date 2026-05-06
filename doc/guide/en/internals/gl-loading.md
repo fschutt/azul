@@ -7,7 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
-short_desc: Loading the GL function pointers per platform — the runtime symbol table and the loader fallbacks.
+short_desc: Loading GL function pointers across platforms
 prerequisites: []
 tracked_files:
   - core/src/gl.rs

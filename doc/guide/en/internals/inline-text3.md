@@ -7,7 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
-short_desc: The text3 engine — shaping, line breaking via Knuth–Plass, BiDi reordering, vertical writing modes, hyphenation, selection, and editing.
+short_desc: The text3 engine - shaping, line breaking, BiDi, hyphenation
 prerequisites: [layout-solver, text-pipeline]
 tracked_files:
   - layout/src/lib.rs

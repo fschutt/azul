@@ -7,7 +7,7 @@ audience: external
 maturity: mature
 guide_order: 54
 topic_only: false
-short_desc: Two-axis container layout — explicit and auto tracks, areas, placement, alignment, and dense packing.
+short_desc: Two-axis container layout with tracks and areas
 prerequisites: [layout]
 tracked_files:
   - css/src/props/layout/grid.rs

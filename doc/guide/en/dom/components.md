@@ -1,13 +1,13 @@
 ---
 slug: dom/components
-title: Components and Component Packs
+title: Components
 language: en
 canonical_slug: dom/components
 audience: external
 maturity: mature
 guide_order: 35
 topic_only: false
-short_desc: Reusable UI fragments — first as plain Rust functions, then as named, registered packs that the live debugger can preview, edit, and round-trip through code generation.
+short_desc: Reusable UI fragments - functions of (args) -> Dom, plus the named-pack registration the debugger uses
 prerequisites: [dom]
 tracked_files:
   - core/src/dom.rs

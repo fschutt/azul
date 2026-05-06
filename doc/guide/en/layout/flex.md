@@ -7,7 +7,7 @@ audience: external
 maturity: mature
 guide_order: 53
 topic_only: false
-short_desc: One-axis container layout — main and cross axes, grow / shrink / basis, alignment, ordering, wrapping.
+short_desc: One-axis container layout with grow/shrink/basis
 prerequisites: [layout]
 tracked_files:
   - css/src/props/layout/flex.rs

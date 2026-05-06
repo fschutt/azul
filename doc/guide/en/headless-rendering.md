@@ -7,7 +7,7 @@ audience: external
 maturity: wip
 guide_order: 290
 topic_only: false
-short_desc: Running the layout and rendering pipeline without a window — useful for snapshot tests and PDF export.
+short_desc: Running the pipeline without a window
 prerequisites: [dom]
 tracked_files:
   - layout/src/cpurender.rs

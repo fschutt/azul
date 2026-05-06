@@ -7,7 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
-short_desc: WASM target — DOM-attachment, OffscreenCanvas, and how the desktop pipeline maps onto the browser.
+short_desc: WASM target - DOM-attachment and OffscreenCanvas
 prerequisites: []
 tracked_files:
   - dll/src/web/cb_gen.rs

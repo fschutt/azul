@@ -7,7 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
-short_desc: Linux X11 shell — Xlib event loop, GLX context, clipboard selections, and XInput2 routing.
+short_desc: Linux X11 shell - Xlib, GLX, XInput2
 prerequisites: [shell2-common]
 tracked_files:
   - dll/src/desktop/shell2/linux/mod.rs

@@ -7,7 +7,7 @@ audience: contributor
 maturity: mature
 guide_order: null
 topic_only: false
-short_desc: Top-level crate map and the boundary between core / layout / shell / dll.
+short_desc: Top-level crate map and where each piece lives
 prerequisites: []
 tracked_files:
   - core/src/lib.rs

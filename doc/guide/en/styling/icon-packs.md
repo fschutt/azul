@@ -7,7 +7,7 @@ audience: external
 maturity: wip
 guide_order: 44
 topic_only: false
-short_desc: Register image, font, and SVG icons under named packs and use them with `Dom::create_icon("name")` or `<icon>` in CSS.
+short_desc: Register icons and use them with `Dom::create_icon` or `<icon>`
 prerequisites: [styling]
 tracked_files:
   - core/src/icon.rs

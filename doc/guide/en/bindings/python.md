@@ -7,7 +7,7 @@ audience: external
 maturity: wip
 guide_order: 340
 topic_only: false
-short_desc: Installing the Python wheel, the `azul.*` module layout, and how Rust callbacks bridge to Python functions.
+short_desc: Installing the Python wheel and the `azul.*` module layout
 prerequisites: [hello-world, code-generation]
 tracked_files:
   - api.json

@@ -7,7 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
-short_desc: How a styled text run becomes glyphs — font fallback, OpenType shaping, fragmentation across line boxes.
+short_desc: How a styled text run becomes glyphs
 prerequisites: [layout-solver, compact-cache]
 tracked_files:
   - layout/src/lib.rs

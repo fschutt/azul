@@ -7,7 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
-short_desc: From `StyledDom` to pixels — display lists, painter setup, GPU upload, and the WebRender bridge.
+short_desc: From `StyledDom` to pixels
 prerequisites: []
 tracked_files:
   - core/src/gl.rs

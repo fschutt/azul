@@ -7,7 +7,7 @@ audience: external
 maturity: mature
 guide_order: 310
 topic_only: false
-short_desc: Using the Rust API directly without going through the C ABI — workspace setup, feature flags, and target builds.
+short_desc: Using the Rust API without going through the C ABI
 prerequisites: [hello-world, code-generation]
 tracked_files:
   - api.json

@@ -7,7 +7,7 @@ audience: external
 maturity: mature
 guide_order: 32
 topic_only: false
-short_desc: Attaching arbitrary state to a node — for navigation in callbacks, for ephemeral RefAnys, and as the slot widgets use to keep instance-local state.
+short_desc: Attaching state to a node for navigation and per-instance state
 prerequisites: [dom]
 tracked_files:
   - core/src/dom.rs

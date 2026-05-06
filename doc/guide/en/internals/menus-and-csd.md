@@ -7,7 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
-short_desc: Menus and client-side decorations — the cross-platform abstraction and where each platform diverges.
+short_desc: Menus and client-side decorations across platforms
 prerequisites: [code-organization, system-style]
 tracked_files:
   - core/src/menu.rs

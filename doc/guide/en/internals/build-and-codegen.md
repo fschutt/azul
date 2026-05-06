@@ -7,7 +7,7 @@ audience: contributor
 maturity: mature
 guide_order: null
 topic_only: false
-short_desc: How `cargo build` cascades through the workspace, what the codegen pass produces, and how to regenerate the FFI files.
+short_desc: How `cargo build` cascades and the codegen pass
 prerequisites: [code-organization]
 tracked_files:
   - api.json

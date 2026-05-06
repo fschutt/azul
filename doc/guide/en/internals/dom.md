@@ -7,7 +7,7 @@ audience: contributor
 maturity: mature
 guide_order: null
 topic_only: false
-short_desc: How the public `Dom` type is built and stored — `NodeData`, the tree representation, and the cleanup path.
+short_desc: How the public `Dom` type is built and stored
 prerequisites: []
 tracked_files:
   - core/src/dom.rs

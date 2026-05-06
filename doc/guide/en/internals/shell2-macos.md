@@ -7,7 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
-short_desc: macOS shell — Cocoa NSWindow integration, AppKit event loop, IME, and accessibility hooks.
+short_desc: macOS shell - Cocoa, AppKit, IME, a11y
 prerequisites: [shell2-common]
 tracked_files:
   - dll/src/desktop/shell2/macos/accessibility.rs

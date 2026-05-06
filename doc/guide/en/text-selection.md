@@ -7,7 +7,7 @@ audience: external
 maturity: wip
 guide_order: 94
 topic_only: false
-short_desc: Selection ranges, cursor placement, copy / paste integration, and the selection API exposed to callbacks.
+short_desc: Selection ranges, cursors, and copy/paste
 prerequisites: [events, text-input]
 tracked_files:
   - core/src/hit_test.rs

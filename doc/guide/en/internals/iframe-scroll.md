@@ -7,7 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
-short_desc: Iframe nodes — independent scroll regions, display-list embedding, and coordinate translation across iframe boundaries.
+short_desc: Iframe scroll regions and coordinate translation
 prerequisites: []
 tracked_files:
   - core/src/callbacks.rs

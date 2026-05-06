@@ -7,7 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
-short_desc: The cascade pipeline — selector matching, specificity, dynamic conditions, and how computed values are produced.
+short_desc: Selector matching, specificity, and computed values
 prerequisites: []
 tracked_files:
   - core/src/compact_cache_builder.rs

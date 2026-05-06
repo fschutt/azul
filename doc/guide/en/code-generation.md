@@ -7,7 +7,7 @@ audience: external
 maturity: wip
 guide_order: 300
 topic_only: false
-short_desc: How `azul-doc` regenerates the C / C++ / Python bindings from `api.json`, and what to do when the generation diverges from hand edits.
+short_desc: How `azul-doc` regenerates bindings from `api.json`
 prerequisites: [hello-world, architecture]
 tracked_files:
   - api.json

@@ -7,7 +7,7 @@ audience: external
 maturity: mature
 guide_order: 40
 topic_only: false
-short_desc: Stylesheets and the cascade — selectors, pseudo-classes, at-rules, specificity, and the three ways to attach styles to a Dom.
+short_desc: Stylesheets, selectors, and the cascade
 prerequisites: [dom]
 tracked_files:
   - css/src/lib.rs

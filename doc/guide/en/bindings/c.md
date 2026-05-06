@@ -7,7 +7,7 @@ audience: external
 maturity: wip
 guide_order: 320
 topic_only: false
-short_desc: C ABI surface, header layout, memory ownership rules, and how to integrate with an existing C project.
+short_desc: C ABI surface, headers, and memory ownership
 prerequisites: [hello-world, code-generation]
 tracked_files:
   - api.json

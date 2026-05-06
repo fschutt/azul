@@ -7,7 +7,7 @@ audience: external
 maturity: mature
 guide_order: 33
 topic_only: false
-short_desc: Surviving the next layout() rebuild — the reconcile-style protocol that hands a widget its previous dataset so heavy resources (video decoders, GL textures, websockets) don't get freed and reopened every frame.
+short_desc: How widgets keep heavy resources across a layout rebuild
 prerequisites: [dom, dom/datasets, dom/reconciliation]
 tracked_files:
   - core/src/dom.rs

@@ -7,7 +7,7 @@ audience: external
 maturity: mature
 guide_order: 130
 topic_only: false
-short_desc: Creating windows, the window options struct, multi-window apps, and per-window state.
+short_desc: Windows, menus, decorations, and per-window state
 prerequisites: [hello-world, events]
 tracked_files:
   - core/src/window.rs

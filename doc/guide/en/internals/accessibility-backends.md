@@ -7,7 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
-short_desc: Per-platform accessibility back-ends (UIA, AT-SPI, NSAccessibility) and the common tree they expose.
+short_desc: Per-platform a11y back-ends - UIA, AT-SPI, NSAccessibility
 prerequisites: [code-organization]
 tracked_files:
   - core/src/a11y.rs

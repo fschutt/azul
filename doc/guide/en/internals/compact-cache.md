@@ -7,7 +7,7 @@ audience: contributor
 maturity: mature
 guide_order: null
 topic_only: false
-short_desc: The compact-cache layout — how layout results are stored across frames for incremental updates.
+short_desc: How layout results are stored across frames
 prerequisites: []
 tracked_files:
   - css/src/compact_cache.rs

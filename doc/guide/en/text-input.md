@@ -7,7 +7,7 @@ audience: external
 maturity: wip
 guide_order: 92
 topic_only: false
-short_desc: Editable text — how `contenteditable`, IME, and the text3 selection model produce a working text field.
+short_desc: Editable text, IME, and the selection model
 prerequisites: [events]
 tracked_files:
   - core/src/hit_test.rs

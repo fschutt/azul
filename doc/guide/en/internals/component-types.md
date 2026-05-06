@@ -7,7 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
-short_desc: The component type system — how typed component IDs are resolved and how component scope works at the layout layer.
+short_desc: How typed component IDs resolve at the layout layer
 prerequisites: []
 tracked_files:
   - core/src/xml.rs

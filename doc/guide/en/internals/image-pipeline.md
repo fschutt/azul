@@ -7,7 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
-short_desc: Decoding, caching, and uploading raster images — the `ImageRef` lifetime, formats, and the GPU-upload path.
+short_desc: Decoding, caching, and uploading raster images
 prerequisites: [layout-solver, dom-internals]
 tracked_files:
   - layout/src/lib.rs

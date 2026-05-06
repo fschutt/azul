@@ -7,7 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
-short_desc: Linux DBus integration — accessibility, file dialogs, system notifications, and screen-reader hand-off.
+short_desc: Linux DBus integration for a11y, dialogs, notifications
 prerequisites: [shell2-common, shell2-linux-x11]
 tracked_files:
   - dll/src/desktop/shell2/linux/dbus/dlopen.rs

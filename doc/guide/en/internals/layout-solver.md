@@ -7,7 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
-short_desc: Architecture of `solver3/` — the entry points for block, flex, grid, positioning, and how they share the inline engine.
+short_desc: Architecture of `solver3/` and how the engines share state
 prerequisites: [code-organization, dom-internals, cascade, compact-cache]
 tracked_files:
   - layout/src/lib.rs

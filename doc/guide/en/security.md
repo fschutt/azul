@@ -7,7 +7,7 @@ audience: external
 maturity: wip
 guide_order: 500
 topic_only: false
-short_desc: Security model — how callbacks, RefAny, and external data sources are isolated, and what threats the framework does and does not defend against.
+short_desc: What azul does and doesn't defend against
 prerequisites: [architecture, web-deployment]
 tracked_files:
   - core/src/refany.rs

@@ -7,7 +7,7 @@ audience: external
 maturity: wip
 guide_order: 260
 topic_only: false
-short_desc: Long-running work off the layout thread — task spawning, cancellation, and result delivery via Update messages.
+short_desc: Running long jobs off the layout thread
 prerequisites: [timers]
 tracked_files:
   - core/src/task.rs

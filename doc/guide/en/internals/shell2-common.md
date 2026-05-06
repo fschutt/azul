@@ -7,7 +7,7 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
-short_desc: Shared shell infrastructure — windowing event loop, the per-window state machine, and the platform trait.
+short_desc: Shared shell infrastructure across platforms
 prerequisites: []
 tracked_files:
   - dll/src/desktop/shell2/mod.rs

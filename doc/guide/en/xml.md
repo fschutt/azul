@@ -7,7 +7,7 @@ audience: external
 maturity: wip
 guide_order: 230
 topic_only: false
-short_desc: Loading a Dom from an XML string — the syntax, supported tags, and how it interacts with components.
+short_desc: Loading a Dom from an XML string
 prerequisites: []
 tracked_files:
   - core/src/xml.rs

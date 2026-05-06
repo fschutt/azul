@@ -7,7 +7,7 @@ audience: external
 maturity: mature
 guide_order: 41
 topic_only: false
-short_desc: Reference table of every CSS property azul recognises, grouped by what they style — colour, border, background, transform, filter, and more.
+short_desc: Reference of every CSS property azul recognises
 prerequisites: [styling]
 tracked_files:
   - css/src/props/basic/angle.rs

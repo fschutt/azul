@@ -7,7 +7,7 @@ audience: external
 maturity: wip
 guide_order: 70
 topic_only: false
-short_desc: Loading and rendering raster images — `ImageRef`, formats, scaling, and CSS background images.
+short_desc: Loading raster images and CSS backgrounds
 prerequisites: [dom]
 tracked_files:
   - core/src/svg.rs

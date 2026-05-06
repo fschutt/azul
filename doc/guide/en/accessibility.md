@@ -7,7 +7,7 @@ audience: external
 maturity: wip
 guide_order: 280
 topic_only: false
-short_desc: Screen-reader integration — the accessibility tree, ARIA roles, the `SmallAriaInfo` struct, and platform back-ends.
+short_desc: Screen reader integration and ARIA roles
 prerequisites: [dom]
 tracked_files:
   - core/src/a11y.rs

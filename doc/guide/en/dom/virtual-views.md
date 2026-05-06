@@ -7,7 +7,7 @@ audience: external
 maturity: mature
 guide_order: 34
 topic_only: false
-short_desc: A node whose contents come from a callback that runs only when the framework needs them — the mechanism for infinite lists, lazy panels, and embedded sub-DOMs that own their own scroll math.
+short_desc: A node that materialises lazily, for infinite lists and embedded sub-DOMs
 prerequisites: [dom]
 tracked_files:
   - core/src/dom.rs
