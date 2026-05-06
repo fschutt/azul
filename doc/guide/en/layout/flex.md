@@ -22,14 +22,12 @@ generated_at: 2026-05-02T05:49:28Z
 The axis is set by `flex-direction`; the rest of the properties decide how
 remaining space is distributed and where items align.
 
-```rust
-# fn body() -> &'static str {
-"<div style='display: flex; gap: 8px; padding: 8px;'>
+```html
+<div style='display: flex; gap: 8px; padding: 8px;'>
    <div>one</div>
    <div>two</div>
    <div>three</div>
- </div>"
-# }
+ </div>
 ```
 
 ## Container properties
@@ -52,14 +50,12 @@ the main axis.
 - `wrap`. Overflow wraps to a new line.
 - `wrap-reverse`. Wraps in reverse cross-axis order.
 
-```rust
-# fn body() -> &'static str {
-"<div style='display: flex; flex-wrap: wrap; gap: 8px;'>
+```html
+<div style='display: flex; flex-wrap: wrap; gap: 8px;'>
    <div style='width: 120px;'>one</div>
    <div style='width: 120px;'>two</div>
    <div style='width: 120px;'>three</div>
- </div>"
-# }
+ </div>
 ```
 
 ### `justify-content`: main-axis alignment
@@ -95,12 +91,10 @@ Only takes effect when `flex-wrap: wrap` produces multiple lines.
 Adds space between items without margins. In `flex-direction: row`, `column-gap`
 is the main-axis gap and `row-gap` is the cross-axis gap (between wrapped lines).
 
-```rust
-# fn body() -> &'static str {
-"<div style='display: flex; flex-wrap: wrap; row-gap: 12px; column-gap: 8px;'>
+```html
+<div style='display: flex; flex-wrap: wrap; row-gap: 12px; column-gap: 8px;'>
    ...
- </div>"
-# }
+ </div>
 ```
 
 ## Item properties
@@ -116,14 +110,12 @@ When the container has free space on the main axis, items split it in
 proportion to `flex-grow`. When the container is overflowing, items
 shrink in proportion to `flex-shrink`.
 
-```rust
-# fn body() -> &'static str {
-"<div style='display: flex;'>
+```html
+<div style='display: flex;'>
    <div style='flex-grow: 1;'>fills available</div>
    <div style='flex-grow: 2;'>fills twice as much</div>
    <div>auto-sized</div>
- </div>"
-# }
+ </div>
 ```
 
 `flex-grow: 0; flex-shrink: 0` pins an item to its `flex-basis` size.
@@ -145,13 +137,11 @@ or `height` (in `column`).
 - `auto` (default). Inherits the container's `align-items`.
 - `stretch`, `start`, `end`, `center`, `baseline`.
 
-```rust
-# fn body() -> &'static str {
-"<div style='display: flex; align-items: stretch;'>
+```html
+<div style='display: flex; align-items: stretch;'>
    <div>stretches</div>
    <div style='align-self: center;'>centred only</div>
- </div>"
-# }
+ </div>
 ```
 
 ## Recipes
@@ -204,15 +194,19 @@ or `height` (in `column`).
 
 ## Default values at a glance
 
-| property | default |
-|---|---|
-| `flex-direction` | `row` |
-| `flex-wrap` | `nowrap` |
-| `justify-content` | `start` |
-| `align-items` | `stretch` |
-| `align-content` | `stretch` |
-| `flex-grow` | `0` |
-| `flex-shrink` | `1` |
-| `flex-basis` | `auto` |
-| `align-self` | `auto` |
-| `gap` | `0` |
+- `flex-direction` defaults to `row`.
+- `flex-wrap` defaults to `nowrap`.
+- `justify-content` defaults to `start`.
+- `align-items` defaults to `stretch`.
+- `align-content` defaults to `stretch`.
+- `flex-grow` defaults to `0`.
+- `flex-shrink` defaults to `1`.
+- `flex-basis` defaults to `auto`.
+- `align-self` defaults to `auto`.
+- `gap` defaults to `0`.
+
+## Coming Up Next
+
+- [Grid](grid.md) — Two-axis container layout with tracks and areas
+- [Simple Layout](blocks.md) — Explains block formatting, sizing, positioning, the box model and how to handle overflowing content
+- [Inline Layout](inline.md) — Text flow, word breaks, writing modes, multi-column

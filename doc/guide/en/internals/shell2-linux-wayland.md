@@ -336,3 +336,9 @@ Wayland clients have no equivalent of X11 Window IDs.
   Currently scale is rounded to the nearest integer per output.
 - Native `wl_data_device` clipboard would remove the XWayland dependency.
 - Drag-and-drop (`wl_data_device::start_drag`) is not implemented.
+
+## Coming Up Next
+
+- [Shell2 — Linux X11](shell2-linux-x11.md) — Linux X11 shell - Xlib, GLX, XInput2
+- [Shell2 — Linux DBus](shell2-linux-dbus.md) — Linux DBus integration for a11y, dialogs, notifications
+- [Shell2 Common Layer](shell2-common.md) — Shared shell infrastructure across platforms

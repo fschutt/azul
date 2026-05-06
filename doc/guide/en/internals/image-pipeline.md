@@ -27,31 +27,51 @@ There are four caches, two layers, and one disk format. This page maps them so a
 
 ## File map
 
-| File | Purpose |
-|---|---|
-| `layout/src/image.rs` | Raster image decode (`decode_raw_image_from_any_bytes`) and encode (PNG, JPEG, BMP, TGA, TIFF, GIF, PNM) — wraps the `image` crate |
-| `core/src/resources.rs` | `ImageRef`, `ImageRefHash`, `RawImage`, `RawImageFormat`, `ImageDescriptor`, `ImageCache`, `RendererResources`, `GlTextureCache` (the *layout-side* one), `ExternalImageId` |
-| `dll/src/desktop/gl_texture_cache.rs` | Runtime OpenGL texture store keyed by `ExternalImageId`. Used by `wr_translate2.rs` and the GL callback path |
-| `dll/src/desktop/gl_texture_integration.rs` | WebRender external-image handler that satisfies WR's image lookups from the texture store |
-| `dll/src/desktop/shader_cache.rs` | `ShaderDiskCache` — WebRender `ProgramCacheObserver` that persists shader binaries between runs |
-| `layout/src/window.rs` | `LayoutWindow.image_cache`, `gl_texture_cache: GlTextureCache`, `epoch: Epoch` for resource lifetime |
+- **`layout/src/image.rs`.** Raster image decode (`decode_raw_image_from_any_bytes`)
+  and encode (PNG, JPEG, BMP, TGA, TIFF, GIF, PNM). Wraps the `image` crate.
+- **`core/src/resources.rs`.** `ImageRef`, `ImageRefHash`, `RawImage`,
+  `RawImageFormat`, `ImageDescriptor`, `ImageCache`, `RendererResources`,
+  `GlTextureCache` (the *layout-side* one), `ExternalImageId`.
+- **`dll/src/desktop/gl_texture_cache.rs`.** Runtime OpenGL texture store
+  keyed by `ExternalImageId`. Used by `wr_translate2.rs` and the GL callback
+  path.
+- **`dll/src/desktop/gl_texture_integration.rs`.** WebRender external-image
+  handler that satisfies WR's image lookups from the texture store.
+- **`dll/src/desktop/shader_cache.rs`.** `ShaderDiskCache`, a WebRender
+  `ProgramCacheObserver` that persists shader binaries between runs.
+- **`layout/src/window.rs`.** `LayoutWindow.image_cache`,
+  `gl_texture_cache: GlTextureCache`, `epoch: Epoch` for resource lifetime.
 
 ## The four caches
 
-Naming is overlapping; the table disambiguates:
+Naming is overlapping. Each cache covers a distinct role:
 
-| Name | Type | Where | Holds | Lifetime |
-|---|---|---|---|---|
-| **`ImageCache`** | `core/src/resources.rs:1115` | `LayoutWindow.image_cache` | CSS `background-image: url(...)` URL → `ImageRef` decoded raster, plus image-mask resolution table | Window |
-| **`GlTextureCache` (layout side)** | `core/src/resources.rs:1403` | `LayoutWindow.gl_texture_cache` | Per-DOM-node texture metadata: `(DomId, NodeId) → (ImageKey, ImageDescriptor, ExternalImageId)`. *Solved* by layout, *consumed* by WebRender translation | Window |
-| **`gl_texture_cache` (runtime store)** | `dll/src/desktop/gl_texture_cache.rs` | thread-local `TEXTURE_CACHE` | Actual `Texture` objects keyed by `ExternalImageId`, with `Epoch` for cleanup | Thread-local (the GL thread) |
-| **`ShaderDiskCache`** | `dll/src/desktop/shader_cache.rs` | per-process | WebRender shader binaries (`ProgramBinary`) on disk by source digest | Persistent (cache directory) |
+- **`ImageCache`.** Lives at `LayoutWindow.image_cache`. Maps CSS
+  `background-image: url(...)` URLs to `ImageRef` decoded rasters, plus the
+  image-mask resolution table. Window-scoped.
+  - `core/src/resources.rs::ImageCache`
+- **`GlTextureCache` (layout side).** Lives at
+  `LayoutWindow.gl_texture_cache`. Holds per-DOM-node texture metadata:
+  `(DomId, NodeId) → (ImageKey, ImageDescriptor, ExternalImageId)`. Layout
+  *solves* it, WebRender translation *consumes* it. Window-scoped.
+  - `core/src/resources.rs::GlTextureCache`
+- **`gl_texture_cache` (runtime store).** Thread-local `TEXTURE_CACHE`. Holds
+  actual `Texture` objects keyed by `ExternalImageId`, with `Epoch` for
+  cleanup. Lives on the GL thread.
+  - `dll/src/desktop/gl_texture_cache.rs`
+- **`ShaderDiskCache`.** Per-process. Persists WebRender shader binaries
+  (`ProgramBinary`) on disk by source digest. Lives in the cache directory.
+  - `dll/src/desktop/shader_cache.rs`
 
-The naming clash between layout's `GlTextureCache` (solved metadata) and the runtime `gl_texture_cache` module (actual textures) is flagged in `doc/target/autoreview/reports/dll__src__desktop__gl_texture_cache.md`. They serve distinct roles: layout writes the *solved* table, the runtime store holds the *physical* textures referenced by WebRender display lists.
+The naming clash between layout's `GlTextureCache` (solved metadata) and the
+runtime `gl_texture_cache` module (actual textures) is flagged in
+`doc/target/autoreview/reports/dll__src__desktop__gl_texture_cache.md`. They
+serve distinct roles: layout writes the *solved* table, the runtime store
+holds the *physical* textures referenced by WebRender display lists.
 
 ## Stable `ExternalImageId`
 
-`core/src/resources.rs:2314`:
+In `core/src/resources.rs::ExternalImageId`:
 
 ```rust,ignore
 #[repr(C)]
@@ -149,20 +169,11 @@ Behind `feature = "image_decoding"`. Wraps the [`image`](https://crates.io/crate
 pub fn decode_raw_image_from_any_bytes(image_bytes: &[u8]) -> ResultRawImageDecodeImageError;
 ```
 
-Format detection is `image::guess_format`. Supported pixel formats map to `RawImageFormat`:
-
-| `image` variant | `RawImageFormat` |
-|---|---|
-| `ImageLuma8` | `R8` |
-| `ImageLumaA8` | `RG8` |
-| `ImageRgb8` | `RGB8` |
-| `ImageRgba8` | `RGBA8` |
-| `ImageLuma16` | `R16` |
-| `ImageLumaA16` | `RG16` |
-| `ImageRgb16` | `RGB16` |
-| `ImageRgba16` | `RGBA16` |
-| `ImageRgb32F` | `RGBF32` |
-| `ImageRgba32F` | `RGBAF32` |
+Format detection is `image::guess_format`. Supported pixel formats map to
+`RawImageFormat` as follows: `ImageLuma8` to `R8`, `ImageLumaA8` to `RG8`,
+`ImageRgb8` to `RGB8`, `ImageRgba8` to `RGBA8`, `ImageLuma16` to `R16`,
+`ImageLumaA16` to `RG16`, `ImageRgb16` to `RGB16`, `ImageRgba16` to `RGBA16`,
+`ImageRgb32F` to `RGBF32`, and `ImageRgba32F` to `RGBAF32`.
 
 `RawImage` carries pixel data as `RawImageData` (`U8` / `U16` / `F32`) plus dimensions, format, and `premultiplied_alpha: bool`. The decoder always returns `premultiplied_alpha = false` — premultiplication happens later (in WebRender translation) if the descriptor flags request it.
 
@@ -188,7 +199,7 @@ pub enum DecodeImageError {
 
 ## `ImageRef` and reference counting
 
-`core/src/resources.rs:790`:
+In `core/src/resources.rs::ImageRef`:
 
 ```rust,ignore
 #[repr(C)]
@@ -213,7 +224,10 @@ C-ABI-compatible reference counting. `data` points to a heap `DecodedImage` (the
 
 ## `RendererResources`
 
-`core/src/resources.rs:1227`. Holds parsed font and image resources per renderer (per window). Layout reads from this when measuring image intrinsic sizes (`InlineImage::intrinsic_size`) — the image's natural width and height come from the decoded `RawImage`'s dimensions.
+`core/src/resources.rs::RendererResources` holds parsed font and image
+resources per renderer (per window). Layout reads from this when measuring
+image intrinsic sizes (`InlineImage::intrinsic_size`). The image's natural
+width and height come from the decoded `RawImage`'s dimensions.
 
 The split is: `ImageCache` (in `LayoutWindow`) is the *DOM-side* lookup keyed by URL, `RendererResources` (also in `LayoutWindow`) is the *renderer-side* lookup keyed by `ImageKey` / `FontKey`.
 
@@ -284,7 +298,12 @@ For GL callback / canvas content, the same pipeline runs but the `ImageRef`'s `D
 
 ## CSS image masks and effects
 
-`ImageDescriptor` (`core/src/resources.rs:640`) carries `format`, `size`, `flags`, and an `OptionImageMask`. When a node has `image-mask: url(...)`, the layout side resolves the mask to an `ImageRef` and includes it in the `ImageDescriptor`. WebRender uses the mask as an alpha brush during composition.
+`ImageDescriptor` carries `format`, `size`, `flags`, and an `OptionImageMask`.
+When a node has `image-mask: url(...)`, the layout side resolves the mask to
+an `ImageRef` and includes it in the `ImageDescriptor`. WebRender uses the
+mask as an alpha brush during composition.
+
+- `core/src/resources.rs::ImageDescriptor`
 
 ## Adding a new image format
 
@@ -309,3 +328,9 @@ For non-raster formats (SVG, PDF page images, video frames):
 - **`BGR8`/`BGRA8` encode mislabel**: `translate_rawimage_colortype` maps both to `Rgb8`/`Rgba8` without channel swap. A `BGRA8` image round-tripped through `encode_png` will have R and B swapped in the output. Decoder side is fine — only encoder.
 - **`RawImage::premultiplied_alpha` is always `false` from the decoder**: premultiplication happens at WebRender translation time based on `ImageDescriptorFlags`. Decoders don't premultiply.
 - **Thread-local `TEXTURE_CACHE` panics if accessed off-thread**: any test or callback that touches the runtime texture store must run on the GL thread or use a stub. CPU-only headless tests skip this code path entirely.
+
+## Coming Up Next
+
+- [Rendering Pipeline](rendering-pipeline.md) — From `StyledDom` to pixels
+- [WebRender Bridge](webrender-bridge.md) — How azul talks to WebRender
+- [GL Function Loading](gl-loading.md) — Loading GL function pointers across platforms

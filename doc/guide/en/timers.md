@@ -248,3 +248,9 @@ Update::RefreshDom
 - Tick precision is bounded by the platform timer resolution and by competing input. Don't expect sub-millisecond accuracy.
 - A timer's `RefAny` is held alive by the framework until the timer terminates. A timer that holds the only reference to your model keeps the model alive for the lifetime of the timer.
 - The schedule is enforced per tick, not per millisecond. If a system stall bunches several ticks together, the callback fires once per tick. Compute deltas from `frame_start`, not from `call_count`.
+
+## Coming Up Next
+
+- [Animations](animations.md) — CSS transitions and @keyframes
+- [Background Tasks](background-tasks.md) — Running long jobs off the layout thread
+- [Networking](networking.md) — HTTP from a callback

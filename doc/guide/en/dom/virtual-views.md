@@ -224,3 +224,9 @@ can look at that state before deciding whether to return `OptionDom::None`.
 - `core/src/callbacks.rs` defines `VirtualViewCallback`,
   `VirtualViewCallbackReason`, `EdgeType`, `VirtualViewCallbackInfo`, and
   `VirtualViewReturn`.
+
+## Coming Up Next
+
+- [Components](components.md) — Reusable UI fragments - named functions of (args) -> Dom
+- [Scrolling](../scrolling-and-drag.md) — Scroll containers, drag-and-drop, hit testing
+- [Layout](../layout.md) — Overview of the layout solver

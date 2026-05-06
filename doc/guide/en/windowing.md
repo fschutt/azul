@@ -20,9 +20,14 @@ generated_at: 2026-05-02T05:54:43Z
 A window is created by passing a `WindowCreateOptions` to `App::run` (the first window) or to `CallbackInfo::create_window` (subsequent windows). The framework manages a window's lifecycle, decorations, menus, and per-window state; your code describes what should happen via the layout callback and event handlers.
 
 ```rust,no_run
-# use azul::prelude::*;
-# extern "C" fn layout(_: RefAny, _: LayoutCallbackInfo) -> Dom { Dom::create_body() }
-# struct App;
+use azul::prelude::*;
+
+struct App;
+
+extern "C" fn layout(_: RefAny, _: LayoutCallbackInfo) -> Dom {
+    Dom::create_body()
+}
+
 fn main() {
     let app = App::create(RefAny::new(App), AppConfig::create());
     app.run(WindowCreateOptions::create(layout));
@@ -34,8 +39,12 @@ fn main() {
 `WindowCreateOptions::create(layout_callback)` returns a struct with sensible defaults: a 640×480 window, light theme, smooth scrolling, native menus on Windows/macOS. Tweak via the public fields:
 
 ```rust,no_run
-# use azul::prelude::*;
-# extern "C" fn layout(_: RefAny, _: LayoutCallbackInfo) -> Dom { Dom::create_body() }
+use azul::prelude::*;
+
+extern "C" fn layout(_: RefAny, _: LayoutCallbackInfo) -> Dom {
+    Dom::create_body()
+}
+
 let mut win = WindowCreateOptions::create(layout);
 win.window_state.title = "My App".into();
 win.window_state.size.dimensions = LogicalSize::new(1024.0, 768.0);
@@ -73,7 +82,8 @@ win.size_to_content = false;
 To toggle a flag at runtime, modify the window state from inside a callback:
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 extern "C" fn toggle_fullscreen(_: RefAny, mut info: CallbackInfo) -> Update {
     let mut state = info.get_current_window_state().clone();
     state.flags.frame = match state.flags.frame {
@@ -105,15 +115,13 @@ Client-side decorations are mandatory on Wayland (no native protocol), opt-in on
 
 `WindowBackgroundMaterial` selects the platform compositor's blur/transparency effect:
 
-| variant | macOS | Windows |
-|---|---|---|
-| `Opaque` | (default) | (default) |
-| `Transparent` | translucent, no blur | translucent, no blur |
-| `Sidebar` | sidebar material | acrylic (light) |
-| `Menu` | menu material | acrylic |
-| `HUD` | HUD material | acrylic (dark) |
-| `Titlebar` | titlebar material | mica |
-| `MicaAlt` | (= Titlebar) | mica alt |
+- `Opaque`. Default on both macOS and Windows.
+- `Transparent`. Translucent with no blur on both platforms.
+- `Sidebar`. Sidebar material on macOS, light acrylic on Windows.
+- `Menu`. Menu material on macOS, acrylic on Windows.
+- `HUD`. HUD material on macOS, dark acrylic on Windows.
+- `Titlebar`. Titlebar material on macOS, mica on Windows.
+- `MicaAlt`. Equivalent to `Titlebar` on macOS, mica alt on Windows.
 
 X11 and Wayland ignore this field. To use a transparent material, also set the layout body's CSS `background-color` to a translucent value.
 
@@ -122,8 +130,12 @@ X11 and Wayland ignore this field. To use a transparent material, also set the l
 From inside any callback, push a new `WindowCreateOptions`:
 
 ```rust,no_run
-# use azul::prelude::*;
-# extern "C" fn child_layout(_: RefAny, _: LayoutCallbackInfo) -> Dom { Dom::create_body() }
+use azul::prelude::*;
+
+extern "C" fn child_layout(_: RefAny, _: LayoutCallbackInfo) -> Dom {
+    Dom::create_body()
+}
+
 extern "C" fn open_settings(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let mut win = WindowCreateOptions::create(child_layout);
     win.window_state.title = "Settings".into();
@@ -146,7 +158,8 @@ info.close_window();
 To intercept the close button, set `FullWindowState.close_callback` on the state. Returning `Update::DoNothing` and clearing `flags.close_requested` keeps the window open:
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 extern "C" fn on_close(_: RefAny, mut info: CallbackInfo) -> Update {
     let mut state = info.get_current_window_state().clone();
     state.flags.close_requested = false;       // veto the close
@@ -160,11 +173,20 @@ extern "C" fn on_close(_: RefAny, mut info: CallbackInfo) -> Update {
 `Menu` is a tree of `MenuItem`s, used for both menu bars and context menus:
 
 ```rust,no_run
-# use azul::prelude::*;
-# struct State;
-# extern "C" fn on_open(_: RefAny, _: CallbackInfo) -> Update { Update::DoNothing }
-# extern "C" fn on_quit(_: RefAny, _: CallbackInfo) -> Update { Update::DoNothing }
-# let data: RefAny = RefAny::new(State);
+use azul::prelude::*;
+
+struct State;
+
+extern "C" fn on_open(_: RefAny, _: CallbackInfo) -> Update {
+    Update::DoNothing
+}
+
+extern "C" fn on_quit(_: RefAny, _: CallbackInfo) -> Update {
+    Update::DoNothing
+}
+
+let data: RefAny = RefAny::new(State);
+
 let mut open_item = StringMenuItem::create("Open…".into());
 open_item.callback = Some(CoreMenuCallback { callback: on_open.into(), refany: data.clone() }).into();
 
@@ -202,8 +224,12 @@ item.icon = Some(MenuItemIcon::Checkbox(true)).into();
 Attach a `Menu` to the body of your DOM:
 
 ```rust,no_run
-# use azul::prelude::*;
-# fn build_menu() -> Menu { Menu::create(Vec::<MenuItem>::new().into()) }
+use azul::prelude::*;
+
+fn build_menu() -> Menu {
+    Menu::create(Vec::<MenuItem>::new().into())
+}
+
 let mut body = Dom::create_body().with_menu_bar(build_menu());
 ```
 
@@ -214,8 +240,12 @@ The framework uses native menus where supported (Windows HMENU, macOS NSMenu) wh
 Attach a context menu to any node:
 
 ```rust,no_run
-# use azul::prelude::*;
-# fn build_menu() -> Menu { Menu::create(Vec::<MenuItem>::new().into()) }
+use azul::prelude::*;
+
+fn build_menu() -> Menu {
+    Menu::create(Vec::<MenuItem>::new().into())
+}
+
 let mut node = Dom::create_div().with_context_menu(build_menu());
 ```
 
@@ -224,13 +254,17 @@ The default trigger is right-click; change `Menu.context_mouse_btn` (`ContextMen
 To open a menu programmatically (e.g. from a hamburger button click):
 
 ```rust,no_run
-# use azul::prelude::*;
-# extern "C" fn on_click(_: RefAny, mut info: CallbackInfo) -> Update {
-# fn build_menu() -> Menu { Menu::create(Vec::<MenuItem>::new().into()) }
-info.open_menu(build_menu());                                 // at cursor
-info.open_menu_at(build_menu(), LogicalPosition { x: 100.0, y: 50.0 });
-# Update::DoNothing
-# }
+use azul::prelude::*;
+
+fn build_menu() -> Menu {
+    Menu::create(Vec::<MenuItem>::new().into())
+}
+
+extern "C" fn on_click(_: RefAny, mut info: CallbackInfo) -> Update {
+    info.open_menu(build_menu());                                 // at cursor
+    info.open_menu_at(build_menu(), LogicalPosition { x: 100.0, y: 50.0 });
+    Update::DoNothing
+}
 ```
 
 `MenuPopupPosition` controls placement relative to the cursor or the clicked element (`BottomLeftOfCursor`, `TopOfHitRect`, `AutoCursor`, …). Set via `Menu::with_popup_position(...)` or `Menu::set_popup_position(...)`.
@@ -306,8 +340,9 @@ Linux options carry X11-specific hints (`x11_window_types`, `x11_wm_classes`, `x
 - **Native menus on Linux** — `use_native_menus` defaults to false on Linux because Linux has no universal menu protocol. The framework renders a borderless azul popup instead.
 - **Close button does nothing** — you registered a close callback that returned `Update::DoNothing` but didn't clear `flags.close_requested`. Clear it explicitly to veto the close.
 
-## Next
+## Coming Up Next
 
-- [Events and Input](events.md) — registering callbacks on windows.
-- [Timers](timers.md) — frame-driven background work.
-- [Scrolling and Drag-and-Drop](scrolling-and-drag.md) — within-window interactions.
+- [Events](events.md) — Callbacks, event filters, and how state triggers relayout
+- [File Dialogs](file-dialogs.md) — Native open/save dialogs and folder pickers
+- [Accessibility](accessibility.md) — Screen reader integration and ARIA roles
+- [Built-in Widgets](widgets.md) — Built-in widgets and how to write your own

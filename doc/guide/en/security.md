@@ -32,13 +32,11 @@ Azul is a library, not an isolation boundary. Application code runs with full pr
 
 ## Trust boundaries
 
-| Boundary | Trusted side | Untrusted side | Mechanism |
-|---|---|---|---|
-| Rust ↔ C/C++/Python bindings | Both | Neither | `#[repr(C)]` types plus runtime checks in `RefAny` |
-| Layout callback ↔ application data | Layout cb | App data | `RefAny` type-id and borrow check |
-| Desktop process ↔ user input | Process | Input bytes | Parser fuzz hardening; layout never panics on UTF-8 input |
-| Web server ↔ network client | Server | HTTP request | Method/path matching, 16 MB body cap, no auth |
-| Web server ↔ lifted WASM | Server | Browser-resident WASM | Phase 0: not yet a boundary |
+- **Rust to C, C++, or Python bindings.** Both sides trusted. The mechanism is `#[repr(C)]` types plus runtime checks in `RefAny`.
+- **Layout callback to application data.** The callback is trusted, the data is not. Guarded by `RefAny` type-id and borrow check.
+- **Desktop process to user input.** The process is trusted, the input bytes are not. Hardened via parser fuzzing. Layout never panics on UTF-8 input.
+- **Web server to network client.** The server is trusted, the HTTP request is not. Mechanism is method and path matching, a 16 MB body cap, and no auth.
+- **Web server to lifted WASM.** The server is trusted, browser-resident WASM is not. Phase 0: not yet a boundary.
 
 Inside a single desktop process, all callbacks share an address space and can corrupt each other if they break Rust's aliasing rules through `unsafe`. The framework provides no in-process sandbox.
 
@@ -53,8 +51,8 @@ Every callback receives a `RefAny` and downcasts it to a typed reference. The fr
 - **Type-correct destruction**. The destructor is monomorphized per type at construction time, so the right `Drop` runs even though the pointer crosses FFI as `*mut c_void`.
 
 ```rust
-# extern crate azul_core;
-# use azul_core::refany::RefAny;
+use azul_core::refany::RefAny;
+
 let mut data = RefAny::new(42i32);
 
 assert!(data.downcast_ref::<i32>().is_some());
@@ -124,11 +122,9 @@ The body-size cap rejects oversized POSTs with `413` *before* reading the body. 
 
 Phase 0 has no client-side execution surface to sandbox. All callbacks run server-side, with the same trust as a desktop callback. The sandbox boundary becomes meaningful when framework WASM ships:
 
-| Phase | The browser tab can | The server still sees |
-|---|---|---|
-| Phase 0 (today) | Submit POSTs to `/az/exec/` | Every interaction |
-| Phase 2 (planned) | Re-cascade and re-layout client-side | Only callback POSTs |
-| Phase 3 (planned) | Run pure callbacks locally | POSTs for I/O-bound callbacks only |
+- **Phase 0 (today).** The browser tab submits POSTs to `/az/exec/`. The server sees every interaction.
+- **Phase 2 (planned).** The browser tab re-cascades and re-lays out client-side. The server sees only callback POSTs.
+- **Phase 3 (planned).** The browser tab runs pure callbacks locally. The server sees POSTs only for I/O-bound callbacks.
 
 Once the WASM bundle is loaded, the sandbox boundary is the WebAssembly memory model. A lifted callback gets read access to its own `RefAny`, imported function pointers for DOM ops, and nothing else from the host. It does not get filesystem, network, threads, the wider DOM API, JavaScript globals, or the server's app data. Anything the callback needs from the server side has to round-trip via POST.
 
@@ -143,3 +139,9 @@ Three failure modes worth flagging explicitly:
 3. **No content-security headers.** The served HTML has no CSP, no X-Frame-Options, no Strict-Transport-Security. Add these at the reverse proxy if the page is reachable from the open web.
 
 For an authoritative threat model: trust the process boundary, don't deserialize untrusted data into `RefAny` without a validated type id, and front the web target with an HTTP-aware proxy.
+
+## Coming Up Next
+
+- [Web Deployment](web-deployment.md) — Building for the browser via WASM
+- [Code Generation](code-generation.md) — How `azul-doc` regenerates bindings from `api.json`
+- [Headless Rendering](headless-rendering.md) — Running the pipeline without a window

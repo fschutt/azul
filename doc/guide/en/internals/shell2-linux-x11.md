@@ -125,17 +125,15 @@ called from the multi-window loop in `run.rs:1057`. Sequence:
 
 Per-event-type handlers:
 
-| `event.type_` | Handler | Notes |
-|---|---|---|
-| `Expose` | `render_and_present()` directly | Per-rect expose used when damage rects are available |
-| `FocusIn`/`FocusOut` | Sets `window_focused` + `dynamic_selector_context.window_focused`; calls `sync_ime_position_to_os()` |
-| `ConfigureNotify` | Resize (calls `regenerate_layout`); position-only changes trigger DPI re-check via `display::get_display_at_point` |
-| `ClientMessage` | Compares to `wm_delete_window_atom` for window close |
-| `ButtonPress`/`Release` | `handle_mouse_button` |
-| `MotionNotify` | `handle_mouse_move` (updates hit test, fires `process_window_events`) |
-| `KeyPress`/`Release` | `handle_keyboard` (XKB translation + IME) |
-| `EnterNotify`/`LeaveNotify` | `handle_mouse_crossing` |
-| dynamic XRandR event base | Refreshes the monitor cache via `crate::desktop::display::get_monitors` |
+- **`Expose`.** Calls `render_and_present()` directly. Per-rect expose is used when damage rects are available.
+- **`FocusIn` / `FocusOut`.** Sets `window_focused` and `dynamic_selector_context.window_focused`, then calls `sync_ime_position_to_os()`.
+- **`ConfigureNotify`.** Resize calls `regenerate_layout`. Position-only changes trigger a DPI re-check via `display::get_display_at_point`.
+- **`ClientMessage`.** Compares against `wm_delete_window_atom` for window close.
+- **`ButtonPress` / `Release`.** Routes to `handle_mouse_button`.
+- **`MotionNotify`.** Routes to `handle_mouse_move`, which updates the hit test and fires `process_window_events`.
+- **`KeyPress` / `Release`.** Routes to `handle_keyboard` for XKB translation and IME.
+- **`EnterNotify` / `LeaveNotify`.** Routes to `handle_mouse_crossing`.
+- **Dynamic XRandR event base.** Refreshes the monitor cache via `crate::desktop::display::get_monitors`.
 
 If an event yields `ProcessEventResult != DoNothing`, `request_redraw`
 is called.
@@ -296,13 +294,11 @@ ABI exactly. When adding event-mask bits, cross-check against
 
 ## Linux-specific helpers
 
-| Module | Purpose |
-|---|---|
-| `linux/system_style.rs` | Reads GTK/Adwaita system colors via gsettings; populates `azul_css::system::SystemStyle` |
-| `linux/resources.rs` | `AppResources` — the shared font cache, app data, system style, and icon provider Arc-shared between all windows on Linux |
-| `linux/common/gl.rs` | `GlFunctions::initialize` — fills `GenericGlContext` via `eglGetProcAddress` (preferred) with `dlsym` fallback over libGL.so.1 |
-| `linux/timer.rs` | timerfd helpers reused by both X11 and Wayland |
-| `linux/registry.rs` | Thread-local window registry shared by both Linux backends |
+- **`linux/system_style.rs`.** Reads GTK/Adwaita system colors via gsettings and populates `azul_css::system::SystemStyle`.
+- **`linux/resources.rs`.** Holds `AppResources`, the shared font cache, app data, system style, and icon provider Arc-shared between all windows on Linux.
+- **`linux/common/gl.rs`.** Holds `GlFunctions::initialize`, which fills `GenericGlContext` via `eglGetProcAddress` with a `dlsym` fallback over libGL.so.1.
+- **`linux/timer.rs`.** timerfd helpers reused by both X11 and Wayland.
+- **`linux/registry.rs`.** Thread-local window registry shared by both Linux backends.
 
 ## Known issues / TODOs
 
@@ -315,3 +311,9 @@ ABI exactly. When adding event-mask bits, cross-check against
 - The X11 popup menu path does not yet support nested submenus from
   `Menu::items[i].submenu` — each level needs its own popup window
   parented to the previous.
+
+## Coming Up Next
+
+- [Shell2 — Linux Wayland](shell2-linux-wayland.md) — Linux Wayland shell - wl_surface, xdg-shell, libinput
+- [Shell2 — Linux DBus](shell2-linux-dbus.md) — Linux DBus integration for a11y, dialogs, notifications
+- [Shell2 Common Layer](shell2-common.md) — Shared shell infrastructure across platforms

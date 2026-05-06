@@ -366,3 +366,9 @@ notification triggers a full `regenerate_layout`.
   needs explicit modifier-state tracking on each `keyDown:`.
 - Multi-touch (`NSTouch` from a Magic Trackpad) is not yet routed —
   only `mouseDown:`/`scrollWheel:` are processed.
+
+## Coming Up Next
+
+- [Shell2 Common Layer](shell2-common.md) — Shared shell infrastructure across platforms
+- [Shell2 — Windows](shell2-windows.md) — Windows shell - Win32 messages, DirectComposition, IME
+- [Window Menus](menus-and-csd.md) — Menus and client-side decorations across platforms

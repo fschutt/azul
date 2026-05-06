@@ -40,11 +40,9 @@ The `display` property:
 `table-row`, `table-cell`, `list-item`, `flow-root`) are honoured but rare
 in app code.
 
-```rust
-# fn body() -> &'static str {
-"<div style='display: block; padding: 16px; background: #e0e7ff;'>first</div>
-<div style='display: block; padding: 16px; background: #ddd6fe;'>second</div>"
-# }
+```html
+<div style='display: block; padding: 16px; background: #e0e7ff;'>first</div>
+<div style='display: block; padding: 16px; background: #ddd6fe;'>second</div>
 ```
 
 ## Sizing: `width`, `height`, and `min-` / `max-` constraints
@@ -60,13 +58,9 @@ in app code.
 `min-width`, `min-height`, `max-width`, and `max-height` take a single
 pixel value. Defaults: `min-*` is `0px`, `max-*` is unconstrained.
 
-```rust
-# fn body() -> &'static str {
-"
+```css
 .card { width: 320px; min-height: 100px; max-width: 100%; }
 .fluid { width: calc(50% - 20px); }
-"
-# }
 ```
 
 ### `box-sizing`
@@ -79,11 +73,9 @@ The `content-box` default matches the original CSS 1 behaviour.
 
 ### `calc()`
 
-```rust
-# fn body() -> &'static str {
-".sidebar { width: calc(33.333% - 10px); }
-.gutter  { width: calc((100% - 40px) / 3); }"
-# }
+```css
+.sidebar { width: calc(33.333% - 10px); }
+.gutter  { width: calc((100% - 40px) / 3); }
 ```
 
 Operators: `+`, `-`, `*`, `/`. Negative numeric literals are recognised
@@ -95,11 +87,9 @@ operator.
 Padding insets the content within the box; margin separates the box from its
 siblings:
 
-```rust
-# fn body() -> &'static str {
-".card { padding: 12px 16px; margin: 0 auto; }
-.tight { padding-top: 4px; padding-inline-start: 8px; }"
-# }
+```css
+.card { padding: 12px 16px; margin: 0 auto; }
+.tight { padding-top: 4px; padding-inline-start: 8px; }
 ```
 
 The shorthand expands the standard CSS way. One value sets all four
@@ -124,13 +114,11 @@ The `position` property:
 
 "Positioned ancestor" means any ancestor whose `position` is not `static`.
 
-```rust
-# fn body() -> &'static str {
-"<div style='position: relative;'>
+```html
+<div style='position: relative;'>
    <div style='position: absolute; top: 8px; right: 8px;'>badge</div>
    container content
- </div>"
-# }
+ </div>
 ```
 
 ### Offsets: `top`, `right`, `bottom`, `left`
@@ -149,14 +137,12 @@ For `position: absolute`:
 - Combined with `width: auto` / `height: auto`, this fills a positioned
   ancestor exactly.
 
-```rust
-# fn body() -> &'static str {
-"<div style='position: relative; height: 200px;'>
+```html
+<div style='position: relative; height: 200px;'>
    <div style='position: absolute; top: 0; bottom: 0; right: 0; width: 60px;'>
      full-height sidebar
    </div>
- </div>"
-# }
+ </div>
 ```
 
 ### `position: sticky`
@@ -164,15 +150,13 @@ For `position: absolute`:
 A sticky element behaves like `relative` until the user scrolls past the
 offsets, at which point it pins to the scroll container's edge:
 
-```rust
-# fn body() -> &'static str {
-"<div style='overflow: auto; height: 300px;'>
+```html
+<div style='overflow: auto; height: 300px;'>
    <h2 style='position: sticky; top: 0; background: white;'>section A</h2>
    <p>...long content...</p>
    <h2 style='position: sticky; top: 0; background: white;'>section B</h2>
    <p>...long content...</p>
- </div>"
-# }
+ </div>
 ```
 
 The nearest scroll container is whatever ancestor has `overflow: auto |
@@ -233,10 +217,8 @@ shift when content starts overflowing.
 - `stable`. Gutter always reserved on the scrollbar's edge.
 - `stable both-edges`. Gutter on both edges for visual symmetry.
 
-```rust
-# fn body() -> &'static str {
-".pane { overflow-y: auto; scrollbar-gutter: stable; }"
-# }
+```css
+.pane { overflow-y: auto; scrollbar-gutter: stable; }
 ```
 
 ### `overflow-clip-margin`
@@ -247,10 +229,8 @@ applies when `overflow: clip` is set.
 Syntax: `<visual-box> || <length>`. The box defaults to `padding-box`. The
 length defaults to `0px`.
 
-```rust
-# fn body() -> &'static str {
-".badge { overflow: clip; overflow-clip-margin: padding-box 4px; }"
-# }
+```css
+.badge { overflow: clip; overflow-clip-margin: padding-box 4px; }
 ```
 
 ### The legacy `clip: rect(...)` property
@@ -259,10 +239,8 @@ length defaults to `0px`.
 `position: absolute`. Each edge is either `auto` (the corresponding box
 edge) or a `<length>`:
 
-```rust
-# fn body() -> &'static str {
-".overlay { position: absolute; clip: rect(0, 100px, 50px, 0); }"
-# }
+```css
+.overlay { position: absolute; clip: rect(0, 100px, 50px, 0); }
 ```
 
 Prefer `clip-path` for new code.
@@ -272,11 +250,9 @@ Prefer `clip-path` for new code.
 `gap` adds space between flex and grid items without a margin on each
 child:
 
-```rust
-# fn body() -> &'static str {
-".grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
-.row  { display: flex; column-gap: 8px; row-gap: 4px; }"
-# }
+```css
+.grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+.row  { display: flex; column-gap: 8px; row-gap: 4px; }
 ```
 
 The shorthand `gap: <row> <column>` and the longhands `row-gap` and
@@ -335,17 +311,22 @@ block children. It's flex and grid only.
 
 ## Default values at a glance
 
-| property | default |
-|---|---|
-| `display` | `block` |
-| `width` / `height` | `auto` |
-| `box-sizing` | `content-box` |
-| `min-width` / `min-height` | `0px` |
-| `max-width` / `max-height` | unconstrained |
-| `margin-*` / `padding-*` | `0px` |
-| `position` | `static` |
-| `top` / `right` / `bottom` / `left` | `auto` |
-| `z-index` | `auto` |
-| `overflow-x` / `overflow-y` | `visible` |
-| `scrollbar-gutter` | `auto` |
-| `overflow-clip-margin` | `padding-box 0px` |
+- `display` defaults to `block`.
+- `width` and `height` default to `auto`.
+- `box-sizing` defaults to `content-box`.
+- `min-width` and `min-height` default to `0px`.
+- `max-width` and `max-height` default to unconstrained.
+- `margin-*` and `padding-*` default to `0px`.
+- `position` defaults to `static`.
+- `top`, `right`, `bottom`, and `left` default to `auto`.
+- `z-index` defaults to `auto`.
+- `overflow-x` and `overflow-y` default to `visible`.
+- `scrollbar-gutter` defaults to `auto`.
+- `overflow-clip-margin` defaults to `padding-box 0px`.
+
+## Coming Up Next
+
+- [Inline Layout](inline.md) — Text flow, word breaks, writing modes, multi-column
+- [Flexbox](flex.md) — One-axis container layout with grow/shrink/basis
+- [Grid](grid.md) — Two-axis container layout with tracks and areas
+- [Scrolling](../scrolling-and-drag.md) — Scroll containers, drag-and-drop, hit testing

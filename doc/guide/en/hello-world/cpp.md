@@ -358,5 +358,6 @@ The DLL lands at `target/release/libazul.{so,dylib}` (or `azul.dll`). The wrappe
 
 ## Coming Up Next
 
-- [DOM and Callbacks](../dom.md) — building richer trees, `IdOrClass`, the full callback API. Same surface as Rust, with the C++ wrappers in place of the `azul::*` types.
-- [C++ Bindings](../bindings/cpp.md) — full reference for the C++ wrapper surface across language standards.
+- [Application Architecture](../architecture.md) — Explains the concepts of architecting a larger Azul application - "What makes Azul special?"
+- [Document Object Model](../dom.md) — The Dom tree - node types, hierarchy, and CSS
+- [Hello World [Rust]](rust.md)

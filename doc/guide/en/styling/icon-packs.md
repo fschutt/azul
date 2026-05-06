@@ -30,7 +30,7 @@ before every layout pass and resolves the name to a `StyledDom` subtree
 (typically an `<img>` or a glyph in an icon font).
 
 ```rust,ignore
-# use azul::prelude::*;
+use azul::prelude::*;
 let mut config = AppConfig::create(/* ... */);
 
 // 1. Register a font-icon pack pointing at Material Icons.
@@ -69,14 +69,14 @@ icon-name to data. Lookup walks the packs in registration order and takes
 the first match. Pack names mostly exist for namespacing and bulk
 unregistration, not for selection.
 
-| Method on `IconProviderHandle` | Effect |
-|---|---|
-| `register_icon(pack, name, data)` | Add or overwrite an icon with arbitrary data |
-| `register_font_icon(pack, name, font, char)` | Add a font-glyph icon |
-| `register_image_icon(pack, name, image)` | Add an image icon |
-| `unregister_icon(pack, name)` | Remove a single icon |
-| `unregister_pack(pack)` | Remove every icon in a pack |
-| `set_resolver(callback)` | Replace the resolver for the whole provider |
+Methods on `IconProviderHandle`:
+
+- `register_icon(pack, name, data)`. Adds or overwrites an icon with arbitrary data.
+- `register_font_icon(pack, name, font, char)`. Adds a font-glyph icon.
+- `register_image_icon(pack, name, image)`. Adds an image icon.
+- `unregister_icon(pack, name)`. Removes a single icon.
+- `unregister_pack(pack)`. Removes every icon in a pack.
+- `set_resolver(callback)`. Replaces the resolver for the whole provider.
 
 Icon names are case-insensitive: registering `"Home"` and looking up
 `"home"` resolve to the same entry.
@@ -148,7 +148,7 @@ third-party ones.
 ### Themed icon button
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
 let _ = Dom::create_button("Settings", SmallAriaInfo::label("Settings"))
     .with_children(vec![Dom::create_icon("settings".into())].into())
     .with_css("
@@ -175,3 +175,9 @@ End-user ricing of icons (replacing `material/home` with a user-chosen
 SVG without recompiling) is on the road map alongside the existing
 `AZUL_DISABLE_RICING` CSS hook described in
 [System Themes](themes.md#application-specific-overrides).
+
+## Coming Up Next
+
+- [Images](../images.md) — Loading raster images and CSS backgrounds
+- [Built-in Widgets](../widgets.md) — Built-in widgets and how to write your own
+- [Layout](../layout.md) — Overview of the layout solver

@@ -25,25 +25,31 @@ generated_at: 2026-05-02T12:00:00Z
 
 A frame moves through three boundaries. The layout engine emits an
 `azul_layout::solver3::display_list::DisplayList` (a flat `Vec<DisplayListItem>`
-in absolute window coordinates). `dll/src/desktop/compositor2.rs:165`
-(`translate_displaylist_to_wr`) walks that list and pushes equivalent items
-into a WebRender `DisplayListBuilder`. The [WebRender bridge](webrender-bridge.md)
-wraps the resulting `BuiltDisplayList` in a `Transaction` and ships it to the
-WebRender backend thread. Hardware (GPU WebRender) and software (CPU
-`cpurender`) paths share this exact display list — the split is in the sink, not
-the source.
+in absolute window coordinates). `dll/src/desktop/compositor2.rs::translate_displaylist_to_wr`
+walks that list and pushes equivalent items into a WebRender
+`DisplayListBuilder`. The [WebRender bridge](webrender-bridge.md) wraps the
+resulting `BuiltDisplayList` in a `Transaction` and ships it to the WebRender
+backend thread. Hardware (GPU WebRender) and software (CPU `cpurender`) paths
+share this exact display list. The split is in the sink, not the source.
 
 ## Stage map
 
-| Stage | Code | Output |
-|---|---|---|
-| Layout → display list | `layout/src/window.rs` (`layout_and_generate_display_list`) | `DisplayList` (`Vec<DisplayListItem>`) |
-| GPU key sync | `core/src/gpu.rs:84` (`GpuValueCache::synchronize`) | `GpuEventChanges` |
-| Display list translation | `dll/src/desktop/compositor2.rs:165` (`translate_displaylist_to_wr`) | `WrBuiltDisplayList`, nested pipelines, resource updates |
-| Resource translation | `dll/src/desktop/wr_translate2.rs` | `Vec<WrResourceUpdate>` |
-| Frame submission | `dll/src/desktop/wr_translate2.rs:1548` (`generate_frame`) | `Transaction` to WebRender backend |
-| GL function loading | `dll/src/desktop/shell2/common/gl_loader.rs:12` (`load_gl_context`) | `GenericGlContext` |
-| Library shaders | `core/src/gl.rs:1027` (`GlContextPtr::new`) | SVG, multicolor SVG, FXAA programs |
+A frame moves through these stages in order:
+
+- **Layout → display list.** Produces a `DisplayList` (`Vec<DisplayListItem>`).
+  - `layout/src/window.rs::layout_and_generate_display_list`
+- **GPU key sync.** Walks the `StyledDom` and emits a `GpuEventChanges` describing transform/opacity deltas.
+  - `core/src/gpu.rs::GpuValueCache::synchronize`
+- **Display list translation.** Walks the display list and pushes WebRender items. Produces a `WrBuiltDisplayList`, nested pipelines, and resource updates.
+  - `dll/src/desktop/compositor2.rs::translate_displaylist_to_wr`
+- **Resource translation.** Produces a `Vec<WrResourceUpdate>`.
+  - `dll/src/desktop/wr_translate2.rs`
+- **Frame submission.** Wraps the result in a `Transaction` and ships it to the WebRender backend thread.
+  - `dll/src/desktop/wr_translate2.rs::generate_frame`
+- **GL function loading.** Resolves GL symbols per platform into a `GenericGlContext`.
+  - `dll/src/desktop/shell2/common/gl_loader.rs::load_gl_context`
+- **Library shaders.** Compiles the SVG, multicolor-SVG, and FXAA programs once at context creation.
+  - `core/src/gl.rs::GlContextPtr::new`
 
 The `LayoutWindow` owns the layout side; `dll/src/desktop/window.rs` owns the
 WebRender side and the GL context. Read [WebRender bridge](webrender-bridge.md)
@@ -68,27 +74,27 @@ pub fn translate_displaylist_to_wr(
 >
 ```
 
-The function (`compositor2.rs:165`) is a single sequential walk. There is no
-intermediate IR; each `DisplayListItem` translates directly into one or more
-`builder.push_*` calls. Three stacks track the WebRender-side context:
+The function (`compositor2.rs::translate_displaylist_to_wr`) is a single
+sequential walk. There is no intermediate IR; each `DisplayListItem` translates
+directly into one or more `builder.push_*` calls. Three stacks track the
+WebRender-side context:
 
-- `clip_stack: Vec<WrClipChainId>` — current clip chain (rounded-rect, image
+- `clip_stack: Vec<WrClipChainId>` is the current clip chain (rounded-rect, image
   mask, scroll-frame viewport).
-- `spatial_stack: Vec<SpatialId>` — current spatial node (root scroll node,
+- `spatial_stack: Vec<SpatialId>` is the current spatial node (root scroll node,
   scroll frame, transform reference frame).
-- `offset_stack: Vec<(f32, f32)>` — coordinate origin offset. The display list
+- `offset_stack: Vec<(f32, f32)>` is the coordinate origin offset. The display list
   uses absolute window coordinates; WebRender wants frame-relative coordinates
   for stacking contexts. Push when entering a `PushStackingContext`, subtract
   on every coordinate translation, pop on `PopStackingContext`.
 
-The call sites are `wr_translate2.rs:1712`, `wr_translate2.rs:2634`, and
-`wr_translate2.rs:3145` — each builds a transaction containing one or more
-display lists.
+The call sites are in `dll/src/desktop/wr_translate2.rs`. Each builds a
+transaction containing one or more display lists.
 
 ### `resolve_rect` — the coordinate gate
 
-Every coordinate that crosses into WebRender goes through `resolve_rect`
-(`compositor2.rs:81`):
+Every coordinate that crosses into WebRender goes through
+`compositor2.rs::resolve_rect`:
 
 ```rust,ignore
 fn resolve_rect(
@@ -104,42 +110,65 @@ fn resolve_rect(
 }
 ```
 
-The two adjustments — DPI scale and stacking-context offset subtraction — are
+The two adjustments (DPI scale and stacking-context offset subtraction) are
 fused so callers cannot forget one. `resolve_point` is the equivalent for
 single points (used for `push_simple_stacking_context`). See
 `scripts/SCROLL_COORDINATE_ARCHITECTURE.md` for the rationale.
 
 ### Item dispatch
 
-The matcher (`compositor2.rs:268`) routes each `DisplayListItem`. Common
-patterns:
+The matcher in `compositor2.rs` routes each `DisplayListItem`. Common patterns:
 
-| Item | Pattern |
-|---|---|
-| `Rect`, `SelectionRect`, `CursorRect` | `resolve_rect` → `CommonItemProperties` → `builder.push_rect`. Optional rounded-corner `define_border_radius_clip` (`compositor2.rs:2234`). |
-| `Border` | Resolve rect, call `wr_translate2::get_webrender_border` for per-side widths, call `builder.push_border`. |
-| `ScrollBarStyled` | Push optional opacity stacking context bound to `opacity_key`, define rounded clip if container has border-radius, render track, optional buttons, then thumb (which may be wrapped in its own reference frame for GPU-driven `transform`). |
-| `PushClip` / `PopClip` | `define_clip_rect` (or `define_clip_rounded_rect`) → `define_clip_chain(parent)` → push to `clip_stack`. |
-| `PushScrollFrame` / `PopScrollFrame` | See [scroll-frame clipping](#scroll-frame-clipping). |
-| `Text` | Look up `FontInstanceKey`, scale glyph positions by DPI, subtract scroll offset, `builder.push_text`. |
-| `Image` | Resolve `ImageRefHash` to `WrImageKey`, optional rounded clip, `builder.push_image`. |
-| `LinearGradient` / `RadialGradient` / `ConicGradient` | Compute start/end points from the CSS direction, convert stops, `push_stops` immediately followed by `push_gradient` / `push_radial_gradient` / `push_conic_gradient` (no clip items between the two — WebRender requires they be adjacent). |
-| `BoxShadow` | Convert blur, offset, spread; `push_box_shadow` with the appropriate `BoxShadowClipMode`. |
-| `PushStackingContext` / `PopStackingContext` | `push_simple_stacking_context` at the resolved origin; offset stack tracks the CSS origin for nested children. |
-| `PushReferenceFrame` / `PopReferenceFrame` | GPU transform animation. Translation components scaled by DPI; spatial node bound to `transform_key`. Pushes spatial only — no offset. |
-| `VirtualView` | Recursively call `translate_displaylist_to_wr` for the child DOM, accumulate its built list under `nested_pipelines`, `builder.push_iframe` to splice it in. |
-| `PushImageMaskClip` / `PopImageMaskClip` | `define_clip_image_mask` for SVG mask-style clipping. |
-| `HitTestArea` | `builder.push_hit_test` with the supplied `ItemTag`. Under `debug_assertions` the area is also rendered as a 30%-opaque red rect. |
+- **`Rect`, `SelectionRect`, `CursorRect`.** `resolve_rect` then
+  `CommonItemProperties` then `builder.push_rect`. Optional rounded-corner
+  `define_border_radius_clip`.
+  - `dll/src/desktop/compositor2.rs::define_border_radius_clip`
+- **`Border`.** Resolve rect, call `get_webrender_border` for per-side widths,
+  call `builder.push_border`.
+  - `dll/src/desktop/wr_translate2.rs::get_webrender_border`
+- **`ScrollBarStyled`.** Push an optional opacity stacking context bound to
+  `opacity_key`, define a rounded clip if the container has border-radius,
+  render the track, optional buttons, then the thumb. The thumb may be wrapped
+  in its own reference frame for GPU-driven `transform`.
+- **`PushClip` / `PopClip`.** `define_clip_rect` (or
+  `define_clip_rounded_rect`), then `define_clip_chain(parent)`, then push to
+  `clip_stack`.
+- **`PushScrollFrame` / `PopScrollFrame`.** See
+  [scroll-frame clipping](#scroll-frame-clipping).
+- **`Text`.** Look up `FontInstanceKey`, scale glyph positions by DPI, subtract
+  scroll offset, call `builder.push_text`.
+- **`Image`.** Resolve `ImageRefHash` to `WrImageKey`, apply an optional
+  rounded clip, call `builder.push_image`.
+- **`LinearGradient` / `RadialGradient` / `ConicGradient`.** Compute
+  start/end points from the CSS direction, convert stops, call `push_stops`
+  immediately followed by `push_gradient` / `push_radial_gradient` /
+  `push_conic_gradient`. No clip items can sit between the two; WebRender
+  requires them adjacent.
+- **`BoxShadow`.** Convert blur, offset, and spread, then call
+  `push_box_shadow` with the appropriate `BoxShadowClipMode`.
+- **`PushStackingContext` / `PopStackingContext`.** `push_simple_stacking_context`
+  at the resolved origin. The offset stack tracks the CSS origin for nested
+  children.
+- **`PushReferenceFrame` / `PopReferenceFrame`.** GPU transform animation.
+  Translation components are scaled by DPI; the spatial node binds to
+  `transform_key`. Pushes spatial only, no offset.
+- **`VirtualView`.** Recursively call `translate_displaylist_to_wr` for the
+  child DOM, accumulate its built list under `nested_pipelines`, then
+  `builder.push_iframe` to splice it in.
+- **`PushImageMaskClip` / `PopImageMaskClip`.** `define_clip_image_mask` for
+  SVG mask-style clipping.
+- **`HitTestArea`.** `builder.push_hit_test` with the supplied `ItemTag`.
+  Under `debug_assertions` the area also renders as a 30%-opaque red rect.
 
-`TextLayout` items are no-ops here — they were consumed by an earlier pass that
-emitted the resolved `Text` items.
+`TextLayout` items are no-ops here. An earlier pass consumed them and emitted
+the resolved `Text` items.
 
 ### Scroll-frame clipping
 
-A `ScrollFrame` in WebRender is *only* a transformation node — it does not clip.
+A `ScrollFrame` in WebRender is *only* a transformation node. It does not clip.
 The viewport clip must be defined separately, in **parent space**, so it stays
-stationary while content scrolls. The `PushScrollFrame` arm (`compositor2.rs:872`)
-performs four steps:
+stationary while content scrolls. The `PushScrollFrame` arm in
+`dll/src/desktop/compositor2.rs` performs four steps:
 
 ```rust,ignore
 // 1. Define the spatial node (transformation only)
@@ -184,9 +213,11 @@ recipe; if you see clip-leak symptoms, the divergence is more likely to be in
 the *consumer* of the scroll frame (a `Text` or `Rect` arm that forgets to
 apply `current_offset!()`) than in the `PushScrollFrame` arm itself.
 
-`PopScrollFrame` (`compositor2.rs:1030`) pops both the spatial and clip stacks
-and returns `Err("Scroll frame stack underflow")` if either underflows — the
-caller (`generate_frame`) treats that as a fatal frame error.
+`PopScrollFrame` pops both the spatial and clip stacks and returns
+`Err("Scroll frame stack underflow")` if either underflows. The caller
+(`generate_frame`) treats that as a fatal frame error.
+
+- `dll/src/desktop/compositor2.rs::PopScrollFrame`
 
 ### Coordinate offset, stacking context, scroll frame
 
@@ -197,8 +228,8 @@ Three coordinate concepts collide in this file. Read carefully:
   position inside its parent.
 - A **scroll frame** in WebRender shares its parent's coordinate space. It does
   *not* create a new origin. `offset_stack` is **not** pushed on
-  `PushScrollFrame` (`compositor2.rs:950`). The scroll-frame transform handles
-  scroll movement; absolute coordinates remain absolute.
+  `PushScrollFrame` in `dll/src/desktop/compositor2.rs`. The scroll-frame
+  transform handles scroll movement; absolute coordinates stay absolute.
 - A **stacking context** (`PushStackingContext`) *does* shift the origin —
   WebRender offsets every child by the stacking context's origin. The
   compositor pushes the scaled origin onto `offset_stack` so that children
@@ -214,9 +245,11 @@ prints `clip_stack.len` and `spatial_stack.len` on every push/pop.
 ## GPU value cache
 
 `core/src/gpu.rs` decouples the layout pass from per-frame GPU updates.
-`GpuValueCache::synchronize` (`gpu.rs:84`) walks the `StyledDom` once per
-frame, comparing each node's current CSS `transform` and `opacity` against the
-previously-stored values, and emits a `GpuEventChanges` describing the deltas:
+`GpuValueCache::synchronize` walks the `StyledDom` once per frame, comparing
+each node's current CSS `transform` and `opacity` against the previously-stored
+values, and emits a `GpuEventChanges` describing the deltas.
+
+- `core/src/gpu.rs::GpuValueCache::synchronize`
 
 ```rust,ignore
 pub enum GpuTransformKeyEvent {
@@ -257,28 +290,36 @@ struct is consumed each frame.
 
 ## Library shaders
 
-`GlContextPtr::new` (`core/src/gl.rs:1027`) compiles three shader programs at
-context creation and stores them in `GlContextPtrInner`:
+`GlContextPtr::new` compiles three shader programs at context creation and
+stores them in `GlContextPtrInner`:
 
-| Field | Purpose | Source |
-|---|---|---|
-| `svg_shader` | Solid-color SVG path fills | `core/src/gl.rs:923` (`SVG_VERTEX_SHADER`, `SVG_FRAGMENT_SHADER`) |
-| `svg_multicolor_shader` | Per-vertex coloured SVG | `core/src/gl.rs:958` |
-| `fxaa_shader` | Post-process anti-aliasing | `core/src/gl_fxaa.rs:71` (`FXAA_VERTEX_SHADER`, `FXAA_FRAGMENT_SHADER`) |
+- **`svg_shader`.** Solid-color SVG path fills.
+  - `core/src/gl.rs::SVG_VERTEX_SHADER`
+  - `core/src/gl.rs::SVG_FRAGMENT_SHADER`
+- **`svg_multicolor_shader`.** Per-vertex coloured SVG.
+  - `core/src/gl.rs`
+- **`fxaa_shader`.** Post-process anti-aliasing.
+  - `core/src/gl_fxaa.rs::FXAA_VERTEX_SHADER`
+  - `core/src/gl_fxaa.rs::FXAA_FRAGMENT_SHADER`
 
-Compilation is checked through `check_shader_compile` and `check_program_link`
-(`gl.rs:1001` and `gl.rs:1014`). Both log to stderr under `feature = "std"`;
-under `no_std` they swallow the failure. There is no recovery — a failed shader
-compile leaves the program ID present but unusable; subsequent draws produce no
-output. If you hit a black SVG, run with `RUST_LOG` and look for "shader
-compile error".
+Compilation is checked through `check_shader_compile` and `check_program_link`.
+Both log to stderr under `feature = "std"`; under `no_std` they swallow the
+failure. There is no recovery. A failed shader compile leaves the program ID
+present but unusable, and subsequent draws produce no output. If you hit a
+black SVG, run with `RUST_LOG` and look for "shader compile error".
 
-`GlContextPtrInner::Drop` (`gl.rs:902`) calls `delete_program` on all three
-when the context is destroyed.
+`GlContextPtrInner::Drop` calls `delete_program` on all three when the context
+is destroyed.
+
+- `core/src/gl.rs::GlContextPtr::new`
+- `core/src/gl.rs::check_shader_compile`
+- `core/src/gl.rs::check_program_link`
 
 ### FXAA pass
 
-`FxaaConfig` (`gl_fxaa.rs:16`) carries the runtime tunables:
+`FxaaConfig` carries the runtime tunables:
+
+- `core/src/gl_fxaa.rs::FxaaConfig`
 
 ```rust,ignore
 pub struct FxaaConfig {
@@ -300,7 +341,7 @@ quad, and state save/restore.
 
 ## Texture cache
 
-`core/src/gl.rs:733` declares the active texture map:
+`core/src/gl.rs` declares the active texture map:
 
 ```rust,ignore
 static mut ACTIVE_GL_TEXTURES:
@@ -310,28 +351,32 @@ pub type GlTextureStorage =
     OrderedMap<Epoch, OrderedMap<ExternalImageId, Texture>>;
 ```
 
-The keying — `DocumentId → Epoch → ExternalImageId → Texture` — exists because
+The keying (`DocumentId → Epoch → ExternalImageId → Texture`) exists because
 WebRender may still be rendering against an old frame's textures while the
 application is generating the next frame. Textures are kept alive until the
 backend thread acknowledges that the epoch is no longer in use, then
-`gl_textures_remove_epochs_from_pipeline` (`gl.rs:765`) drops everything
-strictly older than the supplied epoch.
+`gl_textures_remove_epochs_from_pipeline` drops everything strictly older than
+the supplied epoch.
 
-The map is **not** thread-safe. The doc comment at `gl.rs:731` argues that
-`Texture` itself is not `Send`/`Sync`, so accidental concurrent access is
+- `core/src/gl.rs::gl_textures_remove_epochs_from_pipeline`
+
+The map is **not** thread-safe. The doc comment in `core/src/gl.rs` argues
+that `Texture` itself is not `Send`/`Sync`, so accidental concurrent access is
 unlikely, but the warning still applies: do not call any of
 `insert_into_active_gl_textures`, `gl_textures_remove_epochs_from_pipeline`,
 `gl_textures_remove_active_pipeline`, `gl_textures_clear_opengl_cache`, or
 `get_opengl_texture` from anything other than the main thread. Rust 2024 will
-also forbid `static mut` references; replacement with a `Mutex<...>` or
+also forbid `static mut` references. Replacement with a `Mutex<...>` or
 `thread_local!` is on the cleanup list.
 
-`Texture` (`gl.rs:2540`) carries a refcount, the `GLuint` ID, and a clone of
-the `GlContextPtr`. Its `Drop` (`gl.rs:2887`) decrements the refcount and, on
-last drop, calls `delete_textures` on the held context. `Texture::create`,
-`Texture::allocate_rgba8`, and `Texture::clear` cover the construction
-surface; `GlShader::draw` (`gl.rs:3563`) is the single render entry point that
-reads from the cache.
+`Texture` carries a refcount, the `GLuint` ID, and a clone of the
+`GlContextPtr`. Its `Drop` decrements the refcount and, on last drop, calls
+`delete_textures` on the held context. `Texture::create`,
+`Texture::allocate_rgba8`, and `Texture::clear` cover the construction surface.
+`GlShader::draw` is the single render entry point that reads from the cache.
+
+- `core/src/gl.rs::Texture`
+- `core/src/gl.rs::GlShader::draw`
 
 ## Hardware vs software path
 
@@ -372,3 +417,9 @@ get on-screen overlays.
 If clipping is wrong, the diagnosis is almost always: clip defined in the
 wrong space, or clip chain not chained to its parent. See
 `scripts/WEBRENDER_CLIPPING_ANALYSIS.md` for the failure modes.
+
+## Coming Up Next
+
+- [WebRender Bridge](webrender-bridge.md) — How azul talks to WebRender
+- [Image Pipeline](image-pipeline.md) — Decoding, caching, and uploading raster images
+- [GL Function Loading](gl-loading.md) — Loading GL function pointers across platforms

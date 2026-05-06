@@ -53,7 +53,7 @@ dll::desktop::shell2::*::*AccessibilityAdapter::update_tree(tu)
 
 ## Data model: `AccessibilityInfo`
 
-[`core/src/a11y.rs:27`](../../../../core/src/a11y.rs) defines the per-node
+[`core/src/a11y.rs`](../../../../core/src/a11y.rs) defines the per-node
 record. `#[repr(C)]`, FFI-safe, `Hash`:
 
 ```rust,ignore
@@ -74,30 +74,27 @@ pub struct AccessibilityInfo {
 ```
 
 The lighter-weight constructor for the common case is
-[`SmallAriaInfo`](../../../../core/src/a11y.rs)
-([`a11y.rs:764`](../../../../core/src/a11y.rs)) — `label`, `role`,
-`description`. It expands to `AccessibilityInfo` via
-`SmallAriaInfo::to_full_info()`.
+[`SmallAriaInfo`](../../../../core/src/a11y.rs) in `core/src/a11y.rs`,
+which carries `label`, `role`, and `description`. It expands to
+`AccessibilityInfo` via `SmallAriaInfo::to_full_info()`.
 
 The non-self-explanatory fields:
 
-| field | maps to |
-|---|---|
-| `default_action` | accesskit `Action::Default` description, only meaningful when at least one `ComponentEventFilter::DefaultAction` callback exists on the node |
-| `labelled_by` / `described_by` | `aria-labelledby` / `aria-describedby`. Defined but not yet read by the manager |
-| `is_live_region` | accesskit `Live` property. Defined but not yet read |
-| `supported_actions` | `Vec<AccessibilityAction>` — see below |
-| `states` | `Vec<AccessibilityState>` — see below |
+- The `default_action` field maps to the accesskit `Action::Default` description. It's only meaningful when at least one `ComponentEventFilter::DefaultAction` callback exists on the node.
+- The `labelled_by` and `described_by` fields map to `aria-labelledby` and `aria-describedby`. They're defined but not yet read by the manager.
+- The `is_live_region` field maps to the accesskit `Live` property. It's defined but not yet read.
+- The `supported_actions` field is a `Vec<AccessibilityAction>` (see below).
+- The `states` field is a `Vec<AccessibilityState>` (see below).
 
 ## Roles
 
-[`AccessibilityRole`](../../../../core/src/a11y.rs) at
-[`a11y.rs:156`](../../../../core/src/a11y.rs) is a `#[repr(C)]` enum modelled
-after MSAA / IAccessible role constants. It is wider than accesskit's `Role`
-enum — the manager collapses several variants:
+[`AccessibilityRole`](../../../../core/src/a11y.rs) in `core/src/a11y.rs`
+is a `#[repr(C)]` enum modelled after MSAA / IAccessible role constants.
+It is wider than accesskit's `Role` enum, so the manager collapses several
+variants:
 
 ```rust,ignore
-// layout/src/managers/a11y.rs:609
+// layout/src/managers/a11y.rs::map_role
 fn map_role(role: &AccessibilityRole) -> accesskit::Role {
     match role {
         AccessibilityRole::TitleBar      => Role::TitleBar,
@@ -116,15 +113,14 @@ fn map_role(role: &AccessibilityRole) -> accesskit::Role {
 }
 ```
 
-The full table is at [`layout/src/managers/a11y.rs:609`](../../../../layout/src/managers/a11y.rs).
+The full table is in [`layout/src/managers/a11y.rs`](../../../../layout/src/managers/a11y.rs).
 When you add a new role to `core::a11y`, you must add a `match` arm here
 or screen readers receive `Role::Unknown`.
 
 ## States
 
-[`AccessibilityState`](../../../../core/src/a11y.rs) at
-[`a11y.rs:608`](../../../../core/src/a11y.rs) — focus, selection, expansion,
-checkboxes, etc.:
+[`AccessibilityState`](../../../../core/src/a11y.rs) in `core/src/a11y.rs`
+covers focus, selection, expansion, checkboxes, etc.:
 
 ```rust,ignore
 #[repr(C)]
@@ -146,9 +142,9 @@ individually onto the accesskit `Node` (`set_focused`, `set_selected`, ...).
 
 ## Actions
 
-[`AccessibilityAction`](../../../../core/src/a11y.rs) at
-[`a11y.rs:66`](../../../../core/src/a11y.rs) is a `#[repr(C, u8)]` superset of
-`accesskit::Action` plus payload-carrying variants:
+[`AccessibilityAction`](../../../../core/src/a11y.rs) in `core/src/a11y.rs`
+is a `#[repr(C, u8)]` superset of `accesskit::Action` plus payload-carrying
+variants:
 
 ```rust,ignore
 #[repr(C, u8)]
@@ -171,15 +167,14 @@ pub enum AccessibilityAction {
 
 `AccessibilityInfo.supported_actions` is the *list of actions advertised to
 the AT*. When the AT performs one, accesskit returns the action via its
-`ActionHandler`; the manager translates it back to an
+`ActionHandler`. The manager translates it back to an
 `AccessibilityAction` via
-[`map_accesskit_action`](../../../../layout/src/managers/a11y.rs)
-([`layout/src/managers/a11y.rs:715`](../../../../layout/src/managers/a11y.rs))
+[`layout/src/managers/a11y.rs::map_accesskit_action`](../../../../layout/src/managers/a11y.rs)
 and dispatches it as a synthetic event.
 
 ## The manager: `A11yManager`
 
-[`layout/src/managers/a11y.rs:50`](../../../../layout/src/managers/a11y.rs)
+[`layout/src/managers/a11y.rs`](../../../../layout/src/managers/a11y.rs)
 holds per-window state:
 
 ```rust,ignore
@@ -223,8 +218,8 @@ upper 32 bits = DomId
 lower 32 bits = NodeId + 1   (0 is reserved for the root window)
 ```
 
-`handle_action_request` reverses that encoding
-([`layout/src/managers/a11y.rs:697`](../../../../layout/src/managers/a11y.rs))
+`handle_action_request` reverses that encoding in
+[`layout/src/managers/a11y.rs`](../../../../layout/src/managers/a11y.rs)
 and returns a `(DomNodeId, AccessibilityAction)` the event system can dispatch.
 
 `tree_initialized` flips `false → true` after the first full tree push so
@@ -252,13 +247,11 @@ pub struct LinuxAccessibilityAdapter {
 
 Lifecycle:
 
-| Step | What happens |
-|---|---|
-| `LinuxAccessibilityAdapter::new()` | allocates the mutexes, defers adapter construction |
-| `initialize(window_name)` | builds an `accesskit_unix::Adapter` inside `panic::catch_unwind` (D-Bus connection failures must not crash the app) |
-| `update_tree(tree_update)` | `try_lock` (never blocks the UI), then `adapter.update_if_active(\|\| tree_update)` |
-| AT triggers an action | `accesskit_unix` calls `ActionHandler::do_action`, which pushes to `pending_actions`. The event loop drains and feeds them back to `A11yManager::handle_action_request` |
-| `set_focus(_)` | no-op — focus state is managed by `accesskit_unix` itself |
+- **`LinuxAccessibilityAdapter::new()`.** Allocates the mutexes and defers adapter construction.
+- **`initialize(window_name)`.** Builds an `accesskit_unix::Adapter` inside `panic::catch_unwind` so D-Bus connection failures don't crash the app.
+- **`update_tree(tree_update)`.** Calls `try_lock` (never blocks the UI), then `adapter.update_if_active(|| tree_update)`.
+- **AT triggers an action.** `accesskit_unix` calls `ActionHandler::do_action`, which pushes to `pending_actions`. The event loop drains them and feeds them back to `A11yManager::handle_action_request`.
+- **`set_focus(_)`.** No-op. Focus state is managed by `accesskit_unix` itself.
 
 `update_if_active` is the load-bearing call: if the AT is not currently
 listening, the closure is never invoked and no D-Bus traffic is generated.
@@ -281,22 +274,22 @@ Constructed with `MacOSAccessibilityAdapter::new(view: *mut c_void)` —
 `SubclassingAdapter` rewrites a few `NSObject` methods on that view to make
 it conform to `NSAccessibilityProtocol`.
 
-`tree_provider` is a `Mutex<Option<TreeUpdate>>`. The activation handler
-([`accessibility.rs:23`](../../../../dll/src/desktop/shell2/macos/accessibility.rs))
+`tree_provider` is a `Mutex<Option<TreeUpdate>>`. The activation handler in
+[`dll/src/desktop/shell2/macos/accessibility.rs`](../../../../dll/src/desktop/shell2/macos/accessibility.rs)
 **returns `None`** the first time `request_initial_tree` is called. This is
 deliberate:
 
 > Returning `Some` here would skip Placeholder and go directly Inactive →
 > Active, which does NOT generate focus events.
 >
-> ([`accessibility.rs:30-36`](../../../../dll/src/desktop/shell2/macos/accessibility.rs))
+> ([`dll/src/desktop/shell2/macos/accessibility.rs`](../../../../dll/src/desktop/shell2/macos/accessibility.rs))
 
 VoiceOver depends on the Placeholder → Active transition firing
 `AXFocusedUIElementChanged`. The first real `update_tree` call promotes the
 adapter into Active state with focus events intact.
 
 Action requests flow through an `mpsc::channel` rather than a mutex-guarded
-vec — the macOS AT may invoke action handlers off the main thread, and the
+vec. The macOS AT may invoke action handlers off the main thread, and the
 event loop drains the receiver each frame.
 
 ## The Windows bridge — UIA via `accesskit_windows`
@@ -311,8 +304,8 @@ pub struct WindowsAccessibilityAdapter {
 }
 ```
 
-`initialize(hwnd)` constructs an `accesskit_windows::SubclassingAdapter` —
-this hooks the `WM_GETOBJECT` message on the HWND so when UIA queries
+`initialize(hwnd)` constructs an `accesskit_windows::SubclassingAdapter`,
+which hooks the `WM_GETOBJECT` message on the HWND so when UIA queries
 `OBJID_CLIENT`, the adapter responds. Wrapped in `catch_unwind` so a UIA
 panic cannot crash the app.
 
@@ -322,7 +315,7 @@ drains them.
 
 ## Common backend invariants
 
-All three adapters share these properties — when adding a new backend, match
+All three adapters share these properties. When adding a new backend, match
 them:
 
 - **`#[cfg(feature = "a11y")]` everywhere.** A no-op stub must compile when
@@ -340,15 +333,21 @@ them:
 Three fields on `AccessibilityInfo` are stored but not consumed by
 `A11yManager::update_tree`:
 
-- `labelled_by`, `described_by` — should set
-  `accesskit::Node::push_labelled_by` / `push_described_by`.
-- `is_live_region` — should set `accesskit::Node::set_live`.
+- `labelled_by` and `described_by` should set
+  `accesskit::Node::push_labelled_by` and `push_described_by`.
+- `is_live_region` should set `accesskit::Node::set_live`.
 
-`SmallAriaInfo::label` is not called from any Rust source in this repository
-— it exists for the C/C++/Python FFI surface (search `api.json` for
-`SmallAriaInfo.label` to confirm).
+`SmallAriaInfo::label` is not called from any Rust source in this repository.
+It exists for the C/C++/Python FFI surface. Search `api.json` for
+`SmallAriaInfo.label` to confirm.
 
 `MenuItemIcon::Image` rendering inside menu DOMs is also unwired (see
-[Menus and Client-Side Decorations](./menus-and-csd.md)) — relevant here
+[Menus and Client-Side Decorations](./menus-and-csd.md)). It's relevant here
 because menus are part of the accessibility tree and missing icons may show
 up as unlabelled images to screen readers.
+
+## Coming Up Next
+
+- [Shell2 Common Layer](shell2-common.md) — Shared shell infrastructure across platforms
+- [System Style Discovery](system-style.md) — Discovering OS theme, accent, fonts, and a11y settings
+- [Event System Internals](event-system.md) — Hit-testing, callback invocation, the Update protocol

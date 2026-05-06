@@ -47,3 +47,10 @@ Pick the "Hello World" / Setup guide for your language:
 - [C (99+)](hello-world/c.md)
 - [C++ (03 - 23)](hello-world/cpp.md)
 - [Python (3.10+)](hello-world/python.md)
+
+## Coming Up Next
+
+- [Hello World [Rust]](hello-world/rust.md)
+- [Hello World [C++]](hello-world/cpp.md)
+- [Hello World [C]](hello-world/c.md)
+- [Hello World [Python]](hello-world/python.md)

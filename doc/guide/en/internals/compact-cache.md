@@ -20,29 +20,32 @@ The compact cache is a four-array, fixed-layout encoding of the ~50 layout-hot C
 
 ## File map
 
-| File | Role |
-|---|---|
-| `css/src/compact_cache.rs:1411` | `CompactLayoutCache` — the four-array container |
-| `css/src/compact_cache.rs:1138` | `CompactNodeProps` — Tier 2 layout-hot dimensions (68 B/node) |
-| `css/src/compact_cache.rs:1180` | `CompactNodePropsCold` — Tier 2 cold paint props (28 B/node) |
-| `css/src/compact_cache.rs:1368` | `CompactTextProps` — Tier 2b text/IFC props (24 B/node) |
-| `css/src/compact_cache.rs:67`   | Tier 1 bit layout (u64 per node, 8 B/node) |
-| `css/src/compact_cache.rs:40`   | Sentinel constants |
-| `core/src/compact_cache_builder.rs` | The cascade-side encoder |
+- **`CompactLayoutCache`.** The four-array container.
+  - `css/src/compact_cache.rs::CompactLayoutCache`
+- **`CompactNodeProps`.** Tier 2 layout-hot dimensions, 68 B per node.
+  - `css/src/compact_cache.rs::CompactNodeProps`
+- **`CompactNodePropsCold`.** Tier 2 cold paint props, 28 B per node.
+  - `css/src/compact_cache.rs::CompactNodePropsCold`
+- **`CompactTextProps`.** Tier 2b text/IFC props, 24 B per node.
+  - `css/src/compact_cache.rs::CompactTextProps`
+- **Tier 1 bit layout.** A u64 per node, 8 B per node.
+  - `css/src/compact_cache.rs`
+- **Sentinel constants.** Encoding sentinels for unset values.
+  - `css/src/compact_cache.rs`
+- **The cascade-side encoder.** Populates the four arrays from cascade output.
+  - `core/src/compact_cache_builder.rs`
 
 ## Memory budget
 
 For a 1000-node DOM:
 
-| Array | Per node | 1000 nodes |
-|---|---|---|
-| `tier1_enums: Vec<u64>` | 8 B | 8 KB |
-| `tier2_dims: Vec<CompactNodeProps>` | 68 B | 68 KB |
-| `tier2_cold: Vec<CompactNodePropsCold>` | 28 B | 28 KB |
-| `tier2b_text: Vec<CompactTextProps>` | 24 B | 24 KB |
-| **Total** | **128 B** | **128 KB** |
+- `tier1_enums: Vec<u64>` is 8 B per node, 8 KB for 1000 nodes.
+- `tier2_dims: Vec<CompactNodeProps>` is 68 B per node, 68 KB for 1000 nodes.
+- `tier2_cold: Vec<CompactNodePropsCold>` is 28 B per node, 28 KB for 1000 nodes.
+- `tier2b_text: Vec<CompactTextProps>` is 24 B per node, 24 KB for 1000 nodes.
+- **Total.** 128 B per node, 128 KB for 1000 nodes.
 
-Properties that don't fit (background, box-shadow, transform, filter, …) live on the slow `CssPropertyCache::get_property_slow` path and are not duplicated here.
+Properties that don't fit (background, box-shadow, transform, filter, ...) live on the slow `CssPropertyCache::get_property_slow` path and are not duplicated here.
 
 ## `CompactLayoutCache`
 
@@ -59,11 +62,11 @@ pub struct CompactLayoutCache {
 }
 ```
 
-(`css/src/compact_cache.rs:1411`)
+(`css/src/compact_cache.rs::CompactLayoutCache`)
 
 All four per-node arrays have length `node_count` and are indexed by `NodeId::index()`. Allocation happens in `CompactLayoutCache::with_capacity(n)` once per restyle.
 
-`font_dirty_nodes` lists indices whose `font_family_hash` differs from `prev_font_hashes` — see the cascade page for how that drives incremental font resolution.
+`font_dirty_nodes` lists indices whose `font_family_hash` differs from `prev_font_hashes`. See the cascade page for how that drives incremental font resolution.
 
 ## Tier 1 — all enums in one u64
 
@@ -98,11 +101,11 @@ Every `enum`-valued layout property fits in a few bits. Tier 1 packs 21 of them 
 [63]     TIER1_POPULATED  1 bit
 ```
 
-(`css/src/compact_cache.rs:67`)
+(`css/src/compact_cache.rs::tier1`)
 
-Bit 63 is a "this node has tier-1 data" flag. The bit layout treats `0` as "all defaults" (Display::Block, Position::Static, etc.) so an all-zero `tier1_enums[i]` with bit 63 set is semantically the same as a fresh `Default::default()` node — but `tier1_enums[i] == 0` (no bit 63) means "not yet populated" and forces a slow-path lookup.
+Bit 63 is a "this node has tier-1 data" flag. The bit layout treats `0` as "all defaults" (Display::Block, Position::Static, etc.) so an all-zero `tier1_enums[i]` with bit 63 set is semantically the same as a fresh `Default::default()` node. But `tier1_enums[i] == 0` (no bit 63) means "not yet populated" and forces a slow-path lookup.
 
-`encode_tier1(display, position, float, …, border_collapse) -> u64` (`css/src/compact_cache.rs:858`) is the single producer; one `decode_*` function per field is the consumer:
+`encode_tier1(display, position, float, ..., border_collapse) -> u64` (`css/src/compact_cache.rs::encode_tier1`) is the single producer; one `decode_*` function per field is the consumer:
 
 ```rust,ignore
 #[inline(always)]
@@ -111,9 +114,9 @@ pub fn decode_display(t1: u64) -> LayoutDisplay {
 }
 ```
 
-(`css/src/compact_cache.rs:900`)
+(`css/src/compact_cache.rs::decode_display`)
 
-The `_from_u8` / `_to_u8` pairs at `css/src/compact_cache.rs:163`-`784` are the per-enum codec. They use `match` rather than `transmute` so the compiler can prove every input maps to a defined output.
+The `_from_u8` / `_to_u8` pairs in `css/src/compact_cache.rs` are the per-enum codec. They use `match` rather than `transmute` so the compiler can prove every input maps to a defined output.
 
 ## Tier 2 hot — `CompactNodeProps`
 
@@ -145,7 +148,7 @@ pub struct CompactNodeProps {
 }
 ```
 
-(`css/src/compact_cache.rs:1138`)
+(`css/src/compact_cache.rs::CompactNodeProps`)
 
 68 bytes, layout-critical, accessed in every iteration of the constraint-solving loop. The integer encodings use the top of their unsigned/signed range as sentinels for "value doesn't fit, fall through to slow path".
 
@@ -178,7 +181,7 @@ pub extra_flags: u8;
 
 These are negative fast paths. When `hot_flags & HOT_FLAG_HAS_TRANSFORM == 0`, the renderer can skip the slow-cascade walk for `transform` entirely and use the identity matrix. The bit is set during cascade build only when the node actually declares the property.
 
-`CompactLayoutCache` itself carries a parallel set of DOM-level flags (`DOM_HAS_TEXT_INDENT`, `DOM_HAS_LINE_HEIGHT`, …) at `css/src/compact_cache.rs:1263`. They mark "some node in this DOM declared this property" — when clear, the cascade walks for that prop are skipped across the whole DOM.
+`CompactLayoutCache` itself carries a parallel set of DOM-level flags (`DOM_HAS_TEXT_INDENT`, `DOM_HAS_LINE_HEIGHT`, ...) at `css/src/compact_cache.rs::CompactLayoutCache`. They mark "some node in this DOM declared this property". When clear, the cascade walks for that prop are skipped across the whole DOM.
 
 ## Tier 2b — `CompactTextProps`
 
@@ -194,7 +197,7 @@ pub struct CompactTextProps {
 }
 ```
 
-(`css/src/compact_cache.rs:1368`)
+(`css/src/compact_cache.rs::CompactTextProps`)
 
 24 bytes of IFC/text-shaping inputs. The whole struct is inheritable as a unit, so the cascade builder copies `tier2b_text[parent]` to `tier2b_text[child]` in one move before running per-node CSS. `font_family_hash = 0` is the unset sentinel; the actual font-family list is looked up in `font_hash_to_families`, deduplicated across nodes.
 
@@ -202,15 +205,13 @@ pub struct CompactTextProps {
 
 Three encodings, three sentinel schemes:
 
-| Encoding | Purpose | Range | Sentinels |
-|---|---|---|---|
-| `u32` (dimensions with unit) | width, height, min/max-*, flex-basis, font-size | low 4 bits = `SizeMetric`, upper 28 = signed `×1000` | `U32_SENTINEL=0xFFFFFFFF`, `U32_AUTO`, `U32_NONE`, `U32_INHERIT`, `U32_INITIAL`, `U32_MIN_CONTENT`, `U32_MAX_CONTENT`. Threshold = 0xFFFFFFF9. |
-| `i16 ×10` (resolved px) | padding, margin, border-width, top/right/bottom/left, gap, radii, line-height, letter/word-spacing, text-indent, grid-* | -3276.7 .. +3276.4 px | `I16_SENTINEL=0x7FFF`, `I16_AUTO=0x7FFE`, `I16_INHERIT=0x7FFD`, `I16_INITIAL=0x7FFC`. Threshold = 0x7FFC. |
-| `u16 ×100` (flex factor) | flex-grow, flex-shrink | 0.00 .. 655.28 | `U16_SENTINEL=0xFFFF`. Threshold = 0xFFF9. |
+- **`u32` for dimensions with unit.** Used for width, height, min/max-*, flex-basis, and font-size. Low 4 bits hold `SizeMetric`, upper 28 hold a signed value times 1000. Sentinels are `U32_SENTINEL=0xFFFFFFFF`, `U32_AUTO`, `U32_NONE`, `U32_INHERIT`, `U32_INITIAL`, `U32_MIN_CONTENT`, and `U32_MAX_CONTENT`. The threshold is `0xFFFFFFF9`.
+- **`i16 ×10` for resolved px.** Used for padding, margin, border-width, top/right/bottom/left, gap, radii, line-height, letter/word-spacing, text-indent, and grid-*. Range is -3276.7 to +3276.4 px. Sentinels are `I16_SENTINEL=0x7FFF`, `I16_AUTO=0x7FFE`, `I16_INHERIT=0x7FFD`, and `I16_INITIAL=0x7FFC`. The threshold is `0x7FFC`.
+- **`u16 ×100` for flex factor.** Used for flex-grow and flex-shrink. Range is 0.00 to 655.28. The sentinel is `U16_SENTINEL=0xFFFF`. The threshold is `0xFFF9`.
 
-Any value at or above the threshold means "doesn't fit; ask the slow path" — the getter on `CssPropertyCache` handles fallbacks.
+Any value at or above the threshold means "doesn't fit; ask the slow path". The getter on `CssPropertyCache` handles fallbacks.
 
-`encode_pixel_value_u32(pv: &PixelValue) -> u32` (`css/src/compact_cache.rs:1026`):
+`encode_pixel_value_u32(pv: &PixelValue) -> u32` (`css/src/compact_cache.rs::encode_pixel_value_u32`):
 
 ```rust,ignore
 let metric = size_metric_to_u8(pv.metric) as u32;
@@ -238,17 +239,17 @@ pub fn encode_border_styles_packed(
 }
 ```
 
-(`css/src/compact_cache.rs:789`)
+(`css/src/compact_cache.rs::encode_border_styles_packed`)
 
-`BorderStyle` has 10 variants — fits in 4 bits. Decoders `decode_border_top_style` / `_right_` / `_bottom_` / `_left_` (`css/src/compact_cache.rs:798`) extract a single side.
+`BorderStyle` has 10 variants and fits in 4 bits. Decoders `decode_border_top_style` / `_right_` / `_bottom_` / `_left_` (`css/src/compact_cache.rs::decode_border_top_style`) extract a single side.
 
 ## Color encoding
 
-`encode_color_u32(c: &ColorU) -> u32` packs RGBA as `0xRRGGBBAA`. `0x00000000` is the unset sentinel — meaning fully-transparent black (`rgba(0,0,0,0)`) collides with unset. The decoder returns `None` for `0`, and the renderer treats `None` as "use the parent's text color" or the property's initial value. In practice, fully-transparent black is rare enough that the collision is acceptable; callers who need to distinguish reach for the slow path.
+`encode_color_u32(c: &ColorU) -> u32` packs RGBA as `0xRRGGBBAA`. `0x00000000` is the unset sentinel, meaning fully-transparent black (`rgba(0,0,0,0)`) collides with unset. The decoder returns `None` for `0`, and the renderer treats `None` as "use the parent's text color" or the property's initial value. In practice, fully-transparent black is rare enough that the collision is acceptable; callers who need to distinguish reach for the slow path.
 
 ## Reading the cache
 
-The fast-path getters live on `CompactLayoutCache` (`css/src/compact_cache.rs:1261`-`1696`). Examples:
+The fast-path getters live on `CompactLayoutCache` in `css/src/compact_cache.rs`. Examples:
 
 ```rust,ignore
 let cache: &CompactLayoutCache = ...;
@@ -276,7 +277,7 @@ if cache.tier2_cold[nid].hot_flags & HOT_FLAG_HAS_TRANSFORM != 0 {
 
 ## Encoding side
 
-`build_compact_cache_with_inheritance` populates the four arrays in pre-order. Per-node encoder calls (`core/src/compact_cache_builder.rs:138`):
+`build_compact_cache_with_inheritance` populates the four arrays in pre-order. Per-node encoder calls (`core/src/compact_cache_builder.rs::build_compact_cache_with_inheritance`):
 
 ```rust,ignore
 result.tier1_enums[i] = encode_tier1(
@@ -319,7 +320,7 @@ impl Default for CompactNodeProps {
 }
 ```
 
-(`css/src/compact_cache.rs:1291`)
+(`css/src/compact_cache.rs::Default for CompactNodeProps`)
 
 `CompactNodePropsCold::default()` uses `I16_SENTINEL` for radii (no rounded corners → skip slow walk) and `I16_AUTO` for `z_index` and grid lines. `CompactTextProps::default()` uses `I16_SENTINEL` for `line_height` to mean "normal".
 
@@ -327,7 +328,7 @@ impl Default for CompactNodeProps {
 
 The compact cache is a worthwhile trade-off because the slow `get_property_slow` walks five sources per call (user override → inline → cascaded → computed → default). For ~50 properties read on every layout pass on every node, that's hundreds of thousands of walks per frame on a non-trivial DOM. The compact cache turns those into array indexing.
 
-For uncommon properties (transform, box-shadow, filter, content, transitions), the per-frame call count is low enough that the slow path is fine — and adding them to compact tiers would inflate per-node memory without measurable speedup. The `HOT_FLAG_HAS_*` and `DOM_HAS_*` bits are the compromise: stay slow-path, but skip the walk entirely when the property is known unset.
+For uncommon properties (transform, box-shadow, filter, content, transitions), the per-frame call count is low enough that the slow path is fine, and adding them to compact tiers would inflate per-node memory without measurable speedup. The `HOT_FLAG_HAS_*` and `DOM_HAS_*` bits are the compromise: stay slow-path, but skip the walk entirely when the property is known unset.
 
 ## Adding a new compact-cached property
 
@@ -349,3 +350,9 @@ For uncommon properties (transform, box-shadow, filter, content, transitions), t
 - [Cascade, Inheritance, Restyle](cascade.md) — how `build_compact_cache_with_inheritance` populates these arrays.
 - [CSS Parser](css-parser.md) — the source of the `CssProperty` values that get encoded.
 - [DOM Internals](dom.md) — the `NodeData::css_props` are one input to the cascade.
+
+## Coming Up Next
+
+- [Cascade, Inheritance, Restyle](cascade.md) — Selector matching, specificity, and computed values
+- [Layout Solver (Flex/Grid)](layout-solver.md) — Architecture of `solver3/` and how the engines share state
+- [DOM Internals](dom.md) — How the public `Dom` type is built and stored

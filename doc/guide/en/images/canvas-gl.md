@@ -174,3 +174,9 @@ The full working example lives in `examples/rust/src/opengl.rs`. It parses GeoJS
 `Texture` is reference-counted and frees its GL texture when the last clone drops. Returning a fresh `ImageRef::gl_texture(...)` from each callback invocation is the normal pattern: the previous frame's texture is dropped automatically by the framework once the new one replaces it.
 
 `GlContextPtr` is also reference-counted. Cloning it in your `RefAny` state is safe and avoids re-fetching it via `info.get_gl_context()` on hot paths.
+
+## Coming Up Next
+
+- [Animations](../animations.md) — CSS transitions and @keyframes
+- [SVG](svg.md) — Parsing and rendering SVG documents
+- [Images](../images.md) — Loading raster images and CSS backgrounds

@@ -31,16 +31,22 @@ This page covers the *resource* side of text: how font requirements are detected
 
 ## File map
 
-| File | Purpose |
-|---|---|
-| `layout/src/font.rs` | `font::loading::build_font_cache`, `font::parsed::ParsedFont` (allsorts wrapper), `font::mock::MockFont` |
-| `layout/src/font_traits.rs` | `ParsedFontTrait`, `FontLoaderTrait` — abstraction so `text3` can be tested with `MockFont` |
-| `layout/src/text3/default.rs` | `PathLoader` — disk-based `FontLoaderTrait` impl |
-| `layout/src/text3/cache.rs` | `FontContext`, `FontManager<T>`, `LoadedFonts<T>`, `FontChainKey` |
-| `layout/src/text3/glyphs.rs` | `ShapedGlyph`, glyph-instance conversion |
-| `layout/src/text3/script.rs` | `Script`, `Language`, `script_to_language`, script detection |
-| `layout/src/glyph_cache.rs` | CPU-renderer glyph-path and cell cache (separate from shaping) |
-| `layout/src/window.rs` | `LayoutWindow.layout_dom_recursive` runs the 5-step pipeline |
+- `font::loading::build_font_cache`, `font::parsed::ParsedFont` (the allsorts wrapper), and `font::mock::MockFont`.
+  - `layout/src/font.rs`
+- `ParsedFontTrait` and `FontLoaderTrait`. The abstraction lets `text3` be tested with `MockFont`.
+  - `layout/src/font_traits.rs`
+- `PathLoader`, the disk-based `FontLoaderTrait` impl.
+  - `layout/src/text3/default.rs`
+- `FontContext`, `FontManager<T>`, `LoadedFonts<T>`, and `FontChainKey`.
+  - `layout/src/text3/cache.rs`
+- `ShapedGlyph` and glyph-instance conversion.
+  - `layout/src/text3/glyphs.rs`
+- `Script`, `Language`, `script_to_language`, and script detection.
+  - `layout/src/text3/script.rs`
+- CPU-renderer glyph-path and cell cache (separate from shaping).
+  - `layout/src/glyph_cache.rs`
+- `LayoutWindow.layout_dom_recursive` runs the 5-step pipeline.
+  - `layout/src/window.rs`
 
 ## The 5-step font resolution pipeline
 
@@ -276,26 +282,28 @@ The split keeps CPU-rendering memory off the GPU path. Headless tests under `fea
 
 `solver3/getters.rs` carries the cached CSS reads:
 
-| Function | Returns |
-|---|---|
-| `collect_font_stacks_from_styled_dom(styled_dom, platform)` | `BTreeMap<NodeId, StyleFontFamilyVec>` plus stacks the platform's default font-family in front of `serif` / `sans-serif` / `monospace` keywords |
-| `resolve_font_chains(stacks, fc_cache, scripts_hint)` | `ResolvedFontChains { chains: HashMap<FontChainKeyOrRef, FontFallbackChain> }` |
-| `collect_used_codepoints(styled_dom)` | `BTreeSet<char>` — used by `prune_chain_to_used_chars` to drop fallback fonts that contribute no codepoints |
-| `scripts_present_in_styled_dom(styled_dom)` | `BTreeSet<Script>` |
-| `collect_and_resolve_font_chains_with_registration(...)` | High-level wrapper that does all of the above plus registry-driven scout-on-demand |
+- `collect_font_stacks_from_styled_dom(styled_dom, platform)` returns a `BTreeMap<NodeId, StyleFontFamilyVec>` and stacks the platform's default font-family in front of `serif`, `sans-serif`, and `monospace` keywords.
+- `resolve_font_chains(stacks, fc_cache, scripts_hint)` returns `ResolvedFontChains { chains: HashMap<FontChainKeyOrRef, FontFallbackChain> }`.
+- `collect_used_codepoints(styled_dom)` returns a `BTreeSet<char>`. It's used by `prune_chain_to_used_chars` to drop fallback fonts that contribute no codepoints.
+- `scripts_present_in_styled_dom(styled_dom)` returns a `BTreeSet<Script>`.
+- `collect_and_resolve_font_chains_with_registration(...)` is the high-level wrapper that does all of the above plus registry-driven scout-on-demand.
 
 `platform: &azul_css::system::Platform` is read from `LayoutWindow.system_style.platform`, falling back to `Platform::current()` at compile time. Different platforms map `serif` to different concrete families (Times New Roman on Windows, Times on macOS, Liberation Serif on Linux).
 
-## Summary table
+## Summary
 
-| Concern | Where it lives | Cache scope |
-|---|---|---|
-| System font path discovery | `rust-fontconfig` `FcFontCache` | App (shared via Arc) |
-| (family, weight, style) → `FontFallbackChain` | `font_chain_cache` in `FontManager` | Window |
-| Parsed font tables (`ParsedFont`) | `parsed_fonts: Arc<Mutex<HashMap<FontId, T>>>` | Window pool, shareable across windows |
-| Lazy GSUB / loca+glyf | `OnceLock` / `Mutex<Option>` inside `ParsedFont` | Per-font face |
-| Per-stack `font_family_hash` | `tier2b_text[i].font_family_hash` in `compact_cache` | Per-DOM, rebuilt by `build_compact_cache` |
-| Dirty-node list for fonts | `compact_cache.font_dirty_nodes` | Per-DOM, rebuilt by `build_compact_cache` |
-| Chain-cache invalidation signature | `FontManager.last_resolved_font_stacks_sig` | Window |
-| Shaped glyph runs | `TextShapingCache.shaped_items` + `per_item_shaped` | Window (text engine) |
-| Rasterized glyph cells | `glyph_cache.rs` | Window (CPU renderer only) |
+- **System font path discovery.** Lives in `rust-fontconfig` `FcFontCache`, scoped to the App and shared via `Arc`.
+- **(family, weight, style) to `FontFallbackChain`.** Lives in `font_chain_cache` on `FontManager`, scoped per window.
+- **Parsed font tables (`ParsedFont`).** Live in `parsed_fonts: Arc<Mutex<HashMap<FontId, T>>>`, scoped to a window pool that's shareable across windows.
+- **Lazy GSUB and loca+glyf.** Live in `OnceLock` and `Mutex<Option>` inside `ParsedFont`, scoped per font face.
+- **Per-stack `font_family_hash`.** Lives in `tier2b_text[i].font_family_hash` on `compact_cache`, scoped per DOM and rebuilt by `build_compact_cache`.
+- **Dirty-node list for fonts.** Lives in `compact_cache.font_dirty_nodes`, scoped per DOM and rebuilt by `build_compact_cache`.
+- **Chain-cache invalidation signature.** Lives in `FontManager.last_resolved_font_stacks_sig`, scoped per window.
+- **Shaped glyph runs.** Live in `TextShapingCache.shaped_items` and `per_item_shaped`, scoped to the window's text engine.
+- **Rasterized glyph cells.** Live in `glyph_cache.rs`, scoped to the window's CPU renderer only.
+
+## Coming Up Next
+
+- [Text Shaping](inline-text3.md) — The text3 engine - shaping, line breaking, BiDi, hyphenation
+- [Fragmentation](fragmentation.md) — Page breaks, widows, orphans, and PDF fragmentation
+- [Image Pipeline](image-pipeline.md) — Decoding, caching, and uploading raster images

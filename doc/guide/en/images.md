@@ -117,3 +117,9 @@ For animation, use a render-image callback (`ImageRef::callback`) and a [timer](
 ## Image masks
 
 `ImageMask` clips drawn content to an image-defined alpha mask. It carries `image: ImageRef`, `rect: LogicalRect`, and `repeat: bool`. Apply one to a `Dom` with `Dom::with_clip_mask`.
+
+## Coming Up Next
+
+- [SVG](images/svg.md) — Parsing and rendering SVG documents
+- [GL Canvas](images/canvas-gl.md) — Embedding an OpenGL canvas inside a Dom node
+- [Styling with CSS](styling.md) — Stylesheets, selectors, and the cascade

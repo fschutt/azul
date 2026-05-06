@@ -171,18 +171,16 @@ The Win32 message dispatch is split:
 
 Per-message handling lives in `WindowProc`'s `match msg {}` arms:
 
-| Win32 message | Action |
-|---|---|
-| `WM_LBUTTONDOWN` / `WM_RBUTTONDOWN` / `WM_MBUTTONDOWN` (and `_UP`) | Update `mouse_state.button_down`, fire `process_window_events` |
-| `WM_MOUSEMOVE` | Update cursor position; first move triggers `TrackMouseEvent(TME_LEAVE)` for `WM_MOUSELEAVE` |
-| `WM_MOUSEWHEEL` / `WM_MOUSEHWHEEL` | Convert to scroll delta, push to `scroll_manager` |
-| `WM_KEYDOWN` / `WM_KEYUP` / `WM_CHAR` | `win_event::handle_key` for VK code translation, then `process_window_events` |
-| `WM_SIZE` | Update `current_window_state.size`, `incremental_relayout` |
-| `WM_DPICHANGED` | Refresh per-window DPI, full `regenerate_layout` |
-| `WM_PAINT` | `render_and_present()` then `ValidateRect` |
-| `WM_COMMAND` (low word == menu cmd ID) | Look up `CoreMenuCallback` in the menu bar's `command_id → callback` map |
-| `WM_CLOSE` | `is_open = false`, return 0 (defeat the default `DestroyWindow`) |
-| `WM_IME_*` | Composition string handling — see below |
+- **`WM_LBUTTONDOWN` / `WM_RBUTTONDOWN` / `WM_MBUTTONDOWN` (and `_UP`).** Updates `mouse_state.button_down` and fires `process_window_events`.
+- **`WM_MOUSEMOVE`.** Updates the cursor position. The first move triggers `TrackMouseEvent(TME_LEAVE)` so `WM_MOUSELEAVE` is delivered later.
+- **`WM_MOUSEWHEEL` / `WM_MOUSEHWHEEL`.** Converts to a scroll delta and pushes it to `scroll_manager`.
+- **`WM_KEYDOWN` / `WM_KEYUP` / `WM_CHAR`.** Calls `win_event::handle_key` for VK code translation, then `process_window_events`.
+- **`WM_SIZE`.** Updates `current_window_state.size` and calls `incremental_relayout`.
+- **`WM_DPICHANGED`.** Refreshes per-window DPI and runs the full `regenerate_layout`.
+- **`WM_PAINT`.** Calls `render_and_present()` and then `ValidateRect`.
+- **`WM_COMMAND` (low word equals menu command ID).** Looks up `CoreMenuCallback` in the menu bar's `command_id → callback` map.
+- **`WM_CLOSE`.** Sets `is_open = false` and returns 0 to defeat the default `DestroyWindow`.
+- **`WM_IME_*`.** Composition string handling. See below.
 
 `win_event.rs` (adapted from winit, Apache-2.0 licensed) handles the
 cluster of small Win32 quirks around extended keys, scancode-based
@@ -307,3 +305,9 @@ Theme changes arrive via `WM_SETTINGCHANGE` with `lParam == "ImmersiveColorSet"`
   `WM_MOUSE*` and `WM_TOUCH` are processed.
 - The CPU path's `bgra_buffer` is cached but not damage-clipped —
   it always rebuilds the full BGRA from the pixmap each frame.
+
+## Coming Up Next
+
+- [Shell2 Common Layer](shell2-common.md) — Shared shell infrastructure across platforms
+- [Shell2 — macOS](shell2-macos.md) — macOS shell - Cocoa, AppKit, IME, a11y
+- [Window Menus](menus-and-csd.md) — Menus and client-side decorations across platforms

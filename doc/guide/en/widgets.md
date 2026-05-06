@@ -207,3 +207,9 @@ before calling `dom()`. For one-off styling, prefer adding CSS to the produced
 # use azul::prelude::*;
 let dom = Button::create("Save".into()).dom();
 ```
+
+## Coming Up Next
+
+- [Input Widgets](widgets/inputs.md) — Text fields, checkboxes, radios, sliders, dropdowns
+- [Structural Widgets](widgets/structural.md) — Panels, splitters, tab views, list views, tree views
+- [Accessibility](accessibility.md) — Screen reader integration and ARIA roles

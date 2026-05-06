@@ -43,18 +43,24 @@ The repository layout mirrors that order. Read the crates top-to-bottom and you 
 
 Pure data definitions for the CSS engine. `no_std`-compatible, no platform code, no dependencies on other azul crates. The `corety` module re-exports the FFI-safe primitives (`AzString`, `AzVec<T>`, `OptionT`) that travel through the C API; everything else in the workspace consumes these.
 
-Key modules (declared in `css/src/lib.rs`):
+Key modules declared in `css/src/lib.rs`:
 
-| module | purpose |
-|---|---|
-| [`css`](../../../../css/src/css.rs) | `Css`, `Stylesheet`, `CssRuleBlock`, `CssDeclaration` — the parsed AST |
-| [`props`](../../../../css/src/props/) | typed `CssProperty` enum and per-property value types |
-| [`parser2`](../../../../css/src/parser2.rs) | feature-gated CSS string parser |
-| [`compact_cache`](../../../../css/src/compact_cache.rs) | three-tier numeric cache for resolved styles |
-| [`format_rust_code`](../../../../css/src/format_rust_code.rs) | const-compatible Rust source emitter for compile-time CSS |
-| [`system`](../../../../css/src/system.rs) | OS-native theme discovery (system colors, fonts, DPI) |
-| [`shape`](../../../../css/src/shape.rs) | `shape-inside`, `shape-outside`, `clip-path` data |
-| [`codegen`](../../../../css/src/codegen/mod.rs) | "compile a stylesheet to a standalone project" — separate from the FFI codegen pipeline |
+- **css.** The parsed AST: `Css`, `Stylesheet`, `CssRuleBlock`, `CssDeclaration`.
+  - `css/src/css.rs`
+- **props.** Typed `CssProperty` enum and per-property value types.
+  - `css/src/props/`
+- **parser2.** Feature-gated CSS string parser.
+  - `css/src/parser2.rs`
+- **compact_cache.** Three-tier numeric cache for resolved styles.
+  - `css/src/compact_cache.rs`
+- **format_rust_code.** Const-compatible Rust source emitter for compile-time CSS.
+  - `css/src/format_rust_code.rs`
+- **system.** OS-native theme discovery for system colors, fonts, and DPI.
+  - `css/src/system.rs`
+- **shape.** Data for `shape-inside`, `shape-outside`, and `clip-path`.
+  - `css/src/shape.rs`
+- **codegen.** Compiles a stylesheet to a standalone project. Separate from the FFI codegen pipeline.
+  - `css/src/codegen/mod.rs`
 
 The crate sets `#![cfg_attr(not(feature = "std"), no_std)]` and depends on `alloc` only, so the parser can run in restricted environments (e.g. embedded CSS in a WASM payload).
 
@@ -62,30 +68,52 @@ The crate sets `#![cfg_attr(not(feature = "std"), no_std)]` and depends on `allo
 
 Platform-independent definitions for the GUI loop: DOM construction, the CSSOM, callbacks, hit-testing, resources, OpenGL, and SVG. Foundational; depends only on `azul-css`.
 
-The crate is large but well-partitioned (modules declared in `core/src/lib.rs:47-134`):
+The crate is large but well-partitioned. Modules are declared in `core/src/lib.rs`:
 
-| module | what it owns |
-|---|---|
-| [`dom`](../../../../core/src/dom.rs) | `Dom`, `NodeData`, `NodeType`, the CSS-in-Rust API |
-| [`styled_dom`](../../../../core/src/styled_dom.rs) | `StyledDom` — DOM after the CSS cascade |
-| [`callbacks`](../../../../core/src/callbacks.rs) | `Callback`, `Update`, `LayoutCallback`, `RefAny`-using closures |
-| [`refany`](../../../../core/src/refany.rs) | the type-erased ref-counted pointer |
-| [`events`](../../../../core/src/events.rs) | `EventFilter`, `SyntheticEvent`, hover/focus/touch enums |
-| [`window`](../../../../core/src/window.rs) | `WindowState`, `WindowCreateOptions`, platform options |
-| [`resources`](../../../../core/src/resources.rs) | `ImageCache`, `RendererResources`, font/image refcounts |
-| [`hit_test`](../../../../core/src/hit_test.rs), [`hit_test_tag`](../../../../core/src/hit_test_tag.rs) | typed hit-test results and the compositor tag wire format |
-| [`prop_cache`](../../../../core/src/prop_cache.rs) | per-node CSS property cache |
-| [`compact_cache_builder`](../../../../core/src/compact_cache_builder.rs) | converts `CssPropertyCache` into the numeric three-tier cache |
-| [`style`](../../../../core/src/style.rs) | cascade, selector matching, specificity |
-| [`gl`](../../../../core/src/gl.rs), [`glconst`](../../../../core/src/glconst.rs), [`gl_fxaa`](../../../../core/src/gl_fxaa.rs) | OpenGL context wrappers, GL constants, FXAA shader |
-| [`gpu`](../../../../core/src/gpu.rs) | GPU value cache (transforms, opacity, scrollbar fades) |
-| [`svg`](../../../../core/src/svg.rs), [`svg_path_parser`](../../../../core/src/svg_path_parser.rs) | SVG types and `d=""` parser |
-| [`task`](../../../../core/src/task.rs) | `Timer`, `Thread`, `ThreadSendMsg`, async state machinery |
-| [`animation`](../../../../core/src/animation.rs) | `AnimationData`, transition interpolation |
-| [`a11y`](../../../../core/src/a11y.rs) | screen-reader types fed to AccessKit |
-| [`menu`](../../../../core/src/menu.rs) | menu bar, context menu, menu item types |
-| [`xml`](../../../../core/src/xml.rs) | XHTML parser (declarative UI) |
-| [`json`](../../../../core/src/json.rs) | C-API JSON value types (no `serde` dep) |
+- **dom.** `Dom`, `NodeData`, `NodeType`, the CSS-in-Rust API.
+  - `core/src/dom.rs`
+- **styled_dom.** `StyledDom`, the DOM after the CSS cascade.
+  - `core/src/styled_dom.rs`
+- **callbacks.** `Callback`, `Update`, `LayoutCallback`, and `RefAny`-using closures.
+  - `core/src/callbacks.rs`
+- **refany.** The type-erased ref-counted pointer.
+  - `core/src/refany.rs`
+- **events.** `EventFilter`, `SyntheticEvent`, plus hover, focus, and touch enums.
+  - `core/src/events.rs`
+- **window.** `WindowState`, `WindowCreateOptions`, platform options.
+  - `core/src/window.rs`
+- **resources.** `ImageCache`, `RendererResources`, font and image refcounts.
+  - `core/src/resources.rs`
+- **hit_test.** Typed hit-test results and the compositor tag wire format.
+  - `core/src/hit_test.rs`
+  - `core/src/hit_test_tag.rs`
+- **prop_cache.** Per-node CSS property cache.
+  - `core/src/prop_cache.rs`
+- **compact_cache_builder.** Converts `CssPropertyCache` into the numeric three-tier cache.
+  - `core/src/compact_cache_builder.rs`
+- **style.** Cascade, selector matching, specificity.
+  - `core/src/style.rs`
+- **gl.** OpenGL context wrappers, GL constants, FXAA shader.
+  - `core/src/gl.rs`
+  - `core/src/glconst.rs`
+  - `core/src/gl_fxaa.rs`
+- **gpu.** GPU value cache for transforms, opacity, and scrollbar fades.
+  - `core/src/gpu.rs`
+- **svg.** SVG types and `d=""` parser.
+  - `core/src/svg.rs`
+  - `core/src/svg_path_parser.rs`
+- **task.** `Timer`, `Thread`, `ThreadSendMsg`, async state machinery.
+  - `core/src/task.rs`
+- **animation.** `AnimationData` and transition interpolation.
+  - `core/src/animation.rs`
+- **a11y.** Screen-reader types fed to AccessKit.
+  - `core/src/a11y.rs`
+- **menu.** Menu bar, context menu, and menu item types.
+  - `core/src/menu.rs`
+- **xml.** XHTML parser for declarative UI.
+  - `core/src/xml.rs`
+- **json.** C-API JSON value types with no `serde` dep.
+  - `core/src/json.rs`
 
 `core` has the same `no_std` surface as `css`, but most consumers enable the `std` feature. Type aliases `OrderedMap<K, V>` (a `BTreeMap`) and `FastBTreeSet<T>` are defined at the crate root because `HashMap` is unavailable under `no_std`.
 
@@ -101,30 +129,50 @@ Five sub-systems do most of the work:
 - **[`window`](../../../../layout/src/window.rs)** — `LayoutWindow` is the per-window aggregate; `layout_and_generate_display_list()` is the relayout entry point called by every platform shell each frame.
 - **[`widgets/`](../../../../layout/src/widgets/)** — built-in widgets: button, text input, tabs, tree view, node graph. Optional via the `widgets` feature.
 
-Smaller modules in `layout/src/lib.rs:46-235`:
+Smaller modules in `layout/src/lib.rs`:
 
-| module | feature gate | purpose |
-|---|---|---|
-| [`font`](../../../../layout/src/font.rs) | `text_layout` | font parsing, metrics, subsetting (allsorts) |
-| [`hit_test`](../../../../layout/src/hit_test.rs) | `text_layout` | maps screen coords to `DomNodeId` |
-| [`fragmentation`](../../../../layout/src/fragmentation.rs) | always | CSS fragmentation engine for paged media |
-| [`paged`](../../../../layout/src/paged.rs) | always | infinite-canvas paged layout |
-| [`event_determination`](../../../../layout/src/event_determination.rs) | `text_layout` | maps raw input to DOM callbacks |
-| [`callbacks`](../../../../layout/src/callbacks.rs) | `text_layout` | callback invocation + result processing |
-| [`default_actions`](../../../../layout/src/default_actions.rs) | `text_layout` | copy/paste/select-all/undo defaults |
-| [`cpurender`](../../../../layout/src/cpurender.rs) | `cpurender` | CPU-only software rendering |
-| [`headless`](../../../../layout/src/headless.rs) | `text_layout` | headless backend (`AZUL_HEADLESS=1`) for E2E + screenshots |
-| [`scroll_timer`](../../../../layout/src/scroll_timer.rs) | `text_layout` | momentum-scroll physics timer |
-| [`thread`](../../../../layout/src/thread.rs), [`timer`](../../../../layout/src/timer.rs) | `text_layout` | C-API wrappers around `core::task` |
-| [`xml`](../../../../layout/src/xml/) | `xml` | XML/XHTML → `StyledDom` |
-| [`fluent`](../../../../layout/src/fluent.rs) | `fluent` | Project Fluent localization |
-| [`icu`](../../../../layout/src/icu.rs) | `icu` / `icu_macos` / `icu_windows` | platform-specific ICU bindings |
-| [`http`](../../../../layout/src/http.rs), [`url`](../../../../layout/src/url.rs) | `http` | HTTP client + URL parser |
-| [`zip`](../../../../layout/src/zip.rs) | `zip_support` | ZIP I/O |
-| [`json`](../../../../layout/src/json.rs) | `json` | C-API JSON |
-| [`file`](../../../../layout/src/file.rs) | always | filesystem ops (C-compatible) |
-| [`icon`](../../../../layout/src/icon.rs) | always | icon resolver (Material Icons font, image, ZIP packs) |
-| [`probe`](../../../../layout/src/probe.rs) | `probe` (no-op when off) | `AZ_PROFILE` instrumentation |
+- **font.** Font parsing, metrics, and subsetting via allsorts. Feature `text_layout`.
+  - `layout/src/font.rs`
+- **hit_test.** Maps screen coords to `DomNodeId`. Feature `text_layout`.
+  - `layout/src/hit_test.rs`
+- **fragmentation.** CSS fragmentation engine for paged media. Always compiled.
+  - `layout/src/fragmentation.rs`
+- **paged.** Infinite-canvas paged layout. Always compiled.
+  - `layout/src/paged.rs`
+- **event_determination.** Maps raw input to DOM callbacks. Feature `text_layout`.
+  - `layout/src/event_determination.rs`
+- **callbacks.** Callback invocation and result processing. Feature `text_layout`.
+  - `layout/src/callbacks.rs`
+- **default_actions.** Copy, paste, select-all, and undo defaults. Feature `text_layout`.
+  - `layout/src/default_actions.rs`
+- **cpurender.** CPU-only software rendering. Feature `cpurender`.
+  - `layout/src/cpurender.rs`
+- **headless.** Headless backend (`AZUL_HEADLESS=1`) for E2E and screenshots. Feature `text_layout`.
+  - `layout/src/headless.rs`
+- **scroll_timer.** Momentum-scroll physics timer. Feature `text_layout`.
+  - `layout/src/scroll_timer.rs`
+- **thread, timer.** C-API wrappers around `core::task`. Feature `text_layout`.
+  - `layout/src/thread.rs`
+  - `layout/src/timer.rs`
+- **xml.** XML/XHTML to `StyledDom`. Feature `xml`.
+  - `layout/src/xml/`
+- **fluent.** Project Fluent localization. Feature `fluent`.
+  - `layout/src/fluent.rs`
+- **icu.** Platform-specific ICU bindings. Features `icu` / `icu_macos` / `icu_windows`.
+  - `layout/src/icu.rs`
+- **http, url.** HTTP client and URL parser. Feature `http`.
+  - `layout/src/http.rs`
+  - `layout/src/url.rs`
+- **zip.** ZIP I/O. Feature `zip_support`.
+  - `layout/src/zip.rs`
+- **json.** C-API JSON. Feature `json`.
+  - `layout/src/json.rs`
+- **file.** Filesystem ops, C-compatible. Always compiled.
+  - `layout/src/file.rs`
+- **icon.** Icon resolver for Material Icons font, image, and ZIP packs. Always compiled.
+  - `layout/src/icon.rs`
+- **probe.** `AZ_PROFILE` instrumentation. Feature `probe`, no-op when off.
+  - `layout/src/probe.rs`
 
 Everything large is feature-gated so a minimal build (e.g. WASM target, headless CI) only compiles what it needs.
 
@@ -189,17 +237,25 @@ doc/src/
 
 Subcommands worth knowing:
 
-| subcommand | code path | purpose |
-|---|---|---|
-| `print` | `print.rs` | dump api.json by module/class/function |
-| `normalize` | `main.rs` + `patch/` | rewrite api.json to canonical form |
-| `codegen all` | `codegen/v2/generator.rs` `generate_all_v2` | produce every binding (`target/codegen/*.rs`, `azul.h`, `azul*.hpp`) |
-| `codegen <rust\|c\|cpp\|python>` | `codegen/v2/mod.rs` | one target |
-| `reftest` | `reftest/` | run visual regression suite |
-| `deploy` | `dllgen/deploy/` | build release artifacts + website |
-| `autoreview autodoc` | `autofix/autodoc.rs` | parallel doc-generation agents (this pipeline) |
-| `autoreview autodoc-screenshots` | same | render `azul-render` fences |
-| `autoreview autodoc-check` | same | pre-deploy staleness gate |
+- **`print`.** Dumps api.json by module, class, or function.
+  - `doc/src/print.rs`
+- **`normalize`.** Rewrites api.json to canonical form.
+  - `doc/src/main.rs`
+  - `doc/src/patch/`
+- **`codegen all`.** Produces every binding (`target/codegen/*.rs`, `azul.h`, `azul*.hpp`).
+  - `doc/src/codegen/v2/generator.rs::generate_all_v2`
+- **`codegen <rust|c|cpp|python>`.** Produces one target.
+  - `doc/src/codegen/v2/mod.rs`
+- **`reftest`.** Runs the visual regression suite.
+  - `doc/src/reftest/`
+- **`deploy`.** Builds release artifacts and the website.
+  - `doc/src/dllgen/deploy/`
+- **`autoreview autodoc`.** Parallel doc-generation agents. This pipeline.
+  - `doc/src/autofix/autodoc.rs`
+- **`autoreview autodoc-screenshots`.** Renders `azul-render` fences.
+  - `doc/src/autofix/autodoc.rs`
+- **`autoreview autodoc-check`.** Pre-deploy staleness gate.
+  - `doc/src/autofix/autodoc.rs`
 
 `scripts/ARCHITECTURE.md` is the authoritative high-level map; cite it before adding cross-crate refactors.
 
@@ -225,3 +281,10 @@ If a new crate is justified (e.g. an optional decoder that has a heavy build dep
 Platform-specific code lives in `dll/src/desktop/shell2/<platform>/`. Don't add `cfg(target_os = "...")` blocks in `core` or `layout` — those crates must compile for every target including WASM. The shell2 layer is the integration boundary.
 
 The exception is platform-specific *type definitions* in `core::window` (`WindowsWindowOptions`, `MacOsWindowOptions`, etc.) — these are POD and need to round-trip through the C ABI regardless of host platform, so they live in `core` but are only consumed by `dll/src/desktop/shell2/<platform>/`.
+
+## Coming Up Next
+
+- [FFI Codegen](build-and-codegen.md) — How `cargo build` cascades and the codegen pass
+- [DOM Internals](dom.md) — How the public `Dom` type is built and stored
+- [Layout Solver (Flex/Grid)](layout-solver.md) — Architecture of `solver3/` and how the engines share state
+- [Rendering Pipeline](rendering-pipeline.md) — From `StyledDom` to pixels

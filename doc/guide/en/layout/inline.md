@@ -31,16 +31,14 @@ or height, paints between text runs, and breaks across lines if it has to.
 `display: inline-block` *does* accept `width` and `height` (and so behaves
 like a small block), but otherwise still rides along inline content.
 
-```rust
-# fn body() -> &'static str {
-"<p>
+```html
+<p>
   Inline:
   <span style='display: inline; background: #fef3c7;'>span</span> wraps with text.
   Inline-block:
   <span style='display: inline-block; width: 80px; background: #c4b5fd;'>fixed-width</span>
   is sized like a block but flows inline.
-</p>"
-# }
+</p>
 ```
 
 ## Choosing between `inline` and `inline-block`
@@ -87,14 +85,10 @@ and positions output at layout time. For the architecture, see
 requires the layout crate's hyphenation resources for the active
 language.
 
-```rust
-# fn body() -> &'static str {
-"
+```css
 .code { white-space: pre; tab-size: 4em; }
 .tag  { white-space: nowrap; }
 .body { hyphens: auto; word-break: normal; overflow-wrap: anywhere; }
-"
-# }
 ```
 
 ## Spacing and metrics
@@ -109,11 +103,9 @@ The properties that modulate inline flow:
 - `vertical-align`. Default `baseline`. How inline-blocks line up against
   the line box.
 
-```rust
-# fn body() -> &'static str {
-".body { line-height: 150%; letter-spacing: 0.02em; }
-pre   { tab-size: 4em; }"
-# }
+```css
+.body { line-height: 150%; letter-spacing: 0.02em; }
+pre   { tab-size: 4em; }
 ```
 
 `vertical-align` accepts `baseline`, `top`, `middle`, `bottom`, `sub`,
@@ -144,12 +136,10 @@ Properties that follow the inline axis (`padding-inline-start`,
 `padding-inline-end`, `margin-inline-*`, `gap`'s row/column meaning)
 re-orient when the writing mode is vertical.
 
-```rust
-# fn body() -> &'static str {
-"<div style='writing-mode: vertical-rl; height: 200px;'>
+```html
+<div style='writing-mode: vertical-rl; height: 200px;'>
   Vertical CJK-style flow, top-to-bottom right-to-left.
-</div>"
-# }
+</div>
 ```
 
 ## Multi-column
@@ -157,10 +147,8 @@ re-orient when the writing mode is vertical.
 `column-count`, `column-width`, and the `column-rule-*` longhands flow
 block content into multiple columns:
 
-```rust
-# fn body() -> &'static str {
-"article { column-count: 2; column-gap: 24px; column-rule: 1px solid #ccc; }"
-# }
+```css
+article { column-count: 2; column-gap: 24px; column-rule: 1px solid #ccc; }
 ```
 
 - `column-count`. Integer or `auto`.
@@ -233,21 +221,26 @@ surprises.
 
 ## Default values at a glance
 
-| property | default |
-|---|---|
-| `display` | `block` (override to `inline` or `inline-block` per element) |
-| `white-space` | `normal` |
-| `word-break` | `normal` |
-| `overflow-wrap` | `normal` |
-| `hyphens` | `manual` |
-| `direction` | `ltr` |
-| `writing-mode` | `horizontal-tb` |
-| `line-height` | `120%` |
-| `letter-spacing` | `0px` |
-| `word-spacing` | `0px` |
-| `tab-size` | `8em` |
-| `vertical-align` | `baseline` |
-| `column-count` | `auto` |
-| `column-fill` | `balance` |
-| `column-rule` | `medium none currentColor` |
-| `widows` / `orphans` | `2` |
+- `display` defaults to `block`. Override to `inline` or `inline-block` per element.
+- `white-space` defaults to `normal`.
+- `word-break` defaults to `normal`.
+- `overflow-wrap` defaults to `normal`.
+- `hyphens` defaults to `manual`.
+- `direction` defaults to `ltr`.
+- `writing-mode` defaults to `horizontal-tb`.
+- `line-height` defaults to `120%`.
+- `letter-spacing` defaults to `0px`.
+- `word-spacing` defaults to `0px`.
+- `tab-size` defaults to `8em`.
+- `vertical-align` defaults to `baseline`.
+- `column-count` defaults to `auto`.
+- `column-fill` defaults to `balance`.
+- `column-rule` defaults to `medium none currentColor`.
+- `widows` and `orphans` default to `2`.
+
+## Coming Up Next
+
+- [Flexbox](flex.md) — One-axis container layout with grow/shrink/basis
+- [Grid](grid.md) — Two-axis container layout with tracks and areas
+- [Styling Text](../styling/text-and-fonts.md) — Font family, size, weight, alignment, decoration, and the system font keywords
+- [Text Input](../text-input.md) — Editable text, IME, and the selection model

@@ -16,7 +16,7 @@ generated_at: 2026-05-02T05:50:16Z
 ---
 
 > **WIP**: the runtime is functional but `tick_timers`
-> (`layout/src/window.rs:1977`) currently returns every timer ID instead of
+> in `layout/src/window.rs` currently returns every timer ID instead of
 > filtering by readiness. Per-timer gating happens inside `Timer::invoke`.
 
 The async runtime in `core/src/task.rs` is the FFI-safe substrate for two
@@ -37,32 +37,28 @@ mechanism, `LayoutWindow::run_all_threads` — lives in `layout/src/timer.rs`,
 Timer and thread IDs are monotonic atomic counters with reserved low
 ranges for framework use:
 
-| Range | Use |
-|---|---|
-| `TimerId { id: 0x0000..0x00FF }` | Reserved system timers |
-| `TimerId { id: 0x0100.. }` | User timers (`TimerId::unique()`) |
-| `ThreadId { id: 0..5 }` | Reserved (currently unused) |
-| `ThreadId { id: 5.. }` | User threads (`ThreadId::unique()`) |
+- `TimerId { id: 0x0000..0x00FF }` is reserved for system timers.
+- `TimerId { id: 0x0100.. }` is for user timers via `TimerId::unique()`.
+- `ThreadId { id: 0..5 }` is reserved and currently unused.
+- `ThreadId { id: 5.. }` is for user threads via `ThreadId::unique()`.
 
 `USER_TIMER_ID_START = 0x0100` and `RESERVED_THREAD_ID_COUNT = 5` are the
-gates (`core/src/task.rs:78,103`). Because both counters are
+gates in `core/src/task.rs`. Because both counters are
 `AtomicUsize::fetch_add(1, SeqCst)`, IDs are unique across threads and
 across windows.
 
 ### Reserved timer IDs
 
-| ID | Name | Purpose |
-|---|---|---|
-| `0x0001` | `CURSOR_BLINK_TIMER_ID` | Caret blink in `contenteditable` (~530 ms) |
-| `0x0002` | `SCROLL_MOMENTUM_TIMER_ID` | Inertia/flick animation |
-| `0x0003` | `DRAG_AUTOSCROLL_TIMER_ID` | Edge auto-scroll during drag |
-| `0x0004` | `TOOLTIP_DELAY_TIMER_ID` | Hover-delay before tooltip shows |
+- **`CURSOR_BLINK_TIMER_ID = 0x0001`.** Caret blink in `contenteditable`, around 530 ms.
+- **`SCROLL_MOMENTUM_TIMER_ID = 0x0002`.** Inertia and flick animation.
+- **`DRAG_AUTOSCROLL_TIMER_ID = 0x0003`.** Edge auto-scroll during drag.
+- **`TOOLTIP_DELAY_TIMER_ID = 0x0004`.** Hover delay before tooltip shows.
 
-Defined at `core/src/task.rs:46-74`. Wiring is partial: the cursor-blink
-and scroll-momentum timers are driven by the platform event loop;
+Defined in `core/src/task.rs`. Wiring is partial: the cursor-blink
+and scroll-momentum timers are driven by the platform event loop, and
 `DRAG_AUTOSCROLL_TIMER_ID` is referenced in
 `dll/src/desktop/shell2/common/event.rs` but the autoscroll body is not
-yet implemented. There is **no** `DOUBLE_CLICK_TIMER_ID` — double-click
+yet implemented. There is **no** `DOUBLE_CLICK_TIMER_ID`. Double-click
 detection lives in `GestureManager::detect_double_click`.
 
 ## Time types
@@ -85,7 +81,7 @@ pub enum Duration {
 ```
 
 Mixing variants panics: `Instant::System.duration_since(Instant::Tick)`
-hits the `_ => panic!(...)` arm at `core/src/task.rs:285`, as does adding
+hits the `_ => panic!(...)` arm in `core/src/task.rs`, as does adding
 a `Duration::Tick` to an `Instant::System`. The convention is that a
 runtime picks one variant at startup (via `GetSystemTimeCallback`) and
 stays on it.
@@ -134,13 +130,13 @@ same function via `ExternalSystemCallbacks::rust_internal()`.
 ### `Duration::greater_than` / `smaller_than`
 
 `Duration` derives `PartialOrd` and `Ord`, so `>` and `<` already work.
-The named methods (`core/src/task.rs:526-571`) duplicate this with
+The named methods in `core/src/task.rs` duplicate this with
 explicit panic branches for mismatched variants. They predate the
-derived impls; new code should prefer the comparison operators.
+derived impls. New code should prefer the comparison operators.
 
 ## Timer system
 
-The `Timer` struct lives in `layout/src/timer.rs:111`:
+The `Timer` struct lives in `layout/src/timer.rs`:
 
 ```rust,ignore
 #[repr(C)]
@@ -164,7 +160,7 @@ Three timing knobs:
 - `timeout` — total lifetime; once exceeded, the next invocation forces
   `TerminateTimer::Terminate`.
 
-All three are checked inside `Timer::invoke` (`layout/src/timer.rs:194`).
+All three are checked inside `Timer::invoke` in `layout/src/timer.rs`.
 If the timer is not ready, it returns
 `TimerCallbackReturn { should_update: DoNothing, should_terminate: Continue }`
 without firing the user callback. If the timer is past its `timeout`, it
@@ -190,9 +186,9 @@ LayoutWindow.timers   ─┴─ tick ──┤   && delay not elapsed: return id
 ```
 
 The platform shell calls `tick_timers` and `Timer::invoke` once per
-event-loop turn through `LayoutWindow::run_all_timers` (the existing
-`tick_timers` at `layout/src/window.rs:1977` returns all IDs unfiltered;
-the per-timer readiness check happens inside `invoke`).
+event-loop turn through `LayoutWindow::run_all_timers`. The existing
+`tick_timers` in `layout/src/window.rs` returns all IDs unfiltered.
+The per-timer readiness check happens inside `invoke`.
 
 ### `time_until_next_timer_ms`
 
@@ -203,7 +199,7 @@ pub fn time_until_next_timer_ms(
 ) -> Option<u64>
 ```
 
-Defined at `layout/src/window.rs:1999`. Returns the minimum number of
+Defined in `layout/src/window.rs`. Returns the minimum number of
 milliseconds until any timer's `instant_of_next_run()` arrives, or
 `None` if there are no timers (in which case the caller may block
 indefinitely). The Linux X11 and Wayland backends pass this to
@@ -249,7 +245,7 @@ let thread = Thread::create(
 );
 ```
 
-`Thread::create` calls `create_thread_libstd` (`layout/src/thread.rs:812`)
+`Thread::create` calls `create_thread_libstd` in `layout/src/thread.rs`,
 which:
 
 1. Creates a `Sender<ThreadReceiveMsg>` / `Receiver<ThreadReceiveMsg>`
@@ -289,7 +285,7 @@ pub enum ThreadReceiveMsg {
 
 `ThreadSendMsg::Tick` is sent by `run_all_threads` once per turn so the
 thread can use it as a frame heartbeat. `ThreadSendMsg::Custom` carries
-arbitrary `RefAny` payload — the channel does not interpret it.
+an arbitrary `RefAny` payload. The channel does not interpret it.
 
 `ThreadReceiveMsg::Update(Update)` is the lightweight path: the thread
 just wants the UI to redraw and has no data for the main thread to
@@ -300,10 +296,10 @@ main thread with full `CallbackInfo` access.
 ### `ThreadReceiver` / `ThreadSender`
 
 Both are FFI-safe wrappers around the std `mpsc` channels with manual
-clone/drop callbacks (`core/src/task.rs:570-625` and
-`layout/src/thread.rs:90-153`). The pattern matches `InstantPtr`:
-`ptr: Box<Arc<Mutex<…Inner>>>` plus extern function pointers for `recv`
-/ `send` / destructor. The `ctx: OptionRefAny` slot holds an FFI
+clone/drop callbacks. They live in `core/src/task.rs` and
+`layout/src/thread.rs`. The pattern matches `InstantPtr`:
+`ptr: Box<Arc<Mutex<…Inner>>>` plus extern function pointers for `recv`,
+`send`, and destructor. The `ctx: OptionRefAny` slot holds an FFI
 callable (e.g., a Python `PyFunction`) so foreign-language thread
 callbacks can be re-entered from the C side.
 
@@ -335,7 +331,7 @@ main thread holding the borrow.
 
 ### `run_all_threads`
 
-Defined at `layout/src/window.rs:3900`. The per-thread loop is:
+Defined in `layout/src/window.rs`. The per-thread loop is:
 
 1. Acquire the thread's mutex; on poison, emit
    `CallbackChange::RemoveThread` and skip.
@@ -357,8 +353,8 @@ starving the event loop.
 
 `ThreadInner.dropcheck: Box<Weak<()>>` holds a weak reference to an
 `Arc<()>` that is bound as `_thread_check_guard` inside the spawned
-closure (`layout/src/thread.rs:849`). Binding to a *named* variable is
-critical — `_` would drop the `Arc` immediately, fooling the main
+closure in `layout/src/thread.rs`. Binding to a *named* variable is
+critical. `_` would drop the `Arc` immediately, fooling the main
 thread into thinking the thread had already finished. When the closure
 returns, the `Arc` drops, the `Weak::upgrade` on the main side returns
 `None`, and `is_finished()` reports `true`.
@@ -377,23 +373,28 @@ poll_window_events
 ```
 
 Both timer and thread invocation produce
-`Vec<crate::callbacks::CallbackChange>` — the same change-set type that
-event callbacks emit — so the shell applies them through a single
+`Vec<crate::callbacks::CallbackChange>`, the same change-set type that
+event callbacks emit, so the shell applies them through a single
 `apply_user_change` codepath. From the rest of the system's perspective,
 a timer or thread is just another callback source.
 
 ## Cross-references
 
-- `layout/src/timer.rs` — `Timer`, `TimerCallback`, `TimerCallbackInfo`,
-  invocation logic.
-- `layout/src/thread.rs` — `Thread`, `ThreadSender`, `ThreadReceiver`,
-  `WriteBackCallback`, `create_thread_libstd`.
-- `layout/src/window.rs:1948-2027` — `LayoutWindow` timer storage and
-  `time_until_next_timer_ms`.
-- `layout/src/window.rs:3900` — `run_all_threads`.
-- `dll/src/desktop/shell2/common/event.rs:4566` — shell-side timer/thread
-  driver.
+- `layout/src/timer.rs` holds `Timer`, `TimerCallback`, `TimerCallbackInfo`,
+  and invocation logic.
+- `layout/src/thread.rs` holds `Thread`, `ThreadSender`, `ThreadReceiver`,
+  `WriteBackCallback`, and `create_thread_libstd`.
+- `layout/src/window.rs` holds `LayoutWindow` timer storage,
+  `time_until_next_timer_ms`, and `run_all_threads`.
+- `dll/src/desktop/shell2/common/event.rs` holds the shell-side timer and
+  thread driver.
 - [Event System Internals](event-system.md) — the change-set type that
   timer and thread callbacks emit.
 - [Shell2 Common Layer](shell2-common.md) — how the per-turn driver is
   invoked.
+
+## Coming Up Next
+
+- [Event System Internals](event-system.md) — Hit-testing, callback invocation, the Update protocol
+- [Shell2 Common Layer](shell2-common.md) — Shared shell infrastructure across platforms
+- [Code Organization](code-organization.md) — Top-level crate map and where each piece lives

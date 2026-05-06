@@ -202,3 +202,9 @@ A useful split:
 ## Source
 
 - `core/src/dom.rs` — `Dom::with_merge_callback`, `DatasetMergeCallback`, `DatasetMergeCallbackType`
+
+## Coming Up Next
+
+- [Virtual Views](virtual-views.md) — A node that materialises lazily, for infinite lists and embedded sub-DOMs
+- [Components](components.md) — Reusable UI fragments - named functions of (args) -> Dom
+- [Reconciliation](reconciliation.md) — Diffing, restyle scope, and damage-rect repaint

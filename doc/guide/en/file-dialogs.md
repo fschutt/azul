@@ -171,3 +171,9 @@ The picker returns RGB only; alpha is forced to opaque. Pass
 - Filter format is extension-only.
 - Pass one `FileTypeList` per call. If you need multiple labelled groups,
   present them in a custom in-window picker instead.
+
+## Coming Up Next
+
+- [Clipboard](clipboard.md) — Reading and writing the system clipboard
+- [Networking](networking.md) — HTTP from a callback
+- [Windows, Menus, Decorations](windowing.md) — Windows, menus, decorations, and per-window state

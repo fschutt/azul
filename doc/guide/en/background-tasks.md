@@ -228,3 +228,9 @@ Duration::System(SystemTimeDiff::from_nanos(1_000))
 - Run `async fn` directly. The framework doesn't provide an executor. To use Tokio, futures-rs, or smol, spawn a `Thread`, build a `Runtime` inside it, and use `WriteBackCallback` to surface results.
 - Stream raw socket data through the framework. Networking has its own page; see [networking](networking.md). Until the runtime side lands, use a `Thread` plus `std::net::TcpStream` for the same shape as the example above.
 - Share `&mut` references between thread and main. Communication is `RefAny` payloads only. Lock-free shared state isn't part of the framework. Wrap a `Mutex` inside `RefAny` if you need it.
+
+## Coming Up Next
+
+- [Networking](networking.md) — HTTP from a callback
+- [Timers](timers.md) — Timers, threads, and scheduled work
+- [Events](events.md) — Callbacks, event filters, and how state triggers relayout

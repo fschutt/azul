@@ -273,8 +273,9 @@ Dom::create_body().with_callback(
 - **Counter doesn't update.** The callback returned `Update::DoNothing`. Return `Update::RefreshDom` after mutating the model.
 - **Default action still happens after `prevent_default`.** Verify the call is on `CallbackInfo`, not on a stale copy. The change is applied after the callback returns. Calling it twice is harmless.
 
-## Next
+## Coming Up Next
 
-- [Timers](timers.md): frame-driven callbacks for animation and polling.
-- [Scrolling](scrolling-and-drag.md): scroll events and drag tracking.
-- [Windows, Menus, Decorations](windowing.md): multi-window, menu bars, context menus.
+- [Text Input](text-input.md) — Editable text, IME, and the selection model
+- [Scrolling](scrolling-and-drag.md) — Scroll containers, drag-and-drop, hit testing
+- [Timers](timers.md) — Timers, threads, and scheduled work
+- [Windows, Menus, Decorations](windowing.md) — Windows, menus, decorations, and per-window state

@@ -39,28 +39,24 @@ The layout callback runs natively in the server process. Its output is rendered 
 
 Accepted forms:
 
-| URL | Bind address |
-|---|---|
-| `web://127.0.0.1:8080` | localhost only |
-| `web://0.0.0.0:3000` | all IPv4 interfaces |
-| `web://[::1]:8080` | IPv6 loopback |
-| `web://0.0.0.0:443?tls=cert.pem` | query string ignored today |
+- `web://127.0.0.1:8080`. Localhost only.
+- `web://0.0.0.0:3000`. All IPv4 interfaces.
+- `web://[::1]:8080`. IPv6 loopback.
+- `web://0.0.0.0:443?tls=cert.pem`. Query string is ignored today.
 
 The `web://` prefix is case-insensitive. Anything after `?` is reserved for future flags and silently dropped. A malformed value falls back to the desktop shell.
 
 ## What runs server-side, what runs client-side
 
-| Stage | Where it runs | Status |
-|---|---|---|
-| Layout callback (`Dom` construction) | server | works |
-| CSS cascade | server | works |
-| HTML serialization | server | works |
-| Image / font collection | server | works |
-| Browser layout, paint | client | works (browser does it) |
-| `:hover` / `:focus` styling | client | works (CSS only) |
-| Event callbacks | server (POST round-trip) | Phase 0 |
-| Framework WASM | client | stubbed |
-| User-callback WASM | client | stubbed |
+- **Layout callback (`Dom` construction).** Runs on the server. Works.
+- **CSS cascade.** Runs on the server. Works.
+- **HTML serialization.** Runs on the server. Works.
+- **Image and font collection.** Runs on the server. Works.
+- **Browser layout and paint.** Runs on the client. Works (the browser does it).
+- **`:hover` and `:focus` styling.** Runs on the client. Works (CSS only).
+- **Event callbacks.** Runs on the server via POST round-trip. Phase 0.
+- **Framework WASM.** Runs on the client. Stubbed.
+- **User-callback WASM.** Runs on the client. Stubbed.
 
 Azul's full cascade resolves all conditional rules on the server (theme, viewport, container, language). Only interactive pseudo-states remain as CSS rules in the served stylesheet. The browser handles those without a round-trip.
 
@@ -81,15 +77,13 @@ Without any routes, the root window's layout callback becomes `/`. The server tr
 
 Every URL under `/az/` is generated and served by the framework:
 
-| URL | Content | Cache header |
-|---|---|---|
-| `/` and route patterns | pre-rendered HTML | none |
-| `/az/loader.js` | bootstrap script | none |
-| `/az/mini.{hash}.wasm` | framework WASM | `immutable, max-age=1y` |
-| `/az/cb/{name}.{hash}.wasm` | per-callback WASM | `immutable, max-age=1y` |
-| `/az/img/{id}` | PNG-encoded image | `immutable, max-age=1y` |
-| `/az/font/{id}` | TTF font bytes | `immutable, max-age=1y` |
-| `POST /az/exec/{node_id}` | run callback, return new HTML | none |
+- `/` and route patterns. Pre-rendered HTML, no cache header.
+- `/az/loader.js`. Bootstrap script, no cache header.
+- `/az/mini.{hash}.wasm`. Framework WASM, `immutable, max-age=1y`.
+- `/az/cb/{name}.{hash}.wasm`. Per-callback WASM, `immutable, max-age=1y`.
+- `/az/img/{id}`. PNG-encoded image, `immutable, max-age=1y`.
+- `/az/font/{id}`. TTF font bytes, `immutable, max-age=1y`.
+- `POST /az/exec/{node_id}`. Runs the callback and returns new HTML, no cache header.
 
 `{hash}` is a content hash so a build refresh invalidates the browser's cache automatically. POST bodies are capped at 16 MB; oversized payloads return `413 Payload Too Large`.
 
@@ -160,3 +154,9 @@ Resource considerations:
 - **State**: callback-heavy workloads serialize through a single mutex on the shared app data.
 
 Browser support: the served HTML is plain HTML5 with no WASM requirement today. Anything that runs ES5 plus `fetch()` works, which covers all evergreen browsers.
+
+## Coming Up Next
+
+- [Headless Rendering](headless-rendering.md) — Running the pipeline without a window
+- [Security Model](security.md) — What azul does and doesn't defend against
+- [Code Generation](code-generation.md) — How `azul-doc` regenerates bindings from `api.json`

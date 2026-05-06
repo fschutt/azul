@@ -56,36 +56,52 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
 
 ## File map
 
-| File | Purpose |
-|---|---|
-| `solver3/mod.rs` | Entry point, `LayoutContext`, sub-tree containing-block resolution |
-| `solver3/cache.rs` | Reconciliation, dirty-flag propagation, `LayoutCacheMap` (Taffy 9+1 slots), `reconcile_and_invalidate()` |
-| `solver3/layout_tree.rs` | `LayoutTree`, `LayoutNode` (hot/warm/cold split), `DirtyFlag`, `IfcId`, `CachedInlineLayout` |
-| `solver3/fc.rs` | Formatting-context dispatcher: `layout_bfc`, `layout_ifc`, `layout_table_fc`, `layout_flex_grid` |
-| `solver3/sizing.rs` | Bottom-up intrinsic size calculation (`calculate_intrinsic_sizes`) |
-| `solver3/positioning.rs` | `adjust_relative_positions`, `adjust_sticky_positions`, `position_out_of_flow_elements` |
-| `solver3/taffy_bridge.rs` | CSS → Taffy `Style` translator + `TraversePartialTree` / `LayoutPartialTree` impls |
-| `solver3/display_list.rs` | Display-list emission from `LayoutTree` + `PositionVec` |
-| `solver3/scrollbar.rs` | `ScrollbarRequirements` and gutter resolution |
-| `solver3/getters.rs` | Cached CSS getters (`get_css_width`, `get_writing_mode`, …) keyed via the compact cache |
-| `solver3/pagination.rs`, `paged_layout.rs` | Print-only pagination (see [Fragmentation](fragmentation.md)) |
+- The entry point, `LayoutContext`, and sub-tree containing-block resolution.
+  - `solver3/mod.rs`
+- Reconciliation, dirty-flag propagation, `LayoutCacheMap` (Taffy 9+1 slots), and `reconcile_and_invalidate()`.
+  - `solver3/cache.rs`
+- `LayoutTree`, `LayoutNode` (hot/warm/cold split), `DirtyFlag`, `IfcId`, and `CachedInlineLayout`.
+  - `solver3/layout_tree.rs`
+- Formatting-context dispatcher with `layout_bfc`, `layout_ifc`, `layout_table_fc`, and `layout_flex_grid`.
+  - `solver3/fc.rs`
+- Bottom-up intrinsic size calculation via `calculate_intrinsic_sizes`.
+  - `solver3/sizing.rs`
+- Positioning passes: `adjust_relative_positions`, `adjust_sticky_positions`, and `position_out_of_flow_elements`.
+  - `solver3/positioning.rs`
+- CSS to Taffy `Style` translator plus `TraversePartialTree` and `LayoutPartialTree` impls.
+  - `solver3/taffy_bridge.rs`
+- Display-list emission from `LayoutTree` plus `PositionVec`.
+  - `solver3/display_list.rs`
+- `ScrollbarRequirements` and gutter resolution.
+  - `solver3/scrollbar.rs`
+- Cached CSS getters (`get_css_width`, `get_writing_mode`, ...) keyed via the compact cache.
+  - `solver3/getters.rs`
+- Print-only pagination (see [Fragmentation](fragmentation.md)).
+  - `solver3/pagination.rs`, `solver3/paged_layout.rs`
 
 ## The 5-step pipeline
 
 `layout_document` runs five steps in order. Each step has its own profile span (`crate::probe::Probe::span`).
 
-| Step | Function | What it does |
-|---|---|---|
-| 0 | (inline) | Pointer-identity + viewport hash → return cached DL |
-| 1 | `cache::reconcile_and_invalidate` | Build new `LayoutTree` from the new `StyledDom`, fingerprint-diff vs old, mark `intrinsic_dirty` and `layout_roots` |
-| 1.4 | `cache::LayoutCacheMap::resize_to_tree` + remap | Move the 9+1 slot cache from old → new layout indices via stable identity (DOM id, then anon-by-parent ordinal) |
-| 2 | `sizing::calculate_intrinsic_sizes` | Bottom-up min/max-content for every dirty node |
-| 2 (loop) | `cache::calculate_layout_for_subtree` | Top-down for each `layout_root`. May trigger up to `MAX_SCROLLBAR_REFLOW_ITERATIONS = 10` iterations if scrollbar appearance changes available width |
-| 3 | `positioning::adjust_relative_positions` | Apply `position: relative` offsets after sizing |
-| 3.25 | `positioning::adjust_sticky_positions` | Clamp sticky elements against scroll offset |
-| 3.5 | `positioning::position_out_of_flow_elements` | Place `position: absolute / fixed` |
-| 3.75 | `LayoutWindow::compute_scroll_ids` | Stable scroll IDs for WebRender pipelines |
-| 4 | `display_list::generate_display_list` | Emit `DisplayList` |
+- **Step 0.** Inline pointer-identity and viewport hash check returns the cached display list.
+- **Step 1.** Build a new `LayoutTree` from the new `StyledDom`, fingerprint-diff against the old tree, and mark `intrinsic_dirty` and `layout_roots`.
+  - `cache::reconcile_and_invalidate`
+- **Step 1.4.** Move the 9+1 slot cache from old to new layout indices via stable identity. First by DOM id, then by anon-by-parent ordinal.
+  - `cache::LayoutCacheMap::resize_to_tree`
+- **Step 2.** Bottom-up min/max-content for every dirty node.
+  - `sizing::calculate_intrinsic_sizes`
+- **Step 2 loop.** Top-down for each `layout_root`. May trigger up to `MAX_SCROLLBAR_REFLOW_ITERATIONS = 10` iterations when scrollbar appearance changes available width.
+  - `cache::calculate_layout_for_subtree`
+- **Step 3.** Apply `position: relative` offsets after sizing.
+  - `positioning::adjust_relative_positions`
+- **Step 3.25.** Clamp sticky elements against scroll offset.
+  - `positioning::adjust_sticky_positions`
+- **Step 3.5.** Place `position: absolute` and `position: fixed` elements.
+  - `positioning::position_out_of_flow_elements`
+- **Step 3.75.** Stable scroll IDs for WebRender pipelines.
+  - `LayoutWindow::compute_scroll_ids`
+- **Step 4.** Emit the `DisplayList`.
+  - `display_list::generate_display_list`
 
 ## `LayoutContext`
 
@@ -175,12 +191,10 @@ After the recursive pass, redundant `layout_roots` are pruned: if a parent is al
 
 `cache.rs:NodeCache`. One per layout-tree node, kept in a flat `Vec<NodeCache>` parallel to `tree.nodes`. Each node has 9 measurement slots + 1 full-layout slot:
 
-| Slot | Constraint shape |
-|---|---|
-| 0 | both width and height definite |
-| 1, 2 | only width known (Definite/MaxContent vs MinContent) |
-| 3, 4 | only height known (Definite/MaxContent vs MinContent) |
-| 5–8 | neither known (2×2 combos) |
+- Slot 0 holds the case where both width and height are definite.
+- Slots 1 and 2 cover the case where only width is known (Definite/MaxContent versus MinContent).
+- Slots 3 and 4 cover the case where only height is known (Definite/MaxContent versus MinContent).
+- Slots 5 through 8 cover the case where neither is known (2x2 combos).
 
 `SizingCacheEntry` stores `(available_size, result_size, baseline, escaped_top_margin, escaped_bottom_margin)` — no positions. `LayoutCacheEntry` (the +1 slot) adds `child_positions: Vec<(usize, LogicalPosition)>`, `content_size`, `scrollbar_info`. Slot index is deterministic from the constraint shape, so MinContent and Definite measurements never collide.
 
@@ -348,15 +362,13 @@ The legacy `font_stacks_hash: u64` field on `LayoutWindow` (`window.rs:481`) is 
 
 Numbers from `scripts/FONT_INVALIDATION_AND_MEMORY_LAYOUT_ANALYSIS.md` § 2.3:
 
-| Structure | B/node | Access | Layout |
-|---|---:|---|---|
-| `CompactLayoutCache.tier1_enums` | 8 | hot | SoA |
-| `CompactLayoutCache.tier2_dims` | 96 | hot | SoA |
-| `CompactLayoutCache.tier2b_text` | 24 | warm | SoA |
-| `LayoutNode` (post hot/warm/cold split) | ~90 hot, ~470 cold | hot/cold | split |
-| `NodeCache` (9+1 slots) | ~260 | hot | SoA |
-| `calculated_positions` | 8 | hot | SoA |
-| StyledDom Vecs | ~150 | warm | SoA |
+- `CompactLayoutCache.tier1_enums` takes 8 B/node, hot access, SoA layout.
+- `CompactLayoutCache.tier2_dims` takes 96 B/node, hot access, SoA layout.
+- `CompactLayoutCache.tier2b_text` takes 24 B/node, warm access, SoA layout.
+- `LayoutNode` (post hot/warm/cold split) takes ~90 B hot and ~470 B cold, with split layout.
+- `NodeCache` (9+1 slots) takes ~260 B/node, hot access, SoA layout.
+- `calculated_positions` takes 8 B/node, hot access, SoA layout.
+- StyledDom Vecs take ~150 B/node, warm access, SoA layout.
 
 ≈ 1 KiB per node. 10 K nodes ≈ 10 MiB resident. Cold-data fields stay out of the hot working set after the split.
 
@@ -374,3 +386,9 @@ A property that changes geometry needs to be read in `sizing.rs` or one of the `
 ## Known divergence from design docs
 
 `scripts/INCREMENTAL_LAYOUT_ARCHITECTURE.md` proposed a unified `ChangeAccumulator` in `core/src/diff.rs` plumbing per-property `RelayoutScope` from restyle, runtime edits, and DOM rebuild into a single `ProcessEventResult::ShouldIncrementalRelayout`. The implementation stopped at the `NodeDataFingerprint` — fingerprint diffs map to a binary `DirtyFlag::Layout`/`Paint`, not the 4-level `RelayoutScope`. Hover-only restyle still triggers a full DOM rebuild via `ShouldRegenerateDomCurrentWindow`. The hooks (`RestyleResult.max_relayout_scope`, `CallbackChangeResult.css_properties_changed`) exist but are unread by the layout engine.
+
+## Coming Up Next
+
+- [Text Shaping](inline-text3.md) — The text3 engine - shaping, line breaking, BiDi, hyphenation
+- [Fragmentation](fragmentation.md) — Page breaks, widows, orphans, and PDF fragmentation
+- [Compact Property Cache](compact-cache.md) — How layout results are stored across frames

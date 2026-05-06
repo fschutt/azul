@@ -161,3 +161,9 @@ tab to switch.
 For ad-hoc layouts, plain `Dom::create_div` with flex CSS is almost always
 shorter than wiring a widget. Reach for these widgets when you want the
 platform-native look or the widget's specific event surface.
+
+## Coming Up Next
+
+- [Input Widgets](inputs.md) — Text fields, checkboxes, radios, sliders, dropdowns
+- [Layout](../layout.md) — Overview of the layout solver
+- [Events](../events.md) — Callbacks, event filters, and how state triggers relayout

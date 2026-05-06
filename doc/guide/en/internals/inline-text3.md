@@ -36,16 +36,22 @@ pub use text3::cache::TextShapingCache as TextLayoutCache;
 
 ## File map
 
-| File | Purpose |
-|---|---|
-| `text3/cache.rs` | `TextShapingCache`, `FontManager`, `FontContext`, `UnifiedConstraints`, `UnifiedLayout`, the 5-stage pipeline (`layout_flow`) |
-| `text3/glyphs.rs` | Glyph storage primitives (`ShapedGlyph`), glyph instance conversion |
-| `text3/script.rs` | Script detection, language mapping, `script_to_language` |
-| `text3/knuth_plass.rs` | Knuth–Plass total-fit line breaking |
-| `text3/edit.rs` | Per-character edit operations against `UnifiedLayout`'s `items` vec |
-| `text3/selection.rs` | Cursor-pixel mapping, selection range expansion |
-| `text3/default.rs` | `PathLoader` — disk-based font loader for the IO side |
-| `text3/mod.rs` | `pub use` barrel |
+- `TextShapingCache`, `FontManager`, `FontContext`, `UnifiedConstraints`, `UnifiedLayout`, and the 5-stage pipeline (`layout_flow`).
+  - `text3/cache.rs`
+- Glyph storage primitives (`ShapedGlyph`) and glyph instance conversion.
+  - `text3/glyphs.rs`
+- Script detection, language mapping, and `script_to_language`.
+  - `text3/script.rs`
+- Knuth-Plass total-fit line breaking.
+  - `text3/knuth_plass.rs`
+- Per-character edit operations against `UnifiedLayout`'s `items` vec.
+  - `text3/edit.rs`
+- Cursor-pixel mapping and selection range expansion.
+  - `text3/selection.rs`
+- `PathLoader`, the disk-based font loader for the IO side.
+  - `text3/default.rs`
+- `pub use` barrel.
+  - `text3/mod.rs`
 
 The IFC entry point on the layout side is `solver3/fc.rs:layout_ifc` (`fc.rs:2373`).
 
@@ -90,12 +96,10 @@ pub fn layout_flow<T: ParsedFontTrait>(
 
 `TextShapingCache` (`cache.rs:5255`) holds four maps:
 
-| Field | Key | Value | What it caches |
-|---|---|---|---|
-| `logical_items` | `CacheId = u64` of `&[InlineContent]` | `Arc<Vec<LogicalItem>>` | Stage 1 |
-| `visual_items` | `(logical_items_id, base_direction)` → CacheId | `Arc<Vec<VisualItem>>` | Stage 2 |
-| `shaped_items` | `(visual_items_id, style_hash)` → CacheId | `Arc<Vec<ShapedItem>>` | Stage 3 (monolithic) |
-| `per_item_shaped` | `hash(text, bidi_level, script, style.layout_hash())` | `Arc<PerItemShapedEntry>` | Stage 3 (incremental) |
+- **`logical_items`.** Caches Stage 1. Keyed by `CacheId = u64` of `&[InlineContent]`, value `Arc<Vec<LogicalItem>>`.
+- **`visual_items`.** Caches Stage 2. Keyed by `(logical_items_id, base_direction)` to `CacheId`, value `Arc<Vec<VisualItem>>`.
+- **`shaped_items`.** Caches Stage 3 (monolithic). Keyed by `(visual_items_id, style_hash)` to `CacheId`, value `Arc<Vec<ShapedItem>>`.
+- **`per_item_shaped`.** Caches Stage 3 (incremental). Keyed by `hash(text, bidi_level, script, style.layout_hash())`, value `Arc<PerItemShapedEntry>`.
 
 Stage 3 has two levels: a fast monolithic cache hit returns the entire `Vec<ShapedItem>` if the visual-items + style hashes match. On a miss, `shape_visual_items_with_per_item_cache` reuses individual cached items per-key (keyed on text + bidi level + script + layout-affecting style) and only re-shapes new items. Eviction runs every layout pass via `begin_generation`:
 
@@ -366,3 +370,9 @@ From `cache.rs:5551`:
 - § 6 **text-box-trim / leading-trim** — not implemented.
 - Multi-fragment text orientation (mixed writing modes across columns) uses constraints from the first fragment only.
 - Ruby layout: `Ruby` variant exists but baseline alignment of base+text is approximate.
+
+## Coming Up Next
+
+- [Text Pipeline](text-pipeline.md) — How a styled text run becomes glyphs
+- [Fragmentation](fragmentation.md) — Page breaks, widows, orphans, and PDF fragmentation
+- [Layout Solver (Flex/Grid)](layout-solver.md) — Architecture of `solver3/` and how the engines share state

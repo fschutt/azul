@@ -32,13 +32,11 @@ generated_at: 2026-05-02T05:50:43Z
 cargo run --release -p azul-doc -- codegen all
 ```
 
-| subcommand | output |
-|---|---|
-| `codegen` or `codegen rust` | `target/codegen/azul.rs` |
-| `codegen c` | `target/codegen/azul.h` |
-| `codegen cpp` | `target/codegen/azul11.hpp` |
-| `codegen python` | `target/codegen/python_api.rs` |
-| `codegen all` | every output above plus internal C-ABI files, all six `azulNN.hpp` headers, and brotli-compressed asset blobs |
+- `codegen` or `codegen rust`. Writes `target/codegen/azul.rs`.
+- `codegen c`. Writes `target/codegen/azul.h`.
+- `codegen cpp`. Writes `target/codegen/azul11.hpp`.
+- `codegen python`. Writes `target/codegen/python_api.rs`.
+- `codegen all`. Every output above, plus internal C-ABI files, all six `azulNN.hpp` headers, and brotli-compressed asset blobs.
 
 `codegen all` is what `dll/build.rs` expects. Run it after editing `api.json` or after a fresh checkout, then build the DLL.
 
@@ -71,13 +69,11 @@ Editing `api.json` and re-running `codegen all` triggers a downstream rebuild wi
 
 Generated outputs pair with three Cargo feature combinations:
 
-| mode | what it produces |
-|---|---|
-| `build-dll` | the shared library itself (`libazul.{so,dylib,dll}`) with exported symbols |
-| `link-static` | static linking from a Rust binary; full crate stack compiled in |
-| `link-dynamic` | extern declarations only; expects `libazul.{so,dylib,dll}` at runtime |
+- `build-dll`. The shared library itself (`libazul.{so,dylib,dll}`) with exported symbols.
+- `link-static`. Static linking from a Rust binary. The full crate stack is compiled in.
+- `link-dynamic`. Extern declarations only. Expects `libazul.{so,dylib,dll}` at runtime.
 
-The C, C++, and Python bindings are downstream of `build-dll`: they consume the produced shared library plus the matching header. The Rust binding can use any of the three modes (covered on [Rust Bindings](bindings/rust.md)).
+The C, C++, and Python bindings are downstream of `build-dll`: they consume the produced shared library plus the matching header. The Rust binding can use any of the three modes.
 
 ## Locating the library at link time
 
@@ -93,9 +89,9 @@ If a local match is found, the dylib is copied next to the build artifacts so th
 
 A given `(api.json + azul-doc + cargo lockfile)` triple regenerates byte-identical headers and Rust bindings. Binary artifacts depend on the target triple and host toolchain; pin both in CI to keep release archives reproducible.
 
-## Next
 
-- [Rust Bindings](bindings/rust.md) — link the DLL into a Cargo project.
-- [C Bindings](bindings/c.md) — `azul.h` and the dylib.
-- [C++ Bindings](bindings/cpp.md) — pick a `azulNN.hpp` matching your C++ standard.
-- [Python Bindings](bindings/python.md) — drop `azul.so` / `azul.pyd` next to your script.
+## Coming Up Next
+
+- [Web Deployment](web-deployment.md) — Building for the browser via WASM
+- [Headless Rendering](headless-rendering.md) — Running the pipeline without a window
+- [Debugging](debugging.md) — Debug overlays, the inspector, and structured logging

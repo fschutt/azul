@@ -68,19 +68,22 @@ pub fn run_web(
 ) -> Result<(), WindowError>
 ```
 
-| Phase | Function | Status |
-|---|---|---|
-| **A** | `classify::classify_api_functions` | functional (decompresses embedded `api.json`, classifies); output unused downstream |
-| **B** | `mini_gen::generate_mini_wasm` | stub — returns the 8-byte WASM header |
-| **C** | `cb_gen::discover_and_transpile_callbacks` | stub — returns `Vec::new()` |
-| **D** | `html_render::render_initial_page` for each route | functional |
-| **E** | `server::run_server` | functional |
+- **Phase A.** Functional: decompresses embedded `api.json` and classifies. Output is unused downstream.
+  - `dll/src/web/classify.rs::classify_api_functions`
+- **Phase B.** Stub. Returns the 8-byte WASM header.
+  - `dll/src/web/mini_gen.rs::generate_mini_wasm`
+- **Phase C.** Stub. Returns `Vec::new()`.
+  - `dll/src/web/cb_gen.rs::discover_and_transpile_callbacks`
+- **Phase D.** Functional. Renders the initial page for each route.
+  - `dll/src/web/html_render.rs::render_initial_page`
+- **Phase E.** Functional.
+  - `dll/src/web/server.rs::run_server`
 
-Phase D walks `config.routes` and calls `render_initial_page` for each;
-when there are no routes, the root window's layout callback is rendered
+Phase D walks `config.routes` and calls `render_initial_page` for each.
+When there are no routes, the root window's layout callback is rendered
 at `/`. Each `RenderOutput` carries an HTML body, a vector of
 `CollectedImage`, and a vector of `CollectedFont`. Image and font IDs
-are *per-render* — `mod.rs:140-163` rebases them onto a global ID
+are *per-render*. `dll/src/web/mod.rs` rebases them onto a global ID
 space and rewrites the URLs in the HTML so different routes don't
 collide.
 
@@ -90,7 +93,7 @@ forever serving HTTP.
 ## Phase A — `classify`
 
 `dll/src/web/classify.rs` decompresses an embedded brotli'd `api.json`
-(~120 KB compressed, ~3.7 MB raw) and bins every C function into one of
+(roughly 120 KB compressed, 3.7 MB raw) and bins every C function into one of
 three categories:
 
 ```rust,ignore
@@ -101,7 +104,7 @@ pub enum FnClass {
 }
 ```
 
-Classification rules (`classify.rs:91`):
+Classification rules in `dll/src/web/classify.rs`:
 
 ```rust,ignore
 fn classify_fn(name: &str) -> FnClass {
@@ -116,12 +119,12 @@ fn classify_fn(name: &str) -> FnClass {
 
 The brotli blob is built at codegen time
 (`target/codegen/api.json.br`, produced by `azul-doc codegen all`).
-`classify_api_functions` is called from `run_web` for diagnostics only —
+`classify_api_functions` is called from `run_web` for diagnostics only.
 Phase 0 doesn't act on the classification.
 
 ## Phase B — `mini_gen`
 
-`dll/src/web/mini_gen.rs:30` returns the smallest valid WASM module:
+`dll/src/web/mini_gen.rs` returns the smallest valid WASM module:
 
 ```rust,ignore
 const WASM_HEADER: [u8; 8] = [
@@ -138,7 +141,7 @@ will lift ~200 framework C functions from the running binary through
 
 ## Phase C — `transpiler` and `cb_gen`
 
-`dll/src/web/transpiler.rs:39` defines the trait:
+`dll/src/web/transpiler.rs` defines the trait:
 
 ```rust,ignore
 pub trait Transpiler {
@@ -172,7 +175,7 @@ hints to add and the server's `/az/cb/{name}.wasm` route always 404s.
 
 ## Phase D — `html_render`
 
-`dll/src/web/html_render.rs:62` produces a full HTML document. The
+`dll/src/web/html_render.rs::render_initial_page` produces a full HTML document. The
 pipeline:
 
 1. **Run the layout callback** with a `LayoutCallbackInfo` constructed
@@ -193,7 +196,7 @@ pipeline:
    `RenderContext::render_node_recursive`. Each node:
    - Gets a synthetic `id="az_N"` where `N` is a per-render counter.
    - Emits `<{tag} id="az_N" class="..." data-az-cb="N" ...>` —
-     `data-az-cb` is present iff the node has callbacks; `data-az-ev`
+     `data-az-cb` is present iff the node has callbacks. `data-az-ev`
      records the JS event name (e.g. `click`, `mousedown`) derived from
      the first callback's `EventFilter`.
    - Image nodes encode the bitmap to PNG via
@@ -207,9 +210,9 @@ pipeline:
    - `#az_N { property: value; … }` for the base computed values.
    - `#az_N:hover { … }` / `:focus` / `:active` / etc. for properties
      that the property cache marks as state-dependent. The
-     `pseudo_state_to_css` function (`html_render.rs:369`) maps
-     `PseudoStateType::Dragging` to `:active` (the closest CSS
-     equivalent — the browser has no "dragging" pseudo-class).
+     `pseudo_state_to_css` function in `dll/src/web/html_render.rs` maps
+     `PseudoStateType::Dragging` to `:active`. That's the closest CSS
+     equivalent because the browser has no "dragging" pseudo-class.
 
 5. **Bundle fonts** as `@font-face` rules pointing at `/az/font/{id}`,
    then concatenate everything into a single `<style>` block.
@@ -223,14 +226,14 @@ font vectors that the server will serve under `/az/img/` and
 
 ### Per-route ID rebasing
 
-`mod.rs:140-163` rewrites image and font URLs after a route renders so
+`dll/src/web/mod.rs` rewrites image and font URLs after a route renders so
 that route 0's `/az/img/3` becomes route 1's `/az/img/8` (or whatever
 the offset is). The simple `.replace(&old, &new)` is safe because the
 URLs include a leading `/` and unambiguous numeric suffix.
 
 ## Phase E — `server`
 
-`dll/src/web/server.rs:67`:
+`dll/src/web/server.rs::run_server`:
 
 ```rust,ignore
 pub fn run_server(bind_addr: SocketAddr, state: WebServerState)
@@ -238,22 +241,20 @@ pub fn run_server(bind_addr: SocketAddr, state: WebServerState)
 ```
 
 A `TcpListener` accept loop spawning a `std::thread` per connection.
-Zero external dependencies — the request line and headers are parsed
-inline via `BufReader::read_line`. The 16 MB body cap at
-`server.rs:132` is the only DoS guard.
+Zero external dependencies. The request line and headers are parsed
+inline via `BufReader::read_line`. The 16 MB body cap in
+`dll/src/web/server.rs` is the only DoS guard.
 
 ### Routes
 
-| Method + path | Handler |
-|---|---|
-| `GET /az/loader.js` | bootstrap JS string (immutable cache OK; not cached today) |
-| `GET /az/mini.{hash}.wasm` | `state.mini_wasm` — 8-byte stub (cached, immutable) |
-| `GET /az/cb/{name}.{hash}.wasm` | per-callback WASM (always 404 in Phase 0) |
-| `GET /az/img/{id}` | encoded image (cached, immutable) |
-| `GET /az/font/{id}` | font bytes (cached, immutable) |
-| `POST /az/exec/{node_id}` | server-side callback dispatch (Phase 0) |
-| `GET /favicon.ico` | 204 No Content |
-| `GET /<route-pattern>` | pre-rendered HTML for matching route |
+- `GET /az/loader.js` returns the bootstrap JS string. Immutable cache OK, not cached today.
+- `GET /az/mini.{hash}.wasm` returns `state.mini_wasm`, an 8-byte stub. Cached, immutable.
+- `GET /az/cb/{name}.{hash}.wasm` returns per-callback WASM. Always 404 in Phase 0.
+- `GET /az/img/{id}` returns the encoded image. Cached, immutable.
+- `GET /az/font/{id}` returns font bytes. Cached, immutable.
+- `POST /az/exec/{node_id}` runs server-side callback dispatch in Phase 0.
+- `GET /favicon.ico` returns 204 No Content.
+- `GET /<route-pattern>` returns pre-rendered HTML for the matching route.
 
 Image, font, and WASM responses include
 `Cache-Control: public, max-age=31536000, immutable` because their URLs
@@ -261,7 +262,7 @@ embed a content hash. HTML responses are not cached.
 
 ### `POST /az/exec/{node_id}` — Phase 0 callback dispatch
 
-`server.rs:191`. The current implementation is a placeholder:
+In `dll/src/web/server.rs`, the current implementation is a placeholder:
 
 ```rust,ignore
 ("POST", p) if p.starts_with("/az/exec/") => {
@@ -275,10 +276,10 @@ embed a content hash. HTML responses are not cached.
 }
 ```
 
-The node ID is parsed but unused; the body is read but discarded;
+The node ID is parsed but unused. The body is read but discarded.
 `re_render_body` re-runs the layout callback with the current
 `app_data` and returns the entire new HTML page. The browser replaces
-its document with the response. **No actual callback runs** — every
+its document with the response. **No actual callback runs**. Every
 POST behaves like a forced re-layout. The intended dispatch path
 (parse `node_id`, look up the registered callback, invoke it with the
 deserialized `CallbackInfo`, feed the resulting `Update` back through
@@ -286,7 +287,7 @@ the layout system) is unimplemented.
 
 ### Route matching
 
-`server.rs:212`. Three-stage fallback for `GET /<path>`:
+In `dll/src/web/server.rs`, the three-stage fallback for `GET /<path>` is:
 
 1. Direct lookup in `state.rendered_routes` keyed by the literal path.
 2. Loop through registered routes and call
@@ -316,13 +317,13 @@ pub struct WebServerState {
 ```
 
 `Arc<Mutex<RefAny>>` is the only synchronization point. `re_render_body`
-locks it, calls into `render_initial_page`, and drops the lock —
-concurrent requests serialize through this mutex. There is no
+locks it, calls into `render_initial_page`, and drops the lock.
+Concurrent requests serialize through this mutex. There is no
 per-connection state.
 
 ## `loader_js` — bootstrap script
 
-`dll/src/web/loader_js.rs:13` returns a fixed JavaScript string. Three
+`dll/src/web/loader_js.rs::generate_loader_js` returns a fixed JavaScript string. Three
 things happen on `DOMContentLoaded`:
 
 1. **Callback wiring**: every element with `data-az-cb` gets an event
@@ -340,12 +341,12 @@ things happen on `DOMContentLoaded`:
 
 `document.write` after `document.open` is a documented anti-pattern
 because it tears down the script that called it. Phase 0 gets away
-with it because each response is a complete page; for incremental
+with it because each response is a complete page. For incremental
 client-side updates the eventual replacement is `morphdom`-style
 diffing or `documentElement.innerHTML = …`.
 
 The `_mini_wasm_hash` and `_callbacks` parameters are accepted but
-ignored in the Phase 0 generator — the `<link rel="preload">` hints
+ignored in the Phase 0 generator. The `<link rel="preload">` hints
 are emitted by `html_render`, not by `loader_js`.
 
 ### `loader_js_hash`
@@ -372,17 +373,23 @@ matched against registered routes.
 
 ## Cross-references
 
-- `dll/src/web/mod.rs:45` — `run_web` orchestrator.
-- `dll/src/web/server.rs:67` — `run_server` accept loop and dispatch.
-- `dll/src/web/html_render.rs:62` — `render_initial_page`.
-- `dll/src/web/loader_js.rs:13` — `generate_loader_js`.
-- `dll/src/web/transpiler.rs:39` — `Transpiler` trait.
-- `dll/src/desktop/run.rs` — the four call sites that route into
+- `dll/src/web/mod.rs::run_web` is the orchestrator.
+- `dll/src/web/server.rs::run_server` is the accept loop and dispatch.
+- `dll/src/web/html_render.rs::render_initial_page` produces the HTML.
+- `dll/src/web/loader_js.rs::generate_loader_js` returns the bootstrap JS.
+- `dll/src/web/transpiler.rs` defines the `Transpiler` trait.
+- `dll/src/desktop/run.rs` has the four call sites that route into
   `run_web` based on `AzBackend::Web(addr)`.
-- `target/codegen/api.json.br` — embedded brotli'd API descriptor.
+- `target/codegen/api.json.br` is the embedded brotli'd API descriptor.
 - [DOM Internals](dom.md) — the `Dom` / `NodeData` / `NodeType` model
   the renderer walks.
 - [Cascade, Inheritance, Restyle](cascade.md) — the `StyledDom` and
   property cache the renderer reads.
 - [Event System Internals](event-system.md) — the `EventFilter` enum
   mapped to JS event names.
+
+## Coming Up Next
+
+- [Rendering Pipeline](rendering-pipeline.md) — From `StyledDom` to pixels
+- [WebRender Bridge](webrender-bridge.md) — How azul talks to WebRender
+- [FFI Codegen](build-and-codegen.md) — How `cargo build` cascades and the codegen pass

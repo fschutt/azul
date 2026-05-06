@@ -93,17 +93,15 @@ A test file is either one test object or an array of them.
 
 Every `op` accepted by `POST /` (covered in [Debugging](debugging.md)) is a valid step. Plus the assertion ops below.
 
-| Op | Required params | Notes |
-|---|---|---|
-| `assert_text` | `selector`, `expected` | First-match text content equals `expected`. |
-| `assert_exists` | `selector` | At least one node matches. |
-| `assert_not_exists` | `selector` | No node matches. |
-| `assert_node_count` | `selector`, `expected` (int) | Exactly `expected` nodes match. |
-| `assert_layout` | `selector`, `property`, `expected`, `tolerance?` | `property` is `x`, `y`, `width`, or `height`; default tolerance `0.5` px. |
-| `assert_css` | `selector`, `property`, `expected` | Computed CSS value equals `expected`. |
-| `assert_app_state` | `path`, `expected` | Dot-path against the JSON-serialised app data. |
-| `assert_scroll` | `selector`, `x?`, `y?`, `tolerance?` | Scroll position of the first match. |
-| `assert_screenshot` | `reference`, `threshold?`, `max_diff_ratio?`, `save_actual?` | Compare current screenshot against a reference PNG. |
+- `assert_text` (params: `selector`, `expected`). First-match text content equals `expected`.
+- `assert_exists` (params: `selector`). At least one node matches.
+- `assert_not_exists` (params: `selector`). No node matches.
+- `assert_node_count` (params: `selector`, `expected` int). Exactly `expected` nodes match.
+- `assert_layout` (params: `selector`, `property`, `expected`, `tolerance?`). `property` is `x`, `y`, `width`, or `height`. Default tolerance `0.5` px.
+- `assert_css` (params: `selector`, `property`, `expected`). Computed CSS value equals `expected`.
+- `assert_app_state` (params: `path`, `expected`). Dot-path against the JSON-serialised app data.
+- `assert_scroll` (params: `selector`, `x?`, `y?`, `tolerance?`). Scroll position of the first match.
+- `assert_screenshot` (params: `reference`, `threshold?`, `max_diff_ratio?`, `save_actual?`). Compares the current screenshot against a reference PNG.
 
 Selector resolution accepts CSS selectors (`.btn`, `#counter`, `div > span`), explicit `node_id` integers, or a `text` substring match. Pick whichever is least brittle. `selector` is preferred because the inspector can build them by clicking nodes in the DOM tree.
 
@@ -181,3 +179,9 @@ The recorder uses the same selector resolver as `assert_*`, so the captured step
 - A test runs against the *current* application instance — there is no per-test sandbox. Use `setup.app_state` to put the app in a known state before each test.
 - `take_native_screenshot` returns the actual framebuffer of the running window. Pixel-identical comparison across platforms is unrealistic; use `assert_screenshot` with a `max_diff_ratio` tolerance, or pin the diff job to one platform in CI.
 - The runner does not multi-thread tests. Each test runs to completion before the next starts. If you need parallel runs, spawn N processes on N ports.
+
+## Coming Up Next
+
+- [Debugging](debugging.md) — Debug overlays, the inspector, and structured logging
+- [Headless Rendering](headless-rendering.md) — Running the pipeline without a window
+- [Code Generation](code-generation.md) — How `azul-doc` regenerates bindings from `api.json`

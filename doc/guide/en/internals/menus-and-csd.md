@@ -139,13 +139,11 @@ parent window origin), looks up the display via
 ([`dll/src/desktop/display.rs`](../../../../dll/src/desktop/display.rs)), and
 then dispatches by `MenuPopupPosition`:
 
-| Variant | Strategy |
-|---|---|
-| `AutoCursor` | Try right-bottom of cursor; flip horizontally / vertically on overflow; final clamp. |
-| `AutoHitRect` | Place at right-bottom of trigger; flip on overflow; final clamp. |
-| `BottomRightOfCursor`, `BottomLeftOfCursor`, `TopRightOfCursor`, `TopLeftOfCursor` | No flip. Clamp only. |
-| `BottomOfHitRect`, `TopOfHitRect` | Anchored vertically to the trigger rect; clamp. |
-| `RightOfHitRect`, `LeftOfHitRect` | Submenu placement — try the named side, fall back to the opposite side on overflow. Top edge aligns with the trigger rect. |
+- **`AutoCursor`.** Tries the right-bottom of the cursor, flips horizontally or vertically on overflow, then clamps.
+- **`AutoHitRect`.** Places at the right-bottom of the trigger, flips on overflow, then clamps.
+- **`BottomRightOfCursor`, `BottomLeftOfCursor`, `TopRightOfCursor`, `TopLeftOfCursor`.** No flip. Clamp only.
+- **`BottomOfHitRect`, `TopOfHitRect`.** Anchored vertically to the trigger rect, then clamped.
+- **`RightOfHitRect`, `LeftOfHitRect`.** Submenu placement. Tries the named side, falls back to the opposite side on overflow. The top edge aligns with the trigger rect.
 
 `clamp_to_work_area` ([`menu.rs:338`](../../../../dll/src/desktop/menu.rs)) is
 the last step in every branch and forces `pos + menu_size` to stay inside
@@ -202,18 +200,16 @@ Image rendering inside the menu DOM is not yet wired up.
 at [`menu_renderer.rs:495`](../../../../dll/src/desktop/menu_renderer.rs)
 synthesises the CSS from `SystemStyle` colours, fonts, and `corner_radius`:
 
-| CSS class | Purpose |
-|---|---|
-| `.menu-container` | bg, border, `corner_radius`, `box-shadow`, `min-width: 160px` |
-| `.menu-item` | flex row, padding, `cursor: pointer`, `user-select: none` |
-| `.menu-item:hover` | uses `colors.selection_background` / `selection_text` |
-| `.menu-item-disabled`, `.menu-item-greyed` | `colors.disabled_text`, `cursor: default`, no hover |
-| `.menu-item-icon` | 20×20 box, right margin |
-| `.menu-item-checkbox-checked` | bold ✓ glyph |
-| `.menu-item-label` | `flex-grow: 1`, `white-space: nowrap` |
-| `.menu-item-shortcut` | right-aligned, dimmed (`opacity: 0.6`) |
-| `.menu-item-arrow` | dimmed, used for "▶" submenu indicator |
-| `.menu-separator` | 1 px line, padded |
+- **`.menu-container`.** Background, border, `corner_radius`, `box-shadow`, and `min-width: 160px`.
+- **`.menu-item`.** Flex row with padding, `cursor: pointer`, and `user-select: none`.
+- **`.menu-item:hover`.** Uses `colors.selection_background` and `colors.selection_text`.
+- **`.menu-item-disabled`, `.menu-item-greyed`.** Uses `colors.disabled_text`, `cursor: default`, and no hover.
+- **`.menu-item-icon`.** 20x20 box with right margin.
+- **`.menu-item-checkbox-checked`.** Bold checkmark glyph.
+- **`.menu-item-label`.** `flex-grow: 1` and `white-space: nowrap`.
+- **`.menu-item-shortcut`.** Right-aligned and dimmed via `opacity: 0.6`.
+- **`.menu-item-arrow`.** Dimmed, used for the submenu indicator arrow.
+- **`.menu-separator`.** 1 px line with padding.
 
 The function builds a `String` via `format!`, parses it with
 `new_from_str` ([`css/src/parser2.rs`](../../../../css/src/parser2.rs)), and
@@ -231,12 +227,15 @@ silently dropped.
 
 `show_menu` is the popup path. Application menu bars are still platform-native:
 
-| Backend | Module | Mechanism |
-|---|---|---|
-| Win32 | [`shell2/windows/menu.rs`](../../../../dll/src/desktop/shell2/windows/menu.rs) | `CreateMenu` / `AppendMenuW`; per-item `WM_COMMAND` IDs map to `CoreMenuCallback` via `BTreeMap<u16, CoreMenuCallback>` |
-| macOS | [`shell2/macos/menu.rs`](../../../../dll/src/desktop/shell2/macos/menu.rs) | `NSMenu` / `NSMenuItem` via `objc2`. Click → `AzulMenuTarget::menuItemAction:` → tag pushed to a global `Mutex<Vec<isize>>`, drained by the event loop |
-| GNOME | [`shell2/linux/gnome_menu/`](../../../../dll/src/desktop/shell2/linux/gnome_menu/manager.rs) | DBus `org.gtk.Menus` + `org.gtk.Actions`, exposed at a sanitised app object path. `dlopen`s `libdbus-1` to avoid a hard link dep |
-| X11 / Wayland popup-menus | [`shell2/linux/x11/menu.rs`](../../../../dll/src/desktop/shell2/linux/x11/menu.rs), [`shell2/linux/wayland/menu.rs`](../../../../dll/src/desktop/shell2/linux/wayland/menu.rs) | Define a parallel `MenuLayoutData` plus a `menu_layout_callback` that mirrors [`menu.rs:354`](../../../../dll/src/desktop/menu.rs). `create_menu_window_options` / `create_menu_popup_options` exist but have no callers — `show_menu` is the live path |
+- **Win32.** Uses `CreateMenu` and `AppendMenuW`. Per-item `WM_COMMAND` IDs map to `CoreMenuCallback` via `BTreeMap<u16, CoreMenuCallback>`.
+  - [`shell2/windows/menu.rs`](../../../../dll/src/desktop/shell2/windows/menu.rs)
+- **macOS.** Uses `NSMenu` and `NSMenuItem` via `objc2`. A click invokes `AzulMenuTarget::menuItemAction:`, which pushes a tag to a global `Mutex<Vec<isize>>` drained by the event loop.
+  - [`shell2/macos/menu.rs`](../../../../dll/src/desktop/shell2/macos/menu.rs)
+- **GNOME.** Uses DBus `org.gtk.Menus` and `org.gtk.Actions`, exposed at a sanitised app object path. `dlopen`s `libdbus-1` to avoid a hard link dep.
+  - [`shell2/linux/gnome_menu/`](../../../../dll/src/desktop/shell2/linux/gnome_menu/manager.rs)
+- **X11 / Wayland popup-menus.** Defines a parallel `MenuLayoutData` plus a `menu_layout_callback` that mirrors [`menu.rs:354`](../../../../dll/src/desktop/menu.rs). `create_menu_window_options` and `create_menu_popup_options` exist but have no callers. `show_menu` is the live path.
+  - [`shell2/linux/x11/menu.rs`](../../../../dll/src/desktop/shell2/linux/x11/menu.rs)
+  - [`shell2/linux/wayland/menu.rs`](../../../../dll/src/desktop/shell2/linux/wayland/menu.rs)
 
 The X11 / Wayland duplicates are dead-on-arrival and slated for removal. New
 backends should call `show_menu`.
@@ -292,15 +291,13 @@ content do not double-nest under `<body>`.
 [`SystemStyle::create_csd_stylesheet`](../../../../css/src/system.rs) at
 [`css/src/system.rs:1512`](../../../../css/src/system.rs) emits these classes:
 
-| Class | Notes |
-|---|---|
-| `.csd-titlebar` | 32 px high, `cursor: grab`, `user-select: none` |
-| `.csd-title` | text-overflow ellipsis, centred (left-aligned on Linux) |
-| `.csd-buttons` | flex row, 4 px gap |
-| `.csd-button` | 32×24, transparent, hover-tinted |
-| `.csd-button:hover` | tint depends on `Theme::Light` vs `Theme::Dark` |
-| `.csd-close:hover` | red — `rgb(232, 17, 35)` on every platform |
-| Platform overrides | macOS: traffic-light buttons (12×12, position absolute left:8px). Linux: title left-aligned. |
+- **`.csd-titlebar`.** 32 px high with `cursor: grab` and `user-select: none`.
+- **`.csd-title`.** Text-overflow ellipsis, centred. Left-aligned on Linux.
+- **`.csd-buttons`.** Flex row with a 4 px gap.
+- **`.csd-button`.** 32x24, transparent, hover-tinted.
+- **`.csd-button:hover`.** Tint depends on `Theme::Light` vs `Theme::Dark`.
+- **`.csd-close:hover`.** Red, `rgb(232, 17, 35)` on every platform.
+- **Platform overrides.** On macOS the traffic-light buttons are 12x12 and positioned absolutely at `left: 8px`. On Linux the title is left-aligned.
 
 The macOS path positions `.csd-buttons` at `left: 8px` and overrides
 `.csd-close`, `.csd-minimize`, `.csd-maximize` with their canonical
@@ -331,3 +328,9 @@ the standard library's `DefaultHasher`. It's used by
 `HMENU` needs to be rebuilt when a `Menu` is re-attached to a window. The
 unified popup pipeline rebuilds the DOM every layout pass, so it does not use
 the hash — but the type is `#[repr(C)]` and `Hash`, so any backend can.
+
+## Coming Up Next
+
+- [Shell2 Common Layer](shell2-common.md) — Shared shell infrastructure across platforms
+- [Shell2 — Windows](shell2-windows.md) — Windows shell - Win32 messages, DirectComposition, IME
+- [Shell2 — macOS](shell2-macos.md) — macOS shell - Cocoa, AppKit, IME, a11y

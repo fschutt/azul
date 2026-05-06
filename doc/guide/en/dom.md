@@ -382,3 +382,10 @@ library wires its components into the registry.
   the builder methods.
 - `core/src/styled_dom.rs`: `StyledDom` and `NodeHierarchyItem`.
 - `core/src/xml.rs`: `Dom::from_parsed_xml` and the XML parser.
+
+## Coming Up Next
+
+- [Reconciliation](dom/reconciliation.md) — Diffing, restyle scope, and damage-rect repaint
+- [Datasets](dom/datasets.md) — Attaching state to a node for navigation and per-instance state
+- [Components](dom/components.md) — Reusable UI fragments - named functions of (args) -> Dom
+- [Styling with CSS](styling.md) — Stylesheets, selectors, and the cascade

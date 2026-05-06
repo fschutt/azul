@@ -7,7 +7,7 @@ audience: external
 maturity: mature
 guide_order: 35
 topic_only: false
-short_desc: Reusable UI fragments - functions of (args) -> Dom, plus the named-pack registration the debugger uses
+short_desc: Reusable UI fragments - named functions of (args) -> Dom
 prerequisites: [dom]
 tracked_files:
   - core/src/dom.rs
@@ -405,3 +405,9 @@ That's what makes user-defined types editable in the inspector. A C callback lik
 - `ComponentId`, `ComponentDef`, `ComponentLibrary`, `ComponentMap`, `ComponentRenderFn`, `ComponentCompileFn` in `core/src/xml.rs`
 - `Dom::from_parsed_xml` in `core/src/dom.rs` (XML runtime entry)
 - `AppConfig::add_component` and `AppConfig::add_component_library` in `core/src/resources.rs`
+
+## Coming Up Next
+
+- [Built-in Widgets](../widgets.md) — Built-in widgets and how to write your own
+- [Styling with CSS](../styling.md) — Stylesheets, selectors, and the cascade
+- [Layout](../layout.md) — Overview of the layout solver

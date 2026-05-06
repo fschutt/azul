@@ -161,3 +161,9 @@ Each `ComponentId` is a `(collection, name)` pair so you can scope sets: `builti
 - Need a generic XML tree to walk, mutate, or serialize. Use `Xml::from_str`.
 - Need to render the document or feed it to layout. Use `Xml::from_str` then `Dom::from_parsed_xml` on the root.
 - Need to scan a document's outbound URLs. Use `Xml::from_str` then `scan_external_resources`.
+
+## Coming Up Next
+
+- [Components](dom/components.md) — Reusable UI fragments - named functions of (args) -> Dom
+- [Styling with CSS](styling.md) — Stylesheets, selectors, and the cascade
+- [Document Object Model](dom.md) — The Dom tree - node types, hierarchy, and CSS

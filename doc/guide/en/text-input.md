@@ -156,7 +156,8 @@ Suppress with `info.prevent_default()` to override. The rest of the callback cha
 - **First click positions the cursor at the start.** The cursor is initialised at end-of-text on focus; the first click can race with focus acquisition. Subsequent clicks behave normally.
 - **`TextInputSelection` / `TextInputSelectionRange` are not yet wired through the default callbacks.** Multi-node selection across nodes goes through the cross-DOM selection model; see [Text Selection](text-selection.md).
 
-## Next
+## Coming Up Next
 
-- [Text Selection](text-selection.md): anchor/focus model that ranges over arbitrary DOM, not just inside a `TextInput`.
-- [Events](events.md): the underlying event plumbing.
+- [Text Selection](text-selection.md) — Selection ranges, cursors, and copy/paste
+- [Scrolling](scrolling-and-drag.md) — Scroll containers, drag-and-drop, hit testing
+- [Events](events.md) — Callbacks, event filters, and how state triggers relayout

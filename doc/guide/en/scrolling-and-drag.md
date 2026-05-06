@@ -30,17 +30,15 @@ Scrolling and drag are the two ways a pointer interacts with the layout rather t
 CSS does the work. Set `overflow` to `scroll`, `auto`, or `hidden` on a node whose content exceeds its box, and the framework gives it scrollbars and wires the wheel/trackpad/touchpad events to it.
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
 let scroll_box = Dom::create_div()
     .with_css("width: 400px; height: 200px; overflow-y: scroll;");
 ```
 
-| Value of `overflow` | Effect |
-|---|---|
-| `visible` (default) | Children draw outside the box. No clip, no scrollbar, no `Scroll` events. |
-| `hidden` | Children clip to the box. No scrollbar. No scrolling. |
-| `scroll` | Children clip. Scrollbar always visible, even if not needed. Wheel scrolls. |
-| `auto` | Children clip. Scrollbar visible only when content overflows. Wheel scrolls. |
+- `visible` (default). Children draw outside the box. No clip, no scrollbar, no `Scroll` events.
+- `hidden`. Children clip to the box. No scrollbar. No scrolling.
+- `scroll`. Children clip. Scrollbar always visible, even if not needed. Wheel scrolls.
+- `auto`. Children clip. Scrollbar visible only when content overflows. Wheel scrolls.
 
 `overflow-x` and `overflow-y` set the axes independently. The shorthand `overflow: scroll` sets both.
 
@@ -56,17 +54,21 @@ The container's scroll-clip size is its inner box (border-box minus borders, pad
 `HoverEventFilter::Scroll` fires for wheel/trackpad/touch scroll over a scrollable node. `ScrollStart` and `ScrollEnd` bracket a contiguous gesture so you can debounce work.
 
 ```rust,no_run
-# use azul::prelude::*;
-# extern "C" fn on_scroll(_: RefAny, _: CallbackInfo) -> Update { Update::DoNothing }
-# fn build(data: RefAny) -> Dom {
-let mut node = Dom::create_div();
-node.add_callback(
-    EventFilter::Hover(HoverEventFilter::Scroll),
-    data,
-    on_scroll,
-);
-# node
-# }
+use azul::prelude::*;
+
+extern "C" fn on_scroll(_: RefAny, _: CallbackInfo) -> Update {
+    Update::DoNothing
+}
+
+fn build(data: RefAny) -> Dom {
+    let mut node = Dom::create_div();
+    node.add_callback(
+        EventFilter::Hover(HoverEventFilter::Scroll),
+        data,
+        on_scroll,
+    );
+    node
+}
 ```
 
 Inside the callback, query the current scroll state through `CallbackInfo`:
@@ -115,7 +117,7 @@ The drag system handles selection drags, scrollbar thumb drags, window moves, wi
 Set the `draggable` attribute on the DOM node. The gesture manager sees it during hit-test and starts a drag when the user begins one.
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
 let card = Dom::create_div()
     .with_attribute(AttributeType::Draggable(true))
     .with_css("padding: 12px; background: #fef;");
@@ -123,16 +125,14 @@ let card = Dom::create_div()
 
 ### Drag events
 
-| Filter | Fires on | Purpose |
-|---|---|---|
-| `HoverEventFilter::DragStart` | source node | Drag begins. Set drag data here. |
-| `HoverEventFilter::Drag` | source node | Each cursor move during drag. |
-| `HoverEventFilter::DragEnd` | source node | Drag ends (drop or cancel). |
-| `HoverEventFilter::DragEnter` | target node | Cursor enters a candidate drop zone. |
-| `HoverEventFilter::DragOver` | target node | Cursor stays over a drop zone (throttled). |
-| `HoverEventFilter::DragLeave` | target node | Cursor leaves a drop zone. |
-| `HoverEventFilter::Drop` | target node | User releases on a drop zone that has accepted the drop. |
-| `HoverEventFilter::DroppedFile` | hit node | OS file-drop landed. |
+- `HoverEventFilter::DragStart` (source node). Drag begins. Set drag data here.
+- `HoverEventFilter::Drag` (source node). Each cursor move during drag.
+- `HoverEventFilter::DragEnd` (source node). Drag ends, on drop or cancel.
+- `HoverEventFilter::DragEnter` (target node). Cursor enters a candidate drop zone.
+- `HoverEventFilter::DragOver` (target node). Cursor stays over a drop zone, throttled.
+- `HoverEventFilter::DragLeave` (target node). Cursor leaves a drop zone.
+- `HoverEventFilter::Drop` (target node). User releases on a drop zone that has accepted the drop.
+- `HoverEventFilter::DroppedFile` (hit node). OS file drop landed.
 
 Each variant has a corresponding `FocusEventFilter::*` and `WindowEventFilter::*`. Use `Hover` for "this specific node is the drop zone". Use `Window` to observe drags anywhere in the window.
 
@@ -179,10 +179,8 @@ A node that doesn't call `accept_drop()` isn't a drop target. The cursor shows t
 
 Two related enums:
 
-| Type | Meaning | Variants |
-|---|---|---|
-| `DragEffect` | What the source allows. Set on the drag context at `DragStart`. | `Uninitialized`, `None`, `Copy`, `CopyLink`, `CopyMove`, `Link`, `LinkMove`, `Move`, `All` |
-| `DropEffect` | What the target chose. Set in `DragOver` / `DragEnter`. | `None`, `Copy`, `Link`, `Move` |
+- `DragEffect`. What the source allows. Set on the drag context at `DragStart`. Variants: `Uninitialized`, `None`, `Copy`, `CopyLink`, `CopyMove`, `Link`, `LinkMove`, `Move`, `All`.
+- `DropEffect`. What the target chose. Set in `DragOver` or `DragEnter`. Variants: `None`, `Copy`, `Link`, `Move`.
 
 A drop target's `DropEffect` must be in the source's `DragEffect` set, otherwise the drop is rejected.
 
@@ -204,12 +202,10 @@ impl CallbackInfo {
 
 ## Drag-and-drop status
 
-| Status | Feature |
-|---|---|
-| **Done** | `DragData` MIME map, `DragEffect` / `DropEffect` enums, drag-state query, `accept_drop` / `set_drop_effect` / `get_drag_types` / `get_drag_data` on `CallbackInfo`. |
-| **Not done** | `DragEnter` / `DragOver` / `DragLeave` / `Drop` event generation by the event loop. The filters exist; the loop doesn't synthesize the events. The `Drop` handler won't fire today. |
-| **Not done** | Visual drag feedback (transform the source node to follow the cursor; opacity dim). |
-| **Not done** | CSS pseudo-classes `:dragging`, `:drag-over`, `:drag-over-invalid` for styling source and target during a drag. |
+- **Done.** `DragData` MIME map, `DragEffect` and `DropEffect` enums, drag-state query, and `accept_drop`, `set_drop_effect`, `get_drag_types`, `get_drag_data` on `CallbackInfo`.
+- **Not done.** `DragEnter`, `DragOver`, `DragLeave`, `Drop` event generation by the event loop. The filters exist; the loop doesn't synthesize the events. The `Drop` handler won't fire today.
+- **Not done.** Visual drag feedback (transform the source node to follow the cursor, opacity dim).
+- **Not done.** CSS pseudo-classes `:dragging`, `:drag-over`, `:drag-over-invalid` for styling source and target during a drag.
 
 Code that follows the API described above will start working as the missing event-generation lands without needing a rewrite.
 
@@ -218,7 +214,8 @@ Code that follows the API described above will start working as the missing even
 OS-level file drops work through the same drag pipeline. Your `DroppedFile` callback reads the file list:
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 extern "C" fn on_dropped_file(_: RefAny, info: CallbackInfo) -> Update {
     if let Some(_path) = info.get_dropped_file() {
         // ... open the file ...
@@ -233,3 +230,9 @@ extern "C" fn on_dropped_file(_: RefAny, info: CallbackInfo) -> Update {
 
 - [`events`](events.md): the event filter system this page builds on.
 - [`timers`](timers.md): scrolling momentum and drag auto-scroll run on reserved timers.
+
+## Coming Up Next
+
+- [Events](events.md) — Callbacks, event filters, and how state triggers relayout
+- [Text Selection](text-selection.md) — Selection ranges, cursors, and copy/paste
+- [Virtual Views](dom/virtual-views.md) — A node that materialises lazily, for infinite lists and embedded sub-DOMs

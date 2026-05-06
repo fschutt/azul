@@ -155,8 +155,8 @@ the view to match instead of manually needing a `setText()` call ("two-way data 
 ```python
 # React Paradigm Model
 def MyApp():
-    input_value, set_input_value = useState(„“)
-    output_value, set_output_value = useState(„“)
+    input_value, set_input_value = useState("")
+    output_value, set_output_value = useState("")
 
     def handle_click():
         calculated = do_something_with_input(input_value)
@@ -729,5 +729,7 @@ their pain points in GUI programming - because someone who cannot articulate a p
 
 ## Coming Up Next
 
-- [Understanding RefAny](./architecture/understanding-refany.md) — technical dive into RefAny, to avoid pitfalls
-- [Document Object Model](./dom.md) — explains various ways how to quickly build `Dom`s without sacrificing performance
+- [Understanding RefAny](architecture/understanding-refany.md) — RefAny helps you to share and store data type-erased data between callbacks and threads
+- [Document Object Model](dom.md) — The Dom tree - node types, hierarchy, and CSS
+- [Styling with CSS](styling.md) — Stylesheets, selectors, and the cascade
+- [Events](events.md) — Callbacks, event filters, and how state triggers relayout

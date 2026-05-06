@@ -258,3 +258,9 @@ and the data is preserved, but no a11y tree is published.
 [dependencies]
 azul = { version = "*", features = ["a11y"] }
 ```
+
+## Coming Up Next
+
+- [Built-in Widgets](widgets.md) — Built-in widgets and how to write your own
+- [System Themes](styling/themes.md) — System colors, `@theme`, `@os`, and accessibility queries
+- [Events](events.md) — Callbacks, event filters, and how state triggers relayout

@@ -128,13 +128,14 @@ process-wide `AzBackend`.
 
 `GpuInfo` (`compositor.rs:145`) is the populated GL string set
 (`GL_VENDOR`, `GL_RENDERER`, `GL_VERSION`, `GL_SHADING_LANGUAGE_VERSION`).
-`check_gpu_blacklist` (`compositor.rs:177`) returns `GpuCheckResult`:
+`check_gpu_blacklist` (`compositor.rs:177`) returns `GpuCheckResult`. Patterns it flags:
 
-| Pattern | Reason | Source |
-|---|---|---|
-| `llvmpipe` / `softpipe` in `GL_RENDERER` | Mesa software rasteriser — `cpurender` is faster | `compositor.rs:184` |
-| NVIDIA vendor + empty `GL_SHADING_LANGUAGE_VERSION` | azul#220 — driver loads but cannot compile shaders | `compositor.rs:193` |
-| Intel + GL major version `< 3` | WebRender requires GL 3.0+ | `compositor.rs:205` |
+- **Mesa software rasteriser.** `llvmpipe` or `softpipe` in `GL_RENDERER`. `cpurender` is faster.
+  - `compositor.rs::check_gpu_blacklist`
+- **NVIDIA driver without GLSL.** NVIDIA vendor with an empty `GL_SHADING_LANGUAGE_VERSION`. Tracks azul#220, where the driver loads but cannot compile shaders.
+  - `compositor.rs::check_gpu_blacklist`
+- **Old Intel GL.** Intel vendor with GL major version `< 3`. WebRender requires GL 3.0+.
+  - `compositor.rs::check_gpu_blacklist`
 
 `check_gpu_blacklist` has no production call site yet (autoreview report
 flagged this as `[HIGH]` dead code). It is wired up to be called after a
@@ -213,11 +214,9 @@ issues that arise when `regenerate_layout` would otherwise want
 `&mut self` on a trait object whose fields the function also needs to
 borrow individually.
 
-| Function | Purpose |
-|---|---|
-| `regenerate_layout` | Full rebuild — runs the user `LayoutCallback`, recomputes the StyledDom, runs the cascade, lays out every DOM, registers scroll nodes, generates the frame |
-| `incremental_relayout` | Cheap path for resize — re-runs layout against the existing StyledDom, skips the user callback |
-| `generate_frame` | Translates `DisplayList → WebRender Transaction` and submits it |
+- **`regenerate_layout`.** Full rebuild. Runs the user `LayoutCallback`, recomputes the StyledDom, runs the cascade, lays out every DOM, registers scroll nodes, and generates the frame.
+- **`incremental_relayout`.** Cheap path for resize. Re-runs layout against the existing StyledDom and skips the user callback.
+- **`generate_frame`.** Translates `DisplayList` to a WebRender `Transaction` and submits it.
 
 `incremental_relayout` is what fires from `WM_SIZE` / `ConfigureNotify` /
 `xdg_surface::configure` / `windowDidResize:`. The full rebuild fires on
@@ -362,12 +361,10 @@ without standing up a real window. Activated by setting
 
 The JSON schema (`Step` enum at `e2e_test.rs:41`):
 
-| Action | Effect |
-|---|---|
-| `resize` | Update dimensions; call `incremental_relayout` (fast path) |
-| `resize_full` | Update dimensions; call `regenerate_layout` (full rebuild) |
-| `tick` | `regenerate_layout` only |
-| `sleep_ms` | `std::thread::sleep` |
+- **`resize`.** Updates dimensions and calls `incremental_relayout` for the fast path.
+- **`resize_full`.** Updates dimensions and calls `regenerate_layout` for a full rebuild.
+- **`tick`.** Calls `regenerate_layout` only.
+- **`sleep_ms`.** Calls `std::thread::sleep`.
 
 A scenario can wrap its steps in a `loop { iterations: N, steps_range: [a, b) }`
 and configure `rss_probes` to:
@@ -392,12 +389,23 @@ scenarios that run alongside a normal window) — see
 
 ## What lives where for a contributor
 
-| Need | File |
-|---|---|
-| Add a new backend selector value | `common/compositor.rs:73` (`AzBackend`) + dispatch in `run.rs` |
-| Add a GPU blacklist entry | `common/compositor.rs:177` (`check_gpu_blacklist`) |
-| Add a window error variant | `common/error.rs:14` (`WindowError`) |
-| Add a default `PlatformWindow` method | `common/event.rs:138` |
-| Tweak the layout-regeneration order | `common/layout.rs` |
-| Add a new debug-server event | `common/debug_server.rs` (`process_debug_event`, line ~5919) |
-| Add a leak-test scenario | `research/calc-regression-triage/leak-deep-dive/scripts/` + `AZ_E2E_TEST` |
+- **Add a new backend selector value.** Edit the `AzBackend` enum and update the dispatch in `run.rs`.
+  - `common/compositor.rs::AzBackend`
+- **Add a GPU blacklist entry.** Extend the pattern matches.
+  - `common/compositor.rs::check_gpu_blacklist`
+- **Add a window error variant.** Add it to the `WindowError` enum.
+  - `common/error.rs::WindowError`
+- **Add a default `PlatformWindow` method.** Add it to the trait with a default body.
+  - `common/event.rs::PlatformWindow`
+- **Tweak the layout-regeneration order.** Edit the orchestrator functions.
+  - `common/layout.rs`
+- **Add a new debug-server event.** Extend the message switch.
+  - `common/debug_server.rs::process_debug_event`
+- **Add a leak-test scenario.** Author a JSON scenario under `research/calc-regression-triage/leak-deep-dive/scripts/` and run with `AZ_E2E_TEST`.
+
+## Coming Up Next
+
+- [Shell2 — Windows](shell2-windows.md) — Windows shell - Win32 messages, DirectComposition, IME
+- [Shell2 — macOS](shell2-macos.md) — macOS shell - Cocoa, AppKit, IME, a11y
+- [Shell2 — Linux Wayland](shell2-linux-wayland.md) — Linux Wayland shell - wl_surface, xdg-shell, libinput
+- [Shell2 — Linux X11](shell2-linux-x11.md) — Linux X11 shell - Xlib, GLX, XInput2

@@ -148,3 +148,9 @@ For animations whose only effect is a pixel change (sprite sheet, video frame, G
 ## Cross-references
 
 - [`timers`](timers.md): the timer mechanics this page builds on.
+
+## Coming Up Next
+
+- [Events](events.md) — Callbacks, event filters, and how state triggers relayout
+- [Timers](timers.md) — Timers, threads, and scheduled work
+- [Scrolling](scrolling-and-drag.md) — Scroll containers, drag-and-drop, hit testing

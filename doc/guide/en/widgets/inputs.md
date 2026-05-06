@@ -182,3 +182,9 @@ unparseable state.
   custom `on_text_input` returning `TextInputValid::No` for invalid characters.
 - For a date or time, build one out of three `NumberInput`s; there's no
   date/time widget yet.
+
+## Coming Up Next
+
+- [Structural Widgets](structural.md) — Panels, splitters, tab views, list views, tree views
+- [Text Input](../text-input.md) — Editable text, IME, and the selection model
+- [Events](../events.md) — Callbacks, event filters, and how state triggers relayout

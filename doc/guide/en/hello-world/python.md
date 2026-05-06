@@ -158,5 +158,6 @@ import azul
 
 ## Coming Up Next
 
-- [DOM and Callbacks](../dom.md) — building richer trees, event filters, the full callback API. Same surface as Rust, written with `Dom.*` constructors instead of the Rust types.
-- [Python Bindings](../bindings/python.md) — full reference for the Python module, including type stubs and packaging.
+- [Application Architecture](../architecture.md) — Explains the concepts of architecting a larger Azul application - "What makes Azul special?"
+- [Document Object Model](../dom.md) — The Dom tree - node types, hierarchy, and CSS
+- [Hello World [Rust]](rust.md)

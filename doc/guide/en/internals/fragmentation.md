@@ -28,12 +28,10 @@ CSS Fragmentation Module Level 3 ([css-break-3](https://www.w3.org/TR/css-break-
 
 ## Two implementations, briefly
 
-| Module | Status | Approach |
-|---|---|---|
-| `layout/src/fragmentation.rs` | partially superseded | CSS-spec-style "decide breaks during layout"; defines `FragmentationLayoutContext`, `BoxBreakBehavior`, `BreakPoint` |
-| `layout/src/paged.rs` | active container model | `FragmentationContext` enum: `Continuous`, `Paged`, `MultiColumn`, `Regions`; defines `Fragmentainer`, `FragmentationState` |
-| `layout/src/solver3/pagination.rs` | active | `PageGeometer` — infinite-canvas coordinate model; `FakePageConfig` for header/footer config without `@page` parsing |
-| `layout/src/solver3/paged_layout.rs` | active | `layout_document_paged` — drives the paged path: layout once on a tall canvas, split into pages by Y position, filter the display list |
+- **`layout/src/fragmentation.rs`.** Partially superseded. CSS-spec-style "decide breaks during layout". Defines `FragmentationLayoutContext`, `BoxBreakBehavior`, and `BreakPoint`.
+- **`layout/src/paged.rs`.** Active container model. The `FragmentationContext` enum has `Continuous`, `Paged`, `MultiColumn`, and `Regions` variants. Defines `Fragmentainer` and `FragmentationState`.
+- **`layout/src/solver3/pagination.rs`.** Active. `PageGeometer` is the infinite-canvas coordinate model. `FakePageConfig` handles header and footer config without `@page` parsing.
+- **`layout/src/solver3/paged_layout.rs`.** Active. `layout_document_paged` drives the paged path. It lays out once on a tall canvas, splits into pages by Y position, and filters the display list.
 
 The note on `fragmentation.rs:23` says explicitly: *"`solver3/pagination.rs` provides an alternative page-layout implementation with its own `PageGeometer`, `PageTemplate`, and `PageMargins`. See that module for the currently active paged-layout pipeline."* The original design proposed integrated mid-layout splitting; the implementation took the simpler post-hoc filter approach (visible in commit history and in `paged_layout.rs:1` "page_index is assigned to nodes DURING layout based on Y position").
 
@@ -175,13 +173,11 @@ let content = PageSlotContent::Dynamic(Arc::new(func));
 
 From `azul_css::props::layout::fragmentation`, defined and parseable, but only partially consumed:
 
-| Property | Type | Honoured by |
-|---|---|---|
-| `break-before`, `break-after` | `PageBreak` | `BreakPoint::is_forced()` in `fragmentation.rs`; not consumed by paged splitter |
-| `break-inside` | `BreakInside` (`Auto` / `Avoid`) | `FragmentationLayoutContext::break_inside_avoid_depth` (counter incremented on entry); not consumed by paged splitter |
-| `orphans` | `u32` (default 2) | Defined; not enforced by Knuth–Plass |
-| `widows` | `u32` (default 2) | Defined; not enforced by Knuth–Plass |
-| `box-decoration-break` | `BoxDecorationBreak` (`Slice` / `Clone`) | Defined; not honoured |
+- The `break-before` and `break-after` properties accept `PageBreak`. Honoured by `BreakPoint::is_forced()` in `fragmentation.rs`. Not consumed by the paged splitter.
+- The `break-inside` property accepts `BreakInside` (`Auto` or `Avoid`). Honoured by `FragmentationLayoutContext::break_inside_avoid_depth` (the counter increments on entry). Not consumed by the paged splitter.
+- The `orphans` property accepts a `u32` (default 2). Defined but not enforced by Knuth-Plass.
+- The `widows` property accepts a `u32` (default 2). Defined but not enforced by Knuth-Plass.
+- The `box-decoration-break` property accepts `BoxDecorationBreak` (`Slice` or `Clone`). Defined but not honoured.
 
 `BoxBreakBehavior` (`fragmentation.rs:351`) classifies a box's break behaviour:
 
@@ -256,3 +252,9 @@ If a contributor wants integrated splitting, the path forward is:
 3. In `solver3/fc.rs:layout_ifc`, plumb the fragment list through to `text_cache.layout_flow(flow_chain: &[LayoutFragment])` so Knuth–Plass produces fragment-aware breaks.
 
 Today neither step is done; `LayoutContext.fragmentation_context` is always `None` in production calls.
+
+## Coming Up Next
+
+- [Text Shaping](inline-text3.md) — The text3 engine - shaping, line breaking, BiDi, hyphenation
+- [Layout Solver (Flex/Grid)](layout-solver.md) — Architecture of `solver3/` and how the engines share state
+- [Text Pipeline](text-pipeline.md) — How a styled text run becomes glyphs

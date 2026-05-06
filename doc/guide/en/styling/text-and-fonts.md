@@ -31,22 +31,18 @@ justification, and line metrics.
 
 `StyleFontFamily` is one of:
 
-| variant | example CSS | resolved at runtime to |
-|---|---|---|
-| `System(name)` | `"Arial"`, `Times New Roman` | a face matching the family name |
-| `SystemType(SystemFontType)` | `system:ui`, `system:monospace:bold` | a platform UI font |
-| `File(url)` | `url(/fonts/Inter.ttf)` | a font file loaded from the URL |
-| `Ref(FontRef)` | not addressable from CSS | a pre-loaded font handle |
+- `System(name)`. CSS like `"Arial"` or `Times New Roman`. Resolves to a face matching the family name.
+- `SystemType(SystemFontType)`. CSS like `system:ui` or `system:monospace:bold`. Resolves to a platform UI font.
+- `File(url)`. CSS like `url(/fonts/Inter.ttf)`. Resolves to a font file loaded from the URL.
+- `Ref(FontRef)`. Not addressable from CSS. Resolves to a pre-loaded font handle.
 
 The property takes a comma-separated *fallback list*. Each entry is tried
 in order; the first one that resolves to a face containing the requested
 glyph wins.
 
-```rust
-# fn body() -> &'static str {
-"body { font-family: \"Inter\", system:ui, sans-serif; }
-code { font-family: system:monospace, \"SF Mono\", Menlo, monospace; }"
-# }
+```css
+body { font-family: "Inter", system:ui, sans-serif; }
+code { font-family: system:monospace, "SF Mono", Menlo, monospace; }
 ```
 
 ### `system:` fonts
@@ -55,15 +51,13 @@ The `system:<role>[:<variant>]` prefix selects a platform UI font without
 hard-coding a family name. It resolves to the OS's preferred face for
 that role:
 
-| selector | role |
-|---|---|
-| `system:ui` | the default UI font |
-| `system:ui:bold` | the UI bold variant |
-| `system:monospace`, `system:monospace:bold`, `system:monospace:italic` | platform monospace |
-| `system:title`, `system:title:bold` | larger UI text |
-| `system:menu` | menu and menu-item label font |
-| `system:small` | small-print UI font |
-| `system:serif`, `system:serif:bold` | platform serif |
+- `system:ui`. The default UI font.
+- `system:ui:bold`. The UI bold variant.
+- `system:monospace`, `system:monospace:bold`, `system:monospace:italic`. Platform monospace.
+- `system:title`, `system:title:bold`. Larger UI text.
+- `system:menu`. Menu and menu-item label font.
+- `system:small`. Small-print UI font.
+- `system:serif`, `system:serif:bold`. Platform serif.
 
 If the role isn't recognised, the parser keeps the literal string as a
 `System` family (so `system:invalid` becomes the family named
@@ -80,12 +74,10 @@ when binding a font once and using it across multiple DOMs.
 `StyleFontSize` wraps a `PixelValue`. The default is `12pt`. Pick whatever
 your design system needs:
 
-```rust
-# fn body() -> &'static str {
-"h1 { font-size: 28px; }
+```css
+h1 { font-size: 28px; }
 p  { font-size: 1em; }
-small { font-size: 80%; }"
-# }
+small { font-size: 80%; }
 ```
 
 `em` is relative to the parent's `font-size`. `rem` is relative to the
@@ -95,15 +87,13 @@ root. `%` resolves the same way as `em`.
 
 `StyleFontWeight`:
 
-| value | numeric |
-|---|---|
-| `lighter` | lighter than parent |
-| `100` ... `300` | `W100` ... `W300` |
-| `normal`, `400` | `Normal` |
-| `500`, `600` | `W500`, `W600` |
-| `bold`, `700` | `Bold` |
-| `800`, `900` | `W800`, `W900` |
-| `bolder` | heavier than parent |
+- `lighter`. Lighter than parent.
+- `100` ... `300`. Maps to `W100` ... `W300`.
+- `normal`, `400`. Maps to `Normal`.
+- `500`, `600`. Maps to `W500`, `W600`.
+- `bold`, `700`. Maps to `Bold`.
+- `800`, `900`. Maps to `W800`, `W900`.
+- `bolder`. Heavier than parent.
 
 The numeric scale is the OpenType weight class. The parser maps standard
 numbers to enum variants. `450` and other in-between numbers are *not*
@@ -123,56 +113,46 @@ StyleFontStyle::Oblique  // oblique (synthesised slant if no italic face)
 
 Horizontal alignment of inline content within its line box:
 
-| value | effect |
-|---|---|
-| `start` (default) | left in LTR, right in RTL |
-| `end` | right in LTR, left in RTL |
-| `left` / `right` | absolute, ignoring text direction |
-| `center` | centred |
-| `justify` | spread to fill the line; see `text-justify` below |
+- `start` (default). Left in LTR, right in RTL.
+- `end`. Right in LTR, left in RTL.
+- `left` / `right`. Absolute, ignoring text direction.
+- `center`. Centred.
+- `justify`. Spread to fill the line. See `text-justify` below.
 
 ## `text-justify`
 
 `LayoutTextJustify` refines what `text-align: justify` does:
 
-| value | distributes whitespace by |
-|---|---|
-| `auto` (default) | UA picks the appropriate algorithm for the script |
-| `none` | no justification (`text-align: justify` is treated as `start`) |
-| `inter-word` | only between words |
-| `inter-character` | between every character (CJK-friendly) |
-| `distribute` | legacy alias of `inter-character` |
+- `auto` (default). UA picks the appropriate algorithm for the script.
+- `none`. No justification (`text-align: justify` is treated as `start`).
+- `inter-word`. Distributes whitespace only between words.
+- `inter-character`. Distributes whitespace between every character (CJK-friendly).
+- `distribute`. Legacy alias of `inter-character`.
 
 The legacy `distribute` value computes to `inter-character` per the spec.
 
 ## Line metrics
 
-| property | type | default | meaning |
-|---|---|---|---|
-| `line-height` | `<percentage>` | `120%` | multiplier applied to `font-size` |
-| `letter-spacing` | `<length>` | `0px` | added between every glyph |
-| `word-spacing` | `<length>` | `0px` | added between words |
-| `tab-size` | `<length>` | `8em` | width of a tab character |
+- `line-height` accepts `<percentage>`. Default `120%`. Multiplier applied to `font-size`.
+- `letter-spacing` accepts `<length>`. Default `0px`. Added between every glyph.
+- `word-spacing` accepts `<length>`. Default `0px`. Added between words.
+- `tab-size` accepts `<length>`. Default `8em`. Width of a tab character.
 
-```rust
-# fn body() -> &'static str {
-".body { line-height: 150%; letter-spacing: 0.02em; }
-pre   { tab-size: 4em; }"
-# }
+```css
+.body { line-height: 150%; letter-spacing: 0.02em; }
+pre   { tab-size: 4em; }
 ```
 
 ## Wrapping and breaks
 
 `white-space` controls collapsing and wrapping:
 
-| value | collapse whitespace | wrap |
-|---|---|---|
-| `normal` (default) | yes | yes |
-| `pre` | no | no (only at explicit breaks) |
-| `nowrap` | yes | no |
-| `pre-wrap` | no | yes |
-| `pre-line` | yes (newlines preserved) | yes |
-| `break-spaces` | no, breaks at every space | yes |
+- `normal` (default). Collapses whitespace and wraps.
+- `pre`. Preserves whitespace. No wrap (only at explicit breaks).
+- `nowrap`. Collapses whitespace. No wrap.
+- `pre-wrap`. Preserves whitespace and wraps.
+- `pre-line`. Collapses whitespace but preserves newlines. Wraps.
+- `break-spaces`. Preserves whitespace and breaks at every space. Wraps.
 
 `word-break` and `overflow-wrap` decide what to do with long unbreakable
 sequences (URLs, code, CJK):
@@ -208,11 +188,9 @@ for the values.
 
 ## Text decoration and selection
 
-| property | values |
-|---|---|
-| `text-decoration` | `none`, `underline`, `overline`, `line-through` |
-| `user-select` | `auto`, `text`, `none`, `all` |
-| `vertical-align` | `baseline`, `top`, `middle`, `bottom`, `sub`, `super`, `text-top`, `text-bottom`, `<percentage>`, `<length>` |
+- `text-decoration` accepts `none`, `underline`, `overline`, or `line-through`.
+- `user-select` accepts `auto`, `text`, `none`, or `all`.
+- `vertical-align` accepts `baseline`, `top`, `middle`, `bottom`, `sub`, `super`, `text-top`, `text-bottom`, `<percentage>`, or `<length>`.
 
 `user-select: none` is what you want on buttons and icon glyphs to prevent
 double-click text selection from overlapping the click.
@@ -255,23 +233,27 @@ double-click text selection from overlapping the click.
 
 ## Default values at a glance
 
-| property | default |
-|---|---|
-| `font-family` | `serif` (platform default) |
-| `font-size` | `12pt` |
-| `font-weight` | `normal` (400) |
-| `font-style` | `normal` |
-| `line-height` | `120%` |
-| `letter-spacing` | `0px` |
-| `word-spacing` | `0px` |
-| `tab-size` | `8em` |
-| `text-align` | `start` |
-| `text-justify` | `auto` |
-| `white-space` | `normal` |
-| `word-break` | `normal` |
-| `overflow-wrap` | `normal` |
-| `hyphens` | `manual` |
-| `direction` | `ltr` |
-| `text-decoration` | `none` |
-| `user-select` | `auto` |
-| `vertical-align` | `baseline` |
+- `font-family`. Default `serif` (platform default).
+- `font-size`. Default `12pt`.
+- `font-weight`. Default `normal` (400).
+- `font-style`. Default `normal`.
+- `line-height`. Default `120%`.
+- `letter-spacing`. Default `0px`.
+- `word-spacing`. Default `0px`.
+- `tab-size`. Default `8em`.
+- `text-align`. Default `start`.
+- `text-justify`. Default `auto`.
+- `white-space`. Default `normal`.
+- `word-break`. Default `normal`.
+- `overflow-wrap`. Default `normal`.
+- `hyphens`. Default `manual`.
+- `direction`. Default `ltr`.
+- `text-decoration`. Default `none`.
+- `user-select`. Default `auto`.
+- `vertical-align`. Default `baseline`.
+
+## Coming Up Next
+
+- [Icon Packs](icon-packs.md) — Register icons and use them with `Dom::create_icon` or `<icon>`
+- [Inline Layout](../layout/inline.md) — Text flow, word breaks, writing modes, multi-column
+- [Text Input](../text-input.md) — Editable text, IME, and the selection model

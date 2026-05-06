@@ -34,14 +34,12 @@ AZ_PROFILE=heap,jsonl,detail AZ_PROFILE_OUT=/tmp/d.jsonl ./my_app  # add per-ste
 
 `AZ_PROFILE` is a comma-separated list. Tokens are independent flags, not modes; combine freely. Whitespace is trimmed, matching is case-insensitive, unknown tokens are ignored.
 
-| Token | Alias | Effect |
-|---|---|---|
-| `memory` | `mem` | Per-frame heap-breakdown dump (DOM caches, layout cache, text cache, RSS) to stderr. |
-| `cpu` | `perf` | Per-phase wall-clock timings (layout, style, cascade, paint, callbacks, …). |
-| `cascade` | `css` | Top-N CSS properties by cascade-walk count per frame. |
-| `heap` | — | Phase-boundary heap probes inside the layout pass. Silent without `jsonl`. |
-| `jsonl` | — | Format `heap` probes as JSONL to `AZ_PROFILE_OUT`. Requires `heap`. |
-| `detail` | — | Opt in to fine-grained per-step probes. Layered on top of `heap`. |
+- `memory` (alias `mem`). Per-frame heap-breakdown dump (DOM caches, layout cache, text cache, RSS) to stderr.
+- `cpu` (alias `perf`). Per-phase wall-clock timings (layout, style, cascade, paint, callbacks, etc.).
+- `cascade` (alias `css`). Top-N CSS properties by cascade-walk count per frame.
+- `heap`. Phase-boundary heap probes inside the layout pass. Silent without `jsonl`.
+- `jsonl`. Formats `heap` probes as JSONL to `AZ_PROFILE_OUT`. Requires `heap`.
+- `detail`. Opts in to fine-grained per-step probes. Layered on top of `heap`.
 
 `AZ_PROFILE_OUT=<path>` names the JSONL destination. With `jsonl` set and `AZ_PROFILE_OUT` unset, writers silently skip — benchmarks stay clean.
 
@@ -140,3 +138,9 @@ cargo run --release --features e2e-test -- \
 ## Allocator selection
 
 The layout crate has feature flags for alternate allocators (`allocator_mimalloc`, `allocator_jemalloc`). They release freed pages to the OS before each RSS sample, otherwise the allocator holds onto pages and inflates RSS. Pick an allocator that matches your production deployment so the numbers match what users see — RSS curves change shape with the allocator.
+
+## Coming Up Next
+
+- [Debugging](debugging.md) — Debug overlays, the inspector, and structured logging
+- [End-to-End Testing](e2e-testing.md) — Driving an Azul app from a script for tests
+- [Headless Rendering](headless-rendering.md) — Running the pipeline without a window

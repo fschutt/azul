@@ -34,7 +34,7 @@ it. Ricing: a CSS file at `~/.config/azul/styles/<exe-name>.css` is loaded into
 
 ## The shape of `SystemStyle`
 
-[`css/src/system.rs:93`](../../../../css/src/system.rs):
+[`css/src/system.rs`](../../../../css/src/system.rs):
 
 ```rust,ignore
 #[repr(C)]
@@ -67,17 +67,16 @@ pub struct SystemStyle {
 `Box<Stylesheet>` and `Box<ComputedScrollbarStyle>` are heap-indirected so
 the struct's FFI size is stable across feature flags.
 
-`Platform` ([`css/src/system.rs:43`](../../../../css/src/system.rs)) is one of
+`Platform` in [`css/src/system.rs`](../../../../css/src/system.rs) is one of
 `Windows | MacOs | Linux(DesktopEnvironment) | Android | Ios | Unknown`.
-`Platform::current()` is the compile-time `cfg(target_os)` answer; the runtime
+`Platform::current()` is the compile-time `cfg(target_os)` answer. The runtime
 discovery in `dll/` overrides it on Linux to fill in the actual desktop env.
 
 ## The discovery pipeline
 
 There is no portable `discover()` in `azul-css`. The crate exposes only
-[`SystemStyle::detect()`](../../../../css/src/system.rs)
-([`css/src/system.rs:1476`](../../../../css/src/system.rs)) which is a thin
-wrapper over the compile-time defaults:
+[`SystemStyle::detect()`](../../../../css/src/system.rs) in
+`css/src/system.rs`, which is a thin wrapper over the compile-time defaults:
 
 ```rust,ignore
 pub fn detect() -> Self {
@@ -95,8 +94,7 @@ pub fn default_for_platform() -> Self {
 ```
 
 Real OS discovery lives in `azul-dll`. The single dispatch point is
-[`discover_system_style`](../../../../dll/src/desktop/app.rs) in
-[`dll/src/desktop/app.rs:229`](../../../../dll/src/desktop/app.rs):
+[`dll/src/desktop/app.rs::discover_system_style`](../../../../dll/src/desktop/app.rs):
 
 ```rust,ignore
 pub(crate) fn discover_system_style() -> azul_css::system::SystemStyle {
@@ -107,15 +105,13 @@ pub(crate) fn discover_system_style() -> azul_css::system::SystemStyle {
 }
 ```
 
-`App::create` ([`dll/src/desktop/app.rs:51`](../../../../dll/src/desktop/app.rs))
+`App::create` in [`dll/src/desktop/app.rs`](../../../../dll/src/desktop/app.rs)
 calls this once and stores the result in the `AppConfig`. Per-platform priority
 chains:
 
-| Platform | Order |
-|---|---|
-| **macOS** | dlopen AppKit → Objective-C runtime → fall back to `defaults::macos_modern_*` if dlopen fails |
-| **Windows** | LoadLibrary `user32.dll` / `dwmapi.dll` → fall back to `defaults::windows_11_light` if any DLL fails |
-| **Linux** | XDG Desktop Portal (D-Bus, raw socket) → CLI discovery (`gsettings` / `kreadconfig5` / Hyprland config / pywal cache) → `defaults::gnome_adwaita_light` |
+- **macOS.** dlopen AppKit, then Objective-C runtime, then fall back to `defaults::macos_modern_*` if dlopen fails.
+- **Windows.** LoadLibrary `user32.dll` and `dwmapi.dll`, then fall back to `defaults::windows_11_light` if any DLL fails.
+- **Linux.** XDG Desktop Portal (D-Bus, raw socket), then CLI discovery (`gsettings`, `kreadconfig5`, Hyprland config, pywal cache), then `defaults::gnome_adwaita_light`.
 
 Every backend **starts** by cloning a hard-coded default and then mutates
 fields based on what the OS actually returned. This means a query failure for
@@ -123,7 +119,7 @@ a single value (e.g. accent colour) leaves the rest of the style intact.
 
 ## macOS: dlopen + Objective-C
 
-[`dll/src/desktop/shell2/macos/system_style.rs:214`](../../../../dll/src/desktop/shell2/macos/system_style.rs):
+[`dll/src/desktop/shell2/macos/system_style.rs::discover`](../../../../dll/src/desktop/shell2/macos/system_style.rs):
 
 ```rust,ignore
 pub(crate) fn discover() -> SystemStyle {
@@ -149,17 +145,17 @@ pub(crate) fn discover() -> SystemStyle {
 
 `ObjcLib` is a hand-rolled `dlopen` wrapper that resolves
 `objc_msgSend`, `objc_getClass`, and `sel_registerName` from `libobjc.A.dylib`
-plus the `NS*` symbols from `AppKit.framework`. **No `objc2` linkage** —
-this code path runs even if the user disables every feature. The fallback at
-[`shell2/macos/system_style.rs:113`](../../../../dll/src/desktop/shell2/macos/system_style.rs)
+plus the `NS*` symbols from `AppKit.framework`. **No `objc2` linkage**.
+This code path runs even if the user disables every feature. The fallback in
+[`dll/src/desktop/shell2/macos/system_style.rs`](../../../../dll/src/desktop/shell2/macos/system_style.rs)
 notes that `objc_msgSend` returning floats is ABI-different on x86_64
-(`fpret`) — the implementation targets arm64 and accepts default-value
+(`fpret`). The implementation targets arm64 and accepts default-value
 fallback on x86_64.
 
 The Apple version-numbering jump is encoded literally:
 
 ```rust,ignore
-// shell2/macos/system_style.rs:377-384
+// dll/src/desktop/shell2/macos/system_style.rs
 26 => OsVersion::MACOS_TAHOE,    // Apple skipped 16-25 in 2025
 15 => OsVersion::MACOS_SEQUOIA,
 14 => OsVersion::MACOS_SONOMA,
@@ -168,7 +164,7 @@ The Apple version-numbering jump is encoded literally:
 
 ## Windows: LoadLibrary + GetProcAddress
 
-[`dll/src/desktop/shell2/windows/system_style.rs:140`](../../../../dll/src/desktop/shell2/windows/system_style.rs):
+[`dll/src/desktop/shell2/windows/system_style.rs::discover`](../../../../dll/src/desktop/shell2/windows/system_style.rs):
 
 ```rust,ignore
 pub(crate) fn discover() -> SystemStyle {
@@ -187,11 +183,11 @@ pub(crate) fn discover() -> SystemStyle {
 ```
 
 ClearType is detected via `SPI_GETFONTSMOOTHINGTYPE`
-([`shell2/windows/system_style.rs:200-214`](../../../../dll/src/desktop/shell2/windows/system_style.rs)) — when the smoothing type is `FE_FONTSMOOTHINGCLEARTYPE` the subpixel layout is set to `Rgb` (ClearType's horizontal default), otherwise `None`. The BGR / vertical variants of `SubpixelType` are not currently produced by Windows discovery.
+in [`dll/src/desktop/shell2/windows/system_style.rs`](../../../../dll/src/desktop/shell2/windows/system_style.rs). When the smoothing type is `FE_FONTSMOOTHINGCLEARTYPE` the subpixel layout is set to `Rgb` (ClearType's horizontal default), otherwise `None`. The BGR and vertical variants of `SubpixelType` are not currently produced by Windows discovery.
 
 ## Linux: D-Bus first, then CLI, then defaults
 
-[`dll/src/desktop/shell2/linux/system_style.rs:1038`](../../../../dll/src/desktop/shell2/linux/system_style.rs):
+[`dll/src/desktop/shell2/linux/system_style.rs::discover`](../../../../dll/src/desktop/shell2/linux/system_style.rs):
 
 ```rust,ignore
 pub(crate) fn discover() -> SystemStyle {
@@ -234,34 +230,32 @@ pub(crate) fn discover() -> SystemStyle {
 
 ### XDG Desktop Portal (raw D-Bus)
 
-[`shell2/linux/system_style.rs:40`](../../../../dll/src/desktop/shell2/linux/system_style.rs)
+[`dll/src/desktop/shell2/linux/system_style.rs`](../../../../dll/src/desktop/shell2/linux/system_style.rs)
 implements just enough of the D-Bus wire protocol to call
-`org.freedesktop.portal.Settings.Read` — no `zbus` or `dbus` crate dependency.
-Reads two keys from `org.freedesktop.appearance`: `color-scheme` (uint32:
+`org.freedesktop.portal.Settings.Read`, with no `zbus` or `dbus` crate dependency.
+It reads two keys from `org.freedesktop.appearance`: `color-scheme` (uint32:
 0/1/2 = no-pref/dark/light) and `accent-color` (variant of three doubles).
 
 ### Per-DE CLI discovery
 
-| Function | Source of truth |
-|---|---|
-| `discover_gnome_style` | `gsettings get org.gnome.desktop.interface ...` (color-scheme, gtk-theme, font-name, monospace-font-name, accent-color, cursor-theme, cursor-size) |
-| `discover_kde_style` | `kreadconfig5 --file kdeglobals --group ... --key ...` (ColorScheme, Font, ColorEffects:Disabled, etc.) |
-| `discover_riced_style` | parse `$XDG_CONFIG_HOME/hypr/hyprland.conf`, `$HOME/.cache/wal/colors.json`, `i3/config`, `sway/config` |
+- **`discover_gnome_style`.** Reads from `gsettings get org.gnome.desktop.interface ...` for color-scheme, gtk-theme, font-name, monospace-font-name, accent-color, cursor-theme, and cursor-size.
+- **`discover_kde_style`.** Reads from `kreadconfig5 --file kdeglobals --group ... --key ...` for ColorScheme, Font, ColorEffects:Disabled, etc.
+- **`discover_riced_style`.** Parses `$XDG_CONFIG_HOME/hypr/hyprland.conf`, `$HOME/.cache/wal/colors.json`, `i3/config`, and `sway/config`.
 
 `AZUL_SMOKE_AND_MIRRORS=1` reorders the chain so a tiling-WM user with a
 GNOME session set in `XDG_CURRENT_DESKTOP` still gets their pywal palette.
 
 ### Linux extras
 
-`discover_linux_extras` ([`shell2/linux/system_style.rs:306`](../../../../dll/src/desktop/shell2/linux/system_style.rs))
+`discover_linux_extras` in [`dll/src/desktop/shell2/linux/system_style.rs`](../../../../dll/src/desktop/shell2/linux/system_style.rs)
 runs after either path completes and fills in fields that aren't in the
 portal's API but ARE in `gsettings`: cursor theme, cursor size, icon theme,
-GTK theme name, titlebar button layout (`"close,minimize,maximize:"`).
+GTK theme name, and titlebar button layout (`"close,minimize,maximize:"`).
 
 ## Compile-time defaults
 
-[`css::system::defaults`](../../../../css/src/system.rs)
-([`css/src/system.rs:1753`](../../../../css/src/system.rs)) — every constructor
+[`css::system::defaults`](../../../../css/src/system.rs) in
+[`css/src/system.rs`](../../../../css/src/system.rs) — every constructor
 returns a fully-populated `SystemStyle`. They serve four roles:
 
 1. Backend fallback when dlopen / D-Bus fails.
@@ -271,27 +265,25 @@ returns a fully-populated `SystemStyle`. They serve four roles:
 
 Available constructors:
 
-| Group | Constructors |
-|---|---|
-| **Modern** | `windows_11_light/dark`, `macos_modern_light/dark`, `gnome_adwaita_light/dark`, `kde_breeze_light` |
-| **Mobile** | `android_material_light`, `ios_light` |
-| **Nostalgia** | `windows_7_aero`, `windows_xp_luna`, `macos_aqua`, `gtk2_clearlooks`, `android_holo_dark` |
+- **Modern.** `windows_11_light/dark`, `macos_modern_light/dark`, `gnome_adwaita_light/dark`, `kde_breeze_light`.
+- **Mobile.** `android_material_light`, `ios_light`.
+- **Nostalgia.** `windows_7_aero`, `windows_xp_luna`, `macos_aqua`, `gtk2_clearlooks`, `android_holo_dark`.
 
 The nostalgia constructors are public so applications can opt-in via
-`SystemStyle::with_*` if they want a vintage theme. They are not reachable
-from runtime discovery — `OsVersion::WIN_XP` is never produced by `discover()`.
+`SystemStyle::with_*` if they want a vintage theme. They aren't reachable
+from runtime discovery. `OsVersion::WIN_XP` is never produced by `discover()`.
 
 Each constructor uses `..Default::default()` to fill the long tail of fields.
 This is safe because `SystemStyle` derives `Default` and every nested type
 (`InputMetrics`, `AnimationMetrics`, `AccessibilitySettings`, ...) implements
-its own `Default` with sensible values — e.g. `InputMetrics::double_click_time_ms = 500`.
+its own `Default` with sensible values, e.g. `InputMetrics::double_click_time_ms = 500`.
 
 ## App-specific ricing
 
 After discovery succeeds, every Linux path calls:
 
 ```rust,ignore
-// shell2/linux/system_style.rs:976
+// dll/src/desktop/shell2/linux/system_style.rs::load_app_specific_stylesheet
 fn load_app_specific_stylesheet() -> Option<Stylesheet> {
     if std::env::var("AZUL_DISABLE_RICING").is_ok() { return None; }
     let exe_name = std::env::current_exe()?.file_stem()?.to_string_lossy().into_owned();
@@ -304,15 +296,13 @@ fn load_app_specific_stylesheet() -> Option<Stylesheet> {
 ```
 
 The result lands in `app_specific_stylesheet`. Parser warnings are
-discarded — invalid user CSS does not abort discovery.
+discarded. Invalid user CSS does not abort discovery.
 
-| Platform | Path |
-|---|---|
-| Linux | `$XDG_CONFIG_HOME/azul/styles/<exe>.css` (else `~/.config/azul/styles/<exe>.css`) |
-| macOS | `~/Library/Application Support/azul/styles/<exe>.css` |
-| Windows | `%APPDATA%\azul\styles\<exe>.css` |
+- **Linux.** `$XDG_CONFIG_HOME/azul/styles/<exe>.css`, else `~/.config/azul/styles/<exe>.css`.
+- **macOS.** `~/Library/Application Support/azul/styles/<exe>.css`.
+- **Windows.** `%APPDATA%\azul\styles\<exe>.css`.
 
-`exe` is the `Path::file_stem()` of the running executable — `myapp` matches
+`exe` is the `Path::file_stem()` of the running executable. `myapp` matches
 both `myapp` and `myapp.exe`.
 
 ## Stylesheet generators on `SystemStyle`
@@ -320,32 +310,32 @@ both `myapp` and `myapp.exe`.
 `SystemStyle` carries two CSS-emitting methods used by the menu / CSD
 pipeline (see [Menus and Client-Side Decorations](./menus-and-csd.md)):
 
-| Method | Defined in | Emits |
-|---|---|---|
-| `create_csd_stylesheet()` | [`css/src/system.rs:1512`](../../../../css/src/system.rs) | `.csd-titlebar`, `.csd-title`, `.csd-buttons`, `.csd-button`, `.csd-button:hover`, `.csd-close:hover`, plus macOS / Linux specialisations |
-| `create_menu_stylesheet()` | [`dll/src/desktop/menu_renderer.rs:495`](../../../../dll/src/desktop/menu_renderer.rs) (extension trait `SystemStyleMenuExt`) | `.menu-container`, `.menu-item`, `.menu-item:hover`, `.menu-item-disabled/-greyed`, `.menu-item-icon`, `.menu-item-label`, `.menu-item-shortcut`, `.menu-item-arrow`, `.menu-separator` |
+- **`create_csd_stylesheet()`.** Emits `.csd-titlebar`, `.csd-title`, `.csd-buttons`, `.csd-button`, `.csd-button:hover`, `.csd-close:hover`, plus macOS and Linux specialisations.
+  - `css/src/system.rs::create_csd_stylesheet`
+- **`create_menu_stylesheet()`.** Emits `.menu-container`, `.menu-item`, `.menu-item:hover`, `.menu-item-disabled/-greyed`, `.menu-item-icon`, `.menu-item-label`, `.menu-item-shortcut`, `.menu-item-arrow`, and `.menu-separator`. Defined as an extension trait `SystemStyleMenuExt`.
+  - `dll/src/desktop/menu_renderer.rs::create_menu_stylesheet`
 
 Both build a `String` and parse it back to `Stylesheet` via
-[`parser2::new_from_str`](../../../../css/src/parser2.rs). This is fragile —
+[`parser2::new_from_str`](../../../../css/src/parser2.rs). This is fragile.
 `format!` typos are caught only at parse time, not compile time. Errors are
-log-routed (`log_debug!(LogCategory::General, ...)`) but the build still
+log-routed via `log_debug!(LogCategory::General, ...)` but the build still
 succeeds with whatever rules parsed correctly.
 
 ## Detecting the desktop environment and language
 
 Two helpers in `azul-css` work without `azul-dll`:
 
-[`detect_linux_desktop_env`](../../../../css/src/system.rs)
-([`css/src/system.rs:1640`](../../../../css/src/system.rs)) checks
+[`detect_linux_desktop_env`](../../../../css/src/system.rs) in
+`css/src/system.rs` checks
 `XDG_CURRENT_DESKTOP`, `DESKTOP_SESSION`, then specific markers
 (`GNOME_DESKTOP_SESSION_ID`, `KDE_FULL_SESSION`, `HYPRLAND_INSTANCE_SIGNATURE`,
 `SWAYSOCK`, `I3SOCK`). Returns
 `DesktopEnvironment::{Gnome, Kde, Other(name)}`.
 
-[`detect_system_language`](../../../../css/src/system.rs)
-([`css/src/system.rs:1729`](../../../../css/src/system.rs)) checks
+[`detect_system_language`](../../../../css/src/system.rs) in
+`css/src/system.rs` checks
 `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG` in priority, strips `.UTF-8`
-suffixes and `:`-separated alternatives, normalises `de_DE` → `de-DE`.
+suffixes and `:`-separated alternatives, and normalises `de_DE` to `de-DE`.
 Returns `"en-US"` on failure. Native discovery overrides this on macOS
 (via `NSLocale`) and Windows.
 
@@ -353,20 +343,20 @@ Returns `"en-US"` on failure. Native discovery overrides this on macOS
 
 The struct is consumed in:
 
-- [`dll/src/desktop/csd.rs`](../../../../dll/src/desktop/csd.rs) — titlebar
+- [`dll/src/desktop/csd.rs`](../../../../dll/src/desktop/csd.rs) for titlebar
   styling and the menu-bar dropdown callback.
 - [`dll/src/desktop/menu_renderer.rs`](../../../../dll/src/desktop/menu_renderer.rs)
-  — menu colour / font lookup.
+  for menu colour and font lookup.
 - [`layout/src/widgets/scrollbar.rs`](../../../../layout/src/widgets/scrollbar.rs)
-  — scrollbar visual style + `ScrollbarPreferences.visibility`.
+  for scrollbar visual style and `ScrollbarPreferences.visibility`.
 - [`layout/src/widgets/titlebar.rs`](../../../../layout/src/widgets/titlebar.rs)
-  — `Titlebar::from_system_style_csd` + `tm.buttons` / `tm.button_side`.
+  for `Titlebar::from_system_style_csd` and `tm.buttons` / `tm.button_side`.
 - [`layout/src/managers/scroll_state.rs`](../../../../layout/src/managers/scroll_state.rs)
-  — `ScrollPhysics` (momentum / overscroll) per platform.
+  for `ScrollPhysics` (momentum and overscroll) per platform.
 - Anywhere a callback wants the live system theme: every `CallbackInfo`
   exposes `get_system_style() -> Arc<SystemStyle>`.
 
-Not by reading `SystemStyle` directly — by walking `Arc<SystemStyle>`. Cloning
+Not by reading `SystemStyle` directly, but by walking `Arc<SystemStyle>`. Cloning
 is one atomic refcount bump, so widgets pass the Arc around freely.
 
 ## Adding a field
@@ -374,18 +364,24 @@ is one atomic refcount bump, so widgets pass the Arc around freely.
 The cross-cutting checklist when extending `SystemStyle`:
 
 1. Add the field to the struct in
-   [`css/src/system.rs:93`](../../../../css/src/system.rs). Make it
+   [`css/src/system.rs`](../../../../css/src/system.rs). Make it
    `Default`-able.
-2. Update `SystemStyle::to_json_string`
-   ([`css/src/system.rs:1227`](../../../../css/src/system.rs)) so debug output
+2. Update `SystemStyle::to_json_string` in
+   [`css/src/system.rs`](../../../../css/src/system.rs) so debug output
    matches.
 3. Set the field in every `defaults::*` constructor that should differ from
    `Default`.
 4. Wire each native discovery path:
-   - macOS: `shell2/macos/system_style.rs::discover`
-   - Windows: `shell2/windows/system_style.rs::discover`
+   - macOS: `dll/src/desktop/shell2/macos/system_style.rs::discover`
+   - Windows: `dll/src/desktop/shell2/windows/system_style.rs::discover`
    - Linux: pick the right helper inside
-     `shell2/linux/system_style.rs` (`discover_gnome_style`,
+     `dll/src/desktop/shell2/linux/system_style.rs` (`discover_gnome_style`,
      `discover_kde_style`, `discover_linux_extras`, etc.)
 5. If exposed via FFI, add a `repr(C)` Option-wrapper if the type isn't
    already FFI-safe, and regenerate `api.json`.
+
+## Coming Up Next
+
+- [Accessibility Backends](accessibility-backends.md) — Per-platform a11y back-ends - UIA, AT-SPI, NSAccessibility
+- [Shell2 Common Layer](shell2-common.md) — Shared shell infrastructure across platforms
+- [Cascade, Inheritance, Restyle](cascade.md) — Selector matching, specificity, and computed values

@@ -125,3 +125,9 @@ The full algorithm (matching tiers, the property-change bitmask, the
 relayout-scope enum, damage-rect coalescing) lives in
 [internals/event-system.md](../internals/event-system.md) and
 [internals/rendering-pipeline.md](../internals/rendering-pipeline.md).
+
+## Coming Up Next
+
+- [Datasets](datasets.md) — Attaching state to a node for navigation and per-instance state
+- [Merge Callbacks](merge-callbacks.md) — How widgets keep heavy resources across a layout rebuild
+- [Virtual Views](virtual-views.md) — A node that materialises lazily, for infinite lists and embedded sub-DOMs

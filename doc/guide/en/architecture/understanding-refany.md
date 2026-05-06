@@ -265,5 +265,6 @@ never the reverse.
 
 ## Coming Up Next
 
-- [Document Object Model](./dom.md) — explains various ways how to quickly build `Dom`s without sacrificing performance
-- [Styling With CSS](./styling.md) — introduction to CSS styling, layout and cascading rules
+- [Document Object Model](../dom.md) — The Dom tree - node types, hierarchy, and CSS
+- [Datasets](../dom/datasets.md) — Attaching state to a node for navigation and per-instance state
+- [Events](../events.md) — Callbacks, event filters, and how state triggers relayout

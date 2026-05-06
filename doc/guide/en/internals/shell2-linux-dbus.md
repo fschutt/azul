@@ -84,12 +84,10 @@ under the hood; each function pointer is populated by `load_symbol!`.
 
 Constants exposed from `dbus/mod.rs:9`:
 
-| Const | Purpose |
-|---|---|
-| `DBUS_BUS_SESSION` | Connect to the user's session bus (vs. system bus) |
-| `DBUS_NAME_FLAG_DO_NOT_QUEUE` | Refuse to queue if the requested name is taken |
-| `DBUS_HANDLER_RESULT_HANDLED` / `_NOT_YET_HANDLED` / `_NEED_MEMORY` | Return values from object-path message handlers |
-| `DBUS_TYPE_STRING` / `_UINT32` / `_ARRAY` / `_VARIANT` | Argument-type tags used during message marshalling |
+- **`DBUS_BUS_SESSION`.** Connect to the user's session bus rather than the system bus.
+- **`DBUS_NAME_FLAG_DO_NOT_QUEUE`.** Refuse to queue if the requested name is already taken.
+- **`DBUS_HANDLER_RESULT_HANDLED` / `_NOT_YET_HANDLED` / `_NEED_MEMORY`.** Return values from object-path message handlers.
+- **`DBUS_TYPE_STRING` / `_UINT32` / `_ARRAY` / `_VARIANT`.** Argument-type tags used during message marshalling.
 
 Many other type constants
 (`DBUS_TYPE_BOOLEAN`, `DBUS_TYPE_INT32`, `DBUS_TYPE_DOUBLE`, etc.) are
@@ -204,12 +202,10 @@ may not be serialised into the DBus variant dict — verify against
 `actions_protocol.rs` documents the four DBus methods Azul implements
 on its `org.gtk.Actions` object:
 
-| Method | Signature | Purpose |
-|---|---|---|
-| `List` | `() → as` | Return the action-name array |
-| `Describe` | `(s) → (bsav)` | `(enabled, param_type, state)` for one action |
-| `DescribeAll` | `() → a{s(bsav)}` | All actions with descriptions |
-| `Activate` | `(s, av, a{sv})` | Invoke a callback |
+- **`List`.** Signature `() → as`. Returns the action-name array.
+- **`Describe`.** Signature `(s) → (bsav)`. Returns `(enabled, param_type, state)` for one action.
+- **`DescribeAll`.** Signature `() → a{s(bsav)}`. Returns all actions with descriptions.
+- **`Activate`.** Signature `(s, av, a{sv})`. Invokes a callback.
 
 Activation runs on the libdbus dispatch thread, *not* the window's
 event-loop thread. Calling the Azul callback there is unsafe — it
@@ -267,17 +263,15 @@ marshals the response with `dbus_message_iter_open_container` /
 
 ## X11 window properties
 
-GNOME Shell needs to know which DBus name + object path serves a
+GNOME Shell needs to know which DBus name and object path serves a
 given window. On X11, this is published through window properties
 (`x11_properties.rs:23`):
 
-| Atom | Value |
-|---|---|
-| `_GTK_APPLICATION_ID` | the app name string |
-| `_GTK_UNIQUE_BUS_NAME` | `org.gtk.{app_name}` |
-| `_GTK_APPLICATION_OBJECT_PATH` | `/org/gtk/{app_name_with_slashes}` |
-| `_GTK_APP_MENU_OBJECT_PATH` | `{object_path}/menus/AppMenu` |
-| `_GTK_MENUBAR_OBJECT_PATH` | `{object_path}/menus/MenuBar` |
+- Atom `_GTK_APPLICATION_ID` carries the app name string.
+- Atom `_GTK_UNIQUE_BUS_NAME` carries `org.gtk.{app_name}`.
+- Atom `_GTK_APPLICATION_OBJECT_PATH` carries `/org/gtk/{app_name_with_slashes}`.
+- Atom `_GTK_APP_MENU_OBJECT_PATH` carries `{object_path}/menus/AppMenu`.
+- Atom `_GTK_MENUBAR_OBJECT_PATH` carries `{object_path}/menus/MenuBar`.
 
 All five atoms are interned via `XInternAtom`, and values are written
 with `XChangeProperty(format=8, type=UTF8_STRING)`. GNOME Shell polls
@@ -332,9 +326,17 @@ and avoid every code path on this page.
 
 ## Where to add new menu features
 
-| Goal | File |
-|---|---|
-| Map a new `MenuItem` variant (e.g., toggleable check) | `menu_conversion.rs` (handle in the recursive walk) |
-| Add a new DBus method on `org.gtk.Actions` | `actions_protocol.rs` (interface comment) + `protocol_impl.rs` (`actions_message_handler`) |
-| Support a new desktop-environment-specific atom | `x11_properties.rs::set_properties` |
-| Support a non-GNOME menu protocol (KDE Plasma, …) | New sibling module under `linux/`; reuse `dbus/dlopen.rs` |
+- **Map a new `MenuItem` variant (e.g., toggleable check).** Handle it in the recursive walk.
+  - `menu_conversion.rs`
+- **Add a new DBus method on `org.gtk.Actions`.** Update the interface comment and the message handler.
+  - `actions_protocol.rs`
+  - `protocol_impl.rs::actions_message_handler`
+- **Support a new desktop-environment-specific atom.** Add the atom write.
+  - `x11_properties.rs::set_properties`
+- **Support a non-GNOME menu protocol (KDE Plasma, ...).** Add a new sibling module under `linux/` and reuse `dbus/dlopen.rs`.
+
+## Coming Up Next
+
+- [Shell2 — Linux Wayland](shell2-linux-wayland.md) — Linux Wayland shell - wl_surface, xdg-shell, libinput
+- [Shell2 — Linux X11](shell2-linux-x11.md) — Linux X11 shell - Xlib, GLX, XInput2
+- [Accessibility Backends](accessibility-backends.md) — Per-platform a11y back-ends - UIA, AT-SPI, NSAccessibility

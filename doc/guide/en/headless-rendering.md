@@ -38,11 +38,9 @@ This is the standard configuration for screenshot diffing in CI, smoke tests, an
 
 Two environment variables, set before the process starts:
 
-| Variable | Effect |
-|---|---|
-| `AZ_BACKEND=headless` | Force the headless backend even when a display is available. |
-| `AZUL_HEADLESS=1` | Legacy alias for the same. |
-| `AZ_DEBUG=<port>` | Start the HTTP debug server (event injection plus screenshot capture). |
+- `AZ_BACKEND=headless`. Forces the headless backend even when a display is available.
+- `AZUL_HEADLESS=1`. Legacy alias for the same.
+- `AZ_DEBUG=<port>`. Starts the HTTP debug server (event injection plus screenshot capture).
 
 ```bash
 AZ_BACKEND=headless ./my_azul_app
@@ -55,10 +53,8 @@ A binary built for desktop runs unchanged in a server-side container with these 
 
 When the process boots with `AZ_DEBUG=<port>`, the debug server (covered in [Debugging](debugging.md)) exposes two screenshot ops:
 
-| Op | Returns |
-|---|---|
-| `take_screenshot` | CPU-rasterised PNG of the current DOM, no window decorations. |
-| `take_native_screenshot` | Current framebuffer with whatever the OS is drawing. |
+- `take_screenshot`. Returns a CPU-rasterised PNG of the current DOM, no window decorations.
+- `take_native_screenshot`. Returns the current framebuffer with whatever the OS is drawing.
 
 In headless mode there is no OS framebuffer, so prefer `take_screenshot`. Both return a base64 data URI in the `data.value` field of the response envelope:
 
@@ -104,3 +100,9 @@ CPU rendering is consistent in concept across platforms, but pixel-exact output 
 - Wayland: the compositor does not expose other windows' contents to applications. Use the headless backend rather than trying to capture a visible window.
 
 The reftest harness in `layout/tests/` is the reference implementation of these patterns.
+
+## Coming Up Next
+
+- [End-to-End Testing](e2e-testing.md) — Driving an Azul app from a script for tests
+- [Code Generation](code-generation.md) — How `azul-doc` regenerates bindings from `api.json`
+- [Web Deployment](web-deployment.md) — Building for the browser via WASM

@@ -252,3 +252,10 @@ might re-borrow the same `RefAny`.
   rules.
 - `core/src/callbacks.rs` for `CallbackInfo::get_dataset`,
   `get_hit_node`, `get_focused_node`, and the navigation getters.
+
+## Coming Up Next
+
+- [Merge Callbacks](merge-callbacks.md) — How widgets keep heavy resources across a layout rebuild
+- [Virtual Views](virtual-views.md) — A node that materialises lazily, for infinite lists and embedded sub-DOMs
+- [Components](components.md) — Reusable UI fragments - named functions of (args) -> Dom
+- [Events](../events.md) — Callbacks, event filters, and how state triggers relayout

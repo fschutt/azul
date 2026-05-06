@@ -110,3 +110,9 @@ The result is rendered to a `RawImage` via `SvgRenderOptions`, which lets you fi
 ## Combining many polygons
 
 `TessellatedSvgNode::from_nodes` flattens a slice of meshes into a single vertex/index buffer. This matters for performance when drawing thousands of tiny polygons (for example, the `opengl` example tessellates thousands of map polygons and uploads exactly one fill mesh and one stroke mesh).
+
+## Coming Up Next
+
+- [GL Canvas](canvas-gl.md) — Embedding an OpenGL canvas inside a Dom node
+- [Images](../images.md) — Loading raster images and CSS backgrounds
+- [Styling with CSS](../styling.md) — Stylesheets, selectors, and the cascade

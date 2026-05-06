@@ -110,3 +110,9 @@ A current-thread runtime keeps everything on the worker. Use a multi-threaded ru
 - TLS configuration beyond `disable_tls_cert_verification`. For custom TLS stacks, use `rustls`, `native-tls`, or a third-party HTTP client inside the worker.
 - Mid-frame cancellation of in-flight DNS or TCP handshakes. `std::net` doesn't expose this. Use `socket2` or a third-party client if you need it.
 - WebSockets, gRPC, HTTP/2. Any blocking client works inside a `Thread`.
+
+## Coming Up Next
+
+- [Background Tasks](background-tasks.md) — Running long jobs off the layout thread
+- [File Dialogs](file-dialogs.md) — Native open/save dialogs and folder pickers
+- [Clipboard](clipboard.md) — Reading and writing the system clipboard

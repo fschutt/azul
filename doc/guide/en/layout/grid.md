@@ -23,9 +23,8 @@ and rows. Tracks (`grid-template-columns` / `grid-template-rows`) decide where
 the lines go; placement properties (`grid-column`, `grid-row`) decide which
 cells each child occupies.
 
-```rust
-# fn body() -> &'static str {
-"<div style='display: grid;
+```html
+<div style='display: grid;
             grid-template-columns: 200px 1fr 200px;
             grid-template-rows: auto 1fr auto;
             gap: 12px;
@@ -35,8 +34,7 @@ cells each child occupies.
    <main>main</main>
    <aside>aside</aside>
    <footer style='grid-column: 1 / 4;'>footer</footer>
- </div>"
-# }
+ </div>
 ```
 
 ## Track sizing
@@ -54,13 +52,11 @@ list of track sizes:
 - `fit-content(<length>)`. Equivalent to
   `min(max-content, max(min-content, <length>))`.
 
-```rust
-# fn body() -> &'static str {
-"<div style='display: grid;
+```html
+<div style='display: grid;
             grid-template-columns: 100px 1fr minmax(200px, 2fr) auto;'>
    ...
- </div>"
-# }
+ </div>
 ```
 
 ### `repeat()`
@@ -68,11 +64,9 @@ list of track sizes:
 `repeat(N, <track-list>)` expands inline. The track list may contain
 multiple tracks, which all repeat together:
 
-| input | expands to |
-|---|---|
-| `repeat(3, 1fr)` | `1fr 1fr 1fr` |
-| `repeat(2, 100px 1fr)` | `100px 1fr 100px 1fr` |
-| `100px repeat(2, 1fr) auto` | `100px 1fr 1fr auto` |
+- `repeat(3, 1fr)` expands to `1fr 1fr 1fr`.
+- `repeat(2, 100px 1fr)` expands to `100px 1fr 100px 1fr`.
+- `100px repeat(2, 1fr) auto` expands to `100px 1fr 1fr auto`.
 
 The repeat count is capped at 10,000 to prevent runaway expansion.
 
@@ -81,23 +75,21 @@ The repeat count is capped at 10,000 to prevent runaway expansion.
 Names regions of the grid using quoted row strings. Each cell is a token; `.`
 means "no area".
 
-```rust
-# fn body() -> &'static str {
-"<div style='display: grid;
+```html
+<div style='display: grid;
             grid-template-columns: 200px 1fr 200px;
             grid-template-rows: 80px 1fr 60px;
             grid-template-areas:
-              \"header header header\"
-              \"nav    main   aside\"
-              \"footer footer footer\";
+              "header header header"
+              "nav    main   aside"
+              "footer footer footer";
             gap: 8px;'>
    <header style='grid-area: header;'>...</header>
    <nav    style='grid-area: nav;'>...</nav>
    <main   style='grid-area: main;'>...</main>
    <aside  style='grid-area: aside;'>...</aside>
    <footer style='grid-area: footer;'>...</footer>
- </div>"
-# }
+ </div>
 ```
 
 Every row string must have the same number of cells, and a named area
@@ -107,21 +99,17 @@ must form a rectangle.
 
 `grid-column` and `grid-row` take `<start> / <end>`:
 
-| form | meaning |
-|---|---|
-| `auto` | auto-place |
-| `2` | start at line 2, span 1 cell |
-| `2 / 4` | from line 2 up to (not including) line 4 |
-| `2 / span 3` | start at line 2, span 3 tracks |
-| `span 2` | span 2 tracks, position auto |
-| `header / footer` | named lines |
-| `-1` | last line, counts from the end |
+- `auto`. Auto-place.
+- `2`. Start at line 2, span 1 cell.
+- `2 / 4`. From line 2 up to (not including) line 4.
+- `2 / span 3`. Start at line 2, span 3 tracks.
+- `span 2`. Span 2 tracks, position auto.
+- `header / footer`. Named lines.
+- `-1`. Last line, counts from the end.
 
-```rust
-# fn body() -> &'static str {
-"<div style='grid-column: 1 / -1;'>full-width header</div>
-<div style='grid-row: 2; grid-column: 2 / span 2;'>main content</div>"
-# }
+```html
+<div style='grid-column: 1 / -1;'>full-width header</div>
+<div style='grid-row: 2; grid-column: 2 / span 2;'>main content</div>
 ```
 
 `grid-area: <name>` is the shorthand when you've defined `grid-template-areas`.
@@ -145,24 +133,20 @@ For example, if you've defined three columns but place a child on column
 `gap: <row> <column>`. The longhands take a single `<length>`. Same as
 flexbox.
 
-```rust
-# fn body() -> &'static str {
-"<div style='display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px 8px;'>
+```html
+<div style='display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px 8px;'>
    ...
- </div>"
-# }
+ </div>
 ```
 
 ## Alignment
 
 Grid uses two pairs of axes (rows by columns) and reuses the flex names:
 
-| axis | container | item override |
-|---|---|---|
-| row (cross) | `align-items` | `align-self` |
-| column (main) | `justify-items` | `justify-self` |
-| line spacing within tracks | `align-content` | (none) |
-| line spacing within tracks | `justify-content` | (none) |
+- **Row (cross) axis.** Container uses `align-items`. Items override with `align-self`.
+- **Column (main) axis.** Container uses `justify-items`. Items override with `justify-self`.
+- **Line spacing within tracks (cross).** Container uses `align-content`. No item override.
+- **Line spacing within tracks (main).** Container uses `justify-content`. No item override.
 
 `justify-items` accepts `stretch` (default), `start`, `end`, `center`.
 `justify-self` accepts `auto` (default, inherits `justify-items`),
@@ -218,17 +202,22 @@ Grid uses two pairs of axes (rows by columns) and reuses the flex names:
 
 ## Default values at a glance
 
-| property | default |
-|---|---|
-| `grid-template-columns` | `none` |
-| `grid-template-rows` | `none` |
-| `grid-template-areas` | `none` |
-| `grid-auto-flow` | `row` |
-| `grid-auto-columns` | `auto` |
-| `grid-auto-rows` | `auto` |
-| `grid-column` / `grid-row` | `auto / auto` |
-| `justify-items` | `stretch` |
-| `justify-self` | `auto` |
-| `align-items` | `stretch` |
-| `align-self` | `auto` |
-| `gap` | `0` |
+- `grid-template-columns` defaults to `none`.
+- `grid-template-rows` defaults to `none`.
+- `grid-template-areas` defaults to `none`.
+- `grid-auto-flow` defaults to `row`.
+- `grid-auto-columns` defaults to `auto`.
+- `grid-auto-rows` defaults to `auto`.
+- `grid-column` and `grid-row` default to `auto / auto`.
+- `justify-items` defaults to `stretch`.
+- `justify-self` defaults to `auto`.
+- `align-items` defaults to `stretch`.
+- `align-self` defaults to `auto`.
+- `gap` defaults to `0`.
+
+## Coming Up Next
+
+- [Events](../events.md) — Callbacks, event filters, and how state triggers relayout
+- [Images](../images.md) — Loading raster images and CSS backgrounds
+- [Flexbox](flex.md) — One-axis container layout with grow/shrink/basis
+- [Text Input](../text-input.md) — Editable text, IME, and the selection model

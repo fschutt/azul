@@ -125,3 +125,9 @@ overwriting it with empty content).
   reflects your change inside the same callback.
 - Styled runs are accepted but not yet committed. Only `plain_text` reaches
   another application today.
+
+## Coming Up Next
+
+- [File Dialogs](file-dialogs.md) — Native open/save dialogs and folder pickers
+- [Text Selection](text-selection.md) — Selection ranges, cursors, and copy/paste
+- [Networking](networking.md) — HTTP from a callback

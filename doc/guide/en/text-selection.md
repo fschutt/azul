@@ -37,10 +37,8 @@ let cursor = TextCursor {
 
 `GraphemeClusterId` is a stable, logical pointer into the original inline content. It survives Bidi reordering and line breaking. `CursorAffinity` disambiguates the two visual positions a single logical index can have.
 
-| affinity | LTR text | RTL text |
-|---|---|---|
-| `Leading` | left edge of the cluster | right edge of the cluster |
-| `Trailing` | right edge of the cluster | left edge of the cluster |
+- `Leading`. In LTR text, the left edge of the cluster. In RTL text, the right edge.
+- `Trailing`. In LTR text, the right edge of the cluster. In RTL text, the left edge.
 
 The pair `(cluster, Leading)` and `(previous-cluster, Trailing)` describe the same visual point, but only one is correct after a line wrap or a Bidi run boundary.
 
@@ -83,7 +81,8 @@ impl CallbackInfo {
 To respond to selection changes, register a callback on `Hover(MouseUp)` or on `FocusEventFilter::FocusReceived` and read `get_selection()` from the callback:
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 extern "C" fn on_select(_data: RefAny, info: CallbackInfo) -> Update {
     if let Some(state) = info.get_selection() {
         let _node = state.node_id;
@@ -155,7 +154,8 @@ CSS `selection-background-color` and `selection-color` style the highlight:
 - **No RTL-aware direction handling.** `direction: rtl` isn't yet considered when ordering the visual highlight rectangles for the first/last line.
 - **No vertical writing mode.** `writing-mode: vertical-*` isn't respected by the selection axis.
 
-## Next
+## Coming Up Next
 
-- [Text Input](text-input.md): the editing flows that write into selections.
-- [Events](events.md): the underlying mouse and keyboard event model.
+- [Clipboard](clipboard.md) — Reading and writing the system clipboard
+- [Text Input](text-input.md) — Editable text, IME, and the selection model
+- [Events](events.md) — Callbacks, event filters, and how state triggers relayout
