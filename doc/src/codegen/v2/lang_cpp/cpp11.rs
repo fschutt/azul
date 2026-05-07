@@ -639,6 +639,13 @@ pub fn emit_class_declaration_cpp11_or_later(
         "    {} release() {{ {} result = inner_; inner_ = {{}}; return result; }}\r\n",
         c_type_name, c_type_name
     ));
+    // Implicit r-value conversion to the underlying C type so callbacks can
+    // `return Wrapper::create();` from a function whose signature returns the
+    // raw `Az*` type, without an explicit `.release()`.
+    code.push_str(&format!(
+        "    operator {}() && noexcept {{ {} result = inner_; inner_ = {{}}; return result; }}\r\n",
+        c_type_name, c_type_name
+    ));
 
     if is_vec_type(struct_def) {
         gen.generate_vec_methods(code, struct_def, config);

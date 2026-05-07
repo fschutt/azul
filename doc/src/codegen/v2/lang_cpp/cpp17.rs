@@ -205,6 +205,13 @@ impl CppDialect for Cpp17Generator {
             "    {} release() {{ {} result = inner_; inner_ = {{}}; return result; }}\r\n",
             c_type_name, c_type_name
         ));
+        // Implicit r-value conversion to the underlying C type. Lets the user
+        // write `return Dom::create_body();` from a layout callback whose
+        // signature returns `AzDom`, without an explicit `.release()`.
+        code.push_str(&format!(
+            "    operator {}() && noexcept {{ {} result = inner_; inner_ = {{}}; return result; }}\r\n",
+            c_type_name, c_type_name
+        ));
 
         // Type-specific methods
         if is_vec_type(struct_def) {

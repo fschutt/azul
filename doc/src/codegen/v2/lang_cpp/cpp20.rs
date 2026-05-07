@@ -608,6 +608,12 @@ fn emit_class_declaration_cpp20_or_later(
         "    {} release() {{ {} result = inner_; inner_ = {{}}; return result; }}\r\n",
         c_type_name, c_type_name
     ));
+    // Implicit r-value conversion: enables `return Wrapper::create();` from a
+    // C-ABI callback without explicit `.release()`.
+    code.push_str(&format!(
+        "    operator {}() && noexcept {{ {} result = inner_; inner_ = {{}}; return result; }}\r\n",
+        c_type_name, c_type_name
+    ));
 
     if is_vec_type(struct_def) {
         gen.generate_vec_methods(code, struct_def, config);

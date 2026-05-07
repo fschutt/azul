@@ -25,7 +25,7 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
 
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     auto* d = downcast_ref<MyDataModel>(data);
-    if (!d) return AzDom_createBody();
+    if (!d) return Dom::create_body();
 
     // To pass the data to a child callback we clone the underlying ref.
     // `AzRefAny_clone` bumps the refcount; the new handle is owned by
@@ -34,6 +34,8 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
     // String-taking methods gained std::string_view overloads in C++17,
     // so "..."sv literals flow straight in - no String() wrapping needed.
+    // The wrapper's r-value `operator AzDom()` does the C-ABI conversion
+    // implicitly on return, so no `.release()` is needed.
     return Dom::create_body()
         .with_child(Dom::create_p_with_text(String(std::to_string(d->counter).c_str()))
             .with_css("font-size: 50px;"sv))
@@ -41,8 +43,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
             .with_button_type(AzButtonType_Primary)
             .with_on_click(RefAny(on_click_data), on_click)
             .dom())
-        .style(Css::empty())
-        .release();
+        .style(Css::empty());
 }
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
