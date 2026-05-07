@@ -39,7 +39,7 @@ The note on `fragmentation.rs:23` says explicitly: *"`solver3/pagination.rs` pro
 
 `solver3/pagination.rs` lays content out on a single tall canvas, with "dead zones" between pages representing margins, headers, and footers:
 
-```
+```text
 0px      ─────────────────────────────
          │ Page 1 Content             │
 1000px   ─────────────────────────────

@@ -180,7 +180,7 @@ Everything large is feature-gated so a minimal build (e.g. WASM target, headless
 
 The library entry point. `dll/src/lib.rs` is mostly a feature-gated dispatch hub: it pulls in the codegen output (`include!(...dll_api_internal.rs)` / `dll_api_external.rs` / `reexports.rs` / `python_api.rs` / `memtest.rs`) and conditionally compiles the desktop and web modules.
 
-```
+```text
 dll/src/
 ├── lib.rs            ← FFI gate, allocator selection, codegen include!()s
 ├── desktop/          ← native shells (cabi_internal only)
@@ -215,7 +215,7 @@ The `desktop/` tree is only compiled when `cabi_internal` is on (i.e. `build-dll
 
 A multi-purpose tool crate. Run as a CLI (`cargo run --release -p azul-doc -- <subcommand>`).
 
-```
+```text
 doc/src/
 ├── api.rs        ← api.json schema + parser
 ├── codegen/      ← FFI codegen v2 (Rust/C/C++/Python emitters)

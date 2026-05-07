@@ -113,7 +113,7 @@ Bundled fonts in `AppConfig.bundled_fonts` are emitted as `@font-face` rules poi
 
 Today, every event runs on the server:
 
-```
+```text
 [browser]  click → POST /az/exec/3 + JSON event payload
 [server]   re-run layout, render HTML
 [server]   200 text/html
@@ -132,13 +132,13 @@ Until lifting is functional, every callback runs server-side.
 
 The server has no built-in TLS, no auth, and no load balancing. It is a standalone HTTP listener with `Connection: close` semantics. For a public deployment, front it with a reverse proxy (nginx, Caddy, traefik):
 
-```
+```text
 [client] ──HTTPS──> [Caddy/nginx] ──HTTP──> [azul app on 127.0.0.1:8080]
 ```
 
 A minimal Caddyfile:
 
-```
+```text
 my-app.example.com {
     reverse_proxy 127.0.0.1:8080
     encode gzip

@@ -237,7 +237,7 @@ WebRender lazily compiles + links each shader on first use; the cost is ~10–50
 
 Disk layout:
 
-```
+```text
 ~/Library/Caches/azul/shaders/<renderer_hash>/        (macOS)
 ~/.cache/azul/shaders/<renderer_hash>/                 (Linux, $XDG_CACHE_HOME aware)
 %LOCALAPPDATA%\azul\shaders\<renderer_hash>\           (Windows)
@@ -269,7 +269,7 @@ impl ProgramCacheObserver for ShaderDiskCache {
 
 ## Pipeline: from CSS image to GPU texture
 
-```
+```text
 CSS background-image: url("logo.png")
    │
    ▼  parser stores StyleBackgroundContent::Image(CssImageId)

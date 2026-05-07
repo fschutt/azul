@@ -158,7 +158,7 @@ The only implementation today is `StubTranspiler`, returned by
 `default_transpiler()`. Both lift methods return `Err(TranspileError)`
 and `is_available()` is `false`. The intended pipeline is:
 
-```
+```text
 running native binary
   ─ dladdr / DWARF ─►  (fn_name, fn_addr, fn_size)
   ─ remill-rs   ─►  LLVM IR

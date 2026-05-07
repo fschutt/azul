@@ -39,7 +39,7 @@ You receive the new dataset (built fresh by `layout()` this frame) and the old d
 
 This is a `Reconcile()` in the Kubernetes sense. The new value is the desired state. The old value is the actual state. The callback brings the world into alignment.
 
-```
+```text
               layout()  →  fresh Dom (desired state)
                                   │
                                   ▼

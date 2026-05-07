@@ -59,7 +59,7 @@ The IFC entry point on the layout side is `solver3/fc.rs:layout_ifc` (`fc.rs:237
 
 `TextShapingCache::layout_flow` (`cache.rs:5569`) is the top-level entry. Each stage is independently cached:
 
-```
+```text
 InlineContent ──Stage 1─▶ LogicalItem
                           (per-char attribution)
                 │

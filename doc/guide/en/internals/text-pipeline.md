@@ -52,7 +52,7 @@ This page covers the *resource* side of text: how font requirements are detected
 
 `LayoutWindow::layout_dom_recursive` (`window.rs:854`) runs the full sequence before each `solver3::layout_document` call:
 
-```
+```text
 StyledDom
    │
    ▼ Step 0: collect_font_stacks_from_styled_dom (solver3/getters.rs)

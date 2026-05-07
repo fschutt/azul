@@ -58,7 +58,7 @@ Adding a type or method to `api.json` and re-running `codegen all` is the only s
 
 The DLL crate's build script gates each generated file behind a Cargo feature. If a feature is enabled and the matching file is missing, the build aborts with:
 
-```
+```text
 Missing generated file: dll_api_internal.rs
 Run: cargo run --release -p azul-doc -- codegen all
 ```
