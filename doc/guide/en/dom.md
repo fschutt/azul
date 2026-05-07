@@ -112,21 +112,63 @@ let _ = Dom::create_code_with_text("println!()");
 let _ = Dom::create_text("standalone text node");
 ```
 
-Interactive constructors require a `SmallAriaInfo` so the resulting node
-has an accessible name. The `_no_a11y` variants exist as deliberate escape
-hatches:
-
-```rust,no_run
-# use azul::prelude::*;
-let _ = Dom::create_button("Save", SmallAriaInfo::label("Save document"));
-let _ = Dom::create_button_no_a11y("OK".into());
-let _ = Dom::create_a("https://example.com", "Example", SmallAriaInfo::default());
-let _ = Dom::create_input("text", "username", "Username", SmallAriaInfo::default());
-```
-
 `NodeType` (in `core/src/dom.rs`) lists every variant. The set covers all
 HTML elements plus the SVG subset plus four leaf types: `Text`, `Image`,
 `Icon`, and `VirtualView`.
+
+## Accessibility: the soft-force pattern
+
+For elements with non-trivial accessibility surface, the primary
+constructor takes an a11y struct as a required argument. There's a
+matching `_no_a11y` variant that opts out explicitly. The longer name
+on the opt-out is the point. It signals that you skipped a11y on
+purpose, and it makes the absence visible during code review.
+
+```rust
+use azul::prelude::*;
+
+// Primary form: a11y is part of the call signature.
+let save = Dom::create_button("Save", SmallAriaInfo::label("Save document"));
+
+// Explicit opt-out, longer name.
+let ok = Dom::create_button_no_a11y("OK".into());
+```
+
+Most interactive elements use the generic `SmallAriaInfo` (label, role,
+description). A few have type-specific structs because their a11y
+surface needs more than that:
+
+- `<progress>` uses `ProgressAriaInfo` (label, current value, max,
+  indeterminate).
+- `<meter>` uses `MeterAriaInfo` (label, current value, min, max,
+  optional low/high/optimum).
+- `<dialog>` uses `DialogAriaInfo` (label, modal flag, described-by
+  reference).
+
+Example with a type-specific struct:
+
+```rust
+use azul::prelude::*;
+
+let upload = Dom::create_progress(
+    ProgressAriaInfo::create("File upload".into())
+        .with_current_value(0.6)
+        .with_max(1.0),
+);
+```
+
+Elements that follow the pattern: `a`, `area`, `audio`, `button`,
+`canvas`, `datalist`, `details`, `dialog`, `fieldset`, `form`, `input`,
+`label`, `legend`, `menu`, `menuitem`, `meter`, `optgroup`, `option`,
+`output`, `progress`, `select`, `summary`, `table`, `textarea`, `video`.
+
+Static, non-interactive elements (`div`, `span`, `p`, the headings,
+inline text formatters) don't take a11y info. Their role is implicit
+from the element type.
+
+See [Accessibility](accessibility.md) for the full a11y model and how
+the framework translates these structs into platform-specific
+accessibility trees (UIA, AT-SPI, NSAccessibility).
 
 ## Adding children
 

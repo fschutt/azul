@@ -18,7 +18,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // Move the parsed AzXml out of the Result, then build a Dom from it.
     AzXml xml = parsed.Ok.payload;
     parsed = {};
-    return AzDom_fromParsedXml(xml);
+    return AzDom_createFromParsedXml(xml);
 }
 
 int main() {

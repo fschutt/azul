@@ -11,7 +11,7 @@
 //! platform accessibility backends in `dll/src/desktop/shell2/`.
 
 use azul_css::{
-    AzString, OptionString,
+    AzString, OptionF32, OptionString,
     props::basic::length::FloatValue,
 };
 use crate::{
@@ -806,6 +806,267 @@ impl SmallAriaInfo {
                 OptionAccessibilityRole::Some(r) => r,
                 OptionAccessibilityRole::None => AccessibilityRole::Unknown,
             },
+            states: Vec::new().into(),
+            accelerator: OptionVirtualKeyCodeCombo::None,
+            default_action: OptionString::None,
+            supported_actions: Vec::new().into(),
+            is_live_region: false,
+            labelled_by: OptionDomNodeId::None,
+            described_by: OptionDomNodeId::None,
+        }
+    }
+}
+
+/// Accessibility information for a `<progress>` indicator.
+///
+/// Mirrors HTML's `<progress value max>` plus an `indeterminate` flag for
+/// progress bars whose end is unknown. Maps to `AccessibilityRole::ProgressBar`.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct ProgressAriaInfo {
+    /// Accessible label describing the task being measured.
+    pub label: OptionString,
+    /// Current progress value. `None` for indeterminate progress.
+    pub current_value: OptionF32,
+    /// Maximum value the progress bar can reach. `None` falls back to `1.0`.
+    pub max: OptionF32,
+    /// `true` for spinners / progress with no known endpoint. Overrides `current_value`.
+    pub indeterminate: bool,
+    /// Optional extended description (`aria-describedby` equivalent).
+    pub description: OptionString,
+}
+
+impl_option!(
+    ProgressAriaInfo,
+    OptionProgressAriaInfo,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
+
+impl ProgressAriaInfo {
+    /// Creates a `ProgressAriaInfo` with only an accessible label.
+    pub fn create(label: AzString) -> Self {
+        Self {
+            label: OptionString::Some(label),
+            current_value: OptionF32::None,
+            max: OptionF32::None,
+            indeterminate: false,
+            description: OptionString::None,
+        }
+    }
+
+    /// Returns a copy with the given current value.
+    pub fn with_current_value(mut self, value: f32) -> Self {
+        self.current_value = OptionF32::Some(value);
+        self
+    }
+
+    /// Returns a copy with the given maximum value.
+    pub fn with_max(mut self, max: f32) -> Self {
+        self.max = OptionF32::Some(max);
+        self
+    }
+
+    /// Returns a copy with the indeterminate flag set.
+    pub fn with_indeterminate(mut self, indeterminate: bool) -> Self {
+        self.indeterminate = indeterminate;
+        self
+    }
+
+    /// Returns a copy with the given description.
+    pub fn with_description(mut self, desc: AzString) -> Self {
+        self.description = OptionString::Some(desc);
+        self
+    }
+
+    /// Convert to full `AccessibilityInfo` so the value can be installed on a node.
+    pub fn to_full_info(&self) -> AccessibilityInfo {
+        let value_string = if self.indeterminate {
+            OptionString::None
+        } else {
+            match self.current_value {
+                OptionF32::Some(v) => OptionString::Some(format!("{}", v).into()),
+                OptionF32::None => OptionString::None,
+            }
+        };
+        AccessibilityInfo {
+            accessibility_name: self.label.clone(),
+            accessibility_value: value_string,
+            description: self.description.clone(),
+            role: AccessibilityRole::ProgressBar,
+            states: Vec::new().into(),
+            accelerator: OptionVirtualKeyCodeCombo::None,
+            default_action: OptionString::None,
+            supported_actions: Vec::new().into(),
+            is_live_region: false,
+            labelled_by: OptionDomNodeId::None,
+            described_by: OptionDomNodeId::None,
+        }
+    }
+}
+
+/// Accessibility information for a `<meter>` gauge.
+///
+/// Unlike `<progress>`, `<meter>` always carries a known `value`/`min`/`max`
+/// triple, so those fields are required at construction time. Maps to
+/// `AccessibilityRole::Indicator`.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct MeterAriaInfo {
+    /// Accessible label describing what the meter measures.
+    pub label: OptionString,
+    /// Current value of the meter (within `[min, max]`).
+    pub current_value: f32,
+    /// Lower bound of the measurement range.
+    pub min: f32,
+    /// Upper bound of the measurement range.
+    pub max: f32,
+    /// Optional "low" threshold (values below this are considered low).
+    pub low: OptionF32,
+    /// Optional "high" threshold (values above this are considered high).
+    pub high: OptionF32,
+    /// Optional optimum value within the range.
+    pub optimum: OptionF32,
+    /// Optional extended description.
+    pub description: OptionString,
+}
+
+impl_option!(
+    MeterAriaInfo,
+    OptionMeterAriaInfo,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
+
+impl MeterAriaInfo {
+    /// Creates a `MeterAriaInfo` with the required label and value/range triple.
+    pub fn create(label: AzString, current_value: f32, min: f32, max: f32) -> Self {
+        Self {
+            label: OptionString::Some(label),
+            current_value,
+            min,
+            max,
+            low: OptionF32::None,
+            high: OptionF32::None,
+            optimum: OptionF32::None,
+            description: OptionString::None,
+        }
+    }
+
+    /// Returns a copy with the given low threshold.
+    pub fn with_low(mut self, low: f32) -> Self {
+        self.low = OptionF32::Some(low);
+        self
+    }
+
+    /// Returns a copy with the given high threshold.
+    pub fn with_high(mut self, high: f32) -> Self {
+        self.high = OptionF32::Some(high);
+        self
+    }
+
+    /// Returns a copy with the given optimum value.
+    pub fn with_optimum(mut self, optimum: f32) -> Self {
+        self.optimum = OptionF32::Some(optimum);
+        self
+    }
+
+    /// Returns a copy with the given description.
+    pub fn with_description(mut self, desc: AzString) -> Self {
+        self.description = OptionString::Some(desc);
+        self
+    }
+
+    /// Convert to full `AccessibilityInfo` so the value can be installed on a node.
+    pub fn to_full_info(&self) -> AccessibilityInfo {
+        AccessibilityInfo {
+            accessibility_name: self.label.clone(),
+            accessibility_value: OptionString::Some(format!("{}", self.current_value).into()),
+            description: self.description.clone(),
+            role: AccessibilityRole::Indicator,
+            states: Vec::new().into(),
+            accelerator: OptionVirtualKeyCodeCombo::None,
+            default_action: OptionString::None,
+            supported_actions: Vec::new().into(),
+            is_live_region: false,
+            labelled_by: OptionDomNodeId::None,
+            described_by: OptionDomNodeId::None,
+        }
+    }
+}
+
+/// Accessibility information for a `<dialog>` element.
+///
+/// Captures the modal/non-modal distinction and a reference to a separate
+/// node that describes the dialog (`aria-describedby`). The `role` defaults
+/// to `AccessibilityRole::Dialog` but can be overridden (e.g., for alert
+/// dialogs).
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct DialogAriaInfo {
+    /// Accessible label / title for the dialog.
+    pub label: OptionString,
+    /// `true` if the dialog is modal (focus trapped, background inert).
+    pub modal: bool,
+    /// Optional ID of another node that describes the dialog content.
+    pub described_by: OptionString,
+    /// Role for the dialog. Defaults to `Dialog`; use `Alert` for urgent dialogs.
+    pub role: AccessibilityRole,
+    /// Optional inline description.
+    pub description: OptionString,
+}
+
+impl_option!(
+    DialogAriaInfo,
+    OptionDialogAriaInfo,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
+
+impl DialogAriaInfo {
+    /// Creates a `DialogAriaInfo` with the given accessible label. Defaults
+    /// to a non-modal dialog with role `Dialog`.
+    pub fn create(label: AzString) -> Self {
+        Self {
+            label: OptionString::Some(label),
+            modal: false,
+            described_by: OptionString::None,
+            role: AccessibilityRole::Dialog,
+            description: OptionString::None,
+        }
+    }
+
+    /// Returns a copy with the given modality flag.
+    pub fn with_modal(mut self, modal: bool) -> Self {
+        self.modal = modal;
+        self
+    }
+
+    /// Returns a copy with `aria-describedby` pointing at the given node ID.
+    pub fn with_described_by(mut self, described_by: AzString) -> Self {
+        self.described_by = OptionString::Some(described_by);
+        self
+    }
+
+    /// Returns a copy with the given role (defaults to `Dialog`).
+    pub fn with_role(mut self, role: AccessibilityRole) -> Self {
+        self.role = role;
+        self
+    }
+
+    /// Returns a copy with the given inline description.
+    pub fn with_description(mut self, desc: AzString) -> Self {
+        self.description = OptionString::Some(desc);
+        self
+    }
+
+    /// Convert to full `AccessibilityInfo` so the value can be installed on a node.
+    pub fn to_full_info(&self) -> AccessibilityInfo {
+        AccessibilityInfo {
+            accessibility_name: self.label.clone(),
+            accessibility_value: OptionString::None,
+            description: self.description.clone(),
+            role: self.role,
             states: Vec::new().into(),
             accelerator: OptionVirtualKeyCodeCombo::None,
             default_action: OptionString::None,

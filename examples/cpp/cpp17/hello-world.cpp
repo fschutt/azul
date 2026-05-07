@@ -26,7 +26,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // String-taking methods all gained std::string_view overloads in C++17,
     // so "..."sv literals flow straight in - no String() wrapping needed.
     return Dom::create_body()
-        .with_child(Dom::p_with_text(String(std::to_string(d->counter).c_str()))
+        .with_child(Dom::create_p_with_text(String(std::to_string(d->counter).c_str()))
             .with_css("font-size: 50px;"sv))
         .with_child(Button::create("Increase counter"sv)
             .with_button_type(AzButtonType_Primary)

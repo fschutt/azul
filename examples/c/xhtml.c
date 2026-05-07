@@ -13,7 +13,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzString xml_str = AzString_copyFromBytes((const uint8_t*)XHTML_CONTENT, 0, strlen(XHTML_CONTENT));
     AzResultXmlXmlError result = AzXml_fromStr(xml_str);
     if (result.Ok.tag == 0) { // Ok variant
-        return AzDom_fromParsedXml(result.Ok.payload);
+        return AzDom_createFromParsedXml(result.Ok.payload);
     }
     return AzDom_createBody();
 }

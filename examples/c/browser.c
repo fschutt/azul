@@ -573,7 +573,7 @@ AzDom layout(AzRefAny data_ref, AzLayoutCallbackInfo info) {
     // Convert parsed XML to DOM with CSS from <style> tags attached.
     // The framework applies CSS during the cascade pass.
     AzXml xml_clone = AzXml_clone(&data->parsed_xml);
-    AzDom dom = AzDom_fromParsedXml(xml_clone);
+    AzDom dom = AzDom_createFromParsedXml(xml_clone);
     return dom;
 }
 

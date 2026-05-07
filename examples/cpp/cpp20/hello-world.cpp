@@ -41,7 +41,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     if (!d) return AzDom_createBody();
 
     return Dom::create_body()
-        .with_child(Dom::p_with_text(String(std::to_string(d->counter).c_str()))
+        .with_child(Dom::create_p_with_text(String(std::to_string(d->counter).c_str()))
             .with_css("font-size: 50px;"sv))
         .with_child(Button::create("Increase counter"sv)
             .with_button_type(AzButtonType_Primary)

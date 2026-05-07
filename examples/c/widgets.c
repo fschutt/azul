@@ -27,7 +27,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // Create button
     AzDom button = AzDom_createDiv();
     AzString btn_style = AzString_copyFromBytes((const uint8_t*)"margin-bottom: 10px;", 0, 20);
-    AzDom_setInlineStyle(&button, btn_style);
+    AzDom_setCss(&button, btn_style);
     AzString btn_text = AzString_copyFromBytes((const uint8_t*)"Click me!", 0, 9);
     AzDom_addChild(&button, AzDom_createText(btn_text));
     AzEventFilter event = AzEventFilter_hover(AzHoverEventFilter_mouseUp());
@@ -36,12 +36,12 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // Create checkbox
     AzDom checkbox = AzCheckBox_dom(AzCheckBox_create(d.ptr->checkbox_checked));
     AzString chk_style = AzString_copyFromBytes((const uint8_t*)"margin-bottom: 10px;", 0, 20);
-    AzDom_setInlineStyle(&checkbox, chk_style);
+    AzDom_setCss(&checkbox, chk_style);
 
     // Create progress bar
     AzDom progress = AzProgressBar_dom(AzProgressBar_create(d.ptr->progress_value));
     AzString prog_style = AzString_copyFromBytes((const uint8_t*)"margin-bottom: 10px;", 0, 20);
-    AzDom_setInlineStyle(&progress, prog_style);
+    AzDom_setCss(&progress, prog_style);
 
     // Create text input
     AzString placeholder = AzString_copyFromBytes((const uint8_t*)"Enter text here...", 0, 18);
@@ -49,23 +49,23 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     ti = AzTextInput_withPlaceholder(ti, placeholder);
     AzDom text_input = AzTextInput_dom(ti);
     AzString txt_style = AzString_copyFromBytes((const uint8_t*)"margin-bottom: 10px;", 0, 20);
-    AzDom_setInlineStyle(&text_input, txt_style);
+    AzDom_setCss(&text_input, txt_style);
 
     // Create color input
     AzColorU color = { .r = 100, .g = 150, .b = 200, .a = 255 };
     AzDom color_input = AzColorInput_dom(AzColorInput_create(color));
     AzString col_style = AzString_copyFromBytes((const uint8_t*)"margin-bottom: 10px;", 0, 20);
-    AzDom_setInlineStyle(&color_input, col_style);
+    AzDom_setCss(&color_input, col_style);
 
     // Create number input
     AzDom number_input = AzNumberInput_dom(AzNumberInput_create(42.0));
     AzString num_style = AzString_copyFromBytes((const uint8_t*)"margin-bottom: 10px;", 0, 20);
-    AzDom_setInlineStyle(&number_input, num_style);
+    AzDom_setCss(&number_input, num_style);
 
     // Compose body
     AzDom body = AzDom_createBody();
     AzString body_style = AzString_copyFromBytes((const uint8_t*)"padding: 20px;", 0, 14);
-    AzDom_setInlineStyle(&body, body_style);
+    AzDom_setCss(&body, body_style);
     AzString showcase_title = AzString_copyFromBytes((const uint8_t*)"Widget Showcase", 0, 15);
 
     AzDom_addChild(&body, AzDom_createText(showcase_title));

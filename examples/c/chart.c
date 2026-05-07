@@ -148,7 +148,7 @@ static AzImageRef create_pie_mask(float start_pct, float end_pct, int size) {
 // Layout callback
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom body = AzDom_createBody();
-    AzDom_setInlineStyle(&body, az_str(
+    AzDom_setCss(&body, az_str(
         "flex-direction: column;"
         "padding: 20px;"
         "gap: 20px;"
@@ -158,7 +158,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
     // === Title ===
     AzDom title = AzDom_createText(az_str("Chart Demo - SVG Clip Masks"));
-    AzDom_setInlineStyle(&title, az_str(
+    AzDom_setCss(&title, az_str(
         "font-size: 24px;"
         "color: white;"
         "text-align: center;"
@@ -168,7 +168,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
     // === BAR CHART SECTION ===
     AzDom bar_section = AzDom_createDiv();
-    AzDom_setInlineStyle(&bar_section, az_str(
+    AzDom_setCss(&bar_section, az_str(
         "flex-direction: column;"
         "padding: 15px;"
         "background: #16213e;"
@@ -176,7 +176,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     ));
 
     AzDom bar_title = AzDom_createText(az_str("Monthly Revenue (Bar Chart with Clip Masks)"));
-    AzDom_setInlineStyle(&bar_title, az_str(
+    AzDom_setCss(&bar_title, az_str(
         "font-size: 16px;"
         "color: #eee;"
         "margin-bottom: 15px;"
@@ -185,7 +185,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
     // Bar container
     AzDom bar_container = AzDom_createDiv();
-    AzDom_setInlineStyle(&bar_container, az_str(
+    AzDom_setCss(&bar_container, az_str(
         "flex-direction: row;"
         "align-items: flex-end;"
         "height: 250px;"
@@ -202,7 +202,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         // 2. An R8 clip mask shaped as a rounded bar
 
         AzDom bar_col = AzDom_createDiv();
-        AzDom_setInlineStyle(&bar_col, az_str(
+        AzDom_setCss(&bar_col, az_str(
             "flex-direction: column;"
             "align-items: center;"
             "flex-grow: 1;"
@@ -219,7 +219,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
             "%s",
             mask_w, mask_h, bar_colors[i]
         );
-        AzDom_setInlineStyle(&bar, az_str(style_buf));
+        AzDom_setCss(&bar, az_str(style_buf));
 
         // Create the clip mask for this bar
         AzImageRef mask = create_bar_mask(bar_values[i], mask_w, mask_h);
@@ -236,7 +236,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
         // Label below bar
         AzDom label = AzDom_createText(az_str(bar_labels[i]));
-        AzDom_setInlineStyle(&label, az_str(
+        AzDom_setCss(&label, az_str(
             "color: #aaa;"
             "font-size: 12px;"
             "margin-top: 8px;"
@@ -247,7 +247,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         char val_buf[32];
         snprintf(val_buf, sizeof(val_buf), "%d%%", (int)(bar_values[i] * 100));
         AzDom val_label = AzDom_createText(az_str(val_buf));
-        AzDom_setInlineStyle(&val_label, az_str(
+        AzDom_setCss(&val_label, az_str(
             "color: white;"
             "font-size: 11px;"
             "margin-top: 2px;"
@@ -262,7 +262,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
     // === PIE CHART SECTION ===
     AzDom pie_section = AzDom_createDiv();
-    AzDom_setInlineStyle(&pie_section, az_str(
+    AzDom_setCss(&pie_section, az_str(
         "flex-direction: column;"
         "align-items: center;"
         "padding: 15px;"
@@ -271,7 +271,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     ));
 
     AzDom pie_title = AzDom_createText(az_str("Distribution (Pie Chart with Clip Masks)"));
-    AzDom_setInlineStyle(&pie_title, az_str(
+    AzDom_setCss(&pie_title, az_str(
         "font-size: 16px;"
         "color: #eee;"
         "margin-bottom: 15px;"
@@ -280,7 +280,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
     // Pie chart container (overlapping divs)
     AzDom pie_container = AzDom_createDiv();
-    AzDom_setInlineStyle(&pie_container, az_str(
+    AzDom_setCss(&pie_container, az_str(
         "width: 200px;"
         "height: 200px;"
         "position: relative;"
@@ -306,7 +306,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
             "width: %dpx; height: %dpx; %s",
             pie_size, pie_size, pie_gradient_styles[i]
         );
-        AzDom_setInlineStyle(&slice, az_str(slice_style));
+        AzDom_setCss(&slice, az_str(slice_style));
 
         float start = cumulative;
         cumulative += pie_values[i];

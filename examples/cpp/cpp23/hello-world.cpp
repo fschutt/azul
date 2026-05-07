@@ -44,7 +44,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // `Self = Dom&`); the chain on the right starts from an r-value
     // (`Self = Dom`).
     Dom body = Dom::create_body();
-    body = body.with_child(Dom::p_with_text(String(std::to_string(d->counter).c_str()))
+    body = body.with_child(Dom::create_p_with_text(String(std::to_string(d->counter).c_str()))
         .with_css("font-size: 50px;"sv));
     body = body.with_child(Button::create("Increase counter"sv)
         .with_button_type(AzButtonType_Primary)

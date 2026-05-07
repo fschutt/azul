@@ -8958,27 +8958,59 @@
                             },
                             "create_details": {
                                 "doc": [
-                                    "Creates a details disclosure element.",
+                                    "Creates a details disclosure element with accessibility information.",
+                                    "",
+                                    "Use `create_details_no_a11y` only as a deliberate escape hatch.",
                                     "",
                                     "**Accessibility**: Creates a disclosure widget. Screen readers announce expanded/collapsed",
                                     "state. Must contain a `<summary>` element. Keyboard accessible by default."
                                 ],
+                                "fn_args": [
+                                    {
+                                        "aria": "SmallAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_details(aria)"
+                            },
+                            "create_details_no_a11y": {
+                                "doc": [
+                                    "Creates a details disclosure element without accessibility information.",
+                                    "",
+                                    "Prefer `create_details` so that screen readers announce the disclosure widget's purpose."
+                                ],
                                 "fn_args": [],
-                                "fn_body": "azul_core::dom::Dom::create_details()"
+                                "fn_body": "azul_core::dom::Dom::create_details_no_a11y()"
                             },
                             "create_summary": {
                                 "doc": [
-                                    "Creates an empty summary element for details.",
+                                    "Creates an empty summary element for details with accessibility information.",
+                                    "",
+                                    "Use `create_summary_no_a11y` only as a deliberate escape hatch.",
                                     "",
                                     "**Accessibility**: The visible heading/label for `<details>`.",
                                     "Must be the first child of details. Keyboard accessible (Enter/Space to toggle)."
                                 ],
+                                "fn_args": [
+                                    {
+                                        "aria": "SmallAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_summary(aria)"
+                            },
+                            "create_summary_no_a11y": {
+                                "doc": [
+                                    "Creates an empty summary element for details without accessibility information.",
+                                    "",
+                                    "Prefer `create_summary` so that screen readers can announce the disclosure heading."
+                                ],
                                 "fn_args": [],
-                                "fn_body": "azul_core::dom::Dom::create_summary()"
+                                "fn_body": "azul_core::dom::Dom::create_summary_no_a11y()"
                             },
                             "create_summary_with_text": {
                                 "doc": [
-                                    "Creates a summary element with text for details.",
+                                    "Creates a summary element with text and accessibility information for details.",
+                                    "",
+                                    "Use `create_summary_with_text_no_a11y` only as a deliberate escape hatch.",
                                     "",
                                     "**Accessibility**: The visible heading/label for `<details>`.",
                                     "Must be the first child of details. Keyboard accessible (Enter/Space to toggle)."
@@ -8986,20 +9018,51 @@
                                 "fn_args": [
                                     {
                                         "text": "String"
+                                    },
+                                    {
+                                        "aria": "SmallAriaInfo"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::create_summary_with_text(text)"
+                                "fn_body": "azul_core::dom::Dom::create_summary_with_text(text, aria)"
+                            },
+                            "create_summary_with_text_no_a11y": {
+                                "doc": [
+                                    "Creates a summary element with text without accessibility information.",
+                                    "",
+                                    "Prefer `create_summary_with_text` so that screen readers announce the disclosure heading."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "text": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_summary_with_text_no_a11y(text)"
                             },
                             "create_dialog": {
                                 "doc": [
-                                    "Creates a dialog element.",
+                                    "Creates a dialog element with accessibility information.",
+                                    "",
+                                    "Use `create_dialog_no_a11y` only as a deliberate escape hatch.",
                                     "",
                                     "**Accessibility**: Represents a modal or non-modal dialog.",
                                     "When opened as modal, focus is trapped. Use aria-label or aria-labelledby.",
                                     "Escape key should close modal dialogs."
                                 ],
+                                "fn_args": [
+                                    {
+                                        "aria": "DialogAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_dialog(aria)"
+                            },
+                            "create_dialog_no_a11y": {
+                                "doc": [
+                                    "Creates a dialog element without accessibility information.",
+                                    "",
+                                    "Prefer `create_dialog` so that the dialog's modality and purpose are announced."
+                                ],
                                 "fn_args": [],
-                                "fn_body": "azul_core::dom::Dom::create_dialog()"
+                                "fn_body": "azul_core::dom::Dom::create_dialog_no_a11y()"
                             },
                             "create_p": {
                                 "doc": [
@@ -9926,7 +9989,33 @@
                             },
                             "create_option": {
                                 "doc": [
-                                    "Creates an option element for select dropdowns.",
+                                    "Creates an option element for select dropdowns with accessibility information.",
+                                    "",
+                                    "Use `create_option_no_a11y` only as a deliberate escape hatch.",
+                                    "",
+                                    "**Parameters:**",
+                                    "- `value`: Option value",
+                                    "- `text`: Display text",
+                                    "- `aria`: Accessibility information (description, etc.)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "value": "String"
+                                    },
+                                    {
+                                        "text": "String"
+                                    },
+                                    {
+                                        "aria": "SmallAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_option(value, text, aria)"
+                            },
+                            "create_option_no_a11y": {
+                                "doc": [
+                                    "Creates an option element for select dropdowns without accessibility information.",
+                                    "",
+                                    "Prefer `create_option` so that screen readers can announce a description.",
                                     "",
                                     "**Parameters:**",
                                     "- `value`: Option value",
@@ -9940,7 +10029,7 @@
                                         "text": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::create_option(value, text)"
+                                "fn_body": "azul_core::dom::Dom::create_option_no_a11y(value, text)"
                             },
                             "create_ul": {
                                 "doc": [
@@ -10064,34 +10153,79 @@
                             },
                             "create_form": {
                                 "doc": [
-                                    "Creates a form element.",
+                                    "Creates a form element with accessibility information.",
+                                    "",
+                                    "Use `create_form_no_a11y` only as a deliberate escape hatch.",
                                     "",
                                     "**Accessibility**: Group related form controls with `fieldset` and `legend`.",
                                     "Provide clear labels for all inputs. Consider `aria-describedby` for instructions."
                                 ],
+                                "fn_args": [
+                                    {
+                                        "aria": "SmallAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_form(aria)"
+                            },
+                            "create_form_no_a11y": {
+                                "doc": [
+                                    "Creates a form element without accessibility information.",
+                                    "",
+                                    "Prefer `create_form` so that screen readers can announce the form's purpose."
+                                ],
                                 "fn_args": [],
-                                "fn_body": "azul_core::dom::Dom::create_form()"
+                                "fn_body": "azul_core::dom::Dom::create_form_no_a11y()"
                             },
                             "create_fieldset": {
                                 "doc": [
-                                    "Creates a fieldset element for grouping form controls.",
+                                    "Creates a fieldset element with accessibility information.",
+                                    "",
+                                    "Use `create_fieldset_no_a11y` only as a deliberate escape hatch.",
                                     "",
                                     "**Accessibility**: Groups related form controls. Always include a `legend` as the",
                                     "first child to describe the group. Screen readers announce the legend when entering",
                                     "the fieldset."
                                 ],
+                                "fn_args": [
+                                    {
+                                        "aria": "SmallAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_fieldset(aria)"
+                            },
+                            "create_fieldset_no_a11y": {
+                                "doc": [
+                                    "Creates a fieldset element for grouping form controls without accessibility info.",
+                                    "",
+                                    "Prefer `create_fieldset` so that screen readers can announce the group's purpose."
+                                ],
                                 "fn_args": [],
-                                "fn_body": "azul_core::dom::Dom::create_fieldset()"
+                                "fn_body": "azul_core::dom::Dom::create_fieldset_no_a11y()"
                             },
                             "create_legend": {
                                 "doc": [
-                                    "Creates a legend element for fieldsets.",
+                                    "Creates a legend element with accessibility information.",
+                                    "",
+                                    "Use `create_legend_no_a11y` only as a deliberate escape hatch.",
                                     "",
                                     "**Accessibility**: Describes the purpose of a fieldset. Must be the first child of",
                                     "a fieldset. Screen readers announce this when entering the fieldset."
                                 ],
+                                "fn_args": [
+                                    {
+                                        "aria": "SmallAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_legend(aria)"
+                            },
+                            "create_legend_no_a11y": {
+                                "doc": [
+                                    "Creates a legend element without accessibility information.",
+                                    "",
+                                    "Prefer `create_legend` so that the legend's accessible name is explicit."
+                                ],
                                 "fn_args": [],
-                                "fn_body": "azul_core::dom::Dom::create_legend()"
+                                "fn_body": "azul_core::dom::Dom::create_legend_no_a11y()"
                             },
                             "create_hr": {
                                 "doc": [
@@ -10160,7 +10294,29 @@
                             },
                             "create_optgroup": {
                                 "doc": [
-                                    "Creates an optgroup element for grouping select options.",
+                                    "Creates an optgroup element for grouping select options with accessibility information.",
+                                    "",
+                                    "Use `create_optgroup_no_a11y` only as a deliberate escape hatch.",
+                                    "",
+                                    "**Parameters:**",
+                                    "- `label`: Label for the option group (visible)",
+                                    "- `aria`: Additional accessibility information (description, etc.)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "label": "String"
+                                    },
+                                    {
+                                        "aria": "SmallAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_optgroup(label, aria)"
+                            },
+                            "create_optgroup_no_a11y": {
+                                "doc": [
+                                    "Creates an optgroup element for grouping select options without accessibility info.",
+                                    "",
+                                    "Prefer `create_optgroup` so that screen readers can announce the group's purpose.",
                                     "",
                                     "**Parameters:**",
                                     "- `label`: Label for the option group"
@@ -10170,7 +10326,7 @@
                                         "label": "String"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::create_optgroup(label)"
+                                "fn_body": "azul_core::dom::Dom::create_optgroup_no_a11y(label)"
                             },
                             "create_q": {
                                 "doc": [
@@ -10205,27 +10361,59 @@
                             },
                             "create_menu": {
                                 "doc": [
-                                    "Creates a menu element.",
+                                    "Creates a menu element with accessibility information.",
+                                    "",
+                                    "Use `create_menu_no_a11y` only as a deliberate escape hatch.",
                                     "",
                                     "**Accessibility**: Represents a list of commands. Similar to `<ul>` but semantic for",
                                     "toolbars/menus."
                                 ],
+                                "fn_args": [
+                                    {
+                                        "aria": "SmallAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_menu(aria)"
+                            },
+                            "create_menu_no_a11y": {
+                                "doc": [
+                                    "Creates a menu element without accessibility information.",
+                                    "",
+                                    "Prefer `create_menu` so that the menu's purpose is announced."
+                                ],
                                 "fn_args": [],
-                                "fn_body": "azul_core::dom::Dom::create_menu()"
+                                "fn_body": "azul_core::dom::Dom::create_menu_no_a11y()"
                             },
                             "create_menuitem": {
                                 "doc": [
-                                    "Creates an empty menu item element.",
+                                    "Creates an empty menu item element with accessibility information.",
+                                    "",
+                                    "Use `create_menuitem_no_a11y` only as a deliberate escape hatch.",
                                     "",
                                     "**Accessibility**: Represents a command in a menu. Use with appropriate role/aria",
                                     "attributes."
                                 ],
+                                "fn_args": [
+                                    {
+                                        "aria": "SmallAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_menuitem(aria)"
+                            },
+                            "create_menuitem_no_a11y": {
+                                "doc": [
+                                    "Creates an empty menu item element without accessibility information.",
+                                    "",
+                                    "Prefer `create_menuitem` so that the menu item's purpose is announced."
+                                ],
                                 "fn_args": [],
-                                "fn_body": "azul_core::dom::Dom::create_menuitem()"
+                                "fn_body": "azul_core::dom::Dom::create_menuitem_no_a11y()"
                             },
                             "create_menuitem_with_text": {
                                 "doc": [
-                                    "Creates a menu item element with text.",
+                                    "Creates a menu item element with text and accessibility information.",
+                                    "",
+                                    "Use `create_menuitem_with_text_no_a11y` only as a deliberate escape hatch.",
                                     "",
                                     "**Accessibility**: Represents a command in a menu. Use with appropriate role/aria",
                                     "attributes."
@@ -10233,26 +10421,77 @@
                                 "fn_args": [
                                     {
                                         "text": "String"
+                                    },
+                                    {
+                                        "aria": "SmallAriaInfo"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::create_menuitem_with_text(text)"
+                                "fn_body": "azul_core::dom::Dom::create_menuitem_with_text(text, aria)"
+                            },
+                            "create_menuitem_with_text_no_a11y": {
+                                "doc": [
+                                    "Creates a menu item element with text but without accessibility information.",
+                                    "",
+                                    "Prefer `create_menuitem_with_text` so that screen readers get a distinct accessible name."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "text": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_menuitem_with_text_no_a11y(text)"
                             },
                             "create_output": {
                                 "doc": [
-                                    "Creates an output element.",
+                                    "Creates an output element with accessibility information.",
+                                    "",
+                                    "Use `create_output_no_a11y` only as a deliberate escape hatch.",
                                     "",
                                     "**Accessibility**: Represents the result of a calculation or user action.",
                                     "Use `for` attribute to associate with input elements. Screen readers announce updates."
                                 ],
+                                "fn_args": [
+                                    {
+                                        "aria": "SmallAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_output(aria)"
+                            },
+                            "create_output_no_a11y": {
+                                "doc": [
+                                    "Creates an output element without accessibility information.",
+                                    "",
+                                    "Prefer `create_output` so that screen readers can announce the computed value's purpose."
+                                ],
                                 "fn_args": [],
-                                "fn_body": "azul_core::dom::Dom::create_output()"
+                                "fn_body": "azul_core::dom::Dom::create_output_no_a11y()"
                             },
                             "create_progress": {
                                 "doc": [
-                                    "Creates a progress indicator element.",
+                                    "Creates a progress indicator element with accessibility information.",
                                     "",
-                                    "**Accessibility**: Represents task progress. Use `value` and `max` attributes.",
-                                    "Screen readers announce progress percentage. Use aria-label to describe the task."
+                                    "Use `create_progress_no_a11y` only as a deliberate escape hatch.",
+                                    "",
+                                    "**Accessibility**: Represents task progress. Screen readers announce progress",
+                                    "percentage. The `aria` value carries the label, current value, max, and an",
+                                    "indeterminate flag for spinners with no known endpoint."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "aria": "ProgressAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_progress(aria)"
+                            },
+                            "create_progress_no_a11y": {
+                                "doc": [
+                                    "Creates a progress indicator element without accessibility information.",
+                                    "",
+                                    "Prefer `create_progress` so that the task being measured is announced.",
+                                    "",
+                                    "**Parameters:**",
+                                    "- `value`: Current progress value",
+                                    "- `max`: Maximum value"
                                 ],
                                 "fn_args": [
                                     {
@@ -10262,15 +10501,35 @@
                                         "max": "f32"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::create_progress(value, max)"
+                                "fn_body": "azul_core::dom::Dom::create_progress_no_a11y(value, max)"
                             },
                             "create_meter": {
                                 "doc": [
-                                    "Creates a meter gauge element.",
+                                    "Creates a meter gauge element with accessibility information.",
+                                    "",
+                                    "Use `create_meter_no_a11y` only as a deliberate escape hatch.",
                                     "",
                                     "**Accessibility**: Represents a scalar measurement within a known range.",
-                                    "Use `value`, `min`, `max`, `low`, `high`, `optimum` attributes.",
-                                    "Screen readers announce the measurement. Provide aria-label for context."
+                                    "Screen readers announce the measurement. The `aria` value carries the label",
+                                    "plus value/min/max/low/high/optimum metadata."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "aria": "MeterAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_meter(aria)"
+                            },
+                            "create_meter_no_a11y": {
+                                "doc": [
+                                    "Creates a meter gauge element without accessibility information.",
+                                    "",
+                                    "Prefer `create_meter` so that the measurement's purpose is announced.",
+                                    "",
+                                    "**Parameters:**",
+                                    "- `value`: Current meter value",
+                                    "- `min`: Minimum value",
+                                    "- `max`: Maximum value"
                                 ],
                                 "fn_args": [
                                     {
@@ -10283,28 +10542,59 @@
                                         "max": "f32"
                                     }
                                 ],
-                                "fn_body": "azul_core::dom::Dom::create_meter(value, min, max)"
+                                "fn_body": "azul_core::dom::Dom::create_meter_no_a11y(value, min, max)"
                             },
                             "create_datalist": {
                                 "doc": [
-                                    "Creates a datalist element for input suggestions.",
+                                    "Creates a datalist element for input suggestions with accessibility information.",
+                                    "",
+                                    "Use `create_datalist_no_a11y` only as a deliberate escape hatch.",
                                     "",
                                     "**Accessibility**: Provides autocomplete options for inputs.",
                                     "Associate with input using `list` attribute. Screen readers announce available options."
                                 ],
+                                "fn_args": [
+                                    {
+                                        "aria": "SmallAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_datalist(aria)"
+                            },
+                            "create_datalist_no_a11y": {
+                                "doc": [
+                                    "Creates a datalist element for input suggestions without accessibility information.",
+                                    "",
+                                    "Prefer `create_datalist` so that the suggestion list's purpose is announced."
+                                ],
                                 "fn_args": [],
-                                "fn_body": "azul_core::dom::Dom::create_datalist()"
+                                "fn_body": "azul_core::dom::Dom::create_datalist_no_a11y()"
                             },
                             "create_canvas": {
                                 "doc": [
-                                    "Creates a canvas element for graphics.",
+                                    "Creates a canvas element for graphics with accessibility information.",
+                                    "",
+                                    "Use `create_canvas_no_a11y` only as a deliberate escape hatch.",
                                     "",
                                     "**Accessibility**: Canvas content is not accessible by default.",
                                     "Always provide fallback content as children and/or detailed aria-label.",
                                     "Consider using SVG for accessible graphics when possible."
                                 ],
+                                "fn_args": [
+                                    {
+                                        "aria": "SmallAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_canvas(aria)"
+                            },
+                            "create_canvas_no_a11y": {
+                                "doc": [
+                                    "Creates a canvas element for graphics without accessibility information.",
+                                    "",
+                                    "Prefer `create_canvas` so that the canvas's purpose is announced; canvas",
+                                    "content is otherwise opaque to assistive technologies."
+                                ],
                                 "fn_args": [],
-                                "fn_body": "azul_core::dom::Dom::create_canvas()"
+                                "fn_body": "azul_core::dom::Dom::create_canvas_no_a11y()"
                             },
                             "create_object": {
                                 "doc": [
@@ -10345,23 +10635,53 @@
                             },
                             "create_audio": {
                                 "doc": [
-                                    "Creates an audio element.",
+                                    "Creates an audio element with accessibility information.",
+                                    "",
+                                    "Use `create_audio_no_a11y` only as a deliberate escape hatch.",
                                     "",
                                     "**Accessibility**: Always provide controls. Use `<track>` for captions/subtitles.",
                                     "Provide fallback text for unsupported browsers."
                                 ],
+                                "fn_args": [
+                                    {
+                                        "aria": "SmallAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_audio(aria)"
+                            },
+                            "create_audio_no_a11y": {
+                                "doc": [
+                                    "Creates an audio element without accessibility information.",
+                                    "",
+                                    "Prefer `create_audio` so that screen readers announce the audio's purpose."
+                                ],
                                 "fn_args": [],
-                                "fn_body": "azul_core::dom::Dom::create_audio()"
+                                "fn_body": "azul_core::dom::Dom::create_audio_no_a11y()"
                             },
                             "create_video": {
                                 "doc": [
-                                    "Creates a video element.",
+                                    "Creates a video element with accessibility information.",
+                                    "",
+                                    "Use `create_video_no_a11y` only as a deliberate escape hatch.",
                                     "",
                                     "**Accessibility**: Always provide controls. Use `<track>` for",
                                     "captions/subtitles/descriptions. Provide fallback text. Consider providing transcript."
                                 ],
+                                "fn_args": [
+                                    {
+                                        "aria": "SmallAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_video(aria)"
+                            },
+                            "create_video_no_a11y": {
+                                "doc": [
+                                    "Creates a video element without accessibility information.",
+                                    "",
+                                    "Prefer `create_video` so that screen readers announce the video's purpose."
+                                ],
                                 "fn_args": [],
-                                "fn_body": "azul_core::dom::Dom::create_video()"
+                                "fn_body": "azul_core::dom::Dom::create_video_no_a11y()"
                             },
                             "create_source": {
                                 "doc": [
@@ -10413,13 +10733,28 @@
                             },
                             "create_area": {
                                 "doc": [
-                                    "Creates an area element for image map regions.",
+                                    "Creates an area element for image map regions with accessibility information.",
+                                    "",
+                                    "Use `create_area_no_a11y` only as a deliberate escape hatch.",
                                     "",
                                     "**Accessibility**: Always provide `alt` text describing the region/link purpose.",
                                     "Keyboard users should be able to navigate areas."
                                 ],
+                                "fn_args": [
+                                    {
+                                        "aria": "SmallAriaInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_area(aria)"
+                            },
+                            "create_area_no_a11y": {
+                                "doc": [
+                                    "Creates an area element for image map regions without accessibility information.",
+                                    "",
+                                    "Prefer `create_area` so that screen readers can announce the region's purpose."
+                                ],
                                 "fn_args": [],
-                                "fn_body": "azul_core::dom::Dom::create_area()"
+                                "fn_body": "azul_core::dom::Dom::create_area_no_a11y()"
                             },
                             "create_title": {
                                 "doc": [
@@ -15252,6 +15587,390 @@
                                 ],
                                 "returns": {
                                     "type": "SmallAriaInfo"
+                                },
+                                "fn_body": "object.with_description(desc)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "ProgressAriaInfo": {
+                        "external": "azul_core::a11y::ProgressAriaInfo",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "doc": "Accessibility information for a `<progress>` indicator.",
+                        "struct_fields": [
+                            {
+                                "label": {
+                                    "type": "OptionString"
+                                }
+                            },
+                            {
+                                "current_value": {
+                                    "type": "OptionF32"
+                                }
+                            },
+                            {
+                                "max": {
+                                    "type": "OptionF32"
+                                }
+                            },
+                            {
+                                "indeterminate": {
+                                    "type": "bool"
+                                }
+                            },
+                            {
+                                "description": {
+                                    "type": "OptionString"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "Creates a `ProgressAriaInfo` with only an accessible label."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::a11y::ProgressAriaInfo::create(label)"
+                            }
+                        },
+                        "functions": {
+                            "with_current_value": {
+                                "doc": [
+                                    "Returns a copy with the given current value."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "value": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ProgressAriaInfo"
+                                },
+                                "fn_body": "object.with_current_value(value)"
+                            },
+                            "with_max": {
+                                "doc": [
+                                    "Returns a copy with the given maximum value."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "max": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ProgressAriaInfo"
+                                },
+                                "fn_body": "object.with_max(max)"
+                            },
+                            "with_indeterminate": {
+                                "doc": [
+                                    "Returns a copy with the indeterminate flag set."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "indeterminate": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ProgressAriaInfo"
+                                },
+                                "fn_body": "object.with_indeterminate(indeterminate)"
+                            },
+                            "with_description": {
+                                "doc": [
+                                    "Returns a copy with the given description."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "desc": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ProgressAriaInfo"
+                                },
+                                "fn_body": "object.with_description(desc)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "MeterAriaInfo": {
+                        "external": "azul_core::a11y::MeterAriaInfo",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "doc": "Accessibility information for a `<meter>` gauge.",
+                        "struct_fields": [
+                            {
+                                "label": {
+                                    "type": "OptionString"
+                                }
+                            },
+                            {
+                                "current_value": {
+                                    "type": "f32"
+                                }
+                            },
+                            {
+                                "min": {
+                                    "type": "f32"
+                                }
+                            },
+                            {
+                                "max": {
+                                    "type": "f32"
+                                }
+                            },
+                            {
+                                "low": {
+                                    "type": "OptionF32"
+                                }
+                            },
+                            {
+                                "high": {
+                                    "type": "OptionF32"
+                                }
+                            },
+                            {
+                                "optimum": {
+                                    "type": "OptionF32"
+                                }
+                            },
+                            {
+                                "description": {
+                                    "type": "OptionString"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "Creates a `MeterAriaInfo` with the required label and value/range triple."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "label": "String"
+                                    },
+                                    {
+                                        "current_value": "f32"
+                                    },
+                                    {
+                                        "min": "f32"
+                                    },
+                                    {
+                                        "max": "f32"
+                                    }
+                                ],
+                                "fn_body": "azul_core::a11y::MeterAriaInfo::create(label, current_value, min, max)"
+                            }
+                        },
+                        "functions": {
+                            "with_low": {
+                                "doc": [
+                                    "Returns a copy with the given low threshold."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "low": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MeterAriaInfo"
+                                },
+                                "fn_body": "object.with_low(low)"
+                            },
+                            "with_high": {
+                                "doc": [
+                                    "Returns a copy with the given high threshold."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "high": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MeterAriaInfo"
+                                },
+                                "fn_body": "object.with_high(high)"
+                            },
+                            "with_optimum": {
+                                "doc": [
+                                    "Returns a copy with the given optimum value."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "optimum": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MeterAriaInfo"
+                                },
+                                "fn_body": "object.with_optimum(optimum)"
+                            },
+                            "with_description": {
+                                "doc": [
+                                    "Returns a copy with the given description."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "desc": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MeterAriaInfo"
+                                },
+                                "fn_body": "object.with_description(desc)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "DialogAriaInfo": {
+                        "external": "azul_core::a11y::DialogAriaInfo",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "doc": "Accessibility information for a `<dialog>` element.",
+                        "struct_fields": [
+                            {
+                                "label": {
+                                    "type": "OptionString"
+                                }
+                            },
+                            {
+                                "modal": {
+                                    "type": "bool"
+                                }
+                            },
+                            {
+                                "described_by": {
+                                    "type": "OptionString"
+                                }
+                            },
+                            {
+                                "role": {
+                                    "type": "AccessibilityRole"
+                                }
+                            },
+                            {
+                                "description": {
+                                    "type": "OptionString"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "Creates a `DialogAriaInfo` with the given accessible label."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::a11y::DialogAriaInfo::create(label)"
+                            }
+                        },
+                        "functions": {
+                            "with_modal": {
+                                "doc": [
+                                    "Returns a copy with the given modality flag."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "modal": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DialogAriaInfo"
+                                },
+                                "fn_body": "object.with_modal(modal)"
+                            },
+                            "with_described_by": {
+                                "doc": [
+                                    "Returns a copy with `aria-describedby` pointing at the given node ID."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "described_by": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DialogAriaInfo"
+                                },
+                                "fn_body": "object.with_described_by(described_by)"
+                            },
+                            "with_role": {
+                                "doc": [
+                                    "Returns a copy with the given accessibility role."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "role": "AccessibilityRole"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DialogAriaInfo"
+                                },
+                                "fn_body": "object.with_role(role)"
+                            },
+                            "with_description": {
+                                "doc": [
+                                    "Returns a copy with the given inline description."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "desc": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DialogAriaInfo"
                                 },
                                 "fn_body": "object.with_description(desc)"
                             }

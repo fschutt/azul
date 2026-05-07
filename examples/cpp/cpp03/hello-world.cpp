@@ -34,7 +34,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
     AzString label_text = AzString_copyFromBytes(
         (const uint8_t*)buffer, 0, (size_t)written);
-    AzDom label = AzDom_pWithText(label_text);
+    AzDom label = AzDom_createPWithText(label_text);
 
     const char* btn_label = "Increase counter";
     AzString btn_label_str = AzString_copyFromBytes((const uint8_t*)btn_label, 0, strlen(btn_label));

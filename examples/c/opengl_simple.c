@@ -84,7 +84,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     };
     AzImageRef image_ref = AzImageRef_callback(callback, AzRefAny_clone(&data));
     AzDom image = AzDom_createImage(image_ref);
-    AzDom_setInlineStyle(&image, az_str(
+    AzDom_setCss(&image, az_str(
         "flex-grow: 1;"
         "border-radius: 50px;"
         "box-sizing: border-box;"
@@ -93,7 +93,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     
     // Add a button on top of the OpenGL content
     AzDom button = AzDom_createText(az_str("Button drawn on top of OpenGL!"));
-    AzDom_setInlineStyle(&button, az_str(
+    AzDom_setCss(&button, az_str(
         "margin-top: 50px;"
         "margin-left: 50px;"
         "padding: 10px 20px;"
@@ -106,7 +106,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     
     // Create body with gradient background
     AzDom body = AzDom_createBody();
-    AzDom_setInlineStyle(&body, az_str(
+    AzDom_setCss(&body, az_str(
         "background: linear-gradient(blue, black);"
         "padding: 10px;"
     ));

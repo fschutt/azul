@@ -38,7 +38,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzString title_style = AzString_copyFromBytes(
         (const uint8_t*)"padding: 12px; background: #4a90d9; color: white; font-size: 18px; font-weight: bold;",
         0, 85);
-    AzDom_setInlineStyle(&title, title_style);
+    AzDom_setCss(&title, title_style);
 
     // Scroll container with many rows
     AzDom container = AzDom_createDiv();
@@ -57,7 +57,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
             "height: %.0fpx; min-height: %.0fpx; flex-shrink: 0; line-height: %.0fpx; padding-left: 8px; background: %s;",
             ROW_HEIGHT, ROW_HEIGHT, ROW_HEIGHT, bg);
         AzString style_str = AzString_copyFromBytes((const uint8_t*)style, 0, (size_t)slen);
-        AzDom_setInlineStyle(&row, style_str);
+        AzDom_setCss(&row, style_str);
 
         AzDom_addChild(&container, row);
     }
@@ -65,7 +65,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzString container_style = AzString_copyFromBytes(
         (const uint8_t*)"display: flex; flex-direction: column; flex-grow: 1; overflow: auto; background: #ffff00; border: 3px solid #00ff00; margin: 8px; height: 400px;",
         0, 141);
-    AzDom_setInlineStyle(&container, container_style);
+    AzDom_setCss(&container, container_style);
 
     // Footer
     char footer_buf[128];
@@ -77,7 +77,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzString footer_style = AzString_copyFromBytes(
         (const uint8_t*)"padding: 8px; background: #f0f0f0; color: #666; font-size: 12px; text-align: center;",
         0, 85);
-    AzDom_setInlineStyle(&footer, footer_style);
+    AzDom_setCss(&footer, footer_style);
 
     // Body
     AzDom body = AzDom_createBody();
@@ -87,7 +87,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzString body_style = AzString_copyFromBytes(
         (const uint8_t*)"display: flex; flex-direction: column; height: 100%; margin: 0; padding: 0;",
         0, 75);
-    AzDom_setInlineStyle(&body, body_style);
+    AzDom_setCss(&body, body_style);
 
     return AzDom_style(body, AzCss_empty());
 }

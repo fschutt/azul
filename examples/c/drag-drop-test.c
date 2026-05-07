@@ -375,8 +375,8 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     DragDropModelRef_delete(&d);
 
     // ── Title ──
-    AzDom title = AzDom_withInlineStyle(
-        AzDom_h2(AZ_STR("Drag & Drop Test")),
+    AzDom title = AzDom_withCss(
+        AzDom_createH2WithText(AZ_STR("Drag & Drop Test")),
         AZ_STR("margin-bottom: 10px; color: white;")
     );
 
@@ -385,7 +385,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzRefAny data1 = AzRefAny_clone(&data);
     AzRefAny data2 = AzRefAny_clone(&data);
     AzRefAny data3 = AzRefAny_clone(&data);
-    AzDom drag_box = AzDom_withInlineStyle(
+    AzDom drag_box = AzDom_withCss(
         AzDom_createDiv(),
         AZ_STR("width: 150px; height: 60px; background: #3b82f6; color: white; "
                "font-size: 16px; display: flex; align-items: center; "
@@ -406,7 +406,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         data3, on_drag_end);
 
     // ── Drop zones container (flex row) ──
-    AzDom zones_container = AzDom_withInlineStyle(
+    AzDom zones_container = AzDom_withCss(
         AzDom_createDiv(),
         AZ_STR("display: flex; flex-direction: row; gap: 20px; margin-bottom: 20px;")
     );
@@ -414,7 +414,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // ── Drop Zone A ──
     AzRefAny data4 = AzRefAny_clone(&data);
     AzRefAny data5 = AzRefAny_clone(&data);
-    AzDom zone_a = AzDom_withInlineStyle(
+    AzDom zone_a = AzDom_withCss(
         AzDom_createDiv(),
         AZ_STR("width: 200px; height: 150px; background: #1e3a5f; "
                "border: 2px dashed #60a5fa; border-radius: 8px; "
@@ -423,11 +423,11 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
                "transition: background 0.2s, border-color 0.2s;")
     );
     zone_a = AzDom_withClass(zone_a, AZ_STR("drop-zone"));
-    zone_a = AzDom_withChild(zone_a, AzDom_withInlineStyle(
+    zone_a = AzDom_withChild(zone_a, AzDom_withCss(
         AzDom_createText(AZ_STR("Drop Zone A")),
         AZ_STR("font-size: 16px; font-weight: bold;")
     ));
-    zone_a = AzDom_withChild(zone_a, AzDom_withInlineStyle(
+    zone_a = AzDom_withChild(zone_a, AzDom_withCss(
         AzDom_createText(AZ_STR("(text/plain)")),
         AZ_STR("font-size: 12px; margin-top: 5px; color: #60a5fa;")
     ));
@@ -441,7 +441,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // ── Drop Zone B ──
     AzRefAny data6 = AzRefAny_clone(&data);
     AzRefAny data7 = AzRefAny_clone(&data);
-    AzDom zone_b = AzDom_withInlineStyle(
+    AzDom zone_b = AzDom_withCss(
         AzDom_createDiv(),
         AZ_STR("width: 200px; height: 150px; background: #3b1e0f; "
                "border: 2px dashed #fb923c; border-radius: 8px; "
@@ -450,11 +450,11 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
                "transition: background 0.2s, border-color 0.2s;")
     );
     zone_b = AzDom_withClass(zone_b, AZ_STR("drop-zone"));
-    zone_b = AzDom_withChild(zone_b, AzDom_withInlineStyle(
+    zone_b = AzDom_withChild(zone_b, AzDom_withCss(
         AzDom_createText(AZ_STR("Drop Zone B")),
         AZ_STR("font-size: 16px; font-weight: bold;")
     ));
-    zone_b = AzDom_withChild(zone_b, AzDom_withInlineStyle(
+    zone_b = AzDom_withChild(zone_b, AzDom_withCss(
         AzDom_createText(AZ_STR("(text/html)")),
         AZ_STR("font-size: 12px; margin-top: 5px; color: #fb923c;")
     ));
@@ -469,14 +469,14 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&zones_container, zone_b);
 
     // ── Status display ──
-    AzDom status_text = AzDom_withInlineStyle(
+    AzDom status_text = AzDom_withCss(
         AzDom_createText(AzString_copyFromBytes(
             (const uint8_t*)status_buf, 0, strlen(status_buf))),
         AZ_STR("font-size: 14px; color: #e2e8f0; background: #1e293b; "
                "padding: 10px; border-radius: 4px; font-family: monospace;")
     );
 
-    AzDom stats_text = AzDom_withInlineStyle(
+    AzDom stats_text = AzDom_withCss(
         AzDom_createText(AzString_copyFromBytes(
             (const uint8_t*)stats_buf, 0, strlen(stats_buf))),
         AZ_STR("font-size: 12px; color: #94a3b8; background: #1e293b; "
@@ -485,7 +485,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     );
 
     // ── Body ──
-    AzDom body = AzDom_withInlineStyle(
+    AzDom body = AzDom_withCss(
         AzDom_createBody(),
         AZ_STR("padding: 20px; background: #0f172a; font-family: sans-serif;")
     );

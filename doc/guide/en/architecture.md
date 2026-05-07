@@ -7,7 +7,7 @@ audience: external
 maturity: mature
 guide_order: 20
 topic_only: false
-short_desc: Explains the concepts of architecting a larger Azul application - "What makes Azul special?"
+short_desc: Explains the concepts of architecting a larger Azul application
 prerequisites: [hello-world]
 tracked_files:
   - core/src/callbacks.rs

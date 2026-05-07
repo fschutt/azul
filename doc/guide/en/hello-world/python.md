@@ -158,6 +158,6 @@ import azul
 
 ## Coming Up Next
 
-- [Application Architecture](../architecture.md) — Explains the concepts of architecting a larger Azul application - "What makes Azul special?"
+- [Application Architecture](../architecture.md) — Explains the concepts of architecting a larger Azul application
 - [Document Object Model](../dom.md) — The Dom tree - node types, hierarchy, and CSS
 - [Hello World [Rust]](rust.md)

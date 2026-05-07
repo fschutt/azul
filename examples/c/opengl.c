@@ -285,7 +285,7 @@ bool parse_and_tessellate(OpenGlState* state) {
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // Create body with gradient background (like Rust example)
     AzDom body = AzDom_createBody();
-    AzDom_setInlineStyle(&body, az_str(
+    AzDom_setCss(&body, az_str(
         "display: flex;"
         "flex-direction: column;"
         "background: linear-gradient(blue, black);"
@@ -303,7 +303,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzImageRef image_ref = AzImageRef_callback(callback, AzRefAny_clone(&data));
     
     AzDom image = AzDom_createImage(image_ref);
-    AzDom_setInlineStyle(&image, az_str(
+    AzDom_setCss(&image, az_str(
         "flex-grow: 1;"
         "width: 100%;"
         "border: 5px solid red;"
@@ -315,7 +315,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // Button on top using proper Button widget (like Rust: Button::create("...").dom())
     AzButton button = AzButton_create(az_str("Button composited over OpenGL content!"));
     AzDom button_dom = AzButton_dom(button);
-    AzDom_setInlineStyle(&button_dom, az_str(
+    AzDom_setCss(&button_dom, az_str(
         "margin-top: 50px;"
         "margin-left: 50px;"
     ));

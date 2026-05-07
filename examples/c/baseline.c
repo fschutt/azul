@@ -18,31 +18,31 @@ AzString az_str(const char* s) {
 
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom root = AzDom_createDiv();
-    AzDom_setInlineStyle(&root, az_str("padding: 40px; background-color: #fff;"));
+    AzDom_setCss(&root, az_str("padding: 40px; background-color: #fff;"));
     
     // Single paragraph container - all children should align by baseline
     AzDom para = AzDom_createDiv();
-    AzDom_setInlineStyle(&para, az_str("background-color: #f0f0f0; padding: 20px;"));
+    AzDom_setCss(&para, az_str("background-color: #f0f0f0; padding: 20px;"));
     
     // Multiple text nodes with different font sizes
     AzDom t1 = AzDom_createText(az_str("Small "));
-    AzDom_setInlineStyle(&t1, az_str("font-size: 12px; background-color: #fdd;"));
+    AzDom_setCss(&t1, az_str("font-size: 12px; background-color: #fdd;"));
     AzDom_addChild(&para, t1);
     
     AzDom t2 = AzDom_createText(az_str("LARGE "));
-    AzDom_setInlineStyle(&t2, az_str("font-size: 32px; background-color: #dfd;"));
+    AzDom_setCss(&t2, az_str("font-size: 32px; background-color: #dfd;"));
     AzDom_addChild(&para, t2);
     
     AzDom t3 = AzDom_createText(az_str("Medium "));
-    AzDom_setInlineStyle(&t3, az_str("font-size: 18px; background-color: #ddf;"));
+    AzDom_setCss(&t3, az_str("font-size: 18px; background-color: #ddf;"));
     AzDom_addChild(&para, t3);
     
     AzDom t4 = AzDom_createText(az_str("tiny "));
-    AzDom_setInlineStyle(&t4, az_str("font-size: 10px; background-color: #ffd;"));
+    AzDom_setCss(&t4, az_str("font-size: 10px; background-color: #ffd;"));
     AzDom_addChild(&para, t4);
     
     AzDom t5 = AzDom_createText(az_str("HUGE"));
-    AzDom_setInlineStyle(&t5, az_str("font-size: 48px; background-color: #fdf;"));
+    AzDom_setCss(&t5, az_str("font-size: 48px; background-color: #fdf;"));
     AzDom_addChild(&para, t5);
     
     AzDom_addChild(&root, para);

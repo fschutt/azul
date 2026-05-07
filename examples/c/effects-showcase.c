@@ -14,7 +14,7 @@ AZ_REFLECT(EffectsData, EffectsData_destructor);
 
 static AzDom make_styled_div(const char* css, const char* text) {
     AzDom div = AzDom_createDiv();
-    AzDom_setInlineStyle(&div, AZ_STR(css));
+    AzDom_setCss(&div, AZ_STR(css));
     if (text && text[0]) {
         AzDom_addChild(&div, AzDom_createText(AZ_STR(text)));
     }
@@ -23,7 +23,7 @@ static AzDom make_styled_div(const char* css, const char* text) {
 
 static AzDom make_label(const char* text) {
     AzDom label = AzDom_createDiv();
-    AzDom_setInlineStyle(&label, AZ_STR(
+    AzDom_setCss(&label, AZ_STR(
         "font-size: 10px; color: #888; text-align: center; margin-top: 4px;"
     ));
     AzDom_addChild(&label, AzDom_createText(AZ_STR(text)));
@@ -32,7 +32,7 @@ static AzDom make_label(const char* text) {
 
 static AzDom make_card(const char* effect_css, const char* label_text) {
     AzDom card = AzDom_createDiv();
-    AzDom_setInlineStyle(&card, AZ_STR("flex-direction: column; align-items: center;"));
+    AzDom_setCss(&card, AZ_STR("flex-direction: column; align-items: center;"));
     AzDom_addChild(&card, make_styled_div(effect_css, ""));
     AzDom_addChild(&card, make_label(label_text));
     return card;
@@ -40,7 +40,7 @@ static AzDom make_card(const char* effect_css, const char* label_text) {
 
 static AzDom make_card_with_text(const char* effect_css, const char* inner_text, const char* label_text) {
     AzDom card = AzDom_createDiv();
-    AzDom_setInlineStyle(&card, AZ_STR("flex-direction: column; align-items: center;"));
+    AzDom_setCss(&card, AZ_STR("flex-direction: column; align-items: center;"));
     AzDom_addChild(&card, make_styled_div(effect_css, inner_text));
     AzDom_addChild(&card, make_label(label_text));
     return card;
@@ -52,7 +52,7 @@ static void add_child(AzDom* parent, AzDom child) {
 
 static AzDom make_section_header(const char* title) {
     AzDom h = AzDom_createDiv();
-    AzDom_setInlineStyle(&h, AZ_STR(
+    AzDom_setCss(&h, AZ_STR(
         "font-size: 18px; font-weight: bold; color: #333; margin-bottom: 8px;"
         "grid-column-start: 1; grid-column-end: 5;"
         "border-bottom: 1px solid #ddd; padding-bottom: 4px;"
@@ -66,21 +66,21 @@ static AzDom make_full_width_container(const char* css) {
     char buf[2048];
     snprintf(buf, sizeof(buf),
         "grid-column-start: 1; grid-column-end: 5; %s", css);
-    AzDom_setInlineStyle(&c, AZ_STR(buf));
+    AzDom_setCss(&c, AZ_STR(buf));
     return c;
 }
 
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
     AzDom body = AzDom_createBody();
-    AzDom_setInlineStyle(&body, AZ_STR(
+    AzDom_setCss(&body, AZ_STR(
         "padding: 20px; background-color: #f0f0f0; font-size: 14px; color: #222;"
         "overflow: scroll;"
     ));
 
     // Title
     AzDom title = AzDom_createDiv();
-    AzDom_setInlineStyle(&title, AZ_STR(
+    AzDom_setCss(&title, AZ_STR(
         "font-size: 28px; font-weight: bold; margin-bottom: 16px; color: #111;"
     ));
     AzDom_addChild(&title, AzDom_createText(AZ_STR("Effects Showcase")));
@@ -88,7 +88,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
     // Main grid: 4 columns
     AzDom grid = AzDom_createDiv();
-    AzDom_setInlineStyle(&grid, AZ_STR(
+    AzDom_setCss(&grid, AZ_STR(
         "display: grid;"
         "grid-template-columns: repeat(4, 1fr);"
         "gap: 16px;"

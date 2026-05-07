@@ -3544,12 +3544,12 @@ impl Dom {
 
     // Interactive Elements
 
-    /// Creates a details disclosure element.
+    /// Creates a details disclosure element without accessibility information.
     ///
-    /// **Accessibility**: Creates a disclosure widget. Screen readers announce expanded/collapsed
-    /// state. Must contain a `<summary>` element. Keyboard accessible by default.
+    /// Prefer [`Dom::create_details`] so that screen readers announce the
+    /// disclosure widget's purpose.
     #[inline(always)]
-    pub const fn create_details() -> Self {
+    pub const fn create_details_no_a11y() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Details),
             children: DomVec::from_const_slice(&[]),
@@ -3558,12 +3558,23 @@ impl Dom {
         }
     }
 
-    /// Creates an empty summary element for details.
+    /// Creates a details disclosure element with accessibility information.
     ///
-    /// **Accessibility**: The visible heading/label for `<details>`.
-    /// Must be the first child of details. Keyboard accessible (Enter/Space to toggle).
+    /// **Accessibility**: Creates a disclosure widget. Screen readers announce expanded/collapsed
+    /// state. Must contain a `<summary>` element. Keyboard accessible by default.
+    ///
+    /// Use [`Dom::create_details_no_a11y`] only as a deliberate escape hatch.
+    #[inline]
+    pub fn create_details(aria: SmallAriaInfo) -> Self {
+        Self::create_details_no_a11y().with_accessibility_info(aria.to_full_info())
+    }
+
+    /// Creates an empty summary element for details without accessibility information.
+    ///
+    /// Prefer [`Dom::create_summary`] so that screen readers can announce the
+    /// disclosure heading.
     #[inline(always)]
-    pub const fn create_summary() -> Self {
+    pub const fn create_summary_no_a11y() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Summary),
             children: DomVec::from_const_slice(&[]),
@@ -3572,28 +3583,61 @@ impl Dom {
         }
     }
 
-    /// Creates a summary element with text for details.
+    /// Creates an empty summary element for details with accessibility information.
     ///
     /// **Accessibility**: The visible heading/label for `<details>`.
     /// Must be the first child of details. Keyboard accessible (Enter/Space to toggle).
+    ///
+    /// Use [`Dom::create_summary_no_a11y`] only as a deliberate escape hatch.
     #[inline]
-    pub fn create_summary_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_summary().with_child(Self::create_text(text))
+    pub fn create_summary(aria: SmallAriaInfo) -> Self {
+        Self::create_summary_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
-    /// Creates a dialog element.
+    /// Creates a summary element with text without accessibility information.
     ///
-    /// **Accessibility**: Represents a modal or non-modal dialog.
-    /// When opened as modal, focus is trapped. Use aria-label or aria-labelledby.
-    /// Escape key should close modal dialogs.
+    /// Prefer [`Dom::create_summary_with_text`] so that screen readers
+    /// announce the disclosure heading.
+    #[inline]
+    pub fn create_summary_with_text_no_a11y<S: Into<AzString>>(text: S) -> Self {
+        Self::create_summary_no_a11y().with_child(Self::create_text(text))
+    }
+
+    /// Creates a summary element with text and accessibility information for details.
+    ///
+    /// **Accessibility**: The visible heading/label for `<details>`.
+    /// Must be the first child of details. Keyboard accessible (Enter/Space to toggle).
+    ///
+    /// Use [`Dom::create_summary_with_text_no_a11y`] only as a deliberate escape hatch.
+    #[inline]
+    pub fn create_summary_with_text<S: Into<AzString>>(text: S, aria: SmallAriaInfo) -> Self {
+        Self::create_summary_with_text_no_a11y(text).with_accessibility_info(aria.to_full_info())
+    }
+
+    /// Creates a dialog element without accessibility information.
+    ///
+    /// Prefer [`Dom::create_dialog`] so that the dialog's purpose, modality,
+    /// and described-by relationship are surfaced to assistive technologies.
     #[inline(always)]
-    pub const fn create_dialog() -> Self {
+    pub const fn create_dialog_no_a11y() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Dialog),
             children: DomVec::from_const_slice(&[]),
             css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
+    }
+
+    /// Creates a dialog element with accessibility information.
+    ///
+    /// **Accessibility**: Represents a modal or non-modal dialog.
+    /// When opened as modal, focus is trapped. Use aria-label or aria-labelledby.
+    /// Escape key should close modal dialogs.
+    ///
+    /// Use [`Dom::create_dialog_no_a11y`] only as a deliberate escape hatch.
+    #[inline]
+    pub fn create_dialog(aria: DialogAriaInfo) -> Self {
+        Self::create_dialog_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
     // Basic Structural Elements
@@ -4467,10 +4511,23 @@ impl Dom {
     /// - `value`: Option value
     /// - `text`: Display text
     #[inline]
-    pub fn create_option(value: AzString, text: AzString) -> Self {
+    pub fn create_option_no_a11y(value: AzString, text: AzString) -> Self {
         Self::create_node(NodeType::SelectOption)
             .with_attribute(AttributeType::Value(value))
             .with_child(Self::create_text(text))
+    }
+
+    /// Creates an option element for select dropdowns with accessibility information.
+    ///
+    /// **Parameters:**
+    /// - `value`: Option value
+    /// - `text`: Display text
+    /// - `aria`: Accessibility information (description, etc.)
+    ///
+    /// Use [`Dom::create_option_no_a11y`] only as a deliberate escape hatch.
+    #[inline]
+    pub fn create_option(value: AzString, text: AzString, aria: SmallAriaInfo) -> Self {
+        Self::create_option_no_a11y(value, text).with_accessibility_info(aria.to_full_info())
     }
 
     /// Creates an unordered list element.
@@ -4562,32 +4619,62 @@ impl Dom {
         Self::create_node(NodeType::Td)
     }
 
-    /// Creates a form element.
+    /// Creates a form element without accessibility information.
     ///
-    /// **Accessibility**: Group related form controls with `fieldset` and `legend`.
-    /// Provide clear labels for all inputs. Consider `aria-describedby` for instructions.
+    /// Prefer [`Dom::create_form`] so that screen readers can announce the form's purpose.
     #[inline(always)]
-    pub fn create_form() -> Self {
+    pub fn create_form_no_a11y() -> Self {
         Self::create_node(NodeType::Form)
     }
 
-    /// Creates a fieldset element for grouping form controls.
+    /// Creates a form element with accessibility information.
+    ///
+    /// **Accessibility**: Group related form controls with `fieldset` and `legend`.
+    /// Provide clear labels for all inputs. Consider `aria-describedby` for instructions.
+    ///
+    /// Use [`Dom::create_form_no_a11y`] only as a deliberate escape hatch.
+    #[inline]
+    pub fn create_form(aria: SmallAriaInfo) -> Self {
+        Self::create_form_no_a11y().with_accessibility_info(aria.to_full_info())
+    }
+
+    /// Creates a fieldset element for grouping form controls without accessibility info.
+    ///
+    /// Prefer [`Dom::create_fieldset`] so that screen readers can announce the group's purpose.
+    #[inline(always)]
+    pub fn create_fieldset_no_a11y() -> Self {
+        Self::create_node(NodeType::FieldSet)
+    }
+
+    /// Creates a fieldset element with accessibility information.
     ///
     /// **Accessibility**: Groups related form controls. Always include a `legend` as the
     /// first child to describe the group. Screen readers announce the legend when entering
     /// the fieldset.
-    #[inline(always)]
-    pub fn create_fieldset() -> Self {
-        Self::create_node(NodeType::FieldSet)
+    ///
+    /// Use [`Dom::create_fieldset_no_a11y`] only as a deliberate escape hatch.
+    #[inline]
+    pub fn create_fieldset(aria: SmallAriaInfo) -> Self {
+        Self::create_fieldset_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
-    /// Creates a legend element for fieldsets.
+    /// Creates a legend element without accessibility information.
+    ///
+    /// Prefer [`Dom::create_legend`] so that the legend's accessible name is explicit.
+    #[inline(always)]
+    pub fn create_legend_no_a11y() -> Self {
+        Self::create_node(NodeType::Legend)
+    }
+
+    /// Creates a legend element with accessibility information.
     ///
     /// **Accessibility**: Describes the purpose of a fieldset. Must be the first child of
     /// a fieldset. Screen readers announce this when entering the fieldset.
-    #[inline(always)]
-    pub fn create_legend() -> Self {
-        Self::create_node(NodeType::Legend)
+    ///
+    /// Use [`Dom::create_legend_no_a11y`] only as a deliberate escape hatch.
+    #[inline]
+    pub fn create_legend(aria: SmallAriaInfo) -> Self {
+        Self::create_legend_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
     /// Creates a horizontal rule element.
@@ -4671,13 +4758,27 @@ impl Dom {
         Self::create_node(NodeType::Col).with_attribute(AttributeType::ColSpan(span))
     }
 
-    /// Creates an optgroup element for grouping select options.
+    /// Creates an optgroup element for grouping select options without accessibility info.
+    ///
+    /// Prefer [`Dom::create_optgroup`] so that screen readers can announce the group's purpose.
     ///
     /// **Parameters:**
     /// - `label`: Label for the option group
     #[inline]
-    pub fn create_optgroup(label: AzString) -> Self {
+    pub fn create_optgroup_no_a11y(label: AzString) -> Self {
         Self::create_node(NodeType::OptGroup).with_attribute(AttributeType::AriaLabel(label))
+    }
+
+    /// Creates an optgroup element for grouping select options with accessibility information.
+    ///
+    /// **Parameters:**
+    /// - `label`: Label for the option group (visible)
+    /// - `aria`: Additional accessibility information (description, etc.)
+    ///
+    /// Use [`Dom::create_optgroup_no_a11y`] only as a deliberate escape hatch.
+    #[inline]
+    pub fn create_optgroup(label: AzString, aria: SmallAriaInfo) -> Self {
+        Self::create_optgroup_no_a11y(label).with_accessibility_info(aria.to_full_info())
     }
 
     /// Creates a quotation element.
@@ -4714,12 +4815,11 @@ impl Dom {
         Self::create_acronym().with_child(Self::create_text(text))
     }
 
-    /// Creates a menu element.
+    /// Creates a menu element without accessibility information.
     ///
-    /// **Accessibility**: Represents a list of commands. Similar to `<ul>` but semantic for
-    /// toolbars/menus.
+    /// Prefer [`Dom::create_menu`] so that the menu's purpose is announced.
     #[inline(always)]
-    pub const fn create_menu() -> Self {
+    pub const fn create_menu_no_a11y() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Menu),
             children: DomVec::from_const_slice(&[]),
@@ -4728,12 +4828,22 @@ impl Dom {
         }
     }
 
-    /// Creates an empty menu item element.
+    /// Creates a menu element with accessibility information.
     ///
-    /// **Accessibility**: Represents a command in a menu. Use with appropriate role/aria
-    /// attributes.
+    /// **Accessibility**: Represents a list of commands. Similar to `<ul>` but semantic for
+    /// toolbars/menus.
+    ///
+    /// Use [`Dom::create_menu_no_a11y`] only as a deliberate escape hatch.
+    #[inline]
+    pub fn create_menu(aria: SmallAriaInfo) -> Self {
+        Self::create_menu_no_a11y().with_accessibility_info(aria.to_full_info())
+    }
+
+    /// Creates an empty menu item element without accessibility information.
+    ///
+    /// Prefer [`Dom::create_menuitem`] so that the menu item's purpose is announced.
     #[inline(always)]
-    pub const fn create_menuitem() -> Self {
+    pub const fn create_menuitem_no_a11y() -> Self {
         Self {
             root: NodeData::create_node(NodeType::MenuItem),
             children: DomVec::from_const_slice(&[]),
@@ -4742,21 +4852,43 @@ impl Dom {
         }
     }
 
-    /// Creates a menu item element with text.
+    /// Creates an empty menu item element with accessibility information.
     ///
     /// **Accessibility**: Represents a command in a menu. Use with appropriate role/aria
     /// attributes.
+    ///
+    /// Use [`Dom::create_menuitem_no_a11y`] only as a deliberate escape hatch.
     #[inline]
-    pub fn create_menuitem_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_menuitem().with_child(Self::create_text(text))
+    pub fn create_menuitem(aria: SmallAriaInfo) -> Self {
+        Self::create_menuitem_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
-    /// Creates an output element.
+    /// Creates a menu item element with text but without accessibility information.
     ///
-    /// **Accessibility**: Represents the result of a calculation or user action.
-    /// Use `for` attribute to associate with input elements. Screen readers announce updates.
+    /// Prefer [`Dom::create_menuitem_with_text`] so that screen readers get a
+    /// distinct accessible name in addition to the visible text.
+    #[inline]
+    pub fn create_menuitem_with_text_no_a11y<S: Into<AzString>>(text: S) -> Self {
+        Self::create_menuitem_no_a11y().with_child(Self::create_text(text))
+    }
+
+    /// Creates a menu item element with text and accessibility information.
+    ///
+    /// **Accessibility**: Represents a command in a menu. Use with appropriate role/aria
+    /// attributes.
+    ///
+    /// Use [`Dom::create_menuitem_with_text_no_a11y`] only as a deliberate escape hatch.
+    #[inline]
+    pub fn create_menuitem_with_text<S: Into<AzString>>(text: S, aria: SmallAriaInfo) -> Self {
+        Self::create_menuitem_with_text_no_a11y(text).with_accessibility_info(aria.to_full_info())
+    }
+
+    /// Creates an output element without accessibility information.
+    ///
+    /// Prefer [`Dom::create_output`] so that screen readers can announce the
+    /// computed value's purpose.
     #[inline(always)]
-    pub const fn create_output() -> Self {
+    pub const fn create_output_no_a11y() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Output),
             children: DomVec::from_const_slice(&[]),
@@ -4765,12 +4897,26 @@ impl Dom {
         }
     }
 
-    /// Creates a progress indicator element.
+    /// Creates an output element with accessibility information.
     ///
-    /// **Accessibility**: Represents task progress. Use `value` and `max` attributes.
-    /// Screen readers announce progress percentage. Use aria-label to describe the task.
+    /// **Accessibility**: Represents the result of a calculation or user action.
+    /// Use `for` attribute to associate with input elements. Screen readers announce updates.
+    ///
+    /// Use [`Dom::create_output_no_a11y`] only as a deliberate escape hatch.
     #[inline]
-    pub fn create_progress(value: f32, max: f32) -> Self {
+    pub fn create_output(aria: SmallAriaInfo) -> Self {
+        Self::create_output_no_a11y().with_accessibility_info(aria.to_full_info())
+    }
+
+    /// Creates a progress indicator element without accessibility information.
+    ///
+    /// Prefer [`Dom::create_progress`] so that the task being measured is announced.
+    ///
+    /// **Parameters:**
+    /// - `value`: Current progress value
+    /// - `max`: Maximum value
+    #[inline]
+    pub fn create_progress_no_a11y(value: f32, max: f32) -> Self {
         Self::create_node(NodeType::Progress)
             .with_attribute(AttributeType::Custom(AttributeNameValue {
                 attr_name: "value".into(),
@@ -4782,13 +4928,43 @@ impl Dom {
             }))
     }
 
-    /// Creates a meter gauge element.
+    /// Creates a progress indicator element with accessibility information.
     ///
-    /// **Accessibility**: Represents a scalar measurement within a known range.
-    /// Use `value`, `min`, `max`, `low`, `high`, `optimum` attributes.
-    /// Screen readers announce the measurement. Provide aria-label for context.
+    /// **Accessibility**: Represents task progress. Screen readers announce progress
+    /// percentage. The `aria` value carries the label, current value, max, and an
+    /// indeterminate flag for spinners with no known endpoint.
+    ///
+    /// Use [`Dom::create_progress_no_a11y`] only as a deliberate escape hatch.
     #[inline]
-    pub fn create_meter(value: f32, min: f32, max: f32) -> Self {
+    pub fn create_progress(aria: ProgressAriaInfo) -> Self {
+        let mut node = Self::create_node(NodeType::Progress);
+        if !aria.indeterminate {
+            if let azul_css::OptionF32::Some(v) = aria.current_value {
+                node = node.with_attribute(AttributeType::Custom(AttributeNameValue {
+                    attr_name: "value".into(),
+                    value: v.to_string().into(),
+                }));
+            }
+        }
+        if let azul_css::OptionF32::Some(m) = aria.max {
+            node = node.with_attribute(AttributeType::Custom(AttributeNameValue {
+                attr_name: "max".into(),
+                value: m.to_string().into(),
+            }));
+        }
+        node.with_accessibility_info(aria.to_full_info())
+    }
+
+    /// Creates a meter gauge element without accessibility information.
+    ///
+    /// Prefer [`Dom::create_meter`] so that the measurement's purpose is announced.
+    ///
+    /// **Parameters:**
+    /// - `value`: Current meter value
+    /// - `min`: Minimum value
+    /// - `max`: Maximum value
+    #[inline]
+    pub fn create_meter_no_a11y(value: f32, min: f32, max: f32) -> Self {
         Self::create_node(NodeType::Meter)
             .with_attribute(AttributeType::Custom(AttributeNameValue {
                 attr_name: "value".into(),
@@ -4804,12 +4980,42 @@ impl Dom {
             }))
     }
 
-    /// Creates a datalist element for input suggestions.
+    /// Creates a meter gauge element with accessibility information.
     ///
-    /// **Accessibility**: Provides autocomplete options for inputs.
-    /// Associate with input using `list` attribute. Screen readers announce available options.
+    /// **Accessibility**: Represents a scalar measurement within a known range.
+    /// Screen readers announce the measurement. The `aria` value carries the
+    /// label plus value/min/max/low/high/optimum metadata.
+    ///
+    /// Use [`Dom::create_meter_no_a11y`] only as a deliberate escape hatch.
+    #[inline]
+    pub fn create_meter(aria: MeterAriaInfo) -> Self {
+        let mut node = Self::create_meter_no_a11y(aria.current_value, aria.min, aria.max);
+        if let azul_css::OptionF32::Some(v) = aria.low {
+            node = node.with_attribute(AttributeType::Custom(AttributeNameValue {
+                attr_name: "low".into(),
+                value: v.to_string().into(),
+            }));
+        }
+        if let azul_css::OptionF32::Some(v) = aria.high {
+            node = node.with_attribute(AttributeType::Custom(AttributeNameValue {
+                attr_name: "high".into(),
+                value: v.to_string().into(),
+            }));
+        }
+        if let azul_css::OptionF32::Some(v) = aria.optimum {
+            node = node.with_attribute(AttributeType::Custom(AttributeNameValue {
+                attr_name: "optimum".into(),
+                value: v.to_string().into(),
+            }));
+        }
+        node.with_accessibility_info(aria.to_full_info())
+    }
+
+    /// Creates a datalist element without accessibility information.
+    ///
+    /// Prefer [`Dom::create_datalist`] so that the suggestion list's purpose is announced.
     #[inline(always)]
-    pub const fn create_datalist() -> Self {
+    pub const fn create_datalist_no_a11y() -> Self {
         Self {
             root: NodeData::create_node(NodeType::DataList),
             children: DomVec::from_const_slice(&[]),
@@ -4818,21 +5024,43 @@ impl Dom {
         }
     }
 
+    /// Creates a datalist element with accessibility information.
+    ///
+    /// **Accessibility**: Provides autocomplete options for inputs.
+    /// Associate with input using `list` attribute. Screen readers announce available options.
+    ///
+    /// Use [`Dom::create_datalist_no_a11y`] only as a deliberate escape hatch.
+    #[inline]
+    pub fn create_datalist(aria: SmallAriaInfo) -> Self {
+        Self::create_datalist_no_a11y().with_accessibility_info(aria.to_full_info())
+    }
+
     // Embedded Content Elements
 
-    /// Creates a canvas element for graphics.
+    /// Creates a canvas element for graphics without accessibility information.
     ///
-    /// **Accessibility**: Canvas content is not accessible by default.
-    /// Always provide fallback content as children and/or detailed aria-label.
-    /// Consider using SVG for accessible graphics when possible.
+    /// Prefer [`Dom::create_canvas`] so that the canvas's purpose is announced; canvas
+    /// content is otherwise opaque to assistive technologies.
     #[inline(always)]
-    pub const fn create_canvas() -> Self {
+    pub const fn create_canvas_no_a11y() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Canvas),
             children: DomVec::from_const_slice(&[]),
             css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
+    }
+
+    /// Creates a canvas element for graphics with accessibility information.
+    ///
+    /// **Accessibility**: Canvas content is not accessible by default.
+    /// Always provide fallback content as children and/or detailed aria-label.
+    /// Consider using SVG for accessible graphics when possible.
+    ///
+    /// Use [`Dom::create_canvas_no_a11y`] only as a deliberate escape hatch.
+    #[inline]
+    pub fn create_canvas(aria: SmallAriaInfo) -> Self {
+        Self::create_canvas_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
     /// Creates an object element for embedded content.
@@ -4874,12 +5102,11 @@ impl Dom {
         }
     }
 
-    /// Creates an audio element.
+    /// Creates an audio element without accessibility information.
     ///
-    /// **Accessibility**: Always provide controls. Use `<track>` for captions/subtitles.
-    /// Provide fallback text for unsupported browsers.
+    /// Prefer [`Dom::create_audio`] so that screen readers announce the audio's purpose.
     #[inline(always)]
-    pub const fn create_audio() -> Self {
+    pub const fn create_audio_no_a11y() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Audio),
             children: DomVec::from_const_slice(&[]),
@@ -4888,18 +5115,39 @@ impl Dom {
         }
     }
 
-    /// Creates a video element.
+    /// Creates an audio element with accessibility information.
     ///
-    /// **Accessibility**: Always provide controls. Use `<track>` for
-    /// captions/subtitles/descriptions. Provide fallback text. Consider providing transcript.
+    /// **Accessibility**: Always provide controls. Use `<track>` for captions/subtitles.
+    /// Provide fallback text for unsupported browsers.
+    ///
+    /// Use [`Dom::create_audio_no_a11y`] only as a deliberate escape hatch.
+    #[inline]
+    pub fn create_audio(aria: SmallAriaInfo) -> Self {
+        Self::create_audio_no_a11y().with_accessibility_info(aria.to_full_info())
+    }
+
+    /// Creates a video element without accessibility information.
+    ///
+    /// Prefer [`Dom::create_video`] so that screen readers announce the video's purpose.
     #[inline(always)]
-    pub const fn create_video() -> Self {
+    pub const fn create_video_no_a11y() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Video),
             children: DomVec::from_const_slice(&[]),
             css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
+    }
+
+    /// Creates a video element with accessibility information.
+    ///
+    /// **Accessibility**: Always provide controls. Use `<track>` for
+    /// captions/subtitles/descriptions. Provide fallback text. Consider providing transcript.
+    ///
+    /// Use [`Dom::create_video_no_a11y`] only as a deliberate escape hatch.
+    #[inline]
+    pub fn create_video(aria: SmallAriaInfo) -> Self {
+        Self::create_video_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
     /// Creates a source element for media.
@@ -4948,18 +5196,28 @@ impl Dom {
         }
     }
 
-    /// Creates an area element for image map regions.
+    /// Creates an area element for image map regions without accessibility information.
     ///
-    /// **Accessibility**: Always provide `alt` text describing the region/link purpose.
-    /// Keyboard users should be able to navigate areas.
+    /// Prefer [`Dom::create_area`] so that screen readers can announce the region's purpose.
     #[inline(always)]
-    pub const fn create_area() -> Self {
+    pub const fn create_area_no_a11y() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Area),
             children: DomVec::from_const_slice(&[]),
             css: azul_css::css::CssVec::from_const_slice(&[]),
             estimated_total_children: 0,
         }
+    }
+
+    /// Creates an area element for image map regions with accessibility information.
+    ///
+    /// **Accessibility**: Always provide `alt` text describing the region/link purpose.
+    /// Keyboard users should be able to navigate areas.
+    ///
+    /// Use [`Dom::create_area_no_a11y`] only as a deliberate escape hatch.
+    #[inline]
+    pub fn create_area(aria: SmallAriaInfo) -> Self {
+        Self::create_area_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
     // Metadata Elements

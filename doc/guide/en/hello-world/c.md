@@ -309,6 +309,6 @@ Notice the required `--features build-dll`, as this is a flag to "build the DLL,
 
 ## Coming Up Next
 
-- [Application Architecture](../architecture.md) — Explains the concepts of architecting a larger Azul application - "What makes Azul special?"
+- [Application Architecture](../architecture.md) — Explains the concepts of architecting a larger Azul application
 - [Document Object Model](../dom.md) — The Dom tree - node types, hierarchy, and CSS
 - [Hello World [C++]](cpp.md)

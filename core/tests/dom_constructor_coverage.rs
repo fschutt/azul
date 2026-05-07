@@ -40,9 +40,9 @@ fn _coverage_no_arg_sectioning() {
 }
 
 fn _coverage_no_arg_interactive() {
-    let _ = Dom::create_details();
-    let _ = Dom::create_summary();
-    let _ = Dom::create_dialog();
+    let _ = Dom::create_details_no_a11y();
+    let _ = Dom::create_summary_no_a11y();
+    let _ = Dom::create_dialog_no_a11y();
 }
 
 fn _coverage_no_arg_headings() {
@@ -105,8 +105,8 @@ fn _coverage_no_arg_lists() {
     let _ = Dom::create_dl();
     let _ = Dom::create_dt();
     let _ = Dom::create_dd();
-    let _ = Dom::create_menu();
-    let _ = Dom::create_menuitem();
+    let _ = Dom::create_menu_no_a11y();
+    let _ = Dom::create_menuitem_no_a11y();
     let _ = Dom::create_dir();
 }
 
@@ -122,21 +122,21 @@ fn _coverage_no_arg_table() {
 }
 
 fn _coverage_no_arg_form() {
-    let _ = Dom::create_form();
-    let _ = Dom::create_fieldset();
-    let _ = Dom::create_legend();
-    let _ = Dom::create_output();
-    let _ = Dom::create_datalist();
+    let _ = Dom::create_form_no_a11y();
+    let _ = Dom::create_fieldset_no_a11y();
+    let _ = Dom::create_legend_no_a11y();
+    let _ = Dom::create_output_no_a11y();
+    let _ = Dom::create_datalist_no_a11y();
 }
 
 fn _coverage_no_arg_embedded() {
-    let _ = Dom::create_canvas();
+    let _ = Dom::create_canvas_no_a11y();
     let _ = Dom::create_object();
     let _ = Dom::create_embed();
-    let _ = Dom::create_audio();
-    let _ = Dom::create_video();
+    let _ = Dom::create_audio_no_a11y();
+    let _ = Dom::create_video_no_a11y();
     let _ = Dom::create_map();
-    let _ = Dom::create_area();
+    let _ = Dom::create_area_no_a11y();
     let _ = Dom::create_svg();
 }
 
@@ -194,12 +194,12 @@ fn _coverage_with_text_block() {
     let _ = Dom::create_p_with_text(s.clone());
     let _ = Dom::create_pre_with_text(s.clone());
     let _ = Dom::create_blockquote_with_text(s.clone());
-    let _ = Dom::create_summary_with_text(s.clone());
+    let _ = Dom::create_summary_with_text_no_a11y(s.clone());
     let _ = Dom::create_li_with_text(s.clone());
     let _ = Dom::create_td_with_text(s.clone());
     let _ = Dom::create_th_with_text(s.clone());
     let _ = Dom::create_th_with_scope(AzString::from("col"), s.clone());
-    let _ = Dom::create_menuitem_with_text(s.clone());
+    let _ = Dom::create_menuitem_with_text_no_a11y(s.clone());
     let _ = Dom::create_title_with_text(s.clone());
     let _ = Dom::create_style_with_text(s);
 }
@@ -220,11 +220,11 @@ fn _coverage_args() {
     let _ = Dom::create_icon(s.clone());
     let _ = Dom::create_abbr_with_title(s.clone(), s.clone());
     let _ = Dom::create_time(s.clone(), OptionString::None);
-    let _ = Dom::create_option(s.clone(), s.clone());
-    let _ = Dom::create_optgroup(s.clone());
+    let _ = Dom::create_option_no_a11y(s.clone(), s.clone());
+    let _ = Dom::create_optgroup_no_a11y(s.clone());
     let _ = Dom::create_col(0);
-    let _ = Dom::create_progress(0.0, 1.0);
-    let _ = Dom::create_meter(0.0, 0.0, 1.0);
+    let _ = Dom::create_progress_no_a11y(0.0, 1.0);
+    let _ = Dom::create_meter_no_a11y(0.0, 0.0, 1.0);
     let _ = Dom::create_param(s.clone(), s.clone());
     let _ = Dom::create_source(s.clone(), s.clone());
     let _ = Dom::create_track(s.clone(), s.clone());

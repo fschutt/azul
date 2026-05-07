@@ -48,19 +48,19 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // Create main container
     AzDom body = AzDom_createBody();
     AzString body_style = str("padding: 40px; font-family: sans-serif; align-items: center;");
-    AzDom_setInlineStyle(&body, body_style);
+    AzDom_setCss(&body, body_style);
     
     // Title
     AzString title_text = str("Background Thread Progress Demo");
     AzDom title = AzDom_createText(title_text);
     AzString title_style = str("font-size: 24px; margin-bottom: 30px;");
-    AzDom_setInlineStyle(&title, title_style);
+    AzDom_setCss(&title, title_style);
     AzDom_addChild(&body, title);
     
     // Progress bar
     AzDom progress = AzProgressBar_dom(AzProgressBar_create(state.ptr->progress));
     AzString progress_style = str("width: 300px; margin-bottom: 20px;");
-    AzDom_setInlineStyle(&progress, progress_style);
+    AzDom_setCss(&progress, progress_style);
     AzDom_addChild(&body, progress);
     
     // Progress text
@@ -69,7 +69,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzString progress_label_text = str(progress_buf);
     AzDom progress_label = AzDom_createText(progress_label_text);
     AzString progress_label_style = str("margin-bottom: 20px;");
-    AzDom_setInlineStyle(&progress_label, progress_label_style);
+    AzDom_setCss(&progress_label, progress_label_style);
     AzDom_addChild(&body, progress_label);
     
     // Start/Reset button
@@ -77,7 +77,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AzString button_text = str("Start");
         AzDom button = AzButton_dom(AzButton_create(button_text));
         AzString button_style = str("padding: 10px 30px;");
-        AzDom_setInlineStyle(&button, button_style);
+        AzDom_setCss(&button, button_style);
         AzEventFilter click_event = AzEventFilter_hover(AzHoverEventFilter_mouseUp());
         AzDom_addCallback(&button, click_event, AzRefAny_clone(&data), on_start_clicked);
         AzDom_addChild(&body, button);
@@ -85,7 +85,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AzString running_text = str("Processing...");
         AzDom running = AzDom_createText(running_text);
         AzString running_style = str("color: #666;");
-        AzDom_setInlineStyle(&running, running_style);
+        AzDom_setCss(&running, running_style);
         AzDom_addChild(&body, running);
     }
     
