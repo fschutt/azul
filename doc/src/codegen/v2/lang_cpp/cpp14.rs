@@ -54,6 +54,9 @@ impl CppDialect for Cpp14Generator {
         // RefAny::create<T> can resolve detail::type_id_holder at parse time.
         code.push_str(&generate_template_reflection(std));
 
+        // Free-function downcast helpers on AzRefAny.
+        code.push_str(&generate_refany_freefn_downcasts(std));
+
         code.push_str("// Wrapper class declarations\r\n\r\n");
         for struct_def in &all_structs {
             if !config.should_include_type(&struct_def.name) {

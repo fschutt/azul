@@ -71,6 +71,11 @@ impl CppDialect for Cpp17Generator {
         // these names at parse time (non-dependent lookup).
         code.push_str(&generate_template_reflection(std));
 
+        // Free-function downcast helpers that operate directly on the C
+        // struct `AzRefAny` (so callback bodies don't need to wrap the
+        // parameter in a `RefAny` class first).
+        code.push_str(&generate_refany_freefn_downcasts(std));
+
         // Class declarations
         code.push_str("// Wrapper class declarations\r\n\r\n");
         for struct_def in &all_structs {

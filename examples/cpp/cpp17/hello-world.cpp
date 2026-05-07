@@ -16,29 +16,37 @@ struct MyDataModel {
     std::optional<AzUrl> last_url;
 };
 
+// Callback signatures take the raw C types because the framework dispatches
+// through C function pointers. Inside the body we use `azul::downcast_ref<T>`
+// and `azul::downcast_mut<T>` directly on the parameter. The wrapper `RefAny`
+// class is needed only when we want RAII auto-cleanup of the borrowed
+// reference, or when we need to clone it for a child callback.
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
 
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
-    RefAny data_wrapper(data);
-    auto* d = data_wrapper.downcast_ref<MyDataModel>();
+    auto* d = downcast_ref<MyDataModel>(data);
     if (!d) return AzDom_createBody();
 
-    // String-taking methods all gained std::string_view overloads in C++17,
+    // To pass the data to a child callback we clone the underlying ref.
+    // `AzRefAny_clone` bumps the refcount; the new handle is owned by
+    // whoever consumes it (here: the button).
+    AzRefAny on_click_data = AzRefAny_clone(&data);
+
+    // String-taking methods gained std::string_view overloads in C++17,
     // so "..."sv literals flow straight in - no String() wrapping needed.
     return Dom::create_body()
         .with_child(Dom::create_p_with_text(String(std::to_string(d->counter).c_str()))
             .with_css("font-size: 50px;"sv))
         .with_child(Button::create("Increase counter"sv)
             .with_button_type(AzButtonType_Primary)
-            .with_on_click(data_wrapper.clone(), on_click)
+            .with_on_click(RefAny(on_click_data), on_click)
             .dom())
         .style(Css::empty())
         .release();
 }
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
-    RefAny data_wrapper(data);
-    auto* d = data_wrapper.downcast_mut<MyDataModel>();
+    auto* d = downcast_mut<MyDataModel>(data);
     if (!d) return AzUpdate_DoNothing;
     d->counter += 1;
     return AzUpdate_RefreshDom;

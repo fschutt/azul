@@ -146,45 +146,45 @@ struct MyDataModel {
     std::optional<AzUrl> last_url;
 };
 
-// Forward-declare on_click so layout() can pass it to the button.
-// All UI callbacks share this signature, and they MUST use the raw C
-// types because the framework dispatches through C function pointers.
+// Callback signatures take the raw C types because the framework
+// dispatches through C function pointers. Inside the body we use
+// `azul::downcast_ref<T>` and `azul::downcast_mut<T>` directly on the
+// parameter, so there's no need to wrap.
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
 
 // f(DataModel) -> Dom. Runs once on startup and again after every
 // callback that returns Update::RefreshDom.
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
-    // Adopt the FFI handle into a RAII wrapper. RefAny does NOT bump
-    // the refcount on construction (it adopts the reference the
-    // framework handed us); .clone() bumps the count.
-    RefAny data_wrapper(data);
+    // Free-function downcast: works directly on the AzRefAny parameter.
+    // Returns const T* (or nullptr on type mismatch). Per-type identity
+    // is derived from the address of a template-instantiated static, so
+    // the compiler stamps a unique tag per T at link time. No
+    // AZ_REFLECT macro, no per-type registration.
+    auto* d = downcast_ref<MyDataModel>(data);
+    if (!d) return AzDom_createBody();
 
-    // refany.downcast_ref<T>() -> const T* (or nullptr). Per-type
-    // identity is derived from the address of a template-instantiated
-    // static, so the compiler stamps a unique tag per T at link time -
-    // no per-type registration line, no AZ_REFLECT macro.
-    auto* d = data_wrapper.downcast_ref<MyDataModel>();
-    if (!d) return Dom::create_body().release();
+    // To pass the data to the button's click handler we clone the
+    // underlying ref. AzRefAny_clone bumps the refcount; the clone is
+    // owned by whoever consumes it (the button's RefAny parameter).
+    AzRefAny on_click_data = AzRefAny_clone(&data);
 
-    // Counter label. String-taking methods all gained std::string_view
-    // sibling overloads in C++17, so "..."sv literals flow straight in.
-    // .with_* methods consume *this and return a new value, so chain
-    // them inline.
+    // String-taking methods gained std::string_view overloads in C++17,
+    // so "..."sv literals flow straight in. .with_* methods consume
+    // *this and return a new value, so chain them inline.
     return Dom::create_body()
         .with_child(Dom::create_p_with_text(String(std::to_string(d->counter).c_str()))
             .with_css("font-size: 50px;"sv))
         .with_child(Button::create("Increase counter"sv)
             .with_button_type(AzButtonType_Primary)
-            .with_on_click(data_wrapper.clone(), on_click)
+            .with_on_click(RefAny(on_click_data), on_click)
             .dom())
         .style(Css::empty())
         // .release() is the FFI-boundary type conversion: it yields
         // the raw AzDom and zeroes out the wrapper. std::move can't
         // do this job because the source type (Dom) and the return
-        // type (AzDom) differ; std::move only handles same-type
-        // ownership transfer. Inside C++ (Dom -> Dom, RefAny -> RefAny)
-        // we use std::move; only the C-ABI return needs .release().
+        // type (AzDom) differ. Inside C++ (Dom -> Dom, RefAny -> RefAny)
+        // use std::move; only the C-ABI return needs .release().
         .release();
 }
 
@@ -192,12 +192,10 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 // invokes this through a C function pointer when the button's hit-test
 // matches a MouseUp event.
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
-    RefAny data_wrapper(data);
-
-    // downcast_mut is the mutable counterpart - the borrow tracking is
-    // identical; nullptr means either the type doesn't match or the
+    // downcast_mut is the mutable counterpart. Borrow tracking is
+    // identical. nullptr means either the type doesn't match or the
     // RefAny is already borrowed elsewhere.
-    auto* d = data_wrapper.downcast_mut<MyDataModel>();
+    auto* d = downcast_mut<MyDataModel>(data);
     if (!d) return AzUpdate_DoNothing;
 
     d->counter += 1;
@@ -251,10 +249,13 @@ int main() {
 }
 ```
 
-Six things to notice.
+Seven things to notice.
 
-- **No `AZ_REFLECT` line for C++11+** — `RefAny::create<T>` / `refany.downcast_ref<T>()` / `refany.downcast_mut<T>()` are template members on `RefAny` itself, so the API reads like every other wrapper class. The compiler stamps a unique runtime tag per `T` via the address of a template-instantiated `static`, so identity is stable across translation units without per-type registration. The `AZ_REFLECT(StructName)` macro is still emitted in `azul03.hpp` for C++03 compatibility (no template member functions there).
-- **RAII over manual `_delete`** — `auto* d = data_wrapper.downcast_ref<MyDataModel>()` returns a borrowed pointer that reflects the runtime borrow state. There is no explicit pairing with `_delete` like in C, which removes a whole class of bugs.
+- **Why `Az*` prefixes appear at all** — most types are exposed as wrapper *classes* (`RefAny`, `Dom`, `App`) for RAII. Function-pointer typedefs like `AzCallbackType` are fixed to the raw C structs by the framework, so the callback signature has to spell out `AzRefAny` and `AzCallbackInfo`. Inside the body you can use the C++ surface freely. Simple enums (`AzUpdate`, `AzMouseCursorType`, …) are aliased via `using Update = AzUpdate;` so you can drop the prefix on those.
+- **`azul::downcast_ref<T>` / `azul::downcast_mut<T>` work directly on `AzRefAny`** — free function templates that take the C struct by reference and return `const T*` / `T*` (or nullptr on type mismatch). Same generic identity scheme as `RefAny::create<T>`. Use these inside callback bodies so you don't have to wrap the parameter just to downcast it.
+- **The `RefAny` wrapper class is still useful** — when you need RAII auto-cleanup (the framework hands the callback an owned reference; the destructor decrements the refcount) or when you want the chainable `RefAny::create<T>(model)` factory and `data.clone()` builder. Construct it from a raw `AzRefAny` only when you actually want to take ownership.
+- **No `AZ_REFLECT` line for C++11+** — `RefAny::create<T>` / `refany.downcast_ref<T>()` / `refany.downcast_mut<T>()` are template members on `RefAny`. The compiler stamps a unique runtime tag per `T` via the address of a template-instantiated `static`, so identity is stable across translation units without per-type registration. The `AZ_REFLECT(StructName)` macro is still emitted in `azul03.hpp` for C++03 compatibility (no template member functions there).
+- **RAII over manual `_delete`** — there's no explicit pairing with `_delete` like in C, which removes a whole class of bugs.
 - **`.release()` only at the C-ABI boundary** — wrapper types own their underlying `Az*` handle and free it on destruction. Inside C++ you transfer ownership with `std::move` (`App::create(std::move(data), ...)`, `app.run(std::move(window))`); the wrapper's move constructor zeroes the source so the destructor on the way out is a no-op. The one place `std::move` cannot help is the layout callback's return: its signature is fixed by the C ABI to `AzDom`, and `std::move(dom)` produces a `Dom&&`, not an `AzDom`. `.release()` performs the type-boundary conversion (yields the inner `AzDom`, zeroes the wrapper) so the destructor doesn't free a tree the framework now owns. Treat `.release()` as a C-ABI escape hatch, not a general ownership-transfer mechanism.
 - **`.with_*` builder methods consume `*this`** — they return a new value rather than mutating in place. Chain them inline; they do not allocate beyond what the underlying `Az*_set*` would. The corresponding `set_*` methods (e.g. `Button::set_on_click`) mutate in place if you prefer that style.
 - **`std::move` for ownership transfer** — `App::run(std::move(window))`, `App::create(std::move(data), ...)`. A copy would leave you with two handles competing to free the same memory; if there's a debug build you'll get a double-free at exit. Modern compilers warn when a value is implicitly copied where a move was wanted.

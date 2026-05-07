@@ -74,6 +74,9 @@ impl CppDialect for Cpp11Generator {
         // time (non-dependent lookup).
         code.push_str(&generate_template_reflection(std));
 
+        // Free-function downcast helpers on AzRefAny.
+        code.push_str(&generate_refany_freefn_downcasts(std));
+
         // Class declarations
         code.push_str("// Wrapper class declarations\r\n\r\n");
         for struct_def in &all_structs {

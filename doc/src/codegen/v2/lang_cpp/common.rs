@@ -1303,3 +1303,43 @@ pub fn generate_refany_type_id_v_definition(standard: CppStandard) -> String {
     code
 }
 
+/// Emit free-function downcast helpers that operate directly on the C
+/// struct `AzRefAny`, so callback bodies can call `azul::downcast_ref<T>(data)`
+/// without first wrapping the parameter in the C++ `RefAny` class. The
+/// callback parameter type is fixed to `AzRefAny` by the C function-pointer
+/// typedef, so this is the cleanest in-body access pattern in C++.
+///
+/// Must be emitted INSIDE `namespace azul { ... }` after the
+/// `detail::type_id_holder` template scaffolding (which it references) is in
+/// scope.
+pub fn generate_refany_freefn_downcasts(standard: CppStandard) -> String {
+    if !standard.has_move_semantics() {
+        return String::new();
+    }
+    let mut code = String::new();
+    let template_intro = if standard >= CppStandard::Cpp20 {
+        "template<ReflectableModel T>"
+    } else {
+        "template<class T>"
+    };
+    code.push_str("\r\n// Free-function downcast helpers. Operate directly on the C struct\r\n");
+    code.push_str("// `AzRefAny` so callback bodies can write\r\n");
+    code.push_str("//     auto* d = azul::downcast_ref<MyData>(data);\r\n");
+    code.push_str("// without first wrapping the parameter. The C function-pointer\r\n");
+    code.push_str("// typedef fixes the parameter to `AzRefAny`, which has no methods of\r\n");
+    code.push_str("// its own; these free templates fill the gap.\r\n\r\n");
+    code.push_str(&format!("{}\r\n", template_intro));
+    code.push_str("inline const T* downcast_ref(const AzRefAny& data) noexcept {\r\n");
+    code.push_str("    const uint64_t tag = reinterpret_cast<uint64_t>(&detail::type_id_holder<T>::value);\r\n");
+    code.push_str("    if (!AzRefAny_isType(&data, tag)) return nullptr;\r\n");
+    code.push_str("    return static_cast<const T*>(AzRefAny_getDataPtr(&data));\r\n");
+    code.push_str("}\r\n\r\n");
+    code.push_str(&format!("{}\r\n", template_intro));
+    code.push_str("inline T* downcast_mut(AzRefAny& data) noexcept {\r\n");
+    code.push_str("    const uint64_t tag = reinterpret_cast<uint64_t>(&detail::type_id_holder<T>::value);\r\n");
+    code.push_str("    if (!AzRefAny_isType(&data, tag)) return nullptr;\r\n");
+    code.push_str("    return static_cast<T*>(const_cast<void*>(AzRefAny_getDataPtr(&data)));\r\n");
+    code.push_str("}\r\n");
+    code
+}
+
