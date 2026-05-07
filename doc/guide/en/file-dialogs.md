@@ -84,7 +84,7 @@ extern "C" fn on_open_clicked(_data: RefAny, _info: CallbackInfo) -> Update {
         None        => Update::DoNothing,
     }
 }
-```rust
+```
 
 `OptionString::None` for `default_path` lets the OS pick a sensible starting
 directory. Pass `OptionString::Some(...)` to override.

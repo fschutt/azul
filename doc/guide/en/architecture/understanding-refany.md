@@ -52,7 +52,7 @@ if let Some(mut c) = clone.downcast_mut::<Counter>() {
 }
 
 assert_eq!(data.downcast_ref::<Counter>().unwrap().value, 1);
-```rust
+```
 
 ## What RefAny stores
 
@@ -88,7 +88,7 @@ let data = RefAny::new(AppData {
     user: "alice".to_string(),
     click_count: 0,
 });
-```rust
+```
 
 `RefAny::new<T>` records `TypeId::of::<T>()`, allocates with 
 `Layout::from_size_align(size_of::<T>(), align_of::<T>())`, copies the 
@@ -107,7 +107,7 @@ let data = RefAny::new(0u32);
 let a = data.clone();
 let b = data.clone();
 assert_eq!(a.get_ref_count(), 3); // original + 2 clones
-```rust
+```
 
 `Clone` atomically increments `num_copies` with `SeqCst` ordering and 
 assigns the clone a unique `instance_id`. No data is copied. A clone 
@@ -129,7 +129,7 @@ let mut data = RefAny::new(42i32);
 if let Some(mut m) = data.downcast_mut::<i32>() { // mutable borrow
     *m = 100;
 }
-```rust
+```
 
 - `downcast_ref<U>(&mut self)` returns `Option<Ref<'_, U>>`: fails on wrong type, or a mutable borrow is live
 - `downcast_mut<U>(&mut self)` returns `Option<RefMut<'_, U>>`: fails on wrong type, or **any** borrow is live
@@ -186,7 +186,7 @@ fn build() -> Dom {
         foo: 0,
     }))
 }
-```rust
+```
 
 `Dom::with_callback` stores the `RefAny` alongside the callback. 
 When the event fires, the framework clones the `RefAny` (cheap), 

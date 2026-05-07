@@ -108,7 +108,7 @@ pub enum ComponentFieldType {
     /// Reference to an enum defined in the same library
     EnumRef(AzString),
 }
-```rust
+```
 
 (`core/src/xml.rs::ComponentFieldType`)
 
@@ -154,7 +154,7 @@ pub struct ComponentDataField {
     pub required: bool,
     pub description: AzString,
 }
-```rust
+```
 
 (`core/src/xml.rs::ComponentDataModel`, `core/src/xml.rs::ComponentDataField`)
 
@@ -180,7 +180,7 @@ pub enum ComponentDefaultValue {
     /// JSON string representing a complex default value
     Json(AzString),
 }
-```rust
+```
 
 (`core/src/xml.rs::ComponentDefaultValue`)
 
@@ -195,7 +195,7 @@ pub enum ComponentFieldValueSource {
     Literal(AzString),
     Binding(AzString),
 }
-```rust
+```
 
 (`core/src/xml.rs::ComponentFieldValueSource`)
 
@@ -223,7 +223,7 @@ pub enum ComponentFieldValue {
     Callback(AzString),
     RefAny(RefAny),
 }
-```rust
+```
 
 (`core/src/xml.rs::ComponentFieldValue`)
 
@@ -259,7 +259,7 @@ pub type ComponentCompileFn = fn(
     &ComponentDataModel,
     indent: usize,
 ) -> ResultStringCompileError;
-```rust
+```
 
 (`core/src/xml.rs::ComponentRenderFn`, `core/src/xml.rs::ComponentCompileFn`)
 

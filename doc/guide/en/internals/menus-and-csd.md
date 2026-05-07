@@ -71,7 +71,7 @@ pub struct CoreMenuCallback {
     pub refany: RefAny,
     pub callback: CoreCallback, // usize-encoded fn pointer
 }
-```rust
+```
 
 `azul-core` cannot reference `azul-layout`'s `CallbackInfo` struct without
 creating a dependency cycle, so the function pointer ships as an opaque
@@ -173,7 +173,7 @@ Per-item HTML structure ([`menu_renderer.rs:264`](../../../../dll/src/desktop/me
   <div class="menu-item-shortcut">Ctrl+C</div>
   <div class="menu-item-arrow">▶</div>  <!-- only if has children -->
 </div>
-```rust
+```
 
 Two callbacks are wired per item, only when `menu_item_state` is `Normal`:
 

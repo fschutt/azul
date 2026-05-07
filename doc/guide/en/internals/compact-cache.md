@@ -60,7 +60,7 @@ pub struct CompactLayoutCache {
     pub font_hash_to_families: BTreeMap<u64, Vec<StyleFontFamily>>,
     // …a few DOM-level flags described below
 }
-```rust
+```
 
 (`css/src/compact_cache.rs::CompactLayoutCache`)
 
@@ -99,7 +99,7 @@ Every `enum`-valued layout property fits in a few bits. Tier 1 packs 21 of them 
 [60:59]  grid_auto_flow   2 bits
 [62:61]  justify_items    2 bits
 [63]     TIER1_POPULATED  1 bit
-```rust
+```
 
 (`css/src/compact_cache.rs::tier1`)
 
@@ -195,7 +195,7 @@ pub struct CompactTextProps {
     pub word_spacing: i16,
     pub text_indent: i16,
 }
-```rust
+```
 
 (`css/src/compact_cache.rs::CompactTextProps`)
 
@@ -237,7 +237,7 @@ pub fn encode_border_styles_packed(
   | ((border_style_to_u8(bottom) as u16) << 8)
   | ((border_style_to_u8(left)   as u16) << 12)
 }
-```rust
+```
 
 (`css/src/compact_cache.rs::encode_border_styles_packed`)
 
@@ -291,7 +291,7 @@ if let Some(val) = self.get_width(nd, &node_id, &default_state) {
     result.tier2_dims[i].width = encode_layout_width(val);
 }
 // …
-```rust
+```
 
 Each `get_*` call cascades through `CssPropertyCache` (UA → global → cascaded → inline → user override). The result is an `Option<CssPropertyValue<T>>`; `None` leaves the slot at `Default::default()`.
 

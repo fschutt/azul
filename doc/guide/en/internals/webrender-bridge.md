@@ -97,7 +97,7 @@ One `WrPipelineId` per `DomId`. `wr_translate_pipeline_id` packs the ID:
 
 ```rust,ignore
 PipelineId(dom_id.inner as u32, layout_window.document_id.id)
-```rust
+```
 
 The root DOM gets `PipelineId(0, document_id)`. IFrames and `VirtualView`s get
 the child DOM's ID. `translate_displaylist_to_wr` returns a flat

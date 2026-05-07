@@ -193,7 +193,7 @@ clip_stack.push(scroll_clip_chain);
 
 // 4. Push a scroll-container hit-test in parent space (TAG_TYPE_SCROLL_CONTAINER)
 builder.push_hit_test(adjusted_frame_rect, scroll_clip_chain, parent_space, ..., scroll_container_tag);
-```rust
+```
 
 Three things will silently break clipping if you get them wrong:
 
@@ -263,7 +263,7 @@ pub enum GpuOpacityKeyEvent {
     Changed(NodeId, OpacityKey, f32, f32),
     Removed(NodeId, OpacityKey),
 }
-```rust
+```
 
 Two compact-cache fast paths short-circuit the cascade walk:
 

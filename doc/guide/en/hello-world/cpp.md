@@ -63,7 +63,7 @@ iex -O https://azul.rs/release/1.0.0-alpha1/azul.dll
 wget -O https://azul.rs/release/1.0.0-alpha1/libazul.so
 # macos
 wget -O https://azul.rs/release/1.0.0-alpha1/libazul.dylib
-```rust
+```
 
 You then either install both into a system path or pass `-I` and `-L` to the compiler.
 
@@ -249,7 +249,7 @@ int main() {
     app.run(std::move(window));
     return 0;
 }
-```rust
+```
 
 Six things to notice.
 
@@ -323,7 +323,7 @@ g++ -std=c++03 hello-world.cpp -I/path/to/azul-headers \
 # replace the #include with import azul; in your source files.
 clang++ -std=c++20 -fmodules -c azul.cppm
 clang++ -std=c++20 -fmodules hello-world.cpp -lazul -o hello-world
-```rust
+```
 
 You should see the window pictured on the [hello-world landing page](../hello-world.md). Click the button: the counter increments, the layout callback re-runs, and the new value renders.
 

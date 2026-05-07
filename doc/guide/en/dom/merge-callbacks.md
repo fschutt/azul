@@ -33,7 +33,7 @@ A merge callback is a function attached to a node that gets to claim resources f
 ```rust,ignore
 pub type DatasetMergeCallbackType =
     extern "C" fn(new_data: RefAny, old_data: RefAny) -> RefAny;
-```rust
+```
 
 You receive the new dataset (built fresh by `layout()` this frame) and the old dataset (the one from the previous frame). You move whatever you want to keep from `old` into `new`. You return the merged value. The framework installs it on the new node. Whatever you didn't take drops with the old `RefAny`.
 

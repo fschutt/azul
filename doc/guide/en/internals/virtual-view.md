@@ -32,7 +32,7 @@ pub struct VirtualViewCallback {
     pub cb: VirtualViewCallbackType,
     pub ctx: OptionRefAny,  // foreign callable for FFI; None for native Rust
 }
-```rust
+```
 
 `VirtualViewCallbackType` and the `VirtualViewCallback` struct live in [`core/src/callbacks.rs`](../../../../core/src/callbacks.rs). Native Rust callers construct the wrapper via `VirtualViewCallback::create(fn_ptr)`. FFI bindings store the user's foreign callable in `ctx` and a trampoline in `cb` that extracts both `RefAny`s and dispatches.
 
@@ -112,7 +112,7 @@ pub struct VirtualViewManager {
     pipeline_ids:  BTreeMap<(DomId, NodeId), PipelineId>,
     next_dom_id:   usize,        // starts at 1; 0 is the root DOM
 }
-```rust
+```
 
 [`layout/src/managers/virtual_view.rs::VirtualViewManager`](../../../../layout/src/managers/virtual_view.rs). One state per `(parent DomId, NodeId of the virtualised element)`. The manager owns:
 

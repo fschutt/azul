@@ -218,7 +218,7 @@ int main() {
     AzApp_delete(&app);
     return 0;
 }
-```rust
+```
 
 Five things to notice.
 
@@ -275,7 +275,7 @@ cc hello-world.c \
 # Windows (MSVC) — drop azul.dll next to the .exe at run time
 cl hello-world.c /I path\to\azul-headers ^
    /link /LIBPATH:path\to\azul-lib azul.lib
-```rust
+```
 
 You should see the window pictured on the [hello-world landing page](../hello-world.md). Click the button: the counter increments, the layout callback re-runs, and the new value renders.
 

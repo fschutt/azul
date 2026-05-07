@@ -57,7 +57,7 @@ struct EditorState { text: String, cursor: usize }
 let state = RefAny::new(EditorState { text: "hello".into(), cursor: 0 });
 let _ = Dom::create_input_no_a11y("text".into(), "editor".into(), "hello".into())
     .with_dataset(OptionRefAny::Some(state));
-```rust
+```
 
 `NodeData::set_dataset` is the underlying setter if you build
 `NodeData` directly.
@@ -84,7 +84,7 @@ extern "C" fn on_keydown(_unused: RefAny, mut info: CallbackInfo) -> Update {
     state.text.push_str("...");
     Update::RefreshDom
 }
-```rust
+```
 
 Borrow rules follow `RefAny`. A `downcast_ref` blocks a `downcast_mut`.
 Drop the guard before calling anything that may borrow the same

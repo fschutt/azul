@@ -49,7 +49,7 @@ pub struct NodeData {
     pub accessibility: Option<Box<AccessibilityInfo>>,
     extra: Option<Box<NodeDataExt>>,
 }
-```rust
+```
 
 The struct is split into a hot 32-byte fast path (the first five fields) and a heap-allocated `NodeDataExt` (`core/src/dom.rs::NodeDataExt`) for attributes, dataset (`RefAny`), virtual_view, svg_data, and menus. ~95% of nodes never allocate `extra`.
 
@@ -78,7 +78,7 @@ Tab index, contenteditable, and anonymous-box are packed into a single u32 (`cor
 [30:29]  tab_index variant: 00=None, 01=Auto, 10=OverrideInParent, 11=NoKeyboardFocus
 [28]     is_anonymous (table layout fixup)
 [27:0]   OverrideInParent value (0..2^28)
-```rust
+```
 
 Anonymous boxes are inserted by the table-layout fixup pass (`layout/src/solver3/`) when a `<table>` ancestor needs to wrap stray inline content in implicit `<tbody>`/`<tr>`/`<td>` boxes. They are flagged so the diff and accessibility tree can ignore them.
 
@@ -101,7 +101,7 @@ let dom = Dom::create_div()
         Dom::create_button()
             .with_callback(On::MouseUp.into(), my_data, my_callback)
     );
-```rust
+```
 
 `with_child` (`core/src/dom.rs::with_child`) updates `estimated_total_children` so the tree→arena flatten step can pre-size its allocations. `add_child` (`core/src/dom.rs::add_child`) is the `&mut self` variant.
 
@@ -127,7 +127,7 @@ pub enum IdOrClass {
     Id(AzString),
     Class(AzString),
 }
-```rust
+```
 
 These live in `NodeData::attributes()` (off the `NodeDataExt` heap path). `IdOrClass::as_id()` and `as_class()` are used by the cascade and by the diff's reconciliation key (`core/src/diff.rs::calculate_reconciliation_key`).
 
@@ -192,7 +192,7 @@ STYLED_STATE            0x0200   (paint-only — hover/focus/active changed)
 CALLBACKS               0x0400   (no visual effect)
 DATASET                 0x0800
 ACCESSIBILITY           0x1000
-```rust
+```
 
 Composite masks: `AFFECTS_LAYOUT` (low 8 bits + `IMAGE_CHANGED`) and `AFFECTS_PAINT` (`INLINE_STYLE_PAINT | STYLED_STATE`). `is_visually_unchanged()` returns true when only `CALLBACKS | DATASET | ACCESSIBILITY` changed.
 

@@ -95,7 +95,7 @@ pub struct FragmentationState {
     pub margins_bottom: f32,
     pub total_pages: usize,
 }
-```rust
+```
 
 Helpers: `can_fit(height)`, `would_fit_on_empty_page(height)`, `use_space(height)`, `advance_page()`, `page_for_y(y) -> usize`, `page_y_offset(page) -> f32`.
 
@@ -144,7 +144,7 @@ pub use fragmentation::{
     KeepTogetherPriority, PageCounter, PageFragment, PageMargins, PageNumberStyle, PageSlot,
     PageSlotContent, PageSlotPosition, PageTemplate,
 };
-```rust
+```
 
 ## FakePageConfig and page templates
 
@@ -165,7 +165,7 @@ let func = DynamicSlotContentFn::new(|counter| {
     format!("Page {}", counter.page_number)
 });
 let content = PageSlotContent::Dynamic(Arc::new(func));
-```rust
+```
 
 `Send + Sync` is required because the function is `Arc`-shared across pages.
 
@@ -214,7 +214,7 @@ pub struct FragmentationDefaults {
     pub default_orphans: u32,                     // default 2
     pub default_widows: u32,                      // default 2
 }
-```rust
+```
 
 These are exposed but unused by `paged_layout.rs`. Implementing them requires switching to integrated splitting (the original design) or layering them on top of the post-hoc splitter.
 

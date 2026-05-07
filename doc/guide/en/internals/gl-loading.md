@@ -136,7 +136,7 @@ pub fn load(&mut self) {
         }) as *mut gl_context_loader::c_void
     }));
 }
-```rust
+```
 
 `wglGetProcAddress` only resolves entry points beyond OpenGL 1.1 — the 1.1
 core (`glClear`, `glViewport`, etc.) must come from `opengl32.dll` directly.

@@ -187,7 +187,7 @@ pub enum DecodeImageError {
     UnsupportedImageFormat,
     Unknown,
 }
-```rust
+```
 
 `InsufficientMemory` and `DimensionError` come from `image::error::LimitErrorKind`. Image-format errors collapse into `Unknown` because the underlying error variants don't have stable C ABI shape.
 
@@ -208,7 +208,7 @@ pub struct ImageRef {
     pub copies: *const AtomicUsize,
     pub run_destructor: bool,
 }
-```rust
+```
 
 C-ABI-compatible reference counting. `data` points to a heap `DecodedImage` (the variant of which is hidden from C), `copies` points to a heap `AtomicUsize` reference counter. `Clone` bumps `copies`; `Drop` decrements and frees on zero.
 

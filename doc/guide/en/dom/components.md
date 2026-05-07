@@ -35,7 +35,7 @@ fn card(title: &str, body: &str) -> Dom {
 let _ = Dom::create_body()
     .with_child(card("First", "alpha"))
     .with_child(card("Second", "beta"));
-```rust
+```
 
 That's the whole model. The rest of this page covers two layers built on top.
 
@@ -57,7 +57,7 @@ pub fn badge(text: &str, kind: BadgeKind) -> Dom {
 }
 
 pub enum BadgeKind { Info, Warn, Error }
-```rust
+```
 
 The caller picks the variant. The component just produces nodes. Tests are easy: call the function, walk the returned `Dom`, assert on shape.
 
@@ -92,7 +92,7 @@ extern "C" fn increment(mut data: RefAny, _info: CallbackInfo) -> Update {
     c.value += 1;
     Update::RefreshDom
 }
-```rust
+```
 
 The component doesn't own its state. The caller owns it. The component renders against it and wires callbacks back to it. That's what makes components composable. Anyone who can hand a `Counter` a `RefAny<Counter>` can build one.
 
@@ -147,7 +147,7 @@ extern "C" fn validate(_unused: RefAny, mut info: CallbackInfo) -> Update {
     }
     Update::RefreshDom
 }
-```rust
+```
 
 The private callback `validate` only knows about `NumberInput`. It parses the text the user typed. It updates its own state. Then it follows the backreference to the application-level callback.
 
@@ -175,7 +175,7 @@ extern "C" fn on_age_changed(mut data: RefAny, _info: CallbackInfo, new_age: i64
     a.age = new_age;
     Update::RefreshDom
 }
-```rust
+```
 
 The chain `AgeInput -> NumberInput -> <input>` is a State Graph. Each layer holds one backreference, pointing at the layer above.
 
@@ -236,7 +236,7 @@ There's a second authoring surface in the same pipeline. A component can be decl
     <card title="First" body="alpha"/>
     <card title="Second" body="beta"/>
 </app>
-```rust
+```
 
 The runtime path is `Dom::create_from_parsed_xml`, introduced in [The DOM - Loading XML and XHTML](../dom.md#loading-xml-and-xhtml). It walks the parsed XML, resolves each tag against the registered component libraries, and produces the corresponding `Dom`.
 
@@ -268,7 +268,7 @@ pub struct ComponentDef {
     pub render_fn_source: OptionString,
     pub compile_fn_source: OptionString,
 }
-```rust
+```
 
 A `ComponentLibrary` groups defs under a name, version, and description. It also carries `exportable` and `modifiable` flags. The live editor uses those flags to decide whether the user can edit a component in place.
 
@@ -294,7 +294,7 @@ config.add_component_library(
     AzString::from("shadcn"),
     register_shadcn,            // extern "C" fn() -> ComponentLibrary
 );
-```rust
+```
 
 Both work the same way. The registration function runs immediately at the call site. The returned `ComponentDef` or `ComponentLibrary` is moved into `config.component_libraries`. The library then becomes visible to the XML parser, to the layout callback (through `CallbackInfo`), and to the debug server.
 
@@ -320,7 +320,7 @@ void main(void) {
     );
     /* ... */
 }
-```rust
+```
 
 ### From Python
 

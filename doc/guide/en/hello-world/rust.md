@@ -229,7 +229,7 @@ fn main() {
     // On other systems it depends on the window_config settings 
     app.run(window_config);
 }
-```rust
+```
 
 Five things to notice.
 

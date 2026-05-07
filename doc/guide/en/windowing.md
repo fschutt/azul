@@ -32,7 +32,7 @@ fn main() {
     let app = App::create(RefAny::new(App), AppConfig::create());
     app.run(WindowCreateOptions::create(layout));
 }
-```rust
+```
 
 ## Configuring the first window
 
@@ -50,7 +50,7 @@ win.window_state.title = "My App".into();
 win.window_state.size.dimensions = LogicalSize::new(1024.0, 768.0);
 win.window_state.flags.is_resizable = true;
 win.size_to_content = false;
-```rust
+```
 
 `WindowCreateOptions` public fields:
 
@@ -143,7 +143,7 @@ extern "C" fn open_settings(mut data: RefAny, mut info: CallbackInfo) -> Update 
     info.create_window(win);
     Update::DoNothing
 }
-```rust
+```
 
 The new window opens after the callback returns. The two windows share the same `RefAny` if you pass it to both layout callbacks, or each window can carry its own data.
 
@@ -198,7 +198,7 @@ let file_menu = Menu::create(vec![
     MenuItem::Separator,
     MenuItem::String(quit_item),
 ].into());
-```rust
+```
 
 `MenuItem` has three variants: `String(StringMenuItem)`, `Separator`, and `BreakLine` (for horizontal layouts).
 
@@ -265,7 +265,7 @@ extern "C" fn on_click(_: RefAny, mut info: CallbackInfo) -> Update {
     info.open_menu_at(build_menu(), LogicalPosition { x: 100.0, y: 50.0 });
     Update::DoNothing
 }
-```rust
+```
 
 `MenuPopupPosition` controls placement relative to the cursor or the clicked element (`BottomLeftOfCursor`, `TopOfHitRect`, `AutoCursor`, …). Set via `Menu::with_popup_position(...)` or `Menu::set_popup_position(...)`.
 

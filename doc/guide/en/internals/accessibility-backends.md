@@ -71,7 +71,7 @@ pub struct AccessibilityInfo {
     pub role: AccessibilityRole,
     pub is_live_region: bool,
 }
-```rust
+```
 
 The lighter-weight constructor for the common case is
 [`SmallAriaInfo`](../../../../core/src/a11y.rs) in `core/src/a11y.rs`,
@@ -134,7 +134,7 @@ pub enum AccessibilityState {
     Linked, Traversed, Multiselectable,
     Protected,
 }
-```rust
+```
 
 The `Vec<AccessibilityState>` carries multiple states per node (e.g., a
 focused, focusable, selectable list item). The manager expands flags
@@ -243,7 +243,7 @@ pub struct LinuxAccessibilityAdapter {
     adapter: Arc<Mutex<Option<Adapter>>>,
     pending_actions: Arc<Mutex<Vec<ActionRequest>>>,
 }
-```rust
+```
 
 Lifecycle:
 
@@ -267,7 +267,7 @@ pub struct MacOSAccessibilityAdapter {
     action_receiver: Receiver<ActionRequest>,
     tree_provider: Arc<Mutex<Option<TreeUpdate>>>,
 }
-```rust
+```
 
 Constructed with `MacOSAccessibilityAdapter::new(view: *mut c_void)` —
 `view` is the raw `NSView` pointer the platform window owns.

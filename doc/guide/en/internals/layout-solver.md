@@ -50,7 +50,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     system_style: Option<Arc<SystemStyle>>,
     get_system_time_fn: GetSystemTimeCallback,
 ) -> Result<DisplayList>;
-```rust
+```
 
 `new_dom` is borrowed (not owned). Earlier revisions took ownership, which forced every shell to clone the DOM (~2 MiB on `excel.html`); the borrow eliminates that copy.
 
@@ -127,7 +127,7 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     pub scrollbar_style_cache:
         RefCell<HashMap<NodeId, ComputedScrollbarStyle>>,
 }
-```rust
+```
 
 `cache_map` is moved out of `LayoutCache` via `std::mem::take` for the duration of the pass and moved back at the end. This avoids `&mut LayoutCache` aliasing during sizing/positioning, which both need `&mut tree` and `&cache_map` simultaneously.
 
@@ -250,7 +250,7 @@ pub struct CachedInlineLayout {
     pub item_metrics: Vec<InlineItemMetrics>,
     pub line_breaks: Option<CachedLineBreaks>,
 }
-```rust
+```
 
 `available_width` and `has_floats` are the cache-validity key — a layout shaped under min-content cannot be reused for the final pass. `item_metrics` and `line_breaks` enable incremental reshape (Phase 2c/d in `INCREMENTAL_LAYOUT_ARCHITECTURE.md`); the current path uses them as a cache-hit fast path. Real per-character incremental relayout for text edits lives in `LayoutWindow::try_incremental_text_relayout` and bypasses `layout_ifc` entirely.
 

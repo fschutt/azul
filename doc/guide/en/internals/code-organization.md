@@ -35,7 +35,7 @@ members = [
     "examples/rust",
     "examples/https-test",
 ]
-```rust
+```
 
 The repository layout mirrors that order. Read the crates top-to-bottom and you read the dependency graph in reverse.
 
@@ -203,7 +203,7 @@ dll/src/
 │   │   └── headless/
 │   └── ...
 └── web/              ← AZ_BACKEND=web HTML server (feature = "web")
-```rust
+```
 
 The `desktop/` tree is only compiled when `cabi_internal` is on (i.e. `build-dll` or `link-static`). For `link-dynamic`, only the `extern "C"` declarations in `dll_api_external.rs` are pulled in.
 

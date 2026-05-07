@@ -73,7 +73,7 @@ body { font-family: sans-serif; padding: 20px; background: white; }
 </style></head>
 <body><div class="panel">A panel with class-based styling</div></body>
 </html>
-```rust
+```
 
 ## Three ways to attach styles
 
@@ -166,7 +166,7 @@ let _ = Dom::create_div().with_css("
     @os macos { font-family: '.SF NS'; }
     @media (max-width: 600px) { font-size: 14px; }
 ");
-```rust
+```
 
 - `@os <name>` matches the host platform. Names: `windows`, `macos`,
   `linux`, `android`, `ios`.
@@ -251,7 +251,7 @@ pub struct DynamicCssProperty {
     pub dynamic_id: AzString,
     pub default_value: CssProperty,
 }
-```rust
+```
 
 Use them when you want to change a single value (an accent color, a
 spacing unit) without re-parsing the stylesheet. The override path lives

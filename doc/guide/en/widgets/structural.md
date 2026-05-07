@@ -88,7 +88,7 @@ let root = TreeViewNode::new("Project".into())
 let dom = TreeView::new(root)
     .with_on_node_click(RefAny::new(()), on_click)
     .dom();
-```rust
+```
 
 The `usize` argument to the click callback is the depth-first preorder index
 of the clicked node, not a node ID. Map it back to your data by walking the

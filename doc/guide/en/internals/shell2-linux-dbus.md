@@ -76,7 +76,7 @@ pub struct DBusLib {
     pub dbus_message_iter_get_arg_type: unsafe extern "C" fn(*mut DBusMessageIter) -> c_int,
     // … ~30 more function pointers, one per libdbus-1 entry point we use
 }
-```rust
+```
 
 `DBusLib::new` calls `Library::load("libdbus-1.so.3")` then
 `load_first_available::<Library>(&["libdbus-1.so.3", "libdbus-1.so"])`
@@ -135,7 +135,7 @@ pub struct GnomeMenuManager {
     menu_groups: Arc<Mutex<HashMap<u32, DbusMenuGroup>>>,
     actions: Arc<Mutex<HashMap<String, DbusAction>>>,
 }
-```rust
+```
 
 `GnomeMenuManager::new(app_name, dbus_lib)`:
 
@@ -178,7 +178,7 @@ pub struct DbusMenuGroup {
     pub menu_id: u32,
     pub items: Vec<DbusMenuItem>,
 }
-```rust
+```
 
 `menu_conversion.rs:29` (`MenuConversion::convert_menu`) walks the
 recursive `azul_core::menu::Menu` tree and flattens it: each level of

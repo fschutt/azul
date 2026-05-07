@@ -116,7 +116,7 @@ Heap delta between adjacent labels with the same `call` id is the bytes retained
     "summary_path": "/tmp/calc.summary.jsonl"
   }
 }
-```rust
+```
 
 `assert_growth_mib_max` is the per-run delta between baseline (after warmup) and the final RSS sample; `assert_absolute_mib_max` caps total RSS at any point. Either breach exits the process with code `1`. With `memory_breakdown: true` each probe also emits a flat `mem` event covering every measurable byte across the layout caches. Feed the JSONL to a regression analyzer and let it pick the field whose slope grew.
 

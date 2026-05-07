@@ -85,7 +85,7 @@ let root = doc.root.as_ref().iter().find_map(|c| match c {
 }).unwrap();
 
 let dom: Dom = Dom::create_from_parsed_xml(root);
-```rust
+```
 
 Errors during DOM construction surface as `DomXmlParseError`: `Xml`, `MalformedHierarchy`, `MultipleHtmlRootNodes`, `MultipleBodyNodes`, `NoHtmlNode`, `NoBodyInHtml`, `Component`, `Css`, `RenderDom`.
 

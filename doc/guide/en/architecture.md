@@ -354,7 +354,7 @@ div(class="parent", children = [
     div(class="child")
     div(class="child")
 ])
-```rust
+```
 
 Composing UI hierarchies via functions makes much more sense than composing UI hierarchies via 
 inheritance because the latter is often language-specific and not supported in all languages, 
@@ -384,7 +384,7 @@ println!(„{}“, *data); // prints „5“
 
 let data_mut: &mut usize = data.downcast_ref::<usize>().unwrap(); // error: data_ref still held
 // object destroyed here
-```rust
+```
 
 Effectively this is similar to `Observables`, however, since `RefAny`s are connected to a `Callback`, 
 a `Dom`, a `Task` or a `Thread`, the topology of how they are connected is more obvious than 
@@ -422,7 +422,7 @@ fn private_callback(data: RefAny, info: CallbackInfo) -> Update {
     // external code can't even name the type, so no downcast error possible
     let d = data.downcast::<NumberInputInternal>().unwrap();
 }
-```rust
+```
 
 This way, once a decent amount of test coverage is done, the "internals" of any widget
 are hidden from the outside completely. When all references to a `RefAny` are deleted, 
@@ -580,7 +580,7 @@ graph TD
     style A fill:#f9f,stroke:#333,stroke-width:2px
     style B fill:#ccf,stroke:#333,stroke-width:2px
     style C fill:#cfc,stroke:#333,stroke-width:2px
-```rust
+```
 
 When the user now finishes editing and the input loses focus, the event flows 
 through the backreferences:
@@ -667,7 +667,7 @@ port_a1_controller = PortWidget("PortA1", node_a_controller)
 
 # 3. Simulate a user clicking the visual port
 port_a1_controller.handle_click_event()
-```rust
+```
 
 The flow of control follows the logical graph, not the visual tree:
 

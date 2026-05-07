@@ -92,7 +92,7 @@ extern "C" fn(
     original_icon_dom: &StyledDom,   // the <icon> node with its inline styles
     system_style: &SystemStyle,      // current theme, accent, accessibility flags
 ) -> StyledDom;
-```rust
+```
 
 The default resolver handles font icons (registered via
 `register_font_icon`) and image icons (via `register_image_icon`) out of

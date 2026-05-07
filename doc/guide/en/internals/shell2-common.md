@@ -101,7 +101,7 @@ pub enum AzBackend {
     Headless,                                    // CPU + no native window
     #[cfg(feature = "web")] Web(SocketAddr),    // serve as HTML over HTTP
 }
-```rust
+```
 
 Resolution order, set by `AzBackend::resolve` (`compositor.rs:101`):
 
@@ -154,7 +154,7 @@ pub trait Compositor {
     fn flush(&mut self);
     fn present(&mut self) -> Result<(), CompositorError>;
 }
-```rust
+```
 
 `RenderContext` (`compositor.rs:230`) carries platform-specific GPU handles
 as raw pointers (`OpenGL`, `Metal`, `D3D11`) or `u64` Vulkan handles.
@@ -291,7 +291,7 @@ propagates it back up.
 
 ```rust,ignore
 pub fn load_gl_context(get_func: impl Fn(&str) -> *mut c_void) -> GenericGlContext;
-```rust
+```
 
 The body is ~800 lines of `glFoo: get_func("glFoo")` field assignments
 into `GenericGlContext`. Each backend supplies a closure that resolves

@@ -38,7 +38,7 @@ let input = TextInput::create()
     .with_placeholder("Your name".into())
     .with_text("Felix".into())
     .dom();
-```rust
+```
 
 The produced subtree is a focusable container with a placeholder text node, a label text node holding the buffer, and a cursor.
 
@@ -69,7 +69,7 @@ extern "C" fn on_input(
 let dom = azul::widgets::TextInput::create()
     .with_on_text_input(form, on_input)
     .dom();
-```rust
+```
 
 `OnTextInputReturn::valid` is the gate that lets you reject a character (e.g. "only digits"). Returning `TextInputValid::No` rolls back the edit before mutating the DOM. `OnTextInputReturn::update` follows the usual `Update` semantics from [Events](events.md).
 
@@ -94,7 +94,7 @@ let dom = azul::widgets::TextInput::create()
 let line = Dom::create_div()
     .with_contenteditable(true)
     .with_tab_index(TabIndex::Auto);
-```rust
+```
 
 Once the node has focus and the contenteditable bit is set, every printable key press the OS produces is delivered to that node. The platform shell records the edit, the framework computes the changeset, and the renderer consumes it.
 

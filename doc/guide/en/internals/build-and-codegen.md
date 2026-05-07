@@ -56,7 +56,7 @@ cargo run --release -p azul-doc -- codegen rust    # → target/codegen/azul.rs
 cargo run --release -p azul-doc -- codegen c       # → target/codegen/azul.h
 cargo run --release -p azul-doc -- codegen cpp     # → target/codegen/azul11.hpp
 cargo run --release -p azul-doc -- codegen python  # → target/codegen/python_api.rs
-```rust
+```
 
 `check_generated_files()` in `dll/build.rs` refuses to compile when a feature is enabled but the matching generated file is missing. The panic message tells you exactly which command to run.
 
@@ -120,7 +120,7 @@ Inside the same module entry in `api.json`:
         "returns": { "type": "AzString" }
     }
 }
-```rust
+```
 
 Implement the function in the appropriate crate (`azul-core`, `azul-layout`, or `azul-dll`). The codegen emits `extern "C" fn AzMyType_do_thing(...)` whose body `transmute`s arguments to internal types and calls your Rust function. See `doc/src/codegen/v2/rust/static_binding.rs` for the exact emission rules.
 
@@ -242,7 +242,7 @@ mod python {
 
 #[cfg(feature = "python-extension")]
 pub use python::azul;
-```rust
+```
 
 Build with `cargo build --release -p azul-dll --features python-extension`. On macOS `dll/build.rs` adds `-Wl,-undefined,dynamic_lookup` so the symbol references into the Python interpreter resolve at load time.
 

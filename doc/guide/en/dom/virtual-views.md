@@ -51,7 +51,7 @@ extern "C" fn render_list(
 let list_state = RefAny::new(ListData { items: vec!["A".into(), "B".into()] });
 let cb = VirtualViewCallback { cb: render_list, ctx: OptionRefAny::None };
 let _ = Dom::create_virtual_view(list_state, cb);
-```rust
+```
 
 ## Two coordinate systems: rendered vs virtual
 
@@ -138,7 +138,7 @@ fn render_table(data: &mut TableData, info: VirtualViewCallbackInfo) -> VirtualV
     /* ... */
     # VirtualViewReturn::default()
 }
-```rust
+```
 
 `VirtualViewReturn::keep_current(...)` is a shortcut for the same return
 shape.

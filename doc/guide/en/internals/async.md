@@ -78,7 +78,7 @@ pub enum Duration {
     System(SystemTimeDiff),  // (secs: u64, nanos: u32) — mirrors std::time::Duration
     Tick(SystemTickDiff),    // tick_diff: u64
 }
-```rust
+```
 
 Mixing variants panics: `Instant::System.duration_since(Instant::Tick)`
 hits the `_ => panic!(...)` arm in `core/src/task.rs`, as does adding
@@ -119,7 +119,7 @@ pub type GetSystemTimeCallbackType = extern "C" fn() -> Instant;
 pub extern "C" fn get_system_time_libstd() -> Instant {
     StdInstant::now().into()  // panics on wasm32, falls back to Tick(0)
 }
-```rust
+```
 
 The runtime never calls `Instant::now()` directly — it calls the
 configured `GetSystemTimeCallback` so that embedded targets and WASM
@@ -243,7 +243,7 @@ let thread = Thread::create(
     writeback_data,          // RefAny: state owned by main thread
     thread_callback,         // extern "C" fn
 );
-```rust
+```
 
 `Thread::create` calls `create_thread_libstd` in `layout/src/thread.rs`,
 which:
@@ -281,7 +281,7 @@ pub enum ThreadReceiveMsg {
     WriteBack(ThreadWriteBackMsg),
     Update(Update),
 }
-```rust
+```
 
 `ThreadSendMsg::Tick` is sent by `run_all_threads` once per turn so the
 thread can use it as a frame heartbeat. `ThreadSendMsg::Custom` carries
@@ -315,7 +315,7 @@ pub type WriteBackCallbackType = extern "C" fn(
     /* data to write back   */ RefAny,
     /* callback info        */ CallbackInfo,
 ) -> Update;
-```rust
+```
 
 Bundled with the `RefAny` payload into `ThreadWriteBackMsg`. When the
 main thread pulls a `ThreadReceiveMsg::WriteBack` off the channel,

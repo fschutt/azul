@@ -103,7 +103,7 @@ let (css, warnings) = new_from_str("\
 ");
 
 assert!(warnings.is_empty());
-```rust
+```
 
 The signature is `pub fn new_from_str<'a>(css_string: &'a str) -> (Css, Vec<CssParseWarnMsg<'a>>)` (`css/src/parser2.rs::new_from_str`). The warnings borrow from `css_string`; the returned `Css` is owned (selectors and values are copied into `AzString` / typed values).
 
@@ -124,7 +124,7 @@ use azul_css::css::CssPathSelector;
 let path = parse_css_path("div > .item:hover").unwrap();
 // path.selectors is a Vec<CssPathSelector> in order:
 //   Type(Div), DirectChildren, Class("item"), PseudoSelector(Hover)
-```rust
+```
 
 Supported tokens map 1:1 to `azul_simplecss::Token`:
 
@@ -169,7 +169,7 @@ match key {
     CssPropertyType::FlexGrow => parse_layout_flex_grow(value)?.into(),
     // …
 }
-```rust
+```
 
 Each `parse_<prop>` function lives next to the type it produces.
 
@@ -196,7 +196,7 @@ pub struct PixelValue {
     pub metric: SizeMetric,                       // Px, Em, Pt, Percent, In, Cm, Mm
     pub number: FloatValue,
 }
-```rust
+```
 
 `FloatValue` is fixed-point at 0.001 precision (`length.rs::FloatValue`, multiplier = 1000). The fixed-point representation is what makes pixel values usable in `const` context. `FloatValue::const_new(45)` works at compile time because there's no `f32`. The `FP_PRECISION_MULTIPLIER` is also why integer-only sizes like `5px` round-trip exactly.
 
@@ -210,7 +210,7 @@ pub struct AngleValue {
     pub metric: AngleMetric,                      // Degree, Radians, Grad, Turn, Percent
     pub number: FloatValue,
 }
-```rust
+```
 
 `AngleValue::to_degrees()` normalizes to `[0, 360)` modulo. `AngleValue::to_degrees_raw()` does *not* normalize, since conic gradients need to distinguish 360deg from 0deg. Parser at `angle.rs::parse_angle_value`; bare numbers default to degrees.
 
@@ -223,7 +223,7 @@ pub struct AngleValue {
 ```rust,ignore
 #[repr(C)]
 pub struct CssDuration { pub inner: u32 }   // milliseconds
-```rust
+```
 
 `parse_duration("1.5s") == CssDuration { inner: 1500 }`. Negative durations error.
 

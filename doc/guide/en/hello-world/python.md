@@ -92,7 +92,7 @@ if __name__ == "__main__":
     # App.run blocks until the last window closes.
     app = App.create(model, AppConfig.create())
     app.run(window)
-```rust
+```
 
 Three things to notice.
 

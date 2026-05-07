@@ -56,7 +56,7 @@ impl HitTestTag {
     pub fn to_item_tag(&self) -> (u64, u16);
     pub fn from_item_tag(tag: (u64, u16)) -> Option<Self>;
 }
-```rust
+```
 
 [`core/src/hit_test_tag.rs::HitTestTag`](../../../../core/src/hit_test_tag.rs). Round-trip encode/decode is covered by tests in the same file. `from_item_tag` accepts `tag.1 == 0` as a legacy DOM-node tag so older display lists still hit-test correctly.
 
@@ -111,7 +111,7 @@ pub struct FullHitTest {
     pub hovered_nodes: BTreeMap<DomId, HitTest>,
     pub focused_node: OptionDomNodeId,
 }
-```rust
+```
 
 [`core/src/hit_test.rs::FullHitTest`](../../../../core/src/hit_test.rs). The shell calls `HoverManager::push_hit_test(InputPointId::Mouse, hit_test)` after every cursor move. Downstream consumers (`dispatch_events_propagated`, `CursorTypeHitTest::new`, the input interpreter) read from this snapshot.
 
@@ -128,7 +128,7 @@ pub struct CursorTypeHitTest {
 impl CursorTypeHitTest {
     pub fn new(hit_test: &FullHitTest, layout_window: &LayoutWindow) -> Self;
 }
-```rust
+```
 
 [`layout/src/hit_test.rs::CursorTypeHitTest::new`](../../../../layout/src/hit_test.rs). Two independent passes find the frontmost `cursor_node`:
 

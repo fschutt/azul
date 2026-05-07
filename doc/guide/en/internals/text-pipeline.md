@@ -133,7 +133,7 @@ pub struct FontFallbackChain {
     pub fallbacks: Vec<FontId>,                  // unicode-fallback ladder
     pub coverage: BTreeMap<UnicodeRange, FontId>, // per-range overrides
 }
-```rust
+```
 
 `FontId` is a stable identifier into `font_manager.parsed_fonts: Arc<Mutex<HashMap<FontId, T>>>`. The chain is read-only during shaping; shapers walk `primary → fallbacks` checking codepoint coverage.
 
@@ -166,7 +166,7 @@ pub(crate) enum LocaGlyfState {
         loaded: Arc<Mutex<Option<Arc<Mutex<LocaGlyf>>>>>,
     },
 }
-```rust
+```
 
 `Loaded(None)` means CFF or no outline data — cannot be evicted because there are no source bytes to re-decode from. The eager `from_bytes` path (tests, PDF generation via `with_source_bytes`) produces this variant.
 
@@ -184,7 +184,7 @@ pub struct MockFont {
     pub glyph_sizes: BTreeMap<u16, (i32, i32)>,
     pub glyph_indices: BTreeMap<u32, u16>,
 }
-```rust
+```
 
 `MockFont::new(metrics).with_space_width(10).with_glyph_advance(65, 600)` builds a font where 'A' has 600 font-units of advance. Tests assert exact pixel positions, which would be brittle against real font versions.
 
@@ -215,7 +215,7 @@ pub fn parse_font_fn(source: LoadedFontSource) -> Option<FontRef> {
     )
     .map(parsed_font_to_font_ref)
 }
-```rust
+```
 
 `parsed_font_to_font_ref` boxes the `ParsedFont` and stores it as `*const c_void` with a destructor pointer; `font_ref_to_parsed_font` reverses the cast. The unsafe cast is sound iff every `FontRef` was created by `parsed_font_to_font_ref` — by convention in the codebase.
 

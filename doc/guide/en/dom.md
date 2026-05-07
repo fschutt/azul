@@ -64,7 +64,7 @@ pub struct Dom {
     pub css: azul_css::css::CssVec,
     pub estimated_total_children: usize,
 }
-```rust
+```
 
 A `Dom` is a subtree. Its root is a `NodeData`. `NodeData` (also in
 `core/src/dom.rs`) is the per-node payload:
@@ -337,7 +337,7 @@ extern "C" fn on_click(mut data: RefAny, _info: CallbackInfo) -> Update {
 Dom::create_button_no_a11y("+1".into())
     .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), state, on_click)
 # }
-```rust
+```
 
 `with_callback(filter, data, callback)` attaches a `RefAny` and a function
 pointer. The handler fires when the matching event reaches the node.

@@ -126,7 +126,7 @@ pub fn propagate_event(
     node_hierarchy: &NodeHierarchy,
     callbacks: &BTreeMap<NodeId, Vec<EventFilter>>,
 ) -> PropagationResult;
-```rust
+```
 
 [`core/src/events.rs::propagate_event`](../../../../core/src/events.rs). The path is computed by walking `parent` pointers from the target to the root, then reversed:
 
@@ -210,7 +210,7 @@ pub type InputInterpreterCallbackType = extern "C" fn(
     RefAny,
     *const InputInterpreterInfo<'static>,
 ) -> PreCallbackFilterResult;
-```rust
+```
 
 Replace `LayoutWindow::input_interpreter_callback` to implement vim modes, game controls, or custom shortcut tables. Native Rust callers wrap a `fn` via `InputInterpreterCallback::from(fn_ptr)` (sets `ctx = None`); FFI callers use the trampoline pattern with `ctx: OptionRefAny` holding the foreign callable.
 
@@ -230,7 +230,7 @@ pub type PostFilterCallbackType = extern "C" fn(
     DomNodeId,               // old_focus (0xFFFF = None)
     DomNodeId,               // new_focus
 ) -> SystemChangeVec;
-```rust
+```
 
 [`core/src/events.rs`](../../../../core/src/events.rs). It runs after user callbacks return, given the merged `prevent_default` flag, the `SystemChange`s the interpreter produced before dispatch, and the focus delta. It returns more `SystemChange`s. Typical examples are `ClearAllSelections`, `FinalizePendingFocusChanges`, and `ScrollSelectionIntoView`. The default impl is `default_post_filter` in the same file. Override `LayoutWindow::post_filter_callback` to customise.
 
@@ -247,7 +247,7 @@ pub fn detect_lifecycle_events_with_reconciliation(
     new_layout: &OrderedMap<NodeId, LogicalRect>,
     timestamp: Instant,
 ) -> LifecycleEventResult;
-```rust
+```
 
 [`core/src/events.rs::detect_lifecycle_events_with_reconciliation`](../../../../core/src/events.rs). After a `RefreshDom` rebuild the reconciler emits `Mount`, `Unmount`, `Resize`, `Update` synthetic events tagged `EventSource::Lifecycle`. It also returns `node_id_mapping: OrderedMap<old NodeId, new NodeId>` so the shell can migrate focus, scroll position, drag context, and selection across the rebuild. The match strategy starts with the stable reconciliation key (`.with_reconciliation_key()`), then content hash, then mount/unmount fallback. The simpler index-based `detect_lifecycle_events` in the same file exists for cases where reconciliation isn't required.
 

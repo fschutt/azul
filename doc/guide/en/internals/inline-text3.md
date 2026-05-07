@@ -32,7 +32,7 @@ The text engine lives at `layout/src/text3/`. It owns shaping, line breaking, Bi
 
 ```rust,ignore
 pub use text3::cache::TextShapingCache as TextLayoutCache;
-```rust
+```
 
 ## File map
 
@@ -154,7 +154,7 @@ let base_direction = if unicode_bidi_val == UnicodeBidi::Plaintext {
 } else {
     first_constraints.direction.unwrap_or(BidiDirection::Ltr)
 };
-```rust
+```
 
 CSS Writing Modes § 8.3: `plaintext` auto-detects from the first strong character; empty paragraphs fall back to the containing block's direction.
 
@@ -253,7 +253,7 @@ pub struct UnifiedConstraints {
     pub line_break: LineBreakStrictness,
     pub unicode_bidi: UnicodeBidi,
 }
-```rust
+```
 
 `available_width: AvailableSpace` is the cache-validity key. A layout shaped under `MinContent` cannot be reused for `Definite(actual_column_width)` — the line breaks would be at the wrong positions. This was the root cause of the table-cell width bug fixed by storing `constraints` alongside the layout in `CachedInlineLayout`.
 
@@ -275,7 +275,7 @@ pub struct FontManager<T> {
     pub registry: Option<Arc<FcFontRegistry>>,
     pub last_resolved_font_stacks_sig: Option<u64>,
 }
-```rust
+```
 
 `fc_cache` is a `rust-fontconfig` v4.1 shared handle (internally `Arc<RwLock>`); cloning is cheap and builder-thread writes are immediately visible. No more snapshot-refresh dance.
 

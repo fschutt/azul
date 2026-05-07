@@ -64,7 +64,7 @@ pub type HIMC       = *mut c_void;   // IME context handle
 pub type WPARAM     = usize;
 pub type LPARAM     = isize;
 pub type LRESULT    = isize;
-```rust
+```
 
 Win32 structs (`MSG`, `WNDCLASSW`, `RECT`, `POINT`, `TRACKMOUSEEVENT`,
 `COMPOSITIONFORM`, …) are `#[repr(C)]` mirrors of the headers in

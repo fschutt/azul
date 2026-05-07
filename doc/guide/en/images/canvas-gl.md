@@ -26,7 +26,7 @@ A render-image callback gives you a fresh GL context and the laid-out bounding b
 ```rust,ignore
 pub type RenderImageCallbackType =
     extern "C" fn(RefAny, RenderImageCallbackInfo) -> ImageRef;
-```rust
+```
 
 Wrap a function pointer in `RenderImageCallback::create(...)` and convert it to the FFI-compatible form with `.to_core()`:
 
@@ -98,7 +98,7 @@ texture.draw_tesselated_svg_gpu_node(
     ],
 );
 # }
-```rust
+```
 
 To anti-alias the result, call `texture.apply_fxaa()` before returning. It's a single-pass post-process suitable for vector content.
 
@@ -113,7 +113,7 @@ A texture becomes an `ImageRef` via `ImageRef::gl_texture(texture)`. Refs are re
 # fn done(t: Texture) -> ImageRef {
 ImageRef::gl_texture(t)
 # }
-```rust
+```
 
 If something fails (no GL context, missing data, GPU error), return a `null_image` of the requested size. The renderer treats it as transparent and reserves space in the layout.
 

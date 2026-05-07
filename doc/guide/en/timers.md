@@ -37,7 +37,7 @@ let timer = Timer::create(data.clone(), tick, info.get_system_time_fn())
 info.add_timer(TimerId::unique(), timer);
 #     Update::DoNothing
 # }
-```rust
+```
 
 ## When to reach for a timer
 
@@ -60,7 +60,7 @@ pub type TimerCallbackType = extern "C" fn(
     RefAny,
     TimerCallbackInfo,
 ) -> TimerCallbackReturn;
-```rust
+```
 
 The `RefAny` is whatever you handed to `Timer::create`. It's most often the same data you handed to your layout callback. `TimerCallbackInfo` is documented in the next section. The return value packs two enums:
 
@@ -78,7 +78,7 @@ TimerCallbackReturn::continue_unchanged()        // keep ticking, no relayout
 TimerCallbackReturn::continue_and_refresh_dom()  // keep ticking, re-run layout
 TimerCallbackReturn::terminate_unchanged()       // stop, no relayout
 TimerCallbackReturn::terminate_and_refresh_dom() // stop, re-run layout
-```rust
+```
 
 ## TimerCallbackInfo
 
@@ -133,7 +133,7 @@ let timer = Timer::create(data.clone(), tick, info.get_system_time_fn())
 info.add_timer(TimerId::unique(), timer);
 #     Update::DoNothing
 # }
-```rust
+```
 
 ## Stopping a timer
 
@@ -151,7 +151,7 @@ Returning `Terminate` doesn't drop the `RefAny` immediately. The framework relea
 
 ```rust,ignore
 let id = TimerId::unique();
-```rust
+```
 
 Don't construct a literal `TimerId { id: 0..=4 }`. That collides with the framework's own timers.
 
@@ -168,7 +168,7 @@ Duration::System(SystemTimeDiff::from_millis(16))    // 60 fps tick
 Duration::System(SystemTimeDiff::from_millis(500))   // 0.5 s
 Duration::System(SystemTimeDiff::from_secs(5))       // 5 s
 Duration::System(SystemTimeDiff::from_nanos(16_667_000)) // 60 fps, exact
-```rust
+```
 
 `Instant::linear_interpolate(start, end) -> f32` is the single most useful method on `Instant`. Given the current time and a `(start, end)` pair, it returns a clamped 0.0..=1.0 fraction. It's the building block for the [animation runtime](animations.md) once it lands.
 

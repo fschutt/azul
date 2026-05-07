@@ -48,7 +48,7 @@ pub struct SmallAriaInfo {
     pub role: OptionAccessibilityRole,
     pub description: OptionString,
 }
-```rust
+```
 
 Construct with `SmallAriaInfo::label(text)` and chain `with_role` and
 `with_description`:
@@ -58,7 +58,7 @@ Construct with `SmallAriaInfo::label(text)` and chain `with_role` and
 let aria = SmallAriaInfo::label("Submit form".into())
     .with_role(AccessibilityRole::PushButton)
     .with_description("Sends the form to the server.".into());
-```rust
+```
 
 `label` is the accessible name screen readers announce. `role` overrides the
 role that would otherwise be inferred from the HTML tag. `description` is read

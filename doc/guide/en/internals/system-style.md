@@ -62,7 +62,7 @@ pub struct SystemStyle {
     pub icon_style: IconStyleOptions,
     pub audio: AudioMetrics,
 }
-```rust
+```
 
 `Box<Stylesheet>` and `Box<ComputedScrollbarStyle>` are heap-indirected so
 the struct's FFI size is stable across feature flags.
@@ -226,7 +226,7 @@ pub(crate) fn discover() -> SystemStyle {
     // ... + ricing
     style
 }
-```rust
+```
 
 ### XDG Desktop Portal (raw D-Bus)
 

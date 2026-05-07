@@ -121,7 +121,7 @@ const INHERITABLE_TIER1_MASK: u64 =
   | (WHITE_SPACE_MASK   << WHITE_SPACE_SHIFT)
   | (DIRECTION_MASK     << DIRECTION_SHIFT)
   | (BORDER_COLLAPSE_MASK << BORDER_COLLAPSE_SHIFT);
-```rust
+```
 
 (`core/src/compact_cache_builder.rs::INHERITABLE_TIER1_MASK`)
 
@@ -145,7 +145,7 @@ if !nd.is_text_node() {
         apply_css_property_to_compact(prop, ...);
     }
 }
-```rust
+```
 
 (`core/src/compact_cache_builder.rs::build_compact_cache_with_inheritance`)
 

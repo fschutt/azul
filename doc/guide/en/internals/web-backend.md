@@ -44,7 +44,7 @@ Parsed at `dll/src/web/config.rs:18`:
 
 ```rust,ignore
 pub fn parse_web_url(s: &str) -> Option<SocketAddr>
-```rust
+```
 
 Accepts `web://127.0.0.1:8080`, `web://0.0.0.0:3000`,
 `web://[::1]:8080`. The `web://` prefix is case-insensitive; an optional
@@ -66,7 +66,7 @@ pub fn run_web(
     root_window: WindowCreateOptions,
     bind_addr: SocketAddr,
 ) -> Result<(), WindowError>
-```rust
+```
 
 - **Phase A.** Functional: decompresses embedded `api.json` and classifies. Output is unused downstream.
   - `dll/src/web/classify.rs::classify_api_functions`
@@ -164,7 +164,7 @@ running native binary
   ─ remill-rs   ─►  LLVM IR
   ─ llc -mtriple=wasm32 ─► WASM
   ─ wasm-link   ─►  module that imports `Az*` from azul-mini.wasm
-```rust
+```
 
 `dll/src/web/cb_gen.rs` is the consumer. It would walk `config.routes`,
 collect every callback function pointer in the resulting DOM, resolve
@@ -274,7 +274,7 @@ In `dll/src/web/server.rs`, the current implementation is a placeholder:
     let html = re_render_body(state);
     send_response(&mut stream, 200, "text/html; charset=utf-8", html.as_bytes())
 }
-```rust
+```
 
 The node ID is parsed but unused. The body is read but discarded.
 `re_render_body` re-runs the layout callback with the current
@@ -314,7 +314,7 @@ pub struct WebServerState {
     pub images: Vec<CollectedImage>,
     pub fonts: Vec<CollectedFont>,
 }
-```rust
+```
 
 `Arc<Mutex<RefAny>>` is the only synchronization point. `re_render_body`
 locks it, calls into `render_initial_page`, and drops the lock.

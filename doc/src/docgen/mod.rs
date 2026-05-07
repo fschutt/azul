@@ -43,10 +43,13 @@ pub fn generate_docs(
 
     let latest_version = api_data.get_latest_version_str().unwrap();
 
-    // Generate guide pages (version-agnostic, only one master version)
+    // Generate guide pages (version-agnostic, only one master version).
+    // Each page ships as both `.html` and `.md` at the same URL stem so
+    // readers (and tooling) can fetch the raw markdown directly.
     for guide in guide::get_guide_list() {
         let guide_html = guide::generate_guide_html(&guide, latest_version);
         docs.insert(format!("guide/{}.html", guide.file_name), guide_html);
+        docs.insert(format!("guide/{}.md", guide.file_name), guide.content.clone());
     }
 
     // Generate combined guide page

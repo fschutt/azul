@@ -28,7 +28,7 @@ let mut button = Dom::create_div();
 button.add_callback(EventFilter::Hover(HoverEventFilter::MouseUp), data, on_click);
 # button
 # }
-```rust
+```
 
 ## Adding a callback
 
@@ -42,7 +42,7 @@ The primitive is `Dom::add_callback` (and the builder form `Dom::with_callback`)
 let mut node = Dom::create_div()
     .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), data.clone(), handler)
     .with_callback(EventFilter::Focus(FocusEventFilter::FocusReceived), data, handler);
-```rust
+```
 
 The `Update` enum has three variants:
 
@@ -90,7 +90,7 @@ Same vocabulary as `HoverEventFilter`, but the node must currently hold keyboard
 ```rust,no_run
 # use azul::prelude::*;
 let input = Dom::create_div().with_tab_index(TabIndex::Auto);
-```rust
+```
 
 `TabIndex::Auto` makes the node focusable in source order. `TabIndex::NoKeyboardFocus` makes it focusable programmatically but skips it in tab navigation. `TabIndex::OverrideInParent(n)` pins the node at slot `n` within its parent's tab order.
 
@@ -130,7 +130,7 @@ ComponentEventFilter::AfterMount     // node appeared this frame
 ComponentEventFilter::BeforeUnmount  // node will disappear next frame
 ComponentEventFilter::NodeResized    // layout bounds of this node changed
 ComponentEventFilter::Updated        // a keyed node's content changed
-```rust
+```
 
 Reconciliation matches nodes across frames by stable key (`Dom::with_id("id")`) first, then by content hash. Keyed nodes track identity across reorders, so `Updated` only fires when keyed content actually changes.
 
