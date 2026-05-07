@@ -26,17 +26,23 @@ pub struct Guide {
 
 /// Pre-process markdown content:
 /// - Remove mermaid code blocks (not supported in HTML output)
+/// - Strip rustdoc directive suffixes from fence tags so the
+///   syntax highlighter recognises them (`rust,no_run` -> `rust`,
+///   `rust,ignore` -> `rust`). Prism keys highlighting off the
+///   bare language name and would otherwise emit
+///   `class="language-rust,no_run"` which doesn't match any rule.
 /// - Transform straight `"` into German-style „…" quotes outside of code
 /// (Frontmatter is stripped earlier, in `get_guide_list`, so it never
 /// reaches this stage.)
 fn preprocess_markdown_content(content: &str) -> String {
-    let lines: Vec<&str> = content.lines().collect();
-
-    // Remove mermaid code blocks
-    let mut result = Vec::new();
+    // Remove mermaid code blocks. Normalise rustdoc directive suffixes on
+    // any other fence opening so Prism gets the bare language name
+    // (`rust,no_run` -> `rust`, `rust,ignore` -> `rust`).
+    let mut result: Vec<String> = Vec::new();
     let mut in_mermaid_block = false;
+    let mut in_fence = false;
 
-    for line in lines {
+    for line in content.lines() {
         if line.trim().starts_with("```mermaid") {
             in_mermaid_block = true;
             continue;
@@ -47,7 +53,25 @@ fn preprocess_markdown_content(content: &str) -> String {
             }
             continue;
         }
-        result.push(line);
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") && !in_fence {
+            in_fence = true;
+            // Strip everything after the first comma in the language tag.
+            // Preserves leading indent. Skips azul-render fences which
+            // carry attribute syntax that the autodoc expander parses.
+            if !trimmed.starts_with("```azul-render") {
+                if let Some(comma_idx) = trimmed.find(',') {
+                    let prefix_len = line.len() - trimmed.len();
+                    let lead = &line[..prefix_len];
+                    let bare = &trimmed[..comma_idx];
+                    result.push(format!("{}{}", lead, bare));
+                    continue;
+                }
+            }
+        } else if trimmed.starts_with("```") && in_fence {
+            in_fence = false;
+        }
+        result.push(line.to_string());
     }
 
     let joined = result.join("\n");
