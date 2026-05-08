@@ -111,6 +111,50 @@ The result is rendered to a `RawImage` via `SvgRenderOptions`, which lets you fi
 
 `TessellatedSvgNode::from_nodes` flattens a slice of meshes into a single vertex/index buffer. This matters for performance when drawing thousands of tiny polygons (for example, the `opengl` example tessellates thousands of map polygons and uploads exactly one fill mesh and one stroke mesh).
 
+## Rendering SVG headlessly
+
+The whole SVG-to-pixels pipeline runs without a window. There are two
+shapes of "headless SVG":
+
+**Inline SVG inside an XHTML document.** The XML parser recognises
+`<svg>` tags inside `<body>` and turns them into vector nodes on the
+returned `Dom`. Build the Dom with `Dom::create_from_parsed_xml`,
+launch the binary with `AZ_BACKEND=headless`, and the framework
+rasterises into an in-memory framebuffer instead of opening a
+window. Pair with `AZ_DEBUG=<port>` and a `take_screenshot`
+request returns a base64 PNG.
+
+```sh
+AZ_BACKEND=headless AZ_DEBUG=8765 ./my_svg_renderer &
+curl -s -X POST http://localhost:8765/ \
+    -d '{"type":"take_screenshot"}' \
+  | jq -r '.data.value' | base64 -d > out.png
+```
+
+This is the path covered in [Headless Rendering](../headless-rendering.md).
+The DOM-side example is in [Document Object Model](../dom.md#inline-svg).
+
+**Standalone SVG file.** When you have an `.svg` on disk and want a
+raster out, parse with `Svg::from_string` (or `Svg::from_bytes`) and
+let the renderer produce a `RawImage` directly. This skips the Dom
+entirely:
+
+```rust,no_run
+use azul::prelude::*;
+
+let svg_bytes = std::fs::read("logo.svg").unwrap();
+let svg = Svg::from_bytes(svg_bytes.into(), SvgParseOptions::default()).unwrap();
+let raw = svg.render(SvgRenderOptions::default()).unwrap();
+let image = ImageRef::new_rawimage(raw);
+// `image` is now embeddable as `Dom::create_image(image)`, or you
+// can write the raw RGBA buffer to a PNG with the `image` crate.
+```
+
+Both paths share the SVG renderer described above. The choice is just
+about whether you want the SVG rendered next to other Dom content
+(use the inline form) or as an isolated raster image (use the
+standalone form).
+
 ## Coming Up Next
 
 - [GL Canvas](canvas-gl.md) — Embedding an OpenGL canvas inside a Dom node

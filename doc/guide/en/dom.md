@@ -462,6 +462,45 @@ any other DOM.
 [Components](dom/components.md#component-packs) for how the framework
 looks up `<card title="..."/>` against a registered library.
 
+## Inline SVG
+
+The same XML pipeline accepts `<svg>` tags inside the body and turns
+them into vector nodes that render alongside the rest of the Dom.
+You don't need extra wiring: the parser recognises the SVG namespace,
+walks the geometry, and stamps an `SvgNodeData` on each shape. A
+clip-mask attribute on an SVG element resolves the same way as a CSS
+`clip-path:` (see [Clipping a node](#clipping-a-node) above).
+
+```rust,no_run
+use azul::prelude::*;
+
+let xhtml = r#"
+<html>
+  <body>
+    <svg viewBox="0 0 100 100" width="200" height="200">
+      <circle cx="50" cy="50" r="40" fill="#1d4f8b"/>
+      <rect x="10" y="10" width="40" height="40" fill="#5dade2"/>
+    </svg>
+  </body>
+</html>
+"#;
+let parsed = Xml::from_str(xhtml.into()).unwrap();
+let dom: Dom = Dom::create_from_parsed_xml(parsed);
+```
+
+The same `dom` is renderable without a window. Run the binary with
+`AZ_BACKEND=headless` and the framework rasterises into an in-memory
+framebuffer instead of opening a window. Combine with
+`AZ_DEBUG=<port>` to drive `take_screenshot` from a shell script and
+get a base64 PNG back. That's the path snapshot tests, PDF export,
+and CI machines without a display server use.
+
+For the full SVG geometry model (paths, tessellation, GPU
+tessellated nodes), the standalone `Svg::from_string` parser that
+returns a `RawImage`, and the GPU stroke pipeline, see
+[SVG](images/svg.md). For the headless backend in detail, see
+[Headless Rendering](headless-rendering.md).
+
 ## Callbacks
 
 ```rust,no_run
