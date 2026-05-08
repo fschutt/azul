@@ -562,12 +562,11 @@ pub fn get_common_head_tags(inline_css: bool) -> String {
     ", base_url=base_url, css_tag=css_tag)
 }
 
-/// Script tag + tiny init that mounts the floating search panel.
-///
-/// Bundled via `include_str!` so the binary is self-contained, but the
-/// runtime always loads `/azul-search.js` and `/api/index.json` over HTTP.
-/// The JS auto-detects the current page (api page vs anywhere else) so the
-/// init body is the same on every page.
+/// Script tag + tiny init that mounts the floating search panel for the
+/// API search (used on the index, api page, releases, blog, and donate
+/// pages). Bundled via `include_str!` so the binary is self-contained,
+/// but the runtime always loads `/azul-search.js` and `/api/index.json`
+/// over HTTP.
 pub fn get_search_init() -> String {
     r#"<script src="/azul-search.js" defer></script>
 <script>
@@ -577,6 +576,22 @@ document.addEventListener('DOMContentLoaded', function () {
   window.AzulSearch.attach({
     source: { type: 'api-default' },
     onApiPage: onApi,
+  });
+});
+</script>"#.to_string()
+}
+
+/// Search init used on guide pages. Drives the same UI off pagefind
+/// (generated post-deploy by the `pagefind` CLI). The pagefind adapter
+/// auto-falls back to api-default if `/pagefind/pagefind.js` is missing
+/// — keeps guide pages searchable when pagefind isn't installed.
+pub fn get_search_init_for_guide() -> String {
+    r#"<script src="/azul-search.js" defer></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  if (!window.AzulSearch) return;
+  window.AzulSearch.attach({
+    source: { type: 'pagefind', url: '/pagefind/' },
   });
 });
 </script>"#.to_string()

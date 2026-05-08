@@ -35,6 +35,7 @@
     cn: { label: 'new',     cls: 'k-cn', weight: 0.9 },
     ev: { label: 'variant', cls: 'k-ev', weight: 0.7 },
     f:  { label: 'field',   cls: 'k-f',  weight: 0.7 },
+    g:  { label: 'guide',   cls: 'k-g',  weight: 1.0 },
   };
 
   // ---------- pure search ------------------------------------------------
@@ -209,41 +210,87 @@
     };
   }
 
-  // Pagefind adapter — stub that loads the official runtime when first
-  // queried. Inactive until pagefind is generated at deploy time; left in
-  // place so guide pages can switch source without code changes.
+  // Pagefind adapter. Dynamic-imports `<url>pagefind.js` (the runtime
+  // emitted by the pagefind CLI). Falls back to api-default if the
+  // pagefind bundle isn't reachable, so a guide page still has working
+  // search even when pagefind wasn't installed at deploy time.
   function pagefindAdapter(url) {
-    var pagefindReady = null;
+    url = url || '/pagefind/';
+    if (url.charAt(url.length - 1) !== '/') url += '/';
     return {
       load: function () {
-        return Promise.resolve({
-          type: 'pagefind',
-          search: function (q) {
-            if (!pagefindReady) {
-              pagefindReady = import(/* webpackIgnore: true */ url + 'pagefind.js')
-                .then(function (m) { return m; });
-            }
-            return pagefindReady.then(function (pf) {
-              return pf.search(q).then(function (res) {
-                return Promise.all(res.results.slice(0, 50).map(function (r) {
-                  return r.data().then(function (d) {
-                    return {
-                      score: 1,
-                      entry: {
-                        k: 'm',
-                        n: d.meta && d.meta.title ? d.meta.title : d.url,
-                        a: d.url,
-                        d: d.excerpt || '',
-                      },
-                    };
+        return import(/* webpackIgnore: true */ url + 'pagefind.js')
+          .then(function (pf) {
+            // Initialise once. Older pagefind builds expose `init`; newer
+            // ones initialise lazily inside `search`.
+            var ready = pf.init ? Promise.resolve(pf.init()) : Promise.resolve();
+            return ready.then(function () { return pf; });
+          })
+          .then(function (pf) {
+            return {
+              type: 'pagefind',
+              // Each pagefind result expands into one entry per sub-result
+              // (heading anchor) when available, falling back to the page
+              // itself. Pagefind's excerpt is pre-marked HTML; we forward
+              // it via `_html` so renderResults skips re-highlighting.
+              search: function (q) {
+                if (!q) return Promise.resolve([]);
+                return pf.search(q).then(function (res) {
+                  var results = res.results.slice(0, 30);
+                  return Promise.all(results.map(function (r) {
+                    return r.data();
+                  })).then(function (datas) {
+                    var out = [];
+                    for (var i = 0; i < datas.length; i++) {
+                      var d = datas[i];
+                      var pageTitle = (d.meta && d.meta.title) || d.url;
+                      var subs = d.sub_results || [];
+                      // Score descending by pagefind's order; we cap at 50.
+                      var baseScore = 1000 - i;
+                      if (subs.length === 0) {
+                        out.push(makePagefindEntry(pageTitle, null,
+                          d.url, d.excerpt, baseScore));
+                      } else {
+                        for (var j = 0; j < subs.length; j++) {
+                          var s = subs[j];
+                          out.push(makePagefindEntry(s.title || pageTitle,
+                            pageTitle, s.url || d.url, s.excerpt, baseScore - j * 0.01));
+                        }
+                      }
+                    }
+                    return out.slice(0, 50);
                   });
-                }));
-              });
-            });
-          },
-        });
+                });
+              },
+              count: 0,
+            };
+          })
+          .catch(function (err) {
+            if (window.console) {
+              console.warn('AzulSearch: pagefind unavailable, falling back to api-default', err);
+            }
+            return apiDefaultAdapter().load();
+          });
       }
     };
+  }
+
+  function makePagefindEntry(name, parent, url, excerptHtml, score) {
+    return {
+      score: score,
+      entry: {
+        k: 'g',
+        n: name,
+        p: parent || null,
+        a: url, // already starts with `/` — resolveHref passes through
+        d: excerptHtml ? stripTags(excerptHtml) : '',
+        _html: excerptHtml || null, // pre-marked snippet from pagefind
+      },
+    };
+  }
+
+  function stripTags(html) {
+    return String(html).replace(/<[^>]+>/g, '');
   }
 
   function makeAdapter(source) {
@@ -305,7 +352,12 @@
       var kindMeta = KIND[e.k] || { label: e.k, cls: '' };
       var displayName = e.p ? (e.p + '::' + e.n) : e.n;
       var loc = e.m ? ('mod ' + e.m) : '';
-      var snip = e.d ? snippet(e.d, tokens) : '';
+      // Pagefind hands us a pre-marked HTML excerpt; trust it verbatim
+      // (it's well-formed and already escaped by pagefind). Otherwise
+      // build a snippet from plain doc text and run our own highlight().
+      var snipHtml = e._html
+        ? e._html
+        : (e.d ? highlight(snippet(e.d, tokens), tokens) : '');
       var sigLine = e.s ? ('<code class="azs-sig">' + escapeHtml(e.s) + '</code>') : '';
       html += '<li class="azs-result" data-idx="' + i + '">'
         +   '<a href="' + escapeHtml(resolveHref(e, ctx)) + '">'
@@ -313,7 +365,7 @@
         +     '<span class="azs-name">' + highlight(displayName, tokens) + '</span>'
         +     (loc ? '<span class="azs-loc">' + escapeHtml(loc) + '</span>' : '')
         +     (sigLine ? '<div>' + sigLine + '</div>' : '')
-        +     (snip ? '<div class="azs-snippet">' + highlight(snip, tokens) + '</div>' : '')
+        +     (snipHtml ? '<div class="azs-snippet">' + snipHtml + '</div>' : '')
         +   '</a>'
         + '</li>';
     }
@@ -403,7 +455,30 @@
       root.dataset.state = 'open';
       // Defer focus so iOS Safari doesn't suppress the soft keyboard.
       setTimeout(function () { input.focus(); input.select(); }, 0);
-      ensureLoaded();
+      ensureLoaded().then(prefetchTarget, function () { /* ignore */ });
+    }
+
+    // Prefetch the page that results will navigate to. The api page is
+    // ~1.4 MB so a cold click feels slow; queueing a background fetch as
+    // soon as the user opens the panel masks the latency entirely. Only
+    // fires once and only when the adapter knows the target.
+    var prefetched = false;
+    function prefetchTarget() {
+      if (prefetched) return;
+      var target = ctx.apiPageUrl;
+      if (!target) return;
+      prefetched = true;
+      // Skip if we're already on that page.
+      try {
+        var here = window.location.pathname;
+        var t = target.split('#')[0];
+        if (here === t || here.endsWith(t)) return;
+      } catch (e) { /* ignore */ }
+      var link = document.createElement('link');
+      link.rel = 'prefetch';
+      link.href = target;
+      link.as = 'document';
+      document.head.appendChild(link);
     }
     function close() {
       root.dataset.state = 'closed';

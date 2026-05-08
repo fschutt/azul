@@ -1220,6 +1220,79 @@ pub fn copy_static_assets(output_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Build the pagefind search index over the generated guide pages.
+///
+/// Drives the floating search panel on guide pages (the API search uses a
+/// codegen-emitted index instead). Tries the `pagefind` binary first, then
+/// `npx pagefind` so contributors who don't `cargo install pagefind` can
+/// still rely on a Node toolchain.
+///
+/// Failures here are non-fatal: the JS adapter falls back to the API
+/// search index if `/pagefind/pagefind.js` 404s, so guide pages stay
+/// searchable either way.
+pub fn run_pagefind(deploy_dir: &Path) -> Result<()> {
+    use std::process::Command;
+
+    let guide_dir = deploy_dir.join("guide");
+    if !guide_dir.is_dir() {
+        println!("  [INFO] No guide/ directory in deploy, skipping pagefind");
+        return Ok(());
+    }
+
+    let site_arg = deploy_dir
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("deploy path is not utf-8"))?
+        .to_string();
+
+    // Pagefind args, shared between the direct binary and the npx fallback.
+    // `--include-characters` keeps `_` `.` `-` as part of words so technical
+    // identifiers (`fn_args`, `azul.rs`, `kebab-case`) match correctly.
+    let pf_args: Vec<String> = vec![
+        "--site".into(),
+        site_arg,
+        "--output-subdir".into(),
+        "pagefind".into(),
+        "--glob".into(),
+        "guide/**/*.html".into(),
+        "--include-characters".into(),
+        "_.-".into(),
+        "--quiet".into(),
+    ];
+
+    // Try the direct binary first; fall back to `npx` so contributors with
+    // a Node toolchain don't need to install the binary separately.
+    let mut attempts: Vec<(&str, Vec<String>)> = Vec::new();
+    attempts.push(("pagefind", pf_args.clone()));
+    let mut npx_args: Vec<String> = vec!["--yes".into(), "pagefind@latest".into()];
+    npx_args.extend(pf_args.iter().cloned());
+    attempts.push(("npx", npx_args));
+
+    for (cmd, args) in &attempts {
+        match Command::new(cmd).args(args).status() {
+            Ok(status) if status.success() => {
+                println!("  [OK] Generated pagefind index via `{}`", cmd);
+                return Ok(());
+            }
+            Ok(status) => {
+                eprintln!("  [WARN] `{}` exited {}, trying next launcher", cmd, status);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // Try the next launcher silently — common case when the
+                // pagefind binary isn't on PATH but Node is available.
+            }
+            Err(e) => {
+                eprintln!("  [WARN] `{}` invocation failed: {}", cmd, e);
+            }
+        }
+    }
+
+    eprintln!(
+        "  [INFO] pagefind not available; guide pages will fall back to the API search index. \
+         Install via `cargo install pagefind` or rely on `npx pagefind`."
+    );
+    Ok(())
+}
+
 /// Generate NFPM configuration YAML from api.json package metadata
 ///
 /// This function reads the package configuration from api.json and generates

@@ -239,7 +239,7 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
     let header_tags = crate::docgen::get_common_head_tags(false);
     let sidebar = crate::docgen::get_sidebar();
     let prism_script = crate::docgen::get_prism_script();
-    let search_script = crate::docgen::get_search_init();
+    let search_script = crate::docgen::get_search_init_for_guide();
 
     // Pre-process content: remove mermaid blocks and expand `azul-render`
     // fences into <figure>/slideshow HTML. Use an absolute URL prefix so
@@ -531,7 +531,7 @@ pub fn generate_guide_mainpage(version: &str) -> String {
 
     let header_tags = crate::docgen::get_common_head_tags(false);
     let sidebar = crate::docgen::get_sidebar();
-    let search_script = crate::docgen::get_search_init();
+    let search_script = crate::docgen::get_search_init_for_guide();
 
     let css = "
         #guide-index { max-width: 760px; }
@@ -779,7 +779,7 @@ pub fn generate_guide_index(versions: &[String]) -> String {
 
     let header_tags = crate::docgen::get_common_head_tags(false);
     let sidebar = crate::docgen::get_sidebar();
-    let search_script = crate::docgen::get_search_init();
+    let search_script = crate::docgen::get_search_init_for_guide();
 
     format!(
         "<!DOCTYPE html>

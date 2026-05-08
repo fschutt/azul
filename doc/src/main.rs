@@ -1505,6 +1505,13 @@ fn main() -> anyhow::Result<()> {
             // Copy static assets
             dllgen::deploy::copy_static_assets(&output_dir)?;
 
+            // Build pagefind index over guide/. Non-fatal — the JS adapter
+            // falls back to the API search index when pagefind isn't there.
+            println!("Building pagefind index for guide/...");
+            if let Err(e) = dllgen::deploy::run_pagefind(&output_dir) {
+                eprintln!("  [WARN] pagefind step failed: {}", e);
+            }
+
             // Reftests: either run them live or generate a placeholder page
             let reftest_output_dir = output_dir.join("reftest");
             if run_reftests {
