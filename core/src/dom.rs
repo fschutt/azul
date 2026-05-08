@@ -1847,7 +1847,7 @@ impl core::fmt::Debug for DatasetMergeCallback {
 /// This enables the `Into<DatasetMergeCallback>` pattern for Python bindings.
 impl From<DatasetMergeCallbackType> for DatasetMergeCallback {
     fn from(cb: DatasetMergeCallbackType) -> Self {
-        DatasetMergeCallback { 
+        DatasetMergeCallback {
             cb,
             callable: OptionRefAny::None,
         }
@@ -1862,11 +1862,11 @@ impl_option!(
 );
 
 /// Function pointer type for dataset merge callbacks.
-/// 
+///
 /// Arguments:
 /// - `new_data`: The new node's dataset (shallow clone, cheap)
 /// - `old_data`: The old node's dataset (shallow clone, cheap)
-/// 
+///
 /// Returns:
 /// - The `RefAny` that should be used as the dataset for the new node
 pub type DatasetMergeCallbackType = extern "C" fn(RefAny, RefAny) -> RefAny;
@@ -2592,7 +2592,7 @@ impl NodeData {
     ///     url: String,
     ///     decoder: Option<DecoderHandle>,
     /// }
-    /// 
+    ///
     /// extern "C" fn merge_video(new_data: RefAny, old_data: RefAny) -> RefAny {
     ///     // Transfer the heavy decoder handle from old to new
     ///     if let (Some(mut new), Some(old)) = (
@@ -2603,7 +2603,7 @@ impl NodeData {
     ///     }
     ///     new_data
     /// }
-    /// 
+    ///
     /// node_data.set_merge_callback(merge_video);
     /// ```
     #[inline]
@@ -2704,26 +2704,26 @@ impl NodeData {
     }
 
     /// Calculates a structural hash for DOM reconciliation that ignores text content.
-    /// 
+    ///
     /// This hash is used for matching nodes across DOM frames where the text content
     /// may have changed (e.g., contenteditable text being edited). It hashes:
     /// - Node type discriminant (but NOT the text content for Text nodes)
     /// - IDs and classes
     /// - Attributes (but NOT contenteditable state which may change with focus)
     /// - Callback events and types
-    /// 
+    ///
     /// This allows a Text("Hello") node to match Text("Hello World") during reconciliation,
     /// preserving cursor position and selection state.
     pub fn calculate_structural_hash(&self) -> DomNodeHash {
         use std::hash::Hasher;
         use core::hash::Hasher as StdHasher;
-        
+
         let mut hasher = std::hash::DefaultHasher::new();
-        
+
         // Hash node type discriminant only, not content
         // This means Text("A") and Text("B") have the same structural hash
         core::mem::discriminant(&self.node_type).hash(&mut hasher);
-        
+
         // For VirtualView nodes, hash the callback to distinguish different virtualized views
         if let NodeType::VirtualView = self.node_type {
             if let Some(ext) = self.extra.as_ref() {
@@ -2732,7 +2732,7 @@ impl NodeData {
                 }
             }
         }
-        
+
         // For Image nodes, hash the image reference to distinguish different images.
         // For callback images, hash the callback function pointer and RefAny type ID
         // instead of the heap pointer, so that the same callback produces the same
@@ -2752,7 +2752,7 @@ impl NodeData {
                 }
             }
         }
-        
+
         // Hash IDs and classes - these are structural and shouldn't change
         // (They are now stored as AttributeType::Id / AttributeType::Class in attributes)
         for attr in self.attributes().as_ref().iter() {
@@ -2762,7 +2762,7 @@ impl NodeData {
                 _ => {}
             }
         }
-        
+
         // Hash other attributes - but skip contenteditable since that might change
         // Also skip Id/Class since they were already hashed above
         for attr in self.attributes().as_ref().iter() {
@@ -2770,12 +2770,12 @@ impl NodeData {
                 attr.hash(&mut hasher);
             }
         }
-        
+
         // Hash callback events (not the actual callback function pointers)
         for callback in self.callbacks.as_ref().iter() {
             callback.event.hash(&mut hasher);
         }
-        
+
         let h = hasher.finish();
         DomNodeHash { inner: h }
     }
@@ -2887,7 +2887,7 @@ impl NodeData {
     /// - Pseudo-selectors: `:hover { background: blue; }`
     /// - @-rules: `@os linux { font-size: 14px; }`
     /// - Nesting: `@os linux { font-size: 14px; :hover { color: red; }}`
-    /// 
+    ///
     /// # Examples
     /// ```rust
     /// # use azul_core::dom::NodeData;
@@ -2905,7 +2905,7 @@ impl NodeData {
         v.extend(parsed.into_library_owned_vec());
         self.css_props = v.into();
     }
-    
+
     /// Builder method for `set_css`
     pub fn with_css(mut self, style: &str) -> Self {
         self.set_css(style);
@@ -2977,8 +2977,8 @@ impl NodeData {
             .get_callbacks()
             .iter()
             .any(|cb| matches!(
-                cb.event, 
-                EventFilter::Hover(HoverEventFilter::MouseUp) 
+                cb.event,
+                EventFilter::Hover(HoverEventFilter::MouseUp)
                 | EventFilter::Hover(HoverEventFilter::LeftMouseUp)
             ));
 
@@ -5731,20 +5731,20 @@ impl Dom {
     /// - Pseudo-selectors: `:hover { background: blue; }`
     /// - @-rules: `@os linux { font-size: 14px; }`
     /// - Nesting: `@os linux { font-size: 14px; :hover { color: red; }}`
-    /// 
+    ///
     /// # Examples
     /// ```rust
     /// # use azul_core::dom::Dom;
     /// // Simple inline styles
     /// Dom::create_div().with_css("color: red; font-size: 14px;");
-    /// 
+    ///
     /// // With hover and active states
     /// Dom::create_div().with_css("
     ///     color: blue;
     ///     :hover { color: red; }
     ///     :active { color: green; }
     /// ");
-    /// 
+    ///
     /// // OS-specific with nested hover
     /// Dom::create_div().with_css("
     ///     font-size: 12px;
@@ -5760,7 +5760,7 @@ impl Dom {
         v.extend(parsed.into_library_owned_vec());
         self.root.css_props = v.into();
     }
-    
+
     /// Builder method for `set_css`
     pub fn with_css(mut self, style: &str) -> Self {
         self.set_css(style);
