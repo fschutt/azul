@@ -1,0 +1,590 @@
+//! Idiomatic OCaml wrappers: smart-constructed records with
+//! `Gc.finalise` finalisers and a nested `Azul` module hierarchy.
+//!
+//! For every IR struct that has a matching `<TypeName>_delete` C
+//! function, we emit:
+//!
+//! - In the **interface** (`azul.mli`):
+//!     - An abstract record type signature, e.g. `type app`.
+//!     - A `make_<t>` smart-constructor signature taking the FFI
+//!       struct by value and returning the wrapped record.
+//!     - A `dispose_<t>` signature for explicit early disposal.
+//!     - A `raw_<t>` accessor returning the underlying FFI struct
+//!       (for interop with raw `foreign` calls).
+//! - In the **implementation** (`azul.ml`):
+//!     - The record type itself: `type app = { mutable raw : Az_app
+//!       structure; mutable disposed : bool }`.
+//!     - The `make_<t>` function which constructs the record and
+//!       attaches a `Gc.finalise` finaliser that calls
+//!       `az_<type>_delete (Ctypes.addr r.raw)` exactly once and
+//!       sets `disposed <- true`.
+//!     - `dispose_<t>` — manually invokes the same teardown.
+//!
+//! In addition, we surface an idiomatic `module Azul` containing one
+//! nested module per IR class with `create` / `<method>` /
+//! `<static>` / `delete` style entry points. The `Az` prefix is
+//! dropped, so users write `Azul.App.create config` instead of
+//! `az_app_create config`.
+
+use anyhow::Result;
+use std::collections::BTreeSet;
+
+use super::super::config::CodegenConfig;
+use super::super::generator::CodeBuilder;
+use super::super::ir::{
+    ArgRefKind, CodegenIR, EnumVariantKind, FunctionDef, FunctionKind, StructDef, TypeCategory,
+};
+use super::functions::ocaml_binding_name;
+use super::{
+    inner_pointer_form, map_type_to_ocaml, ocaml_ffi_type_name, ocaml_module_name,
+    ocaml_wrapper_type_name, sanitize_doc, sanitize_identifier, to_snake_case,
+};
+
+// ============================================================================
+// Interface (.mli) emission
+// ============================================================================
+
+pub fn emit_wrapper_interface(
+    builder: &mut CodeBuilder,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) -> Result<()> {
+    builder.line("(* -------------------------------------------------------------------------- *)");
+    builder.line("(* Wrapper records (interface).                                                *)");
+    builder.line("(* -------------------------------------------------------------------------- *)");
+    builder.blank();
+
+    let delete_set = collect_delete_targets(ir);
+    for s in &ir.structs {
+        if !should_wrap(s, config) {
+            continue;
+        }
+        if !delete_set.contains(s.name.as_str()) {
+            continue;
+        }
+        emit_wrapper_signature(builder, s);
+    }
+    builder.blank();
+
+    // Polymorphic-variant signatures for tagged unions live in the
+    // interface because user code dispatches against them.
+    emit_union_variant_interface(builder, ir, config);
+    Ok(())
+}
+
+pub fn emit_idiomatic_module_interface(
+    builder: &mut CodeBuilder,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) -> Result<()> {
+    builder.line("(* -------------------------------------------------------------------------- *)");
+    builder.line("(* Idiomatic per-class submodules (interface).                                *)");
+    builder.line("(*                                                                            *)");
+    builder.line("(* The Dune library name `azul` causes this file to be reachable as the      *)");
+    builder.line("(* `Azul` module from the outside; the per-class submodules below appear as  *)");
+    builder.line("(* `Azul.App`, `Azul.Window_create_options`, etc.                             *)");
+    builder.line("(* -------------------------------------------------------------------------- *)");
+    builder.blank();
+
+    let delete_set = collect_delete_targets(ir);
+    for s in &ir.structs {
+        if !should_wrap(s, config) {
+            continue;
+        }
+        // Even structs that don't get a wrapper record may have
+        // static methods worth exposing; emit a minimal module either
+        // way when the type has any non-trait functions.
+        if !class_has_visible_methods(&s.name, ir) {
+            continue;
+        }
+        emit_module_interface_for_class(builder, s, ir, &delete_set);
+    }
+
+    builder.blank();
+    Ok(())
+}
+
+// ============================================================================
+// Implementation (.ml) emission
+// ============================================================================
+
+pub fn emit_wrapper_records(
+    builder: &mut CodeBuilder,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) -> Result<()> {
+    builder.line("(* -------------------------------------------------------------------------- *)");
+    builder.line("(* Wrapper records + Gc.finalise finalisers.                                  *)");
+    builder.line("(* -------------------------------------------------------------------------- *)");
+    builder.blank();
+
+    let delete_set = collect_delete_targets(ir);
+    for s in &ir.structs {
+        if !should_wrap(s, config) {
+            continue;
+        }
+        if !delete_set.contains(s.name.as_str()) {
+            continue;
+        }
+        emit_wrapper_record_impl(builder, s);
+    }
+    Ok(())
+}
+
+pub fn emit_idiomatic_module_implementation(
+    builder: &mut CodeBuilder,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) -> Result<()> {
+    builder.line("(* -------------------------------------------------------------------------- *)");
+    builder.line("(* Idiomatic per-class submodules (implementation).                           *)");
+    builder.line("(* -------------------------------------------------------------------------- *)");
+    builder.blank();
+
+    let delete_set = collect_delete_targets(ir);
+    for s in &ir.structs {
+        if !should_wrap(s, config) {
+            continue;
+        }
+        if !class_has_visible_methods(&s.name, ir) {
+            continue;
+        }
+        emit_module_impl_for_class(builder, s, ir, &delete_set);
+    }
+
+    builder.blank();
+    Ok(())
+}
+
+// ============================================================================
+// Filters
+// ============================================================================
+
+fn should_wrap(s: &StructDef, config: &CodegenConfig) -> bool {
+    if !config.should_include_type(&s.name) {
+        return false;
+    }
+    if !s.generic_params.is_empty() {
+        return false;
+    }
+    !matches!(
+        s.category,
+        TypeCategory::Recursive
+            | TypeCategory::VecRef
+            | TypeCategory::DestructorOrClone
+            | TypeCategory::GenericTemplate
+    )
+}
+
+fn collect_delete_targets(ir: &CodegenIR) -> BTreeSet<&str> {
+    ir.functions
+        .iter()
+        .filter(|f| f.kind == FunctionKind::Delete)
+        .map(|f| f.class_name.as_str())
+        .collect()
+}
+
+fn class_has_visible_methods(class_name: &str, ir: &CodegenIR) -> bool {
+    ir.functions_for_class(class_name)
+        .any(|f| !f.kind.is_trait_function())
+}
+
+// ============================================================================
+// Wrapper signatures (.mli)
+// ============================================================================
+
+fn emit_wrapper_signature(builder: &mut CodeBuilder, s: &StructDef) {
+    let wrapper = ocaml_wrapper_type_name(&s.name);
+    let ffi = ocaml_ffi_type_name(&s.name);
+
+    if !s.doc.is_empty() {
+        for d in &s.doc {
+            builder.line(&format!("(* {} *)", sanitize_doc(d)));
+        }
+    }
+    builder.line(&format!("type {}", wrapper));
+    builder.line(&format!(
+        "val make_{} : {} Ctypes.structure -> {}",
+        wrapper, ffi, wrapper
+    ));
+    builder.line(&format!(
+        "val dispose_{} : {} -> unit",
+        wrapper, wrapper
+    ));
+    builder.line(&format!(
+        "val raw_{} : {} -> {} Ctypes.structure",
+        wrapper, wrapper, ffi
+    ));
+}
+
+// ============================================================================
+// Wrapper records (.ml)
+// ============================================================================
+
+fn emit_wrapper_record_impl(builder: &mut CodeBuilder, s: &StructDef) {
+    let wrapper = ocaml_wrapper_type_name(&s.name);
+    let ffi = ocaml_ffi_type_name(&s.name);
+    // The C `_delete` symbol is `Az<TypeName>_delete`; the OCaml-side
+    // `foreign` binding is named by `to_snake_case` of that symbol.
+    let delete_binding = format!("az_{}_delete", to_snake_case(&s.name));
+
+    if !s.doc.is_empty() {
+        for d in &s.doc {
+            builder.line(&format!("(* {} *)", sanitize_doc(d)));
+        }
+    }
+    builder.line(&format!(
+        "type {} = {{ mutable raw : {} Ctypes.structure; mutable disposed : bool }}",
+        wrapper, ffi
+    ));
+    builder.line(&format!(
+        "let make_{} (raw : {} Ctypes.structure) : {} =",
+        wrapper, ffi, wrapper
+    ));
+    builder.indent();
+    builder.line("let r = { raw; disposed = false } in");
+    builder.line("Gc.finalise");
+    builder.line("  (fun a ->");
+    builder.line("     if not a.disposed then begin");
+    // _delete usually expects a pointer to the FFI struct.
+    builder.line(&format!(
+        "       (try {} (Ctypes.addr a.raw) with _ -> ());",
+        delete_binding
+    ));
+    builder.line("       a.disposed <- true");
+    builder.line("     end)");
+    builder.line("  r;");
+    builder.line("r");
+    builder.dedent();
+    builder.blank();
+
+    builder.line(&format!(
+        "let dispose_{} (a : {}) : unit =",
+        wrapper, wrapper
+    ));
+    builder.indent();
+    builder.line("if not a.disposed then begin");
+    builder.indent();
+    builder.line(&format!(
+        "(try {} (Ctypes.addr a.raw) with _ -> ());",
+        delete_binding
+    ));
+    builder.line("a.disposed <- true");
+    builder.dedent();
+    builder.line("end");
+    builder.dedent();
+    builder.blank();
+
+    builder.line(&format!(
+        "let raw_{} (a : {}) : {} Ctypes.structure = a.raw",
+        wrapper, wrapper, ffi
+    ));
+    builder.blank();
+}
+
+// ============================================================================
+// Idiomatic module surface
+// ============================================================================
+
+fn emit_module_interface_for_class(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    ir: &CodegenIR,
+    delete_set: &BTreeSet<&str>,
+) {
+    let module_name = ocaml_module_name(&s.name);
+    let wrapper = ocaml_wrapper_type_name(&s.name);
+    let ffi = ocaml_ffi_type_name(&s.name);
+    let has_wrapper = delete_set.contains(s.name.as_str());
+
+    builder.line(&format!("module {} : sig", module_name));
+    builder.indent();
+    if has_wrapper {
+        builder.line(&format!("type t = {}", wrapper));
+    } else {
+        builder.line(&format!("type t = {} Ctypes.structure", ffi));
+    }
+    for func in ir.functions_for_class(&s.name) {
+        if func.kind.is_trait_function() {
+            continue;
+        }
+        let sig = build_method_signature(func, ir, has_wrapper, &s.name);
+        builder.line(&sig);
+    }
+    builder.dedent();
+    builder.line("end");
+    builder.blank();
+}
+
+fn emit_module_impl_for_class(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    ir: &CodegenIR,
+    delete_set: &BTreeSet<&str>,
+) {
+    let module_name = ocaml_module_name(&s.name);
+    let wrapper = ocaml_wrapper_type_name(&s.name);
+    let ffi = ocaml_ffi_type_name(&s.name);
+    let has_wrapper = delete_set.contains(s.name.as_str());
+
+    builder.line(&format!("module {} = struct", module_name));
+    builder.indent();
+    if has_wrapper {
+        builder.line(&format!("type t = {}", wrapper));
+    } else {
+        builder.line(&format!("type t = {} Ctypes.structure", ffi));
+    }
+
+    for func in ir.functions_for_class(&s.name) {
+        if func.kind.is_trait_function() {
+            continue;
+        }
+        emit_method_impl(builder, func, ir, has_wrapper, &s.name);
+    }
+    builder.dedent();
+    builder.line("end");
+    builder.blank();
+}
+
+/// Build the OCaml type signature for a wrapper-side method.
+fn build_method_signature(
+    func: &FunctionDef,
+    ir: &CodegenIR,
+    has_wrapper: bool,
+    class_name: &str,
+) -> String {
+    let method_name = idiomatic_method_name(&func.method_name);
+    let class_lower = class_name.to_lowercase();
+    let is_self_arg = |name: &str| name == "self" || name == class_lower;
+
+    let mut atoms: Vec<String> = Vec::new();
+    let takes_self = matches!(
+        func.kind,
+        FunctionKind::Method | FunctionKind::MethodMut | FunctionKind::DeepCopy
+    );
+    let _ = has_wrapper; // signature uses `t` regardless of wrapper-ness
+    if takes_self {
+        atoms.push("t".to_string());
+    }
+    for a in &func.args {
+        if is_self_arg(&a.name) {
+            continue;
+        }
+        let view = match a.ref_kind {
+            ArgRefKind::Owned => map_type_to_ocaml(&a.type_name, ir),
+            ArgRefKind::Ref
+            | ArgRefKind::RefMut
+            | ArgRefKind::Ptr
+            | ArgRefKind::PtrMut => inner_pointer_form(a.type_name.trim(), ir),
+        };
+        atoms.push(view);
+    }
+
+    let returns_self = func
+        .return_type
+        .as_deref()
+        .map(|r| r.trim() == class_name)
+        .unwrap_or(false);
+    let return_view = if let Some(r) = &func.return_type {
+        let t = r.trim();
+        if matches!(t, "" | "void" | "()" | "c_void") {
+            "unit".to_string()
+        } else if returns_self && has_wrapper {
+            "t".to_string()
+        } else {
+            map_type_to_ocaml(r, ir)
+        }
+    } else {
+        "unit".to_string()
+    };
+
+    if atoms.is_empty() {
+        format!("val {} : unit -> {}", method_name, return_view)
+    } else {
+        format!("val {} : {} -> {}", method_name, atoms.join(" -> "), return_view)
+    }
+}
+
+fn emit_method_impl(
+    builder: &mut CodeBuilder,
+    func: &FunctionDef,
+    ir: &CodegenIR,
+    has_wrapper: bool,
+    class_name: &str,
+) {
+    let method_name = idiomatic_method_name(&func.method_name);
+    let class_lower = class_name.to_lowercase();
+    let is_self_arg = |name: &str| name == "self" || name == class_lower;
+
+    if !func.doc.is_empty() {
+        for d in &func.doc {
+            builder.line(&format!("(* {} *)", sanitize_doc(d)));
+        }
+    }
+
+    let takes_self = matches!(
+        func.kind,
+        FunctionKind::Method | FunctionKind::MethodMut | FunctionKind::DeepCopy
+    );
+
+    // Build the parameter list.
+    let mut params: Vec<String> = Vec::new();
+    if takes_self {
+        params.push("self".to_string());
+    }
+    let mut user_args: Vec<&super::super::ir::FunctionArg> = Vec::new();
+    for a in &func.args {
+        if is_self_arg(&a.name) {
+            continue;
+        }
+        user_args.push(a);
+    }
+    for a in &user_args {
+        params.push(sanitize_identifier(&to_snake_case(&a.name)));
+    }
+    let param_str = if params.is_empty() {
+        "()".to_string()
+    } else {
+        params.join(" ")
+    };
+
+    // Build the call expression.
+    let raw_binding = ocaml_binding_name(&func.c_name);
+
+    let mut call_args: Vec<String> = Vec::new();
+    if takes_self {
+        if has_wrapper {
+            // Wrapper record: pass &raw to functions expecting a
+            // pointer; for by-value we pass the structure itself.
+            // The IR encodes this via the first arg's ref_kind, but
+            // by convention azul's instance methods take `&self` (a
+            // pointer). We default to `Ctypes.addr self.raw`.
+            call_args.push("(Ctypes.addr self.raw)".to_string());
+        } else {
+            call_args.push("(Ctypes.addr self)".to_string());
+        }
+    }
+    for a in &user_args {
+        let id = sanitize_identifier(&to_snake_case(&a.name));
+        call_args.push(id);
+    }
+    let call_str = if call_args.is_empty() {
+        format!("{} ()", raw_binding)
+    } else {
+        format!("{} {}", raw_binding, call_args.join(" "))
+    };
+
+    let returns_self = func
+        .return_type
+        .as_deref()
+        .map(|r| r.trim() == class_name)
+        .unwrap_or(false);
+
+    let body = if returns_self && has_wrapper {
+        format!("make_{} ({})", ocaml_wrapper_type_name(class_name), call_str)
+    } else {
+        call_str
+    };
+
+    builder.line(&format!("let {} {} = {}", method_name, param_str, body));
+}
+
+// ============================================================================
+// Polymorphic-variant signature for tagged unions
+// ============================================================================
+
+fn emit_union_variant_interface(
+    builder: &mut CodeBuilder,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) {
+    let mut emitted_header = false;
+    for e in &ir.enums {
+        if !config.should_include_type(&e.name) {
+            continue;
+        }
+        if !e.is_union {
+            continue;
+        }
+        if !e.generic_params.is_empty() {
+            continue;
+        }
+        if matches!(
+            e.category,
+            TypeCategory::Recursive
+                | TypeCategory::DestructorOrClone
+                | TypeCategory::GenericTemplate
+        ) {
+            continue;
+        }
+        if !emitted_header {
+            builder.line(
+                "(* Polymorphic-variant views for tagged-union enums. The actual *)",
+            );
+            builder.line(
+                "(* payload conversion lives in the implementation; here we expose *)",
+            );
+            builder.line("(* the variant signature for pattern-matching. *)");
+            emitted_header = true;
+        }
+        let view_name = format!("{}_view", ocaml_ffi_type_name(&e.name));
+        builder.line(&format!("type {} = ", view_name));
+        builder.indent();
+        let mut first = true;
+        for v in &e.variants {
+            let lit = polymorphic_variant_literal(&v.name);
+            let line = match &v.kind {
+                EnumVariantKind::Unit => format!("`{}", lit),
+                EnumVariantKind::Tuple(_) | EnumVariantKind::Struct(_) => {
+                    // Payload-bearing variants are surfaced as opaque
+                    // ints (offset into the FFI payload). Users go
+                    // through the FFI struct directly when they need
+                    // typed payload access.
+                    format!("`{} of int", lit)
+                }
+            };
+            if first {
+                builder.line(&format!("[ {}", line));
+                first = false;
+            } else {
+                builder.line(&format!("| {}", line));
+            }
+        }
+        builder.line("]");
+        builder.dedent();
+    }
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+/// Pick an idiomatic OCaml method name from the api.json method name.
+/// `new` is renamed to `create` (OCaml's `new` is a class-related
+/// keyword; even though we don't use OCaml classes, `create` reads
+/// better and matches the C# / Ada conventions).
+fn idiomatic_method_name(method_name: &str) -> String {
+    let snake = to_snake_case(method_name);
+    if snake == "new" {
+        return "create".to_string();
+    }
+    sanitize_identifier(&snake)
+}
+
+/// Produce a polymorphic-variant tag literal. Backticks come from the
+/// caller; this function ensures the tag itself is a valid OCaml
+/// identifier (must start uppercase or be an identifier-like token).
+fn polymorphic_variant_literal(name: &str) -> String {
+    // Polymorphic variants accept any capitalised identifier.
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_uppercase() => name.to_string(),
+        Some(c) => {
+            let mut out = String::with_capacity(name.len());
+            out.extend(c.to_uppercase());
+            out.push_str(chars.as_str());
+            out
+        }
+        None => "Empty".to_string(),
+    }
+}

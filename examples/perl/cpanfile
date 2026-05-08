@@ -1,0 +1,18 @@
+# Local dev: depend on FFI::Platypus 2.x and FFI::CheckLib so `find_lib_or_die`
+# can locate libazul.so / libazul.dylib / azul.dll on the host.
+#
+# Install with:
+#     cpanm --installdeps .
+# then run the example:
+#     perl -Ilib hello-world.pl
+#
+# Generated Azul.pm lives under target/codegen/v2/perl/lib/Azul.pm by
+# default; symlink it into ./lib or set PERL5LIB if your layout differs.
+
+requires 'perl', '5.014';
+requires 'FFI::Platypus', '>= 2.00';
+requires 'FFI::CheckLib', '>= 0.28';
+
+on 'test' => sub {
+    requires 'Test::More', '>= 0.98';
+};

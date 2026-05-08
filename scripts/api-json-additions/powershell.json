@@ -1,0 +1,88 @@
+{
+    "tabOrder_append": "powershell",
+    "languages_entry": {
+        "powershell": {
+            "displayName": "PowerShell",
+            "platforms": {
+                "linux": {
+                    "description": "Download azul, drop the .psm1/.psd1 next to libazul.so, and Import-Module",
+                    "steps": [
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/Azul.psm1"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/Azul.psd1"
+                        },
+                        {
+                            "type": "command",
+                            "content": "pwsh -NoProfile -Command \"Import-Module ./Azul.psd1; Set-AzulLibraryPath -Path (Get-Location)\""
+                        },
+                        {
+                            "type": "command",
+                            "content": "pwsh ./hello-world.ps1"
+                        }
+                    ]
+                },
+                "macos": {
+                    "description": "Download azul, drop the .psm1/.psd1 next to libazul.dylib, and Import-Module",
+                    "steps": [
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/Azul.psm1"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/Azul.psd1"
+                        },
+                        {
+                            "type": "command",
+                            "content": "pwsh -NoProfile -Command \"Import-Module ./Azul.psd1; Set-AzulLibraryPath -Path (Get-Location)\""
+                        },
+                        {
+                            "type": "command",
+                            "content": "pwsh ./hello-world.ps1"
+                        }
+                    ]
+                },
+                "windows": {
+                    "description": "Download azul, drop the .psm1/.psd1 next to azul.dll, and Import-Module",
+                    "steps": [
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/Azul.psm1"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/Azul.psd1"
+                        },
+                        {
+                            "type": "command",
+                            "content": "powershell -ExecutionPolicy Bypass -Command \"Import-Module .\\Azul.psd1; Set-AzulLibraryPath -Path (Get-Location)\""
+                        },
+                        {
+                            "type": "command",
+                            "content": "powershell -ExecutionPolicy Bypass -File .\\hello-world.ps1"
+                        }
+                    ]
+                }
+            }
+        }
+    },
+    "examples_code_additions": {
+        "hello-world": "powershell/hello-world.ps1"
+    }
+}

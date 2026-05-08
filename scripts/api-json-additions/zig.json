@@ -1,0 +1,88 @@
+{
+    "tabOrder_append": "zig",
+    "languages_entry": {
+        "zig": {
+            "displayName": "Zig",
+            "platforms": {
+                "linux": {
+                    "description": "Download azul.h, azul.zig, the native library, and a minimal build.zig",
+                    "steps": [
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul.h"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul.zig"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/build.zig"
+                        },
+                        {
+                            "type": "command",
+                            "content": "LD_LIBRARY_PATH=. zig build run"
+                        }
+                    ]
+                },
+                "macos": {
+                    "description": "Download azul.h, azul.zig, the native library, and a minimal build.zig",
+                    "steps": [
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul.h"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul.zig"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/build.zig"
+                        },
+                        {
+                            "type": "command",
+                            "content": "DYLD_LIBRARY_PATH=. zig build run"
+                        }
+                    ]
+                },
+                "windows": {
+                    "description": "Download azul.h, azul.zig, the native library, and a minimal build.zig",
+                    "steps": [
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul.h"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul.zig"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/build.zig"
+                        },
+                        {
+                            "type": "command",
+                            "content": "zig build run"
+                        }
+                    ]
+                }
+            }
+        }
+    },
+    "examples_code_additions": {
+        "hello-world": "zig/hello-world.zig"
+    }
+}

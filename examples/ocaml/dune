@@ -1,0 +1,14 @@
+; ============================================================================
+; Dune build manifest for the OCaml hello-world example.
+;
+; Build with:
+;     dune build
+;     LD_LIBRARY_PATH=. ./_build/default/hello_world.exe
+;
+; The native library `libazul.so` (or `.dylib` / `.dll`) and the generated
+; `azul.ml` / `azul.mli` must be present in this directory.
+; ============================================================================
+
+(executable
+ (name hello_world)
+ (libraries ctypes ctypes-foreign azul))

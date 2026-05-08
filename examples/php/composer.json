@@ -1,0 +1,14 @@
+{
+    "name": "azul/hello-world",
+    "description": "Hello-world PHP example for the Azul GUI framework.",
+    "type": "project",
+    "require": {
+        "php": ">=7.4",
+        "ext-ffi": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "Azul\\": "."
+        }
+    }
+}
