@@ -18,9 +18,12 @@ generated_at: 2026-05-02T12:00:00Z
 
 # SVG
 
-> WIP. SVG geometry types are stable. The higher-level `Svg` parser and the GPU stroke pipeline still have rough edges.
+## Introduction
 
-SVG support in azul is built around a small, copy-friendly geometry model. You construct paths in memory, tessellate them once, and either upload the result to a GPU buffer or rasterize it via the CPU SVG path. Higher-level XML-driven SVG (image embedding, gradients, full document parsing) goes through the `Svg` helper.
+Scalable Vector Graphics (svg) support in azul is built around a small, copy-friendly 
+geometry model. You construct paths in memory, tessellate them once, and either upload 
+the result to a GPU buffer or rasterize it via the CPU SVG path. Higher-level XML-driven 
+SVG (image embedding, gradients, full document parsing) goes through the `Svg` helper.
 
 ## Geometry types
 
@@ -35,7 +38,10 @@ pub struct SvgPath { pub items: SvgPathElementVec }
 pub struct SvgMultiPolygon { pub rings: SvgPathVec }
 ```
 
-An `SvgPath` is one open or closed contour built from line and Bézier segments. Several paths combine into an `SvgMultiPolygon`. Interior holes are represented by reversing the winding order of a ring. The fill rule defaults to `Winding`. Switch to `EvenOdd` via `SvgFillStyle.fill_rule` when interior overlaps need to cancel.
+An `SvgPath` is one open or closed contour built from line and Bézier segments. Several 
+paths combine into an `SvgMultiPolygon`. Interior holes are represented by reversing the 
+winding order of a ring. The fill rule defaults to `Winding`. Switch to `EvenOdd` via 
+`SvgFillStyle.fill_rule` when interior overlaps need to cancel.
 
 Construct a path with `SvgPath::create(items)` and a multi-polygon with `SvgMultiPolygon::create(rings)`. Inspect with `SvgPath::is_closed`, `get_start`, `get_end`, `get_bounds`. Modify with `SvgPath::close`, `reverse`, `join_with`.
 
@@ -65,11 +71,15 @@ pub struct TessellatedSvgNode {
 - `transform`. An optional pre-tessellation transform.
 
 ```rust,no_run
-# use azul::svg::{SvgFillStyle, SvgMultiPolygon};
-# fn polygon() -> SvgMultiPolygon { panic!() }
-let mut style = SvgFillStyle::default();
-style.tolerance = 0.5;
-let mesh = polygon().tessellate_fill(style);
+use azul::svg::{SvgFillStyle, SvgMultiPolygon};
+
+fn polygon() -> SvgMultiPolygon { panic!() }
+
+fn main() {
+    let mut style = SvgFillStyle::default();
+    style.tolerance = 0.5;
+    let mesh = polygon().tessellate_fill(style);   
+}
 ```
 
 Stroke options live in `SvgStrokeStyle`:
@@ -85,14 +95,18 @@ Stroke options live in `SvgStrokeStyle`:
 Once tessellated, a node can be uploaded once and drawn many times by wrapping it in a `TessellatedGPUSvgNode`:
 
 ```rust,no_run
-# use azul::svg::*;
-# use azul::gl::GlContextPtr;
-# fn ctx() -> GlContextPtr { panic!() }
-# fn mesh() -> TessellatedSvgNode { panic!() }
+use azul::svg::*;
+use azul::gl::GlContextPtr;
+
+fn ctx() -> GlContextPtr { panic!() }
+fn mesh() -> TessellatedSvgNode { panic!() }
+
 let gpu_mesh = TessellatedGPUSvgNode::create(&mesh(), ctx());
 ```
 
-Per-frame drawing happens inside an image-rendering callback (see [Canvas and GL Textures](canvas-gl.md)) by calling `Texture::draw_tesselated_svg_gpu_node`, optionally with a transform list to translate, rotate, or scale the geometry.
+Per-frame drawing happens inside an image-rendering callback (see 
+[Canvas and GL Textures](canvas-gl.md)) by calling `Texture::draw_tesselated_svg_gpu_node`, 
+optionally with a transform list to translate, rotate, or scale the geometry.
 
 ## XML-level SVG
 

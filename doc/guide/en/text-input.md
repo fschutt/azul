@@ -32,8 +32,8 @@ Both share the same event plumbing. A focused, editable node receives `Focus(Tex
 `TextInput::create()` returns a default-styled widget; `dom()` consumes it into a `Dom`.
 
 ```rust,no_run
-# use azul::prelude::*;
-# use azul::widgets::TextInput;
+use azul::prelude::*;
+
 let input = TextInput::create()
     .with_placeholder("Your name".into())
     .with_text("Felix".into())
@@ -51,9 +51,10 @@ Three optional callbacks fire in addition to the default key/text handlers:
 - `with_on_focus_lost(data, cb)`: fires when focus moves elsewhere. Signature: `extern "C" fn(RefAny, CallbackInfo, TextInputState) -> Update`.
 
 ```rust,no_run
-# use azul::prelude::*;
-# use azul::widgets::{TextInput, TextInputState, OnTextInputReturn, TextInputValid};
-# struct Form { name: String }
+use azul::prelude::*;
+
+struct Form { name: String }
+
 extern "C" fn on_input(
     mut data: RefAny,
     _info: CallbackInfo,
@@ -90,7 +91,8 @@ let dom = azul::widgets::TextInput::create()
 `NodeData::set_contenteditable(true)` (or `Dom::with_contenteditable(true)` for builders) marks any node as an editable region:
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 let line = Dom::create_div()
     .with_contenteditable(true)
     .with_tab_index(TabIndex::Auto);
@@ -124,7 +126,8 @@ The widget's internal callbacks already do this for you. If you write a custom c
 `CallbackInfo::get_text_changeset()` returns the current `PendingTextEdit`:
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 extern "C" fn on_key(_data: RefAny, info: CallbackInfo) -> Update {
     if let Some(edit) = info.get_text_changeset() {
         let _inserted: &str = edit.inserted_text.as_str();

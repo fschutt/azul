@@ -53,7 +53,8 @@ combinators; the `@media`, `@os`, `@theme`, and `@lang` at-rules; and
 shorthand properties for the common cases.
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 let css = Css::from_string("
     body { font-family: sans-serif; padding: 20px; }
     .panel { background: #f0f0f0; border: 1px solid #ccc; padding: 12px; }
@@ -91,7 +92,8 @@ enum and feed the same cascade. The difference is *where* the rules live.
   value and don't want to round-trip through string parsing.
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 // 1. Inline string on one node
 let _ = Dom::create_div()
     .with_css("color: blue; padding: 4px; :hover { color: red; }");
@@ -157,7 +159,8 @@ Conditional rule blocks. The condition is evaluated per frame, so changing
 the system theme or rotating a window adapts without re-cascading.
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 let _ = Dom::create_div().with_css("
     color: black;
     @theme dark { color: white; }
@@ -263,7 +266,8 @@ Anywhere a colour or font is expected, `system:<name>` resolves at cascade
 time against the running OS and theme:
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 let _ = Dom::create_div().with_css("
     background: system:control;
     color: system:control-text;
@@ -284,7 +288,8 @@ with `@theme` and `@os` the same way any other property would.
 `Css::from_string` returns the parsed stylesheet:
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 let css = Css::from_string("
     color: rebeccapurple;
 ".into());

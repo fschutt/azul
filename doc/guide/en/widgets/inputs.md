@@ -55,7 +55,8 @@ re-indexing.
 ### Building one
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 let dom = TextInput::create()
     .with_text("hello".into())
     .with_placeholder("type something...".into())
@@ -80,7 +81,8 @@ character. The framework rolls the buffer back to the pre-edit state and
 re-renders. `Yes` keeps the edit.
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 extern "C" fn validate(
     _data: RefAny, _info: CallbackInfo, state: TextInputState,
 ) -> OnTextInputReturn {
@@ -122,7 +124,8 @@ Three slots accept CSS replacements.
 the initial value:
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 let dom = NumberInput::create(42.0).dom();
 ```
 
@@ -157,9 +160,12 @@ underlying `TextInput`'s text-input and virtual-key-down hooks.
   `TextInput`.
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 extern "C" fn on_change(
-    _d: RefAny, _i: CallbackInfo, state: NumberInputState,
+    _d: RefAny, 
+    _i: CallbackInfo, 
+    state: NumberInputState,
 ) -> Update {
     let _ = state.number - state.previous;
     Update::DoNothing

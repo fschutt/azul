@@ -34,14 +34,20 @@ DOM in a column flexbox so the header stays a fixed height and the content
 fills the rest.
 
 ```rust,no_run
-# use azul::prelude::*;
-extern "C" fn on_tab(
-    _d: RefAny, _i: CallbackInfo, _s: TabHeaderState,
+use azul::prelude::*;
+extern "C" 
+fn on_tab(
+    _d: RefAny, 
+    _i: CallbackInfo, 
+    _s: TabHeaderState,
 ) -> Update {
     Update::RefreshDom
 }
 
-let labels = StringVec::from_vec(vec!["General".into(), "Advanced".into()]);
+let labels = StringVec::from_vec(vec![
+    "General".into(), 
+    "Advanced".into()
+]);
 let dom = Dom::create_div()
     .with_child(
         TabHeader::create(labels)
@@ -73,8 +79,9 @@ pub struct TreeViewNode {
 Build the data with the chained `with_*` builders and convert in one call.
 
 ```rust,no_run
-# use azul::prelude::*;
-extern "C" fn on_click(_d: RefAny, _i: CallbackInfo, _idx: usize) -> Update {
+use azul::prelude::*;
+extern "C" 
+fn on_click(_d: RefAny, _i: CallbackInfo, _idx: usize) -> Update {
     Update::RefreshDom
 }
 
@@ -134,7 +141,8 @@ more titled `RibbonSection`s. Sections separate themselves with vertical
 dividers and stack their title below the content.
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 let home = RibbonTab::new("Home".into())
     .with_section(RibbonSection::new("Clipboard".into(), Dom::create_div()))
     .with_section(RibbonSection::new("Font".into(), Dom::create_div()));

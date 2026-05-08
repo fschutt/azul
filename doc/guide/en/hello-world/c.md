@@ -19,6 +19,8 @@ generated_at: 2026-05-02T00:00:00Z
 
 # Hello World [C]
 
+## Introduction
+
 C is the "native" surface of Azul. Every other language binding (Rust, C++, Python, ...) 
 ultimately calls into the same `azul.h` symbols described here, so anything that works in 
 C works everywhere.

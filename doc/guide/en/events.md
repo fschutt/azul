@@ -20,14 +20,16 @@ generated_at: 2026-05-02T05:51:14Z
 A callback is a function pointer plus a `RefAny`, registered against an event filter on a DOM node. When an event matches a registered filter, the framework borrows your `RefAny`, calls the callback, and reads the returned `Update` to decide whether to re-run the layout.
 
 ```rust,no_run
-# use azul::prelude::*;
-# struct Counter { n: usize }
-# extern "C" fn on_click(_: RefAny, _: CallbackInfo) -> Update { Update::DoNothing }
-# fn build(mut data: RefAny) -> Dom {
-let mut button = Dom::create_div();
-button.add_callback(EventFilter::Hover(HoverEventFilter::MouseUp), data, on_click);
-# button
-# }
+use azul::prelude::*;
+
+struct Counter { n: usize }
+
+extern "C" fn on_click(_: RefAny, _: CallbackInfo) -> Update { Update::DoNothing }
+
+fn build(mut data: RefAny) -> Dom {
+    Dom::create_div()
+        .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), data, on_click)
+}
 ```
 
 ## Adding a callback
@@ -35,13 +37,20 @@ button.add_callback(EventFilter::Hover(HoverEventFilter::MouseUp), data, on_clic
 The primitive is `Dom::add_callback` (and the builder form `Dom::with_callback`). Both take three arguments: the filter, a `RefAny` (your data), and a function pointer with the signature `extern "C" fn(RefAny, CallbackInfo) -> Update`.
 
 ```rust,no_run
-# use azul::prelude::*;
-# struct State;
-# extern "C" fn handler(_: RefAny, _: CallbackInfo) -> Update { Update::DoNothing }
-# let data: RefAny = RefAny::new(State);
-let mut node = Dom::create_div()
-    .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), data.clone(), handler)
-    .with_callback(EventFilter::Focus(FocusEventFilter::FocusReceived), data, handler);
+use azul::prelude::*;
+
+struct State;
+
+extern "C" fn handler(_: RefAny, _: CallbackInfo) -> Update { 
+    Update::DoNothing 
+}
+
+fn main() {
+    let data: RefAny = RefAny::new(State);
+    let node = Dom::create_div()
+        .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), data.clone(), handler)
+        .with_callback(EventFilter::Focus(FocusEventFilter::FocusReceived), data, handler);   
+}
 ```
 
 The `Update` enum has three variants:
@@ -88,8 +97,10 @@ For "click", use `LeftMouseUp` rather than `MouseDown`. It matches the W3C activ
 Same vocabulary as `HoverEventFilter`, but the node must currently hold keyboard focus. Set a tab index (or focus programmatically) for the filter to fire:
 
 ```rust,no_run
-# use azul::prelude::*;
-let input = Dom::create_div().with_tab_index(TabIndex::Auto);
+use azul::prelude::*;
+
+let input = Dom::create_div()
+    .with_tab_index(TabIndex::Auto);
 ```
 
 `TabIndex::Auto` makes the node focusable in source order. `TabIndex::NoKeyboardFocus` makes it focusable programmatically but skips it in tab navigation. `TabIndex::OverrideInParent(n)` pins the node at slot `n` within its parent's tab order.
@@ -156,10 +167,14 @@ For each event the framework computes the path from root to target and calls han
 A click on a deeply nested span walks back up through its ancestors, firing `Hover(MouseUp)` handlers on every node along the way that registered one. To stop the walk, call one of the propagation methods on `CallbackInfo`:
 
 ```rust,no_run
-# use azul::prelude::*;
-extern "C" fn handler(_: RefAny, mut info: CallbackInfo) -> Update {
-    info.stop_propagation();           // remaining handlers on the same node still run
-    info.stop_immediate_propagation(); // nothing else runs
+use azul::prelude::*;
+
+extern "C" 
+fn handler(_: RefAny, mut info: CallbackInfo) -> Update {
+    // remaining handlers on the same node still run
+    info.stop_propagation();
+    // nothing else runs
+    info.stop_immediate_propagation();
     Update::DoNothing
 }
 ```
@@ -180,7 +195,8 @@ Some events have built-in behaviour that runs after every callback returns, unle
 To suppress the default action from a callback:
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 extern "C" fn on_keydown(_: RefAny, mut info: CallbackInfo) -> Update {
     info.prevent_default();
     Update::DoNothing
@@ -205,8 +221,10 @@ let state: &FullWindowState = info.get_current_window_state();
 Read state inside the callback to check modifier keys for shortcuts:
 
 ```rust,no_run
-# use azul::prelude::*;
-# struct App;
+use azul::prelude::*;
+
+struct App;
+
 extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let kbd = info.get_current_keyboard_state();
     let pressed = kbd.pressed_virtual_keycodes.as_slice();
@@ -226,47 +244,73 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
 **Click:**
 
 ```rust,no_run
-# use azul::prelude::*;
-# struct S;
-# extern "C" fn click(_: RefAny, _: CallbackInfo) -> Update { Update::DoNothing }
-# let data: RefAny = RefAny::new(S);
-Dom::create_div().with_callback(
-    EventFilter::Hover(HoverEventFilter::LeftMouseUp),
-    data,
-    click,
-);
+use azul::prelude::*;
+
+struct S;
+
+extern "C" fn click(_: RefAny, _: CallbackInfo) -> Update { 
+    Update::DoNothing 
+}
+
+fn main() {
+    let data: RefAny = RefAny::new(S);
+    Dom::create_div().with_callback(
+        EventFilter::Hover(HoverEventFilter::LeftMouseUp),
+        data,
+        click,
+    );
+}
 ```
 
 **Hover effect** (use CSS `:hover` for visual change; use a callback only when you need to mutate state):
 
 ```rust,no_run
-# use azul::prelude::*;
-# struct S;
-# extern "C" fn enter(_: RefAny, _: CallbackInfo) -> Update { Update::DoNothing }
-# extern "C" fn leave(_: RefAny, _: CallbackInfo) -> Update { Update::DoNothing }
-# let data: RefAny = RefAny::new(S);
-Dom::create_div()
-    .with_callback(EventFilter::Hover(HoverEventFilter::MouseEnter), data.clone(), enter)
-    .with_callback(EventFilter::Hover(HoverEventFilter::MouseLeave), data,        leave);
+use azul::prelude::*;
+
+struct S;
+
+extern "C" 
+fn enter(_: RefAny, _: CallbackInfo) -> Update { 
+    Update::DoNothing 
+}
+
+extern "C" 
+fn leave(_: RefAny, _: CallbackInfo) -> Update { 
+    Update::DoNothing 
+}
+
+fn main() {
+    let data: RefAny = RefAny::new(S);
+    Dom::create_div()
+        .with_callback(EventFilter::Hover(HoverEventFilter::MouseEnter), data.clone(), enter)
+        .with_callback(EventFilter::Hover(HoverEventFilter::MouseLeave), data,        leave);   
+}
 ```
 
 **Window-level keyboard shortcut:**
 
 ```rust,no_run
-# use azul::prelude::*;
-# struct S;
-# extern "C" fn on_key(_: RefAny, _: CallbackInfo) -> Update { Update::DoNothing }
-# let data: RefAny = RefAny::new(S);
-Dom::create_body().with_callback(
-    EventFilter::Window(WindowEventFilter::VirtualKeyDown),
-    data,
-    on_key,
-);
+use azul::prelude::*;
+
+struct S;
+
+extern "C" fn on_key(_: RefAny, _: CallbackInfo) -> Update { 
+    Update::DoNothing 
+}
+
+fn main() {
+    let data: RefAny = RefAny::new(S);
+    Dom::create_body().with_callback(
+        EventFilter::Window(WindowEventFilter::VirtualKeyDown),
+        data,
+        on_key,
+    );
+}
 ```
 
 **Tab order:** call `.with_tab_index(TabIndex::Auto)` to make a node focusable. Tab and Shift+Tab move through nodes in DOM order. Use `TabIndex::NoKeyboardFocus` to make a node focusable programmatically but skip it in tab navigation.
 
-## Where it goes wrong
+## Potential Problems
 
 - **Callback never fires.** Check the filter scope. `Hover(LeftMouseUp)` only fires when the cursor is over the node at the moment of release. If the user pressed inside, dragged out, and released outside, no click event fires on either node.
 - **`Focus(...)` never fires.** The node has no tab index. Add `.with_tab_index(TabIndex::Auto)` so the node can receive focus.

@@ -43,7 +43,8 @@ pub type ThreadCallbackType =
 Build a `Thread` with `Thread::create` and hand it to the event loop via `CallbackInfo::add_thread`:
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 extern "C" fn worker(
     initial: RefAny,
     mut sender: ThreadSender,
@@ -81,8 +82,8 @@ pub type WriteBackCallbackType =
 Full example:
 
 ```rust,no_run
-# use azul::prelude::*;
-# use azul::option::OptionRefAny;
+use azul::prelude::*;
+
 struct Loaded { rows: Vec<u32> }
 struct MyModel { rows: Vec<u32> }
 
@@ -128,10 +129,10 @@ The first `RefAny` argument of `apply_loaded` is the `writeback_data` passed to 
 For the no-payload case (a thread that just wants to tell the UI to refresh) send `ThreadReceiveMsg::Update`:
 
 ```rust,no_run
-# use azul::prelude::*;
-# fn _stub(mut sender: ThreadSender) {
-sender.send(ThreadReceiveMsg::Update(Update::RefreshDom));
-# }
+use azul::prelude::*;
+fn _stub(mut sender: ThreadSender) {
+  sender.send(ThreadReceiveMsg::Update(Update::RefreshDom));
+}
 ```
 
 The framework applies the `Update` value verbatim. No callback runs.
@@ -151,16 +152,18 @@ The framework applies the `Update` value verbatim. No callback runs.
 A long-running thread should poll for `TerminateThread` between work units:
 
 ```rust,no_run
-# use azul::prelude::*;
-# fn _stub(mut recv: ThreadReceiver, items: Vec<u32>) {
-for item in items {
+use azul::prelude::*;
+
+fn _stub(mut recv: ThreadReceiver, items: Vec<u32>) {
+  for item in items {
     if let OptionThreadSendMsg::Some(ThreadSendMsg::TerminateThread) = recv.recv() {
         return;
     }
     process(item);
+  }
 }
-# }
-# fn process(_: u32) {}
+
+fn process(_: u32) { }
 ```
 
 If the worker doesn't check, it runs to completion regardless. The framework's destructor sends `TerminateThread` and then joins. A non-cooperative thread blocks teardown until its callback returns.
@@ -168,9 +171,13 @@ If the worker doesn't check, it runs to completion regardless. The framework's d
 ## Cancelling from the main thread
 
 ```rust,no_run
-# use azul::prelude::*;
-# struct MyModel { thread_id: Option<ThreadId> }
-extern "C" fn on_cancel(mut data: RefAny, mut event: CallbackInfo) -> Update {
+use azul::prelude::*;
+struct MyModel { 
+    thread_id: Option<ThreadId> 
+}
+
+extern "C" 
+fn on_cancel(mut data: RefAny, mut event: CallbackInfo) -> Update {
     let mut m = match data.downcast_mut::<MyModel>() {
         Some(m) => m, None => return Update::DoNothing,
     };

@@ -34,22 +34,43 @@ any other node. The inside isn't built until the framework calls the
 callback.
 
 ```rust,no_run
-# use azul::prelude::*;
-struct ListData { items: Vec<String> }
+use azul::prelude::*;
 
-extern "C" fn render_list(
-    mut data: RefAny,
-    info: VirtualViewCallbackInfo,
-) -> VirtualViewReturn {
-    let d = match data.downcast_ref::<ListData>() { Some(d) => d, None => return VirtualViewReturn::default() };
-    let dom: Dom = d.items.iter().map(|s| Dom::create_li_with_text(s.clone())).collect();
-    let row_h = 24.0_f32;
-    let total = LogicalSize::create(info.bounds.logical_size.width, row_h * d.items.len() as f32);
-    VirtualViewReturn::with_dom(dom, total, LogicalPosition::zero(), total, LogicalPosition::zero())
+struct ListData { 
+    items: Vec<String> 
 }
 
-let list_state = RefAny::new(ListData { items: vec!["A".into(), "B".into()] });
-let cb = VirtualViewCallback { cb: render_list, ctx: OptionRefAny::None };
+extern "C" 
+fn render_list(mut data: RefAny, info: VirtualViewCallbackInfo) -> VirtualViewReturn {
+    let d = match data.downcast_ref::<ListData>() { 
+        Some(d) => d, 
+        None => return VirtualViewReturn::default() 
+    };
+    
+    let dom: Dom = d.items.iter()
+        .map(|s| Dom::create_li_with_text(s.clone()))
+        .collect();
+    
+    let row_h = 24.0_f32;
+    let total = LogicalSize::create(
+        info.bounds.logical_size.width, 
+        row_h * d.items.len() as f32
+    );
+    
+    VirtualViewReturn::with_dom(
+        dom, total, 
+        LogicalPosition::zero(), total, 
+        LogicalPosition::zero()
+    )
+}
+
+let list_state = RefAny::new(ListData { 
+    items: vec!["A".into(), "B".into()] 
+});
+let cb = VirtualViewCallback { 
+    cb: render_list, 
+    ctx: OptionRefAny::None 
+};
 let _ = Dom::create_virtual_view(list_state, cb);
 ```
 

@@ -37,7 +37,8 @@ convert into a `Dom` exactly once. Because the output is a plain `Dom`, you can
 mix widgets and hand-rolled markup freely.
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 let dom = Dom::create_div()
     .with_child(Button::create("OK".into()).dom());
 ```
@@ -75,7 +76,8 @@ pub enum ButtonType {
 ```
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 extern "C" fn on_click(_data: RefAny, _info: CallbackInfo) -> Update {
     Update::DoNothing
 }
@@ -94,7 +96,8 @@ The button is focusable. Set `Button.image` to put an icon next to the label.
 callback receives the post-click `CheckBoxState`.
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 extern "C" fn on_toggle(_d: RefAny, _i: CallbackInfo, _s: CheckBoxState) -> Update {
     Update::RefreshDom
 }
@@ -111,7 +114,8 @@ not ship a built-in color-picker dialog. Open one yourself in the callback (see
 [File Dialogs](file-dialogs.md) for `ColorPickerDialog`).
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 extern "C" fn on_change(_d: RefAny, _i: CallbackInfo, _s: ColorInputState) -> Update {
     Update::DoNothing
 }
@@ -128,7 +132,8 @@ basename of the currently selected path. Like `ColorInput`, it does not show a
 native file dialog itself. Your callback owns that.
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 extern "C" fn on_path(_d: RefAny, _i: CallbackInfo, _s: FileInputState) -> Update {
     Update::RefreshDom
 }
@@ -146,7 +151,8 @@ Receiving focus opens a native menu populated from `choices`. Selecting an item
 invokes the callback with the chosen index.
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 extern "C" fn on_pick(_d: RefAny, _i: CallbackInfo, _idx: usize) -> Update {
     Update::RefreshDom
 }
@@ -167,7 +173,8 @@ clamped to `[0, 100]`. Supply your own `bar_background` and
 `container_background` for custom palettes.
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 let dom = ProgressBar::create(42.5).dom();
 ```
 
@@ -180,7 +187,8 @@ container.
 group box: a thin border with the title text inset into the top edge.
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 let dom = Frame::create(
     "Network".into(),
     Dom::create_div(),
@@ -204,7 +212,8 @@ before calling `dom()`. For one-off styling, prefer adding CSS to the produced
 `Dom` via `Dom::with_css_property` or `Dom::with_css`.
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 let dom = Button::create("Save".into()).dom();
 ```
 

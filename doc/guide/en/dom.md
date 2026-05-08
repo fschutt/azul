@@ -19,6 +19,8 @@ generated_at: 2026-05-02T05:53:30Z
 
 # Document Object Model
 
+## Introduction
+
 If you've worked with the browser DOM, the surface here looks familiar.
 You build a tree of nodes, each carries a tag, classes, attributes,
 inline CSS, callbacks. What's different is the shape underneath, and a
@@ -223,7 +225,8 @@ Each HTML element has a `Dom::create_<tag>()` constructor. Most are `const
 fn` and don't allocate until you add a child:
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 let _ = Dom::create_div();
 let _ = Dom::create_section();
 let _ = Dom::create_article();
@@ -237,7 +240,8 @@ Text-bearing constructors take a string and wrap a `Text` child inside
 the element:
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 let _ = Dom::create_h1_with_text("Title");
 let _ = Dom::create_h2_with_text("Section");
 let _ = Dom::create_p_with_text("A paragraph.");

@@ -19,6 +19,8 @@ generated_at: 2026-05-02T00:00:00Z
 
 # Hello World [C++]
 
+## Introduction
+
 The C++ binding is a thin, header-only wrapper over the [C ABI](./c.md): same DLL, same `azul.h` underneath,
 but on top you get RAII types, builder methods, integration with `std::string` / `std::optional` /
 `std::expected` / `std::span`, and template-based reflection. The wrapper is generated separately for

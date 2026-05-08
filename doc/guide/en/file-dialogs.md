@@ -25,7 +25,8 @@ Azul ships native message boxes, file pickers, folder pickers, and a color
 chooser. Each call shows the platform's native dialog chrome.
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 let path = FileDialog::open_file(
     "Open a file".into(),
     OptionString::None,
@@ -62,7 +63,8 @@ user just clicked File → Open and doesn't expect to interact with the
 underlying window until they pick something.
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 extern "C" fn on_open_clicked(_data: RefAny, _info: CallbackInfo) -> Update {
     let filter = FileTypeList {
         document_types: StringVec::from_vec(vec![
@@ -124,7 +126,8 @@ human-readable label. `open_directory` and `save_file` ignore filters.
 ## Message boxes
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 MsgBox::ok("Saved".into(), "File written.".into(), MsgBoxIcon::Info);
 
 let proceed = MsgBox::ok_cancel(
@@ -150,7 +153,8 @@ MsgBox::info("All done.".into());
 ## Color picker
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 let initial = OptionColorU::Some(ColorU { r: 37, g: 99, b: 235, a: 255 });
 let picked = ColorPickerDialog::open("Pick a color".into(), initial);
 

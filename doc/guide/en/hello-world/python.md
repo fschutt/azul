@@ -19,6 +19,8 @@ generated_at: 2026-05-02T00:00:00Z
 
 # Hello World [Python]
 
+## Introduction
+
 Python is the easiest way to use Azul. You can write idiomatic Python — plain classes, 
 plain `str`, plain method calls — and the binding (uses Rusts `pyo3`) takes care of the rest.
 

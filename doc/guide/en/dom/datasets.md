@@ -51,10 +51,18 @@ The signature is `Dom::with_dataset(OptionRefAny) -> Dom`. Pass
 `OptionRefAny::None` to leave the slot empty.
 
 ```rust,no_run
-# use azul::prelude::*;
-struct EditorState { text: String, cursor: usize }
+use azul::prelude::*;
 
-let state = RefAny::new(EditorState { text: "hello".into(), cursor: 0 });
+struct EditorState { 
+    text: String, 
+    cursor: usize 
+}
+
+let state = RefAny::new(EditorState { 
+    text: "hello".into(), 
+    cursor: 0 
+});
+
 let _ = Dom::create_input_no_a11y("text".into(), "editor".into(), "hello".into())
     .with_dataset(OptionRefAny::Some(state));
 ```
@@ -69,8 +77,13 @@ node the event landed on. `info.get_dataset(node_id)` returns the
 `RefAny` attached to that node, or `None`.
 
 ```rust,no_run
-# use azul::prelude::*;
-# struct EditorState { text: String, cursor: usize }
+use azul::prelude::*;
+
+struct EditorState { 
+    text: String, 
+    cursor: usize 
+}
+
 extern "C" fn on_keydown(_unused: RefAny, mut info: CallbackInfo) -> Update {
     let hit = info.get_hit_node();
     let mut ds = match info.get_dataset(hit) {
@@ -98,7 +111,8 @@ type-level tag. One callback handles many nodes. The dataset's *type*
 tells the callback which node fired.
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 struct SaveButtonMarker;
 struct CancelButtonMarker;
 
@@ -116,7 +130,8 @@ fn dialog_buttons() -> Dom {
                                RefAny::new(()), on_dialog_click))
 }
 
-extern "C" fn on_dialog_click(_unused: RefAny, mut info: CallbackInfo) -> Update {
+extern "C" 
+fn on_dialog_click(_unused: RefAny, mut info: CallbackInfo) -> Update {
     let hit = info.get_hit_node();
     let mut ds = match info.get_dataset(hit) {
         Some(d) => d,
@@ -139,7 +154,8 @@ A marker can also carry fields. That's how a single callback handles a
 whole table.
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 #[derive(Debug)]
 struct RowMarker {
     row_id: u64,
@@ -157,7 +173,8 @@ fn row(row_id: u64, kind: ColumnKind, label: &str) -> Dom {
                        RefAny::new(()), on_cell_click)
 }
 
-extern "C" fn on_cell_click(_unused: RefAny, mut info: CallbackInfo) -> Update {
+extern "C" 
+fn on_cell_click(_unused: RefAny, mut info: CallbackInfo) -> Update {
     let hit = info.get_hit_node();
     let mut ds = match info.get_dataset(hit) {
         Some(d) => d,

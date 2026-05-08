@@ -18,15 +18,15 @@ generated_at: 2026-05-02T12:00:00Z
 
 # Accessibility
 
-> **WIP.** Accessibility is opt-in behind the `a11y` Cargo feature. The
-> user-facing APIs described here are stable.
+## Introduction
 
 Azul exposes accessibility metadata to assistive technologies (screen readers,
-switch navigation, voice control). You attach an `AccessibilityInfo` to a
-node, and the framework publishes it on the next layout pass.
+switch navigation, voice control). The way it works is that you attach an 
+`AccessibilityInfo` to a node, and the framework publishes it on the next 
+layout pass.
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
 let save = Dom::create_button(
     "Save",
     SmallAriaInfo::label("Save the document".into())
@@ -54,7 +54,7 @@ Construct with `SmallAriaInfo::label(text)` and chain `with_role` and
 `with_description`:
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
 let aria = SmallAriaInfo::label("Submit form".into())
     .with_role(AccessibilityRole::PushButton)
     .with_description("Sends the form to the server.".into());
@@ -119,7 +119,7 @@ mapped automatically. You set `role` only when the visual element does not
 match its tag, for example a div styled as a tab strip:
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
 let tab = SmallAriaInfo::label("Settings tab".into())
     .with_role(AccessibilityRole::PageTab);
 ```

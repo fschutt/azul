@@ -43,9 +43,10 @@ Inspect with `is_null_image`, `is_raw_image`, `is_gl_texture`, `is_callback`, `i
 Raw pixel data flows through `RawImage`. The pixel layout is `RawImageFormat`: `R8`, `RG8`, `RGB8`, `RGBA8`, `R16`, `RG16`, `RGB16`, `RGBA16`, `BGR8`, `BGRA8`, `RGBF32`, `RGBAF32`. Pick the one that matches the source bytes; the renderer converts to its internal format on upload.
 
 ```rust,no_run
-# use azul::prelude::*;
-# use azul::image::{ImageRef, RawImage, RawImageFormat, RawImageData};
-# fn load_pixels() -> Vec<u8> { vec![] }
+use azul::prelude::*;
+
+fn load_pixels() -> Vec<u8> { vec![] }
+
 let bytes: Vec<u8> = load_pixels();
 let raw = RawImage {
     pixels: RawImageData::U8(bytes.into()),
@@ -76,24 +77,22 @@ See [SVG](images/svg.md) for the full geometry model, stroking options, and how 
 `ImageRef::callback(...)` defers image production until the layout pass knows the box dimensions. The callback receives a `RenderImageCallbackInfo` with the available GL context and the laid-out bounds, and returns an `ImageRef` (typically wrapping a fresh `Texture`):
 
 ```rust,no_run
-# use azul::prelude::*;
-# use azul::callbacks::RenderImageCallbackInfo;
-# use azul::dom::RenderImageCallback;
-# use azul::image::{ImageRef, RawImageFormat};
-# use azul::vec::U8VecRef;
-extern "C" fn render(_data: RefAny, mut info: RenderImageCallbackInfo) -> ImageRef {
+use azul::prelude::*;
+
+extern "C" 
+fn render(_data: RefAny, mut info: RenderImageCallbackInfo) -> ImageRef {
     let size = info.get_bounds().get_physical_size();
     // allocate a texture, draw into it, return ImageRef::gl_texture(tex)
     ImageRef::null_image(size.width as usize, size.height as usize,
                         RawImageFormat::RGBA8, U8VecRef::from(&[][..]))
 }
 
-# fn build_dom(state: RefAny) -> Dom {
-Dom::create_image(ImageRef::callback(
-    RenderImageCallback::create(render).to_core(),
-    state,
-))
-# }
+fn build_dom(state: RefAny) -> Dom {
+    Dom::create_image(ImageRef::callback(
+        RenderImageCallback::create(render).to_core(),
+        state,
+    ))
+}
 ```
 
 See [Canvas and GL Textures](images/canvas-gl.md) for the full texture allocation, drawing, and FXAA flow used by the `opengl` example.

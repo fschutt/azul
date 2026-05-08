@@ -24,19 +24,26 @@ generated_at: 2026-05-02T06:00:00Z
 A `Timer` is a function that runs on the main UI thread on its own schedule, independently of input events. You install it from inside an event callback and tear it down the same way. The framework wakes the event loop to fire it; the callback receives a normal `CallbackInfo` plus a `TimerCallbackInfo` wrapper.
 
 ```rust,no_run
-# use azul::prelude::*;
-# extern crate azul_core;
-# use azul_core::task::{Duration, SystemTimeDiff};
-# extern "C" fn tick(_: RefAny, _: TimerCallbackInfo) -> TimerCallbackReturn {
-#     TimerCallbackReturn::continue_and_refresh_dom()
-# }
-# extern "C" fn on_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
-let timer = Timer::create(data.clone(), tick, info.get_system_time_fn())
-    .with_interval(Duration::System(SystemTimeDiff::from_millis(16)));
+use azul::prelude::*;
 
-info.add_timer(TimerId::unique(), timer);
-#     Update::DoNothing
-# }
+extern "C" 
+fn tick(_: RefAny, _: TimerCallbackInfo) -> TimerCallbackReturn {
+    TimerCallbackReturn::continue_and_refresh_dom()
+}
+
+extern "C" 
+fn on_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+
+    let timer = Timer::create(
+        data.clone(), tick, info.get_system_time_fn()
+    ).with_interval(Duration::System(
+        SystemTimeDiff::from_millis(16)
+    ));
+    
+    info.add_timer(TimerId::unique(), timer);
+
+    Update::DoNothing
+}
 ```
 
 ## When to reach for a timer
@@ -117,22 +124,36 @@ impl Timer {
 A timer with no interval set defaults to a short tick. A timer with no timeout runs until the callback returns `TerminateTimer::Terminate` or you call `remove_timer`.
 
 ```rust,no_run
-# use azul::prelude::*;
-# extern crate azul_core;
-# use azul_core::task::{Duration, SystemTimeDiff};
-# extern "C" fn tick(_: RefAny, _: TimerCallbackInfo) -> TimerCallbackReturn {
-#     TimerCallbackReturn::continue_and_refresh_dom()
-# }
-# extern "C" fn on_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
-// Run after 500ms, then every 16ms, for at most 5 seconds.
-let timer = Timer::create(data.clone(), tick, info.get_system_time_fn())
-    .with_delay(Duration::System(SystemTimeDiff::from_millis(500)))
-    .with_interval(Duration::System(SystemTimeDiff::from_millis(16)))
-    .with_timeout(Duration::System(SystemTimeDiff::from_secs(5)));
+use azul::prelude::*;
 
-info.add_timer(TimerId::unique(), timer);
-#     Update::DoNothing
-# }
+extern "C" 
+fn tick(_: RefAny, _: TimerCallbackInfo) -> TimerCallbackReturn {
+    TimerCallbackReturn::continue_and_refresh_dom()
+}
+
+extern "C" 
+fn on_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    
+    // Run timer after 500ms delay from now, then every 16ms, 
+    // for at most 5 seconds.
+
+    let initial_delay = SystemTimeDiff::from_millis(500);
+    let interval = SystemTimeDiff::from_millis(16);
+    let timeout = SystemTimeDiff::from_secs(5);
+    
+    let timer = Timer::create(
+        data.clone(), 
+        tick, 
+        info.get_system_time_fn()
+    )
+    .with_delay(Duration::System(initial_delay))
+    .with_interval(Duration::System(interval))
+    .with_timeout(Duration::System(timeout));
+
+    info.add_timer(TimerId::unique(), timer);
+    
+    Update::DoNothing
+}
 ```
 
 ## Stopping a timer
@@ -186,30 +207,38 @@ Both are applied after the callback returns. Use them in preference to `RefreshD
 ### Run once after a delay
 
 ```rust,no_run
-# use azul::prelude::*;
-# extern crate azul_core;
-# use azul_core::task::{Duration, SystemTimeDiff};
-extern "C" fn run_once(_: RefAny, _: TimerCallbackInfo) -> TimerCallbackReturn {
+use azul::prelude::*;
+
+extern "C" 
+fn run_once(_: RefAny, _: TimerCallbackInfo) -> TimerCallbackReturn {
     // ... do the deferred work ...
     TimerCallbackReturn::terminate_and_refresh_dom()
 }
 
-# extern "C" fn on_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
-let timer = Timer::create(data.clone(), run_once, info.get_system_time_fn())
+extern "C" fn on_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    
+    let timer = Timer::create(
+        data.clone(), 
+        run_once, 
+        info.get_system_time_fn()
+    )
     .with_delay(Duration::System(SystemTimeDiff::from_millis(300)));
-info.add_timer(TimerId::unique(), timer);
-#     Update::DoNothing
-# }
+    
+    info.add_timer(TimerId::unique(), timer);
+    
+    Update::DoNothing
+}
 ```
 
 ### Tick at 60 fps until a flag flips
 
 ```rust,no_run
-# use azul::prelude::*;
-# extern crate azul_core;
-# use azul_core::task::{Duration, SystemTimeDiff};
-# struct State { running: bool }
-extern "C" fn frame(data: RefAny, _: TimerCallbackInfo) -> TimerCallbackReturn {
+use azul::prelude::*;
+
+struct State { running: bool }
+
+extern "C" 
+fn frame(data: RefAny, _: TimerCallbackInfo) -> TimerCallbackReturn {
     let state = data.downcast_ref::<State>().unwrap();
     if !state.running {
         TimerCallbackReturn::terminate_unchanged()
@@ -218,12 +247,20 @@ extern "C" fn frame(data: RefAny, _: TimerCallbackInfo) -> TimerCallbackReturn {
     }
 }
 
-# extern "C" fn on_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
-let timer = Timer::create(data.clone(), frame, info.get_system_time_fn())
+extern "C" 
+fn on_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    
+    let timer = Timer::create(
+        data.clone(), 
+        frame, 
+        info.get_system_time_fn()
+    )
     .with_interval(Duration::System(SystemTimeDiff::from_millis(16)));
-info.add_timer(TimerId::unique(), timer);
-#     Update::DoNothing
-# }
+    
+    info.add_timer(TimerId::unique(), timer);
+
+    Update::DoNothing
+}
 ```
 
 ### Cancel from somewhere else
@@ -231,15 +268,18 @@ info.add_timer(TimerId::unique(), timer);
 Stash the `TimerId` in your model when you create the timer; remove it from any callback that owns the model.
 
 ```rust,no_run
-# use azul::prelude::*;
-# struct State { spinner_timer: Option<TimerId> }
-# extern "C" fn on_cancel(data: RefAny, mut info: CallbackInfo) -> Update {
-let mut state = data.downcast_mut::<State>().unwrap();
-if let Some(id) = state.spinner_timer.take() {
-    info.remove_timer(id);
+use azul::prelude::*;
+
+struct State { spinner_timer: Option<TimerId> }
+
+extern "C" 
+fn on_cancel(data: RefAny, mut info: CallbackInfo) -> Update {
+    let mut state = data.downcast_mut::<State>().unwrap();
+    if let Some(id) = state.spinner_timer.take() {
+        info.remove_timer(id);
+    }
+    Update::RefreshDom
 }
-Update::RefreshDom
-# }
 ```
 
 ## Limits

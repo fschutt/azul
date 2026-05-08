@@ -19,12 +19,12 @@ generated_at: 2026-05-02T00:00:00Z
 
 # Hello World [Rust]
 
-Azul is a GUI library written in Rust itself. 
+## Introduction
 
-Therefore, it might seem strange for newcomers to see the first step being "please download a 
-precompiled `.dll` / `.so` file". However, in practice there are very significant benefits
-once you get over this initial hurdle, that massively outweigh the small disadvantage of having 
-to download one `.dll` file:
+Azul is a GUI library written in Rust itself. Therefore, it might seem strange for newcomers 
+to see the first step being "please download a precompiled `.dll` / `.so` file". However, in 
+practice there are very significant benefits once you get over this initial hurdle, that massively 
+outweigh the small disadvantage of having to download one `.dll` file:
 
 - Fast recompilation times: only one depdency (the API) instead of hundreds from crates.io
 - Library can be optimized layout code (hot path) while your UI binary can be unoptimized callback code (slow path)

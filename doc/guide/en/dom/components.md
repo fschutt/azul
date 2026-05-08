@@ -24,7 +24,8 @@ A component is a Rust function that returns `Dom`.
 There's no component trait. There's no derive macro. There's no special syntax. You compose components by calling functions. You reuse them through normal module visibility. The only value the framework actually inspects is the `Dom` you return.
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 fn card(title: &str, body: &str) -> Dom {
     Dom::create_div()
         .with_class("card".into())
@@ -46,7 +47,8 @@ The first layer is state. How do you thread persistent data through a component,
 For purely visual components, pass values as parameters and return the constructed `Dom`. No `RefAny` is needed because no data has to persist across frames.
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 pub fn badge(text: &str, kind: BadgeKind) -> Dom {
     let class = match kind {
         BadgeKind::Info  => "badge badge-info",
@@ -188,7 +190,8 @@ This is the same pattern walked through in [Architecture](../architecture.md#bui
 A `Dom` has a single root. To return a sequence of siblings, wrap them in a neutral container or collect into a `Dom`.
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 pub fn breadcrumb(parts: &[&str]) -> Dom {
     parts.iter()
         .enumerate()

@@ -17,6 +17,7 @@ generated_at: 2026-05-02T12:00:00Z
 ---
 
 # GL Canvas
+
 > WIP. The GL callback ABI is stable. What you can call on the GL context is the OpenGL 3.2-core subset exposed by `GlContextPtr`.
 
 A render-image callback gives you a fresh GL context and the laid-out bounding box of a DOM node, and asks you to return an `ImageRef` for that node. Use it whenever the pixel content depends on size or animation: an OpenGL scene, a tessellated SVG that needs custom transforms, a chart sized to fit its container.
@@ -31,21 +32,20 @@ pub type RenderImageCallbackType =
 Wrap a function pointer in `RenderImageCallback::create(...)` and convert it to the FFI-compatible form with `.to_core()`:
 
 ```rust,no_run
-# use azul::prelude::*;
-# use azul::callbacks::RenderImageCallbackInfo;
-# use azul::dom::RenderImageCallback;
-# use azul::image::ImageRef;
-extern "C" fn render(_data: RefAny, _info: RenderImageCallbackInfo) -> ImageRef {
+use azul::prelude::*;
+
+extern "C" 
+fn render(_data: RefAny, _info: RenderImageCallbackInfo) -> ImageRef {
     // ... build texture ...
     panic!("returned a Texture-backed ImageRef")
 }
 
-# fn build(state: RefAny) -> Dom {
-Dom::create_image(ImageRef::callback(
-    RenderImageCallback::create(render).to_core(),
-    state,
-))
-# }
+fn build(state: RefAny) -> Dom {
+    Dom::create_image(ImageRef::callback(
+        RenderImageCallback::create(render).to_core(),
+        state,
+    ))
+}
 ```
 
 `RenderImageCallbackInfo` exposes:
@@ -60,16 +60,17 @@ Dom::create_image(ImageRef::callback(
 `Texture::allocate_rgba8` allocates an RGBA8 texture sized to a `PhysicalSizeU32` and clears it to a background color:
 
 ```rust,no_run
-# use azul::prelude::*;
-# use azul::callbacks::RenderImageCallbackInfo;
-# use azul::gl::Texture;
-# fn body(info: &mut RenderImageCallbackInfo) -> Option<Texture> {
-let gl = info.get_gl_context().into_option()?;
-let size = info.get_bounds().get_physical_size();
-let mut texture = Texture::allocate_rgba8(gl, size, ColorU::from_str("#ffffffff"));
-texture.clear();
-# Some(texture)
-# }
+use azul::prelude::*;
+
+fn body(info: &mut RenderImageCallbackInfo) -> Option<Texture> {
+    let gl = info.get_gl_context().into_option()?;
+    let size = info.get_bounds().get_physical_size();
+    let mut texture = Texture::allocate_rgba8(
+        gl, size, ColorU::white(),
+    );
+    texture.clear();
+    Some(texture)
+}
 ```
 
 Sizing matches the post-layout physical pixel box, so the texture and the on-screen draw area are 1:1. The renderer doesn't rescale.
@@ -79,25 +80,27 @@ Sizing matches the post-layout physical pixel box, so the texture and the on-scr
 `Texture::draw_tesselated_svg_gpu_node` takes a GPU mesh, a target size, a fill color, and an optional list of transforms. Transforms are `StyleTransform`s — the same ones the CSS layer uses — so percentage translations resolve against the texture size:
 
 ```rust,no_run
-# use azul::prelude::*;
-# use azul::css::{AngleValue, PixelValue, StyleTransform, StyleTransformTranslate2D};
-# use azul::gl::{PhysicalSizeU32, Texture};
-# use azul::svg::TessellatedGPUSvgNode;
-# fn run(texture: &mut Texture, mesh: TessellatedGPUSvgNode,
-#        size: PhysicalSizeU32, deg: f32) {
-texture.draw_tesselated_svg_gpu_node(
-    mesh,
-    size,
-    ColorU::from_str("#cc00cc"),
-    vec![
-        StyleTransform::Translate(StyleTransformTranslate2D {
-            x: PixelValue::percent(50.0),
-            y: PixelValue::percent(50.0),
-        }),
-        StyleTransform::Rotate(AngleValue::deg(deg)),
-    ],
-);
-# }
+use azul::prelude::*;
+
+fn run(
+    texture: &mut Texture, 
+    mesh: TessellatedGPUSvgNode,
+    size: PhysicalSizeU32, 
+    deg: f32
+) {
+    texture.draw_tesselated_svg_gpu_node(
+        mesh,
+        size,
+        ColorU::from_str("#cc00cc"),
+        vec![
+            StyleTransform::Translate(StyleTransformTranslate2D {
+                x: PixelValue::percent(50.0),
+                y: PixelValue::percent(50.0),
+            }),
+            StyleTransform::Rotate(AngleValue::deg(deg)),
+        ],
+    );
+}
 ```
 
 To anti-alias the result, call `texture.apply_fxaa()` before returning. It's a single-pass post-process suitable for vector content.
@@ -107,15 +110,15 @@ To anti-alias the result, call `texture.apply_fxaa()` before returning. It's a s
 A texture becomes an `ImageRef` via `ImageRef::gl_texture(texture)`. Refs are reference-counted, so returning a clone after every callback is fine:
 
 ```rust,no_run
-# use azul::prelude::*;
-# use azul::image::ImageRef;
-# use azul::gl::Texture;
-# fn done(t: Texture) -> ImageRef {
-ImageRef::gl_texture(t)
-# }
+use azul::prelude::*;
+
+fn done(t: Texture) -> ImageRef {
+  ImageRef::gl_texture(t)
+}
 ```
 
-If something fails (no GL context, missing data, GPU error), return a `null_image` of the requested size. The renderer treats it as transparent and reserves space in the layout.
+If something fails (no GL context, missing data, GPU error), return a `null_image` 
+of the requested size. The renderer treats it as transparent and reserves space in the layout.
 
 ## When the callback runs
 
@@ -132,19 +135,15 @@ The renderer doesn't memoize results. The callback is responsible for caching it
 The end-to-end pattern: tessellate SVG geometry once, upload to GPU buffers in a startup callback, redraw on every animation tick. The shape of the code is:
 
 ```rust,no_run
-# use azul::prelude::*;
-# use azul::callbacks::{RenderImageCallbackInfo};
-# use azul::dom::RenderImageCallback;
-# use azul::gl::{PhysicalSizeU32, Texture};
-# use azul::image::{ImageRef, RawImageFormat};
-# use azul::svg::*;
-# use azul::vec::U8VecRef;
+use azul::prelude::*;
+
 struct AppState {
     rotation_deg: f32,
     fill_buffer: Option<TessellatedGPUSvgNode>,
 }
 
-extern "C" fn render(mut data: RefAny, mut info: RenderImageCallbackInfo) -> ImageRef {
+extern "C" 
+fn render(mut data: RefAny, mut info: RenderImageCallbackInfo) -> ImageRef {
     let size = info.get_bounds().get_physical_size();
     let invalid = ImageRef::null_image(
         size.width as usize, size.height as usize,
@@ -154,7 +153,7 @@ extern "C" fn render(mut data: RefAny, mut info: RenderImageCallbackInfo) -> Ima
         let mut state = data.downcast_mut::<AppState>()?;
         let gl = info.get_gl_context().into_option()?;
         let buffer = state.fill_buffer.as_ref()?.clone();
-        let mut texture = Texture::allocate_rgba8(gl, size, ColorU::from_str("#ffffff"));
+        let mut texture = Texture::allocate_rgba8(gl, size, ColorU::white());
         texture.clear();
         texture.draw_tesselated_svg_gpu_node(
             buffer, size, ColorU::from_str("#0080ff"),

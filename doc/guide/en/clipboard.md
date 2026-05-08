@@ -31,8 +31,10 @@ queue a `ClipboardContent`, and the platform commits it to the OS clipboard
 once the callback batch completes.
 
 ```rust,no_run
-# use azul::prelude::*;
-extern "C" fn on_paste(_data: RefAny, info: CallbackInfo) -> Update {
+use azul::prelude::*;
+
+extern "C" 
+fn on_paste(_data: RefAny, info: CallbackInfo) -> Update {
     if let Some(content) = info.get_clipboard_content() {
         println!("about to paste: {:?}", content.plain_text.as_str());
     }
@@ -70,8 +72,10 @@ now if you want to be ready for the rich-text path.
 paste callback is running. Outside of paste it returns `None`.
 
 ```rust,no_run
-# use azul::prelude::*;
-extern "C" fn block_long_pastes(_data: RefAny, info: CallbackInfo) -> Update {
+use azul::prelude::*;
+
+extern "C" 
+fn block_long_pastes(_data: RefAny, info: CallbackInfo) -> Update {
     let Some(content) = info.get_clipboard_content() else {
         return Update::DoNothing;
     };
@@ -91,8 +95,10 @@ current hit node, so a Copy callback can transform the selected text before
 the OS clipboard receives it.
 
 ```rust,no_run
-# use azul::prelude::*;
-extern "C" fn rewrite_copy(_data: RefAny, info: CallbackInfo) -> Update {
+use azul::prelude::*;
+
+extern "C" 
+fn rewrite_copy(_data: RefAny, info: CallbackInfo) -> Update {
     info.set_clipboard_content(ClipboardContent {
         plain_text: "[copied via my-app]".into(),
         styled_runs: StyledTextRunVec::from_vec(vec![]),
