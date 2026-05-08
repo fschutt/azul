@@ -1,0 +1,12 @@
+# frozen_string_literal: true
+#
+# Local dev: depend on the in-tree generated `azul` gem so changes to the
+# bindings are picked up without a publish step. Run `bundle install`
+# from this directory, then `bundle exec ruby hello-world.rb`.
+
+source 'https://rubygems.org'
+
+# Path is relative to this Gemfile. The generated gem (gemspec + lib/azul.rb)
+# is expected to live under target/codegen/v2/ruby/ once the orchestrator
+# wires it up. Override AZUL_GEM_PATH if your output dir differs.
+gem 'azul', path: ENV.fetch('AZUL_GEM_PATH', '../../target/codegen/v2/ruby')

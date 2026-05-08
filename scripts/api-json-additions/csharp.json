@@ -1,0 +1,88 @@
+{
+    "tabOrder_append": "csharp",
+    "languages_entry": {
+        "csharp": {
+            "displayName": "C#",
+            "platforms": {
+                "linux": {
+                    "description": "Download azul, restore NuGet runtime",
+                    "steps": [
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/Azul.csproj"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/Azul.cs"
+                        },
+                        {
+                            "type": "command",
+                            "content": "mkdir -p runtimes/linux-x64/native && mv libazul.so runtimes/linux-x64/native/"
+                        },
+                        {
+                            "type": "command",
+                            "content": "dotnet build -c Release -r linux-x64 hello-world.cs"
+                        }
+                    ]
+                },
+                "macos": {
+                    "description": "Download azul, restore NuGet runtime",
+                    "steps": [
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/Azul.csproj"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/Azul.cs"
+                        },
+                        {
+                            "type": "command",
+                            "content": "mkdir -p runtimes/osx-x64/native && cp libazul.dylib runtimes/osx-x64/native/ && mkdir -p runtimes/osx-arm64/native && mv libazul.dylib runtimes/osx-arm64/native/"
+                        },
+                        {
+                            "type": "command",
+                            "content": "dotnet build -c Release hello-world.cs"
+                        }
+                    ]
+                },
+                "windows": {
+                    "description": "Download azul, restore NuGet runtime",
+                    "steps": [
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/Azul.csproj"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/Azul.cs"
+                        },
+                        {
+                            "type": "command",
+                            "content": "mkdir runtimes\\win-x64\\native && move azul.dll runtimes\\win-x64\\native\\"
+                        },
+                        {
+                            "type": "command",
+                            "content": "dotnet build -c Release -r win-x64 hello-world.cs"
+                        }
+                    ]
+                }
+            }
+        }
+    },
+    "examples_code_additions": {
+        "hello-world": "csharp/hello-world.cs"
+    }
+}

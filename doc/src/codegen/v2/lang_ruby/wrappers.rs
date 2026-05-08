@@ -1,0 +1,335 @@
+//! Idiomatic Ruby class wrappers under `module Azul`.
+//!
+//! Every struct that has a matching `<TypeName>_delete` C function gets a
+//! lightweight Ruby class that:
+//!
+//! 1. Holds `@ptr` (the underlying FFI struct pointer);
+//! 2. Registers an `ObjectSpace.define_finalizer` that calls
+//!    `Native.az_<typename>_delete(ptr)` when the Ruby object is GC'd.
+//!    The finalizer proc captures only `ptr` — never `self` — to avoid the
+//!    well-known "finalizer keeps the instance alive forever" trap;
+//! 3. Exposes idiomatic class methods (constructors, static helpers) and
+//!    instance methods (anything else that takes `&self` / `&mut self`).
+//!
+//! Method naming: drop the `Az` prefix and the `<TypeName>_` segment, then
+//! convert `camelCase` to `snake_case`. So:
+//!
+//! - `AzApp_create`        → `App.create`        (static)
+//! - `AzApp_run`           → `app.run`           (instance)
+//! - `AzAppConfig_default` → `AppConfig.default` (static)
+//! - `AzDom_addChild`      → `dom.add_child`     (instance)
+//!
+//! POD structs without a `_delete` get no wrapper — users instantiate the
+//! `Native::AzFoo` FFI::Struct directly. (`should_emit_struct` filters out
+//! the truly internal types, so we never see those here.)
+
+use std::collections::BTreeSet;
+
+use super::super::config::CodegenConfig;
+use super::super::generator::CodeBuilder;
+use super::super::ir::{CodegenIR, FunctionDef, FunctionKind, StructDef};
+use super::types::{should_emit_struct, snake_case};
+
+// ============================================================================
+// Public entry point
+// ============================================================================
+
+/// Emit Ruby wrapper classes for every struct that owns heap memory.
+pub fn emit_wrappers(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
+    builder.line("# ============================================================");
+    builder.line("# Idiomatic wrappers (Az prefix dropped). Use these in user code.");
+    builder.line("# ============================================================");
+
+    let delete_set = collect_delete_targets(ir);
+
+    for s in &ir.structs {
+        if !should_emit_struct(s, config) {
+            continue;
+        }
+        if !delete_set.contains(s.name.as_str()) {
+            // POD struct — no finalizer needed, no wrapper class.
+            builder.line(&format!(
+                "# (no wrapper for {} — no _delete; use Native::{} directly)",
+                s.name,
+                config.apply_prefix(&s.name)
+            ));
+            continue;
+        }
+        emit_class_wrapper(builder, s, ir, config);
+        builder.blank();
+    }
+}
+
+// ============================================================================
+// Discovery
+// ============================================================================
+
+/// Build the set of struct names that have a `<Name>_delete` C function.
+fn collect_delete_targets(ir: &CodegenIR) -> BTreeSet<&str> {
+    ir.functions
+        .iter()
+        .filter(|f| f.kind == FunctionKind::Delete)
+        .map(|f| f.class_name.as_str())
+        .collect()
+}
+
+// ============================================================================
+// Per-class emission
+// ============================================================================
+
+fn emit_class_wrapper(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) {
+    let class_name = &s.name;
+    let prefixed = config.apply_prefix(class_name); // e.g. "AzApp"
+    let snake = snake_case(class_name); // e.g. "app"
+
+    builder.line(&format!("class {}", class_name));
+    builder.indent();
+
+    // attr reader for low-level access (escape hatch, also used to pass an
+    // instance to other Native.* calls that take a pointer).
+    builder.line("attr_reader :ptr");
+    builder.blank();
+
+    // Constructor: stores the pointer and arms the finalizer.
+    builder.line("def initialize(ptr)");
+    builder.indent();
+    builder.line("@ptr = ptr");
+    builder.line("ObjectSpace.define_finalizer(self, self.class.finalize(ptr))");
+    builder.dedent();
+    builder.line("end");
+    builder.blank();
+
+    // Finalizer factory: a class-level proc that closes over `ptr` only.
+    // This is critical — closing over `self` would keep the instance alive
+    // and the finalizer would never fire.
+    builder.line("def self.finalize(ptr)");
+    builder.indent();
+    builder.line(&format!("proc {{ Native.az_{}_delete(ptr) }}", snake));
+    builder.dedent();
+    builder.line("end");
+    builder.blank();
+
+    // Emit each function on this class as a Ruby method.
+    let mut emitted_any_method = false;
+    for func in &ir.functions {
+        if func.class_name != *class_name {
+            continue;
+        }
+        if !should_emit_method(func) {
+            continue;
+        }
+        emit_method(builder, func, &prefixed, &snake);
+        emitted_any_method = true;
+    }
+
+    if !emitted_any_method {
+        builder.line("# (no public methods exposed)");
+    }
+
+    builder.dedent();
+    builder.line(&format!("end # class {}", class_name));
+}
+
+/// Should this function be exposed as a Ruby method on the wrapper?
+///
+/// We hide all auto-generated trait functions (`_delete`, `_partialEq`,
+/// `_hash`, ...) — they're either driven by the runtime (delete via
+/// finalizer) or surfaced via custom Ruby methods (`==`, `hash`) which we
+/// don't autogenerate today.
+fn should_emit_method(func: &FunctionDef) -> bool {
+    !matches!(
+        func.kind,
+        FunctionKind::Delete
+            | FunctionKind::PartialEq
+            | FunctionKind::PartialCmp
+            | FunctionKind::Cmp
+            | FunctionKind::Hash
+            | FunctionKind::DebugToString
+            | FunctionKind::EnumVariantConstructor
+    )
+}
+
+fn emit_method(builder: &mut CodeBuilder, func: &FunctionDef, prefixed: &str, type_snake: &str) {
+    let ruby_method = ruby_method_name(&func.method_name);
+    let native_call = native_function_name(&func.c_name);
+
+    let takes_self = matches!(func.kind, FunctionKind::Method | FunctionKind::MethodMut);
+    // `return_type` is the unprefixed IR name (e.g. "App"); `prefixed` is
+    // "AzApp". Strip the leading prefix off `prefixed` for the comparison.
+    let owning_class = prefixed
+        .strip_prefix("Az")
+        .unwrap_or(prefixed)
+        .to_string();
+    let returns_self_type = func
+        .return_type
+        .as_deref()
+        .map(|t| t.trim() == owning_class)
+        .unwrap_or(false);
+
+    // Strip an explicit `self` from the visible argument list (Ruby
+    // supplies it via `@ptr`).
+    let visible_args: Vec<&_> = func
+        .args
+        .iter()
+        .filter(|a| {
+            // The api.json/ir convention is to name the receiver after the
+            // class (lower-cased). Skip both that and a literal "self".
+            a.name != "self" && a.name != type_snake
+        })
+        .collect();
+
+    let arg_names: Vec<String> = visible_args.iter().map(|a| ruby_arg_name(&a.name)).collect();
+
+    if takes_self {
+        // Instance method: forward `@ptr` as the receiver.
+        if arg_names.is_empty() {
+            builder.line(&format!("def {}", ruby_method));
+        } else {
+            builder.line(&format!("def {}({})", ruby_method, arg_names.join(", ")));
+        }
+        builder.indent();
+        let mut call_args = vec!["@ptr".to_string()];
+        call_args.extend(arg_names.iter().cloned());
+        let call = format!("Native.{}({})", native_call, call_args.join(", "));
+        emit_method_body(builder, &call, &func.return_type, returns_self_type, prefixed);
+        builder.dedent();
+        builder.line("end");
+        builder.blank();
+        return;
+    }
+
+    // Static method (constructor / static helper).
+    if arg_names.is_empty() {
+        builder.line(&format!("def self.{}", ruby_method));
+    } else {
+        builder.line(&format!(
+            "def self.{}({})",
+            ruby_method,
+            arg_names.join(", ")
+        ));
+    }
+    builder.indent();
+    // For static calls we forward the user-supplied args, mapping each
+    // positional name through `_unwrap` so callers can pass either an
+    // already-unwrapped FFI pointer/value or one of our wrapper objects.
+    let call_args: Vec<String> = arg_names.iter().map(|n| unwrap_expr(n)).collect();
+    let call = format!("Native.{}({})", native_call, call_args.join(", "));
+    emit_method_body(builder, &call, &func.return_type, returns_self_type, prefixed);
+    builder.dedent();
+    builder.line("end");
+    builder.blank();
+}
+
+/// Emit the body of a wrapper method.
+///
+/// If the C function returns the same struct as the wrapper class, wrap
+/// the result in `new(ptr)` so the caller gets a managed instance with a
+/// finalizer. Otherwise return the raw FFI value verbatim — the caller
+/// can decide what to do with it.
+fn emit_method_body(
+    builder: &mut CodeBuilder,
+    call: &str,
+    return_type: &Option<String>,
+    returns_self_type: bool,
+    prefixed: &str,
+) {
+    let _ = prefixed;
+    match return_type {
+        None => builder.line(call),
+        Some(_) if returns_self_type => {
+            builder.line(&format!("self.class.new({})", call));
+        }
+        Some(_) => builder.line(call),
+    }
+}
+
+/// Wrap a positional argument in a tiny `_unwrap` helper that accepts both
+/// raw pointers/values and wrapper instances. We emit the inline form so
+/// no module-level helper is required.
+fn unwrap_expr(name: &str) -> String {
+    format!("({n}.respond_to?(:ptr) ? {n}.ptr : {n})", n = name)
+}
+
+// ============================================================================
+// Naming helpers
+// ============================================================================
+
+/// Ruby method names use snake_case. The IR's `method_name` is camelCase
+/// (e.g. `addChild`) or already snake-ish — normalise either to snake.
+fn ruby_method_name(method: &str) -> String {
+    camel_to_snake(method)
+}
+
+/// Argument names from the IR are usually already snake_case; if they
+/// aren't, normalise. Also append a trailing `_` if the name collides
+/// with a Ruby keyword.
+fn ruby_arg_name(name: &str) -> String {
+    let snake = camel_to_snake(name);
+    if RUBY_RESERVED.contains(&snake.as_str()) {
+        format!("{}_", snake)
+    } else {
+        snake
+    }
+}
+
+/// Convert a C-ABI symbol (`AzApp_create`, `AzDom_addChild`) into the
+/// snake_case Ruby attach_function name (`az_app_create`, `az_dom_add_child`).
+///
+/// Mirrors `functions::ruby_attach_name`. Duplicated here to avoid a
+/// cross-module dependency on a private helper.
+fn native_function_name(c_name: &str) -> String {
+    let mut out = String::with_capacity(c_name.len() + 4);
+    let mut prev_was_lower = false;
+    let mut prev_was_underscore = false;
+    for (i, c) in c_name.chars().enumerate() {
+        if c == '_' {
+            out.push('_');
+            prev_was_lower = false;
+            prev_was_underscore = true;
+            continue;
+        }
+        if c.is_ascii_uppercase() {
+            if i != 0 && prev_was_lower && !prev_was_underscore {
+                out.push('_');
+            }
+            out.push(c.to_ascii_lowercase());
+            prev_was_lower = false;
+        } else {
+            out.push(c);
+            prev_was_lower = c.is_ascii_lowercase() || c.is_ascii_digit();
+        }
+        prev_was_underscore = false;
+    }
+    out
+}
+
+fn camel_to_snake(input: &str) -> String {
+    let mut out = String::with_capacity(input.len() + 4);
+    let mut prev_was_lower = false;
+    for (i, c) in input.chars().enumerate() {
+        if c.is_ascii_uppercase() {
+            if i != 0 && prev_was_lower {
+                out.push('_');
+            }
+            out.push(c.to_ascii_lowercase());
+            prev_was_lower = false;
+        } else {
+            out.push(c);
+            prev_was_lower = c.is_ascii_lowercase() || c.is_ascii_digit();
+        }
+    }
+    out
+}
+
+const RUBY_RESERVED: &[&str] = &[
+    "alias", "and", "begin", "break", "case", "class", "def", "defined", "do", "else", "elsif",
+    "end", "ensure", "false", "for", "if", "in", "module", "next", "nil", "not", "or", "redo",
+    "rescue", "retry", "return", "self", "super", "then", "true", "undef", "unless", "until",
+    "when", "while", "yield",
+];
+

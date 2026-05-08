@@ -1,0 +1,76 @@
+{
+    "tabOrder_append": "ruby",
+    "languages_entry": {
+        "ruby": {
+            "displayName": "Ruby",
+            "platforms": {
+                "linux": {
+                    "description": "Install via RubyGems (uses bundled libazul.so)",
+                    "steps": [
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul-$VERSION.gem"
+                        },
+                        {
+                            "type": "command",
+                            "content": "gem install --local azul-$VERSION.gem"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.rb"
+                        },
+                        {
+                            "type": "command",
+                            "content": "ruby hello-world.rb"
+                        }
+                    ]
+                },
+                "macos": {
+                    "description": "Install via RubyGems (uses bundled libazul.dylib)",
+                    "steps": [
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul-$VERSION.gem"
+                        },
+                        {
+                            "type": "command",
+                            "content": "gem install --local azul-$VERSION.gem"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.rb"
+                        },
+                        {
+                            "type": "command",
+                            "content": "ruby hello-world.rb"
+                        }
+                    ]
+                },
+                "windows": {
+                    "description": "Install via RubyGems (uses bundled azul.dll)",
+                    "steps": [
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul-$VERSION.gem"
+                        },
+                        {
+                            "type": "command",
+                            "content": "gem install --local azul-$VERSION.gem"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.rb"
+                        },
+                        {
+                            "type": "command",
+                            "content": "ruby hello-world.rb"
+                        }
+                    ]
+                }
+            }
+        }
+    },
+    "examples_code_additions": {
+        "hello-world": "ruby/hello-world.rb"
+    }
+}
