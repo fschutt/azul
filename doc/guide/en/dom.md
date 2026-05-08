@@ -7,7 +7,7 @@ audience: external
 maturity: mature
 guide_order: 30
 topic_only: false
-short_desc: The Dom tree - node types, hierarchy, and CSS
+short_desc: Node types, hierarchy, and CSS scoping
 prerequisites: [architecture/understanding-refany]
 tracked_files:
   - core/src/dom.rs
@@ -18,6 +18,8 @@ generated_at: 2026-05-02T05:53:30Z
 ---
 
 # Document Object Model
+
+## Design
 
 Azul's DOM is data-oriented. Internally it lives as parallel arrays. There's
 a `NodeHierarchyItemVec` (each entry is a `NodeHierarchyItem` with `parent`,
@@ -31,8 +33,8 @@ The DOM is also frozen the moment you return it from `layout()`. There's no
 State change goes through the next `layout()` call. A callback returns
 `Update::RefreshDom`, the framework calls your layout function again, you
 build a fresh `Dom` from your application data, and the previous tree is
-diffed against the new one. See
-[Reconciliation, Diffing, and Lazy Paint](dom/reconciliation.md).
+diffed against the new one, see
+[reconciliation](dom/reconciliation.md).
 
 You build the tree as a recursive `Dom` value: a `NodeData` root plus a
 `DomVec` of children.

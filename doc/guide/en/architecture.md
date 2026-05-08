@@ -443,7 +443,7 @@ where we could use a debugger to "step through" a potential downcast failure.
 
 ## Examples
 
-## Simple: Input Validation
+### Simple: Input Validation
 
 To explain this new concept more concrete, let's build a number input that wraps a text input 
 and validates that the user typed a number > 18 in a `VerifyAgeApplication`. This demonstrates the 
@@ -729,7 +729,7 @@ their pain points in GUI programming - because someone who cannot articulate a p
 
 ## Coming Up Next
 
-- [Understanding RefAny](architecture/understanding-refany.md) — RefAny helps you to share and store data type-erased data between callbacks and threads
+- [Understanding RefAny](architecture/understanding-refany.md) — RefAny helps you to share and store type-erased data between callbacks and threads
 - [Document Object Model](dom.md) — The Dom tree - node types, hierarchy, and CSS
 - [Styling with CSS](styling.md) — Stylesheets, selectors, and the cascade
 - [Events](events.md) — Callbacks, event filters, and how state triggers relayout

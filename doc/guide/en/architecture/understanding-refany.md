@@ -7,7 +7,7 @@ audience: external
 maturity: mature
 guide_order: 25
 topic_only: false
-short_desc: RefAny helps you to share and store data type-erased data between callbacks and threads
+short_desc: RefAny helps you to share and store type-erased data between callbacks and threads
 prerequisites: [architecture]
 tracked_files:
   - core/src/refany.rs

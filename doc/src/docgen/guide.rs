@@ -78,27 +78,33 @@ fn preprocess_markdown_content(content: &str) -> String {
     transform_german_quotes(&joined)
 }
 
-/// Replace straight `"` with German-style „ (opening) / " (closing),
-/// alternating per occurrence. Skips fenced code blocks (``` ... ```)
-/// and inline code spans (`...`). HTML attribute quotes inside
-/// markdown body would also be rewritten, so avoid raw `<tag attr="...">`
-/// in body prose.
+/// Replace straight `"` with German-style „ (opening) / " (closing).
+/// The choice is contextual, not a toggle: a `"` preceded by whitespace
+/// or start-of-line opens, one preceded by a word character closes. A
+/// single unmatched `"` anywhere in the document used to flip every
+/// subsequent pair, which is why a stateful toggle was wrong.
+///
+/// Skips fenced code blocks (``` ... ```) and inline code spans (`...`).
+/// HTML attribute quotes inside markdown body would also be rewritten,
+/// so avoid raw `<tag attr="...">` in body prose.
 pub fn transform_german_quotes(content: &str) -> String {
     const OPEN: char = '\u{201E}'; // „
     const CLOSE: char = '\u{201C}'; // "
 
     let mut out = String::with_capacity(content.len());
     let mut in_fence = false;
-    let mut quote_open = true;
+    let mut prev_ch: Option<char> = None;
 
     for line in content.split_inclusive('\n') {
         if line.trim_start().starts_with("```") {
             in_fence = !in_fence;
             out.push_str(line);
+            prev_ch = line.chars().last();
             continue;
         }
         if in_fence {
             out.push_str(line);
+            prev_ch = line.chars().last();
             continue;
         }
         let mut in_inline_code = false;
@@ -109,11 +115,21 @@ pub fn transform_german_quotes(content: &str) -> String {
                     out.push(ch);
                 }
                 '"' if !in_inline_code => {
-                    out.push(if quote_open { OPEN } else { CLOSE });
-                    quote_open = !quote_open;
+                    // Open if there's nothing before us, or the previous
+                    // character is whitespace, an opening bracket, or
+                    // sentence-leading punctuation. Otherwise close.
+                    let opens = match prev_ch {
+                        None => true,
+                        Some(p) => {
+                            p.is_whitespace()
+                                || matches!(p, '(' | '[' | '{' | '<' | '\u{00BB}')
+                        }
+                    };
+                    out.push(if opens { OPEN } else { CLOSE });
                 }
                 _ => out.push(ch),
             }
+            prev_ch = Some(ch);
         }
     }
     out
