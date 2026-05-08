@@ -13,6 +13,20 @@ tracked_files:
   - core/src/window.rs
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T05:54:43Z
+default-search-keys:
+  - WindowCreateOptions
+  - WindowFlags
+  - FullWindowState
+  - WindowDecorations
+  - WindowFrame
+  - WindowType
+  - WindowBackgroundMaterial
+  - Monitor
+  - Menu
+  - MenuItem
+  - StringMenuItem
+  - CallbackInfo
+  - Titlebar
 ---
 
 # Windows, Menus, Decorations

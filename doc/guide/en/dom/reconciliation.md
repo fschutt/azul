@@ -16,6 +16,13 @@ tracked_files:
   - layout/src/cpurender.rs
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T05:53:30Z
+default-search-keys:
+  - Dom
+  - Update
+  - AttributeType
+  - with_merge_callback
+  - DatasetMergeCallback
+  - EventFilter
 ---
 
 # Reconciliation

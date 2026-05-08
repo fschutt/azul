@@ -18,6 +18,11 @@ tracked_files:
   - css/src/props/basic/font.rs
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T05:49:28Z
+default-search-keys:
+  - Dom
+  - Css
+  - CssProperty
+  - StyledDom
 ---
 
 # Inline Layout

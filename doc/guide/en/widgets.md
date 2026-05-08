@@ -22,6 +22,21 @@ tracked_files:
   - layout/src/widgets/titlebar.rs
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T05:54:43Z
+default-search-keys:
+  - Dom
+  - Button
+  - TextInput
+  - NumberInput
+  - CheckBox
+  - DropDown
+  - FileInput
+  - ColorInput
+  - ProgressBar
+  - Frame
+  - TabHeader
+  - TreeView
+  - ListView
+  - Ribbon
 ---
 
 # Built-in Widgets

@@ -17,6 +17,12 @@ tracked_files:
   - scripts/ARCHITECTURE.md
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T12:00:00Z
+default-search-keys:
+  - StyledDom
+  - Dom
+  - Css
+  - Xml
+  - App
 ---
 
 # Code Organization

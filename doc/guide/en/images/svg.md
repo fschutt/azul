@@ -14,6 +14,19 @@ tracked_files:
   - core/src/svg_path_parser.rs
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T12:00:00Z
+default-search-keys:
+  - Svg
+  - SvgPath
+  - SvgRect
+  - SvgMultiPolygon
+  - SvgFillStyle
+  - SvgStrokeStyle
+  - SvgDashPattern
+  - SvgFillRule
+  - SvgLineJoin
+  - TessellatedSvgNode
+  - RawImage
+  - Dom
 ---
 
 # SVG

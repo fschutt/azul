@@ -21,6 +21,11 @@ tracked_files:
   - layout/src/glyph_cache.rs
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T05:55:41Z
+default-search-keys:
+  - FontRef
+  - StyledDom
+  - Css
+  - CssProperty
 ---
 
 # Text Pipeline

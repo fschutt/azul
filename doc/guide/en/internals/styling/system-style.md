@@ -16,6 +16,13 @@ tracked_files:
   - dll/src/desktop/shell2/windows/system_style.rs
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T00:00:00Z
+default-search-keys:
+  - SystemStyle
+  - SystemColors
+  - Platform
+  - InputMetrics
+  - AppConfig
+  - ColorU
 ---
 
 # System Style Discovery

@@ -14,6 +14,19 @@ tracked_files:
   - core/src/callbacks.rs
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T05:53:30Z
+default-search-keys:
+  - Dom
+  - NodeData
+  - RefAny
+  - DomNodeId
+  - CallbackInfo
+  - with_dataset
+  - get_dataset
+  - get_first_child
+  - get_last_child
+  - get_next_sibling
+  - get_previous_sibling
+  - get_hit_node
 ---
 
 # Datasets

@@ -13,6 +13,18 @@ tracked_files:
   - core/src/task.rs
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T12:00:00Z
+default-search-keys:
+  - HttpRequestConfig
+  - HttpResponse
+  - Thread
+  - ThreadSendMsg
+  - ThreadReceiveMsg
+  - WriteBackCallback
+  - RefAny
+  - U8Vec
+  - http_get
+  - download_bytes
+  - is_url_reachable
 ---
 
 # Networking

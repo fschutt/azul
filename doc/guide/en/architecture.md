@@ -16,6 +16,17 @@ tracked_files:
   - doc/guide/en/architecture.md
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T05:48:36Z
+default-search-keys:
+  - App
+  - RefAny
+  - Dom
+  - Callback
+  - CallbackInfo
+  - Update
+  - LayoutCallbackInfo
+  - Button
+  - TextInput
+  - NumberInput
 ---
 
 # Application Architecture

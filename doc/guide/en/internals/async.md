@@ -13,6 +13,15 @@ tracked_files:
   - core/src/task.rs
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T05:50:16Z
+default-search-keys:
+  - Timer
+  - Thread
+  - TimerCallbackInfo
+  - CallbackInfo
+  - RefAny
+  - Instant
+  - InstantPtr
+  - Duration
 ---
 
 # Async, Timers, Threading

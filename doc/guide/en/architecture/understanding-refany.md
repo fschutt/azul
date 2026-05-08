@@ -15,6 +15,14 @@ tracked_files:
   - core/src/dom.rs
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T05:48:36Z
+default-search-keys:
+  - RefAny
+  - RefCount
+  - Update
+  - CallbackInfo
+  - Dom
+  - EventFilter
+  - HoverEventFilter
 ---
 
 # Understanding RefAny

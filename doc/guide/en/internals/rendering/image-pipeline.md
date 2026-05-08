@@ -17,6 +17,13 @@ tracked_files:
   - dll/src/desktop/shader_cache.rs
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T05:55:41Z
+default-search-keys:
+  - ImageRef
+  - RawImage
+  - RawImageData
+  - RawImageFormat
+  - Texture
+  - GlContextPtr
 ---
 
 # Image Pipeline

@@ -14,6 +14,15 @@ tracked_files:
   - layout/src/managers/virtual_view.rs
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T05:54:52Z
+default-search-keys:
+  - NodeType
+  - VirtualViewCallback
+  - VirtualViewCallbackInfo
+  - VirtualViewCallbackReason
+  - VirtualViewReturn
+  - LogicalPosition
+  - LogicalSize
+  - EdgeType
 ---
 
 # VirtualView Lazy Loading

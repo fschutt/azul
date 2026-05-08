@@ -15,6 +15,15 @@ tracked_files:
   - layout/src/callbacks.rs
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T00:00:00Z
+default-search-keys:
+  - ClipboardContent
+  - CallbackInfo
+  - get_clipboard_content
+  - set_clipboard_content
+  - set_cut_content
+  - set_copy_content
+  - inspect_copy_changeset
+  - inspect_cut_changeset
 ---
 
 # Clipboard

@@ -32,6 +32,20 @@ tracked_files:
   - css/src/props/style/transform.rs
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T12:00:00Z
+default-search-keys:
+  - Css
+  - CssProperty
+  - StyleBoxShadow
+  - StyleFilterVec
+  - StyleCursor
+  - StyleMixBlendMode
+  - BorderStyle
+  - ColorU
+  - PixelValue
+  - PercentageValue
+  - AngleValue
+  - CssDuration
+  - FloatValue
 ---
 
 # CSS Properties

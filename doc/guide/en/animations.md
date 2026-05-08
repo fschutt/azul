@@ -15,6 +15,16 @@ tracked_files:
   - core/src/task.rs
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T06:00:00Z
+default-search-keys:
+  - Timer
+  - TimerCallbackInfo
+  - TimerCallbackReturn
+  - Instant
+  - Duration
+  - Update
+  - CallbackInfo
+  - Css
+  - StyledDom
 ---
 
 # Animations

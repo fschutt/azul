@@ -14,6 +14,16 @@ tracked_files:
   - core/src/callbacks.rs
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T05:53:30Z
+default-search-keys:
+  - Dom
+  - NodeType
+  - VirtualViewCallback
+  - VirtualViewCallbackInfo
+  - VirtualViewCallbackReason
+  - VirtualViewReturn
+  - EdgeType
+  - RefAny
+  - LogicalPosition
 ---
 
 # Virtual Views

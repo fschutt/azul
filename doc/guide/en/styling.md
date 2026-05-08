@@ -41,6 +41,18 @@ tracked_files:
   - css/src/system.rs
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T12:00:00Z
+default-search-keys:
+  - Css
+  - CssProperty
+  - CssPropertyValue
+  - DynamicCssProperty
+  - StyledDom
+  - Dom
+  - AttributeMatchOp
+  - with_css
+  - with_css_property
+  - with_class
+  - with_id
 ---
 
 # Styling with CSS
