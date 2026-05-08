@@ -795,3 +795,132 @@ main > header h3 {
   .tagline {
     font-size: 0.95em;
   }
+}
+
+/* ========================= DARK MODE =========================
+ * Activated automatically when the OS / browser advertises a dark
+ * colour-scheme preference. We don't ship a manual toggle — sites that
+ * want one usually couple it to a class on <html>, but the goal here is
+ * just "no flashbang at night" on the docs site.
+ *
+ * The strategy: leave layout intact, override only the colour tokens.
+ * The body's blue gradient is already dark-friendly, so we only
+ * recolour the white "main" content well, the inline highlights, and
+ * the prism token palette.
+ */
+@media (prefers-color-scheme: dark) {
+  /* Page chrome */
+  main {
+    background: #15181f;
+    color: #d8d8d8;
+  }
+  body main {
+    box-shadow: 0px 0px 100px 0px rgba(0, 0, 0, 0.65);
+  }
+
+  main h1, main h2, main h3, main h4, main h5, main h6,
+  h1, h2, h3, h4, h5, h6 {
+    color: #f0f0f0;
+  }
+
+  main p, p {
+    color: #c8c8c8;
+  }
+
+  .tagline,
+  main > header h2 {
+    color: #c8c8c8;
+  }
+
+  .feature-image .description {
+    color: #a0a0a0;
+  }
+
+  /* Inline links — `<a>` color in main.css is set via descendant rules
+   * keyed off `#guide` and `#latestrelease`, plus the API page uses
+   * `color: inherit !important`. Cover the common cases. */
+  #guide a, #guide a:visited, #guide a:focus, #guide a:hover,
+  #latestrelease a, #latestrelease a:visited, #latestrelease a:hover, #latestrelease a:focus,
+  main a, main a:visited {
+    color: #79b8ff;
+  }
+  main a:hover { color: #a8cfff; }
+
+  #latestrelease {
+    background: #1a2436;
+    color: #d8d8d8;
+  }
+
+  /* Inline code + code blocks */
+  code {
+    background: #21252e;
+    color: #e6e6e6;
+    text-shadow: 0 1px #000;
+  }
+  pre {
+    background: #1b1e25;
+  }
+  pre > code {
+    background: transparent;
+    text-shadow: none;
+  }
+
+  /* Prism token palette (mirrors One Dark / Tokyo-ish) */
+  .token.comment, .token.prolog, .token.doctype, .token.cdata { color: #6e7681; }
+  .token.punctuation { color: #c0c0c0; }
+  .token.property, .token.tag, .token.boolean, .token.number,
+  .token.constant, .token.symbol, .token.deleted { color: #f08080; }
+  .token.selector, .token.attr-name, .token.string,
+  .token.char, .token.builtin, .token.inserted { color: #98c379; }
+  .token.operator, .token.entity, .token.url,
+  .language-css .token.string, .style .token.string {
+    color: #d19a66; background: transparent;
+  }
+  .token.atrule, .token.attr-value, .token.keyword { color: #61afef; }
+  .token.function, .token.class-name { color: #e06c75; }
+  .token.regex, .token.important, .token.variable { color: #e5c07b; }
+
+  /* Index page: language-grid buttons + selects */
+  .lang-grid button {
+    background: #232730;
+    border-color: #3d4250;
+    color: #d8d8d8;
+  }
+  .lang-grid button:hover:not(.active):not(.lang-disabled) {
+    background: #2c313c;
+  }
+  .lang-grid button.lang-disabled {
+    background: #1d2028;
+    color: #555;
+  }
+  .lang-tab-dropdown .dialect-select,
+  .tab-bar select {
+    background: #232730;
+    border-color: #3d4250;
+    color: #d8d8d8;
+  }
+  .lang-grid button.active,
+  .lang-tab-dropdown.active .dialect-select {
+    background-color: #1d6fdb;
+    color: white;
+    border-color: #1d6fdb;
+  }
+
+  /* Code/example panels */
+  .code-panel,
+  .example-code {
+    background: #1b1e25;
+    color: #d8d8d8;
+    border-color: #3d4250;
+  }
+  .example-code > .copy-btn::after { background: #1b1e25; }
+  .copy-btn::after { background: #1b1e25; }
+
+  /* Markdown alert blocks (used in guide pages) */
+  .markdown-alert-warning {
+    background: #2a2515 !important;
+    border-color: #facb26 !important;
+    color: #e6e6e6 !important;
+    box-shadow: 0px 0px 20px #facb2633 !important;
+  }
+}

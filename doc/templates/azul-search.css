@@ -263,3 +263,37 @@
 @media print {
   .azul-search { display: none !important; }
 }
+
+/* Dark mode — flips the colour tokens; layout/specifics inherit. */
+@media (prefers-color-scheme: dark) {
+  .azul-search {
+    --azs-bg: #1d2028;
+    --azs-fg: #e8e8e8;
+    --azs-muted: #9aa0a8;
+    --azs-accent: #79b8ff;
+    --azs-accent-soft: #1f2a3d;
+    --azs-border: #3d4250;
+    --azs-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+    --azs-mark: #6e5c1c;
+  }
+
+  .azs-meta { background: #1a1d24; }
+  .azs-result a { border-bottom-color: #2a2e38; }
+
+  /* Recolour the kind badges so they stay legible on a dark row. */
+  .azs-kind        { background: #2a2f3a; color: #c8c8c8; }
+  .azs-kind.k-m    { background: #1a3158; color: #79b8ff; }
+  .azs-kind.k-s    { background: #1c3a1c; color: #98d398; }
+  .azs-kind.k-e    { background: #3a2a16; color: #e5c07b; }
+  .azs-kind.k-fp   { background: #321b3a; color: #c089d6; }
+  .azs-kind.k-fn   { background: #1f2a4a; color: #79b8ff; }
+  .azs-kind.k-cn   { background: #1c3a1c; color: #98d398; }
+  .azs-kind.k-ev   { background: #3a311a; color: #d6b770; }
+  .azs-kind.k-f    { background: #2a2e38; color: #b0b0b0; }
+  .azs-kind.k-g    { background: #2a3548; color: #a3c4ff; }
+
+  .azs-sig {
+    color: #f0a8a4;
+    background: #1b1e25;
+  }
+}

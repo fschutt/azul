@@ -79,7 +79,29 @@ const API_CSS: &str = "
 
     body > .center > main #api a {
         color: inherit !important;
-    }       body > .center > main #api a { color: inherit !important; }        
+    }       body > .center > main #api a { color: inherit !important; }
+
+    @media (prefers-color-scheme: dark) {
+        body > .center > main #api > ul > li.m > ul > li.st.e {
+            color: #98d398;
+        }
+        body > .center > main #api > ul > li.m > ul > li.st.s {
+            color: #f08080;
+        }
+        body > .center > main #api > ul > li.m > ul > li.fnty,
+        body > .center > main #api > ul > li.m > ul > li .arg {
+            color: #e5c07b;
+        }
+        body > .center > main #api > ul > li.m > ul > li.st .cn {
+            color: #98d398;
+        }
+        body > .center > main #api > ul > li.m > ul > li.st .fn {
+            color: #79b8ff;
+        }
+        body > .center > main #api p.doc {
+            color: #d8d8d8 !important;
+        }
+    }
 ";
 
 /// Generate API documentation HTML for a specific version
