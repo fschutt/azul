@@ -19,161 +19,186 @@ generated_at: 2026-05-02T05:53:30Z
 
 # Document Object Model
 
-## Design
+If you've worked with the browser DOM, the surface here looks familiar.
+You build a tree of nodes, each carries a tag, classes, attributes,
+inline CSS, callbacks. What's different is the shape underneath, and a
+small number of rules the framework imposes on you.
 
-Azul makes three architectural decisions that are different from other browsers:
+## Four design choices
 
-1. The `NodeHierarchy` (encoding the relationships of nodes to each other) is separate 
-   from the `NodeData` (the content of the DOM node itself, i.e. `id=xxx`, `class=y`).
-2. The `NodeHierarchy` and `NodeData` are stored in a flat `Vec`, in "DOM tree order".
-3. The DOM is frozen after creation - `node.insertChild()` and `document.write` can never 
-   exist, if you want to change the DOM, you just return a new DOM (and Azul will apply a diff).
-4. The `Css` styling information is "compressed" in order to make the massive amount of possible
-   configurations fit into an L2 CPU Cache, so that during the hot `layout()` phase, the 
-   CPU does not have reach out to main RAM memory in order to get information about layout and 
-   styling properties. More on that later.
+Azul's DOM differs from a browser DOM in four places:
 
-```rust
-DomTree {
-    data: [NodeData #1, NodeData #2, NodeData #3],
-    hierarchy: [NodeHierarchy #1, NodeHierarchy #2, NodeHierarchy #3]
+1. **Hierarchy lives separately from node data.** The relationships
+   (`parent`, `prev_sibling`, `next_sibling`, `last_child`) are in one
+   array. The content (`tag`, `class`, inline CSS, callbacks) is in a
+   parallel array. They're indexed by the same node id.
+2. **Both arrays are flat `Vec`s in DOM tree order.** Parent before
+   children. So a slice `data[self..self.last_child + 1]` is the
+   subtree rooted at `self`. No pointer-chasing to walk a subtree.
+3. **The DOM is frozen after `layout()` returns.** There is no
+   `insertChild`, no `setAttribute`, no mutation observers. To change
+   the tree you return a new `Dom` from the next `layout()` call. The
+   framework diffs old against new and migrates state across.
+4. **CSS is stored in a compact, layout-hot cache.** Common enum
+   properties (`display`, `position`, `float`, `overflow`) are
+   bit-packed into a single `u64` per node. The numbers and the cold
+   paint properties live in two more arrays. The point is to make the
+   per-node working set small enough that the layout pass stays in L2
+   instead of round-tripping to RAM. The compact-cache implementation
+   itself is documented separately, in
+   [internals/compact-cache.md](internals/compact-cache.md).
+
+The result is a tree like this:
+
+```text
+         hierarchy[0..5]                  data[0..5]
+       ┌───────────────┐               ┌──────────────────────┐
+   0   │ parent: -     │ <body>        │ NodeData { ... }     │
+   1   │ parent: 0     │   <div>       │ NodeData { ... }     │
+   2   │ parent: 1     │     <span>    │ NodeData { ... }     │
+   3   │ parent: 0     │   <p>         │ NodeData { ... }     │
+   4   │ parent: 3     │     "text"    │ NodeData { ... }     │
+       └───────────────┘               └──────────────────────┘
+```
+
+Indices into both arrays match. The layout engine traverses by index,
+not by pointer, and reads from compact arrays whose memory layout it
+controls.
+
+## Why this matters: cache hierarchy
+
+Layout itself isn't algorithmically hard. It's a tree walk plus a lot
+of if/else. The expensive part isn't the math; it's pulling each
+node's properties out of memory.
+
+A modern CPU has a tiered memory hierarchy. Cycle counts are
+approximate but the order of magnitude is right:
+
+- **L1 data cache** — 32 to 128 KB per core. ~4 cycles to read.
+- **L2** — 256 KB to several MB per core. ~12 cycles.
+- **L3** — 4 to 32 MB shared. ~30 to 60 cycles. Doesn't exist on
+  embedded targets.
+- **Main RAM** — gigabytes. ~100 to 300 cycles. A full miss costs
+  more than running 100 instructions.
+
+Layout reads the same per-node fields once per relayout pass. If the
+working set fits in L2, the second pass is essentially free. If it
+spills to RAM, every node fetch stalls the pipeline.
+
+The relevant per-node sizes in the layout hot path:
+
+```text
+NodeHierarchyItem            32 B    parent + 3 sibling/child indices
+StyledNodeState              10 B    :hover / :focus / :active per node
+NodeFlags                     4 B    contenteditable, tab index, anonymous
+compact-cache tier 1          8 B    display/position/float/etc bit-packed
+compact-cache tier 2 (hot)   68 B    width, height, margin, padding, ...
+compact-cache tier 2 (cold)  28 B    paint-only properties (color, opacity)
+compact-cache tier 2b (text) 24 B    text-related layout
+
+per-node total (hot)        ~150 B
+per-node total (warm)       ~170 B   add cold + text tiers
+NodeData (cold during layout) 152 B  read once for inline CSS, classes
+```
+
+For 1,000 nodes the layout-hot working set is ~150 KB. That fits in L2
+on every desktop chip and most embedded ones. For 10,000 nodes it's
+~1.5 MB, still L2 on a modern Apple/Intel core. For 100,000 nodes it's
+~15 MB, which is L3 on desktop and main memory on embedded.
+
+The numbers tell you when you have to start thinking about virtual
+views, lazy panels, and other ways to keep the rendered subtree
+small. See [Virtual Views](dom/virtual-views.md).
+
+## The two structures
+
+`NodeHierarchyItem` (32 B) carries four indices into the same array:
+
+```rust,ignore
+pub struct NodeHierarchyItem {
+    pub parent: usize,            // 0 means "no parent"
+    pub previous_sibling: usize,
+    pub next_sibling: usize,
+    pub last_child: usize,        // index of last descendant
 }
 ```
 
-The goal is to make it as efficient as possible for the CPU to layout the tree: in a 
-naive implementation, if you have 2000 - 5000 DOM nodes and each one has 30 properties 
-(can easily happen with cascading overrides, etc.), then the entire space for the "per node" 
-(DOM node, hierarchy info, styling) will determine whether the entire DOM tree will fit 
-into L2 memory or not. 
+Because children sit contiguously after their parent in tree order,
+`data[self_idx ..= last_child]` is the whole subtree rooted at
+`self_idx`. No pointer-chasing, no recursion needed for a subtree
+copy.
 
-Layout calculation isn't actually all that "hard" for a CPU - it's just lots of if / else 
-statements. But those statements branch on variables that have to be fetched from main memory 
-and *that* process is slow: so the more you save on RAM, the faster your layout code will be.
+`NodeData` (152 B) carries everything that defines a single node:
 
-To give you an impression, here are the current sizes of the relevant structs that are 
-hit during the layout phase:
+- `node_type: NodeType` — the HTML tag (Div, P, Button, ...) or one of
+  the four leaves (Text, Image, Icon, VirtualView).
+- `callbacks: CoreCallbackDataVec` — event handlers attached to the
+  node. Empty for ~80% of nodes.
+- `css_props: CssPropertyWithConditionsVec` — inline CSS, including
+  conditional rules like `:hover` and `@theme dark`.
+- `flags: NodeFlags` — packed bits for tab index, contenteditable,
+  anonymous.
+- `accessibility: Option<Box<AccessibilityInfo>>` — ARIA payload, only
+  allocated on accessible nodes.
+- `extra: Option<Box<NodeDataExt>>` — boxed bag of less-common state
+  (attributes, dataset, virtual-view payload, menus, merge callback,
+  SVG data). About 95% of nodes never trigger this allocation.
 
-```rust
+The two `Option<Box<...>>` fields keep the common case at 152 B. A
+typical paragraph or div pays nothing for the a11y or extras boxes.
 
-```
+## Frozen after creation
 
-Whereas `NodeData` and `NodeHierarchy` contain data in a "compressed" format that is nice 
-and compact, so that the entire data that the heavy `layout()` phase needs fits into the 
-`L2` CPU cache, which is usually just a few MB big (500KB-2MB). So if you have 1000 DOM
-nodes, the actual hard part is to get all the styling configuration, DOM hierarchy 
-information and text layout information into - the "configurability" of the DOM / CSS models
-gives a lot of freedom to designers (which makes the web as a platform so attractive), but
-makes it hard for the engineers. 
+The DOM you return from `layout()` is the framework's, not yours
+anymore. You don't keep a handle, you don't mutate it, you don't get
+notified when something inside it changes. State change goes through
+the next `layout()` call:
 
-Azul additionally introduces the concept of a "Compact CSS cache", which stores CSS values
-in a "compressed" format. For example, very common enum properties like `display: block` or 
-`display:inline` are compressed into a singe `u64` with bitflags:
+1. A callback returns `Update::RefreshDom`.
+2. The framework re-invokes your layout function.
+3. You build a fresh `Dom` from your application data.
+4. The framework diffs the new tree against the previous one and
+   migrates focus, scroll, dataset, and merge-callback state across
+   matched nodes.
 
-```rust
-fn encode_tier1(input: CommonCssValue) -> u64 {
-    let mut v: u64 = TIER1_POPULATED_BIT;
-    v |= (layout_display_to_u8(input.display) as u64) << DISPLAY_SHIFT;
-    v |= (layout_position_to_u8(input.position) as u64) << POSITION_SHIFT;
-    v |= (layout_float_to_u8(input.float) as u64) << FLOAT_SHIFT;
-    // ... 
-}
-```
+This rule exists because every JS framework worth using already
+discourages mutation: React, Vue, Solid, Lit all model UI as a
+function of state. Azul makes it the rule, not the convention. A
+mutable DOM is the cause of half the bugs in any non-trivial web
+app, and it's also what makes browser layout engines so hard to
+optimise. Removing the mutation surface lets the framework treat the
+tree as data.
 
-The 
+The reconciliation algorithm — what counts as "matching" old and new
+nodes, what migrates, what fires lifecycle events — is documented in
+[Reconciliation](dom/reconciliation.md).
 
-Given an array of node data, we have something like (closing tags left off):
+State that has to survive a tree rebuild (a video decoder, a GL
+texture, the cursor inside a focused input) doesn't live in the tree
+shape. It hangs off the node as a dataset. See
+[Datasets](dom/datasets.md) and [Merge Callbacks](dom/merge-callbacks.md).
 
-```rust
-// 
-// 
-// <div>
-//   <first-child>
-//      
-// 
-// [NodeData #0, NodeData #1, NodeData ..., NodeData #5]
-// 
-// We encode the node hierarchy information separately like this:
-// 
-// - parent                         (index 0)
-// - first child                    (index 1)
-// - first child of the first child (index 2)
-// - next child                     (index 3)
-// - last child                     (index 4)
-// - first child  of the last child (index 5)
-// 
-NodeHierarchy {
-  // Index of the parent node, in this case 0 = no parent
-  parent: 0,
-  // Previous sibling that is in the same indentation level
-  previous_sibling: 0,
-  // Next sibling that is in the same indentation level
-  next_sibling: 0,
-  // Children are always stored in "tree order" in the array 
-  // (parent before children), so, this has the benefit that
-  // &data[self.index..last_child]
-  // will give you a "sub-tree view" over the logical sub-tree
-  last_child: 4,
-}
-```
-
-The idea, initially was to be able to transform a `Tree<T>` t
-
-In difference to regular "web browsers", Azul's Document Object Model, i.e.
-the essence of your UI, is data-oriented instead of object-oriented. While
-the core `NodeData` struct is still an "object" as such, it is fundamentally
-separate from the `NodeHierarchy`.
-
-
-In order to understand why, you have to understand that CPUs don't like it
-when, in an object-oriented design, the layout engine has to traverse from one
-`NodeData` to another `NodeData` in order to, for example, compare attributes.
-The layout code is in itself relatively complex and classical web browsers 
-(including Servo!) have a lot of problems managing the "lifecycle" of a `NodeData`
-object.
-
-
-: this is 
-   because in the traditional web, no JS state framework (that you will be using anyway, 
-   because calling `.insertChild`, `.removeChild`, etc. becomes a mess with larger apps),
-   allows you to do this. This model was intended for a web page anim
-
-Internally it lives as parallel arrays. There's
-a `NodeHierarchyItemVec` (each entry is a `NodeHierarchyItem` with `parent`,
-`previous_sibling`, `next_sibling`, and `last_child` indices) and a parallel
-`NodeDataVec` of `NodeData`. That's the format the layout engine actually
-consumes. The framework converts your `Dom` into this flat form internally.
-You don't construct the flat arrays yourself.
-
-The DOM is also frozen the moment you return it from `layout()`. There's no
-`appendChild`. There's no `setAttribute`. There are no mutation observers.
-State change goes through the next `layout()` call. A callback returns
-`Update::RefreshDom`, the framework calls your layout function again, you
-build a fresh `Dom` from your application data, and the previous tree is
-diffed against the new one, see
-[reconciliation](dom/reconciliation.md).
-
-You build the tree as a recursive `Dom` value: a `NodeData` root plus a
-`DomVec` of children.
-
-State that has to survive a tree rebuild (a video decoder, a GL texture,
-the cursor inside a focused input) doesn't live in the tree. It hangs off
-the node as a dataset. See [Datasets](dom/datasets.md) and
-[Merge Callbacks](dom/merge-callbacks.md).
+## Building a tree
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
 let dom: Dom = Dom::create_body()
     .with_child(Dom::create_h1_with_text("Hello"))
     .with_child(Dom::create_p_with_text("A paragraph."));
 ```
 
-This page covers the type definitions, how CSS is attached, when it
-actually applies, XML loading, clipping, and the live debugger. Reusable
-fragments are covered separately in [Components](dom/components.md).
+You build the tree as a recursive `Dom` value: a `NodeData` root plus
+a `DomVec` of children. The framework flattens this into the parallel
+arrays at the start of the cascade pass.
 
-## Dom and NodeData
+The rest of this page covers the node-data layout in detail, how to
+attach CSS, the accessibility soft-force pattern, XML loading, and
+the live-debugger hooks. Reusable fragments are covered separately
+in [Components](dom/components.md).
 
-`Dom` (in `core/src/dom.rs`) is the recursive form:
+## The Dom builder
+
+`Dom` is the recursive form you actually construct:
 
 ```rust,ignore
 pub struct Dom {
@@ -184,21 +209,11 @@ pub struct Dom {
 }
 ```
 
-A `Dom` is a subtree. Its root is a `NodeData`. `NodeData` (also in
-`core/src/dom.rs`) is the per-node payload:
-
-- `node_type: NodeType`. The HTML tag this node represents.
-- `callbacks: CoreCallbackDataVec`. Event handlers attached to the node.
-- `css_props: CssPropertyWithConditionsVec`. Inline CSS, including
-  conditional rules like `:hover` and `@theme dark`.
-- `flags: NodeFlags`. Packed bits for tab index, contenteditable, anonymous.
-- `accessibility: Option<Box<AccessibilityInfo>>`. ATK/MSAA payload, optional.
-- `extra`. Less-common state (attributes, dataset, virtual-view payload,
-  menus, merge callback) boxed so the common case stays small. About 95%
-  of nodes don't have any of these, so the box stays unallocated.
-
-Every builder method on `Dom` (like `with_class` or `with_callback`) is a
-shorthand that delegates to the same method on `self.root`.
+A `Dom` is a subtree. Its root is a `NodeData`. The framework flattens
+the recursive form into parallel arrays once, at the start of the
+cascade. Every builder method on `Dom` (like `with_class` or
+`with_callback`) is a shorthand that delegates to the same method on
+`self.root`.
 
 ## Node constructors
 
