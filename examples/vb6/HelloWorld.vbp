@@ -1,0 +1,37 @@
+' VB6 Project file for the hello-world example.
+' === 32-BIT ONLY === This project requires a 32-bit azul.dll on PATH or
+' next to the produced .exe. Build the Rust DLL with:
+'     cargo build --release --target i686-pc-windows-msvc -p azul-dll
+'
+' Open with VB6.EXE / VB6 IDE, or compile via vbc.exe.
+Type=Exe
+Reference=*\G{00020430-0000-0000-C000-000000000046}#2.0#0#..\..\Windows\system32\stdole2.tlb#OLE Automation
+Module=HelloWorld; HelloWorld.bas
+Startup="Sub Main"
+ExeName32="HelloWorld.exe"
+Title="Azul Hello World"
+Command32=""
+Name="HelloWorld"
+HelpContextID="0"
+CompatibleMode="0"
+MajorVer=1
+MinorVer=0
+RevisionVer=0
+AutoIncrementVer=0
+ServerSupportFiles=0
+VersionCompanyName="Azul GUI"
+CompilationType=0
+OptimizationType=0
+FavorPentiumPro(tm)=0
+CodeViewDebugInfo=0
+NoAliasing=0
+BoundsCheck=0
+OverflowCheck=0
+FlPointCheck=0
+FDIVCheck=0
+UnroundedFP=0
+StartMode=0
+Unattended=0
+Retained=0
+ThreadPerObject=0
+MaxNumberOfThreads=1

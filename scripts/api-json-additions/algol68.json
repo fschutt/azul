@@ -1,0 +1,84 @@
+{
+    "tabOrder_append": "algol68",
+    "languages_entry": {
+        "algol68": {
+            "displayName": "Algol 68 (a68g)",
+            "platforms": {
+                "linux": {
+                    "description": "Install Algol 68 Genie (GPL-3.0+), download azul.a68 and the native library, then run with a68g",
+                    "steps": [
+                        {
+                            "type": "command",
+                            "content": "sudo apt-get install algol68g"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul.a68"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.a68"
+                        },
+                        {
+                            "type": "command",
+                            "content": "LD_LIBRARY_PATH=. a68g hello-world.a68"
+                        }
+                    ]
+                },
+                "macos": {
+                    "description": "Install Algol 68 Genie (GPL-3.0+) via Homebrew, download azul.a68 and the native library, then run with a68g",
+                    "steps": [
+                        {
+                            "type": "command",
+                            "content": "brew install algol68g"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul.a68"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.a68"
+                        },
+                        {
+                            "type": "command",
+                            "content": "DYLD_LIBRARY_PATH=. a68g hello-world.a68"
+                        }
+                    ]
+                },
+                "windows": {
+                    "description": "Download Algol 68 Genie (GPL-3.0+) Windows build from jmvdveer.home.xs4all.nl, place azul.dll alongside your source, then run with a68g",
+                    "steps": [
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul.a68"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.a68"
+                        },
+                        {
+                            "type": "command",
+                            "content": "a68g hello-world.a68"
+                        }
+                    ]
+                }
+            }
+        }
+    },
+    "examples_code_additions": {
+        "hello-world": "algol68/hello-world.a68"
+    }
+}

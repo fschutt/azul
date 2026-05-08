@@ -1,0 +1,46 @@
+{
+    "tabOrder_append": "vb6",
+    "languages_entry": {
+        "vb6": {
+            "displayName": "Visual Basic 6 (32-bit, Windows-only)",
+            "platforms": {
+                "windows": {
+                    "description": "Use the VB6 IDE or vbc.exe; requires 32-bit azul.dll. VB6 is Microsoft's discontinued 1998 RAD tool whose runtime (msvbvm60.dll) still ships with every Windows 10/11. There is no 64-bit VB6 compiler — the binding only loads against the i686-pc-windows-msvc azul build.",
+                    "steps": [
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul-i686.dll"
+                        },
+                        {
+                            "type": "command",
+                            "content": "ren azul-i686.dll azul.dll"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/Azul.bas"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/HelloWorld.bas"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/HelloWorld.vbp"
+                        },
+                        {
+                            "type": "command",
+                            "content": "vb6.exe /make HelloWorld.vbp"
+                        },
+                        {
+                            "type": "command",
+                            "content": "HelloWorld.exe"
+                        }
+                    ]
+                }
+            }
+        }
+    },
+    "examples_code_additions": {
+        "hello-world": "vb6/HelloWorld.bas"
+    }
+}
