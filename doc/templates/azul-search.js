@@ -603,13 +603,18 @@
       }, function () { /* error already shown in metaEl */ });
     }
 
-    function open() {
+    // `focusInput` defaults to true (user invoked the panel and wants to
+    // type immediately). The auto-open path on guide pages with defaults
+    // passes false so the page header keeps focus and the reader isn't
+    // forced into the search box on landing.
+    function open(focusInput) {
+      if (focusInput === undefined) focusInput = true;
       root.dataset.state = 'open';
-      // Defer focus so iOS Safari doesn't suppress the soft keyboard.
-      setTimeout(function () { input.focus(); input.select(); }, 0);
+      if (focusInput) {
+        // Defer focus so iOS Safari doesn't suppress the soft keyboard.
+        setTimeout(function () { input.focus(); input.select(); }, 0);
+      }
       ensureLoaded().then(function (l) {
-        // First open after load — populate defaults if appropriate, then
-        // queue the api page prefetch.
         if (!input.value) showState();
         prefetchTarget();
       }, function () { /* ignore */ });
@@ -712,6 +717,14 @@
     // Global hotkeys.
     var hotkey = opts.hotkey !== false;
     function onGlobalKey(ev) {
+      // Esc closes the panel from anywhere when it's open — important
+      // for the auto-open-with-defaults path where the user may not
+      // have focused into the panel yet.
+      if (ev.key === 'Escape' && root.dataset.state === 'open') {
+        ev.preventDefault();
+        close();
+        return;
+      }
       if (!hotkey) return;
       if (ev.target && /^(INPUT|TEXTAREA|SELECT)$/.test(ev.target.tagName)) return;
       if (ev.target && ev.target.isContentEditable) return;
@@ -724,6 +737,13 @@
       }
     }
     document.addEventListener('keydown', onGlobalKey);
+
+    // Auto-open on desktop when the page ships curated defaults — that
+    // way the suggestions are visible without a click. Mobile keeps the
+    // toggle pill (full-screen overlay would be hostile on landing).
+    if (defaults.length > 0 && !isMobile()) {
+      open(false);
+    }
 
     return {
       open: open,
