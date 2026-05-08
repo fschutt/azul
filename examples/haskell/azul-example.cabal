@@ -1,0 +1,27 @@
+-- ============================================================================
+-- Azul "hello world" — Haskell example project file.
+--
+-- Build with:
+--     cabal run hello-world
+--
+-- The native libazul.so / libazul.dylib / azul.dll must be discoverable
+-- by the linker at build time. Set `extra-lib-dirs` below or pass
+-- `--extra-lib-dirs=...` on the command line if it lives outside the
+-- usual search paths.
+-- ============================================================================
+
+cabal-version:      2.4
+name:               azul-example
+version:            0.1.0
+synopsis:           Hello-world example for the Azul Haskell bindings
+license:            MPL-2.0
+author:             azul-doc codegen
+maintainer:         hello@azul.rs
+build-type:         Simple
+
+executable hello-world
+    main-is:            HelloWorld.hs
+    build-depends:      base    ^>= 4.18
+                      , azul
+    default-language:   Haskell2010
+    ghc-options:        -Wall -Wno-unused-imports -Wno-unused-matches

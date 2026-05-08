@@ -1,0 +1,100 @@
+{
+    "tabOrder_append": "smalltalk",
+    "languages_entry": {
+        "smalltalk": {
+            "displayName": "Smalltalk (Pharo)",
+            "platforms": {
+                "linux": {
+                    "description": "Download azul, install Pharo, file in the bindings",
+                    "steps": [
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/Azul.st"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/BaselineOfAzul.st"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -L https://get.pharo.org/64/110+vm | bash"
+                        },
+                        {
+                            "type": "command",
+                            "content": "LD_LIBRARY_PATH=. ./pharo Pharo.image eval --save \"'Azul.st' asFileReference fileIn. 'BaselineOfAzul.st' asFileReference fileIn. (Smalltalk at: #BaselineOfAzul) loadDefault.\""
+                        },
+                        {
+                            "type": "command",
+                            "content": "LD_LIBRARY_PATH=. ./pharo Pharo.image st --quit hello-world.st"
+                        }
+                    ]
+                },
+                "macos": {
+                    "description": "Download azul, install Pharo, file in the bindings",
+                    "steps": [
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/Azul.st"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/BaselineOfAzul.st"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -L https://get.pharo.org/64/110+vm | bash"
+                        },
+                        {
+                            "type": "command",
+                            "content": "DYLD_LIBRARY_PATH=. ./pharo Pharo.image eval --save \"'Azul.st' asFileReference fileIn. 'BaselineOfAzul.st' asFileReference fileIn. (Smalltalk at: #BaselineOfAzul) loadDefault.\""
+                        },
+                        {
+                            "type": "command",
+                            "content": "DYLD_LIBRARY_PATH=. ./pharo Pharo.image st --quit hello-world.st"
+                        }
+                    ]
+                },
+                "windows": {
+                    "description": "Download azul, install Pharo, file in the bindings",
+                    "steps": [
+                        {
+                            "type": "command",
+                            "content": "curl -O %HOSTNAME%/release/%VERSION%/azul.dll"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O %HOSTNAME%/release/%VERSION%/Azul.st"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O %HOSTNAME%/release/%VERSION%/BaselineOfAzul.st"
+                        },
+                        {
+                            "type": "command",
+                            "content": "Download Pharo: https://pharo.org/download"
+                        },
+                        {
+                            "type": "command",
+                            "content": "Pharo.exe Pharo.image eval --save \"'Azul.st' asFileReference fileIn. 'BaselineOfAzul.st' asFileReference fileIn. (Smalltalk at: #BaselineOfAzul) loadDefault.\""
+                        },
+                        {
+                            "type": "command",
+                            "content": "Pharo.exe Pharo.image st --quit hello-world.st"
+                        }
+                    ]
+                }
+            }
+        }
+    },
+    "examples_code_additions": {
+        "hello-world": "smalltalk/HelloWorld.st"
+    }
+}

@@ -1,0 +1,76 @@
+{
+    "tabOrder_append": "haskell",
+    "languages_entry": {
+        "haskell": {
+            "displayName": "Haskell",
+            "platforms": {
+                "linux": {
+                    "description": "Download azul + generated bindings, build with Cabal",
+                    "steps": [
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul.cabal"
+                        },
+                        {
+                            "type": "command",
+                            "content": "mkdir -p src/Azul/Internal && curl -o src/Azul.hs $HOSTNAME/release/$VERSION/Azul.hs && curl -o src/Azul/Types.hs $HOSTNAME/release/$VERSION/Azul/Types.hs && curl -o src/Azul/Internal/FFI.hs $HOSTNAME/release/$VERSION/Azul/Internal/FFI.hs"
+                        },
+                        {
+                            "type": "command",
+                            "content": "cabal build --extra-lib-dirs=. && LD_LIBRARY_PATH=. cabal run hello-world"
+                        }
+                    ]
+                },
+                "macos": {
+                    "description": "Download azul + generated bindings, build with Cabal",
+                    "steps": [
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul.cabal"
+                        },
+                        {
+                            "type": "command",
+                            "content": "mkdir -p src/Azul/Internal && curl -o src/Azul.hs $HOSTNAME/release/$VERSION/Azul.hs && curl -o src/Azul/Types.hs $HOSTNAME/release/$VERSION/Azul/Types.hs && curl -o src/Azul/Internal/FFI.hs $HOSTNAME/release/$VERSION/Azul/Internal/FFI.hs"
+                        },
+                        {
+                            "type": "command",
+                            "content": "cabal build --extra-lib-dirs=. && DYLD_LIBRARY_PATH=. cabal run hello-world"
+                        }
+                    ]
+                },
+                "windows": {
+                    "description": "Download azul + generated bindings, build with Cabal (under MSYS2 / GHCup)",
+                    "steps": [
+                        {
+                            "type": "command",
+                            "content": "curl -O %HOSTNAME%/release/%VERSION%/azul.dll"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O %HOSTNAME%/release/%VERSION%/azul.cabal"
+                        },
+                        {
+                            "type": "command",
+                            "content": "mkdir src\\Azul\\Internal && curl -o src\\Azul.hs %HOSTNAME%/release/%VERSION%/Azul.hs && curl -o src\\Azul\\Types.hs %HOSTNAME%/release/%VERSION%/Azul/Types.hs && curl -o src\\Azul\\Internal\\FFI.hs %HOSTNAME%/release/%VERSION%/Azul/Internal/FFI.hs"
+                        },
+                        {
+                            "type": "command",
+                            "content": "cabal build --extra-lib-dirs=. && cabal run hello-world"
+                        }
+                    ]
+                }
+            }
+        }
+    },
+    "examples_code_additions": {
+        "hello-world": "haskell/HelloWorld.hs"
+    }
+}

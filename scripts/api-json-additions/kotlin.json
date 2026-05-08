@@ -1,0 +1,88 @@
+{
+    "tabOrder_append": "kotlin",
+    "languages_entry": {
+        "kotlin": {
+            "displayName": "Kotlin",
+            "platforms": {
+                "linux": {
+                    "description": "Download azul, build with Gradle (Kotlin DSL)",
+                    "steps": [
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul-kotlin.zip"
+                        },
+                        {
+                            "type": "command",
+                            "content": "unzip azul-kotlin.zip"
+                        },
+                        {
+                            "type": "command",
+                            "content": "mkdir -p src/main/resources/linux-x86-64 && mv libazul.so src/main/resources/linux-x86-64/"
+                        },
+                        {
+                            "type": "command",
+                            "content": "./gradlew run"
+                        }
+                    ]
+                },
+                "macos": {
+                    "description": "Download azul, build with Gradle (Kotlin DSL)",
+                    "steps": [
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul-kotlin.zip"
+                        },
+                        {
+                            "type": "command",
+                            "content": "unzip azul-kotlin.zip"
+                        },
+                        {
+                            "type": "command",
+                            "content": "mkdir -p src/main/resources/darwin && mv libazul.dylib src/main/resources/darwin/"
+                        },
+                        {
+                            "type": "command",
+                            "content": "./gradlew run"
+                        }
+                    ]
+                },
+                "windows": {
+                    "description": "Download azul, build with Gradle (Kotlin DSL)",
+                    "steps": [
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul-kotlin.zip"
+                        },
+                        {
+                            "type": "command",
+                            "content": "tar -xf azul-kotlin.zip"
+                        },
+                        {
+                            "type": "command",
+                            "content": "mkdir src\\main\\resources\\win32-x86-64 && move azul.dll src\\main\\resources\\win32-x86-64\\"
+                        },
+                        {
+                            "type": "command",
+                            "content": "gradlew.bat run"
+                        }
+                    ]
+                }
+            }
+        }
+    },
+    "examples_code_additions": {
+        "hello-world": "kotlin/HelloWorld.kt"
+    }
+}
