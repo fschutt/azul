@@ -93,6 +93,7 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
     let header_tags = crate::docgen::get_common_head_tags(false);
     let sidebar = crate::docgen::get_sidebar();
     let prism_script = crate::docgen::get_prism_script();
+    let search_script = crate::docgen::get_search_init();
 
     format!(
         "<!DOCTYPE html>
@@ -130,6 +131,7 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
 
         </div>
         {prism_script}
+        {search_script}
         </body>
         </html>"
     )
@@ -641,6 +643,7 @@ pub fn generate_api_index(api_data: &ApiData) -> String {
     let header_tags = crate::docgen::get_common_head_tags(false);
     let sidebar = crate::docgen::get_sidebar();
     let prism_script = crate::docgen::get_prism_script();
+    let search_script = crate::docgen::get_search_init();
 
     format!(
         "<!DOCTYPE html>
@@ -675,6 +678,7 @@ pub fn generate_api_index(api_data: &ApiData) -> String {
 
         </div>
         {prism_script}
+        {search_script}
         </body>
         </html>"
     )

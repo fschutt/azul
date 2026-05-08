@@ -913,6 +913,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     let common_head_tags = crate::docgen::get_common_head_tags(false);
     let sidebar = crate::docgen::get_sidebar();
     let prism_script = crate::docgen::get_prism_script();
+    let search_script = crate::docgen::get_search_init();
     let releasenotes =
         comrak::markdown_to_html(&versiondata.notes.join("\r\n"), &comrak::Options::default());
     let git = &versiondata.git;
@@ -1095,6 +1096,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
         </main>
       </div>
       {prism_script}
+      {search_script}
     </body>
     </html>"
     )
@@ -1112,6 +1114,7 @@ pub fn generate_releases_index(versions: &[String]) -> String {
     let header_tags = crate::docgen::get_common_head_tags(false);
     let sidebar = crate::docgen::get_sidebar();
     let prism_script = crate::docgen::get_prism_script();
+    let search_script = crate::docgen::get_search_init();
 
     format!(
         r#"<!DOCTYPE html>
@@ -1136,14 +1139,15 @@ pub fn generate_releases_index(versions: &[String]) -> String {
   <main>
     <h1>Releases</h1>
     <div>
-      <ul>{}</ul>
+      <ul>{version_items}</ul>
     </div>
   </main>
   </div>
   {prism_script}
+  {search_script}
 </body>
 </html>"#,
-        version_items
+        version_items = version_items,
     )
 }
 
@@ -1168,6 +1172,14 @@ pub fn copy_static_assets(output_dir: &Path) -> Result<()> {
         templates_dir.join("prism_code_highlighter.js"),
         output_dir.join("prism_code_highlighter.js"),
     )?;
+
+    // Search panel assets. Embedded via include_str! so the binary stays
+    // self-contained; we still write them out as separate static files so
+    // the browser caches them independently of any HTML page.
+    const AZUL_SEARCH_JS: &str = include_str!("../../templates/azul-search.js");
+    const AZUL_SEARCH_CSS: &str = include_str!("../../templates/azul-search.css");
+    fs::write(output_dir.join("azul-search.js"), AZUL_SEARCH_JS)?;
+    fs::write(output_dir.join("azul-search.css"), AZUL_SEARCH_CSS)?;
 
     // Copy logo SVG at runtime
     fs::copy(templates_dir.join("logo.svg"), output_dir.join("logo.svg"))?;

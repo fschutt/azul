@@ -1,0 +1,239 @@
+/* azul-search.css — quick-search panel.
+ *
+ * Two layouts share one DOM:
+ *  - Desktop (>= 1100px): floating sticky panel pinned top-right of the
+ *    viewport, well clear of the centred .center container which is
+ *    capped at 1400px.
+ *  - Mobile (< 1100px): a slim "toast" pill anchored bottom-right; tapping
+ *    it expands to a full-screen overlay.
+ *
+ * The colour palette echoes the rest of the site: deep blue background
+ * (#004e92), aliceblue accents, serif body, monospace for type signatures.
+ */
+
+.azul-search {
+  --azs-bg: #ffffff;
+  --azs-fg: #1a1a1a;
+  --azs-muted: #555;
+  --azs-accent: #004e92;
+  --azs-accent-soft: #e8f0fa;
+  --azs-border: #c8d4e3;
+  --azs-shadow: 0 8px 30px rgba(0, 4, 40, 0.25);
+  --azs-mark: #fff5a8;
+
+  font-family: "Source Serif Pro", Georgia, "Times New Roman", serif;
+  color: var(--azs-fg);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.azul-search * { box-sizing: border-box; }
+
+/* ---- toggle pill ---------------------------------------------------- */
+
+.azs-toggle {
+  position: fixed;
+  z-index: 9000;
+  top: 16px;
+  right: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: var(--azs-bg);
+  color: var(--azs-accent);
+  border: 1px solid var(--azs-border);
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--azs-shadow);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.azs-toggle:hover { transform: translateY(-1px); }
+.azs-toggle:focus { outline: 2px solid var(--azs-accent); outline-offset: 2px; }
+
+.azs-toggle-icon { font-size: 18px; line-height: 1; }
+.azs-toggle-label { font-family: inherit; }
+.azs-toggle-key {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 11px;
+  padding: 2px 6px;
+  background: var(--azs-accent-soft);
+  border: 1px solid var(--azs-border);
+  border-radius: 4px;
+  color: var(--azs-accent);
+}
+
+.azul-search[data-state="open"] .azs-toggle { display: none; }
+
+/* ---- panel (desktop) ----------------------------------------------- */
+
+.azs-panel {
+  position: fixed;
+  z-index: 9001;
+  top: 16px;
+  right: 16px;
+  width: 380px;
+  max-height: calc(100vh - 32px);
+  background: var(--azs-bg);
+  border: 1px solid var(--azs-border);
+  border-radius: 12px;
+  box-shadow: var(--azs-shadow);
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.azul-search[data-state="open"] .azs-panel { display: flex; }
+
+.azs-input-row {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--azs-border);
+  background: var(--azs-accent-soft);
+}
+
+.azs-input {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: 16px;
+  color: var(--azs-fg);
+  outline: none;
+}
+
+.azs-close {
+  border: 0;
+  background: transparent;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--azs-muted);
+  cursor: pointer;
+  padding: 0 4px;
+}
+.azs-close:hover { color: var(--azs-accent); }
+
+.azs-meta {
+  padding: 6px 14px;
+  font-size: 12px;
+  color: var(--azs-muted);
+  border-bottom: 1px solid var(--azs-border);
+  background: #fafbfd;
+}
+
+.azs-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.azs-result a {
+  display: block;
+  padding: 10px 14px;
+  border-bottom: 1px solid #eef1f6;
+  color: inherit;
+  text-decoration: none;
+}
+.azs-result a:hover,
+.azs-result.selected a {
+  background: var(--azs-accent-soft);
+}
+
+.azs-kind {
+  display: inline-block;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-right: 8px;
+  vertical-align: middle;
+  background: #e9eef5;
+  color: #2a3a55;
+}
+.azs-kind.k-m  { background: #d3e3f5; color: #0446bf; }
+.azs-kind.k-s  { background: #ddeedd; color: #2b6a2d; }
+.azs-kind.k-e  { background: #f5e3d3; color: #905900; }
+.azs-kind.k-fp { background: #efe1f5; color: #5a1c8a; }
+.azs-kind.k-fn { background: #d3def5; color: #004e92; }
+.azs-kind.k-cn { background: #d8e7d8; color: #1d5e1d; }
+.azs-kind.k-ev { background: #f5e8d3; color: #6a4a14; }
+.azs-kind.k-f  { background: #f0f0f0; color: #555; }
+
+.azs-name {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--azs-fg);
+}
+
+.azs-loc {
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--azs-muted);
+  font-family: inherit;
+}
+
+.azs-sig {
+  display: inline-block;
+  margin-top: 4px;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 11px;
+  color: #4c1c1a;
+  background: #fafafa;
+  padding: 1px 6px;
+  border-radius: 3px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.azs-snippet {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--azs-muted);
+  line-height: 1.45;
+}
+
+.azs-snippet mark,
+.azs-name mark {
+  background: var(--azs-mark);
+  color: inherit;
+  padding: 0 1px;
+  border-radius: 2px;
+}
+
+/* ---- mobile toast --------------------------------------------------- */
+
+@media (max-width: 1099px) {
+  .azs-toggle {
+    top: auto;
+    bottom: 16px;
+    right: 16px;
+    left: 16px;
+    justify-content: center;
+    border-radius: 999px;
+  }
+  .azs-toggle-key { display: none; }
+
+  .azs-panel {
+    top: 0; right: 0; bottom: 0; left: 0;
+    width: 100%;
+    max-height: 100vh;
+    border-radius: 0;
+    border: 0;
+  }
+}
+
+/* Print: hide search entirely. */
+@media print {
+  .azul-search { display: none !important; }
+}

@@ -2,6 +2,7 @@ mod apidocs;
 pub mod blog;
 pub mod donate;
 mod guide;
+mod search;
 use std::{collections::BTreeMap, path::Path};
 
 use serde_derive::{Deserialize, Serialize};
@@ -33,6 +34,23 @@ pub fn generate_docs(
     for version in api_data.get_sorted_versions() {
         let api_html = apidocs::generate_api_html(api_data, &version);
         docs.insert(format!("api/{}.html", version), api_html);
+
+        // Per-version client-side search index. Consumed by azul-search.js
+        // and small enough (~tens of KB gzipped) that we inline-load it on
+        // first focus rather than streaming over range requests.
+        if let Some(version_data) = api_data.get_version(&version) {
+            let json = search::generate_search_index(&version, version_data);
+            docs.insert(format!("api/{}.search.json", version), json);
+        }
+    }
+
+    // Manifest so the search panel can auto-discover the latest version
+    // without every page having to know the current version string.
+    if let Some(latest) = api_data.get_latest_version_str() {
+        let versions = api_data.get_sorted_versions();
+        let manifest =
+            serde_json::json!({ "latest": latest, "versions": versions }).to_string();
+        docs.insert("api/index.json".to_string(), manifest);
     }
 
     // Generate combined API page
@@ -262,7 +280,10 @@ fn generate_index_html(
         .replace("$$ROOT_RELATIVE$$", "https://azul.rs")
         .replace("<!-- HEAD -->", &get_common_head_tags(inline_css))
         .replace("<!-- SIDEBAR -->", &get_sidebar())
-        .replace("<!-- PRISM_SCRIPT -->", &get_prism_script());
+        .replace(
+            "<!-- PRISM_SCRIPT -->",
+            &format!("{}\n{}", get_prism_script(), get_search_init()),
+        );
 
     // Generate language tabs HTML from configuration
     let language_tabs_html = generate_language_tabs_html(&latest_version.installation);
@@ -531,13 +552,34 @@ pub fn get_common_head_tags(inline_css: bool) -> String {
       <meta http-equiv='Content-Type' content='text/html; charset=utf-8'/>
       <meta name='description' content='Cross-platform MIT-licensed desktop GUI framework for C and Rust using the Mozilla WebRender rendering engine'>
       <meta name='keywords' content='gui, rust, user interface'>
-  
+
       <link rel='preload' as='font' href='{base_url}/fonts/SourceSerifPro-Regular.ttf' type='font/ttf' crossorigin='anonymous'>
       <link rel='preload' as='font' href='{base_url}/fonts/InstrumentSerif-Regular.ttf' type='font/ttf' crossorigin='anonymous'>
       <link rel='shortcut icon' type='image/x-icon' href='{base_url}/favicon.ico'>
       <link rel='stylesheet' href='https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css'>
+      <link rel='stylesheet' href='{base_url}/azul-search.css'>
       {css_tag}
     ", base_url=base_url, css_tag=css_tag)
+}
+
+/// Script tag + tiny init that mounts the floating search panel.
+///
+/// Bundled via `include_str!` so the binary is self-contained, but the
+/// runtime always loads `/azul-search.js` and `/api/index.json` over HTTP.
+/// The JS auto-detects the current page (api page vs anywhere else) so the
+/// init body is the same on every page.
+pub fn get_search_init() -> String {
+    r#"<script src="/azul-search.js" defer></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  if (!window.AzulSearch) return;
+  var onApi = /\/api\/[^\/]+\.html$/.test(window.location.pathname);
+  window.AzulSearch.attach({
+    source: { type: 'api-default' },
+    onApiPage: onApi,
+  });
+});
+</script>"#.to_string()
 }
 
 pub fn get_sidebar() -> String {
