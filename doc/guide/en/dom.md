@@ -21,7 +21,123 @@ generated_at: 2026-05-02T05:53:30Z
 
 ## Design
 
-Azul's DOM is data-oriented. Internally it lives as parallel arrays. There's
+Azul makes three architectural decisions that are different from other browsers:
+
+1. The `NodeHierarchy` (encoding the relationships of nodes to each other) is separate 
+   from the `NodeData` (the content of the DOM node itself, i.e. `id=xxx`, `class=y`).
+2. The `NodeHierarchy` and `NodeData` are stored in a flat `Vec`, in "DOM tree order".
+3. The DOM is frozen after creation - `node.insertChild()` and `document.write` can never 
+   exist, if you want to change the DOM, you just return a new DOM (and Azul will apply a diff).
+4. The `Css` styling information is "compressed" in order to make the massive amount of possible
+   configurations fit into an L2 CPU Cache, so that during the hot `layout()` phase, the 
+   CPU does not have reach out to main RAM memory in order to get information about layout and 
+   styling properties. More on that later.
+
+```rust
+DomTree {
+    data: [NodeData #1, NodeData #2, NodeData #3],
+    hierarchy: [NodeHierarchy #1, NodeHierarchy #2, NodeHierarchy #3]
+}
+```
+
+The goal is to make it as efficient as possible for the CPU to layout the tree: in a 
+naive implementation, if you have 2000 - 5000 DOM nodes and each one has 30 properties 
+(can easily happen with cascading overrides, etc.), then the entire space for the "per node" 
+(DOM node, hierarchy info, styling) will determine whether the entire DOM tree will fit 
+into L2 memory or not. 
+
+Layout calculation isn't actually all that "hard" for a CPU - it's just lots of if / else 
+statements. But those statements branch on variables that have to be fetched from main memory 
+and *that* process is slow: so the more you save on RAM, the faster your layout code will be.
+
+To give you an impression, here are the current sizes of the relevant structs that are 
+hit during the layout phase:
+
+```rust
+
+```
+
+Whereas `NodeData` and `NodeHierarchy` contain data in a "compressed" format that is nice 
+and compact, so that the entire data that the heavy `layout()` phase needs fits into the 
+`L2` CPU cache, which is usually just a few MB big (500KB-2MB). So if you have 1000 DOM
+nodes, the actual hard part is to get all the styling configuration, DOM hierarchy 
+information and text layout information into - the "configurability" of the DOM / CSS models
+gives a lot of freedom to designers (which makes the web as a platform so attractive), but
+makes it hard for the engineers. 
+
+Azul additionally introduces the concept of a "Compact CSS cache", which stores CSS values
+in a "compressed" format. For example, very common enum properties like `display: block` or 
+`display:inline` are compressed into a singe `u64` with bitflags:
+
+```rust
+fn encode_tier1(input: CommonCssValue) -> u64 {
+    let mut v: u64 = TIER1_POPULATED_BIT;
+    v |= (layout_display_to_u8(input.display) as u64) << DISPLAY_SHIFT;
+    v |= (layout_position_to_u8(input.position) as u64) << POSITION_SHIFT;
+    v |= (layout_float_to_u8(input.float) as u64) << FLOAT_SHIFT;
+    // ... 
+}
+```
+
+The 
+
+Given an array of node data, we have something like (closing tags left off):
+
+```rust
+// 
+// 
+// <div>
+//   <first-child>
+//      
+// 
+// [NodeData #0, NodeData #1, NodeData ..., NodeData #5]
+// 
+// We encode the node hierarchy information separately like this:
+// 
+// - parent                         (index 0)
+// - first child                    (index 1)
+// - first child of the first child (index 2)
+// - next child                     (index 3)
+// - last child                     (index 4)
+// - first child  of the last child (index 5)
+// 
+NodeHierarchy {
+  // Index of the parent node, in this case 0 = no parent
+  parent: 0,
+  // Previous sibling that is in the same indentation level
+  previous_sibling: 0,
+  // Next sibling that is in the same indentation level
+  next_sibling: 0,
+  // Children are always stored in "tree order" in the array 
+  // (parent before children), so, this has the benefit that
+  // &data[self.index..last_child]
+  // will give you a "sub-tree view" over the logical sub-tree
+  last_child: 4,
+}
+```
+
+The idea, initially was to be able to transform a `Tree<T>` t
+
+In difference to regular "web browsers", Azul's Document Object Model, i.e.
+the essence of your UI, is data-oriented instead of object-oriented. While
+the core `NodeData` struct is still an "object" as such, it is fundamentally
+separate from the `NodeHierarchy`.
+
+
+In order to understand why, you have to understand that CPUs don't like it
+when, in an object-oriented design, the layout engine has to traverse from one
+`NodeData` to another `NodeData` in order to, for example, compare attributes.
+The layout code is in itself relatively complex and classical web browsers 
+(including Servo!) have a lot of problems managing the "lifecycle" of a `NodeData`
+object.
+
+
+: this is 
+   because in the traditional web, no JS state framework (that you will be using anyway, 
+   because calling `.insertChild`, `.removeChild`, etc. becomes a mess with larger apps),
+   allows you to do this. This model was intended for a web page anim
+
+Internally it lives as parallel arrays. There's
 a `NodeHierarchyItemVec` (each entry is a `NodeHierarchyItem` with `parent`,
 `previous_sibling`, `next_sibling`, and `last_child` indices) and a parallel
 `NodeDataVec` of `NodeData`. That's the format the layout engine actually
