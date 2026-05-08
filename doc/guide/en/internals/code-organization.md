@@ -35,7 +35,6 @@ members = [
     "dll",       # platform shells, FFI, Python ext — depends on all
     "doc",       # codegen + reftest harness + autodoc
     "examples/rust",
-    "examples/https-test",
 ]
 ```
 

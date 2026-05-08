@@ -16,9 +16,6 @@ results in `InvalidCertificate(UnknownIssuer)` regardless of crypto provider.
 - `https://crates.io` — works (HTTP 404 but TLS succeeds)
 - `https://example.com` — fails (`UnknownIssuer`) — server chain issue
 
-The `examples/https-test` crate confirms that `ureq + rustls + rustls-rustcrypto`
-(no ring, no C code) works correctly for HTTPS against standard servers.
-
 ## Original Problem Statement
 
 The browser demo (`examples/c/browser.c`) fails when fetching `https://example.com`:
