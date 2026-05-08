@@ -1046,3 +1046,92 @@ fn test_combined_conditions_all_must_match() {
     let selector_light = DynamicSelector::Theme(ThemeCondition::Light);
     assert!(!selector_light.matches(&ctx));
 }
+
+// ============================================================================
+// Unified @os(...) parser: family[:de] [op version]
+// ============================================================================
+
+fn os_conditions(css_in: &str) -> Vec<DynamicSelector> {
+    let (result, _) = new_from_str(css_in);
+    let rules: Vec<_> = result.rules().collect();
+    assert_eq!(rules.len(), 1, "expected 1 rule for css: {css_in}");
+    rules[0].conditions.iter().cloned().collect()
+}
+
+#[test]
+fn test_os_paren_form_family_only() {
+    let conds = os_conditions("@os(linux) { div { color: red; } }");
+    assert_eq!(conds, vec![DynamicSelector::Os(OsCondition::Linux)]);
+}
+
+#[test]
+fn test_os_paren_form_with_de() {
+    use azul_css::dynamic_selector::{LinuxDesktopEnv, OsVersionCondition};
+    let conds = os_conditions("@os(linux:gnome) { div { color: red; } }");
+    assert_eq!(
+        conds,
+        vec![
+            DynamicSelector::Os(OsCondition::Linux),
+            DynamicSelector::OsVersion(OsVersionCondition::DesktopEnvironment(LinuxDesktopEnv::Gnome)),
+        ]
+    );
+}
+
+#[test]
+fn test_os_paren_form_with_version() {
+    use azul_css::dynamic_selector::{OsVersion, OsVersionCondition};
+    let conds = os_conditions("@os(windows >= win-11) { div { color: red; } }");
+    assert_eq!(
+        conds,
+        vec![
+            DynamicSelector::Os(OsCondition::Windows),
+            DynamicSelector::OsVersion(OsVersionCondition::Min(OsVersion::WIN_11)),
+        ]
+    );
+}
+
+#[test]
+fn test_os_paren_form_with_de_and_version() {
+    use azul_css::dynamic_selector::{DesktopEnvVersion, LinuxDesktopEnv, OsVersionCondition};
+    let conds = os_conditions("@os(linux:gnome > 40) { div { color: red; } }");
+    assert_eq!(
+        conds,
+        vec![
+            DynamicSelector::Os(OsCondition::Linux),
+            DynamicSelector::OsVersion(OsVersionCondition::DesktopEnvMin(
+                DesktopEnvVersion { env: LinuxDesktopEnv::Gnome, version_id: 40 }
+            )),
+        ]
+    );
+}
+
+#[test]
+fn test_os_de_version_match() {
+    use azul_css::dynamic_selector::{
+        DesktopEnvVersion, DynamicSelectorContext, LinuxDesktopEnv, OptionLinuxDesktopEnv,
+        OsVersionCondition,
+    };
+    let sel = DynamicSelector::OsVersion(OsVersionCondition::DesktopEnvMin(
+        DesktopEnvVersion { env: LinuxDesktopEnv::Gnome, version_id: 40 },
+    ));
+    // GNOME 42 — matches.
+    let ctx_42 = DynamicSelectorContext {
+        os: OsCondition::Linux,
+        desktop_env: OptionLinuxDesktopEnv::Some(LinuxDesktopEnv::Gnome),
+        de_version: 42,
+        ..Default::default()
+    };
+    assert!(sel.matches(&ctx_42));
+    // GNOME 38 — fails the >= 40 constraint.
+    let ctx_38 = DynamicSelectorContext { de_version: 38, ..ctx_42.clone() };
+    assert!(!sel.matches(&ctx_38));
+    // Unknown DE version (0) — never satisfies any DE-version constraint.
+    let ctx_unknown = DynamicSelectorContext { de_version: 0, ..ctx_42.clone() };
+    assert!(!sel.matches(&ctx_unknown));
+    // KDE — wrong DE.
+    let ctx_kde = DynamicSelectorContext {
+        desktop_env: OptionLinuxDesktopEnv::Some(LinuxDesktopEnv::KDE),
+        ..ctx_42
+    };
+    assert!(!sel.matches(&ctx_kde));
+}

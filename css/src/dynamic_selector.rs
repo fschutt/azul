@@ -226,6 +226,21 @@ pub enum OsVersionCondition {
     Exact(OsVersion),
     /// Desktop environment (Linux only)
     DesktopEnvironment(LinuxDesktopEnv),
+    /// Desktop environment with min version (e.g. `@os(linux:gnome > 40)`)
+    DesktopEnvMin(DesktopEnvVersion),
+    /// Desktop environment with max version
+    DesktopEnvMax(DesktopEnvVersion),
+    /// Desktop environment with exact version
+    DesktopEnvExact(DesktopEnvVersion),
+}
+
+/// A desktop environment together with a numeric version (e.g. GNOME 40).
+/// Used by `OsVersionCondition::DesktopEnv{Min,Max,Exact}` for `@os(linux:gnome > 40)` style selectors.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DesktopEnvVersion {
+    pub env: LinuxDesktopEnv,
+    pub version_id: u32,
 }
 
 /// OS version with ordering - only comparable within the same OS family
@@ -303,7 +318,7 @@ pub enum OsFamily {
 // Windows Version IDs (chronological order)
 // ============================================================================
 
-/// Windows version constants - use these in CSS like `@os-version(>= win-xp)`
+/// Windows version constants - use these in CSS like `@os(windows >= win-xp)`
 impl OsVersion {
     // Windows versions (version_id = NT version * 100 + minor)
     pub const WIN_2000: Self = Self::new(OsFamily::Windows, 500);       // NT 5.0
@@ -554,10 +569,10 @@ fn parse_linux_version(s: &str) -> Option<OsVersion> {
     None
 }
 
-/// Linux desktop environment for `@os-version linux de` CSS selectors
+/// Linux desktop environment for `@os(linux:<de>)` CSS selectors.
 ///
 /// Note: `from_system_desktop_env` currently only maps Gnome, KDE, and Other.
-/// XFCE, Unity, Cinnamon, and MATE can be matched via CSS parsing (`@os-version linux de xfce`)
+/// XFCE, Unity, Cinnamon, and MATE can be matched via CSS parsing (`@os(linux:xfce)`)
 /// but will not be auto-detected from the system — they map to `Other` at runtime.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -714,6 +729,11 @@ pub struct DynamicSelectorContext {
     pub os: OsCondition,
     pub os_version: OsVersion,
     pub desktop_env: OptionLinuxDesktopEnv,
+    /// Numeric version of the active desktop environment (0 = unknown).
+    /// Used by `@os(linux:gnome > 40)` style selectors. A value of 0 never
+    /// satisfies any DE-version constraint, so detection can be wired up
+    /// later without breaking parsed rules.
+    pub de_version: u32,
 
     /// Theme info
     pub theme: ThemeCondition,
@@ -753,6 +773,7 @@ impl Default for DynamicSelectorContext {
             os: OsCondition::Any,
             os_version: OsVersion::unknown(),
             desktop_env: OptionLinuxDesktopEnv::None,
+            de_version: 0,
             theme: ThemeCondition::Light,
             media_type: MediaType::Screen,
             viewport_width: DEFAULT_VIEWPORT_WIDTH,
@@ -785,6 +806,7 @@ impl DynamicSelectorContext {
             os,
             os_version: system_style.os_version, // Use version from SystemStyle
             desktop_env,
+            de_version: 0, // TODO: wire up DE version detection in system::detect_*
             theme,
             media_type: MediaType::Screen,
             viewport_width: DEFAULT_VIEWPORT_WIDTH, // Will be updated with window size
@@ -848,7 +870,7 @@ impl DynamicSelector {
     pub fn matches(&self, ctx: &DynamicSelectorContext) -> bool {
         match self {
             Self::Os(os) => Self::match_os(*os, ctx.os),
-            Self::OsVersion(ver) => Self::match_os_version(ver, &ctx.os_version, &ctx.desktop_env),
+            Self::OsVersion(ver) => Self::match_os_version(ver, &ctx.os_version, &ctx.desktop_env, ctx.de_version),
             Self::Media(media) => *media == ctx.media_type || *media == MediaType::All,
             Self::ViewportWidth(range) => range.matches(ctx.viewport_width),
             Self::ViewportHeight(range) => range.matches(ctx.viewport_height),
@@ -888,14 +910,22 @@ impl DynamicSelector {
         condition: &OsVersionCondition,
         actual: &OsVersion,
         desktop_env: &OptionLinuxDesktopEnv,
+        de_version: u32,
     ) -> bool {
+        // de_version == 0 means the runtime hasn't reported a version,
+        // so any DE-version constraint fails until detection is wired up.
+        let de_matches = |env: &LinuxDesktopEnv| desktop_env.as_ref() == Some(env);
         match condition {
             OsVersionCondition::Exact(ver) => actual.is_exactly(ver),
             OsVersionCondition::Min(ver) => actual.is_at_least(ver),
             OsVersionCondition::Max(ver) => actual.is_at_most(ver),
-            OsVersionCondition::DesktopEnvironment(env) => {
-                desktop_env.as_ref() == Some(env)
-            }
+            OsVersionCondition::DesktopEnvironment(env) => de_matches(env),
+            OsVersionCondition::DesktopEnvMin(d) =>
+                de_matches(&d.env) && de_version != 0 && de_version >= d.version_id,
+            OsVersionCondition::DesktopEnvMax(d) =>
+                de_matches(&d.env) && de_version != 0 && de_version <= d.version_id,
+            OsVersionCondition::DesktopEnvExact(d) =>
+                de_matches(&d.env) && de_version == d.version_id,
         }
     }
 
@@ -922,6 +952,160 @@ impl DynamicSelector {
             PseudoStateType::Dragging => node_state.dragging,
             PseudoStateType::DragOver => node_state.drag_over,
         }
+    }
+}
+
+/// Parse the content of an `@os(...)` at-rule into a list of dynamic-selector conditions.
+///
+/// Accepts both bare-identifier and parenthesized forms:
+///
+/// - `linux`                       → `[Os(Linux)]`
+/// - `(linux)`                     → `[Os(Linux)]`
+/// - `(linux:gnome)`               → `[Os(Linux), OsVersion(DesktopEnvironment(Gnome))]`
+/// - `(windows >= win-11)`         → `[Os(Windows), OsVersion(Min(WIN_11))]`
+/// - `(linux:gnome > 40)`          → `[Os(Linux), OsVersion(DesktopEnvMin{ env: Gnome, version_id: 40 })]`
+/// - `(any)` / `(*)` / `(all)`     → `[]` (always-match, no conditions emitted)
+///
+/// Returns `None` only when the content is a parse error.
+/// `Some(vec![])` means "always match" (the rule applies unconditionally).
+#[cfg(feature = "parser")]
+pub fn parse_os_at_rule_content(content: &str) -> Option<Vec<DynamicSelector>> {
+    let trimmed = content.trim();
+    let inner = trimmed
+        .strip_prefix('(').and_then(|s| s.strip_suffix(')'))
+        .unwrap_or(trimmed)
+        .trim();
+    let inner = inner
+        .strip_prefix('"').and_then(|s| s.strip_suffix('"'))
+        .or_else(|| inner.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
+        .unwrap_or(inner)
+        .trim();
+    if inner.is_empty() {
+        return None;
+    }
+
+    // Split off the operator + version, if any.
+    let (subject, op_and_version) = split_op_and_version(inner);
+    let subject = subject.trim();
+
+    // subject is "family" or "family:de"
+    let (family_str, de_str) = match subject.split_once(':') {
+        Some((f, d)) => (f.trim(), Some(d.trim())),
+        None => (subject, None),
+    };
+
+    let family = parse_os_family_token(family_str)?;
+    let de = match de_str {
+        Some(s) if !s.is_empty() => Some(parse_de_token(s)),
+        _ => None,
+    };
+
+    let mut out = Vec::new();
+    // Always emit the family selector, even for `Any` — `Os(Any)` is matched as
+    // unconditionally true, but keeping it in the conditions list makes the rule
+    // structure visible to introspection.
+    out.push(DynamicSelector::Os(family));
+
+    match (de, op_and_version) {
+        // Bare DE with no version: just "is the DE this one"
+        (Some(env), None) => {
+            out.push(DynamicSelector::OsVersion(OsVersionCondition::DesktopEnvironment(env)));
+        }
+        // DE + version: emit a DesktopEnv* condition
+        (Some(env), Some((op, ver_str))) => {
+            let v: u32 = ver_str.parse().ok()?;
+            let dev = DesktopEnvVersion { env, version_id: v };
+            let cond = match op {
+                VersionOp::Min => OsVersionCondition::DesktopEnvMin(dev),
+                VersionOp::Max => OsVersionCondition::DesktopEnvMax(dev),
+                VersionOp::Exact => OsVersionCondition::DesktopEnvExact(dev),
+            };
+            out.push(DynamicSelector::OsVersion(cond));
+        }
+        // OS family + version
+        (None, Some((op, ver_str))) => {
+            let os_family = match family {
+                OsCondition::Linux => OsFamily::Linux,
+                OsCondition::Windows => OsFamily::Windows,
+                OsCondition::MacOS => OsFamily::MacOS,
+                OsCondition::IOS => OsFamily::IOS,
+                OsCondition::Android => OsFamily::Android,
+                // Apple, Web, Any have no version line — reject.
+                _ => return None,
+            };
+            let version = parse_os_version(os_family, ver_str)?;
+            let cond = match op {
+                VersionOp::Min => OsVersionCondition::Min(version),
+                VersionOp::Max => OsVersionCondition::Max(version),
+                VersionOp::Exact => OsVersionCondition::Exact(version),
+            };
+            out.push(DynamicSelector::OsVersion(cond));
+        }
+        // Family only — already pushed above (or empty for `any`).
+        (None, None) => {}
+    }
+
+    Some(out)
+}
+
+#[cfg(feature = "parser")]
+#[derive(Copy, Clone)]
+enum VersionOp { Min, Max, Exact }
+
+/// Find the first comparison operator (`>=`, `<=`, `=`, `>`, `<`) in `s` and split.
+/// `>` and `<` are treated as `>=` / `<=` because version IDs are discrete integers.
+#[cfg(feature = "parser")]
+fn split_op_and_version(s: &str) -> (&str, Option<(VersionOp, &str)>) {
+    // Earliest match wins; on a tie, the longer operator wins (so ">=" beats "=" at the same position).
+    let candidates: &[(&str, VersionOp)] = &[
+        (">=", VersionOp::Min),
+        ("<=", VersionOp::Max),
+        ("=",  VersionOp::Exact),
+        (">",  VersionOp::Min),
+        ("<",  VersionOp::Max),
+    ];
+    let mut best: Option<(usize, usize, VersionOp)> = None;
+    for (op_str, op) in candidates {
+        if let Some(pos) = s.find(op_str) {
+            let len = op_str.len();
+            best = Some(match best {
+                None => (pos, len, *op),
+                Some((bp, bl, _)) if pos < bp || (pos == bp && len > bl) => (pos, len, *op),
+                Some(b) => b,
+            });
+        }
+    }
+    match best {
+        Some((pos, len, op)) => (&s[..pos], Some((op, s[pos + len..].trim()))),
+        None => (s, None),
+    }
+}
+
+#[cfg(feature = "parser")]
+fn parse_os_family_token(s: &str) -> Option<OsCondition> {
+    match s.to_lowercase().as_str() {
+        "linux" => Some(OsCondition::Linux),
+        "windows" | "win" => Some(OsCondition::Windows),
+        "macos" | "mac" | "osx" => Some(OsCondition::MacOS),
+        "ios" => Some(OsCondition::IOS),
+        "android" => Some(OsCondition::Android),
+        "apple" => Some(OsCondition::Apple),
+        "web" | "wasm" => Some(OsCondition::Web),
+        "any" | "all" | "*" => Some(OsCondition::Any),
+        _ => None,
+    }
+}
+
+#[cfg(feature = "parser")]
+fn parse_de_token(s: &str) -> LinuxDesktopEnv {
+    match s.to_lowercase().as_str() {
+        "gnome" => LinuxDesktopEnv::Gnome,
+        "kde" => LinuxDesktopEnv::KDE,
+        "xfce" => LinuxDesktopEnv::XFCE,
+        "unity" => LinuxDesktopEnv::Unity,
+        "cinnamon" => LinuxDesktopEnv::Cinnamon,
+        "mate" => LinuxDesktopEnv::MATE,
+        _ => LinuxDesktopEnv::Other,
     }
 }
 
@@ -1310,26 +1494,21 @@ impl CssPropertyWithConditionsVec {
     }
 
     /// Parse an @-rule (the content after '@') into DynamicSelector conditions.
-    /// Handles @os, @os-version, @media, @theme, @lang, @container,
+    /// Handles @os, @media, @theme, @lang, @container,
     /// @prefers-reduced-motion, and @prefers-high-contrast.
     #[cfg(feature = "parser")]
     fn parse_at_rule(rule_content: &str) -> Option<Vec<DynamicSelector>> {
-        // @os-version windows >= win-11
-        // @os-version macos >= monterey
-        // @os-version macos = sonoma
-        // @os-version linux de gnome
-        if rule_content.starts_with("os-version ") {
-            let version_query = rule_content[11..].trim();
-            if let Some(cond) = Self::parse_os_version_condition(version_query) {
-                return Some(vec![DynamicSelector::OsVersion(cond)]);
-            }
-        }
-
-        // @os linux, @os windows, etc.
-        if rule_content.starts_with("os ") {
-            let os_name = rule_content[3..].trim();
-            if let Some(os_cond) = Self::parse_os_name(os_name) {
-                return Some(vec![DynamicSelector::Os(os_cond)]);
+        // @os linux                    -- bare family
+        // @os(linux)                   -- family in parens
+        // @os(linux:gnome)             -- family + desktop env
+        // @os(windows >= win-11)       -- family + version
+        // @os(linux:gnome > 40)        -- family + DE + DE version
+        if let Some(rest) = rule_content
+            .strip_prefix("os ")
+            .or_else(|| if rule_content.starts_with("os(") { Some(&rule_content[2..]) } else { None })
+        {
+            if let Some(conds) = parse_os_at_rule_content(rest) {
+                return Some(conds);
             }
         }
 
@@ -1434,22 +1613,6 @@ impl CssPropertyWithConditionsVec {
         None
     }
 
-    /// Parse OS name to OsCondition
-    #[cfg(feature = "parser")]
-    fn parse_os_name(name: &str) -> Option<OsCondition> {
-        match name.to_lowercase().as_str() {
-            "linux" => Some(OsCondition::Linux),
-            "windows" | "win" => Some(OsCondition::Windows),
-            "macos" | "mac" | "osx" => Some(OsCondition::MacOS),
-            "ios" => Some(OsCondition::IOS),
-            "android" => Some(OsCondition::Android),
-            "apple" => Some(OsCondition::Apple),
-            "web" | "wasm" => Some(OsCondition::Web),
-            "any" | "*" => Some(OsCondition::Any),
-            _ => None,
-        }
-    }
-    
     /// Parse simple media query
     #[cfg(feature = "parser")]
     fn parse_media_query(query: &str) -> Option<Vec<DynamicSelector>> {
@@ -1559,82 +1722,6 @@ impl CssPropertyWithConditionsVec {
         }
     }
 
-    /// Parse an `@os-version` condition query string.
-    ///
-    /// Supported formats:
-    /// - `windows >= win-11`
-    /// - `macos >= monterey`
-    /// - `macos = sonoma`
-    /// - `ios <= 16`
-    /// - `linux de gnome`  (desktop environment)
-    #[cfg(feature = "parser")]
-    fn parse_os_version_condition(query: &str) -> Option<OsVersionCondition> {
-        let query = query.trim();
-
-        // Handle "linux de gnome" for desktop environments
-        if query.starts_with("linux") || query.starts_with("Linux") {
-            let rest = query[5..].trim();
-            if rest.starts_with("de ") || rest.starts_with("DE ") {
-                let de_name = rest[3..].trim();
-                let de = match de_name.to_lowercase().as_str() {
-                    "gnome" => LinuxDesktopEnv::Gnome,
-                    "kde" => LinuxDesktopEnv::KDE,
-                    "xfce" => LinuxDesktopEnv::XFCE,
-                    "unity" => LinuxDesktopEnv::Unity,
-                    "cinnamon" => LinuxDesktopEnv::Cinnamon,
-                    "mate" => LinuxDesktopEnv::MATE,
-                    _ => LinuxDesktopEnv::Other,
-                };
-                return Some(OsVersionCondition::DesktopEnvironment(de));
-            }
-        }
-
-        // Parse "os_family operator version" e.g. "windows >= win-11"
-        // First extract the OS family name
-        let mut parts = query.splitn(2, ['>', '<', '=']);
-        let os_str = parts.next()?.trim();
-
-        let os_family = match os_str.to_lowercase().as_str() {
-            "windows" | "win" => OsFamily::Windows,
-            "macos" | "mac" | "osx" => OsFamily::MacOS,
-            "ios" => OsFamily::IOS,
-            "android" => OsFamily::Android,
-            "linux" => OsFamily::Linux,
-            _ => return None,
-        };
-
-        // Now find the operator and version in the remaining string
-        let after_os = &query[os_str.len()..].trim_start();
-
-        // Extract operator
-        let (operator, rest) = if after_os.starts_with(">=") {
-            (">=", &after_os[2..])
-        } else if after_os.starts_with("<=") {
-            ("<=", &after_os[2..])
-        } else if after_os.starts_with('>') {
-            // NOTE: > is treated as >= because version IDs are discrete integers
-            (">=", &after_os[1..])
-        } else if after_os.starts_with('<') {
-            // NOTE: < is treated as <= because version IDs are discrete integers
-            ("<=", &after_os[1..])
-        } else if after_os.starts_with('=') {
-            ("=", &after_os[1..])
-        } else {
-            // No operator: treat as exact match
-            ("=", *after_os)
-        };
-
-        let version_str = rest.trim();
-        let version = parse_os_version(os_family, version_str)?;
-
-        match operator {
-            ">=" => Some(OsVersionCondition::Min(version)),
-            "<=" => Some(OsVersionCondition::Max(version)),
-            "=" => Some(OsVersionCondition::Exact(version)),
-            _ => None,
-        }
-    }
-    
     /// Parse a simple property like "color: red"
     #[cfg(feature = "parser")]
     fn parse_property_segment(

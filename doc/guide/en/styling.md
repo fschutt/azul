@@ -45,6 +45,8 @@ generated_at: 2026-05-02T12:00:00Z
 
 # Styling with CSS
 
+## Overview
+
 A `Css` is a parsed stylesheet. You build one from a string, attach it to a
 `Dom` subtree with `.style(css)`, and the cascade applies it on the next
 layout pass. The dialect is a strict subset of standard CSS: tag, class, id,
@@ -171,10 +173,17 @@ let _ = Dom::create_div().with_css("
 ");
 ```
 
-- `@os <name>` matches the host platform. Names: `windows`, `macos`,
-  `linux`, `android`, `ios`.
-- `@os-version` narrows to a version. Examples: `>= win-11`,
-  `>= macos-14`, `linux gnome`.
+- `@os <name>` / `@os(<name>)` matches the host platform. Names:
+  `windows`, `macos`, `linux`, `android`, `ios`, `apple` (macOS+iOS),
+  `web`, `any`.
+- `@os(<family>:<de>)` narrows to a Linux desktop environment. DEs:
+  `gnome`, `kde`, `xfce`, `unity`, `cinnamon`, `mate`. Example:
+  `@os(linux:gnome) { ... }`.
+- `@os(<family> <op> <version>)` narrows to an OS version. Operators:
+  `>=`, `<=`, `=`. Examples: `@os(windows >= win-11)`,
+  `@os(macos = sonoma)`.
+- `@os(<family>:<de> <op> <version>)` combines DE with a version.
+  Example: `@os(linux:gnome > 40)`.
 - `@theme <variant>` matches the system theme. Variants: `dark`, `light`,
   plus any custom string.
 - `@media (orientation: ...)` accepts `portrait` or `landscape`.

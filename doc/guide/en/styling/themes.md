@@ -20,11 +20,9 @@ generated_at: 2026-05-02T12:00:00Z
 
 # System Themes
 
-> **WIP.** Discovery (theme, accent, fonts, accessibility) is wired up
-> across all desktop platforms. The user-facing CSS hooks (`system:*`
-> colors, `system:*` fonts, `@theme dark`) work today. Some discovered
-> values still arrive via CLI wrappers; the FFI-direct paths and ricing
-> overrides are still being stabilized.
+## Overview
+
+*WIP.* Discovery (theme, accent, fonts, accessibility) is wired up across all desktop platforms. The user-facing CSS hooks (`system:*` colors, `system:*` fonts, `@theme dark`) work today. Some discovered values still arrive via CLI wrappers; the FFI-direct paths and ricing overrides are still being stabilized.
 
 A native-feeling app reads its colors and fonts from the host OS.
 Azul exposes those values through three CSS hooks:
@@ -153,10 +151,13 @@ selected properties under `@theme dark`. Combine with `@os` for
 platform-flavoured dark mode (a Mac-style sheen vs. a Windows-style flat
 fill).
 
-## @os and @os-version
+## @os
 
-`@os <name> { ... }` matches the host platform. The names follow
-`OsCondition`:
+A single rule covers OS family, version, and Linux desktop environment.
+The grammar is `@os(<family>[:<de>] [<op> <version>])`. Each clause is
+optional; `op` is `>=`, `<=`, or `=`.
+
+OS families:
 
 - `windows`. Windows desktop.
 - `macos`. macOS.
@@ -167,20 +168,32 @@ fill).
 - `web`. WASM target.
 - `any`. Always matches.
 
-`@os-version` narrows further. Versions use named constants:
+Family-only rules also accept the bare-identifier form: `@os linux { … }`
+is the same as `@os(linux) { … }`.
 
 ```css
-/* @os-version(>= win-11) or @os-version(linux gnome) */
-font-family: 'Segoe UI';
-@os-version(>= win-11) { font-family: 'Segoe UI Variable Text'; }
-@os-version(>= macos-bigsur) { font-family: '.SF NS'; }
-@os-version(linux gnome) { font-family: 'Cantarell'; }
-@os-version(linux kde) { font-family: 'Noto Sans'; }
+/* family only */
+@os(linux)               { font-family: 'Cantarell'; }
+@os(windows)             { font-family: 'Segoe UI'; }
+
+/* family + version */
+@os(windows >= win-11)   { font-family: 'Segoe UI Variable Text'; }
+@os(macos >= big-sur)    { font-family: '.SF NS'; }
+
+/* Linux desktop environment */
+@os(linux:gnome)         { font-family: 'Cantarell'; }
+@os(linux:kde)           { font-family: 'Noto Sans'; }
+
+/* family + DE + DE version */
+@os(linux:gnome > 40)    { padding-inline-start: 16px; }
 ```
 
 Comparisons across OS families always evaluate to false.
-`@os-version(>= macos-sonoma)` on Windows is just inert, not a parse
-error.
+`@os(macos >= sonoma)` on Windows is just inert, not a parse error.
+
+Desktop-environment versions only match when the runtime knows the DE's
+version number; until detection is wired up for a given DE, the
+`@os(linux:de > N)` form will not match.
 
 ## Accessibility queries
 

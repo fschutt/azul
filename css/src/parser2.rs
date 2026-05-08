@@ -4,7 +4,7 @@
 //! plus a list of recoverable warnings. Errors are downgraded to warnings so
 //! that partially-valid CSS still produces usable output.
 //!
-//! Supports `@media`, `@theme`, `@os`, `@os-version`, `@lang`, and `@container`
+//! Supports `@media`, `@theme`, `@os`, `@lang`, and `@container`
 //! at-rules, CSS nesting, CSS variables (`var(--name, default)`), and
 //! comma-separated selector lists. Tokenisation is delegated to `azul_simplecss`.
 //!
@@ -1275,69 +1275,6 @@ fn parse_container_feature(feature: &str) -> Option<DynamicSelector> {
     }
 }
 
-/// Parses @os-version conditions from the content following "@os-version"
-/// Format: @os-version(windows >= win-11) or @os-version(macos >= monterey)
-fn parse_os_version_condition_atrule(content: &str) -> Option<DynamicSelector> {
-    use crate::dynamic_selector::{OsFamily, OsVersionCondition};
-
-    let content = content.trim();
-    // Remove optional parentheses
-    let inner = content
-        .strip_prefix('(')
-        .and_then(|s| s.strip_suffix(')'))
-        .unwrap_or(content)
-        .trim();
-
-    // Parse: "os_family operator version" e.g. "windows >= win-11"
-    let mut chars = inner.chars().peekable();
-    let os_str: String = chars.by_ref().take_while(|c| c.is_alphabetic()).collect();
-    let os_family = match os_str.to_lowercase().as_str() {
-        "windows" | "win" => OsFamily::Windows,
-        "macos" | "mac" | "osx" => OsFamily::MacOS,
-        "ios" => OsFamily::IOS,
-        "android" => OsFamily::Android,
-        "linux" => OsFamily::Linux,
-        _ => return None,
-    };
-
-    let rest = inner[os_str.len()..].trim();
-
-    // Handle "linux de gnome" for desktop environments
-    if rest.starts_with("de ") || rest.starts_with("DE ") {
-        use crate::dynamic_selector::LinuxDesktopEnv;
-        let de_name = rest[3..].trim();
-        let de = match de_name.to_lowercase().as_str() {
-            "gnome" => LinuxDesktopEnv::Gnome,
-            "kde" => LinuxDesktopEnv::KDE,
-            "xfce" => LinuxDesktopEnv::XFCE,
-            "unity" => LinuxDesktopEnv::Unity,
-            "cinnamon" => LinuxDesktopEnv::Cinnamon,
-            "mate" => LinuxDesktopEnv::MATE,
-            _ => LinuxDesktopEnv::Other,
-        };
-        return Some(DynamicSelector::OsVersion(OsVersionCondition::DesktopEnvironment(de)));
-    }
-
-    // Parse operator and version
-    let (op, version_str) = if let Some(rest) = rest.strip_prefix(">=") {
-        (">=", rest.trim())
-    } else if let Some(rest) = rest.strip_prefix("<=") {
-        ("<=", rest.trim())
-    } else if let Some(rest) = rest.strip_prefix('=') {
-        ("=", rest.trim())
-    } else {
-        return None;
-    };
-
-    let version = parse_os_version(os_family, version_str)?;
-    match op {
-        ">=" => Some(DynamicSelector::OsVersion(OsVersionCondition::Min(version))),
-        "<=" => Some(DynamicSelector::OsVersion(OsVersionCondition::Max(version))),
-        "=" => Some(DynamicSelector::OsVersion(OsVersionCondition::Exact(version))),
-        _ => None,
-    }
-}
-
 /// Parses @theme condition from the content following "@theme"
 /// Format: @theme(dark) or @theme dark
 fn parse_theme_condition(content: &str) -> Option<DynamicSelector> {
@@ -1388,45 +1325,6 @@ fn parse_lang_condition(content: &str) -> Option<DynamicSelector> {
     Some(DynamicSelector::Language(LanguageCondition::Prefix(
         AzString::from(lang.to_string()),
     )))
-}
-
-/// Parses @os condition from the content following "@os"
-/// Format: @os(linux) or @os("windows") or @os(macos)
-fn parse_os_condition(content: &str) -> Option<DynamicSelector> {
-    let content = content.trim();
-
-    // Remove parentheses and quotes
-    let os = content
-        .strip_prefix('(')
-        .and_then(|s| s.strip_suffix(')'))
-        .unwrap_or(content)
-        .trim();
-
-    let os = os
-        .strip_prefix('"')
-        .and_then(|s| s.strip_suffix('"'))
-        .or_else(|| os.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
-        .unwrap_or(os)
-        .trim();
-
-    if os.is_empty() {
-        return None;
-    }
-
-    // Parse OS name (case-insensitive)
-    let condition = match os.to_lowercase().as_str() {
-        "linux" => OsCondition::Linux,
-        "windows" | "win" => OsCondition::Windows,
-        "macos" | "mac" | "osx" => OsCondition::MacOS,
-        "ios" => OsCondition::IOS,
-        "android" => OsCondition::Android,
-        "apple" => OsCondition::Apple, // macOS + iOS
-        "web" | "wasm" => OsCondition::Web,
-        "*" | "any" | "all" => OsCondition::Any,
-        _ => return None, // Unknown OS
-    };
-
-    Some(DynamicSelector::Os(condition))
 }
 
 /// Parses a CSS string (single-threaded) and returns the parsed rules in blocks
@@ -1590,8 +1488,7 @@ fn new_from_str_inner<'a>(
                     let conditions = match rule_name.to_lowercase().as_str() {
                         "media" => parse_media_conditions(&combined_content),
                         "lang" => parse_lang_condition(&combined_content).into_iter().collect(),
-                        "os" => parse_os_condition(&combined_content).into_iter().collect(),
-                        "os-version" => parse_os_version_condition_atrule(&combined_content).into_iter().collect(),
+                        "os" => crate::dynamic_selector::parse_os_at_rule_content(&combined_content).unwrap_or_default(),
                         "theme" => parse_theme_condition(&combined_content).into_iter().collect(),
                         "container" => parse_container_conditions(&combined_content),
                         _ => {
