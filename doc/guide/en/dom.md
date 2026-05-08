@@ -65,7 +65,7 @@ Indices into both arrays match. The layout engine traverses by index,
 not by pointer, and reads from compact arrays whose memory layout it
 controls.
 
-## Why this matters: cache hierarchy
+## Cache hierarchy
 
 Layout itself isn't algorithmically hard. It's a tree walk plus a lot
 of if/else. The expensive part isn't the math; it's pulling each
@@ -145,7 +145,8 @@ copy.
   SVG data). About 95% of nodes never trigger this allocation.
 
 The two `Option<Box<...>>` fields keep the common case at 152 B. A
-typical paragraph or div pays nothing for the a11y or extras boxes.
+typical paragraph or div pays nothing for the accessibility or 
+extras boxes.
 
 ## Frozen after creation
 
@@ -162,9 +163,9 @@ the next `layout()` call:
    matched nodes.
 
 This rule exists because every JS framework worth using already
-discourages mutation: React, Vue, Solid, Lit all model UI as a
-function of state. Azul makes it the rule, not the convention. A
-mutable DOM is the cause of half the bugs in any non-trivial web
+discourages mutation: React, Vue, Solid, etc. all model UI as a
+function of state. Azul only makes it the rule, not the convention. 
+A mutable DOM is the cause of half the bugs in any non-trivial web
 app, and it's also what makes browser layout engines so hard to
 optimise. Removing the mutation surface lets the framework treat the
 tree as data.
@@ -189,7 +190,8 @@ let dom: Dom = Dom::create_body()
 
 You build the tree as a recursive `Dom` value: a `NodeData` root plus
 a `DomVec` of children. The framework flattens this into the parallel
-arrays at the start of the cascade pass.
+arrays explained at the beginning when it starts to do the CSS cascade 
+and calculate inherited CSS properties.
 
 The rest of this page covers the node-data layout in detail, how to
 attach CSS, the accessibility soft-force pattern, XML loading, and
@@ -204,7 +206,7 @@ in [Components](dom/components.md).
 pub struct Dom {
     pub root: NodeData,
     pub children: DomVec,
-    pub css: azul_css::css::CssVec,
+    pub css: CssVec,
     pub estimated_total_children: usize,
 }
 ```
@@ -249,7 +251,7 @@ let _ = Dom::create_text("standalone text node");
 HTML elements plus the SVG subset plus four leaf types: `Text`, `Image`,
 `Icon`, and `VirtualView`.
 
-## Accessibility: the soft-force pattern
+## Accessibility
 
 For elements with non-trivial accessibility surface, the primary
 constructor takes an a11y struct as a required argument. There's a
@@ -308,7 +310,8 @@ accessibility trees (UIA, AT-SPI, NSAccessibility).
 Three ways to attach children:
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 // 1. One at a time. Each call grows .children by one.
 let a = Dom::create_div()
     .with_child(Dom::create_h2_with_text("Title"))
@@ -335,7 +338,8 @@ during conversion. If you mutate `children` directly, call
 ## IDs, classes, attributes
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 let _ = Dom::create_div()
     .with_id("sidebar".into())
     .with_class("panel".into())
@@ -366,16 +370,17 @@ Two public mechanisms cover the common cases:
   inline-CSS list. Applied during the cascade.
 
 ```rust,no_run
-# use azul::prelude::*;
-# fn build(mask: ImageMask) -> Dom {
-let raster = Dom::create_image(ImageRef::null_image(0, 0, RawImageFormat::R8, U8VecRef::from(&[][..])))
+use azul::prelude::*;
+
+fn build(mask: ImageMask) -> Dom {
+  let raster = Dom::create_image(ImageRef::null_image(0, 0, RawImageFormat::R8, U8VecRef::from(&[][..])))
     .with_clip_mask(mask);
 
-let css_form = Dom::create_div()
+  let css_form = Dom::create_div()
     .with_css("clip-path: circle(40px at 50% 50%);");
 
-# Dom::create_body().with_child(raster).with_child(css_form)
-# }
+  Dom::create_body().with_child(raster).with_child(css_form)
+}
 ```
 
 A `clip-path` set on a parent applies to every descendant.
@@ -385,8 +390,8 @@ A `clip-path` set on a parent applies to every descendant.
 There are two attachment points with two different semantics.
 
 ```rust,no_run
-# use azul::prelude::*;
-# use azul::css::Css;
+use azul::prelude::*;
+
 // 1. with_css(...) parses a CSS string into the node's inline-property vec.
 let item = Dom::create_div().with_css("
     color: blue;
@@ -441,8 +446,9 @@ For the internal cache layout that the layout engine reads, see
 value and you get a `Dom` back, ready to return from `layout()`:
 
 ```rust,no_run
-# use azul::prelude::*;
-# let xml_text = "";
+use azul::prelude::*;
+
+let xml_text = "";
 let parsed = Xml::from_str(xml_text.into()).unwrap();
 let dom: Dom = Dom::create_from_parsed_xml(parsed);
 ```
@@ -456,20 +462,22 @@ any other DOM.
 [Components](dom/components.md#component-packs) for how the framework
 looks up `<card title="..."/>` against a registered library.
 
-## Callbacks, datasets, virtual views
+## Callbacks
 
 ```rust,no_run
-# use azul::prelude::*;
+use azul::prelude::*;
+
 struct Counter { value: i64 }
 extern "C" fn on_click(mut data: RefAny, _info: CallbackInfo) -> Update {
     let mut c = match data.downcast_mut::<Counter>() { Some(c) => c, None => return Update::DoNothing };
     c.value += 1;
     Update::RefreshDom
 }
-# fn build(state: RefAny) -> Dom {
-Dom::create_button_no_a11y("+1".into())
+
+fn build(state: RefAny) -> Dom {
+  Dom::create_button_no_a11y("+1".into())
     .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), state, on_click)
-# }
+}
 ```
 
 `with_callback(filter, data, callback)` attaches a `RefAny` and a function
@@ -481,6 +489,8 @@ The framework's reconciler matches new nodes against old ones when you
 return a fresh tree. Cursor position, focus, and dataset state migrate
 across the diff for matched nodes. See
 [Reconciliation](dom/reconciliation.md).
+
+## Datasets
 
 `with_dataset(OptionRefAny)` attaches arbitrary user data to a node.
 Callbacks read it via `CallbackInfo::get_dataset`. The dataset is the
@@ -495,6 +505,8 @@ For state that must survive a subtree rebuild, pair the dataset with
 the old node to the new one. See [Merge Callbacks](dom/merge-callbacks.md)
 for a worked FFmpeg example.
 
+## Virtual Views
+
 A `VirtualView` is a node whose contents come from a separate callback
 that runs only when the framework needs them. Use it for infinite lists,
 lazy panels, and embedded sub-DOMs that own their own scroll math. The
@@ -505,12 +517,12 @@ just a parent re-render. See [Virtual Views](dom/virtual-views.md) for
 the rendered-vs-virtual coordinate model and a virtualised-table
 walkthrough.
 
-## Inspecting a live tree: AZ_DEBUG
+## Debugging
 
-When `AZ_DEBUG=<port>` is set, `App::create` starts an HTTP debug
-server on that port. It accepts JSON commands and returns JSON
-responses, all serialised on the timer callback. The inspector sees
-the same tree the renderer is about to draw.
+Run your binary with `AZ_DEBUG=<port>` set and `App::create` starts
+an HTTP debug server on that port. It accepts JSON commands and
+returns JSON responses. The inspector sees the same tree the
+renderer is about to draw, so what you query is what's on screen.
 
 ```bash
 AZ_DEBUG=8765 cargo run --bin my_app
@@ -528,9 +540,26 @@ curl -X POST http://localhost:8765/ -d '{"type":"click", "selector":".button-pri
 curl -X POST http://localhost:8765/ -d '{"type":"text_input", "text":"hello"}'
 ```
 
-The `get_node_hierarchy` response carries a `component` field for each
-node so you can navigate to the component that produced it. The
-inspector uses it to draw a Component Tree alongside the DOM Tree:
+The synthesised events go through the exact same dispatch path as
+real input. A scripted `click` runs the same hit test, the same
+event filters, and the same callback as a user mouse click. That
+makes the debug server the basis for end-to-end tests: drive the
+app from a shell script or a Python harness, assert on the JSON
+responses, and you have an integration test that exercises the real
+layout, the real callbacks, and the real reconciliation pass. The
+test pattern, the assertion vocabulary, and the CI recipe are
+covered in [End-to-End Testing](e2e-testing.md).
+
+For tests that don't need a window (snapshot tests, PDF export, CI
+machines without a display server), the same debug API is also
+reachable in [Headless Rendering](headless-rendering.md), which
+runs the full layout and rendering pipeline into a `Vec<u8>`
+framebuffer.
+
+The `get_node_hierarchy` response carries a `component` field for
+each node so you can navigate to the component that produced it.
+The inspector uses it to draw a Component Tree alongside the DOM
+Tree:
 
 ```json
 {
@@ -546,11 +575,10 @@ inspector uses it to draw a Component Tree alongside the DOM Tree:
 }
 ```
 
-Pick a node in the DOM Tree, get the component that produced it, and (if
-its render function lives in a registered library) jump back to the
-source. See [Components](dom/components.md#component-packs) for how a
-library wires its components into the registry.
-
+Pick a node in the DOM Tree, get the component that produced it,
+and (if its render function lives in a registered library) jump
+back to the source. See [Components](dom/components.md#component-packs)
+for how a library wires its components into the registry.
 
 ## Coming Up Next
 
