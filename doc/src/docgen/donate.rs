@@ -78,7 +78,7 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
     let common_head_tags = crate::docgen::get_common_head_tags(false);
     let sidebar = crate::docgen::get_sidebar();
     let prism_script = crate::docgen::get_prism_script();
-    let search_script = crate::docgen::get_search_init();
+    let search_script = crate::docgen::get_search_init(crate::docgen::PageKind::Other);
 
     // Additional CSS for the donation page
     let donation_css = r#"

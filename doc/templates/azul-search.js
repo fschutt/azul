@@ -180,6 +180,9 @@
               type: 'api-index',
               version: index.v,
               apiPageUrl: '/api/' + index.v + '.html',
+              // Expose the raw index so default-key resolution can do
+              // direct name lookups without re-running the search ranker.
+              _index: index,
               search: function (q, opts) {
                 return Promise.resolve(search(index, q, opts));
               },
@@ -337,40 +340,112 @@
     return ctx.apiPageUrl + '#' + entry.a;
   }
 
+  // Compact one-liner shown for a result by default. Functions/methods
+  // and constructors get a third dotted segment; structs/enums/fnptrs
+  // stop at `module.Class`. Modules render as `mod foo`. Pagefind hits
+  // (kind 'g') show the page title (and parent if any).
+  function compactName(e) {
+    if (!e) return '';
+    if (e.k === 'm') return 'mod ' + e.n;
+    if (e.k === 'g') return e.p ? (e.p + ' / ' + e.n) : e.n;
+    var modPart = e.m ? e.m + '.' : '';
+    if (e.p) {
+      return modPart + e.p + '.' + e.n;
+    }
+    return modPart + e.n;
+  }
+
+  // Resolve default-search-keys (frontmatter) against the loaded index.
+  //   - "Dom"               -> first matching top-level entry by name
+  //   - "Dom.add_callback"  -> qualified: name `add_callback` parented by `Dom`
+  // Children whose parent is also in the resolved set get depth=1 so the
+  // renderer can indent them under the parent.
+  function resolveDefaults(index, keys) {
+    if (!keys || keys.length === 0) return [];
+    var entries = (index && index.e) || [];
+    var byName = Object.create(null);
+    for (var i = 0; i < entries.length; i++) {
+      var e = entries[i];
+      (byName[e.n] = byName[e.n] || []).push(e);
+    }
+    // Rank order for ambiguous bare-name lookups.
+    var preferKindOrder = ['m', 's', 'e', 'fp', 'fn', 'cn', 'f', 'ev'];
+    var resolved = [];
+    var resolvedNames = Object.create(null);
+    for (var k = 0; k < keys.length; k++) {
+      var key = keys[k];
+      var match = null;
+      var dot = key.indexOf('.');
+      if (dot > 0) {
+        var pname = key.slice(0, dot);
+        var member = key.slice(dot + 1);
+        var c = byName[member] || [];
+        for (var ci = 0; ci < c.length; ci++) {
+          if (c[ci].p === pname) { match = c[ci]; break; }
+        }
+      } else {
+        var cands = byName[key] || [];
+        for (var p = 0; p < preferKindOrder.length && !match; p++) {
+          for (var ci2 = 0; ci2 < cands.length; ci2++) {
+            if (cands[ci2].k === preferKindOrder[p]) { match = cands[ci2]; break; }
+          }
+        }
+      }
+      if (match) {
+        resolved.push(match);
+        resolvedNames[match.n] = true;
+      }
+    }
+    return resolved.map(function (e) {
+      var depth = (e.p && resolvedNames[e.p]) ? 1 : 0;
+      return { entry: e, score: 0, depth: depth };
+    });
+  }
+
   function renderResults(ulEl, results, tokens, ctx, metaEl) {
     if (results.length === 0) {
       ulEl.innerHTML = '';
       metaEl.textContent = tokens.length === 0
-        ? (ctx.entryCount ? ctx.entryCount + ' entries' : '')
+        ? (ctx.entryCount ? ctx.entryCount + ' entries indexed' : '')
         : 'No matches';
       return;
     }
+    var targetAttr = ctx.linkTarget && ctx.linkTarget !== '_self'
+      ? ' target="' + escapeHtml(ctx.linkTarget) + '" rel="noopener"'
+      : '';
     var html = '';
     for (var i = 0; i < results.length; i++) {
       var r = results[i];
       var e = r.entry;
       var kindMeta = KIND[e.k] || { label: e.k, cls: '' };
-      var displayName = e.p ? (e.p + '::' + e.n) : e.n;
-      var loc = e.m ? ('mod ' + e.m) : '';
-      // Pagefind hands us a pre-marked HTML excerpt; trust it verbatim
-      // (it's well-formed and already escaped by pagefind). Otherwise
-      // build a snippet from plain doc text and run our own highlight().
+      var compact = compactName(e);
+      // Pagefind hands us a pre-marked HTML excerpt; trust it verbatim.
+      // Otherwise build a snippet from plain doc text and highlight() it.
       var snipHtml = e._html
         ? e._html
         : (e.d ? highlight(snippet(e.d, tokens), tokens) : '');
       var sigLine = e.s ? ('<code class="azs-sig">' + escapeHtml(e.s) + '</code>') : '';
-      html += '<li class="azs-result" data-idx="' + i + '">'
-        +   '<a href="' + escapeHtml(resolveHref(e, ctx)) + '">'
-        +     '<span class="azs-kind ' + kindMeta.cls + '">' + kindMeta.label + '</span>'
-        +     '<span class="azs-name">' + highlight(displayName, tokens) + '</span>'
-        +     (loc ? '<span class="azs-loc">' + escapeHtml(loc) + '</span>' : '')
-        +     (sigLine ? '<div>' + sigLine + '</div>' : '')
-        +     (snipHtml ? '<div class="azs-snippet">' + snipHtml + '</div>' : '')
+      var depth = r.depth || 0;
+      html += '<li class="azs-result" data-idx="' + i + '" data-depth="' + depth + '">'
+        +   '<a href="' + escapeHtml(resolveHref(e, ctx)) + '"' + targetAttr + ' tabindex="0">'
+        +     '<span class="azs-row">'
+        +       '<span class="azs-kind ' + kindMeta.cls + '">' + kindMeta.label + '</span>'
+        +       '<span class="azs-compact">' + highlight(compact, tokens) + '</span>'
+        +     '</span>'
+        +     '<div class="azs-expanded">'
+        +       (sigLine ? '<div>' + sigLine + '</div>' : '')
+        +       (snipHtml ? '<div class="azs-snippet">' + snipHtml + '</div>' : '')
+        +     '</div>'
         +   '</a>'
         + '</li>';
     }
     ulEl.innerHTML = html;
-    metaEl.textContent = results.length + (results.length === 50 ? '+ matches' : ' matches');
+    if (tokens.length === 0) {
+      // Default state — these are suggestions, not search hits.
+      metaEl.textContent = results.length + ' suggested for this page';
+    } else {
+      metaEl.textContent = results.length + (results.length === 50 ? '+ matches' : ' matches');
+    }
   }
 
   function mount(opts) {
@@ -392,15 +467,17 @@
     var ctx = {
       apiPageUrl: opts.apiPageUrl || '',
       onApiPage: !!opts.onApiPage,
+      // '_self' (default) | '_blank'. Guide pages set _blank so a click
+      // doesn't yank the reader off the tutorial.
+      linkTarget: opts.linkTarget || '_self',
       entryCount: 0,
     };
 
     var adapter = makeAdapter(opts.source);
     var loaded = null;
     var loading = null;
-    var lastQuery = '';
     var debounceTimer = 0;
-    var selectedIdx = -1;
+    var defaults = Array.isArray(opts.defaults) ? opts.defaults.slice() : [];
 
     function ensureLoaded() {
       if (loaded) return Promise.resolve(loaded);
@@ -423,39 +500,53 @@
       return loading;
     }
 
-    function runQuery() {
+    // Pick what to show given the current input. Empty + defaults
+    // configured -> render the page's curated suggestions; otherwise run
+    // the live search (or clear).
+    function showState() {
       var q = input.value;
-      lastQuery = q;
-      if (!q) {
+      if (q) {
+        runQuery(q);
+      } else if (defaults.length > 0) {
+        runDefaults();
+      } else {
         renderResults(resultsEl, [], [], ctx, metaEl);
-        selectedIdx = -1;
-        return;
       }
+    }
+
+    function runQuery(q) {
       ensureLoaded().then(function (l) {
         return l.search(q, { limit: 50 }).then(function (results) {
           if (input.value !== q) return; // outdated
           renderResults(resultsEl, results, tokenise(q), ctx, metaEl);
-          selectedIdx = results.length > 0 ? 0 : -1;
-          updateSelection();
         });
       }, function () { /* error already shown in metaEl */ });
     }
 
-    function updateSelection() {
-      var items = resultsEl.querySelectorAll('.azs-result');
-      for (var i = 0; i < items.length; i++) {
-        if (i === selectedIdx) items[i].classList.add('selected');
-        else items[i].classList.remove('selected');
-      }
-      var sel = items[selectedIdx];
-      if (sel) sel.scrollIntoView({ block: 'nearest' });
+    function runDefaults() {
+      ensureLoaded().then(function (l) {
+        // Defaults are looked up against the api index. Pagefind sources
+        // don't expose `_index`, so this no-ops there.
+        var idx = l && l._index;
+        if (!idx) {
+          renderResults(resultsEl, [], [], ctx, metaEl);
+          return;
+        }
+        var resolved = resolveDefaults(idx, defaults);
+        renderResults(resultsEl, resolved, [], ctx, metaEl);
+      }, function () { /* error already shown in metaEl */ });
     }
 
     function open() {
       root.dataset.state = 'open';
       // Defer focus so iOS Safari doesn't suppress the soft keyboard.
       setTimeout(function () { input.focus(); input.select(); }, 0);
-      ensureLoaded().then(prefetchTarget, function () { /* ignore */ });
+      ensureLoaded().then(function (l) {
+        // First open after load — populate defaults if appropriate, then
+        // queue the api page prefetch.
+        if (!input.value) showState();
+        prefetchTarget();
+      }, function () { /* ignore */ });
     }
 
     // Prefetch the page that results will navigate to. The api page is
@@ -493,33 +584,57 @@
 
     input.addEventListener('input', function () {
       clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(runQuery, 70);
+      debounceTimer = setTimeout(showState, 70);
     });
 
     input.addEventListener('keydown', function (ev) {
-      var items = resultsEl.querySelectorAll('.azs-result');
+      // From the input field, only ArrowDown drops into the result list
+      // (Tab does it natively via the browser's focus order). Letter
+      // navigation keys must NOT trigger here — the user is typing.
       if (ev.key === 'ArrowDown') {
-        ev.preventDefault();
-        if (items.length === 0) return;
-        selectedIdx = Math.min(items.length - 1, selectedIdx + 1);
-        updateSelection();
-      } else if (ev.key === 'ArrowUp') {
-        ev.preventDefault();
-        if (items.length === 0) return;
-        selectedIdx = Math.max(0, selectedIdx - 1);
-        updateSelection();
+        var first = resultsEl.querySelector('.azs-result a');
+        if (first) { ev.preventDefault(); first.focus(); }
       } else if (ev.key === 'Enter') {
-        var link = items[selectedIdx] && items[selectedIdx].querySelector('a');
-        if (link) {
-          ev.preventDefault();
-          link.click();
-          close();
+        var firstA = resultsEl.querySelector('.azs-result a');
+        if (firstA) { ev.preventDefault(); firstA.click(); }
+      } else if (ev.key === 'Escape') {
+        ev.preventDefault();
+        if (input.value) { input.value = ''; showState(); }
+        else close();
+      }
+    });
+
+    // Result-list navigation: arrows + WASD + HJKL alongside native Tab.
+    // We intercept on the results UL via event delegation so any focused
+    // anchor benefits, regardless of how it was reached.
+    resultsEl.addEventListener('keydown', function (ev) {
+      var items = resultsEl.querySelectorAll('.azs-result a');
+      if (items.length === 0) return;
+      var current = document.activeElement;
+      var idx = -1;
+      for (var i = 0; i < items.length; i++) {
+        if (items[i] === current) { idx = i; break; }
+      }
+      var down = ev.key === 'ArrowDown' || ev.key === 'j' || ev.key === 's';
+      var up = ev.key === 'ArrowUp' || ev.key === 'k' || ev.key === 'w';
+      if (down) {
+        ev.preventDefault();
+        var next = items[Math.min(items.length - 1, idx + 1)];
+        if (next) { next.focus(); next.scrollIntoView({ block: 'nearest' }); }
+      } else if (up) {
+        ev.preventDefault();
+        if (idx <= 0) {
+          input.focus(); input.select();
+        } else {
+          var prev = items[idx - 1];
+          prev.focus();
+          prev.scrollIntoView({ block: 'nearest' });
         }
       } else if (ev.key === 'Escape') {
         ev.preventDefault();
-        if (input.value) { input.value = ''; runQuery(); }
-        else close();
+        close();
       }
+      // Enter on a focused anchor uses the browser default (activate link).
     });
 
     // Click-outside on mobile (full-screen overlay): close when tapping
@@ -569,6 +684,7 @@
 
   window.AzulSearch = {
     search: search,
+    resolveDefaults: resolveDefaults,
     mount: mount,
     attach: attach,
   };

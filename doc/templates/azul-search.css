@@ -136,14 +136,53 @@
 
 .azs-result a {
   display: block;
-  padding: 10px 14px;
+  padding: 8px 14px;
   border-bottom: 1px solid #eef1f6;
   color: inherit;
   text-decoration: none;
+  /* Native focus ring — visible during keyboard navigation. */
+  outline: none;
 }
 .azs-result a:hover,
-.azs-result.selected a {
+.azs-result a:focus {
   background: var(--azs-accent-soft);
+}
+.azs-result a:focus {
+  box-shadow: inset 3px 0 0 var(--azs-accent);
+}
+
+/* Compact-by-default. The expanded block (signature + snippet) only
+ * shows on hover or when the anchor has keyboard focus. Keeps the
+ * default state scannable when defaults populate the panel. */
+.azs-result .azs-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.azs-compact {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--azs-fg);
+}
+.azs-result .azs-expanded {
+  display: none;
+  margin-top: 6px;
+}
+.azs-result a:hover .azs-expanded,
+.azs-result a:focus .azs-expanded {
+  display: block;
+}
+
+/* Tree indent for default suggestions: a child whose parent is also in
+ * the configured key list nests one level. */
+.azs-result[data-depth="1"] a {
+  padding-left: 30px;
+  border-left: 2px solid var(--azs-accent-soft);
+}
+.azs-result[data-depth="2"] a {
+  padding-left: 46px;
+  border-left: 2px solid var(--azs-accent-soft);
 }
 
 .azs-kind {
@@ -169,19 +208,6 @@
 .azs-kind.k-ev { background: #f5e8d3; color: #6a4a14; }
 .azs-kind.k-f  { background: #f0f0f0; color: #555; }
 
-.azs-name {
-  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--azs-fg);
-}
-
-.azs-loc {
-  margin-left: 8px;
-  font-size: 11px;
-  color: var(--azs-muted);
-  font-family: inherit;
-}
 
 .azs-sig {
   display: inline-block;
@@ -204,7 +230,7 @@
 }
 
 .azs-snippet mark,
-.azs-name mark {
+.azs-compact mark {
   background: var(--azs-mark);
   color: inherit;
   padding: 0 1px;

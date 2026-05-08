@@ -681,6 +681,13 @@ pub struct Frontmatter {
     /// index. Aim for "section summary" granularity, not topic.
     #[serde(default)]
     pub short_desc: Option<String>,
+    /// API entries to pre-populate in the floating search panel for this
+    /// page (no user input required). Each entry is either a bare name
+    /// (`Dom`) or a qualified `Class.member` form (`Dom.add_callback`).
+    /// Children whose `Class` is also in the list render indented under
+    /// the parent, in author-supplied order.
+    #[serde(default, rename = "default-search-keys")]
+    pub default_search_keys: Vec<String>,
     /// Prerequisite *canonical* slugs (English). The website resolves
     /// these to localized URLs at render time so a German page reading
     /// `prerequisites: [hello-world]` links to the German "hallo-welt"

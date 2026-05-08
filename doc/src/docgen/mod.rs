@@ -282,7 +282,7 @@ fn generate_index_html(
         .replace("<!-- SIDEBAR -->", &get_sidebar())
         .replace(
             "<!-- PRISM_SCRIPT -->",
-            &format!("{}\n{}", get_prism_script(), get_search_init()),
+            &format!("{}\n{}", get_prism_script(), get_search_init(PageKind::Other)),
         );
 
     // Generate language tabs HTML from configuration
@@ -562,39 +562,47 @@ pub fn get_common_head_tags(inline_css: bool) -> String {
     ", base_url=base_url, css_tag=css_tag)
 }
 
-/// Script tag + tiny init that mounts the floating search panel for the
-/// API search (used on the index, api page, releases, blog, and donate
-/// pages). Bundled via `include_str!` so the binary is self-contained,
-/// but the runtime always loads `/azul-search.js` and `/api/index.json`
-/// over HTTP.
-pub fn get_search_init() -> String {
-    r#"<script src="/azul-search.js" defer></script>
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-  if (!window.AzulSearch) return;
-  var onApi = /\/api\/[^\/]+\.html$/.test(window.location.pathname);
-  window.AzulSearch.attach({
-    source: { type: 'api-default' },
-    onApiPage: onApi,
-  });
-});
-</script>"#.to_string()
+/// Script tag + init for the floating search panel.
+///
+/// `page_kind` controls behavior the JS layer can't infer:
+///   - `Api`     — clicking a result stays on the same page (anchor jump).
+///   - `Guide`   — clicking opens the api page in a new tab; `defaults`
+///                 pre-populate the panel with frontmatter-driven entries.
+///   - `Other`   — clicking navigates the same tab.
+pub enum PageKind<'a> {
+    Api,
+    Guide(&'a [String]),
+    Other,
 }
 
-/// Search init used on guide pages. Drives the same UI off pagefind
-/// (generated post-deploy by the `pagefind` CLI). The pagefind adapter
-/// auto-falls back to api-default if `/pagefind/pagefind.js` is missing
-/// — keeps guide pages searchable when pagefind isn't installed.
-pub fn get_search_init_for_guide() -> String {
-    r#"<script src="/azul-search.js" defer></script>
+pub fn get_search_init(kind: PageKind<'_>) -> String {
+    let (on_api, link_target, defaults_json) = match kind {
+        PageKind::Api => (true, "_self", String::from("[]")),
+        PageKind::Guide(defaults) => (
+            false,
+            "_blank",
+            serde_json::to_string(defaults).unwrap_or_else(|_| "[]".to_string()),
+        ),
+        PageKind::Other => (false, "_self", String::from("[]")),
+    };
+
+    format!(
+        r#"<script src="/azul-search.js" defer></script>
 <script>
-document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', function () {{
   if (!window.AzulSearch) return;
-  window.AzulSearch.attach({
-    source: { type: 'pagefind', url: '/pagefind/' },
-  });
-});
-</script>"#.to_string()
+  window.AzulSearch.attach({{
+    source: {{ type: 'api-default' }},
+    onApiPage: {on_api},
+    linkTarget: '{link_target}',
+    defaults: {defaults_json},
+  }});
+}});
+</script>"#,
+        on_api = on_api,
+        link_target = link_target,
+        defaults_json = defaults_json,
+    )
 }
 
 pub fn get_sidebar() -> String {

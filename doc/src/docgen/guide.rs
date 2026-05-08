@@ -22,6 +22,10 @@ pub struct Guide {
     /// the page's `short_desc` frontmatter field — localised per page and
     /// authored by hand (not extracted from prose).
     pub description: Option<String>,
+    /// API entries to pre-populate in the search panel for this page.
+    /// Each is either `Name` or `Class.member`. Empty when the
+    /// frontmatter omits `default-search-keys`.
+    pub default_search_keys: Vec<String>,
 }
 
 /// Pre-process markdown content:
@@ -183,7 +187,7 @@ fn walk_collect(
             let stem = rel.with_extension("");
             let file_name = stem.to_string_lossy().replace('\\', "/");
             let content = fs::read_to_string(&p).unwrap_or_default();
-            let (title, body, guide_order, audience, description) =
+            let (title, body, guide_order, audience, description, default_search_keys) =
                 extract_metadata(&content, &file_name);
             out.push((
                 guide_order,
@@ -195,6 +199,7 @@ fn walk_collect(
                     audience,
                     guide_order,
                     description,
+                    default_search_keys,
                 },
             ));
         }
@@ -204,9 +209,23 @@ fn walk_collect(
 fn extract_metadata(
     content: &str,
     fallback_name: &str,
-) -> (String, String, Option<i32>, Option<String>, Option<String>) {
+) -> (
+    String,
+    String,
+    Option<i32>,
+    Option<String>,
+    Option<String>,
+    Vec<String>,
+) {
     if let Some((fm, body)) = crate::reftest::autodoc::parse_frontmatter(content) {
-        return (fm.title, body, fm.guide_order, fm.audience, fm.short_desc);
+        return (
+            fm.title,
+            body,
+            fm.guide_order,
+            fm.audience,
+            fm.short_desc,
+            fm.default_search_keys,
+        );
     }
     // No frontmatter — first H1, else fallback name.
     let mut title = fallback_name.to_string();
@@ -216,7 +235,7 @@ fn extract_metadata(
             break;
         }
     }
-    (title, content.to_string(), None, None, None)
+    (title, content.to_string(), None, None, None, Vec::new())
 }
 
 /// Three-tree bucket for the guide index.
@@ -239,7 +258,9 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
     let header_tags = crate::docgen::get_common_head_tags(false);
     let sidebar = crate::docgen::get_sidebar();
     let prism_script = crate::docgen::get_prism_script();
-    let search_script = crate::docgen::get_search_init_for_guide();
+    let search_script = crate::docgen::get_search_init(
+        crate::docgen::PageKind::Guide(&guide.default_search_keys),
+    );
 
     // Pre-process content: remove mermaid blocks and expand `azul-render`
     // fences into <figure>/slideshow HTML. Use an absolute URL prefix so
@@ -531,7 +552,7 @@ pub fn generate_guide_mainpage(version: &str) -> String {
 
     let header_tags = crate::docgen::get_common_head_tags(false);
     let sidebar = crate::docgen::get_sidebar();
-    let search_script = crate::docgen::get_search_init_for_guide();
+    let search_script = crate::docgen::get_search_init(crate::docgen::PageKind::Guide(&[]));
 
     let css = "
         #guide-index { max-width: 760px; }
@@ -779,7 +800,7 @@ pub fn generate_guide_index(versions: &[String]) -> String {
 
     let header_tags = crate::docgen::get_common_head_tags(false);
     let sidebar = crate::docgen::get_sidebar();
-    let search_script = crate::docgen::get_search_init_for_guide();
+    let search_script = crate::docgen::get_search_init(crate::docgen::PageKind::Guide(&[]));
 
     format!(
         "<!DOCTYPE html>

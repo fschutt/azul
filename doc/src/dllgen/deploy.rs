@@ -913,7 +913,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     let common_head_tags = crate::docgen::get_common_head_tags(false);
     let sidebar = crate::docgen::get_sidebar();
     let prism_script = crate::docgen::get_prism_script();
-    let search_script = crate::docgen::get_search_init();
+    let search_script = crate::docgen::get_search_init(crate::docgen::PageKind::Other);
     let releasenotes =
         comrak::markdown_to_html(&versiondata.notes.join("\r\n"), &comrak::Options::default());
     let git = &versiondata.git;
@@ -1114,7 +1114,7 @@ pub fn generate_releases_index(versions: &[String]) -> String {
     let header_tags = crate::docgen::get_common_head_tags(false);
     let sidebar = crate::docgen::get_sidebar();
     let prism_script = crate::docgen::get_prism_script();
-    let search_script = crate::docgen::get_search_init();
+    let search_script = crate::docgen::get_search_init(crate::docgen::PageKind::Other);
 
     format!(
         r#"<!DOCTYPE html>
