@@ -448,16 +448,18 @@ pub fn parse_os_version(os: OsFamily, version_str: &str) -> Option<OsVersion> {
 }
 
 fn parse_windows_version(s: &str) -> Option<OsVersion> {
-    // Named versions
-    match s {
-        "2000" | "win2000" | "win-2000" => Some(OsVersion::WIN_2000),
-        "xp" | "winxp" | "win-xp" => Some(OsVersion::WIN_XP),
-        "vista" | "winvista" | "win-vista" => Some(OsVersion::WIN_VISTA),
-        "7" | "win7" | "win-7" => Some(OsVersion::WIN_7),
-        "8" | "win8" | "win-8" => Some(OsVersion::WIN_8),
-        "8.1" | "win8.1" | "win-8.1" | "win-8-1" => Some(OsVersion::WIN_8_1),
-        "10" | "win10" | "win-10" => Some(OsVersion::WIN_10),
-        "11" | "win11" | "win-11" => Some(OsVersion::WIN_11),
+    // Strip optional "win"/"windows" prefix (allowing -, _ separators).
+    // This collapses "11", "win11", "win-11", "windows11", "windows-11", "windows_11" to "11".
+    let core = strip_os_prefix(s, &["windows", "win"]);
+    match core {
+        "2000" => Some(OsVersion::WIN_2000),
+        "xp" => Some(OsVersion::WIN_XP),
+        "vista" => Some(OsVersion::WIN_VISTA),
+        "7" => Some(OsVersion::WIN_7),
+        "8" => Some(OsVersion::WIN_8),
+        "8.1" | "8-1" => Some(OsVersion::WIN_8_1),
+        "10" => Some(OsVersion::WIN_10),
+        "11" => Some(OsVersion::WIN_11),
         // Numeric NT versions
         "5.0" | "nt5.0" => Some(OsVersion::WIN_2000),
         "5.1" | "nt5.1" => Some(OsVersion::WIN_XP),
@@ -468,6 +470,18 @@ fn parse_windows_version(s: &str) -> Option<OsVersion> {
         "10.0" | "nt10.0" => Some(OsVersion::WIN_10),
         _ => None,
     }
+}
+
+/// If `s` starts with any of the given prefixes, strip the prefix plus an optional
+/// trailing `-` or `_` separator. Otherwise return `s` unchanged. Matching is
+/// case-insensitive (callers already lowercase, this just makes the helper safe).
+fn strip_os_prefix<'a>(s: &'a str, prefixes: &[&str]) -> &'a str {
+    for p in prefixes {
+        if let Some(rest) = s.strip_prefix(p) {
+            return rest.strip_prefix(['-', '_']).unwrap_or(rest);
+        }
+    }
+    s
 }
 
 fn parse_macos_version(s: &str) -> Option<OsVersion> {
@@ -558,15 +572,14 @@ fn parse_android_version(s: &str) -> Option<OsVersion> {
 }
 
 fn parse_linux_version(s: &str) -> Option<OsVersion> {
-    // Parse kernel version like "5.4", "6.0"
-    let parts: Vec<&str> = s.split('.').collect();
-    if parts.len() >= 2 {
-        if let (Ok(major), Ok(minor)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
-            let patch = parts.get(2).and_then(|p| p.parse::<u32>().ok()).unwrap_or(0);
-            return Some(OsVersion::new(OsFamily::Linux, major * 1000 + minor * 10 + patch));
-        }
-    }
-    None
+    // Strip optional "linux" prefix so "linux6.1" / "linux-6.1" also work.
+    let s = strip_os_prefix(s, &["linux"]);
+    // Parse kernel version like "5.4", "6.0", or bare major like "5" (== "5.0").
+    let mut parts = s.split('.');
+    let major = parts.next()?.parse::<u32>().ok()?;
+    let minor = parts.next().map_or(Some(0), |p| p.parse::<u32>().ok())?;
+    let patch = parts.next().map_or(Some(0), |p| p.parse::<u32>().ok())?;
+    Some(OsVersion::new(OsFamily::Linux, major * 1000 + minor * 10 + patch))
 }
 
 /// Linux desktop environment for `@os(linux:<de>)` CSS selectors.

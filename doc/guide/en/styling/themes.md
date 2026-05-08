@@ -176,9 +176,10 @@ is the same as `@os(linux) { … }`.
 @os(linux)               { font-family: 'Cantarell'; }
 @os(windows)             { font-family: 'Segoe UI'; }
 
-/* family + version */
-@os(windows >= win-11)   { font-family: 'Segoe UI Variable Text'; }
+/* family + version — codename or bare number both work */
+@os(windows >= 11)       { font-family: 'Segoe UI Variable Text'; }
 @os(macos >= big-sur)    { font-family: '.SF NS'; }
+@os(linux >= 6)          { /* kernel 6.0+ */ }
 
 /* Linux desktop environment */
 @os(linux:gnome)         { font-family: 'Cantarell'; }
@@ -194,6 +195,11 @@ Comparisons across OS families always evaluate to false.
 Desktop-environment versions only match when the runtime knows the DE's
 version number; until detection is wired up for a given DE, the
 `@os(linux:de > N)` form will not match.
+
+Version synonyms are accepted permissively: bare numbers (`11`),
+prefixed forms (`win-11`, `win11`, `windows-11`), and codenames where
+they exist (`big-sur`, `monterey`, `sonoma`) all map to the same
+underlying version. Linux accepts `5`, `5.4`, and `5.4.10`.
 
 ## Accessibility queries
 

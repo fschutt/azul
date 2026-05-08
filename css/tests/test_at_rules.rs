@@ -1080,6 +1080,16 @@ fn test_os_paren_form_with_de() {
 #[test]
 fn test_os_paren_form_with_version() {
     use azul_css::dynamic_selector::{OsVersion, OsVersionCondition};
+    // Bare numeric form: "11" is a synonym for win-11.
+    let conds = os_conditions("@os(windows >= 11) { div { color: red; } }");
+    assert_eq!(
+        conds,
+        vec![
+            DynamicSelector::Os(OsCondition::Windows),
+            DynamicSelector::OsVersion(OsVersionCondition::Min(OsVersion::WIN_11)),
+        ]
+    );
+    // "win-11" must produce the same result.
     let conds = os_conditions("@os(windows >= win-11) { div { color: red; } }");
     assert_eq!(
         conds,
@@ -1088,6 +1098,33 @@ fn test_os_paren_form_with_version() {
             DynamicSelector::OsVersion(OsVersionCondition::Min(OsVersion::WIN_11)),
         ]
     );
+}
+
+#[test]
+fn test_os_version_synonyms() {
+    use azul_css::dynamic_selector::{OsVersion, OsVersionCondition};
+    // Each line below should parse to the same DynamicSelector vec.
+    let cases: &[(&str, OsVersion)] = &[
+        // Windows: bare number, win-prefix, windows-prefix variants.
+        ("@os(windows >= 11) { div { color: red; } }",        OsVersion::WIN_11),
+        ("@os(windows >= win-11) { div { color: red; } }",    OsVersion::WIN_11),
+        ("@os(windows >= win11) { div { color: red; } }",     OsVersion::WIN_11),
+        ("@os(windows >= windows-11) { div { color: red; } }", OsVersion::WIN_11),
+        // macOS: codename and number.
+        ("@os(macos >= 14) { div { color: red; } }",          OsVersion::MACOS_SONOMA),
+        ("@os(macos >= sonoma) { div { color: red; } }",      OsVersion::MACOS_SONOMA),
+        // Linux: bare major now expands to <major>.0.
+        ("@os(linux >= 5) { div { color: red; } }",           OsVersion::LINUX_5_0),
+        ("@os(linux >= 5.0) { div { color: red; } }",         OsVersion::LINUX_5_0),
+    ];
+    for (css, expected_ver) in cases {
+        let conds = os_conditions(css);
+        assert_eq!(conds.len(), 2, "expected 2 conditions for: {css}");
+        match &conds[1] {
+            DynamicSelector::OsVersion(OsVersionCondition::Min(v)) => assert_eq!(v, expected_ver, "for: {css}"),
+            other => panic!("expected Min(...) version, got {other:?} for: {css}"),
+        }
+    }
 }
 
 #[test]

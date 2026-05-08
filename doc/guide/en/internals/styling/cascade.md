@@ -1,8 +1,8 @@
 ---
-slug: cascade
+slug: internals/styling/cascade
 title: Cascade, Inheritance, Restyle
 language: en
-canonical_slug: cascade
+canonical_slug: internals/styling/cascade
 audience: contributor
 maturity: wip
 guide_order: null
@@ -18,30 +18,17 @@ last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T00:00:00Z
 ---
 
-> **WIP** — the cascade pipeline still has two parallel build paths (`build_compact_cache` and `build_compact_cache_with_inheritance`) pending consolidation. The shape described below reflects the inheritance variant, which is the production path called from `StyledDom::restyle`.
+# Cascade, Inheritance, Restyle
 
-The cascade owns four data structures in a strict order: `CssPropertyCache` (the slow-path resolver), the per-node `css_props` from `NodeData`, the global `*` rules, and the `CompactLayoutCache` (the fast-path resolved values). Building the cache is one pre-order arena walk per restyle.
+## Overview
 
-## File map
+The cascade owns four data structures in a strict order: `CssPropertyCache` (the slow-path resolver), the per-node `css_props` from `NodeData`, the global `*` rules, and the `CompactLayoutCache` (the fast-path resolved values). Building the cache is one pre-order arena walk per restyle. *WIP — the cascade pipeline still has two parallel build paths (`build_compact_cache` and `build_compact_cache_with_inheritance`) pending consolidation.* The shape described below reflects the inheritance variant, which is the production path called from `StyledDom::restyle`.
 
-- **`CssPropertyCache`.** The cascade's main state.
-  - `core/src/prop_cache.rs::CssPropertyCache`
-- **`build_compact_cache`.** Non-inheritance variant (legacy).
-  - `core/src/compact_cache_builder.rs::build_compact_cache`
-- **`build_compact_cache_with_inheritance`.** The production path.
-  - `core/src/compact_cache_builder.rs::build_compact_cache_with_inheritance`
-- **`build_compact_cache_with_inheritance_debug`.** Same as above with debug logging.
-  - `core/src/compact_cache_builder.rs::build_compact_cache_with_inheritance_debug`
-- **`StyledDom::restyle`.** Orchestrates restyle, UA, inherit, and compact build.
-  - `core/src/styled_dom.rs::restyle`
-- **`restyle_on_state_change`.** Incremental restyle for hover, focus, and active.
-  - `core/src/styled_dom.rs::restyle_on_state_change`
-- **`apply_ua_css_to_compact`.** Per-NodeType default property table.
-  - `core/src/ua_css.rs::apply_ua_css_to_compact`
+This page covers what `CssPropertyCache` stores, how `restyle()` orchestrates the four phases, the inheritable-property mask and pre-order walk that make the cascade O(node_count), and how pseudo-state changes piggyback off the same machinery without rebuilding the whole cache. For the encoded output that the layout solver actually reads, see [Compact Property Cache](compact-cache.md).
 
 ## The full restyle
 
-`StyledDom::restyle(css)` (`core/src/styled_dom.rs::restyle`) runs four phases in order:
+`StyledDom::restyle(css)` runs four phases in order:
 
 ```rust,ignore
 pub fn restyle(&mut self, mut css: Css) {
@@ -76,8 +63,6 @@ pub struct CssPropertyCache {
 }
 ```
 
-(`core/src/prop_cache.rs::CssPropertyCache`)
-
 The cache layers properties from five priority sources, lowest to highest:
 
 - **Priority 1 (lowest), UA CSS.** `apply_ua_css_to_compact` writes directly to compact arrays.
@@ -88,7 +73,7 @@ The cache layers properties from five priority sources, lowest to highest:
 
 `StatefulCssProperty` carries a `CssProperty` plus the pseudo-state mask it applies in (Normal / Hover / Active / Focus / Dragging / DragOver). The cascade unifies all states into one entry per property. The getter picks the right value at lookup time.
 
-`computed_values` holds the post-inheritance resolved values for *inheritable* properties. `font-size` resolves `em`/`%` here; the resolved px is then re-cached in `resolved_font_sizes_px` because `get_font_size` is called ~730× per node per layout pass and the recursive parent walk would dominate.
+`computed_values` holds the post-inheritance resolved values for *inheritable* properties. `font-size` resolves `em` / `%` here; the resolved px is then re-cached in `resolved_font_sizes_px` because `get_font_size` is called ~730× per node per layout pass and the recursive parent walk would dominate.
 
 ## Pre-order is load-bearing
 
@@ -98,7 +83,7 @@ If you ever reorder the arena or build it bottom-up, the cascade breaks silently
 
 ## build_compact_cache_with_inheritance
 
-The production cascade build is one loop over the arena (`core/src/compact_cache_builder.rs::build_compact_cache_with_inheritance`). Per-node steps:
+The production cascade build is one loop over the arena. Per-node steps:
 
 ```text
 for i in 0..node_count:
@@ -123,15 +108,13 @@ const INHERITABLE_TIER1_MASK: u64 =
   | (BORDER_COLLAPSE_MASK << BORDER_COLLAPSE_SHIFT);
 ```
 
-(`core/src/compact_cache_builder.rs::INHERITABLE_TIER1_MASK`)
-
 Non-inheritable enum fields (display, position, float, overflow, box-sizing, flex-*, clear, vertical-align, writing-mode) stay at 0, the CSS initial value. They get filled in by UA CSS in Step 2 and author CSS in Step 3.
 
 For tier 2, the inheritable fields are `font_size` (dims), `border_spacing_h/v` and `tab_size` (cold), and *all* of `tier2b_text` (text-color, font-family-hash, line-height, letter-spacing, word-spacing, text-indent).
 
 ## UA CSS application
 
-`apply_ua_css_to_compact(node_type, &mut tier1, &mut dims, &mut cold, &mut text, &mut font_hash_to_families)` (`core/src/ua_css.rs::apply_ua_css_to_compact`) hard-codes per-`NodeType` defaults in compact form. For example, `<h1>` writes `font_size = 2em` (resolved later via the parent chain) and `font_weight = Bold`; `<button>` writes `display = InlineBlock`, padding, and a border style.
+`apply_ua_css_to_compact(node_type, &mut tier1, &mut dims, &mut cold, &mut text, &mut font_hash_to_families)` hard-codes per-`NodeType` defaults in compact form. For example, `<h1>` writes `font_size = 2em` (resolved later via the parent chain) and `font_weight = Bold`; `<button>` writes `display = InlineBlock`, padding, and a border style.
 
 Hard-coding the UA defaults in compact form skips a full cascade walk per node for the common case where author CSS doesn't override. The cost is that adding a new `NodeType` requires a matching arm in `apply_ua_css_to_compact`.
 
@@ -146,8 +129,6 @@ if !nd.is_text_node() {
     }
 }
 ```
-
-(`core/src/compact_cache_builder.rs::build_compact_cache_with_inheritance`)
 
 Without that check, `* { color: red }` would overwrite the inherited `color` on every `Text` child of a `<p>` even though the `<p>` itself correctly cascaded from `p { color: blue }`.
 
@@ -166,13 +147,11 @@ pub enum RelayoutScope {
 }
 ```
 
-(`css/src/props/property.rs::RelayoutScope`)
-
-This is the cascade's contribution to incremental layout. Taffy uses a binary clean/dirty flag; the four-level classification lets the layout solver skip subtree walks when only an IFC's text needs reshaping, or skip a parent's reflow when only a child's color changed. `ChangeAccumulator::max_scope` (see [DOM Internals](dom.md)) propagates the worst case.
+This is the cascade's contribution to incremental layout. Taffy uses a binary clean / dirty flag; the four-level classification lets the layout solver skip subtree walks when only an IFC's text needs reshaping, or skip a parent's reflow when only a child's color changed. `ChangeAccumulator::max_scope` (see [DOM Internals](../dom.md)) propagates the worst case.
 
 ## restyle_on_state_change: hover, focus, active
 
-Pseudo-state changes don't re-run `restyle()`. Instead, `restyle_on_state_change` (`core/src/styled_dom.rs::restyle_on_state_change`) walks only the affected nodes and produces a `RestyleResult { changed_nodes: Vec<(NodeId, Vec<ChangedCssProperty>)> }` with the deltas. The result feeds back through `ChangeAccumulator::merge_restyle_result` so the rest of the pipeline doesn't care whether a change came from a DOM diff or a hover toggle.
+Pseudo-state changes don't re-run `restyle()`. Instead, `restyle_on_state_change` walks only the affected nodes and produces a `RestyleResult { changed_nodes: Vec<(NodeId, Vec<ChangedCssProperty>)> }` with the deltas. The result feeds back through `ChangeAccumulator::merge_restyle_result` so the rest of the pipeline doesn't care whether a change came from a DOM diff or a hover toggle.
 
 The `changed_nodes` list always classifies via `relayout_scope(true)`, the conservative form, because the property-specific scope can depend on the new value and the safe choice is the higher relayout level.
 
@@ -207,16 +186,16 @@ Each step short-circuits on first match. The cost is ~5 walks per call versus O(
 
 ## Two parallel build paths (legacy)
 
-`build_compact_cache` (no inheritance, `core/src/compact_cache_builder.rs::build_compact_cache`) and `build_compact_cache_with_inheritance` (`core/src/compact_cache_builder.rs::build_compact_cache_with_inheritance`) duplicate ~400 lines of encoding logic. The non-inheritance variant uses `CssPropertyCache` getters that internally cascade. It's slower but doesn't require the parent-already-resolved invariant.
+`build_compact_cache` (no inheritance) and `build_compact_cache_with_inheritance` duplicate ~400 lines of encoding logic. The non-inheritance variant uses `CssPropertyCache` getters that internally cascade. It's slower but doesn't require the parent-already-resolved invariant.
 
-The non-inheritance variant is currently called from `core/src/styled_dom.rs` as a fallback path; the production path is the inheritance variant called from `core/src/styled_dom.rs`. Consolidating them is on the cleanup list. Until then, the inheritance variant is the source of truth, and changes must be mirrored in both files or the fallback path will silently diverge.
+The non-inheritance variant is currently called from `StyledDom` as a fallback path; the production path is the inheritance variant. Consolidating them is on the cleanup list. Until then, the inheritance variant is the source of truth, and changes must be mirrored in both files or the fallback path will silently diverge.
 
 ## Adding a property to the cascade
 
 If your property *should* be in the compact cache (frequently set, layout-relevant):
 
 1. Decide which tier — see [Compact Property Cache](compact-cache.md).
-2. Add encode/decode helpers in `css/src/compact_cache.rs`.
+2. Add encode / decode helpers in `css/src/compact_cache.rs`.
 3. Add a Step-3 cascade-walk arm in `compact_cache_builder.rs` that calls the `CssPropertyCache` getter and writes the encoded value.
 4. If inheritable, add it to the `INHERITABLE_TIER1_MASK` and the Step-1 inheritance copy.
 5. Add UA defaults in `core/src/ua_css.rs` if the property has any.
@@ -230,12 +209,13 @@ If your property stays on the slow path:
 
 ## See also
 
-- [DOM Internals](dom.md) — `NodeData::css_props` is one of the cascade's input sources.
+- [DOM Internals](../dom.md) — `NodeData::css_props` is one of the cascade's input sources.
 - [CSS Parser](css-parser.md) — produces the `CssProperty` values the cascade routes.
 - [Compact Property Cache](compact-cache.md) — the encoded output of `build_compact_cache_with_inheritance`.
+- [Styling Subsystem](../styling.md) — parent overview of the styling pipeline.
 
 ## Coming Up Next
 
 - [Compact Property Cache](compact-cache.md) — How layout results are stored across frames
 - [CSS Parser](css-parser.md) — The hand-written CSS parser
-- [DOM Internals](dom.md) — How the public `Dom` type is built and stored
+- [DOM Internals](../dom.md) — How the public `Dom` type is built and stored
