@@ -19,7 +19,9 @@ generated_at: 2026-05-02T06:00:00Z
 
 # Animations
 
-> **Not yet functional.** Azul has no CSS-animation runtime today. CSS `animation:` and `transition:` properties parse but don't interpolate. This page documents the shape of the user-facing API. Until the runtime is wired up, drive interpolation by hand from a [timer](timers.md).
+## Introduction
+
+*WIP.* Azul has no CSS-animation runtime today — CSS `animation:` and `transition:` properties parse but don't interpolate. This page documents the shape of the user-facing API. Until the runtime is wired up, drive interpolation by hand from a [timer](timers.md).
 
 The user-facing API is plain CSS. You write `transition: opacity 200ms ease-out` or a `@keyframes` block, and the framework interpolates between values. Until the runtime lands, the same effect is achieved with a [timer](timers.md) that mutates your model and returns `Update::RefreshDom` per frame.
 

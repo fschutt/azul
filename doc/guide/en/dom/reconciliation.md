@@ -20,6 +20,8 @@ generated_at: 2026-05-02T05:53:30Z
 
 # Reconciliation
 
+## Introduction
+
 Azul rebuilds the `Dom` from scratch on every `Update::RefreshDom`. The
 tree returned by `layout()` is frozen. The next state change runs
 `layout()` again and produces a new tree. The diff is what makes that
@@ -123,8 +125,8 @@ and the Unmount event fires.
 
 The full algorithm (matching tiers, the property-change bitmask, the
 relayout-scope enum, damage-rect coalescing) lives in
-[internals/event-system.md](../internals/event-system.md) and
-[internals/rendering-pipeline.md](../internals/rendering-pipeline.md).
+[internals/events.md](../internals/events.md) and
+[internals/rendering.md](../internals/rendering.md).
 
 ## Coming Up Next
 

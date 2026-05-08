@@ -20,6 +20,8 @@ generated_at: 2026-05-02T00:00:00Z
 
 # Hello World
 
+## Introduction
+
 Welcome to the Azul framework. In this guide you will learn how to write a simple 50-line program that produces a window with a counter and a button to increase said counter - showcasing how data models, click callbacks and installation / running Azul applications works.
 
 ```azul-render screenshot=hello-world width=400 height=240 subtitle="The minimum viable Azul window — counter label plus a button."

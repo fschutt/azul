@@ -19,6 +19,8 @@ generated_at: 2026-05-02T05:53:30Z
 
 # Components
 
+## Introduction
+
 A component is a Rust function that returns `Dom`.
 
 There's no component trait. There's no derive macro. There's no special syntax. You compose components by calling functions. You reuse them through normal module visibility. The only value the framework actually inspects is the `Dom` you return.

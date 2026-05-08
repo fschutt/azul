@@ -18,7 +18,9 @@ generated_at: 2026-05-02T00:00:00Z
 
 # XML Parsing (Standalone)
 
-> WIP. Public surface is stable. The component-instantiation pipeline (`<my-widget>` style custom tags via `ComponentMap`) is mid-migration; treat names as load-bearing but signatures as moving targets.
+## Introduction
+
+*WIP.* Public surface is stable. The component-instantiation pipeline (`<my-widget>` style custom tags via `ComponentMap`) is mid-migration; treat names as load-bearing but signatures as moving targets.
 
 Azul ships an XML/HTML5-lite parser that runs without a window, a renderer, or any GPU dependency. Use it as a tooling library: validate `.azul` files in CI, scrape resource URLs from a static site, build a DOM for headless rendering, or feed XHTML into custom layout code.
 

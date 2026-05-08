@@ -18,6 +18,8 @@ generated_at: 2026-05-02T05:53:30Z
 
 # Virtual Views
 
+## Introduction
+
 A `VirtualView` is a single node. Its inner content comes from a separate
 callback. That callback only runs when needed.
 

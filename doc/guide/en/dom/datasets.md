@@ -18,6 +18,8 @@ generated_at: 2026-05-02T05:53:30Z
 
 # Datasets
 
+## Introduction
+
 A dataset is a `RefAny` attached to a single node. You attach it with
 `Dom::with_dataset(OptionRefAny)`. The framework doesn't read the
 contents. It stores the `RefAny` on the node and hands it back to your

@@ -18,7 +18,9 @@ generated_at: 2026-05-02T12:00:00Z
 
 # Headless Rendering
 
-> **WIP.** Wayland and XCB native screenshot support is incomplete.
+## Introduction
+
+*WIP.* Wayland and XCB native screenshot support is incomplete.
 
 The same binary that opens a desktop window can run without one. There is no display server, no OpenGL context, no visible window. Set an environment variable, the framework swaps in a CPU-only backend, and the rest of the pipeline (layout, callbacks, timers, re-renders) runs unchanged. Output is captured through the HTTP debug API.
 

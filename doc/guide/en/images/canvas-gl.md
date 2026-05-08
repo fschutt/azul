@@ -18,7 +18,9 @@ generated_at: 2026-05-02T12:00:00Z
 
 # GL Canvas
 
-> WIP. The GL callback ABI is stable. What you can call on the GL context is the OpenGL 3.2-core subset exposed by `GlContextPtr`.
+## Introduction
+
+*WIP.* The GL callback ABI is stable; what you can call on the GL context is the OpenGL 3.2-core subset exposed by `GlContextPtr`.
 
 A render-image callback gives you a fresh GL context and the laid-out bounding box of a DOM node, and asks you to return an `ImageRef` for that node. Use it whenever the pixel content depends on size or animation: an OpenGL scene, a tessellated SVG that needs custom transforms, a chart sized to fit its container.
 

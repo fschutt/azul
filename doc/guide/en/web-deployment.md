@@ -25,7 +25,9 @@ generated_at: 2026-05-02T12:00:00Z
 
 # Web Deployment
 
-> **WIP.** Server-side rendering and the HTTP server work today. Client-side WASM transpilation is stubbed: every callback currently round-trips to the server. The asset URLs, route mapping, and JS loader are stable and won't change shape when WASM lands.
+## Introduction
+
+*WIP.* Server-side rendering and the HTTP server work today. Client-side WASM transpilation is stubbed — every callback currently round-trips to the server. The asset URLs, route mapping, and JS loader are stable and won't change shape when WASM lands.
 
 The same binary that opens a desktop window can run as an HTTP server. Set the environment variable and azul replaces the platform shell with a TCP listener:
 

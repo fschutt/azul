@@ -48,7 +48,7 @@ Azul's DOM differs from a browser DOM in four places:
    per-node working set small enough that the layout pass stays in L2
    instead of round-tripping to RAM. The compact-cache implementation
    itself is documented separately, in
-   [internals/compact-cache.md](internals/compact-cache.md).
+   [internals/styling/compact-cache.md](internals/styling/compact-cache.md).
 
 The result is a tree like this:
 
@@ -442,7 +442,7 @@ push. Selector matching, inheritance, and the compact cache build all
 run once after you return.
 
 For the internal cache layout that the layout engine reads, see
-[internals/compact-cache.md](internals/compact-cache.md).
+[internals/styling/compact-cache.md](internals/styling/compact-cache.md).
 
 ## Loading XML and XHTML
 

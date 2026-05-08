@@ -17,7 +17,7 @@ generated_at: 2026-05-02T12:00:00Z
 
 # Background Tasks
 
-> WIP. `Thread::create`, `ThreadSender`, and `ThreadReceiver` are stable. Channel ergonomics may shift if the framework grows a typed message bus on top of `RefAny` payloads.
+## Introduction
 
 `Thread` is azul's background-work primitive: an OS thread plus two typed channels back to the main thread, owned and ticked by the event loop. Use it for blocking I/O, long computations, and anything you can't finish inside a single frame budget. The framework polls each registered `Thread` every frame, drains messages, and runs your write-back callbacks on the main thread.
 

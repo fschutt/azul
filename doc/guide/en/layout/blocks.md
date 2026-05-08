@@ -20,6 +20,9 @@ generated_at: 2026-05-02T05:49:28Z
 ---
 
 # Simple Layout
+
+## Overview
+
 Every element in a `Dom` starts at `display: block`. A block element takes
 the full width of its parent, stacks below the previous sibling, and is
 sized by the box-model properties (`width`, `height`, `padding`, `border`,

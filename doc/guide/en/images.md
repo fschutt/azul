@@ -17,7 +17,10 @@ generated_at: 2026-05-02T12:00:00Z
 ---
 
 # Images
-> WIP. APIs around `ImageRef`, SVG, and GPU textures are stable enough to use, but some helpers (e.g. PNG/JPEG decoding) live behind feature flags and may move between crates.
+
+## Introduction
+
+*WIP.* APIs around `ImageRef`, SVG, and GPU textures are stable enough to use, but some helpers (e.g. PNG/JPEG decoding) live behind feature flags and may move between crates.
 
 Azul has three sources of pixel content in a DOM tree:
 

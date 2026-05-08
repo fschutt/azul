@@ -35,6 +35,9 @@ generated_at: 2026-05-02T12:00:00Z
 ---
 
 # CSS Properties
+
+## Overview
+
 The properties azul recognises, grouped by what they style. Each entry lists
 the syntax and the Rust type the parser produces.
 

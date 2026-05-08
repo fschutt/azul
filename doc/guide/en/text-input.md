@@ -18,7 +18,10 @@ generated_at: 2026-05-02T12:00:00Z
 ---
 
 # Text Input
-> **WIP.** The text-input runtime is wired but several pieces are still missing. macOS IME / CJK support is incomplete. APIs may change.
+
+## Introduction
+
+*WIP.* The text-input runtime is wired but several pieces are still missing — macOS IME / CJK support is incomplete and APIs may change.
 
 There are two ways to make text editable:
 

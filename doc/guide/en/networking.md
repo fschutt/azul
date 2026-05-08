@@ -17,7 +17,9 @@ generated_at: 2026-05-02T12:00:00Z
 
 # Networking
 
-> Stub. The framework ships a small blocking HTTP helper (`HttpRequestConfig`, `HttpResponse`) you can call from inside a [`Thread`](background-tasks.md). For raw sockets, async I/O, WebSockets, or anything else, do networking the same way you do any other blocking I/O: from a `Thread`.
+## Introduction
+
+*Stub.* The framework ships a small blocking HTTP helper (`HttpRequestConfig`, `HttpResponse`) you can call from inside a [`Thread`](background-tasks.md). For raw sockets, async I/O, WebSockets, or anything else, do networking the same way you do any other blocking I/O: from a `Thread`.
 
 ## What's available
 

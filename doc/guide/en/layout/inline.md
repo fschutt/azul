@@ -21,6 +21,9 @@ generated_at: 2026-05-02T05:49:28Z
 ---
 
 # Inline Layout
+
+## Overview
+
 Inline content flows from left to right (or right to left, in RTL scripts)
 inside a block. The browser-style line box wraps when it runs out of room
 and pushes the next chunk down. Block elements stack vertically; inline
@@ -57,7 +60,7 @@ itself rides the surrounding line.
 You don't drive text layout directly. Set CSS properties on the container.
 The engine shapes glyphs, picks line breaks, reorders bidirectional runs,
 and positions output at layout time. For the architecture, see
-[Inline Layout and Text Shaping](../internals/inline-text3.md).
+[Inline Layout and Text Shaping](../internals/layout/inline-text.md).
 
 ## Wrapping: white-space, word-break, overflow-wrap
 

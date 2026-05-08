@@ -26,10 +26,9 @@ generated_at: 2026-05-02T05:54:43Z
 
 # Built-in Widgets
 
-> **WIP.** Most leaf widgets (`Button`, `CheckBox`, `ColorInput`, `DropDown`,
-> `FileInput`, `ProgressBar`, `Frame`, `Titlebar`) are usable today. Container
-> widgets with richer state (see [Structural Widgets](widgets/structural.md))
-> have known gaps that are called out per widget.
+## Overview
+
+*WIP.* Most leaf widgets (`Button`, `CheckBox`, `ColorInput`, `DropDown`, `FileInput`, `ProgressBar`, `Frame`, `Titlebar`) are usable today. Container widgets with richer state (see [Structural Widgets](widgets/structural.md)) have known gaps that are called out per widget.
 
 A widget is a value with a `dom()` method that returns a `Dom` subtree. Widgets
 carry per-platform default styles, store callbacks in their own state, and

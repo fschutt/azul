@@ -17,6 +17,8 @@ generated_at: 2026-05-02T05:54:43Z
 
 # Windows, Menus, Decorations
 
+## Overview
+
 A window is created by passing a `WindowCreateOptions` to `App::run` (the first window) or to `CallbackInfo::create_window` (subsequent windows). The framework manages a window's lifecycle, decorations, menus, and per-window state; your code describes what should happen via the layout callback and event handlers.
 
 ```rust,no_run

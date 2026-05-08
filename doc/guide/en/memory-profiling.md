@@ -19,7 +19,9 @@ generated_at: 2026-05-02T00:00:00Z
 
 # Profiling
 
-> **WIP.** JSONL field names may shift; the env-var surface (`AZ_PROFILE`, `AZ_PROFILE_OUT`, `AZ_E2E_TEST`) is stable.
+## Introduction
+
+*WIP.* JSONL field names may shift; the env-var surface (`AZ_PROFILE`, `AZ_PROFILE_OUT`, `AZ_E2E_TEST`) is stable.
 
 The profiler is gated by a build feature in the layout crate and driven entirely by environment variables. Without the feature it compiles to inline no-ops; with the feature on but no `AZ_PROFILE` set, every probe checks one atomic and returns. There is no static cost to leaving probes in production builds.
 

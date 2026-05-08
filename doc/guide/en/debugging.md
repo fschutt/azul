@@ -19,7 +19,9 @@ generated_at: 2026-05-02T00:00:00Z
 
 # Debugging
 
-> **WIP.** The flag set, the HTTP debug server, and the in-browser debugger all work today. Names of endpoints and env vars may shift.
+## Introduction
+
+*WIP.* The flag set, the HTTP debug server, and the in-browser debugger all work today; names of endpoints and env vars may shift.
 
 Azul ships an HTTP debug server that runs inside your application process. Set `AZ_DEBUG=<port>` and a thread binds `127.0.0.1:<port>`, serves an inspector UI at `/`, and accepts JSON commands at `POST /` that drive the application as if a user were clicking it. The same channel powers programmatic E2E tests (covered in [End-to-End Testing](e2e-testing.md)) and memory probes (covered in [Memory and Profiling](memory-profiling.md)).
 

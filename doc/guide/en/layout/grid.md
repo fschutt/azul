@@ -18,6 +18,8 @@ generated_at: 2026-05-02T05:49:28Z
 
 # Grid
 
+## Overview
+
 `display: grid` lays out children on a two-dimensional grid of explicit columns
 and rows. Tracks (`grid-template-columns` / `grid-template-rows`) decide where
 the lines go; placement properties (`grid-column`, `grid-row`) decide which

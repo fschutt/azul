@@ -18,6 +18,8 @@ generated_at: 2026-05-02T05:49:28Z
 
 # Flexbox
 
+## Overview
+
 `display: flex` lays out children along one axis and aligns them on the other.
 The axis is set by `flex-direction`; the rest of the properties decide how
 remaining space is distributed and where items align.

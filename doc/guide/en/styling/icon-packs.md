@@ -19,9 +19,9 @@ generated_at: 2026-05-02T12:00:00Z
 
 # Icon Packs
 
-> **WIP.** Image and font icons resolve through the default resolver on
-> all platforms; SVG and animated icons run through the same callback
-> path but are not yet covered by built-in helpers.
+## Introduction
+
+*WIP.* Image and font icons resolve through the default resolver on all platforms; SVG and animated icons run through the same callback path but are not yet covered by built-in helpers.
 
 An icon pack is a named bag of icons that the framework looks up by name
 when it sees a `Dom::create_icon("home")` node (or an `<icon>` element).

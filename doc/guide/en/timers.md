@@ -19,7 +19,9 @@ generated_at: 2026-05-02T06:00:00Z
 
 # Timers
 
-> WIP. The Timer API is functional today; field names may shift before 1.0.
+## Introduction
+
+*WIP.* The Timer API is functional today; field names may shift before 1.0.
 
 A `Timer` is a function that runs on the main UI thread on its own schedule, independently of input events. You install it from inside an event callback and tear it down the same way. The framework wakes the event loop to fire it; the callback receives a normal `CallbackInfo` plus a `TimerCallbackInfo` wrapper.
 

@@ -17,9 +17,9 @@ generated_at: 2026-05-02T00:00:00Z
 
 # File Dialogs
 
-> **WIP.** The dialog API is functional on all platforms, but every call is
-> synchronous and blocks the calling thread. An async variant is planned;
-> signatures here are stable.
+## Introduction
+
+*WIP.* The dialog API is functional on all platforms, but every call is synchronous and blocks the calling thread. An async variant is planned; signatures here are stable.
 
 Azul ships native message boxes, file pickers, folder pickers, and a color
 chooser. Each call shows the platform's native dialog chrome.

@@ -18,8 +18,9 @@ generated_at: 2026-05-02T05:54:43Z
 
 # Input Widgets
 
-> **WIP.** Text input is functional with cursor, placeholder, and focus
-> callbacks. The widget surface described here is stable.
+## Overview
+
+*WIP.* Text input is functional with cursor, placeholder, and focus callbacks; the widget surface described here is stable.
 
 `TextInput` and `NumberInput` are the two ways to collect typed user input. Both
 render as a single-line box, both raise the same lifecycle events, and

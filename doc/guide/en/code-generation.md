@@ -22,7 +22,9 @@ generated_at: 2026-05-02T05:50:43Z
 
 # Code Generation
 
-> **WIP** — the per-language defaults are stable, but pin to a specific commit if you embed the generator in your own build.
+## Introduction
+
+*WIP.* The per-language defaults are stable, but pin to a specific commit if you embed the generator in your own build.
 
 `api.json` at the repository root is the single source of truth for the public surface of azul. Every binding (Rust, C, C++03–23, Python) is a deterministic transform of that file. The transform is exposed through the `azul-doc` binary's `codegen` subcommand.
 

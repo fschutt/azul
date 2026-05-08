@@ -22,7 +22,9 @@ generated_at: 2026-05-02T12:00:00Z
 
 # Security Model
 
-> **WIP.** The desktop trust model is mature: `RefAny`'s FFI guarantees have been stable since the project's first release. The web backend's sandbox model is still phase 0 — server-side execution with no untrusted client code path. The shape of the threat model won't change when WASM lifting lands; the implementation will.
+## Introduction
+
+*WIP.* The desktop trust model is mature: `RefAny`'s FFI guarantees have been stable since the project's first release. The web backend's sandbox model is still phase 0 — server-side execution with no untrusted client code path. The shape of the threat model won't change when WASM lifting lands; the implementation will.
 
 Azul is a library, not an isolation boundary. Application code runs with full process privilege. The framework's job is narrower:
 

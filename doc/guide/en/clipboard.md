@@ -19,9 +19,9 @@ generated_at: 2026-05-02T00:00:00Z
 
 # Clipboard
 
-> **WIP.** Copy, cut, and paste of plain text work on every supported
-> platform. Styled-text round-trip and HTML clipboard formats are partially
-> implemented. The API is stable.
+## Introduction
+
+*WIP.* Copy, cut, and paste of plain text work on every supported platform. Styled-text round-trip and HTML clipboard formats are partially implemented; the public API is stable.
 
 Clipboard access happens from inside callbacks via `CallbackInfo` helper
 methods. When the user presses paste, the platform reads the system clipboard

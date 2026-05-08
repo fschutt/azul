@@ -19,7 +19,9 @@ generated_at: 2026-05-02T00:00:00Z
 
 # End-to-End Testing
 
-> **WIP.** Assertion vocabulary, JSON keys, and the in-browser test designer all work today. Field names may shift as the assertion engine grows.
+## Introduction
+
+*WIP.* Assertion vocabulary, JSON keys, and the in-browser test designer all work today; field names may shift as the assertion engine grows.
 
 A test is a JSON object with a name, optional setup, and an ordered list of steps. A step is one debug command (`click`, `text_input`, `resize`, …) or one assertion (`assert_text`, `assert_layout`, …). The runner drives a real `App` instance and evaluates each assertion against the live DOM. Two ways to run:
 

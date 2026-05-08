@@ -20,9 +20,9 @@ generated_at: 2026-05-02T05:54:43Z
 
 # Structural Widgets
 
-> **WIP.** These widgets render today, but several have known gaps. `ListView`
-> does not yet wire its column or row callbacks into the DOM. Treat their APIs
-> as provisional. `TabHeader` and `TreeView` are usable as documented.
+## Overview
+
+*WIP.* These widgets render today, but several have known gaps — `ListView` does not yet wire its column or row callbacks into the DOM, so treat their APIs as provisional. `TabHeader` and `TreeView` are usable as documented.
 
 The structural widgets are containers. They take other widgets or DOMs as
 content and lay them out in tabbed, hierarchical, or tabular forms.

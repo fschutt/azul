@@ -18,10 +18,9 @@ generated_at: 2026-05-02T05:49:28Z
 
 # Styling Text
 
-> **WIP.** Font fallback and the text shaper are stable; some advanced
-> typography (`font-feature-settings`, variable axes) is not yet wired
-> through from CSS to the layout engine. The properties below all parse
-> and apply.
+## Overview
+
+*WIP.* Font fallback and the text shaper are stable; some advanced typography (`font-feature-settings`, variable axes) is not yet wired through from CSS to the layout engine. The properties below all parse and apply.
 
 Text rendering is driven by four font properties (`font-family`,
 `font-size`, `font-weight`, `font-style`) and modulated by alignment,

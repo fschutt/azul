@@ -123,7 +123,7 @@ instructions = [
   "Before writing, READ all `shared_context_files` plus the group's `tracked_files`. Do not skim — actually load the relevant sections.",
   "For each output, READ the matching `## ` sections in `doc/guide/en/reference.md` (find by source-file path).",
   "Think extended: outline each page's section structure before writing. Cross-check the outline against `prerequisites` — every concept used must already be introduced.",
-  "When citing internals, include `path/to/file.rs:LINE` so contributors can navigate. Verify the line number by re-reading the file.",
+  "Describe internals semantically. Backtick type, function, and field names so contributors can grep, but do NOT cite `path/to/file.rs:LINE` in prose — line numbers go stale and create maintenance churn. The authoritative source pointers belong in the page's frontmatter `tracked_files:` list.",
   "When introducing a type, link to or quote its definition. Don't paraphrase the type.",
   "After writing, RE-READ the page and check: (a) every code sample compiles in concept, (b) every cross-link target exists in the manifest, (c) frontmatter is complete and valid.",
   "If a `tracked_file` doesn't exist, note it in the page as 'planned but not yet implemented' and tag the page `maturity = stub`.",
@@ -844,26 +844,32 @@ title = "DOM Internals"
 maturity = "mature"
 
 [[group.outputs]]
-slug = "internals/css-parser"
-path = "doc/guide/en/internals/css-parser.md"
+slug = "internals/styling"
+path = "doc/guide/en/internals/styling.md"
+title = "Styling Subsystem"
+maturity = "mature"
+
+[[group.outputs]]
+slug = "internals/styling/css-parser"
+path = "doc/guide/en/internals/styling/css-parser.md"
 title = "CSS Parser"
 maturity = "mature"
 
 [[group.outputs]]
-slug = "internals/cascade"
-path = "doc/guide/en/internals/cascade.md"
+slug = "internals/styling/cascade"
+path = "doc/guide/en/internals/styling/cascade.md"
 title = "Cascade, Inheritance, Restyle"
 maturity = "wip"
 
 [[group.outputs]]
-slug = "internals/compact-cache"
-path = "doc/guide/en/internals/compact-cache.md"
+slug = "internals/styling/compact-cache"
+path = "doc/guide/en/internals/styling/compact-cache.md"
 title = "Compact Property Cache"
 maturity = "mature"
 
 [[group.outputs]]
-slug = "internals/component-types"
-path = "doc/guide/en/internals/component-types.md"
+slug = "internals/dom/component-types"
+path = "doc/guide/en/internals/dom/component-types.md"
 title = "Component Type System"
 maturity = "wip"
 
@@ -894,32 +900,32 @@ design_docs = [
 notes = "The numerical heart of azul: layout solver (flex/grid + fragmentation), inline layout and text shaping (text3), text pipeline (font loading, glyph cache), image pipeline (resource manager, GL texture cache, shader cache). Design docs cover incremental relayout (RelayoutScope, instant typing perf), percentage units & taffy integration, and the font_stacks_hash XOR fingerprint that skips the font pipeline when fonts are unchanged."
 
 [[group.outputs]]
-slug = "internals/layout-solver"
-path = "doc/guide/en/internals/layout-solver.md"
+slug = "internals/layout"
+path = "doc/guide/en/internals/layout.md"
 title = "Layout Solver (Flex/Grid)"
 maturity = "wip"
 
 [[group.outputs]]
-slug = "internals/inline-text3"
-path = "doc/guide/en/internals/inline-text3.md"
+slug = "internals/layout/inline-text"
+path = "doc/guide/en/internals/layout/inline-text.md"
 title = "Inline Layout and Text Shaping"
 maturity = "wip"
 
 [[group.outputs]]
-slug = "internals/fragmentation"
-path = "doc/guide/en/internals/fragmentation.md"
+slug = "internals/layout/fragmentation"
+path = "doc/guide/en/internals/layout/fragmentation.md"
 title = "Fragmentation"
 maturity = "wip"
 
 [[group.outputs]]
-slug = "internals/text-pipeline"
-path = "doc/guide/en/internals/text-pipeline.md"
+slug = "internals/rendering/text-pipeline"
+path = "doc/guide/en/internals/rendering/text-pipeline.md"
 title = "Text Pipeline"
 maturity = "wip"
 
 [[group.outputs]]
-slug = "internals/image-pipeline"
-path = "doc/guide/en/internals/image-pipeline.md"
+slug = "internals/rendering/image-pipeline"
+path = "doc/guide/en/internals/rendering/image-pipeline.md"
 title = "Image Pipeline"
 maturity = "wip"
 
@@ -953,26 +959,26 @@ design_docs = [
 notes = "Event flow from OS to callback (hit-testing, default actions, drag, selection, scrolling) and VirtualView lazy-loading manager. Design docs cover the four callback paths and unification proposal, the three hit-test depth-logic problems, the bit-field tag-id migration, the absolute→relative scroll coordinate fix, and the IFrame scroll spatial-node ordering."
 
 [[group.outputs]]
-slug = "internals/event-system"
-path = "doc/guide/en/internals/event-system.md"
+slug = "internals/events"
+path = "doc/guide/en/internals/events.md"
 title = "Event System Internals"
 maturity = "mature"
 
 [[group.outputs]]
-slug = "internals/hit-testing"
-path = "doc/guide/en/internals/hit-testing.md"
+slug = "internals/events/hit-testing"
+path = "doc/guide/en/internals/events/hit-testing.md"
 title = "Hit Testing and Scrolling"
 maturity = "wip"
 
 [[group.outputs]]
-slug = "internals/iframe-scroll"
-path = "doc/guide/en/internals/iframe-scroll.md"
+slug = "internals/dom/iframe-scroll"
+path = "doc/guide/en/internals/dom/iframe-scroll.md"
 title = "IFrame Scroll and Display Lists"
 maturity = "wip"
 
 [[group.outputs]]
-slug = "internals/virtual-view"
-path = "doc/guide/en/internals/virtual-view.md"
+slug = "internals/dom/virtual-view"
+path = "doc/guide/en/internals/dom/virtual-view.md"
 title = "VirtualView Lazy Loading"
 maturity = "wip"
 
@@ -1001,20 +1007,20 @@ design_docs = [
 notes = "Rendering pipeline: compositor2 (display lists → GPU), GL function loading via dlopen, the WebRender bridge. Design doc covers the WebRender clip chain & spatial node integration."
 
 [[group.outputs]]
-slug = "internals/rendering-pipeline"
-path = "doc/guide/en/internals/rendering-pipeline.md"
+slug = "internals/rendering"
+path = "doc/guide/en/internals/rendering.md"
 title = "Rendering Pipeline"
 maturity = "wip"
 
 [[group.outputs]]
-slug = "internals/gl-loading"
-path = "doc/guide/en/internals/gl-loading.md"
+slug = "internals/rendering/gl-loading"
+path = "doc/guide/en/internals/rendering/gl-loading.md"
 title = "GL Function Loading"
 maturity = "wip"
 
 [[group.outputs]]
-slug = "internals/webrender-bridge"
-path = "doc/guide/en/internals/webrender-bridge.md"
+slug = "internals/rendering/webrender-bridge"
+path = "doc/guide/en/internals/rendering/webrender-bridge.md"
 title = "WebRender Bridge"
 maturity = "wip"
 
@@ -1032,38 +1038,44 @@ design_docs = [
 notes = "Per-OS shell layer. Common abstraction first, then each backend. Linux gets two pages (X11 + Wayland) plus DBus/GNOME menu integration as its own page because it's huge. Design doc covers the PlatformWindow V1/V2 abstraction debt — 28 duplicated getters across 5 platforms."
 
 [[group.outputs]]
-slug = "internals/shell2-common"
-path = "doc/guide/en/internals/shell2-common.md"
+slug = "internals/windowing"
+path = "doc/guide/en/internals/windowing.md"
+title = "Windowing"
+maturity = "wip"
+
+[[group.outputs]]
+slug = "internals/windowing/common"
+path = "doc/guide/en/internals/windowing/common.md"
 title = "Shell2 Common Layer"
 maturity = "wip"
 
 [[group.outputs]]
-slug = "internals/shell2-linux-x11"
-path = "doc/guide/en/internals/shell2-linux-x11.md"
+slug = "internals/windowing/linux-x11"
+path = "doc/guide/en/internals/windowing/linux-x11.md"
 title = "Shell2 — Linux X11"
 maturity = "wip"
 
 [[group.outputs]]
-slug = "internals/shell2-linux-wayland"
-path = "doc/guide/en/internals/shell2-linux-wayland.md"
+slug = "internals/windowing/linux-wayland"
+path = "doc/guide/en/internals/windowing/linux-wayland.md"
 title = "Shell2 — Linux Wayland"
 maturity = "wip"
 
 [[group.outputs]]
-slug = "internals/shell2-linux-dbus"
-path = "doc/guide/en/internals/shell2-linux-dbus.md"
+slug = "internals/windowing/linux-dbus"
+path = "doc/guide/en/internals/windowing/linux-dbus.md"
 title = "Shell2 — Linux DBus and GNOME Menus"
 maturity = "wip"
 
 [[group.outputs]]
-slug = "internals/shell2-windows"
-path = "doc/guide/en/internals/shell2-windows.md"
+slug = "internals/windowing/windows"
+path = "doc/guide/en/internals/windowing/windows.md"
 title = "Shell2 — Windows"
 maturity = "wip"
 
 [[group.outputs]]
-slug = "internals/shell2-macos"
-path = "doc/guide/en/internals/shell2-macos.md"
+slug = "internals/windowing/macos"
+path = "doc/guide/en/internals/windowing/macos.md"
 title = "Shell2 — macOS"
 maturity = "wip"
 
@@ -1092,20 +1104,20 @@ tracked_globs = [
 notes = "Cross-cutting OS integration: menus + CSD (client-side decorations), per-OS a11y backends (atspi, NSAccessibility, UIA), and the system style discovery layer."
 
 [[group.outputs]]
-slug = "internals/menus-and-csd"
-path = "doc/guide/en/internals/menus-and-csd.md"
+slug = "internals/windowing/menus-and-csd"
+path = "doc/guide/en/internals/windowing/menus-and-csd.md"
 title = "Menus and Client-Side Decorations"
 maturity = "wip"
 
 [[group.outputs]]
-slug = "internals/accessibility-backends"
-path = "doc/guide/en/internals/accessibility-backends.md"
+slug = "internals/windowing/accessibility"
+path = "doc/guide/en/internals/windowing/accessibility.md"
 title = "Accessibility Backends"
 maturity = "wip"
 
 [[group.outputs]]
-slug = "internals/system-style"
-path = "doc/guide/en/internals/system-style.md"
+slug = "internals/styling/system-style"
+path = "doc/guide/en/internals/styling/system-style.md"
 title = "System Style Discovery"
 maturity = "wip"
 
@@ -1127,7 +1139,7 @@ title = "Async, Timers, Threading"
 maturity = "wip"
 
 [[group.outputs]]
-slug = "internals/web-backend"
-path = "doc/guide/en/internals/web-backend.md"
+slug = "internals/web"
+path = "doc/guide/en/internals/web.md"
 title = "Web Backend Internals"
 maturity = "wip"

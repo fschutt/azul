@@ -19,7 +19,9 @@ generated_at: 2026-05-02T12:00:00Z
 
 # Text Selection
 
-> **WIP.** Selection rendering and the per-frame management code are wired but the high-level mouse-driven flow is partially implemented. Cross-node selection works in the data model but is not yet rendered for every layout case. APIs may change.
+## Introduction
+
+*WIP.* Selection rendering and the per-frame management code are wired but the high-level mouse-driven flow is partially implemented. Cross-node selection works in the data model but is not yet rendered for every layout case; APIs may change.
 
 Selection in Azul follows the W3C Selection API model: a directed range with an **anchor** (where the user pressed) and a **focus** (where the user is now). The range can span any subtree of the DOM, not just the inside of a single text input.
 

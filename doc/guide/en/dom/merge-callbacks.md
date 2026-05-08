@@ -18,6 +18,10 @@ generated_at: 2026-05-02T05:53:30Z
 
 # Merge Callbacks
 
+## Introduction
+
+A merge callback lets a widget keep heavy resources alive across a layout rebuild. The framework matches each new node against the previous frame's tree and, before dropping the old dataset, hands both the new and old `RefAny` to your merge function so you can move whatever you want to keep into the new one.
+
 ## The problem
 
 A [dataset](datasets.md) is rebuilt every time `layout()` runs. For a marker struct that's free. For an FFmpeg encoder it's a disaster.

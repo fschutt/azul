@@ -27,6 +27,8 @@ generated_at: 2026-05-02T05:49:28Z
 
 # Layout
 
+## Overview
+
 Azul lays out a `Dom` from its CSS-resolved styles. Every element runs
 through one of four formatting modes selected by its `display` property:
 block, inline, flex, or grid. The four sub-pages cover each mode from

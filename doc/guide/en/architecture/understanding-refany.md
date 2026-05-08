@@ -19,6 +19,8 @@ generated_at: 2026-05-02T05:48:36Z
 
 # Understanding RefAny
 
+## Introduction
+
 `RefAny` is a type-erased, atomically reference-counted smart pointer with
 runtime borrow checking. Conceptually `Arc<RefCell<dyn Any>>`, but
 `#[repr(C)]` so the same value moves across the C ABI into Python, C++,

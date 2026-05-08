@@ -17,6 +17,9 @@ generated_at: 2026-05-02T05:51:14Z
 ---
 
 # Events
+
+## Overview
+
 A callback is a function pointer plus a `RefAny`, registered against an event filter on a DOM node. When an event matches a registered filter, the framework borrows your `RefAny`, calls the callback, and reads the returned `Update` to decide whether to re-run the layout.
 
 ```rust,no_run
