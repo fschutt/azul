@@ -576,14 +576,30 @@ pub enum PageKind<'a> {
 }
 
 pub fn get_search_init(kind: PageKind<'_>) -> String {
-    let (on_api, link_target, defaults_json) = match kind {
-        PageKind::Api => (true, "_self", String::from("[]")),
+    // Guide pages query the api index AND the pagefind index over the
+    // guide HTML, so a single search box surfaces both API symbols and
+    // guide-content hits. The api-default adapter is always present so
+    // default keys + prefetch still work; the pagefind one is best-
+    // effort and silently no-ops if `/pagefind/` isn't deployed.
+    let (on_api, link_target, defaults_json, source_json) = match kind {
+        PageKind::Api => (
+            true,
+            "_self",
+            String::from("[]"),
+            r#"{ type: 'api-default' }"#.to_string(),
+        ),
         PageKind::Guide(defaults) => (
             false,
             "_blank",
             serde_json::to_string(defaults).unwrap_or_else(|_| "[]".to_string()),
+            r#"[{ type: 'api-default' }, { type: 'pagefind', url: '/pagefind/' }]"#.to_string(),
         ),
-        PageKind::Other => (false, "_self", String::from("[]")),
+        PageKind::Other => (
+            false,
+            "_self",
+            String::from("[]"),
+            r#"{ type: 'api-default' }"#.to_string(),
+        ),
     };
 
     format!(
@@ -592,13 +608,14 @@ pub fn get_search_init(kind: PageKind<'_>) -> String {
 document.addEventListener('DOMContentLoaded', function () {{
   if (!window.AzulSearch) return;
   window.AzulSearch.attach({{
-    source: {{ type: 'api-default' }},
+    source: {source_json},
     onApiPage: {on_api},
     linkTarget: '{link_target}',
     defaults: {defaults_json},
   }});
 }});
 </script>"#,
+        source_json = source_json,
         on_api = on_api,
         link_target = link_target,
         defaults_json = defaults_json,

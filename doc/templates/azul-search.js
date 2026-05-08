@@ -270,9 +270,15 @@
           })
           .catch(function (err) {
             if (window.console) {
-              console.warn('AzulSearch: pagefind unavailable, falling back to api-default', err);
+              console.warn('AzulSearch: pagefind unavailable', err);
             }
-            return apiDefaultAdapter().load();
+            // Surface as an empty source — when used inside the
+            // composite adapter, the api side keeps working.
+            return {
+              type: 'pagefind-unavailable',
+              search: function () { return Promise.resolve([]); },
+              count: 0,
+            };
           });
       }
     };
@@ -297,11 +303,71 @@
   }
 
   function makeAdapter(source) {
+    if (Array.isArray(source)) return compositeAdapter(source);
     if (!source || !source.type) throw new Error('AzulSearch: source.type required');
     if (source.type === 'api-default') return apiDefaultAdapter();
     if (source.type === 'api-index') return apiIndexAdapter(source.url);
     if (source.type === 'pagefind') return pagefindAdapter(source.url);
     throw new Error('AzulSearch: unknown source.type ' + source.type);
+  }
+
+  // Composite adapter: load each inner source in parallel, fan search()
+  // out to all of them, then merge by descending score. Used on guide
+  // pages where the panel should surface BOTH api symbols and guide-
+  // content matches. The first inner adapter that exposes `_index` (the
+  // api index) wins for default-key resolution and api-page prefetch.
+  function compositeAdapter(sources) {
+    var inners = sources.map(makeAdapter);
+    return {
+      load: function () {
+        // Don't let one bad source kill the others — wrap each in a
+        // .catch so a missing pagefind bundle (404) just produces an
+        // empty no-op adapter rather than blocking api search.
+        return Promise.all(inners.map(function (a) {
+          return a.load().catch(function (err) {
+            if (window.console) console.warn('AzulSearch: source failed', err);
+            return {
+              type: 'noop',
+              search: function () { return Promise.resolve([]); },
+              count: 0,
+            };
+          });
+        })).then(function (loaded) {
+          var index = null;
+          var apiPageUrl = null;
+          var totalCount = 0;
+          for (var i = 0; i < loaded.length; i++) {
+            if (!index && loaded[i]._index) index = loaded[i]._index;
+            if (!apiPageUrl && loaded[i].apiPageUrl) apiPageUrl = loaded[i].apiPageUrl;
+            totalCount += (loaded[i].count || 0);
+          }
+          return {
+            type: 'composite',
+            _index: index,
+            apiPageUrl: apiPageUrl,
+            count: totalCount,
+            search: function (q, opts) {
+              if (!q) return Promise.resolve([]);
+              return Promise.all(loaded.map(function (l) {
+                return Promise.resolve(l.search(q, opts));
+              })).then(function (lists) {
+                var all = [];
+                for (var i = 0; i < lists.length; i++) {
+                  for (var j = 0; j < (lists[i] || []).length; j++) {
+                    all.push(lists[i][j]);
+                  }
+                }
+                all.sort(function (a, b) {
+                  return (b.score || 0) - (a.score || 0);
+                });
+                var limit = (opts && opts.limit) || 50;
+                return all.slice(0, limit);
+              });
+            },
+          };
+        });
+      }
+    };
   }
 
   // ---------- DOM mount --------------------------------------------------
