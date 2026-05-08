@@ -14,7 +14,7 @@ use core::ffi::c_void;
 use alloc::boxed::Box;
 use alloc::string::String;
 use azul_css::corety::AzString;
-use azul_css::css::Stylesheet;
+use azul_css::css::Css;
 use azul_css::dynamic_selector::{OsVersion, BoolCondition};
 use azul_css::parser2::new_from_str;
 use azul_css::props::basic::color::{ColorU, OptionColorU};
@@ -539,7 +539,7 @@ fn detect_language_windows() -> AzString {
 
 /// Load an application-specific stylesheet from
 /// `%APPDATA%\azul\styles\<exe_name>.css`.
-fn load_app_specific_stylesheet() -> Option<Stylesheet> {
+fn load_app_specific_stylesheet() -> Option<Css> {
     use std::env;
     use std::path::PathBuf;
 
@@ -558,11 +558,7 @@ fn load_app_specific_stylesheet() -> Option<Stylesheet> {
 
     let css_text = std::fs::read_to_string(&css_path).ok()?;
     let (css, _warnings) = new_from_str(&css_text);
-
-    // Extract the first stylesheet from the parsed Css
-    css.stylesheets.into_library_owned_vec()
-        .into_iter()
-        .next()
+    if css.is_empty() { None } else { Some(css) }
 }
 
 /// Check for "riced" style overrides from popular Windows customisation tools.

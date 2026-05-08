@@ -66,7 +66,7 @@ use crate::{
     css::{
         AttributeMatchOp, Css, CssAttributeSelector, CssDeclaration, CssNthChildSelector, CssPath,
         CssPathPseudoSelector, CssPathSelector, CssRuleBlock, DynamicCssProperty, NodeTypeTag,
-        NodeTypeTagParseError, NodeTypeTagParseErrorOwned, Stylesheet,
+        NodeTypeTagParseError, NodeTypeTagParseErrorOwned,
     },
     dynamic_selector::{
         BoolCondition, DynamicSelector, DynamicSelectorVec, LanguageCondition, MediaType,
@@ -657,21 +657,19 @@ impl<'a> fmt::Display for CssParseError<'a> {
 /// always receives a (possibly empty) stylesheet.
 pub fn new_from_str<'a>(css_string: &'a str) -> (Css, Vec<CssParseWarnMsg<'a>>) {
     let mut tokenizer = Tokenizer::new(css_string);
-    let (stylesheet, warnings) = match new_from_str_inner(css_string, &mut tokenizer) {
-        Ok((stylesheet, warnings)) => (stylesheet, warnings),
+    let (rules, warnings) = match new_from_str_inner(css_string, &mut tokenizer) {
+        Ok((rules, warnings)) => (rules, warnings),
         Err(error) => {
             let warning = CssParseWarnMsg {
                 warning: CssParseWarnMsgInner::ParseError(error.error),
                 location: error.location,
             };
-            (Stylesheet::default(), vec![warning])
+            (Vec::<CssRuleBlock>::new(), vec![warning])
         }
     };
 
     (
-        Css {
-            stylesheets: vec![stylesheet].into(),
-        },
+        Css { rules: rules.into() },
         warnings,
     )
 }
@@ -1335,7 +1333,7 @@ fn parse_lang_condition(content: &str) -> Option<DynamicSelector> {
 fn new_from_str_inner<'a>(
     css_string: &'a str,
     tokenizer: &mut Tokenizer<'a>,
-) -> Result<(Stylesheet, Vec<CssParseWarnMsg<'a>>), CssParseError<'a>> {
+) -> Result<(Vec<CssRuleBlock>, Vec<CssParseWarnMsg<'a>>), CssParseError<'a>> {
     use azul_simplecss::{Combinator, Token};
 
     let mut css_blocks = Vec::new();
@@ -1678,7 +1676,7 @@ fn new_from_str_inner<'a>(
 fn css_blocks_to_stylesheet<'a>(
     css_blocks: Vec<UnparsedCssRuleBlock<'a>>,
     css_string: &'a str,
-) -> (Stylesheet, Vec<CssParseWarnMsg<'a>>) {
+) -> (Vec<CssRuleBlock>, Vec<CssParseWarnMsg<'a>>) {
     let css_key_map = crate::props::property::get_css_key_map();
     let mut warnings = Vec::new();
     let mut parsed_css_blocks = Vec::new();
@@ -1711,15 +1709,11 @@ fn css_blocks_to_stylesheet<'a>(
             path: unparsed_css_block.path,
             declarations: declarations.into(),
             conditions: unparsed_css_block.conditions.into(),
+            priority: crate::css::rule_priority::AUTHOR,
         });
     }
 
-    (
-        Stylesheet {
-            rules: parsed_css_blocks.into(),
-        },
-        warnings,
-    )
+    (parsed_css_blocks, warnings)
 }
 
 fn parse_declaration_resilient<'a>(

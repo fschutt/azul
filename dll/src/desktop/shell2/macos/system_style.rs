@@ -23,7 +23,7 @@ use azul_css::system::{
 use azul_css::dynamic_selector::{OsVersion, BoolCondition};
 use azul_css::corety::AzString;
 use azul_css::props::basic::color::{ColorU, OptionColorU};
-use azul_css::css::Stylesheet;
+use azul_css::css::Css;
 
 // ── Raw dlopen / dlsym (provided by libSystem, always available) ─────────
 
@@ -646,7 +646,7 @@ fn detect_language_macos() -> AzString {
 ///
 /// Returns `None` if the file does not exist, is unreadable, or the
 /// `AZUL_DISABLE_RICING` environment variable is set.
-fn load_app_specific_stylesheet() -> Option<Stylesheet> {
+fn load_app_specific_stylesheet() -> Option<Css> {
     if std::env::var("AZUL_DISABLE_RICING").is_ok() {
         return None;
     }
@@ -666,6 +666,5 @@ fn load_app_specific_stylesheet() -> Option<Stylesheet> {
     }
 
     let (css, _warnings) = azul_css::parser2::new_from_str(&contents);
-    // Extract the first stylesheet from the Css wrapper
-    css.stylesheets.into_iter().next()
+    if css.is_empty() { None } else { Some(css) }
 }

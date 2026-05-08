@@ -5161,22 +5161,18 @@ fn render_dom_from_body_node_fast<'a>(
     // Close <html>
     builder.close_node();
 
-    // Collect CSS
-    let mut combined_stylesheets = Vec::new();
+    // Collect CSS rules from each source.
+    let mut combined_rules: Vec<azul_css::css::CssRuleBlock> = Vec::new();
     if let Some(max_width) = max_width {
         let max_width_css = Css::from_string(
             format!("html {{ max-width: {max_width}px; }}").into(),
         );
-        for s in max_width_css.stylesheets.as_ref().iter() {
-            combined_stylesheets.push(s.clone());
-        }
+        combined_rules.extend(max_width_css.rules.into_library_owned_vec());
     }
     if let Some(css) = global_css.take() {
-        for s in css.stylesheets.as_ref().iter() {
-            combined_stylesheets.push(s.clone());
-        }
+        combined_rules.extend(css.rules.into_library_owned_vec());
     }
-    let combined_css = Css::new(combined_stylesheets);
+    let combined_css = Css::new(combined_rules);
 
     // Add CSS to the FastDom
     let mut fast_dom = builder.finish();
@@ -5834,22 +5830,20 @@ pub fn compile_body_node_to_rust_code<'a>(
 fn get_css_blocks(css: &Css, matcher: &CssMatcher) -> Vec<CssBlock> {
     let mut blocks = Vec::new();
 
-    for stylesheet in css.stylesheets.as_ref() {
-        for css_block in stylesheet.rules.as_ref() {
-            if matcher.matches(&css_block.path) {
-                let mut ending = None;
+    for css_block in css.rules.as_ref() {
+        if matcher.matches(&css_block.path) {
+            let mut ending = None;
 
-                if let Some(CssPathSelector::PseudoSelector(p)) =
-                    css_block.path.selectors.as_ref().last()
-                {
-                    ending = Some(p.clone());
-                }
-
-                blocks.push(CssBlock {
-                    ending,
-                    block: css_block.clone(),
-                });
+            if let Some(CssPathSelector::PseudoSelector(p)) =
+                css_block.path.selectors.as_ref().last()
+            {
+                ending = Some(p.clone());
             }
+
+            blocks.push(CssBlock {
+                ending,
+                block: css_block.clone(),
+            });
         }
     }
 

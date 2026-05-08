@@ -31,8 +31,8 @@ impl CodegenBackend for RustBackend {
         let css_literal = css_to_rust_code(css);
         let main_rs = format!(
             "use azul::prelude::*;\r\n\r\n{css_literal}\r\n\r\nfn main() {{\r\n    \
-             println!(\"Generated stylesheet contains {{}} stylesheet(s)\", \
-             CSS.stylesheets.as_ref().len());\r\n}}\r\n",
+             println!(\"Generated stylesheet contains {{}} rule(s)\", \
+             CSS.rules.as_ref().len());\r\n}}\r\n",
         );
         let cargo_toml = "[package]\r\n\
             name = \"azul-generated-app\"\r\n\
@@ -60,34 +60,28 @@ pub fn css_to_rust_code(css: &Css) -> String {
     let mut output = String::new();
 
     output.push_str("const CSS: Css = Css {\r\n");
-    output.push_str("\tstylesheets: [\r\n");
+    output.push_str("\trules: [\r\n");
 
-    for stylesheet in css.stylesheets.iter() {
-        output.push_str("\t\tStylesheet {\r\n");
-        output.push_str("\t\t\trules: [\r\n");
+    for block in css.rules.iter() {
+        output.push_str("\t\tCssRuleBlock {\r\n");
+        output.push_str(&format!(
+            "\t\t\tpath: {},\r\n",
+            print_block_path(&block.path, 3)
+        ));
+        output.push_str(&format!(
+            "\t\t\tpriority: {},\r\n",
+            block.priority,
+        ));
 
-        for block in stylesheet.rules.iter() {
-            output.push_str("\t\t\t\tCssRuleBlock: {\r\n");
+        output.push_str("\t\t\tdeclarations: [\r\n");
+        for declaration in block.declarations.iter() {
             output.push_str(&format!(
-                "\t\t\t\t\tpath: {},\r\n",
-                print_block_path(&block.path, 5)
+                "\t\t\t\t{},\r\n",
+                print_declaration(declaration, 4)
             ));
-
-            output.push_str("\t\t\t\t\tdeclarations: [\r\n");
-
-            for declaration in block.declarations.iter() {
-                output.push_str(&format!(
-                    "\t\t\t\t\t\t{},\r\n",
-                    print_declaration(declaration, 6)
-                ));
-            }
-
-            output.push_str("\t\t\t\t\t]\r\n");
-
-            output.push_str("\t\t\t\t},\r\n");
         }
-
         output.push_str("\t\t\t]\r\n");
+
         output.push_str("\t\t},\r\n");
     }
 
@@ -464,16 +458,13 @@ mod tests {
     use alloc::vec;
 
     use super::*;
-    use crate::css::{CssRuleBlock, Stylesheet};
+    use crate::css::CssRuleBlock;
 
     fn sample_css() -> Css {
         let path = CssPath::new(vec![CssPathSelector::Type(NodeTypeTag::Div)]);
         let block = CssRuleBlock::new(path, vec![]);
         Css {
-            stylesheets: vec![Stylesheet {
-                rules: vec![block].into(),
-            }]
-            .into(),
+            rules: vec![block].into(),
         }
     }
 

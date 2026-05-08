@@ -19211,6 +19211,7 @@
                         ],
                         "derive": [
                             "Debug",
+                            "Default",
                             "Clone",
                             "PartialEq"
                         ],
@@ -19236,6 +19237,14 @@
                                     "type": "DynamicSelectorVec",
                                     "doc": [
                                         "Conditions from enclosing @-rules (@media, @lang, etc.) that must ALL be satisfied for this rule block to apply. Empty = unconditional."
+                                    ]
+                                }
+                            },
+                            {
+                                "priority": {
+                                    "type": "u8",
+                                    "doc": [
+                                        "Layer priority. 0 = UA / framework, 10 = system, 20 = author CSS (default), 30 = inline, 50 = runtime overrides. Combined with selector specificity in `Css::sort_by_specificity` to put rules in cascade order."
                                     ]
                                 }
                             }
@@ -21727,35 +21736,14 @@
                         ],
                         "repr": "C"
                     },
-                    "Stylesheet": {
-                        "external": "azul_css::css::Stylesheet",
+                    "Css": {
+                        "doc": [
+                            "Css stylesheet - contains a parsed CSS stylesheet as a flat list of `CssRuleBlock`s. Layer separation (UA / system / author / inline / runtime) is encoded per-rule via `CssRuleBlock::priority`."
+                        ],
+                        "external": "azul_css::css::Css",
                         "custom_impls": [
                             "From"
                         ],
-                        "derive": [
-                            "Default",
-                            "Clone",
-                            "PartialEq",
-                            "Debug",
-                            "PartialOrd"
-                        ],
-                        "struct_fields": [
-                            {
-                                "rules": {
-                                    "type": "CssRuleBlockVec",
-                                    "doc": [
-                                        "The style rules making up the document - for example, de-duplicated CSS rules"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "Css": {
-                        "doc": [
-                            "Css stylesheet - contains a parsed CSS stylesheet in \"rule blocks\", i.e. blocks of key-value pairs associated with a selector path."
-                        ],
-                        "external": "azul_css::css::Css",
                         "derive": [
                             "PartialOrd",
                             "Debug",
@@ -21765,10 +21753,10 @@
                         ],
                         "struct_fields": [
                             {
-                                "stylesheets": {
-                                    "type": "StylesheetVec",
+                                "rules": {
+                                    "type": "CssRuleBlockVec",
                                     "doc": [
-                                        "One CSS stylesheet can hold more than one sub-stylesheet: For example, when overriding native styles, the `.sort_by_specificy()` function should not mix the two stylesheets during sorting."
+                                        "All rule blocks, in source order. Sort by `(priority, specificity)` via `sort_by_specificity` to put them in cascade order."
                                     ]
                                 }
                             }
@@ -21776,7 +21764,7 @@
                         "constructors": {
                             "empty": {
                                 "doc": [
-                                    "Creates a new, empty CSS with no stylesheets"
+                                    "Creates a new, empty CSS with no rules"
                                 ],
                                 "fn_args": [],
                                 "fn_body": "azul_css::css::Css::empty()"
@@ -33012,7 +33000,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "Stylesheet"
+                                    "type": "Css"
                                 },
                                 "fn_body": "object.create_csd_stylesheet()"
                             }
@@ -33626,32 +33614,6 @@
                             {
                                 "ptr": {
                                     "type": "CssPropertyWithConditions",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "StylesheetVecSlice": {
-                        "external": "azul_css::css::StylesheetVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "Stylesheet",
                                     "ref_kind": "constptr",
                                     "doc": [
                                         "Pointer to the slice data"
@@ -63233,207 +63195,6 @@
                         },
                         "repr": "C"
                     },
-                    "StylesheetVec": {
-                        "doc": [
-                            "Wrapper over a Rust-allocated `Vec<Stylesheet>"
-                        ],
-                        "external": "azul_css::css::StylesheetVec",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "custom_destructor": true,
-                        "derive": [
-                            "Debug"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "Stylesheet",
-                                    "ref_kind": "constptr"
-                                },
-                                "len": {
-                                    "type": "usize"
-                                },
-                                "cap": {
-                                    "type": "usize"
-                                },
-                                "destructor": {
-                                    "type": "StylesheetVecDestructor"
-                                }
-                            }
-                        ],
-                        "functions": {
-                            "create": {
-                                "doc": [
-                                    "Creates an empty `StylesheetVec`"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "StylesheetVec"
-                                },
-                                "fn_body": "StylesheetVec::new()"
-                            },
-                            "with_capacity": {
-                                "doc": [
-                                    "Creates a `StylesheetVec` with a given capacity"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "cap": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "StylesheetVec"
-                                },
-                                "fn_body": "StylesheetVec::with_capacity(cap)"
-                            },
-                            "len": {
-                                "doc": [
-                                    "Returns the number of elements in the Vec"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "stylesheet_vec.len()"
-                            },
-                            "capacity": {
-                                "doc": [
-                                    "Returns the capacity of the Vec"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "stylesheet_vec.capacity()"
-                            },
-                            "is_empty": {
-                                "doc": [
-                                    "Returns whether the Vec is empty"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "stylesheet_vec.is_empty()"
-                            },
-                            "get": {
-                                "doc": [
-                                    "Returns a reference to the element at the given index, or None if out of bounds"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "index": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "OptionStylesheet"
-                                },
-                                "fn_body": "stylesheet_vec.get(index).cloned().into()"
-                            },
-                            "from_item": {
-                                "doc": [
-                                    "Creates a `StylesheetVec` containing a single element"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "item": "Stylesheet"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "StylesheetVec"
-                                },
-                                "fn_body": "StylesheetVec::from_item(item)"
-                            },
-                            "copy_from_ptr": {
-                                "doc": [
-                                    "Copies elements from a C array into a `StylesheetVec`. The array must be valid for `len` elements."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "ptr": "*const Stylesheet"
-                                    },
-                                    {
-                                        "len": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "StylesheetVec"
-                                },
-                                "fn_body": "unsafe { StylesheetVec::copy_from_ptr(ptr, len) }"
-                            },
-                            "c_get": {
-                                "doc": [
-                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "index": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "OptionStylesheet"
-                                },
-                                "fn_body": "stylesheet_vec.c_get(index).into()"
-                            },
-                            "as_c_slice": {
-                                "doc": [
-                                    "Returns a C-compatible slice of the entire Vec as a `StylesheetVecSlice`."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "StylesheetVecSlice"
-                                },
-                                "fn_body": "stylesheet_vec.as_c_slice()"
-                            },
-                            "as_c_slice_range": {
-                                "doc": [
-                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "start": "usize"
-                                    },
-                                    {
-                                        "end": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "StylesheetVecSlice"
-                                },
-                                "fn_body": "stylesheet_vec.as_c_slice_range(start, end)"
-                            }
-                        },
-                        "repr": "C"
-                    },
                     "CssVec": {
                         "doc": [
                             "Wrapper over a Rust-allocated `Vec<Css>"
@@ -68371,23 +68132,6 @@
                         ],
                         "repr": "C, u8"
                     },
-                    "StylesheetVecDestructor": {
-                        "external": "azul_css::css::StylesheetVecDestructor",
-                        "derive": [
-                            "Debug"
-                        ],
-                        "enum_fields": [
-                            {
-                                "DefaultRust": {},
-                                "NoDestructor": {},
-                                "External": {
-                                    "type": "StylesheetVecDestructorType"
-                                },
-                                "AlreadyDestroyed": {}
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
                     "CssVecDestructor": {
                         "external": "azul_css::css::CssVecDestructor",
                         "derive": [
@@ -69134,18 +68878,6 @@
                             "fn_args": [
                                 {
                                     "type": "XmlNodeChildVec",
-                                    "ref_kind": "mutptr"
-                                }
-                            ],
-                            "returns": null
-                        }
-                    },
-                    "StylesheetVecDestructorType": {
-                        "external": "azul_css::css::StylesheetVecDestructorType",
-                        "callback_typedef": {
-                            "fn_args": [
-                                {
-                                    "type": "StylesheetVec",
                                     "ref_kind": "mutptr"
                                 }
                             ],
@@ -80871,24 +80603,6 @@
                                 "None": {},
                                 "Some": {
                                     "type": "CssRuleBlock"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
-                    "OptionStylesheet": {
-                        "external": "azul_css::css::OptionStylesheet",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "enum_fields": [
-                            {
-                                "None": {},
-                                "Some": {
-                                    "type": "Stylesheet"
                                 }
                             }
                         ],

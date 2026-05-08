@@ -963,16 +963,14 @@ impl StyledDom {
 
         // 1. Merge CSS from CssWithNodeIdVec into a single Css
         //    (TODO: respect node_id scoping for sub-tree cascading)
-        let mut combined_stylesheets = Vec::new();
+        let mut combined_rules: Vec<azul_css::css::CssRuleBlock> = Vec::new();
         for css_with_id in fast_dom.css.into_library_owned_vec() {
-            for stylesheet in css_with_id.css.stylesheets.into_library_owned_vec() {
-                combined_stylesheets.push(stylesheet);
-            }
+            combined_rules.extend(css_with_id.css.rules.into_library_owned_vec());
         }
-        let combined_css = if combined_stylesheets.is_empty() {
+        let combined_css = if combined_rules.is_empty() {
             Css::empty()
         } else {
-            Css::new(combined_stylesheets)
+            Css::new(combined_rules)
         };
 
         // 2. Convert NodeHierarchyItemVec → NodeHierarchy (Vec<Node>)
@@ -1177,13 +1175,11 @@ impl StyledDom {
         let mut combined_css = if all_css.is_empty() {
             Css::empty()
         } else {
-            let mut combined_stylesheets = Vec::new();
+            let mut combined_rules: Vec<azul_css::css::CssRuleBlock> = Vec::new();
             for css in all_css {
-                for stylesheet in css.stylesheets.into_library_owned_vec() {
-                    combined_stylesheets.push(stylesheet);
-                }
+                combined_rules.extend(css.rules.into_library_owned_vec());
             }
-            Css::new(combined_stylesheets)
+            Css::new(combined_rules)
         };
 
         // 3. Strip CSS from all Dom nodes before flattening

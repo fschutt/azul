@@ -20,21 +20,18 @@ use crate::{
 
 /// Css stylesheet - contains a parsed CSS stylesheet in "rule blocks",
 /// i.e. blocks of key-value pairs associated with a selector path.
+///
+/// Layer separation (UA / system / author / inline / runtime) is encoded
+/// per-rule via `CssRuleBlock::priority`; see [`rule_priority`] for the
+/// slot allocation. There is no separate `Stylesheet` wrapper — to merge
+/// two CSS sources, concatenate their `rules` and re-sort.
 #[derive(Debug, Default, PartialEq, PartialOrd, Clone)]
 #[repr(C)]
 pub struct Css {
-    /// One CSS stylesheet can hold more than one sub-stylesheet:
-    /// For example, when overriding native styles, the `.sort_by_specificity()` function
-    /// should not mix the two stylesheets during sorting.
-    pub stylesheets: StylesheetVec,
+    /// All rule blocks, in source order. Sort by `(priority, specificity)`
+    /// via `sort_by_specificity` to put them in cascade order.
+    pub rules: CssRuleBlockVec,
 }
-
-impl_vec!(Stylesheet, StylesheetVec, StylesheetVecDestructor, StylesheetVecDestructorType, StylesheetVecSlice, OptionStylesheet);
-impl_vec_mut!(Stylesheet, StylesheetVec);
-impl_vec_debug!(Stylesheet, StylesheetVec);
-impl_vec_partialord!(Stylesheet, StylesheetVec);
-impl_vec_clone!(Stylesheet, StylesheetVec, StylesheetVecDestructor);
-impl_vec_partialeq!(Stylesheet, StylesheetVec);
 
 impl_option!(
     Css,
@@ -50,14 +47,21 @@ impl_vec_partialord!(Css, CssVec);
 impl_vec_clone!(Css, CssVec, CssVecDestructor);
 impl_vec_partialeq!(Css, CssVec);
 
+impl_vec!(CssRuleBlock, CssRuleBlockVec, CssRuleBlockVecDestructor, CssRuleBlockVecDestructorType, CssRuleBlockVecSlice, OptionCssRuleBlock);
+impl_vec_mut!(CssRuleBlock, CssRuleBlockVec);
+impl_vec_debug!(CssRuleBlock, CssRuleBlockVec);
+impl_vec_partialord!(CssRuleBlock, CssRuleBlockVec);
+impl_vec_clone!(CssRuleBlock, CssRuleBlockVec, CssRuleBlockVecDestructor);
+impl_vec_partialeq!(CssRuleBlock, CssRuleBlockVec);
+
 impl Css {
     pub fn is_empty(&self) -> bool {
-        self.stylesheets.iter().all(|s| s.rules.as_ref().is_empty())
+        self.rules.as_ref().is_empty()
     }
 
-    pub fn new(stylesheets: Vec<Stylesheet>) -> Self {
+    pub fn new(rules: Vec<CssRuleBlock>) -> Self {
         Self {
-            stylesheets: stylesheets.into(),
+            rules: rules.into(),
         }
     }
 
@@ -84,36 +88,7 @@ impl Css {
     }
 }
 
-#[derive(Debug, Default, PartialEq, PartialOrd, Clone)]
-#[repr(C)]
-pub struct Stylesheet {
-    /// The style rules making up the document - for example, de-duplicated CSS rules
-    pub rules: CssRuleBlockVec,
-}
-
-impl_option!(
-    Stylesheet,
-    OptionStylesheet,
-    copy = false,
-    [Debug, Clone, PartialEq, PartialOrd]
-);
-
-impl_vec!(CssRuleBlock, CssRuleBlockVec, CssRuleBlockVecDestructor, CssRuleBlockVecDestructorType, CssRuleBlockVecSlice, OptionCssRuleBlock);
-impl_vec_mut!(CssRuleBlock, CssRuleBlockVec);
-impl_vec_debug!(CssRuleBlock, CssRuleBlockVec);
-impl_vec_partialord!(CssRuleBlock, CssRuleBlockVec);
-impl_vec_clone!(CssRuleBlock, CssRuleBlockVec, CssRuleBlockVecDestructor);
-impl_vec_partialeq!(CssRuleBlock, CssRuleBlockVec);
-
-impl Stylesheet {
-    pub fn new(rules: Vec<CssRuleBlock>) -> Self {
-        Self {
-            rules: rules.into(),
-        }
-    }
-}
-
-impl From<Vec<CssRuleBlock>> for Stylesheet {
+impl From<Vec<CssRuleBlock>> for Css {
     fn from(rules: Vec<CssRuleBlock>) -> Self {
         Self {
             rules: rules.into(),
@@ -518,12 +493,49 @@ impl DynamicCssProperty {
     }
 }
 
+/// Layer priority for `CssRuleBlock`. Lower numbers cascade first;
+/// higher numbers override earlier layers at the same specificity.
+///
+/// `u8` leaves 256 slots, so a new layer can be inserted between any
+/// two existing slots without renumbering consumers. The gaps between
+/// named slots are intentional — fill them with custom intermediate
+/// layers if/when `@layer` lands.
+pub mod rule_priority {
+    /// User-Agent / framework defaults. Widget code that emits its
+    /// own default CSS uses this. Lowest priority — anything else
+    /// overrides it.
+    pub const UA: u8 = 0;
+
+    /// Stylesheets the host system reports (system fonts, theme CSS
+    /// derived from `SystemStyle`). One step above UA so they win
+    /// against framework defaults but lose against anything the app
+    /// author writes.
+    pub const SYSTEM: u8 = 10;
+
+    /// Default for parser-produced rules: the app author's CSS.
+    /// Everything coming out of `Css::from_string` lives here.
+    pub const AUTHOR: u8 = 20;
+
+    /// Inline `style="..."` / `NodeData::set_css(...)` rules — used
+    /// once the inline-vs-component unification (separate plan) folds
+    /// inline storage into the same Vec.
+    pub const INLINE: u8 = 30;
+
+    /// Reserved for direct-rule runtime overrides. Today the
+    /// prop_cache handles runtime overrides via
+    /// `user_overridden_properties`; this slot is reserved so a
+    /// future "push a CssRuleBlock at runtime" path stays above
+    /// inline. Used only when a callback writes a full rule, not a
+    /// single property.
+    pub const RUNTIME: u8 = 50;
+}
+
 /// One block of rules that applies a bunch of rules to a "path" in the style, i.e.
 /// `div#myid.myclass -> { ("justify-content", "center") }`
 ///
 /// The `conditions` field contains @media/@lang/etc. conditions that must ALL be
 /// satisfied for this rule block to apply (from enclosing @-rule blocks).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 #[repr(C)]
 pub struct CssRuleBlock {
     /// The css path (full selector) of the style ruleset
@@ -534,6 +546,10 @@ pub struct CssRuleBlock {
     /// Conditions from enclosing @-rules (@media, @lang, etc.) that must ALL be
     /// satisfied for this rule block to apply. Empty = unconditional.
     pub conditions: DynamicSelectorVec,
+    /// Layer priority. See [`rule_priority`] for slot allocation.
+    /// `0` = UA / framework, `20` = author CSS (default), higher = wins.
+    /// Sort key combined with selector specificity in `sort_by_specificity`.
+    pub priority: u8,
 }
 
 impl_option!(
@@ -573,6 +589,7 @@ impl CssRuleBlock {
             path,
             declarations: declarations.into(),
             conditions: DynamicSelectorVec::from_const_slice(&[]),
+            priority: rule_priority::AUTHOR,
         }
     }
 
@@ -585,6 +602,7 @@ impl CssRuleBlock {
             path,
             declarations: declarations.into(),
             conditions: conditions.into(),
+            priority: rule_priority::AUTHOR,
         }
     }
 }
@@ -1627,64 +1645,73 @@ impl fmt::Display for CssPathPseudoSelector {
 }
 
 impl Css {
-    /// Creates a new, empty CSS with no stylesheets
+    /// Creates a new, empty CSS.
     pub fn empty() -> Self {
         Default::default()
     }
 
+    /// Sort the rules by `(priority, specificity)` so they apply in cascade order.
+    /// Lower-priority rules sort first; ties break by selector specificity.
+    /// This preserves layer identity (UA / SYSTEM / AUTHOR / INLINE / RUNTIME)
+    /// without needing a separate `Stylesheet` boundary.
     pub fn sort_by_specificity(&mut self) {
-        self.stylesheets
-            .as_mut()
-            .iter_mut()
-            .for_each(|s| s.sort_by_specificity());
+        self.rules.as_mut().sort_by(|a, b| {
+            a.priority.cmp(&b.priority)
+                .then_with(|| get_specificity(&a.path).cmp(&get_specificity(&b.path)))
+        });
     }
 
-    pub fn rules<'a>(&'a self) -> RuleIterator<'a> {
-        RuleIterator {
-            current_stylesheet: 0,
-            current_rule: 0,
-            css: self,
+    pub fn rules<'a>(&'a self) -> core::slice::Iter<'a, CssRuleBlock> {
+        self.rules.as_ref().iter()
+    }
+}
+
+#[cfg(test)]
+mod priority_sort_tests {
+    use super::*;
+    use crate::css::rule_priority;
+
+    fn rule_with(priority: u8, selectors: Vec<CssPathSelector>) -> CssRuleBlock {
+        CssRuleBlock {
+            path: CssPath { selectors: selectors.into() },
+            declarations: Vec::new().into(),
+            conditions: DynamicSelectorVec::from_const_slice(&[]),
+            priority,
         }
     }
-}
 
-/// Iterator over all [`CssRuleBlock`]s across all stylesheets in a [`Css`].
-pub struct RuleIterator<'a> {
-    current_stylesheet: usize,
-    current_rule: usize,
-    css: &'a Css,
-}
-
-impl<'a> Iterator for RuleIterator<'a> {
-    type Item = &'a CssRuleBlock;
-    fn next(&mut self) -> Option<&'a CssRuleBlock> {
-        let current_stylesheet = self.css.stylesheets.get(self.current_stylesheet)?;
-        match current_stylesheet.rules.get(self.current_rule) {
-            Some(s) => {
-                self.current_rule += 1;
-                Some(s)
-            }
-            None => {
-                self.current_rule = 0;
-                self.current_stylesheet += 1;
-                self.next()
-            }
-        }
-    }
-}
-
-impl Stylesheet {
-    /// Creates a new stylesheet with no style rules.
-    pub fn empty() -> Self {
-        Default::default()
-    }
-
-    /// Sort the style rules by their weight, so that the rules are applied in the correct order.
-    /// Should always be called when a new style is loaded from an external source.
-    pub fn sort_by_specificity(&mut self) {
-        self.rules
-            .as_mut()
-            .sort_by(|a, b| get_specificity(&a.path).cmp(&get_specificity(&b.path)));
+    /// Pin the (priority, specificity) sort order. Lower priority sorts first;
+    /// ties break by specificity.
+    #[test]
+    fn sort_by_priority_then_specificity() {
+        let mut css = Css::new(vec![
+            // Author rule, no specificity.
+            rule_with(rule_priority::AUTHOR, vec![CssPathSelector::Global]),
+            // UA rule with high specificity — must still come BEFORE any author rule.
+            rule_with(rule_priority::UA, vec![
+                CssPathSelector::Id("ua-id".to_string().into()),
+                CssPathSelector::Class("ua-class".to_string().into()),
+            ]),
+            // Author rule with high specificity.
+            rule_with(rule_priority::AUTHOR, vec![
+                CssPathSelector::Id("a-id".to_string().into()),
+            ]),
+            // System rule with no specificity — must sit between UA and author.
+            rule_with(rule_priority::SYSTEM, vec![CssPathSelector::Global]),
+        ]);
+        css.sort_by_specificity();
+        let priorities: Vec<u8> = css.rules.as_ref().iter().map(|r| r.priority).collect();
+        assert_eq!(
+            priorities,
+            vec![rule_priority::UA, rule_priority::SYSTEM, rule_priority::AUTHOR, rule_priority::AUTHOR],
+            "rules must sort by layer first; specificity only breaks ties within a layer"
+        );
+        // Within author, the high-specificity #a-id comes after the * rule.
+        let last_two_specificity: Vec<_> = css.rules.as_ref().iter()
+            .filter(|r| r.priority == rule_priority::AUTHOR)
+            .map(|r| get_specificity(&r.path))
+            .collect();
+        assert!(last_two_specificity[0] < last_two_specificity[1]);
     }
 }
 

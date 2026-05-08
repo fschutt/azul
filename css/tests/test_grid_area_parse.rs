@@ -42,7 +42,7 @@ fn test_grid_template_areas_parsing() {
     );
 
     // Check that grid-template-areas was actually parsed
-    let rules: Vec<_> = css.stylesheets.as_ref().iter().flat_map(|s| s.rules.as_ref().iter()).collect();
+    let rules: Vec<_> = css.rules.as_ref().iter().collect();
     eprintln!("Parsed {} rules", rules.len());
     for rule in &rules {
         eprintln!("Rule: {:?}", rule.path);

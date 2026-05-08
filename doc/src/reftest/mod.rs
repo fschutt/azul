@@ -1063,20 +1063,18 @@ impl CssWarningCollector {
 
     /// Validate CSS properties and collect warnings
     fn validate_css(&mut self, css: &Css) {
-        for stylesheet in css.stylesheets.as_ref() {
-            for rule in stylesheet.rules.as_ref() {
-                // Check selector validity
-                self.validate_selector(&rule.path.to_string());
+        for rule in css.rules.as_ref() {
+            // Check selector validity
+            self.validate_selector(&rule.path.to_string());
 
-                // Check property validity
-                for decl in rule.declarations.as_ref() {
-                    match decl {
-                        CssDeclaration::Static(prop) => {
-                            self.validate_property(prop);
-                        }
-                        CssDeclaration::Dynamic(dynamic) => {
-                            self.validate_property(&dynamic.default_value);
-                        }
+            // Check property validity
+            for decl in rule.declarations.as_ref() {
+                match decl {
+                    CssDeclaration::Static(prop) => {
+                        self.validate_property(&prop);
+                    }
+                    CssDeclaration::Dynamic(dynamic) => {
+                        self.validate_property(&dynamic.default_value);
                     }
                 }
             }
@@ -1214,22 +1212,20 @@ impl CssStats {
             properties: Vec::new(),
         };
 
-        for stylesheet in css.stylesheets.as_ref() {
-            for rule in stylesheet.rules.as_ref() {
-                stats.rule_count += 1;
-                stats.selectors.push(rule.path.to_string());
+        for rule in css.rules.as_ref() {
+            stats.rule_count += 1;
+            stats.selectors.push(rule.path.to_string());
 
-                for decl in rule.declarations.as_ref() {
-                    stats.declaration_count += 1;
-                    match decl {
-                        CssDeclaration::Static(prop) => {
-                            stats.properties.push(format!("{:?}", prop));
-                        }
-                        CssDeclaration::Dynamic(dynamic) => {
-                            stats
-                                .properties
-                                .push(format!("{:?}", dynamic.default_value));
-                        }
+            for decl in rule.declarations.as_ref() {
+                stats.declaration_count += 1;
+                match decl {
+                    CssDeclaration::Static(prop) => {
+                        stats.properties.push(format!("{:?}", prop));
+                    }
+                    CssDeclaration::Dynamic(dynamic) => {
+                        stats
+                            .properties
+                            .push(format!("{:?}", dynamic.default_value));
                     }
                 }
             }

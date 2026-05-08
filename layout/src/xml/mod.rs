@@ -198,7 +198,7 @@ pub fn parse_xml_to_styled_dom(xml: &str) -> Result<StyledDom, XmlError> {
     // Attach CSS to the FastDom
     if !css.is_empty() {
         let combined_css = Css::new(css.into_iter()
-            .flat_map(|c| c.stylesheets.into_library_owned_vec())
+            .flat_map(|c| c.rules.into_library_owned_vec())
             .collect());
         fast_dom.css = vec![azul_core::dom::CssWithNodeId {
             node_id: 0, // global scope

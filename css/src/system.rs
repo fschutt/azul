@@ -24,7 +24,7 @@ use alloc::{
 };
 use crate::{
     corety::{AzString, OptionF32, OptionString, OptionU16},
-    css::Stylesheet,
+    css::Css,
     parser2::{new_from_str, CssParseWarnMsg},
     props::{
         basic::{
@@ -105,7 +105,7 @@ pub struct SystemStyle {
     /// location (`~/.config/azul/styles/<app_name>.css`), allowing for
     /// application-specific "ricing". This is only loaded when the "io"
     /// feature is enabled and not disabled by the `AZUL_DISABLE_RICING` env var.
-    pub app_specific_stylesheet: Option<Box<Stylesheet>>,
+    pub app_specific_stylesheet: Option<Box<Css>>,
     /// Scrollbar style information (boxed to ensure stable FFI size)
     pub scrollbar: Option<Box<ComputedScrollbarStyle>>,
     /// Global scroll physics configuration (momentum, friction, rubber-banding).
@@ -1508,8 +1508,9 @@ r#"{{
     /// Create a CSS stylesheet for CSD (Client-Side Decorations) titlebar
     ///
     /// This generates CSS rules for the CSD titlebar using system colors,
-    /// fonts, and metrics to match the native platform look.
-    pub fn create_csd_stylesheet(&self) -> Stylesheet {
+    /// fonts, and metrics to match the native platform look. Returned rules
+    /// carry `rule_priority::SYSTEM`.
+    pub fn create_csd_stylesheet(&self) -> Css {
         use alloc::format;
 
         use crate::parser2::new_from_str;
@@ -1621,15 +1622,13 @@ r#"{{
             }
         }
 
-        // Parse CSS string into Stylesheet
+        // Parse CSS string into a Css.
         let (mut parsed_css, _warnings) = new_from_str(&css);
-
-        // Return first stylesheet (should always exist)
-        if !parsed_css.stylesheets.is_empty() {
-            parsed_css.stylesheets.into_library_owned_vec().remove(0)
-        } else {
-            Stylesheet::default()
+        // Tag every rule as system-level so author CSS overrides win.
+        for rule in parsed_css.rules.as_mut() {
+            rule.priority = crate::css::rule_priority::SYSTEM;
         }
+        parsed_css
     }
 }
 

@@ -17,7 +17,7 @@ use azul_core::{
     refany::RefAny,
 };
 use azul_css::{
-    css::{Css, Stylesheet},
+    css::Css,
     props::basic::pixel::DEFAULT_FONT_SIZE,
     system::SystemStyle,
     AzString,
@@ -190,10 +190,7 @@ pub fn create_menu_dom_with_css(
     menu_window_data: RefAny,
 ) -> Dom {
     let dom = create_menu_dom(menu, &menu_window_data);
-
-    let stylesheet = system_style.create_menu_stylesheet();
-    let css = Css::new(vec![stylesheet]);
-
+    let css = system_style.create_menu_stylesheet();
     dom.style(css)
 }
 
@@ -482,17 +479,18 @@ fn virtual_key_to_str(key: &azul_core::window::VirtualKeyCode) -> &'static str {
 
 /// Extension trait to add menu stylesheet creation to SystemStyle
 ///
-/// Generates a `Stylesheet` containing CSS classes for the menu system:
+/// Generates a `Css` containing CSS classes for the menu system:
 /// `.menu-container`, `.menu-item`, `.menu-item-icon`, `.menu-item-label`,
 /// `.menu-item-shortcut`, `.menu-item-arrow`, `.menu-separator`,
 /// `.menu-item-disabled`, `.menu-item-greyed`, and hover states.
 pub trait SystemStyleMenuExt {
-    /// Create a stylesheet for menu rendering based on system colors, fonts, and metrics
-    fn create_menu_stylesheet(&self) -> Stylesheet;
+    /// Create a Css subtree for menu rendering based on system colors, fonts,
+    /// and metrics. Rules carry `rule_priority::SYSTEM`.
+    fn create_menu_stylesheet(&self) -> Css;
 }
 
 impl SystemStyleMenuExt for SystemStyle {
-    fn create_menu_stylesheet(&self) -> Stylesheet {
+    fn create_menu_stylesheet(&self) -> Css {
         use azul_css::{parser2::new_from_str, props::basic::ColorU};
 
         let mut css = String::new();
@@ -633,7 +631,7 @@ impl SystemStyleMenuExt for SystemStyle {
         ));
 
         // Parse CSS and extract first stylesheet
-        let (parsed_css, errors) = new_from_str(&css);
+        let (mut parsed_css, errors) = new_from_str(&css);
         if !errors.is_empty() {
             log_debug!(
                 LogCategory::General,
@@ -641,6 +639,10 @@ impl SystemStyleMenuExt for SystemStyle {
                 errors
             );
         }
-        parsed_css.stylesheets.into_library_owned_vec().into_iter().next().unwrap_or_default()
+        // Tag every rule as system-level so author CSS overrides win.
+        for rule in parsed_css.rules.as_mut() {
+            rule.priority = azul_css::css::rule_priority::SYSTEM;
+        }
+        parsed_css
     }
 }

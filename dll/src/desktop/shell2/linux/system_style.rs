@@ -27,7 +27,7 @@ use azul_css::dynamic_selector::{OsVersion, OsFamily, BoolCondition};
 use azul_css::corety::{AzString, OptionString, OptionF32};
 use azul_css::props::basic::color::{ColorU, OptionColorU, parse_css_color};
 use azul_css::props::basic::pixel::{PixelValue, OptionPixelValue};
-use azul_css::css::Stylesheet;
+use azul_css::css::Css;
 use azul_css::parser2::new_from_str;
 
 // ── D-Bus wire-protocol helpers (minimal, read-only) ─────────────────────
@@ -973,7 +973,7 @@ fn detect_language_linux() -> AzString {
 /// - Windows: `%APPDATA%`
 ///
 /// Returns `None` if the file does not exist or cannot be parsed.
-fn load_app_specific_stylesheet() -> Option<Stylesheet> {
+fn load_app_specific_stylesheet() -> Option<Css> {
     // Bail out if ricing is disabled
     if std::env::var("AZUL_DISABLE_RICING").is_ok() {
         return None;
@@ -987,16 +987,7 @@ fn load_app_specific_stylesheet() -> Option<Stylesheet> {
     let css_path = alloc::format!("{}/azul/styles/{}.css", config_dir, exe_name);
     let css_str = std::fs::read_to_string(&css_path).ok()?;
     let (css, _warnings) = new_from_str(&css_str);
-
-    // The parser returns a `Css` which contains `StylesheetVec`.
-    // Extract the first stylesheet if present.
-    let stylesheets = css.stylesheets;
-    if stylesheets.as_ref().is_empty() {
-        return None;
-    }
-
-    // Clone the first stylesheet out
-    Some(stylesheets.as_ref()[0].clone())
+    if css.is_empty() { None } else { Some(css) }
 }
 
 /// Get the platform-appropriate user config directory.

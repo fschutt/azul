@@ -103,10 +103,7 @@ pub(crate) fn create_titlebar_styled_dom(
     );
 
     let mut dom = titlebar.dom_with_buttons(&tm.buttons, tm.button_side);
-
-    let stylesheet = system_style.create_csd_stylesheet();
-    let css = azul_css::css::Css::new(vec![stylesheet]);
-
+    let css = system_style.create_csd_stylesheet();
     StyledDom::create(&mut dom, css)
 }
 
@@ -145,9 +142,7 @@ fn create_menubar_styled_dom(menu: &Menu, system_style: &SystemStyle) -> StyledD
         .with_ids_and_classes(menubar_classes)
         .with_children(DomVec::from_vec(menu_items));
 
-    let stylesheet = system_style.create_menu_stylesheet();
-    let css = azul_css::css::Css::new(vec![stylesheet]);
-
+    let css = system_style.create_menu_stylesheet();
     StyledDom::create(&mut dom, css)
 }
 
