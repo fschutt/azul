@@ -1008,7 +1008,8 @@ fn main() -> anyhow::Result<()> {
         // Legacy memtest commands removed - use "codegen all" instead
         // Memory layout tests are now included in dll/src/lib.rs via include!()
         // Run them with: cd dll && cargo test
-        // V2 commands are now the default - use "codegen <target>" instead
+        // V2 commands and per-language codegen subcommands are deprecated:
+        // there is now only `codegen` (or `codegen all`) which produces every binding.
         ["v2", "dll"]
         | ["v2", "python"]
         | ["v2", "memtest"]
@@ -1016,7 +1017,7 @@ fn main() -> anyhow::Result<()> {
         | ["v2", "cpp"]
         | ["v2", "all"] => {
             println!("Note: 'v2' prefix is deprecated - v2 is now the default.\n");
-            println!("Use 'codegen all' or 'codegen <target>' instead.\n");
+            println!("Use 'codegen' (alias: 'codegen all') instead.\n");
             let api_data = load_api_json(&api_path)?;
             codegen::v2::generate_all_v2(&api_data, &project_root)?;
             return Ok(());
@@ -1306,72 +1307,7 @@ fn main() -> anyhow::Result<()> {
 
             return Ok(());
         }
-        ["codegen"] | ["codegen", "rust"] => {
-            let api_data = load_api_json(&api_path)?;
-            println!("[CODEGEN] Generating Rust library code...\n");
-
-            // Generate azul.rs using the v2 generator
-            let code = codegen::v2::generate_rust_public_api(&api_data)?;
-            let output_path = project_root.join("target").join("codegen").join("azul.rs");
-            fs::create_dir_all(output_path.parent().unwrap())?;
-            fs::write(&output_path, &code)?;
-            println!(
-                "[OK] Generated: {} ({} bytes)",
-                output_path.display(),
-                code.len()
-            );
-
-            println!("\nRust code generation complete.");
-            return Ok(());
-        }
-        ["codegen", "c"] => {
-            let api_data = load_api_json(&api_path)?;
-            println!("[CODEGEN] Generating C header file...\n");
-
-            let code = codegen::v2::generate_c_header(&api_data)?;
-            let output_path = project_root.join("target").join("codegen").join("azul.h");
-            fs::create_dir_all(output_path.parent().unwrap())?;
-            fs::write(&output_path, &code)?;
-            println!(
-                "[OK] Generated: {} ({} bytes)",
-                output_path.display(),
-                code.len()
-            );
-
-            println!("\nC header generation complete.");
-            return Ok(());
-        }
-        ["codegen", "cpp"] => {
-            let api_data = load_api_json(&api_path)?;
-            println!("[CODEGEN] Generating C++ header files...\n");
-
-            let cpp_dir = project_root.join("target").join("codegen");
-            fs::create_dir_all(&cpp_dir)?;
-
-            // Generate C++11 header (main header)
-            let code =
-                codegen::v2::generate_cpp_header(&api_data, codegen::v2::CppStandard::Cpp11)?;
-            let output_path = cpp_dir.join("azul.hpp");
-            fs::write(&output_path, &code)?;
-            println!(
-                "[OK] Generated: {} ({} bytes)",
-                output_path.display(),
-                code.len()
-            );
-
-            println!("\nC++ header generation complete.");
-            return Ok(());
-        }
-        ["codegen", "python"] => {
-            let api_data = load_api_json(&api_path)?;
-            println!("[CODEGEN] Generating Python bindings...\n");
-
-            codegen::v2::generate_python_v2(&api_data, &project_root)?;
-
-            println!("\nPython bindings generation complete.");
-            return Ok(());
-        }
-        ["codegen", "all"] => {
+        ["codegen"] | ["codegen", "all"] => {
             let api_data = load_api_json(&api_path)?;
             println!("[CODEGEN] Generating all language bindings using v2...\n");
 

@@ -62,11 +62,33 @@ pub mod config;
 pub mod generator;
 pub mod ir;
 pub mod ir_builder;
+pub mod lang_ada;
+pub mod lang_algol68;
 pub mod lang_c;
+pub mod lang_cobol;
 pub mod lang_cpp;
+pub mod lang_csharp;
+pub mod lang_fortran;
+pub mod lang_freebasic;
+pub mod lang_go;
+pub mod lang_haskell;
+pub mod lang_java; // declared before lang_kotlin (Kotlin re-exports Java helpers)
+pub mod lang_kotlin;
+pub mod lang_lisp;
+pub mod lang_lua;
+pub mod lang_node;
+pub mod lang_ocaml;
+pub mod lang_pascal;
+pub mod lang_perl;
+pub mod lang_php;
+pub mod lang_powershell;
 pub mod lang_python;
 pub mod lang_reexports;
+pub mod lang_ruby;
 pub mod lang_rust;
+pub mod lang_smalltalk;
+pub mod lang_vb6;
+pub mod lang_zig;
 pub mod rust;
 pub mod transmute_helpers; // New Rust generators (static/dynamic binding)
 
@@ -155,6 +177,192 @@ pub fn generate_python(api_data: &ApiData) -> Result<String> {
     let ir = build_ir_from_api(api_data)?;
     let python_config = PythonConfig::python_extension();
     lang_python::PythonGenerator.generate_python(&ir, &python_config)
+}
+
+/// Generate C# (P/Invoke) bindings as String. Returns `Azul.cs` source.
+pub fn generate_csharp(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    lang_csharp::generate(&ir, &config)
+}
+
+/// Generate Ruby (`ffi` gem) bindings as String. Returns `azul.rb` source.
+pub fn generate_ruby(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    lang_ruby::generate(&ir, &config)
+}
+
+/// Generate Lua (LuaJIT FFI) bindings as String. Returns `azul.lua` source.
+pub fn generate_lua(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    lang_lua::generate(&ir, &config)
+}
+
+/// Generate Pascal (FPC/Lazarus) bindings as String. Returns `azul.pas` source.
+pub fn generate_pascal(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    lang_pascal::generate(&ir, &config)
+}
+
+/// Generate Ada (GNAT) bindings as a `(spec, body)` pair where the original
+/// generator output combines `azul.ads` and `azul.adb` separated by
+/// [`lang_ada::SPLIT_MARKER`].
+pub fn generate_ada(api_data: &ApiData) -> Result<(String, String)> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    let combined = lang_ada::generate(&ir, &config)?;
+    match combined.split_once(lang_ada::SPLIT_MARKER) {
+        Some((spec, body)) => Ok((spec.trim_end().to_string(), body.trim_start().to_string())),
+        None => Err(anyhow::anyhow!(
+            "Ada generator output did not contain SPLIT_MARKER ({:?})",
+            lang_ada::SPLIT_MARKER
+        )),
+    }
+}
+
+/// Generate FreeBASIC bindings as String. Returns `azul.bi` source.
+pub fn generate_freebasic(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    lang_freebasic::generate(&ir, &config)
+}
+
+/// Generate Zig bindings as String. Returns `azul.zig` source.
+/// (Zig consumes the C header directly via `@cImport`; the generator only
+/// emits idiomatic wrappers + a `build.zig`, available separately.)
+pub fn generate_zig(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    lang_zig::generate(&ir, &config)
+}
+
+/// Generate PowerShell module as String. Returns `Azul.psm1` source which
+/// embeds the C# generator's output via `Add-Type` for FFI.
+pub fn generate_powershell(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    lang_powershell::generate(&ir, &config)
+}
+
+/// Generate PHP bindings as String. Returns `Azul.php` source using the
+/// built-in `FFI::cdef` extension (PHP 7.4+).
+pub fn generate_php(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    lang_php::generate(&ir, &config)
+}
+
+/// Generate Perl bindings as String. Returns `Azul.pm` source using
+/// `FFI::Platypus` (libffi-backed pure-Perl FFI).
+pub fn generate_perl(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    lang_perl::generate(&ir, &config)
+}
+
+/// Generate OCaml bindings as a `(mli, ml)` pair. The generator returns the
+/// interface and implementation in one String separated by
+/// [`lang_ocaml::SPLIT_MARKER`]; this helper splits them.
+pub fn generate_ocaml(api_data: &ApiData) -> Result<(String, String)> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    let combined = lang_ocaml::generate(&ir, &config)?;
+    match combined.split_once(lang_ocaml::SPLIT_MARKER) {
+        Some((mli, ml)) => Ok((mli.trim_end().to_string(), ml.trim_start().to_string())),
+        None => Err(anyhow::anyhow!(
+            "OCaml generator output did not contain SPLIT_MARKER ({:?})",
+            lang_ocaml::SPLIT_MARKER
+        )),
+    }
+}
+
+/// Generate Haskell bindings as a multi-file String separated by
+/// [`lang_haskell::FILE_MARKER`] / [`lang_haskell::END_MARKER`] headers.
+pub fn generate_haskell(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    lang_haskell::generate(&ir, &config)
+}
+
+/// Generate Java (JNA) bindings as a multi-file String separated by
+/// [`lang_java::FILE_MARKER`] / [`lang_java::END_MARKER`] headers.
+pub fn generate_java(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    lang_java::generate(&ir, &config)
+}
+
+/// Generate Kotlin (JNA) bindings as String. Returns single `Azul.kt` source.
+pub fn generate_kotlin(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    lang_kotlin::generate(&ir, &config)
+}
+
+/// Generate Fortran (F2003 iso_c_binding) bindings as String. Returns
+/// `azul.f90` source.
+pub fn generate_fortran(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    lang_fortran::generate(&ir, &config)
+}
+
+/// Generate Go (cgo) bindings as a multi-file String separated by
+/// [`lang_go::FILE_MARKER`] / [`lang_go::END_MARKER`] headers.
+pub fn generate_go(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    lang_go::generate(&ir, &config)
+}
+
+/// Generate Common Lisp (CFFI) bindings as String. Returns `azul.lisp` source.
+pub fn generate_lisp(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    lang_lisp::generate(&ir, &config)
+}
+
+/// Generate Smalltalk (Pharo / UnifiedFFI) bindings as String. Returns the
+/// Tonel-format `Azul.st` source.
+pub fn generate_smalltalk(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    lang_smalltalk::generate(&ir, &config)
+}
+
+/// Generate Algol 68 (a68g) bindings as String. Returns `azul.a68` source.
+pub fn generate_algol68(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    lang_algol68::generate(&ir, &config)
+}
+
+/// Generate COBOL (GnuCOBOL) bindings as String. Returns `azul.cpy` copybook
+/// source.
+pub fn generate_cobol(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    lang_cobol::generate(&ir, &config)
+}
+
+/// Generate Visual Basic 6 (32-bit, Windows) bindings as a multi-file String
+/// separated by [`lang_vb6::FILE_MARKER`] / [`lang_vb6::END_MARKER`] headers.
+pub fn generate_vb6(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    lang_vb6::generate(&ir, &config)
+}
+
+/// Generate Node.js / Bun / Deno bindings as a multi-file String separated by
+/// [`lang_node::FILE_MARKER`] / [`lang_node::END_MARKER`] headers. Uses koffi
+/// for Node and the runtime built-ins for Bun/Deno.
+pub fn generate_node(api_data: &ApiData) -> Result<String> {
+    let ir = build_ir_from_api(api_data)?;
+    let config = CodegenConfig::c_header();
+    lang_node::generate(&ir, &config)
 }
 
 // ============================================================================
