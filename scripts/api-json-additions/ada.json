@@ -1,0 +1,88 @@
+{
+    "tabOrder_append": "ada",
+    "languages_entry": {
+        "ada": {
+            "displayName": "Ada (GNAT)",
+            "platforms": {
+                "linux": {
+                    "description": "Download azul, the generated Ada bindings, and build with GNAT/Alire",
+                    "steps": [
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul.ads"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul.adb"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/hello_world.gpr"
+                        },
+                        {
+                            "type": "command",
+                            "content": "LD_LIBRARY_PATH=. gprbuild -P hello_world.gpr && ./obj/hello_world"
+                        }
+                    ]
+                },
+                "macos": {
+                    "description": "Download azul, the generated Ada bindings, and build with GNAT/Alire",
+                    "steps": [
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul.ads"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul.adb"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/hello_world.gpr"
+                        },
+                        {
+                            "type": "command",
+                            "content": "DYLD_LIBRARY_PATH=. gprbuild -P hello_world.gpr && ./obj/hello_world"
+                        }
+                    ]
+                },
+                "windows": {
+                    "description": "Download azul, the generated Ada bindings, and build with GNAT/Alire",
+                    "steps": [
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul.ads"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/azul.adb"
+                        },
+                        {
+                            "type": "command",
+                            "content": "curl -O $HOSTNAME/release/$VERSION/hello_world.gpr"
+                        },
+                        {
+                            "type": "command",
+                            "content": "gprbuild -P hello_world.gpr && obj\\hello_world.exe"
+                        }
+                    ]
+                }
+            }
+        }
+    },
+    "examples_code_additions": {
+        "hello-world": "ada/hello_world.adb"
+    }
+}

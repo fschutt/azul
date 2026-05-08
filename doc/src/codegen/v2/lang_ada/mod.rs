@@ -1,0 +1,367 @@
+//! Ada (GNAT) binding generator.
+//!
+//! Produces two Ada compilation units:
+//!
+//! 1. `azul.ads` — the package specification: with-clauses, FFI record /
+//!    enum / variant-record types (all with `pragma Convention (C, ...)`),
+//!    `pragma Import (C, ...)` declarations for every C-ABI function, and
+//!    idiomatic `Ada.Finalization.Controlled` wrapper types whose
+//!    `Finalize` overrides call the matching `_delete` extern.
+//! 2. `azul.adb` — the package body: implementations of the wrapper-type
+//!    `Finalize` overrides (and any other primitives whose declarations
+//!    cannot be completed inline in the spec).
+//!
+//! Ada's compilation-unit convention is one spec + one body per top-level
+//! package, hence the dual-output shape. The orchestrator writes both
+//! files to disk.
+//!
+//! ## Surface
+//!
+//! - All FFI-visible names keep their `Az_` form (matching the C symbol),
+//!   e.g. `Az_App` for the FFI struct. The user-facing wrapper drops the
+//!   `Az_` prefix: `App` (a `Controlled` tagged record with `Finalize`).
+//! - Methods are emitted both as `pragma Import` free subprograms (raw
+//!   FFI) and as wrapper-type primitives (idiomatic). The `pragma Import`
+//!   link name MUST exactly match the C symbol; user-facing wrappers
+//!   simply forward.
+//! - Tagged-union (`is_union`) enums become Ada variant records with a
+//!   discriminant on a tag enum.
+//!
+//! ## Output protocol
+//!
+//! `generate(ir, config)` returns a single `String` containing BOTH files
+//! separated by a marker line:
+//!
+//! ```text
+//! <azul.ads contents>
+//! --==SPLIT==--
+//! <azul.adb contents>
+//! ```
+//!
+//! Returning a single `String` matches the signature shape used by every
+//! other v2 language entry point (Python, C#, Ruby, Lua). The orchestrator
+//! splits on the marker line and writes each half to its respective file.
+//! [`SPLIT_MARKER`] is exposed publicly so the orchestrator can use it
+//! without copying the literal.
+//!
+//! Keep `SPLIT_MARKER` stable; it is part of the contract with the
+//! orchestrator.
+
+pub mod functions;
+pub mod gpr;
+pub mod types;
+pub mod wrappers;
+
+use anyhow::Result;
+
+use super::config::CodegenConfig;
+use super::generator::CodeBuilder;
+use super::ir::CodegenIR;
+
+/// Library link name (`pragma Linker_Options ("-lazul")`).
+pub const LIB_NAME: &str = "azul";
+
+/// Separator between `azul.ads` and `azul.adb` contents in the single
+/// returned `String`. The orchestrator must split on this exact line.
+pub const SPLIT_MARKER: &str = "--==SPLIT==--";
+
+/// Public entry point. Generates the full `azul.ads` and `azul.adb` text
+/// concatenated with [`SPLIT_MARKER`] between them.
+pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
+    let spec = generate_spec(ir, config)?;
+    let body = generate_body(ir, config)?;
+
+    let mut out = String::with_capacity(spec.len() + body.len() + SPLIT_MARKER.len() + 2);
+    out.push_str(&spec);
+    if !spec.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push_str(SPLIT_MARKER);
+    out.push('\n');
+    out.push_str(&body);
+    Ok(out)
+}
+
+/// Build the package specification (`azul.ads`).
+fn generate_spec(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
+    let mut builder = CodeBuilder::new(&config.indent);
+
+    spec_header(&mut builder);
+    spec_with_clauses(&mut builder);
+
+    builder.line("package Azul is");
+    builder.indent();
+    builder.line("pragma Preelaborate;");
+    builder.line(&format!("pragma Linker_Options (\"-l{}\");", LIB_NAME));
+    builder.blank();
+
+    // Forward incomplete declarations so access types (pointers) and
+    // mutually recursive records can compile.
+    types::emit_forward_declarations(&mut builder, ir, config);
+
+    // Enums (unit and tagged-union) and POD record types.
+    types::emit_types(&mut builder, ir, config)?;
+
+    // Raw FFI subprogram imports (pragma Import (C, ..., "az_..."))
+    functions::emit_imports(&mut builder, ir, config)?;
+
+    // Controlled wrapper-type declarations (Finalize override prototypes).
+    wrappers::emit_wrapper_specs(&mut builder, ir, config)?;
+
+    builder.dedent();
+    builder.line("end Azul;");
+    Ok(builder.finish())
+}
+
+/// Build the package body (`azul.adb`).
+fn generate_body(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
+    let mut builder = CodeBuilder::new(&config.indent);
+
+    body_header(&mut builder);
+
+    builder.line("package body Azul is");
+    builder.indent();
+
+    wrappers::emit_wrapper_bodies(&mut builder, ir, config)?;
+
+    builder.dedent();
+    builder.line("end Azul;");
+    Ok(builder.finish())
+}
+
+fn spec_header(builder: &mut CodeBuilder) {
+    builder.line(
+        "-- ============================================================================",
+    );
+    builder.line("-- Auto-generated Ada (GNAT) bindings for the Azul GUI framework.");
+    builder.line("-- Generated by azul-doc codegen v2 (lang_ada). DO NOT EDIT MANUALLY.");
+    builder.line(
+        "-- ============================================================================",
+    );
+    builder.blank();
+}
+
+fn body_header(builder: &mut CodeBuilder) {
+    builder.line(
+        "-- ============================================================================",
+    );
+    builder.line("-- Auto-generated Ada (GNAT) bindings for the Azul GUI framework (body).");
+    builder.line("-- Generated by azul-doc codegen v2 (lang_ada). DO NOT EDIT MANUALLY.");
+    builder.line(
+        "-- ============================================================================",
+    );
+    builder.blank();
+}
+
+fn spec_with_clauses(builder: &mut CodeBuilder) {
+    builder.line("with Interfaces.C; use Interfaces.C;");
+    builder.line("with Interfaces.C.Strings; use Interfaces.C.Strings;");
+    builder.line("with System;");
+    builder.line("with Ada.Finalization;");
+    builder.blank();
+}
+
+// ============================================================================
+// Shared helpers (used by submodules)
+// ============================================================================
+
+/// FFI-visible name for an IR type (e.g. `Dom` -> `Az_Dom`).
+///
+/// Note the embedded underscore: Ada style is snake_case-with-Pascal-words,
+/// and the C symbols are also `Az_TypeName_method`, so we keep the
+/// underscore to map cleanly between the two worlds. The `pragma Import`
+/// link name uses the *exact* C symbol, never this Ada form.
+pub fn ada_ffi_type_name(name: &str) -> String {
+    format!("Az_{}", name)
+}
+
+/// User-facing wrapper type name (drops the `Az_` prefix).
+pub fn ada_wrapper_type_name(name: &str) -> String {
+    name.to_string()
+}
+
+/// Map an IR / Rust type name to the corresponding Ada FFI type.
+///
+/// Pointer-bearing forms collapse to `System.Address`. Strings collapse to
+/// `Interfaces.C.Strings.chars_ptr`. Known IR types are emitted with their
+/// `Az_` prefix.
+pub fn map_type_to_ada(rust_type: &str, ir: &CodegenIR) -> String {
+    let trimmed = rust_type.trim();
+
+    // Pointer/reference forms — Ada has no native equivalent for these in
+    // a `pragma Convention (C, ...)` record outside of `System.Address` or
+    // a named access type. We pick `System.Address` for portability.
+    if let Some(rest) = trimmed.strip_prefix("*const ") {
+        if rest.contains("c_char") || rest.contains("u8") {
+            return "Interfaces.C.Strings.chars_ptr".to_string();
+        }
+        return "System.Address".to_string();
+    }
+    if trimmed.starts_with("*mut ")
+        || trimmed.starts_with("&mut ")
+        || trimmed.starts_with('&')
+    {
+        return "System.Address".to_string();
+    }
+
+    match trimmed {
+        // Primitives
+        "bool" => "Interfaces.C.unsigned_char".to_string(),
+        "u8" | "c_uchar" => "Interfaces.C.unsigned_char".to_string(),
+        "i8" | "c_char" => "Interfaces.C.signed_char".to_string(),
+        "u16" => "Interfaces.C.unsigned_short".to_string(),
+        "i16" => "Interfaces.C.short".to_string(),
+        "u32" | "c_uint" => "Interfaces.C.unsigned".to_string(),
+        "i32" | "c_int" => "Interfaces.C.int".to_string(),
+        "u64" => "Interfaces.C.unsigned_long_long".to_string(),
+        "i64" => "Interfaces.C.long_long".to_string(),
+        "f32" => "Interfaces.C.C_float".to_string(),
+        "f64" => "Interfaces.C.double".to_string(),
+        "usize" => "Interfaces.C.size_t".to_string(),
+        "isize" => "Interfaces.C.ptrdiff_t".to_string(),
+        "char" => "Interfaces.C.char".to_string(),
+        "c_void" | "()" | "void" => "System.Address".to_string(),
+
+        _ => {
+            if ir.find_struct(trimmed).is_some()
+                || ir.find_enum(trimmed).is_some()
+                || ir.find_type_alias(trimmed).is_some()
+                || ir.callback_typedefs.iter().any(|c| c.name == trimmed)
+            {
+                ada_ffi_type_name(trimmed)
+            } else {
+                // Unknown — surface as opaque address.
+                "System.Address".to_string()
+            }
+        }
+    }
+}
+
+/// Sanitize an identifier that may collide with Ada reserved words.
+///
+/// Ada has an extensive reserved-word list (`abort`, `abs`, `accept`,
+/// ..., `with`, `xor`). For our purposes we match against the full
+/// canonical set. Reserved words and a few common pitfalls are mangled
+/// by appending an underscore.
+pub fn sanitize_identifier(name: &str) -> String {
+    // Ada is case-INSENSITIVE for identifiers; normalize to lower-case
+    // for the comparison and keep the original casing in the output.
+    let lower = name.to_ascii_lowercase();
+    if is_ada_reserved(&lower) {
+        format!("{}_K", name)
+    } else {
+        name.to_string()
+    }
+}
+
+/// Convert a snake_case or camelCase name to a Pascal_Snake style
+/// suitable for Ada (e.g. `add_child` / `addChild` -> `Add_Child`).
+#[allow(dead_code)]
+pub fn to_ada_method_name(name: &str) -> String {
+    // Pre-step: split camelCase boundaries by inserting underscores.
+    let mut split = String::with_capacity(name.len() + 4);
+    let mut chars = name.chars().peekable();
+    while let Some(c) = chars.next() {
+        split.push(c);
+        if c.is_ascii_lowercase()
+            && chars.peek().map(|n| n.is_ascii_uppercase()).unwrap_or(false)
+        {
+            split.push('_');
+        }
+    }
+
+    // Now PascalSnake_Case-ify.
+    let mut out = String::with_capacity(split.len());
+    let mut upper_next = true;
+    for c in split.chars() {
+        if c == '_' {
+            out.push('_');
+            upper_next = true;
+        } else if upper_next {
+            out.extend(c.to_uppercase());
+            upper_next = false;
+        } else {
+            out.extend(c.to_ascii_lowercase().to_string().chars());
+        }
+    }
+    sanitize_identifier(&out)
+}
+
+fn is_ada_reserved(s: &str) -> bool {
+    matches!(
+        s,
+        "abort"
+            | "abs"
+            | "abstract"
+            | "accept"
+            | "access"
+            | "aliased"
+            | "all"
+            | "and"
+            | "array"
+            | "at"
+            | "begin"
+            | "body"
+            | "case"
+            | "constant"
+            | "declare"
+            | "delay"
+            | "delta"
+            | "digits"
+            | "do"
+            | "else"
+            | "elsif"
+            | "end"
+            | "entry"
+            | "exception"
+            | "exit"
+            | "for"
+            | "function"
+            | "generic"
+            | "goto"
+            | "if"
+            | "in"
+            | "interface"
+            | "is"
+            | "limited"
+            | "loop"
+            | "mod"
+            | "new"
+            | "not"
+            | "null"
+            | "of"
+            | "or"
+            | "others"
+            | "out"
+            | "overriding"
+            | "package"
+            | "pragma"
+            | "private"
+            | "procedure"
+            | "protected"
+            | "raise"
+            | "range"
+            | "record"
+            | "rem"
+            | "renames"
+            | "requeue"
+            | "return"
+            | "reverse"
+            | "select"
+            | "separate"
+            | "some"
+            | "subtype"
+            | "synchronized"
+            | "tagged"
+            | "task"
+            | "terminate"
+            | "then"
+            | "type"
+            | "until"
+            | "use"
+            | "when"
+            | "while"
+            | "with"
+            | "xor"
+    )
+}
