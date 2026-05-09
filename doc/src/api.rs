@@ -661,10 +661,20 @@ pub enum InstallationStep {
 }
 
 impl InstallationStep {
-    /// Apply variable interpolation to the step content
+    /// Apply variable interpolation to the step content.
+    ///
+    /// Accepts every marker style in api.json: `$HOSTNAME` / `$VERSION`,
+    /// the `%HOSTNAME%` / `%VERSION%` Windows-style variants, and
+    /// `$$HOSTNAME$$` / `$$VERSION$$`. Order matters: the `$$...$$` form
+    /// must run first so we don't leave `$HOSTNAME$` residue when the
+    /// single-`$` rule fires partway through.
     pub fn interpolate(&self, hostname: &str, version: &str) -> Self {
         let do_interpolate = |s: &str| {
-            s.replace("$HOSTNAME", hostname)
+            s.replace("$$HOSTNAME$$", hostname)
+                .replace("$$VERSION$$", version)
+                .replace("%HOSTNAME%", hostname)
+                .replace("%VERSION%", version)
+                .replace("$HOSTNAME", hostname)
                 .replace("$VERSION", version)
         };
 

@@ -1354,9 +1354,13 @@ fn main() -> anyhow::Result<()> {
             // Generate documentation (API docs, guide, etc.)
             let inline_css = !is_debug;
             let image_url = if is_debug { "./images" } else { "https://azul.rs/images" };
+            // In debug mode the install commands need a fully qualified host
+            // so `curl` resolves to the local dev server, not a relative URL
+            // (which would 404). Production keeps the canonical hostname.
+            let hostname = if is_debug { "http://localhost:8000" } else { "https://azul.rs" };
             println!("Generating documentation (inline_css={})...", inline_css);
             for (path, html) in
-                docgen::generate_docs(&api_data, &image_path, image_url, inline_css)?
+                docgen::generate_docs(&api_data, &image_path, image_url, inline_css, hostname)?
             {
                 let path_real = output_dir.join(&path);
                 if let Some(parent) = path_real.parent() {

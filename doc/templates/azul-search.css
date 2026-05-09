@@ -1,11 +1,14 @@
 /* azul-search.css — quick-search panel.
  *
- * Two layouts share one DOM:
- *  - Desktop (>= 1100px): floating sticky panel pinned top-right of the
- *    viewport, well clear of the centred .center container which is
- *    capped at 1400px.
- *  - Mobile (< 1100px): a slim "toast" pill anchored bottom-right; tapping
- *    it expands to a full-screen overlay.
+ * Two layout modes share one DOM:
+ *  - Inline (`data-mode="inline"`): the input lives in the document flow
+ *    where the page mounted it (e.g. inside `#latestrelease`). The results
+ *    panel is absolutely positioned beneath the input so it can overflow
+ *    the surrounding container without affecting layout.
+ *  - Floating (`data-mode="floating"`, fallback): a pill toggle pinned to
+ *    the corner of the viewport that opens a popover. Mobile (<1100px)
+ *    expands the popover to a full-screen overlay. Used on pages with no
+ *    designated mount point.
  *
  * The colour palette echoes the rest of the site: deep blue background
  * (#004e92), aliceblue accents, serif body, monospace for type signatures.
@@ -29,9 +32,89 @@
 
 .azul-search * { box-sizing: border-box; }
 
-/* ---- toggle pill ---------------------------------------------------- */
+/* ---- inline mode ---------------------------------------------------- */
 
-.azs-toggle {
+/* Inline host: the wrapper sits in the document flow at the mount point.
+ * It defines a positioning context so the results panel can be pinned to
+ * the input edge regardless of where the wrapper lives in the page. */
+.azul-search.azs-inline {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+
+/* When the inline mount sits at the top of a content page (api/guide/blog),
+ * cap the search width and align right so it doesn't dominate the article. */
+.page-search {
+  max-width: 320px;
+  margin-left: auto;
+  margin-bottom: 16px;
+}
+
+.azs-inline-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid var(--azs-border);
+  border-radius: 6px;
+}
+
+.azul-search.azs-inline .azs-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: normal;
+  color: var(--azs-fg);
+  outline: none;
+  padding: 2px 0;
+}
+
+.azs-inline-icon {
+  color: var(--azs-accent);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.azul-search.azs-inline .azs-toggle-key {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 10px;
+  padding: 1px 5px;
+  background: var(--azs-accent-soft);
+  border: 1px solid var(--azs-border);
+  border-radius: 3px;
+  color: var(--azs-accent);
+  flex-shrink: 0;
+}
+
+/* Results panel for inline mode — absolutely positioned, only visible
+ * when the input is focused/has results. No box-shadow on the bar
+ * itself; the dropdown gets a subtle elevation so it reads as overlay. */
+.azs-panel-inline {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 9001;
+  background: var(--azs-bg);
+  border: 1px solid var(--azs-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 4, 40, 0.15);
+  display: none;
+  max-height: min(60vh, 480px);
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.azul-search.azs-inline[data-state="open"] .azs-panel-inline { display: flex; }
+
+/* ---- toggle pill (floating mode) ----------------------------------- */
+
+.azul-search[data-mode="floating"] .azs-toggle {
   position: fixed;
   z-index: 9000;
   top: 16px;
@@ -69,9 +152,9 @@
 
 .azul-search[data-state="open"] .azs-toggle { display: none; }
 
-/* ---- panel (desktop) ----------------------------------------------- */
+/* ---- panel (floating desktop) -------------------------------------- */
 
-.azs-panel {
+.azul-search[data-mode="floating"] .azs-panel {
   position: fixed;
   z-index: 9001;
   top: 16px;
@@ -87,7 +170,7 @@
   overflow: hidden;
 }
 
-.azul-search[data-state="open"] .azs-panel { display: flex; }
+.azul-search[data-mode="floating"][data-state="open"] .azs-panel { display: flex; }
 
 .azs-input-row {
   display: flex;
@@ -237,10 +320,10 @@
   border-radius: 2px;
 }
 
-/* ---- mobile toast --------------------------------------------------- */
+/* ---- mobile toast (floating only) ---------------------------------- */
 
 @media (max-width: 1099px) {
-  .azs-toggle {
+  .azul-search[data-mode="floating"] .azs-toggle {
     top: auto;
     bottom: 16px;
     right: 16px;
@@ -248,9 +331,9 @@
     justify-content: center;
     border-radius: 999px;
   }
-  .azs-toggle-key { display: none; }
+  .azul-search[data-mode="floating"] .azs-toggle-key { display: none; }
 
-  .azs-panel {
+  .azul-search[data-mode="floating"] .azs-panel {
     top: 0; right: 0; bottom: 0; left: 0;
     width: 100%;
     max-height: 100vh;

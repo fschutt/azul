@@ -194,8 +194,9 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
       {sidebar}
     </aside>
     <main>
+      <div id="azul-search-mount" class="azs-mount-inline page-search"></div>
       <h1>Support Azul!</h1>
-      
+
       <div class="donation-intro">
         <p>Azul is an open-source GUI framework that relies on community support to continue development. 
         Your contributions help maintain the project, implement new features, and keep resources available to everyone.</p>

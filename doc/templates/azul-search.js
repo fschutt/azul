@@ -372,9 +372,10 @@
 
   // ---------- DOM mount --------------------------------------------------
 
-  // Build the HTML scaffold. Inserted into `host`.
-  var TEMPLATE = ''
-    + '<div class="azul-search" data-state="closed">'
+  // Floating-pill template (legacy fallback for pages with no inline mount).
+  // The pill toggles a popover with the input + results.
+  var FLOATING_TEMPLATE = ''
+    + '<div class="azul-search" data-state="closed" data-mode="floating">'
     +   '<button class="azs-toggle" type="button" aria-label="Open search">'
     +     '<span class="azs-toggle-icon" aria-hidden="true">⌕</span>'
     +     '<span class="azs-toggle-label">Search API</span>'
@@ -386,6 +387,24 @@
     +         'spellcheck="false" placeholder="Search…" aria-label="Search query" />'
     +       '<button class="azs-close" type="button" aria-label="Close">×</button>'
     +     '</div>'
+    +     '<div class="azs-meta" aria-live="polite"></div>'
+    +     '<ul class="azs-results" role="listbox"></ul>'
+    +   '</div>'
+    + '</div>';
+
+  // Inline template — the input bar lives in the document flow (no toggle
+  // pill). Results expand below as an absolutely-positioned dropdown so they
+  // can overflow the surrounding container without affecting layout.
+  // `data-state` toggles results visibility just like the floating mode.
+  var INLINE_TEMPLATE = ''
+    + '<div class="azul-search azs-inline" data-state="closed" data-mode="inline">'
+    +   '<div class="azs-inline-row">'
+    +     '<span class="azs-inline-icon" aria-hidden="true">⌕</span>'
+    +     '<input class="azs-input" type="search" autocomplete="off" '
+    +       'spellcheck="false" placeholder="Search…" aria-label="Search query" />'
+    +     '<kbd class="azs-toggle-key">/</kbd>'
+    +   '</div>'
+    +   '<div class="azs-panel azs-panel-inline" role="dialog" aria-label="Search">'
     +     '<div class="azs-meta" aria-live="polite"></div>'
     +     '<ul class="azs-results" role="listbox"></ul>'
     +   '</div>'
@@ -521,7 +540,14 @@
     var host = typeof hostSel === 'string' ? document.querySelector(hostSel) : hostSel;
     if (!host) throw new Error('AzulSearch.mount: mount element not found');
 
-    host.innerHTML = TEMPLATE;
+    // Inline mode: input lives in the document flow (no floating pill).
+    // Caller opts in by passing `inline: true` or by providing a mount
+    // element marked with `data-azs-inline` / `.azs-mount-inline`.
+    var inline = !!opts.inline
+      || host.hasAttribute && host.hasAttribute('data-azs-inline')
+      || (host.classList && host.classList.contains('azs-mount-inline'));
+
+    host.innerHTML = inline ? INLINE_TEMPLATE : FLOATING_TEMPLATE;
     var root = host.querySelector('.azul-search');
     var panel = host.querySelector('.azs-panel');
     var input = host.querySelector('.azs-input');
@@ -529,6 +555,11 @@
     var metaEl = host.querySelector('.azs-meta');
     var toggleBtn = host.querySelector('.azs-toggle');
     var closeBtn = host.querySelector('.azs-close');
+    if (opts.placeholder && input) input.setAttribute('placeholder', opts.placeholder);
+    if (opts.label && root && inline) {
+      var label = root.querySelector('.azs-inline-icon');
+      if (label) label.textContent = opts.label;
+    }
 
     var ctx = {
       apiPageUrl: opts.apiPageUrl || '',
@@ -647,11 +678,23 @@
       input.blur();
     }
 
-    toggleBtn.addEventListener('click', function () {
-      if (root.dataset.state === 'open') close();
-      else open();
-    });
-    closeBtn.addEventListener('click', close);
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', function () {
+        if (root.dataset.state === 'open') close();
+        else open();
+      });
+    }
+    if (closeBtn) closeBtn.addEventListener('click', close);
+
+    if (inline) {
+      // Focus opens the dropdown; clicking outside closes it.
+      input.addEventListener('focus', function () { open(false); });
+      document.addEventListener('mousedown', function (ev) {
+        if (root.dataset.state !== 'open') return;
+        if (root.contains(ev.target)) return;
+        close();
+      });
+    }
 
     input.addEventListener('input', function () {
       clearTimeout(debounceTimer);
@@ -671,7 +714,7 @@
       } else if (ev.key === 'Escape') {
         ev.preventDefault();
         if (input.value) { input.value = ''; showState(); }
-        else close();
+        else { close(); if (inline) input.blur(); }
       }
     });
 
@@ -730,10 +773,12 @@
       if (ev.target && ev.target.isContentEditable) return;
       if (ev.key === '/' && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
         ev.preventDefault();
-        open();
+        if (inline) { input.focus(); input.select(); }
+        else open();
       } else if ((ev.key === 'k' || ev.key === 'K') && (ev.ctrlKey || ev.metaKey)) {
         ev.preventDefault();
-        open();
+        if (inline) { input.focus(); input.select(); }
+        else open();
       }
     }
     document.addEventListener('keydown', onGlobalKey);

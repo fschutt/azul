@@ -142,6 +142,7 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
 
         <main>
             <h1>{title}</h1>
+            <div id='azul-search-mount' class='azs-mount-inline page-search'></div>
             <div id='api'>
             {notes}
             {content}
@@ -690,6 +691,7 @@ pub fn generate_api_index(api_data: &ApiData) -> String {
         </aside>
 
         <main>
+            <div id='azul-search-mount' class='azs-mount-inline page-search'></div>
             <h1>{title}</h1>
             <div>
             <ul style='margin-left:20px;'>

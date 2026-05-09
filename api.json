@@ -509,7 +509,7 @@
                     }
                 },
                 "ada": {
-                    "displayName": "Ada (GNAT)",
+                    "displayName": "Ada",
                     "platforms": {
                         "linux": {
                             "description": "Download azul, the generated Ada bindings, and build with GNAT/Alire",
@@ -532,7 +532,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "LD_LIBRARY_PATH=. gprbuild -P hello_world.gpr && ./obj/hello_world"
+                                    "content": "LD_LIBRARY_PATH=. gprbuild -P hello_world.gpr"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "./obj/hello_world"
                                 }
                             ]
                         },
@@ -557,7 +561,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "DYLD_LIBRARY_PATH=. gprbuild -P hello_world.gpr && ./obj/hello_world"
+                                    "content": "DYLD_LIBRARY_PATH=. gprbuild -P hello_world.gpr"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "./obj/hello_world"
                                 }
                             ]
                         },
@@ -582,7 +590,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "gprbuild -P hello_world.gpr && obj\\hello_world.exe"
+                                    "content": "gprbuild -P hello_world.gpr"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "obj\\hello_world.exe"
                                 }
                             ]
                         }
@@ -608,7 +620,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "mkdir -p runtimes/linux-x64/native && mv libazul.so runtimes/linux-x64/native/"
+                                    "content": "mkdir -p runtimes/linux-x64/native"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "mv libazul.so runtimes/linux-x64/native/"
                                 },
                                 {
                                     "type": "command",
@@ -633,7 +649,19 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "mkdir -p runtimes/osx-x64/native && cp libazul.dylib runtimes/osx-x64/native/ && mkdir -p runtimes/osx-arm64/native && mv libazul.dylib runtimes/osx-arm64/native/"
+                                    "content": "mkdir -p runtimes/osx-x64/native"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cp libazul.dylib runtimes/osx-x64/native/"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "mkdir -p runtimes/osx-arm64/native"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "mv libazul.dylib runtimes/osx-arm64/native/"
                                 },
                                 {
                                     "type": "command",
@@ -658,7 +686,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "mkdir runtimes\\win-x64\\native && move azul.dll runtimes\\win-x64\\native\\"
+                                    "content": "mkdir runtimes\\win-x64\\native"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "move azul.dll runtimes\\win-x64\\native\\"
                                 },
                                 {
                                     "type": "command",
@@ -749,7 +781,7 @@
                     }
                 },
                 "lua": {
-                    "displayName": "Lua (LuaJIT)",
+                    "displayName": "Lua",
                     "platforms": {
                         "linux": {
                             "description": "Download azul.lua and the native library, then run with LuaJIT",
@@ -805,7 +837,7 @@
                     }
                 },
                 "pascal": {
-                    "displayName": "Pascal (FPC/Lazarus)",
+                    "displayName": "Pascal",
                     "platforms": {
                         "linux": {
                             "description": "Download azul.pas, the Lazarus project, and the native library; build with FPC",
@@ -984,7 +1016,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "dune build && LD_LIBRARY_PATH=. ./_build/default/hello_world.exe"
+                                    "content": "dune build"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "LD_LIBRARY_PATH=. ./_build/default/hello_world.exe"
                                 }
                             ]
                         },
@@ -1017,7 +1053,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "dune build && DYLD_LIBRARY_PATH=. ./_build/default/hello_world.exe"
+                                    "content": "dune build"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "DYLD_LIBRARY_PATH=. ./_build/default/hello_world.exe"
                                 }
                             ]
                         },
@@ -1050,7 +1090,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "dune build && .\\_build\\default\\hello_world.exe"
+                                    "content": "dune build"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": ".\\_build\\default\\hello_world.exe"
                                 }
                             ]
                         }
@@ -1168,7 +1212,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "sudo apt-get install -y php-ffi || sudo dnf install -y php-ffi"
+                                    "content": "sudo apt-get install -y php-ffi"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "sudo dnf install -y php-ffi"
                                 },
                                 {
                                     "type": "command",
@@ -1469,7 +1517,7 @@
                     }
                 },
                 "go": {
-                    "displayName": "Go (cgo)",
+                    "displayName": "Go",
                     "platforms": {
                         "linux": {
                             "description": "Download azul.h, the generated Go bindings, the native library, and build with cgo. Requires gcc on PATH.",
@@ -1586,7 +1634,15 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "set CGO_CFLAGS=-I. && set CGO_LDFLAGS=-L. && go build"
+                                    "content": "set CGO_CFLAGS=-I."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "set CGO_LDFLAGS=-L."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "go build"
                                 },
                                 {
                                     "type": "command",
@@ -1612,11 +1668,27 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "mkdir -p src/Azul/Internal && curl -o src/Azul.hs $HOSTNAME/release/$VERSION/Azul.hs && curl -o src/Azul/Types.hs $HOSTNAME/release/$VERSION/Azul/Types.hs && curl -o src/Azul/Internal/FFI.hs $HOSTNAME/release/$VERSION/Azul/Internal/FFI.hs"
+                                    "content": "mkdir -p src/Azul/Internal"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cabal build --extra-lib-dirs=. && LD_LIBRARY_PATH=. cabal run hello-world"
+                                    "content": "curl -o src/Azul.hs $HOSTNAME/release/$VERSION/Azul.hs"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -o src/Azul/Types.hs $HOSTNAME/release/$VERSION/Azul/Types.hs"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -o src/Azul/Internal/FFI.hs $HOSTNAME/release/$VERSION/Azul/Internal/FFI.hs"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cabal build --extra-lib-dirs=."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "LD_LIBRARY_PATH=. cabal run hello-world"
                                 }
                             ]
                         },
@@ -1633,11 +1705,27 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "mkdir -p src/Azul/Internal && curl -o src/Azul.hs $HOSTNAME/release/$VERSION/Azul.hs && curl -o src/Azul/Types.hs $HOSTNAME/release/$VERSION/Azul/Types.hs && curl -o src/Azul/Internal/FFI.hs $HOSTNAME/release/$VERSION/Azul/Internal/FFI.hs"
+                                    "content": "mkdir -p src/Azul/Internal"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cabal build --extra-lib-dirs=. && DYLD_LIBRARY_PATH=. cabal run hello-world"
+                                    "content": "curl -o src/Azul.hs $HOSTNAME/release/$VERSION/Azul.hs"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -o src/Azul/Types.hs $HOSTNAME/release/$VERSION/Azul/Types.hs"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -o src/Azul/Internal/FFI.hs $HOSTNAME/release/$VERSION/Azul/Internal/FFI.hs"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cabal build --extra-lib-dirs=."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "DYLD_LIBRARY_PATH=. cabal run hello-world"
                                 }
                             ]
                         },
@@ -1654,11 +1742,27 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "mkdir src\\Azul\\Internal && curl -o src\\Azul.hs %HOSTNAME%/release/%VERSION%/Azul.hs && curl -o src\\Azul\\Types.hs %HOSTNAME%/release/%VERSION%/Azul/Types.hs && curl -o src\\Azul\\Internal\\FFI.hs %HOSTNAME%/release/%VERSION%/Azul/Internal/FFI.hs"
+                                    "content": "mkdir src\\Azul\\Internal"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cabal build --extra-lib-dirs=. && cabal run hello-world"
+                                    "content": "curl -o src\\Azul.hs %HOSTNAME%/release/%VERSION%/Azul.hs"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -o src\\Azul\\Types.hs %HOSTNAME%/release/%VERSION%/Azul/Types.hs"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -o src\\Azul\\Internal\\FFI.hs %HOSTNAME%/release/%VERSION%/Azul/Internal/FFI.hs"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cabal build --extra-lib-dirs=."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cabal run hello-world"
                                 }
                             ]
                         }
@@ -1684,7 +1788,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "mkdir -p src/main/resources/linux-x86-64 && mv libazul.so src/main/resources/linux-x86-64/"
+                                    "content": "mkdir -p src/main/resources/linux-x86-64"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "mv libazul.so src/main/resources/linux-x86-64/"
                                 },
                                 {
                                     "type": "command",
@@ -1713,7 +1821,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "mkdir -p src/main/resources/darwin && mv libazul.dylib src/main/resources/darwin/"
+                                    "content": "mkdir -p src/main/resources/darwin"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "mv libazul.dylib src/main/resources/darwin/"
                                 },
                                 {
                                     "type": "command",
@@ -1742,7 +1854,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "mkdir src\\main\\resources\\win32-x86-64 && move azul.dll src\\main\\resources\\win32-x86-64\\"
+                                    "content": "mkdir src\\main\\resources\\win32-x86-64"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "move azul.dll src\\main\\resources\\win32-x86-64\\"
                                 },
                                 {
                                     "type": "command",
@@ -1776,7 +1892,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "mkdir -p src/main/resources/linux-x86-64 && mv libazul.so src/main/resources/linux-x86-64/"
+                                    "content": "mkdir -p src/main/resources/linux-x86-64"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "mv libazul.so src/main/resources/linux-x86-64/"
                                 },
                                 {
                                     "type": "command",
@@ -1801,7 +1921,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "mkdir -p src/main/resources/darwin && mv libazul.dylib src/main/resources/darwin/"
+                                    "content": "mkdir -p src/main/resources/darwin"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "mv libazul.dylib src/main/resources/darwin/"
                                 },
                                 {
                                     "type": "command",
@@ -1826,7 +1950,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "mkdir src\\main\\resources\\win32-x86-64 && move azul.dll src\\main\\resources\\win32-x86-64\\"
+                                    "content": "mkdir src\\main\\resources\\win32-x86-64"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "move azul.dll src\\main\\resources\\win32-x86-64\\"
                                 },
                                 {
                                     "type": "command",
@@ -1837,7 +1965,7 @@
                     }
                 },
                 "lisp": {
-                    "displayName": "Common Lisp (CFFI)",
+                    "displayName": "Common Lisp",
                     "platforms": {
                         "linux": {
                             "description": "Download azul.lisp + native library, then load via SBCL/CCL/etc.",
@@ -1905,7 +2033,7 @@
                     }
                 },
                 "smalltalk": {
-                    "displayName": "Smalltalk (Pharo)",
+                    "displayName": "Smalltalk",
                     "platforms": {
                         "linux": {
                             "description": "Download azul, install Pharo, file in the bindings",
@@ -1997,7 +2125,7 @@
                     }
                 },
                 "algol68": {
-                    "displayName": "Algol 68 (a68g)",
+                    "displayName": "Algol 68",
                     "platforms": {
                         "linux": {
                             "description": "Install Algol 68 Genie (GPL-3.0+), download azul.a68 and the native library, then run with a68g",
@@ -2073,7 +2201,7 @@
                     }
                 },
                 "cobol": {
-                    "displayName": "COBOL (GnuCOBOL)",
+                    "displayName": "COBOL",
                     "platforms": {
                         "linux": {
                             "description": "Download azul.cpy, hello-world.cob, and the native library; build with cobc",
@@ -2153,7 +2281,7 @@
                     }
                 },
                 "node": {
-                    "displayName": "Node.js (koffi)",
+                    "displayName": "JavaScript",
                     "platforms": {
                         "linux": {
                             "description": "Download azul prebuilt + install koffi",
@@ -2233,10 +2361,10 @@
                     }
                 },
                 "vb6": {
-                    "displayName": "Visual Basic 6 (32-bit, Windows-only)",
+                    "displayName": "Visual Basic 6",
                     "platforms": {
                         "windows": {
-                            "description": "Use the VB6 IDE or vbc.exe; requires 32-bit azul.dll. VB6 is Microsoft's discontinued 1998 RAD tool whose runtime (msvbvm60.dll) still ships with every Windows 10/11. There is no 64-bit VB6 compiler \u2014 the binding only loads against the i686-pc-windows-msvc azul build.",
+                            "description": "Use the VB6 IDE or vbc.exe; requires 32-bit azul.dll. VB6 is Microsoft's discontinued 1998 RAD tool whose runtime (msvbvm60.dll) still ships with every Windows 10/11. There is no 64-bit VB6 compiler — the binding only loads against the i686-pc-windows-msvc azul build.",
                             "steps": [
                                 {
                                     "type": "command",

@@ -512,6 +512,7 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
         </aside>
 
         <main>
+            <div id='azul-search-mount' class='azs-mount-inline page-search'></div>
             <div id='guide'>
             <style>
                 {css}
@@ -614,6 +615,7 @@ pub fn generate_guide_mainpage(version: &str) -> String {
             {sidebar}
         </aside>
         <main>
+            <div id='azul-search-mount' class='azs-mount-inline page-search'></div>
             <h1>User Guide</h1>
             <style>{css}</style>
             <div id='guide-index'>
@@ -823,6 +825,7 @@ pub fn generate_guide_index(versions: &[String]) -> String {
             {sidebar}
         </aside>
         <main>
+            <div id='azul-search-mount' class='azs-mount-inline page-search'></div>
             <h1>Choose guide version</h1>
             <div>
             <ul>{version_items}</ul>

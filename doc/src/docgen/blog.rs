@@ -233,6 +233,7 @@ pub fn generate_blog_post_html(post: &BlogPost) -> String {
         </aside>
 
         <main>
+            <div id='azul-search-mount' class='azs-mount-inline page-search'></div>
             <div id='blog'>
             <style>
                 {css}
@@ -317,6 +318,7 @@ pub fn generate_blog_index() -> String {
             {sidebar}
         </aside>
         <main>
+            <div id='azul-search-mount' class='azs-mount-inline page-search'></div>
             <div id='blog-index'>
             <style>
                 {css}

@@ -16,18 +16,22 @@ const HTML_ROOT: &str = "https://azul.rs";
 /// # Arguments
 /// * `inline_css` - If true, CSS will be inlined into index.html to prevent FOUC.
 ///                  If false, only a link to main.css is used (faster for development).
+/// * `hostname` - Base URL used to interpolate `$HOSTNAME` markers inside
+///                installation commands. Production: `https://azul.rs`;
+///                debug deploy: `http://localhost:8000`.
 pub fn generate_docs(
     api_data: &ApiData,
     imageoutput_path: &Path,
     imageoutput_url: &str,
     inline_css: bool,
+    hostname: &str,
 ) -> anyhow::Result<BTreeMap<String, String>> {
     let mut docs = BTreeMap::new();
 
     // Generate main index.html
     docs.insert(
         "index.html".to_string(),
-        generate_index_html(&api_data, imageoutput_path, imageoutput_url, inline_css)?,
+        generate_index_html(&api_data, imageoutput_path, imageoutput_url, inline_css, hostname)?,
     );
 
     // Generate API documentation for each version
@@ -88,68 +92,83 @@ pub fn generate_docs(
     Ok(docs)
 }
 
-/// Generate the HTML for language tabs based on tabOrder configuration
-fn generate_language_tabs_html(installation: &crate::api::Installation) -> String {
-    let mut tabs = Vec::new();
+/// Languages always shown inline (above the fold). Everything else lives
+/// inside the collapsed `<details>` so the tab grid stays compact when
+/// the api ships with 30+ bindings.
+const PRIMARY_LANGUAGES: &[&str] = &["rust", "python", "c", "cpp"];
 
+/// Generate the HTML for language tabs based on tabOrder configuration.
+///
+/// Renders the four primary languages as flat buttons; the rest go into a
+/// `<details>` wrapper that the user can expand. Dialect groups (e.g. C++)
+/// are always rendered as a single dropdown regardless of which row they
+/// land in. The `<details>` is part of the same `.lang-grid` so clicking
+/// inside it doesn't change the language unless the user chooses one.
+fn generate_language_tabs_html(installation: &crate::api::Installation) -> String {
     // Use tabOrder if specified, otherwise use default order
     let tab_order: Vec<String> = if installation.tab_order.is_empty() {
-        // Default order: rust, python, cpp, c
-        vec![
-            "rust".to_string(),
-            "python".to_string(),
-            "cpp".to_string(),
-            "c".to_string(),
-        ]
+        PRIMARY_LANGUAGES.iter().map(|s| s.to_string()).collect()
     } else {
         installation.tab_order.clone()
     };
 
-    for lang in &tab_order {
-        // Check if this is a dialect group (has variants)
+    let render_lang_button = |lang: &str| -> Option<String> {
         if let Some(dialect) = installation.dialects.get(lang) {
-            // Generate dropdown for dialect - user must select a variant
             let default_variant = &dialect.default;
-
-            // Build options HTML for the dropdown - sorted by version (newest first)
             let mut variants: Vec<_> = dialect.variants.iter().collect();
-            variants.sort_by(|a, b| b.0.cmp(a.0)); // Reverse sort: cpp23 > cpp20 > cpp17...
-
+            // Reverse sort so newest dialect (e.g. cpp23) is first.
+            variants.sort_by(|a, b| b.0.cmp(a.0));
             let mut options_html = String::new();
             for (var_key, var_config) in variants {
                 options_html.push_str(&format!(
                     "<option value=\"{}\"{}>{}</option>",
                     var_key,
-                    if var_key == default_variant {
-                        " selected"
-                    } else {
-                        ""
-                    },
+                    if var_key == default_variant { " selected" } else { "" },
                     var_config.display_name
                 ));
             }
-
-            // Dropdown-only tab for dialects (no separate button - select IS the tab)
-            tabs.push(format!(
+            Some(format!(
                 r#"<div class="lang-tab-dropdown" data-lang="{}">
                     <select class="dialect-select" onchange="selectLanguage(this.value)">{}</select>
                 </div>"#,
                 lang, options_html
-            ));
+            ))
         } else if let Some(lang_config) = installation.languages.get(lang) {
-            // Skip dialect variants - they're handled by the parent dialect group
             if lang_config.dialect_of.is_some() {
-                continue;
+                return None; // handled by the parent dialect group
             }
-            // Simple button for non-dialect languages
-            tabs.push(format!(
+            Some(format!(
                 r#"<button data-lang="{}" onclick="selectLanguage('{}')">{}</button>"#,
                 lang, lang, lang_config.display_name
-            ));
+            ))
+        } else {
+            None
+        }
+    };
+
+    let mut primary_tabs = Vec::new();
+    let mut overflow_tabs = Vec::new();
+    for lang in &tab_order {
+        let html = match render_lang_button(lang) {
+            Some(s) => s,
+            None => continue,
+        };
+        if PRIMARY_LANGUAGES.iter().any(|p| p == lang) {
+            primary_tabs.push(html);
+        } else {
+            overflow_tabs.push(html);
         }
     }
 
-    tabs.join("\n        ")
+    let mut out = primary_tabs.join("\n        ");
+    if !overflow_tabs.is_empty() {
+        out.push_str(&format!(
+            "\n        <details class=\"lang-more\"><summary>more languages…</summary>\n        \
+             <div class=\"lang-more-grid\">\n        {}\n        </div></details>",
+            overflow_tabs.join("\n        ")
+        ));
+    }
+    out
 }
 
 /// Rendered example with all code variants for JavaScript.
@@ -273,6 +292,7 @@ fn generate_index_html(
     imageoutput_path: &Path,
     imageoutput_url: &str,
     inline_css: bool,
+    hostname: &str,
 ) -> anyhow::Result<String> {
     let latest_version_str = api_data.get_latest_version_str().unwrap();
     let latest_version = api_data.get_version(latest_version_str).unwrap();
@@ -352,7 +372,7 @@ fn generate_index_html(
 
     // Generate installation instructions JSON
     let installation_json =
-        generate_installation_json(&latest_version.installation, latest_version_str);
+        generate_installation_json(&latest_version.installation, latest_version_str, hostname);
 
     Ok(index_html_template
         .replace("$$INDEX_SECTION_EXAMPLES$$", &examples_html)
@@ -363,7 +383,11 @@ fn generate_index_html(
 }
 
 /// Generate JavaScript-compatible installation instructions
-fn generate_installation_json(installation: &crate::api::Installation, version: &str) -> String {
+fn generate_installation_json(
+    installation: &crate::api::Installation,
+    version: &str,
+    hostname: &str,
+) -> String {
     use crate::api::InstallationStep;
 
     #[derive(Serialize)]
@@ -451,8 +475,6 @@ fn generate_installation_json(installation: &crate::api::Installation, version: 
             })
             .collect()
     }
-
-    let hostname = HTML_ROOT;
 
     // Convert dialects
     let mut dialects = BTreeMap::new();
@@ -589,13 +611,19 @@ pub fn get_common_head_tags(inline_css: bool) -> String {
     ", base_url=base_url, css_tag=css_tag)
 }
 
-/// Script tag + init for the floating search panel.
+/// Script tag + init for the search panel.
 ///
 /// `page_kind` controls behavior the JS layer can't infer:
 ///   - `Api`     — clicking a result stays on the same page (anchor jump).
-///   - `Guide`   — clicking opens the api page in a new tab; `defaults`
-///                 pre-populate the panel with frontmatter-driven entries.
-///   - `Other`   — clicking navigates the same tab.
+///                 Searches the API index only.
+///   - `Guide`   — pagefind-only search over guide content. Defaults are
+///                 frontmatter-driven entries shown when the input is empty.
+///                 Clicking opens the api page in a new tab.
+///   - `Other`   — clicking navigates the same tab. Searches the API index.
+///
+/// If a page contains an element with id `azul-search-mount`, the JS will
+/// render an inline search bar at that location; otherwise it falls back
+/// to a floating pill in the corner.
 pub enum PageKind<'a> {
     Api,
     Guide(&'a [String]),
@@ -603,29 +631,30 @@ pub enum PageKind<'a> {
 }
 
 pub fn get_search_init(kind: PageKind<'_>) -> String {
-    // Guide pages query the api index AND the pagefind index over the
-    // guide HTML, so a single search box surfaces both API symbols and
-    // guide-content hits. The api-default adapter is always present so
-    // default keys + prefetch still work; the pagefind one is best-
-    // effort and silently no-ops if `/pagefind/` isn't deployed.
-    let (on_api, link_target, defaults_json, source_json) = match kind {
+    // Guide pages search guide content via pagefind only. API search lives
+    // on the api page itself; guide readers don't need symbol search to
+    // intrude on tutorial reading.
+    let (on_api, link_target, defaults_json, source_json, placeholder) = match kind {
         PageKind::Api => (
             true,
             "_self",
             String::from("[]"),
             r#"{ type: 'api-default' }"#.to_string(),
+            "Search API",
         ),
         PageKind::Guide(defaults) => (
             false,
             "_blank",
             serde_json::to_string(defaults).unwrap_or_else(|_| "[]".to_string()),
-            r#"[{ type: 'api-default' }, { type: 'pagefind', url: '/pagefind/' }]"#.to_string(),
+            r#"{ type: 'pagefind', url: '/pagefind/' }"#.to_string(),
+            "Search guide",
         ),
         PageKind::Other => (
             false,
             "_self",
             String::from("[]"),
             r#"{ type: 'api-default' }"#.to_string(),
+            "Search API",
         ),
     };
 
@@ -634,18 +663,28 @@ pub fn get_search_init(kind: PageKind<'_>) -> String {
 <script>
 document.addEventListener('DOMContentLoaded', function () {{
   if (!window.AzulSearch) return;
-  window.AzulSearch.attach({{
+  var mount = document.getElementById('azul-search-mount');
+  var opts = {{
     source: {source_json},
     onApiPage: {on_api},
     linkTarget: '{link_target}',
     defaults: {defaults_json},
-  }});
+    placeholder: '{placeholder}',
+  }};
+  if (mount) {{
+    opts.mount = mount;
+    opts.inline = true;
+    window.AzulSearch.mount(opts);
+  }} else {{
+    window.AzulSearch.attach(opts);
+  }}
 }});
 </script>"#,
         source_json = source_json,
         on_api = on_api,
         link_target = link_target,
         defaults_json = defaults_json,
+        placeholder = placeholder,
     )
 }
 
