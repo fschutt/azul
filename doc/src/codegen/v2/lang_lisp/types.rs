@@ -95,12 +95,11 @@ fn should_include_struct(s: &StructDef, config: &CodegenConfig) -> bool {
     if !s.generic_params.is_empty() {
         return false;
     }
+    // VecRef + DestructorOrClone unfiltered to match the C header — Vec
+    // wrappers reference them as fields.
     !matches!(
         s.category,
-        TypeCategory::Recursive
-            | TypeCategory::VecRef
-            | TypeCategory::DestructorOrClone
-            | TypeCategory::GenericTemplate
+        TypeCategory::Recursive | TypeCategory::GenericTemplate
     )
 }
 
@@ -113,9 +112,7 @@ fn should_include_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
     }
     !matches!(
         e.category,
-        TypeCategory::Recursive
-            | TypeCategory::GenericTemplate
-            | TypeCategory::DestructorOrClone
+        TypeCategory::Recursive | TypeCategory::GenericTemplate
     )
 }
 
