@@ -22,7 +22,8 @@ use anyhow::Result;
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{
-    CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind, StructDef,
+    CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
+    MonomorphizedKind, MonomorphizedTypeDef, MonomorphizedVariant, StructDef, TypeAliasDef,
     TypeCategory,
 };
 use super::{ffi_type_name, map_type_to_csharp, sanitize_identifier};
@@ -61,7 +62,134 @@ pub fn generate_types(
         generate_struct(builder, struct_def, ir);
     }
 
+    // Generic-instantiated type aliases (monomorphized). E.g.
+    // `ColumnCountValue = CssPropertyValue<ColumnCount>` becomes a
+    // concrete tagged union, parallel to what the C-header generator
+    // already does. Without this step ~1600 references to types like
+    // `AzColumnCountValue` are unresolved.
+    for ta in &ir.type_aliases {
+        let Some(ref mono_def) = ta.monomorphized_def else {
+            continue;
+        };
+        if !config.should_include_type(&ta.name) {
+            continue;
+        }
+        generate_monomorphized_alias(builder, ta, mono_def, ir);
+    }
+
     Ok(())
+}
+
+fn generate_monomorphized_alias(
+    builder: &mut CodeBuilder,
+    ta: &TypeAliasDef,
+    mono_def: &MonomorphizedTypeDef,
+    ir: &CodegenIR,
+) {
+    let name = ffi_type_name(&ta.name);
+    let doc = &ta.doc;
+
+    match &mono_def.kind {
+        MonomorphizedKind::SimpleEnum { variants, .. } => {
+            for d in doc {
+                builder.line(&format!("/// <summary>{}</summary>", xml_escape(d)));
+            }
+            builder.line(&format!("public enum {} : uint", name));
+            builder.line("{");
+            builder.indent();
+            for v in variants {
+                builder.line(&format!("{},", sanitize_identifier(v)));
+            }
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+
+        MonomorphizedKind::Struct { fields } => {
+            for d in doc {
+                builder.line(&format!("/// <summary>{}</summary>", xml_escape(d)));
+            }
+            builder.line("[StructLayout(LayoutKind.Sequential)]");
+            builder.line(&format!("public struct {}", name));
+            builder.line("{");
+            builder.indent();
+            if fields.is_empty() {
+                builder.line("public byte _dummy;");
+            } else {
+                for f in fields {
+                    let cs_type = ref_kind_field_type(&f.type_name, &f.ref_kind, ir);
+                    builder.line(&format!(
+                        "public {} {};",
+                        cs_type,
+                        sanitize_identifier(&f.name)
+                    ));
+                }
+            }
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+
+        MonomorphizedKind::TaggedUnion { variants, .. } => {
+            // Tag enum
+            builder.line(&format!("public enum {}_Tag : uint", name));
+            builder.line("{");
+            builder.indent();
+            for v in variants {
+                builder.line(&format!("{},", sanitize_identifier(&v.name)));
+            }
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+
+            // Per-variant struct
+            for v in variants {
+                let variant_struct = format!("{}Variant_{}", name, v.name);
+                builder.line("[StructLayout(LayoutKind.Sequential)]");
+                builder.line(&format!("public struct {}", variant_struct));
+                builder.line("{");
+                builder.indent();
+                builder.line(&format!("public {}_Tag tag;", name));
+                emit_monomorphized_payload_csharp(builder, v, ir);
+                builder.dedent();
+                builder.line("}");
+                builder.blank();
+            }
+
+            // Outer Explicit struct
+            for d in doc {
+                builder.line(&format!("/// <summary>{}</summary>", xml_escape(d)));
+            }
+            builder.line("[StructLayout(LayoutKind.Explicit)]");
+            builder.line(&format!("public struct {}", name));
+            builder.line("{");
+            builder.indent();
+            for v in variants {
+                let variant_struct = format!("{}Variant_{}", name, v.name);
+                builder.line("[FieldOffset(0)]");
+                builder.line(&format!(
+                    "public {} {};",
+                    variant_struct,
+                    sanitize_identifier(&v.name)
+                ));
+            }
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+    }
+}
+
+fn emit_monomorphized_payload_csharp(
+    builder: &mut CodeBuilder,
+    v: &MonomorphizedVariant,
+    ir: &CodegenIR,
+) {
+    let Some(ref payload_type) = v.payload_type else {
+        return;
+    };
+    let cs_type = ref_kind_field_type(payload_type, &v.payload_ref_kind, ir);
+    builder.line(&format!("public {} payload;", cs_type));
 }
 
 pub fn generate_callback_delegates(
@@ -95,11 +223,12 @@ fn should_include_struct(s: &StructDef, config: &CodegenConfig) -> bool {
     if !s.generic_params.is_empty() {
         return false;
     }
+    // Note: `VecRef` and `DestructorOrClone` are NOT skipped — Vec
+    // wrappers reference them as fields (e.g.
+    // `AzCalcAstItemVec.destructor: AzCalcAstItemVecDestructor`,
+    // `AzU8VecRef`). The C-header generator includes them; we follow.
     match s.category {
-        TypeCategory::Recursive
-        | TypeCategory::VecRef
-        | TypeCategory::DestructorOrClone
-        | TypeCategory::GenericTemplate => false,
+        TypeCategory::Recursive | TypeCategory::GenericTemplate => false,
         _ => true,
     }
 }
@@ -113,7 +242,7 @@ fn should_include_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
     }
     !matches!(
         e.category,
-        TypeCategory::Recursive | TypeCategory::GenericTemplate | TypeCategory::DestructorOrClone
+        TypeCategory::Recursive | TypeCategory::GenericTemplate
     )
 }
 

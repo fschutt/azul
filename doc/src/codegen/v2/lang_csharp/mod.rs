@@ -165,18 +165,33 @@ pub fn map_type_to_csharp(rust_type: &str, ir: &CodegenIR) -> String {
 
         // Anything else: assume it's a known type and apply Az prefix
         _ => {
-            // If the IR knows about this type, refer to its FFI struct.
-            if ir.find_struct(trimmed).is_some()
-                || ir.find_enum(trimmed).is_some()
-                || ir.find_type_alias(trimmed).is_some()
-                || ir
-                    .callback_typedefs
-                    .iter()
-                    .any(|c| c.name == trimmed)
-            {
+            // Resolve simple type aliases (e.g. `GLuint = u32`) to their
+            // target type recursively. Aliases with `monomorphized_def`
+            // are emitted as concrete types and keep their `Az<Name>`.
+            if let Some(ta) = ir.find_type_alias(trimmed) {
+                if ta.monomorphized_def.is_none() {
+                    return map_type_to_csharp(&ta.target, ir);
+                }
+                return ffi_type_name(trimmed);
+            }
+            // Recursive struct/enum types in field positions can't be
+            // expanded inline (would loop infinitely in marshaling).
+            // Collapse to IntPtr — same strategy the C header uses.
+            if let Some(s) = ir.find_struct(trimmed) {
+                if matches!(s.category, super::super::ir::TypeCategory::Recursive) {
+                    return "IntPtr".to_string();
+                }
+                return ffi_type_name(trimmed);
+            }
+            if let Some(e) = ir.find_enum(trimmed) {
+                if matches!(e.category, super::super::ir::TypeCategory::Recursive) {
+                    return "IntPtr".to_string();
+                }
+                return ffi_type_name(trimmed);
+            }
+            if ir.callback_typedefs.iter().any(|c| c.name == trimmed) {
                 ffi_type_name(trimmed)
             } else {
-                // Unknown: treat as opaque pointer
                 "IntPtr".to_string()
             }
         }
