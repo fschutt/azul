@@ -336,7 +336,8 @@ fn generate_callback_delegate(
     let args: Vec<String> = cb
         .args
         .iter()
-        .map(|arg| {
+        .enumerate()
+        .map(|(i, arg)| {
             // For C# delegates we use IntPtr for & and *. Owned blittable
             // structs are passed by value.
             let cs_type = match arg.ref_kind {
@@ -346,7 +347,17 @@ fn generate_callback_delegate(
                 | super::super::ir::ArgRefKind::Ptr
                 | super::super::ir::ArgRefKind::PtrMut => "IntPtr".to_string(),
             };
-            format!("{} {}", cs_type, sanitize_identifier(&arg.name))
+            // Arg name fallback: the IR sometimes carries empty arg names
+            // (e.g., destructor callback typedefs whose api.json entry only
+            // declares the type). C# requires every parameter to be named,
+            // so produce `arg{i}` when the IR didn't.
+            let raw_name = arg.name.trim();
+            let name = if raw_name.is_empty() {
+                format!("arg{}", i)
+            } else {
+                sanitize_identifier(raw_name)
+            };
+            format!("{} {}", cs_type, name)
         })
         .collect();
 
