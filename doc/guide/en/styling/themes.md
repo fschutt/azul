@@ -272,24 +272,56 @@ dynamic selectors and the `system:*` resolver. In Rust code you generally
 don't need to touch it. Stick with `system:*` and `@theme` or `@os` in
 your CSS. Those expressions stay ergonomic and re-evaluate automatically.
 
-## Application-specific overrides
+## How user theming layers with component CSS
+
+The cascade has three layers, from outermost to innermost:
+
+1. **System discovery** (the `system:*` keywords and `@theme dark`
+   condition). Resolved per frame from the running OS, so a theme
+   toggle takes effect on the next paint without a re-layout.
+2. **End-user ricing** — the optional CSS file the user dropped into
+   `~/.config/azul/styles/<app>.css` (Linux/macOS) or
+   `%APPDATA%\azul\styles\<app>.css` (Windows). Loaded at app startup
+   when the `io` feature is on.
+3. **Application CSS** — every `Css` you attach via `App::create`,
+   plus every component-level `Css` attached via `Dom::style(...)`,
+   plus inline `Dom::with_css(...)` rules.
+
+Components don't fight user theming because their selectors target
+component-internal classes (`.shadcn-card`, `.my-row`) while user
+theming targets the `system:*` color and font hooks. As long as a
+component reads its colors from `system:*` instead of hard-coding
+hex values, the user's `~/.config/azul/styles/<app>.css` can repaint
+the component without the component's source changing.
 
 A few escape hatches when the discovery isn't enough:
 
-- **Inline override**: a `with_css_property(...)` call wins over the
-  cascade for that node.
-- **Css override**: stack a second `Css` via `style(css)`. Later rule
-  blocks win at equal `(priority, specificity)`.
-- **End-user ricing**: when the `io` feature is enabled and
-  `AZUL_DISABLE_RICING` is unset, azul reads
-  `~/.config/azul/styles/<app>.css` (or `%APPDATA%\azul\styles\<app>.css`)
-  at startup and applies it as the *last* stylesheet. This lets a user
-  retheme an installed azul app without recompiling. Disable it for a
-  given install with `AZUL_DISABLE_RICING=1`.
+- **Inline override on a node**: `Dom::with_css_property(...)` wins
+  the cascade for that node.
+- **Subtree override via component CSS**: stack a second `Css` via
+  `Dom::style(css)`. Later rule blocks win at equal
+  `(priority, specificity)`. See [DOM › Component-level
+  stylesheets](../dom.md#component-level-stylesheets).
 
-The Linux-specific `AZUL_SMOKE_AND_MIRRORS` env var skips the standard
-GNOME or KDE detection and prefers the riced-desktop sources (Hyprland
-config, pywal cache).
+## Theming env vars
+
+All of azul's runtime env vars use the `AZ_` prefix. The ones that
+matter for theming:
+
+| Variable | Effect |
+|---|---|
+| `AZ_DISABLE_RICING` | Skip the end-user ricing file at startup. Set to disable user theming for a given install (e.g. a kiosk build that mustn't be re-themed). The ricing path runs only when the `io` feature is enabled. |
+| `AZ_SMOKE_AND_MIRRORS` | Linux only. Skip the GNOME / KDE detection chain and prefer riced-desktop sources (Hyprland config, pywal cache). Useful for tiling-WM users whose `XDG_CURRENT_DESKTOP` still says `gnome`. |
+| `AZ_BACKEND` | Force the windowing backend (`x11` / `wayland` on Linux, `cocoa` on macOS, `winapi` on Windows). Affects which system-style discovery code runs. |
+
+There's no env var that forces dark/light mode. Use the platform's
+own facilities (macOS *General > Appearance*, Windows *Personalization
+> Colors > Choose your mode*, GNOME *Settings > Appearance*); azul
+picks them up automatically through the `prefers-color-scheme`
+discovery and triggers a per-frame `@theme` re-evaluation.
+
+For the full list of `AZ_*` env vars (debug server, profiling, layout
+tracing, headless rendering), see [Debugging](../debugging.md).
 
 ## Coming Up Next
 

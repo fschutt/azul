@@ -545,10 +545,10 @@ impl WaylandWindow {
 
         // CI-only escape hatch: exit after first successful frame render.
         // Intentionally uses process::exit() to skip Drop impls for fast CI shutdown.
-        if result.is_ok() && std::env::var("AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
+        if result.is_ok() && std::env::var("AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
             log_info!(
                 LogCategory::Platform,
-                "[CI] AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting with success"
+                "[CI] AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting with success"
             );
             std::process::exit(0);
         }

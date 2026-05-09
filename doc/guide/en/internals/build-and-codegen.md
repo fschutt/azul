@@ -191,7 +191,7 @@ The two `cabi_*` features are wired so `cabi_internal` wins if both are on (note
 
 `configure_dynamic_linking` only fires when `cabi_external` is on and `cabi_internal` is off. Search order, top to bottom:
 
-1. **`AZUL_DLL_PATH`** — comma-separated, absolute or workspace-relative. Per-entry, prints `cargo:warning=Linking against ...`.
+1. **`AZ_DLL_PATH`** — comma-separated, absolute or workspace-relative. Per-entry, prints `cargo:warning=Linking against ...`.
 2. **`target/release/`**, **`target/debug/`** — local builds. `target/debug/` triggers an extra warning so contributors don't accidentally link against an unoptimized library.
 3. **System paths** — `/opt/homebrew/lib`, `/usr/local/lib`, `/usr/lib`. No copy, no rpath.
 
@@ -201,7 +201,7 @@ For local hits, the build script:
 - On Apple, runs `install_name_tool -id @executable_path/libazul.dylib` so the binary resolves the dylib next to itself at runtime — no `DYLD_LIBRARY_PATH` required.
 - Copies the dylib into `target/<profile>/`, `target/<profile>/examples/`, and `target/<profile>/deps/` so `cargo run --example`, plain binaries, and dep tests all find it.
 
-If only a static library (`libazul.a` / `azul.lib`) is found, the script falls back to `cargo:rustc-link-lib=static=azul`. If nothing is found, the build still proceeds, but the linker errors at link time with `-lazul` unresolved; the build script prints the search list as `cargo:warning` so you can tell `AZUL_DLL_PATH` what to point at.
+If only a static library (`libazul.a` / `azul.lib`) is found, the script falls back to `cargo:rustc-link-lib=static=azul`. If nothing is found, the build still proceeds, but the linker errors at link time with `-lazul` unresolved; the build script prints the search list as `cargo:warning` so you can tell `AZ_DLL_PATH` what to point at.
 
 ## Allocator selection
 
@@ -230,7 +230,7 @@ These are then `include_bytes!`ed and served with `Content-Encoding: br`. Qualit
 
 ## iOS automation
 
-`configure_ios()` runs only on iOS targets and only when `AZUL_IOS_SETUP` isn't `"disable"`. It checks for `xcode-select` and `ios-deploy`, then writes a default `.cargo/config.toml` and `scripts/ios-runner.sh` so `cargo run --target aarch64-apple-ios` deploys to a connected device. Existing files are preserved.
+`configure_ios()` runs only on iOS targets and only when `AZ_IOS_SETUP` isn't `"disable"`. It checks for `xcode-select` and `ios-deploy`, then writes a default `.cargo/config.toml` and `scripts/ios-runner.sh` so `cargo run --target aarch64-apple-ios` deploys to a connected device. Existing files are preserved.
 
 ## Python extension
 
@@ -287,7 +287,7 @@ The deploy command is invoked by CI. Locally you typically don't run it. `azul-d
 
 **"Missing generated file: dll_api_internal.rs".** You enabled `cabi_internal` (or any of `build-dll` / `link-static`) but haven't run codegen. Fix: `cd doc && cargo run --release -- codegen all`.
 
-**"can't link a dylib with itself".** Happens on `link-dynamic` when the build script's dylib copy step didn't fire. Check that `OUT_DIR` is writable and that `AZUL_DLL_PATH` (or `target/release/`) actually contains a valid `libazul.{dylib,so,dll}`.
+**"can't link a dylib with itself".** Happens on `link-dynamic` when the build script's dylib copy step didn't fire. Check that `OUT_DIR` is writable and that `AZ_DLL_PATH` (or `target/release/`) actually contains a valid `libazul.{dylib,so,dll}`.
 
 **Memtest failure on `assert_size_align_AzFoo`.** `api.json`'s field list for `Foo` no longer matches the Rust struct. Update one or the other, run `azul-doc normalize`, then `azul-doc codegen all`.
 

@@ -81,7 +81,7 @@ The C, C++, and Python bindings are downstream of `build-dll`: they consume the 
 
 `dll/build.rs` searches for `libazul.{so,dylib,dll}` in this order when dynamic linking is active:
 
-1. Each path in the comma-separated `AZUL_DLL_PATH` environment variable.
+1. Each path in the comma-separated `AZ_DLL_PATH` environment variable.
 2. `target/release/`, then `target/debug/` of the workspace root.
 3. System paths — `/opt/homebrew/lib`, `/usr/local/lib`, `/usr/lib` (skipped on Windows).
 

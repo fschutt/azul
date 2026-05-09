@@ -918,7 +918,7 @@ impl Win32Window {
             }
 
             // CI testing
-            if std::env::var("AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
+            if std::env::var("AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
                 std::process::exit(0);
             }
 
@@ -1118,7 +1118,7 @@ impl Win32Window {
             }
 
             // CI testing
-            if std::env::var("AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
+            if std::env::var("AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
                 std::process::exit(0);
             }
 

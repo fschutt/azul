@@ -975,7 +975,7 @@ fn detect_language_linux() -> AzString {
 /// Returns `None` if the file does not exist or cannot be parsed.
 fn load_app_specific_stylesheet() -> Option<Css> {
     // Bail out if ricing is disabled
-    if std::env::var("AZUL_DISABLE_RICING").is_ok() {
+    if std::env::var("AZ_DISABLE_RICING").is_ok() {
         return None;
     }
 
@@ -1060,7 +1060,7 @@ pub(crate) fn discover() -> SystemStyle {
     // ── 2. CLI-based discovery ──────────────────────────────────────
     // Check for the "smoke and mirrors" easter egg — skip standard DE
     // detection and go straight to riced desktop parsing.
-    let smoke = std::env::var("AZUL_SMOKE_AND_MIRRORS").is_ok();
+    let smoke = std::env::var("AZ_SMOKE_AND_MIRRORS").is_ok();
 
     let mut style = if smoke {
         discover_riced_style()

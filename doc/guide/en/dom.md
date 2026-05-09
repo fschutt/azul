@@ -127,9 +127,13 @@ The numbers tell you when you have to start thinking about virtual
 views, lazy panels, and other ways to keep the rendered subtree
 small. See [Virtual Views](dom/virtual-views.md).
 
-## The two structures
+## What's in a node
 
-`NodeHierarchyItem` (32 B) carries four indices into the same array:
+Each node is split across the two parallel arrays.
+
+`NodeHierarchyItem` carries four indices into the same array — the
+node's parent, its previous and next siblings, and its last
+descendant:
 
 ```rust,ignore
 pub struct NodeHierarchyItem {
@@ -142,19 +146,19 @@ pub struct NodeHierarchyItem {
 
 Because children sit contiguously after their parent in tree order,
 `data[self_idx ..= last_child]` is the whole subtree rooted at
-`self_idx`. No pointer-chasing, no recursion needed for a subtree
-copy.
+`self_idx`. No pointer-chasing, no recursion needed to copy a subtree.
 
-`NodeData` (152 B) carries everything that defines a single node:
+`NodeData` carries everything that defines a single node:
 
 - `node_type: NodeType` — the HTML tag (Div, P, Button, ...) or one of
   the four leaves (Text, Image, Icon, VirtualView).
 - `callbacks: CoreCallbackDataVec` — event handlers attached to the
   node. Empty for ~80% of nodes.
-- `style: Css` — inline CSS as a `Css` value (a flat list of
-  `CssRuleBlock`s with implicit `:scope`). Carries conditional rules
-  like `:hover` and `@theme dark`. Rules are tagged
-  `rule_priority::INLINE` so they override author CSS.
+- `style: Css` — inline CSS as a `Css` value with implicit `:scope`.
+  Same struct the cascade uses elsewhere. Carries conditional rules
+  (`:hover`, `:focus`, `@theme dark`, `@os macos`) directly. Inline
+  rules are tagged `rule_priority::INLINE` so they override author
+  CSS.
 - `flags: NodeFlags` — packed bits for tab index, contenteditable,
   anonymous.
 - `accessibility: Option<Box<AccessibilityInfo>>` — ARIA payload, only
@@ -163,8 +167,8 @@ copy.
   (attributes, dataset, virtual-view payload, menus, merge callback,
   SVG data). About 95% of nodes never trigger this allocation.
 
-The two `Option<Box<...>>` fields keep the common case at 152 B. A
-typical paragraph or div pays nothing for the accessibility or 
+The two `Option<Box<...>>` fields keep the common case small. A
+typical paragraph or div pays nothing for the accessibility or
 extras boxes.
 
 ## Frozen after creation
@@ -230,11 +234,12 @@ pub struct Dom {
 }
 ```
 
-A `Dom` is a subtree. Its root is a `NodeData`. The framework flattens
-the recursive form into parallel arrays once, at the start of the
-cascade. Every builder method on `Dom` (like `with_class` or
-`with_callback`) is a shorthand that delegates to the same method on
-`self.root`.
+A `Dom` is a subtree: a root `NodeData` plus its children plus any
+component-level stylesheets attached via `.style(Css)`. The framework
+flattens the recursive form into the parallel arrays once, at the
+start of the cascade. Every builder method on `Dom` (like `with_class`
+or `with_callback`) is a shorthand that delegates to the same method
+on `self.root`.
 
 ## Node constructors
 
@@ -406,62 +411,87 @@ fn build(mask: ImageMask) -> Dom {
 
 A `clip-path` set on a parent applies to every descendant.
 
-## CSS: per-node and per-subtree
+## Inline CSS
 
-There are two attachment points with two different semantics.
+The primary way to attach CSS is `.with_css(...)` on the node itself.
+You hand it a string; it parses through the same pipeline the cascade
+uses elsewhere and stores the result in `NodeData::style: Css`.
 
 ```rust,no_run
 use azul::prelude::*;
 
-// 1. with_css(...) parses a CSS string into the node's inline-property vec.
 let item = Dom::create_div().with_css("
     color: blue;
     font-size: 14px;
     :hover { color: red; }
     @theme dark { color: white; background: #222; }
 ");
-
-// 2. style(Css) attaches a parsed stylesheet to the subtree.
-let theme   = Css::from_string("body { font-family: sans-serif; }".into());
-let widgets = Css::from_string(".panel { padding: 8px; }".into());
-let body = Dom::create_body()
-    .style(theme)
-    .style(widgets)
-    .with_child(Dom::create_div().with_class("panel".into()));
 ```
 
-`with_css` ends up as a `CssPropertyWithConditionsVec` on the node itself,
-including the `:hover`, `:active`, `@os`, and `@theme` blocks. Conditions
-are evaluated per frame, so `@theme dark { ... }` adapts without a
-re-layout.
+The parsed rules carry their conditions directly: `:hover`, `:focus`,
+`:active`, `@os`, and `@theme` blocks all live inside the same `Css`
+value. Conditions are re-evaluated per frame, so `@theme dark { ... }`
+flips when the user toggles dark mode without any re-layout. Inline
+rules are tagged `rule_priority::INLINE` so they win the cascade
+against author CSS.
 
-`style(Css)` attaches a parsed stylesheet to the subtree. Multiple
-`style()` calls stack in push order. Later entries override earlier ones.
-This isn't strict Shadow-DOM scoping. The cascade flattens everything
-before matching, so descendant selectors still cross subtree boundaries.
-For strict scoping, hand-write selectors that include the component's
-marker class.
+After the recent unification, the inline store is a regular `Css` —
+the legacy `css_props: CssPropertyWithConditionsVec` field is gone.
+`with_css_props(vec)` still works as a compatibility shim that maps
+each property to a single-declaration rule at INLINE priority.
 
-Components typically ship a `style()` call on their root so callers don't
-have to wire CSS by hand. See [Components](dom/components.md).
+## Component-level stylesheets
+
+Reusable components ship a parsed stylesheet that travels with the
+subtree. Attach it on the component's root with `.style(Css)`:
+
+```rust,no_run
+use azul::prelude::*;
+
+let widgets = Css::from_string(".panel { padding: 8px; }".into());
+let panel: Dom = Dom::create_div()
+    .with_class("panel".into())
+    .style(widgets);
+```
+
+Multiple `.style(...)` calls stack in push order; later entries
+override earlier ones at equal specificity. The framework gathers
+every component-level `Css` together with the application stylesheet
+and runs a single cascade after `layout()` returns.
+
+Component CSS *applies to the subtree where it was attached* because
+the rules only have a chance to match nodes that the component owns —
+the cascade is global, but the component's marker class (or other
+selector that scopes its rules) only exists inside its own subtree.
+That's the convention components follow rather than a Shadow-DOM
+boundary the framework enforces. For hard scoping, write selectors
+that nest under the component's root class.
+
+User-level theming (the system `@theme dark { ... }` block, the
+`system:*` color keywords, end-user ricing in
+`~/.config/azul/styles/<app>.css`) sits at the *outermost* layer of
+the cascade. Component CSS doesn't fight user theming because the
+component rules typically target component-internal classes, while
+user theming targets the system color and font hooks. See
+[Theming](styling/themes.md) for the full theming model and the
+`AZ_DISABLE_RICING` opt-out.
 
 ## When does CSS apply?
 
-Not while your `LayoutCallback` is running. The `Dom` you build carries
-CSS as opaque state:
+Not while your `LayoutCallback` is running. The `Dom` you build
+carries CSS as opaque state — `NodeData::style: Css` for inline
+rules, `Dom::css: CssVec` for component stylesheets. The cascade
+runs once after your layout callback returns: selector matching,
+inheritance, and the compact-cache build all happen there.
 
-- Per-node: a `CssPropertyWithConditionsVec` (parsed but not cascaded).
-- Per-subtree: a `CssVec` of parsed-but-unmerged stylesheets.
-
-The cascade runs once after your layout callback returns. CSS work
-inside `layout()` is cheap because each operation is just a parse and a
-push. Selector matching, inheritance, and the compact cache build all
-run once after you return.
+CSS work inside `layout()` is cheap because each call is just a parse
+and a push. The framework collects the rules, sorts by `(priority,
+specificity)`, and walks the tree once to fill the compact cache.
 
 For the internal cache layout that the layout engine reads, see
 [internals/styling/compact-cache.md](internals/styling/compact-cache.md).
 
-## Loading XML and XHTML
+## Parsing from XHTML
 
 `Dom::create_from_parsed_xml` is the public entry point. Pass it an `Xml`
 value and you get a `Dom` back, ready to return from `layout()`:
@@ -483,7 +513,7 @@ any other DOM.
 [Components](dom/components.md#component-packs) for how the framework
 looks up `<card title="..."/>` against a registered library.
 
-## Inline SVG
+## Parsing from SVG
 
 The same XML pipeline accepts `<svg>` tags inside the body and turns
 them into vector nodes that render alongside the rest of the Dom.
@@ -540,10 +570,16 @@ fn build(state: RefAny) -> Dom {
 }
 ```
 
-`with_callback(filter, data, callback)` attaches a `RefAny` and a function
-pointer. The handler fires when the matching event reaches the node.
-Event filtering, propagation order, and the `CallbackInfo` API are
-covered in [Events and Input](events.md).
+`with_callback(filter, data, callback)` attaches a `RefAny` and a
+function pointer. The handler fires when the matching event reaches
+the node. The callback returns an `Update` that tells the framework
+whether to re-run layout, re-render, or do nothing.
+
+What the callback can actually *do* — read the dataset, query the
+hit-test, dispatch to siblings, focus another node, schedule a
+timer, post a thread message — lives in
+[Callbacks](callbacks.md). Event filtering and propagation order
+are in [Events and Input](events.md).
 
 The framework's reconciler matches new nodes against old ones when you
 return a fresh tree. Cursor position, focus, and dataset state migrate
@@ -642,7 +678,9 @@ for how a library wires its components into the registry.
 
 ## Coming Up Next
 
+- [Callbacks](callbacks.md) — What `CallbackInfo` exposes, dataset reads, focus/scroll dispatch
 - [Reconciliation](dom/reconciliation.md) — Diffing, restyle scope, and damage-rect repaint
 - [Datasets](dom/datasets.md) — Attaching state to a node for navigation and per-instance state
-- [Components](dom/components.md) — Reusable UI fragments - named functions of (args) -> Dom
+- [Components](dom/components.md) — Reusable UI fragments — named functions of (args) -> Dom
 - [Styling with CSS](styling.md) — Stylesheets, selectors, and the cascade
+- [Theming](styling/themes.md) — `@theme dark`, `system:*` colors, and end-user ricing

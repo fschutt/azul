@@ -645,9 +645,9 @@ fn detect_language_macos() -> AzString {
 /// `~/Library/Application Support/azul/styles/<exe_name>.css`.
 ///
 /// Returns `None` if the file does not exist, is unreadable, or the
-/// `AZUL_DISABLE_RICING` environment variable is set.
+/// `AZ_DISABLE_RICING` environment variable is set.
 fn load_app_specific_stylesheet() -> Option<Css> {
-    if std::env::var("AZUL_DISABLE_RICING").is_ok() {
+    if std::env::var("AZ_DISABLE_RICING").is_ok() {
         return None;
     }
 

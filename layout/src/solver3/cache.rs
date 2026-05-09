@@ -992,7 +992,7 @@ pub fn reconcile_recursive(
                 static FP_DUMP_ENABLED: std::sync::OnceLock<bool> =
                     std::sync::OnceLock::new();
                 let enabled = *FP_DUMP_ENABLED.get_or_init(|| {
-                    std::env::var_os("AZUL_FP_DUMP").is_some()
+                    std::env::var_os("AZ_FP_DUMP").is_some()
                 });
                 if enabled {
                     use std::sync::atomic::{AtomicUsize, Ordering};

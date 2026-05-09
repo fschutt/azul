@@ -7,10 +7,10 @@
 //! By default (if the `io` feature is enabled), Azul will look for an application-specific
 //! stylesheet at `~/.config/azul/styles/<app_name>.css` (or `%APPDATA%\azul\styles\<app_name>.css`
 //! on Windows). This allows end-users to override and "rice" any Azul application.
-//! This behavior can be disabled by setting the `AZUL_DISABLE_RICING` environment variable.
+//! This behavior can be disabled by setting the `AZ_DISABLE_RICING` environment variable.
 //!
 //! **Linux Customization Easter Egg:**
-//! Linux users can set the `AZUL_SMOKE_AND_MIRRORS` environment variable to force Azul to
+//! Linux users can set the `AZ_SMOKE_AND_MIRRORS` environment variable to force Azul to
 //! skip standard GNOME/KDE detection and prioritize discovery methods for "riced" desktops
 //! (like parsing Hyprland configs or `pywal` caches), leaning into the car "ricing" subculture
 //! where a flashy appearance is paramount.
@@ -104,7 +104,7 @@ pub struct SystemStyle {
     /// An optional, user-provided stylesheet loaded from a conventional
     /// location (`~/.config/azul/styles/<app_name>.css`), allowing for
     /// application-specific "ricing". This is only loaded when the "io"
-    /// feature is enabled and not disabled by the `AZUL_DISABLE_RICING` env var.
+    /// feature is enabled and not disabled by the `AZ_DISABLE_RICING` env var.
     pub app_specific_stylesheet: Option<Box<Css>>,
     /// Scrollbar style information (boxed to ensure stable FFI size)
     pub scrollbar: Option<Box<ComputedScrollbarStyle>>,

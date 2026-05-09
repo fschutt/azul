@@ -94,7 +94,7 @@ The gate:
 
 ```rust,ignore
 pub fn should_use_gnome_menus() -> bool {
-    if env::var("AZUL_DISABLE_GNOME_MENUS").unwrap_or_default() == "1" { return false; }
+    if env::var("AZ_DISABLE_GNOME_MENUS").unwrap_or_default() == "1" { return false; }
     let desktop = env::var("XDG_CURRENT_DESKTOP").unwrap_or_default();
     if !desktop.to_lowercase().contains("gnome") { return false; }
     if env::var("DBUS_SESSION_BUS_ADDRESS").is_err() { return false; }
@@ -104,7 +104,7 @@ pub fn should_use_gnome_menus() -> bool {
 
 Both X11 and Wayland windows call this at startup. When false, no DBus connection is opened and the windowing backend renders its menu bar in the title-bar area as part of the client-side decorations.
 
-`AZUL_GNOME_MENU_DEBUG=1` enables verbose logging via `debug_log` — useful when GNOME Shell silently ignores a published menu.
+`AZ_GNOME_MENU_DEBUG=1` enables verbose logging via `debug_log` — useful when GNOME Shell silently ignores a published menu.
 
 ## GnomeMenuManager
 
@@ -253,7 +253,7 @@ event loop ── drain_pending_menu_callbacks ── invoke CoreMenuCallback
 
 The handful of unit tests in this subtree all `#[cfg_attr(miri, ignore)]` because Miri can't dlopen, and they gracefully degrade when `libdbus-1.so` is not installed (`shared_dbus::test_dbus_library_loading` reports either "loaded successfully" or "not available").
 
-For integration testing on a CI runner without GNOME, set `AZUL_DISABLE_GNOME_MENUS=1` to force the in-window menu bar path and avoid every code path on this page.
+For integration testing on a CI runner without GNOME, set `AZ_DISABLE_GNOME_MENUS=1` to force the in-window menu bar path and avoid every code path on this page.
 
 ## Where to add new menu features
 

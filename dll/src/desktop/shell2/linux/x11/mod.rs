@@ -553,10 +553,10 @@ impl X11Window {
         }?;
 
         // CI testing: Exit successfully after first frame render if env var is set
-        if std::env::var("AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
+        if std::env::var("AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
             log_info!(
                 LogCategory::General,
-                "[CI] AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting with success"
+                "[CI] AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting with success"
             );
             std::process::exit(0);
         }
@@ -1809,10 +1809,10 @@ impl X11Window {
             self.common.display_list_initialized = true;
 
             // CI testing: Exit successfully after first frame render if env var is set
-            if std::env::var("AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
+            if std::env::var("AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
                 log_debug!(
                     LogCategory::General,
-                    "[CI] AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting"
+                    "[CI] AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting"
                 );
                 std::process::exit(0);
             }
@@ -1987,10 +1987,10 @@ impl X11Window {
         }
 
         // CI testing: Exit successfully after first frame render if env var is set
-        if std::env::var("AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
+        if std::env::var("AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
             log_debug!(
                 LogCategory::General,
-                "[CI] AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting"
+                "[CI] AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting"
             );
             std::process::exit(0);
         }

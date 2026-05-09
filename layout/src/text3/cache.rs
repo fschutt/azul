@@ -6497,10 +6497,10 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
     // call on macOS (env-lock + hashmap lookup), and even before the
     // lookup finishes the `eprintln!` machinery takes a stderr lock
     // and allocates the formatted string. Both are invisible in
-    // release unless `AZUL_FONT_FALLBACK_DEBUG=1` is set.
+    // release unless `AZ_FONT_FALLBACK_DEBUG=1` is set.
     static FONT_FB_DEBUG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     let dbg = *FONT_FB_DEBUG.get_or_init(|| {
-        std::env::var_os("AZUL_FONT_FALLBACK_DEBUG").is_some()
+        std::env::var_os("AZ_FONT_FALLBACK_DEBUG").is_some()
     });
 
     let segments = split_text_by_font_coverage(text, font_chain, fc_cache);

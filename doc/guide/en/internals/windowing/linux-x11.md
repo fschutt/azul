@@ -42,7 +42,7 @@ default-search-keys:
 
 *WIP — XRandR DPI handling and the override-redirect tooltip path are still iterating. Most code paths are stable.* The X11 backend is `LinuxWindow::X11(X11Window)` selected by `LinuxWindow::select_backend`. Selection priority:
 
-1. `AZUL_BACKEND=x11` / `wayland` — explicit override.
+1. `AZ_BACKEND=x11` / `wayland` — explicit override.
 2. `WAYLAND_DISPLAY` set → Wayland.
 3. `DISPLAY` set → X11.
 4. Otherwise `WindowError::NoBackendAvailable`.

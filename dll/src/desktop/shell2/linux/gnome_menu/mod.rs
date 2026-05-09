@@ -16,8 +16,8 @@
 //!
 //! ## Environment Variables
 //!
-//! - `AZUL_DISABLE_GNOME_MENUS=1` - Force fallback to CSD menus
-//! - `AZUL_GNOME_MENU_DEBUG=1` - Enable debug logging
+//! - `AZ_DISABLE_GNOME_MENUS=1` - Force fallback to CSD menus
+//! - `AZ_GNOME_MENU_DEBUG=1` - Enable debug logging
 //!
 //! ## Architecture
 //!
@@ -60,13 +60,13 @@ pub(crate) use x11_properties::X11Properties;
 /// Check if GNOME native menus should be used
 ///
 /// Returns `false` if:
-/// - `AZUL_DISABLE_GNOME_MENUS=1` environment variable is set
+/// - `AZ_DISABLE_GNOME_MENUS=1` environment variable is set
 /// - Not running on GNOME desktop (checks `XDG_CURRENT_DESKTOP`)
 /// - DBus session bus not available
 pub fn should_use_gnome_menus() -> bool {
     // Check explicit disable flag
-    if env::var("AZUL_DISABLE_GNOME_MENUS").unwrap_or_default() == "1" {
-        debug_log("GNOME menus disabled via AZUL_DISABLE_GNOME_MENUS=1");
+    if env::var("AZ_DISABLE_GNOME_MENUS").unwrap_or_default() == "1" {
+        debug_log("GNOME menus disabled via AZ_DISABLE_GNOME_MENUS=1");
         return false;
     }
 
@@ -90,9 +90,9 @@ pub fn should_use_gnome_menus() -> bool {
     true
 }
 
-/// Print debug log if `AZUL_GNOME_MENU_DEBUG=1`
+/// Print debug log if `AZ_GNOME_MENU_DEBUG=1`
 pub(crate) fn debug_log(msg: &str) {
-    if env::var("AZUL_GNOME_MENU_DEBUG").unwrap_or_default() == "1" {
+    if env::var("AZ_GNOME_MENU_DEBUG").unwrap_or_default() == "1" {
         log_debug!(LogCategory::Platform, "[AZUL GNOME MENU] {}", msg);
     }
 }
@@ -153,19 +153,19 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)] // Miri has issues with env var manipulation
     fn test_should_use_gnome_menus_respects_disable_flag() {
-        env::set_var("AZUL_DISABLE_GNOME_MENUS", "1");
+        env::set_var("AZ_DISABLE_GNOME_MENUS", "1");
         assert!(!should_use_gnome_menus());
-        env::remove_var("AZUL_DISABLE_GNOME_MENUS");
+        env::remove_var("AZ_DISABLE_GNOME_MENUS");
     }
 
     #[test]
     #[cfg_attr(miri, ignore)] // Miri has issues with env var manipulation
     fn test_debug_log_only_prints_when_enabled() {
-        env::remove_var("AZUL_GNOME_MENU_DEBUG");
+        env::remove_var("AZ_GNOME_MENU_DEBUG");
         debug_log("Should not print");
 
-        env::set_var("AZUL_GNOME_MENU_DEBUG", "1");
+        env::set_var("AZ_GNOME_MENU_DEBUG", "1");
         debug_log("Should print to stderr");
-        env::remove_var("AZUL_GNOME_MENU_DEBUG");
+        env::remove_var("AZ_GNOME_MENU_DEBUG");
     }
 }

@@ -3980,7 +3980,7 @@ pub fn resolve_font_chains_fast(
     use rust_fontconfig::PatternMatch;
 
     static DBG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    let dbg = *DBG.get_or_init(|| std::env::var_os("AZUL_FAST_RESOLVE_DEBUG").is_some());
+    let dbg = *DBG.get_or_init(|| std::env::var_os("AZ_FAST_RESOLVE_DEBUG").is_some());
 
     let mut chains: HashMap<FontChainKeyOrRef, rust_fontconfig::FontFallbackChain> =
         HashMap::new();

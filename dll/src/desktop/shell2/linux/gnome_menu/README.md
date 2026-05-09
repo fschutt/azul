@@ -131,14 +131,14 @@ match manager.set_window_properties(window_id, display) {
 
 ## Environment Variables
 
-### `AZUL_DISABLE_GNOME_MENUS`
+### `AZ_DISABLE_GNOME_MENUS`
 
 Force fallback to CSD window-based menus  
 
 - `1` = disabled
 - any other value or unset = enabled
 
-### `AZUL_GNOME_MENU_DEBUG`
+### `AZ_GNOME_MENU_DEBUG`
 
 Enable debug logging to stderr  
 
@@ -323,7 +323,7 @@ if let Some(ref menu_manager) = window.gnome_menu {
 │                    GnomeMenuManager                          │
 │  ┌──────────────────────────────────────────────────────┐   │
 │  │  Detection Logic (should_use_gnome_menus)            │   │
-│  │  • Check AZUL_DISABLE_GNOME_MENUS                    │   │
+│  │  • Check AZ_DISABLE_GNOME_MENUS                    │   │
 │  │  • Check XDG_CURRENT_DESKTOP                         │   │
 │  │  • Check DBUS_SESSION_BUS_ADDRESS                    │   │
 │  └──────────────────────────────────────────────────────┘   │

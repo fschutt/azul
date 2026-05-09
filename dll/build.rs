@@ -85,14 +85,14 @@ fn probe_dir(dir: &Path, target: &str) -> bool {
 /// Set up link search paths for `link-dynamic`.
 ///
 /// Search order:
-/// 1. `AZUL_DLL_PATH` (comma-separated, absolute or workspace-relative)
-/// 2. `target/release` then `target/debug` (only when AZUL_DLL_PATH unset)
+/// 1. `AZ_DLL_PATH` (comma-separated, absolute or workspace-relative)
+/// 2. `target/release` then `target/debug` (only when AZ_DLL_PATH unset)
 ///
 /// If only a static library is found, links statically against it.
 /// Copies the found dylib into the output directory so the binary can
 /// find it at runtime without setting `DYLD_LIBRARY_PATH` / `LD_LIBRARY_PATH`.
 fn configure_dynamic_linking(target: &str) {
-    println!("cargo:rerun-if-env-changed=AZUL_DLL_PATH");
+    println!("cargo:rerun-if-env-changed=AZ_DLL_PATH");
 
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let workspace_root = Path::new(&manifest_dir).parent().unwrap();
@@ -117,10 +117,10 @@ fn configure_dynamic_linking(target: &str) {
     // Search paths: (directory, is_system)
     // - Local paths: ship dylib with app, use rpath to @loader_path/$ORIGIN
     // - System paths: dylib is installed globally, no rpath needed
-    let env_path = env::var("AZUL_DLL_PATH").unwrap_or_default();
+    let env_path = env::var("AZ_DLL_PATH").unwrap_or_default();
     let mut dirs: Vec<(PathBuf, bool)> = Vec::new();
 
-    // 1. AZUL_DLL_PATH (user override, comma-separated) — local
+    // 1. AZ_DLL_PATH (user override, comma-separated) — local
     if !env_path.is_empty() {
         for entry in env_path.split(',') {
             let entry = entry.trim();
@@ -240,14 +240,14 @@ fn configure_dynamic_linking(target: &str) {
     // Nothing found
     let searched: Vec<_> = dirs.iter().map(|(p, _)| p.display().to_string()).collect();
     println!("cargo:warning=Could not find {} or {}", lib_filename(target), sname);
-    println!("cargo:warning=Set AZUL_DLL_PATH to the directory containing the library");
+    println!("cargo:warning=Set AZ_DLL_PATH to the directory containing the library");
     println!("cargo:warning=Searched: {}", searched.join(", "));
 }
 
 // ── iOS setup ─────────────────────────────────────────────────────────
 
 fn configure_ios() {
-    if env::var("AZUL_IOS_SETUP").unwrap_or_default() == "disable" {
+    if env::var("AZ_IOS_SETUP").unwrap_or_default() == "disable" {
         return;
     }
 

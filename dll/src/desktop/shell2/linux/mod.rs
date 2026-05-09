@@ -120,19 +120,19 @@ impl LinuxWindow {
     /// Detect and select appropriate backend.
     ///
     /// Priority:
-    /// 1. Check AZUL_BACKEND environment variable
+    /// 1. Check AZ_BACKEND environment variable
     /// 2. Try Wayland (if WAYLAND_DISPLAY set and feature enabled)
     /// 3. Fall back to X11 (if DISPLAY set)
     pub fn select_backend() -> Result<BackendType, WindowError> {
         // Check environment variable override
-        if let Ok(backend) = std::env::var("AZUL_BACKEND") {
+        if let Ok(backend) = std::env::var("AZ_BACKEND") {
             match backend.to_lowercase().as_str() {
                 "x11" => return Ok(BackendType::X11),
                 "wayland" => return Ok(BackendType::Wayland),
                 _ => {
                     log_warn!(
                         LogCategory::Platform,
-                        "Warning: Invalid AZUL_BACKEND='{}', auto-detecting",
+                        "Warning: Invalid AZ_BACKEND='{}', auto-detecting",
                         backend
                     );
                 }

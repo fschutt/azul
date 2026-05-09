@@ -117,7 +117,7 @@ features = ["link-dynamic"]
 ```
 
 The `build.rs` system is relatively smart: if you have azul installed on your system, 
-but `AZUL_DLL_PATH` is missing, it will link against the system library. So, a simple 
+but `AZ_DLL_PATH` is missing, it will link against the system library. So, a simple 
 `brew install libazul` followed by `cargo run` should work (if not, open a ticket).
 
 ### Static "Rust-native" linking

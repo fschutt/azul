@@ -181,7 +181,7 @@ A few escape hatches:
 
 End-user ricing of icons (replacing `material/home` with a user-chosen
 SVG without recompiling) is on the road map alongside the existing
-`AZUL_DISABLE_RICING` CSS hook described in
+`AZ_DISABLE_RICING` CSS hook described in
 [System Themes](themes.md#application-specific-overrides).
 
 ## Coming Up Next
