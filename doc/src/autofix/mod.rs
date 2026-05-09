@@ -3485,7 +3485,11 @@ pub mod reserved_keywords {
             ][..],
         );
 
-        // PHP keywords
+        // PHP keywords + scalar type aliases (PHP 7.0+) which can't be
+        // class names because they overlap with type-hint syntax. Since
+        // PHP 7.0+: int / float / bool / string / iterable / object /
+        // void / null / mixed / never / true / false. Plus the namespace
+        // self-references self / parent / static.
         map.insert(
             "php",
             &[
@@ -3493,6 +3497,7 @@ pub mod reserved_keywords {
                 "and",
                 "array",
                 "as",
+                "bool",
                 "break",
                 "callable",
                 "case",
@@ -3515,11 +3520,14 @@ pub mod reserved_keywords {
                 "endif",
                 "endswitch",
                 "endwhile",
+                "enum",
                 "eval",
                 "exit",
                 "extends",
+                "false",
                 "final",
                 "finally",
+                "float",
                 "fn",
                 "for",
                 "foreach",
@@ -3532,13 +3540,20 @@ pub mod reserved_keywords {
                 "include_once",
                 "instanceof",
                 "insteadof",
+                "int",
                 "interface",
                 "isset",
+                "iterable",
                 "list",
                 "match",
+                "mixed",
                 "namespace",
+                "never",
                 "new",
+                "null",
+                "object",
                 "or",
+                "parent",
                 "print",
                 "private",
                 "protected",
@@ -3547,21 +3562,22 @@ pub mod reserved_keywords {
                 "require",
                 "require_once",
                 "return",
+                "self",
                 "static",
+                "string",
                 "switch",
                 "throw",
                 "trait",
+                "true",
                 "try",
                 "unset",
                 "use",
                 "var",
+                "void",
                 "while",
                 "xor",
                 "yield",
                 "yield from",
-                "true",
-                "false",
-                "null",
             ][..],
         );
 
