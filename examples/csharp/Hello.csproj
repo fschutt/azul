@@ -1,38 +1,21 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- =====================================================================
-       Hello-world example for the Azul C# bindings.
-
-       This project depends on the generated `Azul.csproj`. Run the
-       azul-doc codegen first so that ../../target/codegen/v2/Azul.csproj
-       (and the matching native binaries under runtimes/) exist; then:
-
-           dotnet build
+  <!-- Hello-world for the Azul C# bindings.
+       Self-contained: compiles hello-world.cs + the generated Azul.cs
+       (copy from `target/codegen/Azul.cs` next to this file). The native
+       library `libazul.dylib` / `azul.dll` / `libazul.so` must sit in
+       the same directory or on the dynamic-loader search path.
+       Build + run:
            dotnet run
-
-       Adjust the <ProjectReference> path below if your codegen output
-       directory differs.
-       ===================================================================== -->
+  -->
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net6.0</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
     <RootNamespace>HelloWorld</RootNamespace>
     <AssemblyName>HelloWorld</AssemblyName>
-    <Nullable>disable</Nullable>
+    <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <RuntimeIdentifiers>win-x64;linux-x64;osx-x64;osx-arm64</RuntimeIdentifiers>
   </PropertyGroup>
-
-  <ItemGroup>
-    <Compile Include="hello-world.cs" />
-  </ItemGroup>
-
-  <!-- Reference the generated Azul bindings project. The path assumes
-       the codegen output lives at <repo>/target/codegen/v2/Azul.csproj.
-       Edit this if you place the generated project elsewhere. -->
-  <ItemGroup>
-    <ProjectReference Include="../../target/codegen/v2/Azul.csproj" />
-  </ItemGroup>
 
 </Project>

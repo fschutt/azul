@@ -5,9 +5,13 @@
                              http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <!--
          Hello-world Maven project for the Azul Java bindings.
-         Place the prebuilt native library under
-         src/main/resources/{linux-x86-64,win32-x86-64,darwin}/ before
-         running `mvn package`.
+         Compiles HelloWorld.java + every generated com.azul.* class
+         (sourced from this directory; copy them in via:
+             cp target/codegen/java/*.java examples/java/com/azul/
+         then run:
+             cp target/release/libazul.dylib examples/java/
+             cd examples/java && mvn package
+             java -cp target/hello-world-1.0.0.jar:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout) com.azul.HelloWorld
       -->
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.azul.examples</groupId>
@@ -28,11 +32,6 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.11.0</version>
-                <configuration>
-                    <includes>
-                        <include>HelloWorld.java</include>
-                    </includes>
-                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -41,7 +40,7 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>HelloWorld</mainClass>
+                            <mainClass>com.azul.HelloWorld</mainClass>
                         </manifest>
                     </archive>
                 </configuration>
@@ -54,11 +53,6 @@
             <groupId>net.java.dev.jna</groupId>
             <artifactId>jna</artifactId>
             <version>5.14.0</version>
-        </dependency>
-        <dependency>
-            <groupId>com.azul</groupId>
-            <artifactId>azul</artifactId>
-            <version>1.0.0</version>
         </dependency>
     </dependencies>
 </project>
