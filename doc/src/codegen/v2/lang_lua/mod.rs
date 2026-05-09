@@ -24,6 +24,7 @@
 //! cdef stays in lockstep with `azul.h`.
 
 pub mod cdef;
+pub mod managed;
 pub mod rockspec;
 pub mod wrappers;
 
@@ -88,10 +89,29 @@ pub fn generate(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
     builder.line("azul.C = C");
     builder.blank();
 
-    // 6. Wrapper layer.
+    // 6. Managed-FFI prelude: pin table + RefAny user-data store. Must be
+    //    emitted before the wrappers because wrapper methods reference
+    //    `azul.pin_callback(...)` for callback-typed arguments.
+    let mut managed_buf = String::new();
+    managed::emit_managed_prelude(&mut managed_buf);
+    builder.raw(&managed_buf);
+
+    // 7. Wrapper layer.
     builder.raw(&wrappers::generate_wrappers(ir));
 
-    // 7. Trailer.
+    // 8. Postlude: ergonomic helpers that need to attach to wrapper tables
+    //    after the wrappers have created them. `azul.String.from_lua(s)` is
+    //    the only one today — wraps a regular Lua string in an AzString
+    //    without forcing callers to deal with `ffi.cast('const uint8_t*', s)`.
+    builder.line("");
+    builder.line("-- Postlude: convenience helpers that hang off generated wrappers.");
+    builder.line("azul.String.from_lua = function(s)");
+    builder.line("    return C.AzString_copyFromBytes(");
+    builder.line("        ffi.cast('const uint8_t*', s), 0, #s)");
+    builder.line("end");
+    builder.blank();
+
+    // 9. Trailer.
     builder.line("return azul");
 
     Ok(builder.finish())

@@ -89,6 +89,7 @@ pub mod lang_rust;
 pub mod lang_smalltalk;
 pub mod lang_vb6;
 pub mod lang_zig;
+pub mod managed_lang_helpers;
 pub mod rust;
 pub mod transmute_helpers; // New Rust generators (static/dynamic binding)
 

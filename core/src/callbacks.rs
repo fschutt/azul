@@ -140,6 +140,24 @@ impl LayoutCallback {
     }
 }
 
+// Host-invoker plumbing for managed-FFI bindings (Lua, Ruby, Perl, …):
+// expands to a static `az_layout_callback_thunk` (the `cb` we hand to the
+// framework when the host calls `LayoutCallback::create_from_host_handle`),
+// an `AzLayoutCallback_createFromHostHandle` C-ABI export, plus the
+// `AzApp_setLayoutCallbackInvoker` setter the host calls once at module
+// load. See `crate::host_invoker` for the design.
+crate::impl_managed_callback! {
+    wrapper:        LayoutCallback,
+    info_ty:        LayoutCallbackInfo,
+    return_ty:      crate::dom::Dom,
+    default_ret:    crate::dom::Dom::create_body(),
+    invoker_static: LAYOUT_CALLBACK_INVOKER,
+    invoker_ty:     AzLayoutCallbackInvoker,
+    thunk_fn:       az_layout_callback_thunk,
+    setter_fn:      AzApp_setLayoutCallbackInvoker,
+    from_handle_fn: AzLayoutCallback_createFromHostHandle,
+}
+
 impl Default for LayoutCallback {
     fn default() -> Self {
         Self {

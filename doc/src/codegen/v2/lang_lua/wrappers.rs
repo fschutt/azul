@@ -37,6 +37,7 @@
 use super::super::ir::{
     CodegenIR, EnumDef, EnumVariantKind, FunctionDef, FunctionKind, StructDef, TypeCategory,
 };
+use super::super::managed_lang_helpers::has_callback_arg;
 
 /// Generate the full wrapper section as a single Lua source string.
 ///
@@ -160,32 +161,33 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
 
     let has_delete = funcs.iter().any(|f| f.kind == FunctionKind::Delete);
 
-    // Methods table.
-    out.push_str(&format!("local {}_methods = {{}}\n", class));
+    // The whole methods-table block is wrapped in `do ... end` so the
+    // `<Class>_methods` local doesn't count against Lua's main-chunk limit
+    // of 200 active locals. The metatype binding inside the block keeps
+    // the table reachable via LuaJIT's internal metatype registry, so the
+    // local is free to drop out of scope at the closing `end`.
+    out.push_str("do\n");
+    out.push_str(&format!("    local {}_methods = {{}}\n", class));
 
     // Instance methods (Method, MethodMut) — receiver `self`.
     let mut method_count = 0;
     for f in &funcs {
         match f.kind {
             FunctionKind::Method | FunctionKind::MethodMut => {
-                let lua_name = &f.method_name;
-                out.push_str(&format!(
-                    "function {}_methods:{}(...) return C.{}(self, ...) end\n",
-                    class, lua_name, f.c_name
-                ));
+                emit_instance_method(out, class, &f.method_name, f);
                 method_count += 1;
             }
             FunctionKind::DeepCopy => {
                 // Expose deep-copy as `:clone()`.
                 out.push_str(&format!(
-                    "function {}_methods:clone() return C.{}(self) end\n",
+                    "    function {}_methods:clone() return C.{}(self) end\n",
                     class, f.c_name
                 ));
                 method_count += 1;
             }
             FunctionKind::DebugToString => {
                 out.push_str(&format!(
-                    "function {}_methods:toString() return C.{}(self) end\n",
+                    "    function {}_methods:toString() return C.{}(self) end\n",
                     class, f.c_name
                 ));
                 method_count += 1;
@@ -194,7 +196,7 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
         }
     }
     if method_count == 0 {
-        out.push_str(&format!("-- (no instance methods on {})\n", class));
+        out.push_str(&format!("    -- (no instance methods on {})\n", class));
     }
 
     // Metatype binding — only for non-Copy types (those with _delete).
@@ -202,26 +204,24 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
     if has_delete {
         let delete_c = format!("Az{}_delete", class);
         out.push_str(&format!(
-            "ffi.metatype('{}', {{ __index = {}_methods, __gc = function(self) C.{}(self) end }})\n",
+            "    ffi.metatype('{}', {{ __index = {}_methods, __gc = function(self) C.{}(self) end }})\n",
             c_name, class, delete_c
         ));
     } else if method_count > 0 {
         out.push_str(&format!(
-            "ffi.metatype('{}', {{ __index = {}_methods }})\n",
+            "    ffi.metatype('{}', {{ __index = {}_methods }})\n",
             c_name, class
         ));
     }
+    out.push_str("end\n");
 
-    // Module-level constructors / static methods.
+    // Module-level constructors / static methods (outside the do-block:
+    // they hang off `azul`, no scoping concern).
     out.push_str(&format!("azul.{} = {{\n", class));
     for f in &funcs {
         match f.kind {
             FunctionKind::Constructor | FunctionKind::StaticMethod | FunctionKind::Default => {
-                let lua_name = &f.method_name;
-                out.push_str(&format!(
-                    "    {} = function(...) return C.{}(...) end,\n",
-                    lua_name, f.c_name
-                ));
+                emit_static_method(out, &f.method_name, f);
             }
             _ => {}
         }
@@ -240,21 +240,21 @@ fn emit_data_enum_wrapper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
     let funcs: Vec<&FunctionDef> = ir.functions_for_class(class).collect();
     let has_delete = funcs.iter().any(|f| f.kind == FunctionKind::Delete);
 
-    out.push_str(&format!("local {}_methods = {{}}\n", class));
+    // See struct equivalent for the rationale: scope the methods table so
+    // we don't blow Lua's 200-locals-per-function ceiling on the main chunk.
+    out.push_str("do\n");
+    out.push_str(&format!("    local {}_methods = {{}}\n", class));
 
     let mut method_count = 0;
     for f in &funcs {
         match f.kind {
             FunctionKind::Method | FunctionKind::MethodMut => {
-                out.push_str(&format!(
-                    "function {}_methods:{}(...) return C.{}(self, ...) end\n",
-                    class, f.method_name, f.c_name
-                ));
+                emit_instance_method(out, class, &f.method_name, f);
                 method_count += 1;
             }
             FunctionKind::DeepCopy => {
                 out.push_str(&format!(
-                    "function {}_methods:clone() return C.{}(self) end\n",
+                    "    function {}_methods:clone() return C.{}(self) end\n",
                     class, f.c_name
                 ));
                 method_count += 1;
@@ -263,21 +263,22 @@ fn emit_data_enum_wrapper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
         }
     }
     if method_count == 0 {
-        out.push_str(&format!("-- (no instance methods on {})\n", class));
+        out.push_str(&format!("    -- (no instance methods on {})\n", class));
     }
 
     if has_delete {
         let delete_c = format!("Az{}_delete", class);
         out.push_str(&format!(
-            "ffi.metatype('{}', {{ __index = {}_methods, __gc = function(self) C.{}(self) end }})\n",
+            "    ffi.metatype('{}', {{ __index = {}_methods, __gc = function(self) C.{}(self) end }})\n",
             c_name, class, delete_c
         ));
     } else if method_count > 0 {
         out.push_str(&format!(
-            "ffi.metatype('{}', {{ __index = {}_methods }})\n",
+            "    ffi.metatype('{}', {{ __index = {}_methods }})\n",
             c_name, class
         ));
     }
+    out.push_str("end\n");
 
     // Module-level: variant constructors (one per non-Unit variant) + static
     // methods. Variant constructors come from FunctionKind::EnumVariantConstructor.
@@ -299,13 +300,190 @@ fn emit_data_enum_wrapper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
             | FunctionKind::Constructor
             | FunctionKind::StaticMethod
             | FunctionKind::Default => {
-                out.push_str(&format!(
-                    "    {} = function(...) return C.{}(...) end,\n",
-                    f.method_name, f.c_name
-                ));
+                emit_static_method(out, &f.method_name, f);
             }
             _ => {}
         }
     }
     out.push_str("}\n\n");
+}
+
+// ============================================================================
+// Method-body emitters
+// ============================================================================
+//
+// Two output forms:
+//
+// * Instance method (lives inside a `do ... end` block, base indent 4 spaces):
+//       function Class_methods:method(...) ... end
+// * Static method (lives inside `azul.Class = { ... }` literal, base indent 4):
+//       method = function(...) ... end,
+//
+// Both branch on `has_callback_arg(func)`:
+//
+// * No callback args → keep the simple varargs forwarder, which forwards
+//   all incoming args verbatim.
+// * Has callback args → emit an explicit parameter list and inject a
+//   `arg = azul.pin_callback('AzFooCallbackType', arg)` line for each
+//   callback-typed arg before the C call.
+
+/// Emit one instance method line (the do-block and `local Foo_methods = {}`
+/// are emitted by the caller). `func.args[0]` is the receiver (named after
+/// the class) and is supplied implicitly via `self`.
+fn emit_instance_method(out: &mut String, class: &str, lua_method: &str, func: &FunctionDef) {
+    let lua_method = sanitize_lua_ident(lua_method);
+
+    if !has_callback_arg(func) {
+        out.push_str(&format!(
+            "    function {}_methods:{}(...) return C.{}(self, ...) end\n",
+            class, lua_method, func.c_name
+        ));
+        return;
+    }
+
+    let visible: Vec<String> = func
+        .args
+        .iter()
+        .skip(1)
+        .map(|a| sanitize_lua_ident(&a.name))
+        .collect();
+
+    // Open: 4-space indent (inside the do-block).
+    out.push_str(&format!(
+        "    function {}_methods:{}({})\n",
+        class,
+        lua_method,
+        visible.join(", ")
+    ));
+
+    // Body: 8-space indent (inside the function body, inside the do-block).
+    emit_callback_pin_lines(out, "        ", &func.args[1..], &visible);
+
+    let mut call_args = vec!["self".to_string()];
+    call_args.extend(visible.iter().cloned());
+    out.push_str(&format!(
+        "        return C.{}({})\n",
+        func.c_name,
+        call_args.join(", ")
+    ));
+    out.push_str("    end\n");
+}
+
+/// Emit one entry of a static-method table:
+///     method = function(args) ... end,
+fn emit_static_method(out: &mut String, lua_method: &str, func: &FunctionDef) {
+    let lua_method = sanitize_lua_ident(lua_method);
+
+    if !has_callback_arg(func) {
+        out.push_str(&format!(
+            "    {} = function(...) return C.{}(...) end,\n",
+            lua_method, func.c_name
+        ));
+        return;
+    }
+
+    let visible: Vec<String> = func
+        .args
+        .iter()
+        .map(|a| sanitize_lua_ident(&a.name))
+        .collect();
+
+    // Open: 4-space indent (inside the table literal).
+    out.push_str(&format!(
+        "    {} = function({})\n",
+        lua_method,
+        visible.join(", ")
+    ));
+
+    // Body: 8-space indent.
+    emit_callback_pin_lines(out, "        ", &func.args[..], &visible);
+
+    out.push_str(&format!(
+        "        return C.{}({})\n",
+        func.c_name,
+        visible.join(", ")
+    ));
+    out.push_str("    end,\n");
+}
+
+/// Emit a callback-arg coercion line for every callback-typed entry in
+/// `args`. Today we route through `azul._register_callback(<kind>, fn)`
+/// which uses libazul's `_createFromHostHandle` constructor under the
+/// hood — that produces an `AzCallback` / `AzLayoutCallback` *struct* by
+/// value, not just a function pointer, so we substitute the variable in
+/// place and the C-ABI function receives the wrapper struct.
+///
+/// The kind name comes from the wrapper struct (callback typedef "Foo"
+/// belongs to wrapper "Foo" — IR pre-strips the trailing "Type"). We
+/// only support the two kinds wired up in PR 1; unknown kinds fall back
+/// to the legacy `pin_callback` so wrappers still emit valid code for
+/// callback types that haven't received a `_createFromHostHandle` yet.
+fn emit_callback_pin_lines(
+    out: &mut String,
+    indent: &str,
+    args: &[super::super::ir::FunctionArg],
+    names: &[String],
+) {
+    for (i, a) in args.iter().enumerate() {
+        let Some(cb) = a.callback_info.as_ref() else {
+            continue;
+        };
+        let wrapper_name = cb.callback_wrapper_name.as_str();
+        if wrapper_name == "Callback" || wrapper_name == "LayoutCallback" {
+            // Host-invoker path: the C-ABI function for the *wrapper struct*
+            // is what setOnClick / WindowCreateOptions::create take, not the
+            // raw function pointer. We hand the user-supplied Lua function
+            // to `_register_callback` and pass the resulting struct.
+            //
+            // Note: a few API entry points (e.g. `WindowCreateOptions::create`)
+            // are typed against the bare callback typedef, not the wrapper
+            // — for those we extract the `.cb` field. The C-ABI function
+            // pointer in `.cb` is a static thunk inside libazul that knows
+            // to dispatch through the registered host invoker.
+            out.push_str(&format!(
+                "{indent}local _{n}_cb = azul._register_callback('{w}', {n})\n",
+                indent = indent,
+                n = names[i],
+                w = wrapper_name
+            ));
+            // Some C entry points take the wrapper struct by value
+            // (e.g. `Dom_addCallback` takes `AzCallback`); others take the
+            // bare typedef (`AzCallbackType` / `AzLayoutCallbackType`,
+            // e.g. `WindowCreateOptions_create`). We always feed the
+            // struct's `.cb` slot, which is the static thunk pointer —
+            // identical between the two API shapes.
+            out.push_str(&format!(
+                "{indent}{n} = _{n}_cb.cb\n",
+                indent = indent,
+                n = names[i]
+            ));
+        } else {
+            // Legacy path for callback kinds without a host-invoker yet.
+            // Keeps the wrapper output well-formed; binding still loads,
+            // but the resulting cast won't execute on libffi-style hosts.
+            let cb_typename = format!("Az{}", cb.callback_typedef_name);
+            out.push_str(&format!(
+                "{indent}{n} = azul.pin_callback('{ty}', {n})\n",
+                indent = indent,
+                n = names[i],
+                ty = cb_typename
+            ));
+        }
+    }
+}
+
+/// Sanitize an arg name for use as a Lua identifier. The IR uses
+/// snake_case names from api.json, which already avoids most clashes;
+/// we only need to suffix Lua reserved words (`end`, `local`, …) so the
+/// generated `function f(local) ... end` doesn't fail to parse.
+fn sanitize_lua_ident(name: &str) -> String {
+    const LUA_RESERVED: &[&str] = &[
+        "and", "break", "do", "else", "elseif", "end", "false", "for", "function", "goto", "if",
+        "in", "local", "nil", "not", "or", "repeat", "return", "then", "true", "until", "while",
+    ];
+    if LUA_RESERVED.contains(&name) {
+        format!("{}_", name)
+    } else {
+        name.to_string()
+    }
 }

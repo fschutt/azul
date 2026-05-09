@@ -547,6 +547,24 @@ pub struct Callback {
 
 impl_callback!(Callback, CallbackType);
 
+// Host-invoker plumbing for managed-FFI bindings (Lua, Ruby, Perl, …).
+// See `azul_core::host_invoker` for the design. This expands to a static
+// `az_callback_thunk` that the framework dispatches by-value args to, an
+// `AzCallback_createFromHostHandle` C-ABI export the host calls per
+// `set_on_click(...)` site, plus the `AzApp_setCallbackInvoker` setter the
+// host calls once at module load to register its libffi closure.
+azul_core::impl_managed_callback! {
+    wrapper:        Callback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: CALLBACK_INVOKER,
+    invoker_ty:     AzCallbackInvoker,
+    thunk_fn:       az_callback_thunk,
+    setter_fn:      AzApp_setCallbackInvoker,
+    from_handle_fn: AzCallback_createFromHostHandle,
+}
+
 impl Callback {
     /// Create a new callback with just a function pointer (for native Rust code)
     pub fn create<C: Into<Callback>>(cb: C) -> Self {

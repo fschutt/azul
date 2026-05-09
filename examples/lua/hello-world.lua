@@ -2,148 +2,92 @@
 --
 -- LuaJIT port of examples/c/hello-world.c.
 --
--- Same data model (a `MyDataModel` struct with a uint32 counter),
--- same callback semantics (mouse click increments, layout renders).
+-- Same data model (a counter), same behaviour (mouse click increments,
+-- layout rebuilds the DOM). Uses the idiomatic `azul.*` wrapper layer
+-- only — no manual `ffi.cast(...)` or raw `C.AzXxx_yyy(...)` calls.
+-- Callbacks go through libazul's host-invoker plumbing
+-- (`AzCallback_createFromHostHandle`, `AzApp_setCallbackInvoker`)
+-- so we never need LuaJIT to synthesize a struct-by-value trampoline.
 --
--- ---------------------------------------------------------------------
--- LuaJIT FFI callback lifetime caveat (READ THIS):
+-- Run with:
+--     LD_LIBRARY_PATH=path/to/libazul luajit hello-world.lua
+--     # macOS:
+--     DYLD_LIBRARY_PATH=path/to/libazul luajit hello-world.lua
 --
--- `ffi.cast('AzCallback', luafn)` allocates a *trampoline* whose lifetime
--- is bound to the cdata returned by `ffi.cast`. If that cdata is
--- collected, the C side will jump into freed memory the next time the
--- callback fires. We therefore keep every casted callback in a
--- module-level Lua local (`live_callbacks`) so it stays referenced for
--- the entire process lifetime. This is the same workaround the LuaJIT
--- FFI manual recommends and what every long-lived FFI binding does.
--- ---------------------------------------------------------------------
+-- Requires LuaJIT 2.0+ (the bundled `ffi` module is not part of standard
+-- Lua). The generated `azul.lua` lives in `target/codegen/azul.lua` after
+-- `cargo run --bin azul-doc -- codegen all`. Either copy it next to
+-- `hello-world.lua` or set `LUA_PATH` to find it.
 
-local ffi  = require('ffi')
 local azul = require('azul')
-local C    = azul.C
-
--- ── Live-storage table for FFI callbacks (see caveat above) ───────────
-local live_callbacks = {}
-
-local function make_callback(c_typename, lua_fn)
-    local cb = ffi.cast(c_typename, lua_fn)
-    table.insert(live_callbacks, cb)        -- pin for process lifetime
-    return cb
-end
 
 -- ── Data model ────────────────────────────────────────────────────────
 --
--- We declare an FFI struct so the counter lives in C-allocated memory.
--- This is required because `AzRefAny_newC` copies `sizeof(MyDataModel)`
--- bytes from the supplied pointer into a heap-allocated RefAny.
+-- `azul.refany_create(value)` wraps any Lua value into an AzRefAny. The
+-- value is held alive for the RefAny's lifetime by an internal id-keyed
+-- table; `azul.refany_get(refany)` recovers it on the other side. The
+-- destructor that fires when the last RefAny clone drops calls back
+-- through `AzApp_setHostHandleReleaser` to clear the entry.
 
-ffi.cdef[[
-    typedef struct { uint32_t counter; } MyDataModel;
-]]
+local model = { counter = 5 }
 
--- Destructor stub — MyDataModel owns no heap memory, so do nothing.
-local model_destructor = make_callback(
-    'AzRefAnyDestructorType',
-    function(_ptr) end
-)
+-- ── Callback: button click ────────────────────────────────────────────
+--
+-- Plain Lua function. The wrapper layer auto-routes this through
+-- `azul._register_callback('Callback', on_click)` when we hand it to
+-- `button:set_on_click(...)`, which uses libazul's static thunk to
+-- dispatch back into Lua via the registered `AzCallbackInvoker`.
 
--- A unique 64-bit RTTI id for this type. Any stable value works as long
--- as no other RefAny in the process uses the same id; collisions cause
--- spurious downcast successes. We pick a high value to avoid clashing
--- with built-in azul types.
-local MY_DATA_MODEL_RTTI_ID = 0xA2010001ULL
-
-local function upcast_model(model)
-    -- SKIPPED: AzString_fromConstStr is a C macro and is therefore not
-    -- visible through ffi.cdef. We build the type-name AzString via the
-    -- regular byte-copy constructor instead.
-    local name_bytes = 'MyDataModel'
-    local name_str = C.AzString_copyFromBytes(
-        ffi.cast('const uint8_t*', name_bytes), 0, #name_bytes)
-    -- AzRefAny_newC(ptr, len, align, type_id, type_name, destructor)
-    return C.AzRefAny_newC(
-        ffi.cast('void*', model),
-        ffi.sizeof('MyDataModel'),
-        ffi.alignof('MyDataModel'),
-        MY_DATA_MODEL_RTTI_ID,
-        name_str,
-        model_destructor)
-end
-
-local function downcast_mut(refany)
-    -- Borrow a *mut MyDataModel from a RefAny. Returns nil if RTTI mismatch.
-    if not C.AzRefAny_isType(refany, MY_DATA_MODEL_RTTI_ID) then
-        return nil
-    end
-    return ffi.cast('MyDataModel*', C.AzRefAny_getDataPtr(refany))
-end
-
--- ── Callback: increment the counter on click ──────────────────────────
-
-local function on_click(data, info)
-    local m = downcast_mut(data)
-    if m == nil then
-        return C.AzUpdate_DoNothing
-    end
+local function on_click(data, _info)
+    local m = azul.refany_get(data)
+    if m == nil then return azul.Update.DoNothing end
     m.counter = m.counter + 1
-    return C.AzUpdate_RefreshDom
+    return azul.Update.RefreshDom
 end
-local on_click_cb = make_callback('AzCallbackType', on_click)
 
 -- ── Layout callback ───────────────────────────────────────────────────
 
-local function layout(data, info)
-    local m = downcast_mut(data)
-    if m == nil then
-        return C.AzDom_createBody()
-    end
+local function layout(data, _info)
+    local m = azul.refany_get(data)
+    if m == nil then return azul.Dom.create_body() end
 
-    -- Counter label, wrapped in a div so it lays out as block.
-    local buf  = tostring(m.counter)
-    local txt  = C.AzString_copyFromBytes(
-        ffi.cast('const uint8_t*', buf), 0, #buf)
-    local label = C.AzDom_createText(txt)
-    local label_wrapper = C.AzDom_createDiv()
-    C.AzDom_addCssProperty(label_wrapper,
-        C.AzCssPropertyWithConditions_simple(
-            C.AzCssProperty_fontSize(C.AzStyleFontSize_px(32.0))))
-    C.AzDom_addChild(label_wrapper, label)
+    -- Counter label (wrapped in a div so the font-size sticks).
+    local label = azul.Dom.create_text(azul.String.from_lua(tostring(m.counter)))
+    local label_wrapper = azul.Dom.create_div()
+    label_wrapper:add_css_property(
+        azul.CssPropertyWithConditions.simple(
+            azul.CssProperty.font_size(azul.StyleFontSize.px(32.0))))
+    label_wrapper:add_child(label)
 
-    -- Button.
-    local btn_text = C.AzString_copyFromBytes(
-        ffi.cast('const uint8_t*', 'Increase counter'), 0,
-        #'Increase counter')
-    local button = C.AzButton_create(btn_text)
-    C.AzButton_setButtonType(button, C.AzButtonType_Primary)
-    local data_clone = C.AzRefAny_clone(data)
-    C.AzButton_setOnClick(button, data_clone, on_click_cb)
-    local button_dom = C.AzButton_dom(button)
+    -- Increment button. The wrapper auto-registers `on_click` via the
+    -- host-invoker path; we just pass the function in.
+    local button = azul.Button.create(azul.String.from_lua('Increase counter'))
+    button:set_button_type(azul.ButtonType.Primary)
+    button:set_on_click(data:clone(), on_click)
+    local button_dom = button:dom()
 
     -- Body.
-    local body = C.AzDom_createBody()
-    C.AzDom_addChild(body, label_wrapper)
-    C.AzDom_addChild(body, button_dom)
-
-    return C.AzDom_style(body, C.AzCss_empty())
+    local body = azul.Dom.create_body()
+    body:add_child(label_wrapper)
+    body:add_child(button_dom)
+    return body
 end
-local layout_cb = make_callback('AzLayoutCallbackType', layout)
 
 -- ── Main ──────────────────────────────────────────────────────────────
 
-local model = ffi.new('MyDataModel', { counter = 5 })
-local data  = upcast_model(model)
+local data   = azul.refany_create(model)
+local window = azul.WindowCreateOptions.create(layout)
 
-local window = C.AzWindowCreateOptions_create(layout_cb)
-local title  = C.AzString_copyFromBytes(
-    ffi.cast('const uint8_t*', 'Hello World'), 0, #'Hello World')
-window.window_state.title = title
+window.window_state.title = azul.String.from_lua('Hello World')
 window.window_state.size.dimensions.width  = 400.0
 window.window_state.size.dimensions.height = 300.0
-window.window_state.flags.decorations =
-    C.AzWindowDecorations_NoTitleAutoInject
-window.window_state.flags.background_material =
-    C.AzWindowBackgroundMaterial_Sidebar
 
-local app = C.AzApp_create(data, C.AzAppConfig_create())
-C.AzApp_run(app, window)
+-- NoTitleAutoInject: OS draws close/min/max buttons; framework
+-- auto-injects a Titlebar with drag support.
+window.window_state.flags.decorations         = azul.WindowDecorations.NoTitleAutoInject
+window.window_state.flags.background_material = azul.WindowBackgroundMaterial.Sidebar
+
+local app = azul.App.create(data, azul.AppConfig.create())
+app:run(window)
 -- AzApp's __gc metamethod (registered by azul.lua) calls AzApp_delete
 -- automatically when `app` is collected.

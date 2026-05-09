@@ -55,6 +55,13 @@ pub mod profile;
 /// Callback types: layout, event, timer, thread, and focus handling.
 #[macro_use]
 pub mod callbacks;
+/// Host-language callback invoker registry — the C-ABI surface managed-FFI
+/// bindings (Lua, Ruby, …) use to register one per-kind invoker + a single
+/// shared releaser, so callbacks can be created via `_createFromHostHandle`
+/// without the host having to generate trampolines for struct-by-value
+/// signatures their FFI library can't handle.
+#[macro_use]
+pub mod host_invoker;
 /// Accessibility types for screen-reader integration (AccessKit).
 pub mod a11y;
 /// DOM construction: `Dom`, `NodeData`, `NodeType`, and the CSS-in-Rust API.
