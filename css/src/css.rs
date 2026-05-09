@@ -70,6 +70,27 @@ impl Css {
         crate::parser2::new_from_str(s.as_str()).0
     }
 
+    /// Parse inline-style CSS (bare properties, pseudo blocks, @-rule blocks)
+    /// and return a `Css` whose rules carry `rule_priority::INLINE`.
+    ///
+    /// Wraps the input in `* { ... }` so the main CSS parser can handle bare
+    /// properties at the top level. Pseudo and at-rule blocks like
+    /// `:hover { color: red; }` or `@os(linux) { font-size: 14px; }` work
+    /// directly via CSS nesting.
+    #[cfg(feature = "parser")]
+    pub fn parse_inline(style: &str) -> Self {
+        use alloc::string::ToString;
+        let mut wrapped = String::with_capacity(style.len() + 6);
+        wrapped.push_str("* {\n");
+        wrapped.push_str(style);
+        wrapped.push_str("\n}");
+        let (mut css, _warnings) = crate::parser2::new_from_str(&wrapped);
+        for rule in css.rules.as_mut() {
+            rule.priority = rule_priority::INLINE;
+        }
+        css
+    }
+
     #[cfg(feature = "parser")]
     pub fn from_string_with_warnings(
         s: crate::AzString,
@@ -93,6 +114,47 @@ impl From<Vec<CssRuleBlock>> for Css {
         Self {
             rules: rules.into(),
         }
+    }
+}
+
+// NodeData derives Eq + Ord and carries `Css` as its inline style. Provide
+// length-based ordering so the derives keep working — the same pattern the
+// previous `CssPropertyWithConditionsVec` used.
+impl Eq for Css {}
+impl Ord for Css {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.rules.as_ref().len().cmp(&other.rules.as_ref().len())
+    }
+}
+impl Eq for CssRuleBlock {}
+impl Ord for CssRuleBlock {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        // Match the existing PartialOrd: path first, then declarations.
+        // Priority is intentionally not in the sort key — it's a layer label,
+        // not a comparison primitive for callers.
+        self.path.cmp(&other.path).then_with(|| self.declarations.cmp(&other.declarations))
+    }
+}
+
+/// Convert a flat list of `CssPropertyWithConditions` (the legacy inline-CSS form)
+/// into a `Css`. Each property becomes a single-declaration `CssRuleBlock` with
+/// `priority = INLINE`, an empty path (implicitly `:scope` — applies to the node it
+/// lives on), and the original conditions intact.
+///
+/// This bridge lets widget code that built `&[CssPropertyWithConditions]` arrays
+/// keep working through `.into()` while the storage on `NodeData` is the unified
+/// `Css` type.
+impl From<crate::dynamic_selector::CssPropertyWithConditionsVec> for Css {
+    fn from(props: crate::dynamic_selector::CssPropertyWithConditionsVec) -> Self {
+        let rules: Vec<CssRuleBlock> = props.into_library_owned_vec().into_iter().map(|p| {
+            CssRuleBlock {
+                path: CssPath { selectors: Vec::new().into() },
+                declarations: alloc::vec![CssDeclaration::Static(p.property)].into(),
+                conditions: p.apply_if,
+                priority: rule_priority::INLINE,
+            }
+        }).collect();
+        Css { rules: rules.into() }
     }
 }
 
@@ -1663,6 +1725,29 @@ impl Css {
 
     pub fn rules<'a>(&'a self) -> core::slice::Iter<'a, CssRuleBlock> {
         self.rules.as_ref().iter()
+    }
+
+    /// Iterate `(property, conditions)` pairs as if this were a flat list of
+    /// `CssPropertyWithConditions`. Each `Static` declaration yields one item,
+    /// sharing the conditions of its enclosing rule. `Dynamic` declarations
+    /// are skipped (matching the previous inline-CSS behaviour).
+    ///
+    /// Used by cascade and diff code that walks per-property to keep the
+    /// flat-iteration shape after the inline-vs-component unification.
+    pub fn iter_inline_properties<'a>(
+        &'a self,
+    ) -> impl Iterator<
+        Item = (
+            &'a crate::props::property::CssProperty,
+            &'a DynamicSelectorVec,
+        ),
+    > + 'a {
+        self.rules.as_ref().iter().flat_map(|r| {
+            r.declarations.as_ref().iter().filter_map(move |d| match d {
+                CssDeclaration::Static(p) => Some((p, &r.conditions)),
+                CssDeclaration::Dynamic(_) => None,
+            })
+        })
     }
 }
 

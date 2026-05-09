@@ -911,7 +911,9 @@ impl StyledDom {
                 let mut inner = 0usize;
                 for nd in self.node_data.as_ref().iter() {
                     inner += nd.get_callbacks().len() * 64; // rough per-callback
-                    inner += nd.css_props.as_ref().len() * 80; // CssPropertyWithConditions
+                    // Each rule = path + decls Vec + conditions Vec + priority byte.
+                    // Approximate at 64 bytes per rule + the heap for declarations.
+                    inner += nd.style.rules.as_ref().len() * 64;
                 }
                 base + inner
             },
@@ -1509,14 +1511,14 @@ impl StyledDom {
                 let keys_inline: Vec<CssPropertyType> = {
                     use azul_css::dynamic_selector::DynamicSelector;
                     node_data[*node_id]
-                        .css_props
-                        .iter()
-                        .filter_map(|prop| {
-                            let matches = prop.apply_if.as_slice().iter().any(|c| {
+                        .style
+                        .iter_inline_properties()
+                        .filter_map(|(prop, conds)| {
+                            let matches = conds.as_slice().iter().any(|c| {
                                 matches!(c, DynamicSelector::PseudoState(pst) if *pst == pseudo_state_type)
                             });
                             if matches {
-                                Some(prop.property.get_type())
+                                Some(prop.get_type())
                             } else {
                                 None
                             }
@@ -2429,8 +2431,8 @@ pub fn is_layout_equivalent(old: &StyledDom, new: &StyledDom) -> bool {
             }
         }
 
-        // Compare inline CSS properties (direct layout input)
-        if old_node.css_props.as_ref() != new_node.css_props.as_ref() {
+        // Compare inline CSS (direct layout input)
+        if old_node.style != new_node.style {
             return false;
         }
 

@@ -1515,10 +1515,13 @@ pub struct NodeData {
     ///
     /// `On::MouseUp` -> `Callback(my_button_click_handler)`
     pub callbacks: CoreCallbackDataVec,
-    /// Conditional CSS properties with dynamic selectors.
-    /// These are evaluated at runtime based on OS, viewport, container, theme, and pseudo-state.
-    /// Uses "last wins" semantics - properties are evaluated in order, last match wins.
-    pub css_props: CssPropertyWithConditionsVec,
+    /// Inline style: a `Css` value that applies only to this node (implicit `:scope`).
+    /// Each rule carries conditions (@media/@os/:hover/...) and declarations; rules
+    /// produced by parsing inline strings are tagged `rule_priority::INLINE`, while
+    /// widget defaults pushed via `with_css_props` keep the same INLINE priority so
+    /// they override author CSS — preserving the cascade priority that the previous
+    /// per-property `css_props` field had.
+    pub style: azul_css::css::Css,
     /// Packed flags: tab_index + contenteditable + is_anonymous.
     pub flags: NodeFlags,
     /// Optional extra accessibility information about this DOM node (MSAA, AT-SPI, UA).
@@ -1552,10 +1555,11 @@ impl Hash for NodeData {
             callback.refany.get_type_id().hash(state);
         }
 
-        // Hash CSS props (conditional CSS with dynamic selectors)
-        for prop in self.css_props.as_ref().iter() {
-            // Hash property type as a simple discriminant
-            core::mem::discriminant(&prop.property).hash(state);
+        // Hash inline CSS properties (Static declarations only — same set the
+        // legacy `css_props` field hashed). Conditions are intentionally
+        // skipped to match the previous behaviour.
+        for (prop, _conds) in self.style.iter_inline_properties() {
+            core::mem::discriminant(prop).hash(state);
         }
         if let Some(ext) = self.extra.as_ref() {
             if let Some(ds) = ext.dataset.as_ref() {
@@ -1876,7 +1880,7 @@ impl Clone for NodeData {
     fn clone(&self) -> Self {
         Self {
             node_type: self.node_type.into_library_owned_nodetype(),
-            css_props: self.css_props.clone(),
+            style: self.style.clone(),
             callbacks: self.callbacks.clone(),
             flags: self.flags,
             accessibility: self.accessibility.clone(),
@@ -2130,7 +2134,9 @@ impl NodeData {
         Self {
             node_type,
             callbacks: CoreCallbackDataVec::from_const_slice(&[]),
-            css_props: CssPropertyWithConditionsVec::from_const_slice(&[]),
+            style: azul_css::css::Css {
+                rules: azul_css::css::CssRuleBlockVec::from_const_slice(&[]),
+            },
             flags: NodeFlags::new(),
             accessibility: None,
             extra: None,
@@ -2413,8 +2419,8 @@ impl NodeData {
         &self.callbacks
     }
     #[inline(always)]
-    pub const fn get_css_props(&self) -> &CssPropertyWithConditionsVec {
-        &self.css_props
+    pub const fn get_style(&self) -> &azul_css::css::Css {
+        &self.style
     }
 
     #[inline]
@@ -2495,9 +2501,18 @@ impl NodeData {
     pub fn set_callbacks(&mut self, callbacks: CoreCallbackDataVec) {
         self.callbacks = callbacks;
     }
+    /// Legacy: replace this node's inline style with a flat list of property+conditions.
+    /// Each entry becomes a single-declaration rule at `rule_priority::INLINE`. Prefer
+    /// `set_style` (or `with_style` / `with_css(&str)`) for new code.
     #[inline(always)]
     pub fn set_css_props(&mut self, css_props: CssPropertyWithConditionsVec) {
-        self.css_props = css_props;
+        self.style = css_props.into();
+    }
+    /// Replace this node's inline style with a `Css` value. The Css's rules apply only
+    /// to this node (implicit `:scope`).
+    #[inline(always)]
+    pub fn set_style(&mut self, style: azul_css::css::Css) {
+        self.style = style;
     }
     #[inline]
     pub fn set_clip_mask(&mut self, clip_mask: ImageMask) {
@@ -2684,14 +2699,24 @@ impl NodeData {
         self.set_attributes(v.into());
     }
 
-    /// Add a CSS property with optional conditions (hover, focus, active, etc.)
+    /// Add a CSS property with optional conditions (hover, focus, active, etc.).
+    ///
+    /// Wraps the property in a single-declaration rule at `rule_priority::INLINE`
+    /// and appends it to this node's inline style.
     #[inline]
     pub fn add_css_property(&mut self, p: CssPropertyWithConditions) {
-        let mut v: CssPropertyWithConditionsVec = Vec::new().into();
-        mem::swap(&mut v, &mut self.css_props);
+        use azul_css::css::{rule_priority, CssDeclaration, CssPath, CssRuleBlock};
+        let rule = CssRuleBlock {
+            path: CssPath { selectors: Vec::new().into() },
+            declarations: vec![CssDeclaration::Static(p.property)].into(),
+            conditions: p.apply_if,
+            priority: rule_priority::INLINE,
+        };
+        let mut v: azul_css::css::CssRuleBlockVec = Vec::new().into();
+        mem::swap(&mut v, &mut self.style.rules);
         let mut v = v.into_library_owned_vec();
-        v.push(p);
-        self.css_props = v.into();
+        v.push(rule);
+        self.style.rules = v.into();
     }
 
     /// Calculates a deterministic node hash for this node.
@@ -2820,9 +2845,18 @@ impl NodeData {
         self.callbacks = callbacks;
         self
     }
+    /// Legacy: builder-form of `set_css_props`. Each `CssPropertyWithConditions`
+    /// becomes a single-declaration rule at `rule_priority::INLINE`.
+    /// Prefer `with_style(Css)` for new code.
     #[inline(always)]
     pub fn with_css_props(mut self, css_props: CssPropertyWithConditionsVec) -> Self {
-        self.css_props = css_props;
+        self.style = css_props.into();
+        self
+    }
+    /// Builder-form of `set_style`.
+    #[inline(always)]
+    pub fn with_style(mut self, style: azul_css::css::Css) -> Self {
+        self.style = style;
         self
     }
 
@@ -2898,12 +2932,15 @@ impl NodeData {
     /// ");
     /// ```
     pub fn set_css(&mut self, style: &str) {
-        let parsed = CssPropertyWithConditionsVec::parse(style);
-        let mut current = Vec::new().into();
-        mem::swap(&mut current, &mut self.css_props);
+        // Parse via Css::parse_inline so the inline path goes through the same
+        // selector + nesting machinery as author CSS. Rules are tagged
+        // `rule_priority::INLINE` and appended to whatever this node already has.
+        let parsed = azul_css::css::Css::parse_inline(style);
+        let mut current: azul_css::css::CssRuleBlockVec = Vec::new().into();
+        mem::swap(&mut current, &mut self.style.rules);
         let mut v = current.into_library_owned_vec();
-        v.extend(parsed.into_library_owned_vec());
-        self.css_props = v.into();
+        v.extend(parsed.rules.into_library_owned_vec());
+        self.style.rules = v.into();
     }
 
     /// Builder method for `set_css`
@@ -2923,7 +2960,7 @@ impl NodeData {
     pub fn copy_special(&self) -> Self {
         Self {
             node_type: self.node_type.into_library_owned_nodetype(),
-            css_props: self.css_props.clone(),
+            style: self.style.clone(),
             callbacks: self.callbacks.clone(),
             flags: self.flags,
             accessibility: self.accessibility.clone(),
@@ -5687,9 +5724,17 @@ impl Dom {
         self.root.callbacks = callbacks;
         self
     }
+    /// Legacy: builder-form for the flat property+conditions list. Each entry
+    /// becomes a single-declaration rule at `rule_priority::INLINE`.
     #[inline(always)]
     pub fn with_css_props(mut self, css_props: CssPropertyWithConditionsVec) -> Self {
-        self.root.css_props = css_props;
+        self.root.style = css_props.into();
+        self
+    }
+    /// Builder-form for setting the inline `Css` directly.
+    #[inline(always)]
+    pub fn with_style(mut self, style: azul_css::css::Css) -> Self {
+        self.root.style = style;
         self
     }
 
@@ -5753,12 +5798,12 @@ impl Dom {
     /// ");
     /// ```
     pub fn set_css(&mut self, style: &str) {
-        let parsed = CssPropertyWithConditionsVec::parse(style);
-        let mut current = Vec::new().into();
-        mem::swap(&mut current, &mut self.root.css_props);
+        let parsed = azul_css::css::Css::parse_inline(style);
+        let mut current: azul_css::css::CssRuleBlockVec = Vec::new().into();
+        mem::swap(&mut current, &mut self.root.style.rules);
         let mut v = current.into_library_owned_vec();
-        v.extend(parsed.into_library_owned_vec());
-        self.root.css_props = v.into();
+        v.extend(parsed.rules.into_library_owned_vec());
+        self.root.style.rules = v.into();
     }
 
     /// Builder method for `set_css`

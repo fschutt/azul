@@ -222,8 +222,15 @@ fn create_font_icon_from_original(
 fn copy_appropriate_styles_vec(
     original_node: &NodeData,
 ) -> Vec<CssPropertyWithConditions> {
-    let original_props = original_node.get_css_props();
-    original_props.as_ref().iter().cloned().collect()
+    // Reconstruct the legacy flat list from the unified Css store.
+    original_node
+        .get_style()
+        .iter_inline_properties()
+        .map(|(prop, conds)| CssPropertyWithConditions {
+            property: prop.clone(),
+            apply_if: conds.clone(),
+        })
+        .collect()
 }
 
 /// Apply SystemStyle-aware filters to icon properties.

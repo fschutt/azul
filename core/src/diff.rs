@@ -217,32 +217,30 @@ pub fn compute_node_changes(
         }
     }
 
-    // 4. Inline CSS properties — classify into layout-affecting vs paint-only
-    let old_props = old_node.css_props.as_ref();
-    let new_props = new_node.css_props.as_ref();
-    if old_props != new_props {
+    // 4. Inline CSS properties — classify into layout-affecting vs paint-only.
+    // After the inline-vs-component unification, inline CSS is stored as a `Css`
+    // with rule blocks; iterate it via the `(property, conditions)` flat view to
+    // keep the per-property compare semantics this code was written for.
+    if old_node.style != new_node.style {
         let mut has_layout = false;
         let mut has_paint = false;
 
-        // Build a map of property type → value for old props
+        // Build a map of property type → (property, conditions) for old props.
         let mut old_map = OrderedMap::default();
-        for prop in old_props.iter() {
-            old_map.insert(
-                prop.property.get_type(),
-                prop,
-            );
+        for (prop, conds) in old_node.style.iter_inline_properties() {
+            old_map.insert(prop.get_type(), (prop, conds));
         }
 
-        // Check new props against old
+        // Check new props against old.
         let mut seen_types = OrderedMap::default();
-        for prop in new_props.iter() {
-            let prop_type = prop.property.get_type();
+        for (prop, conds) in new_node.style.iter_inline_properties() {
+            let prop_type = prop.get_type();
             seen_types.insert(prop_type, ());
             match old_map.get(&prop_type) {
-                Some(old_prop) if **old_prop == *prop => {} // unchanged
+                Some(&(old_prop, old_conds))
+                    if old_prop == prop
+                        && old_conds.as_slice() == conds.as_slice() => {} // unchanged
                 _ => {
-                    // Changed or new property — use relayout_scope for classification
-                    // Pass node_is_ifc_member=true conservatively
                     let scope = prop_type.relayout_scope(true);
                     if scope != RelayoutScope::None {
                         has_layout = true;
@@ -1308,8 +1306,8 @@ impl ChangeAccumulator {
             // Walk the inline CSS properties to find the max scope
             let new_node = &new_node_data[new_node_id.index()];
             let mut max_scope = RelayoutScope::None;
-            for prop in new_node.css_props.as_ref().iter() {
-                let scope = prop.property.get_type().relayout_scope(true);
+            for (prop, _conds) in new_node.style.iter_inline_properties() {
+                let scope = prop.get_type().relayout_scope(true);
                 if scope > max_scope {
                     max_scope = scope;
                 }
@@ -1458,11 +1456,14 @@ impl NodeDataFingerprint {
             h.finish()
         };
 
-        // Inline CSS hash
+        // Inline CSS hash — full CssProperty value (matches the legacy
+        // CssPropertyWithConditions::hash that hashed both property and the
+        // condition vec length).
         let inline_css_hash = {
             let mut h = std::hash::DefaultHasher::new();
-            for prop in node.css_props.as_ref().iter() {
+            for (prop, conds) in node.style.iter_inline_properties() {
                 prop.hash(&mut h);
+                conds.as_slice().len().hash(&mut h);
             }
             h.finish()
         };

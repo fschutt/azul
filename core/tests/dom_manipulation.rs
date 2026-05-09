@@ -91,7 +91,7 @@ fn test_dom_with_inline_css() {
         ))]
         .into(),
     );
-    assert_eq!(dom.root.css_props.len(), 1);
+    assert_eq!(dom.root.style.rules.len(), 1);
 }
 
 #[test]
@@ -103,7 +103,7 @@ fn test_dom_with_multiple_inline_css() {
         ]
         .into(),
     );
-    assert_eq!(dom.root.css_props.len(), 2);
+    assert_eq!(dom.root.style.rules.len(), 2);
 }
 
 #[test]

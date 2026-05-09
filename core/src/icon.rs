@@ -486,8 +486,8 @@ fn apply_single_node_replacement(
             // Swap node type
             node.set_node_type(replacement_node_type);
             
-            // Copy CSS properties from replacement
-            node.set_css_props(replacement_root.get_css_props().clone());
+            // Copy inline style from replacement
+            node.set_style(replacement_root.get_style().clone());
             
             // Copy accessibility info if present
             if let Some(a11y) = replacement_root.get_accessibility_info() {

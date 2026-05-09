@@ -631,7 +631,7 @@ impl CssPropertyCache {
                     i, nd.node_type, d.padding_top, d.padding_bottom, d.padding_left, d.padding_right,
                     d.margin_top, d.margin_bottom, d.margin_left, d.margin_right);
                 let n_props = self.css_props.get_slice(i).len();
-                let n_inline = nd.css_props.as_ref().len();
+                let n_inline = nd.style.iter_inline_properties().count();
                 cascade_debug!("node[{}] css_props={} entries, inline={} entries", i, n_props, n_inline);
                 for prop in self.css_props.get_slice(i) {
                     cascade_debug!("node[{}]   css_prop: state={:?} type={:?}", i, prop.state, prop.prop_type);
@@ -663,26 +663,26 @@ impl CssPropertyCache {
                     d.margin_top, d.margin_bottom, d.margin_left, d.margin_right);
             }
 
-            // Scan inline CSS (node_data.css_props, typically 0-3 entries)
+            // Scan inline CSS (node_data.style — typically 0-3 properties).
             // Inline CSS has highest specificity — applied last to override stylesheet.
-            for inline in nd.css_props.as_ref().iter() {
+            for (prop, conds) in nd.style.iter_inline_properties() {
                 // Only apply Normal state (no pseudo-selectors like :hover)
-                let is_normal = inline.apply_if.as_slice().is_empty()
-                    || inline.apply_if.as_slice().iter().all(|c|
+                let is_normal = conds.as_slice().is_empty()
+                    || conds.as_slice().iter().all(|c|
                         matches!(c, azul_css::dynamic_selector::DynamicSelector::PseudoState(
                             azul_css::dynamic_selector::PseudoStateType::Normal
                         ))
                     );
                 if !is_normal { continue; }
                 apply_css_property_to_compact(
-                    &inline.property,
+                    prop,
                     &mut result.tier1_enums[i],
                     &mut result.tier2_dims[i],
                     &mut result.tier2_cold[i],
                     &mut result.tier2b_text[i],
                     &mut result.font_hash_to_families,
                 );
-                update_dom_declared_flags(&inline.property, &mut result.dom_declared_flags);
+                update_dom_declared_flags(prop, &mut result.dom_declared_flags);
             }
 
             // Resolve font-size from em/percent/pt/etc. to px.
