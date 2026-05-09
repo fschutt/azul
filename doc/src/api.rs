@@ -702,8 +702,12 @@ fn default_true() -> bool {
     true
 }
 
-/// Paths to example source files for each language
-/// Supports both old format (single cpp) and new format (per-C++ standard)
+/// Paths to example source files for each language.
+///
+/// `c`, `rust`, `python`, and the C++ variants get named fields because the
+/// codegen + load pipeline references them directly. Every other language
+/// (ada, csharp, lua, ruby, ...) is collected via `serde(flatten)` into
+/// `extra`, keyed by language id (`"ada"`, `"csharp"`, ...).
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ExampleCodePaths {
     pub c: String,
@@ -730,6 +734,11 @@ pub struct ExampleCodePaths {
     /// C++23 example path
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpp23: Option<String>,
+    /// Paths for all other languages (ada, csharp, lua, ruby, ...)
+    /// keyed by language id. Filled via `serde(flatten)` from any extra
+    /// keys in the api.json `code` block.
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, String>,
 }
 
 impl ExampleCodePaths {
@@ -816,6 +825,21 @@ impl Example {
             cpp23: load_cpp_version(&self.code.cpp23),
         };
 
+        // Load every additional language listed in `code.extra` (ada, csharp,
+        // lua, ruby, ...). Missing files become empty bytes — the index renderer
+        // treats those tabs as "no example available" rather than aborting.
+        let mut extra_code: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+        for (lang, rel_path) in &self.code.extra {
+            let bytes = std::fs::read(base_path.join(rel_path)).unwrap_or_else(|err| {
+                eprintln!(
+                    "  [WARN] failed to load {} code for example {}: {}",
+                    lang, self.name, err
+                );
+                Vec::new()
+            });
+            extra_code.insert(lang.clone(), bytes);
+        }
+
         // Load screenshots with fallback to calculator.png if missing
         let fallback_screenshot = "calculator.png";
         let load_screenshot = |path: &str| -> Vec<u8> {
@@ -846,6 +870,7 @@ impl Example {
                 cpp_versions,
                 rust,
                 python,
+                extra: extra_code,
             },
             screenshot: OsDepFiles {
                 windows: load_screenshot(&self.screenshot.windows),
@@ -941,6 +966,10 @@ pub struct LangDepFiles {
     pub cpp_versions: CppVersionedCode,
     pub rust: Vec<u8>,
     pub python: Vec<u8>,
+    /// Loaded bytes for every other language declared in `ExampleCodePaths::extra`,
+    /// keyed by the same language id (ada, csharp, lua, ruby, ...).
+    #[serde(default)]
+    pub extra: BTreeMap<String, Vec<u8>>,
 }
 
 impl LangDepFiles {

@@ -152,9 +152,17 @@ fn generate_language_tabs_html(installation: &crate::api::Installation) -> Strin
     tabs.join("\n        ")
 }
 
-/// Rendered example with all code variants for JavaScript
-/// Note: code fields are stored RAW (not HTML-escaped) for JSON serialization
-/// Use escape_code() when inserting into HTML templates
+/// Rendered example with all code variants for JavaScript.
+///
+/// Code fields are stored RAW (not HTML-escaped) for JSON serialization;
+/// use `escape_code()` when inserting into HTML templates.
+///
+/// The named `code_*` fields cover the languages baked into the renderer
+/// (`c`, `rust`, `python`, the C++ standards). Every other language declared
+/// in api.json's `code` block (ada, csharp, lua, ruby, ...) is surfaced via
+/// the flattened `code_extra` map — each entry serializes as `code_<lang>`,
+/// matching the `examples[id]['code_' + currentLang]` lookup the index JS
+/// already does.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct ExampleRendered {
     id: String,
@@ -181,6 +189,10 @@ struct ExampleRendered {
     code_cpp23: String,
     code_python: String,
     code_rust: String,
+    /// All other languages (`code_<lang>`) — flattened so the JS lookup
+    /// `examples[id]['code_' + currentLang]` works without renaming.
+    #[serde(flatten)]
+    code_extra: BTreeMap<String, String>,
 }
 
 impl ExampleRendered {
@@ -210,6 +222,20 @@ impl ExampleRendered {
                 .unwrap_or_else(|| String::from_utf8_lossy(&e.code.cpp).to_string())
         };
 
+        // Promote every extra language (ada, csharp, lua, ...) to a
+        // `code_<lang>` key so the JS picks it up without any extra plumbing.
+        let code_extra: BTreeMap<String, String> = e
+            .code
+            .extra
+            .iter()
+            .map(|(lang, bytes)| {
+                (
+                    format!("code_{lang}"),
+                    String::from_utf8_lossy(bytes).to_string(),
+                )
+            })
+            .collect();
+
         ExampleRendered {
             id: name.clone(),
             title: e.title.join("<br>"), // Join multiline titles with <br>
@@ -232,6 +258,7 @@ impl ExampleRendered {
             code_cpp23: get_cpp_code(Language::Cpp23),
             code_python: String::from_utf8_lossy(&e.code.python).to_string(),
             code_rust: String::from_utf8_lossy(&e.code.rust).to_string(),
+            code_extra,
         }
     }
 }
