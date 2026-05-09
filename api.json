@@ -38156,8 +38156,8 @@
                         ],
                         "repr": "C"
                     },
-                    "Void": {
-                        "external": "azul_css::corety::Void",
+                    "EmptyStruct": {
+                        "external": "azul_css::corety::EmptyStruct",
                         "custom_impls": [
                             "From"
                         ],
@@ -38182,10 +38182,10 @@
                         "constructors": {
                             "create": {
                                 "doc": [
-                                    "Create a new Void value (equivalent to `()`)"
+                                    "Create a new EmptyStruct value (FFI-safe replacement for `()`)"
                                 ],
                                 "fn_args": [],
-                                "fn_body": "azul_css::corety::Void::new()"
+                                "fn_body": "azul_css::corety::EmptyStruct::new()"
                             }
                         },
                         "repr": "C"
@@ -57137,7 +57137,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "ResultVoidFileError"
+                                    "type": "ResultEmptyStructFileError"
                                 },
                                 "fn_body": "object.create_dir_all().into()"
                             },
@@ -57151,7 +57151,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "ResultVoidFileError"
+                                    "type": "ResultEmptyStructFileError"
                                 },
                                 "fn_body": "object.create_dir().into()"
                             },
@@ -57165,7 +57165,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "ResultVoidFileError"
+                                    "type": "ResultEmptyStructFileError"
                                 },
                                 "fn_body": "object.remove_file().into()"
                             },
@@ -57179,7 +57179,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "ResultVoidFileError"
+                                    "type": "ResultEmptyStructFileError"
                                 },
                                 "fn_body": "object.remove_dir().into()"
                             },
@@ -57193,7 +57193,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "ResultVoidFileError"
+                                    "type": "ResultEmptyStructFileError"
                                 },
                                 "fn_body": "object.remove_dir_all().into()"
                             },
@@ -57238,7 +57238,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "ResultVoidFileError"
+                                    "type": "ResultEmptyStructFileError"
                                 },
                                 "fn_body": "object.write_bytes(&data).into()"
                             },
@@ -57255,7 +57255,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "ResultVoidFileError"
+                                    "type": "ResultEmptyStructFileError"
                                 },
                                 "fn_body": "object.write_string(&data).into()"
                             },
@@ -57289,7 +57289,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "ResultVoidFileError"
+                                    "type": "ResultEmptyStructFileError"
                                 },
                                 "fn_body": "object.rename_to(&dest).into()"
                             },
@@ -83433,8 +83433,8 @@
                         ],
                         "repr": "C"
                     },
-                    "ResultVoidFileError": {
-                        "external": "azul_layout::file::ResultVoidFileError",
+                    "ResultEmptyStructFileError": {
+                        "external": "azul_layout::file::ResultEmptyStructFileError",
                         "derive": [
                             "Debug",
                             "Clone"
@@ -83442,7 +83442,7 @@
                         "enum_fields": [
                             {
                                 "Ok": {
-                                    "type": "Void"
+                                    "type": "EmptyStruct"
                                 },
                                 "Err": {
                                     "type": "FileError"
@@ -85255,7 +85255,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "Void"
+                                    "type": "EmptyStruct"
                                 },
                                 "fn_body": "azul_layout::thread::thread_sleep_ms(milliseconds)"
                             },
@@ -85269,7 +85269,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "Void"
+                                    "type": "EmptyStruct"
                                 },
                                 "fn_body": "azul_layout::thread::thread_sleep_us(microseconds)"
                             },
@@ -85283,7 +85283,7 @@
                                     }
                                 ],
                                 "returns": {
-                                    "type": "Void"
+                                    "type": "EmptyStruct"
                                 },
                                 "fn_body": "azul_layout::thread::thread_sleep_ns(nanoseconds)"
                             }

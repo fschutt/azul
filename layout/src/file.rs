@@ -6,7 +6,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
-use azul_css::{AzString, U8Vec, Void, impl_result, impl_result_inner, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut, impl_option, impl_option_inner};
+use azul_css::{AzString, U8Vec, EmptyStruct, impl_result, impl_result_inner, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut, impl_option, impl_option_inner};
 
 #[cfg(feature = "std")]
 use std::path::Path;
@@ -88,9 +88,9 @@ impl std::error::Error for FileError {}
 
 // FFI-safe Result types for file operations
 impl_result!(
-    Void,
+    EmptyStruct,
     FileError,
-    ResultVoidFileError,
+    ResultEmptyStructFileError,
     copy = false,
     [Debug, Clone, PartialEq]
 );
@@ -215,21 +215,21 @@ pub fn file_read_string(path: &str) -> Result<AzString, FileError> {
 
 /// Write bytes to a file (creates or overwrites)
 #[cfg(feature = "std")]
-pub fn file_write(path: &str, data: &[u8]) -> Result<Void, FileError> {
+pub fn file_write(path: &str, data: &[u8]) -> Result<EmptyStruct, FileError> {
     std::fs::write(path, data)
-        .map(|_| Void::default()).map_err(FileError::from_io_error)
+        .map(|_| EmptyStruct::default()).map_err(FileError::from_io_error)
 }
 
 /// Write string to a file (creates or overwrites)
 #[cfg(feature = "std")]
-pub fn file_write_string(path: &str, data: &str) -> Result<Void, FileError> {
+pub fn file_write_string(path: &str, data: &str) -> Result<EmptyStruct, FileError> {
     std::fs::write(path, data.as_bytes())
-        .map(|_| Void::default()).map_err(FileError::from_io_error)
+        .map(|_| EmptyStruct::default()).map_err(FileError::from_io_error)
 }
 
 /// Append bytes to a file
 #[cfg(feature = "std")]
-pub fn file_append(path: &str, data: &[u8]) -> Result<Void, FileError> {
+pub fn file_append(path: &str, data: &[u8]) -> Result<EmptyStruct, FileError> {
     use std::fs::OpenOptions;
     use std::io::Write;
     
@@ -240,7 +240,7 @@ pub fn file_append(path: &str, data: &[u8]) -> Result<Void, FileError> {
         .map_err(FileError::from_io_error)?;
     
     file.write_all(data)
-        .map(|_| Void::default())
+        .map(|_| EmptyStruct::default())
         .map_err(FileError::from_io_error)
 }
 
@@ -253,16 +253,16 @@ pub fn file_copy(from: &str, to: &str) -> Result<u64, FileError> {
 
 /// Rename/move a file
 #[cfg(feature = "std")]
-pub fn file_rename(from: &str, to: &str) -> Result<Void, FileError> {
+pub fn file_rename(from: &str, to: &str) -> Result<EmptyStruct, FileError> {
     std::fs::rename(from, to)
-        .map(|_| Void::default()).map_err(FileError::from_io_error)
+        .map(|_| EmptyStruct::default()).map_err(FileError::from_io_error)
 }
 
 /// Delete a file
 #[cfg(feature = "std")]
-pub fn file_delete(path: &str) -> Result<Void, FileError> {
+pub fn file_delete(path: &str) -> Result<EmptyStruct, FileError> {
     std::fs::remove_file(path)
-        .map(|_| Void::default()).map_err(FileError::from_io_error)
+        .map(|_| EmptyStruct::default()).map_err(FileError::from_io_error)
 }
 
 /// Check if a file or directory exists
@@ -326,30 +326,30 @@ pub fn file_metadata(path: &str) -> Result<FileMetadata, FileError> {
 
 /// Create a directory
 #[cfg(feature = "std")]
-pub fn dir_create(path: &str) -> Result<Void, FileError> {
+pub fn dir_create(path: &str) -> Result<EmptyStruct, FileError> {
     std::fs::create_dir(path)
-        .map(|_| Void::default()).map_err(FileError::from_io_error)
+        .map(|_| EmptyStruct::default()).map_err(FileError::from_io_error)
 }
 
 /// Create a directory and all parent directories
 #[cfg(feature = "std")]
-pub fn dir_create_all(path: &str) -> Result<Void, FileError> {
+pub fn dir_create_all(path: &str) -> Result<EmptyStruct, FileError> {
     std::fs::create_dir_all(path)
-        .map(|_| Void::default()).map_err(FileError::from_io_error)
+        .map(|_| EmptyStruct::default()).map_err(FileError::from_io_error)
 }
 
 /// Delete an empty directory
 #[cfg(feature = "std")]
-pub fn dir_delete(path: &str) -> Result<Void, FileError> {
+pub fn dir_delete(path: &str) -> Result<EmptyStruct, FileError> {
     std::fs::remove_dir(path)
-        .map(|_| Void::default()).map_err(FileError::from_io_error)
+        .map(|_| EmptyStruct::default()).map_err(FileError::from_io_error)
 }
 
 /// Delete a directory and all its contents
 #[cfg(feature = "std")]
-pub fn dir_delete_all(path: &str) -> Result<Void, FileError> {
+pub fn dir_delete_all(path: &str) -> Result<EmptyStruct, FileError> {
     std::fs::remove_dir_all(path)
-        .map(|_| Void::default()).map_err(FileError::from_io_error)
+        .map(|_| EmptyStruct::default()).map_err(FileError::from_io_error)
 }
 
 /// List directory contents
@@ -668,31 +668,31 @@ impl FilePath {
 
     /// Creates this directory and all parent directories
     #[cfg(feature = "std")]
-    pub fn create_dir_all(&self) -> Result<Void, FileError> {
+    pub fn create_dir_all(&self) -> Result<EmptyStruct, FileError> {
         dir_create_all(self.inner.as_str())
     }
 
     /// Creates this directory (parent must exist)
     #[cfg(feature = "std")]
-    pub fn create_dir(&self) -> Result<Void, FileError> {
+    pub fn create_dir(&self) -> Result<EmptyStruct, FileError> {
         dir_create(self.inner.as_str())
     }
 
     /// Removes this file
     #[cfg(feature = "std")]
-    pub fn remove_file(&self) -> Result<Void, FileError> {
+    pub fn remove_file(&self) -> Result<EmptyStruct, FileError> {
         file_delete(self.inner.as_str())
     }
 
     /// Removes this directory (must be empty)
     #[cfg(feature = "std")]
-    pub fn remove_dir(&self) -> Result<Void, FileError> {
+    pub fn remove_dir(&self) -> Result<EmptyStruct, FileError> {
         dir_delete(self.inner.as_str())
     }
 
     /// Removes this directory and all contents
     #[cfg(feature = "std")]
-    pub fn remove_dir_all(&self) -> Result<Void, FileError> {
+    pub fn remove_dir_all(&self) -> Result<EmptyStruct, FileError> {
         dir_delete_all(self.inner.as_str())
     }
 
@@ -710,13 +710,13 @@ impl FilePath {
 
     /// Writes bytes to the file at this path
     #[cfg(feature = "std")]
-    pub fn write_bytes(&self, data: &U8Vec) -> Result<Void, FileError> {
+    pub fn write_bytes(&self, data: &U8Vec) -> Result<EmptyStruct, FileError> {
         file_write(self.inner.as_str(), data.as_ref())
     }
 
     /// Writes a string to the file at this path
     #[cfg(feature = "std")]
-    pub fn write_string(&self, data: &AzString) -> Result<Void, FileError> {
+    pub fn write_string(&self, data: &AzString) -> Result<EmptyStruct, FileError> {
         file_write_string(self.inner.as_str(), data.as_str())
     }
 
@@ -728,7 +728,7 @@ impl FilePath {
 
     /// Renames/moves a file from this path to another path
     #[cfg(feature = "std")]
-    pub fn rename_to(&self, dest: &FilePath) -> Result<Void, FileError> {
+    pub fn rename_to(&self, dest: &FilePath) -> Result<EmptyStruct, FileError> {
         file_rename(self.inner.as_str(), dest.inner.as_str())
     }
 

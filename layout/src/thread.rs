@@ -954,16 +954,16 @@ impl OptionThread {
 /// # Arguments
 /// * `milliseconds` - Number of milliseconds to sleep
 #[cfg(feature = "std")]
-pub fn thread_sleep_ms(milliseconds: u64) -> azul_css::corety::Void {
+pub fn thread_sleep_ms(milliseconds: u64) -> azul_css::corety::EmptyStruct {
     std::thread::sleep(std::time::Duration::from_millis(milliseconds));
-    azul_css::corety::Void::new()
+    azul_css::corety::EmptyStruct::new()
 }
 
 /// Sleeps the current thread for the specified number of milliseconds (no-op on no_std).
 #[cfg(not(feature = "std"))]
-pub fn thread_sleep_ms(_milliseconds: u64) -> azul_css::corety::Void {
+pub fn thread_sleep_ms(_milliseconds: u64) -> azul_css::corety::EmptyStruct {
     // No-op on no_std - can't sleep without OS
-    azul_css::corety::Void::new()
+    azul_css::corety::EmptyStruct::new()
 }
 
 /// Sleeps the current thread for the specified number of microseconds.
@@ -971,16 +971,16 @@ pub fn thread_sleep_ms(_milliseconds: u64) -> azul_css::corety::Void {
 /// # Arguments
 /// * `microseconds` - Number of microseconds to sleep
 #[cfg(feature = "std")]
-pub fn thread_sleep_us(microseconds: u64) -> azul_css::corety::Void {
+pub fn thread_sleep_us(microseconds: u64) -> azul_css::corety::EmptyStruct {
     std::thread::sleep(std::time::Duration::from_micros(microseconds));
-    azul_css::corety::Void::new()
+    azul_css::corety::EmptyStruct::new()
 }
 
 /// Sleeps the current thread for the specified number of microseconds (no-op on no_std).
 #[cfg(not(feature = "std"))]
-pub fn thread_sleep_us(_microseconds: u64) -> azul_css::corety::Void {
+pub fn thread_sleep_us(_microseconds: u64) -> azul_css::corety::EmptyStruct {
     // No-op on no_std - can't sleep without OS
-    azul_css::corety::Void::new()
+    azul_css::corety::EmptyStruct::new()
 }
 
 /// Sleeps the current thread for the specified number of nanoseconds.
@@ -988,14 +988,14 @@ pub fn thread_sleep_us(_microseconds: u64) -> azul_css::corety::Void {
 /// # Arguments
 /// * `nanoseconds` - Number of nanoseconds to sleep
 #[cfg(feature = "std")]
-pub fn thread_sleep_ns(nanoseconds: u64) -> azul_css::corety::Void {
+pub fn thread_sleep_ns(nanoseconds: u64) -> azul_css::corety::EmptyStruct {
     std::thread::sleep(std::time::Duration::from_nanos(nanoseconds));
-    azul_css::corety::Void::new()
+    azul_css::corety::EmptyStruct::new()
 }
 
 /// Sleeps the current thread for the specified number of nanoseconds (no-op on no_std).
 #[cfg(not(feature = "std"))]
-pub fn thread_sleep_ns(_nanoseconds: u64) -> azul_css::corety::Void {
+pub fn thread_sleep_ns(_nanoseconds: u64) -> azul_css::corety::EmptyStruct {
     // No-op on no_std - can't sleep without OS
-    azul_css::corety::Void::new()
+    azul_css::corety::EmptyStruct::new()
 }
