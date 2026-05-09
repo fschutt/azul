@@ -45,6 +45,7 @@ use super::ir::CodegenIR;
 
 pub mod functions;
 pub mod gemspec;
+pub mod managed;
 pub mod types;
 pub mod wrappers;
 
@@ -92,6 +93,11 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     builder.dedent();
     builder.line("end # module Native");
     builder.blank();
+
+    // Managed-FFI prelude: registers host-invoker closures + RefAny
+    // helpers under `module Azul`. Must come before user-facing wrapper
+    // classes because they reference `Azul._register_callback`.
+    managed::emit_managed_module(&mut builder, ir);
 
     // Idiomatic wrappers (Azul::App, Azul::Dom, etc.)
     wrappers::emit_wrappers(&mut builder, ir, config);

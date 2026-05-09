@@ -193,8 +193,18 @@ fn emit_method(builder: &mut CodeBuilder, func: &FunctionDef, prefixed: &str, ty
             builder.line(&format!("def {}({})", ruby_method, arg_names.join(", ")));
         }
         builder.indent();
+        emit_callback_register_lines(builder, &visible_args, &arg_names);
         let mut call_args = vec!["@ptr".to_string()];
-        call_args.extend(arg_names.iter().cloned());
+        for (i, name) in arg_names.iter().enumerate() {
+            // Callback args have already been replaced by an FFI::Struct
+            // value; pass them as-is. Other args go through _unwrap so
+            // both wrapper instances and raw cdata are accepted.
+            if visible_args[i].callback_info.is_some() {
+                call_args.push(name.clone());
+            } else {
+                call_args.push(name.clone());
+            }
+        }
         let call = format!("Native.{}({})", native_call, call_args.join(", "));
         emit_method_body(builder, &call, &func.return_type, returns_self_type, prefixed);
         builder.dedent();
@@ -214,15 +224,52 @@ fn emit_method(builder: &mut CodeBuilder, func: &FunctionDef, prefixed: &str, ty
         ));
     }
     builder.indent();
-    // For static calls we forward the user-supplied args, mapping each
-    // positional name through `_unwrap` so callers can pass either an
-    // already-unwrapped FFI pointer/value or one of our wrapper objects.
-    let call_args: Vec<String> = arg_names.iter().map(|n| unwrap_expr(n)).collect();
+    emit_callback_register_lines(builder, &visible_args, &arg_names);
+    // For static calls we forward the user-supplied args. Callback args
+    // are already wrapper structs (from `_register_callback`); other
+    // args go through `_unwrap` so both wrapper instances and raw cdata
+    // are accepted.
+    let call_args: Vec<String> = arg_names
+        .iter()
+        .zip(visible_args.iter())
+        .map(|(n, a)| if a.callback_info.is_some() { n.clone() } else { unwrap_expr(n) })
+        .collect();
     let call = format!("Native.{}({})", native_call, call_args.join(", "));
     emit_method_body(builder, &call, &func.return_type, returns_self_type, prefixed);
     builder.dedent();
     builder.line("end");
     builder.blank();
+}
+
+/// Emit `name = Azul._register_callback('Wrapper', name)` for every
+/// callback-typed arg whose wrapper is in the host-invoker list. Hosts
+/// pass plain Ruby callables (Proc / lambda / method); the helper
+/// stashes them in `@_ruby_handles` and returns the `Az<Wrapper>`
+/// FFI::Struct the C-ABI takes.
+fn emit_callback_register_lines(
+    builder: &mut CodeBuilder,
+    args: &[&super::super::ir::FunctionArg],
+    arg_names: &[String],
+) {
+    if !args.iter().any(|a| a.callback_info.is_some()) {
+        return;
+    }
+    for (i, a) in args.iter().enumerate() {
+        let Some(cb) = a.callback_info.as_ref() else {
+            continue;
+        };
+        let wrapper = cb.callback_wrapper_name.as_str();
+        // Only kinds with `impl_managed_callback!` applied work via this
+        // path. Others fall through; the user has to construct an
+        // FFI::Struct manually (matching legacy behaviour).
+        if matches!(wrapper, "Callback" | "LayoutCallback" | "VirtualViewCallback") {
+            builder.line(&format!(
+                "{n} = Azul._register_callback('{w}', {n})",
+                n = arg_names[i],
+                w = wrapper
+            ));
+        }
+    }
 }
 
 /// Emit the body of a wrapper method.
