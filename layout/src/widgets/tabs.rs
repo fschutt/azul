@@ -1188,6 +1188,19 @@ impl_widget_callback!(
     TabOnClickCallbackType
 );
 
+azul_core::impl_managed_callback! {
+    wrapper:        TabOnClickCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: TAB_ON_CLICK_INVOKER,
+    invoker_ty:     AzTabOnClickCallbackInvoker,
+    thunk_fn:       az_tab_on_click_callback_thunk,
+    setter_fn:      AzApp_setTabOnClickCallbackInvoker,
+    from_handle_fn: AzTabOnClickCallback_createFromHostHandle,
+    extra_args:     [ state: TabHeaderState ],
+}
+
 impl TabHeader {
     pub fn create(tabs: StringVec) -> Self {
         Self {

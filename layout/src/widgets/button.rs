@@ -96,6 +96,19 @@ impl_widget_callback!(
     ButtonOnClickCallbackType
 );
 
+// Host-invoker plumbing for managed-FFI bindings — see core/src/host_invoker.rs.
+azul_core::impl_managed_callback! {
+    wrapper:        ButtonOnClickCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: BUTTON_ON_CLICK_INVOKER,
+    invoker_ty:     AzButtonOnClickCallbackInvoker,
+    thunk_fn:       az_button_on_click_callback_thunk,
+    setter_fn:      AzApp_setButtonOnClickCallbackInvoker,
+    from_handle_fn: AzButtonOnClickCallback_createFromHostHandle,
+}
+
 const SANS_SERIF_STR: &str = "system:ui";
 const SANS_SERIF: AzString = AzString::from_const_str(SANS_SERIF_STR);
 const SANS_SERIF_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SANS_SERIF)];

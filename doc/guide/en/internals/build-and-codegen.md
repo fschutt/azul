@@ -298,5 +298,6 @@ The deploy command is invoked by CI. Locally you typically don't run it. `azul-d
 ## Coming Up Next
 
 - [Code Organization](code-organization.md) — Top-level crate map and where each piece lives
+- [Host-Invoker Pattern](host-invoker.md) — How LuaJIT/Ruby/PHP/Node/etc. wire up callbacks despite libffi's struct-by-value limit
 - [Web](web.md) — WASM target — DOM-attachment and OffscreenCanvas
 - [DOM Internals](dom.md) — How the public `Dom` type is built and stored

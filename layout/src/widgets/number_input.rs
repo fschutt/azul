@@ -43,6 +43,19 @@ impl_widget_callback!(
     NumberInputOnValueChangeCallbackType
 );
 
+azul_core::impl_managed_callback! {
+    wrapper:        NumberInputOnValueChangeCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: NUMBER_INPUT_ON_VALUE_CHANGE_INVOKER,
+    invoker_ty:     AzNumberInputOnValueChangeCallbackInvoker,
+    thunk_fn:       az_number_input_on_value_change_callback_thunk,
+    setter_fn:      AzApp_setNumberInputOnValueChangeCallbackInvoker,
+    from_handle_fn: AzNumberInputOnValueChangeCallback_createFromHostHandle,
+    extra_args:     [ state: NumberInputState ],
+}
+
 /// Callback type invoked when the number input loses focus.
 pub type NumberInputOnFocusLostCallbackType =
     extern "C" fn(RefAny, CallbackInfo, NumberInputState) -> Update;
@@ -52,6 +65,19 @@ impl_widget_callback!(
     NumberInputOnFocusLostCallback,
     NumberInputOnFocusLostCallbackType
 );
+
+azul_core::impl_managed_callback! {
+    wrapper:        NumberInputOnFocusLostCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: NUMBER_INPUT_ON_FOCUS_LOST_INVOKER,
+    invoker_ty:     AzNumberInputOnFocusLostCallbackInvoker,
+    thunk_fn:       az_number_input_on_focus_lost_callback_thunk,
+    setter_fn:      AzApp_setNumberInputOnFocusLostCallbackInvoker,
+    from_handle_fn: AzNumberInputOnFocusLostCallback_createFromHostHandle,
+    extra_args:     [ state: NumberInputState ],
+}
 
 /// A numeric input widget that wraps `TextInput` with `f32` validation.
 #[derive(Debug, Default, Clone, PartialEq)]

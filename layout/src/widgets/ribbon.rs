@@ -35,6 +35,19 @@ impl_widget_callback!(
     RibbonOnTabClickCallback, RibbonOnTabClickCallbackType
 );
 
+azul_core::impl_managed_callback! {
+    wrapper:        RibbonOnTabClickCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: RIBBON_ON_TAB_CLICK_INVOKER,
+    invoker_ty:     AzRibbonOnTabClickCallbackInvoker,
+    thunk_fn:       az_ribbon_on_tab_click_callback_thunk,
+    setter_fn:      AzApp_setRibbonOnTabClickCallbackInvoker,
+    from_handle_fn: AzRibbonOnTabClickCallback_createFromHostHandle,
+    extra_args:     [ tab_index: usize ],
+}
+
 // -- Font --
 
 const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");

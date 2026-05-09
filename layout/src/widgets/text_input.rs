@@ -595,6 +595,19 @@ impl_widget_callback!(
     TextInputOnTextInputCallbackType
 );
 
+azul_core::impl_managed_callback! {
+    wrapper:        TextInputOnTextInputCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      OnTextInputReturn,
+    default_ret:    OnTextInputReturn { update: Update::DoNothing, valid: TextInputValid::Yes },
+    invoker_static: TEXT_INPUT_ON_TEXT_INPUT_INVOKER,
+    invoker_ty:     AzTextInputOnTextInputCallbackInvoker,
+    thunk_fn:       az_text_input_on_text_input_callback_thunk,
+    setter_fn:      AzApp_setTextInputOnTextInputCallbackInvoker,
+    from_handle_fn: AzTextInputOnTextInputCallback_createFromHostHandle,
+    extra_args:     [ state: TextInputState ],
+}
+
 pub type TextInputOnVirtualKeyDownCallbackType =
     extern "C" fn(RefAny, CallbackInfo, TextInputState) -> OnTextInputReturn;
 impl_widget_callback!(
@@ -604,6 +617,19 @@ impl_widget_callback!(
     TextInputOnVirtualKeyDownCallbackType
 );
 
+azul_core::impl_managed_callback! {
+    wrapper:        TextInputOnVirtualKeyDownCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      OnTextInputReturn,
+    default_ret:    OnTextInputReturn { update: Update::DoNothing, valid: TextInputValid::Yes },
+    invoker_static: TEXT_INPUT_ON_VIRTUAL_KEY_DOWN_INVOKER,
+    invoker_ty:     AzTextInputOnVirtualKeyDownCallbackInvoker,
+    thunk_fn:       az_text_input_on_virtual_key_down_callback_thunk,
+    setter_fn:      AzApp_setTextInputOnVirtualKeyDownCallbackInvoker,
+    from_handle_fn: AzTextInputOnVirtualKeyDownCallback_createFromHostHandle,
+    extra_args:     [ state: TextInputState ],
+}
+
 pub type TextInputOnFocusLostCallbackType =
     extern "C" fn(RefAny, CallbackInfo, TextInputState) -> Update;
 impl_widget_callback!(
@@ -612,6 +638,19 @@ impl_widget_callback!(
     TextInputOnFocusLostCallback,
     TextInputOnFocusLostCallbackType
 );
+
+azul_core::impl_managed_callback! {
+    wrapper:        TextInputOnFocusLostCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: TEXT_INPUT_ON_FOCUS_LOST_INVOKER,
+    invoker_ty:     AzTextInputOnFocusLostCallbackInvoker,
+    thunk_fn:       az_text_input_on_focus_lost_callback_thunk,
+    setter_fn:      AzApp_setTextInputOnFocusLostCallbackInvoker,
+    from_handle_fn: AzTextInputOnFocusLostCallback_createFromHostHandle,
+    extra_args:     [ state: TextInputState ],
+}
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 #[repr(C, u8)]

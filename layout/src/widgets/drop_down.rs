@@ -44,6 +44,19 @@ impl_widget_callback!(
     DropDownOnChoiceChangeCallbackType
 );
 
+azul_core::impl_managed_callback! {
+    wrapper:        DropDownOnChoiceChangeCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: DROP_DOWN_ON_CHOICE_CHANGE_INVOKER,
+    invoker_ty:     AzDropDownOnChoiceChangeCallbackInvoker,
+    thunk_fn:       az_drop_down_on_choice_change_callback_thunk,
+    setter_fn:      AzApp_setDropDownOnChoiceChangeCallbackInvoker,
+    from_handle_fn: AzDropDownOnChoiceChangeCallback_createFromHostHandle,
+    extra_args:     [ choice_index: usize ],
+}
+
 // -- Font --
 
 const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");

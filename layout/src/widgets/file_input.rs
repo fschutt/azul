@@ -102,6 +102,19 @@ impl_widget_callback!(
     FileInputOnPathChangeCallbackType
 );
 
+azul_core::impl_managed_callback! {
+    wrapper:        FileInputOnPathChangeCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: FILE_INPUT_ON_PATH_CHANGE_INVOKER,
+    invoker_ty:     AzFileInputOnPathChangeCallbackInvoker,
+    thunk_fn:       az_file_input_on_path_change_callback_thunk,
+    setter_fn:      AzApp_setFileInputOnPathChangeCallbackInvoker,
+    from_handle_fn: AzFileInputOnPathChangeCallback_createFromHostHandle,
+    extra_args:     [ state: FileInputState ],
+}
+
 impl FileInput {
     pub fn create(path: OptionString) -> Self {
         Self {

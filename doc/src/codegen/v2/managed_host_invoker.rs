@@ -50,9 +50,27 @@ use super::ir::{CallbackTypedefDef, CodegenIR};
 /// wrapper-emitter side, which compiles fine but won't fire on
 /// libffi-style hosts.
 pub const HOST_INVOKER_KINDS: &[&str] = &[
+    // Core framework callbacks (core/src/callbacks.rs, layout/src/callbacks.rs).
     "Callback",
     "LayoutCallback",
     "VirtualViewCallback",
+    // Widget callbacks (layout/src/widgets/*).
+    "ButtonOnClickCallback",
+    "TabOnClickCallback",
+    "CheckBoxOnToggleCallback",
+    "TreeViewOnNodeClickCallback",
+    "DropDownOnChoiceChangeCallback",
+    "ColorInputOnValueChangeCallback",
+    "FileInputOnPathChangeCallback",
+    "NumberInputOnValueChangeCallback",
+    "NumberInputOnFocusLostCallback",
+    "TextInputOnTextInputCallback",
+    "TextInputOnVirtualKeyDownCallback",
+    "TextInputOnFocusLostCallback",
+    "ListViewOnLazyLoadScrollCallback",
+    "ListViewOnColumnClickCallback",
+    "ListViewOnRowClickCallback",
+    "RibbonOnTabClickCallback",
 ];
 
 /// Filter `ir.callback_typedefs` down to the entries whose wrapper name is

@@ -36,6 +36,19 @@ impl_widget_callback!(
     ColorInputOnValueChangeCallbackType
 );
 
+azul_core::impl_managed_callback! {
+    wrapper:        ColorInputOnValueChangeCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: COLOR_INPUT_ON_VALUE_CHANGE_INVOKER,
+    invoker_ty:     AzColorInputOnValueChangeCallbackInvoker,
+    thunk_fn:       az_color_input_on_value_change_callback_thunk,
+    setter_fn:      AzApp_setColorInputOnValueChangeCallbackInvoker,
+    from_handle_fn: AzColorInputOnValueChangeCallback_createFromHostHandle,
+    extra_args:     [ state: ColorInputState ],
+}
+
 /// Wrapper around [`ColorInputState`] that includes a title and an optional value-change callback.
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]

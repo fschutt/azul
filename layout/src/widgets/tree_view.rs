@@ -44,6 +44,19 @@ impl_widget_callback!(
     TreeViewOnNodeClickCallbackType
 );
 
+azul_core::impl_managed_callback! {
+    wrapper:        TreeViewOnNodeClickCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: TREE_VIEW_ON_NODE_CLICK_INVOKER,
+    invoker_ty:     AzTreeViewOnNodeClickCallbackInvoker,
+    thunk_fn:       az_tree_view_on_node_click_callback_thunk,
+    setter_fn:      AzApp_setTreeViewOnNodeClickCallbackInvoker,
+    from_handle_fn: AzTreeViewOnNodeClickCallback_createFromHostHandle,
+    extra_args:     [ node_index: usize ],
+}
+
 // -- Font --
 
 const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");

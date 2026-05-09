@@ -37,6 +37,19 @@ impl_widget_callback!(
     CheckBoxOnToggleCallbackType
 );
 
+azul_core::impl_managed_callback! {
+    wrapper:        CheckBoxOnToggleCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: CHECK_BOX_ON_TOGGLE_INVOKER,
+    invoker_ty:     AzCheckBoxOnToggleCallbackInvoker,
+    thunk_fn:       az_check_box_on_toggle_callback_thunk,
+    setter_fn:      AzApp_setCheckBoxOnToggleCallbackInvoker,
+    from_handle_fn: AzCheckBoxOnToggleCallback_createFromHostHandle,
+    extra_args:     [ state: CheckBoxState ],
+}
+
 /// A toggleable checkbox widget with customizable styling and toggle callback.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]

@@ -1417,6 +1417,19 @@ impl_widget_callback!(
     ListViewOnLazyLoadScrollCallbackType
 );
 
+azul_core::impl_managed_callback! {
+    wrapper:        ListViewOnLazyLoadScrollCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: LIST_VIEW_ON_LAZY_LOAD_SCROLL_INVOKER,
+    invoker_ty:     AzListViewOnLazyLoadScrollCallbackInvoker,
+    thunk_fn:       az_list_view_on_lazy_load_scroll_callback_thunk,
+    setter_fn:      AzApp_setListViewOnLazyLoadScrollCallbackInvoker,
+    from_handle_fn: AzListViewOnLazyLoadScrollCallback_createFromHostHandle,
+    extra_args:     [ state: ListViewState ],
+}
+
 pub type ListViewOnColumnClickCallbackType =
     extern "C" fn(RefAny, CallbackInfo, ListViewState, column_clicked: usize) -> Update;
 impl_widget_callback!(
@@ -1426,6 +1439,19 @@ impl_widget_callback!(
     ListViewOnColumnClickCallbackType
 );
 
+azul_core::impl_managed_callback! {
+    wrapper:        ListViewOnColumnClickCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: LIST_VIEW_ON_COLUMN_CLICK_INVOKER,
+    invoker_ty:     AzListViewOnColumnClickCallbackInvoker,
+    thunk_fn:       az_list_view_on_column_click_callback_thunk,
+    setter_fn:      AzApp_setListViewOnColumnClickCallbackInvoker,
+    from_handle_fn: AzListViewOnColumnClickCallback_createFromHostHandle,
+    extra_args:     [ state: ListViewState, column_clicked: usize ],
+}
+
 pub type ListViewOnRowClickCallbackType =
     extern "C" fn(RefAny, CallbackInfo, ListViewState, row_clicked: usize) -> Update;
 impl_widget_callback!(
@@ -1434,6 +1460,19 @@ impl_widget_callback!(
     ListViewOnRowClickCallback,
     ListViewOnRowClickCallbackType
 );
+
+azul_core::impl_managed_callback! {
+    wrapper:        ListViewOnRowClickCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: LIST_VIEW_ON_ROW_CLICK_INVOKER,
+    invoker_ty:     AzListViewOnRowClickCallbackInvoker,
+    thunk_fn:       az_list_view_on_row_click_callback_thunk,
+    setter_fn:      AzApp_setListViewOnRowClickCallbackInvoker,
+    from_handle_fn: AzListViewOnRowClickCallback_createFromHostHandle,
+    extra_args:     [ state: ListViewState, row_clicked: usize ],
+}
 
 /// State of the ListView, but without row data
 #[derive(Debug, Clone)]

@@ -161,6 +161,7 @@ The exception is platform-specific *type definitions* in `core::window` (`Window
 ## Coming Up Next
 
 - [FFI Codegen](build-and-codegen.md) — How `cargo build` cascades and the codegen pass
+- [Host-Invoker Pattern](host-invoker.md) — How LuaJIT/Ruby/PHP/Node/etc. wire up callbacks despite libffi's struct-by-value limit
 - [DOM Internals](dom.md) — How the public `Dom` type is built and stored
 - [Layout](layout.md) — Architecture of `solver3/` and how the engines share state
 - [Rendering](rendering.md) — From `StyledDom` to pixels
