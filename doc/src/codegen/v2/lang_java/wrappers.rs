@@ -24,7 +24,7 @@ use super::super::ir::{
     ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FunctionDef, FunctionKind, StructDef,
     TypeCategory,
 };
-use super::{emit_file, ffi_type_name, map_jvm_type, sanitize_identifier, snake_to_lower_camel};
+use super::{emit_file, ffi_type_name, map_jvm_type, map_jvm_type_byvalue, sanitize_identifier, snake_to_lower_camel};
 
 // ============================================================================
 // Top-level driver
@@ -210,14 +210,7 @@ fn emit_wrapper_method(
     let return_jvm = func
         .return_type
         .as_ref()
-        .map(|r| {
-            let raw = map_jvm_type(r, ir);
-            if raw.starts_with("Az") {
-                format!("{}.ByValue", raw)
-            } else {
-                raw
-            }
-        })
+        .map(|r| map_jvm_type_byvalue(r, ir))
         .unwrap_or_else(|| "void".to_string());
 
     // Identify and skip the implicit self argument (named after the
@@ -233,14 +226,7 @@ fn emit_wrapper_method(
         .iter()
         .map(|a| {
             let jt = match a.ref_kind {
-                ArgRefKind::Owned => {
-                    let raw = map_jvm_type(&a.type_name, ir);
-                    if raw.starts_with("Az") {
-                        format!("{}.ByValue", raw)
-                    } else {
-                        raw
-                    }
-                }
+                ArgRefKind::Owned => map_jvm_type_byvalue(&a.type_name, ir),
                 ArgRefKind::Ref
                 | ArgRefKind::RefMut
                 | ArgRefKind::Ptr

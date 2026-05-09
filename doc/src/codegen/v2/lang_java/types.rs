@@ -30,7 +30,8 @@ use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{
     ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
-    StructDef, TypeCategory,
+    MonomorphizedKind, MonomorphizedTypeDef, MonomorphizedVariant, StructDef, TypeAliasDef,
+    TypeCategory,
 };
 use super::{emit_file, ffi_type_name, map_jvm_type, sanitize_identifier};
 
@@ -97,7 +98,224 @@ pub fn emit_all_type_files(
         out.push_str(&chunk);
     }
 
+    // Generic-instantiated type aliases (monomorphized). E.g.
+    // `ColumnCountValue = CssPropertyValue<ColumnCount>` becomes a
+    // concrete tagged union with the variants of CssPropertyValue
+    // expanded into a `ColumnCount` payload. The IR builder has
+    // already monomorphized; we just emit the resulting concrete type.
+    // Without this step, ~200-1600 references like `AzColumnCountValue`
+    // / `AzU8VecRef` show up unresolved when compiling the bindings.
+    for ta in &ir.type_aliases {
+        let Some(ref mono_def) = ta.monomorphized_def else {
+            continue;
+        };
+        if !config.should_include_type(&ta.name) {
+            continue;
+        }
+        emit_monomorphized_alias_files(out, ta, mono_def, ir, config)?;
+    }
+
     Ok(())
+}
+
+// ============================================================================
+// Monomorphized type alias — multi-file emit
+// ============================================================================
+
+fn emit_monomorphized_alias_files(
+    out: &mut String,
+    ta: &TypeAliasDef,
+    mono_def: &MonomorphizedTypeDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) -> Result<()> {
+    let name = ffi_type_name(&ta.name);
+    let doc = &ta.doc;
+
+    match &mono_def.kind {
+        MonomorphizedKind::SimpleEnum { variants, .. } => {
+            let chunk = emit_file(
+                &format!("{}.java", name),
+                |b| {
+                    if !doc.is_empty() {
+                        b.line("/**");
+                        for d in doc {
+                            b.line(&format!(" * {}", javadoc_escape(d)));
+                        }
+                        b.line(" */");
+                    }
+                    b.line(&format!("public enum {} {{", name));
+                    b.indent();
+                    let last = variants.len().saturating_sub(1);
+                    for (idx, v) in variants.iter().enumerate() {
+                        let v_name = sanitize_identifier(v);
+                        let sep = if idx == last { ";" } else { "," };
+                        b.line(&format!("{}({}){}", v_name, idx, sep));
+                    }
+                    b.line("public final int value;");
+                    b.line(&format!("{}(int v) {{ this.value = v; }}", name));
+                    b.line(&format!("public static {} fromInt(int v) {{", name));
+                    b.indent();
+                    b.line(&format!("for ({} t : values()) if (t.value == v) return t;", name));
+                    b.line(&format!(
+                        "throw new IllegalArgumentException(\"Unknown {} ordinal: \" + v);",
+                        name
+                    ));
+                    b.dedent();
+                    b.line("}");
+                    b.dedent();
+                    b.line("}");
+                    Ok(())
+                },
+                config,
+            )?;
+            out.push_str(&chunk);
+        }
+
+        MonomorphizedKind::Struct { fields } => {
+            let chunk = emit_file(
+                &format!("{}.java", name),
+                |b| {
+                    if !doc.is_empty() {
+                        b.line("/**");
+                        for d in doc {
+                            b.line(&format!(" * {}", javadoc_escape(d)));
+                        }
+                        b.line(" */");
+                    }
+                    b.line(&format!("public class {} extends Structure {{", name));
+                    b.indent();
+                    let mut field_names: Vec<String> = Vec::new();
+                    if fields.is_empty() {
+                        b.line("public byte _dummy;");
+                        field_names.push("\"_dummy\"".to_string());
+                    } else {
+                        for f in fields {
+                            emit_field(b, f, ir, &mut field_names);
+                        }
+                    }
+                    emit_field_order_override(b, &field_names);
+                    emit_byvalue_byref(b, &name);
+                    b.dedent();
+                    b.line("}");
+                    Ok(())
+                },
+                config,
+            )?;
+            out.push_str(&chunk);
+        }
+
+        MonomorphizedKind::TaggedUnion { variants, .. } => {
+            // 1. <Name>_Tag.java
+            let tag_file = emit_file(
+                &format!("{}_Tag.java", name),
+                |b| {
+                    b.line(&format!("/** Discriminator tag for {}. */", name));
+                    b.line(&format!("public enum {}_Tag {{", name));
+                    b.indent();
+                    let last = variants.len().saturating_sub(1);
+                    for (idx, v) in variants.iter().enumerate() {
+                        let sep = if idx == last { ";" } else { "," };
+                        b.line(&format!(
+                            "{}({}){}",
+                            sanitize_identifier(&v.name),
+                            idx,
+                            sep
+                        ));
+                    }
+                    b.line("public final int value;");
+                    b.line(&format!("{}_Tag(int v) {{ this.value = v; }}", name));
+                    b.dedent();
+                    b.line("}");
+                    Ok(())
+                },
+                config,
+            )?;
+            out.push_str(&tag_file);
+
+            // 2. <Name>Variant_<V>.java per variant
+            for v in variants {
+                let variant_struct = format!("{}Variant_{}", name, v.name);
+                let chunk = emit_file(
+                    &format!("{}.java", variant_struct),
+                    |b| {
+                        b.line(&format!(
+                            "/** Per-variant payload struct for {}.{}. */",
+                            ta.name, v.name
+                        ));
+                        b.line(&format!(
+                            "public class {} extends Structure {{",
+                            variant_struct
+                        ));
+                        b.indent();
+                        b.line(&format!("public int tag; // {}_Tag.{}", name, v.name));
+                        let mut field_names: Vec<String> = vec!["\"tag\"".to_string()];
+                        emit_monomorphized_payload(b, v, ir, &mut field_names);
+                        emit_field_order_override(b, &field_names);
+                        emit_byvalue_byref(b, &variant_struct);
+                        b.dedent();
+                        b.line("}");
+                        Ok(())
+                    },
+                    config,
+                )?;
+                out.push_str(&chunk);
+            }
+
+            // 3. Outer Az<Name> Union file.
+            let outer = emit_file(
+                &format!("{}.java", name),
+                |b| {
+                    if !doc.is_empty() {
+                        b.line("/**");
+                        for d in doc {
+                            b.line(&format!(" * {}", javadoc_escape(d)));
+                        }
+                        b.line(" */");
+                    }
+                    b.line(&format!("public class {} extends Union {{", name));
+                    b.indent();
+                    let mut field_names: Vec<String> = Vec::new();
+                    for v in variants {
+                        let variant_struct = format!("{}Variant_{}", name, v.name);
+                        let field = sanitize_identifier(&v.name);
+                        b.line(&format!("public {} {};", variant_struct, field));
+                        field_names.push(format!("\"{}\"", v.name));
+                    }
+                    emit_field_order_override(b, &field_names);
+                    b.line(&format!(
+                        "public static class ByValue extends {} implements Structure.ByValue {{}}",
+                        name
+                    ));
+                    b.line(&format!(
+                        "public static class ByReference extends {} implements Structure.ByReference {{}}",
+                        name
+                    ));
+                    b.dedent();
+                    b.line("}");
+                    Ok(())
+                },
+                config,
+            )?;
+            out.push_str(&outer);
+        }
+    }
+
+    Ok(())
+}
+
+fn emit_monomorphized_payload(
+    builder: &mut CodeBuilder,
+    v: &MonomorphizedVariant,
+    ir: &CodegenIR,
+    field_names: &mut Vec<String>,
+) {
+    let Some(ref payload_type) = v.payload_type else {
+        return;
+    };
+    let jt = ref_kind_field_type(payload_type, &v.payload_ref_kind, ir);
+    builder.line(&format!("public {} payload;", jt));
+    field_names.push("\"payload\"".to_string());
 }
 
 // ============================================================================
@@ -111,12 +329,12 @@ fn should_include_struct(s: &StructDef, config: &CodegenConfig) -> bool {
     if !s.generic_params.is_empty() {
         return false;
     }
+    // Note: `VecRef` and `DestructorOrClone` are NOT skipped — the C
+    // header emits them and our Vec wrappers reference them as fields
+    // (e.g. `AzU8VecRef`, `AzCalcAstItemVecDestructor`).
     !matches!(
         s.category,
-        TypeCategory::Recursive
-            | TypeCategory::VecRef
-            | TypeCategory::DestructorOrClone
-            | TypeCategory::GenericTemplate
+        TypeCategory::Recursive | TypeCategory::GenericTemplate
     )
 }
 
@@ -127,9 +345,13 @@ fn should_include_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
     if !e.generic_params.is_empty() {
         return false;
     }
+    // Note: `DestructorOrClone` enums are NOT skipped — Vec wrappers carry
+    // them as fields (e.g. `AzCalcAstItemVec.destructor: AzCalcAstItemVecDestructor`),
+    // so they must be emitted as Java types. The C generator includes them
+    // for the same reason.
     !matches!(
         e.category,
-        TypeCategory::Recursive | TypeCategory::GenericTemplate | TypeCategory::DestructorOrClone
+        TypeCategory::Recursive | TypeCategory::GenericTemplate
     )
 }
 
@@ -408,14 +630,7 @@ fn emit_callback_interface(
     let return_type = cb
         .return_type
         .as_ref()
-        .map(|r| {
-            let raw = map_jvm_type(r, ir);
-            if raw.starts_with("Az") {
-                format!("{}.ByValue", raw)
-            } else {
-                raw
-            }
-        })
+        .map(|r| super::map_jvm_type_byvalue(r, ir))
         .unwrap_or_else(|| "void".to_string());
 
     let args: Vec<String> = cb
@@ -424,14 +639,7 @@ fn emit_callback_interface(
         .enumerate()
         .map(|(i, arg)| {
             let jt = match arg.ref_kind {
-                ArgRefKind::Owned => {
-                    let raw = map_jvm_type(&arg.type_name, ir);
-                    if raw.starts_with("Az") {
-                        format!("{}.ByValue", raw)
-                    } else {
-                        raw
-                    }
-                }
+                ArgRefKind::Owned => super::map_jvm_type_byvalue(&arg.type_name, ir),
                 ArgRefKind::Ref
                 | ArgRefKind::RefMut
                 | ArgRefKind::Ptr
@@ -468,7 +676,12 @@ fn emit_callback_interface(
 pub(crate) fn emit_field_order_override(builder: &mut CodeBuilder, field_names: &[String]) {
     builder.blank();
     builder.line("@Override");
-    builder.line("protected List<String> getFieldOrder() {");
+    // Use the fully-qualified `java.lang.String` so that this method's
+    // return type matches JNA's `Structure.getFieldOrder()` exactly,
+    // even when our package contains a wrapper class named `String`
+    // that would otherwise shadow `java.lang.String` (resolving to
+    // `List<com.azul.String>` and breaking the override).
+    builder.line("protected java.util.List<java.lang.String> getFieldOrder() {");
     builder.indent();
     builder.line(&format!("return Arrays.asList({});", field_names.join(", ")));
     builder.dedent();

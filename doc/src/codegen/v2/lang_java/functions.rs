@@ -19,7 +19,7 @@ use anyhow::Result;
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory};
-use super::{map_jvm_type, sanitize_identifier, LIBRARY_NAME};
+use super::{map_jvm_type_byvalue, sanitize_identifier, LIBRARY_NAME};
 
 /// Generate the `interface AzulNative extends Library { ... }`
 /// declaration. Caller-owns the surrounding `package` + import block.
@@ -130,16 +130,13 @@ fn emit_native_method(builder: &mut CodeBuilder, func: &FunctionDef, ir: &Codege
     builder.blank();
 }
 
-/// For an "Owned" argument (pass-by-value), use `<Type>.ByValue` if
-/// the target is a generated `Structure`, otherwise fall back to the
-/// primitive mapping.
+/// For an "Owned" argument (pass-by-value), use `<Type>.ByValue` when
+/// the target is a generated `Structure` (POD struct or tagged-union
+/// enum). Java `public enum` types and JNA `Callback` interfaces have
+/// no `.ByValue` inner class, so they pass through unchanged.
+/// Delegates to the shared `map_jvm_type_byvalue`.
 fn map_jvm_type_for_owned_arg(type_name: &str, ir: &CodegenIR) -> String {
-    let raw = map_jvm_type(type_name, ir);
-    if raw.starts_with("Az") {
-        format!("{}.ByValue", raw)
-    } else {
-        raw
-    }
+    map_jvm_type_byvalue(type_name, ir)
 }
 
 /// Returns are passed by value for Structures.

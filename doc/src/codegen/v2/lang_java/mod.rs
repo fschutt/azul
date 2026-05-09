@@ -203,11 +203,34 @@ pub fn map_jvm_type(rust_type: &str, ir: &CodegenIR) -> String {
 
         // Az-prefixed types — refer to the generated Structure class.
         _ => {
-            if ir.find_struct(trimmed).is_some()
-                || ir.find_enum(trimmed).is_some()
-                || ir.find_type_alias(trimmed).is_some()
-                || ir.callback_typedefs.iter().any(|c| c.name == trimmed)
-            {
+            // Resolve simple type aliases (e.g. `GLuint = u32`) recursively
+            // to their target type, so the Java field carries `int` rather
+            // than `AzGLuint` (Java has no typedef syntax). Aliases with a
+            // `monomorphized_def` ARE emitted as full Java types and we
+            // keep the `Az<Name>` reference for those.
+            if let Some(ta) = ir.find_type_alias(trimmed) {
+                if ta.monomorphized_def.is_none() {
+                    return map_jvm_type(&ta.target, ir);
+                }
+                return ffi_type_name(trimmed);
+            }
+            // Recursive struct/enum types can't be expanded inline (Java
+            // structures laid out by JNA would loop infinitely on a
+            // self-referential field). Collapse to `Pointer` — same
+            // strategy the C header uses (forward-declared union).
+            if let Some(s) = ir.find_struct(trimmed) {
+                if matches!(s.category, super::super::ir::TypeCategory::Recursive) {
+                    return "Pointer".to_string();
+                }
+                return ffi_type_name(trimmed);
+            }
+            if let Some(e) = ir.find_enum(trimmed) {
+                if matches!(e.category, super::super::ir::TypeCategory::Recursive) {
+                    return "Pointer".to_string();
+                }
+                return ffi_type_name(trimmed);
+            }
+            if ir.callback_typedefs.iter().any(|c| c.name == trimmed) {
                 ffi_type_name(trimmed)
             } else {
                 "Pointer".to_string()
@@ -217,14 +240,34 @@ pub fn map_jvm_type(rust_type: &str, ir: &CodegenIR) -> String {
 }
 
 /// Like [`map_jvm_type`] but returns the `.ByValue` form when the
-/// target is a generated FFI Structure. Used for fields/return values
-/// whose ABI is "struct by value".
+/// target is a generated FFI Structure (struct or tagged-union enum).
+/// Java `public enum` types don't have a `.ByValue` inner class, so
+/// they pass through unchanged. Used for fields/return values whose
+/// ABI is "struct by value".
 pub fn map_jvm_type_byvalue(rust_type: &str, ir: &CodegenIR) -> String {
     let raw = map_jvm_type(rust_type, ir);
-    if raw.starts_with("Az") {
-        format!("{}.ByValue", raw)
-    } else {
+    if !raw.starts_with("Az") {
+        return raw;
+    }
+    // Strip the `Az` prefix to match the IR type-name lookup.
+    let unprefixed = raw.strip_prefix("Az").unwrap_or(&raw);
+    // Tagged-union enums emit a Structure-flavoured class — they take
+    // `.ByValue`. Plain unit enums emit a Java `public enum` — no
+    // `.ByValue`. Structs (POD or otherwise) take `.ByValue`. Callback
+    // typedefs are JNA `Callback` *interfaces* — no `.ByValue` either;
+    // they're passed as the interface type directly.
+    let is_unit_enum = ir
+        .find_enum(unprefixed)
+        .map(|e| !e.is_union)
+        .unwrap_or(false);
+    let is_callback_typedef = ir
+        .callback_typedefs
+        .iter()
+        .any(|c| c.name == unprefixed);
+    if is_unit_enum || is_callback_typedef {
         raw
+    } else {
+        format!("{}.ByValue", raw)
     }
 }
 
