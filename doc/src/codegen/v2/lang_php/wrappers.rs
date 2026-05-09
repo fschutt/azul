@@ -617,12 +617,64 @@ fn render_call_args(args: &[&super::super::ir::FunctionArg]) -> String {
 // Identifier helpers
 // ============================================================================
 
-/// Pick a safe PHP class name. We use the IR type name verbatim (no
-/// `Az` prefix) because the wrapper lives inside `namespace Azul`. PHP
-/// class names cannot collide with reserved words at the *unqualified*
-/// position because they are always invoked through the namespace.
+/// Pick a safe PHP class name.
+///
+/// Most types just drop the `Az` prefix: `AzApp` → `Azul\App`, since
+/// the wrapper lives inside `namespace Azul`. The exception is when the
+/// unprefixed name collides with a PHP reserved word — `Void`, `String`,
+/// `Int`, `Float`, `Bool`, etc. all overlap with PHP 7+/8+ scalar
+/// type-hint syntax and PHP rejects them as class names case-insensitively.
+///
+/// For those, we keep the `Az` prefix verbatim so the host-language
+/// alias is `Azul\AzString` instead of `Azul\String`. This is
+/// per-language handling — Lua/Node/Ruby get to drop the prefix because
+/// their language semantics allow shadowing built-in `String`/`Void`.
+/// (See `examples/node/hello-world.js` for the JS-side comment about
+/// shadowing the native `String` constructor.)
 fn sanitize_class_name(raw: &str) -> String {
-    raw.to_string()
+    if php_class_name_is_reserved(raw) {
+        format!("Az{}", raw)
+    } else {
+        raw.to_string()
+    }
+}
+
+/// Return `true` when `name` is a PHP reserved word that cannot appear
+/// at a class declaration site, case-insensitively. Mirrors the PHP
+/// keyword list in `autofix::reserved_keywords` plus the modern scalar
+/// type aliases (PHP 7+/8+) that override class names at parse time.
+fn php_class_name_is_reserved(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    matches!(
+        lower.as_str(),
+        // Modern scalar type aliases (PHP 7+/8+) — these *cannot* be
+        // class names because the parser treats them as type-hint syntax.
+        "void"
+            | "int"
+            | "integer"
+            | "float"
+            | "double"
+            | "bool"
+            | "boolean"
+            | "string"
+            | "iterable"
+            | "object"
+            | "mixed"
+            | "never"
+            | "true"
+            | "false"
+            | "null"
+            // Namespace self-references.
+            | "self"
+            | "parent"
+            | "static"
+            // Type-hint aliases that are also reserved.
+            | "callable"
+            | "array"
+            | "list"
+            // PHP 8.1 enum keyword.
+            | "enum"
+    )
 }
 
 /// Sanitize an identifier for use as a PHP method/property/parameter
