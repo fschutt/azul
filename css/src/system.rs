@@ -3,17 +3,24 @@
 //! This module provides a best-effort attempt to query the host operating system
 //! for its UI theme information. This is gated behind the **`io`** feature flag.
 //!
-//! **Application-Specific Ricing:**
-//! By default (if the `io` feature is enabled), Azul will look for an application-specific
-//! stylesheet at `~/.config/azul/styles/<app_name>.css` (or `%APPDATA%\azul\styles\<app_name>.css`
-//! on Windows). This allows end-users to override and "rice" any Azul application.
-//! This behavior can be disabled by setting the `AZ_DISABLE_RICING` environment variable.
+//! **End-user customization (`AZ_RICING`):**
+//! By default (if the `io` feature is enabled), Azul looks for an
+//! application-specific stylesheet at `~/.config/azul/styles/<app_name>.css`
+//! (or `%APPDATA%\azul\styles\<app_name>.css` on Windows) and applies it as
+//! the last layer of the cascade, letting end-users "rice" any Azul app.
 //!
-//! **Linux Customization Easter Egg:**
-//! Linux users can set the `AZ_SMOKE_AND_MIRRORS` environment variable to force Azul to
-//! skip standard GNOME/KDE detection and prioritize discovery methods for "riced" desktops
-//! (like parsing Hyprland configs or `pywal` caches), leaning into the car "ricing" subculture
-//! where a flashy appearance is paramount.
+//! The `AZ_RICING` env var has three modes (case-insensitive):
+//!
+//! - unset (default): load the user CSS if present; on Linux, the
+//!   detection chain is `KDE > GNOME > riced > defaults`.
+//! - `AZ_RICING=off` (aliases: `disabled`, `none`, `0`): skip the user
+//!   CSS file and the riced-desktop sources (Hyprland config, pywal
+//!   cache). Use for kiosk builds or CI runs that mustn't pick up local
+//!   customization.
+//! - `AZ_RICING=force` (aliases: `prefer`, `aggressive`, `1`): on Linux,
+//!   reorder the detection chain so riced-desktop sources win over
+//!   GNOME/KDE — useful for tiling-WM users whose `XDG_CURRENT_DESKTOP`
+//!   still says `gnome`. The user CSS file still loads.
 
 #![cfg(feature = "parser")]
 
@@ -34,6 +41,50 @@ use crate::{
         style::scrollbar::{ComputedScrollbarStyle, OverscrollBehavior, ScrollBehavior, ScrollPhysics},
     },
 };
+
+// --- End-user customization mode ---
+
+/// User-customization mode controlled by the `AZ_RICING` env var.
+///
+/// See the module-level documentation for the full description.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RicingMode {
+    /// `AZ_RICING=off` (or `disabled` / `none` / `0`). Skip the user
+    /// CSS file *and* the riced-desktop sources. Vanilla detection.
+    Off,
+    /// Unset. Load the user CSS if present; standard detection chain
+    /// (`KDE > GNOME > riced > defaults` on Linux).
+    Default,
+    /// `AZ_RICING=force` (or `prefer` / `aggressive` / `1`). Reorder
+    /// the Linux detection chain so riced-desktop sources win over
+    /// GNOME/KDE. The user CSS file still loads.
+    Force,
+}
+
+impl Default for RicingMode {
+    fn default() -> Self { RicingMode::Default }
+}
+
+/// Read the `AZ_RICING` env var and classify it. Case-insensitive.
+/// Anything we don't recognise falls through to `Default` so a typo
+/// degrades gracefully instead of disabling the feature silently.
+pub fn ricing_mode() -> RicingMode {
+    let raw = match std::env::var("AZ_RICING") {
+        Ok(s) => s,
+        Err(_) => return RicingMode::Default,
+    };
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "off" | "disabled" | "none" | "0" | "false" => RicingMode::Off,
+        "force" | "prefer" | "aggressive" | "1" | "true" => RicingMode::Force,
+        _ => RicingMode::Default,
+    }
+}
+
+/// True when the user CSS file at `~/.config/azul/styles/<app>.css`
+/// should be read. False only when `AZ_RICING=off` is set.
+pub fn ricing_enabled() -> bool {
+    !matches!(ricing_mode(), RicingMode::Off)
+}
 
 // --- Public Data Structures ---
 
@@ -103,8 +154,8 @@ pub struct SystemStyle {
     pub language: AzString,
     /// An optional, user-provided stylesheet loaded from a conventional
     /// location (`~/.config/azul/styles/<app_name>.css`), allowing for
-    /// application-specific "ricing". This is only loaded when the "io"
-    /// feature is enabled and not disabled by the `AZ_DISABLE_RICING` env var.
+    /// application-specific "ricing". Only loaded when the "io" feature
+    /// is enabled and `AZ_RICING` is not set to `off`.
     pub app_specific_stylesheet: Option<Box<Css>>,
     /// Scrollbar style information (boxed to ensure stable FFI size)
     pub scrollbar: Option<Box<ComputedScrollbarStyle>>,

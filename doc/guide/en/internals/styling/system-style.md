@@ -181,9 +181,12 @@ pub(crate) fn discover() -> SystemStyle {
     }
 
     // 2. CLI discovery
-    let smoke = std::env::var("AZ_SMOKE_AND_MIRRORS").is_ok();
-    let mut style = if smoke {
-        // Easter egg: try riced first
+    let force_riced = matches!(
+        azul_css::system::ricing_mode(),
+        azul_css::system::RicingMode::Force,
+    );
+    let mut style = if force_riced {
+        // AZ_RICING=force: try riced first
         discover_riced_style()
             .or_else(|_| discover_kde_style())
             .or_else(|_| discover_gnome_style())
@@ -213,7 +216,7 @@ The Linux discovery path implements just enough of the D-Bus wire protocol to ca
 - **`discover_kde_style`.** Reads from `kreadconfig5 --file kdeglobals --group ... --key ...` for `ColorScheme`, `Font`, `ColorEffects:Disabled`, etc.
 - **`discover_riced_style`.** Parses `$XDG_CONFIG_HOME/hypr/hyprland.conf`, `$HOME/.cache/wal/colors.json`, `i3/config`, and `sway/config`.
 
-`AZ_SMOKE_AND_MIRRORS=1` reorders the chain so a tiling-WM user with a GNOME session set in `XDG_CURRENT_DESKTOP` still gets their pywal palette.
+`AZ_RICING=force` reorders the chain so a tiling-WM user with a GNOME session set in `XDG_CURRENT_DESKTOP` still gets their pywal palette. `AZ_RICING=off` skips the riced sources entirely.
 
 ### Linux extras
 
@@ -244,7 +247,7 @@ After discovery succeeds, every Linux path calls:
 
 ```rust,ignore
 fn load_app_specific_stylesheet() -> Option<Css> {
-    if std::env::var("AZ_DISABLE_RICING").is_ok() { return None; }
+    if !azul_css::system::ricing_enabled() { return None; }
     let exe_name = std::env::current_exe()?.file_stem()?.to_string_lossy().into_owned();
     let config_dir = get_config_dir()?;          // $XDG_CONFIG_HOME or ~/.config
     let css_path = format!("{}/azul/styles/{}.css", config_dir, exe_name);

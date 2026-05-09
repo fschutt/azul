@@ -283,9 +283,11 @@ The cascade has three layers, from outermost to innermost:
    `~/.config/azul/styles/<app>.css` (Linux/macOS) or
    `%APPDATA%\azul\styles\<app>.css` (Windows). Loaded at app startup
    when the `io` feature is on.
-3. **Application CSS** — every `Css` you attach via `App::create`,
-   plus every component-level `Css` attached via `Dom::style(...)`,
-   plus inline `Dom::with_css(...)` rules.
+3. **Application CSS** — every component-level `Css` attached via
+   `Dom::style(...)` on a subtree root, plus inline rules attached
+   via `Dom::with_css(...)` on individual nodes. CSS lives on the
+   tree the layout callback returns; there is no global stylesheet
+   passed to `App::create`.
 
 Components don't fight user theming because their selectors target
 component-internal classes (`.shadcn-card`, `.my-row`) while user
@@ -303,25 +305,90 @@ A few escape hatches when the discovery isn't enough:
   `(priority, specificity)`. See [DOM › Component-level
   stylesheets](../dom.md#component-level-stylesheets).
 
-## Theming env vars
+## Controlling end-user customization
 
-All of azul's runtime env vars use the `AZ_` prefix. The ones that
-matter for theming:
+Azul has a single env var for the entire end-user-customization
+layer: `AZ_RICING`.
 
-| Variable | Effect |
-|---|---|
-| `AZ_DISABLE_RICING` | Skip the end-user ricing file at startup. Set to disable user theming for a given install (e.g. a kiosk build that mustn't be re-themed). The ricing path runs only when the `io` feature is enabled. |
-| `AZ_SMOKE_AND_MIRRORS` | Linux only. Skip the GNOME / KDE detection chain and prefer riced-desktop sources (Hyprland config, pywal cache). Useful for tiling-WM users whose `XDG_CURRENT_DESKTOP` still says `gnome`. |
-| `AZ_BACKEND` | Force the windowing backend (`x11` / `wayland` on Linux, `cocoa` on macOS, `winapi` on Windows). Affects which system-style discovery code runs. |
+Unset (the default) means the framework loads the user CSS file at
+`~/.config/azul/styles/<app>.css` if it exists, and on Linux runs the
+standard detection chain (`KDE > GNOME > riced-desktop > defaults`).
+This is the right behavior for a normal install on a normal
+desktop.
 
-There's no env var that forces dark/light mode. Use the platform's
-own facilities (macOS *General > Appearance*, Windows *Personalization
-> Colors > Choose your mode*, GNOME *Settings > Appearance*); azul
-picks them up automatically through the `prefers-color-scheme`
-discovery and triggers a per-frame `@theme` re-evaluation.
+`AZ_RICING=off` (aliases: `disabled`, `none`, `0`) skips both the
+user CSS file and the riced-desktop sources. Pick this for a kiosk
+build, a CI runner, or any install that must not pick up local
+theme customization. The cascade still runs `system:*` resolution
+and `@theme` conditions — disabling ricing only stops the
+*user-supplied* layer; the OS-supplied palette is still honored.
 
-For the full list of `AZ_*` env vars (debug server, profiling, layout
-tracing, headless rendering), see [Debugging](../debugging.md).
+`AZ_RICING=force` (aliases: `prefer`, `aggressive`, `1`) reorders the
+Linux detection chain so riced-desktop sources (Hyprland config,
+pywal cache, i3/sway) win over the GNOME and KDE paths. Use this
+when `XDG_CURRENT_DESKTOP` still reports `gnome` but the actual
+session is a tiling WM with a custom palette. The user CSS file
+still loads in this mode.
+
+There is no env var that forces dark/light mode. The platform's own
+facilities (macOS *General > Appearance*, Windows *Personalization >
+Colors > Choose your mode*, GNOME *Settings > Appearance*) drive the
+`prefers-color-scheme` discovery and azul re-evaluates `@theme` on
+the next frame.
+
+## Previewing on a different platform
+
+Themes vary not just by light/dark but by OS conventions: a button on
+iOS doesn't look like a button on Windows 11, and `system:*` colors
+resolve differently on each. The `main()` function can override the
+detected environment between `AppConfig::create()` and `App::create()`,
+forcing the cascade to evaluate as if the app were running on a
+different platform:
+
+```rust,no_run
+use azul::prelude::*;
+
+fn main() {
+    let mut config = AppConfig::create();
+
+    // Pretend this app is running on iOS, dark theme, with a French
+    // locale, on a 360x780 viewport. Useful for screenshot diffing,
+    // designer review, or "does my app look OK on Android?" checks.
+    config.mock_css_environment = OptionCssMockEnvironment::Some(
+        CssMockEnvironment {
+            os: OptionOsCondition::Some(OsCondition::Ios),
+            theme: OptionThemeCondition::Some(ThemeCondition::Dark),
+            language: OptionString::Some("fr-FR".into()),
+            viewport_width: OptionF32::Some(360.0),
+            viewport_height: OptionF32::Some(780.0),
+            ..Default::default()
+        }
+    );
+
+    // Or swap the whole SystemStyle for a curated platform preset:
+    // config.system_style = SystemStyle::ios_light();
+
+    let app = App::create(initial_data, config);
+    app.run(WindowCreateOptions::new(layout));
+}
+```
+
+Every field on `CssMockEnvironment` is optional — the ones not set
+fall back to auto-detected values. Combined with the
+`SystemStyle::android_material_light()`,
+`SystemStyle::windows_xp_luna()`, and other curated presets in
+[`css::system::defaults`](../internals/styling/system-style.md#compile-time-defaults),
+this gives a single binary the ability to render its UI as if it
+were running on any supported target — useful for screenshot
+testing, designer review, and "what would my app look like, pixel by
+pixel, on iOS?" sanity checks.
+
+The override is read at app startup; it doesn't change the actual
+runtime windowing backend (`AZ_BACKEND` does that, and that env var
+isn't a theming concern — it picks `x11` vs `wayland` etc. for the
+real OS the app is actually running on). For the full list of `AZ_*`
+runtime env vars (debug server, profiling, layout tracing, headless
+rendering), see [Debugging](../debugging.md).
 
 ## Coming Up Next
 

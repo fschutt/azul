@@ -975,7 +975,7 @@ fn detect_language_linux() -> AzString {
 /// Returns `None` if the file does not exist or cannot be parsed.
 fn load_app_specific_stylesheet() -> Option<Css> {
     // Bail out if ricing is disabled
-    if std::env::var("AZ_DISABLE_RICING").is_ok() {
+    if !azul_css::system::ricing_enabled() {
         return None;
     }
 
@@ -1058,11 +1058,16 @@ pub(crate) fn discover() -> SystemStyle {
     }
 
     // ── 2. CLI-based discovery ──────────────────────────────────────
-    // Check for the "smoke and mirrors" easter egg — skip standard DE
-    // detection and go straight to riced desktop parsing.
-    let smoke = std::env::var("AZ_SMOKE_AND_MIRRORS").is_ok();
+    // `AZ_RICING=force` reorders the chain so riced-desktop sources
+    // (Hyprland config, pywal cache) win over the GNOME/KDE detection.
+    // Useful for tiling-WM users whose `XDG_CURRENT_DESKTOP` still says
+    // `gnome` even though their system colors come from pywal.
+    let force_riced = matches!(
+        azul_css::system::ricing_mode(),
+        azul_css::system::RicingMode::Force,
+    );
 
-    let mut style = if smoke {
+    let mut style = if force_riced {
         discover_riced_style()
             .or_else(|_| discover_kde_style())
             .or_else(|_| discover_gnome_style())

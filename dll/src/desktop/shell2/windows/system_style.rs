@@ -543,7 +543,7 @@ fn load_app_specific_stylesheet() -> Option<Css> {
     use std::env;
     use std::path::PathBuf;
 
-    if env::var("AZ_DISABLE_RICING").is_ok() {
+    if !azul_css::system::ricing_enabled() {
         return None;
     }
 

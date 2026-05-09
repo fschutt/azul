@@ -36,10 +36,10 @@ default-search-keys:
 
 ## Introduction
 
-If you've worked with the browser DOM, the surface here looks familiar.
-You build a tree of nodes, each carries a tag, classes, attributes,
+Anyone coming from the browser DOM will find the surface familiar.
+A tree of nodes is built up; each carries a tag, classes, attributes,
 inline CSS, callbacks. What's different is the shape underneath, and a
-small number of rules the framework imposes on you.
+small number of rules the framework imposes.
 
 ## Four design choices
 
@@ -54,7 +54,7 @@ Azul's DOM differs from a browser DOM in four places:
    subtree rooted at `self`. No pointer-chasing to walk a subtree.
 3. **The DOM is frozen after `layout()` returns.** There is no
    `insertChild`, no `setAttribute`, no mutation observers. To change
-   the tree you return a new `Dom` from the next `layout()` call. The
+   the tree, the next `layout()` call returns a new `Dom`. The
    framework diffs old against new and migrates state across.
 4. **CSS is stored in a compact, layout-hot cache.** Common enum
    properties (`display`, `position`, `float`, `overflow`) are
@@ -123,9 +123,9 @@ on every desktop chip and most embedded ones. For 10,000 nodes it's
 ~1.5 MB, still L2 on a modern Apple/Intel core. For 100,000 nodes it's
 ~15 MB, which is L3 on desktop and main memory on embedded.
 
-The numbers tell you when you have to start thinking about virtual
-views, lazy panels, and other ways to keep the rendered subtree
-small. See [Virtual Views](dom/virtual-views.md).
+The numbers indicate when virtual views, lazy panels, and other ways
+to keep the rendered subtree small start to matter. See
+[Virtual Views](dom/virtual-views.md).
 
 ## What's in a node
 
@@ -150,48 +150,60 @@ Because children sit contiguously after their parent in tree order,
 
 `NodeData` carries everything that defines a single node:
 
-- `node_type: NodeType` — the HTML tag (Div, P, Button, ...) or one of
-  the four leaves (Text, Image, Icon, VirtualView).
-- `callbacks: CoreCallbackDataVec` — event handlers attached to the
-  node. Empty for ~80% of nodes.
-- `style: Css` — inline CSS as a `Css` value with implicit `:scope`.
-  Same struct the cascade uses elsewhere. Carries conditional rules
-  (`:hover`, `:focus`, `@theme dark`, `@os macos`) directly. Inline
-  rules are tagged `rule_priority::INLINE` so they override author
-  CSS.
-- `flags: NodeFlags` — packed bits for tab index, contenteditable,
-  anonymous.
-- `accessibility: Option<Box<AccessibilityInfo>>` — ARIA payload, only
-  allocated on accessible nodes.
-- `extra: Option<Box<NodeDataExt>>` — boxed bag of less-common state
-  (attributes, dataset, virtual-view payload, menus, merge callback,
-  SVG data). About 95% of nodes never trigger this allocation.
+```rust,ignore
+pub struct NodeData {
+    pub node_type: NodeType,                          // HTML tag or leaf (Text/Image/Icon/VirtualView)
+    pub callbacks: CoreCallbackDataVec,               // event handlers; empty for ~80% of nodes
+    pub style: Css,                                   // inline CSS with implicit :scope, INLINE priority
+    pub flags: NodeFlags,                             // tab index, contenteditable, anonymous
+    pub accessibility: Option<Box<AccessibilityInfo>>, // ARIA, only on accessible nodes
+    pub extra: Option<Box<NodeDataExt>>,              // attributes, dataset, menus, virtual view, ...
+}
+```
 
-The two `Option<Box<...>>` fields keep the common case small. A
-typical paragraph or div pays nothing for the accessibility or
-extras boxes.
+`style: Css` is the same struct the cascade uses everywhere else;
+inline rules carry their conditions (`:hover`, `:focus`, `@theme dark`,
+`@os macos`) directly. The two `Option<Box<...>>` fields keep the
+common case small — a typical paragraph or div pays nothing for the
+accessibility or extras boxes. About 95% of nodes never trigger the
+`extra` allocation.
 
-## Frozen after creation
+## A function of state
 
-The DOM you return from `layout()` is the framework's, not yours
-anymore. You don't keep a handle, you don't mutate it, you don't get
-notified when something inside it changes. State change goes through
-the next `layout()` call:
+It helps to remember what the browser DOM was originally for. In the
+1990s, web pages arrived over slow modems as a stream of HTML, and
+the browser had to render *while* the document was still being
+received. `document.write` injected new nodes mid-parse;
+`appendChild`, `removeChild`, and the rest of the mutation API let
+scripts patch the tree as more bytes arrived. Mutability wasn't a
+design goal — it was a constraint of streaming over a 14.4k modem.
+
+When SPAs took over, the streaming use case mostly went away, but the
+mutation API stayed. React's contribution was to talk users out of
+using it: model the UI as a function of state, render the whole tree
+on every change, and let a reconciler diff old against new. Vue,
+Solid, Svelte, and Elm all converged on the same shape. The browser's
+imperative DOM became an implementation detail the framework hid.
+
+Azul has no streaming parser to support and no legacy mutation API to
+preserve, so it makes "UI is a function of state" the rule from the
+start. The `Dom` returned from `layout()` becomes the framework's
+copy:
 
 1. A callback returns `Update::RefreshDom`.
-2. The framework re-invokes your layout function.
-3. You build a fresh `Dom` from your application data.
+2. The framework re-invokes the layout function.
+3. A fresh `Dom` is built from the application data.
 4. The framework diffs the new tree against the previous one and
    migrates focus, scroll, dataset, and merge-callback state across
    matched nodes.
 
-This rule exists because every JS framework worth using already
-discourages mutation: React, Vue, Solid, etc. all model UI as a
-function of state. Azul only makes it the rule, not the convention. 
-A mutable DOM is the cause of half the bugs in any non-trivial web
-app, and it's also what makes browser layout engines so hard to
-optimise. Removing the mutation surface lets the framework treat the
-tree as data.
+There is no handle to the live tree, no `insertChild` /
+`setAttribute` / mutation observer surface. Removing the mutation API
+has two payoffs: half the bugs that show up in any non-trivial UI
+come from "this listener saw stale state because something else
+mutated the tree first," and a tree the framework *owns* is far
+easier to lay out incrementally than a tree the application can
+change at any time.
 
 The reconciliation algorithm — what counts as "matching" old and new
 nodes, what migrates, what fires lifecycle events — is documented in
@@ -202,28 +214,11 @@ texture, the cursor inside a focused input) doesn't live in the tree
 shape. It hangs off the node as a dataset. See
 [Datasets](dom/datasets.md) and [Merge Callbacks](dom/merge-callbacks.md).
 
-## Building a tree
+## Building DOMs
 
-```rust,no_run
-use azul::prelude::*;
-let dom: Dom = Dom::create_body()
-    .with_child(Dom::create_h1_with_text("Hello"))
-    .with_child(Dom::create_p_with_text("A paragraph."));
-```
+### The recursive Dom value
 
-You build the tree as a recursive `Dom` value: a `NodeData` root plus
-a `DomVec` of children. The framework flattens this into the parallel
-arrays explained at the beginning when it starts to do the CSS cascade 
-and calculate inherited CSS properties.
-
-The rest of this page covers the node-data layout in detail, how to
-attach CSS, the accessibility soft-force pattern, XML loading, and
-the live-debugger hooks. Reusable fragments are covered separately
-in [Components](dom/components.md).
-
-## The Dom builder
-
-`Dom` is the recursive form you actually construct:
+`Dom` is the form actually constructed in user code:
 
 ```rust,ignore
 pub struct Dom {
@@ -234,17 +229,17 @@ pub struct Dom {
 }
 ```
 
-A `Dom` is a subtree: a root `NodeData` plus its children plus any
+A `Dom` is a subtree: a root `NodeData`, its children, and any
 component-level stylesheets attached via `.style(Css)`. The framework
-flattens the recursive form into the parallel arrays once, at the
-start of the cascade. Every builder method on `Dom` (like `with_class`
-or `with_callback`) is a shorthand that delegates to the same method
-on `self.root`.
+flattens the recursive form into the parallel `NodeHierarchyItem` /
+`NodeData` arrays once, at the start of the cascade. Every builder
+method on `Dom` (`with_class`, `with_callback`, `with_css`) is a
+shorthand that delegates to the same method on `self.root`.
 
-## Node constructors
+### Node constructors
 
-Each HTML element has a `Dom::create_<tag>()` constructor. Most are `const
-fn` and don't allocate until you add a child:
+Each HTML element has a `Dom::create_<tag>()` constructor. Most are
+`const fn` and don't allocate until a child is added:
 
 ```rust,no_run
 use azul::prelude::*;
@@ -258,8 +253,8 @@ let _ = Dom::create_header();
 let _ = Dom::create_footer();
 ```
 
-Text-bearing constructors take a string and wrap a `Text` child inside
-the element:
+Text-bearing constructors take a string and wrap a `Text` child
+inside the element:
 
 ```rust,no_run
 use azul::prelude::*;
@@ -273,17 +268,16 @@ let _ = Dom::create_code_with_text("println!()");
 let _ = Dom::create_text("standalone text node");
 ```
 
-`NodeType` (in `core/src/dom.rs`) lists every variant. The set covers all
-HTML elements plus the SVG subset plus four leaf types: `Text`, `Image`,
-`Icon`, and `VirtualView`.
-
-## Accessibility
+`NodeType` (in `core/src/dom.rs`) lists every variant. The set covers
+all HTML elements plus the SVG subset plus four leaf types: `Text`,
+`Image`, `Icon`, and `VirtualView`.
 
 For elements with non-trivial accessibility surface, the primary
 constructor takes an a11y struct as a required argument. There's a
-matching `_no_a11y` variant that opts out explicitly. The longer name
-on the opt-out is the point. It signals that you skipped a11y on
-purpose, and it makes the absence visible during code review.
+matching `_no_a11y` variant that opts out explicitly. The longer
+name on the opt-out is the point: it signals that a11y was skipped
+on purpose, and it makes the absence visible during code review —
+the *soft-force* pattern.
 
 ```rust
 use azul::prelude::*;
@@ -295,9 +289,9 @@ let save = Dom::create_button("Save", SmallAriaInfo::label("Save document"));
 let ok = Dom::create_button_no_a11y("OK".into());
 ```
 
-Most interactive elements use the generic `SmallAriaInfo` (label, role,
-description). A few have type-specific structs because their a11y
-surface needs more than that:
+Most interactive elements use the generic `SmallAriaInfo` (label,
+role, description). A few have type-specific structs because their
+a11y surface needs more than that:
 
 - `<progress>` uses `ProgressAriaInfo` (label, current value, max,
   indeterminate).
@@ -305,8 +299,6 @@ surface needs more than that:
   optional low/high/optimum).
 - `<dialog>` uses `DialogAriaInfo` (label, modal flag, described-by
   reference).
-
-Example with a type-specific struct:
 
 ```rust
 use azul::prelude::*;
@@ -318,20 +310,44 @@ let upload = Dom::create_progress(
 );
 ```
 
-Elements that follow the pattern: `a`, `area`, `audio`, `button`,
-`canvas`, `datalist`, `details`, `dialog`, `fieldset`, `form`, `input`,
-`label`, `legend`, `menu`, `menuitem`, `meter`, `optgroup`, `option`,
-`output`, `progress`, `select`, `summary`, `table`, `textarea`, `video`.
-
-Static, non-interactive elements (`div`, `span`, `p`, the headings,
-inline text formatters) don't take a11y info. Their role is implicit
-from the element type.
+Elements that follow the soft-force pattern: `a`, `area`, `audio`,
+`button`, `canvas`, `datalist`, `details`, `dialog`, `fieldset`,
+`form`, `input`, `label`, `legend`, `menu`, `menuitem`, `meter`,
+`optgroup`, `option`, `output`, `progress`, `select`, `summary`,
+`table`, `textarea`, `video`. Static, non-interactive elements
+(`div`, `span`, `p`, the headings, inline text formatters) don't
+take a11y info — their role is implicit from the element type.
 
 See [Accessibility](accessibility.md) for the full a11y model and how
 the framework translates these structs into platform-specific
 accessibility trees (UIA, AT-SPI, NSAccessibility).
 
-## Adding children
+### IDs, classes, attributes
+
+```rust,no_run
+use azul::prelude::*;
+
+let _ = Dom::create_div()
+    .with_id("sidebar".into())
+    .with_class("panel".into())
+    .with_class("scrollable".into())
+    .with_attribute(AttributeType::AriaLabel("notification banner".into()))
+    .with_attribute(AttributeType::Lang("en".into()));
+```
+
+IDs and classes aren't separate fields. They're stored as
+`AttributeType::Id` and `AttributeType::Class` entries in the node's
+attribute list. The selector `.panel { ... }` matches every node
+whose attribute list contains `Class("panel")`.
+
+`AttributeType` (in `core/src/dom.rs`) is a strongly-typed enum:
+`Href`, `Src`, `Alt`, `AriaLabel`, `Required`, `MaxLength(i32)`,
+`ContentEditable(bool)`, and so on. There's a `Custom` fallback for
+arbitrary `name="value"` pairs. Attributes aren't inline CSS — they
+feed accessibility, attribute selectors like `[lang="en"]`, and
+HTML/XML serialization.
+
+### Adding children
 
 Three ways to attach children:
 
@@ -352,48 +368,23 @@ let c: Dom = (0..3).map(|i| Dom::create_li_with_text(format!("Item {}", i))).col
 // Produces a NodeType::Div containing three <li> children.
 ```
 
-`with_child` calls `add_child`, which pushes onto the underlying `Vec` and
-updates `estimated_total_children`. That's amortised O(1) per call.
-`with_children(DomVec)` is one allocation total.
+`with_child` calls `add_child`, which pushes onto the underlying
+`Vec` and updates `estimated_total_children`. That's amortised O(1)
+per call. `with_children(DomVec)` is one allocation total.
 
 `estimated_total_children` is maintained by every `add_child` and
-`set_children` call. The framework reads it to pre-size the flat arena
-during conversion. If you mutate `children` directly, call
+`set_children` call. The framework reads it to pre-size the flat
+arena during conversion. If `children` is mutated directly, call
 `fixup_children_estimated()` before returning.
 
-## IDs, classes, attributes
-
-```rust,no_run
-use azul::prelude::*;
-
-let _ = Dom::create_div()
-    .with_id("sidebar".into())
-    .with_class("panel".into())
-    .with_class("scrollable".into())
-    .with_attribute(AttributeType::AriaLabel("notification banner".into()))
-    .with_attribute(AttributeType::Lang("en".into()));
-```
-
-IDs and classes aren't separate fields. They're stored as `AttributeType::Id`
-and `AttributeType::Class` entries in the node's attribute list. The selector
-`.panel { ... }` matches every node whose attribute list contains
-`Class("panel")`.
-
-`AttributeType` (in `core/src/dom.rs`) is a strongly-typed enum: `Href`,
-`Src`, `Alt`, `AriaLabel`, `Required`, `MaxLength(i32)`,
-`ContentEditable(bool)`, and so on. There's a `Custom` fallback for
-arbitrary `name="value"` pairs. Attributes aren't inline CSS. They feed
-accessibility, attribute selectors like `[lang="en"]`, and HTML/XML
-serialization.
-
-## Clipping a node
+### Defining a clipping path
 
 Two public mechanisms cover the common cases:
 
 - `with_clip_mask(ImageMask)` takes a raster alpha mask. Use it for
   irregular shapes that already exist as image data.
-- `with_css("clip-path: ...;")` parses the CSS property into the node's
-  inline-CSS list. Applied during the cascade.
+- `with_css("clip-path: ...;")` parses the CSS property into the
+  node's inline-CSS list. Applied during the cascade.
 
 ```rust,no_run
 use azul::prelude::*;
@@ -411,11 +402,12 @@ fn build(mask: ImageMask) -> Dom {
 
 A `clip-path` set on a parent applies to every descendant.
 
-## Inline CSS
+### Inline CSS
 
 The primary way to attach CSS is `.with_css(...)` on the node itself.
-You hand it a string; it parses through the same pipeline the cascade
-uses elsewhere and stores the result in `NodeData::style: Css`.
+The method takes a string, parses it through the same pipeline the
+cascade uses elsewhere, and stores the result in
+`NodeData::style: Css`.
 
 ```rust,no_run
 use azul::prelude::*;
@@ -428,19 +420,19 @@ let item = Dom::create_div().with_css("
 ");
 ```
 
-The parsed rules carry their conditions directly: `:hover`, `:focus`,
-`:active`, `@os`, and `@theme` blocks all live inside the same `Css`
-value. Conditions are re-evaluated per frame, so `@theme dark { ... }`
-flips when the user toggles dark mode without any re-layout. Inline
-rules are tagged `rule_priority::INLINE` so they win the cascade
-against author CSS.
+The parsed rules carry their conditions directly: `:hover`,
+`:focus`, `:active`, `@os`, and `@theme` blocks all live inside the
+same `Css` value. Conditions are re-evaluated per frame, so
+`@theme dark { ... }` flips when the user toggles dark mode without
+any re-layout. Inline rules are tagged `rule_priority::INLINE` so
+they win the cascade against author CSS.
 
 After the recent unification, the inline store is a regular `Css` —
 the legacy `css_props: CssPropertyWithConditionsVec` field is gone.
 `with_css_props(vec)` still works as a compatibility shim that maps
 each property to a single-declaration rule at INLINE priority.
 
-## Component-level stylesheets
+### Component-level stylesheets
 
 Reusable components ship a parsed stylesheet that travels with the
 subtree. Attach it on the component's root with `.style(Css)`:
@@ -454,47 +446,117 @@ let panel: Dom = Dom::create_div()
     .style(widgets);
 ```
 
-Multiple `.style(...)` calls stack in push order; later entries
-override earlier ones at equal specificity. The framework gathers
-every component-level `Css` together with the application stylesheet
-and runs a single cascade after `layout()` returns.
+A browser cascades every stylesheet against every node in one global
+pass — `.panel { ... }` in one tab can match a `.panel` in any iframe
+that imports the same stylesheet, and changes there force a global
+restyle. Azul's component CSS travels *with the subtree*. The
+framework merges every component-level `Css` together when it
+flattens the tree, but the rules a component ships only have a
+chance to match the nodes the component itself owns. Anything
+outside the component's subtree is invisible to its selectors. This
+is a soft scope (the framework doesn't enforce a Shadow-DOM
+boundary), but it follows from the way components label their roots
+and avoids the cross-component restyle storms a global cascade
+produces. For hard scoping, write selectors that nest under the
+component's root class.
 
-Component CSS *applies to the subtree where it was attached* because
-the rules only have a chance to match nodes that the component owns —
-the cascade is global, but the component's marker class (or other
-selector that scopes its rules) only exists inside its own subtree.
-That's the convention components follow rather than a Shadow-DOM
-boundary the framework enforces. For hard scoping, write selectors
-that nest under the component's root class.
+User-level theming sits at the *outermost* layer: the system
+`@theme dark` block, the `system:*` color keywords, and the optional
+end-user ricing file all target the framework-wide hooks. Component
+CSS doesn't fight user theming because the two layers target
+different selectors. See [Components](dom/components.md) for the
+component-pack model and [Theming](styling/themes.md) for the full
+theming model and the `AZ_RICING` opt-out.
 
-User-level theming (the system `@theme dark { ... }` block, the
-`system:*` color keywords, end-user ricing in
-`~/.config/azul/styles/<app>.css`) sits at the *outermost* layer of
-the cascade. Component CSS doesn't fight user theming because the
-component rules typically target component-internal classes, while
-user theming targets the system color and font hooks. See
-[Theming](styling/themes.md) for the full theming model and the
-`AZ_DISABLE_RICING` opt-out.
-
-## When does CSS apply?
-
-Not while your `LayoutCallback` is running. The `Dom` you build
-carries CSS as opaque state — `NodeData::style: Css` for inline
-rules, `Dom::css: CssVec` for component stylesheets. The cascade
-runs once after your layout callback returns: selector matching,
-inheritance, and the compact-cache build all happen there.
-
-CSS work inside `layout()` is cheap because each call is just a parse
-and a push. The framework collects the rules, sorts by `(priority,
-specificity)`, and walks the tree once to fill the compact cache.
-
-For the internal cache layout that the layout engine reads, see
+The cascade runs *once*, after the `LayoutCallback` returns.
+`NodeData::style: Css` and `Dom::css: CssVec` are opaque state
+during `layout()`. The framework collects the rules at the end of
+the callback, sorts by `(priority, specificity)`, and walks the tree
+once to fill the compact cache. Selector matching, inheritance, and
+the compact-cache build all happen there. CSS work inside `layout()`
+is cheap because each call is just a parse and a push. For the
+internal cache layout that the layout engine reads, see
 [internals/styling/compact-cache.md](internals/styling/compact-cache.md).
+
+### Inside the layout callback
+
+A `layout()` callback receives application data and a
+`LayoutCallbackInfo` describing the window. Returning a `Dom`
+finishes the pass; the framework reconciles, lays out, and renders.
+
+```rust,no_run
+use azul::prelude::*;
+
+struct AppModel {
+    user_name: String,
+    locale: Locale,
+}
+
+extern "C" fn layout(data: &mut RefAny, info: LayoutCallbackInfo) -> StyledDom {
+    let model = match data.downcast_ref::<AppModel>() {
+        Some(m) => m,
+        None => return StyledDom::default(),
+    };
+
+    let strings = Strings::for_locale(model.locale);
+
+    // Window-aware layout: switch to a single-column layout below 768px.
+    let body = if info.window_width_less_than(768.0) {
+        Dom::create_body()
+            .with_css("display:flex; flex-direction:column;")
+            .with_child(navbar_compact(&model.user_name, &strings))
+            .with_child(content_area(&strings))
+    } else {
+        Dom::create_body()
+            .with_css("display:grid; grid-template-columns:240px 1fr;")
+            .with_child(sidebar(&model.user_name, &strings))
+            .with_child(content_area(&strings))
+    };
+
+    body.style(app_stylesheet()).style_dom()
+}
+```
+
+The `LayoutCallbackInfo` exposes everything needed to make the
+returned `Dom` adapt to the running window:
+
+- **Responsive sizing** — `window_width_less_than`,
+  `window_width_between`, `window_height_*`, and the raw
+  `get_window_width` / `get_window_height`. Branch on these to
+  emit a different tree for narrow vs wide windows. Conditions
+  on inline CSS (`@media`, `@theme`) cover the per-property cases;
+  a width branch in Rust covers the per-tree cases (e.g. a
+  hamburger menu vs a sidebar).
+- **DPI** — `get_dpi_factor` returns 1.0 on a 96-DPI display, 2.0
+  on a Retina display, etc. Useful when an image needs different
+  asset variants at different scales.
+- **Theme** — the `theme` field on the info is `Light` or `Dark`,
+  resolved from the platform. Use it to pre-select assets that
+  CSS conditions can't pick (e.g. a different SVG logo per theme).
+- **Internationalisation** — the framework doesn't ship i18n
+  primitives, but the callback owns the `Locale` from the model
+  and can pick translation strings before building the tree.
+  `info.get_system_fonts()` returns the platform font list, so a
+  callback rendering CJK text can switch font-family based on
+  what's installed.
+- **Routing** — `get_active_route()` and `get_route_param(key)`
+  return the active route match when the app uses the router.
+  Branch on the route to render different sub-trees from a single
+  `layout()` callback.
+- **Resources** — `get_image(name)` looks up a registered image,
+  `get_system_style()` returns the current `SystemStyle` snapshot,
+  `get_gl_context()` exposes the GL context for canvas-backed
+  nodes.
+
+The output is a `StyledDom` (`dom.style_dom()` runs the cascade and
+returns the framework-owned form). Returning it hands ownership to
+the framework, which reconciles against the previous frame and
+schedules layout + paint.
 
 ## Parsing from XHTML
 
-`Dom::create_from_parsed_xml` is the public entry point. Pass it an `Xml`
-value and you get a `Dom` back, ready to return from `layout()`:
+`Dom::create_from_parsed_xml` is the public entry point. Given an
+`Xml` value, it returns a `Dom` ready to return from `layout()`:
 
 ```rust,no_run
 use azul::prelude::*;
@@ -517,10 +579,11 @@ looks up `<card title="..."/>` against a registered library.
 
 The same XML pipeline accepts `<svg>` tags inside the body and turns
 them into vector nodes that render alongside the rest of the Dom.
-You don't need extra wiring: the parser recognises the SVG namespace,
+No extra wiring is required: the parser recognises the SVG namespace,
 walks the geometry, and stamps an `SvgNodeData` on each shape. A
 clip-mask attribute on an SVG element resolves the same way as a CSS
-`clip-path:` (see [Clipping a node](#clipping-a-node) above).
+`clip-path:` (see [Defining a clipping path](#defining-a-clipping-path)
+above).
 
 ```rust,no_run
 use azul::prelude::*;
@@ -581,9 +644,9 @@ timer, post a thread message — lives in
 [Callbacks](callbacks.md). Event filtering and propagation order
 are in [Events and Input](events.md).
 
-The framework's reconciler matches new nodes against old ones when you
-return a fresh tree. Cursor position, focus, and dataset state migrate
-across the diff for matched nodes. See
+The framework's reconciler matches new nodes against old ones when a
+fresh tree is returned. Cursor position, focus, and dataset state
+migrate across the diff for matched nodes. See
 [Reconciliation](dom/reconciliation.md).
 
 ## Datasets
@@ -615,10 +678,10 @@ walkthrough.
 
 ## Debugging
 
-Run your binary with `AZ_DEBUG=<port>` set and `App::create` starts
+Run the binary with `AZ_DEBUG=<port>` set and `App::create` starts
 an HTTP debug server on that port. It accepts JSON commands and
 returns JSON responses. The inspector sees the same tree the
-renderer is about to draw, so what you query is what's on screen.
+renderer is about to draw, so a query reflects what's on screen.
 
 ```bash
 AZ_DEBUG=8765 cargo run --bin my_app
@@ -641,9 +704,9 @@ real input. A scripted `click` runs the same hit test, the same
 event filters, and the same callback as a user mouse click. That
 makes the debug server the basis for end-to-end tests: drive the
 app from a shell script or a Python harness, assert on the JSON
-responses, and you have an integration test that exercises the real
-layout, the real callbacks, and the real reconciliation pass. The
-test pattern, the assertion vocabulary, and the CI recipe are
+responses, and the result is an integration test that exercises the
+real layout, the real callbacks, and the real reconciliation pass.
+The test pattern, the assertion vocabulary, and the CI recipe are
 covered in [End-to-End Testing](e2e-testing.md).
 
 For tests that don't need a window (snapshot tests, PDF export, CI
@@ -653,8 +716,8 @@ runs the full layout and rendering pipeline into a `Vec<u8>`
 framebuffer.
 
 The `get_node_hierarchy` response carries a `component` field for
-each node so you can navigate to the component that produced it.
-The inspector uses it to draw a Component Tree alongside the DOM
+each node, allowing navigation back to the component that produced
+it. The inspector uses it to draw a Component Tree alongside the DOM
 Tree:
 
 ```json
@@ -671,10 +734,11 @@ Tree:
 }
 ```
 
-Pick a node in the DOM Tree, get the component that produced it,
-and (if its render function lives in a registered library) jump
-back to the source. See [Components](dom/components.md#component-packs)
-for how a library wires its components into the registry.
+Picking a node in the DOM Tree surfaces the component that produced
+it, and (if its render function lives in a registered library) the
+inspector links back to the source. See
+[Components](dom/components.md#component-packs) for how a library
+wires its components into the registry.
 
 ## Coming Up Next
 

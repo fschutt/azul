@@ -25,9 +25,9 @@ default-search-keys:
 
 # Callbacks
 
-[DOM](dom.md) covered how to attach callbacks to a node. This page
-covers the other side of the wire: what your callback function
-receives, what it can read, what it can change, and what it returns.
+[DOM](dom.md) showed how to attach a callback to a node. The other
+side of the wire — what a callback receives, can read, can change,
+and returns — is what this page documents.
 
 ## The callback signature
 
