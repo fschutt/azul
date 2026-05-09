@@ -74,7 +74,7 @@ The cache layers properties from five priority sources, lowest to highest:
 - **Priority 1 (lowest), UA CSS.** `apply_ua_css_to_compact` writes directly to compact arrays.
 - **Priority 2, author `*` rules.** Stored in `global_css_props: Vec<CssProperty>`.
 - **Priority 3, author specific selectors.** Stored in `cascaded_props` (parents) plus `css_props` (per-node from stylesheets).
-- **Priority 4, inline `style="..."` and `NodeData::css_props`.** Stored in `css_props`.
+- **Priority 4, inline `style="..."` and `NodeData::style`.** Each node carries an inline `Css` whose rules are tagged `rule_priority::INLINE`; the cascade walks them via `Css::iter_inline_properties()` and applies declarations whose conditions match the current state.
 - **Priority 5 (highest), runtime callback overrides.** Stored in `user_overridden_properties`.
 
 `StatefulCssProperty` carries a `CssProperty` plus the pseudo-state mask it applies in (Normal / Hover / Active / Focus / Dragging / DragOver). The cascade unifies all states into one entry per property. The getter picks the right value at lookup time.
@@ -215,7 +215,7 @@ If your property stays on the slow path:
 
 ## See also
 
-- [DOM Internals](../dom.md) — `NodeData::css_props` is one of the cascade's input sources.
+- [DOM Internals](../dom.md) — `NodeData::style` (inline `Css`) is one of the cascade's input sources.
 - [CSS Parser](css-parser.md) — produces the `CssProperty` values the cascade routes.
 - [Compact Property Cache](compact-cache.md) — the encoded output of `build_compact_cache_with_inheritance`.
 - [Styling Subsystem](../styling.md) — parent overview of the styling pipeline.

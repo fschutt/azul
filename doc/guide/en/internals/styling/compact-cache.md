@@ -329,7 +329,7 @@ For uncommon properties (transform, box-shadow, filter, content, transitions), t
 
 - [Cascade, Inheritance, Restyle](cascade.md) — how `build_compact_cache_with_inheritance` populates these arrays.
 - [CSS Parser](css-parser.md) — the source of the `CssProperty` values that get encoded.
-- [DOM Internals](../dom.md) — the `NodeData::css_props` are one input to the cascade.
+- [DOM Internals](../dom.md) — `NodeData::style` (inline `Css`) is one input to the cascade.
 - [Styling Subsystem](../styling.md) — parent overview of the styling pipeline.
 
 ## Coming Up Next

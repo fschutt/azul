@@ -151,8 +151,10 @@ copy.
   the four leaves (Text, Image, Icon, VirtualView).
 - `callbacks: CoreCallbackDataVec` — event handlers attached to the
   node. Empty for ~80% of nodes.
-- `css_props: CssPropertyWithConditionsVec` — inline CSS, including
-  conditional rules like `:hover` and `@theme dark`.
+- `style: Css` — inline CSS as a `Css` value (a flat list of
+  `CssRuleBlock`s with implicit `:scope`). Carries conditional rules
+  like `:hover` and `@theme dark`. Rules are tagged
+  `rule_priority::INLINE` so they override author CSS.
 - `flags: NodeFlags` — packed bits for tab index, contenteditable,
   anonymous.
 - `accessibility: Option<Box<AccessibilityInfo>>` — ARIA payload, only

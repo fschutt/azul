@@ -70,7 +70,7 @@ default-search-keys:
 
 ## Overview
 
-The CSS parser turns a `&str` stylesheet into a `Css` value — a `Vec<Stylesheet>` of typed `CssRuleBlock` entries, each pairing a `CssPath` selector with a `Vec<CssDeclaration>`. The entry point is `new_from_str`; it never panics. Errors at every layer are non-fatal — a syntax error becomes a `CssParseWarnMsg` and the rest of the stylesheet survives. A hard tokenizer error wraps the whole stylesheet into a single `ParseError` warning and returns an empty `Css` rather than `None`, so the renderer can keep going on malformed user CSS.
+The CSS parser turns a `&str` stylesheet into a `Css` value — a flat `Vec<CssRuleBlock>`, each pairing a `CssPath` selector with a `Vec<CssDeclaration>`, plus optional `@-rule` conditions and a `priority: u8` layer label. The entry point is `new_from_str`; it never panics. Errors at every layer are non-fatal — a syntax error becomes a `CssParseWarnMsg` and the rest of the stylesheet survives. A hard tokenizer error wraps the whole stylesheet into a single `ParseError` warning and returns an empty `Css` rather than `None`, so the renderer can keep going on malformed user CSS.
 
 The parser is layered top to bottom: a top-level CSS parser handling `@media` / `@lang` / `@theme` / `@supports` blocks, a property dispatcher routing each `(key, value)` to the right typed parser, and ~100 per-property parsers for the individual property syntaxes. Property modules are split by their effect on the layout pipeline (`props/layout/` for box-geometry, `props/style/` for paint-only, `props/basic/` for primitive value types).
 
@@ -278,7 +278,7 @@ Each step is mechanical except the encoding decision — see the compact-cache p
 
 ## See also
 
-- [DOM Internals](../dom.md) — the consumer of parsed CSS via `NodeData::css_props` and `Css` stylesheets.
+- [DOM Internals](../dom.md) — the consumer of parsed CSS via `NodeData::style` (inline) and `Dom::css` (subtree-attached `Css`).
 - [Cascade, Inheritance, Restyle](cascade.md) — how the parsed `CssProperty` values become per-node resolved values.
 - [Compact Property Cache](compact-cache.md) — where the resolved values end up.
 - [Styling Subsystem](../styling.md) — parent overview of the styling pipeline.

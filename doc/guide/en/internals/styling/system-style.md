@@ -46,7 +46,7 @@ pub struct SystemStyle {
     pub platform: Platform,
     pub focus_visuals: FocusVisuals,
     pub language: AzString,                 // BCP 47, e.g. "en-US"
-    pub app_specific_stylesheet: Option<Box<Stylesheet>>,
+    pub app_specific_stylesheet: Option<Box<Css>>,
     pub scrollbar: Option<Box<ComputedScrollbarStyle>>,
     pub scroll_physics: ScrollPhysics,
     pub theme: Theme,                        // Light | Dark
@@ -65,7 +65,7 @@ pub struct SystemStyle {
 }
 ```
 
-`Box<Stylesheet>` and `Box<ComputedScrollbarStyle>` are heap-indirected so the struct's FFI size is stable across feature flags.
+`Box<Css>` and `Box<ComputedScrollbarStyle>` are heap-indirected so the struct's FFI size is stable across feature flags.
 
 `Platform` is one of `Windows | MacOs | Linux(DesktopEnvironment) | Android | Ios | Unknown`. `Platform::current()` is the compile-time `cfg(target_os)` answer. The runtime discovery in `dll/` overrides it on Linux to fill in the actual desktop env.
 
@@ -243,14 +243,14 @@ Each constructor uses `..Default::default()` to fill the long tail of fields. Th
 After discovery succeeds, every Linux path calls:
 
 ```rust,ignore
-fn load_app_specific_stylesheet() -> Option<Stylesheet> {
+fn load_app_specific_stylesheet() -> Option<Css> {
     if std::env::var("AZUL_DISABLE_RICING").is_ok() { return None; }
     let exe_name = std::env::current_exe()?.file_stem()?.to_string_lossy().into_owned();
     let config_dir = get_config_dir()?;          // $XDG_CONFIG_HOME or ~/.config
     let css_path = format!("{}/azul/styles/{}.css", config_dir, exe_name);
     let css_str = std::fs::read_to_string(&css_path).ok()?;
     let (css, _warnings) = new_from_str(&css_str);
-    css.stylesheets.as_ref().first().cloned()
+    if css.is_empty() { None } else { Some(css) }
 }
 ```
 
@@ -262,14 +262,14 @@ The result lands in `app_specific_stylesheet`. Parser warnings are discarded. In
 
 `exe` is the `Path::file_stem()` of the running executable. `myapp` matches both `myapp` and `myapp.exe`.
 
-## Stylesheet generators on SystemStyle
+## Css generators on SystemStyle
 
 `SystemStyle` carries two CSS-emitting methods used by the menu / CSD pipeline (see [Menus and Client-Side Decorations](../windowing/menus-and-csd.md)):
 
-- **`create_csd_stylesheet()`.** Emits `.csd-titlebar`, `.csd-title`, `.csd-buttons`, `.csd-button`, `.csd-button:hover`, `.csd-close:hover`, plus macOS and Linux specialisations.
-- **`create_menu_stylesheet()`.** Emits `.menu-container`, `.menu-item`, `.menu-item:hover`, `.menu-item-disabled` / `-greyed`, `.menu-item-icon`, `.menu-item-label`, `.menu-item-shortcut`, `.menu-item-arrow`, and `.menu-separator`. Defined as an extension trait `SystemStyleMenuExt`.
+- **`create_csd_stylesheet() -> Css`.** Emits `.csd-titlebar`, `.csd-title`, `.csd-buttons`, `.csd-button`, `.csd-button:hover`, `.csd-close:hover`, plus macOS and Linux specialisations.
+- **`create_menu_stylesheet() -> Css`.** Emits `.menu-container`, `.menu-item`, `.menu-item:hover`, `.menu-item-disabled` / `-greyed`, `.menu-item-icon`, `.menu-item-label`, `.menu-item-shortcut`, `.menu-item-arrow`, and `.menu-separator`. Defined as an extension trait `SystemStyleMenuExt`.
 
-Both build a `String` and parse it back to `Stylesheet` via `parser2::new_from_str`. This is fragile — `format!` typos are caught only at parse time, not compile time. Errors are log-routed via `log_debug!(LogCategory::General, ...)` but the build still succeeds with whatever rules parsed correctly.
+Both build a `String` and parse it back to a `Css` via `parser2::new_from_str`, then tag every rule with `rule_priority::SYSTEM` so author CSS overrides win. This is fragile — `format!` typos are caught only at parse time, not compile time. Errors are log-routed via `log_debug!(LogCategory::General, ...)` but the build still succeeds with whatever rules parsed correctly.
 
 ## Detecting the desktop environment and language
 

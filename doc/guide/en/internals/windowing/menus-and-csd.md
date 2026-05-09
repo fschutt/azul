@@ -159,7 +159,7 @@ Two callbacks are wired per item, only when `menu_item_state` is `Normal`:
 - **`.menu-item-arrow`.** Dimmed, used for the submenu indicator arrow.
 - **`.menu-separator`.** 1 px line with padding.
 
-The function builds a `String` via `format!`, parses it with `new_from_str`, and returns the first parsed `Stylesheet`. Parser warnings are routed through `log_debug!(LogCategory::General, ...)` rather than surfaced. Padding is hard-coded `8.0` even though `corner_radius` is read from `metrics`.
+The function builds a `String` via `format!`, parses it with `new_from_str`, tags every rule `rule_priority::SYSTEM`, and returns the resulting `Css`. Parser warnings are routed through `log_debug!(LogCategory::General, ...)` rather than surfaced. Padding is hard-coded `8.0` even though `corner_radius` is read from `metrics`.
 
 The stylesheet uses `box-shadow`, `cursor`, `user-select`, `white-space`, and `opacity`. Whether any of these are honoured by the layout/render path depends on the parser's property whitelist; properties that are not understood are silently dropped.
 

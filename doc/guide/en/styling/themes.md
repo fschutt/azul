@@ -278,8 +278,8 @@ A few escape hatches when the discovery isn't enough:
 
 - **Inline override**: a `with_css_property(...)` call wins over the
   cascade for that node.
-- **Stylesheet override**: stack a second `Css` via `style(css)`. Later
-  stylesheets win at equal specificity.
+- **Css override**: stack a second `Css` via `style(css)`. Later rule
+  blocks win at equal `(priority, specificity)`.
 - **End-user ricing**: when the `io` feature is enabled and
   `AZUL_DISABLE_RICING` is unset, azul reads
   `~/.config/azul/styles/<app>.css` (or `%APPDATA%\azul\styles\<app>.css`)

@@ -47,7 +47,7 @@ Every CSS property the renderer asks for is the resolution of five priority sour
 1. **User-agent CSS.** Per-`NodeType` defaults (`<h1>` is `font-size: 2em font-weight: bold`, `<button>` is `display: inline-block` with padding and a border). Hard-coded into `apply_ua_css_to_compact` so the common case bypasses the cascade walk entirely.
 2. **Author `*` rules.** Stylesheet rules with the universal selector. Hoisted into a single `global_css_props: Vec<CssProperty>` so they aren't cloned into every node's per-node prop list.
 3. **Author specific selectors.** Stylesheet rules whose selector matched the node. Stored in `cascaded_props` (parents) and `css_props` (per-node).
-4. **Inline `style="..."` and `NodeData::css_props`.** Properties attached to one specific node by the DOM builder. Stored in `css_props`.
+4. **Inline `style="..."` and `NodeData::style`.** Each node carries an inline `Css` whose rules are tagged `rule_priority::INLINE`; the cascade walks them via `Css::iter_inline_properties()`.
 5. **Runtime callback overrides.** Properties set by callbacks via `CallbackInfo::set_css_property(...)`. Stored in `user_overridden_properties`. The highest priority, intended for stateful UI (focus rings, drag highlights, animation overrides).
 
 The cascade reads in priority order top to bottom, short-circuiting at the first match. Per-node, the resolution is one O(1) array lookup if the property is in the compact cache, or a walk through the five sources for slow-path properties.
@@ -56,7 +56,7 @@ The cascade reads in priority order top to bottom, short-circuiting at the first
 
 The parser turns CSS source into a typed AST. The entry point is `parser2::new_from_str(css_string) -> (Css, Vec<CssParseWarnMsg>)`, which is non-fatal: a syntax error becomes a warning and the rest of the stylesheet survives. Internally, it tokenises via `azul_simplecss::Tokenizer`, handles `@media` / `@lang` / `@theme` / `@supports` blocks, and routes each `(key, value)` declaration through `parse_css_property` to a per-property parser in `css/src/props/layout/` or `css/src/props/style/`.
 
-The output `Css` value is a `Vec<Stylesheet>` of `CssRuleBlock` entries — each pairing a `CssPath` selector with a `Vec<CssDeclaration>`. Selectors are separately parseable via `parse_css_path` for runtime `StyledDom::with_css(...)` overrides and for the codegen pipeline that compiles HTML+CSS to `const` Rust.
+The output `Css` value is a flat `Vec<CssRuleBlock>` — each pairing a `CssPath` selector with a `Vec<CssDeclaration>` plus an optional list of `@-rule` conditions and a `priority: u8` layer label (UA / SYSTEM / AUTHOR / INLINE / RUNTIME — see `rule_priority`). Selectors are separately parseable via `parse_css_path` for runtime `StyledDom::with_css(...)` overrides and for the codegen pipeline that compiles HTML+CSS to `const` Rust.
 
 The 180-variant `CssProperty` enum is the type-safe currency that flows out of the parser into every other stage. Property modules are split by their effect on the layout pipeline (`props/layout/` for box-geometry, `props/style/` for paint-only, `props/basic/` for primitive value types). The split is what enables the `RelayoutScope` classification on `CssPropertyType`.
 
@@ -64,7 +64,7 @@ For details, see [CSS Parser](styling/css-parser.md).
 
 ## Stage 2: Cascade
 
-The cascade owns the `CssPropertyCache`. Its job is to take the parsed `Css`, the per-node `css_props` from `NodeData`, the global `*` rules, and the UA defaults — and produce, per node, a fully resolved property set ready for the compact-cache encoder.
+The cascade owns the `CssPropertyCache`. Its job is to take the parsed `Css`, the per-node inline `style` (a `Css`) from `NodeData`, the global `*` rules, and the UA defaults — and produce, per node, a fully resolved property set ready for the compact-cache encoder.
 
 `StyledDom::restyle(css)` is the orchestration entry point. It runs four phases in order:
 
