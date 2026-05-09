@@ -89,11 +89,14 @@ pub fn generate(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
     builder.line("azul.C = C");
     builder.blank();
 
-    // 6. Managed-FFI prelude: pin table + RefAny user-data store. Must be
-    //    emitted before the wrappers because wrapper methods reference
-    //    `azul.pin_callback(...)` for callback-typed arguments.
+    // 6. Managed-FFI prelude: per-kind invoker registrations + RefAny
+    //    user-data store. Must be emitted before the wrappers because
+    //    wrapper methods reference `azul._register_callback(...)` for
+    //    callback-typed arguments. The prelude is data-driven from the
+    //    IR so adding a new callback kind to api.json contributes one
+    //    cdef + one libffi closure registration automatically.
     let mut managed_buf = String::new();
-    managed::emit_managed_prelude(&mut managed_buf);
+    managed::emit_managed_prelude(&mut managed_buf, ir);
     builder.raw(&managed_buf);
 
     // 7. Wrapper layer.

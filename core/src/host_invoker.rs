@@ -242,6 +242,10 @@ pub extern "C" fn AzRefAny_getHostHandle(refany: *const RefAny) -> u64 {
 ///     "do nothing" / "empty body" default.
 #[macro_export]
 macro_rules! impl_managed_callback {
+    // Form 1: simple two-argument callbacks `(RefAny, info) -> ret` —
+    // matches `Callback`, `LayoutCallback`, `ButtonOnClickCallback`,
+    // and the bulk of widget event callbacks. Identical to the
+    // extras-form below with an empty extra-args list.
     (
         wrapper:        $wrapper:ty,
         info_ty:        $info_ty:ty,
@@ -252,6 +256,36 @@ macro_rules! impl_managed_callback {
         thunk_fn:       $thunk_fn:ident,
         setter_fn:      $setter_fn:ident,
         from_handle_fn: $from_handle_fn:ident,
+    ) => {
+        $crate::impl_managed_callback! {
+            wrapper:        $wrapper,
+            info_ty:        $info_ty,
+            return_ty:      $ret,
+            default_ret:    $default,
+            invoker_static: $invoker_static,
+            invoker_ty:     $invoker_ty,
+            thunk_fn:       $thunk_fn,
+            setter_fn:      $setter_fn,
+            from_handle_fn: $from_handle_fn,
+            extra_args:     [],
+        }
+    };
+    // Form 2: callbacks that take additional state after info — e.g.
+    // `CheckBoxOnToggleCallback(RefAny, CallbackInfo, CheckBoxState)`.
+    // The extras list is forwarded by reference into the host invoker
+    // so libffi-style runtimes never have to handle aggregate-by-value
+    // returns OR aggregate-by-value args.
+    (
+        wrapper:        $wrapper:ty,
+        info_ty:        $info_ty:ty,
+        return_ty:      $ret:ty,
+        default_ret:    $default:expr,
+        invoker_static: $invoker_static:ident,
+        invoker_ty:     $invoker_ty:ident,
+        thunk_fn:       $thunk_fn:ident,
+        setter_fn:      $setter_fn:ident,
+        from_handle_fn: $from_handle_fn:ident,
+        extra_args:     [ $( $extra_name:ident : $extra_ty:ty ),* $(,)? ] $(,)?
     ) => {
         /// Process-global slot for this callback kind's host-side invoker.
         pub static $invoker_static: $crate::host_invoker::InvokerSlot =
@@ -272,6 +306,7 @@ macro_rules! impl_managed_callback {
             handle: u64,
             data: *const $crate::refany::RefAny,
             info: *const $info_ty,
+            $( $extra_name : *const $extra_ty , )*
             out: *mut $ret,
         );
 
@@ -288,6 +323,7 @@ macro_rules! impl_managed_callback {
         extern "C" fn $thunk_fn(
             data: $crate::refany::RefAny,
             info: $info_ty,
+            $( $extra_name : $extra_ty , )*
         ) -> $ret {
             let ctx = info.get_ctx();
             let handle = match ctx {
@@ -316,6 +352,7 @@ macro_rules! impl_managed_callback {
                 handle,
                 &data as *const $crate::refany::RefAny,
                 &info as *const $info_ty,
+                $( & $extra_name as *const $extra_ty , )*
                 &mut out as *mut $ret,
             );
             out

@@ -182,6 +182,19 @@ pub struct VirtualViewCallback {
 }
 impl_callback!(VirtualViewCallback, VirtualViewCallbackType);
 
+// Host-invoker plumbing for VirtualViewCallback. See `crate::host_invoker`.
+crate::impl_managed_callback! {
+    wrapper:        VirtualViewCallback,
+    info_ty:        VirtualViewCallbackInfo,
+    return_ty:      VirtualViewReturn,
+    default_ret:    VirtualViewReturn::default(),
+    invoker_static: VIRTUAL_VIEW_CALLBACK_INVOKER,
+    invoker_ty:     AzVirtualViewCallbackInvoker,
+    thunk_fn:       az_virtual_view_callback_thunk,
+    setter_fn:      AzApp_setVirtualViewCallbackInvoker,
+    from_handle_fn: AzVirtualViewCallback_createFromHostHandle,
+}
+
 impl VirtualViewCallback {
     pub fn create(cb: VirtualViewCallbackType) -> Self {
         Self {
