@@ -27,6 +27,7 @@
 //! `Pointer?`, Kotlin keyword set, `?.value` accessors).
 
 pub mod gradle;
+pub mod managed;
 pub mod wrappers;
 
 use anyhow::Result;
@@ -81,6 +82,9 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
 
     // 3. Idiomatic wrappers
     wrappers::emit_all(&mut builder, ir, config)?;
+
+    // 4. Managed-FFI runtime helpers (host-invoker pattern).
+    managed::emit(&mut builder, ir);
 
     Ok(builder.finish())
 }

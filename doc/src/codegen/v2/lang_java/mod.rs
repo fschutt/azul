@@ -43,6 +43,7 @@
 //! (`Pointer?`, `Long`, `Int`).
 
 pub mod functions;
+pub mod managed;
 pub mod pom;
 pub mod types;
 pub mod wrappers;
@@ -100,6 +101,10 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
 
     // 3. Idiomatic AutoCloseable wrappers — one file per wrapped type.
     wrappers::emit_all_wrapper_files(&mut out, ir, config)?;
+
+    // 4. Managed-FFI runtime helpers (host-invoker pattern). Two extra
+    //    Java source files: AzulNativeManaged.java + AzulHostInvoker.java.
+    managed::emit_files(&mut out, ir, config)?;
 
     Ok(out)
 }

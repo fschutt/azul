@@ -1,195 +1,105 @@
-// Hello-world example for the Azul C# bindings.
+// examples/csharp/hello-world.cs
 //
-// This file is the C# port of `examples/c/hello-world.c`. It uses the
-// generated `Azul.cs` bindings (wrapper classes + IDisposable) where
-// possible, and falls back to `NativeMethods` for FFI-only helpers
-// like RefAny round-tripping that don't (yet) have idiomatic wrappers.
+// C# port of examples/c/hello-world.c built against the host-invoker
+// runtime helpers in `Azul.cs` (see `lang_csharp/managed.rs`).
 //
-// Behavioural parity with the C version:
-//   - A counter starts at 5
-//   - Layout draws a label showing the counter and a "Increase counter"
-//     button
-//   - Clicking the button increments the counter and refreshes the DOM
+// Same shape as examples/lua/hello-world.lua and examples/perl/hello-world.pl:
+//   * `Azul.HostInvoker.RefanyCreate(value)` wraps any managed object in
+//     an AzRefAny held alive by the framework's refcount.
+//   * Callbacks are plain C# delegates handed to
+//     `Azul.HostInvoker.RegisterCallback(delegate)`, which returns the
+//     `AzCallback` cdata struct the C ABI expects. The framework's static
+//     thunk in libazul dispatches back into managed code via the libffi
+//     closure registered at module load.
 //
-// Build via the sibling `Hello.csproj`:
+// Build + run:
 //
 //     dotnet build
 //     dotnet run
 
 using System;
 using System.Runtime.InteropServices;
-using System.Text;
 using Azul;
 
 namespace HelloWorld
 {
     // ── Data model ──────────────────────────────────────────────────────
-    //
-    // The C example uses `AZ_REFLECT_JSON` plus a destructor / json
-    // round-trip pair to register a custom type with the framework.
-    // C# does not have a macro system, so we construct a `RefAny` by
-    // hand and rely on a per-instance pointer (`GCHandle`) to keep the
-    // CLR object alive while the native side holds it.
-
     public sealed class MyDataModel
     {
         public uint Counter;
-
         public MyDataModel(uint counter) { Counter = counter; }
     }
 
+    // Per-kind delegate signatures the host-invoker plumbing expects.
+    // Argument list mirrors the framework's CallbackType: each by-value
+    // aggregate (`AzRefAny`, `AzCallbackInfo`, `AzLayoutCallbackInfo`)
+    // is passed by IntPtr — the host-invoker's pointer-arg convention.
+    public delegate AzUpdate ClickHandler(IntPtr dataPtr, IntPtr infoPtr);
+    public delegate AzDom    LayoutHandler(IntPtr dataPtr, IntPtr infoPtr);
+
     public static class Program
     {
-        // Keep delegate instances rooted so the GC does not collect them
-        // while native code holds raw function pointers.
-        private static AzLayoutCallbackType _layoutDelegate;
-        private static AzCallbackType _onClickDelegate;
-
-        // ── Callback ────────────────────────────────────────────────────
-
-        private static AzUpdate OnClick(IntPtr data, AzCallbackInfo info)
+        public static int Main(string[] args)
         {
-            // SKIPPED: real downcast/up-cast helpers — the C example uses
-            // `MyDataModelRefMut_create` + `MyDataModel_downcastMut`. In
-            // C# we cheat by recovering the GCHandle we stored into the
-            // RefAny payload at construction time.
-            var handle = GCHandle.FromIntPtr(ExtractGcHandle(data));
-            if (handle.Target is MyDataModel model)
-            {
-                model.Counter += 1;
-                return (AzUpdate)AzUpdate_Tag.RefreshDom;
-            }
-            return (AzUpdate)AzUpdate_Tag.DoNothing;
-        }
-
-        // ── Layout ──────────────────────────────────────────────────────
-
-        private static AzDom Layout(IntPtr data, AzLayoutCallbackInfo info)
-        {
-            var handle = GCHandle.FromIntPtr(ExtractGcHandle(data));
-            var model = handle.Target as MyDataModel;
-
-            // Counter label, wrapped in a div to make it block-level.
-            var counterText = (model != null) ? model.Counter.ToString() : "?";
-            var labelStr = AzStringFromManaged(counterText);
-            var label = NativeMethods.AzDom_createText(labelStr);
-
-            var labelWrapper = NativeMethods.AzDom_createDiv();
-            var fontSizeProp = NativeMethods.AzCssProperty_fontSize(
-                NativeMethods.AzStyleFontSize_px(32.0f));
-            NativeMethods.AzDom_addCssProperty(
-                ref labelWrapper,
-                NativeMethods.AzCssPropertyWithConditions_simple(fontSizeProp));
-            NativeMethods.AzDom_addChild(ref labelWrapper, label);
-
-            // Button.
-            var buttonText = AzStringFromManaged("Increase counter");
-            var button = NativeMethods.AzButton_create(buttonText);
-            NativeMethods.AzButton_setButtonType(ref button, (uint)AzButtonType.Primary);
-
-            // Clone the RefAny so the button takes its own reference.
-            var dataClone = NativeMethods.AzRefAny_clone(data);
-            NativeMethods.AzButton_setOnClick(ref button, dataClone, _onClickDelegate);
-            var buttonDom = NativeMethods.AzButton_dom(button);
-
-            // Body.
-            var body = NativeMethods.AzDom_createBody();
-            NativeMethods.AzDom_addChild(ref body, labelWrapper);
-            NativeMethods.AzDom_addChild(ref body, buttonDom);
-
-            return NativeMethods.AzDom_style(body, NativeMethods.AzCss_empty());
-        }
-
-        // ── Main ────────────────────────────────────────────────────────
-
-        public static void Main()
-        {
+            // ── Wrap the model in an AzRefAny ────────────────────────────
             var model = new MyDataModel(5);
+            AzRefAny data = HostInvoker.RefanyCreate(model);
 
-            // Pin the model so the native side can reach it through
-            // a stable IntPtr until we explicitly free it.
-            var handle = GCHandle.Alloc(model, GCHandleType.Normal);
-            var data = MakeRefAny(GCHandle.ToIntPtr(handle));
-
-            _layoutDelegate = Layout;
-            _onClickDelegate = OnClick;
-
-            using (var window = WindowCreateOptions.Create(_layoutDelegate))
+            // ── Callbacks ────────────────────────────────────────────────
+            ClickHandler onClick = (IntPtr dataPtr, IntPtr infoPtr) =>
             {
-                // SKIPPED: deep field mutation on the FFI struct — the
-                // generated wrapper exposes `Raw` for this. We mutate
-                // a copy of the FFI struct, then pass it back to App.Run.
-                var raw = window.Raw;
-                raw.window_state.title = AzStringFromManaged("Hello World");
-                raw.window_state.size.dimensions.width = 400.0f;
-                raw.window_state.size.dimensions.height = 300.0f;
+                var m = HostInvoker.RefanyGet(dataPtr) as MyDataModel;
+                if (m == null) return AzUpdate.DoNothing;
+                m.Counter++;
+                return AzUpdate.RefreshDom;
+            };
 
-                // NoTitleAutoInject: OS draws close/min/max buttons,
-                // framework auto-injects a Titlebar with drag support.
-                raw.window_state.flags.decorations =
-                    (byte)AzWindowDecorations.NoTitleAutoInject;
-                raw.window_state.flags.background_material =
-                    (byte)AzWindowBackgroundMaterial.Sidebar;
-
-                using (var app = App.Create(data, NativeMethods.AzAppConfig_create()))
-                {
-                    app.Run(raw);
-                }
-            }
-
-            handle.Free();
-        }
-
-        // ── Helpers ─────────────────────────────────────────────────────
-
-        /// <summary>
-        /// Allocate an AzString from a managed UTF-16 string by going
-        /// through a UTF-8 byte buffer and the public copyFromBytes
-        /// constructor.
-        /// </summary>
-        private static AzString AzStringFromManaged(string s)
-        {
-            var utf8 = Encoding.UTF8.GetBytes(s);
-            unsafe
+            LayoutHandler layout = (IntPtr dataPtr, IntPtr infoPtr) =>
             {
-                fixed (byte* p = utf8)
-                {
-                    return NativeMethods.AzString_copyFromBytes(
-                        (IntPtr)p, UIntPtr.Zero, (UIntPtr)utf8.Length);
-                }
-            }
-        }
+                var m = HostInvoker.RefanyGet(dataPtr) as MyDataModel;
+                if (m == null) return Dom.CreateBody().__inner;
 
-        /// <summary>
-        /// Wrap a raw IntPtr (a pinned <c>GCHandle</c>) in an AzRefAny
-        /// using the generic <c>RefAny.fromPtr</c> entry point.
-        /// </summary>
-        // SKIPPED: a real implementation would call AzRefAny_new with
-        // a destructor pointer. This stub uses a placeholder helper
-        // that the generator wires up.
-        private static AzRefAny MakeRefAny(IntPtr ptr)
-        {
-            return NativeMethods.AzRefAny_newC(
-                ptr,
-                UIntPtr.Zero,
-                0,
-                AzStringFromManaged("MyDataModel"),
-                IntPtr.Zero);
-        }
+                // Until lang_csharp/wrappers.rs learns to substitute
+                // callback args via HostInvoker.Register*Callback
+                // automatically, we wire it explicitly here. The CB
+                // wrapper carries the host-handle ctx we need so the
+                // static thunk in libazul can dispatch back to onClick.
+                AzCallback clickCb = HostInvoker.RegisterCallback(onClick);
 
-        /// <summary>
-        /// Extract the original IntPtr stored inside a RefAny built by
-        /// <see cref="MakeRefAny"/>. Returns IntPtr.Zero if the handle
-        /// cannot be retrieved.
-        /// </summary>
-        // SKIPPED: needs the RefAny downcasting helpers; for the
-        // purposes of this hello-world we assume the runtime returns
-        // the original pointer as the first machine word of the
-        // payload. The generator will eventually expose
-        // `RefAny.GetPayload<T>()` cleanly.
-        private static IntPtr ExtractGcHandle(IntPtr refAnyValue)
-        {
-            return refAnyValue;
+                var label        = Dom.CreateText(AzString.FromString(m.Counter.ToString()));
+                var labelWrapper = Dom.CreateDiv();
+                labelWrapper.AddCssProperty(
+                    CssPropertyWithConditions.Simple(
+                        CssProperty.FontSize(StyleFontSize.Px(32.0f))));
+                labelWrapper.AddChild(label);
+
+                var button = Button.Create(AzString.FromString("Increase counter"));
+                button.SetButtonType(AzButtonType.Primary);
+                AzRefAny dataClone = NativeMethods.AzRefAny_clone(data.__inner);
+                button.SetOnClick(dataClone, clickCb);
+
+                var body = Dom.CreateBody();
+                body.AddChild(labelWrapper);
+                body.AddChild(button.Dom().__inner);
+                return body.__inner;
+            };
+
+            // ── Main ─────────────────────────────────────────────────────
+            AzLayoutCallback layoutCb = HostInvoker.RegisterLayoutCallback(layout);
+            // WindowCreateOptions.Create takes a raw LayoutCallbackType —
+            // bypass via _default and direct field assignment so the
+            // host-handle ctx survives, mirroring lang_lua's emitter fix.
+            var window = WindowCreateOptions.Default();
+            window.__inner.window_state.layout_callback = layoutCb;
+            window.__inner.window_state.title = AzString.FromString("Hello World").__inner;
+            window.__inner.window_state.size.dimensions.width  = 400.0f;
+            window.__inner.window_state.size.dimensions.height = 300.0f;
+            window.__inner.window_state.flags.decorations         = AzWindowDecorations.NoTitleAutoInject;
+            window.__inner.window_state.flags.background_material = AzWindowBackgroundMaterial.Sidebar;
+
+            using var app = App.Create(data, AppConfig.Create());
+            app.Run(window);
+            return 0;
         }
     }
 }

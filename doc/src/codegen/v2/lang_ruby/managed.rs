@@ -24,13 +24,9 @@
 //! which is what the static thunk in libazul calls.
 
 use super::super::ir::{CallbackTypedefDef, CodegenIR};
-
-/// Same contract as `lang_lua::managed::HOST_INVOKER_KINDS`.
-const HOST_INVOKER_KINDS: &[&str] = &[
-    "Callback",
-    "LayoutCallback",
-    "VirtualViewCallback",
-];
+use super::super::managed_host_invoker::{
+    has_return, host_invoker_kinds, to_snake_case, wrapper_name,
+};
 
 /// Emit Ruby code that registers the host-invoker plumbing and
 /// `Azul._register_callback`. Inserted at the bottom of `module Azul`,
@@ -66,7 +62,7 @@ pub fn emit_managed_module(builder: &mut super::super::generator::CodeBuilder, i
     builder.indent();
     builder.line(":AzRefAny_getHostHandle, [:pointer], :uint64");
     builder.dedent();
-    for cb in managed_callbacks(ir) {
+    for cb in host_invoker_kinds(ir) {
         emit_native_attach_for_kind(builder, cb);
     }
     builder.dedent();
@@ -101,7 +97,7 @@ pub fn emit_managed_module(builder: &mut super::super::generator::CodeBuilder, i
 
     // Per-kind invoker registration.
     builder.line("# --- Per-kind invoker registrations ---");
-    for cb in managed_callbacks(ir) {
+    for cb in host_invoker_kinds(ir) {
         emit_invoker_registration(builder, cb);
     }
     builder.blank();
@@ -119,11 +115,14 @@ pub fn emit_managed_module(builder: &mut super::super::generator::CodeBuilder, i
     builder.line("end");
     builder.line("id = _alloc_handle(callable)");
     builder.line("case kind");
-    for cb in managed_callbacks(ir) {
+    for cb in host_invoker_kinds(ir) {
         let wrapper = wrapper_name(cb);
         builder.line(&format!("when '{}'", wrapper));
         builder.indent();
-        builder.line(&format!("Native.az_{}_create_from_host_handle(id)", to_snake(wrapper)));
+        builder.line(&format!(
+            "Native.az_{}_create_from_host_handle(id)",
+            to_snake_case(wrapper)
+        ));
         builder.dedent();
     }
     builder.line("else");
@@ -161,23 +160,12 @@ pub fn emit_managed_module(builder: &mut super::super::generator::CodeBuilder, i
     builder.blank();
 }
 
-fn managed_callbacks(ir: &CodegenIR) -> impl Iterator<Item = &CallbackTypedefDef> {
-    ir.callback_typedefs.iter().filter(|cb| {
-        let wrapper = wrapper_name(cb);
-        HOST_INVOKER_KINDS.contains(&wrapper)
-    })
-}
-
-fn wrapper_name(cb: &CallbackTypedefDef) -> &str {
-    cb.name.strip_suffix("Type").unwrap_or(cb.name.as_str())
-}
-
 fn emit_native_attach_for_kind(
     builder: &mut super::super::generator::CodeBuilder,
     cb: &CallbackTypedefDef,
 ) {
     let wrapper = wrapper_name(cb);
-    let snake = to_snake(wrapper);
+    let snake = to_snake_case(wrapper);
     builder.line(&format!("attach_function :az_app_set_{}_invoker,", snake));
     builder.indent();
     builder.line(&format!(":AzApp_set{}Invoker, [:pointer], :void", wrapper));
@@ -196,7 +184,7 @@ fn emit_invoker_registration(
     cb: &CallbackTypedefDef,
 ) {
     let wrapper = wrapper_name(cb);
-    let snake = to_snake(wrapper);
+    let snake = to_snake_case(wrapper);
 
     // ruby-ffi FFI::Function: takes ret_type, [arg_types...], block.
     // The arg list mirrors the macro: handle id (u64) + one pointer per
@@ -205,8 +193,8 @@ fn emit_invoker_registration(
     for _ in &cb.args {
         arg_types.push(":pointer");
     }
-    let has_return = cb.return_type.as_deref().map(|s| s != "void").unwrap_or(false);
-    if has_return {
+    let cb_has_return = has_return(cb);
+    if cb_has_return {
         arg_types.push(":pointer");
     }
 
@@ -225,13 +213,13 @@ fn emit_invoker_registration(
         "ptr_args = args[1, {}] # pointer args, by reference",
         user_arg_count
     ));
-    if has_return {
+    if cb_has_return {
         builder.line("out_ptr  = args.last");
     }
     builder.line("begin");
     builder.indent();
     builder.line("ret = fn.call(*ptr_args)");
-    if has_return {
+    if cb_has_return {
         builder.line("# Best-effort write through the out-pointer. Numeric returns");
         builder.line("# (Update enums) write directly; FFI::Struct returns are");
         builder.line("# memcopied. Anything else is silently dropped.");
@@ -263,20 +251,4 @@ fn emit_invoker_registration(
         snake, snake
     ));
     builder.blank();
-}
-
-/// CamelCase → snake_case (e.g. "VirtualViewCallback" → "virtual_view_callback").
-fn to_snake(name: &str) -> String {
-    let mut out = String::with_capacity(name.len() + 4);
-    for (i, c) in name.chars().enumerate() {
-        if c.is_ascii_uppercase() {
-            if i != 0 {
-                out.push('_');
-            }
-            out.push(c.to_ascii_lowercase());
-        } else {
-            out.push(c);
-        }
-    }
-    out
 }

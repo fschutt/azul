@@ -1,19 +1,27 @@
 // examples/node/hello-world.js
 //
 // Node.js / Bun / Deno port of examples/c/hello-world.c.
-// Same data model (a `MyDataModel` struct with a uint32 counter), same
-// callback semantics (mouse click increments, layout renders).
+// Same data model (a counter), same callback semantics (mouse click
+// increments the counter, layout rebuilds the DOM each frame).
 //
-// Run with: `node hello-world.js`  (after `npm install`)
-//      or:  `bun run hello-world.js`
-//      or:  `deno run --allow-ffi --unstable-ffi hello-world.js`
+// Built against the host-invoker runtime helpers in `azul.js` (see
+// `lang_node/managed.rs`):
 //
-// This file uses ONLY the idiomatic wrapper classes from `azul.js`. There
-// is no manual `azul.__ffi.lib` access except where the C ABI exposes
-// helpers that don't have a wrapper representation (RefAny construction,
-// callback registration). The wrappers manage native lifetime via
-// `FinalizationRegistry`, so explicit `.delete()` is optional for most
-// types — we only call it on `App` to demonstrate deterministic cleanup.
+//   * `azul.refanyCreate(value)` wraps an arbitrary JS value in an AzRefAny
+//     held alive by the framework's refcount.
+//   * `azul.registerCallback(kind, fn)` returns the matching `Az<Kind>`
+//     cdata struct (cb = static thunk in libazul, ctx = host-handle RefAny).
+//
+// koffi (Node) is libffi-backed and shares the struct-by-value callback
+// limit with LuaJIT and ruby-ffi; the host-invoker plumbing routes user
+// callbacks through pointer-arg signatures so the cast is always legal.
+// Bun and Deno can synthesize struct-by-value via JSCallback /
+// UnsafeCallback, but go through the same path here for uniformity.
+//
+// Run with:
+//     node hello-world.js   (after `npm install` in this dir)
+//     bun  run hello-world.js
+//     deno run --allow-ffi --unstable-ffi hello-world.js
 
 'use strict';
 
@@ -23,7 +31,6 @@ const {
     AppConfig,
     Button,
     ButtonType,
-    Css,
     CssProperty,
     CssPropertyWithConditions,
     Dom,
@@ -33,151 +40,84 @@ const {
     Update,
     WindowDecorations,
     WindowBackgroundMaterial,
-    __ffi: ffi,
+    registerCallback,
+    refanyCreate,
+    refanyGet,
     __runtime,
+    __lib: lib,
 } = azul;
 
 console.log(`[azul] runtime adapter: ${__runtime}`);
 
-// ─── Live-storage table for FFI callbacks ───────────────────────────────
+// ── Data model ────────────────────────────────────────────────────────
 //
-// `azulFFI.callback(...)` returns a trampoline whose lifetime is tied to
-// the JS handle. If the handle is GC'd the C side will jump into freed
-// memory the next time the callback fires. We keep every registered
-// callback in a module-level array so it stays referenced for the
-// process lifetime — the same pattern the LuaJIT FFI binding uses.
-const liveCallbacks = [];
+// `azul.refanyCreate(value)` stashes the value in a process-wide id-keyed
+// hash and returns an AzRefAny whose payload is just the id. The
+// destructor that fires on the last clone calls back through
+// `AzApp_setHostHandleReleaser` to drop the entry.
 
-function pinCallback(proto, jsFn) {
-    const cb = ffi.callback(proto, jsFn);
-    liveCallbacks.push(cb);
-    return cb;
-}
+const model = { counter: 5 };
+const data  = refanyCreate(model);
 
-// ─── Data model ─────────────────────────────────────────────────────────
-//
-// `RefAny` is the type-erased container azul uses to ferry user data
-// between callbacks. We allocate a 4-byte buffer with a single uint32
-// counter and hand its address to AzRefAny_newC. azul copies
-// `sizeof(MyDataModel)` bytes into a heap-allocated RefAny.
-//
-// SKIPPED: AzString_fromConstStr is a C macro and is therefore not
-// reachable through any FFI binding (Lua, PHP, Node, etc.). We build
-// the type-name AzString via the regular byte-copy constructor instead.
+// ── Callback: button click ────────────────────────────────────────────
 
-const MY_DATA_MODEL_RTTI_ID = 0xa201_0001n; // BigInt — unique 64-bit RTTI id.
-
-const modelBuffer = new Uint32Array(1);
-modelBuffer[0] = 5; // initial counter value
-
-// AzRefAnyDestructor takes (void*) and returns void. The model owns no
-// heap memory so the destructor body is empty.
-const destructorProto = ffi.proto(
-    'AzRefAnyDestructorType',
-    'void',
-    [ffi.ptr],
-);
-const modelDestructor = pinCallback(destructorProto, () => {});
-
-function makeAzString(s) {
-    const bytes = Buffer.from(s, 'utf8');
-    return ffi.lib.AzString_copyFromBytes(bytes, 0, bytes.length);
-}
-
-const typeNameStr = makeAzString('MyDataModel');
-const refAny = ffi.lib.AzRefAny_newC(
-    modelBuffer,                 // ptr to user data
-    modelBuffer.byteLength,      // size
-    modelBuffer.BYTES_PER_ELEMENT,
-    MY_DATA_MODEL_RTTI_ID,
-    typeNameStr,
-    modelDestructor,
-);
-
-function downcastModel(refAnyArg) {
-    if (!ffi.lib.AzRefAny_isType(refAnyArg, MY_DATA_MODEL_RTTI_ID)) {
-        return null;
-    }
-    return ffi.lib.AzRefAny_getDataPtr(refAnyArg);
-}
-
-// ─── Callback: increment the counter on click ───────────────────────────
-
-const onClickProto = ffi.proto(
-    'AzCallbackType',
-    'uint32_t',                    // returns AzUpdate (32-bit enum)
-    [ffi.ptr, ffi.ptr],            // (AzRefAny, AzCallbackInfo)
-);
-const onClickCb = pinCallback(onClickProto, (data, _info) => {
-    const ptr = downcastModel(data);
-    if (ptr === null) return Update.DoNothing;
-    // Read/modify the uint32 through a typed view of the same memory.
-    // The runtime adapter exposes raw pointers; we use Uint32Array.from
-    // for portability across koffi/Bun/Deno.
-    const view = new Uint32Array(ptr.buffer ?? modelBuffer.buffer, 0, 1);
-    view[0] += 1;
+function onClick(dataPtr, _infoPtr) {
+    const m = refanyGet(dataPtr);
+    if (m === null) return Update.DoNothing;
+    m.counter += 1;
     return Update.RefreshDom;
-});
+}
 
-// ─── Layout callback ────────────────────────────────────────────────────
+// ── Callback: layout (rebuilds DOM each frame) ───────────────────────
 
-const layoutProto = ffi.proto(
-    'AzLayoutCallbackType',
-    ffi.ptr,                       // returns AzDom (struct-by-value)
-    [ffi.ptr, ffi.ptr],            // (AzRefAny, AzLayoutCallbackInfo)
-);
-const layoutCb = pinCallback(layoutProto, (data, _info) => {
-    const ptr = downcastModel(data);
-    if (ptr === null) return ffi.lib.AzDom_createBody();
+function layout(dataPtr, _infoPtr) {
+    const m = refanyGet(dataPtr);
+    if (m === null) return Dom.createBody();
 
-    const view = new Uint32Array(ptr.buffer ?? modelBuffer.buffer, 0, 1);
-
-    // Counter label, wrapped in a div so it lays out as block.
-    const labelStr = makeAzString(String(view[0]));
-    const labelDom = Dom.createText(labelStr);
+    // Counter label, wrapped in a div so the font-size sticks.
+    const labelText    = AzString.fromString(String(m.counter));
+    const label        = Dom.createText(labelText);
     const labelWrapper = Dom.createDiv();
-    ffi.lib.AzDom_addCssProperty(
-        labelWrapper,
-        ffi.lib.AzCssPropertyWithConditions_simple(
-            ffi.lib.AzCssProperty_fontSize(
-                ffi.lib.AzStyleFontSize_px(32.0),
-            ),
-        ),
-    );
-    ffi.lib.AzDom_addChild(labelWrapper, labelDom);
+    labelWrapper.addCssProperty(
+        CssPropertyWithConditions.simple(
+            CssProperty.fontSize(StyleFontSize.px(32.0))));
+    labelWrapper.addChild(label);
 
-    // Button.
-    const btnText = makeAzString('Increase counter');
-    const button = Button.create(btnText);
-    ffi.lib.AzButton_setButtonType(button._ptr, ButtonType.Primary);
-    const dataClone = ffi.lib.AzRefAny_clone(data);
-    ffi.lib.AzButton_setOnClick(button._ptr, dataClone, onClickCb);
-    const buttonDom = ffi.lib.AzButton_dom(button._ptr);
+    // Increment button. Until lang_node/wrappers.rs learns to substitute
+    // callback args via registerCallback automatically, we wire it here.
+    const button = Button.create(AzString.fromString('Increase counter'));
+    button.setButtonType(ButtonType.Primary);
+    const cb = registerCallback('Callback', onClick);
+    button.setOnClick(lib.AzRefAny_clone(dataPtr), cb);
+    const buttonDom = button.dom();
 
     // Body.
     const body = Dom.createBody();
-    ffi.lib.AzDom_addChild(body, labelWrapper);
-    ffi.lib.AzDom_addChild(body, buttonDom);
+    body.addChild(labelWrapper);
+    body.addChild(buttonDom);
+    return body;
+}
 
-    return ffi.lib.AzDom_style(body, ffi.lib.AzCss_empty());
-});
+// ── Main ──────────────────────────────────────────────────────────────
 
-// ─── Main ───────────────────────────────────────────────────────────────
+const layoutCb = registerCallback('LayoutCallback', layout);
 
-const window = ffi.lib.AzWindowCreateOptions_create(layoutCb);
-const titleStr = makeAzString('Hello World');
-window.window_state.title = titleStr;
-window.window_state.size.dimensions.width = 400.0;
+// WindowCreateOptions::create takes a *raw* LayoutCallbackType, not the
+// wrapper struct. We bypass it via _default + direct field assignment so
+// the host-handle ctx survives — same fix lang_lua applies in its emitter.
+const window = WindowCreateOptions.default();
+window.window_state.layout_callback = layoutCb;
+
+window.window_state.title = AzString.fromString('Hello World');
+window.window_state.size.dimensions.width  = 400.0;
 window.window_state.size.dimensions.height = 300.0;
-// NoTitleAutoInject: OS draws close/min/max buttons,
-// framework auto-injects a Titlebar with drag support.
-window.window_state.flags.decorations = WindowDecorations.NoTitleAutoInject;
+
+// NoTitleAutoInject: OS draws close/min/max buttons; framework
+// auto-injects a Titlebar with drag support.
+window.window_state.flags.decorations         = WindowDecorations.NoTitleAutoInject;
 window.window_state.flags.background_material = WindowBackgroundMaterial.Sidebar;
 
-const app = App.create(refAny, AppConfig.create());
+const app = App.create(data, AppConfig.create());
 app.run(window);
-
-// Explicit deterministic cleanup. The FinalizationRegistry would also
-// catch this on GC, but we want the window torn down promptly when the
-// app loop returns — not at the next major GC cycle.
-app.delete();
+// FinalizationRegistry calls AzApp_delete when `app` is GC'd. For
+// deterministic cleanup, call `app.delete()` explicitly.

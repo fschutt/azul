@@ -33,6 +33,7 @@
 //! in lockstep with `azul.h`.
 
 pub mod composer;
+pub mod managed;
 pub mod wrappers;
 
 use anyhow::Result;
@@ -54,7 +55,13 @@ pub fn generate(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
     //    the same restrictions (no #include / #ifdef / extern "C").
     let c_config = CodegenConfig::c_header();
     let c_header = CGenerator.generate(ir, &c_config)?;
-    let cdef_payload = super::lang_lua::cdef::strip_for_cdef(&c_header);
+    let mut cdef_payload = super::lang_lua::cdef::strip_for_cdef(&c_header);
+
+    // Append the managed-FFI host-invoker declarations. azul.h does not
+    // include them by design (they live in azul-core::host_invoker, which
+    // the production C header generator filters as runtime helpers); we
+    // splice them in here so PHP's FFI parser sees them on first cdef.
+    cdef_payload.push_str(&managed::cdef_extension(ir));
 
     // 2. Build the PHP source.
     let mut builder = CodeBuilder::new("    ");
@@ -207,6 +214,11 @@ pub fn generate(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
     builder.line("return self::CDEF;");
     builder.dedent();
     builder.line("}");
+
+    // Managed-FFI runtime helpers (host-invoker pattern). Added INSIDE the
+    // Azul class so callers reach them as `Azul::registerCallback(...)` /
+    // `Azul::refanyCreate(...)`.
+    managed::emit_azul_class_members(&mut builder, ir);
 
     builder.dedent();
     builder.line("}");

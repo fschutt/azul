@@ -33,6 +33,9 @@
 //! of which kinds are registered.
 
 use super::super::ir::{CallbackTypedefDef, CodegenIR};
+use super::super::managed_host_invoker::{
+    c_typename, emit_cdef_block, host_invoker_kinds, wrapper_name,
+};
 
 /// Emit the LuaJIT prelude that registers all callback invokers + RefAny
 /// helpers under the `azul` namespace.
@@ -42,27 +45,18 @@ use super::super::ir::{CallbackTypedefDef, CodegenIR};
 pub fn emit_managed_prelude(out: &mut String, ir: &CodegenIR) {
     out.push_str(PRELUDE_HEADER);
 
-    // Per-kind cdef declarations (invoker typedef + setter + constructor).
+    // Per-kind cdef declarations (invoker typedef + setter + constructor)
+    // come from the shared host-invoker helper so every C-syntax host
+    // (LuaJIT, PHP FFI, koffi, CFFI) emits the exact same block.
     out.push_str("ffi.cdef[[\n");
-    out.push_str("    /* Host-handle releaser — called once per RefAny last-clone drop. */\n");
-    out.push_str("    void AzApp_setHostHandleReleaser(void (*)(uint64_t));\n\n");
-    out.push_str("    /* User-data RefAny on top of the host-handle path: one shared\n");
-    out.push_str("       lifetime story for both callback registration and refany_create. */\n");
-    out.push_str("    AzRefAny AzRefAny_newHostHandle(uint64_t);\n");
-    out.push_str("    uint64_t AzRefAny_getHostHandle(const AzRefAny*);\n\n");
-    out.push_str("    /* Per-kind invoker setters + pointer-arg signatures. The return\n");
-    out.push_str("       value is an *out-parameter* so LuaJIT (which can't return\n");
-    out.push_str("       aggregates > 8 bytes from callbacks) handles every kind uniformly. */\n");
-    for cb in managed_callbacks(ir) {
-        emit_cdef_for_kind(out, cb);
-    }
+    emit_cdef_block(out, ir);
     out.push_str("]]\n\n");
 
     out.push_str(PRELUDE_HANDLES);
 
     // Per-kind libffi closure registration.
     out.push_str("-- ── Per-kind invoker registrations ─────────────────────────────────────\n");
-    for cb in managed_callbacks(ir) {
+    for cb in host_invoker_kinds(ir) {
         emit_invoker_registration(out, cb);
     }
     out.push('\n');
@@ -79,7 +73,7 @@ pub fn emit_managed_prelude(out: &mut String, ir: &CodegenIR) {
     out.push_str("    end\n");
     out.push_str("    local id = _alloc_handle(fn)\n");
     let mut first = true;
-    for cb in managed_callbacks(ir) {
+    for cb in host_invoker_kinds(ir) {
         let wrapper = wrapper_name(cb);
         let lead = if first { "    if" } else { "    elseif" };
         out.push_str(&format!(
@@ -100,94 +94,6 @@ pub fn emit_managed_prelude(out: &mut String, ir: &CodegenIR) {
 
     out.push_str(PRELUDE_REFANY);
     out.push('\n');
-}
-
-/// Filter to the callback typedefs that have `impl_managed_callback!`
-/// applied on the Rust side (and therefore export the matching
-/// `Az<Wrapper>_createFromHostHandle` + `AzApp_set<Wrapper>Invoker`
-/// symbols from the dll).
-///
-/// This list grows as new `impl_managed_callback!` invocations are added
-/// in `azul-core` / `azul-layout`. Entries here whose typedef isn't in
-/// `ir.callback_typedefs` are silently ignored (handles api.json
-/// renames). Entries in the IR that aren't in this list get the legacy
-/// `pin_callback` path on the wrapper-emitter side, which compiles fine
-/// even if the resulting cast won't actually fire on libffi-style hosts.
-const HOST_INVOKER_KINDS: &[&str] = &[
-    "Callback",
-    "LayoutCallback",
-    "VirtualViewCallback",
-];
-
-fn managed_callbacks(ir: &CodegenIR) -> impl Iterator<Item = &CallbackTypedefDef> {
-    ir.callback_typedefs.iter().filter(|cb| {
-        let wrapper = cb.name.strip_suffix("Type").unwrap_or(cb.name.as_str());
-        HOST_INVOKER_KINDS.contains(&wrapper)
-    })
-}
-
-/// `CallbackTypedefDef.name` is e.g. `"CallbackType"` — strip the trailing
-/// "Type" to get the wrapper struct name (e.g. `"Callback"`).
-fn wrapper_name(cb: &CallbackTypedefDef) -> &str {
-    cb.name.strip_suffix("Type").unwrap_or(cb.name.as_str())
-}
-
-/// Render the C-ABI argument list for one callback kind's invoker.
-///
-/// All by-value aggregates are passed by pointer (libffi-friendly); the
-/// return value is also an out-pointer so we never hit LuaJIT's "callbacks
-/// can't return aggregates > 8 bytes" limit. Primitive arg types skip the
-/// `Az` prefix — e.g. `usize`, `u32` stay as themselves.
-fn invoker_arg_list(cb: &CallbackTypedefDef) -> String {
-    let mut parts = vec!["uint64_t".to_string()]; // host handle id
-    for arg in &cb.args {
-        parts.push(format!("const {}*", c_typename(&arg.type_name)));
-    }
-    let ret = cb.return_type.as_deref().unwrap_or("void");
-    if ret != "void" {
-        parts.push(format!("{}*", c_typename(ret)));
-    }
-    parts.join(", ")
-}
-
-/// Map an IR type name to its cdef C-ABI name. Primitives pass through
-/// unchanged; non-primitives get the `Az` prefix.
-fn c_typename(rust_type: &str) -> String {
-    match rust_type {
-        "u8" => "uint8_t".to_string(),
-        "u16" => "uint16_t".to_string(),
-        "u32" => "uint32_t".to_string(),
-        "u64" => "uint64_t".to_string(),
-        "i8" => "int8_t".to_string(),
-        "i16" => "int16_t".to_string(),
-        "i32" => "int32_t".to_string(),
-        "i64" => "int64_t".to_string(),
-        "f32" => "float".to_string(),
-        "f64" => "double".to_string(),
-        "usize" => "size_t".to_string(),
-        "isize" => "ssize_t".to_string(),
-        "bool" => "bool".to_string(),
-        "()" | "void" => "void".to_string(),
-        _ => format!("Az{}", rust_type),
-    }
-}
-
-fn emit_cdef_for_kind(out: &mut String, cb: &CallbackTypedefDef) {
-    let wrapper = wrapper_name(cb);
-    let arg_list = invoker_arg_list(cb);
-    out.push_str(&format!(
-        "    typedef void (*Az{w}Invoker)({args});\n",
-        w = wrapper,
-        args = arg_list
-    ));
-    out.push_str(&format!(
-        "    void AzApp_set{w}Invoker(Az{w}Invoker);\n",
-        w = wrapper
-    ));
-    out.push_str(&format!(
-        "    Az{w} Az{w}_createFromHostHandle(uint64_t);\n",
-        w = wrapper
-    ));
 }
 
 fn emit_invoker_registration(out: &mut String, cb: &CallbackTypedefDef) {

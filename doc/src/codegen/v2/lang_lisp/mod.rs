@@ -49,6 +49,7 @@
 
 pub mod asd;
 pub mod functions;
+pub mod managed;
 pub mod types;
 pub mod wrappers;
 
@@ -87,11 +88,21 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     // 5. defcfun bindings (one per IR function)
     functions::generate_defcfuns(&mut builder, ir, config)?;
 
+    // 5b. Managed-FFI runtime helpers (host-invoker pattern). Lives in
+    //     :azul-internal alongside the regular defcfuns.
+    managed::emit_internal_bindings(&mut builder, ir);
+
     // 6. CLOS wrappers in :azul
     builder.blank();
     builder.line("(in-package :azul)");
     builder.blank();
     wrappers::generate_wrappers(&mut builder, ir, config)?;
+
+    // 6b. Managed-FFI public helpers — register-callback, refany-create,
+    //     refany-get. Exported from :azul so user code can reach them.
+    managed::emit_user_facing_helpers(&mut builder, ir);
+    builder.line("(export '(register-callback refany-create refany-get) :azul)");
+    builder.blank();
 
     Ok(builder.finish())
 }

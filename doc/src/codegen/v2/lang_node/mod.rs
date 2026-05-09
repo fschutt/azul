@@ -76,6 +76,7 @@
 //! whole header to koffi.
 
 pub mod functions;
+pub mod managed;
 pub mod package_json;
 pub mod types;
 pub mod wrappers;
@@ -135,6 +136,11 @@ fn generate_azul_js(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
     emit_load_lib(&mut b);
     types::generate_type_registrations(&mut b, ir);
     functions::generate_function_bindings(&mut b, ir);
+    // Managed-FFI runtime helpers (host-invoker pattern) — must run after
+    // `lib` is populated so the per-kind invoker registration can reach
+    // `lib.AzApp_set<Kind>Invoker(...)`, and before wrappers reference
+    // `registerCallback` / `refanyCreate`.
+    managed::emit_managed(&mut b, ir);
     wrappers::generate_wrappers(&mut b, ir);
     emit_exports(&mut b, ir);
 
@@ -450,6 +456,14 @@ fn emit_exports(b: &mut CodeBuilder, ir: &CodegenIR) {
     b.line("__runtime: azulFFI.runtime,");
     b.line("// Raw FFI handle for power users who want to call unwrapped symbols.");
     b.line("__ffi: azulFFI,");
+    b.line("// Raw `lib` object for direct access to C-ABI symbols (advanced).");
+    b.line("__lib: lib,");
+    b.line("// Managed-FFI runtime helpers (host-invoker pattern). User callbacks");
+    b.line("// pass through `registerCallback(kind, fn)`; arbitrary user data goes");
+    b.line("// through `refanyCreate(value)` + `refanyGet(refany)`.");
+    b.line("registerCallback,");
+    b.line("refanyCreate,");
+    b.line("refanyGet,");
     // List wrapper class names
     for s in &ir.structs {
         if !wrappers::should_emit_struct(s) {

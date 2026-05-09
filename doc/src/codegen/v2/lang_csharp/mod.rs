@@ -23,6 +23,7 @@
 
 pub mod csproj;
 pub mod functions;
+pub mod managed;
 pub mod types;
 pub mod wrappers;
 
@@ -66,11 +67,18 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     // 3. `internal static class NativeMethods` containing every DllImport
     functions::generate_native_methods(&mut builder, ir, config)?;
 
+    // 3b. Sibling `NativeMethodsManaged` class with the host-invoker imports.
+    managed::emit_native_method_imports(&mut builder, ir);
+
     // 4. Idiomatic public wrapper classes (IDisposable + namespaced statics)
     wrappers::generate_wrappers(&mut builder, ir, config)?;
 
     // 5. Tagged-union public class hierarchy (sealed subclasses + Match())
     wrappers::generate_union_hierarchies(&mut builder, ir, config)?;
+
+    // 6. Public `HostInvoker` class — RegisterCallback per kind +
+    //    RefanyCreate / RefanyGet for user data.
+    managed::emit_host_invoker_class(&mut builder, ir);
 
     // Close namespace
     builder.dedent();
