@@ -115,6 +115,41 @@ pub fn emit_azul_class_members(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("$ffi = self::lib();");
     builder.blank();
 
+    // PHP-FFI fundamentally rejects closure-as-fnpointer (memory-safety
+    // design choice in the extension; unchanged across 7.4 → 8.5+). Probe
+    // by attempting the simplest cast and bail out clearly if it fails —
+    // the rest of the binding (POD wrappers, RefAny round-trip, raw FFI)
+    // continues to work even when callbacks don't. Future: when the
+    // `php-extension` Cargo feature lands (azul-dll built as a native
+    // PHP extension via ext-php-rs), this probe will succeed.
+    builder.line("// Probe: can php-ffi cast a closure to a C function pointer?");
+    builder.line("// Standard php-ffi rejects this with a TypeError; only the planned");
+    builder.line("// `php-extension` build (azul-dll loaded as a PHP native extension")
+;
+    builder.line("// via ext-php-rs) supports closure callbacks. See the internals");
+    builder.line("// doc 'host-invoker > Why PHP is different' for the full picture.");
+    builder.line("try {");
+    builder.indent();
+    builder.line("$probe = $ffi->cast('void(*)(uint64_t)', static function (int $id): void {});");
+    builder.line("self::$_livePins[] = $probe;");
+    builder.dedent();
+    builder.line("} catch (\\Throwable $e) {");
+    builder.indent();
+    builder.line("throw new \\RuntimeException(");
+    builder.indent();
+    builder.line("\"Azul callbacks require closure-to-fnpointer support, which standard \" .");
+    builder.line("\"php-ffi rejects by design (memory-safety).\\n\" .");
+    builder.line("\"  - The non-callback API (POD wrappers, RefAny, raw FFI) works as-is.\\n\" .");
+    builder.line("\"  - For full callback support, install the planned `azul.so` PHP \" .");
+    builder.line("\"native extension (built via the `php-extension` Cargo feature; see\\n\" .");
+    builder.line("\"    https://docs.azul.dev/guide/internals/host-invoker#why-php-is-different\\n\" .");
+    builder.line("\"  Underlying error: \" . $e->getMessage()");
+    builder.dedent();
+    builder.line(");");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+
     builder.line("// Releaser: framework calls this with the host-handle id when the");
     builder.line("// last RefAny clone tied to that id is dropped. We unset our hash entry.");
     builder.line("$releaser = $ffi->cast(");

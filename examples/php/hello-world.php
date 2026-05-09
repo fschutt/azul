@@ -1,6 +1,29 @@
 <?php
 // examples/php/hello-world.php
 //
+// ──────────────────────────────────────────────────────────────────────
+// PHP CALLBACK LIMITATION
+// ──────────────────────────────────────────────────────────────────────
+// Azul can only invoke callbacks (button.setOnClick, layout, etc.)
+// when running inside the **Zend Engine via a native PHP extension**
+// — i.e. the planned `php-extension` build of azul-dll (compiled with
+// ext-php-rs, loaded via `php -d extension=azul.so`). Standard php-ffi
+// REJECTS closure-to-fnpointer conversions by design (memory-safety),
+// so this script can NOT actually fire on_click / layout when run as
+// `php -d ffi.enable=true hello-world.php` — it will throw at the
+// first registerCallback() call with a clear pointer to the docs.
+//
+// If you want to write desktop applications in PHP today, the FFI
+// path covers everything except callbacks (POD wrappers, RefAny
+// round-trip, raw libazul function calls). For the full callback
+// API, use the native PHP extension once it ships, or another host
+// language (Python/Lua/Ruby/Node/C#/Java/Kotlin all have working
+// closure callbacks today).
+//
+// See doc/guide/en/internals/host-invoker.md → "Why PHP is different"
+// for the full rationale and a survey of workarounds.
+// ──────────────────────────────────────────────────────────────────────
+//
 // PHP port of examples/c/hello-world.c built against the host-invoker
 // runtime helpers in `Azul.php` (see `lang_php/managed.rs`).
 //

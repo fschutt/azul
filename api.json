@@ -1194,9 +1194,15 @@
                 },
                 "php": {
                     "displayName": "PHP",
+                    "notes": [
+                        "Standard php-ffi rejects closure-to-fnpointer by design.",
+                        "The FFI path covers everything except event callbacks (clicks, layout).",
+                        "For full callback support use the native `azul.so` PHP extension once it ships",
+                        "(planned via the `php-extension` Cargo feature using ext-php-rs)."
+                    ],
                     "platforms": {
                         "linux": {
-                            "description": "Download azul, install Azul.php and enable the PHP FFI extension",
+                            "description": "Download azul, install Azul.php and enable the PHP FFI extension. NOTE: callbacks (button click, layout) require the native PHP extension build.",
                             "steps": [
                                 {
                                     "type": "command",
@@ -1225,7 +1231,7 @@
                             ]
                         },
                         "macos": {
-                            "description": "Download azul, install Azul.php and enable the PHP FFI extension",
+                            "description": "Download azul, install Azul.php and enable the PHP FFI extension. NOTE: callbacks (button click, layout) require the native PHP extension build.",
                             "steps": [
                                 {
                                     "type": "command",
@@ -1250,7 +1256,7 @@
                             ]
                         },
                         "windows": {
-                            "description": "Download azul, install Azul.php and enable the PHP FFI extension",
+                            "description": "Download azul, install Azul.php and enable the PHP FFI extension. NOTE: callbacks (button click, layout) require the native PHP extension build.",
                             "steps": [
                                 {
                                     "type": "command",

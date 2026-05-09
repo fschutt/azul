@@ -333,6 +333,129 @@ Tier A languages can do the same substitution targeting their native
 delegate type. Tier B doesn't need it — static procedures don't have an
 "is this a closure?" question.
 
+## Why PHP is different
+
+Of every libffi-adjacent FFI binding we ship, **PHP is the unique
+outlier**: standard `php-ffi` rejects closure-to-fnpointer entirely, by
+design. The php-ffi authors closed this off for memory-safety reasons
+— a PHP closure can be GC'd while C still holds the function pointer.
+
+We can confirm: every other binding in the matrix below supports
+closure-as-fnpointer for at least pointer-arg signatures (the
+host-invoker pattern's bread and butter):
+
+| Binding | Closure-as-fnpointer | Since |
+|---------|----------------------|-------|
+| LuaJIT FFI | `ffi.cast(typedef, fn)` | LuaJIT 2.0 (~2010) |
+| ruby-ffi | `FFI::Function.new` | ffi gem 1.0 (~2009) |
+| Python ctypes | `CFUNCTYPE` | Python 2.5 (2006) |
+| CFFI (Common Lisp) | `defcallback` | 0.1 (~2005) |
+| Perl FFI::Platypus | `closure` | 0.20 (~2015) |
+| OCaml ctypes | `Foreign.funptr` | 0.1 (~2013) |
+| Node koffi | `koffi.register` | v1 (~2022) |
+| Bun `bun:ffi` | `JSCallback` | Bun 0.5 (~2023) |
+| Deno | `UnsafeCallback` | 1.30 (~2023) |
+| C# P/Invoke | `Marshal.GetFunctionPointerForDelegate` | .NET 1.0 |
+| Java/Kotlin JNA | `Callback` interface | JNA 1.0 |
+| **PHP FFI** | **never — by design** | 7.4 (2019) → 8.5+ |
+
+The status is unchanged across PHP 7.4 / 8.0 / 8.1 / 8.2 / 8.3 / 8.4 /
+8.5. There's no version-conditional fallback to enable.
+
+### PHP workarounds (today, all imperfect)
+
+* **`dstogov/php-ffi-callback`** — a third-party PECL-style extension
+  by the original php-ffi author that adds `FFI::createCallback()`.
+  Requires native compilation against your specific PHP point release.
+* **`php-ffi-callable`** by 7php — similar third-party extension, also
+  source-only.
+* **Polling** — Azul could expose a thread-safe event ring buffer that
+  PHP polls each tick. No callbacks at all. Reshapes the API model.
+* **Native PHP extension** (preferred long-term, see below).
+
+The current `lang_php/managed.rs` adapter goes through the host-invoker
+plumbing and works for *the non-callback half* of the API: POD wrappers,
+RefAny construction, `FFI::cast` for type conversion, raw FFI dispatch.
+Anything that reaches `Azul::registerCallback(...)` will fatal at the
+`$ffi->cast(typedef, $closure)` call until one of the workarounds is
+in play.
+
+### Planned: `php-extension` Cargo feature (future work)
+
+The cleanest long-term answer mirrors how Python is wired today.
+
+The `python-extension` Cargo feature compiles `azul-dll` *as* a Python
+extension via [PyO3](https://pyo3.rs/), using the `python-extension`
+feature flag in `dll/Cargo.toml`:
+
+```toml
+python-extension = ["build-dll", "pyo3", "use_pyo3_logger", "link-static"]
+```
+
+The codegen emits `target/codegen/python_api.rs` carrying
+`#[pyclass]` / `#[pymethods]` / `#[pymodule]` annotations over the same
+IR; `dll/src/lib.rs` includes that file under
+`#[cfg(feature = "python-extension")]` and re-exports `PyInit_azul`. A
+single `cargo build --release -p azul-dll --features python-extension`
+yields a `libazul.dylib` that loads as a Python extension. Closures
+work natively because they're dispatched inside the same interpreter
+Rust has access to via PyO3.
+
+The PHP analog is [`ext-php-rs`](https://github.com/davidcole1340/ext-php-rs)
+— the PyO3-shaped Rust crate for writing PHP extensions. The plan:
+
+```toml
+# dll/Cargo.toml (planned)
+ext-php-rs = { version = "0.13", optional = true }
+php-extension = ["build-dll", "ext-php-rs", "link-static"]
+```
+
+```
+doc/src/codegen/v2/lang_php_extension/   # new emitter, mirrors lang_python.rs
+                                          # walks the IR, emits #[php_class],
+                                          # #[php_function], #[php_module]
+target/codegen/php_api.rs                # generated annotated Rust source
+dll/src/lib.rs                           # gated `mod php { include!(...) }`
+                                          # + `pub use php::module_entry;`
+```
+
+User-side: `php -d extension=azul.so hello-world.php`. The whole
+`lang_php/` FFI-based adapter becomes a fallback for users who can't
+or don't want to install a native extension.
+
+#### Friction differences vs. Python
+
+| | PyO3 | ext-php-rs |
+|---|---|---|
+| ABI stability | Python `abi3` — one binary works across Py 3.7+ | **No abi3** — every PHP point release (8.0/8.1/8.2/8.3/8.4/8.5) needs its own `.so` |
+| Distribution | PyPI binary wheels via `pip install` | **PECL is source-only**; binary distribution requires our own channel |
+| Maturity | Massive ecosystem | Smaller (1k★) but actively maintained |
+
+#### Proposed CI shape
+
+The `php-extension` artifact is conditionally built in a separate
+"full release" CI job — *not* on the per-PR test path. Per-PR PHP
+testing continues to use the FFI-based `Azul.php` adapter (which
+covers everything except callbacks). The full-release job runs the
+N-version PHP matrix (currently 8.0–8.5 = 6 builds) in parallel and
+publishes the resulting `azul-php-{version}-{platform}.so` artifacts
+alongside the regular release.
+
+#### Scope estimate
+
+Roughly a one- to two-day spike:
+* **~1 day**: `ext-php-rs` integration in `dll/Cargo.toml` + `build.rs`
+  hook + `lib.rs` gate + a `lang_php_extension` codegen emitter
+  modeled line-for-line on `lang_python.rs`.
+* **~½ day**: per-PHP-version CI matrix (separate job, full-release
+  only) + binary publishing flow.
+* **~½ day**: api.json install-instructions update, hello-world.php
+  update, internals doc cross-link from this section.
+
+Tracked separately. The host-invoker pattern's pure-FFI path stays
+the primary documented entrypoint for languages where it actually
+works (every binding in the table above except PHP).
+
 ## Generic byte-buffer invoker (fallback path)
 
 The macro-generated thunks have a second dispatch path that fires when
