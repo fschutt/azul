@@ -4,6 +4,17 @@
 /// for a Callback with a `.cb` field.
 ///
 /// This is necessary to work around for https://github.com/rust-lang/rust/issues/54508
+///
+/// # Host-invoker plumbing for managed-FFI bindings
+///
+/// Widget callbacks have varying shapes — some are
+/// `(RefAny, CallbackInfo) -> Update` (Button), others add a state
+/// struct (CheckBox/Tab/etc.), a few have two extras (ListView). The
+/// macro therefore does **not** auto-emit an `impl_managed_callback!`
+/// invocation; per-widget files apply it themselves with the right
+/// extras list. The base invocation still produces the standard
+/// `Display`/`Debug`/`Clone`/`From<CallbackType>`/`From<Callback>` impls
+/// that all widget callbacks share.
 #[macro_export]
 macro_rules! impl_widget_callback {
     (
