@@ -2932,6 +2932,48 @@
                         ],
                         "repr": "C"
                     },
+                    "RelayoutReason": {
+                        "doc": [
+                            "What triggered the current `layout()` invocation.",
+                            "",
+                            "The framework re-invokes the layout callback for any change that may produce a structurally different DOM (resize across a CSS breakpoint, theme toggle, route switch, callback returning Update::RefreshDom). Read via `LayoutCallbackInfo.relayout_reason()` so the callback can branch — for example, skip expensive analytics on `Resize` calls."
+                        ],
+                        "external": "azul_core::callbacks::RelayoutReason",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "PartialEq",
+                            "Eq",
+                            "Clone",
+                            "Hash",
+                            "Copy",
+                            "PartialOrd",
+                            "Ord",
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Initial": {}
+                            },
+                            {
+                                "RefreshDom": {}
+                            },
+                            {
+                                "Resize": {}
+                            },
+                            {
+                                "ThemeChange": {}
+                            },
+                            {
+                                "RouteChange": {}
+                            },
+                            {
+                                "Other": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
                     "DpiScaleFactor": {
                         "external": "azul_core::resources::DpiScaleFactor",
                         "derive": [
@@ -9232,6 +9274,9 @@
                                 "theme": {
                                     "type": "WindowTheme"
                                 },
+                                "relayout_reason": {
+                                    "type": "RelayoutReason"
+                                },
                                 "callable_ptr": {
                                     "type": "c_void",
                                     "ref_kind": "constptr"
@@ -9244,6 +9289,20 @@
                         ],
                         "constructors": {},
                         "functions": {
+                            "relayout_reason": {
+                                "doc": [
+                                    "Returns what triggered the current `layout()` invocation."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RelayoutReason"
+                                },
+                                "fn_body": "object.relayout_reason()"
+                            },
                             "get_ctx": {
                                 "doc": [
                                     "Get the callable for FFI language bindings (Python, etc.)"
@@ -12746,7 +12805,7 @@
                                 "doc": [
                                     "Creates an empty style element for embedded CSS.",
                                     "",
-                                    "**Note**: In Azul, use the `.style()` method instead for styling.",
+                                    "**Note**: In Azul, use `.with_component_css()` instead for styling.",
                                     "This creates a `<style>` HTML element for embedded stylesheets."
                                 ],
                                 "fn_args": [],
@@ -12756,7 +12815,7 @@
                                 "doc": [
                                     "Creates a style element for embedded CSS with the given stylesheet text.",
                                     "",
-                                    "**Note**: In Azul, use the `.style()` method instead for styling.",
+                                    "**Note**: In Azul, use `.with_component_css()` instead for styling.",
                                     "This creates a `<style>` HTML element for embedded stylesheets."
                                 ],
                                 "fn_args": [
@@ -13396,11 +13455,11 @@
                                 },
                                 "fn_body": "object.node_count()"
                             },
-                            "style": {
+                            "with_component_css": {
                                 "doc": [
-                                    "Push a CSS stylesheet onto this DOM node's stylesheet list.",
-                                    "The CSS will be applied during the deferred cascade pass in `regenerate_layout()`.",
-                                    "Later `.style()` calls have higher cascade priority (override earlier ones)."
+                                    "Push a component-level CSS stylesheet onto this Dom subtree's stylesheet list.",
+                                    "The cascade pass merges every component-level `Css` together with the inline rules.",
+                                    "Later `.with_component_css(...)` calls have higher cascade priority (override earlier ones at equal specificity)."
                                 ],
                                 "fn_args": [
                                     {
@@ -13413,7 +13472,35 @@
                                 "returns": {
                                     "type": "Dom"
                                 },
-                                "fn_body": "object.style(css)"
+                                "fn_body": "object.with_component_css(css)"
+                            },
+                            "add_component_css": {
+                                "doc": [
+                                    "Mutating form of `with_component_css`. Pushes a stylesheet onto the subtree's component-level CSS list in place."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "css": "Css"
+                                    }
+                                ],
+                                "fn_body": "object.add_component_css(css)"
+                            },
+                            "set_component_css": {
+                                "doc": [
+                                    "Replace the subtree's entire component-level CSS list with the provided one. Use `add_component_css` / `with_component_css` for stacking; this is the wholesale-replace form."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "css": "CssVec"
+                                    }
+                                ],
+                                "fn_body": "object.set_component_css(css)"
                             },
                             "swap_with_default": {
                                 "fn_args": [

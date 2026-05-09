@@ -60,7 +60,7 @@ default-search-keys:
 ## Overview
 
 A `Css` is a parsed stylesheet. You build one from a string, attach it to a
-`Dom` subtree with `.style(css)`, and the cascade applies it on the next
+`Dom` subtree with `.with_component_css(css)`, and the cascade applies it on the next
 layout pass. The dialect is a strict subset of standard CSS: tag, class, id,
 and attribute selectors; descendant, child, sibling, and pseudo-class
 combinators; the `@media`, `@os`, `@theme`, and `@lang` at-rules; and
@@ -77,7 +77,7 @@ let css = Css::from_string("
 
 let _ = Dom::create_body()
     .with_child(Dom::create_div().with_class("panel".into()))
-    .style(css);
+    .with_component_css(css);
 ```
 
 ```azul-render screenshot=styling-panel width=400 height=160 subtitle="A class-styled panel with hover-ready rules"
@@ -98,9 +98,9 @@ enum and feed the same cascade. The difference is *where* the rules live.
 - **`Dom::with_css(s)`** scopes to *this node only*. The CSS string is
   parsed and pushed onto the node's inline-property list. Use it for
   inline tweaks and component-local styles.
-- **`Dom::style(css)`** scopes to *this subtree*. The parsed `Css` is
-  attached to the subtree root and the cascade walks it during the
-  per-frame pass. Use it for component themes and per-page stylesheets.
+- **`Dom::with_component_css(css)`** scopes to *this subtree*. The parsed
+  `Css` is attached to the subtree root and the cascade walks it during
+  the per-frame pass. Use it for component themes and per-page stylesheets.
 - **`Dom::with_css_property(p)`** scopes to *this node*, programmatic
   single-property override. Use it when you have a typed `CssProperty`
   value and don't want to round-trip through string parsing.
@@ -115,7 +115,7 @@ let _ = Dom::create_div()
 // 2. Stylesheet attached to a subtree
 let theme = Css::from_string(".btn { background: #1976d2; color: white; }".into());
 let _ = Dom::create_body()
-    .style(theme)
+    .with_component_css(theme)
     .with_child(
         Dom::create_button("Save", SmallAriaInfo::label("Save"))
             .with_class("btn".into())

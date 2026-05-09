@@ -158,6 +158,7 @@ pub fn regenerate_layout(
     system_style: &Arc<SystemStyle>,
     icon_provider: &SharedIconProvider,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    relayout_reason: azul_core::callbacks::RelayoutReason,
 ) -> Result<LayoutRegenerateResult, String> {
     log_debug!(LogCategory::Layout, "[regenerate_layout] START");
     azul_layout::probe::emit_phase_heap("start");
@@ -213,10 +214,11 @@ pub fn regenerate_layout(
         active_route: current_window_state.active_route.as_ref(),
     };
 
-    let callback_info = LayoutCallbackInfo::new(
+    let callback_info = LayoutCallbackInfo::new_with_reason(
         &layout_ref_data,
         current_window_state.size,
         current_window_state.theme,
+        relayout_reason,
     );
 
     let app_data_borrowed = app_data.borrow_mut();
@@ -230,7 +232,7 @@ pub fn regenerate_layout(
 
     // 1.5. Flatten recursive Dom → StyledDom (single deferred cascade pass)
     //
-    // The user callback now returns a recursive `Dom` with CSS attached via `.style()`.
+    // The user callback now returns a recursive `Dom` with CSS attached via `.with_component_css()`.
     // We collect all CSS objects, flatten the tree, and run a single cascade pass.
     let mut user_styled_dom = azul_core::styled_dom::StyledDom::create_from_dom(user_dom);
     azul_layout::probe::emit_phase_heap("after_create_from_dom");

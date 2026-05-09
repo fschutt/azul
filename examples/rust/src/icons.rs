@@ -123,7 +123,7 @@ extern "C" fn icon_demo_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom 
     
     Dom::create_body()
         .with_child(container)
-        .style(css)
+        .with_component_css(css)
 }
 
 fn main() {

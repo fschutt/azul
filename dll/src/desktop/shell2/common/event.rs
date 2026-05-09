@@ -570,6 +570,12 @@ pub struct CommonWindowState {
     pub renderer: Option<webrender::Renderer>,
     /// Track if frame needs regeneration (to avoid multiple generate_frame calls)
     pub frame_needs_regeneration: bool,
+    /// Reason tag the *next* `regenerate_layout()` call should pass to the
+    /// user's `LayoutCallback` via `LayoutCallbackInfo::relayout_reason()`.
+    /// Set by the resize / theme / route handlers right before they trigger
+    /// regeneration; reset to `RefreshDom` after each call so any subsequent
+    /// untagged regen shows up as the implicit reason.
+    pub next_relayout_reason: azul_core::callbacks::RelayoutReason,
     /// Whether a WebRender display list has ever been sent for this window.
     /// Used to force a full display list build on the very first frame, even if
     /// regenerate_layout() returns LayoutUnchanged (because create_window already

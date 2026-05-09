@@ -3356,6 +3356,7 @@ impl MacOSWindow {
                 fc_cache,
                 system_style,
                 frame_needs_regeneration: false,
+                next_relayout_reason: azul_core::callbacks::RelayoutReason::Initial,
                 display_list_initialized: false,
                 display_list_dirty: false,
                 a11y_dirty: true,
@@ -3580,7 +3581,12 @@ impl MacOSWindow {
             &self.common.system_style,
             &self.icon_provider,
             &mut debug_messages,
+        
+            self.common.next_relayout_reason,
         )?;
+        // Consumed; reset so an untagged regen sees the implicit RefreshDom.
+        self.common.next_relayout_reason =
+            azul_core::callbacks::RelayoutReason::RefreshDom;
 
         // Forward layout debug messages to the debug server's log queue
         if let Some(msgs) = debug_messages {

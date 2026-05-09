@@ -385,7 +385,7 @@ fn test_css_styling_with_nested_divs() {
                 .with_children(vec![Dom::create_div()].into())]
             .into(),
         )
-        .style(css.0);
+        .with_component_css(css.0);
 }
 
 /// Regression test for the calc.c "frame ≥2 loses all backgrounds" bug:

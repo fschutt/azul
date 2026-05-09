@@ -625,6 +625,11 @@ pub(super) extern "C" fn xdg_toplevel_configure_handler(
                 );
             }
 
+            // Tag the next regen as a resize so the user's layout()
+            // callback can detect it via `info.relayout_reason()`.
+            window.common.next_relayout_reason =
+                azul_core::callbacks::RelayoutReason::Resize;
+
             // Resize the rendering surface
             window.resize_surface(width, height);
         }

@@ -34,15 +34,6 @@ default-search-keys:
 
 # Document Object Model
 
-## Introduction
-
-Anyone coming from the browser DOM will find the surface familiar.
-A tree of nodes is built up; each carries a tag, classes, attributes,
-inline CSS, callbacks. What's different is the shape underneath, and a
-small number of rules the framework imposes.
-
-## Four design choices
-
 Azul's DOM differs from a browser DOM in four places:
 
 1. **Hierarchy lives separately from node data.** The relationships
@@ -230,7 +221,8 @@ pub struct Dom {
 ```
 
 A `Dom` is a subtree: a root `NodeData`, its children, and any
-component-level stylesheets attached via `.style(Css)`. The framework
+component-level stylesheets attached via `.with_component_css(Css)`.
+The framework
 flattens the recursive form into the parallel `NodeHierarchyItem` /
 `NodeData` arrays once, at the start of the cascade. Every builder
 method on `Dom` (`with_class`, `with_callback`, `with_css`) is a
@@ -290,36 +282,15 @@ let ok = Dom::create_button_no_a11y("OK".into());
 ```
 
 Most interactive elements use the generic `SmallAriaInfo` (label,
-role, description). A few have type-specific structs because their
-a11y surface needs more than that:
+role, description). A few (`<progress>`, `<meter>`, `<dialog>`)
+have type-specific structs because their a11y surface needs more
+than that. Static, non-interactive elements (`div`, `span`, `p`,
+the headings, inline text formatters) don't take a11y info — their
+role is implicit from the element type.
 
-- `<progress>` uses `ProgressAriaInfo` (label, current value, max,
-  indeterminate).
-- `<meter>` uses `MeterAriaInfo` (label, current value, min, max,
-  optional low/high/optimum).
-- `<dialog>` uses `DialogAriaInfo` (label, modal flag, described-by
-  reference).
-
-```rust
-use azul::prelude::*;
-
-let upload = Dom::create_progress(
-    ProgressAriaInfo::create("File upload".into())
-        .with_current_value(0.6)
-        .with_max(1.0),
-);
-```
-
-Elements that follow the soft-force pattern: `a`, `area`, `audio`,
-`button`, `canvas`, `datalist`, `details`, `dialog`, `fieldset`,
-`form`, `input`, `label`, `legend`, `menu`, `menuitem`, `meter`,
-`optgroup`, `option`, `output`, `progress`, `select`, `summary`,
-`table`, `textarea`, `video`. Static, non-interactive elements
-(`div`, `span`, `p`, the headings, inline text formatters) don't
-take a11y info — their role is implicit from the element type.
-
-See [Accessibility](accessibility.md) for the full a11y model and how
-the framework translates these structs into platform-specific
+See [Accessibility](accessibility.md) for the full list of elements
+that follow the soft-force pattern, the type-specific aria structs,
+and how the framework translates them into the platform-specific
 accessibility trees (UIA, AT-SPI, NSAccessibility).
 
 ### IDs, classes, attributes
@@ -435,7 +406,7 @@ each property to a single-declaration rule at INLINE priority.
 ### Component-level stylesheets
 
 Reusable components ship a parsed stylesheet that travels with the
-subtree. Attach it on the component's root with `.style(Css)`:
+subtree. Attach it on the component's root with `.with_component_css(Css)`:
 
 ```rust,no_run
 use azul::prelude::*;
@@ -443,7 +414,7 @@ use azul::prelude::*;
 let widgets = Css::from_string(".panel { padding: 8px; }".into());
 let panel: Dom = Dom::create_div()
     .with_class("panel".into())
-    .style(widgets);
+    .with_component_css(widgets);
 ```
 
 A browser cascades every stylesheet against every node in one global
@@ -513,45 +484,158 @@ extern "C" fn layout(data: &mut RefAny, info: LayoutCallbackInfo) -> StyledDom {
             .with_child(content_area(&strings))
     };
 
-    body.style(app_stylesheet()).style_dom()
+    body.with_component_css(app_stylesheet()).style_dom()
 }
 ```
 
 The `LayoutCallbackInfo` exposes everything needed to make the
-returned `Dom` adapt to the running window:
+returned `Dom` adapt to the running window. Responsive sizing
+(`window_width_less_than`, `window_width_between`, `window_height_*`,
+and the raw `get_window_width` / `get_window_height`) covers the
+per-tree branch cases (a hamburger menu vs a sidebar) — the
+per-property cases (`@media`, `@theme`) are handled by inline CSS.
+The framework re-invokes `layout()` whenever the window crosses a
+breakpoint, the system theme flips, or a route switch fires, so the
+width branch is always re-evaluated against the live window. The
+callback can read `info.relayout_reason()` to find out *why* it was
+called — `Resize`, `ThemeChange`, `RouteChange`, `RefreshDom`, or
+`Initial` — and skip work that doesn't need to repeat (analytics
+fetches, locale-pack loading) when the trigger was just a resize.
 
-- **Responsive sizing** — `window_width_less_than`,
-  `window_width_between`, `window_height_*`, and the raw
-  `get_window_width` / `get_window_height`. Branch on these to
-  emit a different tree for narrow vs wide windows. Conditions
-  on inline CSS (`@media`, `@theme`) cover the per-property cases;
-  a width branch in Rust covers the per-tree cases (e.g. a
-  hamburger menu vs a sidebar).
-- **DPI** — `get_dpi_factor` returns 1.0 on a 96-DPI display, 2.0
-  on a Retina display, etc. Useful when an image needs different
-  asset variants at different scales.
-- **Theme** — the `theme` field on the info is `Light` or `Dark`,
-  resolved from the platform. Use it to pre-select assets that
-  CSS conditions can't pick (e.g. a different SVG logo per theme).
-- **Internationalisation** — the framework doesn't ship i18n
-  primitives, but the callback owns the `Locale` from the model
-  and can pick translation strings before building the tree.
-  `info.get_system_fonts()` returns the platform font list, so a
-  callback rendering CJK text can switch font-family based on
-  what's installed.
-- **Routing** — `get_active_route()` and `get_route_param(key)`
-  return the active route match when the app uses the router.
-  Branch on the route to render different sub-trees from a single
-  `layout()` callback.
-- **Resources** — `get_image(name)` looks up a registered image,
-  `get_system_style()` returns the current `SystemStyle` snapshot,
-  `get_gl_context()` exposes the GL context for canvas-backed
-  nodes.
+Other helpers: `get_dpi_factor` returns 1.0 / 2.0 / etc. for asset
+selection; `get_active_route()` / `get_route_param(key)` for
+router-driven trees; `get_image(name)` for registered images;
+`get_system_style()` for the current `SystemStyle` snapshot;
+`get_gl_context()` for canvas-backed nodes; `get_system_fonts()` for
+font availability checks (CJK / RTL fallbacks).
+
+A worked example covering window-size, DPI, theme, route, and
+Fluent localization in a single layout pass:
+
+```rust,no_run
+use azul::prelude::*;
+use azul::desktop::fluent::{FluentLocalizerHandle, FluentFormatArg};
+
+struct AppModel {
+    user_name: String,
+    locale: String,                    // BCP-47, e.g. "fr-FR"
+    localizer: FluentLocalizerHandle,
+    unread_count: u32,
+}
+
+extern "C" fn layout(data: &mut RefAny, info: LayoutCallbackInfo) -> StyledDom {
+    let model = match data.downcast_ref::<AppModel>() {
+        Some(m) => m,
+        None => return StyledDom::default(),
+    };
+
+    // i18n: a localized greeting + a pluralized inbox count.
+    let greeting = model.localizer.translate(
+        model.locale.as_str().into(),
+        "greeting".into(),
+        Some(&[FluentFormatArg::str("name", &model.user_name)].into()),
+    );
+    let inbox = model.localizer.translate(
+        model.locale.as_str().into(),
+        "inbox-count".into(),
+        Some(&[FluentFormatArg::num("count", model.unread_count as i64)].into()),
+    );
+
+    // DPI-aware logo: prefer the @2x variant on Retina/HiDPI screens.
+    let logo = if info.get_dpi_factor() >= 1.5 { "logo@2x" } else { "logo" };
+    let logo_img = info.get_image(&logo.into())
+        .map(Dom::create_image)
+        .unwrap_or_else(Dom::create_div);
+
+    // Theme-aware accent color picked outside CSS (for a value the
+    // cascade can't reach — e.g. a canvas paint color).
+    let accent = match info.theme {
+        WindowTheme::DarkMode => "#79b8ff",
+        WindowTheme::LightMode => "#0046bf",
+    };
+
+    // Route-driven content: /settings vs /inbox vs default.
+    let main = match info.get_route_pattern().as_str() {
+        "/settings" => settings_page(&model),
+        "/inbox" => inbox_page(&model, &inbox),
+        _ => home_page(&model, &greeting),
+    };
+
+    // Window-size-driven layout: hamburger nav under 768px, sidebar above.
+    let shell = if info.window_width_less_than(768.0) {
+        Dom::create_body()
+            .with_css("display:flex; flex-direction:column;")
+            .with_child(top_bar(logo_img, accent))
+            .with_child(main)
+    } else {
+        Dom::create_body()
+            .with_css("display:grid; grid-template-columns:240px 1fr;")
+            .with_child(sidebar(logo_img, &greeting, accent))
+            .with_child(main)
+    };
+
+    shell.with_component_css(app_stylesheet()).style_dom()
+}
+```
 
 The output is a `StyledDom` (`dom.style_dom()` runs the cascade and
 returns the framework-owned form). Returning it hands ownership to
 the framework, which reconciles against the previous frame and
 schedules layout + paint.
+
+## Routing
+
+A multi-page app registers a layout callback per URL pattern on the
+`AppConfig` — the framework picks the right one for the active
+route and re-runs it on `switch_route`:
+
+```rust,no_run
+use azul::prelude::*;
+
+extern "C" fn layout_home(_: &mut RefAny, _: LayoutCallbackInfo) -> StyledDom { todo!() }
+extern "C" fn layout_user(_: &mut RefAny, info: LayoutCallbackInfo) -> StyledDom {
+    let id = info.get_route_param("id").map(|s| s.as_str()).unwrap_or("");
+    Dom::create_h1_with_text(format!("User #{}", id)).style_dom()
+}
+
+fn main() {
+    let mut config = AppConfig::create();
+    config.add_route("/", layout_home);
+    config.add_route("/user/:id", layout_user);
+
+    let app = App::create(initial_data, config);
+    app.run(WindowCreateOptions::new(layout_home));
+}
+```
+
+A `:name` segment captures the path component as a parameter
+readable via `info.get_route_param("name")`. On desktop the route
+is in-memory state; on a web build the same routes also map to
+HTTP endpoints with `history.pushState()` integration.
+
+A user callback navigates with `CallbackInfo::switch_route` —
+`info.set_route_param(key, value)` modifies a single param in place
+without changing the active pattern:
+
+```rust,ignore
+extern "C" fn open_user(data: RefAny, mut info: CallbackInfo) -> Update {
+    let id = match data.downcast_ref::<u64>() {
+        Some(i) => *i,
+        None => return Update::DoNothing,
+    };
+    let params = vec![StringPair {
+        key: "id".into(),
+        value: id.to_string().into(),
+    }].into();
+    info.switch_route("/user/:id".into(), params);
+    Update::RefreshDom
+}
+```
+
+The framework swaps the active layout callback on the next frame
+and reconciles the new tree against the previous one. See
+[Routing](routing.md) for the full pattern syntax, multi-route
+layouts, and the web-vs-desktop differences.
 
 ## Parsing from XHTML
 
@@ -743,6 +827,7 @@ wires its components into the registry.
 ## Coming Up Next
 
 - [Callbacks](callbacks.md) — What `CallbackInfo` exposes, dataset reads, focus/scroll dispatch
+- [Routing](routing.md) — URL patterns, route params, and per-route layout callbacks
 - [Reconciliation](dom/reconciliation.md) — Diffing, restyle scope, and damage-rect repaint
 - [Datasets](dom/datasets.md) — Attaching state to a node for navigation and per-instance state
 - [Components](dom/components.md) — Reusable UI fragments — named functions of (args) -> Dom

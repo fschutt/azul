@@ -147,7 +147,7 @@ fn ease_out_cubic(t: f32) -> f32 {
 extern "C" fn layout(data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
     let state = data.downcast_ref::<State>().unwrap();
     let style = format!("opacity: {};", state.current_opacity);
-    Dom::create_div().with_css(&style).style(Css::empty())
+    Dom::create_div().with_css(&style).with_component_css(Css::empty())
 }
 ```
 

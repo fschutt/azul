@@ -193,7 +193,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
             .with_button_type(AzButtonType_Primary)
             .with_on_click(RefAny(on_click_data), on_click)
             .dom())
-        .style(Css::empty());
+        .with_component_css(Css::empty());
 }
 
 // Definition of the click callback forward-declared above. The framework

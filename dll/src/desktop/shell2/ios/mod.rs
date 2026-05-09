@@ -272,6 +272,7 @@ impl IOSWindow {
                 render_api: None,
                 renderer: None,
                 frame_needs_regeneration: true,
+                next_relayout_reason: azul_core::callbacks::RelayoutReason::Initial,
                 display_list_initialized: false,
                 display_list_dirty: false,
                 a11y_dirty: true,

@@ -913,6 +913,7 @@ impl WaylandWindow {
                 scrollbar_drag_state: None,
                 last_hovered_node: None,
                 frame_needs_regeneration: false,
+                next_relayout_reason: azul_core::callbacks::RelayoutReason::Initial,
                 display_list_initialized: false,
                 display_list_dirty: false,
                 a11y_dirty: true,
@@ -2100,7 +2101,12 @@ impl WaylandWindow {
             &self.common.system_style,
             &self.resources.icon_provider,
             &mut debug_messages,
+        
+            self.common.next_relayout_reason,
         )?;
+        // Consumed; reset so an untagged regen sees the implicit RefreshDom.
+        self.common.next_relayout_reason =
+            azul_core::callbacks::RelayoutReason::RefreshDom;
 
         // Forward layout debug messages to the debug server's log queue
         if let Some(msgs) = debug_messages {
@@ -3717,6 +3723,7 @@ impl WaylandPopup {
             scrollbar_drag_state: None,
             last_hovered_node: None,
             frame_needs_regeneration: true,
+                next_relayout_reason: azul_core::callbacks::RelayoutReason::Initial,
             frame_callback_pending: false,
 
             resources: parent.resources.clone(),

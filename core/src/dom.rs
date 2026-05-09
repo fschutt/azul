@@ -5319,7 +5319,7 @@ impl Dom {
 
     /// Creates an empty style element for embedded CSS.
     ///
-    /// **Note**: In Azul, use the `.style()` method instead for styling.
+    /// **Note**: In Azul, use `.with_component_css()` instead for styling.
     /// This creates a `<style>` HTML element for embedded stylesheets.
     #[inline(always)]
     pub const fn create_style() -> Self {
@@ -5333,7 +5333,7 @@ impl Dom {
 
     /// Creates a style element for embedded CSS with the given stylesheet text.
     ///
-    /// **Note**: In Azul, use the `.style()` method instead for styling.
+    /// **Note**: In Azul, use `.with_component_css()` instead for styling.
     /// This creates a `<style>` HTML element for embedded stylesheets.
     #[inline]
     pub fn create_style_with_text<S: Into<AzString>>(text: S) -> Self {
@@ -5603,16 +5603,31 @@ impl Dom {
         self.estimated_total_children + 1
     }
 
-    /// Push a CSS stylesheet onto this DOM node's stylesheet list.
-    /// The CSS will be applied during the deferred cascade pass in `regenerate_layout()`.
-    /// Later `.style()` calls have higher cascade priority (override earlier ones).
-    pub fn style(mut self, css: azul_css::css::Css) -> Self {
+    /// Push a component-level stylesheet onto this Dom subtree's
+    /// stylesheet list. The cascade pass in `regenerate_layout()` merges
+    /// every component-level `Css` together with the inline rules.
+    /// Later `with_component_css(...)` calls have higher cascade priority
+    /// (override earlier ones at equal specificity).
+    pub fn with_component_css(mut self, css: azul_css::css::Css) -> Self {
+        self.add_component_css(css);
+        self
+    }
+
+    /// Mutating form of `with_component_css`. Pushes a stylesheet onto
+    /// the subtree's component-level CSS list in place.
+    pub fn add_component_css(&mut self, css: azul_css::css::Css) {
         let mut v = Vec::new().into();
         core::mem::swap(&mut v, &mut self.css);
         let mut v: Vec<azul_css::css::Css> = v.into_library_owned_vec();
         v.push(css);
         self.css = v.into();
-        self
+    }
+
+    /// Replace the subtree's entire component-level CSS list with the
+    /// provided one. Use `add_component_css` / `with_component_css` for
+    /// stacking; this is the wholesale-replace form.
+    pub fn set_component_css(&mut self, css: azul_css::css::CssVec) {
+        self.css = css;
     }
     #[inline(always)]
     pub fn with_children(mut self, children: DomVec) -> Self {

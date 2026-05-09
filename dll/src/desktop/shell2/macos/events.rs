@@ -732,17 +732,27 @@ impl MacOSWindow {
             old_context.viewport_breakpoint_changed(&self.dynamic_selector_context, &breakpoints);
 
         if breakpoint_crossed {
+            // The user's `layout()` callback may branch on
+            // `info.window_width_*` to emit a structurally different
+            // tree (e.g. hamburger menu vs sidebar). Tag the next
+            // regen with `Resize` so the callback can detect it via
+            // `info.relayout_reason()` and skip work that doesn't
+            // need to repeat (analytics, async fetches, etc.).
             log_debug!(
                 LogCategory::Layout,
-                "[Resize] Breakpoint crossed: {}x{} -> {}x{}",
+                "[Resize] Breakpoint crossed: {}x{} -> {}x{} — re-running layout()",
                 old_context.viewport_width,
                 old_context.viewport_height,
                 self.dynamic_selector_context.viewport_width,
                 self.dynamic_selector_context.viewport_height
             );
+            self.common.next_relayout_reason =
+                azul_core::callbacks::RelayoutReason::Resize;
         }
 
-        // Resize requires full display list rebuild
+        // Whether or not a breakpoint was crossed, the platform path
+        // requests a full DOM rebuild on every resize so that
+        // `info.window_width_*` checks always reflect the live size.
         EventProcessResult::RegenerateDisplayList
     }
 

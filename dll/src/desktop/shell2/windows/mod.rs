@@ -528,7 +528,8 @@ impl Win32Window {
                 },
                 document_id,
                 id_namespace,
-                frame_needs_regeneration: true, // Initial render deferred to WM_PAINT
+                frame_needs_regeneration: true,
+                next_relayout_reason: azul_core::callbacks::RelayoutReason::Initial, // Initial render deferred to WM_PAINT
                 display_list_initialized: false,
                 display_list_dirty: false,
                 a11y_dirty: true,
@@ -1151,7 +1152,12 @@ impl Win32Window {
             &self.common.system_style,
             &self.icon_provider,
             &mut debug_messages,
+        
+            self.common.next_relayout_reason,
         )?;
+        // Consumed; reset so an untagged regen sees the implicit RefreshDom.
+        self.common.next_relayout_reason =
+            azul_core::callbacks::RelayoutReason::RefreshDom;
 
         // Forward layout debug messages to the debug server's log queue
         if let Some(msgs) = debug_messages {
@@ -2202,6 +2208,11 @@ unsafe extern "system" fn window_proc(
                 // Update previous and current window state
                 window.common.previous_window_state = Some(window.common.current_window_state.clone());
                 window.common.current_window_state = new_window_state;
+
+                // Tag the next regen as a resize so the user's layout()
+                // callback can detect it via `info.relayout_reason()`.
+                window.common.next_relayout_reason =
+                    azul_core::callbacks::RelayoutReason::Resize;
 
                 // Resize requires full display list rebuild
                 window.common.frame_needs_regeneration = true;

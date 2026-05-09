@@ -502,6 +502,39 @@ pub struct LayoutCallbackInfoRefData<'a> {
     pub active_route: Option<&'a crate::resources::RouteMatch>,
 }
 
+/// What triggered the current `layout()` invocation.
+///
+/// The framework re-invokes the layout callback for any change that may
+/// produce a structurally different DOM (resize across a CSS breakpoint,
+/// theme toggle, route switch, callback returning `Update::RefreshDom`).
+/// `LayoutCallbackInfo::relayout_reason()` exposes which trigger this
+/// particular call corresponds to so the callback can branch — for
+/// example, skip expensive analytics on `Resize` calls.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum RelayoutReason {
+    /// First layout call for this window.
+    Initial,
+    /// A user callback returned `Update::RefreshDom`.
+    RefreshDom,
+    /// Window size changed across a CSS breakpoint or DPI scale change.
+    /// The callback can branch on `info.window_width_*` to emit a
+    /// different tree (e.g. hamburger menu vs sidebar).
+    Resize,
+    /// System theme changed (light/dark).
+    ThemeChange,
+    /// `CallbackInfo::switch_route` or `set_route_param` produced a new
+    /// route match. The callback should branch on
+    /// `info.get_active_route()`.
+    RouteChange,
+    /// Catch-all for relayouts that don't fit one of the above categories.
+    Other,
+}
+
+impl Default for RelayoutReason {
+    fn default() -> Self { RelayoutReason::Initial }
+}
+
 #[repr(C)]
 pub struct LayoutCallbackInfo {
     /// Single reference to all readonly reference data
@@ -513,6 +546,8 @@ pub struct LayoutCallbackInfo {
     pub window_size: WindowSize,
     /// Registers whether the UI is dependent on the window theme
     pub theme: WindowTheme,
+    /// What triggered this `layout()` call. Read via `relayout_reason()`.
+    pub relayout_reason: RelayoutReason,
     /// Pointer to the callable (OptionRefAny) for FFI language bindings (Python, etc.)
     /// Set by the caller before invoking the callback. Native Rust callbacks have this as null.
     callable_ptr: *const OptionRefAny,
@@ -526,6 +561,7 @@ impl Clone for LayoutCallbackInfo {
             ref_data: self.ref_data,
             window_size: self.window_size,
             theme: self.theme,
+            relayout_reason: self.relayout_reason,
             callable_ptr: self.callable_ptr,
             _abi_mut: self._abi_mut,
         }
@@ -537,6 +573,7 @@ impl core::fmt::Debug for LayoutCallbackInfo {
         f.debug_struct("LayoutCallbackInfo")
             .field("window_size", &self.window_size)
             .field("theme", &self.theme)
+            .field("relayout_reason", &self.relayout_reason)
             .finish_non_exhaustive()
     }
 }
@@ -547,6 +584,15 @@ impl LayoutCallbackInfo {
         window_size: WindowSize,
         theme: WindowTheme,
     ) -> Self {
+        Self::new_with_reason(ref_data, window_size, theme, RelayoutReason::Initial)
+    }
+
+    pub fn new_with_reason<'a>(
+        ref_data: &'a LayoutCallbackInfoRefData<'a>,
+        window_size: WindowSize,
+        theme: WindowTheme,
+        relayout_reason: RelayoutReason,
+    ) -> Self {
         Self {
             // SAFETY: We cast away the lifetime 'a to 'static because LayoutCallbackInfo
             // only lives for the duration of the callback, which is shorter than 'a
@@ -554,9 +600,15 @@ impl LayoutCallbackInfo {
                 as *const LayoutCallbackInfoRefData<'static>,
             window_size,
             theme,
+            relayout_reason,
             callable_ptr: core::ptr::null(),
             _abi_mut: core::ptr::null_mut(),
         }
+    }
+
+    /// Returns what triggered the current `layout()` invocation.
+    pub fn relayout_reason(&self) -> RelayoutReason {
+        self.relayout_reason
     }
 
     /// Set the callable pointer for FFI language bindings

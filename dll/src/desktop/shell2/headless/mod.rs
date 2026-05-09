@@ -408,6 +408,7 @@ impl HeadlessWindow {
                 render_api: None,
                 renderer: None,
                 frame_needs_regeneration: true,
+                next_relayout_reason: azul_core::callbacks::RelayoutReason::Initial,
                 display_list_initialized: false,
                 display_list_dirty: false,
                 a11y_dirty: true,
@@ -476,7 +477,13 @@ impl HeadlessWindow {
             &self.common.system_style,
             &self.icon_provider,
             &mut debug_messages,
+            self.common.next_relayout_reason,
         )?;
+        // Reset the reason now that it has been consumed. Subsequent
+        // untagged regen calls (RefAny mutation -> Update::RefreshDom) will
+        // see the implicit `RefreshDom` reason.
+        self.common.next_relayout_reason =
+            azul_core::callbacks::RelayoutReason::RefreshDom;
 
         // Forward layout debug messages to the debug server's log queue
         if let Some(msgs) = debug_messages {
@@ -541,6 +548,26 @@ impl HeadlessWindow {
     pub fn inject_events(&mut self, events: impl IntoIterator<Item = HeadlessEvent>) {
         self.event_queue.extend(events);
         self.wake();
+    }
+
+    /// Simulate a window resize. Updates `current_window_state.size` to the
+    /// new logical dimensions and tags the next `regenerate_layout()` call
+    /// with `RelayoutReason::Resize` so the user's `LayoutCallback` sees
+    /// the size change via `info.relayout_reason()` plus the live
+    /// `info.window_size`. The next `regenerate_layout()` call will
+    /// re-invoke `layout()` exactly the way the real platform handlers do.
+    pub fn simulate_resize(&mut self, width: f32, height: f32) {
+        use azul_core::geom::LogicalSize;
+        self.common.current_window_state.size.dimensions = LogicalSize { width, height };
+        self.common.next_relayout_reason =
+            azul_core::callbacks::RelayoutReason::Resize;
+    }
+
+    /// Read the queued reason for the next `regenerate_layout()` call.
+    /// Useful for asserting in tests that an event handler tagged the
+    /// upcoming relayout correctly.
+    pub fn pending_relayout_reason(&self) -> azul_core::callbacks::RelayoutReason {
+        self.common.next_relayout_reason
     }
 
     /// Convert a `KeyDown` virtual keycode into the locale-independent character
