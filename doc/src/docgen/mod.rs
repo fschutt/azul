@@ -571,6 +571,144 @@ pub fn get_prism_script() -> String {
 <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>"#.to_string()
 }
 
+/// CSS + JS that turns every `<h1>` … `<h4>` with an inner
+/// `<a class="anchor" id="...">` (the comrak-emitted slug) into a
+/// click target. Clicking the heading scrolls to it, updates
+/// `location.hash`, and copies the absolute URL to the clipboard so
+/// readers can paste a deep link straight into chat. A "#" glyph
+/// fades in on hover to signal the affordance, plus a small toast
+/// confirms the copy.
+pub fn get_anchor_link_script() -> String {
+    r##"<style>
+.center main h1, .center main h2, .center main h3, .center main h4 {
+  position: relative;
+}
+.center main h1 .anchor, .center main h2 .anchor,
+.center main h3 .anchor, .center main h4 .anchor {
+  position: absolute;
+  left: -1em;
+  top: 0;
+  bottom: 0;
+  width: 1em;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  color: #aaa;
+  text-decoration: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  font-weight: normal;
+}
+.center main h1:hover .anchor, .center main h2:hover .anchor,
+.center main h3:hover .anchor, .center main h4:hover .anchor {
+  opacity: 1;
+}
+.center main h1 .anchor::before, .center main h2 .anchor::before,
+.center main h3 .anchor::before, .center main h4 .anchor::before {
+  content: "#";
+  font-size: 0.7em;
+}
+.azs-deeplink-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.82);
+  color: #fff;
+  font-family: "Source Serif Pro", Georgia, serif;
+  font-size: 13px;
+  padding: 8px 14px;
+  border-radius: 6px;
+  z-index: 10000;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.azs-deeplink-toast[data-visible="true"] { opacity: 1; }
+@media (prefers-color-scheme: dark) {
+  .center main h1 .anchor, .center main h2 .anchor,
+  .center main h3 .anchor, .center main h4 .anchor { color: #888; }
+}
+</style>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  // Comrak emits each heading as
+  //   <h2><a class="anchor" id="slug" aria-hidden="true"></a>Title</h2>
+  // The empty anchor is positioned to the left of the heading by the
+  // CSS above and acts as the visible click target. We also make the
+  // *whole heading* clickable for big-fingers users — clicking either
+  // updates location.hash, scrolls smoothly, and copies the deep link
+  // to the clipboard.
+  var headings = document.querySelectorAll(
+    '.center main h1 > a.anchor[id], .center main h2 > a.anchor[id], ' +
+    '.center main h3 > a.anchor[id], .center main h4 > a.anchor[id]'
+  );
+  if (headings.length === 0) return;
+
+  // Make sure the empty anchor element is still keyboard-focusable.
+  // Comrak marks it aria-hidden="true" which screen readers honor;
+  // sighted keyboard users still need tab access for deep links.
+  headings.forEach(function (a) {
+    a.setAttribute('href', '#' + a.id);
+    a.setAttribute('aria-label', 'Link to this section');
+    a.removeAttribute('aria-hidden');
+  });
+
+  var toast;
+  function showToast(msg) {
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.className = 'azs-deeplink-toast';
+      toast.setAttribute('role', 'status');
+      document.body.appendChild(toast);
+    }
+    toast.textContent = msg;
+    toast.dataset.visible = 'true';
+    clearTimeout(toast._timer);
+    toast._timer = setTimeout(function () {
+      toast.dataset.visible = 'false';
+    }, 1400);
+  }
+
+  function copyDeepLink(id) {
+    var url = window.location.origin + window.location.pathname + '#' + id;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(
+        function () { showToast('Link copied'); },
+        function () { showToast('Link: ' + url); }
+      );
+    } else {
+      showToast('Link: ' + url);
+    }
+  }
+
+  // Click on the heading body (not on any link inside it) deep-links.
+  document.querySelectorAll('.center main h1, .center main h2, .center main h3, .center main h4')
+    .forEach(function (h) {
+      var anchor = h.querySelector(':scope > a.anchor[id]');
+      if (!anchor) return;
+      h.style.cursor = 'pointer';
+      h.addEventListener('click', function (ev) {
+        // Don't intercept clicks on links *inside* the heading text.
+        if (ev.target !== h && ev.target !== anchor) {
+          var t = ev.target;
+          while (t && t !== h) {
+            if (t.tagName === 'A') return;
+            t = t.parentNode;
+          }
+        }
+        ev.preventDefault();
+        history.replaceState(null, '', '#' + anchor.id);
+        copyDeepLink(anchor.id);
+        // Smooth-scroll the heading into view; the empty anchor has
+        // no height so scrollIntoView wouldn't land on it.
+        h.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
+});
+</script>"##.to_string()
+}
+
 /// Generate common head tags for HTML pages.
 ///
 /// # Arguments
@@ -608,7 +746,8 @@ pub fn get_common_head_tags(inline_css: bool) -> String {
       <link rel='stylesheet' href='https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css'>
       <link rel='stylesheet' href='{base_url}/azul-search.css'>
       {css_tag}
-    ", base_url=base_url, css_tag=css_tag)
+      {anchor_link}
+    ", base_url=base_url, css_tag=css_tag, anchor_link=get_anchor_link_script())
 }
 
 /// Script tag + init for the search panel.
