@@ -83214,20 +83214,6 @@
                             }
                         },
                         "functions": {
-                            "isOk": {
-                                "doc": [
-                                    "Returns true if the result is Ok (no syntax errors)."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "fluentsyntaxcheckresult.is_ok()"
-                            },
                             "getErrors": {
                                 "doc": [
                                     "Get the error strings if this is an Errors result.",

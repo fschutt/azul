@@ -177,6 +177,11 @@ pub fn autofix_api(
     let keyword_warnings = check_reserved_keywords(api_data);
     ffi_warnings.extend(keyword_warnings);
 
+    // Check for enum-variant method collisions (e.g., explicit `isOk`
+    // colliding with auto-emitted `isOk()` for the `Ok` variant).
+    let enum_variant_warnings = check_enum_variant_method_collisions(api_data);
+    ffi_warnings.extend(enum_variant_warnings);
+
     print_ffi_safety_warnings(&ffi_warnings);
 
     // Count only critical errors (not informational warnings)
@@ -1400,6 +1405,22 @@ pub enum FfiSafetyWarningKind {
         /// The original function/field that started the resolution chain
         origin: Option<String>,
     },
+    /// An enum class declares an explicit `functions:` entry whose name
+    /// collides with the auto-emitted variant predicate (`isVariant()`)
+    /// or payload extractor (`payloadVariant()`) for one of its
+    /// variants. Languages with case-insensitive method-name resolution
+    /// (PHP) reject the duplicate at compile time. The fix is to remove
+    /// the explicit method (the auto-generated one already does the same
+    /// thing) or rename it.
+    EnumVariantMethodCollision {
+        /// The api.json `functions` key, e.g., `"isOk"`.
+        function_name: String,
+        /// The variant whose auto-emitted method clashes, e.g., `"Ok"`.
+        variant_name: String,
+        /// Which auto-emitted shape collided —
+        /// `"is<Variant>"` (predicate) or `"payload<Variant>"` (extractor).
+        auto_method_shape: String,
+    },
     /// Struct field order is not optimal for minimizing padding in repr(C) layout.
     /// Fields should be sorted by decreasing alignment (largest-aligned first).
     SuboptimalFieldOrder {
@@ -1460,6 +1481,11 @@ impl FfiSafetyWarningKind {
             FfiSafetyWarningKind::DuplicateReprAttribute { .. } => true,
             // Critical - source code uses non-C-compatible types like Arc<T>, Rc<T>
             FfiSafetyWarningKind::NonCCompatibleSourceType { .. } => true,
+            // Critical — duplicate method name will fail to compile in PHP
+            // (and produce two methods that resolve in undefined order in
+            // every other language). Either remove the explicit api.json
+            // entry or rename it.
+            FfiSafetyWarningKind::EnumVariantMethodCollision { .. } => true,
             // Critical - suboptimal field ordering wastes memory in repr(C) layout
             FfiSafetyWarningKind::SuboptimalFieldOrder { .. } => true,
         }
@@ -2741,6 +2767,29 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
             }
             println!(
                 "    {} Replace with FFI-safe alternative (e.g., *const T + AtomicUsize ref counting).",
+                "FIX:".cyan()
+            );
+            println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+        }
+        FfiSafetyWarningKind::EnumVariantMethodCollision {
+            function_name,
+            variant_name,
+            auto_method_shape,
+        } => {
+            println!("  {} {}", "✗".red(), warning.type_name.white());
+            println!(
+                "    {} Method '{}' collides with the auto-emitted '{}()' for variant '{}'",
+                "→".dimmed(),
+                function_name.yellow(),
+                auto_method_shape.cyan(),
+                variant_name.cyan()
+            );
+            println!(
+                "    {} PHP refuses the duplicate method (case-insensitive); other languages produce ambiguous dispatch.",
+                "NOTE:".magenta()
+            );
+            println!(
+                "    {} Either remove the explicit api.json `functions:` entry (the auto-emitted predicate already does the same job) or rename the function.",
                 "FIX:".cyan()
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
@@ -4623,6 +4672,74 @@ pub fn check_reserved_keywords(api_data: &ApiData) -> Vec<FfiSafetyWarning> {
                                         .into_iter()
                                         .map(|s| s.to_string())
                                         .collect(),
+                                },
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    warnings
+}
+
+/// Detect explicit api.json `functions:` entries on enum classes whose
+/// names collide with the auto-emitted variant predicate / payload
+/// methods. PHP rejects the duplicate fatally; every other language
+/// silently produces ambiguous dispatch.
+///
+/// The codegen auto-emits per variant `V`:
+/// - `isV()` — predicate, present for every variant
+/// - `payloadV()` — payload extractor, present only for variants with data
+///
+/// Comparison is case-insensitive and underscore-insensitive (matches
+/// PHP's method-name resolution and snake/camel codegen normalization),
+/// so `isOk` collides with `IsOK`, `is_ok`, etc.
+pub fn check_enum_variant_method_collisions(api_data: &ApiData) -> Vec<FfiSafetyWarning> {
+    let mut warnings = Vec::new();
+
+    for (_version_name, version_data) in &api_data.0 {
+        for (module_name, module_data) in &version_data.api {
+            for (class_name, class_data) in &module_data.classes {
+                let Some(enum_fields_groups) = &class_data.enum_fields else {
+                    continue;
+                };
+                let Some(functions) = &class_data.functions else {
+                    continue;
+                };
+
+                let mut variants: Vec<(String, bool /* has_data */)> = Vec::new();
+                for group in enum_fields_groups {
+                    for (variant, variant_data) in group {
+                        let has_data = variant_data.r#type.is_some();
+                        variants.push((variant.clone(), has_data));
+                    }
+                }
+
+                for (fn_name, _fn_data) in functions {
+                    let fn_lower = fn_name.to_lowercase().replace('_', "");
+                    for (variant_name, has_data) in &variants {
+                        let v_lower = variant_name.to_lowercase();
+                        let is_collision = fn_lower == format!("is{}", v_lower);
+                        let payload_collision =
+                            *has_data && fn_lower == format!("payload{}", v_lower);
+                        if is_collision || payload_collision {
+                            let shape = if is_collision {
+                                format!("is{}", variant_name)
+                            } else {
+                                format!("payload{}", variant_name)
+                            };
+                            warnings.push(FfiSafetyWarning {
+                                type_name: class_name.clone(),
+                                file_path: format!(
+                                    "api.json - {}.{}::{}",
+                                    module_name, class_name, fn_name
+                                ),
+                                kind: FfiSafetyWarningKind::EnumVariantMethodCollision {
+                                    function_name: fn_name.clone(),
+                                    variant_name: variant_name.clone(),
+                                    auto_method_shape: shape,
                                 },
                             });
                         }
