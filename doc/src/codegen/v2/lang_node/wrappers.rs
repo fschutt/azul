@@ -435,6 +435,7 @@ fn emit_instance_method(b: &mut CodeBuilder, f: &FunctionDef) {
     }
     b.line(&format!("{}({}) {{", method, params));
     b.indent();
+    emit_callback_register_lines(b, &user_args);
     let mut call = format!("lib.{}(this._ptr", f.c_name);
     if !call_args.is_empty() {
         call.push_str(", ");
@@ -462,6 +463,7 @@ fn emit_instance_alias(b: &mut CodeBuilder, f: &FunctionDef, alias: &str) {
     ));
     b.line(&format!("{}({}) {{", alias, params));
     b.indent();
+    emit_callback_register_lines(b, &user_args);
     let mut call = format!("lib.{}(this._ptr", f.c_name);
     if !call_args.is_empty() {
         call.push_str(", ");
@@ -500,6 +502,7 @@ fn emit_static_factory(b: &mut CodeBuilder, f: &FunctionDef, class_name: &str) {
     }
     b.line(&format!("static {}({}) {{", method, params));
     b.indent();
+    emit_callback_register_lines(b, &user_args);
     let call = format!("lib.{}({})", f.c_name, call_args);
     if returns_self {
         b.line(&format!("return new {}({});", class_name, call));
@@ -511,6 +514,27 @@ fn emit_static_factory(b: &mut CodeBuilder, f: &FunctionDef, class_name: &str) {
     b.dedent();
     b.line("}");
     b.blank();
+}
+
+/// For every arg whose IR `callback_info` is in the host-invoker
+/// allowlist, emit `name = registerCallback('Wrapper', name);` before
+/// the lib call so the user can pass a plain JS function.
+fn emit_callback_register_lines(b: &mut CodeBuilder, args: &[&super::super::ir::FunctionArg]) {
+    for a in args {
+        let Some(cb) = a.callback_info.as_ref() else {
+            continue;
+        };
+        let wrapper = cb.callback_wrapper_name.as_str();
+        if !super::super::managed_host_invoker::HOST_INVOKER_KINDS.contains(&wrapper) {
+            continue;
+        }
+        let name = sanitize_js_identifier(&a.name);
+        b.line(&format!(
+            "{n} = registerCallback('{w}', {n});",
+            n = name,
+            w = wrapper
+        ));
+    }
 }
 
 // ============================================================================

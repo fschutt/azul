@@ -445,6 +445,8 @@ fn emit_instance_method(out: &mut String, f: &FunctionDef, _takes_union_ptr: boo
     ));
     out.push_str("    {\n");
 
+    emit_callback_register_lines(out, &user_args);
+
     // The C function takes the receiver as `<ClassName>*` (a pointer
     // to the FFI struct). We forward via FFI::addr so the C side gets
     // a stable address into our cdata.
@@ -481,6 +483,8 @@ fn emit_instance_method_alias(out: &mut String, f: &FunctionDef, php_name: &str)
         php_name, params
     ));
     out.push_str("    {\n");
+
+    emit_callback_register_lines(out, &user_args);
 
     let mut call = format!("Azul::lib()->{}(\\FFI::addr($this->ptr)", f.c_name);
     if !user_call_args.is_empty() {
@@ -537,6 +541,8 @@ fn emit_static_factory(out: &mut String, f: &FunctionDef, class_name: &str) {
     ));
     out.push_str("    {\n");
 
+    emit_callback_register_lines(out, &user_args);
+
     let call = format!("Azul::lib()->{}({})", f.c_name, user_call_args);
     if returns_self {
         out.push_str(&format!("        return new self({});\n", call));
@@ -574,6 +580,28 @@ fn render_php_params(args: &[&super::super::ir::FunctionArg]) -> String {
         .map(|a| format!("${}", sanitize_php_identifier(&a.name)))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+/// For every arg whose IR `callback_info` is in the host-invoker
+/// allowlist, emit `$name = Azul::registerCallback('Wrapper', $name);`
+/// before the C call so the user can pass a plain PHP closure and have
+/// the host-invoker plumbing wire it up automatically.
+fn emit_callback_register_lines(out: &mut String, args: &[&super::super::ir::FunctionArg]) {
+    for a in args {
+        let Some(cb) = a.callback_info.as_ref() else {
+            continue;
+        };
+        let wrapper = cb.callback_wrapper_name.as_str();
+        if !super::super::managed_host_invoker::HOST_INVOKER_KINDS.contains(&wrapper) {
+            continue;
+        }
+        let name = sanitize_php_identifier(&a.name);
+        out.push_str(&format!(
+            "        ${n} = \\Azul\\Azul::registerCallback('{w}', ${n});\n",
+            n = name,
+            w = wrapper
+        ));
+    }
 }
 
 /// Render the call-site arguments (same shape as parameters: `$name`

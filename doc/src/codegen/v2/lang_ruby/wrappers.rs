@@ -260,9 +260,9 @@ fn emit_callback_register_lines(
         };
         let wrapper = cb.callback_wrapper_name.as_str();
         // Only kinds with `impl_managed_callback!` applied work via this
-        // path. Others fall through; the user has to construct an
-        // FFI::Struct manually (matching legacy behaviour).
-        if matches!(wrapper, "Callback" | "LayoutCallback" | "VirtualViewCallback") {
+        // path. The shared `HOST_INVOKER_KINDS` allowlist drives every
+        // managed-FFI adapter, so new kinds light up here automatically.
+        if super::super::managed_host_invoker::HOST_INVOKER_KINDS.contains(&wrapper) {
             builder.line(&format!(
                 "{n} = Azul._register_callback('{w}', {n})",
                 n = arg_names[i],

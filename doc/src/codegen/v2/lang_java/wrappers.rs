@@ -264,7 +264,18 @@ fn emit_wrapper_method(
         call_args.push("this.ptr".to_string());
     }
     for a in &user_args {
-        call_args.push(sanitize_identifier(&a.name));
+        let raw_name = sanitize_identifier(&a.name);
+        if let Some(cb) = a.callback_info.as_ref() {
+            let wrapper = cb.callback_wrapper_name.as_str();
+            if super::super::managed_host_invoker::HOST_INVOKER_KINDS.contains(&wrapper) {
+                call_args.push(format!(
+                    "AzulHostInvoker.register{}({})",
+                    wrapper, raw_name
+                ));
+                continue;
+            }
+        }
+        call_args.push(raw_name);
     }
 
     if !func.doc.is_empty() {

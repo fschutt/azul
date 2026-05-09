@@ -411,7 +411,8 @@ fn emit_static_method(out: &mut String, lua_method: &str, func: &FunctionDef) {
             .as_deref()
             .map(|t| t.trim() == wrapper_name)
             .unwrap_or(false);
-        let supported = wrapper_name == "Callback" || wrapper_name == "LayoutCallback";
+        let supported = super::super::managed_host_invoker::HOST_INVOKER_KINDS
+            .contains(&wrapper_name);
 
         if returns_self_wrapper && supported && func.args.len() == 1 {
             // Direct passthrough — the registered wrapper IS the return.
@@ -503,7 +504,7 @@ fn emit_callback_pin_lines(
         let wrapper_name = cb.callback_wrapper_name.as_str();
         let abi_takes_wrapper = !a.type_name.ends_with("Type");
 
-        if wrapper_name == "Callback" || wrapper_name == "LayoutCallback" {
+        if super::super::managed_host_invoker::HOST_INVOKER_KINDS.contains(&wrapper_name) {
             // Host-invoker path. We hand the user-supplied Lua function to
             // `azul._register_callback`, which goes through libazul's
             // `_createFromHostHandle` constructor under the hood and

@@ -276,7 +276,21 @@ fn emit_wrapper_method(
         call_args.push("(IntPtr)__self".to_string());
     }
     for a in &user_args {
-        call_args.push(sanitize_identifier(&a.name));
+        let raw_name = sanitize_identifier(&a.name);
+        // Auto-route callback args through HostInvoker.Register<Wrapper>(...)
+        // so the user can pass a plain delegate. Only kinds with
+        // `impl_managed_callback!` applied are substituted.
+        if let Some(cb) = a.callback_info.as_ref() {
+            let wrapper = cb.callback_wrapper_name.as_str();
+            if super::super::managed_host_invoker::HOST_INVOKER_KINDS.contains(&wrapper) {
+                call_args.push(format!(
+                    "HostInvoker.Register{}({})",
+                    wrapper, raw_name
+                ));
+                continue;
+            }
+        }
+        call_args.push(raw_name);
     }
 
     let is_static = matches!(

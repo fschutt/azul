@@ -8,7 +8,7 @@
 //     an AzRefAny held alive by the framework's refcount.
 //   * Callbacks implement JNA `Callback` interfaces (e.g.
 //     `AzulNativeManaged.CallbackInvokerCallback`) and pass through
-//     `AzulHostInvoker.registerCallbackCallback(handler)`, which returns
+//     `AzulHostInvoker.registerCallback(handler)`, which returns
 //     the `AzCallback.ByValue` cdata struct the C ABI expects.
 //
 // Build + run via the sibling build.gradle.kts:
@@ -44,8 +44,8 @@ fun main() {
         System.err.println("[azul] layout callback fired (id=$id)")
     }
 
-    val clickCb = AzulHostInvoker.registerCallbackCallback(onClick)
-    val layoutCb = AzulHostInvoker.registerLayoutCallbackCallback(layout)
+    val clickCb = AzulHostInvoker.registerCallback(onClick)
+    val layoutCb = AzulHostInvoker.registerLayoutCallback(layout)
 
     println("[azul] host-invoker plumbing wired.")
     println("[azul] (Full App.run wiring requires struct-field setters from")

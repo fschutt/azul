@@ -180,7 +180,7 @@ pub fn emit_files(out: &mut String, ir: &CodegenIR, config: &CodegenConfig) -> R
                 b.line(" * @param fn user callback (must implement the kind's `*InvokerCallback` interface).");
                 b.line(" */");
                 b.line(&format!(
-                    "public static Az{w}.ByValue register{w}Callback(Object fn) {{",
+                    "public static Az{w}.ByValue register{w}(Object fn) {{",
                     w = wrapper
                 ));
                 b.indent();

@@ -220,7 +220,8 @@ fn emit_static_or_ctor(
         _ => format!("{}-{}", class, lisp_method),
     };
 
-    let (param_list, call_args) = build_param_lists(&func.args, ir, /*has_self*/ false);
+    let (param_list, mut call_args) = build_param_lists(&func.args, ir, /*has_self*/ false);
+    substitute_callback_args(&func.args, &mut call_args, /*self_offset*/ 0);
 
     if !func.doc.is_empty() {
         for d in &func.doc {
@@ -280,6 +281,7 @@ fn emit_instance_method(
         param_list[0] = "obj".to_string();
         call_args[0] = format!("({}-ptr obj)", class);
     }
+    substitute_callback_args(&func.args, &mut call_args, /*self_offset*/ 0);
 
     let returns_self = func
         .return_type
@@ -306,6 +308,31 @@ fn emit_instance_method(
     builder.dedent();
     builder.line(&format!("(export '{} :azul)", public_name));
     builder.blank();
+}
+
+/// Wrap each callback-typed call-arg in `(azul:register-callback "Wrapper" arg)`
+/// so users can pass plain Lisp lambdas. Only kinds in the host-invoker
+/// allowlist are substituted.
+fn substitute_callback_args(
+    args: &[super::super::ir::FunctionArg],
+    call_args: &mut [String],
+    self_offset: usize,
+) {
+    for (i, a) in args.iter().enumerate() {
+        if i < self_offset {
+            continue;
+        }
+        let Some(cb) = a.callback_info.as_ref() else {
+            continue;
+        };
+        let wrapper = cb.callback_wrapper_name.as_str();
+        if !super::super::managed_host_invoker::HOST_INVOKER_KINDS.contains(&wrapper) {
+            continue;
+        }
+        // call_args holds the raw param names already; wrap them.
+        let original = call_args[i].clone();
+        call_args[i] = format!("(azul:register-callback \"{}\" {})", wrapper, original);
+    }
 }
 
 fn emit_with_macro(

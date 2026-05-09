@@ -148,7 +148,7 @@ pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
     for cb in host_invoker_kinds(ir) {
         let wrapper = wrapper_name(cb);
         builder.line(&format!(
-            "fun register{w}Callback(fn: Any): Az{w}.ByValue {{",
+            "fun register{w}(fn: Any): Az{w}.ByValue {{",
             w = wrapper
         ));
         builder.indent();

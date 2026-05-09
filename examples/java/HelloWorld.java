@@ -8,7 +8,7 @@
 //     AzRefAny held alive by the framework's refcount.
 //   * Callbacks implement JNA `Callback` interfaces (e.g.
 //     `AzulNativeManaged.CallbackInvokerCallback`) and pass through
-//     `AzulHostInvoker.registerCallbackCallback(handler)`, which returns
+//     `AzulHostInvoker.registerCallback(handler)`, which returns
 //     the `AzCallback` cdata struct the C ABI expects.
 //
 // Build + run via the sibling pom.xml:
@@ -57,8 +57,8 @@ public final class HelloWorld {
         };
 
         // ── Register callbacks ───────────────────────────────────────────
-        AzCallback.ByValue clickCb = AzulHostInvoker.registerCallbackCallback(onClick);
-        AzLayoutCallback.ByValue layoutCb = AzulHostInvoker.registerLayoutCallbackCallback(layout);
+        AzCallback.ByValue clickCb = AzulHostInvoker.registerCallback(onClick);
+        AzLayoutCallback.ByValue layoutCb = AzulHostInvoker.registerLayoutCallback(layout);
 
         System.out.println("[azul] host-invoker plumbing wired.");
         System.out.println("[azul] (Full App.run wiring requires struct-field setters from");
