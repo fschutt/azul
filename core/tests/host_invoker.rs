@@ -34,8 +34,8 @@ use std::sync::{Mutex, OnceLock};
 
 use azul_core::callbacks::LayoutCallback;
 use azul_core::host_invoker::{
-    host_handle_to_refany, refany_to_host_handle, AzApp_setHostHandleReleaser,
-    AZ_HOST_HANDLE_RTTI_ID,
+    host_handle_to_refany, refany_to_host_handle, AzApp_setGenericInvoker,
+    AzApp_setHostHandleReleaser, GENERIC_INVOKER, AZ_HOST_HANDLE_RTTI_ID,
 };
 use azul_core::refany::RefAny;
 
@@ -169,3 +169,41 @@ fn create_from_host_handle_produces_callable_with_host_handle_ctx() {
 // work that doesn't add safety beyond checking the macro's branches above
 // — the integration path is exercised through `examples/lua/hello-world.lua`
 // once the binding adopts `_createFromHostHandle`.
+
+// ── Generic-invoker fallback ────────────────────────────────────────────
+
+use std::sync::atomic::AtomicUsize;
+
+/// Records the kind name + handle id the generic invoker last received,
+/// so tests can verify the macro routed through it correctly.
+static GENERIC_LAST_HANDLE: AtomicU64 = AtomicU64::new(0);
+static GENERIC_LAST_N_ARGS: AtomicUsize = AtomicUsize::new(0);
+static GENERIC_FIRED_COUNT: AtomicU64 = AtomicU64::new(0);
+
+extern "C" fn test_generic_invoker(
+    handle: u64,
+    _kind: *const std::os::raw::c_char,
+    _args: *const *const std::ffi::c_void,
+    n_args: usize,
+    _ret: *mut std::ffi::c_void,
+) {
+    GENERIC_LAST_HANDLE.store(handle, Ordering::SeqCst);
+    GENERIC_LAST_N_ARGS.store(n_args, Ordering::SeqCst);
+    GENERIC_FIRED_COUNT.fetch_add(1, Ordering::SeqCst);
+}
+
+#[test]
+fn generic_invoker_slot_round_trips() {
+    let _guard = invoker_lock().lock().unwrap();
+    AzApp_setGenericInvoker(test_generic_invoker);
+    assert_ne!(
+        GENERIC_INVOKER.get(),
+        0,
+        "AzApp_setGenericInvoker must populate the global slot"
+    );
+    assert_eq!(
+        GENERIC_INVOKER.get(),
+        test_generic_invoker as *const () as usize,
+        "the slot must hold exactly the registered fn-pointer"
+    );
+}

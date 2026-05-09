@@ -108,6 +108,55 @@ impl Default for InvokerSlot {
 /// when a host-handle [`RefAny`]'s last clone drops.
 pub static HOST_HANDLE_RELEASER: InvokerSlot = InvokerSlot::new();
 
+/// Process-global slot for the host's *generic* invoker. Set via
+/// [`AzApp_setGenericInvoker`]. Used as a fallback in macro-generated
+/// per-kind thunks when the per-kind invoker is not registered, and as
+/// the **only** dispatch path for user-defined custom callback kinds in
+/// libffi-restricted hosts (Lua, PHP, koffi, …) that can't easily ship
+/// an upstream `impl_managed_callback!` invocation.
+///
+/// Signature on the host side:
+///
+/// ```c
+/// typedef void (*AzGenericInvoker)(
+///     uint64_t           handle,    /* host-handle id from the RefAny ctx */
+///     const char*        kind,      /* null-terminated wrapper name */
+///     const void* const* args,      /* array of pointers, one per arg, in declared order */
+///     size_t             n_args,    /* args[] length */
+///     void*              ret        /* where to write the return value (kind-specific size) */
+/// );
+/// extern void AzApp_setGenericInvoker(AzGenericInvoker);
+/// ```
+///
+/// The args array carries pointers into the framework's by-value frame
+/// — host code must not retain them past the call. The host decides what
+/// to do per kind from the `kind` string (which matches the wrapper
+/// struct name, e.g. `"Callback"`, `"LayoutCallback"`,
+/// `"ButtonOnClickCallback"`).
+pub static GENERIC_INVOKER: InvokerSlot = InvokerSlot::new();
+
+/// Type alias for the generic invoker callable. Hosts cast a libffi
+/// closure to this signature once at module load.
+pub type AzGenericInvoker = extern "C" fn(
+    handle: u64,
+    kind: *const core::ffi::c_char,
+    args: *const *const c_void,
+    n_args: usize,
+    ret: *mut c_void,
+);
+
+/// Register the generic invoker for user-defined custom callback kinds
+/// or as a fallback for per-kind dispatch. Called once at module load;
+/// subsequent registrations replace the previous slot.
+///
+/// Safety: `invoker` must be a valid [`AzGenericInvoker`] function
+/// pointer for the lifetime of any callback that might be dispatched
+/// through it — typically the whole process.
+#[no_mangle]
+pub extern "C" fn AzApp_setGenericInvoker(invoker: AzGenericInvoker) {
+    GENERIC_INVOKER.set(invoker as usize);
+}
+
 /// Register the host-language releaser. Hosts call this once at module
 /// load time; subsequent registrations replace the previous slot.
 ///
@@ -337,7 +386,48 @@ macro_rules! impl_managed_callback {
             };
             let invoker_addr = $invoker_static.get();
             if invoker_addr == 0 {
-                return $default;
+                // Per-kind invoker not registered — fall back to the
+                // generic invoker for hosts that wired up only the
+                // single `AzApp_setGenericInvoker` slot (or for custom
+                // user-defined kinds emitted by a downstream
+                // `impl_managed_callback!` whose host hasn't shipped a
+                // per-kind invoker setter yet).
+                let generic_addr = $crate::host_invoker::GENERIC_INVOKER.get();
+                if generic_addr == 0 {
+                    return $default;
+                }
+                // SAFETY: GENERIC_INVOKER only ever holds an address that
+                // came from `invoker as usize` in `AzApp_setGenericInvoker`,
+                // whose parameter is typed as `AzGenericInvoker`.
+                let generic: $crate::host_invoker::AzGenericInvoker =
+                    unsafe { core::mem::transmute(generic_addr) };
+
+                // Wrapper name as a null-terminated C string. `stringify!`
+                // expands `$wrapper:ty` to e.g. `Callback`,
+                // `ButtonOnClickCallback`, etc. — matching what the host's
+                // dispatch table keys on.
+                const KIND_STR: &str = concat!(stringify!($wrapper), "\0");
+
+                // Build the args array: pointers to each by-value frame
+                // arg, in declared order (data, info, extras…). Lifetime
+                // is the scope of this thunk; the host MUST NOT retain
+                // these pointers past the call. Array size is inferred
+                // (2 base args + however many extras the macro forwarded).
+                let args = [
+                    &data as *const _ as *const core::ffi::c_void,
+                    &info as *const _ as *const core::ffi::c_void,
+                    $( & $extra_name as *const _ as *const core::ffi::c_void , )*
+                ];
+
+                let mut out: $ret = $default;
+                generic(
+                    handle,
+                    KIND_STR.as_ptr() as *const core::ffi::c_char,
+                    args.as_ptr(),
+                    args.len(),
+                    &mut out as *mut _ as *mut core::ffi::c_void,
+                );
+                return out;
             }
             // SAFETY: $invoker_static only ever holds a value that came from
             // `invoker as usize` in `$setter_fn`, where `invoker` has type

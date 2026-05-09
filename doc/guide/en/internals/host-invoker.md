@@ -333,33 +333,48 @@ Tier A languages can do the same substitution targeting their native
 delegate type. Tier B doesn't need it — static procedures don't have an
 "is this a closure?" question.
 
-## Generic byte-buffer invoker (deferred)
+## Generic byte-buffer invoker (fallback path)
 
-For **user-defined custom callback kinds** in Tier C hosts (i.e. the
-user wants a kind that isn't in `HOST_INVOKER_KINDS` and can't easily
-recompile `libazul`), one design option is a single C-ABI export:
+The macro-generated thunks have a second dispatch path that fires when
+no per-kind invoker is registered: the **generic invoker**. Hosts can
+register one libffi closure that handles every kind, with the wrapper
+name carried as a string and args carried as a pointer array.
+
+C-ABI shape:
 
 ```c
 typedef void (*AzGenericInvoker)(
-    uint64_t handle,
-    const char* kind,        /* wrapper name as a null-terminated string */
-    const void* args[],      /* array of pointers to args */
-    size_t args_count,
-    void* return_ptr         /* where to write the return value */
+    uint64_t           handle,    /* host-handle id */
+    const char*        kind,      /* null-terminated wrapper name */
+    const void* const* args,      /* one pointer per by-value arg, in declared order */
+    size_t             n_args,    /* args[] length */
+    void*              ret        /* where to write the return value */
 );
 extern void AzApp_setGenericInvoker(AzGenericInvoker);
 ```
 
-The macro's static thunk would, when no per-kind invoker is registered,
-fall back to the generic invoker with packed args. Users in
-libffi-restricted hosts could then add a custom kind by writing a small
-C trampoline that calls the generic invoker — no upstream Rust patch.
+When the per-kind invoker slot is empty, the macro's thunk packs
+`(&data, &info, &extras…)` into a stack array and forwards through
+`AzApp_setGenericInvoker`. The host decides what to do per kind from the
+`kind` string.
 
-This isn't built today. The per-kind path scales fine for the
-~20 callback kinds the framework ships, and the
-`HOST_INVOKER_KINDS` allowlist is the only thing each new kind has to
-touch (one constant entry, one macro callsite). If user-extensible kinds
-become a recurring ask, this is the design to pick up.
+Two use cases this supports:
+
+* **Single dispatch site for every kind.** Hosts that prefer one libffi
+  closure to cover all kinds (and dispatch internally on the kind name)
+  can skip per-kind `AzApp_set<Kind>Invoker` calls entirely. This shrinks
+  the prelude in languages where every libffi cast costs noticeable code
+  bytes.
+* **User-defined custom kinds.** A user in a Tier-C host can add a new
+  callback kind by emitting an `impl_managed_callback!` invocation in a
+  *downstream* Rust crate (or shipping their own static thunks via a
+  small C trampoline) without ever touching `HOST_INVOKER_KINDS`. The
+  generic invoker fires whenever the per-kind setter wasn't called.
+
+Tests in `core/tests/host_invoker.rs` cover the slot registration path;
+the integration path is exercised through `examples/lua/hello-world.lua`
+when `AzApp_setCallbackInvoker` *is* registered (per-kind path) and
+through any host that registers only `AzApp_setGenericInvoker` instead.
 
 ## Tests
 

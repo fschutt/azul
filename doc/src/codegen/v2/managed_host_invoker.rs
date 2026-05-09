@@ -194,6 +194,28 @@ pub fn emit_cdef_block(out: &mut String, ir: &CodegenIR) {
     out.push_str("    AzRefAny AzRefAny_newHostHandle(uint64_t);\n");
     out.push_str("    uint64_t AzRefAny_getHostHandle(const AzRefAny*);\n\n");
     out.push_str(
+        "    /* Generic invoker fallback — fires when no per-kind invoker is\n",
+    );
+    out.push_str(
+        "       registered. Useful for hosts that want one dispatch site for\n",
+    );
+    out.push_str(
+        "       every kind, or for user-defined custom kinds shipped via a\n",
+    );
+    out.push_str(
+        "       small downstream `impl_managed_callback!` whose host hasn't\n",
+    );
+    out.push_str(
+        "       wired a per-kind setter. Args are an array of pointers (one\n",
+    );
+    out.push_str(
+        "       per by-value frame arg, in declared order). */\n",
+    );
+    out.push_str("    void AzApp_setGenericInvoker(\n");
+    out.push_str(
+        "        void (*)(uint64_t, const char*, const void* const*, size_t, void*));\n\n",
+    );
+    out.push_str(
         "    /* Per-kind invoker setters + pointer-arg signatures. The return\n",
     );
     out.push_str(
