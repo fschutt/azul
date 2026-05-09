@@ -415,7 +415,7 @@ fn idiomatic_method_name(method_name: &str) -> String {
     if method_name == "new" {
         return "create".to_string();
     }
-    if method_name.contains('_') {
+    let camel = if method_name.contains('_') {
         snake_to_lower_camel(method_name)
     } else {
         // Already lowerCamel (most common in api.json) or PascalCase;
@@ -425,11 +425,24 @@ fn idiomatic_method_name(method_name: &str) -> String {
             Some(c) => c.to_lowercase().collect::<String>() + chars.as_str(),
             None => String::new(),
         }
+    };
+    // `default`, `class`, `case`, etc. can't be method names. Java has
+    // no verbatim-identifier syntax, so append `_`.
+    if super::is_java_reserved(&camel) {
+        format!("{}_", camel)
+    } else {
+        camel
     }
 }
 
 fn javadoc_escape(s: &str) -> String {
-    s.replace("*/", "*&#47;")
+    // Java's javadoc parser interprets `\u` / `\U` as Unicode escapes
+    // (even inside comments — see JLS §3.3). Doc strings like
+    // `C:\Users\username` contain `\U` which is parsed as the start of
+    // an invalid Unicode escape sequence and rejected. Double the
+    // backslashes so the literal text survives.
+    s.replace('\\', "\\\\")
+        .replace("*/", "*&#47;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('&', "&amp;")

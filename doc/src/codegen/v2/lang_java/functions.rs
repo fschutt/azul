@@ -148,8 +148,15 @@ fn map_jvm_type_for_return(type_name: &str, ir: &CodegenIR) -> String {
 }
 
 /// Escape characters that are illegal in a Javadoc comment body.
+///
+/// Java's javadoc parser interprets `\u` / `\U` as Unicode escapes
+/// (even inside comments — see JLS §3.3). Doc strings like
+/// `C:\Users\username` contain `\U` which is parsed as the start of an
+/// invalid Unicode escape sequence and rejected. Double the
+/// backslashes so the literal text survives.
 fn javadoc_escape(s: &str) -> String {
-    s.replace("*/", "*&#47;")
+    s.replace('\\', "\\\\")
+        .replace("*/", "*&#47;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('&', "&amp;")
