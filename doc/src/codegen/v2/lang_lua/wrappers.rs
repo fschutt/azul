@@ -388,6 +388,78 @@ fn emit_static_method(out: &mut String, lua_method: &str, func: &FunctionDef) {
         .map(|a| sanitize_lua_ident(&a.name))
         .collect();
 
+    // Special-case 1: a static constructor whose ONLY callback-typed arg's
+    // wrapper name matches the function's return type — `Callback::create`,
+    // `LayoutCallback::create` and friends. The C-ABI function takes a
+    // raw function pointer (`AzCallbackType`) and re-wraps it via
+    // `From<CallbackType>` with `ctx: None`, throwing away whatever
+    // host-handle the host-invoker path baked in. Bypass it: the
+    // `_register_callback` result already IS the wrapper struct we want
+    // to return.
+    let cb_args: Vec<&super::super::ir::FunctionArg> = func
+        .args
+        .iter()
+        .filter(|a| a.callback_info.is_some())
+        .collect();
+    if cb_args.len() == 1 && func.args.iter().all(|a| {
+        a.callback_info.is_some() || matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned)
+    }) {
+        let cb = cb_args[0].callback_info.as_ref().unwrap();
+        let wrapper_name = cb.callback_wrapper_name.as_str();
+        let returns_self_wrapper = func
+            .return_type
+            .as_deref()
+            .map(|t| t.trim() == wrapper_name)
+            .unwrap_or(false);
+        let supported = wrapper_name == "Callback" || wrapper_name == "LayoutCallback";
+
+        if returns_self_wrapper && supported && func.args.len() == 1 {
+            // Direct passthrough — the registered wrapper IS the return.
+            let arg_name = sanitize_lua_ident(&func.args[0].name);
+            out.push_str(&format!(
+                "    {} = function({})\n",
+                lua_method, arg_name
+            ));
+            out.push_str(&format!(
+                "        return azul._register_callback('{}', {})\n",
+                wrapper_name, arg_name
+            ));
+            out.push_str("    end,\n");
+            return;
+        }
+    }
+
+    // Special-case 2: `WindowCreateOptions::create(layout_callback)` —
+    // the C-ABI takes a raw function pointer and calls
+    // `LayoutCallback::create(cb)` internally, which discards any ctx.
+    // We bypass that by constructing the options via `_default()` and
+    // assigning the wrapper directly to `window_state.layout_callback`
+    // — the same path the framework's own constructor uses, just with
+    // the host-handle ctx preserved.
+    if func.c_name == "AzWindowCreateOptions_create"
+        && cb_args.len() == 1
+        && cb_args[0]
+            .callback_info
+            .as_ref()
+            .map(|c| c.callback_wrapper_name == "LayoutCallback")
+            .unwrap_or(false)
+    {
+        let arg_name = sanitize_lua_ident(&func.args[0].name);
+        out.push_str(&format!(
+            "    {} = function({})\n",
+            lua_method, arg_name
+        ));
+        out.push_str(&format!(
+            "        local _cb = azul._register_callback('LayoutCallback', {})\n",
+            arg_name
+        ));
+        out.push_str("        local _opts = C.AzWindowCreateOptions_default()\n");
+        out.push_str("        _opts.window_state.layout_callback = _cb\n");
+        out.push_str("        return _opts\n");
+        out.push_str("    end,\n");
+        return;
+    }
+
     // Open: 4-space indent (inside the table literal).
     out.push_str(&format!(
         "    {} = function({})\n",
@@ -429,34 +501,46 @@ fn emit_callback_pin_lines(
             continue;
         };
         let wrapper_name = cb.callback_wrapper_name.as_str();
+        let abi_takes_wrapper = !a.type_name.ends_with("Type");
+
         if wrapper_name == "Callback" || wrapper_name == "LayoutCallback" {
-            // Host-invoker path: the C-ABI function for the *wrapper struct*
-            // is what setOnClick / WindowCreateOptions::create take, not the
-            // raw function pointer. We hand the user-supplied Lua function
-            // to `_register_callback` and pass the resulting struct.
+            // Host-invoker path. We hand the user-supplied Lua function to
+            // `azul._register_callback`, which goes through libazul's
+            // `_createFromHostHandle` constructor under the hood and
+            // returns the matching `AzCallback` / `AzLayoutCallback`
+            // wrapper struct.
             //
-            // Note: a few API entry points (e.g. `WindowCreateOptions::create`)
-            // are typed against the bare callback typedef, not the wrapper
-            // — for those we extract the `.cb` field. The C-ABI function
-            // pointer in `.cb` is a static thunk inside libazul that knows
-            // to dispatch through the registered host invoker.
-            out.push_str(&format!(
-                "{indent}local _{n}_cb = azul._register_callback('{w}', {n})\n",
-                indent = indent,
-                n = names[i],
-                w = wrapper_name
-            ));
-            // Some C entry points take the wrapper struct by value
-            // (e.g. `Dom_addCallback` takes `AzCallback`); others take the
-            // bare typedef (`AzCallbackType` / `AzLayoutCallbackType`,
-            // e.g. `WindowCreateOptions_create`). We always feed the
-            // struct's `.cb` slot, which is the static thunk pointer —
-            // identical between the two API shapes.
-            out.push_str(&format!(
-                "{indent}{n} = _{n}_cb.cb\n",
-                indent = indent,
-                n = names[i]
-            ));
+            // What we substitute for the variable depends on the C-ABI
+            // signature api.json declared:
+            //   * If the arg type is the *wrapper struct* (e.g. "Callback"),
+            //     pass the whole struct — its `.ctx` carries our host handle.
+            //   * If the arg type is the *raw function pointer typedef*
+            //     (e.g. "CallbackType"), pass just `.cb`. The static thunk
+            //     in libazul still routes through the host invoker, but
+            //     ANY ctx is dropped at the C boundary because the C ABI
+            //     doesn't carry it. Functions in this shape need a
+            //     special-case fixup elsewhere (see emit_static_method's
+            //     WindowCreateOptions::create branch).
+            if abi_takes_wrapper {
+                out.push_str(&format!(
+                    "{indent}{n} = azul._register_callback('{w}', {n})\n",
+                    indent = indent,
+                    n = names[i],
+                    w = wrapper_name
+                ));
+            } else {
+                out.push_str(&format!(
+                    "{indent}local _{n}_cb = azul._register_callback('{w}', {n})\n",
+                    indent = indent,
+                    n = names[i],
+                    w = wrapper_name
+                ));
+                out.push_str(&format!(
+                    "{indent}{n} = _{n}_cb.cb\n",
+                    indent = indent,
+                    n = names[i]
+                ));
+            }
         } else {
             // Legacy path for callback kinds without a host-invoker yet.
             // Keeps the wrapper output well-formed; binding still loads,

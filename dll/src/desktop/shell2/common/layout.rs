@@ -214,12 +214,20 @@ pub fn regenerate_layout(
         active_route: current_window_state.active_route.as_ref(),
     };
 
-    let callback_info = LayoutCallbackInfo::new_with_reason(
+    let mut callback_info = LayoutCallbackInfo::new_with_reason(
         &layout_ref_data,
         current_window_state.size,
         current_window_state.theme,
         relayout_reason,
     );
+
+    // Wire the callback's stored ctx (host-handle for managed FFIs,
+    // PyCallableWrapper for Python, None for native Rust) so
+    // `info.get_ctx()` reaches it. Without this, the macro-generated
+    // host-invoker thunk sees `OptionRefAny::None` and returns the
+    // kind's default (empty body) — which is exactly the "default DOM"
+    // symptom we'd otherwise observe in the rendered window.
+    callback_info.set_callable_ptr(&current_window_state.layout_callback.ctx);
 
     let app_data_borrowed = app_data.borrow_mut();
     azul_layout::probe::emit_phase_heap("before_callback");

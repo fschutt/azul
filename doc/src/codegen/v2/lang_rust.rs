@@ -1744,27 +1744,20 @@ impl RustGenerator {
             } else {
                 let arg_type = config.apply_prefix(&arg.type_name);
 
-                // Check if this type is a callback wrapper
-                // If so, accept the CallbackType (fn pointer) and pass it directly
-                // (The C-ABI function now accepts CallbackType directly, not the wrapper struct)
-                // BUT: Don't apply this transformation when:
-                // - we're in a method of the callback wrapper itself (e.g., deep_copy on VirtualViewCallback)
-                // - this is an EnumVariantConstructor (e.g., OptionCallback::Some needs Callback, not CallbackType)
-                let is_method_of_this_callback = arg.type_name == func.class_name;
-                let is_enum_variant_constructor =
-                    matches!(func.kind, FunctionKind::EnumVariantConstructor);
+                // Historically, callback-wrapper-typed args were rewritten
+                // to their raw function-pointer typedefs so the wrapper
+                // method on the public Rust struct accepted a fn pointer.
+                // That behaviour is gone — api.json now declares the
+                // C-ABI shape for each function explicitly, and managed-FFI
+                // bindings (Lua, Ruby, …) need the wrapper shape so the
+                // host-handle ctx survives the C-ABI round trip. The
+                // generated wrapper accepts whatever api.json declared.
 
-                if !is_method_of_this_callback && !is_enum_variant_constructor {
-                    if let Some((callback_type_name, _callback_field_name, _context_field_name)) =
-                        callback_wrappers.get(arg.type_name.as_str())
-                    {
-                        let fn_ptr_type = config.apply_prefix(callback_type_name);
-                        args.push(format!("{}: {}", arg.name, fn_ptr_type));
-                        // The C-ABI function now expects the fn pointer type directly
-                        call_args.push(arg.name.clone());
-                        continue;
-                    }
-                }
+                // Suppress the unused variable warning kept around for
+                // diagnostic purposes — `callback_wrappers` is now only
+                // consulted to decide whether to skip `Into<T>` wrapping
+                // (callbacks aren't `Into`-friendly).
+                let _ = &callback_wrappers;
 
                 // Check if this type should use Into<T>
                 // Use Into for all non-primitive types that are passed by value
@@ -3168,50 +3161,28 @@ impl RustGenerator {
     }
 
     /// Format function arguments for C-ABI functions.
-    /// This replaces callback wrapper types (like TimerCallback) with their
-    /// raw function pointer types (like TimerCallbackType) so that C/C++ users
-    /// can pass function pointers directly without wrapping in a struct.
-    /// The underlying Rust function uses `T: Into<Callback>` so the raw fn pointer
-    /// is automatically converted via the From impl.
+    ///
+    /// Respects api.json's declared types verbatim. Historically this
+    /// helper rewrote callback wrapper types (e.g. `Callback`) to their
+    /// raw function-pointer typedefs (e.g. `CallbackType`) so C consumers
+    /// could pass a function pointer and rely on `Into<Callback>` to
+    /// wrap. That behaviour is gone — managed-FFI bindings need the
+    /// wrapper shape to thread the host-handle ctx through, and api.json
+    /// is now expected to declare the C-ABI shape explicitly. C consumers
+    /// who want to pass a bare function pointer wrap with
+    /// `AzCallback_create(fn)` at the call site, the same way they
+    /// already wrap any other constructed value.
     fn format_function_args_for_cabi(
         &self,
         func: &FunctionDef,
-        ir: &CodegenIR,
+        _ir: &CodegenIR,
         config: &CodegenConfig,
     ) -> String {
-        // Build a map of callback wrapper types for quick lookup
-        // Maps: "VirtualViewCallback" -> "VirtualViewCallbackType"
-        let callback_wrappers: std::collections::HashMap<&str, &str> = ir
-            .structs
-            .iter()
-            .filter_map(|s| {
-                s.callback_wrapper_info
-                    .as_ref()
-                    .map(|info| (s.name.as_str(), info.callback_typedef_name.as_str()))
-            })
-            .collect();
-
+        let _ = func;
         func.args
             .iter()
             .map(|arg| {
-                // Don't substitute callback wrappers for 'self' parameter or for the class's own type
-                // (e.g., Callback::to_core takes self which IS a Callback, not a CallbackType)
-                let is_self_or_own_type = arg.name == "self"
-                    || arg.name == "instance"
-                    || arg.type_name == func.class_name;
-
-                // Check if this type is a callback wrapper - if so, use the raw fn pointer type
-                let base_type = if !is_self_or_own_type {
-                    if let Some(callback_type) = callback_wrappers.get(arg.type_name.as_str()) {
-                        (*callback_type).to_string()
-                    } else {
-                        arg.type_name.clone()
-                    }
-                } else {
-                    arg.type_name.clone()
-                };
-
-                let type_name = config.apply_prefix(&base_type);
+                let type_name = config.apply_prefix(&arg.type_name);
                 let formatted = match arg.ref_kind {
                     ArgRefKind::Owned => type_name,
                     ArgRefKind::Ref => format!("&{}", type_name),

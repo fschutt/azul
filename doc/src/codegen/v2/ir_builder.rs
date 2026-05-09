@@ -1954,28 +1954,56 @@ impl<'a> IRBuilder<'a> {
     /// - callback_wrapper_name: The wrapper struct name (e.g., "Callback", "ButtonOnClickCallback")
     /// - trampoline_name: The name of the Python trampoline function
     fn detect_callback_arg_info(&self, type_name: &str) -> Option<CallbackArgInfo> {
-        // Check if type ends with "CallbackType"
-        if !type_name.ends_with("CallbackType") {
-            return None;
-        }
+        // Two shapes are recognized as callback arguments:
+        //
+        //  1. The raw function-pointer typedef itself, e.g. "CallbackType",
+        //     "LayoutCallbackType", "ButtonOnClickCallbackType" — present on
+        //     api.json entries that take a bare fn pointer (legacy shape).
+        //
+        //  2. The *wrapper struct*, e.g. "Callback", "LayoutCallback",
+        //     "ButtonOnClickCallback" — present on api.json entries that
+        //     take the full `{ cb, ctx }` wrapper. Managed-FFI bindings
+        //     prefer this shape because the host-handle ctx survives the
+        //     C-ABI round trip.
+        //
+        // Both map to the same `CallbackArgInfo` so language adapters can
+        // route through `azul._register_callback` / the host-invoker path
+        // regardless of which shape api.json declares.
 
-        // Skip destructor and clone callback types - these are internal
-        // FontRefDestructorCallbackType ends with "CallbackType" but contains "Destructor"
-        if type_name.contains("Destructor") || type_name.ends_with("CloneCallbackType") {
-            return None;
-        }
-
-        // The wrapper name is the typedef name with "Type" stripped
-        // e.g., "ButtonOnClickCallbackType" -> "ButtonOnClickCallback"
-        // e.g., "CallbackType" -> "Callback"
-        let wrapper_name = type_name.strip_suffix("Type").unwrap_or(type_name);
+        let (typedef_name, wrapper_name) = if type_name.ends_with("CallbackType") {
+            // Skip destructor / clone callback types — these are internal
+            // and don't go through the host-invoker path.
+            if type_name.contains("Destructor") || type_name.ends_with("CloneCallbackType") {
+                return None;
+            }
+            let wrapper = type_name.strip_suffix("Type").unwrap_or(type_name);
+            (type_name.to_string(), wrapper.to_string())
+        } else {
+            // Wrapper-struct shape: only treat as callback if the IR's
+            // callback_wrapper_info linkage tags this type as such.
+            // We check by name pattern (ends with "Callback" but not
+            // "CallbackInfo" / "CallbackType") and let downstream code
+            // assume it's a known wrapper. The Python adapter has long
+            // resolved this via `is_callback_wrapper_type`; we mirror that.
+            if !type_name.ends_with("Callback") {
+                return None;
+            }
+            if type_name.ends_with("CallbackInfo") || type_name.ends_with("CallbackType") {
+                return None;
+            }
+            // Skip destructor / clone wrapper structs same as above.
+            if type_name.contains("Destructor") || type_name.ends_with("CloneCallback") {
+                return None;
+            }
+            (format!("{}Type", type_name), type_name.to_string())
+        };
 
         // Build trampoline name: invoke_py_{snake_case_of_wrapper}
-        let trampoline_name = format!("invoke_py_{}", to_snake_case(wrapper_name));
+        let trampoline_name = format!("invoke_py_{}", to_snake_case(&wrapper_name));
 
         Some(CallbackArgInfo {
-            callback_typedef_name: type_name.to_string(),
-            callback_wrapper_name: wrapper_name.to_string(),
+            callback_typedef_name: typedef_name,
+            callback_wrapper_name: wrapper_name,
             trampoline_name,
         })
     }

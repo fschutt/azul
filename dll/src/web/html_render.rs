@@ -401,11 +401,15 @@ fn call_layout(
         active_route,
     };
 
-    let info = LayoutCallbackInfo::new(
+    let mut info = LayoutCallbackInfo::new(
         &ref_data,
         window_state.size.clone(),
         window_state.theme,
     );
+    // Same wiring as the desktop shell: the host-invoker thunk reads
+    // `info.get_ctx()` to find its host handle. Without this the
+    // macro-generated thunk returns the kind's default (empty body).
+    info.set_callable_ptr(&layout_callback.ctx);
 
     (layout_callback.cb)(app_data.clone(), info)
 }

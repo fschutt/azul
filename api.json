@@ -38694,6 +38694,15 @@
                         },
                         "functions": {
                             "set_on_click": {
+                                "doc": [
+                                    "Register a click handler on the button.",
+                                    "",
+                                    "Takes a `Callback` (the wrapper struct) so managed-FFI",
+                                    "callers can preserve the host-handle ctx attached via",
+                                    "`Callback::create_from_host_handle`. Native Rust / C callers",
+                                    "can still pass a bare function pointer thanks to",
+                                    "`Callback`'s `From<CallbackType>` impl (`ctx: None`)."
+                                ],
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -38702,7 +38711,7 @@
                                         "data": "RefAny"
                                     },
                                     {
-                                        "callback": "CallbackType"
+                                        "callback": "Callback"
                                     }
                                 ],
                                 "fn_body": "button.set_on_click(data, callback);"
@@ -38716,7 +38725,7 @@
                                         "data": "RefAny"
                                     },
                                     {
-                                        "callback": "CallbackType"
+                                        "callback": "Callback"
                                     }
                                 ],
                                 "returns": {

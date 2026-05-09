@@ -4050,7 +4050,13 @@ impl LayoutWindow {
         // Create changes container for callback transaction system
         let callback_changes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
 
-        // Create reference data container
+        // Create reference data container.
+        //
+        // `ctx` carries the callback's stored OptionRefAny (host-handle for
+        // managed FFIs, PyCallableWrapper for Python, None for native Rust)
+        // so `info.get_ctx()` reaches it. Without this the host-invoker
+        // thunk in libazul sees `OptionRefAny::None` and bails out with
+        // `Update::DoNothing` — and clicks would silently do nothing.
         let ref_data = crate::callbacks::CallbackInfoRefData {
             layout_window: self,
             renderer_resources,
@@ -4064,7 +4070,7 @@ impl LayoutWindow {
             monitors: self.monitors.clone(),
             #[cfg(feature = "icu")]
             icu_localizer: self.icu_localizer.clone(),
-            ctx: OptionRefAny::None,
+            ctx: callback.ctx.clone(),
         };
 
         let callback_info = CallbackInfo::new(

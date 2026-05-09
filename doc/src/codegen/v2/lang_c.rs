@@ -818,42 +818,21 @@ impl CGenerator {
         config: &CodegenConfig,
         callback_wrappers: &std::collections::HashMap<&str, &str>,
     ) {
-        // Only apply callback wrapper substitution for API functions (Constructor, Method, etc.)
-        // NOT for trait functions (Delete, DeepCopy, PartialEq, etc.) which operate on the
-        // callback wrapper struct itself
-        // NOT for EnumVariantConstructor because enum variants need the exact type (e.g.,
-        // OptionCallback::Some needs Callback, not CallbackType)
-        let should_substitute_callbacks = matches!(
-            func.kind,
-            FunctionKind::Constructor
-                | FunctionKind::StaticMethod
-                | FunctionKind::Method
-                | FunctionKind::MethodMut
-        );
+        // Note: historically this site rewrote callback-wrapper args
+        // (`AzCallback`) into their raw fn-pointer typedefs
+        // (`AzCallbackType`) so C consumers could pass `&fn_ptr` directly.
+        // That behaviour is gone — api.json now declares the C-ABI shape
+        // for each function, and managed-FFI bindings (Lua, Ruby, …) rely
+        // on wrapper-shaped C-ABI signatures to thread the host-handle
+        // ctx through. C consumers wrap with `AzCallback_create(fn)` at
+        // the call site, just like they wrap any other constructed value.
+        let _ = callback_wrappers;
 
         let args: Vec<String> = func
             .args
             .iter()
             .map(|arg| {
-                // Don't substitute callback wrappers for 'self' parameter or for the class's own type
-                // (e.g., Callback::to_core takes self which IS a Callback, not a CallbackType)
-                let is_self_or_own_type = arg.name == "self"
-                    || arg.name == "instance"
-                    || arg.type_name == func.class_name;
-
-                // Check if this type is a callback wrapper - if so, use the raw fn pointer type instead
-                // This allows C users to pass function pointers directly without wrapping in a struct
-                let type_name = if should_substitute_callbacks && !is_self_or_own_type {
-                    if let Some(callback_type) = callback_wrappers.get(arg.type_name.as_str()) {
-                        (*callback_type).to_string()
-                    } else {
-                        arg.type_name.clone()
-                    }
-                } else {
-                    arg.type_name.clone()
-                };
-
-                let c_type = self.rust_type_to_c_with_prefix(&type_name, config);
+                let c_type = self.rust_type_to_c_with_prefix(&arg.type_name, config);
                 let (ptr_prefix, ptr_suffix) = match arg.ref_kind {
                     ArgRefKind::Owned => ("", ""),
                     ArgRefKind::Ref => ("const ", "*"),

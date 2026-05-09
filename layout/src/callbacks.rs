@@ -573,6 +573,13 @@ impl Callback {
 
     /// Convert from CoreCallback (stored as usize) to Callback (actual function pointer)
     ///
+    /// Preserves `ctx` so that callbacks registered via the host-invoker path
+    /// (e.g. `Callback::create_from_host_handle`) keep their host-handle ctx
+    /// across the dispatch cycle. Without this, `info.get_ctx()` inside the
+    /// generated thunk would see `OptionRefAny::None` and bail out with the
+    /// kind's default value — which makes managed-FFI click handlers
+    /// silently no-op.
+    ///
     /// # Safety
     /// The caller must ensure that the usize in CoreCallback.cb was originally a valid
     /// function pointer of type `CallbackType`. This is guaranteed when CoreCallback
@@ -580,7 +587,7 @@ impl Callback {
     pub fn from_core(core: CoreCallback) -> Self {
         Self {
             cb: unsafe { core::mem::transmute(core.cb) },
-            ctx: OptionRefAny::None,
+            ctx: core.ctx,
         }
     }
 
