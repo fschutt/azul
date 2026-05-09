@@ -421,7 +421,8 @@ fn emit_callback_interface(
     let args: Vec<String> = cb
         .args
         .iter()
-        .map(|arg| {
+        .enumerate()
+        .map(|(i, arg)| {
             let jt = match arg.ref_kind {
                 ArgRefKind::Owned => {
                     let raw = map_jvm_type(&arg.type_name, ir);
@@ -436,7 +437,17 @@ fn emit_callback_interface(
                 | ArgRefKind::Ptr
                 | ArgRefKind::PtrMut => "Pointer".to_string(),
             };
-            format!("{} {}", jt, sanitize_identifier(&arg.name))
+            // Arg-name fallback: the IR sometimes carries empty arg names
+            // (e.g., destructor-shaped callback typedefs whose api.json
+            // entry only declares the type). Java requires every parameter
+            // to be named; produce `arg{i}` when the IR didn't.
+            let raw_name = arg.name.trim();
+            let name = if raw_name.is_empty() {
+                format!("arg{}", i)
+            } else {
+                sanitize_identifier(raw_name)
+            };
+            format!("{} {}", jt, name)
         })
         .collect();
 
