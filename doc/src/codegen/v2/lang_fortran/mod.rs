@@ -112,6 +112,7 @@ use super::ir::CodegenIR;
 
 pub mod functions;
 pub mod makefile;
+pub mod managed;
 pub mod types;
 pub mod wrappers;
 
@@ -156,6 +157,10 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     //    procedure bodies via the `contains` keyword below).
     wrappers::generate_wrapper_decls(&mut builder, ir, config)?;
 
+    // 3b. Managed-FFI host-invoker plumbing — module-level state + FFI
+    //     interface declarations. Must come before `contains`.
+    managed::emit_managed_decls(&mut builder, ir);
+
     // === module body (procedure implementations) ===
     builder.dedent();
     builder.line("contains");
@@ -163,6 +168,10 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     builder.blank();
 
     wrappers::generate_wrapper_bodies(&mut builder, ir, config)?;
+
+    // Managed-FFI bodies (handle table accessors, releaser stub,
+    // azul_refany_create / azul_refany_get).
+    managed::emit_managed_bodies(&mut builder, ir);
 
     builder.dedent();
     builder.line("end module azul");
