@@ -149,3 +149,12 @@ examples/*/linkfiles*.res
 examples/cobol/test
 examples/cobol/hello-world.so
 examples/cobol/hello-world.dylib
+# Ada (GNAT) build artifacts + codegen
+examples/ada/azul.ads
+examples/ada/azul.adb
+examples/ada/*.o
+examples/ada/*.ali
+examples/ada/hello_world
+examples/ada/obj/
+# Smalltalk codegen
+examples/smalltalk/BaselineOfAzul.st
