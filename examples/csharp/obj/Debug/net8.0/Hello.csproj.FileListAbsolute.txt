@@ -1,0 +1,15 @@
+/Users/fschutt/Development/azul/examples/csharp/obj/Debug/net8.0/Hello.GeneratedMSBuildEditorConfig.editorconfig
+/Users/fschutt/Development/azul/examples/csharp/obj/Debug/net8.0/Hello.AssemblyInfoInputs.cache
+/Users/fschutt/Development/azul/examples/csharp/obj/Debug/net8.0/Hello.AssemblyInfo.cs
+/Users/fschutt/Development/azul/examples/csharp/obj/Debug/net8.0/Hello.csproj.CoreCompileInputs.cache
+/Users/fschutt/Development/azul/examples/csharp/obj/Debug/net8.0/Hello.sourcelink.json
+/Users/fschutt/Development/azul/examples/csharp/bin/Debug/net8.0/HelloWorld
+/Users/fschutt/Development/azul/examples/csharp/bin/Debug/net8.0/HelloWorld.deps.json
+/Users/fschutt/Development/azul/examples/csharp/bin/Debug/net8.0/HelloWorld.runtimeconfig.json
+/Users/fschutt/Development/azul/examples/csharp/bin/Debug/net8.0/HelloWorld.dll
+/Users/fschutt/Development/azul/examples/csharp/bin/Debug/net8.0/HelloWorld.pdb
+/Users/fschutt/Development/azul/examples/csharp/obj/Debug/net8.0/HelloWorld.dll
+/Users/fschutt/Development/azul/examples/csharp/obj/Debug/net8.0/refint/HelloWorld.dll
+/Users/fschutt/Development/azul/examples/csharp/obj/Debug/net8.0/HelloWorld.pdb
+/Users/fschutt/Development/azul/examples/csharp/obj/Debug/net8.0/Hello.genruntimeconfig.cache
+/Users/fschutt/Development/azul/examples/csharp/obj/Debug/net8.0/ref/HelloWorld.dll

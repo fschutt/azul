@@ -243,14 +243,25 @@ fn emit_wrapper_method(
         .map(|r| map_type_to_csharp(r, ir))
         .unwrap_or_else(|| "void".to_string());
 
-    // Arguments: skip the implicit `self` (named after the lowercased class
-    // name) — we forward `this` through the inner FFI struct.
-    let class_lower = func.class_name.to_lowercase();
-    let user_args: Vec<_> = func
-        .args
-        .iter()
-        .filter(|a| a.name != class_lower && a.name != "self")
-        .collect();
+    // The first parameter of an instance/clone/deepcopy method is the
+    // implicit self pointer. `func.args[0]` is the self regardless of
+    // its declared name in api.json (which can be the lowercased class,
+    // `self`, or — in the trait-impl case — synonyms like `instance`).
+    // Skip args[0] for takes_self methods to avoid double-counting it as
+    // a user argument.
+    let takes_self = matches!(
+        func.kind,
+        FunctionKind::Method | FunctionKind::MethodMut | FunctionKind::DeepCopy
+    );
+    let user_args: Vec<_> = if takes_self {
+        func.args.iter().skip(1).collect()
+    } else {
+        let class_lower = func.class_name.to_lowercase();
+        func.args
+            .iter()
+            .filter(|a| a.name != class_lower && a.name != "self")
+            .collect()
+    };
 
     // Build argument signature.
     let arg_sig: Vec<String> = user_args
@@ -267,36 +278,51 @@ fn emit_wrapper_method(
         })
         .collect();
 
-    // Build call arguments. The first parameter of an instance method is
-    // the implicit self; emit `ref _inner` for it. User arguments pass
-    // through unchanged.
-    let takes_self = matches!(
-        func.kind,
-        FunctionKind::Method | FunctionKind::MethodMut | FunctionKind::DeepCopy
-    );
-
+    // Determine how the C ABI receives the implicit self:
+    // - `Owned` (by-value) → pass `_inner` directly, no Marshal alloc.
+    // - `Ref/RefMut/Ptr/PtrMut` → IntPtr to a heap-copy via `__self`.
+    let self_by_value = takes_self
+        && func.args.first().map(|a| matches!(
+            a.ref_kind,
+            ArgRefKind::Owned
+        )).unwrap_or(false);
     let mut call_args: Vec<String> = Vec::new();
     if takes_self {
-        // The FFI signature accepts `IntPtr` for &self / &mut self; we
-        // bridge to it through a `fixed` block in the method body.
-        call_args.push("(IntPtr)__self".to_string());
-    }
-    for a in &user_args {
-        let raw_name = sanitize_identifier(&a.name);
-        // Auto-route callback args through HostInvoker.Register<Wrapper>(...)
-        // so the user can pass a plain delegate. Only kinds with
-        // `impl_managed_callback!` applied are substituted.
-        if let Some(cb) = a.callback_info.as_ref() {
-            let wrapper = cb.callback_wrapper_name.as_str();
-            if super::super::managed_host_invoker::HOST_INVOKER_KINDS.contains(&wrapper) {
-                call_args.push(format!(
-                    "HostInvoker.Register{}({})",
-                    wrapper, raw_name
-                ));
-                continue;
-            }
+        if self_by_value {
+            call_args.push("_inner".to_string());
+        } else {
+            call_args.push("(IntPtr)__self".to_string());
         }
-        call_args.push(raw_name);
+    }
+    // Special-case: a static constructor whose only callback-typed arg's
+    // wrapper name matches the wrapping class — `Callback.Create`,
+    // `LayoutCallback.Create`, etc. The C-ABI `_create` takes the raw
+    // `<Wrapper>Type` fn pointer and re-wraps it via `From` with
+    // `ctx: None`, throwing away any host-handle ctx. Bypass: the
+    // `HostInvoker.Register<Wrapper>` result is already the right
+    // wrapper struct, so return it directly without going through the
+    // native call. Mirrors the lang_lua `emit_static_method` shortcut.
+    let static_callback_ctor = matches!(
+        func.kind,
+        FunctionKind::Constructor | FunctionKind::StaticMethod
+    ) && user_args.len() == 1
+        && user_args[0].callback_info.as_ref().map(|c| {
+            let w = c.callback_wrapper_name.as_str();
+            super::super::managed_host_invoker::HOST_INVOKER_KINDS.contains(&w)
+                && w == func.class_name
+        }).unwrap_or(false);
+
+    // Callback args: no auto-substitution at the wrapper-method
+    // boundary. The wrapper's parameter type matches the C ABI
+    // (`AzCallback` struct or `AzCallbackType` typedef) and is passed
+    // through unchanged. Users construct the wrapper struct themselves
+    // via `HostInvoker.RegisterCallback(delegate)` and pass that.
+    // Substituting here would force the wrapper signature to take
+    // `Delegate` (losing the static type info api.json carries) and
+    // cause wrapper-vs-native arg-type mismatches that take downstream
+    // type analysis to settle.
+    for a in &user_args {
+        call_args.push(sanitize_identifier(&a.name));
     }
 
     let is_static = matches!(
@@ -366,10 +392,28 @@ fn emit_wrapper_method(
         builder.line("if (_disposed) throw new ObjectDisposedException(nameof(_inner));");
     }
 
+    // Special-case shortcut (see `static_callback_ctor` definition above).
+    if static_callback_ctor {
+        let user_arg = sanitize_identifier(&user_args[0].name);
+        let wrapper = user_args[0].callback_info.as_ref().unwrap().callback_wrapper_name.as_str();
+        builder.line(&format!(
+            "var __raw = HostInvoker.Register{}({});",
+            wrapper, user_arg
+        ));
+        builder.line(&format!("return new {}(__raw);", class_name));
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+        return;
+    }
+
+    // Use `func.c_name` directly (the C ABI symbol matches what
+    // NativeMethods declares). `func.method_name` is snake-case from
+    // api.json and produces e.g. `AzFoo_with_resolver` instead of the
+    // declared `AzFoo_withResolver`.
     let call = format!(
-        "NativeMethods.{}_{}({})",
-        ffi_class_name,
-        func.method_name,
+        "NativeMethods.{}({})",
+        func.c_name,
         call_args.join(", ")
     );
 
@@ -378,7 +422,9 @@ fn emit_wrapper_method(
     // PowerShell's Add-Type (no /unsafe option in PS 7's Roslyn wrapper).
     // Slight alloc cost per call; we copy back on return to mirror
     // mutation through `out` semantics.
-    if takes_self {
+    // Only emit the marshal path when self is taken by POINTER; for
+    // by-value self we already pass `_inner` directly above.
+    if takes_self && !self_by_value {
         builder.line(&format!(
             "var __self = System.Runtime.InteropServices.Marshal.AllocHGlobal(System.Runtime.InteropServices.Marshal.SizeOf<{}>());",
             ffi_class_name
@@ -418,6 +464,16 @@ fn emit_wrapper_method(
         builder.line("System.Runtime.InteropServices.Marshal.FreeHGlobal(__self);");
         builder.dedent();
         builder.line("}");
+    } else if takes_self && self_by_value {
+        // By-value self: simple call, no Marshal needed.
+        if return_cs == "void" {
+            builder.line(&format!("{};", call));
+        } else if returns_self {
+            builder.line(&format!("var __raw = {};", call));
+            builder.line(&format!("return new {}(__raw);", class_name));
+        } else {
+            builder.line(&format!("return {};", call));
+        }
     } else if return_cs == "void" {
         builder.line(&format!("{};", call));
     } else if returns_self {
