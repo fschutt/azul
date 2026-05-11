@@ -140,3 +140,12 @@ examples/cobol/azul.cpy
 examples/cobol/hello-world
 # Smalltalk
 examples/smalltalk/Azul.st
+# FPC link/scratch files (generated under the cwd of the build)
+link*.res
+linkfiles*.res
+examples/*/link*.res
+examples/*/linkfiles*.res
+# COBOL build scratch
+examples/cobol/test
+examples/cobol/hello-world.so
+examples/cobol/hello-world.dylib
