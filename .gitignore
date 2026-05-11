@@ -156,5 +156,8 @@ examples/ada/*.o
 examples/ada/*.ali
 examples/ada/hello_world
 examples/ada/obj/
-# Smalltalk codegen
+# Smalltalk codegen + Pharo crash dumps
 examples/smalltalk/BaselineOfAzul.st
+examples/smalltalk/crash.dmp
+examples/smalltalk/PharoDebug.log
+examples/smalltalk/smoketest.st
