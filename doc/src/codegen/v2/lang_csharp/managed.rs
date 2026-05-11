@@ -237,7 +237,11 @@ pub fn emit_host_invoker_class(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("/// Recover the managed object previously wrapped via RefanyCreate.");
     builder.line("/// Returns null if the RefAny is not a host-handle RefAny.");
     builder.line("/// </summary>");
-    builder.line("public static object? RefanyGet(IntPtr refanyPtr)");
+    // Use plain `object` (not `object?`) so the C# source compiles
+    // under a non-nullable context — PowerShell's `Add-Type` embed
+    // doesn't enable `#nullable`, and the nullable-annotation form
+    // raises CS8632 there.
+    builder.line("public static object RefanyGet(IntPtr refanyPtr)");
     builder.line("{");
     builder.indent();
     builder.line("ulong id = NativeMethodsManaged.AzRefAny_getHostHandle(refanyPtr);");
@@ -297,11 +301,13 @@ fn emit_per_kind_invoker_init(
     ));
     builder.line("{");
     builder.indent();
-    builder.line("Delegate? fn;");
+    // Use plain `Delegate` (not `Delegate?`) — embed-friendly under
+    // Add-Type's non-nullable C# context.
+    builder.line("Delegate fn;");
     builder.line("lock (_handles)");
     builder.line("{");
     builder.indent();
-    builder.line("fn = _handles.TryGetValue(id, out var v) ? (Delegate?)v : null;");
+    builder.line("fn = _handles.TryGetValue(id, out var v) ? (Delegate)v : null;");
     builder.dedent();
     builder.line("}");
     builder.line("if (fn == null) return;");

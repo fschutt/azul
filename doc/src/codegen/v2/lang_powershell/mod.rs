@@ -151,7 +151,12 @@ fn generate_addtype_block(builder: &mut CodeBuilder) {
     builder.indent();
     builder.line("Add-Type -TypeDefinition $AzulCSharpSource -Language CSharp `");
     builder.indent();
-    builder.line("-ReferencedAssemblies @('System.dll') -ErrorAction Stop");
+    // The C# wrappers used to have `unsafe` blocks; those are now
+    // rewritten to use Marshal.AllocHGlobal/StructureToPtr so the embed
+    // compiles under Add-Type's default (no /unsafe) on every PowerShell
+    // version. System.Collections / Marshal ship in the default
+    // ReferencedAssemblies on PS 7+ so we don't need to list them.
+    builder.line("-ErrorAction Stop");
     builder.dedent();
     builder.dedent();
     builder.line("} catch {");
@@ -188,8 +193,12 @@ fn generate_helper_functions(builder: &mut CodeBuilder) {
     builder.dedent();
     builder.line("} else {");
     builder.indent();
-    builder.line("$env:LD_LIBRARY_PATH = \"$Path:$env:LD_LIBRARY_PATH\"");
-    builder.line("$env:DYLD_LIBRARY_PATH = \"$Path:$env:DYLD_LIBRARY_PATH\"");
+    // `:` after `$Path` parses as a PowerShell namespace separator
+    // (think `$env:VAR`), so we have to use `${Path}` to delimit the
+    // variable name explicitly. Same fix for $env:LD_LIBRARY_PATH /
+    // $env:DYLD_LIBRARY_PATH.
+    builder.line("$env:LD_LIBRARY_PATH = \"${Path}:${env:LD_LIBRARY_PATH}\"");
+    builder.line("$env:DYLD_LIBRARY_PATH = \"${Path}:${env:DYLD_LIBRARY_PATH}\"");
     builder.dedent();
     builder.line("}");
     builder.dedent();

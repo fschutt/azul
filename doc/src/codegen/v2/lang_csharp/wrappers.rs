@@ -195,16 +195,22 @@ fn emit_dispose_methods(builder: &mut CodeBuilder, class_name: &str, raw_type_na
     builder.line("if (_disposed) return;");
     builder.line("// `disposing` is false when called from the finalizer; native");
     builder.line("// cleanup is still safe because the FFI struct is value-typed.");
-    builder.line("unsafe");
-    builder.line("{");
-    builder.indent();
+    // Use Marshal.AllocHGlobal/StructureToPtr instead of `fixed` so the
+    // emit is compatible with PowerShell's Add-Type (PS 7's Roslyn
+    // wrapper has no /unsafe option). Slight overhead — one extra alloc
+    // — but the call is at Dispose time only.
     builder.line(&format!(
-        "fixed ({} *p = &_inner) {{ NativeMethods.Az{}_delete((IntPtr)p); }}",
-        ffi_type_name(raw_type_name),
+        "var __p = System.Runtime.InteropServices.Marshal.AllocHGlobal(System.Runtime.InteropServices.Marshal.SizeOf<{}>());",
+        ffi_type_name(raw_type_name)
+    ));
+    builder.line(&format!(
+        "System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, __p, false);",
+    ));
+    builder.line(&format!(
+        "NativeMethods.Az{}_delete(__p);",
         raw_type_name
     ));
-    builder.dedent();
-    builder.line("}");
+    builder.line("System.Runtime.InteropServices.Marshal.FreeHGlobal(__p);");
     builder.line("_disposed = true;");
     builder.dedent();
     builder.line("}");
@@ -307,7 +313,30 @@ fn emit_wrapper_method(
 
     // Constructors and static factories return a wrapper around the
     // returned FFI struct; instance methods simply delegate.
-    let modifiers = if is_static { "public static" } else { "public" };
+    //
+    // Methods inherited from `System.Object` (ToString, GetHashCode,
+    // Equals, GetType) need `new` (or `override`) when our signature
+    // SHADOWS the inherited one. Only fires for exact-signature
+    // collisions — `GetType()` shadows, but `GetType(arg)` doesn't.
+    // The common collider in practice is `ToString()` returning
+    // `Az*` instead of `string`.
+    let arg_count = arg_sig.len();
+    let needs_new = !is_static
+        && match method_name.as_str() {
+            "ToString" => arg_count == 0,
+            "GetHashCode" => arg_count == 0,
+            "GetType" => arg_count == 0,
+            "Equals" => arg_count == 1,
+            "MemberwiseClone" => arg_count == 0,
+            _ => false,
+        };
+    let modifiers = if is_static {
+        "public static".to_string()
+    } else if needs_new {
+        "public new".to_string()
+    } else {
+        "public".to_string()
+    };
 
     // Decide whether the return type should be wrapped. If the FFI
     // function returns the same struct as the wrapping class, wrap it.
@@ -325,7 +354,7 @@ fn emit_wrapper_method(
 
     builder.line(&format!(
         "{} {} {}({})",
-        modifiers,
+        modifiers.as_str(),
         displayed_return,
         method_name,
         arg_sig.join(", ")
@@ -344,28 +373,49 @@ fn emit_wrapper_method(
         call_args.join(", ")
     );
 
-    // If the method receives `self`, we need a `fixed`/`unsafe` block to
-    // produce an IntPtr pointing into our boxed FFI struct field.
+    // If the method receives `self`, produce an IntPtr to a heap-copy of
+    // the FFI struct. Avoid `fixed`/`unsafe` so the same emit works under
+    // PowerShell's Add-Type (no /unsafe option in PS 7's Roslyn wrapper).
+    // Slight alloc cost per call; we copy back on return to mirror
+    // mutation through `out` semantics.
     if takes_self {
-        builder.line("unsafe");
+        builder.line(&format!(
+            "var __self = System.Runtime.InteropServices.Marshal.AllocHGlobal(System.Runtime.InteropServices.Marshal.SizeOf<{}>());",
+            ffi_class_name
+        ));
+        builder.line("try");
         builder.line("{");
         builder.indent();
         builder.line(&format!(
-            "fixed ({} *__self = &_inner)",
-            ffi_class_name
+            "System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, __self, false);",
         ));
-        builder.line("{");
-        builder.indent();
         if return_cs == "void" {
             builder.line(&format!("{};", call));
+            builder.line(&format!(
+                "_inner = System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__self);",
+                ffi_class_name
+            ));
         } else if returns_self {
             builder.line(&format!("var __raw = {};", call));
+            builder.line(&format!(
+                "_inner = System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__self);",
+                ffi_class_name
+            ));
             builder.line(&format!("return new {}(__raw);", class_name));
         } else {
-            builder.line(&format!("return {};", call));
+            builder.line(&format!("var __ret = {};", call));
+            builder.line(&format!(
+                "_inner = System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__self);",
+                ffi_class_name
+            ));
+            builder.line("return __ret;");
         }
         builder.dedent();
         builder.line("}");
+        builder.line("finally");
+        builder.line("{");
+        builder.indent();
+        builder.line("System.Runtime.InteropServices.Marshal.FreeHGlobal(__self);");
         builder.dedent();
         builder.line("}");
     } else if return_cs == "void" {

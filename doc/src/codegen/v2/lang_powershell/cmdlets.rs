@@ -218,7 +218,13 @@ fn emit_shim(builder: &mut CodeBuilder, s: &StructDef, func: &FunctionDef) {
     for (idx, a) in user_args.iter().enumerate() {
         let position = if takes_self { idx + 1 } else { idx };
         let pstype = ps_type_of(*a, takes_self);
-        let name_pascal = snake_to_pascal_param(&a.name);
+        let mut name_pascal = snake_to_pascal_param(&a.name);
+        // Avoid colliding with the implicit `$Instance` (the self param)
+        // when an api.json arg is also named `instance`. PowerShell
+        // rejects duplicate parameter names in a param block.
+        if takes_self && name_pascal == "Instance" {
+            name_pascal = "InstanceArg".to_string();
+        }
         pieces.push(ParamPiece {
             attr: format!("[Parameter(Mandatory=$true, Position={})]", position),
             decl: format!("{}${}", pstype, name_pascal),
@@ -245,7 +251,13 @@ fn emit_shim(builder: &mut CodeBuilder, s: &StructDef, func: &FunctionDef) {
     let csharp_method = idiomatic_cs_method(&func.method_name);
     let call_args: Vec<String> = user_args
         .iter()
-        .map(|a| format!("${}", snake_to_pascal_param(&a.name)))
+        .map(|a| {
+            let mut n = snake_to_pascal_param(&a.name);
+            if takes_self && n == "Instance" {
+                n = "InstanceArg".to_string();
+            }
+            format!("${}", n)
+        })
         .collect();
 
     if is_static {
