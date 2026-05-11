@@ -14,8 +14,8 @@
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{
-    CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind, StructDef,
-    TypeCategory,
+    CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
+    MonomorphizedKind, MonomorphizedTypeDef, StructDef, TypeAliasDef, TypeCategory,
 };
 
 // ============================================================================
@@ -48,6 +48,30 @@ pub fn emit_forward_declarations(
         let name = config.apply_prefix(&e.name);
         builder.line(&format!("class {} < FFI::Struct; end", name));
         builder.line(&format!("class {}Payload < FFI::Union; end", name));
+    }
+    // Monomorphized type aliases also need forward declarations so the
+    // later `class AzFoo; layout(...); end` reopen works (otherwise the
+    // class doesn't extend FFI::Struct and `layout` is undefined).
+    for ta in &ir.type_aliases {
+        if !config.should_include_type(&ta.name) {
+            continue;
+        }
+        let Some(ref md) = ta.monomorphized_def else {
+            continue;
+        };
+        let name = config.apply_prefix(&ta.name);
+        match &md.kind {
+            MonomorphizedKind::SimpleEnum { .. } => {
+                // Emitted as a Ruby module — no forward declaration needed.
+            }
+            MonomorphizedKind::Struct { .. } => {
+                builder.line(&format!("class {} < FFI::Struct; end", name));
+            }
+            MonomorphizedKind::TaggedUnion { .. } => {
+                builder.line(&format!("class {} < FFI::Struct; end", name));
+                builder.line(&format!("class {}Payload < FFI::Union; end", name));
+            }
+        }
     }
     builder.blank();
 }
@@ -92,9 +116,16 @@ pub fn emit_callback_typedefs(
 }
 
 /// Emit `class AzFoo; layout(:field, :type, ...); end` for every struct.
+/// Emission must follow topological order: `Bar.by_value` used as a field
+/// type requires `Bar`'s layout already to have been called. FFI's
+/// forward-declared `class Bar < FFI::Struct; end` is not enough — calling
+/// `.by_value` on it before `layout(...)` raises
+///   wrong type in @layout ivar (expected FFI::StructLayout) (TypeError).
 pub fn emit_struct_layouts(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
     builder.line("# --- Struct layouts -------------------------------------------");
-    for s in &ir.structs {
+    let mut sorted: Vec<&StructDef> = ir.structs.iter().collect();
+    sorted.sort_by_key(|s| s.sort_order);
+    for s in sorted {
         if !should_emit_struct(s, config) {
             emit_skip_marker(builder, &s.name, &skip_reason_struct(s));
             continue;
@@ -102,6 +133,181 @@ pub fn emit_struct_layouts(builder: &mut CodeBuilder, ir: &CodegenIR, config: &C
         emit_struct_layout(builder, s, config, ir);
     }
     builder.blank();
+}
+
+/// Emit struct layouts AND tagged-union layouts interleaved by their
+/// shared `sort_order`. Replaces calling `emit_struct_layouts` and
+/// `emit_tagged_unions` separately, because each kind can reference
+/// the other via `Foo.by_value` and FFI requires the target type's
+/// layout to be set before `.by_value` is called.
+pub fn emit_typedefs_in_sort_order(
+    builder: &mut CodeBuilder,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) {
+    enum Item<'a> {
+        Struct(&'a StructDef),
+        Union(&'a EnumDef),
+        MonoAlias(&'a TypeAliasDef, &'a MonomorphizedTypeDef),
+    }
+    let mut items: Vec<(usize, Item)> = Vec::new();
+    for s in &ir.structs {
+        items.push((s.sort_order, Item::Struct(s)));
+    }
+    for e in &ir.enums {
+        if e.is_union {
+            items.push((e.sort_order, Item::Union(e)));
+        }
+    }
+    for ta in &ir.type_aliases {
+        if let Some(ref md) = ta.monomorphized_def {
+            items.push((ta.sort_order, Item::MonoAlias(ta, md)));
+        }
+    }
+    items.sort_by_key(|(ord, _)| *ord);
+    builder.line("# --- Struct + tagged-union layouts (topologically ordered) ----");
+    for (_, item) in items {
+        match item {
+            Item::Struct(s) => {
+                if !should_emit_struct(s, config) {
+                    emit_skip_marker(builder, &s.name, &skip_reason_struct(s));
+                    continue;
+                }
+                emit_struct_layout(builder, s, config, ir);
+            }
+            Item::Union(e) => {
+                if !should_emit_enum(e, config) {
+                    emit_skip_marker(builder, &e.name, &skip_reason_enum(e));
+                    continue;
+                }
+                emit_tagged_union(builder, e, config, ir);
+            }
+            Item::MonoAlias(ta, md) => {
+                if !config.should_include_type(&ta.name) {
+                    continue;
+                }
+                emit_monomorphized_alias(builder, ta, md, config, ir);
+            }
+        }
+    }
+    builder.blank();
+}
+
+/// Emit a monomorphized type alias (e.g. `PhysicalPositionI32 =
+/// PhysicalPosition<i32>`) as a concrete Ruby FFI definition.
+/// Mirrors C# / Java / Kotlin / Node monomorphized emission.
+fn emit_monomorphized_alias(
+    builder: &mut CodeBuilder,
+    ta: &TypeAliasDef,
+    md: &MonomorphizedTypeDef,
+    config: &CodegenConfig,
+    ir: &CodegenIR,
+) {
+    let name = config.apply_prefix(&ta.name);
+    match &md.kind {
+        MonomorphizedKind::SimpleEnum { variants, .. } => {
+            // Unit-enum monomorphization → integer constants module.
+            builder.line(&format!("module {}", name));
+            builder.indent();
+            for (idx, v) in variants.iter().enumerate() {
+                let const_name = ruby_const_name(v);
+                builder.line(&format!("{} = {}", const_name, idx));
+            }
+            builder.dedent();
+            builder.line("end");
+        }
+        MonomorphizedKind::Struct { fields } => {
+            if fields.is_empty() {
+                builder.line(&format!("class {}", name));
+                builder.indent();
+                builder.line("layout :_dummy, :uint8");
+                builder.dedent();
+                builder.line("end");
+                return;
+            }
+            builder.line(&format!("class {}", name));
+            builder.indent();
+            builder.line("layout(");
+            builder.indent();
+            let last_idx = fields.len() - 1;
+            for (i, field) in fields.iter().enumerate() {
+                let trailing = if i == last_idx { "" } else { "," };
+                let ruby_type = field_to_ruby_ffi_type(field, config, ir);
+                let field_name = ruby_field_name(&field.name);
+                builder.line(&format!(":{}, {}{}", field_name, ruby_type, trailing));
+            }
+            builder.dedent();
+            builder.line(")");
+            builder.dedent();
+            builder.line("end");
+        }
+        MonomorphizedKind::TaggedUnion { variants, .. } => {
+            // Tag constants module
+            builder.line(&format!("module {}_Tag", name));
+            builder.indent();
+            for (idx, v) in variants.iter().enumerate() {
+                let const_name = ruby_const_name(&v.name);
+                builder.line(&format!("{} = {}", const_name, idx));
+            }
+            builder.dedent();
+            builder.line("end");
+
+            // Variant payload structs.
+            let payload_name = format!("{}Payload", name);
+            for v in variants {
+                let v_struct_name = format!("{}Variant{}", name, v.name);
+                builder.line(&format!("class {} < FFI::Struct", v_struct_name));
+                builder.indent();
+                if let Some(ref payload_ty) = v.payload_type {
+                    builder.line("layout(");
+                    builder.indent();
+                    let ruby_ty = type_with_ref_to_ruby(
+                        payload_ty,
+                        v.payload_ref_kind,
+                        config,
+                        ir,
+                        false,
+                    );
+                    builder.line(&format!(":payload, {}", ruby_ty));
+                    builder.dedent();
+                    builder.line(")");
+                } else {
+                    builder.line("layout :_dummy, :uint8");
+                }
+                builder.dedent();
+                builder.line("end");
+            }
+
+            // Union payload.
+            builder.line(&format!("class {} < FFI::Union", payload_name));
+            builder.indent();
+            builder.line("layout(");
+            builder.indent();
+            let last = variants.len().saturating_sub(1);
+            for (i, v) in variants.iter().enumerate() {
+                let trailing = if i == last { "" } else { "," };
+                let v_struct_name = format!("{}Variant{}", name, v.name);
+                let field = ruby_field_name(&v.name);
+                builder.line(&format!(":{}, {}.by_value{}", field, v_struct_name, trailing));
+            }
+            builder.dedent();
+            builder.line(")");
+            builder.dedent();
+            builder.line("end");
+
+            // Outer struct holding tag + payload.
+            builder.line(&format!("class {}", name));
+            builder.indent();
+            builder.line("layout(");
+            builder.indent();
+            builder.line(":tag, :uint32,");
+            builder.line(&format!(":payload, {}.by_value", payload_name));
+            builder.dedent();
+            builder.line(")");
+            builder.dedent();
+            builder.line("end");
+        }
+    }
 }
 
 /// Emit tagged unions: a wrapper FFI::Struct with `:tag` + `:payload` and a
@@ -132,12 +338,12 @@ pub(crate) fn should_emit_struct(s: &StructDef, config: &CodegenConfig) -> bool 
     if !s.generic_params.is_empty() {
         return false;
     }
+    // VecRef + DestructorOrClone categories are referenced as field
+    // types from Vec wrappers; keep their layouts emitted to match the
+    // C / Java / C# / Node generators (Phase 1 codegen rehab).
     !matches!(
         s.category,
-        TypeCategory::Recursive
-            | TypeCategory::VecRef
-            | TypeCategory::GenericTemplate
-            | TypeCategory::DestructorOrClone
+        TypeCategory::Recursive | TypeCategory::GenericTemplate
     )
 }
 
@@ -148,12 +354,12 @@ pub(crate) fn should_emit_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
     if !e.generic_params.is_empty() {
         return false;
     }
+    // VecRef + DestructorOrClone enums are referenced from Vec wrapper
+    // structs; keep their definitions emitted (Phase 1 codegen rehab —
+    // same fix the Lisp generator applied).
     !matches!(
         e.category,
-        TypeCategory::Recursive
-            | TypeCategory::VecRef
-            | TypeCategory::GenericTemplate
-            | TypeCategory::DestructorOrClone
+        TypeCategory::Recursive | TypeCategory::GenericTemplate
     )
 }
 
@@ -425,10 +631,37 @@ pub(crate) fn type_with_ref_to_ruby(
         return p.to_string();
     }
 
+    // Type aliases (e.g. `GLint = i32`, `GLuint = u32`). Resolve simple
+    // aliases recursively to their target type. Aliases that carry a
+    // `monomorphized_def` (CssPropertyValue<T> et al.) are emitted as
+    // concrete `Az<Name>` types and we want to keep that name.
+    if let Some(ta) = ir.find_type_alias(trimmed) {
+        if ta.monomorphized_def.is_none() {
+            return type_with_ref_to_ruby(&ta.target, ref_kind, config, ir, prefer_by_value);
+        }
+        // Monomorphized alias falls through to the struct/by_value path
+        // below so it produces `Az<Name>.by_value`.
+    }
+
     // Callback typedef: use the Ruby `callback :name` symbol.
     if ir.callback_typedefs.iter().any(|c| c.name == trimmed) {
         let sym = ruby_symbol_for_callback(&config.apply_prefix(trimmed));
         return format!(":{}", sym);
+    }
+
+    // Recursive struct/enum types can't be expanded inline (self-
+    // referential definitions would loop). The C ABI stores them
+    // behind a pointer; mirror that as `:pointer` on the Ruby side —
+    // same strategy the C / C# generators use.
+    if let Some(s) = ir.find_struct(trimmed) {
+        if matches!(s.category, TypeCategory::Recursive) {
+            return ":pointer".to_string();
+        }
+    }
+    if let Some(e) = ir.find_enum(trimmed) {
+        if matches!(e.category, TypeCategory::Recursive) {
+            return ":pointer".to_string();
+        }
     }
 
     // Unit (non-union) enum: stored as :int.

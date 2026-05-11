@@ -68,7 +68,26 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     builder.line("module Native");
     builder.indent();
     builder.line("extend FFI::Library");
-    builder.line("ffi_lib ['azul', 'libazul.so', 'libazul.dylib', 'azul.dll']");
+    // ffi_lib accepts both bare names (resolved through the dynamic
+    // loader's search path) and absolute paths. macOS's hardened runtime
+    // refuses to load by bare name when launched from a non-system
+    // path and the lib isn't on the default search path, so we also
+    // try absolute paths next to this script and against
+    // AZUL_LIB_DIR (override for explicit placement). The flat list is
+    // tried in order; first hit wins, missing entries are ignored.
+    builder.line("_azul_lib_candidates = ['azul', 'libazul.so', 'libazul.dylib', 'azul.dll']");
+    builder.line("_here = File.expand_path(File.dirname(__FILE__))");
+    builder.line("[ENV['AZUL_LIB_DIR'], _here].compact.each do |dir|");
+    builder.indent();
+    builder.line("%w[libazul.dylib libazul.so azul.dll].each do |name|");
+    builder.indent();
+    builder.line("p = File.join(dir, name)");
+    builder.line("_azul_lib_candidates.unshift(p) if File.exist?(p)");
+    builder.dedent();
+    builder.line("end");
+    builder.dedent();
+    builder.line("end");
+    builder.line("ffi_lib _azul_lib_candidates");
     builder.blank();
 
     // Forward declarations for FFI::Struct / FFI::Union classes (so layouts can
@@ -81,11 +100,13 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     // Callback typedefs as `callback :name, [args], :ret`
     types::emit_callback_typedefs(&mut builder, ir, config);
 
-    // Struct layouts (FFI::Struct).
-    types::emit_struct_layouts(&mut builder, ir, config);
-
-    // Tagged union layouts (FFI::Struct with :tag + FFI::Union payload).
-    types::emit_tagged_unions(&mut builder, ir, config);
+    // Topologically interleave tagged unions and struct layouts by
+    // their `sort_order`. Either kind can reference the other via
+    // `Foo.by_value`, and calling `.by_value` before the target type's
+    // layout is set raises `wrong type in @layout ivar`. The IR builder
+    // computes a unified sort order over both struct + enum that
+    // satisfies all dependency edges; emit in that order.
+    types::emit_typedefs_in_sort_order(&mut builder, ir, config);
 
     // attach_function for every C-ABI symbol.
     functions::emit_attach_functions(&mut builder, ir, config);
