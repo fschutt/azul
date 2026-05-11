@@ -1,21 +1,18 @@
 >>SOURCE FORMAT IS FREE
 *> ============================================================
-*> COBOL (GnuCOBOL >= 3.0) Azul C ABI smoke test.
+*> COBOL (GnuCOBOL >= 3.0) Azul host-invoker smoke test.
 *>
-*> The full GUI demo needs callback ENTRY paragraphs + the
-*> wrapper layer to surface COBOL-idiomatic patterns; the
-*> current codegen exposes the C ABI via FN-* level-78 string
-*> constants. This smoke test exercises only the part that
-*> works today:
-*>   - the generated azul.cpy COPY parses + the dylib links,
-*>   - AzString_delete (a void-returning pointer-arg call)
-*>     dispatches via a level-78 FN-* alias.
+*> COBOL has no closures and CALL ... RETURNING doesn't accept a
+*> TYPEDEF record, so the host-invoker pattern requires the user's
+*> PROCEDURE DIVISION to provide ENTRY paragraphs for the releaser
+*> + per-kind dispatchers (see the comment block above the FN-*
+*> host-invoker aliases in azul.cpy for the suggested scaffolding).
 *>
-*> COBOL's CALL ... RETURNING doesn't handle struct-by-value
-*> returns portably, so we exercise a primitive-pointer call
-*> (AzString_delete) here. Full AzString round-trip would need
-*> the wrapper layer to expose a typed CALL helper that hides
-*> the by-value marshalling.
+*> This smoke test exercises what the codegen surface DOES provide:
+*>   - the generated azul.cpy COPY parses (including the new
+*>     managed-FFI level-78 aliases for the host-invoker C symbols),
+*>   - FN-AZ-APP-SET-HOST-HANDLE-9778 and FN-AZ-REF-ANY-NEW-HOST-HANDLE
+*>     resolve as level-78 constants ready to use in CALL statements.
 *>
 *> Build:
 *>   cobc -x -free hello-world.cob -L. -lazul -o hello-world
@@ -32,13 +29,6 @@
        WORKING-STORAGE SECTION.
        COPY "azul.cpy".
 
-       *> Display a few of the generated function-name constants to
-       *> prove the copybook + the FN-* alias scheme parse. We avoid
-       *> issuing a real CALL because COBOL's RETURNING field type
-       *> doesn't accept struct-by-value (so AzString_fromUtf8 can't
-       *> round-trip without a wrapper-layer helper), and calling
-       *> AzString_delete on uninitialised storage tries to free a
-       *> bogus pointer and trips libazul's deallocator.
        PROCEDURE DIVISION.
        MAIN-LOGIC SECTION.
            DISPLAY "[azul] COBOL FFI smoke test starting.".
@@ -46,7 +36,15 @@
            DISPLAY "[azul]   FN-AZ-APP-CREATE  = " FN-AZ-APP-CREATE.
            DISPLAY "[azul]   FN-AZ-STRING-DELETE = " FN-AZ-STRING-DELETE.
            DISPLAY "[azul]   FN-AZ-STRING-FROM-UTF8 = " FN-AZ-STRING-FROM-UTF8.
+           DISPLAY "[azul] host-invoker C-symbol aliases:".
+           DISPLAY "[azul]   FN-AZ-APP-SET-HOST-HANDLE-9778 = "
+               FN-AZ-APP-SET-HOST-HANDLE-9778.
+           DISPLAY "[azul]   FN-AZ-REF-ANY-NEW-HOST-HANDLE = "
+               FN-AZ-REF-ANY-NEW-HOST-HANDLE.
+           DISPLAY "[azul]   FN-AZ-REF-ANY-GET-HOST-HANDLE = "
+               FN-AZ-REF-ANY-GET-HOST-HANDLE.
            DISPLAY "[azul] COBOL binding init phase completed successfully.".
-           DISPLAY "[azul] (Full app wiring requires the wrapper layer to".
-           DISPLAY "[azul]  surface typed CALL helpers for struct-by-value.)".
+           DISPLAY "[azul] (Full app wiring requires user-side ENTRY".
+           DISPLAY "[azul]  paragraphs for the per-kind invoker dispatchers".
+           DISPLAY "[azul]  -- see scaffolding example in azul.cpy header.)".
            STOP RUN.
