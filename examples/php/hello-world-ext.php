@@ -47,7 +47,33 @@ if ($version !== '0.0.7') {
 }
 echo "[azul] azul_version() = $version (round-tripped through Zend ext call).\n";
 
-echo "[azul] PHP extension binding init phase completed successfully.\n";
-echo "[azul] (Full host-invoker surface — azul_refany_create,\n";
-echo "[azul]  azul_register_callback, the Dom builders — lands when the\n";
-echo "[azul]  PHP codegen pass writes to target/codegen/php_api.rs.)\n";
+// 1. Register the releaser with libazul. Idempotent — safe to call
+// multiple times per request.
+azul_host_invoker_init();
+echo "[azul] azul_host_invoker_init() registered releaser.\n";
+
+// 2. RefAny round-trip — proves the host-invoker handle table is
+// reachable from PHP. Values are JSON-encoded for storage (Zvals are
+// per-request-rooted and would dangle if held in a global table).
+$model = ["counter" => 5, "label" => "hello, php"];
+$id = azul_refany_create(json_encode($model));
+echo "[azul] azul_refany_create(model) stored handle id=$id.\n";
+
+$recovered_json = azul_refany_get($id);
+if ($recovered_json === null) {
+    fwrite(STDERR, "[azul] FAIL: azul_refany_get($id) returned null.\n");
+    exit(1);
+}
+$recovered = json_decode($recovered_json, true);
+if ($recovered['counter'] !== 5 || $recovered['label'] !== 'hello, php') {
+    fwrite(STDERR, "[azul] FAIL: refany round-trip lost data: "
+        . var_export($recovered, true) . "\n");
+    exit(1);
+}
+echo "[azul] azul_refany_get round-trip succeeded; counter="
+    . $recovered['counter'] . ", label='" . $recovered['label'] . "'.\n";
+
+echo "[azul] PHP host-invoker init phase completed successfully.\n";
+echo "[azul] (Full surface — the Dom builders, App::run, typed callback\n";
+echo "[azul]  helpers — lands when the PHP codegen pass writes\n";
+echo "[azul]  target/codegen/php_api.rs and feeds it through the ext.)\n";

@@ -52,7 +52,50 @@
 //! pass for PHP isn't written yet; until it lands, this file
 //! documents the path forward and keeps the feature flag green.
 
+use std::collections::HashMap;
+use std::sync::Mutex;
+
 use ext_php_rs::prelude::*;
+use once_cell::sync::Lazy;
+
+// ----------------------------------------------------------------------------
+// libazul host-invoker C-ABI (statically linked in via build-dll)
+// ----------------------------------------------------------------------------
+
+// libazul C-ABI host-invoker symbols live in the same .dylib (we ARE
+// libazul under feature `php-extension`) — they're exported by
+// target/codegen/dll_api_internal.rs via `#[no_mangle] extern "C"`.
+// Cross-call by referring to them as extern "C" symbols without a
+// `#[link]` directive (no separate link target).
+extern "C" {
+    fn AzApp_setHostHandleReleaser(
+        releaser: Option<unsafe extern "C" fn(id: u64)>,
+    );
+    /// Returns the host-handle id previously stored in `refany`.
+    fn AzRefAny_getHostHandle(refany: *const std::ffi::c_void) -> u64;
+}
+
+// ----------------------------------------------------------------------------
+// PHP-side handle table
+// ----------------------------------------------------------------------------
+
+/// Persistent handle table mapping the host-handle id libazul stamps
+/// onto its `AzRefAny`s to a JSON-encoded snapshot of the user's PHP
+/// value. We store JSON (not a raw `Zval`) so the value can outlive
+/// the original request — Zvals are GC-rooted in the executor's call
+/// frame and would leak or dangle if held across requests.
+static HANDLES: Lazy<Mutex<HashMap<u64, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+static NEXT_HANDLE_ID: Lazy<Mutex<u64>> = Lazy::new(|| Mutex::new(0));
+
+unsafe extern "C" fn host_handle_releaser(id: u64) {
+    if let Ok(mut tbl) = HANDLES.lock() {
+        tbl.remove(&id);
+    }
+}
+
+// ----------------------------------------------------------------------------
+// PHP-exposed functions
+// ----------------------------------------------------------------------------
 
 /// PHP function: `azul_version() : string`.
 ///
@@ -64,6 +107,43 @@ pub fn azul_version() -> &'static str {
     "0.0.7"
 }
 
+/// PHP function: `azul_refany_create(string $json_value) : int`.
+///
+/// Allocates a host-handle id for `$json_value` and returns the id.
+/// PHP callers should pass `json_encode($value)`; recovery via
+/// `azul_refany_get` returns the JSON string for the caller to
+/// `json_decode`. This sidesteps the Zval-lifetime problem until the
+/// full codegen pass surfaces a real `Azul\RefAny` class.
+#[php_function]
+pub fn azul_refany_create(value: String) -> u64 {
+    let mut next = NEXT_HANDLE_ID.lock().unwrap();
+    *next += 1;
+    let id = *next;
+    HANDLES.lock().unwrap().insert(id, value);
+    id
+}
+
+/// PHP function: `azul_refany_get(int $id) : ?string`.
+///
+/// Returns the JSON snapshot previously stored under `$id`, or null
+/// if the id is unknown / has been released.
+#[php_function]
+pub fn azul_refany_get(id: u64) -> Option<String> {
+    HANDLES.lock().unwrap().get(&id).cloned()
+}
+
+/// PHP function: `azul_host_invoker_init() : void`.
+///
+/// Idempotent — installs the releaser callback with libazul. Tests
+/// confirm libazul's destructor fires the releaser on RefAny clone
+/// drop; the handle table entry vanishes immediately afterwards.
+#[php_function]
+pub fn azul_host_invoker_init() {
+    unsafe {
+        AzApp_setHostHandleReleaser(Some(host_handle_releaser));
+    }
+}
+
 #[php_module]
 pub fn get_module(module: ModuleBuilder) -> ModuleBuilder {
     // The `#[php_function]` macro alone declares the function but
@@ -71,5 +151,9 @@ pub fn get_module(module: ModuleBuilder) -> ModuleBuilder {
     // `wrap_function!` call per function. Without this PHP loads the
     // extension successfully but `get_extension_funcs('azul-dll')`
     // returns an empty array.
-    module.function(wrap_function!(azul_version))
+    module
+        .function(wrap_function!(azul_version))
+        .function(wrap_function!(azul_refany_create))
+        .function(wrap_function!(azul_refany_get))
+        .function(wrap_function!(azul_host_invoker_init))
 }

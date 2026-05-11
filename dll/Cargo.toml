@@ -407,7 +407,7 @@ python-extension = ["build-dll", "pyo3", "use_pyo3_logger", "link-static"]
 #   cargo build --release --features php-extension
 # Then load:
 #   php -d extension=/path/to/libazul.so hello-world.php
-php-extension = ["build-dll", "ext-php-rs", "link-static"]
+php-extension = ["build-dll", "ext-php-rs", "link-static", "once_cell"]
 
 # -----------------------------------------------------------------------------
 # E2E Test Harness (AZ_E2E_TEST env-var-driven scenario runner)
