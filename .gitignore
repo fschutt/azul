@@ -57,23 +57,57 @@ coverage.json
 test_output/
 .claude-agents/
 
-# Per-language example build artifacts
+# Per-language example build artifacts and generated bindings.
+# Each example dir is meant to keep ONLY: the hand-written hello-world
+# source, its build descriptor, and (sometimes) a README. Everything
+# else — codegen output, build artifacts, downloaded deps, runtime
+# libs — gets recreated on demand and shouldn't be tracked.
+*.dylib
+*.so
+*.dll
+*.jar
+*.class
+# C# / .NET
 examples/csharp/bin/
 examples/csharp/obj/
 examples/csharp/Azul.cs
 examples/csharp/Azul.psm1
-examples/java/target/
+# Java / Kotlin (JVM)
 examples/java/com/
+examples/java/target/
+examples/kotlin/Azul.kt
 examples/kotlin/build/
 examples/kotlin/.gradle/
-examples/kotlin/Azul.kt
-examples/kotlin/*.jar
-examples/node/node_modules/
+# Node
+examples/node/azul
 examples/node/azul/
 examples/node/azul.js
-examples/node/azul.dylib
-examples/node/libazul.dylib
+examples/node/node_modules/
+# PowerShell
+examples/powershell/Azul.psd1
 examples/powershell/Azul.psm1
+# Ruby
 examples/ruby/azul.rb
+examples/ruby/lib/
+# Common Lisp
 examples/lisp/azul.lisp
-*.dylib
+# Perl
+examples/perl/lib/
+# Go
+examples/azul-go/
+examples/go/hello-world
+# Zig
+examples/zig/.zig-cache/
+examples/zig/azul.zig
+examples/zig/azul.h
+examples/zig/zig-out/
+# Build outputs from individual examples
+examples/c/azul.h
+examples/c/azul.hpp
+examples/c/hello-world
+examples/cpp/azul.hpp
+examples/cpp/hello-world
+examples/rust/target/
+examples/python/azul.so
+examples/python/_azul.cpython-*
+examples/python/__pycache__/
