@@ -36,8 +36,8 @@ use super::super::ir::{
 };
 use super::functions::ocaml_binding_name;
 use super::{
-    inner_pointer_form, inner_pointer_form_type, map_type_to_ocaml, ocaml_ffi_type_name,
-    ocaml_module_name,
+    inner_pointer_form, inner_pointer_form_type, map_type_to_ocaml, map_type_to_ocaml_typ,
+    ocaml_ffi_type_name, ocaml_module_name,
     ocaml_wrapper_type_name, sanitize_doc, sanitize_identifier, to_snake_case,
 };
 
@@ -142,6 +142,12 @@ pub fn emit_idiomatic_module_implementation(
     builder.line("(* -------------------------------------------------------------------------- *)");
     builder.blank();
 
+    // Polymorphic-variant views — must be defined identically to the
+    // .mli so the interface matches the implementation. Without these
+    // `dune build` fails with
+    //   The type az_foo_view is required but not provided.
+    emit_union_variant_interface(builder, ir, config);
+
     let delete_set = collect_delete_targets(ir);
     for s in &ir.structs {
         if !should_wrap(s, config) {
@@ -227,7 +233,9 @@ fn emit_wrapper_record_impl(builder: &mut CodeBuilder, s: &StructDef) {
     let ffi = ocaml_ffi_type_name(&s.name);
     // The C `_delete` symbol is `Az<TypeName>_delete`; the OCaml-side
     // `foreign` binding is named by `to_snake_case` of that symbol.
-    let delete_binding = format!("az_{}_delete", to_snake_case(&s.name));
+    // Delete bindings go through `ocaml_binding_name` (the `ffi_`
+    // prefix) so we route through the actual foreign-imported value.
+    let delete_binding = ocaml_binding_name(&format!("Az{}_delete", s.name));
 
     if !s.doc.is_empty() {
         for d in &s.doc {
@@ -367,14 +375,26 @@ fn build_method_signature(
     if takes_self {
         atoms.push("t".to_string());
     }
-    for a in &func.args {
+    // Mirror format-call-args: when takes_self, args[0] IS the
+    // implicit self; skip it. Without this the val signature would
+    // re-declare a `t` parameter for the snake-cased class name arg.
+    let iter: Box<dyn Iterator<Item = &super::super::ir::FunctionArg>> = if takes_self
+        && !func.args.is_empty()
+    {
+        Box::new(func.args.iter().skip(1))
+    } else {
+        Box::new(func.args.iter())
+    };
+    for a in iter {
         if is_self_arg(&a.name) {
             continue;
         }
         // VAL signature lives in type position — OCaml types apply
-        // constructors postfix (`T ptr`, not `ptr T`).
+        // constructors postfix (`T ptr`, not `ptr T`) and primitive
+        // names differ from their Ctypes value-typ counterparts
+        // (e.g. `Unsigned.UInt8.t` not `uint8_t`).
         let view = match a.ref_kind {
-            ArgRefKind::Owned => map_type_to_ocaml(&a.type_name, ir),
+            ArgRefKind::Owned => map_type_to_ocaml_typ(&a.type_name, ir),
             ArgRefKind::Ref
             | ArgRefKind::RefMut
             | ArgRefKind::Ptr
@@ -395,7 +415,7 @@ fn build_method_signature(
         } else if returns_self && has_wrapper {
             "t".to_string()
         } else {
-            map_type_to_ocaml(r, ir)
+            map_type_to_ocaml_typ(r, ir)
         }
     } else {
         "unit".to_string()
@@ -433,10 +453,24 @@ fn emit_method_impl(
     // Build the parameter list.
     let mut params: Vec<String> = Vec::new();
     if takes_self {
-        params.push("self".to_string());
+        // Type-annotate `self` so OCaml resolves the `.raw` field
+        // access to THIS wrapper's record rather than the first
+        // record-with-`raw`-field it can find globally (all wrappers
+        // share the `raw` label).
+        params.push(format!("(self : t)"));
     }
+    // For instance methods the first IR arg IS the implicit self —
+    // skip it regardless of how api.json named it. Same fix the
+    // JVM/.NET/Go/Zig/Ruby wrappers landed in earlier phases.
     let mut user_args: Vec<&super::super::ir::FunctionArg> = Vec::new();
-    for a in &func.args {
+    let iter: Box<dyn Iterator<Item = &super::super::ir::FunctionArg>> = if takes_self
+        && !func.args.is_empty()
+    {
+        Box::new(func.args.iter().skip(1))
+    } else {
+        Box::new(func.args.iter())
+    };
+    for a in iter {
         if is_self_arg(&a.name) {
             continue;
         }
@@ -456,16 +490,27 @@ fn emit_method_impl(
 
     let mut call_args: Vec<String> = Vec::new();
     if takes_self {
-        if has_wrapper {
-            // Wrapper record: pass &raw to functions expecting a
-            // pointer; for by-value we pass the structure itself.
-            // The IR encodes this via the first arg's ref_kind, but
-            // by convention azul's instance methods take `&self` (a
-            // pointer). We default to `Ctypes.addr self.raw`.
-            call_args.push("(Ctypes.addr self.raw)".to_string());
+        // Detect whether the C function takes self BY VALUE
+        // (ref_kind == Owned on args[0]) or BY POINTER. Same pattern
+        // the JVM / .NET / Go wrappers use. By-value passes
+        // `self.raw` directly; by-pointer uses `Ctypes.addr`.
+        let self_by_value = func
+            .args
+            .first()
+            .map(|a| matches!(a.ref_kind, ArgRefKind::Owned))
+            .unwrap_or(false);
+        let self_expr = if has_wrapper {
+            if self_by_value {
+                "self.raw".to_string()
+            } else {
+                "(Ctypes.addr self.raw)".to_string()
+            }
+        } else if self_by_value {
+            "self".to_string()
         } else {
-            call_args.push("(Ctypes.addr self)".to_string());
-        }
+            "(Ctypes.addr self)".to_string()
+        };
+        call_args.push(self_expr);
     }
     for a in &user_args {
         let id = sanitize_identifier(&to_snake_case(&a.name));

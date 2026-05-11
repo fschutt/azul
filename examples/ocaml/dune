@@ -3,8 +3,12 @@
 ; ============================================================================
 
 ; The generated azul bindings (azul.ml + azul.mli) defined as a local library.
+; The codegen emits many declarations that are unused by any given consumer;
+; that's fine for an FFI-binding library. Suppress warning 32 (unused
+; value declaration) so the build doesn't fail on a stable, complete API.
 (library
  (name azul)
+ (flags (:standard -w -32-26-27-33-34-35-37-39))
  (libraries ctypes ctypes-foreign)
  (modules azul))
 

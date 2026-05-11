@@ -102,6 +102,48 @@ pub fn emit_interface_types(
         builder.line(&format!("val {} : {} typ", ffi, ffi));
     }
 
+    // Filtered-out struct/enum categories (Recursive, VecRef,
+    // DestructorOrClone) are still referenced by name from other
+    // variants' val signatures. Emit phantom type stubs so those
+    // references resolve.
+    for s in &ir.structs {
+        if !config.should_include_type(&s.name) || !s.generic_params.is_empty() {
+            continue;
+        }
+        if matches!(
+            s.category,
+            TypeCategory::Recursive | TypeCategory::VecRef | TypeCategory::DestructorOrClone
+        ) {
+            let ffi = ocaml_ffi_type_name(&s.name);
+            builder.line(&format!("type {}", ffi));
+            builder.line(&format!("val {} : {} typ", ffi, ffi));
+        }
+    }
+    for e in &ir.enums {
+        if !config.should_include_type(&e.name) || !e.generic_params.is_empty() {
+            continue;
+        }
+        if matches!(
+            e.category,
+            TypeCategory::Recursive | TypeCategory::VecRef | TypeCategory::DestructorOrClone
+        ) {
+            let ffi = ocaml_ffi_type_name(&e.name);
+            builder.line(&format!("type {}", ffi));
+            builder.line(&format!("val {} : {} typ", ffi, ffi));
+        }
+    }
+
+    // Monomorphized type aliases need types too (e.g.
+    // `az_physical_position_i32` referenced from struct fields).
+    for ta in &ir.type_aliases {
+        if !config.should_include_type(&ta.name) {
+            continue;
+        }
+        let ffi = ocaml_ffi_type_name(&ta.name);
+        builder.line(&format!("type {}", ffi));
+        builder.line(&format!("val {} : {} typ", ffi, ffi));
+    }
+
     builder.blank();
     Ok(())
 }
@@ -157,6 +199,43 @@ pub fn emit_forward_struct_decls(
         builder.line(&format!("type {} = unit ptr", ffi));
         builder.line(&format!("let ({} : {} typ) = ptr void", ffi, ffi));
     }
+
+    // Filtered-out / monomorphized types — same placeholders as the
+    // .mli so the implementation side has matching declarations.
+    for s in &ir.structs {
+        if !config.should_include_type(&s.name) || !s.generic_params.is_empty() {
+            continue;
+        }
+        if matches!(
+            s.category,
+            TypeCategory::Recursive | TypeCategory::VecRef | TypeCategory::DestructorOrClone
+        ) {
+            let ffi = ocaml_ffi_type_name(&s.name);
+            builder.line(&format!("type {} = unit ptr", ffi));
+            builder.line(&format!("let ({} : {} typ) = ptr void", ffi, ffi));
+        }
+    }
+    for e in &ir.enums {
+        if !config.should_include_type(&e.name) || !e.generic_params.is_empty() {
+            continue;
+        }
+        if matches!(
+            e.category,
+            TypeCategory::Recursive | TypeCategory::VecRef | TypeCategory::DestructorOrClone
+        ) {
+            let ffi = ocaml_ffi_type_name(&e.name);
+            builder.line(&format!("type {} = unit ptr", ffi));
+            builder.line(&format!("let ({} : {} typ) = ptr void", ffi, ffi));
+        }
+    }
+    for ta in &ir.type_aliases {
+        if !config.should_include_type(&ta.name) {
+            continue;
+        }
+        let ffi = ocaml_ffi_type_name(&ta.name);
+        builder.line(&format!("type {} = unit ptr", ffi));
+        builder.line(&format!("let ({} : {} typ) = ptr void", ffi, ffi));
+    }
     builder.blank();
 }
 
@@ -174,7 +253,19 @@ pub fn emit_struct_fields_and_enums(
     builder.line("(* -------------------------------------------------------------------------- *)");
     builder.blank();
 
-    // Structs first.
+    // Unit enums FIRST — struct fields reference them by typ value
+    // (`field s \"frame\" az_window_frame`) so the typ binding must
+    // be in scope before any struct field declaration uses it.
+    for e in &ir.enums {
+        if !should_emit_enum(e, config) {
+            continue;
+        }
+        if !e.is_union {
+            emit_unit_enum(builder, e);
+        }
+    }
+
+    // Then structs.
     for s in &ir.structs {
         if !should_emit_struct(s, config) {
             if !s.generic_params.is_empty() {
@@ -213,8 +304,6 @@ pub fn emit_struct_fields_and_enums(
         }
         if e.is_union {
             emit_tagged_union_fields(builder, e, ir);
-        } else {
-            emit_unit_enum(builder, e);
         }
     }
 
@@ -292,11 +381,16 @@ fn emit_field(builder: &mut CodeBuilder, ffi_struct: &str, f: &FieldDef, ir: &Co
         builder.line(&format!("(* {} *)", sanitize_doc(doc)));
     }
 
+    // Use `<struct>_field_<name>` as the binding so the field
+    // accessor doesn't collide with another struct's typ value
+    // when the snake-cased combination clashes (e.g. `az_string`
+    // struct + `vec` field → `az_string_vec`, which is also the
+    // typ for the `AzStringVec` struct).
     if let Some((elem_ty, count)) = parse_array_type(&f.type_name) {
         let elem = map_type_to_ocaml(&elem_ty, ir);
         let field_name = sanitize_field_identifier(&f.name);
         builder.line(&format!(
-            "let {}_{} = field {} \"{}\" (array {} {})",
+            "let {}_field_{} = field {} \"{}\" (array {} {})",
             ffi_struct, field_name, ffi_struct, f.name, count, elem
         ));
         return;
@@ -305,7 +399,7 @@ fn emit_field(builder: &mut CodeBuilder, ffi_struct: &str, f: &FieldDef, ir: &Co
     let ocaml_ty = ref_kind_field_type(&f.type_name, &f.ref_kind, ir);
     let field_name = sanitize_field_identifier(&f.name);
     builder.line(&format!(
-        "let {}_{} = field {} \"{}\" {}",
+        "let {}_field_{} = field {} \"{}\" {}",
         ffi_struct, field_name, ffi_struct, f.name, ocaml_ty
     ));
 }
@@ -337,7 +431,7 @@ fn emit_tagged_union_fields(builder: &mut CodeBuilder, e: &EnumDef, ir: &Codegen
     }
 
     builder.line(&format!(
-        "let {}_tag = field {} \"tag\" uint32_t",
+        "let {}_field_tag = field {} \"tag\" uint32_t",
         ffi, ffi
     ));
 
@@ -346,7 +440,7 @@ fn emit_tagged_union_fields(builder: &mut CodeBuilder, e: &EnumDef, ir: &Codegen
     // generate (tag + up to 4 pointers / a Vec header).
     let payload_size = compute_payload_size_bound(e, ir);
     builder.line(&format!(
-        "let {}_payload = field {} \"payload\" (array {} uint8_t)",
+        "let {}_field_payload = field {} \"payload\" (array {} uint8_t)",
         ffi, ffi, payload_size
     ));
     builder.line(&format!("let () = seal {}", ffi));
@@ -404,11 +498,15 @@ fn emit_unit_enum(builder: &mut CodeBuilder, e: &EnumDef) {
         "let {}_of_int (i : int) : int = i",
         ffi
     ));
-    // Emit named constants for each variant.
+    // Emit named constants for each variant. Use `<ffi>_variant_<v>`
+    // (not just `<ffi>_<v>`) so the constant doesn't collide with a
+    // struct of the same flattened name — e.g. `az_shape_ellipse`
+    // is BOTH the struct `ShapeEllipse` AND the `Ellipse` variant of
+    // the `Shape` enum. Disambiguate at the variant side.
     for (idx, v) in e.variants.iter().enumerate() {
         let lit = sanitize_identifier(&super::to_snake_case(&v.name));
         builder.line(&format!(
-            "let {}_{} : int = {}",
+            "let {}_variant_{} : int = {}",
             ffi, lit, idx
         ));
     }

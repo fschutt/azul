@@ -217,16 +217,35 @@ pub fn ocaml_wrapper_type_name(name: &str) -> String {
 /// upper and treat subsequent CamelHumps as snake-cased segments to
 /// keep names short and readable.
 pub fn ocaml_module_name(name: &str) -> String {
-    let snake = to_snake_case(name);
-    let mut chars = snake.chars();
-    match chars.next() {
-        Some(c) => {
-            let mut out = String::with_capacity(snake.len());
-            out.extend(c.to_uppercase());
-            out.push_str(chars.as_str());
-            out
+    // Module names in OCaml are conventionally UpperCamelCase
+    // ("RefAny", "WindowCreateOptions"). The previous implementation
+    // produced `Ref_any` (snake-with-leading-cap) which is legal but
+    // doesn't match the hand-written hello-world's `RefAny.wrap`
+    // calls and isn't idiomatic. Strip the leading `Az`/`Iface`
+    // prefix if present, then upper-camel-case the rest.
+    let body = name.strip_prefix("Az").unwrap_or(name);
+    // Re-split on underscores (in case the input was snake) and on
+    // case boundaries (in case it was already camel) so we get a
+    // consistent sequence of words.
+    let snake = to_snake_case(body);
+    let mut out = String::with_capacity(snake.len());
+    let mut at_word_start = true;
+    for c in snake.chars() {
+        if c == '_' {
+            at_word_start = true;
+            continue;
         }
-        None => "M".to_string(),
+        if at_word_start {
+            out.extend(c.to_uppercase());
+            at_word_start = false;
+        } else {
+            out.push(c);
+        }
+    }
+    if out.is_empty() {
+        "M".to_string()
+    } else {
+        out
     }
 }
 
@@ -237,6 +256,68 @@ pub fn ocaml_module_name(name: &str) -> String {
 /// inner type is known to the IR, otherwise to `(ptr void)`.
 /// `*const c_char` becomes `string` (Ctypes does the C-string
 /// marshalling).
+/// Map a Rust IR type name to its OCaml-position TYPE string for use
+/// in `val foo : T -> U` signatures inside the .mli interface. Where
+/// Ctypes' value-level typ name and the corresponding OCaml type
+/// differ (e.g. `uint8_t : uint8_t typ` is a value, but the OCaml
+/// type alias is `Unsigned.UInt8.t`), return the OCaml type.
+pub fn map_type_to_ocaml_typ(rust_type: &str, ir: &CodegenIR) -> String {
+    let trimmed = rust_type.trim();
+
+    // Pointer/reference forms — use the postfix type-position form.
+    if let Some(rest) = trimmed.strip_prefix("*const ") {
+        let inner = rest.trim();
+        if inner == "c_char" || inner == "u8" {
+            return "string".to_string();
+        }
+        return inner_pointer_form_type(inner, ir);
+    }
+    if let Some(rest) = trimmed.strip_prefix("*mut ") {
+        return inner_pointer_form_type(rest.trim(), ir);
+    }
+    if let Some(rest) = trimmed.strip_prefix("&mut ") {
+        return inner_pointer_form_type(rest.trim(), ir);
+    }
+    if let Some(rest) = trimmed.strip_prefix('&') {
+        return inner_pointer_form_type(rest.trim(), ir);
+    }
+
+    match trimmed {
+        "bool" => "bool".to_string(),
+        // Sized integers — OCaml type names in `Unsigned.*` and
+        // `Signed.*`, NOT the bare ctypes value names. `int`
+        // suffices for any small width where preserving the exact
+        // representation doesn't matter at the Haskell level —
+        // the value-position emit handles the precise C ABI width.
+        "u8" | "c_uchar" => "Unsigned.UInt8.t".to_string(),
+        "i8" | "c_char" => "int".to_string(), // Signed.SInt8.t exists but `int` is more ergonomic
+        "char" => "char".to_string(),
+        "u16" => "Unsigned.UInt16.t".to_string(),
+        "i16" => "int".to_string(),
+        "u32" | "c_uint" => "Unsigned.UInt32.t".to_string(),
+        "i32" | "c_int" => "int32".to_string(),
+        "u64" => "Unsigned.UInt64.t".to_string(),
+        "i64" => "int64".to_string(),
+        "f32" => "float".to_string(),
+        "f64" => "float".to_string(),
+        "usize" => "Unsigned.size_t".to_string(),
+        "isize" => "PosixTypes.ssize_t".to_string(),
+        "c_void" | "()" | "void" => "unit".to_string(),
+
+        _ => {
+            if ir.find_struct(trimmed).is_some()
+                || ir.find_enum(trimmed).is_some()
+                || ir.find_type_alias(trimmed).is_some()
+                || ir.callback_typedefs.iter().any(|c| c.name == trimmed)
+            {
+                ocaml_ffi_type_name(trimmed)
+            } else {
+                "(unit ptr)".to_string()
+            }
+        }
+    }
+}
+
 pub fn map_type_to_ocaml(rust_type: &str, ir: &CodegenIR) -> String {
     let trimmed = rust_type.trim();
 
@@ -275,14 +356,7 @@ pub fn map_type_to_ocaml(rust_type: &str, ir: &CodegenIR) -> String {
         "i64" => "int64_t".to_string(),
         "f32" => "float".to_string(),
         "f64" => "double".to_string(),
-        // `size_t` is a `Ctypes` typ value but NOT an OCaml type
-        // — in type position (val signatures) it'd raise
-        //   Unbound type constructor size_t.
-        // `Unsigned.size_t` is the actual OCaml type, alias for an
-        // appropriate platform-sized integer. The same value can be
-        // used in Ctypes signatures via `size_t @-> ...` because
-        // Ctypes also exports `size_t` as a typ value.
-        "usize" => "Unsigned.size_t".to_string(),
+        "usize" => "size_t".to_string(),
         "isize" => "ptrdiff_t".to_string(),
         "c_void" | "()" | "void" => "void".to_string(),
 
@@ -440,6 +514,10 @@ fn is_ocaml_reserved(s: &str) -> bool {
             | "when"
             | "while"
             | "with"
+            // OCaml 5+ added effect handlers; `effect` is now a
+            // reserved keyword that produces a syntax error when used
+            // as an identifier.
+            | "effect"
     )
 }
 

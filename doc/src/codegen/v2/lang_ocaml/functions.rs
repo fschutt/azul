@@ -151,6 +151,14 @@ fn emit_one(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
 /// that the `_` separator between the class and the method matches
 /// the snake-case of the class itself.
 pub fn ocaml_binding_name(c_name: &str) -> String {
+    // Snake-case the C name then prefix with `ffi_` so foreign-function
+    // bindings never collide with struct typ values. Without the
+    // prefix `AzShape_circle` (factory) and `AzShapeCircle` (struct)
+    // both lowercase to `az_shape_circle`, and OCaml binds the later
+    // emit, shadowing the typ. The `ffi_` prefix keeps the two
+    // namespaces apart while remaining ergonomic
+    // (`Azul.ffi_az_shape_circle args`).
     let snaked = to_snake_case(c_name);
-    sanitize_identifier(&snaked)
+    let sanitized = sanitize_identifier(&snaked);
+    format!("ffi_{}", sanitized)
 }
