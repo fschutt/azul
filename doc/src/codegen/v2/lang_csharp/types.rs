@@ -506,7 +506,24 @@ fn generate_callback_delegate(
 /// Map a `(type_name, FieldRefKind)` pair to the C# field type string.
 fn ref_kind_field_type(type_name: &str, ref_kind: &FieldRefKind, ir: &CodegenIR) -> String {
     match ref_kind {
-        FieldRefKind::Owned => map_type_to_csharp(type_name, ir),
+        FieldRefKind::Owned => {
+            // Callback typedefs are .NET delegate types (managed object
+            // references). Embedding one as a struct field in an
+            // `[StructLayout(LayoutKind.Explicit)]` union — what tagged-
+            // union variants emit — fails GC-alignment validation
+            // ("contains an object field at offset 0 that is incorrectly
+            // aligned or overlapped by a non-object field"). The C ABI
+            // representation is a raw function pointer, so use IntPtr
+            // in struct fields. Delegate-typed function PARAMETERS
+            // (where the marshaler can handle the conversion) still keep
+            // the delegate type via the general `map_type_to_csharp`
+            // mapping.
+            if ir.callback_typedefs.iter().any(|c| c.name == type_name.trim()) {
+                "IntPtr".to_string()
+            } else {
+                map_type_to_csharp(type_name, ir)
+            }
+        }
         FieldRefKind::Ref
         | FieldRefKind::RefMut
         | FieldRefKind::Ptr
