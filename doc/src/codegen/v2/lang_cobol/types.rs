@@ -23,7 +23,7 @@ use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{
     ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
-    StructDef, TypeCategory,
+    MonomorphizedKind, MonomorphizedTypeDef, StructDef, TypeAliasDef, TypeCategory,
 };
 use super::{
     cobol_identifier, emit_doc_comment, sanitize_cobol_identifier, sanitize_doc, to_cobol_case,
@@ -71,6 +71,16 @@ fn emit_skipped(builder: &mut CodeBuilder, name: &str, reason: &str) {
         cobol_identifier(name),
         reason
     ));
+    // Still emit an opaque TYPEDEF (USAGE POINTER) so struct fields
+    // referencing the skipped type by `USAGE TYAZ-<NAME>` resolve.
+    // The codegen has no layout for these — callers see them as
+    // opaque handles.
+    let typedef = cobol_identifier(&format!("TYAZ-{}", to_cobol_case(name)));
+    builder.line(&format!(
+        "       01  {:<28} USAGE POINTER IS TYPEDEF.",
+        typedef
+    ));
+    builder.blank();
 }
 
 // ============================================================================
@@ -146,22 +156,47 @@ pub fn generate_records(
     builder.line("*> GnuCOBOL >= 3.0 supports the TYPEDEF extension natively.       *");
     builder.line("*> ============================================================");
 
-    // 2a. POD records.
+    // 2a + 2b + 2c. Interleave POD records, tagged-union records, AND
+    // monomorphized type-alias instantiations in topological order
+    // (`sort_order`). Monomorphized aliases like AzPhysicalSizeU32 /
+    // AzOptionU32 are referenced by other records as field types and
+    // must be declared first — same pattern as lang_pascal/lang_fortran.
+    enum Item<'a> {
+        Struct(&'a StructDef),
+        Union(&'a EnumDef),
+        Mono(&'a TypeAliasDef, &'a MonomorphizedTypeDef),
+    }
+    let mut items: Vec<(usize, Item)> = Vec::new();
     for s in &ir.structs {
         if !should_include_struct(s, config) {
             emit_skipped(builder, &s.name, s.category.description());
             continue;
         }
-        emit_struct(builder, s, ir);
+        items.push((s.sort_order, Item::Struct(s)));
     }
-
-    // 2b. Tagged-union records (REDEFINES-based).
     for e in &ir.enums {
         if !should_include_enum(e, config) {
             continue;
         }
         if e.is_union {
-            emit_tagged_union(builder, e, ir);
+            items.push((e.sort_order, Item::Union(e)));
+        }
+    }
+    for ta in &ir.type_aliases {
+        let Some(ref mono) = ta.monomorphized_def else {
+            continue;
+        };
+        if !config.should_include_type(&ta.name) {
+            continue;
+        }
+        items.push((ta.sort_order, Item::Mono(ta, mono)));
+    }
+    items.sort_by_key(|(d, _)| *d);
+    for (_, item) in &items {
+        match item {
+            Item::Struct(s) => emit_struct(builder, s, ir),
+            Item::Union(e) => emit_tagged_union(builder, e, ir),
+            Item::Mono(ta, mono) => emit_monomorphized_alias(builder, ta, mono, ir),
         }
     }
 
@@ -218,6 +253,88 @@ fn emit_field(builder: &mut CodeBuilder, f: &FieldDef, ir: &CodegenIR, level: &s
 // Every variant payload occupies the same memory after the tag field;
 // the user inspects TAG and accesses the matching PAYLOAD-* group.
 
+// ============================================================================
+// Monomorphized type-alias emission (generic instantiations)
+// ============================================================================
+
+fn emit_monomorphized_alias(
+    builder: &mut CodeBuilder,
+    ta: &TypeAliasDef,
+    mono: &MonomorphizedTypeDef,
+    ir: &CodegenIR,
+) {
+    if !ta.doc.is_empty() {
+        for d in &ta.doc {
+            emit_doc_comment(builder, d);
+        }
+    }
+    let class = cobol_identifier(&format!("AZ-{}", to_cobol_case(&ta.name)));
+    let typedef = cobol_identifier(&format!("TYAZ-{}", to_cobol_case(&ta.name)));
+
+    match &mono.kind {
+        // Unit-enum monomorphizations -> level-78 constants + USAGE
+        // BINARY-LONG TYPEDEF (mirrors emit_unit_enum_constants).
+        MonomorphizedKind::SimpleEnum { variants, .. } => {
+            builder.line(&format!("*> --- MONOMORPHIZED ENUM {} ---", class));
+            builder.line(&format!(
+                "       01  {} IS TYPEDEF USAGE BINARY-LONG.",
+                typedef
+            ));
+            for (idx, v) in variants.iter().enumerate() {
+                let var = sanitize_cobol_identifier(&to_cobol_case(v));
+                let full = cobol_identifier(&format!("{}-{}", class, var));
+                builder.line(&format!("       78  {} VALUE {}.", full, idx));
+            }
+            builder.blank();
+        }
+
+        // Struct monomorphizations -> a normal level-01 TYPEDEF.
+        MonomorphizedKind::Struct { fields } => {
+            builder.line(&format!("*> --- MONOMORPHIZED STRUCT {} ---", class));
+            if fields.is_empty() {
+                builder.line(&format!("       01  {} IS TYPEDEF.", typedef));
+                builder.line("           05  FILLER PIC X(1).");
+                builder.blank();
+                return;
+            }
+            builder.line(&format!("       01  {} IS TYPEDEF.", typedef));
+            for f in fields {
+                emit_field(builder, f, ir, "05");
+            }
+            builder.blank();
+        }
+
+        // Tagged-union monomorphizations -> tag + REDEFINES variants.
+        // Anchor with a fixed-size FILLER large enough for any variant
+        // payload (REDEFINES requires the redefining clause to be ≤
+        // anchor size, and we can't always order variants by size).
+        MonomorphizedKind::TaggedUnion { variants, .. } => {
+            let tag_class = cobol_identifier(&format!("AZ-{}-TAG", to_cobol_case(&ta.name)));
+            builder.line(&format!("*> --- MONOMORPHIZED UNION {} ---", typedef));
+            for (idx, v) in variants.iter().enumerate() {
+                let var = sanitize_cobol_identifier(&to_cobol_case(&v.name));
+                let full = cobol_identifier(&format!("{}-{}", tag_class, var));
+                builder.line(&format!("       78  {} VALUE {}.", full, idx));
+            }
+            builder.blank();
+            builder.line(&format!("       01  {} IS TYPEDEF.", typedef));
+            builder.line("           05  TAG                      USAGE BINARY-LONG.");
+            // 64-byte raw payload — wide enough for any of the variants
+            // we currently emit. We don't emit per-variant typed accessors
+            // because their padded sizes are hard to compute portably;
+            // users access TAG to discriminate and read the raw bytes
+            // here for the actual payload.
+            let _ = variants;
+            let anchor_name = cobol_identifier("PAYLOAD-ANCHOR");
+            builder.line(&format!(
+                "           05  {:<24} PIC X(64).",
+                anchor_name
+            ));
+            builder.blank();
+        }
+    }
+}
+
 fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     if !e.doc.is_empty() {
         for d in &e.doc {
@@ -240,60 +357,19 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     builder.line(&format!("       01  {} IS TYPEDEF.", typedef));
     builder.line("           05  TAG                      USAGE BINARY-LONG.");
 
-    // Emit one payload group per variant. The first sets the layout;
-    // every later one REDEFINES the first so they share storage.
-    let mut anchor: Option<String> = None;
-    for (vi, v) in e.variants.iter().enumerate() {
-        let var = sanitize_cobol_identifier(&to_cobol_case(&v.name));
-        let payload_name = cobol_identifier(&format!("PAYLOAD-{}", var));
-
-        let header = match &anchor {
-            None => format!("           05  {}.", payload_name),
-            Some(a) => format!("           05  {} REDEFINES {}.", payload_name, a),
-        };
-        builder.line(&header);
-
-        match &v.kind {
-            EnumVariantKind::Unit => {
-                // Empty payload still needs at least one filler byte to
-                // satisfy COBOL's "group must contain elementary items"
-                // rule. We use a single PIC X to keep the union tight.
-                builder.line("               10  FILLER PIC X(1).");
-            }
-            EnumVariantKind::Tuple(types) => {
-                if types.is_empty() {
-                    builder.line("               10  FILLER PIC X(1).");
-                } else if types.len() == 1 {
-                    let (ty, ref_kind) = &types[0];
-                    let usage = pic_for_field(ty, ref_kind, ir);
-                    let nm = format!("VALUE-{}", vi);
-                    let nm = sanitize_cobol_identifier(&nm);
-                    builder.line(&format!("               10  {:<22} {}.", nm, usage));
-                } else {
-                    for (i, (ty, ref_kind)) in types.iter().enumerate() {
-                        let usage = pic_for_field(ty, ref_kind, ir);
-                        let nm = sanitize_cobol_identifier(&format!("VALUE-{}-{}", vi, i));
-                        builder.line(&format!("               10  {:<22} {}.", nm, usage));
-                    }
-                }
-            }
-            EnumVariantKind::Struct(fields) => {
-                if fields.is_empty() {
-                    builder.line("               10  FILLER PIC X(1).");
-                } else {
-                    for f in fields {
-                        let nm = sanitize_cobol_identifier(&to_cobol_case(&f.name));
-                        let usage = pic_for_field(&f.type_name, &f.ref_kind, ir);
-                        builder.line(&format!("               10  {:<22} {}.", nm, usage));
-                    }
-                }
-            }
-        }
-
-        if anchor.is_none() {
-            anchor = Some(payload_name);
-        }
-    }
+    // 64-byte raw anchor — wide enough for every variant payload we
+    // currently emit (largest in practice is ~32 bytes for a Vec
+    // descriptor). Per-variant typed accessors are tricky here because
+    // each REDEFINES must be ≤ anchor size and computing variant sizes
+    // portably is brittle, so users discriminate via TAG and read the
+    // payload bytes directly. Bump if a variant ever needs more.
+    let _ = ir;
+    let _ = e.variants.len();
+    let anchor_name = cobol_identifier("PAYLOAD-ANCHOR");
+    builder.line(&format!(
+        "           05  {:<24} PIC X(64).",
+        anchor_name
+    ));
     builder.blank();
 }
 

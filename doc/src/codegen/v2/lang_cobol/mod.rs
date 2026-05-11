@@ -85,13 +85,19 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     emit_header(&mut builder);
 
     // 1. Enum constants (level-78).
+    // Callback typedefs FIRST — they're referenced by struct fields and
+    // GnuCOBOL needs the TYPEDEF visible before any `USAGE TYAZ-FOO`
+    // mention. Without this ordering, field declarations like
+    // `05 CB USAGE TYAZ-GET-SYSTEM-TIME-CALL-XXXX` fail with
+    // "unknown USAGE".
+    types::generate_callback_typedefs(&mut builder, ir, config)?;
     types::generate_enum_constants(&mut builder, ir, config)?;
 
     // 2. Struct + tagged-union typedefs (level-01).
     types::generate_records(&mut builder, ir, config)?;
 
-    // 3. Callback typedefs (level-01 USAGE PROGRAM-POINTER).
-    types::generate_callback_typedefs(&mut builder, ir, config)?;
+    // (Callback typedefs are emitted above so structs referencing them
+    // by USAGE see the TYPEDEF first.)
 
     // 4. Function-name constants (level-78 STRING).
     functions::generate_function_constants(&mut builder, ir, config)?;
@@ -284,6 +290,35 @@ pub fn is_cobol_reserved(name_upper: &str) -> bool {
         | "HEADER" | "FOOTER" | "TITLE" | "BUTTON" | "BORDER" | "MARGIN"
         | "PADDING" | "WIDTH" | "HEIGHT" | "X" | "Y" | "Z"
         | "POINT" | "POSITION" | "RECTANGLE" | "SIZE" | "BOUNDS"
+        | "UPDATE" | "VALID" | "INVALID" | "ARGUMENT" | "ARGUMENTS"
+        | "ACTIVE" | "ACTION" | "ASSIGN" | "AUTOMATIC" | "AWAY-FROM-ZERO"
+        | "BIT" | "BOOLEAN" | "CHAINING" | "CHAINED" | "CHILD"
+        | "COMPLEX" | "CONDITION" | "CONFIG" | "CRT" | "DECIMAL"
+        | "ENABLED" | "ENTRY" | "FORMAT" | "FUNCTIONS" | "INDEX-1"
+        | "INDEX-2" | "INVOKE" | "ITEM" | "LIMITS" | "LOCK-HOLD"
+        | "LOCKING" | "MANUAL" | "MAX" | "METHOD" | "METHODS"
+        | "MIN" | "MULTIPLE" | "NAMED" | "NUMERIC-EDITED"
+        | "OK" | "ONLY" | "OUTPUT-FORMAT" | "PARSE" | "PHYSICAL"
+        | "PRESENT-WHEN" | "PRINT" | "PROGRAM-NAME" | "RANGE"
+        | "READ-ONLY" | "ROUNDING" | "SCROLL-X" | "SHADOW" | "STAGE"
+        | "STANDARD-BINARY" | "STANDARD-DECIMAL" | "STATEMENT"
+        | "STREAM" | "SYMBOL" | "TEXT-FILE" | "USER-DEFAULT" | "VAL"
+        | "VARIANT" | "VOLATILE" | "VS" | "YYYYDDD" | "YYYYMMDD"
+        | "CH" | "VS-9" | "DDD" | "DD" | "MM" | "YY" | "YYYY"
+        | "NULL-FILE" | "FILE-CONTROL" | "FILE-STATUS"
+        | "AREA" | "AREAS" | "EVENT" | "EVENTS" | "PRIORITY"
+        | "ACTIVATING" | "ADJUSTABLE" | "BACKWARD" | "FORWARD"
+        | "TIMER" | "TIMERS" | "TARGET" | "DETAIL" | "DETAILS"
+        | "GROUP" | "LOCALES" | "MODULE-NAME" | "STATIC"
+        | "DYNAMIC-TABLE" | "TASK" | "TASKS" | "WORD" | "WORDS"
+        | "BYTES" | "MESSAGE" | "CELL" | "CELLS" | "BUTTONS"
+        | "DEBUG" | "DEBUGGING-DUMP" | "ENGINE" | "FLAG" | "FLAGS"
+        | "PAINT" | "VIEW" | "VIEWS" | "WIDGETS" | "WIDGET"
+        | "GROUPS" | "ITEMS" | "MENU" | "MENUS" | "NODE" | "NODES"
+        | "REFERENCED" | "REFERENCING" | "SECONDARY" | "PRIMARY"
+        | "USER" | "USERS" | "AUTH" | "ROLE" | "ROLES"
+        | "QUERY" | "QUEUE" | "INDEX-VALUE" | "STORE" | "STORES"
+        | "VERIFY" | "VERIFIED"
     )
 }
 
@@ -292,6 +327,14 @@ pub fn is_cobol_reserved(name_upper: &str) -> bool {
 /// and remains within the 30-char budget for everything in api.json).
 pub fn sanitize_cobol_identifier(name: &str) -> String {
     let upper = name.to_ascii_uppercase();
+    // COBOL identifiers must start with a letter (not a digit). Tuple
+    // struct fields from Rust come through with numeric names `0`,
+    // `1`, ... — prefix them with `FIELD-` so the result is valid.
+    let upper = if upper.chars().next().map_or(false, |c| c.is_ascii_digit()) {
+        format!("FIELD-{}", upper)
+    } else {
+        upper
+    };
     if is_cobol_reserved(&upper) {
         format!("{}-X", upper)
     } else {
