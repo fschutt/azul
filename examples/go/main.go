@@ -1,15 +1,13 @@
 // examples/go/main.go
 //
-// Minimal Go (cgo) smoke test for the Azul C ABI. Confirms that:
-//   - the generated `azul.h` is consumable by cgo,
-//   - the prebuilt native library loads via `-lazul`,
-//   - struct-by-value calls and a basic AzString round-trip succeed.
+// Go port of examples/c/hello-world.c.
 //
-// Go doesn't go through the managed-FFI host-invoker plumbing — cgo
-// natively supports struct-by-value calls. Closure-as-callback support
-// for the full GUI demo (button click handlers, layout callbacks)
-// requires more wrapper-layer machinery; that's separate work, not the
-// C ABI surface we exercise here.
+// Same data model (a counter), same behaviour (mouse click increments,
+// layout rebuilds the DOM). Goes through the C ABI directly via cgo —
+// Go's cgo handles struct-by-value calls natively, and `//export` lets
+// us hand Go functions to C as `AzCallbackType` / `AzLayoutCallbackType`
+// function pointers. None of the managed-FFI host-invoker plumbing
+// (Lua / Node / Ruby / …) is needed here.
 //
 // Build:
 //   CGO_CFLAGS="-I." CGO_LDFLAGS="-L." go build
@@ -23,37 +21,145 @@ package main
 #include <stdlib.h>
 #include <string.h>
 #include "azul.h"
+
+// Forward declarations for the Go-exported callbacks below. cgo
+// generates a header `_cgo_export.h` with these too, but pulling them
+// in here lets the C-side cast lift `AzCallbackType` / `AzLayoutCallbackType`
+// out into single helpers.
+extern AzUpdate goOnClick        (AzRefAny data, AzCallbackInfo info);
+extern AzDom    goLayout         (AzRefAny data, AzLayoutCallbackInfo info);
+extern void     myDataDestructor (void* m);
+
+static inline AzCallback                  make_click_callback     (void) { return AzCallback_create((AzCallbackType)goOnClick); }
+static inline AzLayoutCallbackType        make_layout_callback    (void) { return (AzLayoutCallbackType)goLayout; }
+static inline AzRefAnyDestructorType      make_my_data_destructor (void) { return (AzRefAnyDestructorType)myDataDestructor; }
 */
 import "C"
 
 import (
 	"fmt"
-	"os"
+	"unsafe"
 )
 
-func main() {
-	// Build a non-empty AzString from a Go []byte. Exercises the
-	// C-side `_fromUtf8` API and a struct-by-value return crossing
-	// the cgo boundary.
-	src := []byte("hello, azul")
-	cptr := C.CBytes(src)
-	defer C.free(cptr)
+// ── Data model ────────────────────────────────────────────────────────
+//
+// Mirrors the C macro `AZ_REFLECT_JSON(MyDataModel, ...)`: a compile-
+// time-unique type id (the address of a package var), an `upcast` that
+// wraps the struct in an `AzRefAny`, and a `downcast` that recovers a
+// typed pointer back from the refany.
 
-	s := C.AzString_fromUtf8((*C.uint8_t)(cptr), C.size_t(len(src)))
-	defer C.AzString_delete(&s)
+type myDataModel struct {
+	counter C.uint32_t
+}
 
-	// Round-trip through clone to confirm the dylib's heap allocator
-	// is wired up — _clone allocates a new buffer.
-	clone := C.AzString_clone(&s)
-	defer C.AzString_delete(&clone)
+// The address of this package var is the per-type RTTI id.
+var myDataTypeToken byte
+var myDataTypeID = C.uint64_t(uintptr(unsafe.Pointer(&myDataTypeToken)))
 
-	if !bool(C.AzString_partialEq(&s, &clone)) {
-		fmt.Println("[azul] AzString_clone result not equal to source")
-		os.Exit(1)
+//export myDataDestructor
+func myDataDestructor(_ unsafe.Pointer) {}
+
+func myDataUpcast(model myDataModel) C.AzRefAny {
+	local := model // stack copy; AzRefAny_newC copies the bytes
+	typeName := []byte("MyDataModel")
+	cTypeName := C.AzString_fromUtf8((*C.uint8_t)(unsafe.Pointer(&typeName[0])), C.size_t(len(typeName)))
+	ptr := C.AzGlVoidPtrConst{
+		ptr:            unsafe.Pointer(&local),
+		run_destructor: C.bool(false),
 	}
-	fmt.Printf("[azul] AzString round-trip succeeded; len=%d\n", len(src))
+	return C.AzRefAny_newC(
+		ptr,
+		C.size_t(unsafe.Sizeof(local)),
+		C.size_t(unsafe.Alignof(local)),
+		myDataTypeID,
+		cTypeName,
+		C.make_my_data_destructor(),
+		0, // serialize_fn
+		0, // deserialize_fn
+	)
+}
 
-	fmt.Println("[azul] cgo init phase completed successfully.")
-	fmt.Println("[azul] (Full App.run wiring requires GUI wrapper-layer work")
-	fmt.Println("[azul]  separate from the C ABI plumbing exercised here.)")
+func myDataDowncast(refany *C.AzRefAny) *myDataModel {
+	if !bool(C.AzRefAny_isType(refany, myDataTypeID)) {
+		return nil
+	}
+	raw := C.AzRefAny_getDataPtr(refany)
+	if raw == nil {
+		return nil
+	}
+	return (*myDataModel)(raw)
+}
+
+// ── Callback: button click ────────────────────────────────────────────
+
+//export goOnClick
+func goOnClick(data C.AzRefAny, _ C.AzCallbackInfo) C.AzUpdate {
+	d := data
+	m := myDataDowncast(&d)
+	if m == nil {
+		return C.AzUpdate_DoNothing
+	}
+	m.counter++
+	return C.AzUpdate_RefreshDom
+}
+
+// ── Layout callback ───────────────────────────────────────────────────
+
+//export goLayout
+func goLayout(data C.AzRefAny, _ C.AzLayoutCallbackInfo) C.AzDom {
+	d := data
+	m := myDataDowncast(&d)
+	if m == nil {
+		return C.AzDom_createBody()
+	}
+
+	// Counter label (wrapped in a div so the font-size sticks).
+	counterStr := []byte(fmt.Sprintf("%d", m.counter))
+	counterAz := C.AzString_fromUtf8((*C.uint8_t)(unsafe.Pointer(&counterStr[0])), C.size_t(len(counterStr)))
+	label := C.AzDom_createText(counterAz)
+
+	labelWrapper := C.AzDom_createDiv()
+	fontSize := C.AzStyleFontSize_px(C.float(32.0))
+	cssProp := C.AzCssProperty_fontSize(fontSize)
+	cond := C.AzCssPropertyWithConditions_simple(cssProp)
+	C.AzDom_addCssProperty(&labelWrapper, cond)
+	C.AzDom_addChild(&labelWrapper, label)
+
+	// Increment button. `AzCallback_create` wraps the Go-exported
+	// fn-pointer in a `{ cb, ctx=None }` struct; the C ABI takes
+	// `AzCallback` for setOnClick.
+	btnLabelBytes := []byte("Increase counter")
+	btnLabel := C.AzString_fromUtf8((*C.uint8_t)(unsafe.Pointer(&btnLabelBytes[0])), C.size_t(len(btnLabelBytes)))
+	button := C.AzButton_create(btnLabel)
+	C.AzButton_setButtonType(&button, C.AzButtonType_Primary)
+	dataClone := C.AzRefAny_clone(&d)
+	C.AzButton_setOnClick(&button, dataClone, C.make_click_callback())
+	buttonDom := C.AzButton_dom(button)
+
+	// Body.
+	body := C.AzDom_createBody()
+	C.AzDom_addChild(&body, labelWrapper)
+	C.AzDom_addChild(&body, buttonDom)
+	return body
+}
+
+// ── Main ──────────────────────────────────────────────────────────────
+
+func main() {
+	model := myDataModel{counter: 5}
+	data := myDataUpcast(model)
+
+	window := C.AzWindowCreateOptions_create(C.make_layout_callback())
+	titleBytes := []byte("Hello World")
+	window.window_state.title = C.AzString_fromUtf8((*C.uint8_t)(unsafe.Pointer(&titleBytes[0])), C.size_t(len(titleBytes)))
+	window.window_state.size.dimensions.width = 400.0
+	window.window_state.size.dimensions.height = 300.0
+
+	// NoTitleAutoInject: OS draws close/min/max buttons; framework
+	// auto-injects a Titlebar with drag support.
+	window.window_state.flags.decorations = C.AzWindowDecorations_NoTitleAutoInject
+	window.window_state.flags.background_material = C.AzWindowBackgroundMaterial_Sidebar
+
+	app := C.AzApp_create(data, C.AzAppConfig_create())
+	C.AzApp_run(&app, window)
 }

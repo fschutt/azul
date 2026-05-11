@@ -1139,9 +1139,12 @@ impl CGenerator {
 
                 let c_payload_type = self.rust_type_to_c_with_prefix(payload_type, config);
 
-                // Generate matchRef helper (immutable)
+                // Generate matchRef helper (immutable). `static inline` so
+                // including azul.h from multiple translation units (e.g. cgo
+                // generates `_cgo_export.c` and `main.cgo2.c`, both pulling
+                // in this header) doesn't trip "duplicate symbol" at link.
                 builder.line(&format!(
-                    "bool {}_matchRef{}(const {}* value, const {}** restrict out) {{",
+                    "static inline bool {}_matchRef{}(const {}* value, const {}** restrict out) {{",
                     name, variant.name, name, c_payload_type
                 ));
                 builder.line(&format!(
@@ -1157,9 +1160,10 @@ impl CGenerator {
                 builder.line("}");
                 builder.blank();
 
-                // Generate matchMut helper (mutable)
+                // Generate matchMut helper (mutable). Same rationale for
+                // `static inline` as matchRef above.
                 builder.line(&format!(
-                    "bool {}_matchMut{}({}* restrict value, {}* restrict * restrict out) {{",
+                    "static inline bool {}_matchMut{}({}* restrict value, {}* restrict * restrict out) {{",
                     name, variant.name, name, c_payload_type
                 ));
                 builder.line(&format!(
