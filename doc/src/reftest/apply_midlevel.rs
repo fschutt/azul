@@ -58,6 +58,12 @@ pub struct Config {
     /// `None` = no limit (run until all commits processed or user quits).
     /// Pure-`.md` auto-skips do not count toward the limit.
     pub limit: Option<usize>,
+    /// Refresh-pending mode: walk `progress.pending` entries created before
+    /// the `iterations` field existed (legacy entries that only have a
+    /// `comment`), replay the analyzer with the saved feedback, and write
+    /// the full iteration trace back into the entry. Entries that already
+    /// have iterations are skipped. No apply agent runs in this mode.
+    pub refresh_pending: bool,
 }
 
 pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> {
@@ -69,6 +75,7 @@ pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> 
     let mut no_telegram = false;
     let mut triage_only = false;
     let mut pending_only = false;
+    let mut refresh_pending = false;
     let mut limit: Option<usize> = None;
 
     for arg in args {
@@ -91,14 +98,18 @@ pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> 
             triage_only = true;
         } else if *arg == "--pending-only" || *arg == "--auto" {
             pending_only = true;
+        } else if *arg == "--refresh-pending" {
+            refresh_pending = true;
         } else if arg.starts_with('-') {
             return Err(format!("Unknown option: {}", arg));
         }
     }
 
-    if triage_only && pending_only {
-        return Err("--triage and --pending-only are mutually exclusive: \
-                    triage skips entries already in `pending`, pending-only consumes them"
+    let mode_count =
+        (triage_only as u8) + (pending_only as u8) + (refresh_pending as u8);
+    if mode_count > 1 {
+        return Err("--triage, --pending-only, and --refresh-pending are mutually \
+                    exclusive: they walk different subsets of the commit list."
             .to_string());
     }
 
@@ -116,6 +127,7 @@ pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> 
         triage_only,
         pending_only,
         limit,
+        refresh_pending,
     })
 }
 
@@ -157,6 +169,11 @@ pub fn run(config: Config) -> Result<(), String> {
     // Build the ordered commit list (oldest → newest)
     let commits = git_commit_list(&project_root, &base_sha, &reference_sha)?;
     let total = commits.len();
+
+    if config.refresh_pending {
+        return run_refresh_pending(&project_root, &mut progress, &progress_path, &commits, &config);
+    }
+
     let mode_label = if config.triage_only {
         "TRIAGE"
     } else if config.pending_only {
@@ -325,11 +342,15 @@ pub fn run(config: Config) -> Result<(), String> {
         // ── Plan session (analyzer iterations) ──────────────────────────
         let mut plan = PlanSession { iterations: Vec::new() };
 
-        // For a pending entry, the user's "edit" comment is treated as
-        // pre-recorded analyzer feedback so the apply agent sees it in the
-        // exact same shape it would have during an interactive refinement.
+        // Restore the full iteration trace from a pending entry so the apply
+        // agent's prompt gets the AGREED PLAN section (latest_plan) plus the
+        // full feedback history (all_feedback) — i.e. exactly what the user
+        // saw and approved during triage. Falls back to the legacy single
+        // `comment` blob for entries from before `iterations` existed.
         if let Some(ref pd) = pending {
-            if let Some(c) = &pd.comment {
+            if !pd.iterations.is_empty() {
+                plan.iterations = pd.iterations.clone();
+            } else if let Some(c) = &pd.comment {
                 plan.iterations.push(PlanIteration {
                     user_feedback: Some(c.clone()),
                     analyzer_output: String::new(),
@@ -343,7 +364,25 @@ pub fn run(config: Config) -> Result<(), String> {
                 "[pending] auto-applying pre-decided action: {:?}",
                 pd.action
             );
-            if let Some(c) = &pd.comment {
+            let feedback_blob: Option<String> = if !pd.iterations.is_empty() {
+                let v: Vec<String> = pd.iterations.iter()
+                    .filter_map(|it| it.user_feedback.clone())
+                    .collect();
+                if v.is_empty() { None } else { Some(v.join("\n---\n")) }
+            } else {
+                pd.comment.clone()
+            };
+            if plan.latest_plan().is_some() {
+                println!("[pending] restored AGREED PLAN from triage:");
+                if let Some(p) = plan.latest_plan() {
+                    for line in p.lines() {
+                        println!("  | {}", line);
+                    }
+                }
+            } else {
+                println!("[pending] (no analyzer plan saved — legacy entry, apply agent re-derives)");
+            }
+            if let Some(c) = &feedback_blob {
                 println!("[pending] saved instructions:");
                 for line in c.lines() {
                     println!("  > {}", line);
@@ -357,7 +396,7 @@ pub fn run(config: Config) -> Result<(), String> {
                         total,
                         info.subject,
                         pd.action,
-                        pd.comment.as_deref().unwrap_or("(no extra instructions)")
+                        feedback_blob.as_deref().unwrap_or("(no extra instructions)")
                     ),
                     None,
                 );
@@ -430,22 +469,26 @@ pub fn run(config: Config) -> Result<(), String> {
                 // agent. This is the whole point of triage — get a decision per
                 // commit without paying the 20-min CI cost for each.
                 if config.triage_only && !consuming_pending {
-                    let comment = if plan.all_feedback().is_empty() {
-                        None
-                    } else {
-                        Some(plan.all_feedback().join("\n---\n"))
-                    };
-                    let action = if comment.is_some() {
+                    let any_feedback = plan.iterations.iter()
+                        .any(|it| it.user_feedback.is_some());
+                    let action = if any_feedback {
                         PendingAction::Edit
                     } else {
                         PendingAction::Apply
                     };
+                    // Lock in the full track record: every analyzer round
+                    // and every user-refinement that led to the approved
+                    // plan, in order. Restored verbatim when the apply
+                    // agent runs unattended later — the prompt's AGREED
+                    // PLAN section gets the exact plan from triage.
+                    let iterations = plan.iterations.clone();
                     progress.current = None;
                     progress.pending.push(PendingDecision {
                         sha: next.clone(),
                         subject: info.subject.clone(),
                         action: action.clone(),
-                        comment,
+                        iterations,
+                        comment: None,
                     });
                     save_progress(&progress_path, &progress)?;
                     let pending_count = progress.pending.len();
@@ -644,6 +687,137 @@ pub fn run(config: Config) -> Result<(), String> {
     Ok(())
 }
 
+/// Replay the analyzer for every pending entry that doesn't yet have its
+/// `iterations` trace saved (i.e. legacy entries from before that field
+/// existed). For each, we re-run the initial analyzer pass + every
+/// user-feedback round in order so the final restored `PlanSession` matches
+/// what the user saw and approved during triage. No apply agent is spawned;
+/// the result is written back into `progress.pending` so a later
+/// `apply-midlevel pending` run gets the AGREED PLAN section in its prompt.
+fn run_refresh_pending(
+    project_root: &Path,
+    progress: &mut Progress,
+    progress_path: &Path,
+    commits: &[String],
+    config: &Config,
+) -> Result<(), String> {
+    let to_refresh: Vec<usize> = progress.pending.iter().enumerate()
+        .filter(|(_, pd)| pd.iterations.is_empty())
+        .map(|(i, _)| i)
+        .collect();
+
+    println!(
+        "Refresh-pending mode: {} legacy pending entr{} need an analyzer plan (out of {} total).",
+        to_refresh.len(),
+        if to_refresh.len() == 1 { "y" } else { "ies" },
+        progress.pending.len()
+    );
+    if to_refresh.is_empty() {
+        println!("Nothing to refresh.");
+        return Ok(());
+    }
+    if let Some(n) = config.limit {
+        println!("Session limit: will stop after {} refresh(es) this run.", n);
+    }
+    println!();
+
+    let mut refreshed = 0usize;
+    for (i, &idx) in to_refresh.iter().enumerate() {
+        let pd = progress.pending[idx].clone();
+        let info = load_commit_info(project_root, &pd.sha)?;
+        let paired_docs = find_paired_docs(project_root, commits, &pd.sha)?;
+
+        println!("════════════════════════════════════════════════════════════════════════");
+        println!(
+            "Refreshing {}  ({} of {})",
+            short(&pd.sha), i + 1, to_refresh.len()
+        );
+        println!("  Subject: {}", info.subject);
+        println!("  Action:  {:?}", pd.action);
+        let legacy_comment = pd.comment.clone();
+        if let Some(c) = &legacy_comment {
+            println!("  Saved feedback:");
+            for line in c.lines() {
+                println!("    > {}", line);
+            }
+        } else {
+            println!("  Saved feedback: (none — pure `apply`)");
+        }
+        println!("────────────────────────────────────────────────────────────────────────");
+
+        // Split the legacy `\n---\n`-joined feedback back into individual
+        // refinement chunks so we re-walk the same analyzer iterations the
+        // user originally saw.
+        let chunks: Vec<String> = legacy_comment.as_deref()
+            .map(|c| c.split("\n---\n").map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+            .unwrap_or_default();
+
+        let mut plan = PlanSession { iterations: Vec::new() };
+        let mut failed = false;
+
+        // Initial analyzer pass (no feedback yet).
+        match run_analysis_agent(
+            project_root, &pd.sha, &info, paired_docs.as_ref(),
+            &plan, None, config,
+        ) {
+            Ok(output) => plan.iterations.push(PlanIteration {
+                user_feedback: None,
+                analyzer_output: output,
+            }),
+            Err(e) => {
+                eprintln!("[refresh-pending] initial analyzer failed for {}: {}", short(&pd.sha), e);
+                failed = true;
+            }
+        }
+
+        if !failed {
+            for chunk in &chunks {
+                match run_analysis_agent(
+                    project_root, &pd.sha, &info, paired_docs.as_ref(),
+                    &plan, Some(chunk), config,
+                ) {
+                    Ok(output) => plan.iterations.push(PlanIteration {
+                        user_feedback: Some(chunk.clone()),
+                        analyzer_output: output,
+                    }),
+                    Err(e) => {
+                        eprintln!("[refresh-pending] refinement analyzer failed for {}: {}", short(&pd.sha), e);
+                        failed = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if failed {
+            println!("[refresh-pending] {} left as legacy entry; continuing.", short(&pd.sha));
+        } else {
+            progress.pending[idx].iterations = plan.iterations;
+            // Drop the legacy `comment` blob — the iteration trace is now the
+            // canonical source. (Old field stays absent in JSON via `skip_serializing_if`.)
+            progress.pending[idx].comment = None;
+            save_progress(progress_path, progress)?;
+            refreshed += 1;
+            println!("[refresh-pending] saved analyzer trace for {} (rounds={}).", short(&pd.sha), progress.pending[idx].iterations.len());
+        }
+        println!();
+
+        if let Some(n) = config.limit {
+            if refreshed >= n {
+                println!("--limit={} reached. Stopping refresh.", n);
+                break;
+            }
+        }
+    }
+
+    println!(
+        "Refresh complete: {} entr{} updated.",
+        refreshed,
+        if refreshed == 1 { "y" } else { "ies" }
+    );
+    Ok(())
+}
+
 // ── Progress types ────────────────────────────────────────────────────────
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -710,9 +884,18 @@ struct PendingDecision {
     sha: String,
     subject: String,
     action: PendingAction,
-    /// Free-form instructions that the apply agent should treat as user
-    /// feedback — `None` for a plain "apply as-is", `Some(...)` for an "edit
-    /// and apply" pre-decision.
+    /// Full chronological trace of every analyzer round + user-refinement
+    /// the user iterated through before approving. The last entry's
+    /// `analyzer_output` is the plan they signed off on. Restored verbatim
+    /// into the apply agent's `PlanSession` so the prompt has the exact
+    /// AGREED PLAN they saw and the entire feedback history.
+    #[serde(default)]
+    iterations: Vec<PlanIteration>,
+    /// Legacy single-blob comment from entries created before `iterations`
+    /// existed. Used as a fallback by the consumer when `iterations` is
+    /// empty; new code does not write this field. Backfill with
+    /// `apply-midlevel refresh-pending`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     comment: Option<String>,
 }
 
@@ -1477,13 +1660,16 @@ struct PlanSession {
     iterations: Vec<PlanIteration>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
 struct PlanIteration {
     /// None for the initial pass; Some(text) when the user supplied feedback
     /// that the analyzer should incorporate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     user_feedback: Option<String>,
     /// Analyzer's output for this iteration. Empty string when this entry
     /// represents post-apply user feedback that the apply-agent should heed
     /// (no analyzer run happens in that case).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     analyzer_output: String,
 }
 

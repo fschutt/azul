@@ -1270,6 +1270,19 @@ fn main() -> anyhow::Result<()> {
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
             return Ok(());
         }
+        ["autoreview", "apply-midlevel", "refresh-pending", rest @ ..] => {
+            // Subcommand sugar: `apply-midlevel refresh-pending` ≡ `--refresh-pending`.
+            // Backfills the analyzer iteration trace for legacy pending entries
+            // (those without a saved `iterations`) by replaying the analyzer.
+            let mut all_args: Vec<String> = vec!["--refresh-pending".to_string()];
+            all_args.extend(rest.iter().map(|s| s.to_string()));
+            let arg_refs: Vec<&str> = all_args.iter().map(|s| s.as_str()).collect();
+            let config = reftest::apply_midlevel::parse_args(&arg_refs, &project_root)
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            reftest::apply_midlevel::run(config)
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            return Ok(());
+        }
         ["autoreview", "apply-midlevel", rest @ ..] => {
             let config = reftest::apply_midlevel::parse_args(rest, &project_root)
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
@@ -1786,6 +1799,13 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("                                    order, then exits. Un-triaged commits are skipped");
     println!("                                    (not prompted) — so a queue of 5–10 pre-decisions");
     println!("                                    runs to completion unattended and stops.");
+    println!("    autoreview apply-midlevel refresh-pending");
+    println!("                                  - Sugar for --refresh-pending. For any legacy pending");
+    println!("                                    entry (from before the full iteration trace was");
+    println!("                                    saved), replays the analyzer + saved feedback so");
+    println!("                                    the locked-in AGREED PLAN matches what you saw at");
+    println!("                                    triage. Run this once after upgrading, before the");
+    println!("                                    next `apply-midlevel pending`.");
     println!("    autoreview autodoc            - Generate guide pages from doc/autodoc-groups.toml");
     println!("                                    [--agents=N] [--file=GROUP_ID] [--dry-run]");
     println!("    autoreview autodoc-check      - Detect guide pages whose tracked source files have");
