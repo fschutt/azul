@@ -137,7 +137,33 @@ pub const PREFIX: &str = "Az";
 /// same convention for our generated MODEs so they are visually
 /// distinct from PROCs and variables.
 pub fn algol_mode_name(name: &str) -> String {
-    format!("{}{}", PREFIX, name).to_ascii_uppercase()
+    // a68g's UPPER stropping treats a bold identifier (which is what
+    // a MODE name resolves to) as a sequence of *letters only*. Any
+    // digit terminates the bold word — so `AZU8VEC` lexes as
+    // `AZU` + `8` + `VEC` and parsing falls apart. Spell each digit
+    // out so the resulting identifier is letters-only.
+    let raw = format!("{}{}", PREFIX, name).to_ascii_uppercase();
+    let mut out = String::with_capacity(raw.len() + 8);
+    for c in raw.chars() {
+        let replacement = match c {
+            '0' => "ZERO",
+            '1' => "ONE",
+            '2' => "TWO",
+            '3' => "THREE",
+            '4' => "FOUR",
+            '5' => "FIVE",
+            '6' => "SIX",
+            '7' => "SEVEN",
+            '8' => "EIGHT",
+            '9' => "NINE",
+            _ => {
+                out.push(c);
+                continue;
+            }
+        };
+        out.push_str(replacement);
+    }
+    out
 }
 
 /// The C-ABI type symbol for a given IR type (`Dom` -> `AzDom`). This is

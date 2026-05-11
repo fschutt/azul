@@ -154,11 +154,21 @@ fn emit_unit_enum_constants(builder: &mut CodeBuilder, e: &EnumDef) {
             builder.line(&format!("# {} #", sanitize_comment(d)));
         }
     }
+
+    // Always emit a MODE alias so later PROC return types and STRUCT
+    // fields that mention the enum (e.g. `PROC (...) AZUPDATE`) resolve
+    // to a known tag. Without this, a68g raises "tag <FOO> has not
+    // been declared properly" for every callback typedef whose return
+    // type is a unit enum.
+    let mode = algol_mode_name(&e.name);
+    builder.line(&format!("MODE {} = INT;", mode));
+
     if e.variants.is_empty() {
         builder.line(&format!(
-            "# enum {} has no variants — emitted as no-op #",
+            "# enum {} has no variants — emitted as MODE alias only #",
             e.name
         ));
+        builder.blank();
         return;
     }
 
@@ -303,7 +313,10 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
             mode, union_modes[0]
         ));
     } else {
-        let payload_mode = format!("{} PAYLOAD", mode);
+        // Concatenate (no space) — a68g UPPER stropping treats a space
+        // between bold identifiers as a token boundary, so
+        // `AZFOO PAYLOAD` lexes as two separate MODE names.
+        let payload_mode = format!("{}PAYLOAD", mode);
         builder.line(&format!(
             "MODE {} = UNION ({});",
             payload_mode,
