@@ -205,7 +205,7 @@ fn emit_wrapper_method(
     ir: &CodegenIR,
 ) {
     let method_name = idiomatic_method_name(&func.method_name);
-    let ffi_class_name = ffi_type_name(&func.class_name);
+    let _ = ffi_type_name(&func.class_name);
 
     let return_jvm = func
         .return_type
@@ -213,14 +213,25 @@ fn emit_wrapper_method(
         .map(|r| map_jvm_type_byvalue(r, ir))
         .unwrap_or_else(|| "void".to_string());
 
-    // Identify and skip the implicit self argument (named after the
-    // lowercased class).
-    let class_lower = func.class_name.to_lowercase();
-    let user_args: Vec<_> = func
-        .args
-        .iter()
-        .filter(|a| a.name != class_lower && a.name != "self")
-        .collect();
+    let takes_self = matches!(
+        func.kind,
+        FunctionKind::Method | FunctionKind::MethodMut | FunctionKind::DeepCopy
+    );
+
+    // For takes_self methods the first arg in `func.args` IS the
+    // implicit self, regardless of the name the api.json gave it
+    // (`instance`, lowercased class name, etc.). Skip args[0] unconditionally
+    // when takes_self; otherwise filter by conventional self names so a
+    // legitimate user arg named after the class still passes through.
+    let user_args: Vec<_> = if takes_self {
+        func.args.iter().skip(1).collect()
+    } else {
+        let class_lower = func.class_name.to_lowercase();
+        func.args
+            .iter()
+            .filter(|a| a.name != class_lower && a.name != "self")
+            .collect()
+    };
 
     let arg_sig: Vec<String> = user_args
         .iter()
@@ -236,31 +247,50 @@ fn emit_wrapper_method(
         })
         .collect();
 
-    let takes_self = matches!(
-        func.kind,
-        FunctionKind::Method | FunctionKind::MethodMut | FunctionKind::DeepCopy
-    );
     let is_static = matches!(
         func.kind,
         FunctionKind::Constructor | FunctionKind::StaticMethod | FunctionKind::Default
     );
 
+    // Some C ABIs take self by VALUE (e.g. `AzRibbon_renderDom(AzRibbon r)`)
+    // rather than by pointer (`AzFoo_*(IntPtr instance, ...)`). Detect via
+    // the first arg's ref_kind (Owned = by value). When self-by-value, we
+    // construct a `Az<Type>.ByValue` whose Pointer points at our heap-held
+    // instance and pass it in.
+    let self_by_value = takes_self
+        && func
+            .args
+            .first()
+            .map(|a| matches!(a.ref_kind, ArgRefKind::Owned))
+            .unwrap_or(false);
+
+    let mut pre_call_lines: Vec<String> = Vec::new();
     let mut call_args: Vec<String> = Vec::new();
     if takes_self {
-        call_args.push("this.ptr".to_string());
+        if self_by_value {
+            // Build a JNA `.ByValue` Structure overlaying our pointer
+            // via the public Structure.newInstance(Class, Pointer)
+            // factory. `useMemory` is protected and not callable from
+            // here; `newInstance` is the canonical replacement.
+            let self_ty = ffi_type_name(&func.class_name);
+            pre_call_lines.push(format!(
+                "{}.ByValue __self = Structure.newInstance({}.ByValue.class, this.ptr);",
+                self_ty, self_ty
+            ));
+            pre_call_lines.push("__self.read();".to_string());
+            call_args.push("__self".to_string());
+        } else {
+            call_args.push("this.ptr".to_string());
+        }
     }
+    // Callback args: do NOT auto-substitute at the wrapper-method
+    // boundary. The wrapper signature carries the C ABI type (e.g.
+    // `AzCallback.ByValue` or `AzCallbackType`) and is passed through
+    // unchanged. Users construct the wrapper struct via
+    // `AzulHostInvoker.register*(handler)` themselves and pass that.
+    // (Same conclusion C# / Lua reached.)
     for a in &user_args {
         let raw_name = sanitize_identifier(&a.name);
-        if let Some(cb) = a.callback_info.as_ref() {
-            let wrapper = cb.callback_wrapper_name.as_str();
-            if super::super::managed_host_invoker::HOST_INVOKER_KINDS.contains(&wrapper) {
-                call_args.push(format!(
-                    "AzulHostInvoker.register{}({})",
-                    wrapper, raw_name
-                ));
-                continue;
-            }
-        }
         call_args.push(raw_name);
     }
 
@@ -299,10 +329,18 @@ fn emit_wrapper_method(
         builder.line("if (closed) throw new IllegalStateException(\"closed\");");
     }
 
+    for stmt in &pre_call_lines {
+        builder.line(stmt);
+    }
+
+    // Use `func.c_name` directly — it is already the camelCase native
+    // symbol name (`AzFoo_withCapacity`) that matches the AzulNative
+    // interface declarations. Reconstructing it from method_name yields
+    // snake_case (`AzFoo_with_capacity`) which drifts from the actual
+    // C ABI symbol the codegen registered.
     let call = format!(
-        "AzulNative.INSTANCE.{}_{}({})",
-        ffi_class_name,
-        func.method_name,
+        "AzulNative.INSTANCE.{}({})",
+        func.c_name,
         call_args.join(", ")
     );
 
@@ -414,7 +452,21 @@ fn idiomatic_method_name(method_name: &str) -> String {
     };
     // `default`, `class`, `case`, etc. can't be method names. Java has
     // no verbatim-identifier syntax, so append `_`.
+    // Also rename `close` because every wrapper implements AutoCloseable
+    // with its own `close()` for resource cleanup — a user-API method
+    // also named `close` would be a duplicate-definition error. The
+    // SvgPath bug (an SVG path's "close path" segment vs the lifecycle
+    // close) showed up first; the rule generalises.
     if super::is_java_reserved(&camel) {
+        format!("{}_", camel)
+    } else if camel == "close" {
+        "closeInner".to_string()
+    } else if matches!(camel.as_str(), "toString" | "hashCode" | "equals" | "getClass" | "clone" | "finalize") {
+        // Methods declared on java.lang.Object have fixed signatures.
+        // A user-API method called `toString` returning `AzString.ByValue`
+        // cannot legally override `Object.toString()` (which returns
+        // `java.lang.String`), so suffix it. Same family covers
+        // hashCode / equals / clone / finalize / getClass.
         format!("{}_", camel)
     } else {
         camel

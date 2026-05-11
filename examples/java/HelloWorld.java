@@ -1,20 +1,17 @@
 // examples/java/HelloWorld.java
 //
-// Java port of examples/c/hello-world.c built against the host-invoker
-// runtime helpers in `AzulHostInvoker.java` (see `lang_java/managed.rs`).
+// Minimal Java smoke test for the Azul host-invoker plumbing. Confirms
+// that the JNA bindings load, the dylib initialises, and the host-invoker
+// init phase (refanyCreate / refanyGet) round-trips a managed object.
 //
-// Same shape as examples/csharp/hello-world.cs and examples/lua/hello-world.lua:
-//   * `AzulHostInvoker.refanyCreate(value)` wraps any Java object in an
-//     AzRefAny held alive by the framework's refcount.
-//   * Callbacks implement JNA `Callback` interfaces (e.g.
-//     `AzulNativeManaged.CallbackInvokerCallback`) and pass through
-//     `AzulHostInvoker.registerCallback(handler)`, which returns
-//     the `AzCallback` cdata struct the C ABI expects.
+// Full GUI wiring (Dom builders, WindowCreateOptions, App.run) requires
+// the wrapper layer's idiomatic API surface to settle — separate work,
+// not host-invoker. The C# hello-world has the same shape; both verify
+// the FFI plumbing one level above libffi.
 //
-// Build + run via the sibling pom.xml:
-//
+// Build + run:
 //     mvn package
-//     java -cp target/azul-hello-world-0.1.0.jar:$(mvn -Dmdep.outputFile=/dev/stdout dependency:build-classpath -q) com.azul.HelloWorld
+//     java -Djna.library.path=. -cp target/hello-world-1.0.0.jar:$(...) com.azul.HelloWorld
 
 package com.azul;
 
@@ -27,43 +24,31 @@ public final class HelloWorld {
         public MyDataModel(int counter) { this.counter = counter; }
     }
 
-    public static void main(String[] args) {
-        // ── Wrap the model in an AzRefAny ────────────────────────────────
+    // NOTE: `java.lang.String[]` must be fully qualified because the
+    // generated `com.azul.String` Az-wrapper class shadows `java.lang.String`
+    // in package scope. Without the qualification the JVM doesn't recognise
+    // this as a valid main method.
+    public static void main(java.lang.String[] args) {
         MyDataModel model = new MyDataModel(5);
         AzRefAny.ByValue data = AzulHostInvoker.refanyCreate(model);
+        java.lang.System.out.println("[azul] refanyCreate ran; RefAny opaque-handle id stored.");
 
-        // ── Callbacks ────────────────────────────────────────────────────
-        AzulNativeManaged.CallbackInvokerCallback onClick =
-                (long id, Pointer dataPtr, Pointer infoPtr, Pointer outPtr) -> {
-            Object obj = AzulHostInvoker.refanyGet(dataPtr);
-            int update;
-            if (obj instanceof MyDataModel) {
-                ((MyDataModel) obj).counter++;
-                update = 1; // AzUpdate.RefreshDom
+        Object recovered = AzulHostInvoker.refanyGet(data.getPointer());
+        if (recovered instanceof MyDataModel) {
+            MyDataModel m = (MyDataModel) recovered;
+            if (m.counter == 5) {
+                java.lang.System.out.println("[azul] refanyGet round-trip succeeded; counter=" + m.counter);
             } else {
-                update = 0; // AzUpdate.DoNothing
+                java.lang.System.out.println("[azul] refanyGet round-trip FAILED (counter=" + m.counter + ")");
+                java.lang.System.exit(1);
             }
-            outPtr.setInt(0, update);
-        };
+        } else {
+            java.lang.System.out.println("[azul] refanyGet round-trip FAILED (recovered=" + recovered + ")");
+            java.lang.System.exit(1);
+        }
 
-        AzulNativeManaged.LayoutCallbackInvokerCallback layout =
-                (long id, Pointer dataPtr, Pointer infoPtr, Pointer outPtr) -> {
-            // wrappers.rs callback substitution is a future PR; the
-            // host-invoker plumbing IS wired here. The body is left as a
-            // stub for the demo — running App.run() with this binding
-            // requires struct-field setters that lang_java/wrappers.rs
-            // doesn't yet emit.
-            System.err.println("[azul] layout callback fired (id=" + id + ")");
-        };
-
-        // ── Register callbacks ───────────────────────────────────────────
-        AzCallback.ByValue clickCb = AzulHostInvoker.registerCallback(onClick);
-        AzLayoutCallback.ByValue layoutCb = AzulHostInvoker.registerLayoutCallback(layout);
-
-        System.out.println("[azul] host-invoker plumbing wired.");
-        System.out.println("[azul] (Full App.run wiring requires struct-field setters from");
-        System.out.println("[azul]  lang_java/wrappers.rs which is still a stub today.)");
-
-        if (clickCb == null || layoutCb == null) System.exit(1);
+        java.lang.System.out.println("[azul] host-invoker init phase completed successfully.");
+        java.lang.System.out.println("[azul] (Full App.run wiring requires wrapper-layer API surface");
+        java.lang.System.out.println("[azul]  fixes that are separate from the host-invoker plumbing.)");
     }
 }
