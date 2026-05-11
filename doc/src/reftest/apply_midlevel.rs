@@ -64,6 +64,12 @@ pub struct Config {
     /// the full iteration trace back into the entry. Entries that already
     /// have iterations are skipped. No apply agent runs in this mode.
     pub refresh_pending: bool,
+    /// Max attempts per pending commit when running unattended. The first
+    /// attempt counts as #1; default is 3 (so up to 2 retries). Transient
+    /// errors (concurrent build, file-lock contention with other azul-doc
+    /// processes) sleep 60s before retry; real errors sleep 5s and inject
+    /// the failure into the agent's feedback for the next attempt.
+    pub retries: u32,
 }
 
 pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> {
@@ -77,6 +83,7 @@ pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> 
     let mut pending_only = false;
     let mut refresh_pending = false;
     let mut limit: Option<usize> = None;
+    let mut retries: u32 = 3;
 
     for arg in args {
         if let Some(v) = arg.strip_prefix("--reference=") {
@@ -90,6 +97,10 @@ pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> 
         } else if let Some(v) = arg.strip_prefix("--limit=") {
             limit = Some(v.parse::<usize>()
                 .map_err(|_| format!("--limit must be a non-negative integer, got: {}", v))?);
+        } else if let Some(v) = arg.strip_prefix("--retries=") {
+            retries = v.parse::<u32>()
+                .map_err(|_| format!("--retries must be a non-negative integer, got: {}", v))?
+                .max(1);
         } else if *arg == "--no-analyze" {
             skip_analyze = true;
         } else if *arg == "--no-telegram" {
@@ -128,6 +139,7 @@ pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> 
         pending_only,
         limit,
         refresh_pending,
+        retries,
     })
 }
 
@@ -516,6 +528,10 @@ pub fn run(config: Config) -> Result<(), String> {
                     .collect();
                 let was_refined = !user_refinements.is_empty();
 
+                // Counts consecutive failures of run_apply_agent. Resets to 0
+                // on success (so post-apply refinement gets a fresh budget).
+                let mut attempts: u32 = 0;
+
                 // Apply + post-apply refine loop
                 let final_outcome = loop {
                     let outcome = run_apply_agent(
@@ -527,6 +543,7 @@ pub fn run(config: Config) -> Result<(), String> {
                     );
                     match outcome {
                         Ok(applied) => {
+                            attempts = 0;
                             print_applied_summary(&project_root, &pre_head, &applied.new_sha)?;
                             if let Some(b) = bridge.as_ref() {
                                 if let Err(e) = send_applied_diff_to_phone(
@@ -563,24 +580,77 @@ pub fn run(config: Config) -> Result<(), String> {
                             }
                         }
                         Err(e) => {
-                            // In unattended (pending-consumer) mode, don't
-                            // bomb the whole run because one commit failed —
-                            // record it as rejected and move on, so the user
-                            // can review the failures in batch after the
-                            // overnight run finishes.
-                            if consuming_pending {
-                                println!("\n[pending] apply failed: {}", e);
-                                println!("[pending] recording as rejected; moving on to next commit.");
+                            attempts += 1;
+
+                            // In unattended (pending-consumer) mode, retry on
+                            // failure. Concurrent-build / lock-contention
+                            // errors get a 60s wait (another azul-doc process
+                            // is likely using the same target/ dir) and no
+                            // injected feedback — the patch is innocent, the
+                            // env is wrong. Real errors get a 5s wait + a
+                            // hint to the agent describing what failed.
+                            if consuming_pending && attempts < config.retries {
+                                let lc = e.to_ascii_lowercase();
+                                let looks_transient = lc.contains("blocking waiting")
+                                    || lc.contains("file lock")
+                                    || lc.contains("could not acquire")
+                                    || lc.contains("enospc")
+                                    || lc.contains("no space left on device")
+                                    || lc.contains("resource temporarily unavailable")
+                                    || lc.contains("text file busy")
+                                    || lc.contains("is being used by another process");
+                                let sleep_secs: u64 = if looks_transient { 60 } else { 5 };
+                                let kind = if looks_transient { "transient/concurrent-build" } else { "real" };
+
+                                println!(
+                                    "\n[pending] attempt {}/{} failed ({} error): {}",
+                                    attempts, config.retries, kind, e
+                                );
+                                println!("[pending] waiting {}s, then retrying...", sleep_secs);
                                 if let Some(b) = bridge.as_ref() {
                                     let _ = b.send_message(
                                         &format!(
-                                            "[pending] {} APPLY FAILED — recorded as rejected: {}",
-                                            short(&next), e
+                                            "[pending] {} attempt {}/{} ({} err) — waiting {}s before retry\n{}",
+                                            short(&next), attempts, config.retries,
+                                            kind, sleep_secs, e
                                         ),
                                         None,
                                     );
                                 }
-                                break Err(format!("pending-apply failed: {}", e));
+
+                                // Reset working tree for retry so the agent
+                                // starts from a clean state.
+                                let _ = run_git(&project_root, &["reset", "--hard", &pre_head]);
+                                let _ = run_git(&project_root, &["clean", "-fd"]);
+
+                                std::thread::sleep(std::time::Duration::from_secs(sleep_secs));
+
+                                if !looks_transient {
+                                    plan.iterations.push(PlanIteration {
+                                        user_feedback: Some(format!(
+                                            "RETRY {}/{}: the previous attempt failed with:\n{}\n\
+                                             Try a different approach.",
+                                            attempts + 1, config.retries, e
+                                        )),
+                                        analyzer_output: String::new(),
+                                    });
+                                }
+                                continue;
+                            }
+
+                            if consuming_pending {
+                                println!("\n[pending] apply failed after {} attempt(s): {}", attempts, e);
+                                println!("[pending] recording as rejected; moving on to next commit.");
+                                if let Some(b) = bridge.as_ref() {
+                                    let _ = b.send_message(
+                                        &format!(
+                                            "[pending] {} APPLY FAILED after {} attempts — recorded as rejected: {}",
+                                            short(&next), attempts, e
+                                        ),
+                                        None,
+                                    );
+                                }
+                                break Err(format!("pending-apply failed after {} attempts: {}", attempts, e));
                             }
                             println!("\n[ERROR] agent apply failed: {}\n", e);
                             println!("Repository state left as-is. Resolve manually or quit.");
@@ -2370,9 +2440,26 @@ fn run_apply_agent(
 
     // If the agent made more than one commit, or we're refining (pre_head is
     // the original baseline and HEAD already had a commit from a prior round),
-    // collapse everything on top of pre_head into a single squashed commit.
+    // collapse everything on top of pre_head into a single squashed commit —
+    // EXCEPT when every extra commit is a `follow-up: ` commit, in which case
+    // the agent intentionally split the work per STEP 6 of the prompt and we
+    // preserve all commits.
     let commit_count = count_commits(project_root, pre_head, &post_head)?;
-    let final_head = if commit_count > 1 || is_refinement {
+    let extras_are_followups = extra_commits_are_followups(project_root, pre_head, &post_head)
+        .unwrap_or(false);
+    let final_head = if (commit_count > 1 && !extras_are_followups) || is_refinement {
+        if extras_are_followups && is_refinement {
+            // Edge case: post-apply refinement on a commit that had follow-ups.
+            // The refinement squash would collapse the follow-ups into the
+            // main commit. That's destructive — the user's previous round
+            // produced two distinct commits intentionally. Refuse and let the
+            // user resolve manually.
+            return Err(
+                "refinement requested on a commit chain containing follow-up: commits; \
+                 collapsing would lose intentional separation. Reset manually and re-run."
+                    .into(),
+            );
+        }
         squash_to_one_commit(project_root, pre_head, info, user_instruction)?
     } else {
         post_head.clone()
@@ -2385,6 +2472,34 @@ fn run_apply_agent(
     }
 
     Ok(Applied { new_sha: final_head })
+}
+
+/// True iff the range `from..to` has at least 2 commits AND every commit after
+/// the first one (the "main" replayed commit) has a subject starting with
+/// `follow-up: `. Used to decide whether the agent's multi-commit output was
+/// intentional (per STEP 6 of the prompt) and should be preserved, vs. a
+/// stray multi-commit that should be squashed.
+fn extra_commits_are_followups(
+    project_root: &Path,
+    from: &str,
+    to: &str,
+) -> Result<bool, String> {
+    let out = Command::new("git")
+        .args(["log", "--reverse", "--format=%s", &format!("{}..{}", from, to)])
+        .current_dir(project_root)
+        .output()
+        .map_err(|e| format!("git log subjects: {}", e))?;
+    if !out.status.success() {
+        return Ok(false);
+    }
+    let subjects: Vec<&str> = std::str::from_utf8(&out.stdout)
+        .unwrap_or("")
+        .lines()
+        .collect();
+    if subjects.len() < 2 {
+        return Ok(false);
+    }
+    Ok(subjects.iter().skip(1).all(|s| s.starts_with("follow-up: ")))
 }
 
 fn count_commits(project_root: &Path, from: &str, to: &str) -> Result<usize, String> {
@@ -2537,6 +2652,26 @@ fn build_agent_prompt(
     p.push_str("Run these in order. If any step fails, investigate and fix the root cause\n");
     p.push_str("before continuing. Do NOT skip any step. ALWAYS use `--release` (`-r`) for\n");
     p.push_str("every cargo invocation — debug artifacts can easily fill the disk.\n\n");
+    p.push_str("IMPORTANT — concurrent builds: other azul-doc agents (language-binding\n");
+    p.push_str("codegen, etc.) may be using the same `target/` directory in parallel. If\n");
+    p.push_str("a cargo command fails with `Blocking waiting for file lock`, `could not\n");
+    p.push_str("acquire`, `Text file busy`, or appears to hang on a lock-related message\n");
+    p.push_str("(NOT a real compile error pointing at a specific file/line in YOUR diff),\n");
+    p.push_str("wait 60 seconds and retry the same cargo command, up to 3 times. DO NOT\n");
+    p.push_str("interpret lock contention as a real compile error — your patch is\n");
+    p.push_str("innocent. Real errors will name a file from your diff and a specific\n");
+    p.push_str("line number; lock errors mention `target/` directory contention only.\n\n");
+    p.push_str("CONCURRENT BUILD WARNING: other azul-doc processes (language-binding\n");
+    p.push_str("codegen, parallel autoreview, etc.) may be using the same `target/`\n");
+    p.push_str("directory. If `cargo` reports any of:\n\n");
+    p.push_str("    Blocking waiting for file lock on build directory\n");
+    p.push_str("    could not acquire build directory lock\n");
+    p.push_str("    text file busy\n");
+    p.push_str("    resource temporarily unavailable\n\n");
+    p.push_str("…the other process is holding the lock. WAIT 60 seconds and rerun the\n");
+    p.push_str("SAME command (up to 3 times). Do NOT interpret these as compile errors\n");
+    p.push_str("and do NOT 'fix' imaginary problems in the code. Real compile errors name\n");
+    p.push_str("specific files / line numbers in YOUR diff.\n\n");
     p.push_str("IMPORTANT: the azul-doc binary you need for these steps is already built\n");
     p.push_str("and available as `$AZUL_DOC_BIN` in your environment. Invoke it directly:\n\n");
     p.push_str("    \"$AZUL_DOC_BIN\" autofix\n\n");
@@ -2579,11 +2714,34 @@ fn build_agent_prompt(
     p.push_str("If the build fails with ENOSPC (disk full), you may need to run\n");
     p.push_str("`cargo clean --target <that-target>` between target checks to reclaim space.\n\n");
 
-    p.push_str("═══ STEP 6 — Final invariants (you MUST satisfy all of these) ════════\n\n");
-    p.push_str("  • HEAD points at exactly ONE new commit (your new SHA).\n");
+    p.push_str("═══ STEP 6 — Follow-up tasks (if the plan calls for any) ══════════════\n\n");
+    p.push_str("Re-read the AGREED PLAN and the USER FEEDBACK HISTORY (both at the end of\n");
+    p.push_str("this prompt). If they mention work BEYOND the main fix — phrases like\n");
+    p.push_str("\"also do X\", \"then refactor Y\", \"as a follow-up, add Z\", \"after that\n");
+    p.push_str("hook up W\", \"save this as the plan\" referring to a wider goal — do that\n");
+    p.push_str("work as a SEPARATE second commit. Don't bundle follow-ups into the main\n");
+    p.push_str("commit; reviewers should be able to read them independently.\n\n");
+    p.push_str("For each follow-up commit:\n");
+    p.push_str("  (a) Implement the follow-up work on top of the main commit.\n");
+    p.push_str("  (b) Repeat STEP 4 (autofix loop → normalize → codegen) and STEP 5\n");
+    p.push_str("      (3-target cross-compile). Same concurrent-build warning applies.\n");
+    p.push_str("  (c) Commit with subject prefix `follow-up: ` (literal, with the colon\n");
+    p.push_str("      and trailing space). Example:\n\n");
+    p.push_str("        follow-up: hook XIMPreeditCallbacks for IME composition\n\n");
+    p.push_str("      The body should briefly say WHAT and reference the main commit's\n");
+    p.push_str("      subject for context. No `Co-Authored-By`, no `Generated with…` footer.\n");
+    p.push_str("  (d) The CLI looks for the literal `follow-up: ` prefix to decide it's\n");
+    p.push_str("      intentional (and won't squash it into the main commit). If you\n");
+    p.push_str("      forget the prefix it gets squashed away.\n\n");
+    p.push_str("If there are NO follow-up tasks in the plan, skip this step. Don't invent\n");
+    p.push_str("follow-ups the user didn't ask for.\n\n");
+
+    p.push_str("═══ STEP 7 — Final invariants (you MUST satisfy all of these) ════════\n\n");
+    p.push_str("  • HEAD points at the LAST of your new commit(s) (main, plus any\n");
+    p.push_str("    `follow-up: ` commits from STEP 6).\n");
     p.push_str("  • `git status --porcelain` is EMPTY.\n");
-    p.push_str("  • The new commit's diff contains NO .md files.\n");
-    p.push_str("  • All 3 cross-compile targets pass `cargo check`.\n\n");
+    p.push_str("  • No commit you made touches a .md file.\n");
+    p.push_str("  • All 3 cross-compile targets pass `cargo check` at HEAD.\n\n");
 
     // ── Reference material ──────────────────────────────────────────────
     p.push_str(&format!("Original commit SHA: {}\n", sha));
@@ -2617,7 +2775,7 @@ fn build_agent_prompt(
         p.push_str("\n=== END REPORT DIFF ===\n");
     }
 
-    p.push_str("\nProceed through all six steps. Do not stop until the final invariants hold.\n");
+    p.push_str("\nProceed through all seven steps. Do not stop until the final invariants hold.\n");
     Ok(p)
 }
 

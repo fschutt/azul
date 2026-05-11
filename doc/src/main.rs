@@ -1779,10 +1779,14 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    autoreview apply-midlevel     - Interactively replay commits from a reference branch");
     println!("                                    --reference=<branch/tag> [--base=<ref>] [--model=<name>]");
     println!("                                    [--no-telegram] [--triage] [--pending-only]");
-    println!("                                    [--limit=N]");
+    println!("                                    [--limit=N] [--retries=N]");
     println!("                                    Pending pre-decisions (from `triage`) auto-apply");
-    println!("                                    without prompting; failures are recorded and the run");
-    println!("                                    continues, so it can sit unattended overnight.");
+    println!("                                    without prompting; failures retry up to --retries=3");
+    println!("                                    (concurrent-build errors wait 60s, real errors 5s");
+    println!("                                    with a hint to the agent). After N failures the");
+    println!("                                    entry is recorded as Rejected and the loop continues.");
+    println!("                                    The apply agent now produces `follow-up: ` commits");
+    println!("                                    for any 'also do X' work in the AGREED PLAN.");
     println!("                                    --limit=N stops the session after N decisions.");
     println!("    autoreview apply-midlevel triage");
     println!("                                  - Same flags as apply-midlevel, but skips the apply");
