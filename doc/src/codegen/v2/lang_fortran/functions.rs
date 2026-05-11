@@ -58,6 +58,19 @@ pub fn generate_externals(
     builder.line("end interface");
     builder.blank();
 
+    // The module declares `private` at top-level, so every interface-
+    // block symbol must be re-exported explicitly. Without these
+    // `public` declarations, `use azul` in caller code sees a typedef
+    // tree but no callable C-ABI functions.
+    for func in &ir.functions {
+        if !should_emit_function(func, ir, config) {
+            continue;
+        }
+        let alias = fortran_alias_for(&func.c_name);
+        builder.line(&format!("public :: {}", alias));
+    }
+    builder.blank();
+
     Ok(())
 }
 

@@ -276,7 +276,18 @@ pub fn map_type_to_fortran(rust_type: &str, ir: &CodegenIR) -> String {
         // module still compiles.
         _ => {
             if let Some(e) = ir.find_enum(trimmed) {
-                if e.is_union {
+                // Skipped enum categories produce no derived type;
+                // callers should treat them as opaque pointers.
+                if matches!(
+                    e.category,
+                    crate::codegen::v2::ir::TypeCategory::Recursive
+                        | crate::codegen::v2::ir::TypeCategory::VecRef
+                        | crate::codegen::v2::ir::TypeCategory::DestructorOrClone
+                        | crate::codegen::v2::ir::TypeCategory::GenericTemplate
+                ) || !e.generic_params.is_empty()
+                {
+                    "type(c_ptr)".to_string()
+                } else if e.is_union {
                     format!("type({})", ffi_type_name(trimmed))
                 } else {
                     "integer(c_int)".to_string()
@@ -288,10 +299,36 @@ pub fn map_type_to_fortran(rust_type: &str, ir: &CodegenIR) -> String {
                 // here would dangle — there's no derived type by that
                 // name.
                 "type(c_funptr)".to_string()
-            } else if ir.find_struct(trimmed).is_some()
-                || ir.find_type_alias(trimmed).is_some()
-            {
-                format!("type({})", ffi_type_name(trimmed))
+            } else if let Some(ta) = ir.find_type_alias(trimmed) {
+                // Simple type alias: resolve to the target. The codegen
+                // only emits a `type, bind(C) :: AzFoo` block for
+                // monomorphized aliases; simple aliases (ScanCode = u32,
+                // GLuint = u32) have no derived type and must lower to
+                // the target's representation. Recurse so chains resolve.
+                if ta.monomorphized_def.is_some() {
+                    format!("type({})", ffi_type_name(trimmed))
+                } else {
+                    map_type_to_fortran(&ta.target, ir)
+                }
+            } else if let Some(s) = ir.find_struct(trimmed) {
+                // Skipped struct categories (Recursive, VecRef,
+                // DestructorOrClone, GenericTemplate) have no `type,
+                // bind(C) :: AzFoo` declaration emitted, so referencing
+                // their derived-type name would dangle. Fall back to
+                // `type(c_ptr)` for those — callers treat them as
+                // opaque references.
+                if matches!(
+                    s.category,
+                    crate::codegen::v2::ir::TypeCategory::Recursive
+                        | crate::codegen::v2::ir::TypeCategory::VecRef
+                        | crate::codegen::v2::ir::TypeCategory::DestructorOrClone
+                        | crate::codegen::v2::ir::TypeCategory::GenericTemplate
+                ) || !s.generic_params.is_empty()
+                {
+                    "type(c_ptr)".to_string()
+                } else {
+                    format!("type({})", ffi_type_name(trimmed))
+                }
             } else {
                 "type(c_ptr)".to_string()
             }
@@ -409,6 +446,11 @@ pub fn is_fortran_reserved(name: &str) -> bool {
             | "max"
             | "size"
             | "data_"
+            // Single-letter names that collide with the synthetic
+            // `r` result variable on every generated function.
+            // Without these the Fortran compiler raises
+            // "DUMMY attribute conflicts with RESULT attribute".
+            | "r"
     )
 }
 

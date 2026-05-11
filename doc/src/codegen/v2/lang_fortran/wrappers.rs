@@ -139,11 +139,11 @@ fn emit_wrapper_type_decl(builder: &mut CodeBuilder, s: &StructDef, ir: &Codegen
     builder.line(&format!("type :: {}", wrapper));
     builder.indent();
     builder.line("private");
-    // `target` is required so callers can take c_loc(self%raw) when
-    // the C ABI declares the self argument as `type(c_ptr)` (by-ref
-    // self). Without it gfortran refuses with "Argument X to C_LOC
-    // shall have either the POINTER or the TARGET attribute".
-    builder.line(&format!("type({}), target :: raw", raw_ty));
+    // The `target` attribute is illegal on a derived-type component
+    // in gfortran (raises "Attribute at (1) is not allowed in a TYPE
+    // definition"). We instead apply `target` to each method's
+    // `self` dummy argument so `c_loc(self%raw)` is well-formed.
+    builder.line(&format!("type({}) :: raw", raw_ty));
     builder.line("logical :: owned = .true.");
     builder.dedent();
     builder.line("contains");
@@ -165,7 +165,18 @@ fn emit_wrapper_type_decl(builder: &mut CodeBuilder, s: &StructDef, ir: &Codegen
         let tbp_name = sanitize_identifier(&func.method_name);
         let proc_name =
             truncate_identifier(&format!("{}_{}", prefix, sanitize_identifier(&func.method_name)));
-        builder.line(&format!("procedure :: {} => {}", tbp_name, proc_name));
+        // Static methods (no self arg in the IR) must use `nopass` so
+        // Fortran doesn't try to inject the wrapper as the first arg.
+        // Instance methods use the default pass-by-self semantics.
+        let takes_self = matches!(
+            func.kind,
+            FunctionKind::Method | FunctionKind::MethodMut | FunctionKind::DeepCopy
+        );
+        let pass_attr = if takes_self { "" } else { ", nopass" };
+        builder.line(&format!(
+            "procedure{} :: {} => {}",
+            pass_attr, tbp_name, proc_name
+        ));
     }
 
     builder.dedent();
@@ -203,7 +214,9 @@ fn emit_wrapper_bodies(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
     };
     builder.line(&format!("subroutine {}(self)", finalizer));
     builder.indent();
-    builder.line(&format!("type({}), intent(inout) :: self", wrapper));
+    // `target` lets `c_loc(self%raw)` work without declaring `raw`
+    // as a target component (gfortran rejects that).
+    builder.line(&format!("type({}), intent(inout), target :: self", wrapper));
     builder.line("if (self%owned) then");
     builder.indent();
     builder.line(&format!("call {}({})", delete_alias, delete_self_expr));
@@ -372,7 +385,12 @@ fn emit_method_body(
         // non-extending wrapper type, but it lets users override later
         // without changing call sites. Use `class()` for instance
         // methods so the binding is forward-compatible with `extends`.
-        builder.line(&format!("class({}), intent(inout) :: self", wrapper));
+        // `target` lets `c_loc(self%raw)` work; can't declare `raw`
+        // as a target component (gfortran rejects).
+        builder.line(&format!(
+            "class({}), intent(inout), target :: self",
+            wrapper
+        ));
     }
 
     for a in &visible {

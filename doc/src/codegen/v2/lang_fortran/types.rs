@@ -60,29 +60,33 @@ pub fn generate_types(
         }
     }
 
-    // 2. Tagged-union enums (no native union -> tag + payload pointer).
-    for e in &ir.enums {
-        if !should_include_enum(e, config) {
-            continue;
-        }
-        if e.is_union {
-            emit_tagged_union(builder, e, ir);
-        }
+    // 2 + 3 + 3b. Interleave tagged-union enums, POD structs, AND
+    // monomorphized type-alias instantiations in topological order.
+    // Monomorphized aliases (PhysicalSizeU32 etc.) are referenced by
+    // regular structs (AzTexture has a `size: AzPhysicalSizeU32`
+    // field), so they must land at the right sort_order rather than
+    // at the end. Same pattern as lang_pascal/types.rs.
+    enum Item<'a> {
+        Struct(&'a StructDef),
+        Union(&'a EnumDef),
+        Mono(&'a TypeAliasDef, &'a MonomorphizedTypeDef),
     }
-
-    // 3. POD derived types.
+    let mut items: Vec<(usize, Item)> = Vec::new();
     for s in &ir.structs {
         if !should_include_struct(s, config) {
             emit_skipped_struct(builder, s);
             continue;
         }
-        emit_struct(builder, s, ir);
+        items.push((s.sort_order, Item::Struct(s)));
     }
-
-    // 3b. Monomorphized type aliases (generic instantiations like
-    // PhysicalSizeU32, OptionU32, CssPropertyValue<T> family). These
-    // are referenced by other types and the procedure interfaces, so
-    // without them the build sees ~30+ dangling identifiers.
+    for e in &ir.enums {
+        if !should_include_enum(e, config) {
+            continue;
+        }
+        if e.is_union {
+            items.push((e.sort_order, Item::Union(e)));
+        }
+    }
     for ta in &ir.type_aliases {
         let Some(ref mono) = ta.monomorphized_def else {
             continue;
@@ -90,7 +94,15 @@ pub fn generate_types(
         if !config.should_include_type(&ta.name) {
             continue;
         }
-        emit_monomorphized_alias(builder, ta, mono, ir);
+        items.push((ta.sort_order, Item::Mono(ta, mono)));
+    }
+    items.sort_by_key(|(d, _)| *d);
+    for (_, item) in &items {
+        match item {
+            Item::Struct(s) => emit_struct(builder, s, ir),
+            Item::Union(e) => emit_tagged_union(builder, e, ir),
+            Item::Mono(ta, mono) => emit_monomorphized_alias(builder, ta, mono, ir),
+        }
     }
 
     // 4. Callback (procedural) typedefs.
@@ -361,10 +373,21 @@ fn emit_callback_typedef(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir:
     builder.line("abstract interface");
     builder.indent();
 
+    // Synthesize arg names when the IR leaves them empty (the api
+    // sometimes elides parameter names for callback typedefs). Without
+    // synthetic names the emitted signature `function foo(, )` parses
+    // as a malformed argument list.
     let arg_names: Vec<String> = cb
         .args
         .iter()
-        .map(|a| sanitize_identifier(&a.name))
+        .enumerate()
+        .map(|(i, a)| {
+            if a.name.is_empty() {
+                format!("arg{}", i)
+            } else {
+                sanitize_identifier(&a.name)
+            }
+        })
         .collect();
 
     let header = if cb.return_type.is_some() {
@@ -379,14 +402,18 @@ fn emit_callback_typedef(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir:
     builder.line(&header);
     builder.indent();
     builder.line("import");
-    for arg in &cb.args {
+    for (i, arg) in cb.args.iter().enumerate() {
         let f_ty = match arg.ref_kind {
             ArgRefKind::Owned => map_type_to_fortran(&arg.type_name, ir),
             ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
                 "type(c_ptr)".to_string()
             }
         };
-        let nm = sanitize_identifier(&arg.name);
+        let nm = if arg.name.is_empty() {
+            format!("arg{}", i)
+        } else {
+            sanitize_identifier(&arg.name)
+        };
         // Pointers are passed by VALUE (the address itself is the value).
         // C primitives are passed by VALUE. Derived types pass by VALUE
         // since `bind(C)` records mirror Rust `extern "C"` ABI.
