@@ -268,13 +268,28 @@ pub fn map_type_to_fortran(rust_type: &str, ir: &CodegenIR) -> String {
         }
 
         // Anything else: assume it's a known IR type and emit a
-        // `type(AzFoo)`. Unknown types fall back to `type(c_ptr)` so the
-        // generated module still compiles.
+        // `type(AzFoo)`. Unit enums (no payload variants) are emitted
+        // as `enumerator :: AzFoo_X = N` constants without a backing
+        // derived type, so they must map to `integer(c_int)` here.
+        // Tagged-union enums DO get a `type, bind(C) :: AzFoo` block.
+        // Unknown types fall back to `type(c_ptr)` so the generated
+        // module still compiles.
         _ => {
-            if ir.find_struct(trimmed).is_some()
-                || ir.find_enum(trimmed).is_some()
+            if let Some(e) = ir.find_enum(trimmed) {
+                if e.is_union {
+                    format!("type({})", ffi_type_name(trimmed))
+                } else {
+                    "integer(c_int)".to_string()
+                }
+            } else if ir.callback_typedefs.iter().any(|c| c.name == trimmed) {
+                // Callback typedefs are emitted as `abstract interface`
+                // signatures + a `procedure pointer` value; the type itself
+                // is `c_funptr` from `iso_c_binding`. Using `type(AzFoo)`
+                // here would dangle — there's no derived type by that
+                // name.
+                "type(c_funptr)".to_string()
+            } else if ir.find_struct(trimmed).is_some()
                 || ir.find_type_alias(trimmed).is_some()
-                || ir.callback_typedefs.iter().any(|c| c.name == trimmed)
             {
                 format!("type({})", ffi_type_name(trimmed))
             } else {

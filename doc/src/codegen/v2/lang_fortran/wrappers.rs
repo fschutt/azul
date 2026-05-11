@@ -139,7 +139,11 @@ fn emit_wrapper_type_decl(builder: &mut CodeBuilder, s: &StructDef, ir: &Codegen
     builder.line(&format!("type :: {}", wrapper));
     builder.indent();
     builder.line("private");
-    builder.line(&format!("type({}) :: raw", raw_ty));
+    // `target` is required so callers can take c_loc(self%raw) when
+    // the C ABI declares the self argument as `type(c_ptr)` (by-ref
+    // self). Without it gfortran refuses with "Argument X to C_LOC
+    // shall have either the POINTER or the TARGET attribute".
+    builder.line(&format!("type({}), target :: raw", raw_ty));
     builder.line("logical :: owned = .true.");
     builder.dedent();
     builder.line("contains");
@@ -179,15 +183,30 @@ fn emit_wrapper_bodies(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
     let raw_ty = truncate_identifier(&ffi_type_name(&s.name));
     let prefix = instance_method_prefix(&s.name);
 
-    // Finalizer.
+    // Finalizer. The C `Foo_delete(...)` signature is conventionally
+    // by-pointer (`Foo* self`), so the Fortran interface emits
+    // `type(c_ptr), value :: instance` and we must wrap with
+    // c_loc(self%raw). Look up the actual delete function in the IR
+    // to handle the rare by-value-self case.
     let finalizer = truncate_identifier(&format!("{}_finalizer", prefix));
     let delete_alias = fortran_alias_for(&format!("{}_delete", ffi_type_name(&s.name)));
+    let delete_by_value = ir
+        .functions_for_class(&s.name)
+        .find(|f| matches!(f.kind, FunctionKind::Delete))
+        .and_then(|f| f.args.first())
+        .map(|a| matches!(a.ref_kind, ArgRefKind::Owned))
+        .unwrap_or(false);
+    let delete_self_expr = if delete_by_value {
+        "self%raw".to_string()
+    } else {
+        "c_loc(self%raw)".to_string()
+    };
     builder.line(&format!("subroutine {}(self)", finalizer));
     builder.indent();
     builder.line(&format!("type({}), intent(inout) :: self", wrapper));
     builder.line("if (self%owned) then");
     builder.indent();
-    builder.line(&format!("call {}(self%raw)", delete_alias));
+    builder.line(&format!("call {}({})", delete_alias, delete_self_expr));
     builder.line("self%owned = .false.");
     builder.dedent();
     builder.line("end if");
@@ -195,9 +214,27 @@ fn emit_wrapper_bodies(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
     builder.line(&format!("end subroutine {}", finalizer));
     builder.blank();
 
-    // Static factory functions (constructors).
+    // Static factory functions (constructors). Skip any factory whose
+    // return type isn't Self — Fortran can't treat a function as a
+    // subroutine, and we'd otherwise emit `call foo()` against a
+    // function-typed interface (gfortran rejects the type mismatch).
     for func in ir.functions_for_class(&s.name) {
         if !matches!(func.kind, FunctionKind::Constructor | FunctionKind::Default) {
+            continue;
+        }
+        let returns_self = func
+            .return_type
+            .as_deref()
+            .map(|r| r.trim() == func.class_name)
+            .unwrap_or(false);
+        if !returns_self {
+            builder.line(&format!(
+                "! SKIPPED: factory {} returns {:?}, not {}",
+                fortran_alias_for(&func.c_name),
+                func.return_type,
+                func.class_name
+            ));
+            builder.blank();
             continue;
         }
         emit_factory_body(builder, &wrapper, &raw_ty, &prefix, func, ir);
@@ -266,24 +303,10 @@ fn emit_factory_body(
     }
     builder.line(&format!("type({}) :: r", wrapper));
 
-    let returns_self = func
-        .return_type
-        .as_deref()
-        .map(|r| r.trim() == func.class_name)
-        .unwrap_or(false);
-
-    if returns_self {
-        builder.line(&format!("r%raw = {}({})", alias, arg_list));
-        builder.line("r%owned = .true.");
-    } else {
-        // Constructor that doesn't return Self -> SKIPPED stub.
-        builder.line(&format!(
-            "! SKIPPED: factory {} returns {:?}, not {}",
-            alias, func.return_type, func.class_name
-        ));
-        builder.line(&format!("call {}({})", alias, arg_list));
-        builder.line("r%owned = .false.");
-    }
+    // Callers above filter out non-self-returning factories so this
+    // path is always Self-returning. Use the function-call syntax.
+    builder.line(&format!("r%raw = {}({})", alias, arg_list));
+    builder.line("r%owned = .true.");
 
     builder.dedent();
     builder.line(&format!("end function {}", factory));
@@ -310,13 +333,18 @@ fn emit_method_body(
         FunctionKind::Method | FunctionKind::MethodMut | FunctionKind::DeepCopy
     );
 
-    // Filter out the implicit self argument from the IR arg list.
-    let class_lower = func.class_name.to_lowercase();
-    let visible: Vec<&super::super::ir::FunctionArg> = func
-        .args
-        .iter()
-        .filter(|a| a.name != "self" && a.name != class_lower)
-        .collect();
+    // Drop the implicit self argument. For instance methods
+    // (takes_self == true) args[0] IS the self irrespective of
+    // how api.json named it (`instance`, lowercased class, snake-
+    // cased class like `icon_provider_handle`, etc.). Skipping
+    // args[0] directly matches the Java/C#/Kotlin fix and avoids
+    // wrapper-vs-native arg drift. For non-instance functions all
+    // args are user-facing.
+    let visible: Vec<&super::super::ir::FunctionArg> = if takes_self {
+        func.args.iter().skip(1).collect()
+    } else {
+        func.args.iter().collect()
+    };
 
     let mut decl_arg_names: Vec<String> = Vec::with_capacity(visible.len() + 1);
     if takes_self {
@@ -364,10 +392,23 @@ fn emit_method_body(
     }
 
     // Build the C-side call argument list. If `takes_self`, the C
-    // function expects the raw record as its first argument.
+    // function's first param is the self-record. Its declared
+    // interface type is `type(...)` for by-value self (Owned) or
+    // `type(c_ptr)` for by-ref self (Ref/Ptr) — match exactly,
+    // gfortran refuses to widen `type(AzFoo)` to `type(c_ptr)`.
+    let self_by_value = takes_self
+        && func
+            .args
+            .first()
+            .map(|a| matches!(a.ref_kind, ArgRefKind::Owned))
+            .unwrap_or(false);
     let mut call_args: Vec<String> = Vec::with_capacity(visible.len() + 1);
     if takes_self {
-        call_args.push("self%raw".to_string());
+        if self_by_value {
+            call_args.push("self%raw".to_string());
+        } else {
+            call_args.push("c_loc(self%raw)".to_string());
+        }
     }
     for a in &visible {
         call_args.push(sanitize_identifier(&a.name));

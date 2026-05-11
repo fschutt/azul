@@ -202,7 +202,12 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, _ir: &CodegenIR) {
     }
 
     let ffi = ffi_type_name(&e.name);
-    let tag_alias = format!("{}Tag", ffi);
+    // The tag-enum prefix must not collide with a sibling unit enum
+    // that happens to share the base name with `Tag` appended — e.g.
+    // `NodeType` is a tagged union and `NodeTypeTag` is a separate
+    // unit enum, both naturally landing at `AzNodeTypeTag_*` prefix.
+    // Using `_TAG_` makes the tagged-union variants disambiguated.
+    let tag_alias = format!("{}_TAG", ffi);
 
     // Tag enum block.
     builder.line(&format!("! Tagged-union {}: tag + opaque payload pointer.", ffi));
