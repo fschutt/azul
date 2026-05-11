@@ -131,6 +131,7 @@ pub fn emit_records_in_sort_order(
     enum Item<'a> {
         Struct(&'a StructDef),
         Union(&'a EnumDef),
+        Mono(&'a super::super::ir::TypeAliasDef),
     }
     let mut items: Vec<(usize, Item)> = Vec::new();
     for s in &ir.structs {
@@ -140,6 +141,18 @@ pub fn emit_records_in_sort_order(
         if e.is_union {
             items.push((e.sort_order, Item::Union(e)));
         }
+    }
+    // Monomorphized type aliases (PhysicalSizeU32, Option*<T>, *Value
+    // family) are referenced by other records as fields and must be
+    // declared in topological order alongside structs/unions.
+    for ta in &ir.type_aliases {
+        if ta.monomorphized_def.is_none() {
+            continue;
+        }
+        if !config.should_include_type(&ta.name) {
+            continue;
+        }
+        items.push((ta.sort_order, Item::Mono(ta)));
     }
     items.sort_by_key(|(ord, _)| *ord);
     for (_, item) in items {
@@ -158,9 +171,87 @@ pub fn emit_records_in_sort_order(
                 }
                 emit_tagged_union(builder, e, config);
             }
+            Item::Mono(ta) => emit_monomorphized_alias(builder, ta, config, ir),
         }
     }
     builder.blank();
+}
+
+/// Emit a monomorphized type-alias instantiation (PhysicalSizeU32,
+/// OptionU32, OptionF32, *Value family). Same shape as
+/// emit_struct_layout but driven from `monomorphized_def.kind`.
+fn emit_monomorphized_alias(
+    builder: &mut CodeBuilder,
+    ta: &super::super::ir::TypeAliasDef,
+    config: &CodegenConfig,
+    ir: &CodegenIR,
+) {
+    use super::super::ir::MonomorphizedKind;
+    let name = config.apply_prefix(&ta.name);
+    let pkg = format!("Azul::{}", name);
+    let Some(ref mono) = ta.monomorphized_def else {
+        return;
+    };
+    builder.line(&format!("package {} {{", pkg));
+    builder.indent();
+    builder.line("use FFI::Platypus::Record;");
+    match &mono.kind {
+        MonomorphizedKind::SimpleEnum { .. } => {
+            // Same shape as a unit enum: stored as sint32.
+            builder.line("record_layout_1($Azul::ffi,");
+            builder.indent();
+            builder.line("'sint32' => 'tag',");
+            builder.dedent();
+            builder.line(");");
+        }
+        MonomorphizedKind::Struct { fields } => {
+            if fields.is_empty() {
+                builder.line("record_layout_1($Azul::ffi,");
+                builder.indent();
+                builder.line("'uint8' => '_padding',");
+                builder.dedent();
+                builder.line(");");
+            } else {
+                builder.line("record_layout_1($Azul::ffi,");
+                builder.indent();
+                for f in fields {
+                    let field_name = perl_field_name(&f.name);
+                    let referenced = nested_struct_name(f, ir);
+                    if let Some(inner) = referenced {
+                        let inner_alias = config.apply_prefix(&inner);
+                        builder.line(&format!(
+                            "'string(' . $Azul::ffi->sizeof('{}') . ')' => '{}',",
+                            inner_alias, field_name
+                        ));
+                    } else {
+                        let perl_type =
+                            type_with_ref_to_perl(&f.type_name, f.ref_kind, config, ir);
+                        builder.line(&format!("'{}' => '{}',", perl_type, field_name));
+                    }
+                }
+                builder.dedent();
+                builder.line(");");
+            }
+        }
+        MonomorphizedKind::TaggedUnion { .. } => {
+            // Tag + conservative 64-byte payload — matches lang_cobol's
+            // strategy. The exact variant byte size can't be computed
+            // portably without per-platform alignment info.
+            builder.line("record_layout_1($Azul::ffi,");
+            builder.indent();
+            builder.line("'sint32' => 'tag',");
+            builder.line("'uint8[64]' => 'payload',");
+            builder.dedent();
+            builder.line(");");
+        }
+    }
+    builder.dedent();
+    builder.line("}");
+    builder.line(&format!(
+        "$Azul::ffi->type('record({pkg})' => '{alias}');",
+        pkg = pkg,
+        alias = name
+    ));
 }
 
 /// Tagged unions: emit a single record with a `tag` integer + an opaque
@@ -267,8 +358,26 @@ fn emit_struct_layout(
         builder.indent();
         for field in &s.fields {
             let field_name = perl_field_name(&field.name);
-            let perl_type = field_to_perl_record_type(field, config, ir);
-            builder.line(&format!("'{}' => '{}',", perl_type, field_name));
+            // FFI::Platypus 2.11 has a known bug: `record_layout_1`
+            // rejects nested records (`type not supported`) and the
+            // upstream `alignof` returns undef for `record_value`-typed
+            // fields. Workaround: for nested-struct fields, emit a
+            // runtime-sized opaque `string(N)` buffer where N is
+            // resolved from `$Azul::ffi->sizeof('AzInner')` at
+            // module load time. Users round-trip raw bytes; preserves
+            // the binary layout (which is what callers care about
+            // for the C-ABI call) at the cost of named-field access.
+            let referenced_struct = nested_struct_name(field, ir);
+            if let Some(inner) = referenced_struct {
+                let inner_alias = config.apply_prefix(&inner);
+                builder.line(&format!(
+                    "'string(' . $Azul::ffi->sizeof('{}') . ')' => '{}',",
+                    inner_alias, field_name
+                ));
+            } else {
+                let perl_type = field_to_perl_record_type(field, config, ir);
+                builder.line(&format!("'{}' => '{}',", perl_type, field_name));
+            }
         }
         builder.dedent();
         builder.line(");");
@@ -382,6 +491,75 @@ pub(crate) fn field_to_perl_record_type(
     type_with_ref_to_perl(&field.type_name, field.ref_kind, config, ir)
 }
 
+/// If the field's owned (by-value) type is a struct, tagged union, or
+/// monomorphized alias declared by this codegen, return its IR name.
+/// Used to decide whether the Perl-side `record_layout_1` line needs
+/// the `'string(' . sizeof ... . ')'` opaque-buffer workaround.
+fn nested_struct_name(f: &FieldDef, ir: &CodegenIR) -> Option<String> {
+    match f.ref_kind {
+        FieldRefKind::Ref
+        | FieldRefKind::RefMut
+        | FieldRefKind::Ptr
+        | FieldRefKind::PtrMut
+        | FieldRefKind::Boxed
+        | FieldRefKind::OptionBoxed => return None,
+        FieldRefKind::Owned => {}
+    }
+    let trimmed = f.type_name.trim();
+    if trimmed.starts_with('[') || trimmed.starts_with('*') || trimmed.starts_with('&') {
+        return None;
+    }
+    if primitive_to_ffi_name(trimmed).is_some() {
+        return None;
+    }
+    if let Some(s) = ir.find_struct(trimmed) {
+        // Skipped categories (Recursive / VecRef / DestructorOrClone /
+        // GenericTemplate) don't get a record_layout_1, so we can't
+        // ask sizeof for them. Caller falls through to the regular
+        // type path, which lowers to `opaque` for skipped structs.
+        if matches!(
+            s.category,
+            TypeCategory::Recursive
+                | TypeCategory::VecRef
+                | TypeCategory::DestructorOrClone
+                | TypeCategory::GenericTemplate
+        ) || !s.generic_params.is_empty()
+        {
+            return None;
+        }
+        return Some(trimmed.to_string());
+    }
+    if let Some(en) = ir.find_enum(trimmed) {
+        // Skipped enum categories (DestructorOrClone, Recursive,
+        // GenericTemplate) don't get emitted either; fall through so
+        // the field becomes opaque.
+        if matches!(
+            en.category,
+            TypeCategory::Recursive
+                | TypeCategory::DestructorOrClone
+                | TypeCategory::GenericTemplate
+        ) || !en.generic_params.is_empty()
+        {
+            return None;
+        }
+        // Unit enums map to sint32, not a nested record; tagged unions
+        // are by-value records that hit the same FFI::Platypus bug.
+        if en.is_union {
+            return Some(trimmed.to_string());
+        }
+    }
+    if let Some(ta) = ir.find_type_alias(trimmed) {
+        // Simple type aliases (GLint = i32) are NOT nested records;
+        // FFI::Platypus accepts them as plain primitives. Only
+        // monomorphized aliases (PhysicalSizeU32, *Value family)
+        // are record-shaped and need the opaque-buffer workaround.
+        if ta.monomorphized_def.is_some() {
+            return Some(trimmed.to_string());
+        }
+    }
+    None
+}
+
 /// Convert a (type_name, ref_kind) pair to a FFI::Platypus type token
 /// suitable for use inside a `record_layout_1` block or as an `attach` arg.
 pub(crate) fn type_with_ref_to_perl(
@@ -429,16 +607,56 @@ pub(crate) fn type_with_ref_to_perl(
         return p.to_string();
     }
 
-    // Callback typedef: registered as a Perl-level type name in
-    // `emit_callback_typedefs`; refer to it by its prefixed name.
+    // Callback typedef: callbacks are function pointers, which Platypus
+    // can store as opaque void* in a record. Users construct a typed
+    // funptr via `$ffi->closure(...)` and pass that.
     if ir.callback_typedefs.iter().any(|c| c.name == trimmed) {
-        return config.apply_prefix(trimmed);
+        return "opaque".to_string();
     }
 
     // Unit (non-union) enum: stored as :int.
     if let Some(en) = ir.enums.iter().find(|e| e.name == trimmed) {
+        // Skipped enum categories → opaque.
+        if matches!(
+            en.category,
+            TypeCategory::Recursive
+                | TypeCategory::DestructorOrClone
+                | TypeCategory::GenericTemplate
+        ) || !en.generic_params.is_empty()
+        {
+            return "opaque".to_string();
+        }
         if !en.is_union {
             return "sint32".to_string();
+        }
+    }
+
+    // Simple type aliases (GLint = i32, GLuint = u32, etc.): resolve
+    // recursively to the target type. The codegen doesn't register a
+    // Platypus type for simple aliases, so referring to AzGLint by
+    // name raises "unknown type". Only follow plain aliases (no
+    // monomorphized_def) — monomorphized aliases ARE registered as
+    // records.
+    if let Some(ta) = ir.find_type_alias(trimmed) {
+        if ta.monomorphized_def.is_none() {
+            return type_with_ref_to_perl(&ta.target, ref_kind, config, ir);
+        }
+    }
+
+    // Struct in a skipped category — no record_layout_1 emitted, so
+    // referencing it by name fails. These types are typically heap-
+    // allocated handles (`VecDestructor`, `Recursive`, …) that
+    // appear in field position only as pointer-shaped data.
+    if let Some(s) = ir.find_struct(trimmed) {
+        if matches!(
+            s.category,
+            TypeCategory::Recursive
+                | TypeCategory::VecRef
+                | TypeCategory::DestructorOrClone
+                | TypeCategory::GenericTemplate
+        ) || !s.generic_params.is_empty()
+        {
+            return "opaque".to_string();
         }
     }
 
