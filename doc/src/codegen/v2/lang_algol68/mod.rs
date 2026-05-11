@@ -110,18 +110,15 @@ fn emit_header(builder: &mut CodeBuilder) {
     builder.blank();
 }
 
-/// PRAGMATs are a68g compiler hints. We declare the C calling convention
-/// for every following `ALIEN` PROC. A68G accepts `cdecl` on every
-/// supported platform; on x86_64 the calling convention is uniform.
-fn emit_pragmats(builder: &mut CodeBuilder) {
-    builder.line("PRAGMAT");
-    builder.indent();
-    builder.line("# Use the C cdecl ABI for every following ALIEN declaration. #");
-    builder.line("alien convention \"cdecl\"");
-    builder.dedent();
-    builder.line("PRAGMAT");
-    builder.blank();
-}
+/// a68g >= 3.5 deprecated the `alien convention` PRAGMAT and exposes
+/// foreign symbols via implicit linkage (the runtime dlopens the
+/// process's loaded libraries and resolves `ALIEN` PROC symbols by
+/// name). We emit no PRAGMAT here — including the deprecated keyword
+/// raises `at option "alien", unrecognised option.` and aborts the
+/// scanner. cdecl is the only calling convention a68g supports on
+/// any supported architecture, so the conventional ALIEN binding
+/// is correct without an explicit pragma.
+fn emit_pragmats(_builder: &mut CodeBuilder) {}
 
 // ============================================================================
 // Shared name helpers (used by submodules)
@@ -203,11 +200,20 @@ fn camel_or_snake_to_spaced_lower(s: &str) -> String {
 /// To avoid collisions in field names we rename anything matching a
 /// keyword by appending an underscore.
 pub fn sanitize_identifier(name: &str) -> String {
-    let lower = name.to_ascii_lowercase();
-    if is_algol_reserved(&lower) {
-        format!("{}_", name)
+    // a68g rejects identifiers starting with `_` ("unworthy character"),
+    // and field names from Rust's PoD structs frequently use the `_X`
+    // form (e.g. `_reserved`). Prefix a leading underscore with `f` so
+    // the resulting name is still close to the source.
+    let prefixed = if name.starts_with('_') {
+        format!("f{}", name)
     } else {
         name.to_string()
+    };
+    let lower = prefixed.to_ascii_lowercase();
+    if is_algol_reserved(&lower) {
+        format!("{}_", prefixed)
+    } else {
+        prefixed
     }
 }
 
