@@ -56,6 +56,7 @@ use super::ir::CodegenIR;
 
 pub mod cpanfile;
 pub mod functions;
+pub mod managed;
 pub mod types;
 pub mod wrappers;
 
@@ -97,6 +98,12 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
 
     // `$ffi->attach(...)` for every C-ABI symbol.
     functions::emit_attach_functions(&mut builder, ir, config);
+
+    // Managed-FFI runtime prelude (host-invoker pattern):
+    // handle table, releaser, per-kind invoker pins, register_callback,
+    // refany_create / refany_get. Must come after attach so the FFI
+    // symbols (AzApp_setHostHandleReleaser etc.) are available.
+    managed::emit_managed_prelude(&mut builder, ir);
 
     builder.blank();
 
