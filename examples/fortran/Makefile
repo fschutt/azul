@@ -12,7 +12,13 @@
 # ============================================================================
 
 FC      ?= gfortran
-FFLAGS  ?= -O2 -std=f2008 -fimplicit-none
+# -ffree-line-length-none: lifts gfortran's default 132-char free-form
+# line limit. Some of the generated `bind(C, name="...")` declarations
+# combine a long Fortran identifier (truncated to 63 chars) plus the
+# verbatim C symbol name and pass the limit on a single line. Without
+# this flag the declarations are silently truncated and the wrapper
+# bodies referencing them fail with "no IMPLICIT type".
+FFLAGS  ?= -O2 -std=f2008 -fimplicit-none -ffree-line-length-none
 LDFLAGS ?= -L. -Wl,-rpath,'$$ORIGIN'
 LIBS    ?= -lazul
 

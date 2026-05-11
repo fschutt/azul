@@ -27,7 +27,7 @@ use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{
     ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
-    StructDef, TypeCategory,
+    MonomorphizedKind, MonomorphizedTypeDef, StructDef, TypeAliasDef, TypeCategory,
 };
 use super::{
     ffi_type_name, map_type_to_fortran, sanitize_comment_line, sanitize_identifier,
@@ -77,6 +77,20 @@ pub fn generate_types(
             continue;
         }
         emit_struct(builder, s, ir);
+    }
+
+    // 3b. Monomorphized type aliases (generic instantiations like
+    // PhysicalSizeU32, OptionU32, CssPropertyValue<T> family). These
+    // are referenced by other types and the procedure interfaces, so
+    // without them the build sees ~30+ dangling identifiers.
+    for ta in &ir.type_aliases {
+        let Some(ref mono) = ta.monomorphized_def else {
+            continue;
+        };
+        if !config.should_include_type(&ta.name) {
+            continue;
+        }
+        emit_monomorphized_alias(builder, ta, mono, ir);
     }
 
     // 4. Callback (procedural) typedefs.
@@ -399,6 +413,107 @@ fn emit_callback_typedef(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir:
     ));
     builder.line(&format!("public :: {}_default", alias_ptr));
     builder.blank();
+}
+
+// ============================================================================
+// Monomorphized type-alias emission (generic instantiations)
+// ============================================================================
+
+fn emit_monomorphized_alias(
+    builder: &mut CodeBuilder,
+    ta: &TypeAliasDef,
+    mono: &MonomorphizedTypeDef,
+    ir: &CodegenIR,
+) {
+    if !ta.doc.is_empty() {
+        for d in &ta.doc {
+            builder.line(&format!("! {}", sanitize_comment_line(d)));
+        }
+    }
+    let ffi = truncate_identifier(&ffi_type_name(&ta.name));
+    match &mono.kind {
+        // Simple enum monomorphizations map to integer constants —
+        // mirrors `emit_unit_enum` for IR enums. Emit an `enum,
+        // bind(C)` block plus the type name as an integer alias.
+        MonomorphizedKind::SimpleEnum { variants, .. } => {
+            builder.line("enum, bind(C)");
+            builder.indent();
+            for (i, v) in variants.iter().enumerate() {
+                let vname =
+                    truncate_identifier(&format!("{}_{}", ffi, sanitize_identifier(v)));
+                builder.line(&format!("enumerator :: {} = {}", vname, i));
+            }
+            builder.dedent();
+            builder.line("end enum");
+            for v in variants {
+                let vname =
+                    truncate_identifier(&format!("{}_{}", ffi, sanitize_identifier(v)));
+                builder.line(&format!("public :: {}", vname));
+            }
+            builder.blank();
+        }
+
+        // Struct monomorphizations get a regular `type, bind(C)` block.
+        MonomorphizedKind::Struct { fields } => {
+            if fields.is_empty() {
+                builder.line(&format!("type, bind(C) :: {}", ffi));
+                builder.indent();
+                builder.line("integer(c_int) :: opaque_dummy_");
+                builder.dedent();
+                builder.line(&format!("end type {}", ffi));
+                builder.line(&format!("public :: {}", ffi));
+                builder.blank();
+                return;
+            }
+            builder.line(&format!("type, bind(C) :: {}", ffi));
+            builder.indent();
+            for f in fields {
+                let ty = field_type_for_ref_kind(&f.type_name, &f.ref_kind, ir);
+                let nm = sanitize_identifier(&f.name);
+                builder.line(&format!("{} :: {}", ty, nm));
+            }
+            builder.dedent();
+            builder.line(&format!("end type {}", ffi));
+            builder.line(&format!("public :: {}", ffi));
+            builder.blank();
+        }
+
+        // Tagged-union monomorphizations follow the same shape as
+        // `emit_tagged_union`: tag enum + per-variant payload comment +
+        // derived type with tag + opaque payload pointer.
+        MonomorphizedKind::TaggedUnion { variants, .. } => {
+            let tag_alias = format!("{}_TAG", ffi);
+            builder.line(&format!("! Monomorphized tagged-union {}", ffi));
+            builder.line("enum, bind(C)");
+            builder.indent();
+            for (i, v) in variants.iter().enumerate() {
+                let vname = truncate_identifier(&format!(
+                    "{}_{}",
+                    tag_alias,
+                    sanitize_identifier(&v.name)
+                ));
+                builder.line(&format!("enumerator :: {} = {}", vname, i));
+            }
+            builder.dedent();
+            builder.line("end enum");
+            for v in variants {
+                let vname = truncate_identifier(&format!(
+                    "{}_{}",
+                    tag_alias,
+                    sanitize_identifier(&v.name)
+                ));
+                builder.line(&format!("public :: {}", vname));
+            }
+            builder.line(&format!("type, bind(C) :: {}", ffi));
+            builder.indent();
+            builder.line("integer(c_int) :: tag");
+            builder.line("type(c_ptr) :: payload");
+            builder.dedent();
+            builder.line(&format!("end type {}", ffi));
+            builder.line(&format!("public :: {}", ffi));
+            builder.blank();
+        }
+    }
 }
 
 // ============================================================================
