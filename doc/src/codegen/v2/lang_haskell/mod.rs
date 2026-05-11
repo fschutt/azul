@@ -233,6 +233,20 @@ fn generate_types_module(ir: &CodegenIR, config: &CodegenConfig) -> Result<Strin
     builder.line("-- ('refAnyDowncastRef') return @Maybe a@ so type errors at the boundary");
     builder.line("-- become value-level @Nothing@ rather than runtime crashes.");
     builder.line("newtype RefAny a = RefAny { unRefAny :: Ptr () }");
+    // Hand-roll Show so any `data X = ... | _ RefAny | ...` variant
+    // can still derive (Show). Without this `deriving (Show)` would
+    // fail for every Result/Option that carries a RefAny payload.
+    builder.line("instance Show (RefAny a) where");
+    builder.indent();
+    builder.line("show _ = \"<RefAny>\"");
+    builder.dedent();
+    builder.line("instance Storable (RefAny a) where");
+    builder.indent();
+    builder.line("sizeOf _ = sizeOf (undefined :: Ptr ())");
+    builder.line("alignment _ = alignment (undefined :: Ptr ())");
+    builder.line("peek p = RefAny <$> peek (castPtr p)");
+    builder.line("poke p (RefAny x) = poke (castPtr p) x");
+    builder.dedent();
     builder.blank();
 
     types::emit_type_decls(&mut builder, ir, config)?;
@@ -255,6 +269,41 @@ pub fn haskell_data_name(name: &str) -> String {
 /// matches the C symbol convention. Used for C symbol references.
 pub fn haskell_ffi_type_name(name: &str) -> String {
     format!("Az{}", name)
+}
+
+/// Does this Haskell type name shadow a Prelude type? Variants that
+/// carry payloads of these types trip GHC's "Ambiguous occurrence"
+/// check because the local `Azul.Types.<Name>` clashes with `Prelude.<Name>`.
+fn shadows_prelude_type(s: &str) -> bool {
+    matches!(
+        s,
+        "String"
+            | "Maybe"
+            | "Either"
+            | "Bool"
+            | "Int"
+            | "Char"
+            | "Float"
+            | "Double"
+            | "Word"
+            | "IO"
+            | "Map"
+            | "Set"
+            | "Show"
+            | "Eq"
+            | "Ord"
+            | "Read"
+            | "Functor"
+            | "Monad"
+            | "Applicative"
+            | "Ordering"
+            | "FilePath"
+            | "Either"
+            | "Handle"
+            | "FileError"
+            | "IOError"
+            | "Maybe"
+    )
 }
 
 /// Convert an IR struct + field name to the Haskell record-field
@@ -336,6 +385,16 @@ pub fn sanitize_type_identifier(name: &str) -> String {
         format!("T{}", name)
     } else {
         name.to_string()
+    };
+    // Names that shadow Prelude types — `String`, `Maybe`, `Either`,
+    // `Bool`, etc. — break with `Ambiguous occurrence` whenever a
+    // variant constructor takes them as a payload, because GHC can't
+    // decide between `Azul.Types.X` and `Prelude.X`. Prefix with `Az`
+    // for those, mirroring the JVM/Java fix.
+    let s = if shadows_prelude_type(&s) {
+        format!("Az{}", s)
+    } else {
+        s
     };
     if is_haskell_reserved(&s) {
         format!("{}'", s)

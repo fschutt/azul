@@ -1,5 +1,8 @@
+cabal-version:      2.4
 -- ============================================================================
--- Azul "hello world" — Haskell example project file.
+-- Azul "hello world" — Haskell example project file. cabal-version must
+-- be the very first non-comment line for spec ≥ 2.2; rest of the header
+-- documentation lives below it.
 --
 -- Build with:
 --     cabal run hello-world
@@ -10,7 +13,6 @@
 -- usual search paths.
 -- ============================================================================
 
-cabal-version:      2.4
 name:               azul-example
 version:            0.1.0
 synopsis:           Hello-world example for the Azul Haskell bindings
@@ -21,7 +23,7 @@ build-type:         Simple
 
 executable hello-world
     main-is:            HelloWorld.hs
-    build-depends:      base    ^>= 4.18
+    build-depends:      base >= 4.14 && < 5
                       , azul
     default-language:   Haskell2010
     ghc-options:        -Wall -Wno-unused-imports -Wno-unused-matches

@@ -105,7 +105,176 @@ pub fn emit_type_decls(
         }
     }
 
+    // Monomorphized type aliases (`CssPropertyValue<StringSet>` =
+    // `StringSetValue` etc.). The IR builder pre-instantiates these
+    // with concrete payloads — emit them so other types that reference
+    // them by their flattened name (e.g. `CssProperty_StringSet
+    // StringSetValue`) resolve.
+    builder.line("-- ---------------------------------------------------------------------------");
+    builder.line("-- Monomorphized type aliases");
+    builder.line("-- ---------------------------------------------------------------------------");
+    builder.blank();
+    for ta in &ir.type_aliases {
+        if !config.should_include_type(&ta.name) {
+            continue;
+        }
+        match &ta.monomorphized_def {
+            Some(md) => emit_monomorphized_alias(builder, ta, md, ir),
+            None => {
+                // Simple type alias (`X11Visual = *mut c_void`,
+                // `HwndHandle = *mut c_void`, etc.). Emit a 1-byte
+                // placeholder data type so variants that reference
+                // these by name (`Option<X11Visual>::Some X11Visual`)
+                // resolve. The C ABI representation is opaque.
+                let name = super::haskell_data_name(&ta.name);
+                builder.line(&format!("-- type alias placeholder for {}", ta.name));
+                builder.line(&format!("data {} = {} deriving (Show, Eq)", name, name));
+                builder.line(&format!("instance Storable {} where", name));
+                builder.indent();
+                builder.line("sizeOf _ = 1");
+                builder.line("alignment _ = 1");
+                builder.line(&format!("peek _ = pure {}", name));
+                builder.line("poke _ _ = pure ()");
+                builder.dedent();
+                builder.blank();
+            }
+        }
+    }
+
+    // Callback typedefs (function pointers, e.g. `ComponentCompileFn`)
+    // are emitted in `Azul.Internal.FFI` but Types.hs references them
+    // by bare name from struct field positions
+    // (`componentDefCompileFn :: !(ComponentCompileFn)`). Emit a
+    // 1-byte Storable placeholder here so the type resolves locally;
+    // actual function-pointer marshalling lives on the FFI side.
+    builder.line("-- ---------------------------------------------------------------------------");
+    builder.line("-- Callback typedef placeholders (function pointers — real marshalling in FFI.hs)");
+    builder.line("-- ---------------------------------------------------------------------------");
+    builder.blank();
+    for cb in &ir.callback_typedefs {
+        if !config.should_include_type(&cb.name) {
+            continue;
+        }
+        let name = super::haskell_data_name(&cb.name);
+        builder.line(&format!("data {} = {} deriving (Show, Eq)", name, name));
+        builder.line(&format!("instance Storable {} where", name));
+        builder.indent();
+        builder.line("sizeOf _ = sizeOf (undefined :: FunPtr ())");
+        builder.line("alignment _ = alignment (undefined :: FunPtr ())");
+        builder.line(&format!("peek _ = pure {}", name));
+        builder.line("poke _ _ = pure ()");
+        builder.dedent();
+        builder.blank();
+    }
+
+    // Types filtered out of the main struct/enum emit (Recursive,
+    // VecRef, DestructorOrClone, GenericTemplate) are still referenced
+    // by name from other variants. Emit a 1-byte placeholder for each
+    // so those references resolve as a Haskell type — full memory
+    // layout for these categories is a follow-up.
+    builder.line("-- ---------------------------------------------------------------------------");
+    builder.line("-- Placeholders for filtered-out categories (Recursive/VecRef/...)");
+    builder.line("-- ---------------------------------------------------------------------------");
+    builder.blank();
+    let filtered = |cat: TypeCategory| {
+        matches!(
+            cat,
+            TypeCategory::Recursive
+                | TypeCategory::VecRef
+                | TypeCategory::DestructorOrClone
+        )
+    };
+    for s in &ir.structs {
+        if !config.should_include_type(&s.name) || !s.generic_params.is_empty() {
+            continue;
+        }
+        if filtered(s.category) {
+            let name = super::haskell_data_name(&s.name);
+            builder.line(&format!("data {} = {} deriving (Show, Eq)", name, name));
+            builder.line(&format!("instance Storable {} where", name));
+            builder.indent();
+            builder.line("sizeOf _ = 1");
+            builder.line("alignment _ = 1");
+            builder.line(&format!("peek _ = pure {}", name));
+            builder.line("poke _ _ = pure ()");
+            builder.dedent();
+            builder.blank();
+        }
+    }
+    for e in &ir.enums {
+        if !config.should_include_type(&e.name) || !e.generic_params.is_empty() {
+            continue;
+        }
+        if filtered(e.category) {
+            let name = super::haskell_data_name(&e.name);
+            builder.line(&format!("data {} = {} deriving (Show, Eq)", name, name));
+            builder.line(&format!("instance Storable {} where", name));
+            builder.indent();
+            builder.line("sizeOf _ = 1");
+            builder.line("alignment _ = 1");
+            builder.line(&format!("peek _ = pure {}", name));
+            builder.line("poke _ _ = pure ()");
+            builder.dedent();
+            builder.blank();
+        }
+    }
+
     Ok(())
+}
+
+fn emit_monomorphized_alias(
+    builder: &mut CodeBuilder,
+    ta: &super::super::ir::TypeAliasDef,
+    md: &super::super::ir::MonomorphizedTypeDef,
+    ir: &CodegenIR,
+) {
+    use super::super::ir::MonomorphizedKind;
+    let name = super::haskell_data_name(&ta.name);
+
+    match &md.kind {
+        MonomorphizedKind::SimpleEnum { variants, .. } => {
+            // No Show/Eq derive — variants are simple unit constructors.
+            builder.line(&format!("data {} =", name));
+            builder.indent();
+            let last = variants.len().saturating_sub(1);
+            for (i, v) in variants.iter().enumerate() {
+                let ctor = super::haskell_variant_name(&ta.name, v);
+                let prefix = if i == 0 { "  " } else { "| " };
+                let trailing = if i == last { "" } else { "" };
+                builder.line(&format!("{}{}{}", prefix, ctor, trailing));
+            }
+            builder.line("deriving (Show, Eq)");
+            builder.dedent();
+            // Minimal Storable: encode/decode the variant index as Int32.
+            builder.line(&format!("instance Storable {} where", name));
+            builder.indent();
+            builder.line(&format!("sizeOf _ = sizeOf (undefined :: Foreign.C.Types.CInt)"));
+            builder.line(&format!("alignment _ = alignment (undefined :: Foreign.C.Types.CInt)"));
+            builder.line("peek _ = error \"peek on monomorphized SimpleEnum: not yet implemented\"");
+            builder.line("poke _ _ = error \"poke on monomorphized SimpleEnum: not yet implemented\"");
+            builder.dedent();
+            builder.blank();
+        }
+        MonomorphizedKind::Struct { .. } | MonomorphizedKind::TaggedUnion { .. } => {
+            // Both shapes get a placeholder data constructor so they
+            // resolve as a Haskell type. The C ABI memory layout is
+            // unused by the hello-world smoke tests — we just need the
+            // name to exist. Full peek/poke is a follow-up.
+            builder.line(&format!(
+                "-- Monomorphized alias placeholder for {} (concrete layout unused by Haskell smoke tests).",
+                ta.name
+            ));
+            builder.line(&format!("data {} = {} deriving (Show, Eq)", name, name));
+            builder.line(&format!("instance Storable {} where", name));
+            builder.indent();
+            builder.line("sizeOf _ = 1");
+            builder.line("alignment _ = 1");
+            builder.line(&format!("peek _ = pure {}", name));
+            builder.line("poke _ _ = pure ()");
+            builder.dedent();
+            builder.blank();
+        }
+    }
 }
 
 // ============================================================================
@@ -117,6 +286,13 @@ pub fn should_emit_struct(s: &StructDef, config: &CodegenConfig) -> bool {
         return false;
     }
     if !s.generic_params.is_empty() {
+        return false;
+    }
+    // `RefAny` is emitted by hand earlier in mod.rs as a phantom-typed
+    // newtype (`newtype RefAny a = RefAny { unRefAny :: Ptr () }`); the
+    // default struct emit here would clash with that declaration:
+    //   Multiple declarations of 'RefAny'
+    if s.name == "RefAny" {
         return false;
     }
     !matches!(
@@ -181,17 +357,26 @@ fn emit_struct_decl(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
         if let Some(ref doc) = f.doc {
             builder.line(&format!("-- ^ {}", sanitize_doc(doc)));
         }
-        builder.line(&format!("{}{} :: !{}", prefix, fname, hty));
+        // Wrap the type in parens — GHC rejects `!Ptr ()` because the
+        // strictness annotation binds tighter than application:
+        //   "Unexpected strictness (!) annotation: !Ptr"
+        // `!(Ptr ())` is unambiguous regardless of how many type-app
+        // tokens follow.
+        builder.line(&format!("{}{} :: !({})", prefix, fname, hty));
     }
     builder.line("} deriving (Show)");
     builder.dedent();
     builder.blank();
 
     // Storable instance using a running offset and per-field sizeOf.
+    // Helper names must start with a lowercase letter — Haskell rejects
+    // top-level value bindings whose name starts with uppercase
+    // ("Invalid data constructor 'Foo_sizeOf_total' in type signature").
+    let lname = lower_first(&name);
     builder.line(&format!("instance Storable {} where", name));
     builder.indent();
-    builder.line(&format!("sizeOf _ = {}_sizeOf_total", name));
-    builder.line(&format!("alignment _ = {}_alignment_total", name));
+    builder.line(&format!("sizeOf _ = {}_sizeOf_total", lname));
+    builder.line(&format!("alignment _ = {}_alignment_total", lname));
 
     // peek
     builder.line("peek p = do");
@@ -205,11 +390,13 @@ fn emit_struct_decl(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
             offset_acc.join(" + ")
         };
         let hty = haskell_field_type(&f.type_name, f.ref_kind, ir);
+        // Wrap the type in parens: `IO Ptr ()` is invalid Haskell;
+        // `IO (Ptr ())` is what GHC expects.
         builder.line(&format!(
-            "{} <- peekByteOff p ({}) :: IO {}",
+            "{} <- peekByteOff p ({}) :: IO ({})",
             bind, offset_expr, hty
         ));
-        offset_acc.push(format!("sizeOf (undefined :: {})", hty));
+        offset_acc.push(format!("sizeOf (undefined :: ({}))", hty));
     }
     let mut acc = String::new();
     acc.push_str(&format!("pure ({}", name));
@@ -239,8 +426,10 @@ fn emit_struct_decl(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     builder.dedent();
 
     // Helper bindings: total size and alignment computed at runtime.
-    // This avoids requiring offsetof macros at codegen time.
-    let tname = name.clone();
+    // This avoids requiring offsetof macros at codegen time. Names are
+    // lower-camelCased so Haskell parses them as value bindings rather
+    // than data constructors.
+    let tname = lower_first(&name);
     builder.blank();
     builder.line(&format!("{}_sizeOf_total :: Int", tname));
     if s.fields.is_empty() {
@@ -264,6 +453,8 @@ fn emit_struct_decl(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     }
     builder.blank();
 }
+
+use super::lower_first;
 
 // ============================================================================
 // Unit enum emission
@@ -468,6 +659,11 @@ fn map_owned_type(type_name: &str, ir: &CodegenIR) -> String {
         "usize" => "CSize".to_string(),
         "isize" => "CIntPtr".to_string(),
         "c_void" | "()" | "void" => "()".to_string(),
+        // RefAny is a phantom-typed `newtype RefAny a`. When referenced
+        // from variants like `ResultRefAnyString_Ok RefAny`, GHC needs
+        // a type argument. Use `()` as the default (matches the
+        // hand-rolled `unRefAny :: Ptr ()` payload).
+        "RefAny" => "(RefAny ())".to_string(),
         _ => {
             if ir.find_struct(t).is_some()
                 || ir.find_enum(t).is_some()

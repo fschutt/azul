@@ -1,0 +1,12 @@
+-- cabal.project pointing the example at the in-tree generated `azul`
+-- library so we don't need to publish to Hackage between codegen runs.
+
+packages: .
+          ../azul-haskell
+
+-- Find the native dylib next to this file (and the codegen output).
+package azul
+  extra-lib-dirs: . ../azul-haskell
+
+package azul-example
+  extra-lib-dirs: . ../azul-haskell
