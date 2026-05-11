@@ -29,15 +29,14 @@ my $str = Azul::FFI::AzString_fromUtf8($ptr, length $src);
 print "[azul] AzString_fromUtf8 round-trip succeeded; len=", length($src), "\n";
 
 # 2. RefAny round-trip via the host-invoker handle table.
+#    Pass the AzRefAny record directly — managed.rs declares the FFI
+#    arg as `AzRefAny` so FFI::Platypus auto-passes a pointer to the
+#    by-value record without any user-side cast.
 my $model = { counter => 5 };
 my $refany = Azul::refany_create($model);
 print "[azul] Azul::refany_create ran; RefAny opaque-handle id stored.\n";
 
-# refany_get takes a pointer-to-RefAny. FFI::Platypus represents
-# records as scalars holding the struct bytes; cast via `$ffi->cast`
-# to the underlying opaque address the C side expects.
-my $refany_ptr = $Azul::ffi->cast('AzRefAny' => 'opaque', $refany);
-my $recovered  = Azul::refany_get($refany_ptr);
+my $recovered = Azul::refany_get($refany);
 if (ref $recovered eq 'HASH' && $recovered->{counter} == 5) {
     print "[azul] Azul::refany_get round-trip succeeded; counter=", $recovered->{counter}, "\n";
 } else {
