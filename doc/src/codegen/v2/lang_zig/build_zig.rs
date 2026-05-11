@@ -32,8 +32,11 @@ pub fn generate_build_zig() -> String {
 // (`libazul.so` / `libazul.dylib` / `azul.dll`) into the same directory
 // as this file, then run `zig build run`.
 //
-// Tested against Zig 0.11.x and 0.12.x. Older / newer Zig versions
-// may require small API tweaks (e.g. `addExecutable` argument shape).
+// Tested against Zig 0.16. For older Zig (0.11 / 0.12) the
+// `addExecutable` call took `root_source_file` / `target` /
+// `optimize` directly; 0.13 introduced the `Module` indirection and
+// 0.16 dropped the legacy fields entirely. We target the current
+// stable API.
 
 const std = @import("std");
 
@@ -41,23 +44,24 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const exe = b.addExecutable(.{
-        .name = "hello-world",
-        .root_source_file = .{ .path = "hello-world.zig" },
+    const exe_mod = b.createModule(.{
+        .root_source_file = b.path("hello-world.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
-
     // `@cImport(@cInclude("azul.h"))` needs the header on the C path.
-    exe.addIncludePath(.{ .path = "." });
-
-    // `@cImport` requires libc.
-    exe.linkLibC();
+    exe_mod.addIncludePath(b.path("."));
 
     // Find and link the prebuilt native library. Adjust the path if the
     // shared library lives elsewhere.
-    exe.addLibraryPath(.{ .path = "." });
-    exe.linkSystemLibrary("azul");
+    exe_mod.addLibraryPath(b.path("."));
+    exe_mod.linkSystemLibrary("azul", .{});
+
+    const exe = b.addExecutable(.{
+        .name = "hello-world",
+        .root_module = exe_mod,
+    });
 
     b.installArtifact(exe);
 

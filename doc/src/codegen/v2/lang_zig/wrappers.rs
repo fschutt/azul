@@ -189,11 +189,43 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
     // wrapper level so users only see the user-supplied parameters.
     let self_arg_name = to_snake_case(&s.name);
 
+    // Zig disallows duplicate struct members. Some IR types expose
+    // BOTH a `new` and a `create` factory (e.g. `ColorU.new`, exposed
+    // by the C ABI for back-compat); both map to Zig `create()` after
+    // `idiomatic_method_name` runs. Skip dups; emit a comment so the
+    // hidden function is at least documented.
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    // Zig also disallows function parameters whose name shadows ANY
+    // declaration in the containing scope, including sibling methods.
+    // `from_millis(millis: u64)` shadows the `millis(self: *Self)`
+    // method on the same struct. Precompute the set of Zig method
+    // names this class will emit so the per-method param formatter
+    // can rename colliding params with an `_arg` suffix.
+    let mut emitted_method_names: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+    for f in ir.functions_for_class(&s.name) {
+        let label = match f.kind {
+            FunctionKind::DeepCopy => "clone".to_string(),
+            FunctionKind::Delete => "deinit".to_string(),
+            _ => idiomatic_method_name(&f.method_name),
+        };
+        emitted_method_names.insert(sanitize_identifier(&label));
+    }
+
     // Constructors / static factories.
     for f in ir.functions_for_class(&s.name) {
         match f.kind {
             FunctionKind::Constructor | FunctionKind::StaticMethod | FunctionKind::Default => {
-                emit_static_factory(out, f, &self_arg_name);
+                let zig_method = sanitize_identifier(&idiomatic_method_name(&f.method_name));
+                if !seen.insert(zig_method.clone()) {
+                    out.push_str(&format!(
+                        "    // SKIPPED: duplicate `pub fn {}` — IR carries another factory mapping to the same Zig method name (calls C.{}).\n",
+                        zig_method, f.c_name
+                    ));
+                    continue;
+                }
+                emit_static_factory(out, f, &self_arg_name, &emitted_method_names);
             }
             _ => {}
         }
@@ -202,11 +234,27 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
     // Instance methods.
     for f in ir.functions_for_class(&s.name) {
         match f.kind {
-            FunctionKind::Method | FunctionKind::MethodMut => {
-                emit_instance_method(out, f, &self_arg_name, /* clone */ false);
-            }
-            FunctionKind::DeepCopy => {
-                emit_instance_method(out, f, &self_arg_name, /* clone */ true);
+            FunctionKind::Method | FunctionKind::MethodMut | FunctionKind::DeepCopy => {
+                let method_label = if matches!(f.kind, FunctionKind::DeepCopy) {
+                    "clone".to_string()
+                } else {
+                    idiomatic_method_name(&f.method_name)
+                };
+                let zig_method = sanitize_identifier(&method_label);
+                if !seen.insert(zig_method.clone()) {
+                    out.push_str(&format!(
+                        "    // SKIPPED: duplicate `pub fn {}` — IR carries another method mapping to the same Zig method name (calls C.{}).\n",
+                        zig_method, f.c_name
+                    ));
+                    continue;
+                }
+                emit_instance_method(
+                    out,
+                    f,
+                    &self_arg_name,
+                    /* clone */ matches!(f.kind, FunctionKind::DeepCopy),
+                    &emitted_method_names,
+                );
             }
             _ => {}
         }
@@ -228,7 +276,12 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
 // Static factories (constructors, static methods, default)
 // ============================================================================
 
-fn emit_static_factory(out: &mut String, f: &FunctionDef, self_arg_name: &str) {
+fn emit_static_factory(
+    out: &mut String,
+    f: &FunctionDef,
+    self_arg_name: &str,
+    reserved_names: &std::collections::HashSet<String>,
+) {
     let method_name = idiomatic_method_name(&f.method_name);
     let safe_name = sanitize_identifier(&method_name);
 
@@ -240,8 +293,8 @@ fn emit_static_factory(out: &mut String, f: &FunctionDef, self_arg_name: &str) {
 
     // Static factories shouldn't carry a self arg in practice, but filter
     // defensively in case the IR ever surfaces one.
-    let params = format_params(&f.args, self_arg_name, /* skip_self */ false);
-    let call_args = format_call_args(&f.args, self_arg_name, /* skip_self */ false);
+    let params = format_params(&f.args, self_arg_name, /* skip_self */ false, reserved_names);
+    let call_args = format_call_args(&f.args, self_arg_name, /* skip_self */ false, reserved_names);
 
     let returns_self = f
         .return_type
@@ -285,6 +338,7 @@ fn emit_instance_method(
     f: &FunctionDef,
     self_arg_name: &str,
     clone: bool,
+    reserved_names: &std::collections::HashSet<String>,
 ) {
     let method_name = if clone {
         "clone".to_string()
@@ -299,8 +353,8 @@ fn emit_instance_method(
         }
     }
 
-    let params = format_params(&f.args, self_arg_name, /* skip_self */ true);
-    let user_call_args = format_call_args(&f.args, self_arg_name, /* skip_self */ true);
+    let params = format_params(&f.args, self_arg_name, /* skip_self */ true, reserved_names);
+    let user_call_args = format_call_args(&f.args, self_arg_name, /* skip_self */ true, reserved_names);
 
     let returns_self = f
         .return_type
@@ -389,8 +443,20 @@ fn emit_union_helper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
                 let method_name = idiomatic_method_name(&f.method_name);
                 let safe = sanitize_identifier(&method_name);
 
-                let params = format_params(&f.args, &self_arg_name, /* skip_self */ false);
-                let call_args = format_call_args(&f.args, &self_arg_name, /* skip_self */ false);
+                let empty_reserved: std::collections::HashSet<String> =
+                    std::collections::HashSet::new();
+                let params = format_params(
+                    &f.args,
+                    &self_arg_name,
+                    /* skip_self */ false,
+                    &empty_reserved,
+                );
+                let call_args = format_call_args(
+                    &f.args,
+                    &self_arg_name,
+                    /* skip_self */ false,
+                    &empty_reserved,
+                );
 
                 let return_zig = match &f.return_type {
                     None => "void".to_string(),
@@ -438,19 +504,26 @@ fn format_params(
     args: &[super::super::ir::FunctionArg],
     self_arg_name: &str,
     skip_self: bool,
+    reserved_names: &std::collections::HashSet<String>,
 ) -> String {
     let mut out = Vec::new();
-    for a in args {
+    // When skip_self is set this is an instance method — the first IR
+    // arg IS the implicit self regardless of how api.json named it.
+    // Skip args[0] unconditionally; same fix the JVM/.NET/Go wrappers
+    // landed in earlier phases.
+    let iter: Box<dyn Iterator<Item = &super::super::ir::FunctionArg>> =
+        if skip_self && !args.is_empty() {
+            Box::new(args.iter().skip(1))
+        } else {
+            Box::new(args.iter())
+        };
+    for a in iter {
         if is_self_arg(&a.name, self_arg_name) {
-            // Both branches drop the self arg — instance methods because
-            // we prepend `self: *Self` ourselves; static factories because
-            // they shouldn't ever carry one.
-            let _ = skip_self;
             continue;
         }
         out.push(format!(
             "{}: {}",
-            sanitize_identifier(&a.name),
+            renamed_param(&a.name, reserved_names),
             map_arg_type(&a.type_name, a.ref_kind)
         ));
     }
@@ -462,16 +535,37 @@ fn format_call_args(
     args: &[super::super::ir::FunctionArg],
     self_arg_name: &str,
     skip_self: bool,
+    reserved_names: &std::collections::HashSet<String>,
 ) -> String {
     let mut out = Vec::new();
-    for a in args {
+    let iter: Box<dyn Iterator<Item = &super::super::ir::FunctionArg>> =
+        if skip_self && !args.is_empty() {
+            Box::new(args.iter().skip(1))
+        } else {
+            Box::new(args.iter())
+        };
+    for a in iter {
         if is_self_arg(&a.name, self_arg_name) {
-            let _ = skip_self;
             continue;
         }
-        out.push(sanitize_identifier(&a.name));
+        out.push(renamed_param(&a.name, reserved_names));
     }
     out.join(", ")
+}
+
+/// Sanitise + rename a parameter name so it (a) is a valid Zig
+/// identifier and (b) doesn't shadow any sibling declaration on the
+/// containing struct. Zig 0.16 forbids parameter names that match
+/// any in-scope declaration ("function parameter shadows declaration
+/// of 'X'"); we suffix `_arg` when the param name is in the set of
+/// emitted method names for this class.
+fn renamed_param(name: &str, reserved_names: &std::collections::HashSet<String>) -> String {
+    let safe = sanitize_identifier(name);
+    if reserved_names.contains(&safe) {
+        format!("{}_arg", safe)
+    } else {
+        safe
+    }
 }
 
 /// Match the IR builder's renaming of the `&self` parameter:

@@ -197,5 +197,49 @@ fn is_zig_keyword(s: &str) -> bool {
             | "var"
             | "volatile"
             | "while"
+            // Primitive type names — Zig 0.16 treats them as
+            // reserved identifiers ("name shadows primitive 'X'") when
+            // they appear in declaration position (`pub fn null()` /
+            // `pub fn u8()` / etc.). The C ABI legitimately exposes
+            // methods named after primitives (e.g. `RawImageData.u8`,
+            // `Json.null`); they need the `@"..."` escape just like
+            // language keywords.
+            | "anyerror"
+            | "anyopaque"
+            | "bool"
+            | "c_int"
+            | "c_long"
+            | "c_longdouble"
+            | "c_longlong"
+            | "c_short"
+            | "c_uint"
+            | "c_ulong"
+            | "c_ulonglong"
+            | "c_ushort"
+            | "comptime_float"
+            | "comptime_int"
+            | "f128"
+            | "f16"
+            | "f32"
+            | "f64"
+            | "f80"
+            | "false"
+            | "i128"
+            | "i16"
+            | "i32"
+            | "i64"
+            | "i8"
+            | "isize"
+            | "noreturn"
+            | "null"
+            | "true"
+            | "u128"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "u8"
+            | "undefined"
+            | "usize"
+            | "void"
     )
 }
