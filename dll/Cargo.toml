@@ -31,6 +31,12 @@ backtrace = { version = "0.3.66", optional = true }
 pyo3 = { version = "0.27.1", default-features = false, features = ["abi3", "multiple-pymethods", "extension-module", "macros", "auto-initialize"], optional = true }
 pyo3-log = { version = "0.13.2", default-features = false, optional = true }
 
+# PHP bindings (Zend engine extension via ext-php-rs)
+# Used by feature `php-extension`. Provides closure-to-fnpointer
+# support that standard php-ffi rejects, lifting the host-invoker
+# blocker for the PHP example.
+ext-php-rs = { version = "0.15", default-features = false, optional = true }
+
 # Desktop windowing dependencies
 tfd = { version = "0.1.0", default-features = false, optional = true }
 rust-fontconfig = { version = "4.2.1", default-features = false, features = ["std", "parsing", "async-registry", "cache"], optional = true }
@@ -392,6 +398,16 @@ use_pyo3_logger = ["pyo3-log", "logging"]
 
 # Python extension module
 python-extension = ["build-dll", "pyo3", "use_pyo3_logger", "link-static"]
+
+# PHP extension module (Zend engine native extension via ext-php-rs).
+# Unlike the standard php-ffi path, this loads through the Zend engine
+# and supports closure callbacks (the host-invoker pattern that all
+# other managed-FFI hosts use).
+# Build with:
+#   cargo build --release --features php-extension
+# Then load:
+#   php -d extension=/path/to/libazul.so hello-world.php
+php-extension = ["build-dll", "ext-php-rs", "link-static"]
 
 # -----------------------------------------------------------------------------
 # E2E Test Harness (AZ_E2E_TEST env-var-driven scenario runner)
