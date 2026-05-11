@@ -119,3 +119,24 @@ examples/rust/target/
 examples/python/azul.so
 examples/python/_azul.cpython-*
 examples/python/__pycache__/
+# PHP
+examples/php/Azul.php
+# Lua
+examples/lua/azul.lua
+# Pascal
+examples/pascal/azul.pas
+examples/pascal/hello-world
+examples/pascal/hello-world.o
+examples/pascal/*.ppu
+# Fortran
+examples/fortran/azul.f90
+examples/fortran/hello_world
+examples/fortran/*.o
+examples/fortran/*.mod
+# Algol68
+examples/algol68/azul.a68
+# Cobol
+examples/cobol/azul.cpy
+examples/cobol/hello-world
+# Smalltalk
+examples/smalltalk/Azul.st

@@ -25,7 +25,9 @@ use super::super::ir::{
     ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
     StructDef, TypeCategory,
 };
-use super::{cobol_identifier, sanitize_cobol_identifier, sanitize_doc, to_cobol_case};
+use super::{
+    cobol_identifier, emit_doc_comment, sanitize_cobol_identifier, sanitize_doc, to_cobol_case,
+};
 
 // ============================================================================
 // Inclusion filters
@@ -106,7 +108,7 @@ fn emit_unit_enum_constants(builder: &mut CodeBuilder, e: &EnumDef) {
     if !e.variants.is_empty() {
         if !e.doc.is_empty() {
             for d in &e.doc {
-                builder.line(&format!("      * {}", sanitize_doc(d)));
+                emit_doc_comment(builder, d);
             }
         }
         let class = cobol_identifier(&format!("AZ-{}", to_cobol_case(&e.name)));
@@ -161,7 +163,7 @@ pub fn generate_records(
 fn emit_struct(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     if !s.doc.is_empty() {
         for d in &s.doc {
-            builder.line(&format!("      * {}", sanitize_doc(d)));
+            emit_doc_comment(builder, d);
         }
     }
 
@@ -185,7 +187,7 @@ fn emit_struct(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
 
 fn emit_field(builder: &mut CodeBuilder, f: &FieldDef, ir: &CodegenIR, level: &str) {
     if let Some(ref doc) = f.doc {
-        builder.line(&format!("      * {}", sanitize_doc(doc)));
+        emit_doc_comment(builder, doc);
     }
     let nm = sanitize_cobol_identifier(&to_cobol_case(&f.name));
     let usage = pic_for_field(&f.type_name, &f.ref_kind, ir);
@@ -211,7 +213,7 @@ fn emit_field(builder: &mut CodeBuilder, f: &FieldDef, ir: &CodegenIR, level: &s
 fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     if !e.doc.is_empty() {
         for d in &e.doc {
-            builder.line(&format!("      * {}", sanitize_doc(d)));
+            emit_doc_comment(builder, d);
         }
     }
 
@@ -323,7 +325,7 @@ pub fn generate_callback_typedefs(
 fn emit_callback_typedef(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir: &CodegenIR) {
     if !cb.doc.is_empty() {
         for d in &cb.doc {
-            builder.line(&format!("      * {}", sanitize_doc(d)));
+            emit_doc_comment(builder, d);
         }
     }
 

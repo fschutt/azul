@@ -113,7 +113,14 @@ fn emit_header(builder: &mut CodeBuilder) {
     builder.line("      *   PROGRAM-ID. MY-AZUL-PROGRAM.                                  *");
     builder.line("      *   DATA DIVISION.                                                *");
     builder.line("      *   WORKING-STORAGE SECTION.                                      *");
-    builder.line("      *   COPY \"azul.cpy\".                                             *");
+    // GnuCOBOL parses included copybooks in the format of the calling
+    // program. When the caller uses `-free`, the example line
+    // `COPY "azul.cpy".` inside our fixed-format banner is no longer
+    // a comment (free-format puts `*>` at column-1 onward) — the
+    // parser sees `* COPY "azul.cpy"` as `*` (mult) + COPY, triggering
+    // recursive inclusion. Use the free-format inline comment marker
+    // `*>` to be safe under either format.
+    builder.line("      *>  COPY \"azul.cpy\".");
     builder.line("      *                                                                 *");
     builder.line("      * Build (executable program):                                     *");
     builder.line("      *   cobc -x -free hello-world.cob -L. -lazul -o hello-world       *");
@@ -286,4 +293,40 @@ pub fn sanitize_cobol_identifier(name: &str) -> String {
 /// the copybook for maximum tooling compatibility.
 pub fn sanitize_doc(s: &str) -> String {
     s.replace('\n', " ").replace('\r', " ")
+}
+
+/// Wrap a long doc string into multiple fixed-format COBOL comment lines.
+/// Fixed-format source must be ≤ 72 characters total (cols 7–72 are the
+/// content area), so each emitted line is `"      * "` plus up to
+/// `MAX_COBOL_DOC_BODY` characters of content. Very long single-line
+/// doc strings (Rust mod-level docs that include Markdown + code
+/// examples) would otherwise raise "source text exceeds 512 bytes,
+/// will be truncated" and break parsing of the next statement.
+pub fn emit_doc_comment(builder: &mut crate::codegen::v2::generator::CodeBuilder, doc: &str) {
+    const MAX_COBOL_DOC_BODY: usize = 60; // 72 col limit - "      * " prefix
+    let cleaned = sanitize_doc(doc);
+    if cleaned.is_empty() {
+        return;
+    }
+    let words: Vec<&str> = cleaned.split_whitespace().collect();
+    let mut current = String::new();
+    for w in words {
+        if !current.is_empty() && current.len() + 1 + w.len() > MAX_COBOL_DOC_BODY {
+            builder.line(&format!("      * {}", current));
+            current.clear();
+        }
+        if !current.is_empty() {
+            current.push(' ');
+        }
+        // A single word longer than MAX_COBOL_DOC_BODY (rare — typically a
+        // URL) gets truncated to keep the line valid.
+        if w.len() > MAX_COBOL_DOC_BODY {
+            builder.line(&format!("      * {}", &w[..MAX_COBOL_DOC_BODY]));
+            continue;
+        }
+        current.push_str(w);
+    }
+    if !current.is_empty() {
+        builder.line(&format!("      * {}", current));
+    }
 }

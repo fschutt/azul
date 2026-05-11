@@ -34,7 +34,9 @@ use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory};
 use super::types::pic_for_type;
-use super::{cobol_identifier, sanitize_cobol_identifier, sanitize_doc, to_cobol_case};
+use super::{
+    cobol_identifier, emit_doc_comment, sanitize_cobol_identifier, sanitize_doc, to_cobol_case,
+};
 
 pub fn generate_function_constants(
     builder: &mut CodeBuilder,
@@ -104,7 +106,7 @@ fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConf
 fn emit_function_constant(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
     if !func.doc.is_empty() {
         for d in &func.doc {
-            builder.line(&format!("      * {}", sanitize_doc(d)));
+            emit_doc_comment(builder, d);
         }
     }
 
