@@ -279,6 +279,13 @@ fn unwrap_expr(name: &str) -> String {
 /// (e.g. `addChild`) or already snake-ish — normalise either to snake.
 fn perl_method_name(method: &str) -> String {
     let snake = camel_to_snake(method);
+    // `new` collides with the bless-a-pointer constructor every
+    // wrapper class already emits. Rename C-ABI factories named `new`
+    // to `create` (same pattern Zig uses) so the redefinition warnings
+    // go away and users see a single canonical constructor.
+    if snake == "new" {
+        return "create".to_string();
+    }
     if PERL_RESERVED.contains(&snake.as_str()) {
         format!("{}_", snake)
     } else {

@@ -115,6 +115,54 @@ pub fn emit_struct_layouts(builder: &mut CodeBuilder, ir: &CodegenIR, config: &C
     builder.blank();
 }
 
+/// Emit struct AND tagged-union records interleaved by their shared
+/// `sort_order`. FFI::Platypus::Record evaluates `record_layout_1`
+/// at module load and requires every referenced field type to be
+/// fully defined at that moment — emitting a struct that nests
+/// another struct whose `record_layout_1` hasn't yet run produces:
+///   Use of uninitialized value $align in numeric gt (>)
+///   Illegal modulus zero at FFI/Platypus/Record.pm line 96.
+pub fn emit_records_in_sort_order(
+    builder: &mut CodeBuilder,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) {
+    builder.line("# --- Struct + tagged-union layouts (topologically ordered) ----");
+    enum Item<'a> {
+        Struct(&'a StructDef),
+        Union(&'a EnumDef),
+    }
+    let mut items: Vec<(usize, Item)> = Vec::new();
+    for s in &ir.structs {
+        items.push((s.sort_order, Item::Struct(s)));
+    }
+    for e in &ir.enums {
+        if e.is_union {
+            items.push((e.sort_order, Item::Union(e)));
+        }
+    }
+    items.sort_by_key(|(ord, _)| *ord);
+    for (_, item) in items {
+        match item {
+            Item::Struct(s) => {
+                if !should_emit_struct(s, config) {
+                    emit_skip_marker(builder, &s.name, &skip_reason_struct(s));
+                    continue;
+                }
+                emit_struct_layout(builder, s, config, ir);
+            }
+            Item::Union(e) => {
+                if !should_emit_enum(e, config) {
+                    emit_skip_marker(builder, &e.name, &skip_reason_enum(e));
+                    continue;
+                }
+                emit_tagged_union(builder, e, config);
+            }
+        }
+    }
+    builder.blank();
+}
+
 /// Tagged unions: emit a single record with a `tag` integer + an opaque
 /// fixed-size blob big enough to hold the largest variant. We can't compute
 /// the exact byte size from the IR alone (it depends on host `repr(C)`
@@ -228,11 +276,15 @@ fn emit_struct_layout(
 
     builder.dedent();
     builder.line("}");
-    // Register the type alias so 'record(Azul::AzFoo)' resolves in nested
-    // layouts.
+    // Register the type alias so `record(Azul::AzFoo)` resolves in
+    // nested layouts. The alias name (right-hand side) must match
+    // FFI::Platypus's `[A-Za-z0-9_]` rule — `::` is not legal there —
+    // so register the alias as the bare `AzFoo` and pass that name as
+    // the field type in other layouts.
     builder.line(&format!(
-        "$Azul::ffi->type('record({pkg})' => '{pkg}');",
-        pkg = pkg
+        "$Azul::ffi->type('record({pkg})' => '{alias}');",
+        pkg = pkg,
+        alias = name
     ));
 }
 
@@ -270,8 +322,9 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, config: &CodegenCon
     builder.dedent();
     builder.line("}");
     builder.line(&format!(
-        "$Azul::ffi->type('record({pkg})' => '{pkg}');",
-        pkg = pkg
+        "$Azul::ffi->type('record({pkg})' => '{alias}');",
+        pkg = pkg,
+        alias = name
     ));
 }
 
@@ -390,8 +443,14 @@ pub(crate) fn type_with_ref_to_perl(
     }
 
     // Anything else is a struct / tagged union: pass by value.
+    // Reference the type by its registered alias name (bare `AzFoo`,
+    // no `Azul::` prefix and no `record(...)` wrapper) so the type
+    // resolves via `$ffi->type` rather than re-deriving the alignof
+    // from the package directly — `record(Azul::AzFoo)` re-derivation
+    // returns undef alignof when referenced from another `record_layout_1`
+    // call site, even after the package's own `record_layout_1` ran.
     let prefixed = config.apply_prefix(trimmed);
-    format!("record(Azul::{})", prefixed)
+    prefixed
 }
 
 /// Map a Rust primitive type string to a FFI::Platypus type name (no

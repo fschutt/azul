@@ -86,12 +86,14 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     // Callback typedefs as `$ffi->type('(args)->ret' => 'AzFooCb')`.
     types::emit_callback_typedefs(&mut builder, ir, config);
 
-    // Struct record layouts (FFI::Platypus::Record).
-    types::emit_struct_layouts(&mut builder, ir, config);
+    // Struct + tagged-union record layouts. Interleaved by the IR
+    // builder's `sort_order` so dependencies always land before
+    // dependents — FFI::Platypus::Record raises
+    // `Use of uninitialized value $align ... Illegal modulus zero`
+    // when a layout references a record type whose `record_layout_1`
+    // call hasn't run yet.
+    types::emit_records_in_sort_order(&mut builder, ir, config);
 
-    // Tagged unions: outer record holding a `tag` byte plus a `payload` blob
-    // sized to the largest variant.
-    types::emit_tagged_unions(&mut builder, ir, config);
 
     // `$ffi->attach(...)` for every C-ABI symbol.
     functions::emit_attach_functions(&mut builder, ir, config);
@@ -130,10 +132,25 @@ fn emit_header(builder: &mut CodeBuilder) {
     builder.line("# Single FFI::Platypus instance shared by every package below.");
     builder.line("# `our $ffi` so `package Azul::FFI` and the wrapper packages can");
     builder.line("# reference it as `$Azul::ffi`.");
+    builder.line("#");
+    builder.line("# Library lookup: FFI::CheckLib::find_lib only searches the system");
+    builder.line("# loader's path by default, which on macOS's hardened runtime won't");
+    builder.line("# honour DYLD_LIBRARY_PATH for non-system processes. Look at");
+    builder.line("# AZUL_LIB_DIR and the directory containing this .pm file first so");
+    builder.line("# absolute-path lookup works alongside the system search path.");
+    builder.line("my @_azul_lib_dirs;");
+    builder.line("if (my $env = $ENV{AZUL_LIB_DIR}) { push @_azul_lib_dirs, $env if length $env; }");
+    builder.line("{");
+    builder.indent();
+    builder.line("require File::Basename;");
+    builder.line("my $here = File::Basename::dirname(__FILE__);");
+    builder.line("push @_azul_lib_dirs, $here if length $here;");
+    builder.dedent();
+    builder.line("}");
     builder.line("our $ffi = FFI::Platypus->new(");
     builder.indent();
     builder.line("api => 2,");
-    builder.line("lib => [ scalar find_lib_or_die(lib => 'azul') ],");
+    builder.line("lib => [ scalar find_lib_or_die(lib => 'azul', libpath => \\@_azul_lib_dirs) ],");
     builder.dedent();
     builder.line(");");
     builder.blank();
