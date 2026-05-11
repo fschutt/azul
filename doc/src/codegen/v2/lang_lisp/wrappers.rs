@@ -346,22 +346,35 @@ fn emit_with_macro(
         ";; ({} (var ctor-args...) body...) -- unwind-protect-wrapped binding.",
         with_sym
     ));
+    if ctor.is_none() {
+        // No constructor in the IR — emitting a `(let ((,var (first
+        // ctor-args))) ...)` macro both (a) fails READ because the
+        // comma quote on the `ctor-args` reference doesn't survive the
+        // SKIP-the-ctor branch, and (b) is conceptually wrong: the
+        // caller would have to provide an already-built object via the
+        // first ctor-arg, at which point a plain `let` is clearer.
+        // Skip the macro entirely; users use raw `unwind-protect`.
+        builder.line(&format!(
+            ";; SKIPPED: no constructor for `{}` in the IR — use raw",
+            class
+        ));
+        builder.line(&format!(
+            ";; `(unwind-protect (progn ...body...) ({} obj))` instead.",
+            close_sym
+        ));
+        builder.blank();
+        return;
+    }
     builder.line(&format!(
         "(defmacro {} ((var &rest ctor-args) &body body)",
         with_sym
     ));
     builder.indent();
-    if let Some(_c) = ctor {
-        // Use `make-<class>` (already exported) for the constructor.
-        builder.line(&format!(
-            "`(let ((,var (apply #'make-{} (list ,@ctor-args))))",
-            class
-        ));
-    } else {
-        // No constructor in the IR -- caller must supply a pre-built object.
-        builder.line(";; SKIPPED: no constructor in the IR; caller supplies object.");
-        builder.line("`(let ((,var (first ctor-args))))");
-    }
+    // Use `make-<class>` (already exported) for the constructor.
+    builder.line(&format!(
+        "`(let ((,var (apply #'make-{} (list ,@ctor-args))))",
+        class
+    ));
     builder.indent();
     builder.line(&format!(
         "   (unwind-protect (progn ,@body) ({} ,var))))",

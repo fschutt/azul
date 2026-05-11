@@ -178,8 +178,20 @@ fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &super::super::ir::Callb
             user_args.join(" ")
         ));
     }
+    // Closing parens (count carefully — off-by-one here was the
+    // bug that "leaked" each defcallback across all following forms,
+    // sending the reader into AZUL-INTERNAL for the entire wrapper
+    // emit):
+    //   1 close for the error clause
+    //   1 close for handler-case
+    //   1 close for the `when fn` form
+    //   1 close for the `let ((fn ...))` form
+    //   1 close for the outer defcallback
+    // = 5 trailing closes (in addition to the close after `e` that
+    //   closes `(format ... e)`, giving 6 close parens total at line
+    //   end).
     builder.line(&format!(
-        "        (error (e) (format *error-output* \"[azul] {} error: ~A~%\" e))))) ",
+        "        (error (e) (format *error-output* \"[azul] {} error: ~A~%\" e)))))) ",
         wrapper
     ));
     builder.blank();

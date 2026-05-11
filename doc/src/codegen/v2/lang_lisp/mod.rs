@@ -96,13 +96,18 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     builder.blank();
     builder.line("(in-package :azul)");
     builder.blank();
-    wrappers::generate_wrappers(&mut builder, ir, config)?;
 
-    // 6b. Managed-FFI public helpers — register-callback, refany-create,
-    //     refany-get. Exported from :azul so user code can reach them.
+    // 6a. Managed-FFI public helpers MUST be defined before the
+    //     CLOS wrappers because the wrappers reference
+    //     `azul:register-callback` by qualified name (`azul:foo`),
+    //     which Lisp's reader resolves at READ time. If the symbol
+    //     isn't yet interned in the :azul package, the read fails with
+    //     "Symbol REGISTER-CALLBACK not found in the AZUL package".
     managed::emit_user_facing_helpers(&mut builder, ir);
     builder.line("(export '(register-callback refany-create refany-get) :azul)");
     builder.blank();
+
+    wrappers::generate_wrappers(&mut builder, ir, config)?;
 
     Ok(builder.finish())
 }
@@ -143,7 +148,22 @@ fn emit_packages(builder: &mut CodeBuilder) {
 fn emit_library_load(builder: &mut CodeBuilder) {
     builder.line(";; -----------------------------------------------------------------------------");
     builder.line(";; Foreign library");
+    builder.line(";;");
+    builder.line(";; CFFI's default search uses the OS dynamic loader, which on macOS's");
+    builder.line(";; hardened-runtime mode refuses to honour relative paths even with");
+    builder.line(";; DYLD_LIBRARY_PATH. Prepend the directory containing this .lisp file");
+    builder.line(";; plus AZUL_LIB_DIR to *foreign-library-directories* so abs-path lookup");
+    builder.line(";; works alongside the system search path.");
     builder.line(";; -----------------------------------------------------------------------------");
+    builder.line("(let ((dir (and *load-pathname*");
+    builder.line("                (make-pathname :directory (pathname-directory *load-pathname*)))))");
+    builder.line("  (when dir");
+    builder.line("    (pushnew dir cffi:*foreign-library-directories* :test #'equal)))");
+    builder.line("(let ((env (uiop:getenv \"AZUL_LIB_DIR\")))");
+    builder.line("  (when (and env (not (string= env \"\")))");
+    builder.line("    (pushnew (pathname (concatenate 'string env \"/\"))");
+    builder.line("             cffi:*foreign-library-directories* :test #'equal)))");
+    builder.blank();
     builder.line("(define-foreign-library libazul");
     builder.line(&format!(
         "  (:darwin (:or \"lib{}.dylib\" \"{}.dylib\"))",
@@ -257,14 +277,115 @@ pub fn raw_fn_name(c_name: &str) -> String {
 /// Strip the leading `Az` from a class name and emit a kebab-cased
 /// idiomatic Lisp class name (e.g. `WindowCreateOptions` ->
 /// `window-create-options`).
+///
+/// Keeps the `az-` prefix when the un-prefixed name would collide with
+/// a symbol exported from `:cl` (e.g. `String` -> `cl:string`). The
+/// `:azul` package `(:use :cl)`s, so a bare `(defclass string ...)`
+/// would try to redefine `cl:string` and trip the package-lock error
+/// `Lock on package COMMON-LISP violated when defining STRING as a
+/// class while in package AZUL`.
 pub fn idiomatic_class_name(name: &str) -> String {
     let body = name.strip_prefix("Az").unwrap_or(name);
     let kebab_with_prefix = to_kebab_case(body);
-    // to_kebab_case always prepends "az-"; trim it for the user-facing class.
-    kebab_with_prefix
+    let stripped = kebab_with_prefix
         .strip_prefix("az-")
-        .unwrap_or(&kebab_with_prefix)
-        .to_string()
+        .unwrap_or(&kebab_with_prefix);
+    if shadows_cl_symbol(stripped) {
+        format!("az-{}", stripped)
+    } else {
+        stripped.to_string()
+    }
+}
+
+/// Does `name` (kebab-cased, lowercase) collide with a symbol exported
+/// from the `:cl` package? The COMMON-LISP package is locked under
+/// SBCL's default policy, so defining a class / function / variable
+/// with one of these names from `:azul` raises
+/// SYMBOL-PACKAGE-LOCKED-ERROR. Other Lisp implementations vary; we
+/// keep the avoidance global so the bindings stay portable.
+fn shadows_cl_symbol(name: &str) -> bool {
+    matches!(
+        name,
+        // Core types and classes from `cl:`. Avoiding the full
+        // generated CL symbol set isn't practical, so we list the
+        // commonly-clashing ones — extend as new collisions surface.
+        "array"
+            | "atom"
+            | "bit-vector"
+            | "boolean"
+            | "character"
+            | "class"
+            | "complex"
+            | "condition"
+            | "cons"
+            | "control-error"
+            | "division-by-zero"
+            | "end-of-file"
+            | "error"
+            | "file-error"
+            | "float"
+            | "floating-point-overflow"
+            | "floating-point-underflow"
+            | "function"
+            | "hash-table"
+            | "integer"
+            | "list"
+            | "logical-pathname"
+            | "long-float"
+            | "method"
+            | "method-combination"
+            | "null"
+            | "number"
+            | "package"
+            | "package-error"
+            | "parse-error"
+            | "pathname"
+            | "print-not-readable"
+            | "program-error"
+            | "rational"
+            | "reader-error"
+            | "readtable"
+            | "real"
+            | "restart"
+            | "sequence"
+            | "serious-condition"
+            | "short-float"
+            | "signed-byte"
+            | "simple-array"
+            | "simple-base-string"
+            | "simple-bit-vector"
+            | "simple-condition"
+            | "simple-error"
+            | "simple-string"
+            | "simple-type-error"
+            | "simple-vector"
+            | "simple-warning"
+            | "single-float"
+            | "standard-char"
+            | "standard-class"
+            | "standard-generic-function"
+            | "standard-method"
+            | "standard-object"
+            | "stream"
+            | "stream-error"
+            | "storage-condition"
+            | "string"
+            | "string-stream"
+            | "structure"
+            | "structure-class"
+            | "structure-object"
+            | "style-warning"
+            | "symbol"
+            | "synonym-stream"
+            | "two-way-stream"
+            | "type-error"
+            | "unbound-slot"
+            | "unbound-variable"
+            | "undefined-function"
+            | "unsigned-byte"
+            | "vector"
+            | "warning"
+    )
 }
 
 /// Mangle a Lisp identifier if it would shadow a Common Lisp special
@@ -384,22 +505,50 @@ pub fn map_type_to_cffi(rust_type: &str, ir: &CodegenIR) -> String {
         // Anything else: known IR type by value -> (:struct az-foo).
         // Unknown -> :pointer.
         _ => {
-            if ir.find_struct(trimmed).is_some() {
-                format!("(:struct {})", to_kebab_case(trimmed))
-            } else if ir.find_enum(trimmed).is_some() {
-                // Tagged unions are emitted as `defcunion`; pass-by-value
-                // surfaces them as `(:union az-foo)`. Unit enums use
-                // `defcenum`; CFFI accepts the keyword form at the call
-                // site and converts to/from the underlying integer.
-                let kebab = to_kebab_case(trimmed);
-                let enum_def = ir.find_enum(trimmed).unwrap();
-                if enum_def.is_union {
-                    format!("(:union {})", kebab)
-                } else {
-                    kebab
+            // Recursive struct/enum types can't be embedded by value
+            // inside their own variants without infinite recursion; the
+            // C ABI stores them behind a pointer. Mirror that with
+            // `:pointer` (same strategy lang_c uses).
+            if let Some(s) = ir.find_struct(trimmed) {
+                if matches!(s.category, super::ir::TypeCategory::Recursive) {
+                    return ":pointer".to_string();
                 }
-            } else if ir.find_type_alias(trimmed).is_some() {
-                to_kebab_case(trimmed)
+                return format!("(:struct {})", to_kebab_case(trimmed));
+            }
+            if let Some(en) = ir.find_enum(trimmed) {
+                if matches!(en.category, super::ir::TypeCategory::Recursive) {
+                    return ":pointer".to_string();
+                }
+                let kebab = to_kebab_case(trimmed);
+                if en.is_union {
+                    return format!("(:union {})", kebab);
+                }
+                return kebab;
+            }
+            if let Some(ta) = ir.find_type_alias(trimmed) {
+                // Monomorphized aliases (CssPropertyValue<T> et al.) are
+                // emitted as concrete `defcstruct`s/`defcunion`s by
+                // `emit_monomorphized_alias`; pass-by-value surfaces them
+                // as `(:struct ...)` / `(:union ...)` depending on shape.
+                if let Some(ref md) = ta.monomorphized_def {
+                    let kebab = to_kebab_case(trimmed);
+                    match md.kind {
+                        crate::codegen::v2::ir::MonomorphizedKind::TaggedUnion { .. } => {
+                            format!("(:union {})", kebab)
+                        }
+                        crate::codegen::v2::ir::MonomorphizedKind::Struct { .. } => {
+                            format!("(:struct {})", kebab)
+                        }
+                        crate::codegen::v2::ir::MonomorphizedKind::SimpleEnum { .. } => kebab,
+                    }
+                } else {
+                    // Simple alias (e.g. `HwndHandle = *mut c_void`,
+                    // `GLint = i32`). Resolve transparently to the
+                    // target's CFFI type — same strategy as the C / C# /
+                    // Java generators. Avoids the `Unknown CFFI type
+                    // AZ-FOO` error CFFI raises for undeclared names.
+                    map_type_to_cffi(&ta.target, ir)
+                }
             } else if ir.callback_typedefs.iter().any(|c| c.name == trimmed) {
                 // Function-pointer typedefs: pass as :pointer in CFFI.
                 ":pointer".to_string()

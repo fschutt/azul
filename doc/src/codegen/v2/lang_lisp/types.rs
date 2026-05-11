@@ -25,8 +25,8 @@ use anyhow::Result;
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{
-    CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind, StructDef,
-    TypeCategory,
+    CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
+    MonomorphizedKind, MonomorphizedTypeDef, StructDef, TypeAliasDef, TypeCategory,
 };
 use super::{ident_to_kebab, map_type_to_cffi, to_kebab_case};
 
@@ -44,27 +44,51 @@ pub fn generate_types(
     builder.line(";; ----------------------------------------------------------------------------");
     builder.blank();
 
-    // Forward-declare struct names via defcstruct-as-pointer typedefs?
-    // CFFI permits forward references inside `(:struct foo)` so we don't
-    // need explicit forwards. Emit unit enums first so they are visible
-    // when later structs reference them.
-
+    // Emit type definitions in the IR builder's topological `sort_order`
+    // (same pass `lang_c` uses). Earlier code claimed CFFI tolerates
+    // forward references inside `(:struct foo)`, but in practice
+    // `notice-foreign-struct-definition` resolves the payload's struct
+    // at evaluation time and raises `Unknown CFFI type (:STRUCT AZ-FOO)`
+    // if the layout hasn't been declared yet.
+    enum TypeItem<'a> {
+        UnitEnum(&'a EnumDef),
+        TaggedUnion(&'a EnumDef),
+        Struct(&'a StructDef),
+        MonoAlias(&'a TypeAliasDef, &'a MonomorphizedTypeDef),
+    }
+    let mut items: Vec<(usize, TypeItem)> = Vec::new();
     for e in &ir.enums {
         if !should_include_enum(e, config) {
             continue;
         }
         if e.is_union {
-            emit_tagged_union(builder, e, ir);
+            items.push((e.sort_order, TypeItem::TaggedUnion(e)));
         } else {
-            emit_unit_enum(builder, e);
+            items.push((e.sort_order, TypeItem::UnitEnum(e)));
         }
     }
-
     for s in &ir.structs {
         if !should_include_struct(s, config) {
             continue;
         }
-        emit_struct(builder, s, ir);
+        items.push((s.sort_order, TypeItem::Struct(s)));
+    }
+    for ta in &ir.type_aliases {
+        if !config.should_include_type(&ta.name) {
+            continue;
+        }
+        if let Some(ref md) = ta.monomorphized_def {
+            items.push((ta.sort_order, TypeItem::MonoAlias(ta, md)));
+        }
+    }
+    items.sort_by_key(|(ord, _)| *ord);
+    for (_, item) in items {
+        match item {
+            TypeItem::UnitEnum(e) => emit_unit_enum(builder, e),
+            TypeItem::TaggedUnion(e) => emit_tagged_union(builder, e, ir),
+            TypeItem::Struct(s) => emit_struct(builder, s, ir),
+            TypeItem::MonoAlias(ta, md) => emit_monomorphized_alias(builder, ta, md, ir),
+        }
     }
 
     // Callback typedefs: emit each as `defctype foo-type :pointer`.
@@ -284,6 +308,116 @@ fn emit_struct_field(builder: &mut CodeBuilder, f: &FieldDef, ir: &CodegenIR) {
     // Detect array types: `[T; N]` -> `(:array <elem> N)`.
     let cffi_ty = ref_kind_field_type(&f.type_name, &f.ref_kind, ir);
     builder.line(&format!("({} {})", ident_to_kebab(&f.name), cffi_ty));
+}
+
+// =============================================================================
+// Monomorphized type alias (e.g. `PhysicalSize<u32>` -> `AzPhysicalSizeU32`)
+// =============================================================================
+//
+// The IR builder has already pre-instantiated each generic alias with
+// concrete payloads. Emit the resulting concrete type the same way we
+// emit non-generic types — SimpleEnum -> defcenum, Struct -> defcstruct,
+// TaggedUnion -> tag defcenum + per-variant defcstruct + defcunion.
+
+fn emit_monomorphized_alias(
+    builder: &mut CodeBuilder,
+    ta: &TypeAliasDef,
+    md: &MonomorphizedTypeDef,
+    ir: &CodegenIR,
+) {
+    let lisp_name = to_kebab_case(&ta.name);
+
+    if !ta.doc.is_empty() {
+        for d in &ta.doc {
+            builder.line(&format!(";; {}", sanitize_comment(d)));
+        }
+    }
+
+    match &md.kind {
+        MonomorphizedKind::SimpleEnum { repr, variants } => {
+            let underlying = repr
+                .as_deref()
+                .map(|r| match r {
+                    s if s.contains("u8") => ":uint8",
+                    s if s.contains("i8") => ":int8",
+                    s if s.contains("u16") => ":uint16",
+                    s if s.contains("i16") => ":int16",
+                    s if s.contains("i32") => ":int32",
+                    s if s.contains("u64") => ":uint64",
+                    s if s.contains("i64") => ":int64",
+                    _ => ":uint32",
+                })
+                .unwrap_or(":uint32");
+            builder.line(&format!("(defcenum ({} {})", lisp_name, underlying));
+            builder.indent();
+            for (idx, v) in variants.iter().enumerate() {
+                let kw = ident_to_kebab(v);
+                if idx == variants.len() - 1 {
+                    builder.line(&format!("(:{} {}))", kw, idx));
+                } else {
+                    builder.line(&format!("(:{} {})", kw, idx));
+                }
+            }
+            builder.dedent();
+            builder.blank();
+        }
+        MonomorphizedKind::Struct { fields } => {
+            builder.line(&format!("(defcstruct {}", lisp_name));
+            builder.indent();
+            if fields.is_empty() {
+                builder.line("(_dummy :uint8)");
+            } else {
+                for f in fields {
+                    emit_struct_field(builder, f, ir);
+                }
+            }
+            builder.dedent();
+            emit_close(builder);
+        }
+        MonomorphizedKind::TaggedUnion { variants, .. } => {
+            let tag_name = format!("{}-tag", lisp_name);
+            builder.line(&format!("(defcenum ({} :uint32)", tag_name));
+            builder.indent();
+            for (idx, v) in variants.iter().enumerate() {
+                let kw = ident_to_kebab(&v.name);
+                if idx == variants.len() - 1 {
+                    builder.line(&format!("(:{} {}))", kw, idx));
+                } else {
+                    builder.line(&format!("(:{} {})", kw, idx));
+                }
+            }
+            builder.dedent();
+            builder.blank();
+
+            for v in variants {
+                let variant_struct =
+                    format!("{}-variant-{}", lisp_name, ident_to_kebab(&v.name));
+                builder.line(&format!("(defcstruct {}", variant_struct));
+                builder.indent();
+                builder.line(&format!("(tag {})", tag_name));
+                if let Some(ref payload_ty) = v.payload_type {
+                    let cffi_ty = ref_kind_field_type(payload_ty, &v.payload_ref_kind, ir);
+                    builder.line(&format!("(payload {})", cffi_ty));
+                }
+                builder.dedent();
+                emit_close(builder);
+            }
+
+            builder.line(&format!("(defcunion {}", lisp_name));
+            builder.indent();
+            for v in variants {
+                let variant_struct =
+                    format!("{}-variant-{}", lisp_name, ident_to_kebab(&v.name));
+                builder.line(&format!(
+                    "({} (:struct {}))",
+                    ident_to_kebab(&v.name),
+                    variant_struct
+                ));
+            }
+            builder.dedent();
+            emit_close(builder);
+        }
+    }
 }
 
 // =============================================================================
