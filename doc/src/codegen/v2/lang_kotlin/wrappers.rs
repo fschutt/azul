@@ -99,11 +99,11 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     let ffi_name = ffi_type_name(&s.name);
 
     if !s.doc.is_empty() {
-        builder.line("/**");
+        // (KDoc switched to triple-slash to bypass parser issues with `*/` in inline code samples)
         for d in &s.doc {
-            builder.line(&format!(" * {}", d));
+            builder.line(&format!("/// {}", kdoc_escape(d)));
         }
-        builder.line(" */");
+        
     }
 
     builder.line(&format!(
@@ -213,27 +213,21 @@ fn emit_static_factory(
         })
         .collect();
 
+    // No wrapper-boundary callback substitution. The wrapper signature
+    // carries the C ABI type unchanged; users call AzulHostInvoker.register*
+    // themselves to construct the wrapper struct. Matches C# / Java / Lua.
     let call_args: Vec<String> = func
         .args
         .iter()
-        .map(|a| {
-            let raw_name = sanitize_kt_identifier(&a.name);
-            if let Some(cb) = a.callback_info.as_ref() {
-                let wrapper = cb.callback_wrapper_name.as_str();
-                if super::super::managed_host_invoker::HOST_INVOKER_KINDS.contains(&wrapper) {
-                    return format!("AzulHostInvoker.register{}({})", wrapper, raw_name);
-                }
-            }
-            raw_name
-        })
+        .map(|a| sanitize_kt_identifier(&a.name))
         .collect();
 
     if !func.doc.is_empty() {
-        builder.line("/**");
+        // (KDoc switched to triple-slash to bypass parser issues with `*/` in inline code samples)
         for d in &func.doc {
-            builder.line(&format!(" * {}", d));
+            builder.line(&format!("/// {}", kdoc_escape(d)));
         }
-        builder.line(" */");
+        
     }
 
     let displayed_return = if returns_self {
@@ -297,13 +291,21 @@ fn emit_instance_method(
         .map(|r| r.trim() == func.class_name)
         .unwrap_or(false);
 
-    // Drop the implicit self argument.
-    let class_lower = func.class_name.to_lowercase();
-    let user_args: Vec<_> = func
+    // Drop the implicit self argument. For instance methods (caller path
+    // is `emit_instance_method` so takes_self is always true here) the
+    // first arg in func.args IS the self regardless of how api.json names
+    // it (`instance`, lowercased class name, `icon_provider_handle`,
+    // etc.). Skip args[0] unconditionally — matches the Java/C# fix.
+    let user_args: Vec<_> = func.args.iter().skip(1).collect();
+
+    // Some C ABIs take self by VALUE (`AzRibbon_renderDom(AzRibbon)`)
+    // rather than by pointer. Detect via args[0].ref_kind = Owned and
+    // build a `.ByValue` overlay via JNA's Structure.newInstance(...).
+    let self_by_value = func
         .args
-        .iter()
-        .filter(|a| a.name != class_lower && a.name != "self")
-        .collect();
+        .first()
+        .map(|a| matches!(a.ref_kind, ArgRefKind::Owned))
+        .unwrap_or(false);
 
     let arg_sig: Vec<String> = user_args
         .iter()
@@ -319,28 +321,34 @@ fn emit_instance_method(
         })
         .collect();
 
-    let mut call_args: Vec<String> = vec!["this.ptr".to_string()];
+    let mut pre_call_lines: Vec<String> = Vec::new();
+    let self_arg = if self_by_value {
+        let self_ty = format!("Az{}", func.class_name);
+        pre_call_lines.push(format!(
+            "val __self = Structure.newInstance({}.ByValue::class.java, this.ptr) as {}.ByValue",
+            self_ty, self_ty
+        ));
+        pre_call_lines.push("__self.read()".to_string());
+        "__self".to_string()
+    } else {
+        "this.ptr".to_string()
+    };
+
+    let mut call_args: Vec<String> = vec![self_arg];
+    // Callback args: no wrapper-boundary substitution. The wrapper
+    // signature already matches the C ABI type; users construct the
+    // AzCallback struct themselves via AzulHostInvoker.register*.
     for a in &user_args {
         let raw_name = sanitize_kt_identifier(&a.name);
-        if let Some(cb) = a.callback_info.as_ref() {
-            let wrapper = cb.callback_wrapper_name.as_str();
-            if super::super::managed_host_invoker::HOST_INVOKER_KINDS.contains(&wrapper) {
-                call_args.push(format!(
-                    "AzulHostInvoker.register{}({})",
-                    wrapper, raw_name
-                ));
-                continue;
-            }
-        }
         call_args.push(raw_name);
     }
 
     if !func.doc.is_empty() {
-        builder.line("/**");
+        // (KDoc switched to triple-slash to bypass parser issues with `*/` in inline code samples)
         for d in &func.doc {
-            builder.line(&format!(" * {}", d));
+            builder.line(&format!("/// {}", kdoc_escape(d)));
         }
-        builder.line(" */");
+        
     }
 
     let displayed_return = if returns_self {
@@ -357,6 +365,10 @@ fn emit_instance_method(
     ));
     builder.indent();
     builder.line("check(!closed) { \"closed\" }");
+
+    for stmt in &pre_call_lines {
+        builder.line(stmt);
+    }
 
     // Use `func.c_name` to match the AzulNative interface (where
     // functions are declared by their C ABI symbol with camelCase
@@ -388,11 +400,11 @@ fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef) {
     let ffi_name = ffi_type_name(&e.name);
 
     if !e.doc.is_empty() {
-        builder.line("/**");
+        // (KDoc switched to triple-slash to bypass parser issues with `*/` in inline code samples)
         for d in &e.doc {
-            builder.line(&format!(" * {}", d));
+            builder.line(&format!("/// {}", kdoc_escape(d)));
         }
-        builder.line(" */");
+        
     }
 
     builder.line(&format!("object {}Helpers {{", class_name));
@@ -446,8 +458,7 @@ fn idiomatic_method_name(method_name: &str) -> String {
     if method_name == "new" {
         return "create".to_string();
     }
-    if method_name.contains('_') {
-        // snake → lowerCamel
+    let camel = if method_name.contains('_') {
         let mut out = String::new();
         let mut upper = false;
         for c in method_name.chars() {
@@ -460,14 +471,47 @@ fn idiomatic_method_name(method_name: &str) -> String {
                 out.push(c);
             }
         }
-        return out;
+        out
+    } else {
+        let mut chars = method_name.chars();
+        match chars.next() {
+            Some(c) => c.to_lowercase().collect::<String>() + chars.as_str(),
+            None => String::new(),
+        }
+    };
+    // Kotlin hard keywords (`object`, `class`, `interface`, etc.) cannot
+    // be method names without backticks; emit them backticked. (Backticks
+    // are valid inside method-name position in Kotlin source.)
+    if super::is_kotlin_hard_keyword(&camel) {
+        format!("`{}`", camel)
+    } else if camel == "close" {
+        // Every wrapper implements AutoCloseable with its own `close()`
+        // for resource cleanup. A user-API method also named `close`
+        // would collide; rename it. (SvgPath has both — the path's "close
+        // path" segment plus the AutoCloseable.close() lifecycle method.)
+        "closeInner".to_string()
+    } else if matches!(camel.as_str(), "toString" | "hashCode" | "equals") {
+        // Methods on Any/Object require an `override` modifier and
+        // a compatible return type. The Azul wrappers' `toString` returns
+        // AzString.ByValue, not java.lang.String, so it can't override
+        // Any.toString. Suffix to avoid the collision.
+        format!("{}_", camel)
+    } else {
+        camel
     }
-    // Already (probably) lowerCamel — just guarantee first letter is
-    // lowercase so the binding feels consistent.
-    let mut chars = method_name.chars();
-    match chars.next() {
-        Some(c) => c.to_lowercase().collect::<String>() + chars.as_str(),
-        None => String::new(),
-    }
+}
+
+/// Escape doc-comment text for KDoc emission. Several characters in
+/// the raw Rust docs would otherwise confuse Kotlin's parser:
+///
+/// - `*/` inside paths like `/users/*/name` is read as the doc-comment
+///   terminator, prematurely closing the KDoc and surfacing as
+///   "Missing '}" / "Unclosed comment" errors on later lines.
+/// - `{` / `}` are KDoc inline-tag delimiters. Unbalanced braces from
+///   inline code samples (`r#"{"users":...}"#`) trip the doc parser.
+pub(crate) fn kdoc_escape(s: &str) -> String {
+    s.replace("*/", "*&#47;")
+        .replace('{', "&#123;")
+        .replace('}', "&#125;")
 }
 

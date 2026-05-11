@@ -40,7 +40,7 @@ pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("}");
     builder.blank();
 
-    builder.line("fun interface HostHandleReleaserCallback : Callback {");
+    builder.line("fun interface HostHandleReleaserCallback : JnaCallback {");
     builder.indent();
     builder.line("fun invoke(id: Long)");
     builder.dedent();
@@ -66,7 +66,7 @@ pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
             params.push("outPtr: Pointer?".to_string());
         }
         builder.line(&format!(
-            "fun interface {}InvokerCallback : Callback {{",
+            "fun interface {}InvokerCallback : JnaCallback {{",
             wrapper
         ));
         builder.indent();
@@ -117,11 +117,24 @@ pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
 
     for cb in host_invoker_kinds(ir) {
         let wrapper = wrapper_name(cb);
+        let cb_has_return = has_return(cb);
+        // Lambda arg count must match the SAM interface declared in
+        // AzulNativeManaged: `id` + one Pointer per callback IR arg
+        // + (if has_return) `outPtr`. Hard-coding 3 args breaks for any
+        // callback with a different shape.
+        let mut params: Vec<String> = vec!["id".to_string()];
+        for _ in &cb.args {
+            params.push("_".to_string());
+        }
+        if cb_has_return {
+            params.push("_".to_string());
+        }
         builder.line(&format!("// {} invoker", wrapper));
         builder.line(&format!(
-            "val {l}Invoker = AzulNativeManaged.{w}InvokerCallback {{ id, _, _ ->",
+            "val {l}Invoker = AzulNativeManaged.{w}InvokerCallback {{ {p} ->",
             l = lower_first(wrapper),
-            w = wrapper
+            w = wrapper,
+            p = params.join(", ")
         ));
         builder.indent();
         builder.line("// Per-kind dispatch: user passes a concrete InvokerCallback instance,");

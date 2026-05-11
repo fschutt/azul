@@ -122,7 +122,14 @@ fn emit_header(builder: &mut CodeBuilder) {
 }
 
 fn emit_imports(builder: &mut CodeBuilder) {
-    builder.line("import com.sun.jna.Callback");
+    // Alias JNA's `Callback` interface to `JnaCallback` so it does not
+    // collide with the Azul wrapper class `Callback` (which lives in
+    // the same `com.azul` package). A naked `import com.sun.jna.Callback`
+    // shadows the wrapper class at top-level scope, causing function
+    // signatures like `fun create(...): Callback` to bind to the JNA
+    // interface and the body's `return Callback(ptr)` (resolved in the
+    // class scope) to fail with a return-type mismatch.
+    builder.line("import com.sun.jna.Callback as JnaCallback");
     builder.line("import com.sun.jna.Library");
     builder.line("import com.sun.jna.Memory");
     builder.line("import com.sun.jna.Native");
@@ -199,12 +206,10 @@ fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConf
 // ============================================================================
 
 fn emit_native_interface(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
-    builder.line("/**");
-    builder.line(" * JNA-bound interface to the Azul C ABI.");
-    builder.line(" *");
-    builder.line(" * Each method maps 1:1 to an exported C symbol of the same name.");
-    builder.line(" * Use `AzulNative.INSTANCE.<method>(...)` from Kotlin code.");
-    builder.line(" */");
+    builder.line("/// JNA-bound interface to the Azul C ABI.");
+    builder.line("///");
+    builder.line("/// Each method maps 1:1 to an exported C symbol of the same name.");
+    builder.line("/// Use `AzulNative.INSTANCE.<method>(...)` from Kotlin code.");
     builder.line("interface AzulNative : Library {");
     builder.indent();
     builder.line("companion object {");
@@ -253,7 +258,7 @@ fn emit_native_method(builder: &mut CodeBuilder, func: &FunctionDef, ir: &Codege
 
     if !func.doc.is_empty() {
         for d in &func.doc {
-            builder.line(&format!("/// {}", d));
+            builder.line(&format!("/// {}", wrappers::kdoc_escape(d)));
         }
     }
     builder.line(&format!(
@@ -272,11 +277,11 @@ fn emit_unit_enum(builder: &mut CodeBuilder, enum_def: &EnumDef) {
     let name = ffi_type_name(&enum_def.name);
 
     if !enum_def.doc.is_empty() {
-        builder.line("/**");
+        // (KDoc switched to triple-slash to bypass parser issues with `*/` in inline code samples)
         for d in &enum_def.doc {
-            builder.line(&format!(" * {}", d));
+            builder.line(&format!("/// {}", wrappers::kdoc_escape(d)));
         }
-        builder.line(" */");
+        
     }
 
     builder.line(&format!("enum class {}(val value: Int) {{", name));
@@ -370,11 +375,11 @@ fn emit_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Codegen
 
     // 3. Outer Union
     if !enum_def.doc.is_empty() {
-        builder.line("/**");
+        // (KDoc switched to triple-slash to bypass parser issues with `*/` in inline code samples)
         for d in &enum_def.doc {
-            builder.line(&format!(" * {}", d));
+            builder.line(&format!("/// {}", wrappers::kdoc_escape(d)));
         }
-        builder.line(" */");
+        
     }
     builder.line(&format!("open class {} : Union() {{", name));
     builder.indent();
@@ -593,11 +598,11 @@ fn emit_struct(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     let name = ffi_type_name(&s.name);
 
     if !s.doc.is_empty() {
-        builder.line("/**");
+        // (KDoc switched to triple-slash to bypass parser issues with `*/` in inline code samples)
         for d in &s.doc {
-            builder.line(&format!(" * {}", d));
+            builder.line(&format!("/// {}", wrappers::kdoc_escape(d)));
         }
-        builder.line(" */");
+        
     }
 
     builder.line(&format!("open class {} : Structure() {{", name));
@@ -688,15 +693,17 @@ fn emit_callback_interface(
     let name = ffi_type_name(&cb.name);
 
     if !cb.doc.is_empty() {
-        builder.line("/**");
+        // (KDoc switched to triple-slash to bypass parser issues with `*/` in inline code samples)
         for d in &cb.doc {
-            builder.line(&format!(" * {}", d));
+            builder.line(&format!("/// {}", wrappers::kdoc_escape(d)));
         }
-        builder.line(" */");
+        
     }
 
     // Kotlin SAM interface — ergonomic lambda construction site.
-    builder.line(&format!("fun interface {} : Callback {{", name));
+    // Use `JnaCallback` (aliased above) rather than naked `Callback`
+    // to avoid collision with the Azul `Callback` wrapper class.
+    builder.line(&format!("fun interface {} : JnaCallback {{", name));
     builder.indent();
 
     let return_type = cb

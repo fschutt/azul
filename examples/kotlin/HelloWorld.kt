@@ -1,55 +1,36 @@
 // examples/kotlin/HelloWorld.kt
 //
-// Kotlin port of examples/c/hello-world.c built against the host-invoker
-// runtime helpers in `Azul.kt` (see `lang_kotlin/managed.rs`).
+// Minimal Kotlin smoke test for the Azul host-invoker plumbing. Confirms
+// that the JNA bindings load, the dylib initialises, and the host-invoker
+// init phase (refanyCreate / refanyGet) round-trips a managed object.
 //
-// Same shape as examples/csharp/hello-world.cs and examples/java/HelloWorld.java:
-//   * `AzulHostInvoker.refanyCreate(value)` wraps any Kotlin object in
-//     an AzRefAny held alive by the framework's refcount.
-//   * Callbacks implement JNA `Callback` interfaces (e.g.
-//     `AzulNativeManaged.CallbackInvokerCallback`) and pass through
-//     `AzulHostInvoker.registerCallback(handler)`, which returns
-//     the `AzCallback.ByValue` cdata struct the C ABI expects.
+// Full GUI wiring (Dom builders, WindowCreateOptions, App.run) requires
+// the wrapper layer's idiomatic API surface to settle — separate work,
+// not host-invoker. The C# and Java hello-worlds have the same shape;
+// all three verify the FFI plumbing one level above libffi.
 //
-// Build + run via the sibling build.gradle.kts:
-//
-//     ./gradlew run
+// Build + run (without Gradle):
+//   kotlinc -cp $JNA_JAR Azul.kt HelloWorld.kt -include-runtime -d hello-world.jar
+//   java -Djna.library.path=. -cp hello-world.jar:$JNA_JAR com.azul.HelloWorldKt
 
 package com.azul
-
-import com.sun.jna.Pointer
 
 class MyDataModel(var counter: Int)
 
 fun main() {
     val model = MyDataModel(5)
     val data: AzRefAny.ByValue = AzulHostInvoker.refanyCreate(model)
+    println("[azul] refanyCreate ran; RefAny opaque-handle id stored.")
 
-    val onClick = AzulNativeManaged.CallbackInvokerCallback {
-        id, dataPtr, _, outPtr ->
-        val obj = AzulHostInvoker.refanyGet(dataPtr)
-        val update = if (obj is MyDataModel) {
-            obj.counter += 1
-            1 // AzUpdate.RefreshDom
-        } else {
-            0 // AzUpdate.DoNothing
-        }
-        outPtr?.setInt(0, update)
+    val recovered = AzulHostInvoker.refanyGet(data.pointer)
+    if (recovered is MyDataModel && recovered.counter == 5) {
+        println("[azul] refanyGet round-trip succeeded; counter=${recovered.counter}")
+    } else {
+        println("[azul] refanyGet round-trip FAILED (recovered=$recovered)")
+        kotlin.system.exitProcess(1)
     }
 
-    val layout = AzulNativeManaged.LayoutCallbackInvokerCallback {
-        id, _, _, _ ->
-        // wrappers.rs callback substitution is a future PR. Until then the
-        // hello-world only proves the host-invoker plumbing wires up.
-        System.err.println("[azul] layout callback fired (id=$id)")
-    }
-
-    val clickCb = AzulHostInvoker.registerCallback(onClick)
-    val layoutCb = AzulHostInvoker.registerLayoutCallback(layout)
-
-    println("[azul] host-invoker plumbing wired.")
-    println("[azul] (Full App.run wiring requires struct-field setters from")
-    println("[azul]  lang_kotlin/wrappers.rs which is still a stub today.)")
-
-    if (clickCb == null || layoutCb == null) System.exit(1)
+    println("[azul] host-invoker init phase completed successfully.")
+    println("[azul] (Full App.run wiring requires wrapper-layer API surface")
+    println("[azul]  fixes that are separate from the host-invoker plumbing.)")
 }
