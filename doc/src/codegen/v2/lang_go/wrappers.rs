@@ -370,10 +370,27 @@ fn emit_instance_method(
     b.line(&header);
     b.indent();
 
-    let call_args_full = if user_call_args.is_empty() {
-        "&self.inner".to_string()
+    // Some C ABIs take self by VALUE (e.g.
+    // `AzScrollIntoViewOptions_withInstant(AzScrollIntoViewOptions self, ...)`)
+    // rather than by pointer. Detect via the first arg's ref_kind ==
+    // Owned and pass `self.inner` (struct value) instead of
+    // `&self.inner` (pointer). Same pattern as the C# / Java / Kotlin
+    // wrappers landed in Phase 5.
+    let self_by_value = f
+        .args
+        .first()
+        .map(|a| matches!(a.ref_kind, ArgRefKind::Owned))
+        .unwrap_or(false);
+    let self_expr = if self_by_value {
+        "self.inner"
     } else {
-        format!("&self.inner, {}", user_call_args)
+        "&self.inner"
+    };
+
+    let call_args_full = if user_call_args.is_empty() {
+        self_expr.to_string()
+    } else {
+        format!("{}, {}", self_expr, user_call_args)
     };
 
     let call = format!("C.{}({})", f.c_name, call_args_full);
@@ -406,9 +423,19 @@ fn format_params(
     ir: &CodegenIR,
 ) -> String {
     let mut out = Vec::new();
-    for a in args {
+    // When skip_self is set this is an instance method — the first IR
+    // arg IS the implicit self regardless of how api.json named it
+    // (`instance`, lowercased class name, etc.). Skip args[0]
+    // unconditionally; same fix the C# / Java / Kotlin / Ruby
+    // wrappers landed in Phase 5/6.
+    let iter: Box<dyn Iterator<Item = &super::super::ir::FunctionArg>> =
+        if skip_self && !args.is_empty() {
+            Box::new(args.iter().skip(1))
+        } else {
+            Box::new(args.iter())
+        };
+    for a in iter {
         if is_self_arg(&a.name, self_arg) {
-            let _ = skip_self;
             continue;
         }
         out.push(format!(
@@ -426,9 +453,14 @@ fn format_call_args(
     skip_self: bool,
 ) -> String {
     let mut out = Vec::new();
-    for a in args {
+    let iter: Box<dyn Iterator<Item = &super::super::ir::FunctionArg>> =
+        if skip_self && !args.is_empty() {
+            Box::new(args.iter().skip(1))
+        } else {
+            Box::new(args.iter())
+        };
+    for a in iter {
         if is_self_arg(&a.name, self_arg) {
-            let _ = skip_self;
             continue;
         }
         out.push(sanitize_identifier(&a.name));
@@ -500,6 +532,18 @@ fn apply_arg_ref_kind(base: String, ref_kind: ArgRefKind) -> String {
 
 fn map_return_type(ty: &str, ir: &CodegenIR) -> String {
     let trimmed = ty.trim();
+
+    // Pointer-to-void variants. In Go these are `unsafe.Pointer`, not
+    // `*<empty>` — the latter (which the recursive path produced before
+    // by stripping `*const ` and mapping `c_void` to "") is invalid Go
+    // syntax and surfaces as `expected type, found '{'` at compile time.
+    let pointer_to_void = matches!(
+        trimmed,
+        "*const c_void" | "*mut c_void" | "*const void" | "*mut void"
+    );
+    if pointer_to_void {
+        return "unsafe.Pointer".to_string();
+    }
 
     if let Some(rest) = trimmed.strip_prefix("*const ") {
         return format!("*{}", map_return_type(rest, ir));

@@ -236,11 +236,16 @@ fn emit_tagged_union(b: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     // Tag-discriminator constant table. Mirrors the C ABI's
     // `Az<Enum>_Tag_<Variant>` constants under a Go-friendly name so
     // user code never has to touch the underlying cgo identifiers.
+    //
+    // Pluralised (`<Iface>Tags`) to avoid colliding with the
+    // `<Iface>Tag` *type* the unit-enum emit produces for the
+    // discriminator enum itself — Go forbids redeclaring an identifier
+    // even when one is a type and the other a `var`.
     b.line(&format!(
-        "// {}Tag exposes the C-ABI tag discriminators for {}.",
+        "// {}Tags exposes the C-ABI tag discriminators for {} (variant-name accessors).",
         iface_name, iface_name
     ));
-    b.line(&format!("var {}Tag = struct {{", iface_name));
+    b.line(&format!("var {}Tags = struct {{", iface_name));
     b.indent();
     for v in &e.variants {
         let safe = sanitize_identifier(&v.name);

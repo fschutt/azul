@@ -331,7 +331,7 @@ pub fn snake_to_pascal(s: &str) -> String {
 /// `new` becomes `New` (used as a constructor prefix), `default` becomes
 /// `Default`. Other names are PascalCased.
 pub fn idiomatic_method_name(method_name: &str) -> String {
-    if method_name.contains('_') {
+    let pascal = if method_name.contains('_') {
         snake_to_pascal(method_name)
     } else {
         let mut chars = method_name.chars();
@@ -339,6 +339,16 @@ pub fn idiomatic_method_name(method_name: &str) -> String {
             None => String::new(),
             Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
         }
+    };
+    // Every wrapper class gets a `Close()` method for io.Closer; a
+    // user-API method named `close` would re-declare it (Go errors:
+    // `method Close already declared`). Rename it. The SvgPath wrapper
+    // hits this — `close` is the SVG path "close path" segment, not
+    // a lifecycle operation.
+    if pascal == "Close" {
+        "CloseInner".to_string()
+    } else {
+        pascal
     }
 }
 
