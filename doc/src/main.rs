@@ -1246,6 +1246,30 @@ fn main() -> anyhow::Result<()> {
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
             return Ok(());
         }
+        ["autoreview", "apply-midlevel", "triage", rest @ ..] => {
+            // Subcommand sugar: `apply-midlevel triage` ≡ `apply-midlevel --triage`.
+            // We prepend the flag so `parse_args` sees it like any other option.
+            let mut all_args: Vec<String> = vec!["--triage".to_string()];
+            all_args.extend(rest.iter().map(|s| s.to_string()));
+            let arg_refs: Vec<&str> = all_args.iter().map(|s| s.as_str()).collect();
+            let config = reftest::apply_midlevel::parse_args(&arg_refs, &project_root)
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            reftest::apply_midlevel::run(config)
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            return Ok(());
+        }
+        ["autoreview", "apply-midlevel", "pending", rest @ ..] => {
+            // Subcommand sugar: `apply-midlevel pending` ≡ `apply-midlevel --pending-only`.
+            // Walks only commits that already have a queued pre-decision, then exits.
+            let mut all_args: Vec<String> = vec!["--pending-only".to_string()];
+            all_args.extend(rest.iter().map(|s| s.to_string()));
+            let arg_refs: Vec<&str> = all_args.iter().map(|s| s.as_str()).collect();
+            let config = reftest::apply_midlevel::parse_args(&arg_refs, &project_root)
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            reftest::apply_midlevel::run(config)
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            return Ok(());
+        }
         ["autoreview", "apply-midlevel", rest @ ..] => {
             let config = reftest::apply_midlevel::parse_args(rest, &project_root)
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
@@ -1741,7 +1765,27 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    autoreview process            - Implement checklist items (one commit each)");
     println!("    autoreview apply-midlevel     - Interactively replay commits from a reference branch");
     println!("                                    --reference=<branch/tag> [--base=<ref>] [--model=<name>]");
-    println!("                                    [--no-telegram]");
+    println!("                                    [--no-telegram] [--triage] [--pending-only]");
+    println!("                                    [--limit=N]");
+    println!("                                    Pending pre-decisions (from `triage`) auto-apply");
+    println!("                                    without prompting; failures are recorded and the run");
+    println!("                                    continues, so it can sit unattended overnight.");
+    println!("                                    --limit=N stops the session after N decisions.");
+    println!("    autoreview apply-midlevel triage");
+    println!("                                  - Same flags as apply-midlevel, but skips the apply");
+    println!("                                    agent entirely. Runs only the ~30s analyzer per");
+    println!("                                    commit and saves your decision to progress.json:");
+    println!("                                      apply/refine→apply  → queued in `pending` for");
+    println!("                                                            a later unattended run");
+    println!("                                      skip / reject       → finalized immediately");
+    println!("                                    Pair with --limit=N to triage 5–10 commits at a");
+    println!("                                    time, then break and resume later.");
+    println!("    autoreview apply-midlevel pending");
+    println!("                                  - Sugar for --pending-only. Applies ONLY commits");
+    println!("                                    you already pre-decided in a triage pass, in commit");
+    println!("                                    order, then exits. Un-triaged commits are skipped");
+    println!("                                    (not prompted) — so a queue of 5–10 pre-decisions");
+    println!("                                    runs to completion unattended and stops.");
     println!("    autoreview autodoc            - Generate guide pages from doc/autodoc-groups.toml");
     println!("                                    [--agents=N] [--file=GROUP_ID] [--dry-run]");
     println!("    autoreview autodoc-check      - Detect guide pages whose tracked source files have");

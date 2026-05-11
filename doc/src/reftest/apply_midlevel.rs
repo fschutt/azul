@@ -43,6 +43,21 @@ pub struct Config {
     pub skip_analyze: bool,
     /// If true, do not mirror prompts to Telegram even if a config exists.
     pub no_telegram: bool,
+    /// Triage mode: run the analyzer + collect a decision per commit, but DO
+    /// NOT spawn the apply agent. `apply` / `apply-with-edits` decisions are
+    /// queued to `progress.pending`; the next normal `apply-midlevel` run
+    /// will consume them unattended.
+    pub triage_only: bool,
+    /// Apply only commits that already have a pre-decided pending entry,
+    /// and exit when none remain. Skips un-triaged commits entirely instead
+    /// of prompting — lets a batch of pre-decisions run unattended to
+    /// completion without falling through to interactive review.
+    pub pending_only: bool,
+    /// Stop the run after this many commits have been decided/applied in
+    /// the current session. Lets you triage 5–10 commits, break, come back.
+    /// `None` = no limit (run until all commits processed or user quits).
+    /// Pure-`.md` auto-skips do not count toward the limit.
+    pub limit: Option<usize>,
 }
 
 pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> {
@@ -52,6 +67,9 @@ pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> 
     let mut analyzer_model = None;
     let mut skip_analyze = false;
     let mut no_telegram = false;
+    let mut triage_only = false;
+    let mut pending_only = false;
+    let mut limit: Option<usize> = None;
 
     for arg in args {
         if let Some(v) = arg.strip_prefix("--reference=") {
@@ -62,13 +80,26 @@ pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> 
             model = Some(v.to_string());
         } else if let Some(v) = arg.strip_prefix("--analyzer-model=") {
             analyzer_model = Some(v.to_string());
+        } else if let Some(v) = arg.strip_prefix("--limit=") {
+            limit = Some(v.parse::<usize>()
+                .map_err(|_| format!("--limit must be a non-negative integer, got: {}", v))?);
         } else if *arg == "--no-analyze" {
             skip_analyze = true;
         } else if *arg == "--no-telegram" {
             no_telegram = true;
+        } else if *arg == "--triage" || *arg == "--triage-only" {
+            triage_only = true;
+        } else if *arg == "--pending-only" || *arg == "--auto" {
+            pending_only = true;
         } else if arg.starts_with('-') {
             return Err(format!("Unknown option: {}", arg));
         }
+    }
+
+    if triage_only && pending_only {
+        return Err("--triage and --pending-only are mutually exclusive: \
+                    triage skips entries already in `pending`, pending-only consumes them"
+            .to_string());
     }
 
     let reference = reference
@@ -82,6 +113,9 @@ pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> 
         analyzer_model,
         skip_analyze,
         no_telegram,
+        triage_only,
+        pending_only,
+        limit,
     })
 }
 
@@ -123,9 +157,41 @@ pub fn run(config: Config) -> Result<(), String> {
     // Build the ordered commit list (oldest → newest)
     let commits = git_commit_list(&project_root, &base_sha, &reference_sha)?;
     let total = commits.len();
-    println!("Reference {} → {} commits", config.reference, total);
+    let mode_label = if config.triage_only {
+        "TRIAGE"
+    } else if config.pending_only {
+        "PENDING-ONLY"
+    } else {
+        "APPLY"
+    };
+    println!("Reference {} → {} commits  [mode: {}]", config.reference, total, mode_label);
     println!("Base: {}", base_ref);
-    println!("Progress: {}/{} processed\n", progress.processed.len(), total);
+    println!(
+        "Progress: {}/{} processed, {} pending\n",
+        progress.processed.len(),
+        total,
+        progress.pending.len()
+    );
+    if let Some(n) = config.limit {
+        println!("Session limit: will stop after {} decision(s) this run.\n", n);
+    }
+    if config.triage_only {
+        println!("Triage mode: analyzer + decision only — no apply agent will run.");
+        println!("  `apply` / `apply-with-edits` decisions queue into progress.pending.");
+        println!("  A later `apply-midlevel` (without --triage) consumes them unattended.\n");
+    } else if config.pending_only {
+        println!(
+            "Pending-only mode: only the {} pending entr{} will be applied; un-triaged",
+            progress.pending.len(),
+            if progress.pending.len() == 1 { "y" } else { "ies" }
+        );
+        println!("  commits are left untouched. Runs to completion without prompting.\n");
+    } else if !progress.pending.is_empty() {
+        println!(
+            "Will auto-consume {} pending decision(s) without prompting.\n",
+            progress.pending.len()
+        );
+    }
 
     // ── Telegram bridge (optional) ──────────────────────────────────────
     let bridge: Option<Arc<TelegramBridge>> = if config.no_telegram {
@@ -139,12 +205,14 @@ pub fn run(config: Config) -> Result<(), String> {
                 );
                 let _ = b.send_message(
                     &format!(
-                        "azul-doc apply-midlevel started\n\
+                        "azul-doc apply-midlevel started [mode: {}]\n\
                          reference: {}\n\
-                         {} commits, {} processed so far",
+                         {} commits, {} processed, {} pending",
+                        mode_label,
                         config.reference,
                         total,
-                        progress.processed.len()
+                        progress.processed.len(),
+                        progress.pending.len()
                     ),
                     None,
                 );
@@ -159,12 +227,28 @@ pub fn run(config: Config) -> Result<(), String> {
     };
     let input_channel = InputChannel::start(bridge.clone());
 
+    // Per-session counter for --limit. Pure-`.md` auto-skips don't count
+    // (they happen before we reach the decision section).
+    let mut decisions_this_run: usize = 0;
+
     // Main loop
     loop {
-        let next = match find_next(&commits, &progress) {
+        let next = match find_next(&commits, &progress, config.triage_only, config.pending_only) {
             Some(sha) => sha.clone(),
             None => {
-                println!("All commits processed.");
+                if config.pending_only {
+                    println!(
+                        "No more pending entries. {} processed this run.",
+                        decisions_this_run
+                    );
+                } else if config.triage_only {
+                    println!(
+                        "All commits triaged. {} entries queued for apply.",
+                        progress.pending.len()
+                    );
+                } else {
+                    println!("All commits processed.");
+                }
                 if let Some(b) = bridge.as_ref() {
                     let applied = progress.processed.iter().filter(|d| matches!(
                         d.decision,
@@ -178,8 +262,8 @@ pub fn run(config: Config) -> Result<(), String> {
                     )).count();
                     let _ = b.send_message(
                         &format!(
-                            "apply-midlevel finished\nreference: {}\napplied={} rejected={} skipped={}",
-                            config.reference, applied, rejected, skipped
+                            "apply-midlevel finished [mode: {}]\nreference: {}\napplied={} rejected={} skipped={} pending={}",
+                            mode_label, config.reference, applied, rejected, skipped, progress.pending.len()
                         ),
                         None,
                     );
@@ -218,6 +302,22 @@ pub fn run(config: Config) -> Result<(), String> {
             &config.reference,
         );
 
+        // Consume any pre-decided "pending" entry for this commit. In normal
+        // (non-triage) mode this is the unattended path: the user already
+        // decided via a previous `triage` run, so we skip the analyzer + prompt
+        // entirely and go straight to the apply agent.
+        //
+        // In triage mode `find_next` already filters pending entries out, so
+        // this only fires in normal mode.
+        let pending: Option<PendingDecision> = {
+            let idx = progress.pending.iter().position(|p| p.sha == next);
+            idx.map(|i| progress.pending.remove(i))
+        };
+        let consuming_pending = pending.is_some();
+        if consuming_pending {
+            save_progress(&progress_path, &progress)?;
+        }
+
         // Mark current and save — so Ctrl+C leaves a known-good pointer
         progress.current = Some(next.clone());
         save_progress(&progress_path, &progress)?;
@@ -225,67 +325,148 @@ pub fn run(config: Config) -> Result<(), String> {
         // ── Plan session (analyzer iterations) ──────────────────────────
         let mut plan = PlanSession { iterations: Vec::new() };
 
-        // Initial analysis (no user feedback yet)
-        if !config.skip_analyze {
-            match run_analysis_agent(
-                &project_root, &next, &info, paired_docs.as_ref(),
-                &plan, None, &config,
-            ) {
-                Ok(output) => plan.iterations.push(PlanIteration {
-                    user_feedback: None,
-                    analyzer_output: output,
-                }),
-                Err(e) => {
-                    println!("[warn] analysis agent failed (continuing without): {}", e);
-                }
+        // For a pending entry, the user's "edit" comment is treated as
+        // pre-recorded analyzer feedback so the apply agent sees it in the
+        // exact same shape it would have during an interactive refinement.
+        if let Some(ref pd) = pending {
+            if let Some(c) = &pd.comment {
+                plan.iterations.push(PlanIteration {
+                    user_feedback: Some(c.clone()),
+                    analyzer_output: String::new(),
+                });
             }
         }
 
-        // ── Decision / plan-refinement loop ─────────────────────────────
-        // Stays in this loop until the user picks y/s/r/q. [p] just refines
-        // and loops; [d] checks out + restores and loops.
-        let decision_taken: UserAction = loop {
-            let phone_summary = build_phone_summary(
-                &info,
-                paired_docs.as_ref(),
-                &plan,
-                processed_so_far + 1,
-                total,
-                &progress,
+        let decision_taken: UserAction = if let Some(ref pd) = pending {
+            println!();
+            println!(
+                "[pending] auto-applying pre-decided action: {:?}",
+                pd.action
             );
-            let action = prompt_user(&input_channel, Some(&phone_summary))?;
-            match action {
-                UserAction::Refine(feedback) => {
-                    match run_analysis_agent(
-                        &project_root, &next, &info, paired_docs.as_ref(),
-                        &plan, Some(&feedback), &config,
-                    ) {
-                        Ok(output) => plan.iterations.push(PlanIteration {
-                            user_feedback: Some(feedback),
-                            analyzer_output: output,
-                        }),
-                        Err(e) => println!("[warn] refinement failed: {}", e),
+            if let Some(c) = &pd.comment {
+                println!("[pending] saved instructions:");
+                for line in c.lines() {
+                    println!("  > {}", line);
+                }
+            }
+            if let Some(b) = bridge.as_ref() {
+                let _ = b.send_message(
+                    &format!(
+                        "[pending {}/{}] {}\n→ {:?}\n{}",
+                        processed_so_far + 1,
+                        total,
+                        info.subject,
+                        pd.action,
+                        pd.comment.as_deref().unwrap_or("(no extra instructions)")
+                    ),
+                    None,
+                );
+            }
+            UserAction::Yes
+        } else {
+            // Initial analysis (no user feedback yet)
+            if !config.skip_analyze {
+                match run_analysis_agent(
+                    &project_root, &next, &info, paired_docs.as_ref(),
+                    &plan, None, &config,
+                ) {
+                    Ok(output) => plan.iterations.push(PlanIteration {
+                        user_feedback: None,
+                        analyzer_output: output,
+                    }),
+                    Err(e) => {
+                        println!("[warn] analysis agent failed (continuing without): {}", e);
                     }
-                    continue;
                 }
-                UserAction::Show => {
-                    open_commit_in_editor(&project_root, &next, &info, &input_channel)?;
-                    continue;
-                }
-                UserAction::ShowRemote => {
-                    if let Some(b) = bridge.as_ref() {
-                        if let Err(e) = send_commit_diff_to_phone(b, &project_root, &next, &info) {
-                            eprintln!("[telegram] sendDocument failed: {}", e);
+            }
+
+            // ── Decision / plan-refinement loop ─────────────────────────────
+            // Stays in this loop until the user picks y/s/r/q. [p] just refines
+            // and loops; [d] checks out + restores and loops.
+            loop {
+                let phone_summary = build_phone_summary(
+                    &info,
+                    paired_docs.as_ref(),
+                    &plan,
+                    processed_so_far + 1,
+                    total,
+                    &progress,
+                );
+                let action = prompt_user(&input_channel, Some(&phone_summary))?;
+                match action {
+                    UserAction::Refine(feedback) => {
+                        match run_analysis_agent(
+                            &project_root, &next, &info, paired_docs.as_ref(),
+                            &plan, Some(&feedback), &config,
+                        ) {
+                            Ok(output) => plan.iterations.push(PlanIteration {
+                                user_feedback: Some(feedback),
+                                analyzer_output: output,
+                            }),
+                            Err(e) => println!("[warn] refinement failed: {}", e),
                         }
+                        continue;
                     }
-                    continue;
+                    UserAction::Show => {
+                        open_commit_in_editor(&project_root, &next, &info, &input_channel)?;
+                        continue;
+                    }
+                    UserAction::ShowRemote => {
+                        if let Some(b) = bridge.as_ref() {
+                            if let Err(e) = send_commit_diff_to_phone(b, &project_root, &next, &info) {
+                                eprintln!("[telegram] sendDocument failed: {}", e);
+                            }
+                        }
+                        continue;
+                    }
+                    other => break other,
                 }
-                other => break other,
             }
         };
 
         match decision_taken {
             UserAction::Yes => {
+                // Triage mode + no pre-decision: queue, do NOT spawn the apply
+                // agent. This is the whole point of triage — get a decision per
+                // commit without paying the 20-min CI cost for each.
+                if config.triage_only && !consuming_pending {
+                    let comment = if plan.all_feedback().is_empty() {
+                        None
+                    } else {
+                        Some(plan.all_feedback().join("\n---\n"))
+                    };
+                    let action = if comment.is_some() {
+                        PendingAction::Edit
+                    } else {
+                        PendingAction::Apply
+                    };
+                    progress.current = None;
+                    progress.pending.push(PendingDecision {
+                        sha: next.clone(),
+                        subject: info.subject.clone(),
+                        action: action.clone(),
+                        comment,
+                    });
+                    save_progress(&progress_path, &progress)?;
+                    let pending_count = progress.pending.len();
+                    println!(
+                        "[triage] queued ({:?}); {} pending entr{} now waiting for apply.",
+                        action,
+                        pending_count,
+                        if pending_count == 1 { "y" } else { "ies" }
+                    );
+                    if let Some(b) = bridge.as_ref() {
+                        let _ = b.send_message(
+                            &format!(
+                                "[triage {}/{}] {}\nqueued: {:?} ({} pending)",
+                                processed_so_far + 1, total, info.subject, action, pending_count
+                            ),
+                            None,
+                        );
+                    }
+                    println!();
+                } else {
+
                 let pre_head = git_head(&project_root)?;
                 let user_refinements: Vec<String> = plan.iterations.iter()
                     .filter_map(|it| it.user_feedback.clone())
@@ -311,6 +492,13 @@ pub fn run(config: Config) -> Result<(), String> {
                                     eprintln!("[telegram] applied-diff sendDocument failed: {}", e);
                                 }
                             }
+                            // When consuming a pre-decided pending entry, the
+                            // user wanted unattended execution — auto-accept
+                            // the result. Diff was already mirrored to phone
+                            // above for later review.
+                            if consuming_pending {
+                                break Ok(applied);
+                            }
                             match prompt_post_apply(&input_channel)? {
                                 PostApply::Accept => break Ok(applied),
                                 PostApply::Refine(instr) => {
@@ -332,6 +520,25 @@ pub fn run(config: Config) -> Result<(), String> {
                             }
                         }
                         Err(e) => {
+                            // In unattended (pending-consumer) mode, don't
+                            // bomb the whole run because one commit failed —
+                            // record it as rejected and move on, so the user
+                            // can review the failures in batch after the
+                            // overnight run finishes.
+                            if consuming_pending {
+                                println!("\n[pending] apply failed: {}", e);
+                                println!("[pending] recording as rejected; moving on to next commit.");
+                                if let Some(b) = bridge.as_ref() {
+                                    let _ = b.send_message(
+                                        &format!(
+                                            "[pending] {} APPLY FAILED — recorded as rejected: {}",
+                                            short(&next), e
+                                        ),
+                                        None,
+                                    );
+                                }
+                                break Err(format!("pending-apply failed: {}", e));
+                            }
                             println!("\n[ERROR] agent apply failed: {}\n", e);
                             println!("Repository state left as-is. Resolve manually or quit.");
                             return Err(e);
@@ -374,6 +581,7 @@ pub fn run(config: Config) -> Result<(), String> {
                         println!();
                     }
                 }
+                }
             }
             UserAction::Skip(notes) => {
                 progress.current = None;
@@ -406,6 +614,31 @@ pub fn run(config: Config) -> Result<(), String> {
             }
             UserAction::Refine(_) | UserAction::Show | UserAction::ShowRemote => unreachable!(),
         }
+
+        // Session limit (--limit=N): stop after N decisions in this run so
+        // the user can take a break mid-triage / cap an unattended apply batch.
+        decisions_this_run += 1;
+        if let Some(n) = config.limit {
+            if decisions_this_run >= n {
+                println!(
+                    "\n--limit={} reached ({} decision{} this run). Saving and exiting.",
+                    n,
+                    decisions_this_run,
+                    if decisions_this_run == 1 { "" } else { "s" }
+                );
+                save_progress(&progress_path, &progress)?;
+                if let Some(b) = bridge.as_ref() {
+                    let _ = b.send_message(
+                        &format!(
+                            "Hit --limit={} ({} this run). Re-run to continue.",
+                            n, decisions_this_run
+                        ),
+                        None,
+                    );
+                }
+                break;
+            }
+        }
     }
 
     Ok(())
@@ -422,6 +655,12 @@ struct Progress {
     /// means we're between commits (cleanly saved).
     current: Option<String>,
     processed: Vec<Decision>,
+    /// Pre-decided actions queued by the `triage` subcommand. The main loop
+    /// auto-consumes these instead of prompting the user — so the user can do
+    /// fast analyze-only triage in one pass and let the slow CI/cross-compile
+    /// pipeline run unattended later.
+    #[serde(default)]
+    pending: Vec<PendingDecision>,
 }
 
 impl Progress {
@@ -432,6 +671,7 @@ impl Progress {
             base_sha: base_sha.to_string(),
             current: None,
             processed: Vec::new(),
+            pending: Vec::new(),
         }
     }
 }
@@ -459,6 +699,30 @@ enum DecisionKind {
     SkippedMd,
     /// User chose to skip — we'll revisit later.
     SkippedByUser,
+}
+
+/// A pre-decided "yes, apply this" produced during a `triage` run. The main
+/// `apply-midlevel` loop consumes these without prompting, runs the apply
+/// agent, and on success/failure converts the entry to a `Decision` in
+/// `processed`.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct PendingDecision {
+    sha: String,
+    subject: String,
+    action: PendingAction,
+    /// Free-form instructions that the apply agent should treat as user
+    /// feedback — `None` for a plain "apply as-is", `Some(...)` for an "edit
+    /// and apply" pre-decision.
+    comment: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+enum PendingAction {
+    /// Apply the commit as-is — no extra instructions.
+    Apply,
+    /// Apply with the saved `comment` fed to the agent as user feedback.
+    Edit,
 }
 
 fn progress_path(project_root: &Path) -> PathBuf {
@@ -549,12 +813,34 @@ fn find_paired_docs(
     }
 }
 
-fn find_next<'a>(commits: &'a [String], progress: &Progress) -> Option<&'a String> {
+fn find_next<'a>(
+    commits: &'a [String],
+    progress: &Progress,
+    skip_pending: bool,
+    pending_only: bool,
+) -> Option<&'a String> {
     // Collect set of already-processed SHAs (including auto-skipped docs that
     // were implicitly skipped — those appear as SkippedMd entries).
     let done: std::collections::HashSet<&str> =
         progress.processed.iter().map(|d| d.sha.as_str()).collect();
-    commits.iter().find(|c| !done.contains(c.as_str()))
+    let pending: std::collections::HashSet<&str> =
+        progress.pending.iter().map(|p| p.sha.as_str()).collect();
+    if pending_only {
+        // --pending-only: only consider commits that already have a queued
+        // pre-decision. Iterating `commits` (not `pending`) keeps the apply
+        // order matching commit order, which the cherry-pick logic expects.
+        commits
+            .iter()
+            .find(|c| pending.contains(c.as_str()) && !done.contains(c.as_str()))
+    } else if skip_pending {
+        // Triage mode: also skip commits whose pre-decision is already queued,
+        // so a re-run resumes at the first un-triaged commit.
+        commits
+            .iter()
+            .find(|c| !done.contains(c.as_str()) && !pending.contains(c.as_str()))
+    } else {
+        commits.iter().find(|c| !done.contains(c.as_str()))
+    }
 }
 
 // ── UI ────────────────────────────────────────────────────────────────────
