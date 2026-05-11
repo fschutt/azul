@@ -59,6 +59,7 @@ use super::generator::CodeBuilder;
 use super::ir::CodegenIR;
 
 pub mod functions;
+pub mod managed;
 pub mod types;
 pub mod wrappers;
 
@@ -101,6 +102,11 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
 
     // 4. Function-name constants (level-78 STRING).
     functions::generate_function_constants(&mut builder, ir, config)?;
+
+    // Managed-FFI host-invoker level-78 aliases (releaser, refany_new/get,
+    // and per-kind setter / createFromHostHandle for every host-invoker
+    // wrapper kind in HOST_INVOKER_KINDS).
+    managed::emit_managed_aliases(&mut builder, ir);
 
     // 5. Wrapper-pattern documentation (no executable COBOL emitted).
     wrappers::generate_wrapper_docs(&mut builder, ir, config)?;
