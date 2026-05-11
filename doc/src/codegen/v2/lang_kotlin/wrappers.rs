@@ -250,10 +250,14 @@ fn emit_static_factory(
     ));
     builder.indent();
 
+    // Use `func.c_name` to match the AzulNative interface (where
+    // functions are declared by their C ABI symbol with camelCase
+    // method portion) rather than `func.method_name` (raw snake-case
+    // from api.json) which produces e.g. `AzFoo_with_resolver` instead
+    // of the actual `AzFoo_withResolver`.
     let call = format!(
-        "AzulNative.INSTANCE.{}_{}({})",
-        ffi_name,
-        func.method_name,
+        "AzulNative.INSTANCE.{}({})",
+        func.c_name,
         call_args.join(", ")
     );
 
@@ -354,10 +358,14 @@ fn emit_instance_method(
     builder.indent();
     builder.line("check(!closed) { \"closed\" }");
 
+    // Use `func.c_name` to match the AzulNative interface (where
+    // functions are declared by their C ABI symbol with camelCase
+    // method portion) rather than `func.method_name` (raw snake-case
+    // from api.json) which produces e.g. `AzFoo_with_resolver` instead
+    // of the actual `AzFoo_withResolver`.
     let call = format!(
-        "AzulNative.INSTANCE.{}_{}({})",
-        ffi_name,
-        func.method_name,
+        "AzulNative.INSTANCE.{}({})",
+        func.c_name,
         call_args.join(", ")
     );
 

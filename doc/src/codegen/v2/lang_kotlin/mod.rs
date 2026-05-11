@@ -36,7 +36,8 @@ use super::config::CodegenConfig;
 use super::generator::CodeBuilder;
 use super::ir::{
     ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
-    FunctionDef, StructDef, TypeCategory,
+    FunctionDef, MonomorphizedKind, MonomorphizedTypeDef, MonomorphizedVariant, StructDef,
+    TypeAliasDef, TypeCategory,
 };
 
 // ─── Reuse Java helpers where possible ─────────────────────────────────────
@@ -78,6 +79,20 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     }
     for cb in &ir.callback_typedefs {
         emit_callback_interface(&mut builder, cb, ir);
+    }
+
+    // 2b. Monomorphized type aliases (e.g. `PhysicalSize<u32>` →
+    // `AzPhysicalSizeU32`) emitted as concrete Kotlin classes/enums,
+    // parallel to C / Java / C# / Node. Without this the wrappers
+    // and AzulNative interface reference types that aren't declared.
+    for ta in &ir.type_aliases {
+        let Some(ref mono_def) = ta.monomorphized_def else {
+            continue;
+        };
+        if !config.should_include_type(&ta.name) {
+            continue;
+        }
+        emit_monomorphized_alias(&mut builder, ta, mono_def, ir);
     }
 
     // 3. Idiomatic wrappers
@@ -128,12 +143,11 @@ fn should_include_struct(s: &StructDef, config: &CodegenConfig) -> bool {
     if !s.generic_params.is_empty() {
         return false;
     }
+    // VecRef + DestructorOrClone are referenced as field types from
+    // Vec wrappers; unfilter to match the C / Java / C# generators.
     !matches!(
         s.category,
-        TypeCategory::Recursive
-            | TypeCategory::VecRef
-            | TypeCategory::DestructorOrClone
-            | TypeCategory::GenericTemplate
+        TypeCategory::Recursive | TypeCategory::GenericTemplate
     )
 }
 
@@ -146,7 +160,7 @@ fn should_include_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
     }
     !matches!(
         e.category,
-        TypeCategory::Recursive | TypeCategory::GenericTemplate | TypeCategory::DestructorOrClone
+        TypeCategory::Recursive | TypeCategory::GenericTemplate
     )
 }
 
@@ -389,6 +403,189 @@ fn emit_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Codegen
 }
 
 // ============================================================================
+// Monomorphized type aliases (concrete instantiations of generic types)
+// ============================================================================
+
+fn emit_monomorphized_alias(
+    builder: &mut CodeBuilder,
+    ta: &TypeAliasDef,
+    mono_def: &MonomorphizedTypeDef,
+    ir: &CodegenIR,
+) {
+    let name = ffi_type_name(&ta.name);
+    for d in &ta.doc {
+        builder.line(&format!("/** {} */", d));
+    }
+    match &mono_def.kind {
+        MonomorphizedKind::SimpleEnum { variants, .. } => {
+            builder.line(&format!("enum class {}(val value: Int) {{", name));
+            builder.indent();
+            let last = variants.len().saturating_sub(1);
+            for (idx, v) in variants.iter().enumerate() {
+                let v_name = sanitize_kt_identifier(v);
+                let sep = if idx == last { ";" } else { "," };
+                builder.line(&format!("{}({}){}", v_name, idx, sep));
+            }
+            builder.line(&format!("companion object {{ fun fromInt(v: Int): {} = values().first {{ it.value == v }} }}", name));
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+        MonomorphizedKind::Struct { fields } => {
+            builder.line(&format!("open class {} : Structure() {{", name));
+            builder.indent();
+            let mut field_names: Vec<String> = Vec::new();
+            if fields.is_empty() {
+                builder.line("@JvmField var _dummy: Byte = 0");
+                field_names.push("\"_dummy\"".to_string());
+            } else {
+                for f in fields {
+                    emit_struct_field(builder, f, ir, &mut field_names);
+                }
+            }
+            emit_kotlin_field_order_override(builder, &field_names);
+            builder.line(&format!(
+                "class ByValue : {}(), Structure.ByValue",
+                name
+            ));
+            builder.line(&format!(
+                "class ByReference : {}(), Structure.ByReference",
+                name
+            ));
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+        MonomorphizedKind::TaggedUnion { variants, .. } => {
+            // Tag enum
+            builder.line(&format!("enum class {}_Tag(val value: Int) {{", name));
+            builder.indent();
+            let last = variants.len().saturating_sub(1);
+            for (idx, v) in variants.iter().enumerate() {
+                let v_name = sanitize_kt_identifier(&v.name);
+                let sep = if idx == last { ";" } else { "," };
+                builder.line(&format!("{}({}){}", v_name, idx, sep));
+            }
+            builder.dedent();
+            builder.line("}");
+
+            // Per-variant payload structs
+            for v in variants {
+                let variant_struct = format!("{}Variant_{}", name, v.name);
+                builder.line(&format!(
+                    "open class {} : Structure() {{",
+                    variant_struct
+                ));
+                builder.indent();
+                builder.line("@JvmField var tag: Int = 0");
+                let mut field_names = vec!["\"tag\"".to_string()];
+                if let Some(ref payload_type) = v.payload_type {
+                    let jt = ref_kind_field_type_kt(payload_type, &v.payload_ref_kind, ir);
+                    // Enums can't be `Foo()`-instantiated; declare as
+                    // late-init via lateinit isn't possible on primitives
+                    // either. JNA reads the bytes when Union.read() runs,
+                    // so just declare with a safe default for the type.
+                    let init = default_for_kt_type_or_struct(&jt, ir);
+                    builder.line(&format!("@JvmField var payload: {} = {}", jt, init));
+                    field_names.push("\"payload\"".to_string());
+                }
+                emit_kotlin_field_order_override(builder, &field_names);
+                builder.line(&format!(
+                    "class ByValue : {}(), Structure.ByValue",
+                    variant_struct
+                ));
+                builder.line(&format!(
+                    "class ByReference : {}(), Structure.ByReference",
+                    variant_struct
+                ));
+                builder.dedent();
+                builder.line("}");
+            }
+
+            // Outer Union
+            builder.line(&format!("open class {} : Union() {{", name));
+            builder.indent();
+            let mut field_names = Vec::new();
+            for v in variants {
+                let variant_struct = format!("{}Variant_{}", name, v.name);
+                let f = sanitize_kt_identifier(&v.name);
+                builder.line(&format!("@JvmField var {}: {} = {}()", f, variant_struct, variant_struct));
+                field_names.push(format!("\"{}\"", v.name));
+            }
+            emit_kotlin_field_order_override(builder, &field_names);
+            builder.line(&format!(
+                "class ByValue : {}(), Structure.ByValue",
+                name
+            ));
+            builder.line(&format!(
+                "class ByReference : {}(), Structure.ByReference",
+                name
+            ));
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+    }
+}
+
+fn default_for_kt_type(jt: &str) -> &'static str {
+    match jt {
+        "Boolean" => "false",
+        "Byte" => "0",
+        "Short" => "0",
+        "Int" => "0",
+        "Long" => "0L",
+        "Float" => "0f",
+        "Double" => "0.0",
+        "Pointer?" => "null",
+        _ => "/* default */ throw IllegalStateException()",
+    }
+}
+
+/// Like `default_for_kt_type` but recognises Az-prefixed types and
+/// produces the right initializer per kind:
+/// - Plain Structure-flavoured (`AzFoo.ByValue` / `AzFoo`): `AzFoo()`
+/// - Unit enum (`AzFoo`): `AzFoo.values().first()`
+fn default_for_kt_type_or_struct(jt: &str, ir: &CodegenIR) -> String {
+    let prim = default_for_kt_type(jt);
+    if !prim.starts_with("/* default */") {
+        return prim.to_string();
+    }
+    // Strip `.ByValue` suffix and `Az` prefix to look up in IR.
+    let base = jt.trim_end_matches(".ByValue");
+    let unprefixed = base.strip_prefix("Az").unwrap_or(base);
+    if let Some(e) = ir.find_enum(unprefixed) {
+        if !e.is_union {
+            // Unit enum — use the first variant as default.
+            if let Some(first) = e.variants.first() {
+                return format!("{}.{}", base, sanitize_kt_identifier(&first.name));
+            }
+        }
+    }
+    // Structure / Union — default-construct.
+    format!("{}()", jt)
+}
+
+fn emit_kotlin_field_order_override(builder: &mut CodeBuilder, field_names: &[String]) {
+    builder.line("override fun getFieldOrder(): kotlin.collections.List<kotlin.String> =");
+    builder.indent();
+    builder.line(&format!("listOf({})", field_names.join(", ")));
+    builder.dedent();
+}
+
+fn ref_kind_field_type_kt(type_name: &str, ref_kind: &FieldRefKind, ir: &CodegenIR) -> String {
+    match ref_kind {
+        FieldRefKind::Owned => map_kt_owned(type_name, ir),
+        FieldRefKind::Ref
+        | FieldRefKind::RefMut
+        | FieldRefKind::Ptr
+        | FieldRefKind::PtrMut
+        | FieldRefKind::Boxed
+        | FieldRefKind::OptionBoxed => "Pointer?".to_string(),
+    }
+}
+
+// ============================================================================
 // POD struct
 // ============================================================================
 
@@ -511,7 +708,8 @@ fn emit_callback_interface(
     let args: Vec<String> = cb
         .args
         .iter()
-        .map(|arg| {
+        .enumerate()
+        .map(|(i, arg)| {
             let kt = match arg.ref_kind {
                 ArgRefKind::Owned => map_kt_owned(&arg.type_name, ir),
                 ArgRefKind::Ref
@@ -519,7 +717,13 @@ fn emit_callback_interface(
                 | ArgRefKind::Ptr
                 | ArgRefKind::PtrMut => "Pointer?".to_string(),
             };
-            format!("{}: {}", sanitize_kt_identifier(&arg.name), kt)
+            let raw_name = arg.name.trim();
+            let name = if raw_name.is_empty() {
+                format!("arg{}", i)
+            } else {
+                sanitize_kt_identifier(raw_name)
+            };
+            format!("{}: {}", name, kt)
         })
         .collect();
 
@@ -538,16 +742,13 @@ fn emit_callback_interface(
 // Helpers (Kotlin-flavoured wrappers around the shared lang_java helpers)
 // ============================================================================
 
-/// Map an Owned-by-value argument/return to Kotlin. Az-prefixed types
-/// surface as `<Type>.ByValue` (JNA pass-by-value Structure semantics).
+/// Map an Owned-by-value argument/return to Kotlin. Routes through
+/// Java's `map_jvm_type_byvalue` so unit enums and callback typedefs
+/// (which don't have a `.ByValue` inner class) pass through unchanged
+/// — only Structure-flavoured Az-prefixed types get `.ByValue`.
 pub fn map_kt_owned(rust_type: &str, ir: &CodegenIR) -> String {
-    let raw = base_map_jvm_type(rust_type, ir);
-    let kt = jvm_to_kotlin_primitive(&raw);
-    if kt.starts_with("Az") {
-        format!("{}.ByValue", kt)
-    } else {
-        kt
-    }
+    let raw = super::lang_java::map_jvm_type_byvalue(rust_type, ir);
+    jvm_to_kotlin_primitive(&raw)
 }
 
 /// Map a return type. Identical to `map_kt_owned` but rendered as
@@ -588,11 +789,16 @@ pub fn ref_kind_kt_field(
 ) -> (String, String) {
     let kt = match ref_kind {
         FieldRefKind::Owned => {
-            let raw = base_map_jvm_type(type_name, ir);
-            let kt = jvm_to_kotlin_primitive(&raw);
-            // Az-prefixed types in struct fields are by-value (the JNA
-            // Structure inlines them) — leave as-is, no `.ByValue`.
-            kt
+            // Callback typedefs are JNA `Callback` interfaces — Kotlin
+            // can't no-arg-default them. They have the same byte layout
+            // as a function pointer, so collapse to `Pointer?`.
+            let trimmed = type_name.trim();
+            if ir.callback_typedefs.iter().any(|c| c.name == trimmed) {
+                "Pointer?".to_string()
+            } else {
+                let raw = base_map_jvm_type(type_name, ir);
+                jvm_to_kotlin_primitive(&raw)
+            }
         }
         FieldRefKind::Ref
         | FieldRefKind::RefMut
@@ -602,8 +808,41 @@ pub fn ref_kind_kt_field(
         | FieldRefKind::OptionBoxed => "Pointer?".to_string(),
     };
 
-    let default = kt_default_for(&kt);
+    let default = kt_default_for_ir(&kt, ir);
     (kt, default)
+}
+
+/// IR-aware version of `kt_default_for` that distinguishes between unit
+/// enums (which can't be `Foo()`-instantiated — use the first variant)
+/// and Structure-flavoured types (default-construct).
+fn kt_default_for_ir(kt_type: &str, ir: &CodegenIR) -> String {
+    if kt_type.ends_with('?') {
+        return "null".to_string();
+    }
+    match kt_type {
+        "Boolean" => return "false".to_string(),
+        "Byte" | "Short" | "Int" => return "0".to_string(),
+        "Long" => return "0L".to_string(),
+        "Float" => return "0.0f".to_string(),
+        "Double" => return "0.0".to_string(),
+        _ => {}
+    }
+    // Try to resolve as IR enum/struct.
+    let base = kt_type.trim_end_matches(".ByValue");
+    let unprefixed = base.strip_prefix("Az").unwrap_or(base);
+    if let Some(e) = ir.find_enum(unprefixed) {
+        if !e.is_union {
+            if let Some(first) = e.variants.first() {
+                return format!("{}.{}", base, sanitize_kt_identifier(&first.name));
+            }
+        }
+    }
+    // Callback typedefs are JNA `Callback` interfaces — can't be no-arg
+    // constructed. Emit a lambda that ignores its args.
+    if ir.callback_typedefs.iter().any(|c| c.name == unprefixed) {
+        return format!("{} {{ _, _, _, _ -> }}", base);
+    }
+    format!("{}()", kt_type)
 }
 
 /// Generate a sensible `var` initialiser literal for a Kotlin type.
@@ -680,7 +919,7 @@ pub fn is_kotlin_hard_keyword(name: &str) -> bool {
 /// Union subclass.
 pub fn emit_field_order(builder: &mut CodeBuilder, field_names: &[String]) {
     builder.blank();
-    builder.line("override fun getFieldOrder(): List<String> =");
+    builder.line("override fun getFieldOrder(): kotlin.collections.List<kotlin.String> =");
     builder.indent();
     builder.line(&format!("listOf({})", field_names.join(", ")));
     builder.dedent();
