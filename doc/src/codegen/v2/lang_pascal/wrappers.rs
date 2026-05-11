@@ -426,12 +426,19 @@ fn emit_method_impl(
 // ============================================================================
 
 /// Filter the implicit `self` argument out of a function's arg list.
+/// For instance / mutating / deep-copy methods args[0] IS the self,
+/// regardless of how api.json named it (`instance`, snake-cased class,
+/// `mime_type_data_vec`, etc.) — matches the C#/Java/Kotlin/Fortran fix.
 fn visible_user_args(func: &FunctionDef) -> Vec<&super::super::ir::FunctionArg> {
-    let class_lower = func.class_name.to_lowercase();
-    func.args
-        .iter()
-        .filter(|a| a.name != "self" && a.name != class_lower)
-        .collect()
+    let takes_self = matches!(
+        func.kind,
+        FunctionKind::Method | FunctionKind::MethodMut | FunctionKind::DeepCopy
+    );
+    if takes_self {
+        func.args.iter().skip(1).collect()
+    } else {
+        func.args.iter().collect()
+    }
 }
 
 fn format_arg_list(args: &[&super::super::ir::FunctionArg], ir: &CodegenIR) -> String {

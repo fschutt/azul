@@ -30,7 +30,8 @@ use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{
     ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
-    StructDef, TypeCategory,
+    MonomorphizedKind, MonomorphizedTypeDef, MonomorphizedVariant, StructDef, TypeAliasDef,
+    TypeCategory,
 };
 use super::{
     map_type_to_pascal, pointer_type_name, record_type_name, sanitize_identifier,
@@ -75,10 +76,15 @@ pub fn generate_types(
     // reference structs (`Payload_RGB: TAzColorU`) and structs
     // sometimes embed tagged unions, so emitting one group entirely
     // before the other always leaves dangling references.
-    #[derive(Debug)]
+    // Interleave structs, tagged-union enums, AND monomorphized
+    // type-alias instantiations (PhysicalSizeU32, OptionU32, ...) in
+    // topological order. Monomorphized aliases are emitted as concrete
+    // records / variant records and frequently appear as struct fields,
+    // so they must land at the right sort_order rather than at the end.
     enum Item<'a> {
         Struct(&'a StructDef),
         Union(&'a EnumDef),
+        Mono(&'a TypeAliasDef, &'a MonomorphizedTypeDef),
     }
     let mut items: Vec<(usize, Item)> = Vec::new();
     for s in &ir.structs {
@@ -96,17 +102,22 @@ pub fn generate_types(
             items.push((e.sort_order, Item::Union(e)));
         }
     }
+    for ta in &ir.type_aliases {
+        let Some(ref mono) = ta.monomorphized_def else {
+            continue;
+        };
+        if !config.should_include_type(&ta.name) {
+            continue;
+        }
+        items.push((ta.sort_order, Item::Mono(ta, mono)));
+    }
     items.sort_by_key(|(d, _)| *d);
     for (_, item) in &items {
         match item {
             Item::Struct(s) => emit_struct(builder, s, ir),
             Item::Union(e) => emit_tagged_union(builder, e, ir),
+            Item::Mono(ta, mono) => emit_monomorphized_alias(builder, ta, mono, ir),
         }
-    }
-
-    // 5. Callback (procedural) typedefs.
-    for cb in &ir.callback_typedefs {
-        emit_callback_typedef(builder, cb, ir);
     }
 
     builder.dedent();
@@ -173,8 +184,19 @@ fn emit_skipped_enum(builder: &mut CodeBuilder, e: &EnumDef) {
 
 fn emit_forward_pointer_decls(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
     builder.line("{ Forward pointer declarations (every type may be referenced via P-alias). }");
+    // Included structs/enums: P-alias to the record/variant-record type.
+    // Skipped categories (Recursive / VecRef / DestructorOrClone /
+    // GenericTemplate / callback typedef): emit an opaque T = pointer
+    // alias so field declarations referencing them still resolve.
+    // Without the second pass, struct fields whose type is a callback
+    // typedef or a destructor function pointer leave dangling
+    // identifiers like `TAzU8VecDestructor`.
     for s in &ir.structs {
         if !should_include_struct(s, config) {
+            // Opaque T-alias so the type name resolves; users get a
+            // Pointer because we don't have a layout to map.
+            let t = record_type_name(&s.name);
+            builder.line(&format!("{} = Pointer;", t));
             continue;
         }
         let p = pointer_type_name(&s.name);
@@ -183,11 +205,46 @@ fn emit_forward_pointer_decls(builder: &mut CodeBuilder, ir: &CodegenIR, config:
     }
     for e in &ir.enums {
         if !should_include_enum(e, config) {
+            let t = record_type_name(&e.name);
+            builder.line(&format!("{} = Pointer;", t));
             continue;
         }
         let p = pointer_type_name(&e.name);
         let t = record_type_name(&e.name);
         builder.line(&format!("{} = ^{};", p, t));
+    }
+    // Monomorphized type aliases (PhysicalSizeU32 etc.) also need a
+    // P-alias so wrapper PROC declarations referring to them by pointer
+    // resolve.
+    for ta in &ir.type_aliases {
+        if !config.should_include_type(&ta.name) {
+            continue;
+        }
+        let p = pointer_type_name(&ta.name);
+        let t = record_type_name(&ta.name);
+        if ta.monomorphized_def.is_some() {
+            // Will be emitted as a record/variant-record below; the
+            // P-alias targets that real type.
+            builder.line(&format!("{} = ^{};", p, t));
+        } else {
+            // Simple alias to a primitive or another existing type.
+            // Emit BOTH the T-alias (forwarded to the target type) and
+            // its P-alias. Without the T-alias, field declarations
+            // mentioning the alias by name (TAzScanCode) dangle.
+            let target_ty = map_type_to_pascal(&ta.target, ir);
+            builder.line(&format!("{} = {};", t, target_ty));
+            builder.line(&format!("{} = ^{};", p, t));
+        }
+    }
+    // Callback typedefs: opaque T-alias = Pointer. Pascal procedural
+    // types in this codegen would force a strict forward-ordering with
+    // every struct they reference, so we forward-decl them as Pointer
+    // and skip the procedural-type emission entirely. Callers cast to
+    // a typed function pointer at the call site if they need to invoke
+    // one — for field storage Pointer is sufficient.
+    for cb in &ir.callback_typedefs {
+        let t = record_type_name(&cb.name);
+        builder.line(&format!("{} = Pointer;", t));
     }
 }
 
@@ -238,8 +295,13 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
         }
     }
 
-    // Tag enum: TAzFooTag = (TAzFooTag_Variant1, TAzFooTag_Variant2, ...);
-    let tag_name = format!("{}Tag", record_type_name(&e.name));
+    // Tag enum: TAzFoo_TAG = (TAzFoo_TAG_Variant1, ...);
+    // We use `_TAG` (uppercase, underscore-separated) rather than the
+    // shorter `Tag` suffix because some sibling unit enums in the api
+    // are named `<base>Tag` literally (e.g. `NodeType` is a tagged
+    // union and `NodeTypeTag` is a separate unit enum). Without the
+    // disambiguating underscore the two collide on `TAzNodeTypeTag`.
+    let tag_name = format!("{}_TAG", record_type_name(&e.name));
     builder.line(&format!("{} = (", tag_name));
     builder.indent();
     for (i, v) in e.variants.iter().enumerate() {
@@ -364,43 +426,12 @@ fn emit_field(builder: &mut CodeBuilder, f: &FieldDef, ir: &CodegenIR) {
 // Callback typedef (Pascal procedural type)
 // ============================================================================
 
-fn emit_callback_typedef(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir: &CodegenIR) {
-    if !cb.doc.is_empty() {
-        for d in &cb.doc {
-            builder.line(&format!("{{ {} }}", sanitize_comment(d)));
-        }
-    }
-    let t = record_type_name(&cb.name);
-
-    let args: Vec<String> = cb
-        .args
-        .iter()
-        .map(|arg| {
-            let pas_ty = match arg.ref_kind {
-                ArgRefKind::Owned => map_type_to_pascal(&arg.type_name, ir),
-                ArgRefKind::Ref
-                | ArgRefKind::RefMut
-                | ArgRefKind::Ptr
-                | ArgRefKind::PtrMut => ptr_type_for_arg(&arg.type_name, ir),
-            };
-            format!("{}: {}", sanitize_identifier(&arg.name), pas_ty)
-        })
-        .collect();
-
-    let header = if let Some(ret) = &cb.return_type {
-        let pas_ret = map_type_to_pascal(ret, ir);
-        format!(
-            "{} = function({}): {}; cdecl;",
-            t,
-            args.join("; "),
-            pas_ret
-        )
-    } else {
-        format!("{} = procedure({}); cdecl;", t, args.join("; "))
-    };
-    builder.line(&header);
-    builder.blank();
-}
+// emit_callback_typedef removed — callback typedefs are now forward-
+// declared as opaque `T = Pointer;` (see emit_forward_pointer_decls)
+// because Pascal procedural-type definitions need every referenced
+// struct already declared, which we can't guarantee for the recursive
+// shapes in api.json. Field-position storage uses Pointer; callers
+// cast through a procedural type at the invocation site.
 
 // ============================================================================
 // Field/argument type helpers
@@ -439,6 +470,111 @@ pub(crate) fn ptr_type_for_arg(type_name: &str, ir: &CodegenIR) -> String {
             } else {
                 "Pointer".to_string()
             }
+        }
+    }
+}
+
+// ============================================================================
+// Monomorphized type aliases (generic instantiations like CssPropertyValue<T>)
+// ============================================================================
+
+fn emit_monomorphized_alias(
+    builder: &mut CodeBuilder,
+    ta: &TypeAliasDef,
+    mono: &MonomorphizedTypeDef,
+    ir: &CodegenIR,
+) {
+    if !ta.doc.is_empty() {
+        for d in &ta.doc {
+            builder.line(&format!("{{ {} }}", sanitize_comment(d)));
+        }
+    }
+
+    let t = record_type_name(&ta.name);
+
+    match &mono.kind {
+        MonomorphizedKind::SimpleEnum { variants, .. } => {
+            // Pascal enum: `type TAzFooTag = (A, B, C);`. The
+            // constants are unscoped — prefix to avoid collisions.
+            let tag_name = format!("{}Tag", t);
+            builder.line(&format!("{} = (", tag_name));
+            builder.indent();
+            for (i, v) in variants.iter().enumerate() {
+                let suffix = if i + 1 < variants.len() { "," } else { "" };
+                builder.line(&format!(
+                    "{}_{}{}",
+                    tag_name,
+                    sanitize_identifier(v),
+                    suffix
+                ));
+            }
+            builder.dedent();
+            builder.line(");");
+            // Type alias so `TAzFoo` works wherever the tag is referenced.
+            builder.line(&format!("{} = {};", t, tag_name));
+            builder.blank();
+        }
+
+        MonomorphizedKind::Struct { fields } => {
+            if fields.is_empty() {
+                builder.line(&format!("{} = record", t));
+                builder.indent();
+                builder.line("{ opaque - no fields exposed via FFI }");
+                builder.dedent();
+                builder.line("end;");
+                builder.blank();
+                return;
+            }
+            builder.line(&format!("{} = record", t));
+            builder.indent();
+            for f in fields {
+                emit_field(builder, f, ir);
+            }
+            builder.dedent();
+            builder.line("end;");
+            builder.blank();
+        }
+
+        MonomorphizedKind::TaggedUnion { variants, .. } => {
+            // Variant record: tag enum + variant payload via `case Tag of`.
+            let tag_name = format!("{}Tag", t);
+            builder.line(&format!("{} = (", tag_name));
+            builder.indent();
+            for (i, v) in variants.iter().enumerate() {
+                let suffix = if i + 1 < variants.len() { "," } else { "" };
+                builder.line(&format!(
+                    "{}_{}{}",
+                    tag_name,
+                    sanitize_identifier(&v.name),
+                    suffix
+                ));
+            }
+            builder.dedent();
+            builder.line(");");
+
+            builder.line(&format!("{} = record", t));
+            builder.indent();
+            builder.line(&format!("case Tag: {} of", tag_name));
+            builder.indent();
+            for v in variants {
+                let case_label = format!("{}_{}", tag_name, sanitize_identifier(&v.name));
+                let variant_suffix = sanitize_identifier(&v.name);
+                match &v.payload_type {
+                    None => builder.line(&format!("{}: ();", case_label)),
+                    Some(payload_ty) => {
+                        let pas_ty =
+                            field_type_for_ref_kind(payload_ty, &v.payload_ref_kind, ir);
+                        builder.line(&format!(
+                            "{}: (Payload_{}: {});",
+                            case_label, variant_suffix, pas_ty
+                        ));
+                    }
+                }
+            }
+            builder.dedent();
+            builder.dedent();
+            builder.line("end;");
+            builder.blank();
         }
     }
 }

@@ -84,9 +84,14 @@ fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConf
 fn emit_external(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
     if !func.doc.is_empty() {
         for d in &func.doc {
-            // Pascal uses `{ ... }` for block comments. `}` inside docs
-            // would terminate the comment, so swap it for `)`.
-            let safe = d.replace('}', ")").replace('\n', " ").replace('\r', " ");
+            // Pascal uses `{ ... }` for block comments. Embedded `{`
+            // opens a nested level and trailing `}` closes the outer
+            // comment, so swap BOTH braces for parens.
+            let safe = d
+                .replace('{', "(")
+                .replace('}', ")")
+                .replace('\n', " ")
+                .replace('\r', " ");
             builder.line(&format!("{{ {} }}", safe));
         }
     }

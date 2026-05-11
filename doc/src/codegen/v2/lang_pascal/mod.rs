@@ -236,7 +236,10 @@ pub fn map_type_to_pascal(rust_type: &str, ir: &CodegenIR) -> String {
         "f32" | "GLfloat" | "GLclampf" => "cfloat".to_string(),
         "f64" | "GLdouble" | "GLclampd" => "cdouble".to_string(),
         "usize" | "size_t" | "uintptr_t" => "csize_t".to_string(),
-        "isize" | "ssize_t" | "intptr_t" | "GLsizeiptr" | "GLintptr" => "cssize_t".to_string(),
+        // FPC's `ctypes` provides `csize_t` but not `cssize_t`. We
+        // ourselves alias to `PtrInt` which is the native signed
+        // pointer-sized integer (matches Rust's isize).
+        "isize" | "ssize_t" | "intptr_t" | "GLsizeiptr" | "GLintptr" => "PtrInt".to_string(),
 
         // Anything else: assume it's a known IR type and emit a record name.
         _ => {
@@ -280,10 +283,24 @@ fn ptr_to_pascal(inner: &str, ir: &CodegenIR) -> String {
 /// get a trailing underscore; this keeps the symbol unambiguous without
 /// shadowing FPC keywords.
 pub fn sanitize_identifier(name: &str) -> String {
-    if is_pascal_reserved(name) {
+    if is_pascal_reserved(name) || is_pascal_method_shadow(name) {
         return format!("{}_", name);
     }
     name.to_string()
+}
+
+/// Names that — although not Pascal keywords — collide with common
+/// methods we emit on wrapper classes (`Len`, `Capacity`, `Clone`).
+/// Pascal is case-insensitive, so a parameter named `len` clashes
+/// with the `Len` method on the enclosing class even though the
+/// casing differs. Suffix with `_` to disambiguate.
+fn is_pascal_method_shadow(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "len" | "cap" | "clone" | "create" | "delete" | "free" | "raw"
+            | "wrap" | "destroy" | "ptr" | "string" | "self"
+            | "tag" | "get" | "set" | "id" | "value"
+    )
 }
 
 /// Pascal reserved words (FPC + Object Pascal). Subset that's likely to
