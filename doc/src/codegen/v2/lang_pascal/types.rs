@@ -69,24 +69,39 @@ pub fn generate_types(
         }
     }
 
-    // 3. Tagged-union enums (variant records) — these need the tag enum
-    //    emitted first.
-    for e in &ir.enums {
-        if !should_include_enum(e, config) {
-            continue;
-        }
-        if e.is_union {
-            emit_tagged_union(builder, e, ir);
-        }
+    // 3+4. Interleave tagged-union enums (variant records) and plain
+    // records in topological order (`sort_order` from the IR's
+    // analyze_dependencies pass). Tagged-union payloads frequently
+    // reference structs (`Payload_RGB: TAzColorU`) and structs
+    // sometimes embed tagged unions, so emitting one group entirely
+    // before the other always leaves dangling references.
+    #[derive(Debug)]
+    enum Item<'a> {
+        Struct(&'a StructDef),
+        Union(&'a EnumDef),
     }
-
-    // 4. Plain records.
+    let mut items: Vec<(usize, Item)> = Vec::new();
     for s in &ir.structs {
         if !should_include_struct(s, config) {
             emit_skipped_struct(builder, s);
             continue;
         }
-        emit_struct(builder, s, ir);
+        items.push((s.sort_order, Item::Struct(s)));
+    }
+    for e in &ir.enums {
+        if !should_include_enum(e, config) {
+            continue;
+        }
+        if e.is_union {
+            items.push((e.sort_order, Item::Union(e)));
+        }
+    }
+    items.sort_by_key(|(d, _)| *d);
+    for (_, item) in &items {
+        match item {
+            Item::Struct(s) => emit_struct(builder, s, ir),
+            Item::Union(e) => emit_tagged_union(builder, e, ir),
+        }
     }
 
     // 5. Callback (procedural) typedefs.
@@ -247,8 +262,13 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     builder.line(&format!("case Tag: {} of", tag_name));
     builder.indent();
 
+    // Pascal variant records share one namespace across all `case`
+    // branches — field names must be unique within the whole record,
+    // not just within one variant arm. We disambiguate by suffixing
+    // every payload field name with the variant tag.
     for v in &e.variants {
         let case_label = format!("{}_{}", tag_name, sanitize_identifier(&v.name));
+        let variant_suffix = sanitize_identifier(&v.name);
         match &v.kind {
             EnumVariantKind::Unit => {
                 // Empty payload -> `Variant: ();`
@@ -260,12 +280,15 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
                 } else if types.len() == 1 {
                     let (ty, ref_kind) = &types[0];
                     let pas_ty = field_type_for_ref_kind(ty, ref_kind, ir);
-                    builder.line(&format!("{}: (Payload: {});", case_label, pas_ty));
+                    builder.line(&format!(
+                        "{}: (Payload_{}: {});",
+                        case_label, variant_suffix, pas_ty
+                    ));
                 } else {
                     let mut parts = Vec::with_capacity(types.len());
                     for (i, (ty, ref_kind)) in types.iter().enumerate() {
                         let pas_ty = field_type_for_ref_kind(ty, ref_kind, ir);
-                        parts.push(format!("Payload{}: {}", i, pas_ty));
+                        parts.push(format!("Payload_{}_{}: {}", variant_suffix, i, pas_ty));
                     }
                     builder.line(&format!("{}: ({});", case_label, parts.join("; ")));
                 }
@@ -278,7 +301,7 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
                     for f in fields {
                         let pas_ty = field_type_for_ref_kind(&f.type_name, &f.ref_kind, ir);
                         let nm = sanitize_identifier(&f.name);
-                        parts.push(format!("{}: {}", nm, pas_ty));
+                        parts.push(format!("{}_{}: {}", variant_suffix, nm, pas_ty));
                     }
                     builder.line(&format!("{}: ({});", case_label, parts.join("; ")));
                 }
@@ -424,7 +447,12 @@ pub(crate) fn ptr_type_for_arg(type_name: &str, ir: &CodegenIR) -> String {
 /// We strip out closing braces (which would terminate the comment) and
 /// replace newlines with spaces.
 fn sanitize_comment(s: &str) -> String {
-    s.replace('}', ")")
+    // Pascal block comments use `{ ... }` and `(* ... *)`. Embedded
+    // `{` opens a nested comment level which raises "Comment level N
+    // found" warnings and ultimately swallows the rest of the file.
+    // Replace both braces with parens so the comment text is harmless.
+    s.replace('{', "(")
+        .replace('}', ")")
         .replace('\n', " ")
         .replace('\r', " ")
 }

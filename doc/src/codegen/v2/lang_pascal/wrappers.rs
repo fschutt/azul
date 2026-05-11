@@ -483,7 +483,10 @@ fn idiomatic_method_name(method_name: &str) -> String {
 }
 
 fn sanitize_comment(s: &str) -> String {
-    s.replace('}', ")")
+    // Strip both `{` and `}` so doc strings cannot accidentally open or
+    // close Pascal block comments (matches lang_pascal/types.rs).
+    s.replace('{', "(")
+        .replace('}', ")")
         .replace('\n', " ")
         .replace('\r', " ")
 }
