@@ -80,7 +80,9 @@ fn emit_extra_function_bindings(b: &mut CodeBuilder, ir: &CodegenIR) {
     b.line("lib.AzApp_setHostHandleReleaser = azulFFI.func({");
     b.indent();
     b.line("name: 'AzApp_setHostHandleReleaser',");
-    b.line("decl: 'void AzApp_setHostHandleReleaser(void (*)(uint64_t))',");
+    // koffi rejects raw `void (*)(uint64_t)` in its decl spec; pass the
+    // function pointer as `void *` (opaque address).
+    b.line("decl: 'void AzApp_setHostHandleReleaser(void *)',");
     b.line("parameters: ['void *'], returns: 'void',");
     b.dedent();
     b.line("});");
@@ -148,7 +150,7 @@ fn emit_dispatch_state(b: &mut CodeBuilder) {
     b.indent();
     b.line("_nextHandleId += 1n;");
     b.line("const id = _nextHandleId;");
-    b.line("_handles[String(id)] = value;");
+    b.line("_handles[('' + id)] = value;");
     b.line("return id;");
     b.dedent();
     b.line("}");
@@ -170,7 +172,7 @@ fn emit_init_block(b: &mut CodeBuilder, ir: &CodegenIR) {
     b.line(");");
     b.line("const releaser = azulFFI.callback(releaserProto, (id) => {");
     b.indent();
-    b.line("delete _handles[String(id)];");
+    b.line("delete _handles[('' + id)];");
     b.dedent();
     b.line("});");
     b.line("_livePins.push(releaser);");
@@ -222,7 +224,7 @@ fn emit_init_block(b: &mut CodeBuilder, ir: &CodegenIR) {
             closure_args.join(", ")
         ));
         b.indent();
-        b.line("const fn = _handles[String(id)];");
+        b.line("const fn = _handles[('' + id)];");
         b.line("if (!fn) return;");
         b.line("try {");
         b.indent();
@@ -329,7 +331,7 @@ fn emit_refany_helpers(b: &mut CodeBuilder) {
     b.dedent();
     b.line("const id = lib.AzRefAny_getHostHandle(ptr);");
     b.line("if (id === 0n || id === 0) return null;");
-    b.line("return _handles[String(id)] ?? null;");
+    b.line("return _handles[('' + id)] ?? null;");
     b.dedent();
     b.line("}");
     b.blank();

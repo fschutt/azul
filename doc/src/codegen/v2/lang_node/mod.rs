@@ -238,7 +238,12 @@ fn emit_load_lib(b: &mut CodeBuilder) {
     b.line("// declaring callback parameters.");
     b.line("proto(name, retType, argTypes) {");
     b.indent();
-    b.line("return koffi.proto(name + '(' + argTypes.join(',') + ') -> ' + retType);");
+    // koffi.proto's C-decl syntax is `'<retType> <name>(<argTypes,...>)'`,
+    // matching the C function-pointer declaration form. The call returns
+    // a callback-type handle; for use in `koffi.register(fn, type)` we
+    // pass the registered name with a `*` suffix (koffi's pointer-to-callback form).
+    b.line("koffi.proto(retType + ' ' + name + '(' + argTypes.join(',') + ')');");
+    b.line("return name + ' *';");
     b.dedent();
     b.line("},");
     b.line("// Wrap a JS function as a C callback. koffi.register pins the");
@@ -601,14 +606,41 @@ pub fn map_type_to_koffi(rust_type: &str, ir: &CodegenIR) -> String {
         "c_void" | "()" | "void" => "void".to_string(),
 
         // Anything else: treat as registered struct/enum if known, else
-        // opaque pointer. We always pass user types by-pointer at the
-        // FFI layer; koffi handles dereferencing via the registered shape.
+        // opaque pointer.
         _ => {
-            if ir.find_struct(trimmed).is_some()
-                || ir.find_enum(trimmed).is_some()
-                || ir.find_type_alias(trimmed).is_some()
-                || ir.callback_typedefs.iter().any(|c| c.name == trimmed)
-            {
+            // Type aliases: monomorphized ones are koffi-registered as
+            // concrete types. Simple aliases (e.g. `HwndHandle = *mut c_void`,
+            // `GLuint = u32`) follow through to the target since they're
+            // never registered as koffi types of their own.
+            if let Some(ta) = ir.find_type_alias(trimmed) {
+                if ta.monomorphized_def.is_none() {
+                    let resolved = if ta.target.starts_with("*mut ")
+                        || ta.target.starts_with("*const ")
+                        || ta.target.starts_with('&')
+                    {
+                        "void *".to_string()
+                    } else {
+                        map_type_to_koffi(&ta.target, ir)
+                    };
+                    return resolved;
+                }
+                return ffi_type_name(trimmed);
+            }
+            // Recursive types collapse to `void *` in field positions —
+            // koffi can't expand them inline.
+            if let Some(s) = ir.find_struct(trimmed) {
+                if matches!(s.category, super::super::ir::TypeCategory::Recursive) {
+                    return "void *".to_string();
+                }
+                return ffi_type_name(trimmed);
+            }
+            if let Some(e) = ir.find_enum(trimmed) {
+                if matches!(e.category, super::super::ir::TypeCategory::Recursive) {
+                    return "void *".to_string();
+                }
+                return ffi_type_name(trimmed);
+            }
+            if ir.callback_typedefs.iter().any(|c| c.name == trimmed) {
                 ffi_type_name(trimmed)
             } else {
                 "void *".to_string()

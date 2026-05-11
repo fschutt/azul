@@ -30,7 +30,8 @@
 
 use super::super::generator::CodeBuilder;
 use super::super::ir::{
-    CodegenIR, EnumDef, EnumVariantKind, FieldRefKind, StructDef, TypeCategory,
+    CodegenIR, EnumDef, EnumVariantKind, FieldRefKind, MonomorphizedKind, MonomorphizedTypeDef,
+    MonomorphizedVariant, StructDef, TypeAliasDef, TypeCategory,
 };
 use super::{ffi_type_name, map_type_to_koffi, sanitize_js_identifier};
 
@@ -42,74 +43,177 @@ pub fn generate_type_registrations(b: &mut CodeBuilder, ir: &CodegenIR) {
     b.line("// ----------------------------------------------------------------------------");
     b.line("// Type registrations. On Node/koffi these become live `koffi.struct(...)`");
     b.line("// handles. On Bun/Deno they are documentation no-ops.");
+    b.line("//");
+    b.line("// Emitted in the IR's topological-sort order (lower sort_order first), so");
+    b.line("// koffi.struct(...) calls never reference types whose shape isn't yet");
+    b.line("// registered. Within a single enum/struct's sort slot we emit all of its");
+    b.line("// pieces — tag enum, per-variant payload structs, then the outer wrapper.");
     b.line("// ----------------------------------------------------------------------------");
     b.blank();
 
-    // Unit-only enums: emit as JS frozen objects keyed by variant name.
-    // The numeric value is the enum's sequential index, matching the C ABI.
     b.line("// Unit-only enums: numeric constant tables.");
     b.line("const Enums = Object.create(null);");
     b.blank();
 
+    // Merge structs, enums, and monomorphized type aliases into a
+    // single emit list, ordered by `sort_order`. The IR builder has
+    // already computed a topological sort; we just unify the three
+    // streams so types are registered before any later type references
+    // them.
+    enum SortedItem<'a> {
+        Struct(&'a StructDef),
+        Enum(&'a EnumDef),
+        MonomorphizedAlias(&'a TypeAliasDef, &'a MonomorphizedTypeDef),
+        CallbackTypedef(&'a str),
+    }
+    let mut sorted: Vec<(usize, SortedItem)> = Vec::new();
     for e in &ir.enums {
         if !should_emit(e.category) || !e.generic_params.is_empty() {
             continue;
         }
-        if !is_unit_only(e) {
-            continue;
-        }
-        emit_unit_enum(b, e);
+        sorted.push((e.sort_order, SortedItem::Enum(e)));
     }
-
-    b.blank();
-    b.line("// Tag enums for tagged unions (one per data-bearing enum).");
-    for e in &ir.enums {
-        if !should_emit(e.category) || !e.generic_params.is_empty() {
-            continue;
-        }
-        if is_unit_only(e) {
-            continue;
-        }
-        if !e.is_union {
-            continue;
-        }
-        emit_tag_enum(b, e);
-    }
-
-    b.blank();
-    b.line("// Per-variant payload structs (one per non-unit variant of a tagged union).");
-    for e in &ir.enums {
-        if !should_emit(e.category) || !e.generic_params.is_empty() {
-            continue;
-        }
-        if !e.is_union {
-            continue;
-        }
-        emit_variant_payload_structs(b, e, ir);
-    }
-
-    b.blank();
-    b.line("// POD struct registrations.");
     for s in &ir.structs {
         if !should_emit(s.category) || !s.generic_params.is_empty() {
             continue;
         }
-        emit_struct_registration(b, s, ir);
+        sorted.push((s.sort_order, SortedItem::Struct(s)));
+    }
+    for ta in &ir.type_aliases {
+        let Some(ref mono_def) = ta.monomorphized_def else {
+            continue;
+        };
+        sorted.push((ta.sort_order, SortedItem::MonomorphizedAlias(ta, mono_def)));
+    }
+    // Callback typedefs (function pointers) — register as koffi aliases
+    // for `void *` so struct fields can carry them as `'AzFooCallbackType'`
+    // without forcing koffi to model the function signature.
+    for cb in &ir.callback_typedefs {
+        sorted.push((cb.sort_order, SortedItem::CallbackTypedef(&cb.name)));
+    }
+    // Stable sort: ties (same sort_order) keep their declaration order.
+    sorted.sort_by_key(|(o, _)| *o);
+
+    for (_, item) in sorted {
+        match item {
+            SortedItem::Enum(e) => {
+                if is_unit_only(e) {
+                    emit_unit_enum(b, e);
+                } else if e.is_union {
+                    emit_tag_enum(b, e);
+                    emit_variant_payload_structs(b, e, ir);
+                    emit_tagged_union_wrapper(b, e);
+                }
+            }
+            SortedItem::Struct(s) => {
+                emit_struct_registration(b, s, ir);
+            }
+            SortedItem::MonomorphizedAlias(ta, mono_def) => {
+                emit_monomorphized_alias(b, ta, mono_def, ir);
+            }
+            SortedItem::CallbackTypedef(name) => {
+                b.line(&format!(
+                    "azulFFI.alias('{}', 'void *');",
+                    ffi_type_name(name)
+                ));
+            }
+        }
     }
 
     b.blank();
-    b.line("// Outer tagged-union wrapper structs (tag + union of variant payloads).");
-    for e in &ir.enums {
-        if !should_emit(e.category) || !e.generic_params.is_empty() {
-            continue;
-        }
-        if !e.is_union {
-            continue;
-        }
-        emit_tagged_union_wrapper(b, e);
-    }
+}
 
-    b.blank();
+fn emit_monomorphized_alias(
+    b: &mut CodeBuilder,
+    ta: &TypeAliasDef,
+    mono_def: &MonomorphizedTypeDef,
+    ir: &CodegenIR,
+) {
+    let name = ffi_type_name(&ta.name);
+    if !ta.doc.is_empty() {
+        b.line(&format!("// {}", ta.doc.join(" ")));
+    }
+    match &mono_def.kind {
+        MonomorphizedKind::SimpleEnum { variants, .. } => {
+            b.line(&format!("azulFFI.alias('{}', 'uint32_t');", name));
+            b.line(&format!("Enums.{} = Object.freeze({{", ta.name));
+            b.indent();
+            for (idx, v) in variants.iter().enumerate() {
+                b.line(&format!("{}: {},", sanitize_js_identifier(v), idx));
+            }
+            b.dedent();
+            b.line("});");
+        }
+        MonomorphizedKind::Struct { fields } => {
+            b.line(&format!("azulFFI.struct('{}', {{", name));
+            b.indent();
+            if fields.is_empty() {
+                b.line("_placeholder: 'uint8_t',");
+            } else {
+                for f in fields {
+                    let spec = ref_kind_spec(&f.type_name, &f.ref_kind, ir);
+                    b.line(&format!(
+                        "{}: '{}',",
+                        sanitize_js_identifier(&f.name),
+                        spec
+                    ));
+                }
+            }
+            b.dedent();
+            b.line("});");
+        }
+        MonomorphizedKind::TaggedUnion { variants, .. } => {
+            // Tag alias + JS frozen object.
+            b.line(&format!("azulFFI.alias('{}_Tag', 'uint32_t');", name));
+            b.line(&format!("Enums.{}_Tag = Object.freeze({{", ta.name));
+            b.indent();
+            for (idx, v) in variants.iter().enumerate() {
+                b.line(&format!(
+                    "{}: {},",
+                    sanitize_js_identifier(&v.name),
+                    idx
+                ));
+            }
+            b.dedent();
+            b.line("});");
+
+            // Per-variant payload structs.
+            for v in variants {
+                b.line(&format!(
+                    "azulFFI.struct('{}Variant_{}', {{",
+                    name, v.name
+                ));
+                b.indent();
+                b.line(&format!("tag: '{}_Tag',", name));
+                if let Some(ref payload_type) = v.payload_type {
+                    let spec = ref_kind_spec(payload_type, &v.payload_ref_kind, ir);
+                    b.line(&format!("payload: '{}',", spec));
+                }
+                b.dedent();
+                b.line("});");
+            }
+
+            // Outer wrapper (struct with tag + union of payloads).
+            b.line(&format!("azulFFI.union('{}_Union', {{", name));
+            b.indent();
+            for v in variants {
+                b.line(&format!(
+                    "{}: '{}Variant_{}',",
+                    sanitize_js_identifier(&v.name),
+                    name,
+                    v.name
+                ));
+            }
+            b.dedent();
+            b.line("});");
+            b.line(&format!("azulFFI.struct('{}', {{", name));
+            b.indent();
+            b.line(&format!("tag: '{}_Tag',", name));
+            b.line(&format!("payload: '{}_Union',", name));
+            b.dedent();
+            b.line("});");
+        }
+    }
 }
 
 // ============================================================================
@@ -117,13 +221,15 @@ pub fn generate_type_registrations(b: &mut CodeBuilder, ir: &CodegenIR) {
 // ============================================================================
 
 fn should_emit(c: TypeCategory) -> bool {
+    // Note: Boxed / VecRef / DestructorOrClone are NOT skipped — they're
+    // referenced by value as field types in tagged-union variants and
+    // Vec wrappers (e.g., `AzImageRef` is `is_boxed_object` in api.json
+    // but appears in `AzMenuItemIconVariant_Image`'s payload). Without
+    // emit, koffi rejects "Unknown or invalid type name".
     !matches!(
         c,
         TypeCategory::Recursive
-            | TypeCategory::VecRef
-            | TypeCategory::Boxed
             | TypeCategory::GenericTemplate
-            | TypeCategory::DestructorOrClone
             | TypeCategory::CallbackTypedef
     )
 }
@@ -139,7 +245,15 @@ fn is_unit_only(e: &EnumDef) -> bool {
 // Unit enum emission
 // ============================================================================
 
+fn emit_unit_enum_alias_only(b: &mut CodeBuilder, e: &EnumDef) {
+    // Unit enums are emitted as JS frozen objects above, but they also
+    // need a koffi alias so struct fields with `type: 'AzFoo'` resolve.
+    let ffi = ffi_type_name(&e.name);
+    b.line(&format!("azulFFI.alias('{}', 'uint32_t');", ffi));
+}
+
 fn emit_unit_enum(b: &mut CodeBuilder, e: &EnumDef) {
+    emit_unit_enum_alias_only(b, e);
     let ffi = ffi_type_name(&e.name);
     b.line(&format!("Enums.{} = Object.freeze({{", e.name));
     b.indent();
@@ -162,6 +276,14 @@ fn emit_unit_enum(b: &mut CodeBuilder, e: &EnumDef) {
 
 fn emit_tag_enum(b: &mut CodeBuilder, e: &EnumDef) {
     let ffi = ffi_type_name(&e.name);
+    // koffi side: register the tag enum's name as an alias for uint32_t
+    // so subsequent variant payload structs (which carry `tag: 'AzFoo_Tag'`)
+    // can resolve the type. Without this, koffi's parser sees an
+    // unregistered `AzFoo_Tag` and throws "Unknown or invalid type name".
+    b.line(&format!(
+        "azulFFI.alias('{}_Tag', 'uint32_t');",
+        ffi
+    ));
     b.line(&format!("Enums.{}_Tag = Object.freeze({{", e.name));
     b.indent();
     for (idx, v) in e.variants.iter().enumerate() {
@@ -300,12 +422,16 @@ fn ref_kind_spec(type_name: &str, ref_kind: &FieldRefKind, ir: &CodegenIR) -> St
     let base = map_type_to_koffi(type_name, ir);
     match ref_kind {
         FieldRefKind::Owned => base,
+        // For pointer fields koffi only needs the marshaling size (sizeof
+        // void*), not the referent's shape — and emitting `AzVideoMode *`
+        // here forces topological dependence on `AzVideoMode` even though
+        // we never dereference it through the field. Collapse to `void *`.
         FieldRefKind::Ref
         | FieldRefKind::RefMut
         | FieldRefKind::Ptr
         | FieldRefKind::PtrMut
         | FieldRefKind::Boxed
-        | FieldRefKind::OptionBoxed => format!("{} *", base),
+        | FieldRefKind::OptionBoxed => "void *".to_string(),
     }
 }
 

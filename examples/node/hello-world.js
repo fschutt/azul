@@ -105,7 +105,8 @@ const layoutCb = registerCallback('LayoutCallback', layout);
 // WindowCreateOptions::create takes a *raw* LayoutCallbackType, not the
 // wrapper struct. We bypass it via _default + direct field assignment so
 // the host-handle ctx survives — same fix lang_lua applies in its emitter.
-const window = WindowCreateOptions.default();
+// Note: `default` is JS-reserved; the codegen renames to `default_`.
+const window = WindowCreateOptions.default_();
 window.window_state.layout_callback = layoutCb;
 
 window.window_state.title = AzString.fromString('Hello World');
