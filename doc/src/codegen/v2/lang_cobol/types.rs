@@ -309,7 +309,11 @@ fn emit_monomorphized_alias(
         // payload (REDEFINES requires the redefining clause to be ≤
         // anchor size, and we can't always order variants by size).
         MonomorphizedKind::TaggedUnion { variants, .. } => {
-            let tag_class = cobol_identifier(&format!("AZ-{}-TAG", to_cobol_case(&ta.name)));
+            // Same `-VARIANT-` infix as emit_tagged_union — avoids
+            // collision with sibling unit enums that happen to be named
+            // `<Foo>Tag`.
+            let tag_class =
+                cobol_identifier(&format!("AZ-{}-VARIANT", to_cobol_case(&ta.name)));
             builder.line(&format!("*> --- MONOMORPHIZED UNION {} ---", typedef));
             for (idx, v) in variants.iter().enumerate() {
                 let var = sanitize_cobol_identifier(&to_cobol_case(&v.name));
@@ -343,7 +347,12 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     }
 
     let typedef = cobol_identifier(&format!("TYAZ-{}", to_cobol_case(&e.name)));
-    let tag_class = cobol_identifier(&format!("AZ-{}-TAG", to_cobol_case(&e.name)));
+    // Use `-VARIANT-` infix rather than `-TAG-` to avoid collisions
+    // with sibling unit enums named `<Foo>Tag` (e.g. NodeType is a
+    // tagged union and NodeTypeTag is a separate unit enum; both
+    // naturally land at `AZ-NODE-TYPE-TAG-*` and produce duplicate
+    // level-78 constants).
+    let tag_class = cobol_identifier(&format!("AZ-{}-VARIANT", to_cobol_case(&e.name)));
 
     // Tag-value level-78 constants (one per variant).
     builder.line(&format!("*> --- TAGGED UNION {} ---", typedef));
