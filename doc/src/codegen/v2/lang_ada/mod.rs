@@ -175,9 +175,14 @@ pub fn ada_ffi_type_name(name: &str) -> String {
     format!("Az_{}", name)
 }
 
-/// User-facing wrapper type name (drops the `Az_` prefix).
+/// User-facing wrapper type name (drops the `Az_` prefix). We suffix
+/// with `_T` so the wrapper record never collides with an enum literal
+/// that shares its base name (e.g. `Az_ComponentFieldType_Tag` has
+/// variants `ImageRef`, `Svg`, `FontRef`, etc.; without the suffix the
+/// wrapper class `ImageRef` collides with the literal `ImageRef`
+/// at module scope).
 pub fn ada_wrapper_type_name(name: &str) -> String {
-    name.to_string()
+    format!("{}_T", name)
 }
 
 /// Map an IR / Rust type name to the corresponding Ada FFI type.
@@ -261,11 +266,23 @@ pub fn sanitize_identifier(name: &str) -> String {
         out.push('K');
     }
     let lower = out.to_ascii_lowercase();
-    if is_ada_reserved(&lower) {
+    if is_ada_reserved(&lower) || is_ada_shadow(&lower) {
         format!("{}_K", out)
     } else {
         out
     }
+}
+
+/// Names that aren't Ada reserved but shadow standard packages /
+/// pragmas we rely on. We `with System` (and use it for FFI argument
+/// types), so an enumerator literal named `System` hides the outer
+/// package and breaks every subsequent `System.Address` reference.
+fn is_ada_shadow(name: &str) -> bool {
+    matches!(
+        name,
+        "system" | "interfaces" | "address" | "string"
+            | "ada" | "convention" | "import" | "export"
+    )
 }
 
 /// Convert a snake_case or camelCase name to a Pascal_Snake style

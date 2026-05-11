@@ -24,7 +24,8 @@ use anyhow::Result;
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{
-    CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind, StructDef, TypeCategory,
+    CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind, MonomorphizedKind,
+    MonomorphizedTypeDef, StructDef, TypeAliasDef, TypeCategory,
 };
 use super::{ada_ffi_type_name, map_type_to_ada, sanitize_identifier};
 
@@ -43,16 +44,28 @@ pub fn emit_forward_declarations(
     builder.blank();
 
     for s in &ir.structs {
+        let name = ada_ffi_type_name(&s.name);
         if !should_emit_struct(s, config) {
+            // Opaque placeholder for skipped categories so field
+            // references (`Foo : Az_U8VecRef;`) resolve to a
+            // System.Address-shaped value.
+            builder.line(&format!(
+                "subtype {} is System.Address;",
+                name
+            ));
             continue;
         }
-        let name = ada_ffi_type_name(&s.name);
         builder.line(&format!("type {};", name));
         builder.line(&format!("type {}_Access is access all {};", name, name));
         builder.line(&format!("pragma Convention (C, {}_Access);", name));
     }
     for e in &ir.enums {
+        let name = ada_ffi_type_name(&e.name);
         if !should_emit_enum(e, config) {
+            builder.line(&format!(
+                "subtype {} is System.Address;",
+                name
+            ));
             continue;
         }
         // Unit enums don't strictly need an incomplete-type forward decl
@@ -60,11 +73,39 @@ pub fn emit_forward_declarations(
         // unions (so nested fields can reference them via System.Address
         // anyway, but a typed access aids debugging tools).
         if e.is_union {
-            let name = ada_ffi_type_name(&e.name);
             builder.line(&format!("type {};", name));
             builder.line(&format!("type {}_Access is access all {};", name, name));
             builder.line(&format!("pragma Convention (C, {}_Access);", name));
         }
+    }
+    // Monomorphized type aliases need a forward decl so other records
+    // can reference them; they're emitted with full definitions later
+    // by emit_monomorphized_alias.
+    for ta in &ir.type_aliases {
+        if !config.should_include_type(&ta.name) {
+            continue;
+        }
+        let name = ada_ffi_type_name(&ta.name);
+        if ta.monomorphized_def.is_some() {
+            builder.line(&format!("type {};", name));
+            builder.line(&format!("type {}_Access is access all {};", name, name));
+            builder.line(&format!("pragma Convention (C, {}_Access);", name));
+        } else {
+            // Simple alias to a primitive. Emit the resolved Ada type
+            // directly as a subtype so users can refer to the alias by
+            // name (`Az_GLuint`) anywhere the underlying type is valid.
+            let target = map_type_to_ada(&ta.target, ir);
+            builder.line(&format!("subtype {} is {};", name, target));
+        }
+    }
+    // Callback typedefs: opaque System.Address. Function-pointer types
+    // in Ada are `access function/procedure ... is`, but our codegen
+    // doesn't surface them as typed access — callers cast through
+    // System'To_Address. The placeholder makes field references
+    // (`Cb : Az_FooCallbackType;`) resolve.
+    for cb in &ir.callback_typedefs {
+        let name = ada_ffi_type_name(&cb.name);
+        builder.line(&format!("subtype {} is System.Address;", name));
     }
     builder.blank();
 }
@@ -79,7 +120,8 @@ pub fn emit_types(
     builder.line("-- ----------------------------------------------------------------------");
     builder.blank();
 
-    // Enums first (they may be referenced by struct fields).
+    // Unit enums FIRST — they're integer-shaped and freely
+    // referenceable from records that follow.
     for e in &ir.enums {
         if !should_emit_enum(e, config) {
             if !e.generic_params.is_empty() {
@@ -96,13 +138,22 @@ pub fn emit_types(
             }
             continue;
         }
-        if e.is_union {
-            emit_tagged_union(builder, e, ir);
-        } else {
+        if !e.is_union {
             emit_unit_enum(builder, e);
         }
     }
 
+    // Interleave tagged-union enums, POD records, AND monomorphized
+    // type-alias instantiations (PhysicalSizeU32, OptionU32, etc.)
+    // in topological order so a record-of-record / record-of-union
+    // field always references an already-declared type. Same shape
+    // as lang_pascal/lang_fortran/lang_cobol's emit.
+    enum Item<'a> {
+        Struct(&'a StructDef),
+        Union(&'a EnumDef),
+        Mono(&'a TypeAliasDef, &'a MonomorphizedTypeDef),
+    }
+    let mut items: Vec<(usize, Item)> = Vec::new();
     for s in &ir.structs {
         if !should_emit_struct(s, config) {
             if !s.generic_params.is_empty() {
@@ -119,7 +170,32 @@ pub fn emit_types(
             }
             continue;
         }
-        emit_record(builder, s, ir);
+        items.push((s.sort_order, Item::Struct(s)));
+    }
+    for e in &ir.enums {
+        if !should_emit_enum(e, config) {
+            continue;
+        }
+        if e.is_union {
+            items.push((e.sort_order, Item::Union(e)));
+        }
+    }
+    for ta in &ir.type_aliases {
+        let Some(ref mono) = ta.monomorphized_def else {
+            continue;
+        };
+        if !config.should_include_type(&ta.name) {
+            continue;
+        }
+        items.push((ta.sort_order, Item::Mono(ta, mono)));
+    }
+    items.sort_by_key(|(d, _)| *d);
+    for (_, item) in &items {
+        match item {
+            Item::Struct(s) => emit_record(builder, s, ir),
+            Item::Union(e) => emit_tagged_union(builder, e, ir),
+            Item::Mono(ta, mono) => emit_monomorphized_alias(builder, ta, mono, ir),
+        }
     }
 
     Ok(())
@@ -260,8 +336,14 @@ fn emit_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Codegen
     ));
     builder.line("   case Tag is");
 
+    // Ada variant records share ONE namespace across every `when`
+    // arm — field names must be globally unique within the record.
+    // Reusing `Payload` across arms (the natural mapping) raises
+    // "Payload conflicts with declaration". Suffix each payload
+    // field with the variant name. Same shape as the Pascal fix.
     for v in &enum_def.variants {
         let lit = sanitize_identifier(&v.name);
+        let variant_suffix = sanitize_identifier(&v.name);
         match &v.kind {
             EnumVariantKind::Unit => {
                 builder.line(&format!("      when {} =>", lit));
@@ -272,11 +354,17 @@ fn emit_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Codegen
                 if types.len() == 1 {
                     let (ty, ref_kind) = &types[0];
                     let ada_ty = ref_kind_field_type(ty, ref_kind, ir);
-                    builder.line(&format!("         Payload : {};", ada_ty));
+                    builder.line(&format!(
+                        "         Payload_{} : {};",
+                        variant_suffix, ada_ty
+                    ));
                 } else {
                     for (i, (ty, ref_kind)) in types.iter().enumerate() {
                         let ada_ty = ref_kind_field_type(ty, ref_kind, ir);
-                        builder.line(&format!("         Payload_{} : {};", i, ada_ty));
+                        builder.line(&format!(
+                            "         Payload_{}_{} : {};",
+                            variant_suffix, i, ada_ty
+                        ));
                     }
                 }
             }
@@ -288,7 +376,10 @@ fn emit_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Codegen
                     for f in fields {
                         let ada_ty = ref_kind_field_type(&f.type_name, &f.ref_kind, ir);
                         let name = sanitize_identifier(&pascalize_field_name(&f.name));
-                        builder.line(&format!("         {} : {};", name, ada_ty));
+                        builder.line(&format!(
+                            "         {}_{} : {};",
+                            variant_suffix, name, ada_ty
+                        ));
                     }
                 }
             }
@@ -299,6 +390,111 @@ fn emit_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Codegen
     builder.line("end record;");
     builder.line(&format!("pragma Convention (C, {});", name));
     builder.blank();
+}
+
+// ============================================================================
+// Monomorphized type-alias emission (generic instantiations)
+// ============================================================================
+
+fn emit_monomorphized_alias(
+    builder: &mut CodeBuilder,
+    ta: &TypeAliasDef,
+    mono: &MonomorphizedTypeDef,
+    ir: &CodegenIR,
+) {
+    if !ta.doc.is_empty() {
+        for d in &ta.doc {
+            builder.line(&format!("-- {}", sanitize_doc(d)));
+        }
+    }
+    let name = ada_ffi_type_name(&ta.name);
+    match &mono.kind {
+        MonomorphizedKind::SimpleEnum { variants, .. } => {
+            // Enumerated type + integer representation clause, same
+            // shape as emit_unit_enum.
+            builder.line(&format!("type {} is", name));
+            let lits: Vec<String> =
+                variants.iter().map(|v| sanitize_identifier(v)).collect();
+            builder.line(&format!("   ({});", lits.join(", ")));
+            builder.line(&format!("for {} use", name));
+            builder.line("   (");
+            for (idx, v) in variants.iter().enumerate() {
+                let lit = sanitize_identifier(v);
+                let sep = if idx + 1 == variants.len() { "" } else { "," };
+                builder.line(&format!("    {} => {}{}", lit, idx, sep));
+            }
+            builder.line("   );");
+            builder.line(&format!("pragma Convention (C, {});", name));
+            builder.blank();
+        }
+
+        MonomorphizedKind::Struct { fields } => {
+            if fields.is_empty() {
+                builder.line(&format!("type {} is record", name));
+                builder.line("   Reserved : Interfaces.C.unsigned_char;");
+                builder.line("end record;");
+                builder.line(&format!("pragma Convention (C, {});", name));
+                builder.blank();
+                return;
+            }
+            builder.line(&format!("type {} is record", name));
+            for f in fields {
+                emit_field(builder, f, ir);
+            }
+            builder.line("end record;");
+            builder.line(&format!("pragma Convention (C, {});", name));
+            builder.blank();
+        }
+
+        MonomorphizedKind::TaggedUnion { variants, .. } => {
+            // Tag enum + variant record, same shape as emit_tagged_union.
+            let tag_name = format!("{}_Tag", name);
+            builder.line(&format!("type {} is", tag_name));
+            let lits: Vec<String> = variants
+                .iter()
+                .map(|v| sanitize_identifier(&v.name))
+                .collect();
+            builder.line(&format!("   ({});", lits.join(", ")));
+            builder.line(&format!("for {} use", tag_name));
+            builder.line("   (");
+            for (idx, v) in variants.iter().enumerate() {
+                let lit = sanitize_identifier(&v.name);
+                let sep = if idx + 1 == variants.len() { "" } else { "," };
+                builder.line(&format!("    {} => {}{}", lit, idx, sep));
+            }
+            builder.line("   );");
+            builder.line(&format!("pragma Convention (C, {});", tag_name));
+            builder.blank();
+
+            let default_variant =
+                lits.first().cloned().unwrap_or_else(|| "V0".to_string());
+            builder.line(&format!(
+                "type {} (Tag : {} := {}) is record",
+                name, tag_name, default_variant
+            ));
+            builder.line("   case Tag is");
+            for v in variants {
+                let lit = sanitize_identifier(&v.name);
+                let variant_suffix = sanitize_identifier(&v.name);
+                builder.line(&format!("      when {} =>", lit));
+                match &v.payload_type {
+                    None => builder.line("         null;"),
+                    Some(payload_ty) => {
+                        let ada_ty =
+                            ref_kind_field_type(payload_ty, &v.payload_ref_kind, ir);
+                        builder.line(&format!(
+                            "         Payload_{} : {};",
+                            variant_suffix, ada_ty
+                        ));
+                    }
+                }
+            }
+            builder.line("   end case;");
+            builder.line("end record;");
+            builder.line(&format!("pragma Convention (C, {});", name));
+            builder.blank();
+        }
+    }
 }
 
 // ============================================================================

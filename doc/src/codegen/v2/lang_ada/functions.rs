@@ -37,8 +37,22 @@ pub fn emit_imports(
     builder.line("-- ----------------------------------------------------------------------");
     builder.blank();
 
+    // Ada is case-insensitive, so two functions that lower to the
+    // same identifier collide (e.g. `deep_copy` and `clone` both map
+    // to `Deep_Copy` via the FunctionKind::DeepCopy renaming). Skip
+    // the second occurrence; the first wins.
+    let mut emitted: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for func in &ir.functions {
         if !should_emit_function(func, ir, config) {
+            continue;
+        }
+        let name = ada_subprogram_name(func);
+        if !emitted.insert(name.to_ascii_lowercase()) {
+            builder.line(&format!(
+                "-- SKIPPED duplicate (collides with prior Ada name): {} ({})",
+                func.c_name,
+                name
+            ));
             continue;
         }
         emit_one(builder, func, ir);
