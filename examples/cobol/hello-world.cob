@@ -1,26 +1,26 @@
-      ******************************************************************
-      * COBOL (GnuCOBOL >= 3.0) port of examples/c/hello-world.c.       *
-      *                                                                 *
-      * Same data model (a 32-bit unsigned counter), same callback      *
-      * semantics (clicking the button increments the counter and asks  *
-      * for a redraw), same visual output (a centred label + a primary  *
-      * button).                                                        *
-      *                                                                 *
-      * Build (Linux/macOS):                                            *
-      *   cobc -x -free hello-world.cob -L. -lazul -o hello-world       *
-      *   LD_LIBRARY_PATH=. ./hello-world      (Linux)                  *
-      *   DYLD_LIBRARY_PATH=. ./hello-world    (macOS)                  *
-      *                                                                 *
-      * Build (Windows):                                                *
-      *   cobc -x -free hello-world.cob -L. -lazul -o hello-world.exe   *
-      *   (place azul.dll on PATH or in the program directory)          *
-      *                                                                 *
-      * The -x flag asks GnuCOBOL to produce a standalone executable    *
-      * (rather than a callable subprogram); -free enables free-format  *
-      * source so we are not constrained by the column-7 indicator      *
-      * area in this example. The copybook itself is fixed-format so it *
-      * works either way.                                               *
-      ******************************************************************
+>>SOURCE FORMAT IS FREE
+*> ============================================================
+*> COBOL (GnuCOBOL >= 3.0) port of examples/c/hello-world.c.
+*>
+*> Same data model (a 32-bit unsigned counter), same callback
+*> semantics (clicking the button increments the counter and asks
+*> for a redraw), same visual output (a centred label + a primary
+*> button).
+*>
+*> Build (Linux/macOS):
+*>   cobc -x -free hello-world.cob -L. -lazul -o hello-world
+*>   LD_LIBRARY_PATH=. ./hello-world      (Linux)
+*>   DYLD_LIBRARY_PATH=. ./hello-world    (macOS)
+*>
+*> Build (Windows):
+*>   cobc -x -free hello-world.cob -L. -lazul -o hello-world.exe
+*>   (place azul.dll on PATH or in the program directory)
+*>
+*> The -x flag asks GnuCOBOL to produce a standalone executable;
+*> -free enables free-format source (no col-7 indicator area, no
+*> col-72 line limit). The copybook is also free-format and starts
+*> with its own >>SOURCE FORMAT IS FREE directive.
+*> ============================================================
        IDENTIFICATION DIVISION.
        PROGRAM-ID. HELLO-WORLD.
        AUTHOR.     AZUL-CODEGEN.

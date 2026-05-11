@@ -67,7 +67,7 @@ fn should_include_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
 
 fn emit_skipped(builder: &mut CodeBuilder, name: &str, reason: &str) {
     builder.line(&format!(
-        "      * SKIPPED: {} ({})",
+        "*> SKIPPED: {} ({})",
         cobol_identifier(name),
         reason
     ));
@@ -82,10 +82,10 @@ pub fn generate_enum_constants(
     ir: &CodegenIR,
     config: &CodegenConfig,
 ) -> Result<()> {
-    builder.line("      ******************************************************************");
-    builder.line("      * ENUM CONSTANTS (level-78)                                      *");
-    builder.line("      * One constant per variant of every unit-only enum.              *");
-    builder.line("      ******************************************************************");
+    builder.line("*> ============================================================");
+    builder.line("*> ENUM CONSTANTS (level-78)                                      *");
+    builder.line("*> One constant per variant of every unit-only enum.              *");
+    builder.line("*> ============================================================");
 
     for e in &ir.enums {
         if !should_include_enum(e, config) {
@@ -112,7 +112,15 @@ fn emit_unit_enum_constants(builder: &mut CodeBuilder, e: &EnumDef) {
             }
         }
         let class = cobol_identifier(&format!("AZ-{}", to_cobol_case(&e.name)));
-        builder.line(&format!("      * --- ENUM {} ---", class));
+        let typedef = cobol_identifier(&format!("TYAZ-{}", to_cobol_case(&e.name)));
+        builder.line(&format!("*> --- ENUM {} ---", class));
+        // TYPEDEF alias so struct fields can refer to the enum's storage
+        // type via `USAGE TYAZ-<NAME>`. Unit enums map to a signed
+        // 32-bit integer to match the Rust `#[repr(C)]` enum ABI.
+        builder.line(&format!(
+            "       01  {} IS TYPEDEF USAGE BINARY-LONG.",
+            typedef
+        ));
         for (idx, v) in e.variants.iter().enumerate() {
             let var = sanitize_cobol_identifier(&to_cobol_case(&v.name));
             let full = cobol_identifier(&format!("{}-{}", class, var));
@@ -131,12 +139,12 @@ pub fn generate_records(
     ir: &CodegenIR,
     config: &CodegenConfig,
 ) -> Result<()> {
-    builder.line("      ******************************************************************");
-    builder.line("      * DATA STRUCTURES (level-01 typedefs)                            *");
-    builder.line("      * Use the IS TYPEDEF clause so users can declare:                *");
-    builder.line("      *   01 MY-VAR USAGE TYAZ-RECT.                                   *");
-    builder.line("      * GnuCOBOL >= 3.0 supports the TYPEDEF extension natively.       *");
-    builder.line("      ******************************************************************");
+    builder.line("*> ============================================================");
+    builder.line("*> DATA STRUCTURES (level-01 typedefs)                            *");
+    builder.line("*> Use the IS TYPEDEF clause so users can declare:                *");
+    builder.line("*>   01 MY-VAR USAGE TYAZ-RECT.                                   *");
+    builder.line("*> GnuCOBOL >= 3.0 supports the TYPEDEF extension natively.       *");
+    builder.line("*> ============================================================");
 
     // 2a. POD records.
     for s in &ir.structs {
@@ -221,7 +229,7 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     let tag_class = cobol_identifier(&format!("AZ-{}-TAG", to_cobol_case(&e.name)));
 
     // Tag-value level-78 constants (one per variant).
-    builder.line(&format!("      * --- TAGGED UNION {} ---", typedef));
+    builder.line(&format!("*> --- TAGGED UNION {} ---", typedef));
     for (idx, v) in e.variants.iter().enumerate() {
         let var = sanitize_cobol_identifier(&to_cobol_case(&v.name));
         let full = cobol_identifier(&format!("{}-{}", tag_class, var));
@@ -308,12 +316,12 @@ pub fn generate_callback_typedefs(
         return Ok(());
     }
 
-    builder.line("      ******************************************************************");
-    builder.line("      * CALLBACK TYPEDEFS (USAGE PROGRAM-POINTER)                      *");
-    builder.line("      * Each typedef stores a pointer to a COBOL paragraph or external *");
-    builder.line("      * program; signatures are documented as comments above each      *");
-    builder.line("      * typedef so callers can declare matching ENTRY paragraphs.      *");
-    builder.line("      ******************************************************************");
+    builder.line("*> ============================================================");
+    builder.line("*> CALLBACK TYPEDEFS (USAGE PROGRAM-POINTER)                      *");
+    builder.line("*> Each typedef stores a pointer to a COBOL paragraph or external *");
+    builder.line("*> program; signatures are documented as comments above each      *");
+    builder.line("*> typedef so callers can declare matching ENTRY paragraphs.      *");
+    builder.line("*> ============================================================");
 
     for cb in &ir.callback_typedefs {
         emit_callback_typedef(builder, cb, ir);
@@ -350,7 +358,7 @@ fn emit_callback_typedef(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir:
         None => "VOID".to_string(),
     };
     builder.line(&format!(
-        "      * SIGNATURE: ({}) RETURNING {}",
+        "*> SIGNATURE: ({}) RETURNING {}",
         arg_strs.join(", "),
         ret_str
     ));

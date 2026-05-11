@@ -33,28 +33,21 @@ pub fn generate_wrapper_docs(
 ) -> Result<()> {
     let targets = collect_owning_targets(ir, config);
 
-    builder.line("      ******************************************************************");
-    builder.line("      * MANUAL CLEANUP PATTERN                                         *");
-    builder.line("      *                                                                 *");
-    builder.line("      * COBOL has no destructor. Every type below owns native memory   *");
-    builder.line("      * and the caller MUST invoke its matching delete entry before    *");
-    builder.line("      * the owning record goes out of scope, or the address is         *");
-    builder.line("      * overwritten. Pattern:                                          *");
-    builder.line("      *                                                                 *");
-    builder.line("      *   01  WS-APP USAGE POINTER.                                    *");
-    builder.line("      *   ...                                                          *");
-    builder.line("      *   CALL FN-AZ-APP-CREATE USING BY VALUE WS-DATA                 *");
-    builder.line("      *                                BY VALUE WS-CONFIG              *");
-    builder.line("      *                       RETURNING WS-APP.                        *");
-    builder.line("      *   ...                                                          *");
-    builder.line("      *   CALL FN-AZ-APP-DELETE USING BY VALUE WS-APP.                 *");
-    builder.line("      *                                                                 *");
-    builder.line("      * Types with manual cleanup requirements                         *");
-    builder.line("      * (one delete entry per type):                                   *");
-    builder.line("      ******************************************************************");
+    builder.line("*> ============================================================");
+    builder.line("*> MANUAL CLEANUP PATTERN");
+    builder.line("*> COBOL has no destructor. Every type below owns native memory");
+    builder.line("*> and the caller MUST invoke its matching delete entry before");
+    builder.line("*> the owning record goes out of scope. Pattern:");
+    builder.line("*>   01  WS-APP USAGE POINTER.");
+    builder.line("*>   CALL FN-AZ-APP-CREATE USING BY VALUE WS-DATA");
+    builder.line("*>                                BY VALUE WS-CONFIG");
+    builder.line("*>                       RETURNING WS-APP.");
+    builder.line("*>   CALL FN-AZ-APP-DELETE USING BY VALUE WS-APP.");
+    builder.line("*> Types with manual cleanup requirements:");
+    builder.line("*> ============================================================");
 
     if targets.is_empty() {
-        builder.line("      * (no types in this build require manual cleanup)");
+        builder.line("*> (no types in this build require manual cleanup)");
         builder.blank();
         return Ok(());
     }
@@ -62,24 +55,23 @@ pub fn generate_wrapper_docs(
     for s in &targets {
         let t = cobol_identifier(&format!("AZ-{}", to_cobol_case(&s.name)));
         let dtor = cobol_identifier(&format!("FN-AZ-{}-DELETE", to_cobol_case(&s.name)));
-        builder.line(&format!("      *   {:<32} -> {}", t, dtor));
+        builder.line(&format!("*>   {:<32} -> {}", t, dtor));
     }
     builder.blank();
 
-    builder.line("      ******************************************************************");
-    builder.line("      * SUGGESTED HELPER PARAGRAPHS                                    *");
-    builder.line("      *                                                                 *");
-    builder.line("      * Copy these into your PROCEDURE DIVISION (do not put them in    *");
-    builder.line("      * the copybook; they are documentation only). Each paragraph     *");
-    builder.line("      * frees the named type unconditionally. Replace WS-* with your   *");
-    builder.line("      * actual variable.                                               *");
-    builder.line("      *                                                                 *");
-    builder.line("      *   FREE-AZ-APP.                                                 *");
-    builder.line("      *       IF WS-APP NOT = NULL                                     *");
-    builder.line("      *           CALL FN-AZ-APP-DELETE USING BY VALUE WS-APP          *");
-    builder.line("      *           SET WS-APP TO NULL                                   *");
-    builder.line("      *       END-IF.                                                  *");
-    builder.line("      ******************************************************************");
+    builder.line("*> ============================================================");
+    builder.line("*> SUGGESTED HELPER PARAGRAPHS                                    *");
+    builder.line("*>                                                                 *");
+    builder.line("*> Copy these into your PROCEDURE DIVISION (do not put them in    *");
+    builder.line("*> the copybook; they are documentation only). Each paragraph     *");
+    builder.line("*> frees the named type unconditionally. Replace WS-* with your   *");
+    builder.line("*> actual variable.");
+    builder.line("*>   FREE-AZ-APP.");
+    builder.line("*>       IF WS-APP NOT = NULL");
+    builder.line("*>           CALL FN-AZ-APP-DELETE USING BY VALUE WS-APP");
+    builder.line("*>           SET WS-APP TO NULL");
+    builder.line("*>       END-IF.");
+    builder.line("*> ============================================================");
     builder.blank();
 
     Ok(())

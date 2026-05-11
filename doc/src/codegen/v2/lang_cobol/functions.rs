@@ -43,20 +43,16 @@ pub fn generate_function_constants(
     ir: &CodegenIR,
     config: &CodegenConfig,
 ) -> Result<()> {
-    builder.line("      ******************************************************************");
-    builder.line("      * FUNCTION-NAME CONSTANTS (level-78 strings)                     *");
-    builder.line("      * COBOL CALL forms accept a literal or a level-78 alphanumeric;  *");
-    builder.line("      * we emit one constant per C symbol so callers write             *");
-    builder.line("      *                                                                 *");
-    builder.line("      *   CALL FN-AZ-APP-CREATE USING BY VALUE WS-DATA                 *");
-    builder.line("      *                                BY VALUE WS-CONFIG              *");
-    builder.line("      *                       RETURNING WS-APP.                        *");
-    builder.line("      *                                                                 *");
-    builder.line("      * The signature comment above each constant describes the C-ABI  *");
-    builder.line("      * argument list. Pointers are passed BY VALUE (the caller hands  *");
-    builder.line("      * the C side a USAGE POINTER); records are passed BY REFERENCE   *");
-    builder.line("      * (which is what C calls a struct-pointer arg).                  *");
-    builder.line("      ******************************************************************");
+    builder.line("*> ============================================================");
+    builder.line("*> FUNCTION-NAME CONSTANTS (level-78 strings)");
+    builder.line("*> COBOL CALL forms accept a literal or a level-78 alphanumeric;");
+    builder.line("*> we emit one constant per C symbol so callers write");
+    builder.line("*>   CALL FN-AZ-APP-CREATE USING BY VALUE WS-DATA");
+    builder.line("*>                                BY VALUE WS-CONFIG");
+    builder.line("*>                       RETURNING WS-APP.");
+    builder.line("*> The signature comment above each constant describes the C-ABI");
+    builder.line("*> argument list. Pointers are passed BY VALUE; records BY REFERENCE.");
+    builder.line("*> ============================================================");
 
     for func in &ir.functions {
         if !should_emit_function(func, ir, config) {
@@ -134,11 +130,13 @@ fn emit_function_constant(builder: &mut CodeBuilder, func: &FunctionDef, ir: &Co
         Some(r) => pic_for_type(r, ir),
         None => "VOID".to_string(),
     };
-    builder.line(&format!(
-        "      * SIGNATURE: ({}) RETURNING {}",
-        arg_strs.join(", "),
-        ret
-    ));
+    // Signatures with many args / very long type names can run past
+    // free-format COBOL's 512-byte line limit. Wrap onto multiple
+    // `*> SIGNATURE: ...` lines just like emit_doc_comment does.
+    emit_doc_comment(
+        builder,
+        &format!("SIGNATURE: ({}) RETURNING {}", arg_strs.join(", "), ret),
+    );
 
     // The level-78 constant. Its name is FN-<COBOL-CASE-OF-C-NAME>;
     // its value is the C symbol verbatim so the linker matches the
