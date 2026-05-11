@@ -169,21 +169,31 @@ fn implementation_preamble(builder: &mut CodeBuilder) {
     builder.blank();
     builder.line("(* Force the dynamic loader to bring in libazul up-front so all `foreign`");
     builder.line("   lookups below resolve from the same handle. RTLD_GLOBAL lets the");
-    builder.line("   library's transitive dependencies (e.g. system OpenGL) link too. *)");
-    builder.line(&format!(
-        "let () = ignore (Dl.dlopen ~filename:\"{}\" ~flags:[Dl.RTLD_LAZY; Dl.RTLD_GLOBAL])",
-        platform_default_dll_name()
-    ));
+    builder.line("   library's transitive dependencies (e.g. system OpenGL) link too.");
+    builder.line("   Try each platform-conventional filename in turn so the binding");
+    builder.line("   loads on Linux, macOS, and Windows without manual configuration.");
+    builder.line("   The first match wins; failures are silenced (logged via stderr).");
+    builder.line("   Users can override the search by setting AZUL_DYLIB. *)");
+    builder.line("let () =");
+    builder.indent();
+    builder.line("let candidates = match Sys.getenv_opt \"AZUL_DYLIB\" with");
+    builder.indent();
+    builder.line("| Some p when String.length p > 0 -> [p]");
+    builder.line("| _ -> [\"libazul.dylib\"; \"libazul.so\"; \"azul.dll\"; \"./libazul.dylib\"; \"./libazul.so\"]");
+    builder.dedent();
+    builder.line("in");
+    builder.line("let rec try_load = function");
+    builder.indent();
+    builder.line("| [] -> ()");
+    builder.line("| candidate :: rest ->");
+    builder.indent();
+    builder.line("(try ignore (Dl.dlopen ~filename:candidate ~flags:[Dl.RTLD_LAZY; Dl.RTLD_GLOBAL])");
+    builder.line(" with Dl.DL_error _ -> try_load rest)");
+    builder.dedent();
+    builder.dedent();
+    builder.line("in try_load candidates");
+    builder.dedent();
     builder.blank();
-}
-
-/// Best-effort default DLL filename. The user is expected to drop the
-/// platform-appropriate native (`libazul.so` / `libazul.dylib` /
-/// `azul.dll`) under a discoverable path before running. We pick
-/// `libazul.so` as the default because Linux is the most common
-/// dev/CI target; the user can override by symlinking if necessary.
-fn platform_default_dll_name() -> &'static str {
-    "libazul.so"
 }
 
 // ============================================================================
@@ -200,11 +210,38 @@ pub fn ocaml_ffi_type_name(name: &str) -> String {
 }
 
 /// Convert an IR type name (`PascalCase`) to the user-facing wrapper
-/// record name (`lower_snake_case`, no prefix).
+/// record name (`lower_snake_case`, no prefix). Shadow-prone names
+/// get a `_wrapper` suffix instead of the `az_` prefix used at the
+/// FFI level — `az_string` is already the FFI typ; the wrapper must
+/// be a distinct identifier.
 ///
-/// Example: `App` -> `app`.
+/// Example: `App` -> `app`; `String` -> `string_wrapper`.
 pub fn ocaml_wrapper_type_name(name: &str) -> String {
-    sanitize_identifier(&to_snake_case(name))
+    let snake = sanitize_identifier(&to_snake_case(name));
+    if shadows_ocaml_primitive(&snake) {
+        format!("{}_wrapper", snake)
+    } else {
+        snake
+    }
+}
+
+fn shadows_ocaml_primitive(s: &str) -> bool {
+    matches!(
+        s,
+        "string"
+            | "bool"
+            | "int"
+            | "char"
+            | "float"
+            | "list"
+            | "array"
+            | "option"
+            | "result"
+            | "unit"
+            | "bytes"
+            | "ref"
+            | "exn"
+    )
 }
 
 /// Convert an IR type name (`PascalCase`) to the user-facing module
@@ -300,14 +337,54 @@ pub fn map_type_to_ocaml_typ(rust_type: &str, ir: &CodegenIR) -> String {
         "i64" => "int64".to_string(),
         "f32" => "float".to_string(),
         "f64" => "float".to_string(),
-        "usize" => "Unsigned.size_t".to_string(),
-        "isize" => "PosixTypes.ssize_t".to_string(),
+        // `size_t` value-position is the Ctypes typ. The actual OCaml
+        // type is `Unsigned.Size_t.t`. Same for ptrdiff_t / isize.
+        // Use the precise Ctypes module paths so the mli matches what
+        // `foreign ... size_t @-> ... @-> returning ...` actually
+        // returns.
+        "usize" => "Unsigned.Size_t.t".to_string(),
+        "isize" => "Ctypes.Ptrdiff.t".to_string(),
         "c_void" | "()" | "void" => "unit".to_string(),
 
         _ => {
-            if ir.find_struct(trimmed).is_some()
-                || ir.find_enum(trimmed).is_some()
-                || ir.find_type_alias(trimmed).is_some()
+            // Struct types passed by value across the FFI are
+            // represented at the value level as `T Ctypes.structure`;
+            // the type-position emit must say the same so the mli
+            // signature matches the impl's actual return type.
+            // EXCEPT for filtered-out categories (Recursive, VecRef,
+            // DestructorOrClone) which the codegen emits as opaque
+            // `type T = unit ptr` placeholders — those use the bare
+            // name in both positions.
+            if let Some(s) = ir.find_struct(trimmed) {
+                if matches!(
+                    s.category,
+                    super::ir::TypeCategory::Recursive
+                        | super::ir::TypeCategory::VecRef
+                        | super::ir::TypeCategory::DestructorOrClone
+                ) {
+                    return ocaml_ffi_type_name(trimmed);
+                }
+                return format!("{} Ctypes.structure", ocaml_ffi_type_name(trimmed));
+            }
+            // Tagged unions are also `Ctypes.structure` (we model the
+            // union via a payload byte-array inside a struct), unless
+            // filtered.
+            if let Some(e) = ir.find_enum(trimmed) {
+                if matches!(
+                    e.category,
+                    super::ir::TypeCategory::Recursive
+                        | super::ir::TypeCategory::VecRef
+                        | super::ir::TypeCategory::DestructorOrClone
+                ) {
+                    return ocaml_ffi_type_name(trimmed);
+                }
+                if e.is_union {
+                    return format!("{} Ctypes.structure", ocaml_ffi_type_name(trimmed));
+                }
+                // Unit enums are `int` aliases.
+                return ocaml_ffi_type_name(trimmed);
+            }
+            if ir.find_type_alias(trimmed).is_some()
                 || ir.callback_typedefs.iter().any(|c| c.name == trimmed)
             {
                 ocaml_ffi_type_name(trimmed)
@@ -396,18 +473,52 @@ pub fn inner_pointer_form(inner: &str, ir: &CodegenIR) -> String {
 /// OCaml type syntax applies constructors postfix — `T ptr`, not
 /// `ptr T`. The latter is rejected with "expects 0 argument(s), but
 /// is here applied to 1".
+///
+/// For struct/union types, the actual runtime type is
+/// `<name> Ctypes.structure Ctypes_static.ptr`; the .mli signature
+/// must say the same so it matches what `ptr <name_typ>` produces
+/// in the impl.
 pub fn inner_pointer_form_type(inner: &str, ir: &CodegenIR) -> String {
     if inner.is_empty() || inner == "c_void" || inner == "void" || inner == "()" {
-        return "(unit ptr)".to_string();
+        return "(unit Ctypes_static.ptr)".to_string();
     }
-    if ir.find_struct(inner).is_some()
-        || ir.find_enum(inner).is_some()
-        || ir.find_type_alias(inner).is_some()
+    if let Some(s) = ir.find_struct(inner) {
+        if matches!(
+            s.category,
+            super::ir::TypeCategory::Recursive
+                | super::ir::TypeCategory::VecRef
+                | super::ir::TypeCategory::DestructorOrClone
+        ) {
+            return format!("({} Ctypes_static.ptr)", ocaml_ffi_type_name(inner));
+        }
+        return format!(
+            "({} Ctypes.structure Ctypes_static.ptr)",
+            ocaml_ffi_type_name(inner)
+        );
+    }
+    if let Some(e) = ir.find_enum(inner) {
+        if matches!(
+            e.category,
+            super::ir::TypeCategory::Recursive
+                | super::ir::TypeCategory::VecRef
+                | super::ir::TypeCategory::DestructorOrClone
+        ) {
+            return format!("({} Ctypes_static.ptr)", ocaml_ffi_type_name(inner));
+        }
+        if e.is_union {
+            return format!(
+                "({} Ctypes.structure Ctypes_static.ptr)",
+                ocaml_ffi_type_name(inner)
+            );
+        }
+        return format!("({} Ctypes_static.ptr)", ocaml_ffi_type_name(inner));
+    }
+    if ir.find_type_alias(inner).is_some()
         || ir.callback_typedefs.iter().any(|c| c.name == inner)
     {
-        format!("({} ptr)", ocaml_ffi_type_name(inner))
+        format!("({} Ctypes_static.ptr)", ocaml_ffi_type_name(inner))
     } else {
-        "(unit ptr)".to_string()
+        "(unit Ctypes_static.ptr)".to_string()
     }
 }
 

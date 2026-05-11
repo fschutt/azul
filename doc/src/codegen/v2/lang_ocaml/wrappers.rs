@@ -412,7 +412,14 @@ fn build_method_signature(
         let t = r.trim();
         if matches!(t, "" | "void" | "()" | "c_void") {
             "unit".to_string()
-        } else if returns_self && has_wrapper {
+        } else if returns_self {
+            // Every module exposes a `type t` — use it for return
+            // types that match the class. This handles both wrapper
+            // forms (`type t = wrapper_record`) and the no-wrapper
+            // form (`type t = az_foo Ctypes.structure`). Without the
+            // `has_wrapper` branch the mli's val signature would
+            // emit the bare FFI name while the impl returns a
+            // structure value, raising "values do not match".
             "t".to_string()
         } else {
             map_type_to_ocaml_typ(r, ir)

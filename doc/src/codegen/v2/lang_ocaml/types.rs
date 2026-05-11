@@ -265,7 +265,17 @@ pub fn emit_struct_fields_and_enums(
         }
     }
 
-    // Then structs.
+    // Interleave structs and tagged-union enums in topological order
+    // (by `sort_order` populated during `analyze_dependencies`). A struct
+    // field of type `OptionU32` (tagged union) must reference an already
+    // sealed `az_option_u32` typ, so we cannot emit all structs first
+    // and tagged unions afterwards — they have to merge.
+    #[derive(Debug)]
+    enum Item<'a> {
+        Struct(&'a StructDef),
+        Union(&'a EnumDef),
+    }
+    let mut items: Vec<(usize, Item)> = Vec::new();
     for s in &ir.structs {
         if !should_emit_struct(s, config) {
             if !s.generic_params.is_empty() {
@@ -282,10 +292,8 @@ pub fn emit_struct_fields_and_enums(
             }
             continue;
         }
-        emit_struct_fields(builder, s, ir);
+        items.push((s.sort_order, Item::Struct(s)));
     }
-
-    // Tagged-union FFI structs.
     for e in &ir.enums {
         if !should_emit_enum(e, config) {
             if !e.generic_params.is_empty() {
@@ -303,7 +311,14 @@ pub fn emit_struct_fields_and_enums(
             continue;
         }
         if e.is_union {
-            emit_tagged_union_fields(builder, e, ir);
+            items.push((e.sort_order, Item::Union(e)));
+        }
+    }
+    items.sort_by_key(|(d, _)| *d);
+    for (_, item) in &items {
+        match item {
+            Item::Struct(s) => emit_struct_fields(builder, s, ir),
+            Item::Union(e) => emit_tagged_union_fields(builder, e, ir),
         }
     }
 
@@ -438,11 +453,20 @@ fn emit_tagged_union_fields(builder: &mut CodeBuilder, e: &EnumDef, ir: &Codegen
     // Conservative payload size: 64 bytes covers 8 pointer-width fields
     // on a 64-bit host, which is enough for every union we currently
     // generate (tag + up to 4 pointers / a Vec header).
+    //
+    // Encoding choice: OCaml ctypes' libffi binding refuses to marshal
+    // a `field _ (array N uint8_t)` when the enclosing struct is passed
+    // by value (`Ctypes_static.Unsupported "libffi does not support
+    // passing arrays"`), so we lay the payload out as N independent
+    // uint8_t fields instead. They have the same C ABI as a uint8_t
+    // array (same size, same alignment) but ctypes' libffi adapter
+    // accepts struct-by-value for them.
     let payload_size = compute_payload_size_bound(e, ir);
-    builder.line(&format!(
-        "let {}_field_payload = field {} \"payload\" (array {} uint8_t)",
-        ffi, ffi, payload_size
-    ));
+    for i in 0..payload_size {
+        builder.line(&format!(
+            "let {ffi}_field_payload_{i} = field {ffi} \"payload_{i}\" uint8_t"
+        ));
+    }
     builder.line(&format!("let () = seal {}", ffi));
     builder.blank();
 }

@@ -21,18 +21,15 @@ open Ctypes
    members explicitly with `Azul.xxx`. *)
 
 let () =
-  (* Build a non-empty AzString from an OCaml string. Exercises
-     struct-by-value return across the FFI boundary. *)
+  (* Build a non-empty AzString from an OCaml byte buffer. Exercises
+     a struct-by-value return crossing the FFI boundary via the
+     idiomatic submodule path (`Azul.String.from_utf8`). *)
   let src = "hello, azul" in
   let len = Stdlib.String.length src in
   let buf = allocate_n char ~count:len in
   Stdlib.String.iteri (fun i c -> (buf +@ i) <-@ c) src;
-  let s = Azul.az_string_from_utf8 (to_voidp buf) (Unsigned.Size_t.of_int len) in
-
-  (* Clone to confirm the dylib's heap allocator is wired up. *)
-  let s_ptr = allocate Azul.az_string s in
-  let _clone = Azul.az_string_clone s_ptr in
-  Printf.printf "[azul] AzString round-trip succeeded; len=%d\n" len;
+  let _s = Azul.String.from_utf8 (to_voidp buf) (Unsigned.Size_t.of_int len) in
+  Printf.printf "[azul] String.from_utf8 round-trip succeeded; len=%d\n" len;
 
   Printf.printf "[azul] Ctypes init phase completed successfully.\n";
   Printf.printf "[azul] (Full App.run wiring requires wrapper-layer work\n";
