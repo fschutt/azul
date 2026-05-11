@@ -159,6 +159,11 @@ fn emit_wrapper_class_decl(builder: &mut CodeBuilder, s: &StructDef, ir: &Codege
     builder.line(&format!("property Raw: {} read FRaw;", raw_record));
 
     // Instance & static methods (one declaration per surviving function).
+    // Dedup by Pascal-cased name — multiple api.json methods can lower
+    // to the same Pascal identifier (e.g. `get_raw_image` and
+    // `get_rawimage` both PascalCase to `GetRawImage`). Skipping the
+    // second avoids "overloaded functions have the same parameter list".
+    let mut emitted: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for func in ir.functions_for_class(&s.name) {
         if matches!(
             func.kind,
@@ -167,6 +172,14 @@ fn emit_wrapper_class_decl(builder: &mut CodeBuilder, s: &StructDef, ir: &Codege
             continue;
         }
         if func.kind.is_trait_function() {
+            continue;
+        }
+        let name = idiomatic_method_name(&func.method_name);
+        if !emitted.insert(name.to_ascii_lowercase()) {
+            builder.line(&format!(
+                "{{ SKIPPED duplicate method: {} (collides with prior PascalCased name) }}",
+                func.method_name
+            ));
             continue;
         }
         emit_method_decl(builder, func, ir);
@@ -276,7 +289,10 @@ fn emit_wrapper_class_impl(builder: &mut CodeBuilder, s: &StructDef, ir: &Codege
     builder.line("end;");
     builder.blank();
 
-    // Instance + static method bodies.
+    // Instance + static method bodies. Same dedup-by-Pascal-name as in
+    // emit_wrapper_class_decl above — otherwise we'd emit two function
+    // bodies for the same forward declaration.
+    let mut emitted: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for func in ir.functions_for_class(&s.name) {
         if matches!(
             func.kind,
@@ -285,6 +301,10 @@ fn emit_wrapper_class_impl(builder: &mut CodeBuilder, s: &StructDef, ir: &Codege
             continue;
         }
         if func.kind.is_trait_function() {
+            continue;
+        }
+        let name = idiomatic_method_name(&func.method_name);
+        if !emitted.insert(name.to_ascii_lowercase()) {
             continue;
         }
         emit_method_impl(builder, &class_name, &ffi, func, ir);
@@ -323,7 +343,12 @@ fn emit_constructor_impl(
         .map(|r| r.trim() == func.class_name)
         .unwrap_or(false);
 
-    let call = format!("{}_{}({})", ffi, func.method_name, call_args.join(", "));
+    // Always invoke the C symbol verbatim (`func.c_name`) rather than
+    // reconstructing it from `{ffi}_{method_name}` — the latter mixes
+    // PascalCase class + snake_case method, but the externals are
+    // declared with the camelCase form (`AzSvg_fromString`, not
+    // `AzSvg_from_string`).
+    let call = format!("{}({})", func.c_name, call_args.join(", "));
     if returns_self {
         builder.line(&format!("FRaw := {};", call));
     } else {
@@ -390,16 +415,30 @@ fn emit_method_impl(
 
     let mut call_args: Vec<String> = Vec::new();
     if takes_self {
-        // Pass our raw record either by value or by pointer, depending
-        // on the IR signature. We default to pointer since most azul
-        // methods take `&mut self`.
-        call_args.push("@FRaw".to_string());
+        // Inspect args[0] of the IR signature: Owned means the C
+        // function takes the record by value (`AzFoo`), Ref/Ptr/etc.
+        // means it takes a pointer (`AzFoo*`). The C external
+        // declaration mirrors this, so we must match — passing `@FRaw`
+        // where a value is expected raises "Incompatible type for
+        // arg no. 1: Got Pointer, expected TAzFoo".
+        let self_by_value = func
+            .args
+            .first()
+            .map(|a| matches!(a.ref_kind, ArgRefKind::Owned))
+            .unwrap_or(false);
+        if self_by_value {
+            call_args.push("FRaw".to_string());
+        } else {
+            call_args.push("@FRaw".to_string());
+        }
     }
     for a in &visible {
         call_args.push(sanitize_identifier(&a.name));
     }
 
-    let call = format!("{}_{}({})", ffi, func.method_name, call_args.join(", "));
+    // See emit_constructor_impl for why we use `func.c_name` instead
+    // of `{ffi}_{method_name}`.
+    let call = format!("{}({})", func.c_name, call_args.join(", "));
 
     if let Some(ret) = &func.return_type {
         let returns_self = ret.trim() == func.class_name;
@@ -479,13 +518,23 @@ fn idiomatic_method_name(method_name: &str) -> String {
     if method_name == "new" {
         return "Create".to_string();
     }
-    if method_name.contains('_') {
-        return to_pascal_case(method_name);
-    }
-    let mut chars = method_name.chars();
-    match chars.next() {
-        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
-        None => String::new(),
+    let pascal = if method_name.contains('_') {
+        to_pascal_case(method_name)
+    } else {
+        let mut chars = method_name.chars();
+        match chars.next() {
+            Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+            None => String::new(),
+        }
+    };
+    // Rename methods that shadow TObject's inherited members. FPC
+    // warns on every shadowed name and our build treats warnings as
+    // errors — append "_X" (a valid Pascal identifier) so the wrapper
+    // method is uniquely named while still recognisable.
+    match pascal.as_str() {
+        "ToString" | "Equals" | "GetHashCode" | "Free" | "Destroy"
+        | "ClassName" | "ClassType" | "Dispatch" => format!("{}_X", pascal),
+        _ => pascal,
     }
 }
 

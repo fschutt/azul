@@ -192,25 +192,27 @@ fn emit_forward_pointer_decls(builder: &mut CodeBuilder, ir: &CodegenIR, config:
     // typedef or a destructor function pointer leave dangling
     // identifiers like `TAzU8VecDestructor`.
     for s in &ir.structs {
-        if !should_include_struct(s, config) {
-            // Opaque T-alias so the type name resolves; users get a
-            // Pointer because we don't have a layout to map.
-            let t = record_type_name(&s.name);
-            builder.line(&format!("{} = Pointer;", t));
-            continue;
-        }
         let p = pointer_type_name(&s.name);
         let t = record_type_name(&s.name);
+        if !should_include_struct(s, config) {
+            // Opaque T-alias so the type name resolves; users get a
+            // Pointer because we don't have a layout to map. Also
+            // emit a P-alias so struct fields like
+            // `ptr_: PAzXmlNodeChild` resolve to a pointer type.
+            builder.line(&format!("{} = Pointer;", t));
+            builder.line(&format!("{} = {};", p, t));
+            continue;
+        }
         builder.line(&format!("{} = ^{};", p, t));
     }
     for e in &ir.enums {
-        if !should_include_enum(e, config) {
-            let t = record_type_name(&e.name);
-            builder.line(&format!("{} = Pointer;", t));
-            continue;
-        }
         let p = pointer_type_name(&e.name);
         let t = record_type_name(&e.name);
+        if !should_include_enum(e, config) {
+            builder.line(&format!("{} = Pointer;", t));
+            builder.line(&format!("{} = {};", p, t));
+            continue;
+        }
         builder.line(&format!("{} = ^{};", p, t));
     }
     // Monomorphized type aliases (PhysicalSizeU32 etc.) also need a

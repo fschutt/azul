@@ -36,8 +36,21 @@ pub fn generate_externals(
     builder.line("{ -------------------------------------------------------------------- }");
     builder.blank();
 
+    // Pascal is case-insensitive, so two C symbols differing only in
+    // case (e.g. `AzImageRef_getRawImage` vs `AzImageRef_getRawimage`)
+    // collide as duplicate `external` declarations. Dedup by lowercased
+    // C name so the lookup table on the C side still resolves both
+    // symbols (we keep the first declaration's casing).
+    let mut emitted: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for func in &ir.functions {
         if !should_emit_function(func, ir, config) {
+            continue;
+        }
+        if !emitted.insert(func.c_name.to_ascii_lowercase()) {
+            builder.line(&format!(
+                "{{ SKIPPED duplicate external (case-only collision): {} }}",
+                func.c_name
+            ));
             continue;
         }
         emit_external(builder, func, ir);
