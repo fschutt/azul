@@ -49,6 +49,7 @@
 
 pub mod functions;
 pub mod gpr;
+pub mod managed;
 pub mod types;
 pub mod wrappers;
 
@@ -108,6 +109,10 @@ fn generate_spec(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     // Controlled wrapper-type declarations (Finalize override prototypes).
     wrappers::emit_wrapper_specs(&mut builder, ir, config)?;
 
+    // Managed-FFI host-invoker spec declarations
+    // (Azul_Refany_Create / Azul_Refany_Get + FFI imports).
+    managed::emit_managed_spec(&mut builder, ir);
+
     builder.dedent();
     builder.line("end Azul;");
     Ok(builder.finish())
@@ -123,6 +128,10 @@ fn generate_body(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     builder.indent();
 
     wrappers::emit_wrapper_bodies(&mut builder, ir, config)?;
+
+    // Managed-FFI runtime bodies (handle table, releaser, invoker
+    // stubs, refany_create / get + init).
+    managed::emit_managed_body(&mut builder, ir);
 
     builder.dedent();
     builder.line("end Azul;");
