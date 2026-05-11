@@ -62,6 +62,7 @@
 
 pub mod dune;
 pub mod functions;
+pub mod managed;
 pub mod types;
 pub mod wrappers;
 
@@ -108,6 +109,10 @@ fn generate_interface(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> 
     // polymorphic-variant signatures for tagged unions.
     types::emit_interface_types(&mut builder, ir, config)?;
 
+    // Managed-FFI public helper signatures. Must come BEFORE wrappers
+    // so the wrappers can reference azul_refany_create etc.
+    managed::emit_managed_interface(&mut builder, ir);
+
     // Wrapper record types declared as abstract: the consumer never sees
     // the field shape (the `mutable disposed` flag is implementation
     // detail); they get a `make_t` smart constructor signature.
@@ -137,6 +142,11 @@ fn generate_implementation(ir: &CodegenIR, config: &CodegenConfig) -> Result<Str
 
     // 3. Raw `foreign` bindings, one per IR FunctionDef.
     functions::emit_foreign_bindings(&mut builder, ir, config)?;
+
+    // 3b. Managed-FFI runtime helpers (host-invoker prelude). Lands
+    //     before the wrapper records so wrappers may call
+    //     azul_refany_create / register_callback.
+    managed::emit_managed_prelude(&mut builder, ir);
 
     // 4. Wrapper records + Gc.finalise smart constructors.
     wrappers::emit_wrapper_records(&mut builder, ir, config)?;
