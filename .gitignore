@@ -96,6 +96,14 @@ examples/perl/lib/
 # Go
 examples/azul-go/
 examples/go/hello-world
+# Haskell
+examples/azul-haskell/
+examples/haskell/dist-newstyle/
+# OCaml
+examples/azul-ocaml/
+examples/ocaml/_build/
+examples/ocaml/azul.ml
+examples/ocaml/azul.mli
 # Zig
 examples/zig/.zig-cache/
 examples/zig/azul.zig

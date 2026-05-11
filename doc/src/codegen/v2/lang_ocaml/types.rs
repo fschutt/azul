@@ -78,11 +78,28 @@ pub fn emit_interface_types(
             ));
         } else {
             // For unit enums we don't need a `structure` — they're plain
-            // ints at the FFI boundary. Surface the integer mapping
-            // helpers as part of the public interface.
+            // ints at the FFI boundary. Still need a `type` declaration
+            // so other val signatures can name them
+            // (`val ok : ... -> az_msg_box_icon -> unit`); declare the
+            // type as an alias for int.
+            builder.line(&format!("type {} = int", ffi));
+            builder.line(&format!("val {} : {} typ", ffi, ffi));
             builder.line(&format!("val {}_to_int : int -> int", ffi));
             builder.line(&format!("val {}_of_int : int -> int", ffi));
         }
+    }
+
+    // Callback typedefs need declarations too — they're referenced as
+    // value-level types from function signatures (`val with_resolver :
+    // az_icon_resolver_callback_type -> t`) but were never declared in
+    // the interface, raising "Unbound type constructor". Emit a stub
+    // type plus a `<name> : <name> typ` value so other val signatures
+    // can name them. Functions actually marshalling these typedefs go
+    // through `static_funptr` or `Foreign.funptr` at call sites.
+    for cb in &ir.callback_typedefs {
+        let ffi = ocaml_ffi_type_name(&cb.name);
+        builder.line(&format!("type {}", ffi));
+        builder.line(&format!("val {} : {} typ", ffi, ffi));
     }
 
     builder.blank();
@@ -129,6 +146,16 @@ pub fn emit_forward_struct_decls(
                 ffi, ffi, format_c_struct_name(&e.name)
             ));
         }
+    }
+    // Callback typedefs alias to `(ptr void)` at the value level.
+    // The signature pieces (`val with_resolver :
+    // az_icon_resolver_callback_type -> t`) only need the type token
+    // to exist; actual marshalling happens via `static_funptr` /
+    // `Foreign.funptr` at call sites.
+    for cb in &ir.callback_typedefs {
+        let ffi = ocaml_ffi_type_name(&cb.name);
+        builder.line(&format!("type {} = unit ptr", ffi));
+        builder.line(&format!("let ({} : {} typ) = ptr void", ffi, ffi));
     }
     builder.blank();
 }
@@ -358,6 +385,12 @@ fn emit_unit_enum(builder: &mut CodeBuilder, e: &EnumDef) {
         builder.blank();
         return;
     }
+
+    // Type alias + typ value so other val signatures can reference
+    // the enum by name (`val ok : ... -> az_msg_box_icon -> unit`).
+    // Unit enums are int-valued at the C ABI boundary.
+    builder.line(&format!("type {} = int", ffi));
+    builder.line(&format!("let ({} : {} typ) = int", ffi, ffi));
 
     // The conversion is the identity (C ABI uses sequential numbering
     // 0..N-1), but we expose the helpers so call sites can be

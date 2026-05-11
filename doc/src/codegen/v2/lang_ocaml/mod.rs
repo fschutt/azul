@@ -275,7 +275,14 @@ pub fn map_type_to_ocaml(rust_type: &str, ir: &CodegenIR) -> String {
         "i64" => "int64_t".to_string(),
         "f32" => "float".to_string(),
         "f64" => "double".to_string(),
-        "usize" => "size_t".to_string(),
+        // `size_t` is a `Ctypes` typ value but NOT an OCaml type
+        // — in type position (val signatures) it'd raise
+        //   Unbound type constructor size_t.
+        // `Unsigned.size_t` is the actual OCaml type, alias for an
+        // appropriate platform-sized integer. The same value can be
+        // used in Ctypes signatures via `size_t @-> ...` because
+        // Ctypes also exports `size_t` as a typ value.
+        "usize" => "Unsigned.size_t".to_string(),
         "isize" => "ptrdiff_t".to_string(),
         "c_void" | "()" | "void" => "void".to_string(),
 
@@ -293,6 +300,9 @@ pub fn map_type_to_ocaml(rust_type: &str, ir: &CodegenIR) -> String {
     }
 }
 
+/// Pointer-form for VALUE-level emission (inside `Ctypes` schema
+/// expressions like `ptr T @-> ... @-> returning Y`). Uses prefix
+/// `ptr T` which Ctypes' `ptr` function expects.
 pub fn inner_pointer_form(inner: &str, ir: &CodegenIR) -> String {
     if inner.is_empty() || inner == "c_void" || inner == "void" || inner == "()" {
         return "(ptr void)".to_string();
@@ -305,6 +315,25 @@ pub fn inner_pointer_form(inner: &str, ir: &CodegenIR) -> String {
         format!("(ptr {})", ocaml_ffi_type_name(inner))
     } else {
         "(ptr void)".to_string()
+    }
+}
+
+/// Pointer-form for TYPE-level emission (val signatures in .mli).
+/// OCaml type syntax applies constructors postfix — `T ptr`, not
+/// `ptr T`. The latter is rejected with "expects 0 argument(s), but
+/// is here applied to 1".
+pub fn inner_pointer_form_type(inner: &str, ir: &CodegenIR) -> String {
+    if inner.is_empty() || inner == "c_void" || inner == "void" || inner == "()" {
+        return "(unit ptr)".to_string();
+    }
+    if ir.find_struct(inner).is_some()
+        || ir.find_enum(inner).is_some()
+        || ir.find_type_alias(inner).is_some()
+        || ir.callback_typedefs.iter().any(|c| c.name == inner)
+    {
+        format!("({} ptr)", ocaml_ffi_type_name(inner))
+    } else {
+        "(unit ptr)".to_string()
     }
 }
 

@@ -1,6 +1,5 @@
+(lang dune 3.0)
+(name azul_hello_world)
 ; ============================================================================
 ; Dune workspace project file for the Azul OCaml hello-world example.
 ; ============================================================================
-
-(lang dune 3.0)
-(name azul_hello_world)

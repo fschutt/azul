@@ -36,7 +36,8 @@ use super::super::ir::{
 };
 use super::functions::ocaml_binding_name;
 use super::{
-    inner_pointer_form, map_type_to_ocaml, ocaml_ffi_type_name, ocaml_module_name,
+    inner_pointer_form, inner_pointer_form_type, map_type_to_ocaml, ocaml_ffi_type_name,
+    ocaml_module_name,
     ocaml_wrapper_type_name, sanitize_doc, sanitize_identifier, to_snake_case,
 };
 
@@ -370,12 +371,14 @@ fn build_method_signature(
         if is_self_arg(&a.name) {
             continue;
         }
+        // VAL signature lives in type position — OCaml types apply
+        // constructors postfix (`T ptr`, not `ptr T`).
         let view = match a.ref_kind {
             ArgRefKind::Owned => map_type_to_ocaml(&a.type_name, ir),
             ArgRefKind::Ref
             | ArgRefKind::RefMut
             | ArgRefKind::Ptr
-            | ArgRefKind::PtrMut => inner_pointer_form(a.type_name.trim(), ir),
+            | ArgRefKind::PtrMut => inner_pointer_form_type(a.type_name.trim(), ir),
         };
         atoms.push(view);
     }
