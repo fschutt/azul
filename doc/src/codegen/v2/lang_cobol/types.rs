@@ -386,22 +386,44 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
 pub fn generate_callback_typedefs(
     builder: &mut CodeBuilder,
     ir: &CodegenIR,
-    _config: &CodegenConfig,
+    config: &CodegenConfig,
 ) -> Result<()> {
-    if ir.callback_typedefs.is_empty() {
+    let has_callbacks = !ir.callback_typedefs.is_empty();
+    let has_simple_aliases = ir
+        .type_aliases
+        .iter()
+        .any(|ta| ta.monomorphized_def.is_none() && config.should_include_type(&ta.name));
+    if !has_callbacks && !has_simple_aliases {
         return Ok(());
     }
 
     builder.line("*> ============================================================");
-    builder.line("*> CALLBACK TYPEDEFS (USAGE PROGRAM-POINTER)                      *");
-    builder.line("*> Each typedef stores a pointer to a COBOL paragraph or external *");
-    builder.line("*> program; signatures are documented as comments above each      *");
-    builder.line("*> typedef so callers can declare matching ENTRY paragraphs.      *");
+    builder.line("*> CALLBACK TYPEDEFS + SIMPLE TYPE ALIASES");
+    builder.line("*> Each typedef stores a pointer to a COBOL paragraph or external");
+    builder.line("*> program; signatures are documented as comments above each");
+    builder.line("*> typedef so callers can declare matching ENTRY paragraphs.");
     builder.line("*> ============================================================");
 
     for cb in &ir.callback_typedefs {
         emit_callback_typedef(builder, cb, ir);
     }
+
+    // Simple (non-monomorphized) type aliases — e.g. CoreCallbackType =
+    // usize. Without a TYPEDEF declaration, struct fields like
+    // `cb USAGE TYAZ-CORE-CALLBACK-TYPE` raise "unknown USAGE".
+    for ta in &ir.type_aliases {
+        if ta.monomorphized_def.is_some() {
+            continue;
+        }
+        if !config.should_include_type(&ta.name) {
+            continue;
+        }
+        let typedef = cobol_identifier(&format!("TYAZ-{}", to_cobol_case(&ta.name)));
+        let usage = pic_for_type(&ta.target, ir);
+        // pic_for_type returns "USAGE FOO"; emit as TYPEDEF.
+        builder.line(&format!("       01  {:<28} {} IS TYPEDEF.", typedef, usage));
+    }
+    builder.blank();
 
     Ok(())
 }

@@ -319,6 +319,10 @@ pub fn is_cobol_reserved(name_upper: &str) -> bool {
         | "USER" | "USERS" | "AUTH" | "ROLE" | "ROLES"
         | "QUERY" | "QUEUE" | "INDEX-VALUE" | "STORE" | "STORES"
         | "VERIFY" | "VERIFIED"
+        | "PIXEL" | "PIXELS" | "SMALL-FONT" | "SMALL" | "LARGE"
+        | "AREA-WIDTH" | "FONT" | "FONTS" | "CAPTION"
+        | "SCREEN-LINE" | "VISIBLE" | "INVISIBLE" | "ENGINE-NAME"
+        | "MARK" | "MARKED" | "OUTPUT-BUFFER"
     )
 }
 
