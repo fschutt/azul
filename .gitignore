@@ -56,3 +56,24 @@ coverage.json
 *.profraw
 test_output/
 .claude-agents/
+
+# Per-language example build artifacts
+examples/csharp/bin/
+examples/csharp/obj/
+examples/csharp/Azul.cs
+examples/csharp/Azul.psm1
+examples/java/target/
+examples/java/com/
+examples/kotlin/build/
+examples/kotlin/.gradle/
+examples/kotlin/Azul.kt
+examples/kotlin/*.jar
+examples/node/node_modules/
+examples/node/azul/
+examples/node/azul.js
+examples/node/azul.dylib
+examples/node/libazul.dylib
+examples/powershell/Azul.psm1
+examples/ruby/azul.rb
+examples/lisp/azul.lisp
+*.dylib
