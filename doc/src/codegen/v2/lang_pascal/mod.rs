@@ -80,6 +80,7 @@ use super::ir::CodegenIR;
 
 pub mod functions;
 pub mod lpi;
+pub mod managed;
 pub mod types;
 pub mod wrappers;
 
@@ -128,6 +129,11 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     // 2. External cdecl function declarations
     functions::generate_externals(&mut builder, ir, config)?;
 
+    // 2b. Managed-FFI runtime helpers (host-invoker pattern) — interface
+    //     side. Public azul_refany_create / azul_refany_get + the FFI
+    //     setter/getter declarations.
+    managed::emit_managed_interface(&mut builder, ir);
+
     // 3. Idiomatic class wrappers (interface side)
     wrappers::generate_wrapper_interface(&mut builder, ir, config)?;
 
@@ -136,8 +142,16 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     builder.line("implementation");
     builder.blank();
 
+    // Managed-FFI bodies (handle table, releaser, per-kind invoker
+    // stubs, azul_refany_create / get implementations).
+    managed::emit_managed_implementation(&mut builder, ir);
+
     // Wrapper method bodies
     wrappers::generate_wrapper_implementation(&mut builder, ir, config)?;
+
+    // Unit initialisation block — registers the releaser + invoker
+    // stubs with libazul once at unit load.
+    managed::emit_managed_initialization(&mut builder);
 
     builder.line("end.");
 
