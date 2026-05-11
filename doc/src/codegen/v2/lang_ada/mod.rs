@@ -246,11 +246,25 @@ pub fn map_type_to_ada(rust_type: &str, ir: &CodegenIR) -> String {
 pub fn sanitize_identifier(name: &str) -> String {
     // Ada is case-INSENSITIVE for identifiers; normalize to lower-case
     // for the comparison and keep the original casing in the output.
-    let lower = name.to_ascii_lowercase();
+    // Ada also disallows leading underscores ("_2") and trailing
+    // underscores ("Ref_"): the lexer rejects both. Tuple struct
+    // fields from Rust often produce numeric names that the codegen
+    // had prefixed with `_` to keep them identifier-shaped; that
+    // doesn't survive Ada parsing. Suffixes from earlier sanitization
+    // (`Ref_` reserved-word avoidance) likewise need cleanup.
+    let mut out = name.to_string();
+    while out.starts_with('_') {
+        out = format!("F{}", &out[1..]);
+    }
+    while out.ends_with('_') {
+        out.pop();
+        out.push('K');
+    }
+    let lower = out.to_ascii_lowercase();
     if is_ada_reserved(&lower) {
-        format!("{}_K", name)
+        format!("{}_K", out)
     } else {
-        name.to_string()
+        out
     }
 }
 
