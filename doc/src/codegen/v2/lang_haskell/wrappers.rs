@@ -43,18 +43,25 @@ pub fn emit_umbrella_exports(
     config: &CodegenConfig,
 ) -> Result<()> {
     let delete_set = collect_delete_targets(ir);
+    let mut first = true;
     for s in &ir.structs {
         if !should_wrap(s, config) {
             continue;
         }
         let wname = haskell_data_name(&s.name);
         if delete_set.contains(s.name.as_str()) {
-            builder.line(&format!(", {}(..)", wname));
+            // Haskell export lists are comma-SEPARATED, not
+            // comma-prefixed. Emit the first entry without a leading
+            // comma; subsequent entries use the leading comma so
+            // diffs stay clean.
+            let sep = if first { " " } else { ", " };
+            first = false;
+            builder.line(&format!("{}{}(..)", sep, wname));
             builder.line(&format!(", with{}", wname));
             builder.line(&format!(", dispose{}", wname));
         } else {
-            // Plain types are re-exported via Azul.Types module; nothing
-            // extra to add here.
+            // Plain types are not re-exported by Azul (user code imports
+            // Azul.Types directly when needed). No entry here.
         }
     }
     Ok(())
@@ -132,9 +139,18 @@ fn emit_newtype(builder: &mut CodeBuilder, s: &StructDef) {
             builder.line(&format!("-- | {}", sanitize_doc(d)));
         }
     }
+    // Reference the underlying data type via `T.` qualifier
+    // (Azul.Types as T) so this wrapper newtype isn't a duplicate
+    // declaration of `Azul.Types.<Foo>`. RefAny is a phantom type
+    // (`newtype RefAny a = ...`) so it needs an explicit argument.
+    let qualified = if wname == "RefAny" {
+        "T.RefAny ()".to_string()
+    } else {
+        format!("T.{}", wname)
+    };
     builder.line(&format!(
-        "newtype {} = {} {{ un{} :: Ptr {} }}",
-        wname, wname, wname, wname
+        "newtype {} = {} {{ un{} :: Ptr ({}) }}",
+        wname, wname, wname, qualified
     ));
     builder.blank();
 }
@@ -144,6 +160,14 @@ fn emit_bracket_constructor(builder: &mut CodeBuilder, s: &StructDef, _ir: &Code
     let with_name = format!("with{}", wname);
     let dispose_name = format!("dispose{}", wname);
     let raw_delete = format!("FFI.c_Az{}_delete", s.name);
+    // The wrapper newtype wraps `Ptr T.<wname>`. The bracket-takes
+    // form needs to accept that same type so the user's pointer
+    // value matches the newtype constructor's expected payload.
+    let qualified_inner = if wname == "RefAny" {
+        "T.RefAny ()".to_string()
+    } else {
+        format!("T.{}", wname)
+    };
 
     // We can't always synthesise a faithful constructor call from the
     // IR alone: most azul constructors take heterogeneous, type-rich
@@ -167,8 +191,8 @@ fn emit_bracket_constructor(builder: &mut CodeBuilder, s: &StructDef, _ir: &Code
     ));
     builder.line("-- even if the continuation throws (see 'Control.Exception.bracket').");
     builder.line(&format!(
-        "{} :: Ptr {} -> ({} -> IO a) -> IO a",
-        with_name, wname, wname
+        "{} :: Ptr ({}) -> ({} -> IO a) -> IO a",
+        with_name, qualified_inner, wname
     ));
     builder.line(&format!(
         "{} raw action = bracket (pure ({} raw)) (\\h -> {} (un{} h)) action",

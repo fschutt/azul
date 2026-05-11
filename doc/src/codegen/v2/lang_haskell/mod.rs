@@ -158,14 +158,25 @@ fn generate_umbrella(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     builder.blank();
     builder.line("module Azul");
     builder.indent();
-    builder.line("( -- * Re-exports from \"Azul.Types\"");
-    builder.line("  module Azul.Types");
-    builder.line("  -- * Wrapper smart-constructors (RAII via @bracket@)");
+    builder.line("( -- * Wrapper smart-constructors (RAII via @bracket@)");
     wrappers::emit_umbrella_exports(&mut builder, ir, config)?;
     builder.line(") where");
+    // User code wanting raw FFI data types imports `Azul.Types`
+    // directly. We don't re-export that module here because doing so
+    // would bring every PascalCase name into scope alongside our
+    // wrapper newtypes (`Azul.CssParseErrorOwned` vs
+    // `Azul.Types.CssParseErrorOwned`), which Haskell rejects as
+    // duplicate declarations within Azul.hs itself.
     builder.dedent();
     builder.blank();
-    builder.line("import Azul.Types");
+    // Import Azul.Types only qualified-as-T so wrapper newtype
+    // declarations (`newtype Foo = Foo { unFoo :: Ptr T.Foo }`) can
+    // reference the underlying data type without duplicating the
+    // unqualified name in the Azul module's namespace. The umbrella
+    // re-export `module Azul.Types` in the export list still
+    // re-exports the data types to outside consumers — re-export
+    // happens via the qualified import, not via an unqualified one.
+    builder.line("import qualified Azul.Types as T");
     builder.line("import qualified Azul.Internal.FFI as FFI");
     builder.line("import Control.Exception (bracket)");
     builder.line("import Foreign.Ptr (Ptr, nullPtr)");

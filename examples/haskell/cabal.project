@@ -4,9 +4,11 @@
 packages: .
           ../azul-haskell
 
--- Find the native dylib next to this file (and the codegen output).
+-- Find the native dylib via absolute paths (cabal/ghc-pkg rejects
+-- relative paths during package registration). Override with
+-- `cabal build --extra-lib-dirs=...` if your checkout lives elsewhere.
 package azul
-  extra-lib-dirs: . ../azul-haskell
+  extra-lib-dirs: /Users/fschutt/Development/azul/examples/azul-haskell
 
 package azul-example
-  extra-lib-dirs: . ../azul-haskell
+  extra-lib-dirs: /Users/fschutt/Development/azul/examples/azul-haskell

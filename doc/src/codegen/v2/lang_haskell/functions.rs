@@ -117,11 +117,13 @@ fn emit_one(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
 
     let hs_binding = format!("c_{}", func.c_name);
 
-    // Build the type signature: arg1 -> arg2 -> ... -> IO Ret
+    // Build the type signature: arg1 -> arg2 -> ... -> IO Ret.
+    // Aggregates are wrapped in `Ptr T` because GHC's foreign-import
+    // only allows pass-by-value for primitives.
     let mut atoms: Vec<String> = Vec::new();
     for a in &func.args {
         let ty = match a.ref_kind {
-            ArgRefKind::Owned => map_arg_owned(&a.type_name, ir),
+            ArgRefKind::Owned => map_arg_owned_ffi(&a.type_name, ir),
             ArgRefKind::Ref
             | ArgRefKind::RefMut
             | ArgRefKind::Ptr
@@ -143,7 +145,16 @@ fn emit_one(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
         "()".to_string()
     } else {
         let r = func.return_type.as_deref().unwrap_or("()");
-        map_arg_owned(r, ir)
+        // FFI return value also can't be a struct-by-value. The C ABI
+        // returns AzApp etc. struct-by-value at the C level; from
+        // Haskell we lose the ability to inspect the returned struct
+        // directly. Foreign-import emits `IO (Ptr T)` for aggregates
+        // but the runtime path would need a wrapper that allocates
+        // a buffer and copies the returned bytes. For smoke-test
+        // purposes we still emit `Ptr T` for aggregate returns so the
+        // declaration type-checks. Functions that USE these returns
+        // need a separate wrapper layer.
+        map_arg_owned_ffi(r, ir)
     };
 
     let sig = if atoms.is_empty() {
@@ -184,11 +195,13 @@ fn emit_callback_wrapper(
         }
     }
 
-    // Build the Haskell function type for the callback.
+    // Build the Haskell function type for the callback. Same `Ptr T`
+    // wrapping for aggregates as the regular foreign-import emit
+    // (GHC's "wrapper" import inherits the same FFI restrictions).
     let mut atoms: Vec<String> = Vec::new();
     for a in &cb.args {
         let ty = match a.ref_kind {
-            ArgRefKind::Owned => map_arg_owned(&a.type_name, ir),
+            ArgRefKind::Owned => map_arg_owned_ffi(&a.type_name, ir),
             ArgRefKind::Ref
             | ArgRefKind::RefMut
             | ArgRefKind::Ptr
@@ -208,7 +221,7 @@ fn emit_callback_wrapper(
     let ret_ty = if returns_void {
         "()".to_string()
     } else {
-        map_arg_owned(cb.return_type.as_deref().unwrap_or("()"), ir)
+        map_arg_owned_ffi(cb.return_type.as_deref().unwrap_or("()"), ir)
     };
 
     let func_ty = if atoms.is_empty() {
@@ -254,6 +267,69 @@ fn function_takes_callback(func: &FunctionDef, ir: &CodegenIR) -> bool {
 /// for the leaf-type mapping by faking an Owned ref-kind.
 fn map_arg_owned(type_name: &str, ir: &CodegenIR) -> String {
     haskell_field_type(type_name, super::super::ir::FieldRefKind::Owned, ir)
+}
+
+/// Map a type as an FFI argument/return value. GHC's foreign-import
+/// allows pass-by-value for primitives only — any aggregate type must
+/// be wrapped in `Ptr T`. This wrapper does that automatically so the
+/// generated `foreign import ccall` declarations type-check.
+fn map_arg_owned_ffi(type_name: &str, ir: &CodegenIR) -> String {
+    let raw = haskell_field_type(type_name, super::super::ir::FieldRefKind::Owned, ir);
+    if is_haskell_ffi_primitive(&raw) {
+        raw
+    } else {
+        // Wrap aggregates in `Ptr T` so the C ABI's by-value struct
+        // becomes a pointer-to-struct at the Haskell FFI boundary.
+        // Caller-side marshalling (alloca/poke/peek) happens in the
+        // wrapper layer.
+        format!("Ptr {}", raw)
+    }
+}
+
+/// Haskell primitive types that GHC's foreign-import allows by value.
+fn is_haskell_ffi_primitive(ty: &str) -> bool {
+    matches!(
+        ty,
+        "()"
+            | "Int"
+            | "Word"
+            | "Int8"
+            | "Int16"
+            | "Int32"
+            | "Int64"
+            | "Word8"
+            | "Word16"
+            | "Word32"
+            | "Word64"
+            | "Char"
+            | "CBool"
+            | "CChar"
+            | "CSChar"
+            | "CUChar"
+            | "CShort"
+            | "CUShort"
+            | "CInt"
+            | "CUInt"
+            | "CLong"
+            | "CULong"
+            | "CLLong"
+            | "CULLong"
+            | "CFloat"
+            | "CDouble"
+            | "CSize"
+            | "CSSize"
+            | "CIntPtr"
+            | "CUIntPtr"
+            | "CIntMax"
+            | "CUIntMax"
+            | "CPtrdiff"
+            | "CWchar"
+            // Already a pointer — no need to wrap further.
+            // (Conservative startswith check; ref_kind != Owned cases
+            // are handled separately above so we expect plain names
+            // here only.)
+    ) || ty.starts_with("Ptr ")
+        || ty.starts_with("FunPtr ")
 }
 
 /// Wrap a multi-token type expression in parens so the surrounding
