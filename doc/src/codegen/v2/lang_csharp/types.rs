@@ -118,6 +118,9 @@ fn generate_monomorphized_alias(
             } else {
                 for f in fields {
                     let cs_type = ref_kind_field_type(&f.type_name, &f.ref_kind, ir);
+                    if cs_type == "bool" {
+                        builder.line("[MarshalAs(UnmanagedType.U1)]");
+                    }
                     builder.line(&format!(
                         "public {} {};",
                         cs_type,
@@ -132,7 +135,7 @@ fn generate_monomorphized_alias(
 
         MonomorphizedKind::TaggedUnion { variants, .. } => {
             // Tag enum
-            builder.line(&format!("public enum {}_Tag : uint", name));
+            builder.line(&format!("public enum {}_Tag : byte", name));
             builder.line("{");
             builder.indent();
             for v in variants {
@@ -299,7 +302,7 @@ fn generate_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Cod
     let name = ffi_type_name(&enum_def.name);
 
     // Tag enum: `AzFoo_Tag : uint`
-    builder.line(&format!("public enum {}_Tag : uint", name));
+    builder.line(&format!("public enum {}_Tag : byte", name));
     builder.line("{");
     builder.indent();
     for v in &enum_def.variants {
@@ -324,10 +327,16 @@ fn generate_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Cod
                 if types.len() == 1 {
                     let (ty, ref_kind) = &types[0];
                     let cs_type = ref_kind_field_type(ty, ref_kind, ir);
+                    if cs_type == "bool" {
+                        builder.line("[MarshalAs(UnmanagedType.U1)]");
+                    }
                     builder.line(&format!("public {} payload;", cs_type));
                 } else {
                     for (i, (ty, ref_kind)) in types.iter().enumerate() {
                         let cs_type = ref_kind_field_type(ty, ref_kind, ir);
+                        if cs_type == "bool" {
+                            builder.line("[MarshalAs(UnmanagedType.U1)]");
+                        }
                         builder.line(&format!("public {} payload_{};", cs_type, i));
                     }
                 }
@@ -335,6 +344,9 @@ fn generate_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Cod
             EnumVariantKind::Struct(fields) => {
                 for f in fields {
                     let cs_type = ref_kind_field_type(&f.type_name, &f.ref_kind, ir);
+                    if cs_type == "bool" {
+                        builder.line("[MarshalAs(UnmanagedType.U1)]");
+                    }
                     builder.line(&format!(
                         "public {} {};",
                         cs_type,
@@ -418,7 +430,14 @@ fn generate_field(builder: &mut CodeBuilder, f: &FieldDef, ir: &CodegenIR) {
         // them out contiguously. This is the safest portable approach
         // without `unsafe` `fixed` buffers.
         let cs_elem = map_type_to_csharp(&elem_ty, ir);
+        let is_bool = elem_ty.trim() == "bool";
         for i in 0..count {
+            if is_bool {
+                // C#'s default `bool` marshals as 4-byte Win32 BOOL; the
+                // C ABI's `bool` is 1 byte (sizeof(_Bool) == 1). Force
+                // 1-byte marshalling so struct layouts match.
+                builder.line("[MarshalAs(UnmanagedType.U1)]");
+            }
             builder.line(&format!(
                 "public {} {}_{};",
                 cs_elem,
@@ -430,6 +449,10 @@ fn generate_field(builder: &mut CodeBuilder, f: &FieldDef, ir: &CodegenIR) {
     }
 
     let cs_type = ref_kind_field_type(&f.type_name, &f.ref_kind, ir);
+    if cs_type == "bool" {
+        // Same rationale as the array case above.
+        builder.line("[MarshalAs(UnmanagedType.U1)]");
+    }
     builder.line(&format!(
         "public {} {};",
         cs_type,
