@@ -150,7 +150,7 @@ pub struct WaylandWindow {
     shm: *mut defines::wl_shm,
     seat: *mut defines::wl_seat,
     xdg_wm_base: *mut defines::xdg_wm_base,
-    surface: *mut defines::wl_surface,
+    pub(crate) surface: *mut defines::wl_surface,
     xdg_surface: *mut defines::xdg_surface,
     xdg_toplevel: *mut defines::xdg_toplevel,
     event_queue: *mut defines::wl_event_queue,
