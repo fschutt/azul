@@ -167,7 +167,7 @@ impl MacOSAccessibilityAdapter {
             let dom_id = DomId {
                 inner: (a11y_node_id >> 32) as usize,
             };
-            let node_id = NodeId::new((a11y_node_id & 0xFFFFFFFF) as usize);
+            let node_id = NodeId::new(((a11y_node_id & 0xFFFF_FFFF).wrapping_sub(1)) as usize);
 
             // Map accesskit Action to Azul AccessibilityAction
             use azul_core::geom::LogicalPosition;
