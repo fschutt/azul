@@ -1,20 +1,33 @@
 {
-    "name": "azul-hello-world",
+    "name": "azul",
     "version": "0.1.0",
-    "description": "Hello-world example for the Azul GUI framework Node.js bindings.",
-    "main": "hello-world.js",
+    "description": "JavaScript bindings for the Azul GUI framework (Node.js / Bun / Deno).",
+    "main": "azul.js",
     "type": "commonjs",
     "engines": {
         "node": ">=16"
     },
-    "scripts": {
-        "start": "node hello-world.js",
-        "start:bun": "bun run hello-world.js",
-        "start:deno": "deno run --allow-ffi --unstable-ffi hello-world.js"
-    },
     "dependencies": {
-        "azul": "file:../../target/codegen/v2/node",
         "koffi": "^2.7.0"
     },
-    "license": "MPL-2.0 OR MIT OR Apache-2.0"
+    "license": "MPL-2.0 OR MIT OR Apache-2.0",
+    "homepage": "https://azul.rs",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/maps4print/azul.git"
+    },
+    "keywords": [
+        "azul",
+        "gui",
+        "ffi",
+        "koffi",
+        "bun",
+        "deno",
+        "native",
+        "ui"
+    ],
+    "files": [
+        "azul.js",
+        "README.md"
+    ]
 }

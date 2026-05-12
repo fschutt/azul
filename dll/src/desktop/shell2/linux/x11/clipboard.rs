@@ -33,8 +33,8 @@ pub fn sync_clipboard(clipboard_manager: &mut ClipboardManager) {
 ///
 /// Writes to both CLIPBOARD (Ctrl+C/V) and PRIMARY (middle-click) selections.
 /// Returns Ok(()) if successful, Err if clipboard access fails.
-pub fn write_to_clipboard(text: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let clipboard = Clipboard::new()?;
+pub fn write_to_clipboard(text: &str) -> Result<(), ClipboardError> {
+    let clipboard = Clipboard::new().map_err(|_| ClipboardError::InitFailed)?;
 
     // Store to CLIPBOARD selection (Ctrl+C/V)
     clipboard
@@ -43,7 +43,7 @@ pub fn write_to_clipboard(text: &str) -> Result<(), Box<dyn std::error::Error>> 
             clipboard.setter.atoms.utf8_string,
             text.as_bytes(),
         )
-        .map_err(|e| format!("Failed to write to CLIPBOARD: {:?}", e))?;
+        .map_err(|_| ClipboardError::WriteFailed)?;
 
     // Also store to PRIMARY selection (middle-click paste)
     clipboard
@@ -52,7 +52,7 @@ pub fn write_to_clipboard(text: &str) -> Result<(), Box<dyn std::error::Error>> 
             clipboard.setter.atoms.utf8_string,
             text.as_bytes(),
         )
-        .map_err(|e| format!("Failed to write to PRIMARY: {:?}", e))?;
+        .map_err(|_| ClipboardError::WriteFailed)?;
 
     Ok(())
 }
@@ -89,4 +89,19 @@ pub fn get_clipboard_content() -> Option<String> {
     }
 
     None
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum ClipboardError {
+    InitFailed,
+    WriteFailed,
+}
+
+impl std::fmt::Display for ClipboardError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ClipboardError::InitFailed => write!(f, "failed to initialize X11 clipboard"),
+            ClipboardError::WriteFailed => write!(f, "failed to write to X11 clipboard"),
+        }
+    }
 }

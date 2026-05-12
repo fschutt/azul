@@ -64,6 +64,29 @@ pub fn generate_wrappers(b: &mut CodeBuilder, ir: &CodegenIR) {
     b.line("}");
     b.blank();
 
+    // Mark a wrapper instance as consumed: unregister from its class's
+    // FinalizationRegistry and null out `_ptr`. Used by consuming
+    // builder methods (`with_*`) and by mutators routed through them.
+    // The C side just moved this struct's internal heap pointers into a
+    // new owner; if we let the registry's finalizer fire later it would
+    // call `<Type>_delete` on the now-transferred pointers — a double
+    // free. Calling this with a non-wrapper value (primitive, plain
+    // koffi struct value, undefined) is a no-op.
+    b.line("function _consume(val) {");
+    b.indent();
+    b.line("if (val && typeof val === 'object' && val.constructor &&");
+    b.indent();
+    b.line("typeof val.constructor._registry !== 'undefined') {");
+    b.dedent();
+    b.indent();
+    b.line("val.constructor._registry.unregister(val);");
+    b.line("val._ptr = null;");
+    b.dedent();
+    b.line("}");
+    b.dedent();
+    b.line("}");
+    b.blank();
+
     b.line("// ----------------------------------------------------------------------------");
     b.line("// Wrapper classes (one per disposable struct / tagged-union enum).");
     b.line("// ----------------------------------------------------------------------------");
@@ -204,15 +227,15 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
     for f in &funcs {
         match f.kind {
             FunctionKind::Method | FunctionKind::MethodMut => {
-                emit_instance_method(b, f);
+                emit_instance_method(b, f, &class, has_delete);
                 emitted_any = true;
             }
             FunctionKind::DeepCopy => {
-                emit_instance_alias(b, f, "clone");
+                emit_instance_alias(b, f, "clone", &class);
                 emitted_any = true;
             }
             FunctionKind::DebugToString => {
-                emit_instance_alias(b, f, "toString");
+                emit_instance_alias(b, f, "toString", &class);
                 emitted_any = true;
             }
             FunctionKind::Constructor | FunctionKind::StaticMethod | FunctionKind::Default => {
@@ -373,15 +396,15 @@ fn emit_enum_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, e: &EnumDef) {
     for f in &funcs {
         match f.kind {
             FunctionKind::Method | FunctionKind::MethodMut => {
-                emit_instance_method(b, f);
+                emit_instance_method(b, f, &class, has_delete);
                 emitted_any = true;
             }
             FunctionKind::DeepCopy => {
-                emit_instance_alias(b, f, "clone");
+                emit_instance_alias(b, f, "clone", &class);
                 emitted_any = true;
             }
             FunctionKind::DebugToString => {
-                emit_instance_alias(b, f, "toString");
+                emit_instance_alias(b, f, "toString", &class);
                 emitted_any = true;
             }
             FunctionKind::Constructor
@@ -419,7 +442,12 @@ fn emit_enum_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, e: &EnumDef) {
 // Method emission helpers
 // ============================================================================
 
-fn emit_instance_method(b: &mut CodeBuilder, f: &FunctionDef) {
+fn emit_instance_method(
+    b: &mut CodeBuilder,
+    f: &FunctionDef,
+    class: &str,
+    has_delete: bool,
+) {
     let method = sanitize_js_identifier(&f.method_name);
     let user_args = user_args(f);
     let params = render_params(&user_args);
@@ -442,17 +470,57 @@ fn emit_instance_method(b: &mut CodeBuilder, f: &FunctionDef) {
         call.push_str(&call_args);
     }
     call.push(')');
-    if f.return_type.is_none() {
+
+    let returns_self = f
+        .return_type
+        .as_deref()
+        .map(|r| r.trim() == f.class_name)
+        .unwrap_or(false);
+    let consumed_args = consumed_wrapper_args(&user_args);
+
+    if returns_self {
+        // Consuming-builder pattern: `body.with_child(label)` moves
+        // `body` (self) and `label` (by-value wrapper arg) into the C
+        // call; their internal heap pointers are now owned by the
+        // returned struct. We must unregister both from their
+        // FinalizationRegistries and null their `_ptr` to prevent the
+        // finalizer firing later on the already-transferred memory
+        // (double free).
+        b.line(&format!("const _next = {};", call));
+        for n in &consumed_args {
+            b.line(&format!("_consume({});", n));
+        }
+        if has_delete {
+            b.line(&format!("{}._registry.unregister(this);", class));
+        }
+        b.line("this._ptr = null;");
+        b.line(&format!("return new {}(_next);", class));
+    } else if f.return_type.is_none() {
+        // Side-effecting call (no return value). koffi cannot write
+        // back through `T *` args, so structural mutators like
+        // `add_child` are effectively no-ops here. The fix at the
+        // emission site is to route through the matching `with_*`
+        // form; that pass is intentionally separate and not done
+        // here so the simple void-return case stays a one-liner.
         b.line(&format!("{};", call));
+        // Still consume any by-value wrapper args — even no-op mutators
+        // semantically take ownership of them on the C side.
+        for n in &consumed_args {
+            b.line(&format!("_consume({});", n));
+        }
     } else {
         b.line(&format!("return {};", call));
+        for n in &consumed_args {
+            b.line(&format!("_consume({});", n));
+        }
     }
+
     b.dedent();
     b.line("}");
     b.blank();
 }
 
-fn emit_instance_alias(b: &mut CodeBuilder, f: &FunctionDef, alias: &str) {
+fn emit_instance_alias(b: &mut CodeBuilder, f: &FunctionDef, alias: &str, class: &str) {
     let user_args = user_args(f);
     let params = render_params(&user_args);
     let call_args = render_call_args(&user_args);
@@ -470,7 +538,18 @@ fn emit_instance_alias(b: &mut CodeBuilder, f: &FunctionDef, alias: &str) {
         call.push_str(&call_args);
     }
     call.push(')');
-    if f.return_type.is_none() {
+
+    let returns_self = f
+        .return_type
+        .as_deref()
+        .map(|r| r.trim() == f.class_name)
+        .unwrap_or(false);
+
+    if returns_self {
+        // DeepCopy/Clone path: C returns a freshly-allocated copy,
+        // self is unaffected. Wrap so callers get a Class instance.
+        b.line(&format!("return new {}({});", class, call));
+    } else if f.return_type.is_none() {
         b.line(&format!("{};", call));
     } else {
         b.line(&format!("return {};", call));
@@ -478,6 +557,20 @@ fn emit_instance_alias(b: &mut CodeBuilder, f: &FunctionDef, alias: &str) {
     b.dedent();
     b.line("}");
     b.blank();
+}
+
+/// Return the JS identifiers of arguments that are consumed
+/// (by-value, i.e. `ArgRefKind::Owned`) by the C call. The wrapper
+/// class can't know at codegen time whether the user-supplied value
+/// is a wrapper instance or a primitive; `_consume` no-ops on
+/// primitives, so we emit the call unconditionally for every
+/// owned-by-value arg.
+fn consumed_wrapper_args(args: &[&super::super::ir::FunctionArg]) -> Vec<String> {
+    use super::super::ir::ArgRefKind;
+    args.iter()
+        .filter(|a| matches!(a.ref_kind, ArgRefKind::Owned))
+        .map(|a| sanitize_js_identifier(&a.name))
+        .collect()
 }
 
 fn emit_static_factory(b: &mut CodeBuilder, f: &FunctionDef, class_name: &str) {

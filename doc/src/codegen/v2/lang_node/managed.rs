@@ -237,12 +237,62 @@ fn emit_init_block(b: &mut CodeBuilder, ir: &CodegenIR) {
         if cb_has_return {
             b.line(&format!("const ret = fn({});", user_args.join(", ")));
             b.line("if (ret === undefined || ret === null) return;");
-            b.line("// Best-effort writeback. Numeric returns (Update enum) write");
-            b.line("// directly via koffi.encode; struct returns need per-runtime");
-            b.line("// support and are silently dropped today.");
-            b.line("if (typeof ret === 'number' && azulFFI.runtime === 'node-koffi') {");
+            b.line("if (azulFFI.runtime === 'node-koffi') {");
+            b.indent();
+            // Numeric returns (Update enum, etc.) → write as int32_t.
+            // Struct returns (AzDom from LayoutCallback, VirtualViewReturn
+            // from VirtualViewCallback) → encode through the registered
+            // koffi type so the bytes land in the out-pointer's target
+            // memory; otherwise the framework reads the pre-filled
+            // default value and the host's layout is dropped.
+            b.line("if (typeof ret === 'number') {");
             b.indent();
             b.line("azulFFI.koffi.encode(outPtr, 'int32_t', ret);");
+            b.dedent();
+            // For struct returns, the IR knows the exact type name
+            // (e.g. "Dom"). The koffi-registered type name is
+            // prefix-mangled ("AzDom") — see `ffi_type_name`.
+            let struct_branch_type: Option<String> = cb.return_type.as_deref().and_then(|rt| {
+                let trimmed = rt.trim();
+                let is_primitive = matches!(
+                    trimmed,
+                    "bool"
+                        | "u8" | "i8" | "u16" | "i16" | "u32" | "i32"
+                        | "u64" | "i64" | "f32" | "f64" | "usize" | "isize"
+                        | "c_void" | "()" | "void"
+                );
+                if is_primitive {
+                    None
+                } else {
+                    Some(super::ffi_type_name(trimmed))
+                }
+            });
+            if let Some(koffi_type) = struct_branch_type {
+                b.line("} else if (typeof ret === 'object') {");
+                b.indent();
+                // Unwrap wrapper-class instances back to their underlying
+                // koffi struct value. Users return `Dom.create_body().with_child(...)`
+                // which is a `Dom` wrapper instance; the koffi-side encode
+                // wants the raw AzDom bytes from `_ptr`. The user-callback
+                // also consumed the wrapper (returned ownership to libazul),
+                // so we null the `_ptr` to keep the FinalizationRegistry
+                // from double-freeing.
+                b.line("const _raw = (ret && ret._ptr !== undefined) ? ret._ptr : ret;");
+                b.line(&format!(
+                    "azulFFI.koffi.encode(outPtr, '{}', _raw);",
+                    koffi_type
+                ));
+                b.line("if (ret && ret._ptr !== undefined && ret.constructor && ret.constructor._registry) {");
+                b.indent();
+                b.line("ret.constructor._registry.unregister(ret);");
+                b.line("ret._ptr = null;");
+                b.dedent();
+                b.line("}");
+                b.dedent();
+                b.line("}");
+            } else {
+                b.line("}");
+            }
             b.dedent();
             b.line("}");
         } else {
