@@ -136,8 +136,16 @@ pub fn emit_interface_types(
             TypeCategory::Recursive | TypeCategory::VecRef | TypeCategory::DestructorOrClone
         ) {
             let ffi = ocaml_ffi_type_name(&e.name);
-            builder.line(&format!("type {}", ffi));
-            builder.line(&format!("val {} : {} typ", ffi, ffi));
+            // Match the implementation: tagged-union DestructorOrClone
+            // enums get a structure typ (16 bytes); others get a
+            // void-pointer placeholder.
+            if e.is_union && matches!(e.category, TypeCategory::DestructorOrClone) {
+                builder.line(&format!("type {}", ffi));
+                builder.line(&format!("val {} : {} structure typ", ffi, ffi));
+            } else {
+                builder.line(&format!("type {}", ffi));
+                builder.line(&format!("val {} : {} typ", ffi, ffi));
+            }
         }
     }
 
@@ -232,8 +240,43 @@ pub fn emit_forward_struct_decls(
             TypeCategory::Recursive | TypeCategory::VecRef | TypeCategory::DestructorOrClone
         ) {
             let ffi = ocaml_ffi_type_name(&e.name);
-            builder.line(&format!("type {} = unit ptr", ffi));
-            builder.line(&format!("let ({} : {} typ) = ptr void", ffi, ffi));
+            // DestructorOrClone tagged unions (e.g. AzU8VecDestructor:
+            // `#[repr(C, u8)]` with `External(fn_ptr)` variant) are
+            // **16 bytes** in Rust (u8 discriminator + 7 bytes padding
+            // + 8-byte payload aligned). Mapping them to `unit ptr`
+            // (8 bytes) shrinks every parent struct that embeds them
+            // by 8 bytes per occurrence, corrupting field offsets
+            // downstream — manifests as SIGABRT in `<U8Vec as Drop>::drop`
+            // when libazul reads garbage U8Vec.ptr values from an
+            // OCaml-side WCO. Emit a proper 16-byte Ctypes structure
+            // instead. Non-union destructor categories (Recursive,
+            // VecRef) keep the `unit ptr` shorthand — those are not
+            // typically embedded by value in nested structs.
+            if e.is_union && matches!(e.category, TypeCategory::DestructorOrClone) {
+                // 16-byte struct: 8 bytes of tag+padding + 8-byte payload.
+                // libffi doesn't accept array fields in struct
+                // descriptors, so we use two uint64_t fields. The first
+                // covers tag (u8 at offset 0) + 7 bytes of natural
+                // alignment padding to the 8-byte boundary; the second
+                // is the External-variant fn-pointer payload.
+                builder.line(&format!("type {}", ffi));
+                builder.line(&format!(
+                    "let ({} : {} structure typ) = structure \"{}\"",
+                    ffi, ffi, ffi
+                ));
+                builder.line(&format!(
+                    "let _{}_tag_pad = field {} \"tag_and_pad\" uint64_t",
+                    ffi, ffi
+                ));
+                builder.line(&format!(
+                    "let _{}_payload = field {} \"payload\" uint64_t",
+                    ffi, ffi
+                ));
+                builder.line(&format!("let () = seal {}", ffi));
+            } else {
+                builder.line(&format!("type {} = unit ptr", ffi));
+                builder.line(&format!("let ({} : {} typ) = ptr void", ffi, ffi));
+            }
         }
     }
     for ta in &ir.type_aliases {
@@ -453,41 +496,238 @@ fn emit_tagged_union_fields(builder: &mut CodeBuilder, e: &EnumDef, ir: &Codegen
         }
     }
 
-    builder.line(&format!(
-        "let {}_field_tag = field {} \"tag\" uint32_t",
-        ffi, ffi
-    ));
-
-    // Conservative payload size: 64 bytes covers 8 pointer-width fields
-    // on a 64-bit host, which is enough for every union we currently
-    // generate (tag + up to 4 pointers / a Vec header).
+    // C ABI for `#[repr(C, u8)]` enum:
+    //   { u8 tag; <pad to max-payload-alignment>; <max payload bytes>; <pad to overall alignment> }
     //
-    // Encoding choice: OCaml ctypes' libffi binding refuses to marshal
-    // a `field _ (array N uint8_t)` when the enclosing struct is passed
-    // by value (`Ctypes_static.Unsupported "libffi does not support
-    // passing arrays"`), so we lay the payload out as N independent
-    // uint8_t fields instead. They have the same C ABI as a uint8_t
-    // array (same size, same alignment) but ctypes' libffi adapter
-    // accepts struct-by-value for them.
-    let payload_size = compute_payload_size_bound(e, ir);
-    for i in 0..payload_size {
-        builder.line(&format!(
-            "let {ffi}_field_payload_{i} = field {ffi} \"payload_{i}\" uint8_t"
-        ));
-    }
+    // We need OCaml's Ctypes view of this struct to have BOTH the same
+    // total size AND the same alignment as the C ABI, so that parent
+    // structs that embed it compute identical field offsets on both
+    // sides. Picking the right field-type granularity (uint8_t /
+    // uint16_t / uint32_t / uint64_t) gives Ctypes' libffi descriptor
+    // the right alignment without using `array N uint8_t` (rejected
+    // for by-value struct marshalling).
+    let (size, align) = c_size_of_tagged_enum(e, ir, &mut Vec::new());
+    emit_byte_blob_fields(builder, &ffi, size, align);
     builder.line(&format!("let () = seal {}", ffi));
     builder.blank();
 }
 
-/// Returns a pessimistic upper bound on the union's payload size in
-/// bytes. We don't try to be precise — Ctypes reads/writes via field
-/// accessors, never by dereferencing a payload byte array directly,
-/// so the only constraint is that the OCaml-side struct is at least
-/// as large as the C union. 64 bytes is comfortable for everything
-/// the IR currently produces; if a future variant grows past that,
-/// bump the constant.
-fn compute_payload_size_bound(_e: &EnumDef, _ir: &CodegenIR) -> usize {
-    64
+/// Lay out a `size`-byte, `align`-aligned blob inside an OCaml Ctypes
+/// `structure` definition as a sequence of fields whose composite
+/// size and alignment match the C ABI exactly. The fields are named
+/// `_<ffi>_blob_<i>` and aren't intended to be read by user code —
+/// the wrappers use `_create` / `_match` helpers from libazul.
+fn emit_byte_blob_fields(builder: &mut CodeBuilder, ffi: &str, size: usize, align: usize) {
+    let align = align.max(1);
+    let unit_size = match align {
+        a if a >= 8 => 8,
+        4 => 4,
+        2 => 2,
+        _ => 1,
+    };
+    let unit_typ = match unit_size {
+        8 => "uint64_t",
+        4 => "uint32_t",
+        2 => "uint16_t",
+        _ => "uint8_t",
+    };
+    let mut remaining = size;
+    let mut idx = 0;
+    while remaining >= unit_size {
+        builder.line(&format!(
+            "let _{ffi}_blob_{idx} = field {ffi} \"blob_{idx}\" {unit_typ}"
+        ));
+        remaining -= unit_size;
+        idx += 1;
+    }
+    // Trailing partial word: emit per-byte fields, which still satisfy
+    // alignment (uint8_t fields have alignment 1, and they come after
+    // a sequence of `align`-aligned fields so the tail's offset is
+    // already at the natural byte boundary).
+    let mut tail_i = 0;
+    while remaining > 0 {
+        builder.line(&format!(
+            "let _{ffi}_blob_tail_b{tail_i} = field {ffi} \"blob_tail_b{tail_i}\" uint8_t"
+        ));
+        remaining -= 1;
+        tail_i += 1;
+    }
+    // If `size == 0` (unit-only enum), seal anyway by emitting a
+    // single zero-cost marker so Ctypes has at least one field.
+    if size == 0 {
+        builder.line(&format!(
+            "let _{ffi}_blob_unit = field {ffi} \"blob_unit\" uint8_t"
+        ));
+    }
+}
+
+/// Compute (size, alignment) in bytes for any IR type name as the C
+/// ABI sees it on a 64-bit LP64 host. Recurses through structs and
+/// tagged unions; primitive sizes are hard-coded. Cycles are broken by
+/// returning a conservative `(8, 8)` for a re-entered type.
+fn c_size_of_type(type_name: &str, ir: &CodegenIR, visiting: &mut Vec<String>) -> (usize, usize) {
+    let trimmed = type_name.trim();
+
+    // Pointer / reference forms — always 8/8 on 64-bit.
+    if trimmed.starts_with("*const ")
+        || trimmed.starts_with("*mut ")
+        || trimmed.starts_with("&mut ")
+        || trimmed.starts_with('&')
+    {
+        return (8, 8);
+    }
+
+    // Fixed-size array `[T; N]`.
+    if let Some((elem, count)) = parse_array_type(trimmed) {
+        let (es, ea) = c_size_of_type(&elem, ir, visiting);
+        return (es * count, ea);
+    }
+
+    // Primitives.
+    match trimmed {
+        "bool" | "u8" | "i8" | "c_char" | "c_uchar" | "char" => return (1, 1),
+        "u16" | "i16" => return (2, 2),
+        "u32" | "i32" | "c_int" | "c_uint" | "f32" => return (4, 4),
+        "u64" | "i64" | "usize" | "isize" | "f64" => return (8, 8),
+        "c_void" | "()" | "void" => return (0, 1),
+        _ => {}
+    }
+
+    // Cycle break.
+    if visiting.iter().any(|v| v == trimmed) {
+        return (8, 8);
+    }
+
+    if let Some(s) = ir.find_struct(trimmed) {
+        visiting.push(trimmed.to_string());
+        let (sz, al) = c_size_of_struct(s, ir, visiting);
+        visiting.pop();
+        return (sz, al);
+    }
+
+    if let Some(e) = ir.find_enum(trimmed) {
+        visiting.push(trimmed.to_string());
+        let r = if e.is_union {
+            c_size_of_tagged_enum(e, ir, visiting)
+        } else {
+            // `#[repr(C)]` unit enum -> C `enum X` -> sizeof(int) = 4
+            // on every LP64 platform we target. `#[repr(u8)]` (1 byte)
+            // is also possible but rare in this codebase; honor it
+            // when explicit. We don't currently distinguish at the IR
+            // level, so default to 4 (matches `int` width that the
+            // OCaml-side `int` Ctypes typ uses).
+            match e.repr.as_deref() {
+                Some("u8") | Some("i8") => (1, 1),
+                Some("u16") | Some("i16") => (2, 2),
+                Some("u64") | Some("i64") => (8, 8),
+                _ => (4, 4),
+            }
+        };
+        visiting.pop();
+        return r;
+    }
+
+    // Callback function pointers, opaque types, unknown — pointer-sized.
+    (8, 8)
+}
+
+fn c_size_of_struct(s: &StructDef, ir: &CodegenIR, visiting: &mut Vec<String>) -> (usize, usize) {
+    let mut offset: usize = 0;
+    let mut max_align: usize = 1;
+    for f in &s.fields {
+        // Ref-kind pointers are 8/8.
+        let (fs, fa) = match f.ref_kind {
+            FieldRefKind::Owned => c_size_of_type(&f.type_name, ir, visiting),
+            FieldRefKind::Ref
+            | FieldRefKind::RefMut
+            | FieldRefKind::Ptr
+            | FieldRefKind::PtrMut
+            | FieldRefKind::Boxed
+            | FieldRefKind::OptionBoxed => (8, 8),
+        };
+        if fa > max_align {
+            max_align = fa;
+        }
+        // Align offset up to fa.
+        offset = (offset + fa - 1) / fa * fa;
+        offset += fs;
+    }
+    if max_align == 0 {
+        max_align = 1;
+    }
+    // Round size up to struct alignment.
+    let size = (offset + max_align - 1) / max_align * max_align;
+    (size, max_align)
+}
+
+fn c_size_of_tagged_enum(
+    e: &EnumDef,
+    ir: &CodegenIR,
+    visiting: &mut Vec<String>,
+) -> (usize, usize) {
+    use super::super::ir::EnumVariantKind;
+    let mut max_payload_size: usize = 0;
+    let mut max_payload_align: usize = 1;
+    for v in &e.variants {
+        let (psz, pal) = match &v.kind {
+            EnumVariantKind::Unit => (0, 1),
+            EnumVariantKind::Tuple(parts) => {
+                let mut off: usize = 0;
+                let mut al: usize = 1;
+                for (ty, rk) in parts {
+                    let (fs, fa) = match rk {
+                        FieldRefKind::Owned => c_size_of_type(ty, ir, visiting),
+                        _ => (8, 8),
+                    };
+                    if fa > al {
+                        al = fa;
+                    }
+                    off = (off + fa - 1) / fa * fa;
+                    off += fs;
+                }
+                let sz = if al > 0 { (off + al - 1) / al * al } else { off };
+                (sz, al)
+            }
+            EnumVariantKind::Struct(fields) => {
+                let mut off: usize = 0;
+                let mut al: usize = 1;
+                for f in fields {
+                    let (fs, fa) = match f.ref_kind {
+                        FieldRefKind::Owned => c_size_of_type(&f.type_name, ir, visiting),
+                        _ => (8, 8),
+                    };
+                    if fa > al {
+                        al = fa;
+                    }
+                    off = (off + fa - 1) / fa * fa;
+                    off += fs;
+                }
+                let sz = if al > 0 { (off + al - 1) / al * al } else { off };
+                (sz, al)
+            }
+        };
+        if psz > max_payload_size {
+            max_payload_size = psz;
+        }
+        if pal > max_payload_align {
+            max_payload_align = pal;
+        }
+    }
+
+    // #[repr(C, u8)]: 1-byte tag, padded up to max_payload_align, then
+    // max_payload_size, then total padded up to max_payload_align.
+    let head = if max_payload_align == 0 {
+        1
+    } else {
+        ((1 + max_payload_align - 1) / max_payload_align) * max_payload_align
+    };
+    let total = head + max_payload_size;
+    let aligned = if max_payload_align == 0 {
+        total
+    } else {
+        (total + max_payload_align - 1) / max_payload_align * max_payload_align
+    };
+    (aligned, max_payload_align.max(1))
 }
 
 // ============================================================================

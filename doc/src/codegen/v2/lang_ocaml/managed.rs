@@ -192,10 +192,9 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("let wco = ffi_az_window_create_options_default () in");
     builder.line("let cb = _az_layout_callback_create_from_host_handle");
     builder.line("           (Unsigned.UInt64.of_int64 (_azul_alloc_handle layout_fn)) in");
-    builder.line("let wco_ptr = Ctypes.addr wco in");
-    builder.line("let ws_ptr = wco_ptr |-> az_window_create_options_field_window_state in");
-    builder.line("let lc_ptr = ws_ptr |-> az_full_window_state_field_layout_callback in");
-    builder.line("lc_ptr <-@ cb;");
+    builder.line("let ws = Ctypes.getf wco az_window_create_options_field_window_state in");
+    builder.line("Ctypes.setf ws az_full_window_state_field_layout_callback cb;");
+    builder.line("Ctypes.setf wco az_window_create_options_field_window_state ws;");
     builder.line("wco");
     builder.dedent();
     builder.blank();

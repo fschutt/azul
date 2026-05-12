@@ -84,9 +84,6 @@ let layout (data_ptr : unit Ctypes.ptr) (_info : unit Ctypes.ptr)
 
 let () =
   let data = Azul.azul_refany_create model in
-  (* The codegen-emitted smart constructor builds a default WCO, then
-     installs the host-invoker-registered AzLayoutCallback (with ctx
-     preserved) into window_state.layout_callback. *)
   let wco = Azul.azul_window_create_options_with_layout layout in
   let app_config = Azul.AppConfig.create () in
   let app = Azul.App.create data (Azul.raw_app_config app_config) in
