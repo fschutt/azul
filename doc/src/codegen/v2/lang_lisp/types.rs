@@ -170,7 +170,11 @@ fn emit_unit_enum(builder: &mut CodeBuilder, e: &EnumDef) {
 }
 
 fn enum_underlying_type(e: &EnumDef) -> &'static str {
-    match e.repr.as_deref() {
+    repr_to_underlying(e.repr.as_deref())
+}
+
+fn repr_to_underlying(repr: Option<&str>) -> &'static str {
+    match repr {
         Some(r) if r.contains("u8") => ":uint8",
         Some(r) if r.contains("i8") => ":int8",
         Some(r) if r.contains("u16") => ":uint16",
@@ -197,8 +201,19 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
         }
     }
 
-    // Tag enum.
-    builder.line(&format!("(defcenum ({} :uint32)", tag_name));
+    // Tag enum. Use the actual repr from Rust source (e.g. `#[repr(C, u8)]`
+    // → `:uint8`) so CFFI reads exactly the right number of bytes from the
+    // tag slot. Hard-coding `:uint32` here mis-reads `#[repr(C, u8)]` tagged
+    // unions: CFFI reads 4 bytes at offset 0, the top 3 bytes are payload
+    // padding/data, the resulting u32 value is meaningless and CFFI then
+    // can't match it against any declared variant (manifests as
+    // `2706158337 is not defined as a value for enum type` on
+    // AzNamedFontVecDestructor's `External` variant).
+    builder.line(&format!(
+        "(defcenum ({} {})",
+        tag_name,
+        enum_underlying_type(e)
+    ));
     builder.indent();
     for (idx, v) in e.variants.iter().enumerate() {
         let kw = ident_to_kebab(&v.name);
@@ -374,9 +389,10 @@ fn emit_monomorphized_alias(
             builder.dedent();
             emit_close(builder);
         }
-        MonomorphizedKind::TaggedUnion { variants, .. } => {
+        MonomorphizedKind::TaggedUnion { variants, repr } => {
             let tag_name = format!("{}-tag", lisp_name);
-            builder.line(&format!("(defcenum ({} :uint32)", tag_name));
+            let underlying = repr_to_underlying(repr.as_deref());
+            builder.line(&format!("(defcenum ({} {})", tag_name, underlying));
             builder.indent();
             for (idx, v) in variants.iter().enumerate() {
                 let kw = ident_to_kebab(&v.name);
