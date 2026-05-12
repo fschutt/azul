@@ -137,12 +137,14 @@ fn should_include_struct(s: &StructDef, config: &CodegenConfig) -> bool {
     if !s.generic_params.is_empty() {
         return false;
     }
+    // VecRef and DestructorOrClone are NOT skipped — Vec wrappers
+    // reference them as fields (e.g. `AzU8Vec.destructor:
+    // AzU8VecDestructor`), and skipping them as `Pointer` aliases
+    // shrinks the surrounding struct by 8 bytes per occurrence,
+    // corrupting every subsequent field's offset.
     !matches!(
         s.category,
-        TypeCategory::Recursive
-            | TypeCategory::VecRef
-            | TypeCategory::DestructorOrClone
-            | TypeCategory::GenericTemplate
+        TypeCategory::Recursive | TypeCategory::GenericTemplate
     )
 }
 
@@ -155,10 +157,7 @@ fn should_include_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
     }
     !matches!(
         e.category,
-        TypeCategory::Recursive
-            | TypeCategory::VecRef
-            | TypeCategory::DestructorOrClone
-            | TypeCategory::GenericTemplate
+        TypeCategory::Recursive | TypeCategory::GenericTemplate
     )
 }
 
@@ -297,45 +296,37 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
         }
     }
 
-    // Tag enum: TAzFoo_TAG = (TAzFoo_TAG_Variant1, ...);
-    // We use `_TAG` (uppercase, underscore-separated) rather than the
-    // shorter `Tag` suffix because some sibling unit enums in the api
-    // are named `<base>Tag` literally (e.g. `NodeType` is a tagged
-    // union and `NodeTypeTag` is a separate unit enum). Without the
-    // disambiguating underscore the two collide on `TAzNodeTypeTag`.
+    // Rust's tagged unions are `#[repr(C, u8)]`. Pascal enums under
+    // `{$PACKRECORDS C}` default to 4 bytes, which would offset every
+    // variant payload by 3 bytes and corrupt every struct that embeds
+    // a tagged union. Emit a 1-byte `cuint8` tag with integer case
+    // labels and a per-label `{ <Variant> }` block comment for
+    // readability — same shape lang_java / lang_csharp / lang_ocaml
+    // settled on. (We can't emit named `const` tag values here because
+    // a `const` block would close the surrounding `type` block and
+    // FPC requires all forward-typed identifiers to resolve before
+    // the type block ends.)
     let tag_name = format!("{}_TAG", record_type_name(&e.name));
-    builder.line(&format!("{} = (", tag_name));
-    builder.indent();
-    for (i, v) in e.variants.iter().enumerate() {
-        let comma = if i + 1 < e.variants.len() { "," } else { "" };
-        builder.line(&format!(
-            "{}_{}{}",
-            tag_name,
-            sanitize_identifier(&v.name),
-            comma
-        ));
-    }
-    builder.dedent();
-    builder.line(");");
-    builder.blank();
 
-    // Variant record: case Tag: TAzFooTag of ... end;
+    // Variant record: case Tag: cuint8 of ... end;
     let t = record_type_name(&e.name);
     builder.line(&format!("{} = record", t));
     builder.indent();
-    builder.line(&format!("case Tag: {} of", tag_name));
+    builder.line(&format!("case Tag: cuint8 of {{ values of {} }}", tag_name));
     builder.indent();
 
     // Pascal variant records share one namespace across all `case`
     // branches — field names must be unique within the whole record,
     // not just within one variant arm. We disambiguate by suffixing
-    // every payload field name with the variant tag.
-    for v in &e.variants {
-        let case_label = format!("{}_{}", tag_name, sanitize_identifier(&v.name));
+    // every payload field name with the variant tag. Case labels are
+    // integer literals (matching the cuint8 selector); the original
+    // variant name is kept in a `{ ... }` block comment.
+    for (i, v) in e.variants.iter().enumerate() {
+        let case_label = format!("{} {{ {}_{} }}", i, tag_name, sanitize_identifier(&v.name));
         let variant_suffix = sanitize_identifier(&v.name);
         match &v.kind {
             EnumVariantKind::Unit => {
-                // Empty payload -> `Variant: ();`
+                // Empty payload -> `0 { Variant }: ();`
                 builder.line(&format!("{}: ();", case_label));
             }
             EnumVariantKind::Tuple(types) => {
@@ -350,9 +341,9 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
                     ));
                 } else {
                     let mut parts = Vec::with_capacity(types.len());
-                    for (i, (ty, ref_kind)) in types.iter().enumerate() {
+                    for (j, (ty, ref_kind)) in types.iter().enumerate() {
                         let pas_ty = field_type_for_ref_kind(ty, ref_kind, ir);
-                        parts.push(format!("Payload_{}_{}: {}", variant_suffix, i, pas_ty));
+                        parts.push(format!("Payload_{}_{}: {}", variant_suffix, j, pas_ty));
                     }
                     builder.line(&format!("{}: ({});", case_label, parts.join("; ")));
                 }
@@ -538,28 +529,19 @@ fn emit_monomorphized_alias(
         }
 
         MonomorphizedKind::TaggedUnion { variants, .. } => {
-            // Variant record: tag enum + variant payload via `case Tag of`.
+            // Tag width must be 1 byte (Rust `#[repr(C, u8)]`) — see
+            // the comment in `emit_tagged_union` above. Case labels are
+            // integer literals; the variant name is kept in a block
+            // comment for readability.
             let tag_name = format!("{}Tag", t);
-            builder.line(&format!("{} = (", tag_name));
-            builder.indent();
-            for (i, v) in variants.iter().enumerate() {
-                let suffix = if i + 1 < variants.len() { "," } else { "" };
-                builder.line(&format!(
-                    "{}_{}{}",
-                    tag_name,
-                    sanitize_identifier(&v.name),
-                    suffix
-                ));
-            }
-            builder.dedent();
-            builder.line(");");
 
             builder.line(&format!("{} = record", t));
             builder.indent();
-            builder.line(&format!("case Tag: {} of", tag_name));
+            builder.line(&format!("case Tag: cuint8 of {{ values of {} }}", tag_name));
             builder.indent();
-            for v in variants {
-                let case_label = format!("{}_{}", tag_name, sanitize_identifier(&v.name));
+            for (i, v) in variants.iter().enumerate() {
+                let case_label =
+                    format!("{} {{ {}_{} }}", i, tag_name, sanitize_identifier(&v.name));
                 let variant_suffix = sanitize_identifier(&v.name);
                 match &v.payload_type {
                     None => builder.line(&format!("{}: ();", case_label)),

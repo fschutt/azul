@@ -19,10 +19,16 @@
 //! 5. **`azul_refany_create` / `azul_refany_get`** for user-data
 //!    refany round-trip.
 //!
-//! Unlike Lua/OCaml, Pascal doesn't store arbitrary closures — the
-//! handle table holds `Pointer` (typically a `TMethod` for class
-//! method or a global proc pointer). Users typically wrap state in a
-//! class and pass `@MyClass.Handler` as the registered handler.
+//! Unlike Lua/OCaml, Pascal doesn't store arbitrary closures. We use
+//! Pascal's OOP: one abstract class per callback kind
+//! (`TAz<Wrapper>Invoker`) with a single `virtual abstract Invoke`
+//! method. Users subclass and override `Invoke`; an instance gets
+//! registered via `azul_register_<wrapper_low>(handler)` which stashes
+//! the object in the global handle table and returns the matching
+//! `TAz<Wrapper>` cdata struct (an opaque host-handle for libazul).
+//! When libazul fires the callback, the cdecl stub looks the handler
+//! up by id and dispatches through the virtual method. Mirrors the
+//! Java / Kotlin SAM-based shape.
 
 use super::super::generator::CodeBuilder;
 use super::super::ir::CodegenIR;
@@ -89,6 +95,51 @@ pub fn emit_managed_interface(builder: &mut CodeBuilder, ir: &CodegenIR) {
         builder.line(&format!(
             "function Az{w}_createFromHostHandle(id: cuint64): TAz{w}; cdecl; external AzulLib;",
             w = wrapper
+        ));
+    }
+    builder.blank();
+
+    // Per-kind dispatch base classes. Users subclass and override
+    // Invoke (which gets called from the cdecl invoker stub). The
+    // Invoke signature mirrors the C-ABI exactly: a uint64 id, one
+    // raw Pointer per callback arg, and (when the callback returns
+    // non-void) an out_ptr that Invoke fills before returning.
+    builder.line("{ Per-callback-kind dispatch base classes. Subclass and override   }");
+    builder.line("{ Invoke; pass an instance to azul_register_<kind> to wire it up.  }");
+    builder.line("type");
+    builder.indent();
+    for cb in host_invoker_kinds(ir) {
+        let wrapper = wrapper_name(cb);
+        let mut sig_parts = vec!["id: cuint64".to_string()];
+        for (i, arg) in cb.args.iter().enumerate() {
+            let nm = if arg.name.is_empty() {
+                format!("arg{}", i)
+            } else {
+                arg.name.clone()
+            };
+            sig_parts.push(format!("{}: Pointer", nm));
+        }
+        if has_return(cb) {
+            sig_parts.push("out_ptr: Pointer".to_string());
+        }
+        builder.line(&format!("TAz{}Invoker = class", wrapper));
+        builder.line(&format!(
+            "  procedure Invoke({}); virtual; abstract;",
+            sig_parts.join("; ")
+        ));
+        builder.line("end;");
+    }
+    builder.dedent();
+    builder.blank();
+
+    // Register-callback functions (one per kind). Stash the handler in
+    // the handle table and return the matching cdata.
+    for cb in host_invoker_kinds(ir) {
+        let wrapper = wrapper_name(cb);
+        builder.line(&format!(
+            "function azul_register_{w_low}(handler: TAz{w}Invoker): TAz{w};",
+            w = wrapper,
+            w_low = wrapper.to_lowercase()
         ));
     }
     builder.blank();
@@ -171,15 +222,15 @@ pub fn emit_managed_implementation(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("end;");
     builder.blank();
 
-    // Per-kind invoker stubs. They just look up the handle (the user
-    // is expected to have stored a TMethod / proc pointer in the
-    // table) and call it via the kind's signature. For simplicity in
-    // this first-pass codegen we emit empty bodies — users can
-    // override behavior via register_callback variants in their own
-    // code if needed.
+    // Per-kind invoker stubs. Look up the handler by id, runtime-check
+    // it's the matching TAz<Wrapper>Invoker subclass, and dispatch
+    // through the virtual Invoke. The handler writes its return value
+    // (when applicable) into out_ptr — libazul's static thunk reads it
+    // back to complete the C-ABI return.
     for cb in host_invoker_kinds(ir) {
         let wrapper = wrapper_name(cb);
         let mut sig_parts = vec!["id: cuint64".to_string()];
+        let mut forward = vec!["id".to_string()];
         for (i, arg) in cb.args.iter().enumerate() {
             let nm = if arg.name.is_empty() {
                 format!("arg{}", i)
@@ -187,34 +238,52 @@ pub fn emit_managed_implementation(builder: &mut CodeBuilder, ir: &CodegenIR) {
                 arg.name.clone()
             };
             sig_parts.push(format!("{}: Pointer", nm));
+            forward.push(nm);
         }
         if has_return(cb) {
             sig_parts.push("out_ptr: Pointer".to_string());
+            forward.push("out_ptr".to_string());
         }
         builder.line(&format!(
             "procedure azul_{}_invoker_stub({}); cdecl;",
             wrapper.to_lowercase(),
             sig_parts.join("; ")
         ));
+        builder.line("var obj: TObject;");
         builder.line("begin");
         builder.indent();
+        builder.line("obj := azul_lookup_handle(id);");
         builder.line(&format!(
-            "{{ {} invoker — user callback dispatch handled in user code if needed. }}",
+            "if (obj <> nil) and (obj is TAz{}Invoker) then",
             wrapper
         ));
-        // Reference unused params so FPC doesn't warn.
-        builder.line("if id = 0 then ;");
-        for (i, arg) in cb.args.iter().enumerate() {
-            let nm = if arg.name.is_empty() {
-                format!("arg{}", i)
-            } else {
-                arg.name.clone()
-            };
-            builder.line(&format!("if {} = nil then ;", nm));
-        }
-        if has_return(cb) {
-            builder.line("if out_ptr = nil then ;");
-        }
+        builder.line(&format!(
+            "  TAz{}Invoker(obj).Invoke({});",
+            wrapper,
+            forward.join(", ")
+        ));
+        builder.dedent();
+        builder.line("end;");
+        builder.blank();
+    }
+
+    // Register-callback function bodies (one per kind). Stash the
+    // handler in the handle table and return the matching cdata.
+    for cb in host_invoker_kinds(ir) {
+        let wrapper = wrapper_name(cb);
+        builder.line(&format!(
+            "function azul_register_{w_low}(handler: TAz{w}Invoker): TAz{w};",
+            w = wrapper,
+            w_low = wrapper.to_lowercase()
+        ));
+        builder.line("var id: cuint64;");
+        builder.line("begin");
+        builder.indent();
+        builder.line("id := azul_alloc_handle(handler);");
+        builder.line(&format!(
+            "Result := Az{}_createFromHostHandle(id);",
+            wrapper
+        ));
         builder.dedent();
         builder.line("end;");
         builder.blank();

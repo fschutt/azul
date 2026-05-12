@@ -235,8 +235,12 @@ pub fn map_type_to_pascal(rust_type: &str, ir: &CodegenIR) -> String {
         // Void / unit
         "void" | "c_void" | "()" => "Pointer".to_string(),
 
-        // Booleans
-        "bool" | "GLboolean" => "cbool".to_string(),
+        // Booleans — Rust `bool` and `GLboolean` are both 1 byte (C99
+        // `_Bool` semantics: 0 = false, nonzero = true). FPC's
+        // `ctypes.cbool` is `LongBool` (4 bytes, Win32 BOOL flavour),
+        // which would corrupt every struct that embeds a bool. Use
+        // `ByteBool` (1 byte) for layout correctness.
+        "bool" | "GLboolean" => "ByteBool".to_string(),
 
         // Signed / unsigned integers via ctypes (size-correct on all platforms)
         "i8" | "c_char" | "char" => "cint8".to_string(),
