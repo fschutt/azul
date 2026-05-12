@@ -254,7 +254,7 @@ impl GnomeMenuManager {
     /// This function exists for API consistency but doesn't set any properties.
     pub fn set_window_properties_wayland(
         &self,
-        _surface_id: u32,
+        _surface_id: u64,
         app_id: &Option<String>,
     ) -> Result<(), GnomeMenuError> {
         debug_log("Wayland menu integration (using app_id matching)");
