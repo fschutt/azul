@@ -29,19 +29,37 @@ pub fn generate_native_interface(
     config: &CodegenConfig,
 ) -> Result<()> {
     builder.line("/**");
-    builder.line(" * JNA-bound interface to the Azul C ABI.");
+    builder.line(" * JNA-bound class exposing the Azul C ABI.");
     builder.line(" * <p>");
-    builder.line(" * Each method maps 1:1 to an exported C symbol of the same name. JNA");
-    builder.line(" * resolves every call through libffi at runtime; the {@code INSTANCE}");
-    builder.line(" * field is the singleton bridge to the loaded native library.");
+    builder.line(" * Each method maps 1:1 to an exported C symbol of the same name.");
+    builder.line(" * <p>");
+    builder.line(" * Uses {@code Native.register(\"azul\")} (direct mapping) instead of");
+    builder.line(" * {@code Native.load(...)} (Proxy mode). Proxy mode generates a single");
+    builder.line(" * dynamic class with a {@code <clinit>} that calls {@code Method.getMethod}");
+    builder.line(" * for every interface method; with ~1700 FFI exports that bytecode");
+    builder.line(" * exceeds the JVM's 64KB per-method limit and throws at class init.");
+    builder.line(" * Direct mapping binds each {@code native} method individually via JNI,");
+    builder.line(" * with no Proxy class to generate.");
+    builder.line(" * <p>");
+    builder.line(" * Legacy callers may still write {@code AzulNative.INSTANCE.foo(...)};");
+    builder.line(" * the Java compiler resolves that to the static {@code AzulNative.foo(...)}");
+    builder.line(" * call (with a hint warning). The wrapper classes use both forms.");
     builder.line(" */");
-    builder.line("public interface AzulNative extends Library {");
+    builder.line("public final class AzulNative {");
     builder.indent();
 
+    // `static {}` block fires when the class is first loaded — equivalent
+    // to the old `INSTANCE = Native.load(...)` initialiser but binds every
+    // `public static native` method below to its libazul export.
     builder.line(&format!(
-        "AzulNative INSTANCE = Native.load(\"{}\", AzulNative.class);",
+        "static {{ Native.register(\"{}\"); }}",
         LIBRARY_NAME
     ));
+    // INSTANCE kept as a marker so legacy `AzulNative.INSTANCE.foo(...)`
+    // call sites still compile. `final null` is fine: Java resolves
+    // static-method calls through any expression of the class's type,
+    // including null, with only a hint warning.
+    builder.line("public static final AzulNative INSTANCE = null;");
     builder.blank();
 
     for func in &ir.functions {
@@ -122,7 +140,7 @@ fn emit_native_method(builder: &mut CodeBuilder, func: &FunctionDef, ir: &Codege
         builder.line(" */");
     }
     builder.line(&format!(
-        "{} {}({});",
+        "public static native {} {}({});",
         return_type,
         func.c_name,
         args.join(", ")
