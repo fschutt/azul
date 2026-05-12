@@ -155,18 +155,23 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("let azul_window_create_options_with_layout (layout_fn : 'a)");
     builder.indent();
     builder.line("  : az_window_create_options Ctypes.structure =");
-    // Allocate the WCO on the heap so we can take a stable pointer
-    // into it. CTypes' `make` allocates a fresh struct of the type
-    // (defaults to zeroed bytes); we overwrite via `<-@` from
-    // `_default()`. Then walk pointer-to-nested-field via `|->` to
-    // mutate the layout_callback slot in place.
-    builder.line("let wco = Ctypes.make az_window_create_options in");
-    builder.line("let wco_ptr = Ctypes.addr wco in");
-    builder.line("wco_ptr <-@ ffi_az_window_create_options_default ();");
+    // Build the WCO directly from `_default()` — that returns a Ctypes
+    // struct value backed by OCaml-managed memory containing libazul's
+    // default-initialized bytes (including refcounted heap pointers
+    // inside nested U8Vec / AzString fields). Taking `addr` of the
+    // returned binding gives us a stable pointer into that memory we
+    // can navigate to mutate the layout_callback field in place.
+    //
+    // DO NOT use `Ctypes.make` + `<-@ default_struct`: that allocates
+    // a SEPARATE buffer and memcpys the default bytes into it,
+    // creating two aliased copies of the same heap pointers. When
+    // libazul later drops one of the copies, the other becomes
+    // invalid. Manifested as `___BUG_IN_CLIENT_OF_LIBMALLOC_POINTER_BEING_FREED_WAS_NOT_ALLOCATED`
+    // inside `<U8Vec as Drop>::drop` from MacOSWindow::new_with_options_internal.
+    builder.line("let wco = ffi_az_window_create_options_default () in");
     builder.line("let cb = _az_layout_callback_create_from_host_handle");
     builder.line("           (Unsigned.UInt64.of_int64 (_azul_alloc_handle layout_fn)) in");
-    // `(wco_ptr |-> field)` returns a pointer to the field within
-    // wco's memory. Same for the nested traversal.
+    builder.line("let wco_ptr = Ctypes.addr wco in");
     builder.line("let ws_ptr = wco_ptr |-> az_window_create_options_field_window_state in");
     builder.line("let lc_ptr = ws_ptr |-> az_full_window_state_field_layout_callback in");
     builder.line("lc_ptr <-@ cb;");

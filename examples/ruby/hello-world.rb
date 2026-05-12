@@ -40,9 +40,9 @@ data  = Azul::RefAny.wrap(model)
 
 on_click = lambda do |data_ptr, _info|
   m = Azul::RefAny.unwrap(data_ptr)
-  next 0 if m.nil? # Update::DoNothing
+  next Azul::Update::DoNothing if m.nil?
   m.counter += 1
-  1 # Update::RefreshDom
+  Azul::Update::RefreshDom
 end
 
 layout = lambda do |data_ptr, _info|
@@ -64,7 +64,7 @@ layout = lambda do |data_ptr, _info|
 
   # Increment button.
   button = Azul::Button.create(az_str('Increase counter'))
-    .with_button_type(Azul::Native::AzButtonType::Primary)
+    .with_button_type(Azul::ButtonType::Primary)
     .with_on_click(Azul::Native.az_ref_any_clone(data), on_click)
 
   Azul::Dom.create_body
@@ -86,8 +86,8 @@ window.ptr[:window_state][:size][:dimensions][:width]  = 400.0
 window.ptr[:window_state][:size][:dimensions][:height] = 300.0
 # NoTitleAutoInject: OS draws close/min/max buttons; framework
 # auto-injects a Titlebar with drag support.
-window.ptr[:window_state][:flags][:decorations]         = 1 # WindowDecorations::NoTitleAutoInject
-window.ptr[:window_state][:flags][:background_material] = 3 # WindowBackgroundMaterial::Sidebar
+window.ptr[:window_state][:flags][:decorations]         = Azul::WindowDecorations::NoTitleAutoInject
+window.ptr[:window_state][:flags][:background_material] = Azul::WindowBackgroundMaterial::Sidebar
 
 app = Azul::App.create(data, Azul::AppConfig.create)
 app.run(window.ptr)

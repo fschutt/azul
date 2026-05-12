@@ -25,8 +25,9 @@
 
 const azul = require('./azul.js');
 const {
-    App, AppConfig, Button, Dom,
+    App, AppConfig, Button, ButtonType, Dom,
     CssProperty, CssPropertyWithConditions, StyleFontSize,
+    Update, WindowBackgroundMaterial, WindowDecorations,
     refanyCreate, refanyGet, registerCallback,
 } = azul;
 const lib = azul.__lib;
@@ -49,9 +50,9 @@ const data  = refanyCreate(model);
 
 function onClick(dataPtr, _info) {
     const m = refanyGet(dataPtr);
-    if (m == null) return 0; // Update.DoNothing
+    if (m == null) return Update.DoNothing;
     m.counter += 1;
-    return 1; // Update.RefreshDom
+    return Update.RefreshDom;
 }
 
 function layout(dataPtr, _info) {
@@ -67,7 +68,7 @@ function layout(dataPtr, _info) {
 
     // Increment button.
     const button = Button.create(azStr('Increase counter'))
-        .with_button_type(1 /* ButtonType.Primary */)
+        .with_button_type(ButtonType.Primary)
         .with_on_click(lib.AzRefAny_clone(data), onClick);
 
     return Dom.create_body()
@@ -100,8 +101,8 @@ window.window_state.size.dimensions.width  = 400.0;
 window.window_state.size.dimensions.height = 300.0;
 // NoTitleAutoInject: OS draws close/min/max buttons; framework
 // auto-injects a Titlebar with drag support.
-window.window_state.flags.decorations         = 1; // WindowDecorations.NoTitleAutoInject
-window.window_state.flags.background_material = 3; // WindowBackgroundMaterial.Sidebar
+window.window_state.flags.decorations         = WindowDecorations.NoTitleAutoInject;
+window.window_state.flags.background_material = WindowBackgroundMaterial.Sidebar;
 
 const app = App.create(data, AppConfig.create());
 app.run(window);

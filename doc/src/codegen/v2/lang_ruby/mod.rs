@@ -115,6 +115,13 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     builder.line("end # module Native");
     builder.blank();
 
+    // User-facing aliases for unit enums. The codegen emits
+    // `Azul::Native::Az<Foo>::Variant` integer constants inside the
+    // Native module; surface them at top-level `Azul::<Foo>::Variant`
+    // so hello-worlds can write `Update.RefreshDom` rather than
+    // `Native::AzUpdate::RefreshDom`.
+    types::emit_user_facing_enum_aliases(&mut builder, ir, config);
+
     // Managed-FFI prelude: registers host-invoker closures + RefAny
     // helpers under `module Azul`. Must come before user-facing wrapper
     // classes because they reference `Azul._register_callback`.

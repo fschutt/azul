@@ -454,6 +454,70 @@ Sorted by least-codegen-prerequisite first (cheaper wins early):
 - **Haskell**: GHC FFI rejects struct-by-value returns. Needs a
   separate C shim codegen phase (cost: ~1-2 days). Defer.
 
+### User review 2026-05-12 — actual state of each hello-world
+
+Honest review from the user across all 21 example languages. The
+"E2E verified" list was overstated — many hello-worlds are
+unusable, verbose, or missing entirely.
+
+| Lang | Status (user verdict) | Action |
+|---|---|---|
+| Ada | non-existent | write from scratch |
+| Algol68 | "SKIPPED" in hello-world | fix or document blocker |
+| C# | unusable | E2E debug + codegen |
+| COBOL | unusable | E2E debug or accept smoke-only |
+| Fortran | unusable | E2E debug |
+| FreeBASIC | working? (surprising) | verify |
+| Go | 160 lines / extremely verbose | shrink the API surface |
+| Haskell | smoke test only (no Mac install path) | accept blocker |
+| Java | unusable | JNA codegen rework |
+| Kotlin | unusable | rides on Java |
+| Lisp | verbose, has functionality | shrink + finish E2E |
+| Node | works, but raw int enums (`return 0; // Update.DoNothing`) | **add enum constants** |
+| OCaml | same enum issue + crash at WCO | enum constants + WCO fix |
+| Pascal | unusable | E2E debug |
+| Perl | unusable | env + codegen |
+| PHP | unusable | other agent's territory |
+| PowerShell | working? but verbose | verify + shrink |
+| **Python** | **needs investigation: works via PyO3 native ext today, but user wants to KILL the extension model — one azul.so binding for all langs** | architectural rework |
+| Ruby | works, no enum constants | **add enum constants** |
+| Smalltalk | unusable | Tonel layout blocker |
+| VB6 | extremely verbose | accept (32-bit Windows niche) |
+| Zig | works | done |
+
+**Universal polish item — enum constants:**
+
+Every language emits raw integers for enum returns like Update:
+```js
+return 0; // Update.DoNothing
+return 1; // Update.RefreshDom
+```
+
+Should be:
+```js
+return azul.Update.DoNothing;
+return azul.Update.RefreshDom;
+```
+
+This is a per-language codegen polish — each emitter needs to surface
+the enum's unit-only variants as named constants. The cost is one
+small codegen patch per language (the IR already has the enum
+definitions). Universal benefit across hello-worlds.
+
+**Architecture question — kill PyO3 + PHP-ext, one azul.so for all:**
+
+Today Python uses a PyO3-based native extension (`azul.so` is a
+Python-specific C extension). The user's goal: have a SINGLE
+prebuilt `libazul.dylib` that every language binds to via its own
+FFI wrapper (Node via koffi, Ruby via ffi gem, Python via... ctypes
+or cffi?, etc.). No per-language native extensions to rebuild.
+
+This is a major architectural shift for Python and PHP — both
+currently use the native-extension model. Pure-FFI Python is
+possible (via ctypes or cffi packages) but loses some of PyO3's
+ergonomic type bridging. Worth a separate design doc + spike before
+committing.
+
 ### Phase 5 (ThreadCallback) design notes
 
 When picked up: the macro `impl_managed_callback!` in

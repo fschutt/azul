@@ -101,6 +101,33 @@ pub fn emit_simple_enums(builder: &mut CodeBuilder, ir: &CodegenIR, config: &Cod
     builder.blank();
 }
 
+/// Emit user-facing aliases that surface the per-enum constants at
+/// `Azul::<EnumName>::Variant` rather than the verbose
+/// `Azul::Native::Az<EnumName>::Variant` path. Lets hello-worlds
+/// write `Azul::Update::RefreshDom` directly.
+///
+/// Only unit-only enums are aliased — tagged unions are exposed via
+/// wrapper classes elsewhere.
+pub fn emit_user_facing_enum_aliases(
+    builder: &mut CodeBuilder,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) {
+    builder.line("# --- User-facing enum aliases (Azul::Update, etc.) ------------");
+    for e in &ir.enums {
+        if !should_emit_enum(e, config) {
+            continue;
+        }
+        if e.is_union {
+            continue;
+        }
+        let prefixed = config.apply_prefix(&e.name);
+        let plain = &e.name;
+        builder.line(&format!("{} = Native::{}", plain, prefixed));
+    }
+    builder.blank();
+}
+
 /// Emit `callback :name, [args], :return` declarations for every
 /// callback typedef. These give us idiomatic function-pointer types.
 pub fn emit_callback_typedefs(
