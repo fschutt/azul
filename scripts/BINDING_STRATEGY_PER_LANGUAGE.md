@@ -6,6 +6,42 @@ builder API, `data.counter += 1` in a callback).
 
 ---
 
+## Concurrent-agent note
+
+While this plan runs, **another agent is applying fixes to the main
+codebase** (libazul source, codegen scaffolding, IR, etc.). Treat its
+changes as benign:
+
+- If a `cargo build` / `cargo run -- codegen` fails because the other
+  agent's changes haven't settled (e.g. a half-applied refactor, an
+  IR field renamed, a regen in progress), **do not try to fix it
+  yourself**. Don't revert their files, don't patch through their
+  half-done work.
+- Wait ~60 seconds and retry the same build/regen. Their work is
+  likely either still in progress or just committed and the working
+  tree is now consistent.
+- If the conflict is in a file you were editing, `git stash` your
+  work, pull in any changes already on disk (just re-read the file —
+  there's no remote to pull from; this is local-only), reapply your
+  edits on top of the new state, then continue.
+- Never `git reset --hard`, `git branch -D`, or `git push --force`
+  to "resolve" the conflict. The other agent's commits are real work.
+
+The other agent is NOT working on:
+- `examples/<lang>/hello-world.<ext>` rewrites (that's our turf).
+- `scripts/BINDING_STRATEGY_PER_LANGUAGE.md` (this doc — ours).
+- Per-language wrapper file generators in `doc/src/codegen/v2/lang_<x>/`
+  EXCEPT for `lang_php_ext.rs` (PHP-extension work, handed off to
+  the other agent before this plan started).
+
+If we touch the same file as the other agent (rare — mostly bounded
+to `lang_<x>/wrappers.rs` for whichever lang we're polishing), and
+their edit lands first, the diff is usually orthogonal (they fix IR-
+plumbing bugs, we fix per-emitter wrapper bugs). Re-base mentally
+and continue.
+
+---
+
 ## Revised conclusion (after pushback)
 
 **One `libazul.so` serves every language.** No PyO3, no napi-rs, no
