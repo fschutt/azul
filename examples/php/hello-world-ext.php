@@ -109,6 +109,22 @@ echo "[azul] azul_invoke_callback round-trip: PHP fn fired from Rust, returned $
 $fn_count = count(get_extension_funcs('azul-dll'));
 echo "[azul] codegen exposed $fn_count PHP functions; full register+invoke path live.\n";
 
+// 5. Dom class — Phase 51 introduces `Azul\Dom` as a real PHP class
+// wrapping the C-ABI AzDom struct. Construct a body + a div + read
+// back nodeCount through the Zend object boundary, proving:
+//   * #[php_class] AzulDom registered via module.class::<...>()
+//   * Static constructors (createBody/createDiv) reach libazul
+//   * Instance methods call the C-ABI with `&self.inner`
+//   * Drop fires AzDom_delete on PHP-side garbage collection
+$body = Azul\Dom::createBody();
+$div  = Azul\Dom::createDiv();
+if ($body->nodeCount() !== 1 || $div->nodeCount() !== 1) {
+    fwrite(STDERR, "[azul] FAIL: dom nodeCount mismatch: body=" . $body->nodeCount()
+        . ", div=" . $div->nodeCount() . "\n");
+    exit(1);
+}
+echo "[azul] Azul\\Dom::createBody()->nodeCount() = " . $body->nodeCount() . " (PHP class round-trip).\n";
+
 echo "[azul] PHP host-invoker init phase completed successfully.\n";
 echo "[azul] (azul_host_invoker_init also wired AzApp_setGenericInvoker —\n";
 echo "[azul]  libazul's static callback thunks now route through the\n";

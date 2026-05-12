@@ -58,6 +58,7 @@ pub fn generate(ir: &CodegenIR) -> Result<String> {
     emit_releaser(&mut builder);
 
     emit_primitive_functions(&mut builder);
+    emit_dom_class(&mut builder);
 
     for cb in host_invoker_kinds(ir) {
         emit_callback_kind_helpers(&mut builder, cb);
@@ -355,7 +356,81 @@ fn emit_get_module(builder: &mut CodeBuilder, ir: &CodegenIR) {
             fn_name = fn_name
         ));
     }
+    builder.line(".class::<AzulDom>()");
     builder.dedent();
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+}
+
+/// Emit the AzulDom PHP class. Wraps `crate::dll::AzDom`; Phase 51
+/// surfaces just enough to drive the smoke test: two static
+/// constructors (createBody, createDiv) and one instance method
+/// (nodeCount). Phase 52 wires the full constructor set + mutators
+/// (addChild, setStyle, ...).
+fn emit_dom_class(builder: &mut CodeBuilder) {
+    builder.line("// ------------------------------------------------------------------------");
+    builder.line("// `Azul\\Dom` PHP class — wraps libazul's AzDom.");
+    builder.line("// ------------------------------------------------------------------------");
+    builder.line("/// libazul's Dom struct, exposed to PHP as `Azul\\Dom`.");
+    builder.line("///");
+    builder.line("/// Holds heap-allocated Vec children + Css. Drop must call");
+    builder.line("/// AzDom_delete or the children leak. Send + Sync are NOT");
+    builder.line("/// safe in the general case (Vec destructors run on the");
+    builder.line("/// owning thread); for PHP CLI usage we live entirely on the");
+    builder.line("/// request thread, so unsafe impls are sound. SAPIs that move");
+    builder.line("/// objects between threads (Swoole, ZTS) need a different");
+    builder.line("/// shape — Phase 52 evaluates.");
+    builder.line("#[::ext_php_rs::prelude::php_class]");
+    builder.line("#[php(name = \"Azul\\\\Dom\")]");
+    builder.line("#[repr(transparent)]");
+    builder.line("pub struct AzulDom {");
+    builder.indent();
+    builder.line("inner: crate::dll::AzDom,");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+
+    builder.line("unsafe impl ::core::marker::Send for AzulDom {}");
+    builder.line("unsafe impl ::core::marker::Sync for AzulDom {}");
+    builder.blank();
+
+    builder.line("impl ::core::ops::Drop for AzulDom {");
+    builder.indent();
+    builder.line("fn drop(&mut self) {");
+    builder.indent();
+    builder.line("// Defer the underlying free to libazul so the children/css");
+    builder.line("// Vec destructors fire through their cdecl release fns.");
+    builder.line("unsafe { crate::dll::AzDom_delete(&mut self.inner); }");
+    builder.dedent();
+    builder.line("}");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+
+    builder.line("#[::ext_php_rs::prelude::php_impl]");
+    builder.line("impl AzulDom {");
+    builder.indent();
+    builder.line("/// `Azul\\Dom::createBody() : Azul\\Dom`.");
+    builder.line("pub fn create_body() -> Self {");
+    builder.indent();
+    builder.line("unsafe { Self { inner: crate::dll::AzDom_createBody() } }");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+    builder.line("/// `Azul\\Dom::createDiv() : Azul\\Dom`.");
+    builder.line("pub fn create_div() -> Self {");
+    builder.indent();
+    builder.line("unsafe { Self { inner: crate::dll::AzDom_createDiv() } }");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+    builder.line("/// `$dom->nodeCount() : int` — total node count in the dom tree.");
+    builder.line("pub fn node_count(&self) -> u64 {");
+    builder.indent();
+    builder.line("unsafe { crate::dll::AzDom_nodeCount(&self.inner) as u64 }");
+    builder.dedent();
+    builder.line("}");
     builder.dedent();
     builder.line("}");
     builder.blank();
