@@ -63,7 +63,7 @@ pub struct CoreVideoFunctions {
     // Note: CVDisplayLinkCreateWithCGDisplays takes an array of display IDs and count
     cv_display_link_create_with_cg_displays: unsafe extern "C" fn(
         display_array: *const u32,
-        count: u32,
+        count: isize,
         display_link_out: *mut CVDisplayLinkRef,
     ) -> CVReturn,
     cv_display_link_set_output_callback: unsafe extern "C" fn(
@@ -74,7 +74,7 @@ pub struct CoreVideoFunctions {
     cv_display_link_start: unsafe extern "C" fn(display_link: CVDisplayLinkRef) -> CVReturn,
     cv_display_link_stop: unsafe extern "C" fn(display_link: CVDisplayLinkRef) -> CVReturn,
     cv_display_link_release: unsafe extern "C" fn(display_link: CVDisplayLinkRef),
-    cv_display_link_is_running: unsafe extern "C" fn(display_link: CVDisplayLinkRef) -> bool,
+    cv_display_link_is_running: unsafe extern "C" fn(display_link: CVDisplayLinkRef) -> u8,
 
     // Keep the library handle to prevent unloading
     #[allow(dead_code)]
@@ -180,7 +180,7 @@ impl CoreVideoFunctions {
 
     /// Check if the CVDisplayLink is running
     pub fn is_running(&self, display_link: CVDisplayLinkRef) -> bool {
-        unsafe { (self.cv_display_link_is_running)(display_link) }
+        unsafe { (self.cv_display_link_is_running)(display_link) != 0 }
     }
 }
 
@@ -223,11 +223,6 @@ impl DisplayLink {
     /// Check if the display link is running
     pub fn is_running(&self) -> bool {
         self.cv_functions.is_running(self.display_link)
-    }
-
-    /// Get the raw CVDisplayLinkRef
-    pub fn as_ptr(&self) -> CVDisplayLinkRef {
-        self.display_link
     }
 }
 

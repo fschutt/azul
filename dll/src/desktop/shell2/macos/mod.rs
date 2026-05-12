@@ -5686,6 +5686,8 @@ impl Drop for MacOSWindow {
             "[MacOSWindow::drop] Cleaning up window resources"
         );
 
+        // SAFETY: display_link must be stopped before window is dropped, because the
+        // CVDisplayLink callback holds a raw pointer to the NSWindow.
         // Stop and release CVDisplayLink if active
         if let Some(ref display_link) = self.display_link {
             if display_link.is_running() {
