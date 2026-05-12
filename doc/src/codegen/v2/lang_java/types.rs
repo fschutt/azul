@@ -659,8 +659,105 @@ fn emit_struct(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     }
 
     emit_field_order_override(builder, &field_names);
+
+    // AzVec<T> iterable accessor — emit a host-array / host-list method
+    // alongside the raw ptr/len/cap/destructor fields. Detection: any
+    // struct in `TypeCategory::Vec` whose first field is named `ptr`
+    // (with `*const T` ref-kind) gives us the element type. Primitive
+    // elements lower to JNA's typed `getXxxArray` family; struct
+    // elements lower to a `List<T>` built via `Structure.newInstance`.
+    if s.category == TypeCategory::Vec {
+        emit_vec_to_list_java(builder, s, ir);
+    }
+
     emit_byvalue_byref(builder, &name);
 
+    builder.dedent();
+    builder.line("}");
+}
+
+fn emit_vec_to_list_java(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
+    let Some(ptr_field) = s.fields.iter().find(|f| f.name == "ptr") else {
+        return;
+    };
+    let elem_rust = ptr_field.type_name.trim();
+    let elem_java = map_jvm_type(elem_rust, ir);
+    // Skip exotic element types (void / pointer collapses) — the user
+    // can still reach the raw ptr/len fields for those rare cases.
+    if elem_java == "void" || elem_java == "Pointer" {
+        return;
+    }
+
+    // Primitive elements: emit a typed Java array accessor via JNA's
+    // `Pointer.get<Type>Array(offset, length)` family.
+    let primitive = match elem_java.as_str() {
+        "byte" => Some(("byte[]", "toByteArray", "getByteArray")),
+        "short" => Some(("short[]", "toShortArray", "getShortArray")),
+        "int" => Some(("int[]", "toIntArray", "getIntArray")),
+        "long" => Some(("long[]", "toLongArray", "getLongArray")),
+        "float" => Some(("float[]", "toFloatArray", "getFloatArray")),
+        "double" => Some(("double[]", "toDoubleArray", "getDoubleArray")),
+        _ => None,
+    };
+    if let Some((ret, method, jna_method)) = primitive {
+        builder.line("/**");
+        builder.line(&format!(
+            " * Decode the wrapped {} elements into a Java array.",
+            elem_rust
+        ));
+        builder.line(" * Returns an empty array when len is zero.");
+        builder.line(" */");
+        builder.line(&format!("public {} {}() {{", ret, method));
+        builder.indent();
+        builder.line(&format!(
+            "if (ptr == null || len == 0) return new {}[0];",
+            elem_java
+        ));
+        builder.line(&format!("return ptr.{}(0, (int) len);", jna_method));
+        builder.dedent();
+        builder.line("}");
+        return;
+    }
+
+    // Struct (or other reference) elements: emit a `List<ElemType>` that
+    // overlays each `ptr + i * sizeof` onto a fresh JNA Structure
+    // instance. The cached `__size` avoids re-querying per element.
+    builder.line("/**");
+    builder.line(&format!(
+        " * Decode the wrapped {} elements into a Java List.",
+        elem_rust
+    ));
+    builder.line(" * Each element overlays a slice of the native buffer via JNA.");
+    builder.line(" */");
+    builder.line(&format!(
+        "public java.util.List<{}> toList() {{",
+        elem_java
+    ));
+    builder.indent();
+    builder.line(&format!(
+        "if (ptr == null || len == 0) return new java.util.ArrayList<{}>();",
+        elem_java
+    ));
+    builder.line(&format!(
+        "java.util.List<{}> __out = new java.util.ArrayList<{}>((int) len);",
+        elem_java, elem_java
+    ));
+    builder.line(&format!(
+        "int __size = Structure.newInstance({}.class).size();",
+        elem_java
+    ));
+    builder.line("for (long __i = 0; __i < len; __i++) {");
+    builder.indent();
+    builder.line("Pointer __ep = ptr.share(__i * __size);");
+    builder.line(&format!(
+        "{} __e = Structure.newInstance({}.class, __ep);",
+        elem_java, elem_java
+    ));
+    builder.line("__e.read();");
+    builder.line("__out.add(__e);");
+    builder.dedent();
+    builder.line("}");
+    builder.line("return __out;");
     builder.dedent();
     builder.line("}");
 }

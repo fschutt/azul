@@ -211,6 +211,24 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
         out.push_str("    end\n");
     }
 
+    // AzVec<T>:to_lua_array() — returns a Lua table with the elements
+    // copied out. LuaJIT cdata supports indexing the typed pointer so
+    // `self.ptr[i]` works for primitive elements directly; for struct
+    // elements the user receives a cdata view (no copy).
+    if s.category == TypeCategory::Vec {
+        out.push_str(&format!(
+            "    function {}_methods:to_lua_array()\n",
+            class
+        ));
+        out.push_str("        if self.ptr == nil or self.len == 0 then return {} end\n");
+        out.push_str("        local t = {}\n");
+        out.push_str("        for i = 0, tonumber(self.len) - 1 do\n");
+        out.push_str("            t[i + 1] = self.ptr[i]\n");
+        out.push_str("        end\n");
+        out.push_str("        return t\n");
+        out.push_str("    end\n");
+    }
+
     // Metatype binding — only for non-Copy types (those with _delete).
     // For Copy types we still want __index for instance methods, but no __gc.
     if has_delete {

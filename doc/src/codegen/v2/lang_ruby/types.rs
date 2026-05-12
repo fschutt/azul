@@ -444,6 +444,47 @@ fn emit_struct_layout(
     }
     builder.dedent();
     builder.line(")");
+
+    // AzVec<T>.to_a — host-array accessor. Mirrors lang_java.
+    if s.category == TypeCategory::Vec {
+        emit_vec_to_a_ruby(builder, s);
+    }
+
+    builder.dedent();
+    builder.line("end");
+}
+
+fn emit_vec_to_a_ruby(builder: &mut CodeBuilder, s: &StructDef) {
+    let Some(ptr_field) = s.fields.iter().find(|f| f.name == "ptr") else {
+        return;
+    };
+    let elem_rust = ptr_field.type_name.trim();
+    // Ruby FFI has typed pointer readers via `read_array_of_<type>`.
+    let reader = match elem_rust {
+        "u8" => Some("read_array_of_uint8"),
+        "u16" => Some("read_array_of_uint16"),
+        "u32" => Some("read_array_of_uint32"),
+        "u64" => Some("read_array_of_uint64"),
+        "i8" => Some("read_array_of_int8"),
+        "i16" => Some("read_array_of_int16"),
+        "i32" => Some("read_array_of_int32"),
+        "i64" => Some("read_array_of_int64"),
+        "f32" => Some("read_array_of_float"),
+        "f64" => Some("read_array_of_double"),
+        _ => None,
+    };
+    builder.line("# Decode the wrapped elements into a Ruby Array.");
+    builder.line("def to_a");
+    builder.indent();
+    builder.line("return [] if self[:len].zero? || self[:ptr].null?");
+    if let Some(reader) = reader {
+        builder.line(&format!("self[:ptr].{}(self[:len])", reader));
+    } else {
+        builder.line("# Struct element — read each as a fresh FFI::Struct.");
+        builder.line("size = self.class.const_get(:LAYOUT).fields.first.size rescue 0");
+        builder.line("# Fallback: scan slot-by-slot. Users can also poke self[:ptr] directly.");
+        builder.line("(0...self[:len]).map { |i| self[:ptr] + i * size }");
+    }
     builder.dedent();
     builder.line("end");
 }

@@ -453,9 +453,124 @@ fn generate_struct(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
         }
     }
 
+    // AzVec<T> → host array/list — mirror of lang_java's emit_vec_to_list_java.
+    if s.category == TypeCategory::Vec {
+        emit_vec_to_list_cs(builder, s, ir);
+    }
+
     builder.dedent();
     builder.line("}");
     builder.blank();
+}
+
+fn emit_vec_to_list_cs(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
+    let Some(ptr_field) = s.fields.iter().find(|f| f.name == "ptr") else {
+        return;
+    };
+    let elem_rust = ptr_field.type_name.trim();
+    let elem_cs = map_type_to_csharp(elem_rust, ir);
+    // Skip exotic types (void / IntPtr collapse).
+    if elem_cs == "void" || elem_cs == "System.IntPtr" || elem_cs == "IntPtr" {
+        return;
+    }
+
+    let primitive_size = match elem_cs.as_str() {
+        "byte" | "sbyte" => Some(1usize),
+        "short" | "ushort" => Some(2),
+        "int" | "uint" => Some(4),
+        "long" | "ulong" => Some(8),
+        "float" => Some(4),
+        "double" => Some(8),
+        _ => None,
+    };
+
+    builder.line("/// <summary>");
+    builder.line(&format!(
+        "/// Decode the wrapped {} elements into a managed array.",
+        elem_rust
+    ));
+    builder.line("/// </summary>");
+    builder.line(&format!("public {}[] ToArray()", elem_cs));
+    builder.line("{");
+    builder.indent();
+    builder.line(&format!(
+        "if (ptr == System.IntPtr.Zero || len == System.UIntPtr.Zero) return new {}[0];",
+        elem_cs
+    ));
+    builder.line("var __n = (int)len.ToUInt64();");
+    builder.line(&format!("var __out = new {}[__n];", elem_cs));
+    if let Some(size) = primitive_size {
+        // Marshal.Copy supports primitive arrays directly for byte/short/int/long/float/double.
+        let marshal_method = match elem_cs.as_str() {
+            "byte" => "Copy",
+            "short" => "Copy",
+            "int" => "Copy",
+            "long" => "Copy",
+            "float" => "Copy",
+            "double" => "Copy",
+            _ => "Copy",
+        };
+        // Marshal.Copy doesn't support unsigned types directly; cast through signed buffer for those.
+        match elem_cs.as_str() {
+            "byte" | "short" | "int" | "long" | "float" | "double" => {
+                builder.line(&format!(
+                    "System.Runtime.InteropServices.Marshal.{}(ptr, __out, 0, __n);",
+                    marshal_method
+                ));
+            }
+            "sbyte" => {
+                // Marshal has no Copy(IntPtr, sbyte[], ...). Use a byte buffer and reinterpret.
+                builder.line("var __buf = new byte[__n];");
+                builder.line(
+                    "System.Runtime.InteropServices.Marshal.Copy(ptr, __buf, 0, __n);",
+                );
+                builder.line("for (int __i = 0; __i < __n; __i++) __out[__i] = (sbyte)__buf[__i];");
+            }
+            "ushort" => {
+                builder.line("var __buf = new short[__n];");
+                builder.line(
+                    "System.Runtime.InteropServices.Marshal.Copy(ptr, __buf, 0, __n);",
+                );
+                builder.line("for (int __i = 0; __i < __n; __i++) __out[__i] = (ushort)__buf[__i];");
+            }
+            "uint" => {
+                builder.line("var __buf = new int[__n];");
+                builder.line(
+                    "System.Runtime.InteropServices.Marshal.Copy(ptr, __buf, 0, __n);",
+                );
+                builder.line("for (int __i = 0; __i < __n; __i++) __out[__i] = (uint)__buf[__i];");
+            }
+            "ulong" => {
+                builder.line("var __buf = new long[__n];");
+                builder.line(
+                    "System.Runtime.InteropServices.Marshal.Copy(ptr, __buf, 0, __n);",
+                );
+                builder.line("for (int __i = 0; __i < __n; __i++) __out[__i] = (ulong)__buf[__i];");
+            }
+            _ => unreachable!(),
+        }
+        let _ = size;
+    } else {
+        // Struct element — use Marshal.PtrToStructure per element.
+        builder.line(&format!(
+            "int __size = System.Runtime.InteropServices.Marshal.SizeOf<{}>();",
+            elem_cs
+        ));
+        builder.line("for (int __i = 0; __i < __n; __i++) {");
+        builder.indent();
+        builder.line(
+            "var __ep = System.IntPtr.Add(ptr, __i * __size);",
+        );
+        builder.line(&format!(
+            "__out[__i] = System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__ep);",
+            elem_cs
+        ));
+        builder.dedent();
+        builder.line("}");
+    }
+    builder.line("return __out;");
+    builder.dedent();
+    builder.line("}");
 }
 
 fn generate_field(builder: &mut CodeBuilder, f: &FieldDef, ir: &CodegenIR) {

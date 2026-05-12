@@ -39,14 +39,7 @@ Each takes one wrapper method per binding. AzString is done (commit 7c0d4f250) �
 
 - [x] **A.1.1 AzString → host string** across Java/Kotlin/C#/Ruby/Node/OCaml/Lua. *Commit 7c0d4f250.*
 - [⊘] **A.1.2 AzOption<T> → host nullable / Optional**. Done for Java/Kotlin/C#/Ruby in this iteration; bundled together with three tag-width fixes (Kotlin `Int`→`Byte`, Ruby `:int`→`:uint8`, Node `uint32_t`→`uint8_t`) so the tag at offset 0 is finally consistent across bindings. Node/OCaml/Lua deferred — Node has no per-type wrapper class to attach the method to, OCaml emits AzOption as opaque blobs, Lua's union cdefs aren't currently wrapped in metatypes. *(blocker: Node/OCaml/Lua require broader codegen design changes — separate task; memory: TBD)*
-- [ ] **A.1.3 AzVec<T> → host iterable**. Element marshalling per type — IR has the element type. Returns native iterator/list/array:
-  - Java: `implements Iterable<T>` + `Iterator<T>`
-  - Kotlin: `operator fun iterator(): Iterator<T>`
-  - C#: `IEnumerable<T> ToList()`
-  - Ruby: `include Enumerable; def each ... end`
-  - Node: `[Symbol.iterator]()`
-  - OCaml: `let to_list self = ...`
-  - Lua: `function _methods:to_lua_array()` returning a Lua table
+- [⊘] **A.1.3 AzVec<T> → host iterable**. Done for Java/Kotlin/C#/Ruby/Lua. Each emits a typed array (primitive elements) or list (struct elements) via `toByteArray/toIntArray/toList/ToArray/to_a/to_lua_array`. Node/OCaml deferred — same blockers as A.1.2 (Node: no wrapper class to attach to; OCaml: emits Vec as opaque blob fields).
 - [ ] **A.1.4 AzResult<T,E>.unwrap() → throws/raises on Err**. Per-language:
   - Java/Kotlin: `T unwrap() throws AzulError`
   - C#: `T Unwrap()` throws
@@ -308,6 +301,7 @@ These bite us repeatedly across bindings. Fix once in shared infra.
   - (PHP build verified — no commit, env-only)
   - `c4123d468` plan: overnight autonomous-loop checklist
 - 2026-05-13 overnight loop:
-  - A.1.2 (Java/Kotlin/C#/Ruby AzOption + tag-width fix in Kotlin/Ruby/Node)
+  - A.1.2 (Java/Kotlin/C#/Ruby AzOption + tag-width fix in Kotlin/Ruby/Node) — `78fa2de9b`
+  - A.1.3 (AzVec iterable across Java/Kotlin/C#/Ruby/Lua)
 
 End of plan.

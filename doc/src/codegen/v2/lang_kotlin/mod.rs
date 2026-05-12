@@ -686,11 +686,102 @@ fn emit_struct(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     }
 
     emit_field_order(builder, &field_names);
+
+    // AzVec<T> iterable accessor — see the Java mirror in
+    // lang_java/types.rs::emit_vec_to_list_java.
+    if s.category == TypeCategory::Vec {
+        emit_vec_to_list_kt(builder, s, ir);
+    }
+
     emit_byvalue_byref(builder, &name);
 
     builder.dedent();
     builder.line("}");
     builder.blank();
+}
+
+fn emit_vec_to_list_kt(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
+    let Some(ptr_field) = s.fields.iter().find(|f| f.name == "ptr") else {
+        return;
+    };
+    let elem_rust = ptr_field.type_name.trim();
+    let elem_jvm = base_map_jvm_type(elem_rust, ir);
+    let elem_kt = jvm_to_kotlin_primitive(&elem_jvm);
+    // Skip exotic element types (void / Unit) — typically a typed
+    // pointer field the JVM type-map collapsed to opaque. Users can
+    // still reach the raw ptr/len fields.
+    if elem_kt == "Unit" || elem_kt == "void" || elem_jvm == "void" {
+        return;
+    }
+
+    let primitive = match elem_kt.as_str() {
+        "Byte" => Some(("ByteArray", "toByteArray", "getByteArray")),
+        "Short" => Some(("ShortArray", "toShortArray", "getShortArray")),
+        "Int" => Some(("IntArray", "toIntArray", "getIntArray")),
+        "Long" => Some(("LongArray", "toLongArray", "getLongArray")),
+        "Float" => Some(("FloatArray", "toFloatArray", "getFloatArray")),
+        "Double" => Some(("DoubleArray", "toDoubleArray", "getDoubleArray")),
+        _ => None,
+    };
+    if let Some((ret, method, jna_method)) = primitive {
+        builder.line("/**");
+        builder.line(&format!(
+            " * Decode the wrapped {} elements into a Kotlin array.",
+            elem_rust
+        ));
+        builder.line(" */");
+        builder.line(&format!("fun {}(): {} {{", method, ret));
+        builder.indent();
+        builder.line(&format!(
+            "if (ptr == null || len == 0L) return {}(0)",
+            ret
+        ));
+        builder.line(&format!(
+            "return ptr.{}(0, len.toInt())",
+            jna_method
+        ));
+        builder.dedent();
+        builder.line("}");
+        return;
+    }
+
+    // Struct elements → List<T>.
+    builder.line("/**");
+    builder.line(&format!(
+        " * Decode the wrapped {} elements into a Kotlin List.",
+        elem_rust
+    ));
+    builder.line(" */");
+    builder.line(&format!(
+        "fun toList(): kotlin.collections.List<{}> {{",
+        elem_kt
+    ));
+    builder.indent();
+    builder.line(&format!(
+        "if (ptr == null || len == 0L) return emptyList()"
+    ));
+    builder.line(&format!(
+        "val __out = java.util.ArrayList<{}>(len.toInt())",
+        elem_kt
+    ));
+    builder.line(&format!(
+        "val __size = Structure.newInstance({}::class.java).size()",
+        elem_kt
+    ));
+    builder.line("for (__i in 0 until len) {");
+    builder.indent();
+    builder.line("val __ep = ptr.share(__i * __size)");
+    builder.line(&format!(
+        "val __e = Structure.newInstance({}::class.java, __ep)",
+        elem_kt
+    ));
+    builder.line("__e.read()");
+    builder.line("__out.add(__e)");
+    builder.dedent();
+    builder.line("}");
+    builder.line("return __out");
+    builder.dedent();
+    builder.line("}");
 }
 
 fn emit_struct_field(
