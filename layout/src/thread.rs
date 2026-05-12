@@ -454,6 +454,34 @@ impl core::hash::Hash for ThreadCallback {
     }
 }
 
+// Host-invoker plumbing for ThreadCallback. NOTE: this callback fires
+// on a worker thread (spawned by `Thread::create`), not the main
+// `App.run` thread. The per-language host-invoker thunk MUST acquire
+// the host VM lock before dispatching to user code:
+//   * CPython: PyGILState_Ensure / _Release
+//   * MRI Ruby: rb_thread_call_with_gvl
+//   * OpenJDK: AttachCurrentThread / DetachCurrentThread
+//   * CLR / .NET: nothing ([UnmanagedCallersOnly] auto-trampolines)
+//   * OCaml: caml_acquire_runtime_system / _release
+//   * Lua / Perl / PHP / Pharo: cannot be called from worker thread
+//     (single-threaded interpreter) — fall back to writeback-only
+//     pattern (Rust extern "C" cb on worker, host fn on main via
+//     WriteBackCallback).
+// See `scripts/BINDING_STRATEGY_PER_LANGUAGE.md` for the lock-acquire
+// table per VM.
+azul_core::impl_managed_callback! {
+    wrapper:        ThreadCallback,
+    info_ty:        ThreadSender,
+    return_ty:      (),
+    default_ret:    (),
+    invoker_static: THREAD_CALLBACK_INVOKER,
+    invoker_ty:     AzThreadCallbackInvoker,
+    thunk_fn:       az_thread_callback_thunk,
+    setter_fn:      AzApp_setThreadCallbackInvoker,
+    from_handle_fn: AzThreadCallback_createFromHostHandle,
+    extra_args:     [receiver: ThreadReceiver],
+}
+
 /// Callback type for receiving messages from a background thread
 pub type LibraryReceiveThreadMsgCallbackType =
     extern "C" fn(*const core::ffi::c_void) -> OptionThreadReceiveMsg;

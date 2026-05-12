@@ -71,6 +71,16 @@ pub const HOST_INVOKER_KINDS: &[&str] = &[
     "ListViewOnColumnClickCallback",
     "ListViewOnRowClickCallback",
     "RibbonOnTabClickCallback",
+    // ThreadCallback fires on a worker thread (spawned by
+    // Thread::create). Per-language host-invoker thunks for this kind
+    // MUST acquire the host VM lock before dispatching — see
+    // scripts/BINDING_STRATEGY_PER_LANGUAGE.md for the per-VM table
+    // (PyGILState_Ensure, rb_thread_call_with_gvl, AttachCurrentThread,
+    // etc.). Single-threaded interpreters (Lua, Perl, PHP, Pharo)
+    // can't safely receive this callback; users should use the
+    // writeback-only pattern (Rust extern "C" worker fn + host
+    // WriteBackCallback on main).
+    "ThreadCallback",
 ];
 
 /// Filter `ir.callback_typedefs` down to the entries whose wrapper name is
