@@ -65,6 +65,174 @@
                 }
             },
             "languages": {
+                "ada": {
+                    "displayName": "Ada",
+                    "platforms": {
+                        "linux": {
+                            "description": "Download azul, the generated Ada bindings, and build with GNAT/Alire",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.ads"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.adb"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello_world.gpr"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "LD_LIBRARY_PATH=. gprbuild -P hello_world.gpr"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "./obj/hello_world"
+                                }
+                            ]
+                        },
+                        "macos": {
+                            "description": "Download azul, the generated Ada bindings, and build with GNAT/Alire",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.ads"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.adb"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello_world.gpr"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "DYLD_LIBRARY_PATH=. gprbuild -P hello_world.gpr"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "./obj/hello_world"
+                                }
+                            ]
+                        },
+                        "windows": {
+                            "description": "Download azul, the generated Ada bindings, and build with GNAT/Alire",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.ads"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.adb"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello_world.gpr"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "gprbuild -P hello_world.gpr"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "obj\\hello_world.exe"
+                                }
+                            ]
+                        }
+                    }
+                },
+                "algol68": {
+                    "displayName": "Algol 68",
+                    "platforms": {
+                        "linux": {
+                            "description": "Install Algol 68 Genie (GPL-3.0+), download azul.a68 and the native library, then run with a68g",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "sudo apt-get install algol68g"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.a68"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.a68"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "LD_LIBRARY_PATH=. a68g hello-world.a68"
+                                }
+                            ]
+                        },
+                        "macos": {
+                            "description": "Install Algol 68 Genie (GPL-3.0+) via Homebrew, download azul.a68 and the native library, then run with a68g",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "brew install algol68g"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.a68"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.a68"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "DYLD_LIBRARY_PATH=. a68g hello-world.a68"
+                                }
+                            ]
+                        },
+                        "windows": {
+                            "description": "Download Algol 68 Genie (GPL-3.0+) Windows build from jmvdveer.home.xs4all.nl, place azul.dll alongside your source, then run with a68g",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.a68"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.a68"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "a68g hello-world.a68"
+                                }
+                            ]
+                        }
+                    }
+                },
                 "c": {
                     "displayName": "C",
                     "platforms": {
@@ -116,6 +284,86 @@
                                 {
                                     "type": "command",
                                     "content": "gcc -I. hello-world.c -L. -lazul -o hello-world.exe"
+                                }
+                            ]
+                        }
+                    }
+                },
+                "cobol": {
+                    "displayName": "COBOL",
+                    "platforms": {
+                        "linux": {
+                            "description": "Download azul.cpy, hello-world.cob, and the native library; build with cobc",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.cpy"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.cob"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cobc -x -free hello-world.cob -L. -lazul -o hello-world"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "LD_LIBRARY_PATH=. ./hello-world"
+                                }
+                            ]
+                        },
+                        "macos": {
+                            "description": "Download azul.cpy, hello-world.cob, and the native library; build with cobc",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.cpy"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.cob"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cobc -x -free hello-world.cob -L. -lazul -o hello-world"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "DYLD_LIBRARY_PATH=. ./hello-world"
+                                }
+                            ]
+                        },
+                        "windows": {
+                            "description": "Download azul.cpy, hello-world.cob, and azul.dll; build with cobc",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.cpy"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.cob"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cobc -x -free hello-world.cob -L. -lazul -o hello-world.exe"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "hello-world.exe"
                                 }
                             ]
                         }
@@ -463,143 +711,6 @@
                         }
                     }
                 },
-                "python": {
-                    "displayName": "Python",
-                    "methods": {
-                        "pip": {
-                            "displayName": "pip",
-                            "description": "Install via pip",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "pip3 install azul==$VERSION"
-                                }
-                            ]
-                        },
-                        "uv": {
-                            "displayName": "uv",
-                            "description": "Install via uv (fast)",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "uv add azul==$VERSION"
-                                }
-                            ]
-                        }
-                    }
-                },
-                "rust": {
-                    "displayName": "Rust",
-                    "methods": {
-                        "cargo": {
-                            "displayName": null,
-                            "description": "Add to Cargo.toml",
-                            "steps": [
-                                {
-                                    "type": "code",
-                                    "language": "toml",
-                                    "content": "[dependencies]\nazul = { git = \"$HOSTNAME/$VERSION.git\" }"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "cargo build"
-                                }
-                            ]
-                        }
-                    }
-                },
-                "ada": {
-                    "displayName": "Ada",
-                    "platforms": {
-                        "linux": {
-                            "description": "Download azul, the generated Ada bindings, and build with GNAT/Alire",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.ads"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.adb"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello_world.gpr"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "LD_LIBRARY_PATH=. gprbuild -P hello_world.gpr"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "./obj/hello_world"
-                                }
-                            ]
-                        },
-                        "macos": {
-                            "description": "Download azul, the generated Ada bindings, and build with GNAT/Alire",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.ads"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.adb"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello_world.gpr"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "DYLD_LIBRARY_PATH=. gprbuild -P hello_world.gpr"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "./obj/hello_world"
-                                }
-                            ]
-                        },
-                        "windows": {
-                            "description": "Download azul, the generated Ada bindings, and build with GNAT/Alire",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.ads"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.adb"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello_world.gpr"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "gprbuild -P hello_world.gpr"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "obj\\hello_world.exe"
-                                }
-                            ]
-                        }
-                    }
-                },
                 "csharp": {
                     "displayName": "C#",
                     "platforms": {
@@ -700,748 +811,6 @@
                         }
                     }
                 },
-                "freebasic": {
-                    "displayName": "FreeBASIC",
-                    "platforms": {
-                        "linux": {
-                            "description": "Download azul.bi, hello-world.bas, and the native library; build with fbc",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.bi"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.bas"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "fbc hello-world.bas"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "LD_LIBRARY_PATH=. ./hello-world"
-                                }
-                            ]
-                        },
-                        "macos": {
-                            "description": "Download azul.bi, hello-world.bas, and the native library; build with fbc",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.bi"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.bas"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "fbc hello-world.bas"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "DYLD_LIBRARY_PATH=. ./hello-world"
-                                }
-                            ]
-                        },
-                        "windows": {
-                            "description": "Download azul.bi, hello-world.bas, and azul.dll; build with fbc",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.bi"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.bas"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "fbc hello-world.bas"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "hello-world.exe"
-                                }
-                            ]
-                        }
-                    }
-                },
-                "lua": {
-                    "displayName": "Lua",
-                    "platforms": {
-                        "linux": {
-                            "description": "Download azul.lua and the native library, then run with LuaJIT",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.lua"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "LD_LIBRARY_PATH=. luajit hello-world.lua"
-                                }
-                            ]
-                        },
-                        "macos": {
-                            "description": "Download azul.lua and the native library, then run with LuaJIT",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.lua"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "DYLD_LIBRARY_PATH=. luajit hello-world.lua"
-                                }
-                            ]
-                        },
-                        "windows": {
-                            "description": "Download azul.lua and the native library, then run with LuaJIT",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.lua"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "luajit hello-world.lua"
-                                }
-                            ]
-                        }
-                    }
-                },
-                "pascal": {
-                    "displayName": "Pascal",
-                    "platforms": {
-                        "linux": {
-                            "description": "Download azul.pas, the Lazarus project, and the native library; build with FPC",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.pas"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.pas"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "fpc -Mobjfpc -Sh hello-world.pas"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "LD_LIBRARY_PATH=. ./hello-world"
-                                }
-                            ]
-                        },
-                        "macos": {
-                            "description": "Download azul.pas, the Lazarus project, and the native library; build with FPC",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.pas"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.pas"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "fpc -Mobjfpc -Sh hello-world.pas"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "DYLD_LIBRARY_PATH=. ./hello-world"
-                                }
-                            ]
-                        },
-                        "windows": {
-                            "description": "Download azul.pas, the Lazarus project, and azul.dll; build with FPC",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.pas"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.pas"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "fpc -Mobjfpc -Sh hello-world.pas"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "hello-world.exe"
-                                }
-                            ]
-                        }
-                    }
-                },
-                "ruby": {
-                    "displayName": "Ruby",
-                    "platforms": {
-                        "linux": {
-                            "description": "Install via RubyGems (uses bundled libazul.so)",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul-$VERSION.gem"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "gem install --local azul-$VERSION.gem"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.rb"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "ruby hello-world.rb"
-                                }
-                            ]
-                        },
-                        "macos": {
-                            "description": "Install via RubyGems (uses bundled libazul.dylib)",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul-$VERSION.gem"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "gem install --local azul-$VERSION.gem"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.rb"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "ruby hello-world.rb"
-                                }
-                            ]
-                        },
-                        "windows": {
-                            "description": "Install via RubyGems (uses bundled azul.dll)",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul-$VERSION.gem"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "gem install --local azul-$VERSION.gem"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.rb"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "ruby hello-world.rb"
-                                }
-                            ]
-                        }
-                    }
-                },
-                "ocaml": {
-                    "displayName": "OCaml",
-                    "platforms": {
-                        "linux": {
-                            "description": "Download azul + generated bindings, build with Dune",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "opam install ctypes ctypes-foreign"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.ml"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.mli"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/dune"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/dune-project"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "dune build"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "LD_LIBRARY_PATH=. ./_build/default/hello_world.exe"
-                                }
-                            ]
-                        },
-                        "macos": {
-                            "description": "Download azul + generated bindings, build with Dune",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "opam install ctypes ctypes-foreign"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.ml"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.mli"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/dune"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/dune-project"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "dune build"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "DYLD_LIBRARY_PATH=. ./_build/default/hello_world.exe"
-                                }
-                            ]
-                        },
-                        "windows": {
-                            "description": "Download azul + generated bindings, build with Dune (under MSYS2 / Cygwin OCaml)",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "opam install ctypes ctypes-foreign"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O %HOSTNAME%/release/%VERSION%/azul.dll"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O %HOSTNAME%/release/%VERSION%/azul.ml"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O %HOSTNAME%/release/%VERSION%/azul.mli"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O %HOSTNAME%/release/%VERSION%/dune"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O %HOSTNAME%/release/%VERSION%/dune-project"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "dune build"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": ".\\_build\\default\\hello_world.exe"
-                                }
-                            ]
-                        }
-                    }
-                },
-                "perl": {
-                    "displayName": "Perl",
-                    "platforms": {
-                        "linux": {
-                            "description": "Install FFI::Platypus, drop in Azul.pm, run with libazul.so on LD_LIBRARY_PATH",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/Azul.pm"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/cpanfile"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "cpanm --installdeps ."
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.pl"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "LD_LIBRARY_PATH=. perl -Ilib hello-world.pl"
-                                }
-                            ]
-                        },
-                        "macos": {
-                            "description": "Install FFI::Platypus, drop in Azul.pm, run with libazul.dylib on DYLD_LIBRARY_PATH",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/Azul.pm"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/cpanfile"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "cpanm --installdeps ."
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.pl"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "DYLD_LIBRARY_PATH=. perl -Ilib hello-world.pl"
-                                }
-                            ]
-                        },
-                        "windows": {
-                            "description": "Install FFI::Platypus via Strawberry Perl, drop in Azul.pm and azul.dll",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/Azul.pm"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/cpanfile"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "cpanm --installdeps ."
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.pl"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "perl -Ilib hello-world.pl"
-                                }
-                            ]
-                        }
-                    }
-                },
-                "php": {
-                    "displayName": "PHP",
-                    "notes": [
-                        "Standard php-ffi rejects closure-to-fnpointer by design.",
-                        "The FFI path covers everything except event callbacks (clicks, layout).",
-                        "For full callback support use the native `azul.so` PHP extension once it ships",
-                        "(planned via the `php-extension` Cargo feature using ext-php-rs)."
-                    ],
-                    "platforms": {
-                        "linux": {
-                            "description": "Download azul, install Azul.php and enable the PHP FFI extension. NOTE: callbacks (button click, layout) require the native PHP extension build.",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/Azul.php"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/composer.json"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "sudo apt-get install -y php-ffi"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "sudo dnf install -y php-ffi"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "php -d ffi.enable=true hello-world.php"
-                                }
-                            ]
-                        },
-                        "macos": {
-                            "description": "Download azul, install Azul.php and enable the PHP FFI extension. NOTE: callbacks (button click, layout) require the native PHP extension build.",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/Azul.php"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/composer.json"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "brew install php"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "php -d ffi.enable=true hello-world.php"
-                                }
-                            ]
-                        },
-                        "windows": {
-                            "description": "Download azul, install Azul.php and enable the PHP FFI extension. NOTE: callbacks (button click, layout) require the native PHP extension build.",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/Azul.php"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/composer.json"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "REM Enable the bundled FFI extension in php.ini: extension=ffi and ffi.enable=true"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "php -d ffi.enable=true hello-world.php"
-                                }
-                            ]
-                        }
-                    }
-                },
-                "powershell": {
-                    "displayName": "PowerShell",
-                    "platforms": {
-                        "linux": {
-                            "description": "Download azul, drop the .psm1/.psd1 next to libazul.so, and Import-Module",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/Azul.psm1"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/Azul.psd1"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "pwsh -NoProfile -Command \"Import-Module ./Azul.psd1; Set-AzulLibraryPath -Path (Get-Location)\""
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "pwsh ./hello-world.ps1"
-                                }
-                            ]
-                        },
-                        "macos": {
-                            "description": "Download azul, drop the .psm1/.psd1 next to libazul.dylib, and Import-Module",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/Azul.psm1"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/Azul.psd1"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "pwsh -NoProfile -Command \"Import-Module ./Azul.psd1; Set-AzulLibraryPath -Path (Get-Location)\""
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "pwsh ./hello-world.ps1"
-                                }
-                            ]
-                        },
-                        "windows": {
-                            "description": "Download azul, drop the .psm1/.psd1 next to azul.dll, and Import-Module",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/Azul.psm1"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/Azul.psd1"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "powershell -ExecutionPolicy Bypass -Command \"Import-Module .\\Azul.psd1; Set-AzulLibraryPath -Path (Get-Location)\""
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "powershell -ExecutionPolicy Bypass -File .\\hello-world.ps1"
-                                }
-                            ]
-                        }
-                    }
-                },
-                "zig": {
-                    "displayName": "Zig",
-                    "platforms": {
-                        "linux": {
-                            "description": "Download azul.h, azul.zig, the native library, and a minimal build.zig",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.h"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.zig"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/build.zig"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "LD_LIBRARY_PATH=. zig build run"
-                                }
-                            ]
-                        },
-                        "macos": {
-                            "description": "Download azul.h, azul.zig, the native library, and a minimal build.zig",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.h"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.zig"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/build.zig"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "DYLD_LIBRARY_PATH=. zig build run"
-                                }
-                            ]
-                        },
-                        "windows": {
-                            "description": "Download azul.h, azul.zig, the native library, and a minimal build.zig",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.h"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.zig"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/build.zig"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "zig build run"
-                                }
-                            ]
-                        }
-                    }
-                },
                 "fortran": {
                     "displayName": "Fortran",
                     "platforms": {
@@ -1517,6 +886,86 @@
                                 {
                                     "type": "command",
                                     "content": "gfortran hello_world.f90 azul.o -L. -lazul -o hello_world.exe"
+                                }
+                            ]
+                        }
+                    }
+                },
+                "freebasic": {
+                    "displayName": "FreeBASIC",
+                    "platforms": {
+                        "linux": {
+                            "description": "Download azul.bi, hello-world.bas, and the native library; build with fbc",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.bi"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.bas"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "fbc hello-world.bas"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "LD_LIBRARY_PATH=. ./hello-world"
+                                }
+                            ]
+                        },
+                        "macos": {
+                            "description": "Download azul.bi, hello-world.bas, and the native library; build with fbc",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.bi"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.bas"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "fbc hello-world.bas"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "DYLD_LIBRARY_PATH=. ./hello-world"
+                                }
+                            ]
+                        },
+                        "windows": {
+                            "description": "Download azul.bi, hello-world.bas, and azul.dll; build with fbc",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.bi"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.bas"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "fbc hello-world.bas"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "hello-world.exe"
                                 }
                             ]
                         }
@@ -2038,6 +1487,707 @@
                         }
                     }
                 },
+                "lua": {
+                    "displayName": "Lua",
+                    "platforms": {
+                        "linux": {
+                            "description": "Download azul.lua and the native library, then run with LuaJIT",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.lua"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "LD_LIBRARY_PATH=. luajit hello-world.lua"
+                                }
+                            ]
+                        },
+                        "macos": {
+                            "description": "Download azul.lua and the native library, then run with LuaJIT",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.lua"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "DYLD_LIBRARY_PATH=. luajit hello-world.lua"
+                                }
+                            ]
+                        },
+                        "windows": {
+                            "description": "Download azul.lua and the native library, then run with LuaJIT",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.lua"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "luajit hello-world.lua"
+                                }
+                            ]
+                        }
+                    }
+                },
+                "node": {
+                    "displayName": "JavaScript",
+                    "platforms": {
+                        "linux": {
+                            "description": "Download azul prebuilt + install koffi",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.js"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/package.json"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "npm install"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "node hello-world.js"
+                                }
+                            ]
+                        },
+                        "macos": {
+                            "description": "Download azul prebuilt + install koffi",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.js"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/package.json"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "npm install"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "node hello-world.js"
+                                }
+                            ]
+                        },
+                        "windows": {
+                            "description": "Download azul prebuilt + install koffi",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.js"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/package.json"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "npm install"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "node hello-world.js"
+                                }
+                            ]
+                        }
+                    }
+                },
+                "ocaml": {
+                    "displayName": "OCaml",
+                    "platforms": {
+                        "linux": {
+                            "description": "Download azul + generated bindings, build with Dune",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "opam install ctypes ctypes-foreign"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.ml"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.mli"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/dune"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/dune-project"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "dune build"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "LD_LIBRARY_PATH=. ./_build/default/hello_world.exe"
+                                }
+                            ]
+                        },
+                        "macos": {
+                            "description": "Download azul + generated bindings, build with Dune",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "opam install ctypes ctypes-foreign"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.ml"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.mli"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/dune"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/dune-project"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "dune build"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "DYLD_LIBRARY_PATH=. ./_build/default/hello_world.exe"
+                                }
+                            ]
+                        },
+                        "windows": {
+                            "description": "Download azul + generated bindings, build with Dune (under MSYS2 / Cygwin OCaml)",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "opam install ctypes ctypes-foreign"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O %HOSTNAME%/release/%VERSION%/azul.dll"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O %HOSTNAME%/release/%VERSION%/azul.ml"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O %HOSTNAME%/release/%VERSION%/azul.mli"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O %HOSTNAME%/release/%VERSION%/dune"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O %HOSTNAME%/release/%VERSION%/dune-project"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "dune build"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": ".\\_build\\default\\hello_world.exe"
+                                }
+                            ]
+                        }
+                    }
+                },
+                "pascal": {
+                    "displayName": "Pascal",
+                    "platforms": {
+                        "linux": {
+                            "description": "Download azul.pas, the Lazarus project, and the native library; build with FPC",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.pas"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.pas"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "fpc -Mobjfpc -Sh hello-world.pas"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "LD_LIBRARY_PATH=. ./hello-world"
+                                }
+                            ]
+                        },
+                        "macos": {
+                            "description": "Download azul.pas, the Lazarus project, and the native library; build with FPC",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.pas"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.pas"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "fpc -Mobjfpc -Sh hello-world.pas"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "DYLD_LIBRARY_PATH=. ./hello-world"
+                                }
+                            ]
+                        },
+                        "windows": {
+                            "description": "Download azul.pas, the Lazarus project, and azul.dll; build with FPC",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.pas"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.pas"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "fpc -Mobjfpc -Sh hello-world.pas"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "hello-world.exe"
+                                }
+                            ]
+                        }
+                    }
+                },
+                "perl": {
+                    "displayName": "Perl",
+                    "platforms": {
+                        "linux": {
+                            "description": "Install FFI::Platypus, drop in Azul.pm, run with libazul.so on LD_LIBRARY_PATH",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/Azul.pm"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/cpanfile"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cpanm --installdeps ."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.pl"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "LD_LIBRARY_PATH=. perl -Ilib hello-world.pl"
+                                }
+                            ]
+                        },
+                        "macos": {
+                            "description": "Install FFI::Platypus, drop in Azul.pm, run with libazul.dylib on DYLD_LIBRARY_PATH",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/Azul.pm"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/cpanfile"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cpanm --installdeps ."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.pl"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "DYLD_LIBRARY_PATH=. perl -Ilib hello-world.pl"
+                                }
+                            ]
+                        },
+                        "windows": {
+                            "description": "Install FFI::Platypus via Strawberry Perl, drop in Azul.pm and azul.dll",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/Azul.pm"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/cpanfile"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cpanm --installdeps ."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.pl"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "perl -Ilib hello-world.pl"
+                                }
+                            ]
+                        }
+                    }
+                },
+                "php": {
+                    "displayName": "PHP",
+                    "platforms": {
+                        "linux": {
+                            "description": "Download azul, install Azul.php and enable the PHP FFI extension. NOTE: callbacks (button click, layout) require the native PHP extension build.",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/Azul.php"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/composer.json"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "sudo apt-get install -y php-ffi"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "sudo dnf install -y php-ffi"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "php -d ffi.enable=true hello-world.php"
+                                }
+                            ]
+                        },
+                        "macos": {
+                            "description": "Download azul, install Azul.php and enable the PHP FFI extension. NOTE: callbacks (button click, layout) require the native PHP extension build.",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/Azul.php"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/composer.json"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "brew install php"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "php -d ffi.enable=true hello-world.php"
+                                }
+                            ]
+                        },
+                        "windows": {
+                            "description": "Download azul, install Azul.php and enable the PHP FFI extension. NOTE: callbacks (button click, layout) require the native PHP extension build.",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/Azul.php"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/composer.json"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "REM Enable the bundled FFI extension in php.ini: extension=ffi and ffi.enable=true"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "php -d ffi.enable=true hello-world.php"
+                                }
+                            ]
+                        }
+                    }
+                },
+                "powershell": {
+                    "displayName": "PowerShell",
+                    "platforms": {
+                        "linux": {
+                            "description": "Download azul, drop the .psm1/.psd1 next to libazul.so, and Import-Module",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/Azul.psm1"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/Azul.psd1"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "pwsh -NoProfile -Command \"Import-Module ./Azul.psd1; Set-AzulLibraryPath -Path (Get-Location)\""
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "pwsh ./hello-world.ps1"
+                                }
+                            ]
+                        },
+                        "macos": {
+                            "description": "Download azul, drop the .psm1/.psd1 next to libazul.dylib, and Import-Module",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/Azul.psm1"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/Azul.psd1"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "pwsh -NoProfile -Command \"Import-Module ./Azul.psd1; Set-AzulLibraryPath -Path (Get-Location)\""
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "pwsh ./hello-world.ps1"
+                                }
+                            ]
+                        },
+                        "windows": {
+                            "description": "Download azul, drop the .psm1/.psd1 next to azul.dll, and Import-Module",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/Azul.psm1"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/Azul.psd1"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "powershell -ExecutionPolicy Bypass -Command \"Import-Module .\\Azul.psd1; Set-AzulLibraryPath -Path (Get-Location)\""
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "powershell -ExecutionPolicy Bypass -File .\\hello-world.ps1"
+                                }
+                            ]
+                        }
+                    }
+                },
+                "python": {
+                    "displayName": "Python",
+                    "methods": {
+                        "pip": {
+                            "displayName": "pip",
+                            "description": "Install via pip",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "pip3 install azul==$VERSION"
+                                }
+                            ]
+                        },
+                        "uv": {
+                            "displayName": "uv",
+                            "description": "Install via uv (fast)",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "uv add azul==$VERSION"
+                                }
+                            ]
+                        }
+                    }
+                },
+                "ruby": {
+                    "displayName": "Ruby",
+                    "platforms": {
+                        "linux": {
+                            "description": "Install via RubyGems (uses bundled libazul.so)",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul-$VERSION.gem"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "gem install --local azul-$VERSION.gem"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.rb"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "ruby hello-world.rb"
+                                }
+                            ]
+                        },
+                        "macos": {
+                            "description": "Install via RubyGems (uses bundled libazul.dylib)",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul-$VERSION.gem"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "gem install --local azul-$VERSION.gem"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.rb"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "ruby hello-world.rb"
+                                }
+                            ]
+                        },
+                        "windows": {
+                            "description": "Install via RubyGems (uses bundled azul.dll)",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul-$VERSION.gem"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "gem install --local azul-$VERSION.gem"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.rb"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "ruby hello-world.rb"
+                                }
+                            ]
+                        }
+                    }
+                },
+                "rust": {
+                    "displayName": "Rust",
+                    "methods": {
+                        "cargo": {
+                            "displayName": null,
+                            "description": "Add to Cargo.toml",
+                            "steps": [
+                                {
+                                    "type": "code",
+                                    "language": "toml",
+                                    "content": "[dependencies]\nazul = { git = \"$HOSTNAME/$VERSION.git\" }"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cargo build"
+                                }
+                            ]
+                        }
+                    }
+                },
                 "smalltalk": {
                     "displayName": "Smalltalk",
                     "platforms": {
@@ -2130,242 +2280,6 @@
                         }
                     }
                 },
-                "algol68": {
-                    "displayName": "Algol 68",
-                    "platforms": {
-                        "linux": {
-                            "description": "Install Algol 68 Genie (GPL-3.0+), download azul.a68 and the native library, then run with a68g",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "sudo apt-get install algol68g"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.a68"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.a68"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "LD_LIBRARY_PATH=. a68g hello-world.a68"
-                                }
-                            ]
-                        },
-                        "macos": {
-                            "description": "Install Algol 68 Genie (GPL-3.0+) via Homebrew, download azul.a68 and the native library, then run with a68g",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "brew install algol68g"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.a68"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.a68"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "DYLD_LIBRARY_PATH=. a68g hello-world.a68"
-                                }
-                            ]
-                        },
-                        "windows": {
-                            "description": "Download Algol 68 Genie (GPL-3.0+) Windows build from jmvdveer.home.xs4all.nl, place azul.dll alongside your source, then run with a68g",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.a68"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.a68"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "a68g hello-world.a68"
-                                }
-                            ]
-                        }
-                    }
-                },
-                "cobol": {
-                    "displayName": "COBOL",
-                    "platforms": {
-                        "linux": {
-                            "description": "Download azul.cpy, hello-world.cob, and the native library; build with cobc",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.cpy"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.cob"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "cobc -x -free hello-world.cob -L. -lazul -o hello-world"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "LD_LIBRARY_PATH=. ./hello-world"
-                                }
-                            ]
-                        },
-                        "macos": {
-                            "description": "Download azul.cpy, hello-world.cob, and the native library; build with cobc",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.cpy"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.cob"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "cobc -x -free hello-world.cob -L. -lazul -o hello-world"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "DYLD_LIBRARY_PATH=. ./hello-world"
-                                }
-                            ]
-                        },
-                        "windows": {
-                            "description": "Download azul.cpy, hello-world.cob, and azul.dll; build with cobc",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.cpy"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/hello-world.cob"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "cobc -x -free hello-world.cob -L. -lazul -o hello-world.exe"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "hello-world.exe"
-                                }
-                            ]
-                        }
-                    }
-                },
-                "node": {
-                    "displayName": "JavaScript",
-                    "platforms": {
-                        "linux": {
-                            "description": "Download azul prebuilt + install koffi",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.js"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/package.json"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "npm install"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "node hello-world.js"
-                                }
-                            ]
-                        },
-                        "macos": {
-                            "description": "Download azul prebuilt + install koffi",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.js"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/package.json"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "npm install"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "node hello-world.js"
-                                }
-                            ]
-                        },
-                        "windows": {
-                            "description": "Download azul prebuilt + install koffi",
-                            "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.js"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/release/$VERSION/package.json"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "npm install"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "node hello-world.js"
-                                }
-                            ]
-                        }
-                    }
-                },
                 "vb6": {
                     "displayName": "Visual Basic 6",
                     "platforms": {
@@ -2399,6 +2313,86 @@
                                 {
                                     "type": "command",
                                     "content": "HelloWorld.exe"
+                                }
+                            ]
+                        }
+                    }
+                },
+                "zig": {
+                    "displayName": "Zig",
+                    "platforms": {
+                        "linux": {
+                            "description": "Download azul.h, azul.zig, the native library, and a minimal build.zig",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.so"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.h"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.zig"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/build.zig"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "LD_LIBRARY_PATH=. zig build run"
+                                }
+                            ]
+                        },
+                        "macos": {
+                            "description": "Download azul.h, azul.zig, the native library, and a minimal build.zig",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/libazul.dylib"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.h"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.zig"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/build.zig"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "DYLD_LIBRARY_PATH=. zig build run"
+                                }
+                            ]
+                        },
+                        "windows": {
+                            "description": "Download azul.h, azul.zig, the native library, and a minimal build.zig",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.dll"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.h"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/azul.zig"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/release/$VERSION/build.zig"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "zig build run"
                                 }
                             ]
                         }
@@ -2485,27 +2479,27 @@
                     "cpp20": "cpp/cpp20/hello-world.cpp",
                     "cpp23": "cpp/cpp23/hello-world.cpp",
                     "ada": "ada/hello_world.adb",
+                    "algol68": "algol68/hello-world.a68",
+                    "cobol": "cobol/hello-world.cob",
                     "csharp": "csharp/hello-world.cs",
-                    "freebasic": "freebasic/hello-world.bas",
-                    "lua": "lua/hello-world.lua",
-                    "pascal": "pascal/hello-world.pas",
-                    "ruby": "ruby/hello-world.rb",
-                    "ocaml": "ocaml/hello_world.ml",
-                    "perl": "perl/hello-world.pl",
-                    "php": "php/hello-world.php",
-                    "powershell": "powershell/hello-world.ps1",
-                    "zig": "zig/hello-world.zig",
                     "fortran": "fortran/hello_world.f90",
+                    "freebasic": "freebasic/hello-world.bas",
                     "go": "go/main.go",
                     "haskell": "haskell/HelloWorld.hs",
                     "java": "java/HelloWorld.java",
                     "kotlin": "kotlin/HelloWorld.kt",
                     "lisp": "lisp/hello-world.lisp",
-                    "smalltalk": "smalltalk/HelloWorld.st",
-                    "algol68": "algol68/hello-world.a68",
-                    "cobol": "cobol/hello-world.cob",
+                    "lua": "lua/hello-world.lua",
                     "node": "node/hello-world.js",
-                    "vb6": "vb6/HelloWorld.bas"
+                    "ocaml": "ocaml/hello_world.ml",
+                    "pascal": "pascal/hello-world.pas",
+                    "perl": "perl/hello-world.pl",
+                    "php": "php/hello-world.php",
+                    "powershell": "powershell/hello-world.ps1",
+                    "ruby": "ruby/hello-world.rb",
+                    "smalltalk": "smalltalk/HelloWorld.st",
+                    "vb6": "vb6/HelloWorld.bas",
+                    "zig": "zig/hello-world.zig"
                 },
                 "screenshot": {
                     "windows": "hello-world.mac.png",
@@ -2934,48 +2928,6 @@
                             {
                                 "DarkMode": {},
                                 "LightMode": {}
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "RelayoutReason": {
-                        "doc": [
-                            "What triggered the current `layout()` invocation.",
-                            "",
-                            "The framework re-invokes the layout callback for any change that may produce a structurally different DOM (resize across a CSS breakpoint, theme toggle, route switch, callback returning Update::RefreshDom). Read via `LayoutCallbackInfo.relayout_reason()` so the callback can branch — for example, skip expensive analytics on `Resize` calls."
-                        ],
-                        "external": "azul_core::callbacks::RelayoutReason",
-                        "custom_impls": [
-                            "Default"
-                        ],
-                        "derive": [
-                            "PartialEq",
-                            "Eq",
-                            "Clone",
-                            "Hash",
-                            "Copy",
-                            "PartialOrd",
-                            "Ord",
-                            "Debug"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Initial": {}
-                            },
-                            {
-                                "RefreshDom": {}
-                            },
-                            {
-                                "Resize": {}
-                            },
-                            {
-                                "ThemeChange": {}
-                            },
-                            {
-                                "RouteChange": {}
-                            },
-                            {
-                                "Other": {}
                             }
                         ],
                         "repr": "C"
@@ -5457,6 +5409,128 @@
                                     "type": "OptionColorU"
                                 },
                                 "fn_body": "azul_layout::desktop::dialogs::ColorPickerDialog::open(title, default_value)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "DialogAriaInfo": {
+                        "doc": [
+                            "Accessibility information for a `<dialog>` element."
+                        ],
+                        "external": "azul_core::a11y::DialogAriaInfo",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "label": {
+                                    "type": "OptionString"
+                                }
+                            },
+                            {
+                                "modal": {
+                                    "type": "bool"
+                                }
+                            },
+                            {
+                                "described_by": {
+                                    "type": "OptionString"
+                                }
+                            },
+                            {
+                                "role": {
+                                    "type": "AccessibilityRole"
+                                }
+                            },
+                            {
+                                "description": {
+                                    "type": "OptionString"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "Creates a `DialogAriaInfo` with the given accessible label."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::a11y::DialogAriaInfo::create(label)"
+                            }
+                        },
+                        "functions": {
+                            "with_modal": {
+                                "doc": [
+                                    "Returns a copy with the given modality flag."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "modal": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DialogAriaInfo"
+                                },
+                                "fn_body": "object.with_modal(modal)"
+                            },
+                            "with_described_by": {
+                                "doc": [
+                                    "Returns a copy with `aria-describedby` pointing at the given node ID."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "described_by": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DialogAriaInfo"
+                                },
+                                "fn_body": "object.with_described_by(described_by)"
+                            },
+                            "with_role": {
+                                "doc": [
+                                    "Returns a copy with the given accessibility role."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "role": "AccessibilityRole"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DialogAriaInfo"
+                                },
+                                "fn_body": "object.with_role(role)"
+                            },
+                            "with_description": {
+                                "doc": [
+                                    "Returns a copy with the given inline description."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "desc": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DialogAriaInfo"
+                                },
+                                "fn_body": "object.with_description(desc)"
                             }
                         },
                         "repr": "C"
@@ -13770,8 +13844,8 @@
                                 "callbacks": {
                                     "type": "CoreCallbackDataVec"
                                 },
-                                "css_props": {
-                                    "type": "CssPropertyWithConditionsVec"
+                                "style": {
+                                    "type": "Css"
                                 },
                                 "flags": {
                                     "type": "NodeFlags"
@@ -17621,13 +17695,15 @@
                         "repr": "C"
                     },
                     "ProgressAriaInfo": {
+                        "doc": [
+                            "Accessibility information for a `<progress>` indicator."
+                        ],
                         "external": "azul_core::a11y::ProgressAriaInfo",
                         "derive": [
                             "Debug",
                             "Clone",
                             "PartialEq"
                         ],
-                        "doc": "Accessibility information for a `<progress>` indicator.",
                         "struct_fields": [
                             {
                                 "label": {
@@ -17741,13 +17817,15 @@
                         "repr": "C"
                     },
                     "MeterAriaInfo": {
+                        "doc": [
+                            "Accessibility information for a `<meter>` gauge."
+                        ],
                         "external": "azul_core::a11y::MeterAriaInfo",
                         "derive": [
                             "Debug",
                             "Clone",
                             "PartialEq"
                         ],
-                        "doc": "Accessibility information for a `<meter>` gauge.",
                         "struct_fields": [
                             {
                                 "label": {
@@ -17878,126 +17956,6 @@
                                 ],
                                 "returns": {
                                     "type": "MeterAriaInfo"
-                                },
-                                "fn_body": "object.with_description(desc)"
-                            }
-                        },
-                        "repr": "C"
-                    },
-                    "DialogAriaInfo": {
-                        "external": "azul_core::a11y::DialogAriaInfo",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq"
-                        ],
-                        "doc": "Accessibility information for a `<dialog>` element.",
-                        "struct_fields": [
-                            {
-                                "label": {
-                                    "type": "OptionString"
-                                }
-                            },
-                            {
-                                "modal": {
-                                    "type": "bool"
-                                }
-                            },
-                            {
-                                "described_by": {
-                                    "type": "OptionString"
-                                }
-                            },
-                            {
-                                "role": {
-                                    "type": "AccessibilityRole"
-                                }
-                            },
-                            {
-                                "description": {
-                                    "type": "OptionString"
-                                }
-                            }
-                        ],
-                        "constructors": {
-                            "create": {
-                                "doc": [
-                                    "Creates a `DialogAriaInfo` with the given accessible label."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "label": "String"
-                                    }
-                                ],
-                                "fn_body": "azul_core::a11y::DialogAriaInfo::create(label)"
-                            }
-                        },
-                        "functions": {
-                            "with_modal": {
-                                "doc": [
-                                    "Returns a copy with the given modality flag."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "modal": "bool"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "DialogAriaInfo"
-                                },
-                                "fn_body": "object.with_modal(modal)"
-                            },
-                            "with_described_by": {
-                                "doc": [
-                                    "Returns a copy with `aria-describedby` pointing at the given node ID."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "described_by": "String"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "DialogAriaInfo"
-                                },
-                                "fn_body": "object.with_described_by(described_by)"
-                            },
-                            "with_role": {
-                                "doc": [
-                                    "Returns a copy with the given accessibility role."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "role": "AccessibilityRole"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "DialogAriaInfo"
-                                },
-                                "fn_body": "object.with_role(role)"
-                            },
-                            "with_description": {
-                                "doc": [
-                                    "Returns a copy with the given inline description."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "desc": "String"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "DialogAriaInfo"
                                 },
                                 "fn_body": "object.with_description(desc)"
                             }
@@ -19428,6 +19386,8 @@
                         ],
                         "external": "azul_css::css::CssRuleBlock",
                         "custom_impls": [
+                            "Eq",
+                            "Ord",
                             "PartialOrd"
                         ],
                         "derive": [
@@ -21963,7 +21923,9 @@
                         ],
                         "external": "azul_css::css::Css",
                         "custom_impls": [
-                            "From"
+                            "Eq",
+                            "From",
+                            "Ord"
                         ],
                         "derive": [
                             "PartialOrd",
@@ -37528,6 +37490,15 @@
                                 },
                                 "DesktopEnvironment": {
                                     "type": "LinuxDesktopEnv"
+                                },
+                                "DesktopEnvMin": {
+                                    "type": "DesktopEnvVersion"
+                                },
+                                "DesktopEnvMax": {
+                                    "type": "DesktopEnvVersion"
+                                },
+                                "DesktopEnvExact": {
+                                    "type": "DesktopEnvVersion"
                                 }
                             }
                         ],
@@ -38581,6 +38552,70 @@
                                 },
                                 "document_descriptor": {
                                     "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RelayoutReason": {
+                        "doc": [
+                            "What triggered the current `layout()` invocation.",
+                            "",
+                            "The framework re-invokes the layout callback for any change that may produce a structurally different DOM (resize across a CSS breakpoint, theme toggle, route switch, callback returning Update::RefreshDom). Read via `LayoutCallbackInfo.relayout_reason()` so the callback can branch — for example, skip expensive analytics on `Resize` calls."
+                        ],
+                        "external": "azul_core::callbacks::RelayoutReason",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "PartialEq",
+                            "Eq",
+                            "Clone",
+                            "Hash",
+                            "Copy",
+                            "PartialOrd",
+                            "Ord",
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Initial": {}
+                            },
+                            {
+                                "RefreshDom": {}
+                            },
+                            {
+                                "Resize": {}
+                            },
+                            {
+                                "ThemeChange": {}
+                            },
+                            {
+                                "RouteChange": {}
+                            },
+                            {
+                                "Other": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DesktopEnvVersion": {
+                        "external": "azul_css::dynamic_selector::DesktopEnvVersion",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "env": {
+                                    "type": "LinuxDesktopEnv"
+                                },
+                                "version_id": {
+                                    "type": "u32"
                                 }
                             }
                         ],
