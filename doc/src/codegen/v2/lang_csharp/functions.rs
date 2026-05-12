@@ -27,7 +27,11 @@ pub fn generate_native_methods(
     builder.line("// --------------------------------------------------------------------------");
     builder.blank();
 
-    builder.line("internal static class NativeMethods");
+    // `public` (not `internal`) so PowerShell scripts using Add-Type
+    // can call the FFI helpers directly. C# consumers should prefer
+    // the idiomatic wrapper classes (App, Dom, Button, ...) and treat
+    // these as low-level escape hatches.
+    builder.line("public static class NativeMethods");
     builder.line("{");
     builder.indent();
     builder.line(&format!("public const string DllName = \"{}\";", DLL_NAME));
