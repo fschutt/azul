@@ -1107,11 +1107,6 @@ impl X11Window {
             }
         }
 
-        // Register window in global registry for multi-window support
-        unsafe {
-            super::registry::register_window(window.window, &mut window as *mut _ as *mut super::LinuxWindow);
-        }
-
         // Invoke create_callback if provided (for GL resource upload, config loading, etc.)
         // This runs AFTER GL context is ready but BEFORE any layout is done
         if let Some(mut callback) = create_callback.into_option() {
