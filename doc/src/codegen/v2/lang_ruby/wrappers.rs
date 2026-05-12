@@ -289,7 +289,11 @@ fn emit_method_body(
     match return_type {
         None => builder.line(call),
         Some(_) if returns_self_type => {
-            builder.line(&format!("self.class.new({})", call));
+            // `new(...)` resolves to the surrounding class in both
+            // instance methods (`def foo`) and class methods (`def self.foo`).
+            // `self.class.new(...)` is wrong in class methods because there
+            // `self.class` is `Class`, not the wrapper class.
+            builder.line(&format!("new({})", call));
         }
         Some(_) => builder.line(call),
     }
