@@ -164,6 +164,38 @@ pub enum GpuCheckResult {
     QueryFailed(String),
 }
 
+/// Query GPU vendor / renderer / version strings from a current GL context
+/// and run the result through [`check_gpu_blacklist`].
+///
+/// Callers must have made the GL context current on the calling thread before
+/// invoking this — `glGetString` only returns valid data for the current context.
+///
+/// Returns [`GpuCheckResult::QueryFailed`] when the vendor / renderer / version
+/// strings are missing, which is the symptom of a broken / partially loaded
+/// driver (azul#220).
+pub fn query_gpu_info(
+    gl: &gl_context_loader::GenericGlContext,
+) -> GpuCheckResult {
+    const GL_VENDOR: u32 = 0x1F00;
+    const GL_RENDERER: u32 = 0x1F01;
+    const GL_VERSION: u32 = 0x1F02;
+    const GL_SHADING_LANGUAGE_VERSION: u32 = 0x8B8C;
+
+    let vendor = gl.get_string(GL_VENDOR);
+    let renderer = gl.get_string(GL_RENDERER);
+    let version = gl.get_string(GL_VERSION);
+    let glsl_version = gl.get_string(GL_SHADING_LANGUAGE_VERSION);
+
+    if vendor.is_empty() && renderer.is_empty() && version.is_empty() {
+        return GpuCheckResult::QueryFailed(
+            "glGetString returned no vendor/renderer/version — GL context not current or driver broken".into(),
+        );
+    }
+
+    let info = GpuInfo { vendor, renderer, version, glsl_version };
+    check_gpu_blacklist(&info)
+}
+
 /// Check if the current GPU is blacklisted.
 ///
 /// Called during `Auto` backend resolution after successfully creating

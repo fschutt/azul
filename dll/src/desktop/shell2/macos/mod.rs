@@ -2935,23 +2935,60 @@ impl MacOSWindow {
                         LogCategory::Rendering,
                         "[MacOSWindow::new] OpenGL view created successfully"
                     );
-                    log_trace!(
-                        LogCategory::Rendering,
-                        "[MacOSWindow::new] Configuring VSync..."
-                    );
-                    let vsync = options.window_state.renderer_options.vsync;
-                    Self::configure_vsync(&ctx, vsync);
-                    log_trace!(
-                        LogCategory::Rendering,
-                        "[MacOSWindow::new] VSync configured, returning from match..."
-                    );
-                    (
-                        RenderBackend::OpenGL,
-                        Some(view),
-                        Some(ctx),
-                        Some(funcs),
-                        None,
-                    )
+
+                    // Make the GL context current and probe driver strings before
+                    // committing to GPU rendering. `check_gpu_blacklist` may flag the
+                    // driver as known-broken (Mesa llvmpipe, azul#220 NVIDIA shader
+                    // compiler missing, ancient Intel HD) — in which case we tear
+                    // the GL context down and fall back to CPU rendering.
+                    let gpu_check = unsafe {
+                        ctx.makeCurrentContext();
+                        crate::desktop::shell2::common::compositor::query_gpu_info(&*funcs.functions)
+                    };
+
+                    match gpu_check {
+                        crate::desktop::shell2::common::GpuCheckResult::Ok(info) => {
+                            log_debug!(
+                                LogCategory::Rendering,
+                                "[MacOSWindow::new] GPU OK: vendor={:?} renderer={:?} version={:?} glsl={:?}",
+                                info.vendor, info.renderer, info.version, info.glsl_version
+                            );
+                            let vsync = options.window_state.renderer_options.vsync;
+                            Self::configure_vsync(&ctx, vsync);
+                            (
+                                RenderBackend::OpenGL,
+                                Some(view),
+                                Some(ctx),
+                                Some(funcs),
+                                None,
+                            )
+                        }
+                        crate::desktop::shell2::common::GpuCheckResult::Blacklisted { info, reason } => {
+                            log_warn!(
+                                LogCategory::Rendering,
+                                "[MacOSWindow::new] GPU blacklisted (vendor={:?} renderer={:?}): {} — falling back to CPU",
+                                info.vendor, info.renderer, reason
+                            );
+                            // Drop the GL context/view/functions to tear down the GL state.
+                            drop(funcs);
+                            drop(ctx);
+                            drop(view);
+                            let cpu = Self::create_cpu_view(content_rect, mtm);
+                            (RenderBackend::CPU, None, None, None, Some(cpu))
+                        }
+                        crate::desktop::shell2::common::GpuCheckResult::QueryFailed(reason) => {
+                            log_warn!(
+                                LogCategory::Rendering,
+                                "[MacOSWindow::new] GPU query failed: {} — falling back to CPU",
+                                reason
+                            );
+                            drop(funcs);
+                            drop(ctx);
+                            drop(view);
+                            let cpu = Self::create_cpu_view(content_rect, mtm);
+                            (RenderBackend::CPU, None, None, None, Some(cpu))
+                        }
+                    }
                 }
                 Err(e) => {
                     log_warn!(

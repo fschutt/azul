@@ -19,12 +19,6 @@
 //! └── headless/        Headless testing backend
 //! ```
 //!
-//! # Feature Flags
-//!
-//! - `shell2` - Enable new shell2 implementation (default)
-//! - `x11` - Enable X11 backend (Linux)
-//! - `wayland` - Enable Wayland backend (Linux)
-//!
 //! # Environment Variables
 //!
 //! - `AZ_BACKEND` - Rendering backend: "auto" (default), "gpu", "cpu", "headless"
@@ -48,9 +42,8 @@ pub mod run;
 
 // Re-export common types
 pub use common::{
-    AzBackend, Compositor, CompositorError, CompositorMode,
-    CpuCompositor, DlError, DynamicLibrary, GpuCheckResult, GpuInfo, RenderContext,
-    WindowError,
+    AzBackend, CompositorMode, CpuCompositor, GpuCheckResult, GpuInfo,
+    RenderContext, WindowError, check_gpu_blacklist,
 };
 // Re-export run function
 pub use run::run;
@@ -74,48 +67,4 @@ cfg_if::cfg_if! {
         pub use headless::HeadlessWindow as Window;
         pub use headless::HeadlessEvent as WindowEvent;
     }
-}
-
-/// Get the current windowing backend name.
-#[must_use]
-pub fn get_backend_name() -> &'static str {
-    #[cfg(target_os = "macos")]
-    return "macos-appkit";
-
-    #[cfg(target_os = "windows")]
-    return "windows-win32";
-
-    #[cfg(target_os = "ios")]
-    return "ios-uikit";
-
-    #[cfg(target_os = "linux")]
-    {
-        // Runtime detection on Linux
-        match std::env::var("AZ_BACKEND").as_deref() {
-            Ok("x11") => return "linux-x11",
-            Ok("wayland") => return "linux-wayland",
-            _ => {}
-        }
-        if std::env::var("WAYLAND_DISPLAY").is_ok() {
-            return "linux-wayland";
-        } else if std::env::var("DISPLAY").is_ok() {
-            return "linux-x11";
-        } else {
-            return "linux-headless";
-        }
-    }
-
-    #[cfg(not(any(
-        target_os = "macos",
-        target_os = "ios",
-        target_os = "windows",
-        target_os = "linux"
-    )))]
-    return "stub";
-}
-
-/// Get shell2 version information.
-#[must_use]
-pub fn get_version() -> &'static str {
-    env!("CARGO_PKG_VERSION")
 }

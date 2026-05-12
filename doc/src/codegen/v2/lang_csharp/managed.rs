@@ -347,6 +347,28 @@ fn emit_per_kind_invoker_init(
         builder.line("System.Runtime.InteropServices.Marshal.StructureToPtr(vt, outPtr, false);");
         builder.dedent();
         builder.line("}");
+        // Wrapper-class return: extract its `Raw` property (now public)
+        // and write the underlying struct bytes. This is what lets users
+        // return `Dom.CreateBody().WithChild(...)` directly from a
+        // LayoutCallback delegate.
+        builder.line("else if (ret != null)");
+        builder.line("{");
+        builder.indent();
+        builder.line("var __rawProp = ret.GetType().GetProperty(\"Raw\");");
+        builder.line("if (__rawProp != null)");
+        builder.line("{");
+        builder.indent();
+        builder.line("var __rawValue = __rawProp.GetValue(ret);");
+        builder.line("if (__rawValue is ValueType __rvt)");
+        builder.line("{");
+        builder.indent();
+        builder.line("System.Runtime.InteropServices.Marshal.StructureToPtr(__rvt, outPtr, false);");
+        builder.dedent();
+        builder.line("}");
+        builder.dedent();
+        builder.line("}");
+        builder.dedent();
+        builder.line("}");
     } else {
         builder.line(&format!(
             "fn.DynamicInvoke(new object[] {{ {} }});",

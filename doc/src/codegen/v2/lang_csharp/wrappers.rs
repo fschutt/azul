@@ -148,11 +148,14 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     builder.line("private bool _disposed;");
     builder.blank();
 
-    // Internal accessors used by sibling wrapper classes.
+    // `Raw` accessor: returns the underlying FFI struct by value.
+    // `public` so external assemblies (PowerShell scripts importing
+    // the Azul module) can extract the raw struct when handing it to
+    // a layout callback return.
     builder.line(&format!(
         "/// <summary>Returns the underlying FFI struct by value (use with care).</summary>"
     ));
-    builder.line(&format!("internal {} Raw => _inner;", ffi_name));
+    builder.line(&format!("public {} Raw => _inner;", ffi_name));
     builder.blank();
     builder.line("/// <summary>Wrap an existing raw FFI struct (takes ownership).</summary>");
     builder.line(&format!(

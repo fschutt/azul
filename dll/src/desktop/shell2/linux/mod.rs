@@ -27,7 +27,7 @@ use azul_core::refany::RefAny;
 use azul_layout::window_state::WindowCreateOptions;
 pub use resources::AppResources;
 
-use super::WindowError;
+use super::common::WindowError;
 
 use super::common::debug_server::LogCategory;
 use crate::{log_info, log_warn};

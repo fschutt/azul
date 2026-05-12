@@ -1,84 +1,126 @@
 # examples/powershell/hello-world.ps1
 #
-# PowerShell port of examples/c/hello-world.c. PowerShell's bindings work
-# by JIT-compiling the embedded C# source (the same `Azul.cs` content from
-# `lang_csharp/`) at module import time via Add-Type. That gives us full
-# access to the C# `Azul.HostInvoker` class — the host-invoker pattern
-# Just Works™ here without a separate PowerShell adapter.
-#
-# Same shape as examples/csharp/hello-world.cs:
-#   * `[Azul.HostInvoker]::RefanyCreate($value)` wraps any value in an
-#     AzRefAny held alive by the framework's refcount.
-#   * Callbacks are PowerShell scriptblocks wrapped in C# delegates and
-#     handed to `[Azul.HostInvoker]::RegisterCallback($delegate)`.
+# PowerShell port of examples/c/hello-world.c. The bindings work by
+# JIT-compiling the embedded C# source (the same `Azul.cs` content
+# from `lang_csharp/`) at module import time via `Add-Type`. That
+# gives us full access to the `[Azul.*]` wrapper classes — Dom,
+# Button, App, WindowCreateOptions — plus the `[Azul.HostInvoker]`
+# helpers for refany / callback registration.
 #
 # Run with:
-#   pwsh -File hello-world.ps1
+#   pwsh -File ./hello-world.ps1
 #
 # Requires:
-#   * PowerShell 7+ (Windows PowerShell 5.1 also works — the embedded C#
-#     compiles on .NET Framework too).
-#   * `azul.dll` / `libazul.so` / `libazul.dylib` on the dynamic-loader
-#     search path (or call `Set-AzulLibraryPath -Path ...` first).
+#   * PowerShell 7+ (Windows PowerShell 5.1 also works on .NET Framework).
+#   * `azul.dll` / `libazul.so` / `libazul.dylib` next to this file, or
+#     on the dynamic-loader search path (Set-AzulLibraryPath wires it up).
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# Import the generated module. Add-Type compiles the embedded C# the first
-# time this module is loaded (~1s on Windows PowerShell 5.1, faster on PS 7+).
 Import-Module (Join-Path $PSScriptRoot 'Azul.psd1') -Force
-
-# Make sure the native library is reachable. If hello-world.ps1 lives next
-# to azul.dll / libazul.so, this wires the search path.
 Set-AzulLibraryPath -Path $PSScriptRoot
 
 # ── Data model ────────────────────────────────────────────────────────
-# PSObject is fine for our purposes — RefAny just holds an opaque Object
-# reference; PowerShell's PSObject is a real .NET object under the hood.
+# PSCustomObject works as the model. RefAny holds an opaque Object
+# reference in the host-handle table.
 $model = [PSCustomObject]@{ Counter = 5 }
 $data  = [Azul.HostInvoker]::RefanyCreate($model)
 
+# ── Helper ────────────────────────────────────────────────────────────
+# Build an AzString from a PowerShell string. The wrapper class
+# constructor isn't exposed for AzString (`internal`), so we call the
+# C# `Azul.String.FromUtf8` factory which copies the bytes.
+function Convert-AzulString {
+    param([Parameter(Mandatory=$true)][string]$Value)
+    $bytes  = [System.Text.Encoding]::UTF8.GetBytes($Value)
+    $handle = [System.Runtime.InteropServices.GCHandle]::Alloc($bytes,
+        [System.Runtime.InteropServices.GCHandleType]::Pinned)
+    try {
+        $ptr = $handle.AddrOfPinnedObject()
+        # AzString_fromUtf8 copies internally, so the pinned bytes can
+        # be released immediately after the call returns.
+        return [Azul.String]::FromUtf8($ptr, [System.UIntPtr]$bytes.Length)
+    } finally {
+        $handle.Free()
+    }
+}
+
 # ── Callbacks ─────────────────────────────────────────────────────────
-# PowerShell scriptblocks are convertible to delegates via .NET interop.
-# We construct concrete delegate types inline (the per-kind "delegate
-# void" types live in C# under namespace `Azul.HostInvoker`).
+# PowerShell scriptblocks wrap as .NET delegates via the `-as`
+# conversion operator. Signatures match the C# delegate types declared
+# in `Azul.HostInvoker`.
 
 $onClick = {
-    param([UInt64]$id, [IntPtr]$dataPtr, [IntPtr]$infoPtr, [IntPtr]$outPtr)
+    param([IntPtr]$dataPtr, [IntPtr]$infoPtr)
     $m = [Azul.HostInvoker]::RefanyGet($dataPtr)
     if ($m -is [PSCustomObject]) {
         $m.Counter = $m.Counter + 1
-        # Write AzUpdate.RefreshDom (1) through the out-pointer.
-        [System.Runtime.InteropServices.Marshal]::WriteInt32($outPtr, 1)
-    } else {
-        # AzUpdate.DoNothing
-        [System.Runtime.InteropServices.Marshal]::WriteInt32($outPtr, 0)
+        return 1   # AzUpdate.RefreshDom
     }
+    return 0       # AzUpdate.DoNothing
 }.GetNewClosure()
 
 $layout = {
-    param([UInt64]$id, [IntPtr]$dataPtr, [IntPtr]$infoPtr, [IntPtr]$outPtr)
-    Write-Error "[azul] layout callback fired (id=$id) — wrappers stub" -ErrorAction Continue
+    param([IntPtr]$dataPtr, [IntPtr]$infoPtr)
+    $m = [Azul.HostInvoker]::RefanyGet($dataPtr)
+    if (-not ($m -is [PSCustomObject])) {
+        return ([Azul.Dom]::CreateBody()).Raw
+    }
+
+    # Counter label, wrapped in a font-size-32 div.
+    $counterDom = [Azul.Dom]::CreateText((Convert-AzulString -Value ([string]$m.Counter)))
+    $labelDiv   = [Azul.Dom]::CreateDiv().WithCss((Convert-AzulString -Value 'font-size: 32px;'))
+    $labelDiv   = $labelDiv.WithChild($counterDom.Raw)
+
+    # Increment button.
+    $button = [Azul.Button]::Create((Convert-AzulString -Value 'Increase counter'))
+    $button = $button.WithButtonType([Azul.Native.AzButtonType]::Primary)
+    $clickCb = [Azul.HostInvoker]::RegisterCallback($onClick)
+    $dataClone = [Azul.HostInvoker]::RefanyCreate($m)
+    $button = $button.WithOnClick($dataClone, $clickCb)
+    $buttonDom = $button.Dom()
+
+    # Body.
+    $body = [Azul.Dom]::CreateBody().WithChild($labelDiv.Raw).WithChild($buttonDom)
+    return $body.Raw
 }.GetNewClosure()
 
-# Convert scriptblocks to typed delegates the host-invoker expects.
-$clickDelegate  = $onClick -as [Azul.HostInvoker+CallbackInvokerDelegate]
-$layoutDelegate = $layout  -as [Azul.HostInvoker+LayoutCallbackInvokerDelegate]
+# ── Main ──────────────────────────────────────────────────────────────
+# `WindowCreateOptions::Create(layout_callback)` discards host-invoker
+# ctx (takes a raw AzLayoutCallbackType fn pointer). Use the default
+# value then assign the layout_callback via reflection on Raw.
 
-if (-not $clickDelegate -or -not $layoutDelegate) {
-    Write-Error "Failed to construct host-invoker delegates."
-    exit 1
-}
-
-# ── Register with libazul ─────────────────────────────────────────────
-$clickCb  = [Azul.HostInvoker]::RegisterCallback($clickDelegate)
+Write-Host "[ps] converting layout to delegate"
+$layoutDelegate = $layout -as [System.Func[IntPtr, IntPtr, object]]
+if (-not $layoutDelegate) { Write-Error "layout delegate conversion failed"; exit 1 }
+Write-Host "[ps] registering layout callback"
 $layoutCb = [Azul.HostInvoker]::RegisterLayoutCallback($layoutDelegate)
+Write-Host "[ps] layout callback registered"
 
-Write-Host "[azul] host-invoker plumbing wired."
-Write-Host "[azul] (Full App.Run wiring requires struct-field setters from"
-Write-Host "[azul]  lang_csharp/wrappers.rs which is still a stub today.)"
+Write-Host "[ps] creating WCO"
+$wco = [Azul.WindowCreateOptions]::Default()
+Write-Host "[ps] WCO created: type=$($wco.GetType().FullName)"
+$wcoRaw = $wco.Raw
+Write-Host "[ps] wcoRaw type=$($wcoRaw.GetType().FullName)"
 
-# Keep the references alive so the GC doesn't collect them between
-# registration and the App.Run hand-off.
-[void]$clickCb
-[void]$layoutCb
+# AzWindowCreateOptions and AzFullWindowState are public C# structs
+# (StructLayout=Sequential). PowerShell can read their public fields
+# directly. Boxed structs need mutation through a temp copy then
+# write-back since PowerShell unboxes on field access.
+$ws = $wcoRaw.window_state
+Write-Host "[ps] ws type=$($ws.GetType().FullName)"
+$ws.layout_callback = $layoutCb
+$wcoRaw.window_state = $ws
+
+Write-Host "[ps] creating AppConfig"
+$cfg = [Azul.AppConfig]::Create()
+Write-Host "[ps] cfg type=$($cfg.GetType().FullName)"
+$cfgRaw = $cfg.Raw
+Write-Host "[ps] cfg.Raw type=$($cfgRaw.GetType().FullName)"
+Write-Host "[ps] data type=$($data.GetType().FullName)"
+Write-Host "[ps] calling App.Create"
+$app = [Azul.App]::Create($data, $cfgRaw)
+Write-Host "[ps] App created, calling Run"
+$app.Run($wcoRaw)
+Write-Host "[ps] App.Run returned"

@@ -30,7 +30,7 @@ use rust_fontconfig::FcFontCache;
 use rust_fontconfig::registry::FcFontRegistry;
 
 use super::super::headless::HeadlessWindow;
-use super::super::WindowError;
+use super::WindowError;
 
 // ---------------------------------------------------------------------------
 // JSON schema
