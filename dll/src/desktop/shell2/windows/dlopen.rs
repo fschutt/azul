@@ -6,7 +6,12 @@
 //!
 //! Safety: All function pointers are checked for null before being wrapped in Option types.
 
+use std::sync::Arc;
+
 use super::super::common::debug_server::LogCategory;
+use super::super::common::{
+    dlopen::DynamicLibrary as DynamicLibraryTrait, error::DlError,
+};
 use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
 // Re-export types that will be used by Win32 API
@@ -123,10 +128,7 @@ pub struct COMPOSITIONFORM {
 }
 
 // IME Composition Form Styles
-pub const CFS_DEFAULT: u32 = 0x0000;
 pub const CFS_RECT: u32 = 0x0001;
-pub const CFS_POINT: u32 = 0x0002;
-pub const CFS_FORCE_POSITION: u32 = 0x0020;
 
 /// Helper to encode ASCII string for GetProcAddress
 pub fn encode_ascii(input: &str) -> Vec<i8> {
@@ -219,10 +221,6 @@ pub mod constants {
     pub const HWND_TOP: *mut core::ffi::c_void = 0 as *mut core::ffi::c_void;
     pub const HWND_TOPMOST: *mut core::ffi::c_void = -1isize as *mut core::ffi::c_void;
     pub const HWND_NOTOPMOST: *mut core::ffi::c_void = -2isize as *mut core::ffi::c_void;
-
-    // Window Messages
-    pub const WM_CLOSE: u32 = 0x0010;
-    pub const WM_PAINT: u32 = 0x000F;
 }
 
 #[cfg(target_os = "windows")]
@@ -286,29 +284,60 @@ pub struct DynamicLibrary {
     name: String,
 }
 
-impl DynamicLibrary {
-    /// Load a DLL by name
-    pub fn load(name: &str) -> Result<Self, String> {
+impl DynamicLibraryTrait for DynamicLibrary {
+    fn load(name: &str) -> Result<Self, DlError> {
         unsafe {
-            let handle = windows_impl::load_library(name);
-            if handle.is_none() {
-                return Err(format!("Failed to load DLL: {}", name));
+            match windows_impl::load_library(name) {
+                Some(h) => Ok(Self {
+                    handle: Some(h),
+                    name: name.to_string(),
+                }),
+                None => Err(DlError::LibraryNotFound {
+                    name: name.to_string(),
+                    tried: vec![name.to_string()],
+                    suggestion: format!(
+                        "LoadLibraryW failed for '{}'. The DLL may be missing or \
+                         architecturally incompatible.",
+                        name
+                    ),
+                }),
             }
-            Ok(Self {
-                handle,
-                name: name.to_string(),
-            })
         }
     }
 
-    /// Get a function pointer from the loaded DLL
-    pub unsafe fn get_symbol<T>(&self, name: &str) -> Option<T>
-    where
-        T: Copy,
-    {
-        let handle = self.handle?;
-        let addr = windows_impl::get_proc_address(handle, name)?;
-        Some(std::mem::transmute_copy(&addr))
+    unsafe fn get_symbol<T>(&self, name: &str) -> Result<T, DlError> {
+        debug_assert_eq!(
+            std::mem::size_of::<T>(),
+            std::mem::size_of::<*mut core::ffi::c_void>(),
+            "get_symbol: T must be pointer-sized"
+        );
+        let handle = self.handle.ok_or_else(|| DlError::SymbolNotFound {
+            symbol: name.to_string(),
+            library: self.name.clone(),
+            suggestion: "DLL handle is null".to_string(),
+        })?;
+        let addr = windows_impl::get_proc_address(handle, name).ok_or_else(|| {
+            DlError::SymbolNotFound {
+                symbol: name.to_string(),
+                library: self.name.clone(),
+                suggestion: format!("GetProcAddress returned NULL for '{}'", name),
+            }
+        })?;
+        Ok(std::mem::transmute_copy(&addr))
+    }
+
+    fn unload(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            unsafe { windows_impl::free_library(handle) };
+        }
+    }
+}
+
+impl DynamicLibrary {
+    /// Convenience wrapper around the trait `load` to keep the inherent-method
+    /// call sites readable (`DynamicLibrary::load("user32.dll")`).
+    pub fn load(name: &str) -> Result<Self, DlError> {
+        <Self as DynamicLibraryTrait>::load(name)
     }
 
     /// Get the DLL handle
@@ -319,11 +348,7 @@ impl DynamicLibrary {
 
 impl Drop for DynamicLibrary {
     fn drop(&mut self) {
-        if let Some(handle) = self.handle {
-            unsafe {
-                windows_impl::free_library(handle);
-            }
-        }
+        <Self as DynamicLibraryTrait>::unload(self);
     }
 }
 
@@ -565,26 +590,32 @@ pub struct DwmapiFunctions {
     pub DwmFlush: unsafe extern "system" fn() -> HRESULT,
 }
 
-/// Pre-load commonly used Win32 DLLs
+/// Pre-load commonly used Win32 DLLs.
+///
+/// DLL handles are wrapped in [`Arc`] so cheap clones (e.g. handing a copy
+/// to a tooltip window) keep the underlying libraries alive until every
+/// holder has dropped. The previous design replaced cloned handles with
+/// `None`, which left function pointers dangling once the original was
+/// dropped — a use-after-free risk fixed by refcounting here.
+#[derive(Clone)]
 pub struct Win32Libraries {
-    pub user32_dll: Option<DynamicLibrary>,
+    pub user32_dll: Option<Arc<DynamicLibrary>>,
     pub user32: User32Functions,
-    pub gdi32_dll: Option<DynamicLibrary>,
+    pub gdi32_dll: Option<Arc<DynamicLibrary>>,
     pub gdi32: Gdi32Functions,
-    pub imm32_dll: Option<DynamicLibrary>,
+    pub imm32_dll: Option<Arc<DynamicLibrary>>,
     pub imm32: Option<Imm32Functions>,
-    pub shell32_dll: Option<DynamicLibrary>,
+    pub shell32_dll: Option<Arc<DynamicLibrary>>,
     pub shell32: Option<Shell32Functions>,
-    pub kernel32_dll: Option<DynamicLibrary>,
+    pub kernel32_dll: Option<Arc<DynamicLibrary>>,
     pub kernel32: Option<Kernel32Functions>,
-    pub opengl32: Option<DynamicLibrary>,
-    pub dwmapi: Option<DynamicLibrary>,
+    pub dwmapi: Option<Arc<DynamicLibrary>>,
     /// DWM functions for Windows 11 transparency effects (Mica, Acrylic)
     pub dwmapi_funcs: Option<DwmapiFunctions>,
 }
 
 impl Win32Libraries {
-    pub fn load() -> Result<Self, String> {
+    pub fn load() -> Result<Self, DlError> {
         let user32_dll = DynamicLibrary::load("user32.dll")?;
         let gdi32_dll = DynamicLibrary::load("gdi32.dll")?;
 
@@ -592,56 +623,24 @@ impl Win32Libraries {
         let user32 = unsafe {
             User32Functions {
                 // Menu functions
-                CreateMenu: user32_dll
-                    .get_symbol("CreateMenu")
-                    .ok_or_else(|| "CreateMenu not found".to_string())?,
-                CreatePopupMenu: user32_dll
-                    .get_symbol("CreatePopupMenu")
-                    .ok_or_else(|| "CreatePopupMenu not found".to_string())?,
-                AppendMenuW: user32_dll
-                    .get_symbol("AppendMenuW")
-                    .ok_or_else(|| "AppendMenuW not found".to_string())?,
-                SetMenu: user32_dll
-                    .get_symbol("SetMenu")
-                    .ok_or_else(|| "SetMenu not found".to_string())?,
-                DrawMenuBar: user32_dll
-                    .get_symbol("DrawMenuBar")
-                    .ok_or_else(|| "DrawMenuBar not found".to_string())?,
-                DestroyMenu: user32_dll
-                    .get_symbol("DestroyMenu")
-                    .ok_or_else(|| "DestroyMenu not found".to_string())?,
-                TrackPopupMenu: user32_dll
-                    .get_symbol("TrackPopupMenu")
-                    .ok_or_else(|| "TrackPopupMenu not found".to_string())?,
-                SetForegroundWindow: user32_dll
-                    .get_symbol("SetForegroundWindow")
-                    .ok_or_else(|| "SetForegroundWindow not found".to_string())?,
+                CreateMenu: user32_dll.get_symbol("CreateMenu")?,
+                CreatePopupMenu: user32_dll.get_symbol("CreatePopupMenu")?,
+                AppendMenuW: user32_dll.get_symbol("AppendMenuW")?,
+                SetMenu: user32_dll.get_symbol("SetMenu")?,
+                DrawMenuBar: user32_dll.get_symbol("DrawMenuBar")?,
+                DestroyMenu: user32_dll.get_symbol("DestroyMenu")?,
+                TrackPopupMenu: user32_dll.get_symbol("TrackPopupMenu")?,
+                SetForegroundWindow: user32_dll.get_symbol("SetForegroundWindow")?,
 
                 // Window creation
-                CreateWindowExW: user32_dll
-                    .get_symbol("CreateWindowExW")
-                    .ok_or_else(|| "CreateWindowExW not found".to_string())?,
-                DestroyWindow: user32_dll
-                    .get_symbol("DestroyWindow")
-                    .ok_or_else(|| "DestroyWindow not found".to_string())?,
-                ShowWindow: user32_dll
-                    .get_symbol("ShowWindow")
-                    .ok_or_else(|| "ShowWindow not found".to_string())?,
-                UpdateWindow: user32_dll
-                    .get_symbol("UpdateWindow")
-                    .ok_or_else(|| "UpdateWindow not found".to_string())?,
-                SetWindowPos: user32_dll
-                    .get_symbol("SetWindowPos")
-                    .ok_or_else(|| "SetWindowPos not found".to_string())?,
-                GetClientRect: user32_dll
-                    .get_symbol("GetClientRect")
-                    .ok_or_else(|| "GetClientRect not found".to_string())?,
-                GetWindowRect: user32_dll
-                    .get_symbol("GetWindowRect")
-                    .ok_or_else(|| "GetWindowRect not found".to_string())?,
-                InvalidateRect: user32_dll
-                    .get_symbol("InvalidateRect")
-                    .ok_or_else(|| "InvalidateRect not found".to_string())?,
+                CreateWindowExW: user32_dll.get_symbol("CreateWindowExW")?,
+                DestroyWindow: user32_dll.get_symbol("DestroyWindow")?,
+                ShowWindow: user32_dll.get_symbol("ShowWindow")?,
+                UpdateWindow: user32_dll.get_symbol("UpdateWindow")?,
+                SetWindowPos: user32_dll.get_symbol("SetWindowPos")?,
+                GetClientRect: user32_dll.get_symbol("GetClientRect")?,
+                GetWindowRect: user32_dll.get_symbol("GetWindowRect")?,
+                InvalidateRect: user32_dll.get_symbol("InvalidateRect")?,
 
                 // Window properties
                 // SetWindowLongPtrW/GetWindowLongPtrW are 64-bit-aware wrappers
@@ -650,253 +649,133 @@ impl Win32Libraries {
                 // GetWindowLongW. Fall back to the non-Ptr versions for compat.
                 SetWindowLongPtrW: user32_dll
                     .get_symbol("SetWindowLongPtrW")
-                    .or_else(|| user32_dll.get_symbol("SetWindowLongW"))
-                    .ok_or_else(|| "SetWindowLongPtrW/SetWindowLongW not found".to_string())?,
+                    .or_else(|_| user32_dll.get_symbol("SetWindowLongW"))?,
                 GetWindowLongPtrW: user32_dll
                     .get_symbol("GetWindowLongPtrW")
-                    .or_else(|| user32_dll.get_symbol("GetWindowLongW"))
-                    .ok_or_else(|| "GetWindowLongPtrW/GetWindowLongW not found".to_string())?,
-                SetWindowTextW: user32_dll
-                    .get_symbol("SetWindowTextW")
-                    .ok_or_else(|| "SetWindowTextW not found".to_string())?,
+                    .or_else(|_| user32_dll.get_symbol("GetWindowLongW"))?,
+                SetWindowTextW: user32_dll.get_symbol("SetWindowTextW")?,
 
                 // Window class
-                RegisterClassW: user32_dll
-                    .get_symbol("RegisterClassW")
-                    .ok_or_else(|| "RegisterClassW not found".to_string())?,
-                DefWindowProcW: user32_dll
-                    .get_symbol("DefWindowProcW")
-                    .ok_or_else(|| "DefWindowProcW not found".to_string())?,
+                RegisterClassW: user32_dll.get_symbol("RegisterClassW")?,
+                DefWindowProcW: user32_dll.get_symbol("DefWindowProcW")?,
 
                 // Device context
-                GetDC: user32_dll
-                    .get_symbol("GetDC")
-                    .ok_or_else(|| "GetDC not found".to_string())?,
-                ReleaseDC: user32_dll
-                    .get_symbol("ReleaseDC")
-                    .ok_or_else(|| "ReleaseDC not found".to_string())?,
+                GetDC: user32_dll.get_symbol("GetDC")?,
+                ReleaseDC: user32_dll.get_symbol("ReleaseDC")?,
 
                 // Cursor
-                GetCursorPos: user32_dll
-                    .get_symbol("GetCursorPos")
-                    .ok_or_else(|| "GetCursorPos not found".to_string())?,
-                ScreenToClient: user32_dll
-                    .get_symbol("ScreenToClient")
-                    .ok_or_else(|| "ScreenToClient not found".to_string())?,
-                ClientToScreen: user32_dll
-                    .get_symbol("ClientToScreen")
-                    .ok_or_else(|| "ClientToScreen not found".to_string())?,
-                SetCapture: user32_dll
-                    .get_symbol("SetCapture")
-                    .ok_or_else(|| "SetCapture not found".to_string())?,
-                ReleaseCapture: user32_dll
-                    .get_symbol("ReleaseCapture")
-                    .ok_or_else(|| "ReleaseCapture not found".to_string())?,
-                LoadCursorW: user32_dll
-                    .get_symbol("LoadCursorW")
-                    .ok_or_else(|| "LoadCursorW not found".to_string())?,
-                SetCursor: user32_dll
-                    .get_symbol("SetCursor")
-                    .ok_or_else(|| "SetCursor not found".to_string())?,
-                TrackMouseEvent: user32_dll
-                    .get_symbol("TrackMouseEvent")
-                    .ok_or_else(|| "TrackMouseEvent not found".to_string())?,
+                GetCursorPos: user32_dll.get_symbol("GetCursorPos")?,
+                ScreenToClient: user32_dll.get_symbol("ScreenToClient")?,
+                ClientToScreen: user32_dll.get_symbol("ClientToScreen")?,
+                SetCapture: user32_dll.get_symbol("SetCapture")?,
+                ReleaseCapture: user32_dll.get_symbol("ReleaseCapture")?,
+                LoadCursorW: user32_dll.get_symbol("LoadCursorW")?,
+                SetCursor: user32_dll.get_symbol("SetCursor")?,
+                TrackMouseEvent: user32_dll.get_symbol("TrackMouseEvent")?,
 
                 // Messages
-                SendMessageW: user32_dll
-                    .get_symbol("SendMessageW")
-                    .ok_or_else(|| "SendMessageW not found".to_string())?,
-                PostMessageW: user32_dll
-                    .get_symbol("PostMessageW")
-                    .ok_or_else(|| "PostMessageW not found".to_string())?,
-                GetMessageW: user32_dll
-                    .get_symbol("GetMessageW")
-                    .ok_or_else(|| "GetMessageW not found".to_string())?,
-                PeekMessageW: user32_dll
-                    .get_symbol("PeekMessageW")
-                    .ok_or_else(|| "PeekMessageW not found".to_string())?,
-                TranslateMessage: user32_dll
-                    .get_symbol("TranslateMessage")
-                    .ok_or_else(|| "TranslateMessage not found".to_string())?,
-                DispatchMessageW: user32_dll
-                    .get_symbol("DispatchMessageW")
-                    .ok_or_else(|| "DispatchMessageW not found".to_string())?,
-                WaitMessage: user32_dll
-                    .get_symbol("WaitMessage")
-                    .ok_or_else(|| "WaitMessage not found".to_string())?,
+                SendMessageW: user32_dll.get_symbol("SendMessageW")?,
+                PostMessageW: user32_dll.get_symbol("PostMessageW")?,
+                GetMessageW: user32_dll.get_symbol("GetMessageW")?,
+                PeekMessageW: user32_dll.get_symbol("PeekMessageW")?,
+                TranslateMessage: user32_dll.get_symbol("TranslateMessage")?,
+                DispatchMessageW: user32_dll.get_symbol("DispatchMessageW")?,
+                WaitMessage: user32_dll.get_symbol("WaitMessage")?,
 
                 // Timers
-                SetTimer: user32_dll
-                    .get_symbol("SetTimer")
-                    .ok_or_else(|| "SetTimer not found".to_string())?,
-                KillTimer: user32_dll
-                    .get_symbol("KillTimer")
-                    .ok_or_else(|| "KillTimer not found".to_string())?,
+                SetTimer: user32_dll.get_symbol("SetTimer")?,
+                KillTimer: user32_dll.get_symbol("KillTimer")?,
             }
         };
 
         // Load function pointers from gdi32.dll
         let gdi32 = unsafe {
             Gdi32Functions {
-                CreateSolidBrush: gdi32_dll
-                    .get_symbol("CreateSolidBrush")
-                    .ok_or_else(|| "CreateSolidBrush not found".to_string())?,
-                DeleteObject: gdi32_dll
-                    .get_symbol("DeleteObject")
-                    .ok_or_else(|| "DeleteObject not found".to_string())?,
-                CreateRectRgn: gdi32_dll
-                    .get_symbol("CreateRectRgn")
-                    .ok_or_else(|| "CreateRectRgn not found".to_string())?,
-                StretchDIBits: gdi32_dll
-                    .get_symbol("StretchDIBits")
-                    .ok_or_else(|| "StretchDIBits not found".to_string())?,
+                CreateSolidBrush: gdi32_dll.get_symbol("CreateSolidBrush")?,
+                DeleteObject: gdi32_dll.get_symbol("DeleteObject")?,
+                CreateRectRgn: gdi32_dll.get_symbol("CreateRectRgn")?,
+                StretchDIBits: gdi32_dll.get_symbol("StretchDIBits")?,
             }
         };
 
         // Try to load function pointers from shell32.dll (optional - for drag-and-drop)
         let shell32_dll = DynamicLibrary::load("shell32.dll").ok();
-        let shell32 = if let Some(ref dll) = shell32_dll {
-            unsafe {
-                let drag_accept = dll.get_symbol("DragAcceptFiles");
-                let drag_query_file = dll.get_symbol("DragQueryFileW");
-                let drag_query_point = dll.get_symbol("DragQueryPoint");
-                let drag_finish = dll.get_symbol("DragFinish");
-
-                if let (Some(accept), Some(query_file), Some(query_point), Some(finish)) =
-                    (drag_accept, drag_query_file, drag_query_point, drag_finish)
-                {
-                    Some(Shell32Functions {
-                        DragAcceptFiles: accept,
-                        DragQueryFileW: query_file,
-                        DragQueryPoint: query_point,
-                        DragFinish: finish,
-                    })
-                } else {
-                    None
-                }
-            }
-        } else {
-            None
-        };
+        let shell32 = shell32_dll.as_ref().and_then(|dll| unsafe {
+            Some(Shell32Functions {
+                DragAcceptFiles: dll.get_symbol("DragAcceptFiles").ok()?,
+                DragQueryFileW: dll.get_symbol("DragQueryFileW").ok()?,
+                DragQueryPoint: dll.get_symbol("DragQueryPoint").ok()?,
+                DragFinish: dll.get_symbol("DragFinish").ok()?,
+            })
+        });
 
         // Try to load function pointers from imm32.dll (optional - for IME)
         let imm32_dll = DynamicLibrary::load("imm32.dll").ok();
-        let imm32 = if let Some(ref dll) = imm32_dll {
-            unsafe {
-                let get_context = dll.get_symbol("ImmGetContext");
-                let release_context = dll.get_symbol("ImmReleaseContext");
-                let get_comp_string = dll.get_symbol("ImmGetCompositionStringW");
-                let set_comp_window = dll.get_symbol("ImmSetCompositionWindow");
-
-                if let (Some(get_ctx), Some(rel_ctx), Some(get_str), Some(set_win)) = (
-                    get_context,
-                    release_context,
-                    get_comp_string,
-                    set_comp_window,
-                ) {
-                    Some(Imm32Functions {
-                        ImmGetContext: get_ctx,
-                        ImmReleaseContext: rel_ctx,
-                        ImmGetCompositionStringW: get_str,
-                        ImmSetCompositionWindow: set_win,
-                    })
-                } else {
-                    None
-                }
-            }
-        } else {
-            None
-        };
+        let imm32 = imm32_dll.as_ref().and_then(|dll| unsafe {
+            Some(Imm32Functions {
+                ImmGetContext: dll.get_symbol("ImmGetContext").ok()?,
+                ImmReleaseContext: dll.get_symbol("ImmReleaseContext").ok()?,
+                ImmGetCompositionStringW: dll.get_symbol("ImmGetCompositionStringW").ok()?,
+                ImmSetCompositionWindow: dll.get_symbol("ImmSetCompositionWindow").ok()?,
+            })
+        });
 
         // Try to load function pointers from kernel32.dll (optional - for power management)
         let kernel32_dll = DynamicLibrary::load("kernel32.dll").ok();
-        let kernel32 = if let Some(ref dll) = kernel32_dll {
-            unsafe {
-                let set_thread_exec = dll.get_symbol("SetThreadExecutionState");
-                let get_module_handle = dll.get_symbol("GetModuleHandleW");
-
-                if let (Some(ste), Some(gmh)) = (set_thread_exec, get_module_handle) {
-                    Some(Kernel32Functions {
-                        SetThreadExecutionState: ste,
-                        GetModuleHandleW: gmh,
-                    })
-                } else {
-                    None
-                }
-            }
-        } else {
-            None
-        };
+        let kernel32 = kernel32_dll.as_ref().and_then(|dll| unsafe {
+            Some(Kernel32Functions {
+                SetThreadExecutionState: dll.get_symbol("SetThreadExecutionState").ok()?,
+                GetModuleHandleW: dll.get_symbol("GetModuleHandleW").ok()?,
+            })
+        });
 
         // Try to load function pointers from dwmapi.dll (optional - for Windows 11 transparency)
         let dwmapi = DynamicLibrary::load("dwmapi.dll").ok();
         let dwmapi_funcs = if let Some(ref dll) = dwmapi {
             unsafe {
-                let set_attr = dll.get_symbol("DwmSetWindowAttribute");
-                let extend_frame = dll.get_symbol("DwmExtendFrameIntoClientArea");
-                let blur_behind = dll.get_symbol("DwmEnableBlurBehindWindow");
-                let flush = dll.get_symbol("DwmFlush");
-
-                if let (Some(s), Some(e), Some(b), Some(f)) =
-                    (set_attr, extend_frame, blur_behind, flush)
-                {
+                let funcs = (|| -> Option<DwmapiFunctions> {
+                    Some(DwmapiFunctions {
+                        DwmSetWindowAttribute: dll.get_symbol("DwmSetWindowAttribute").ok()?,
+                        DwmExtendFrameIntoClientArea: dll
+                            .get_symbol("DwmExtendFrameIntoClientArea")
+                            .ok()?,
+                        DwmEnableBlurBehindWindow: dll
+                            .get_symbol("DwmEnableBlurBehindWindow")
+                            .ok()?,
+                        DwmFlush: dll.get_symbol("DwmFlush").ok()?,
+                    })
+                })();
+                if funcs.is_some() {
                     log_debug!(
                         LogCategory::Platform,
                         "Loaded dwmapi.dll - DWM transparency effects available"
                     );
-                    Some(DwmapiFunctions {
-                        DwmSetWindowAttribute: s,
-                        DwmExtendFrameIntoClientArea: e,
-                        DwmEnableBlurBehindWindow: b,
-                        DwmFlush: f,
-                    })
                 } else {
                     log_debug!(
                         LogCategory::Platform,
                         "dwmapi.dll loaded but DWM functions not found"
                     );
-                    None
                 }
+                funcs
             }
         } else {
             None
         };
 
         Ok(Self {
-            user32_dll: Some(user32_dll),
+            user32_dll: Some(Arc::new(user32_dll)),
             user32,
-            gdi32_dll: Some(gdi32_dll),
+            gdi32_dll: Some(Arc::new(gdi32_dll)),
             gdi32,
-            imm32_dll,
+            imm32_dll: imm32_dll.map(Arc::new),
             imm32,
-            shell32_dll,
+            shell32_dll: shell32_dll.map(Arc::new),
             shell32,
-            kernel32_dll,
+            kernel32_dll: kernel32_dll.map(Arc::new),
             kernel32,
-            opengl32: DynamicLibrary::load("opengl32.dll").ok(),
-            dwmapi,
+            dwmapi: dwmapi.map(Arc::new),
             dwmapi_funcs,
         })
-    }
-}
-
-impl Clone for Win32Libraries {
-    fn clone(&self) -> Self {
-        Self {
-            user32_dll: None, // Don't clone DLL handles, they're shared
-            user32: self.user32,
-            gdi32_dll: None,
-            gdi32: self.gdi32,
-            imm32_dll: None,
-            imm32: self.imm32,
-            shell32_dll: None,
-            shell32: self.shell32,
-            kernel32_dll: None,
-            kernel32: self.kernel32,
-            opengl32: None,
-            dwmapi: None,
-            dwmapi_funcs: self.dwmapi_funcs,
-        }
     }
 }
 
