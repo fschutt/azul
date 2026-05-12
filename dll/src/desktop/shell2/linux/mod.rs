@@ -75,6 +75,14 @@ impl LinuxWindow {
         }
     }
 
+    #[cfg(feature = "a11y")]
+    pub fn process_accessibility_actions(&mut self) {
+        match self {
+            LinuxWindow::X11(w) => w.process_accessibility_actions(),
+            LinuxWindow::Wayland(w) => w.process_accessibility_actions(),
+        }
+    }
+
     pub fn request_redraw(&mut self) {
         match self {
             LinuxWindow::X11(w) => w.request_redraw(),

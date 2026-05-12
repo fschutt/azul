@@ -1062,6 +1062,12 @@ pub fn run(
                 while window.poll_event().is_some() {
                     // Event handling is done inside poll_event
                 }
+
+                // Process accessibility actions from screen readers (e.g. Orca).
+                // These arrive asynchronously via accesskit's action handler
+                // and must be polled outside of X11/Wayland event processing.
+                #[cfg(feature = "a11y")]
+                window.process_accessibility_actions();
             }
         }
 

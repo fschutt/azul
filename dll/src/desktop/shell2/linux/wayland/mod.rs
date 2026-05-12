@@ -569,6 +569,31 @@ impl WaylandWindow {
         }
         self.is_open = false;
     }
+    /// Process pending accessibility actions from assistive technology (e.g. Orca)
+    #[cfg(feature = "a11y")]
+    pub fn process_accessibility_actions(&mut self) {
+        let mut actions = Vec::new();
+        while let Some(action) = self.accessibility_adapter.poll_action() {
+            actions.push(action);
+        }
+        if actions.is_empty() {
+            return;
+        }
+
+        let now = std::time::Instant::now();
+        for (dom_id, node_id, action) in actions {
+            if let Some(lw) = self.common.layout_window.as_mut() {
+                let affected = lw.process_accessibility_action(dom_id, node_id, action, now);
+                if !affected.is_empty() {
+                    self.common.display_list_dirty = true;
+                }
+            }
+        }
+
+        self.common.a11y_dirty = true;
+        self.request_redraw();
+    }
+
     pub fn request_redraw(&mut self) {
         self.needs_redraw = true;
         if self.configured {
