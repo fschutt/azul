@@ -618,10 +618,13 @@ pub fn run(config: Config) -> Result<(), String> {
                                     );
                                 }
 
-                                // Reset working tree for retry so the agent
-                                // starts from a clean state.
-                                let _ = run_git(&project_root, &["reset", "--hard", &pre_head]);
-                                let _ = run_git(&project_root, &["clean", "-fd"]);
+                                // Reset OUR scope for retry. Concurrent
+                                // codegen agents' uncommitted work in
+                                // lang_* / examples/ is preserved — a
+                                // global `reset --hard` would wipe it and
+                                // confuse the other agent. See
+                                // `cleanup_our_scope_to`.
+                                let _ = cleanup_our_scope_to(&project_root, &pre_head);
 
                                 std::thread::sleep(std::time::Duration::from_secs(sleep_secs));
 
@@ -2573,6 +2576,33 @@ fn build_agent_prompt(
     p.push_str("it the way a senior engineer treats a stale bug report: read it for\n");
     p.push_str("context, then verify against the current code before changing anything.\n\n");
 
+    p.push_str("═══ Concurrent agents — stay in your lane ════════════════════════════\n\n");
+    p.push_str("Other azul-doc agents are running on this same checkout in parallel.\n");
+    p.push_str("They edit the language-binding codegen scaffolding:\n\n");
+    p.push_str("    doc/src/codegen/ir/lang_*/   (per-language IR hand-edits)\n");
+    p.push_str("    doc/src/codegen/v2/lang_*/   (per-language generator code)\n");
+    p.push_str("    examples/<language>/          (per-language example projects)\n\n");
+    p.push_str("YOU work exclusively on the azul-dll core: `core/`, `css/`, `layout/`,\n");
+    p.push_str("`dll/`, `api/`, plus `scripts/` and `doc/` paths OUTSIDE the codegen\n");
+    p.push_str("subtrees listed above. There is no scope overlap — the codegen agents\n");
+    p.push_str("touch language-binding files; you touch the framework they bind to.\n\n");
+    p.push_str("Hard rules (violations confuse the other agent and lose its work):\n\n");
+    p.push_str("  • NEVER stage, commit, revert, or `git checkout` files in the\n");
+    p.push_str("    `lang_*/` or `examples/` subtrees. They aren't yours.\n");
+    p.push_str("  • NEVER use `git add -A` or `git add .` — use targeted paths:\n");
+    p.push_str("        git add core/ css/ layout/ dll/ api/ scripts/\n");
+    p.push_str("        git add doc/src/  # but NOT doc/src/codegen/ir/lang_* or v2/lang_*\n");
+    p.push_str("    Or use pathspec exclusions:\n");
+    p.push_str("        git add -A ':!doc/src/codegen/ir/lang_*' \\\n");
+    p.push_str("                   ':!doc/src/codegen/v2/lang_*' \\\n");
+    p.push_str("                   ':!examples'\n");
+    p.push_str("  • When `git status --porcelain` shows changes ONLY in those subtrees,\n");
+    p.push_str("    treat that as clean for YOUR purposes — that's another agent\n");
+    p.push_str("    working. Your STEP 7 invariant \"working tree empty\" applies to\n");
+    p.push_str("    YOUR scope only.\n");
+    p.push_str("  • If the build fails with a lock-contention error (see STEP 4\n");
+    p.push_str("    warning) wait 60s and retry. Don't blame your patch.\n\n");
+
     p.push_str("═══ STEP 0 — Is the bug still there? ══════════════════════════════════\n\n");
     p.push_str("Before applying anything, verify the bug described in the commit/report\n");
     p.push_str("still exists in the current tree. Mid-level pass commits were often\n");
@@ -2691,9 +2721,13 @@ fn build_agent_prompt(
     p.push_str("  (b) Then run the normalize + codegen pass ONCE:\n\n");
     p.push_str("          \"$AZUL_DOC_BIN\" normalize\n");
     p.push_str("          \"$AZUL_DOC_BIN\" codegen all\n\n");
-    p.push_str("After these, if `git status --porcelain` is non-empty, drop any .md changes\n");
-    p.push_str("(same commands as step 2), stage everything else, and amend the commit:\n\n");
-    p.push_str("    git add -A\n");
+    p.push_str("After these, if `git status --porcelain` shows changes in YOUR scope\n");
+    p.push_str("(see the Concurrent-agents note up top — ignore changes in lang_* and\n");
+    p.push_str("examples/), drop any .md, stage your scope, and amend the commit:\n\n");
+    p.push_str("    # Scoped add — keeps the other agents' uncommitted work untouched\n");
+    p.push_str("    git add -A ':!doc/src/codegen/ir/lang_*' \\\n");
+    p.push_str("               ':!doc/src/codegen/v2/lang_*' \\\n");
+    p.push_str("               ':!examples'\n");
     p.push_str("    git reset HEAD -- '*.md'\n");
     p.push_str("    git checkout -- '*.md'\n");
     p.push_str("    git commit --amend --no-edit\n\n");
@@ -2739,8 +2773,13 @@ fn build_agent_prompt(
     p.push_str("═══ STEP 7 — Final invariants (you MUST satisfy all of these) ════════\n\n");
     p.push_str("  • HEAD points at the LAST of your new commit(s) (main, plus any\n");
     p.push_str("    `follow-up: ` commits from STEP 6).\n");
-    p.push_str("  • `git status --porcelain` is EMPTY.\n");
-    p.push_str("  • No commit you made touches a .md file.\n");
+    p.push_str("  • `git status --porcelain` shows NO changes IN YOUR SCOPE. Changes\n");
+    p.push_str("    in `doc/src/codegen/ir/lang_*`, `doc/src/codegen/v2/lang_*`, or\n");
+    p.push_str("    `examples/` are other agents' work — leave them alone, they don't\n");
+    p.push_str("    block you. Verify with a scoped check, e.g.:\n");
+    p.push_str("        git status --porcelain -- core/ css/ layout/ dll/ api/ scripts/\n");
+    p.push_str("    should be empty.\n");
+    p.push_str("  • None of YOUR commits touch a .md file.\n");
     p.push_str("  • All 3 cross-compile targets pass `cargo check` at HEAD.\n\n");
 
     // ── Reference material ──────────────────────────────────────────────
@@ -2823,7 +2862,13 @@ fn index_is_empty(project_root: &Path) -> Result<bool, String> {
         .current_dir(project_root)
         .output()
         .map_err(|e| format!("git diff --cached: {}", e))?;
-    Ok(String::from_utf8_lossy(&out.stdout).trim().is_empty())
+    // Same scoping as `has_worktree_changes`: ignore staged paths owned by a
+    // concurrent agent. They have no business in our commit and aren't ours
+    // to unstage either.
+    let any_in_scope = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .any(|p| !is_concurrent_agent_path(p.trim()));
+    Ok(!any_in_scope)
 }
 
 /// Copy the currently-running `azul-doc` binary to a location that survives
@@ -2880,13 +2925,97 @@ fn rustup_prefixed_path() -> String {
     }
 }
 
+/// Restore the working tree + branch pointer to `target_sha`, but only for
+/// paths in OUR scope. Concurrent codegen-agent uncommitted work
+/// (`lang_*`, `examples/`) is left untouched — a global `reset --hard`
+/// would silently wipe it and confuse the other agent.
+///
+/// Implementation: soft-reset the branch pointer (preserves working tree),
+/// then for each currently-dirty path that's in our scope, either checkout
+/// from `target_sha` (tracked) or delete (untracked). Best-effort; errors
+/// on individual paths are logged and skipped so the retry can still proceed.
+fn cleanup_our_scope_to(project_root: &Path, target_sha: &str) -> Result<(), String> {
+    // 1. Move branch pointer back, preserving worktree contents.
+    if let Err(e) = run_git(project_root, &["reset", "--soft", target_sha]) {
+        eprintln!("[cleanup] reset --soft failed: {} (continuing)", e);
+    }
+    // 2. Unstage everything (mixed reset moves index to HEAD = target_sha).
+    if let Err(e) = run_git(project_root, &["reset", "HEAD"]) {
+        eprintln!("[cleanup] reset HEAD failed: {} (continuing)", e);
+    }
+
+    // 3. Walk porcelain status; for in-scope dirty paths, restore or delete.
+    let out = Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(project_root)
+        .output()
+        .map_err(|e| format!("git status: {}", e))?;
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        let (status, path) = match parse_porcelain_line(line) {
+            Some(p) => p,
+            None => continue,
+        };
+        if is_concurrent_agent_path(path) {
+            continue;
+        }
+        if status.contains('?') {
+            // Untracked — delete (file or empty dir).
+            let abs = project_root.join(path);
+            let _ = if abs.is_dir() {
+                fs::remove_dir_all(&abs)
+            } else {
+                fs::remove_file(&abs)
+            };
+        } else {
+            // Tracked dirty — checkout from target_sha (using `git checkout
+            // <sha> -- <path>` form which both unstages and restores).
+            let _ = Command::new("git")
+                .args(["checkout", target_sha, "--", path])
+                .current_dir(project_root)
+                .status();
+        }
+    }
+    Ok(())
+}
+
+/// True if a path is owned by a concurrent codegen / language-binding agent.
+/// Files in these subtrees are out-of-scope for apply-midlevel — we never
+/// stage, revert, or treat them as a dirtiness signal.
+fn is_concurrent_agent_path(path: &str) -> bool {
+    let p = path.trim_start_matches('"').trim_end_matches('"');
+    p.starts_with("doc/src/codegen/ir/lang_")
+        || p.starts_with("doc/src/codegen/v2/lang_")
+        || p.starts_with("examples/")
+}
+
+/// Parse a `git status --porcelain` line into (status_codes, path), normalising
+/// rename-style "old -> new" entries to just the new path. Returns None on
+/// malformed input.
+fn parse_porcelain_line(line: &str) -> Option<(&str, &str)> {
+    if line.len() < 4 {
+        return None;
+    }
+    let status = &line[..2];
+    let rest = &line[3..];
+    let path = rest.split(" -> ").last().unwrap_or(rest);
+    Some((status, path.trim_start_matches('"').trim_end_matches('"')))
+}
+
 fn has_worktree_changes(project_root: &Path) -> Result<bool, String> {
     let out = Command::new("git")
         .args(["status", "--porcelain"])
         .current_dir(project_root)
         .output()
         .map_err(|e| format!("git status: {}", e))?;
-    Ok(!String::from_utf8_lossy(&out.stdout).trim().is_empty())
+    // Only flag dirtiness for paths in OUR scope — concurrent codegen agents'
+    // uncommitted work in lang_* / examples/ should not block us.
+    let dirty = String::from_utf8_lossy(&out.stdout).lines().any(|line| {
+        match parse_porcelain_line(line) {
+            Some((_, path)) => !is_concurrent_agent_path(path),
+            None => false,
+        }
+    });
+    Ok(dirty)
 }
 
 fn git_diff_touches_md(
