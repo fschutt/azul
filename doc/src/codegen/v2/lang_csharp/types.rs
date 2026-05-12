@@ -380,6 +380,46 @@ fn generate_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Cod
             sanitize_identifier(&v.name)
         ));
     }
+
+    // AzOption<T>.AsNullable() — Nullable<T> for value-type payloads,
+    // direct reference for reference-type payloads (C# nullable
+    // reference types: returns null when tag is None).
+    if enum_def.name.starts_with("Option") && enum_def.variants.len() == 2 {
+        let none = enum_def.variants.iter().find(|v| v.name == "None");
+        let some = enum_def.variants.iter().find(|v| v.name == "Some");
+        if let (Some(_), Some(sv)) = (none, some) {
+            let payload_tuple = match &sv.kind {
+                EnumVariantKind::Tuple(types) if types.len() == 1 => {
+                    Some((types[0].0.clone(), types[0].1.clone()))
+                }
+                _ => None,
+            };
+            if let Some((payload_ty, ref_kind)) = payload_tuple {
+                let payload_cs = ref_kind_field_type(&payload_ty, &ref_kind, ir);
+                // Every Az* struct or primitive in C# is a value type
+                // (`struct`), so use `Nullable<T>` syntax via `T?`. For
+                // primitives `int?` resolves to `Nullable<int>`; for
+                // value-type structs `AzString?` resolves to
+                // `Nullable<AzString>`.
+                builder.line("/// <summary>");
+                builder.line("/// Decode this Option as a C# nullable.");
+                builder.line("/// Returns null when the C-ABI tag is None, the Some");
+                builder.line("/// payload otherwise.");
+                builder.line("/// </summary>");
+                builder.line(&format!("public {}? AsNullable()", payload_cs));
+                builder.line("{");
+                builder.indent();
+                builder.line(&format!(
+                    "if (None.tag == {}_Tag.None) return null;",
+                    name
+                ));
+                builder.line("return Some.payload;");
+                builder.dedent();
+                builder.line("}");
+            }
+        }
+    }
+
     builder.dedent();
     builder.line("}");
     builder.blank();

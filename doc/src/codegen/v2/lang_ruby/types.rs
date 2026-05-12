@@ -540,15 +540,43 @@ fn emit_tagged_union(
     builder.dedent();
     builder.line("end");
 
-    // Outer struct: tag + payload
+    // Outer struct: tag + payload. The C ABI uses `#[repr(C, u8)]`
+    // (1-byte tag); `:int` would shift every payload offset on
+    // small-aligned variants — same family of bug Java/C#/Kotlin
+    // fixed last week.
     builder.line(&format!("class {}", name));
     builder.indent();
     builder.line("layout(");
     builder.indent();
-    builder.line(":tag, :int,");
+    builder.line(":tag, :uint8,");
     builder.line(&format!(":payload, {}", payload_name));
     builder.dedent();
     builder.line(")");
+
+    // AzOption<T>.to_opt — Ruby nullable mirror. Returns nil when the
+    // C-ABI tag is None, the Some payload otherwise.
+    if e.name.starts_with("Option") && e.variants.len() == 2 {
+        let none = e.variants.iter().find(|v| v.name == "None");
+        let some = e.variants.iter().find(|v| v.name == "Some");
+        if let (Some(_), Some(sv)) = (none, some) {
+            let has_single_payload = matches!(
+                &sv.kind,
+                EnumVariantKind::Tuple(types) if types.len() == 1
+            );
+            if has_single_payload {
+                builder.line("# Decode this Option as a Ruby nullable.");
+                builder.line("# Returns nil when the C-ABI tag is None,");
+                builder.line("# the Some payload otherwise.");
+                builder.line("def to_opt");
+                builder.indent();
+                builder.line("return nil if self[:tag] == 0");
+                builder.line("self[:payload][:Some][:payload]");
+                builder.dedent();
+                builder.line("end");
+            }
+        }
+    }
+
     builder.dedent();
     builder.line("end");
 }

@@ -38,14 +38,7 @@ The big arc. Every E2E-passing binding gets the same family of changes so the us
 Each takes one wrapper method per binding. AzString is done (commit 7c0d4f250) — use it as the template.
 
 - [x] **A.1.1 AzString → host string** across Java/Kotlin/C#/Ruby/Node/OCaml/Lua. *Commit 7c0d4f250.*
-- [ ] **A.1.2 AzOption<T> → host nullable / Optional**. Detect by name prefix `AzOption` in each wrapper emitter. One accessor per binding:
-  - Java: `public T toNullable() { return tag == None ? null : payload; }`
-  - Kotlin: `fun toNullable(): T?` (uses `?` syntax)
-  - C#: `public T? AsNullable()` (uses C# nullable)
-  - Ruby: `def to_opt; tag == None ? nil : payload; end`
-  - Node: `toNullable() { return this.tag === None ? null : this.payload; }`
-  - OCaml: `let to_option self = if Tag = None then None else Some self.payload`
-  - Lua: `function _methods:to_lua_value() return self.tag == 0 and nil or self.payload end`
+- [⊘] **A.1.2 AzOption<T> → host nullable / Optional**. Done for Java/Kotlin/C#/Ruby in this iteration; bundled together with three tag-width fixes (Kotlin `Int`→`Byte`, Ruby `:int`→`:uint8`, Node `uint32_t`→`uint8_t`) so the tag at offset 0 is finally consistent across bindings. Node/OCaml/Lua deferred — Node has no per-type wrapper class to attach the method to, OCaml emits AzOption as opaque blobs, Lua's union cdefs aren't currently wrapped in metatypes. *(blocker: Node/OCaml/Lua require broader codegen design changes — separate task; memory: TBD)*
 - [ ] **A.1.3 AzVec<T> → host iterable**. Element marshalling per type — IR has the element type. Returns native iterator/list/array:
   - Java: `implements Iterable<T>` + `Iterator<T>`
   - Kotlin: `operator fun iterator(): Iterator<T>`
@@ -313,5 +306,8 @@ These bite us repeatedly across bindings. Fix once in shared infra.
   - `7c0d4f250` AzString → host string accessor (7 bindings)
   - `8211592ac` Scala E2E example
   - (PHP build verified — no commit, env-only)
+  - `c4123d468` plan: overnight autonomous-loop checklist
+- 2026-05-13 overnight loop:
+  - A.1.2 (Java/Kotlin/C#/Ruby AzOption + tag-width fix in Kotlin/Ruby/Node)
 
 End of plan.

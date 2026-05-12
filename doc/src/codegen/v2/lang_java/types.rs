@@ -286,6 +286,53 @@ b.line(&format!("public byte tag; // {}_Tag.{}", name, v.name));
                         field_names.push(format!("\"{}\"", v.name));
                     }
                     emit_field_order_override(b, &field_names);
+
+                    // AzOption<T>.toNullable() — decode the tagged union as a
+                    // host-language nullable. The C ABI tag byte at offset 0
+                    // tells us None (0) vs Some (1); we then overlay the
+                    // Some variant struct on the same memory and pull
+                    // `.payload`. Java auto-boxes primitives to their
+                    // wrapper type so the return signature is `Integer` /
+                    // `Long` / etc. for primitive payloads, and the
+                    // generated `AzWhatever` reference type for struct
+                    // payloads.
+                    if ta.name.starts_with("Option") && variants.len() == 2 {
+                        let none = variants.iter().find(|v| v.name == "None");
+                        let some = variants.iter().find(|v| v.name == "Some");
+                        if let (Some(_), Some(sv)) = (none, some) {
+                            if let Some(ref payload_ty) = sv.payload_type {
+                                let payload_java = ref_kind_field_type(
+                                    payload_ty,
+                                    &sv.payload_ref_kind,
+                                    ir,
+                                );
+                                let boxed = java_boxed(&payload_java);
+                                b.line("/**");
+                                b.line(" * Decode this Option as a host-language nullable.");
+                                b.line(" * Returns null when the C-ABI tag is None, the Some");
+                                b.line(" * payload (auto-boxed for primitives) otherwise.");
+                                b.line(" */");
+                                b.line(&format!("public {} toNullable() {{", boxed));
+                                b.indent();
+                                b.line(
+                                    "if (getPointer() == null) return null;",
+                                );
+                                b.line(
+                                    "byte tag = getPointer().getByte(0);",
+                                );
+                                b.line("if (tag == 0) return null;");
+                                b.line(&format!(
+                                    "{}Variant_Some __s = Structure.newInstance({}Variant_Some.class, getPointer());",
+                                    name, name
+                                ));
+                                b.line("__s.read();");
+                                b.line("return __s.payload;");
+                                b.dedent();
+                                b.line("}");
+                            }
+                        }
+                    }
+
                     b.line(&format!(
                         "public static class ByValue extends {} implements Structure.ByValue {{}}",
                         name
@@ -519,6 +566,46 @@ b.line(&format!("public byte tag; // {}_Tag.{}", name, v.name));
             // implicit Structure machinery; getFieldOrder() is still
             // recommended.
             emit_field_order_override(b, &field_names);
+
+            // AzOption<T>.toNullable() — decode the tagged union as a
+            // host-language nullable. Tag byte at offset 0 (shared
+            // across variants via repr(C, u8)). See lang_csharp /
+            // lang_kotlin / etc. for the per-binding mirror.
+            if enum_def.name.starts_with("Option") && enum_def.variants.len() == 2 {
+                let none = enum_def.variants.iter().find(|v| v.name == "None");
+                let some = enum_def.variants.iter().find(|v| v.name == "Some");
+                if let (Some(_), Some(sv)) = (none, some) {
+                    let payload_ty_opt = match &sv.kind {
+                        EnumVariantKind::Tuple(types) if types.len() == 1 => {
+                            Some((types[0].0.clone(), types[0].1.clone()))
+                        }
+                        _ => None,
+                    };
+                    if let Some((payload_ty, ref_kind)) = payload_ty_opt {
+                        let payload_java = ref_kind_field_type(&payload_ty, &ref_kind, ir);
+                        let boxed = java_boxed(&payload_java);
+                        b.line("/**");
+                        b.line(" * Decode this Option as a host-language nullable.");
+                        b.line(" * Returns null when the C-ABI tag is None, the Some");
+                        b.line(" * payload (auto-boxed for primitives) otherwise.");
+                        b.line(" */");
+                        b.line(&format!("public {} toNullable() {{", boxed));
+                        b.indent();
+                        b.line("if (getPointer() == null) return null;");
+                        b.line("byte tag = getPointer().getByte(0);");
+                        b.line("if (tag == 0) return null;");
+                        b.line(&format!(
+                            "{}Variant_Some __s = Structure.newInstance({}Variant_Some.class, getPointer());",
+                            name, name
+                        ));
+                        b.line("__s.read();");
+                        b.line("return __s.payload;");
+                        b.dedent();
+                        b.line("}");
+                    }
+                }
+            }
+
             // ByValue / ByReference variants for passing the union by
             // value across the FFI boundary.
             b.line(&format!(
@@ -716,6 +803,23 @@ fn ref_kind_field_type(type_name: &str, ref_kind: &FieldRefKind, ir: &CodegenIR)
         | FieldRefKind::PtrMut
         | FieldRefKind::Boxed
         | FieldRefKind::OptionBoxed => "Pointer".to_string(),
+    }
+}
+
+/// Convert a Java type name to its boxed (reference) wrapper. Primitives
+/// can't be `null`, so AzOption.toNullable() returns boxed forms (`Integer`
+/// rather than `int`, etc.). Reference types are returned as-is.
+fn java_boxed(t: &str) -> String {
+    match t.trim() {
+        "byte" => "Byte".to_string(),
+        "short" => "Short".to_string(),
+        "int" => "Integer".to_string(),
+        "long" => "Long".to_string(),
+        "float" => "Float".to_string(),
+        "double" => "Double".to_string(),
+        "boolean" => "Boolean".to_string(),
+        "char" => "Character".to_string(),
+        other => other.to_string(),
     }
 }
 

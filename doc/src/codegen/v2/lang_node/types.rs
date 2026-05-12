@@ -276,12 +276,12 @@ fn emit_unit_enum(b: &mut CodeBuilder, e: &EnumDef) {
 
 fn emit_tag_enum(b: &mut CodeBuilder, e: &EnumDef) {
     let ffi = ffi_type_name(&e.name);
-    // koffi side: register the tag enum's name as an alias for uint32_t
-    // so subsequent variant payload structs (which carry `tag: 'AzFoo_Tag'`)
-    // can resolve the type. Without this, koffi's parser sees an
-    // unregistered `AzFoo_Tag` and throws "Unknown or invalid type name".
+    // koffi side: register the tag enum's name as an alias for uint8_t
+    // (C-ABI `#[repr(C, u8)]`; uint32 would shift every payload offset
+    // on small-aligned variants — same family of bug Java/C#/Kotlin
+    // fixed last week).
     b.line(&format!(
-        "azulFFI.alias('{}_Tag', 'uint32_t');",
+        "azulFFI.alias('{}_Tag', 'uint8_t');",
         ffi
     ));
     b.line(&format!("Enums.{}_Tag = Object.freeze({{", e.name));

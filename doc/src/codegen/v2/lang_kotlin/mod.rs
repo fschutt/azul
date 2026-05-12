@@ -361,7 +361,10 @@ fn emit_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Codegen
         let variant_struct = format!("{}Variant_{}", name, v.name);
         builder.line(&format!("open class {} : Structure() {{", variant_struct));
         builder.indent();
-        builder.line(&format!("@JvmField var tag: Int = 0 // {}_Tag", name));
+        // C-ABI `#[repr(C, u8)]` tag is 1 byte. JNA's `Int` would
+        // be 4 bytes and shift every payload offset on small-aligned
+        // variants — same family of bug Java/C#/OCaml fixed last week.
+        builder.line(&format!("@JvmField var tag: Byte = 0 // {}_Tag", name));
 
         let mut field_names: Vec<String> = vec!["\"tag\"".to_string()];
         match &v.kind {
@@ -421,6 +424,42 @@ fn emit_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Codegen
         field_names.push(format!("\"{}\"", v.name));
     }
     emit_field_order(builder, &field_names);
+
+    // AzOption<T>.toNullable() — Kotlin nullable mirror of the Java
+    // accessor (lang_java/types.rs).
+    if enum_def.name.starts_with("Option") && enum_def.variants.len() == 2 {
+        let none = enum_def.variants.iter().find(|v| v.name == "None");
+        let some = enum_def.variants.iter().find(|v| v.name == "Some");
+        if let (Some(_), Some(sv)) = (none, some) {
+            let payload_tuple = match &sv.kind {
+                EnumVariantKind::Tuple(types) if types.len() == 1 => {
+                    Some((types[0].0.clone(), types[0].1.clone()))
+                }
+                _ => None,
+            };
+            if let Some((payload_ty, ref_kind)) = payload_tuple {
+                let (kt, _default) = ref_kind_kt_field(&payload_ty, &ref_kind, ir);
+                builder.line("/**");
+                builder.line(" * Decode this Option as a Kotlin nullable.");
+                builder.line(" * Returns null when the C-ABI tag is None, the Some");
+                builder.line(" * payload otherwise.");
+                builder.line(" */");
+                builder.line(&format!("fun toNullable(): {}? {{", kt));
+                builder.indent();
+                builder.line("val p = pointer ?: return null");
+                builder.line("if (p.getByte(0).toInt() == 0) return null");
+                builder.line(&format!(
+                    "val __s = Structure.newInstance({}Variant_Some::class.java, p)",
+                    name
+                ));
+                builder.line("__s.read()");
+                builder.line("return __s.payload");
+                builder.dedent();
+                builder.line("}");
+            }
+        }
+    }
+
     builder.line(&format!(
         "class ByValue : {}(), Structure.ByValue",
         name
@@ -509,7 +548,7 @@ fn emit_monomorphized_alias(
                     variant_struct
                 ));
                 builder.indent();
-                builder.line("@JvmField var tag: Int = 0");
+                builder.line("@JvmField var tag: Byte = 0 // repr(C, u8)");
                 let mut field_names = vec!["\"tag\"".to_string()];
                 if let Some(ref payload_type) = v.payload_type {
                     let jt = ref_kind_field_type_kt(payload_type, &v.payload_ref_kind, ir);
