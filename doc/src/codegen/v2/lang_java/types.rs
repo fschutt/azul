@@ -248,7 +248,10 @@ fn emit_monomorphized_alias_files(
                             variant_struct
                         ));
                         b.indent();
-                        b.line(&format!("public int tag; // {}_Tag.{}", name, v.name));
+                        // C-ABI `#[repr(C, u8)]` tag is 1 byte. Using Java `byte` (8-bit)
+// matches that; `int` would be 4 bytes and shift every payload
+// offset on small-aligned variants.
+b.line(&format!("public byte tag; // {}_Tag.{}", name, v.name));
                         let mut field_names: Vec<String> = vec!["\"tag\"".to_string()];
                         emit_monomorphized_payload(b, v, ir, &mut field_names);
                         emit_field_order_override(b, &field_names);
@@ -448,7 +451,10 @@ fn emit_tagged_union_files(
                     variant_struct
                 ));
                 b.indent();
-                b.line(&format!("public int tag; // {}_Tag.{}", name, v.name));
+                // C-ABI `#[repr(C, u8)]` tag is 1 byte. Using Java `byte` (8-bit)
+// matches that; `int` would be 4 bytes and shift every payload
+// offset on small-aligned variants.
+b.line(&format!("public byte tag; // {}_Tag.{}", name, v.name));
 
                 let mut field_names: Vec<String> = vec!["\"tag\"".to_string()];
                 match &v.kind {

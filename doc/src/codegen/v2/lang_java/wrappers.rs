@@ -400,7 +400,7 @@ fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef) {
                 builder.indent();
                 builder.line(&format!("{} u = new {}();", ffi_name, ffi_name));
                 builder.line(&format!(
-                    "u.{}.tag = {}_Tag.{}.value;",
+                    "u.{}.tag = (byte) {}_Tag.{}.value;",
                     variant_ident, ffi_name, variant_ident
                 ));
                 builder.line(&format!("u.setType(\"{}\");", v.name));

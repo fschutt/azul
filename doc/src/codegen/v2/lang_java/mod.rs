@@ -187,7 +187,15 @@ pub fn map_jvm_type(rust_type: &str, ir: &CodegenIR) -> String {
 
     match trimmed {
         // Primitives — JVM has no unsigned, widen-or-truncate as needed.
-        "bool" => "boolean".to_string(),
+        //
+        // C's `bool` is 1 byte (sizeof(_Bool) == 1) but JNA marshals
+        // Java `boolean` as a 4-byte Windows BOOL by default — every
+        // bool field shifts subsequent offsets by 3, breaking layout
+        // for any struct that holds one (AzTitlebarButtons, AzAppConfig,
+        // AzWindowFlags, ...). Use `byte` for FFI struct fields and
+        // expose `isXxx()` / `setXxx(boolean)` helpers in the idiomatic
+        // wrapper layer.
+        "bool" => "byte".to_string(),
         "u8" | "c_uchar" | "char" | "i8" | "c_char" => "byte".to_string(),
         "u16" | "i16" => "short".to_string(),
         "u32" | "c_uint" | "i32" | "c_int" => "int".to_string(),
@@ -227,6 +235,14 @@ pub fn map_jvm_type(rust_type: &str, ir: &CodegenIR) -> String {
             if let Some(e) = ir.find_enum(trimmed) {
                 if matches!(e.category, super::super::ir::TypeCategory::Recursive) {
                     return "Pointer".to_string();
+                }
+                if !e.is_union {
+                    // Unit enums (C `enum X`) are 4 bytes (sizeof(int))
+                    // in the C ABI. The codegen-emitted Java `public enum
+                    // AzX` is a heap object, which JNA can't size in a
+                    // struct field. Emit `int` for FFI struct fields;
+                    // consumers can convert via `AzX.fromInt(...)`.
+                    return "int".to_string();
                 }
                 return ffi_type_name(trimmed);
             }
