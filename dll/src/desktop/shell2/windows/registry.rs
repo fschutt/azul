@@ -10,6 +10,8 @@
 use std::{cell::RefCell, collections::BTreeMap};
 
 use super::dlopen::HWND;
+use super::super::common::debug_server::LogCategory;
+use crate::log_debug;
 
 thread_local! {
     /// Thread-local registry of all active windows (HWND -> raw pointer)
@@ -65,11 +67,25 @@ pub unsafe fn register_window(hwnd: HWND, window_ptr: *mut super::Win32Window) {
     WINDOW_REGISTRY.with(|registry| {
         registry.borrow_mut().add(hwnd, window_ptr);
     });
+    log_debug!(
+        LogCategory::Window,
+        "[Windows Registry] Registered window {:p} -> {:p} (total: {})",
+        hwnd,
+        window_ptr,
+        window_count()
+    );
 }
 
 /// Remove a window from the global registry
 pub fn unregister_window(hwnd: HWND) -> Option<*mut super::Win32Window> {
-    WINDOW_REGISTRY.with(|registry| registry.borrow_mut().remove(hwnd))
+    let result = WINDOW_REGISTRY.with(|registry| registry.borrow_mut().remove(hwnd));
+    log_debug!(
+        LogCategory::Window,
+        "[Windows Registry] Unregistered window {:p} (total: {})",
+        hwnd,
+        window_count()
+    );
+    result
 }
 
 /// Get a window pointer from the registry

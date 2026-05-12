@@ -153,14 +153,23 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("(* WindowCreateOptions.create, which goes through the *)");
     builder.line("(* AzLayoutCallbackType raw-fn-pointer path and loses ctx. *)");
     builder.line("let azul_window_create_options_with_layout (layout_fn : 'a)");
-    builder.line("  : az_window_create_options Ctypes.structure =");
     builder.indent();
-    builder.line("let wco = ffi_az_window_create_options_default () in");
-    builder.line("let ws = Ctypes.getf wco az_window_create_options_field_window_state in");
+    builder.line("  : az_window_create_options Ctypes.structure =");
+    // Allocate the WCO on the heap so we can take a stable pointer
+    // into it. CTypes' `make` allocates a fresh struct of the type
+    // (defaults to zeroed bytes); we overwrite via `<-@` from
+    // `_default()`. Then walk pointer-to-nested-field via `|->` to
+    // mutate the layout_callback slot in place.
+    builder.line("let wco = Ctypes.make az_window_create_options in");
+    builder.line("let wco_ptr = Ctypes.addr wco in");
+    builder.line("wco_ptr <-@ ffi_az_window_create_options_default ();");
     builder.line("let cb = _az_layout_callback_create_from_host_handle");
     builder.line("           (Unsigned.UInt64.of_int64 (_azul_alloc_handle layout_fn)) in");
-    builder.line("Ctypes.setf ws az_full_window_state_field_layout_callback cb;");
-    builder.line("Ctypes.setf wco az_window_create_options_field_window_state ws;");
+    // `(wco_ptr |-> field)` returns a pointer to the field within
+    // wco's memory. Same for the nested traversal.
+    builder.line("let ws_ptr = wco_ptr |-> az_window_create_options_field_window_state in");
+    builder.line("let lc_ptr = ws_ptr |-> az_full_window_state_field_layout_callback in");
+    builder.line("lc_ptr <-@ cb;");
     builder.line("wco");
     builder.dedent();
     builder.blank();

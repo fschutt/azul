@@ -2095,6 +2095,7 @@ unsafe extern "system" fn window_proc(
             // Window destroyed - unregister from global registry
             window.is_open = false;
             registry::unregister_window(hwnd);
+            log_debug!(LogCategory::Window, "[Win32] Window unregistered, remaining windows: {}", registry::window_count());
             0
         }
 

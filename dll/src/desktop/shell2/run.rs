@@ -744,13 +744,13 @@ pub fn run(
     // 3. Render all windows that need updates
     // 4. Block until next event (zero CPU when idle)
     loop {
-        // Get all active window handles from registry
-        let window_handles = registry::get_all_window_handles();
-
-        if window_handles.is_empty() {
-            // All windows closed
+        // Check if all windows are closed
+        if registry::is_empty() {
             break;
         }
+
+        // Get all active window handles from registry
+        let window_handles = registry::get_all_window_handles();
 
         // --- Drain pending native events (non-blocking) ---
         // This updates current_window_state for each window
