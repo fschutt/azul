@@ -211,91 +211,10 @@
        limitations under the License.
 */
 
-use core::{
-    char, ptr,
-    sync::atomic::{AtomicBool, AtomicPtr, Ordering},
-};
+use core::char;
 
-use azul_core::window::{ScanCode, VirtualKeyCode};
-use winapi::{
-    shared::minwindef::{HKL, HKL__, LPARAM, UINT, WPARAM},
-    um::winuser,
-};
-
-pub fn get_pressed_keys() -> impl Iterator<Item = i32> {
-    let mut keyboard_state = vec![0u8; 256];
-    unsafe { winuser::GetKeyboardState(keyboard_state.as_mut_ptr()) };
-    keyboard_state
-        .into_iter()
-        .enumerate()
-        .filter(|(_, p)| (*p & (1 << 7)) != 0) // whether or not a key is pressed is communicated via the high-order bit
-        .map(|(i, _)| i as i32)
-}
-
-unsafe fn get_char(keyboard_state: &[u8; 256], v_key: u32, hkl: HKL) -> Option<char> {
-    let mut unicode_bytes = [0u16; 5];
-    let len = winuser::ToUnicodeEx(
-        v_key,
-        0,
-        keyboard_state.as_ptr(),
-        unicode_bytes.as_mut_ptr(),
-        unicode_bytes.len() as _,
-        0,
-        hkl,
-    );
-    if len >= 1 {
-        char::decode_utf16(unicode_bytes.iter().cloned())
-            .next()
-            .and_then(|c| c.ok())
-    } else {
-        None
-    }
-}
-
-/// Figures out if the keyboard layout has an AltGr key instead of an Alt key.
-///
-/// Unfortunately, the Windows API doesn't give a way for us to conveniently figure that out. So,
-/// we use a technique blatantly stolen from [the Firefox source code][source]: iterate over every
-/// possible virtual key and compare the `char` output when AltGr is pressed vs when it isn't. If
-/// pressing AltGr outputs characters that are different from the standard characters, the layout
-/// uses AltGr. Otherwise, it doesn't.
-///
-/// [source]: https://github.com/mozilla/gecko-dev/blob/265e6721798a455604328ed5262f430cfcc37c2f/widget/windows/KeyboardLayout.cpp#L4356-L4416
-fn layout_uses_altgr() -> bool {
-    unsafe {
-        static ACTIVE_LAYOUT: AtomicPtr<HKL__> = AtomicPtr::new(ptr::null_mut());
-        static USES_ALTGR: AtomicBool = AtomicBool::new(false);
-
-        let hkl = winuser::GetKeyboardLayout(0);
-        let old_hkl = ACTIVE_LAYOUT.swap(hkl, Ordering::SeqCst);
-
-        if hkl == old_hkl {
-            return USES_ALTGR.load(Ordering::SeqCst);
-        }
-
-        let mut keyboard_state_altgr = [0u8; 256];
-        // AltGr is an alias for Ctrl+Alt for... some reason. Whatever it is, those are the
-        // keypresses we have to emulate to do an AltGr test.
-        keyboard_state_altgr[winuser::VK_MENU as usize] = 0x80;
-        keyboard_state_altgr[winuser::VK_CONTROL as usize] = 0x80;
-
-        let keyboard_state_empty = [0u8; 256];
-
-        for v_key in 0..=255 {
-            let key_noaltgr = get_char(&keyboard_state_empty, v_key, hkl);
-            let key_altgr = get_char(&keyboard_state_altgr, v_key, hkl);
-            if let (Some(noaltgr), Some(altgr)) = (key_noaltgr, key_altgr) {
-                if noaltgr != altgr {
-                    USES_ALTGR.store(true, Ordering::SeqCst);
-                    return true;
-                }
-            }
-        }
-
-        USES_ALTGR.store(false, Ordering::SeqCst);
-        false
-    }
-}
+use azul_core::window::VirtualKeyCode;
+use winapi::um::winuser;
 
 pub fn vkey_to_winit_vkey(vkey: i32) -> Option<VirtualKeyCode> {
     // VK_* codes are documented here https://msdn.microsoft.com/en-us/library/windows/desktop/dd375731(v=vs.85).aspx
@@ -474,65 +393,6 @@ pub fn vkey_to_winit_vkey(vkey: i32) -> Option<VirtualKeyCode> {
     }
 }
 
-pub fn handle_extended_keys(vkey: i32, mut scancode: UINT, extended: bool) -> Option<(i32, UINT)> {
-    // Welcome to hell https://blog.molecular-matters.com/2011/09/05/properly-handling-keyboard-input/
-    scancode = if extended { 0xE000 } else { 0x0000 } | scancode;
-    let vkey = match vkey {
-        winuser::VK_SHIFT => unsafe {
-            winuser::MapVirtualKeyA(scancode, winuser::MAPVK_VSC_TO_VK_EX) as _
-        },
-        winuser::VK_CONTROL => {
-            if extended {
-                winuser::VK_RCONTROL
-            } else {
-                winuser::VK_LCONTROL
-            }
-        }
-        winuser::VK_MENU => {
-            if extended {
-                winuser::VK_RMENU
-            } else {
-                winuser::VK_LMENU
-            }
-        }
-        _ => {
-            match scancode {
-                // When VK_PAUSE is pressed it emits a LeftControl + NumLock scancode event
-                // sequence, but reports VK_PAUSE as the virtual key on both events,
-                // or VK_PAUSE on the first event or 0xFF when using raw input.
-                // Don't emit anything for the LeftControl event in the pair...
-                0xE01D if vkey == winuser::VK_PAUSE => return None,
-                // ...and emit the Pause event for the second event in the pair.
-                0x45 if vkey == winuser::VK_PAUSE || vkey == 0xFF => {
-                    scancode = 0xE059;
-                    winuser::VK_PAUSE
-                }
-                // VK_PAUSE has an incorrect vkey value when used with modifiers. VK_PAUSE also
-                // reports a different scancode when used with modifiers than when
-                // used without
-                0xE046 => {
-                    scancode = 0xE059;
-                    winuser::VK_PAUSE
-                }
-                // VK_SCROLL has an incorrect vkey value when used with modifiers.
-                0x46 => winuser::VK_SCROLL,
-                _ => vkey,
-            }
-        }
-    };
-    Some((vkey, scancode))
-}
-
-pub fn process_key_params(
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> Option<(ScanCode, Option<VirtualKeyCode>)> {
-    let scancode = ((lparam >> 16) & 0xff) as UINT;
-    let extended = (lparam & 0x01000000) != 0;
-    handle_extended_keys(wparam as _, scancode, extended)
-        .map(|(vkey, scancode)| (scancode, vkey_to_winit_vkey(vkey)))
-}
-
 // This is needed as windows doesn't properly distinguish
 // some virtual key codes for different keyboard layouts
 fn map_text_keys(win_virtual_key: i32) -> Option<VirtualKeyCode> {
@@ -548,58 +408,5 @@ fn map_text_keys(win_virtual_key: i32) -> Option<VirtualKeyCode> {
         Some('\'') => Some(VirtualKeyCode::Apostrophe),
         Some('\\') => Some(VirtualKeyCode::Backslash),
         _ => None,
-    }
-}
-
-use azul_core::window::MouseCursorType;
-
-use crate::desktop::shell2::windows::dlopen::Win32Libraries;
-
-/// POINT structure for screen coordinates
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct POINT {
-    pub x: i32,
-    pub y: i32,
-}
-
-/// Set the Win32 cursor based on azul MouseCursorType
-pub fn set_cursor(cursor_type: MouseCursorType, win32: &Win32Libraries) {
-    // Map azul cursor type to Win32 cursor
-    let cursor_id = match cursor_type {
-        MouseCursorType::Default => 32512,      // IDC_ARROW
-        MouseCursorType::Crosshair => 32515,    // IDC_CROSS
-        MouseCursorType::Hand => 32649,         // IDC_HAND
-        MouseCursorType::Arrow => 32512,        // IDC_ARROW
-        MouseCursorType::Move => 32646,         // IDC_SIZEALL
-        MouseCursorType::Text => 32513,         // IDC_IBEAM
-        MouseCursorType::Wait => 32514,         // IDC_WAIT
-        MouseCursorType::Help => 32651,         // IDC_HELP
-        MouseCursorType::Progress => 32650,     // IDC_APPSTARTING
-        MouseCursorType::NotAllowed => 32648,   // IDC_NO
-        MouseCursorType::ContextMenu => 32512,  // IDC_ARROW
-        MouseCursorType::Cell => 32515,         // IDC_CROSS
-        MouseCursorType::VerticalText => 32513, // IDC_IBEAM
-        MouseCursorType::Alias => 32512,        // IDC_ARROW
-        MouseCursorType::Copy => 32512,         // IDC_ARROW
-        MouseCursorType::NoDrop => 32648,       // IDC_NO
-        MouseCursorType::Grab | MouseCursorType::Grabbing => 32646, // IDC_SIZEALL
-        MouseCursorType::AllScroll => 32646,    // IDC_SIZEALL
-        MouseCursorType::ZoomIn | MouseCursorType::ZoomOut => 32512, // IDC_ARROW
-        MouseCursorType::EResize | MouseCursorType::WResize => 32644, // IDC_SIZEWE
-        MouseCursorType::NResize | MouseCursorType::SResize => 32645, // IDC_SIZENS
-        MouseCursorType::NeResize | MouseCursorType::SwResize => 32643, // IDC_SIZENESW
-        MouseCursorType::NwResize | MouseCursorType::SeResize => 32642, // IDC_SIZENWSE
-        MouseCursorType::ColResize => 32644,    // IDC_SIZEWE
-        MouseCursorType::RowResize => 32645,    // IDC_SIZENS
-        _ => 32512,                             // IDC_ARROW (default)
-    };
-
-    // Load and set the cursor
-    unsafe {
-        let cursor = (win32.user32.LoadCursorW)(std::ptr::null_mut(), cursor_id as *const u16);
-        if !cursor.is_null() {
-            (win32.user32.SetCursor)(cursor);
-        }
     }
 }
