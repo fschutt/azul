@@ -164,6 +164,17 @@ impl GenerationTargets {
         println!("[12/35] Generating Python extension...");
         Self::generate_python(ir, &codegen_dir.join("python_api.rs"))?;
 
+        // 12b. PHP extension (Zend engine via ext-php-rs) - goes to target/codegen/ for include!() in dll
+        println!("[12b/35] Generating PHP extension...");
+        let php_api_code = super::lang_php_ext::generate(ir)?;
+        let php_api_path = codegen_dir.join("php_api.rs");
+        fs::write(&php_api_path, &php_api_code)?;
+        println!(
+            "[OK] Generated {} ({} bytes)",
+            php_api_path.display(),
+            php_api_code.len()
+        );
+
         // 13. Memtest (memory layout tests) - goes to target/codegen/ for include!() in dll
         println!("[13/35] Generating memtest...");
         CodeGenerator::generate_to_file(

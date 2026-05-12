@@ -73,7 +73,27 @@ if ($recovered['counter'] !== 5 || $recovered['label'] !== 'hello, php') {
 echo "[azul] azul_refany_get round-trip succeeded; counter="
     . $recovered['counter'] . ", label='" . $recovered['label'] . "'.\n";
 
+// 3. Codegen-driven per-kind register helpers. Phase 48 emits one
+// `azul_register_<kind>_callback($handle_id) : int` stub for every
+// host-invoker callback kind. Phase 49 wires them through libffi to
+// the user's PHP callable. For now we verify the stubs are
+// reachable and round-trip the handle id unchanged — that proves
+// the codegen module emitted, the build linked them, and the Zend
+// engine registered them in the function table.
+$button_cb_id = azul_register_button_on_click_callback(7);
+if ($button_cb_id !== 7) {
+    fwrite(STDERR, "[azul] FAIL: register_button_on_click stub returned $button_cb_id.\n");
+    exit(1);
+}
+$layout_cb_id = azul_register_layout_callback(11);
+if ($layout_cb_id !== 11) {
+    fwrite(STDERR, "[azul] FAIL: register_layout stub returned $layout_cb_id.\n");
+    exit(1);
+}
+$fn_count = count(get_extension_funcs('azul-dll'));
+echo "[azul] codegen exposed $fn_count PHP functions; register-kind stubs round-trip.\n";
+
 echo "[azul] PHP host-invoker init phase completed successfully.\n";
-echo "[azul] (Full surface — the Dom builders, App::run, typed callback\n";
-echo "[azul]  helpers — lands when the PHP codegen pass writes\n";
-echo "[azul]  target/codegen/php_api.rs and feeds it through the ext.)\n";
+echo "[azul] (Phase 49 wires libffi-closure-from-Zend-callable so\n";
+echo "[azul]  the register_<kind>_callback helpers can accept actual\n";
+echo "[azul]  PHP callables — today they accept a refany handle id.)\n";

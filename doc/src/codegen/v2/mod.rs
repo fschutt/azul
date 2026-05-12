@@ -81,6 +81,7 @@ pub mod lang_ocaml;
 pub mod lang_pascal;
 pub mod lang_perl;
 pub mod lang_php;
+pub mod lang_php_ext;
 pub mod lang_powershell;
 pub mod lang_python;
 pub mod lang_reexports;
