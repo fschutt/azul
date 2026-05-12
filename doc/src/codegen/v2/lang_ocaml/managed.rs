@@ -111,7 +111,7 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
 
     // 3. Per-kind invoker closures + their setter calls.
     for cb in host_invoker_kinds(ir) {
-        emit_per_kind_invoker(builder, cb);
+        emit_per_kind_invoker(builder, cb, ir);
     }
 
     // 4 + 5. User-facing helpers.
@@ -140,6 +140,68 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("  | Some o -> Some (Obj.obj o)");
     builder.dedent();
     builder.blank();
+
+    // Smart WindowCreateOptions constructor: built from `_default()`
+    // and stuffs the host-invoker-registered AzLayoutCallback (with
+    // ctx preserved) into the window_state.layout_callback field.
+    // The raw `AzWindowCreateOptions_create(AzLayoutCallbackType)`
+    // C-ABI export discards ctx because it takes only a fn pointer,
+    // so we cannot use the codegen-emitted `WindowCreateOptions.create`
+    // for any host-invoker-routed layout.
+    builder.line("(* Build a WindowCreateOptions with a host-invoker-routed *)");
+    builder.line("(* layout callback (ctx preserved). Use this instead of *)");
+    builder.line("(* WindowCreateOptions.create, which goes through the *)");
+    builder.line("(* AzLayoutCallbackType raw-fn-pointer path and loses ctx. *)");
+    builder.line("let azul_window_create_options_with_layout (layout_fn : 'a)");
+    builder.line("  : az_window_create_options Ctypes.structure =");
+    builder.indent();
+    builder.line("let wco = ffi_az_window_create_options_default () in");
+    builder.line("let ws = Ctypes.getf wco az_window_create_options_field_window_state in");
+    builder.line("let cb = _az_layout_callback_create_from_host_handle");
+    builder.line("           (Unsigned.UInt64.of_int64 (_azul_alloc_handle layout_fn)) in");
+    builder.line("Ctypes.setf ws az_full_window_state_field_layout_callback cb;");
+    builder.line("Ctypes.setf wco az_window_create_options_field_window_state ws;");
+    builder.line("wco");
+    builder.dedent();
+    builder.blank();
+
+    // Public per-kind callback registration helpers. Mirror the Lua /
+    // Python / Ruby _register_callback dispatch table — a user
+    // closure is stashed in the handle table; the matching libazul
+    // `Az<Kind>_createFromHostHandle(id)` returns the wrapper struct
+    // that the framework's static thunk dispatches through.
+    for cb in host_invoker_kinds(ir) {
+        let wrapper = wrapper_name(cb);
+        let snake = to_snake_lower(wrapper);
+        // Strip a trailing `_callback` from the public fn name so e.g.
+        // `LayoutCallback` becomes `azul_register_layout` rather than
+        // `azul_register_layout_callback_callback`. Plain `Callback`
+        // (snake "callback") becomes just `azul_register_callback`.
+        let fn_suffix = snake.strip_suffix("_callback").unwrap_or(&snake);
+        let fn_name = if fn_suffix.is_empty() {
+            "azul_register_callback".to_string()
+        } else if fn_suffix == "callback" {
+            "azul_register_callback".to_string()
+        } else {
+            format!("azul_register_{}_callback", fn_suffix)
+        };
+        builder.line(&format!(
+            "(* Wrap a host-side OCaml closure as an `az_{}` struct. *)",
+            snake
+        ));
+        builder.line(&format!(
+            "let {} (fn_obj : 'a) : az_{} structure =",
+            fn_name, snake
+        ));
+        builder.indent();
+        builder.line("let id = _azul_alloc_handle fn_obj in");
+        builder.line(&format!(
+            "_az_{}_create_from_host_handle (Unsigned.UInt64.of_int64 id)",
+            snake
+        ));
+        builder.dedent();
+        builder.blank();
+    }
 }
 
 fn emit_per_kind_foreigns(builder: &mut CodeBuilder, cb: &CallbackTypedefDef) {
@@ -189,14 +251,23 @@ fn emit_per_kind_foreigns(builder: &mut CodeBuilder, cb: &CallbackTypedefDef) {
     builder.blank();
 }
 
-fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &CallbackTypedefDef) {
+fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir: &CodegenIR) {
     let wrapper = wrapper_name(cb);
     let snake = to_snake_lower(wrapper);
     let setter_name = format!("_az_app_set_{}_invoker", snake);
 
-    // The invoker just looks up the user closure from the handle table
-    // and calls it; the user closure is responsible for marshalling
-    // the pointer args and writing through `out_ptr` if has_return.
+    // The invoker looks up the user closure from the handle table,
+    // calls it, and (if has_return) writes the user's return value
+    // through `out_ptr`. The handle table is type-erased via Obj.magic;
+    // the user's closure signature must match what we cast it to here.
+    //
+    // Return handling depends on the callback's return type:
+    // - struct returns (e.g. `Dom` from LayoutCallback): user fn returns
+    //   the corresponding wrapper record; we extract `.raw` and write
+    //   the struct bytes through the typed out-pointer.
+    // - enum returns (e.g. `Update` from Callback): user fn returns
+    //   an `int`; we write it as `int32_t` through out_ptr.
+    // - void returns: ignore.
     // We dispatch with pattern matching: the user registered with
     // `register_callback` so the Hashtbl entry is the closure itself.
     builder.line(&format!("(* {} invoker — dispatches to handle-table entry. *)", wrapper));
@@ -228,15 +299,35 @@ fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &CallbackTypedefDef) {
     let invoke_args: Vec<String> = (0..cb.args.len())
         .map(|i| format!("arg{}", i))
         .collect();
-    // The user closure's signature is determined at register-callback
-    // time and varies per kind. We type the cast as a variadic-ish
-    // chain (`unit Ctypes.ptr -> unit Ctypes.ptr -> ... -> 'r`) so
-    // OCaml's type checker accepts the invocation without arity
-    // warnings. The user's actual closure must match — the cost of
-    // not emitting per-kind OCaml types here.
+    // Determine the OCaml-level return type the user's closure must
+    // produce. Struct returns → user returns the raw `az_<foo>
+    // Ctypes.structure` directly (extract `.raw` from the wrapper
+    // record). Enum returns → `int`. Void → `unit`. We use raw
+    // structs here rather than the wrapper records (`dom`, `update`,
+    // etc.) because the records' `type <foo> = { ... }` definitions
+    // come *after* this invoker init in the generated file.
+    let (ocaml_return, return_kind) = match cb.return_type.as_deref() {
+        Some(rt) => {
+            let trimmed = rt.trim();
+            if ir.find_struct(trimmed).is_some() {
+                (
+                    format!("az_{} Ctypes.structure", to_snake_lower(trimmed)),
+                    "struct",
+                )
+            } else if ir.find_enum(trimmed).is_some() {
+                ("int".to_string(), "enum")
+            } else {
+                // Primitive returns get carried as int (Update) or skipped.
+                ("int".to_string(), "primitive")
+            }
+        }
+        None => ("unit".to_string(), "unit"),
+    };
+
+    // Build the closure's full OCaml signature.
     let fn_type = if cb.args.is_empty() {
         if has_return(cb) {
-            "unit -> unit".to_string()
+            format!("unit -> {}", ocaml_return)
         } else {
             "unit -> unit".to_string()
         }
@@ -245,12 +336,13 @@ fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &CallbackTypedefDef) {
         for _ in &cb.args {
             parts.push("unit Ctypes.ptr".to_string());
         }
-        parts.push("unit".to_string());
+        parts.push(if has_return(cb) { ocaml_return.clone() } else { "unit".to_string() });
         parts.join(" -> ")
     };
+
     if has_return(cb) {
         builder.line(&format!(
-            "let _ret = (Obj.magic fn_obj : {}) {} in",
+            "let ret = (Obj.magic fn_obj : {}) {} in",
             fn_type,
             invoke_args
                 .iter()
@@ -258,8 +350,27 @@ fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &CallbackTypedefDef) {
                 .collect::<Vec<_>>()
                 .join(" ")
         ));
-        builder.line("let _ = out_ptr in");
-        builder.line("ignore _ret");
+        match return_kind {
+            "struct" => {
+                let ctype = match cb.return_type.as_deref() {
+                    Some(rt) => format!("az_{}", to_snake_lower(rt.trim())),
+                    None => "unit".to_string(),
+                };
+                builder.line(&format!(
+                    "let typed_out = Ctypes.from_voidp {} out_ptr in",
+                    ctype
+                ));
+                builder.line("Ctypes.(typed_out <-@ ret)");
+            }
+            "enum" | "primitive" => {
+                // Integer return → write int32_t at out_ptr.
+                builder.line("let typed_out = Ctypes.from_voidp Ctypes.int32_t out_ptr in");
+                builder.line("Ctypes.(typed_out <-@ Int32.of_int ret)");
+            }
+            _ => {
+                builder.line("let _ = out_ptr in let _ = ret in ()");
+            }
+        }
     } else if invoke_args.is_empty() {
         builder.line("(Obj.magic fn_obj : unit -> unit) ()");
     } else {
@@ -293,7 +404,7 @@ fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &CallbackTypedefDef) {
 /// the module interface. Internal helpers (`_azul_handles`,
 /// `_azul_alloc_handle`, per-kind invoker pins, etc.) stay
 /// implementation-private.
-pub fn emit_managed_interface(builder: &mut CodeBuilder, _ir: &CodegenIR) {
+pub fn emit_managed_interface(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.blank();
     builder.line("(* ─────────────────────────────────────────────────────────────────── *)");
     builder.line("(* Managed-FFI public helpers (host-invoker pattern).                    *)");
@@ -305,6 +416,27 @@ pub fn emit_managed_interface(builder: &mut CodeBuilder, _ir: &CodegenIR) {
     builder.line(
         "val azul_refany_get : az_ref_any Ctypes.structure Ctypes.ptr -> 'a option",
     );
+    builder.line(
+        "val azul_window_create_options_with_layout : 'a -> az_window_create_options Ctypes.structure",
+    );
+    // Per-kind callback registration helpers (mirror those emitted by
+    // emit_managed_module). User passes a host-side closure; we
+    // return the Az<Kind> struct (with cb=static-thunk + ctx=host
+    // handle) ready to hand to the C ABI.
+    for cb in host_invoker_kinds(ir) {
+        let wrapper = wrapper_name(cb);
+        let snake = to_snake_lower(wrapper);
+        let fn_suffix = snake.strip_suffix("_callback").unwrap_or(&snake);
+        let fn_name = if fn_suffix.is_empty() || fn_suffix == "callback" {
+            "azul_register_callback".to_string()
+        } else {
+            format!("azul_register_{}_callback", fn_suffix)
+        };
+        builder.line(&format!(
+            "val {} : 'a -> az_{} Ctypes.structure",
+            fn_name, snake
+        ));
+    }
     builder.blank();
 }
 
