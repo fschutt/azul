@@ -2042,6 +2042,9 @@ unsafe extern "system" fn window_proc(
             dwExStyle: u32,
         }
 
+        let dpi = DpiFunctions::init();
+        dpi.enable_non_client_dpi_scaling(hwnd as *mut _);
+
         let createstruct = lparam as *mut CREATESTRUCTW;
         let data_ptr = (*createstruct).lpCreateParams;
         (win32.user32.SetWindowLongPtrW)(hwnd, GWLP_USERDATA, data_ptr as isize);

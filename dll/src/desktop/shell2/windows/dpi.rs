@@ -86,8 +86,7 @@ impl Drop for DpiFunctions {
 impl DpiFunctions {
     /// Loads DPI-related functions from user32.dll at runtime.
     pub fn init() -> Self {
-        let user32_dll = super::load_dll("user32.dll")
-            .map(|dll| unsafe { std::mem::transmute::<_, HINSTANCE>(dll) });
+        let user32_dll = super::load_dll("user32.dll").map(|dll| dll as HINSTANCE);
 
         unsafe {
             Self {
