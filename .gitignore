@@ -36,6 +36,7 @@ scrolling_test
 test_cpurender_output.png
 *.exe
 /api/c/main/
+examples/zig/hello-world
 .DS_Store
 .xcodeproject
 LICENSE-WINDOWS.json
