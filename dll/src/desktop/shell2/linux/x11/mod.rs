@@ -360,7 +360,22 @@ impl X11Window {
             unsafe { (self.xlib.XNextEvent)(self.display, &mut event) };
 
             if let Some(ime) = &self.ime_manager {
-                if ime.filter_event(&mut event) {
+                let consumed = ime.filter_event(&mut event);
+                // XIM preedit callbacks fire synchronously inside XFilterEvent
+                // (above) and inside XmbLookupString. Drain whatever they
+                // wrote into `text_edit_manager` so the renderer can show
+                // composition text inline.
+                if let Some((preedit, caret)) = ime.drain_preedit() {
+                    if let Some(ref mut lw) = self.common.layout_window {
+                        match preedit {
+                            Some(t) if !t.is_empty() => {
+                                lw.text_edit_manager.set_preedit(t, caret, caret);
+                            }
+                            _ => lw.text_edit_manager.clear_preedit(),
+                        }
+                    }
+                }
+                if consumed {
                     continue; // Event was consumed by IME
                 }
             }
@@ -1444,7 +1459,18 @@ impl X11Window {
 
     fn handle_event(&mut self, event: &mut XEvent) {
         if let Some(ime) = &self.ime_manager {
-            if ime.filter_event(event) {
+            let consumed = ime.filter_event(event);
+            if let Some((preedit, caret)) = ime.drain_preedit() {
+                if let Some(ref mut lw) = self.common.layout_window {
+                    match preedit {
+                        Some(t) if !t.is_empty() => {
+                            lw.text_edit_manager.set_preedit(t, caret, caret);
+                        }
+                        _ => lw.text_edit_manager.clear_preedit(),
+                    }
+                }
+            }
+            if consumed {
                 return;
             }
         }
@@ -2919,10 +2945,8 @@ impl X11Window {
     /// Sync ime_position from window state to OS
     /// Sync IME position to OS (X11 with XIM)
     pub fn sync_ime_position_to_os(&self) {
-        use std::ffi::CString;
-
         use azul_core::window::ImePosition;
-        use defines::{XPoint, XRectangle};
+        use defines::XPoint;
 
         if let ImePosition::Initialized(rect) = self.common.current_window_state.ime_position {
             // Use XIM if available (preferred over GTK)
@@ -2932,26 +2956,27 @@ impl X11Window {
                     y: rect.origin.y as i16,
                 };
 
-                let area = XRectangle {
-                    x: rect.origin.x as i16,
-                    y: rect.origin.y as i16,
-                    width: rect.size.width as u16,
-                    height: rect.size.height as u16,
-                };
-
+                // XNSpotLocation must be wrapped in an XNPreeditAttributes
+                // nested list per the XIM spec. The IM only consults it when
+                // the negotiated input style is XIMPreeditPosition, but it
+                // costs almost nothing to push for other styles too.
                 unsafe {
-                    let spot_location = CString::new("spotLocation").unwrap();
-                    let preedit_attr = CString::new("preeditAttributes").unwrap();
-
-                    // Set spot location (cursor position) for preedit window
                     let xic = ime_mgr.get_xic();
-                    (self.xlib.XSetICValues)(
-                        xic,
-                        preedit_attr.as_ptr(),
-                        spot_location.as_ptr(),
+                    let nested = (self.xlib.XVaCreateNestedList)(
+                        0,
+                        defines::XN_SPOT_LOCATION.as_ptr() as *const i8,
                         &spot as *const XPoint,
                         std::ptr::null::<i8>(),
                     );
+                    if !nested.is_null() {
+                        (self.xlib.XSetICValues)(
+                            xic,
+                            defines::XN_PREEDIT_ATTRIBUTES.as_ptr() as *const i8,
+                            nested,
+                            std::ptr::null::<i8>(),
+                        );
+                        (self.xlib.XFree)(nested);
+                    }
                 }
                 return;
             }

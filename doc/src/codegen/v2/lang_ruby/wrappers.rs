@@ -185,6 +185,22 @@ fn emit_method(builder: &mut CodeBuilder, func: &FunctionDef, prefixed: &str, ty
 
     let arg_names: Vec<String> = visible_args.iter().map(|a| ruby_arg_name(&a.name)).collect();
 
+    // Names of args we should mark consumed after the C call: owned-by-
+    // value wrapper-class instances. The C side moves them; the
+    // wrapper's `ObjectSpace` finalizer must not fire on the now-
+    // transferred memory. Callback args are skipped — they've already
+    // been replaced by FFI::Struct values via `_register_callback` and
+    // those FFI::Struct values are not wrappers themselves.
+    let consumed_names: Vec<String> = visible_args
+        .iter()
+        .zip(arg_names.iter())
+        .filter(|(a, _)| {
+            a.callback_info.is_none()
+                && matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned)
+        })
+        .map(|(_, n)| n.clone())
+        .collect();
+
     if takes_self {
         // Instance method: forward `@ptr` as the receiver.
         if arg_names.is_empty() {
@@ -202,11 +218,18 @@ fn emit_method(builder: &mut CodeBuilder, func: &FunctionDef, prefixed: &str, ty
             if visible_args[i].callback_info.is_some() {
                 call_args.push(name.clone());
             } else {
-                call_args.push(name.clone());
+                call_args.push(unwrap_expr(name));
             }
         }
         let call = format!("Native.{}({})", native_call, call_args.join(", "));
-        emit_method_body(builder, &call, &func.return_type, returns_self_type, prefixed);
+        emit_method_body_instance(
+            builder,
+            &call,
+            &func.return_type,
+            returns_self_type,
+            prefixed,
+            &consumed_names,
+        );
         builder.dedent();
         builder.line("end");
         builder.blank();
@@ -235,7 +258,14 @@ fn emit_method(builder: &mut CodeBuilder, func: &FunctionDef, prefixed: &str, ty
         .map(|(n, a)| if a.callback_info.is_some() { n.clone() } else { unwrap_expr(n) })
         .collect();
     let call = format!("Native.{}({})", native_call, call_args.join(", "));
-    emit_method_body(builder, &call, &func.return_type, returns_self_type, prefixed);
+    emit_method_body_static(
+        builder,
+        &call,
+        &func.return_type,
+        returns_self_type,
+        prefixed,
+        &consumed_names,
+    );
     builder.dedent();
     builder.line("end");
     builder.blank();
@@ -272,30 +302,98 @@ fn emit_callback_register_lines(
     }
 }
 
-/// Emit the body of a wrapper method.
-///
-/// If the C function returns the same struct as the wrapper class, wrap
-/// the result in `new(ptr)` so the caller gets a managed instance with a
-/// finalizer. Otherwise return the raw FFI value verbatim — the caller
-/// can decide what to do with it.
-fn emit_method_body(
+/// Emit the body of an instance method (`def foo ... end`). The
+/// `consumed_names` are owned-by-value wrapper-typed args that the C
+/// side took ownership of; we tag them as consumed after the call so
+/// the wrapper's finalizer won't fire on transferred memory.
+fn emit_method_body_instance(
     builder: &mut CodeBuilder,
     call: &str,
     return_type: &Option<String>,
     returns_self_type: bool,
     prefixed: &str,
+    consumed_names: &[String],
 ) {
     let _ = prefixed;
     match return_type {
-        None => builder.line(call),
+        None => {
+            builder.line(call);
+            for n in consumed_names {
+                builder.line(&format!("Azul._consume({})", n));
+            }
+        }
         Some(_) if returns_self_type => {
+            // Consuming-builder: self is moved into the C call along
+            // with any owned-by-value wrapper args. The returned value
+            // is a fresh struct; wrap in a new instance, and mark all
+            // moved-from wrappers (self + args) as consumed.
+            builder.line(&format!("_next = {}", call));
+            for n in consumed_names {
+                builder.line(&format!("Azul._consume({})", n));
+            }
+            builder.line("begin");
+            builder.indent();
+            builder.line("ObjectSpace.undefine_finalizer(self)");
+            builder.dedent();
+            builder.line("rescue StandardError");
+            builder.line("end");
+            builder.line("@ptr = nil");
+            builder.line("self.class.new(_next)");
+        }
+        Some(_) => {
+            if consumed_names.is_empty() {
+                builder.line(call);
+            } else {
+                builder.line(&format!("_ret = {}", call));
+                for n in consumed_names {
+                    builder.line(&format!("Azul._consume({})", n));
+                }
+                builder.line("_ret");
+            }
+        }
+    }
+}
+
+/// Emit the body of a class method (`def self.foo ... end`). Same
+/// rules as the instance variant, minus the self-consume step.
+fn emit_method_body_static(
+    builder: &mut CodeBuilder,
+    call: &str,
+    return_type: &Option<String>,
+    returns_self_type: bool,
+    prefixed: &str,
+    consumed_names: &[String],
+) {
+    let _ = prefixed;
+    match return_type {
+        None => {
+            builder.line(call);
+            for n in consumed_names {
+                builder.line(&format!("Azul._consume({})", n));
+            }
+        }
+        Some(_) if returns_self_type => {
+            builder.line(&format!("_next = {}", call));
+            for n in consumed_names {
+                builder.line(&format!("Azul._consume({})", n));
+            }
             // `new(...)` resolves to the surrounding class in both
             // instance methods (`def foo`) and class methods (`def self.foo`).
-            // `self.class.new(...)` is wrong in class methods because there
-            // `self.class` is `Class`, not the wrapper class.
-            builder.line(&format!("new({})", call));
+            // `self.class.new(...)` is wrong in class methods because
+            // there `self.class` is `Class`, not the wrapper class.
+            builder.line("new(_next)");
         }
-        Some(_) => builder.line(call),
+        Some(_) => {
+            if consumed_names.is_empty() {
+                builder.line(call);
+            } else {
+                builder.line(&format!("_ret = {}", call));
+                for n in consumed_names {
+                    builder.line(&format!("Azul._consume({})", n));
+                }
+                builder.line("_ret");
+            }
+        }
     }
 }
 

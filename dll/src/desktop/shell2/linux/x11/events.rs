@@ -12,7 +12,8 @@
 //! Also provides `keysym_to_virtual_keycode()` for X11 keysym → VirtualKeyCode mapping (shared with Wayland).
 
 use std::{
-    ffi::CString,
+    cell::{Cell, RefCell},
+    ffi::{CStr, CString, c_ulong, c_void},
     rc::Rc,
 };
 
@@ -41,10 +42,53 @@ const X11_SCROLL_TICK_PIXELS: f32 = 20.0;
 
 // IME Support (X Input Method)
 
+/// Negotiated XIM input style.
+///
+/// XIM clients must declare *one* preedit + *one* status style at IC creation
+/// time. The choice determines who renders the composition string:
+///
+/// - `Callbacks`: the app renders preedit inline via XIM draw callbacks. This
+///   is what we need to display CJK candidates *inside* the contenteditable.
+/// - `OverTheSpot`: the IM renders preedit in a floating window positioned by
+///   `XNSpotLocation` (updated from `sync_ime_position_to_os`).
+/// - `Rooted`: the IM renders preedit in its own window with no app input.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum ImeStyle {
+    Callbacks,
+    OverTheSpot,
+    Rooted,
+}
+
+/// Shared state populated by the XIM preedit callbacks and drained from the
+/// main event loop. Callbacks fire synchronously inside `XFilterEvent`, on the
+/// same thread; `RefCell`/`Cell` is enough — no cross-thread access.
+pub(super) struct ImePreeditSink {
+    /// Current preedit string. `None` means no active composition.
+    pub text: RefCell<Option<String>>,
+    /// Caret offset (in characters) within the preedit string.
+    pub caret: Cell<i32>,
+    /// Set by callbacks, cleared by `ImeManager::drain_preedit`.
+    pub dirty: Cell<bool>,
+}
+
+impl ImePreeditSink {
+    fn new() -> Self {
+        Self {
+            text: RefCell::new(None),
+            caret: Cell::new(0),
+            dirty: Cell::new(false),
+        }
+    }
+}
+
 pub(super) struct ImeManager {
     xlib: Rc<Xlib>,
     xim: XIM,
     xic: XIC,
+    pub(super) style: ImeStyle,
+    /// Boxed so its address is stable across `ImeManager` moves — XIM
+    /// callbacks hold a raw pointer to it via `XIMCallback::client_data`.
+    sink: Box<ImePreeditSink>,
 }
 
 impl ImeManager {
@@ -68,22 +112,122 @@ impl ImeManager {
                 return None;
             }
 
-            let client_window_str = CString::new("clientWindow").unwrap();
-            let input_style_str = CString::new("inputStyle").unwrap();
-
-            let xic = (xlib.XCreateIC)(
+            // Negotiate the best input style supported by the IM. We prefer
+            // on-the-spot (`*Callbacks`) — that's what gives us inline preedit
+            // inside the contenteditable — falling through to over-the-spot
+            // (`Position`) and finally rooted (`Nothing`) when the IM doesn't
+            // advertise the richer style.
+            let mut styles_ptr: *mut XIMStyles = std::ptr::null_mut();
+            let _ = (xlib.XGetIMValues)(
                 xim,
-                input_style_str.as_ptr(),
-                XIMPreeditNothing | XIMStatusNothing,
-                client_window_str.as_ptr(),
-                window,
-                std::ptr::null_mut() as *const i8, // Sentinel
+                XN_QUERY_INPUT_STYLE.as_ptr() as *const i8,
+                &mut styles_ptr as *mut *mut XIMStyles,
+                std::ptr::null::<i8>(),
             );
+
+            let want_callbacks = XIMPreeditCallbacks | XIMStatusCallbacks;
+            let want_callbacks_no_status = XIMPreeditCallbacks | XIMStatusNothing;
+            let want_over_spot = XIMPreeditPosition | XIMStatusNothing;
+            let want_rooted = XIMPreeditNothing | XIMStatusNothing;
+
+            let (chosen_style, style_kind) = if !styles_ptr.is_null() {
+                let count = (*styles_ptr).count_styles as usize;
+                let supported =
+                    std::slice::from_raw_parts((*styles_ptr).supported_styles, count);
+
+                let has = |mask: c_ulong| supported.iter().any(|&s| s == mask);
+
+                let result = if has(want_callbacks) {
+                    (want_callbacks, ImeStyle::Callbacks)
+                } else if has(want_callbacks_no_status) {
+                    (want_callbacks_no_status, ImeStyle::Callbacks)
+                } else if has(want_over_spot) {
+                    (want_over_spot, ImeStyle::OverTheSpot)
+                } else {
+                    (want_rooted, ImeStyle::Rooted)
+                };
+
+                (xlib.XFree)(styles_ptr as *mut c_void);
+                result
+            } else {
+                // IM did not advertise any styles — fall back to rooted.
+                (want_rooted, ImeStyle::Rooted)
+            };
+
+            let sink = Box::new(ImePreeditSink::new());
+
+            let xic = match style_kind {
+                ImeStyle::Callbacks => {
+                    // Build XIMCallback structs pointing at our sink, then
+                    // bundle them in a XVaNestedList for XNPreeditAttributes.
+                    let sink_ptr = &*sink as *const ImePreeditSink as *mut c_void;
+                    let start_cb = XIMCallback {
+                        client_data: sink_ptr,
+                        callback: Some(preedit_start_cb),
+                    };
+                    let done_cb = XIMCallback {
+                        client_data: sink_ptr,
+                        callback: Some(preedit_done_cb),
+                    };
+                    let draw_cb = XIMCallback {
+                        client_data: sink_ptr,
+                        callback: Some(preedit_draw_cb),
+                    };
+                    let caret_cb = XIMCallback {
+                        client_data: sink_ptr,
+                        callback: Some(preedit_caret_cb),
+                    };
+
+                    let preedit_attrs = (xlib.XVaCreateNestedList)(
+                        0,
+                        XN_PREEDIT_START_CALLBACK.as_ptr() as *const i8,
+                        &start_cb as *const XIMCallback,
+                        XN_PREEDIT_DONE_CALLBACK.as_ptr() as *const i8,
+                        &done_cb as *const XIMCallback,
+                        XN_PREEDIT_DRAW_CALLBACK.as_ptr() as *const i8,
+                        &draw_cb as *const XIMCallback,
+                        XN_PREEDIT_CARET_CALLBACK.as_ptr() as *const i8,
+                        &caret_cb as *const XIMCallback,
+                        std::ptr::null::<i8>(),
+                    );
+
+                    let xic = (xlib.XCreateIC)(
+                        xim,
+                        XN_INPUT_STYLE.as_ptr() as *const i8,
+                        chosen_style,
+                        XN_CLIENT_WINDOW.as_ptr() as *const i8,
+                        window,
+                        XN_FOCUS_WINDOW.as_ptr() as *const i8,
+                        window,
+                        XN_PREEDIT_ATTRIBUTES.as_ptr() as *const i8,
+                        preedit_attrs,
+                        std::ptr::null::<i8>(),
+                    );
+
+                    // XVaCreateNestedList allocates with Xmalloc — free it.
+                    if !preedit_attrs.is_null() {
+                        (xlib.XFree)(preedit_attrs);
+                    }
+
+                    xic
+                }
+                ImeStyle::OverTheSpot | ImeStyle::Rooted => (xlib.XCreateIC)(
+                    xim,
+                    XN_INPUT_STYLE.as_ptr() as *const i8,
+                    chosen_style,
+                    XN_CLIENT_WINDOW.as_ptr() as *const i8,
+                    window,
+                    XN_FOCUS_WINDOW.as_ptr() as *const i8,
+                    window,
+                    std::ptr::null::<i8>(),
+                ),
+            };
 
             if xic.is_null() {
                 log_warn!(
                     LogCategory::Input,
-                    "[X11 IME] Could not create input context. IME will not be available."
+                    "[X11 IME] XCreateIC failed for style {:?}; IME unavailable.",
+                    style_kind
                 );
                 (xlib.XCloseIM)(xim);
                 return None;
@@ -91,10 +235,18 @@ impl ImeManager {
 
             (xlib.XSetICFocus)(xic);
 
+            log_debug!(
+                LogCategory::Input,
+                "[X11 IME] Initialized with style {:?}",
+                style_kind
+            );
+
             Some(Self {
                 xlib: xlib.clone(),
                 xim,
                 xic,
+                style: style_kind,
+                sink,
             })
         }
     }
@@ -102,6 +254,25 @@ impl ImeManager {
     /// Get the XIC (X Input Context) for setting IME properties
     pub(super) fn get_xic(&self) -> XIC {
         self.xic
+    }
+
+    /// True when the negotiated style is `OverTheSpot`: callers should push
+    /// `XNSpotLocation` updates on caret moves so the IM can position its
+    /// candidate window.
+    pub(super) fn wants_spot_location_updates(&self) -> bool {
+        matches!(self.style, ImeStyle::OverTheSpot)
+    }
+
+    /// Drain any pending preedit update produced by the XIM callbacks since
+    /// the last call. Returns `Some((text, caret))` if state changed,
+    /// otherwise `None`. `text == None` means composition ended.
+    pub(super) fn drain_preedit(&self) -> Option<(Option<String>, i32)> {
+        if !self.sink.dirty.get() {
+            return None;
+        }
+        self.sink.dirty.set(false);
+        let text = self.sink.text.borrow().clone();
+        Some((text, self.sink.caret.get()))
     }
 
     /// Filters an event through the IME.
@@ -140,6 +311,102 @@ impl ImeManager {
 
         (chars, keysym)
     }
+}
+
+// XIM preedit callbacks — invoked synchronously from `XFilterEvent` on the
+// main thread. They write into the `ImePreeditSink` referenced by
+// `client_data`; the event loop drains the sink right after `XFilterEvent`
+// returns and forwards it to `text_edit_manager`.
+//
+// We model `XIMText.string` as a single `*mut c_char` (multi_byte side of the
+// original union). The locale is forced to UTF-8 by `XSetLocaleModifiers`, so
+// `encoding_is_wchar` is false in practice; if a misbehaving IM sets the wide
+// side we treat the text as empty rather than misparse it.
+
+unsafe extern "C" fn preedit_start_cb(
+    _xic: XIC,
+    client_data: *mut c_void,
+    _call_data: *mut c_void,
+) {
+    if client_data.is_null() {
+        return;
+    }
+    let sink = &*(client_data as *const ImePreeditSink);
+    sink.text.borrow_mut().replace(String::new());
+    sink.caret.set(0);
+    sink.dirty.set(true);
+}
+
+unsafe extern "C" fn preedit_done_cb(
+    _xic: XIC,
+    client_data: *mut c_void,
+    _call_data: *mut c_void,
+) {
+    if client_data.is_null() {
+        return;
+    }
+    let sink = &*(client_data as *const ImePreeditSink);
+    *sink.text.borrow_mut() = None;
+    sink.caret.set(0);
+    sink.dirty.set(true);
+}
+
+unsafe extern "C" fn preedit_draw_cb(
+    _xic: XIC,
+    client_data: *mut c_void,
+    call_data: *mut c_void,
+) {
+    if client_data.is_null() || call_data.is_null() {
+        return;
+    }
+    let sink = &*(client_data as *const ImePreeditSink);
+    let draw = &*(call_data as *const XIMPreeditDrawCallbackStruct);
+
+    // Read the replacement substring out of XIMText. If `text` is null, the
+    // IM is asking us to delete `chg_length` chars at `chg_first` (string
+    // shrinking — common when backspacing in preedit).
+    let replacement = if draw.text.is_null() {
+        String::new()
+    } else {
+        let text = &*draw.text;
+        if text.encoding_is_wchar != 0 || text.string.is_null() {
+            String::new()
+        } else {
+            CStr::from_ptr(text.string).to_string_lossy().into_owned()
+        }
+    };
+
+    let mut current = sink.text.borrow_mut();
+    let mut buf = current.take().unwrap_or_default();
+
+    // The XIM spec says chg_first / chg_length are in characters, not bytes.
+    // Work in chars and collect back to a String.
+    let mut chars: Vec<char> = buf.chars().collect();
+    let chg_first = draw.chg_first.max(0) as usize;
+    let chg_length = draw.chg_length.max(0) as usize;
+    let end = chg_first.saturating_add(chg_length).min(chars.len());
+    let start = chg_first.min(chars.len());
+    let new_chars: Vec<char> = replacement.chars().collect();
+    chars.splice(start..end, new_chars.iter().cloned());
+    buf = chars.into_iter().collect();
+
+    sink.caret.set(draw.caret);
+    *current = Some(buf);
+    sink.dirty.set(true);
+}
+
+unsafe extern "C" fn preedit_caret_cb(
+    _xic: XIC,
+    client_data: *mut c_void,
+    call_data: *mut c_void,
+) {
+    if client_data.is_null() || call_data.is_null() {
+        return;
+    }
+    let sink = &*(client_data as *const ImePreeditSink);
+    let caret = &*(call_data as *const XIMPreeditCaretCallbackStruct);
+    sink.caret.set(caret.position);
+    sink.dirty.set(true);
 }
 
 impl Drop for ImeManager {
@@ -402,9 +669,23 @@ impl X11Window {
     pub fn handle_keyboard(&mut self, event: &mut XKeyEvent) -> ProcessEventResult {
         let is_down = event.type_ == KeyPress;
 
-        // Use IME for character translation
+        // Use IME for character translation. XmbLookupString can fire the
+        // XIM preedit callbacks (e.g. when the IM updates the composition in
+        // response to this keystroke), so after the lookup we drain any new
+        // preedit state into text_edit_manager.
         let (char_str, keysym) = if let Some(ime) = &self.ime_manager {
-            ime.lookup_string(event)
+            let result = ime.lookup_string(event);
+            if let Some((preedit, caret)) = ime.drain_preedit() {
+                if let Some(ref mut lw) = self.common.layout_window {
+                    match preedit {
+                        Some(t) if !t.is_empty() => {
+                            lw.text_edit_manager.set_preedit(t, caret, caret);
+                        }
+                        _ => lw.text_edit_manager.clear_preedit(),
+                    }
+                }
+            }
+            result
         } else {
             // Fallback for when IME is not available
             let mut keysym: KeySym = 0;

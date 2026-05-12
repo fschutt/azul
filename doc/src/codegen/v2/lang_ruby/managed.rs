@@ -85,6 +85,28 @@ pub fn emit_managed_module(builder: &mut super::super::generator::CodeBuilder, i
     builder.line("end");
     builder.blank();
 
+    // Mark a wrapper instance as consumed: undefine its finalizer and
+    // null `@ptr`. Used by consuming builder methods (`with_*`) and any
+    // static factory that takes a wrapper by value (`App.create(data,
+    // app_config)` moves app_config into the C call). Without this,
+    // the wrapper's `ObjectSpace`-defined finalizer fires later and
+    // calls `<Type>_delete` on memory the C side has already moved
+    // out — a double free. Calling this on a non-wrapper value (raw
+    // FFI::Struct, primitive, nil) is a no-op.
+    builder.line("def self._consume(val)");
+    builder.indent();
+    builder.line("return unless val.respond_to?(:ptr) && val.respond_to?(:instance_variable_set)");
+    builder.line("begin");
+    builder.indent();
+    builder.line("ObjectSpace.undefine_finalizer(val)");
+    builder.dedent();
+    builder.line("rescue StandardError");
+    builder.line("end");
+    builder.line("val.instance_variable_set(:@ptr, nil)");
+    builder.dedent();
+    builder.line("end");
+    builder.blank();
+
     // Releaser: clears the hash entry. Pinned for process lifetime.
     builder.line("releaser = FFI::Function.new(:void, [:uint64]) do |id|");
     builder.indent();
@@ -220,12 +242,21 @@ fn emit_invoker_registration(
     builder.indent();
     builder.line("ret = fn.call(*ptr_args)");
     if cb_has_return {
-        builder.line("# Best-effort write through the out-pointer. Numeric returns");
-        builder.line("# (Update enums) write directly; FFI::Struct returns are");
-        builder.line("# memcopied. Anything else is silently dropped.");
+        builder.line("# Numeric returns (Update enum) → write32. Wrapper class");
+        builder.line("# instances (e.g. `Dom` from a layout cb) → unwrap to the");
+        builder.line("# underlying FFI::Struct, memcopy through out_ptr, then");
+        builder.line("# mark the wrapper consumed (libazul now owns its memory).");
+        builder.line("# Raw FFI::Struct returns → memcopy directly.");
         builder.line("if ret.is_a?(Integer)");
         builder.indent();
         builder.line("out_ptr.write_int32(ret)");
+        builder.dedent();
+        builder.line("elsif ret.respond_to?(:ptr) && ret.ptr.respond_to?(:to_ptr)");
+        builder.indent();
+        builder.line("_raw = ret.ptr");
+        builder.line("size = _raw.class.respond_to?(:size) ? _raw.class.size : _raw.size");
+        builder.line("out_ptr.write_bytes(_raw.to_ptr.read_bytes(size))");
+        builder.line("Azul._consume(ret)");
         builder.dedent();
         builder.line("elsif ret.respond_to?(:to_ptr)");
         builder.indent();
