@@ -118,16 +118,20 @@ pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
     for cb in host_invoker_kinds(ir) {
         let wrapper = wrapper_name(cb);
         let cb_has_return = has_return(cb);
-        // Lambda arg count must match the SAM interface declared in
+        // Build named lambda params matching the SAM declared in
         // AzulNativeManaged: `id` + one Pointer per callback IR arg
-        // + (if has_return) `outPtr`. Hard-coding 3 args breaks for any
-        // callback with a different shape.
+        // + (if has_return) `outPtr`. We need named bindings so the
+        // dispatch body can forward them through.
         let mut params: Vec<String> = vec!["id".to_string()];
-        for _ in &cb.args {
-            params.push("_".to_string());
+        let mut forward_args: Vec<String> = vec!["id".to_string()];
+        for (idx, _arg) in cb.args.iter().enumerate() {
+            let n = format!("arg{}", idx);
+            params.push(n.clone());
+            forward_args.push(n);
         }
         if cb_has_return {
-            params.push("_".to_string());
+            params.push("outPtr".to_string());
+            forward_args.push("outPtr".to_string());
         }
         builder.line(&format!("// {} invoker", wrapper));
         builder.line(&format!(
@@ -137,10 +141,23 @@ pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
             p = params.join(", ")
         ));
         builder.indent();
-        builder.line("// Per-kind dispatch: user passes a concrete InvokerCallback instance,");
-        builder.line("// we look it up by id and invoke its method directly. The lambda's");
-        builder.line("// arg list is a placeholder — adjust per kind in user code.");
-        builder.line("synchronized(handles) { handles[id]?.let { /* user-side dispatch */ } }");
+        // Per-kind dispatch: look up the registered user callback by
+        // id (it was stashed by `register<Wrapper>(fn)` below), then
+        // if it implements the matching `<Wrapper>InvokerCallback`
+        // SAM, call its `invoke(...)` with the same args we received
+        // from libazul. Mirrors lang_java's dispatch shape.
+        builder.line("val fn = synchronized(handles) { handles[id] }");
+        builder.line(&format!(
+            "if (fn is AzulNativeManaged.{w}InvokerCallback) {{",
+            w = wrapper
+        ));
+        builder.indent();
+        builder.line(&format!(
+            "fn.invoke({})",
+            forward_args.join(", ")
+        ));
+        builder.dedent();
+        builder.line("}");
         builder.dedent();
         builder.line("}");
         builder.line(&format!("livePins.add({}Invoker)", lower_first(wrapper)));

@@ -165,7 +165,8 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     builder.indent();
     builder.line("if (closed) return");
     builder.line(&format!(
-        "AzulNative.INSTANCE.{}_delete(ptr)",
+        "{}.INSTANCE.{}_delete(ptr)",
+        super::super::lang_java::functions::native_class_for_class(&s.name, ir),
         ffi_name
     ));
     builder.line("closed = true");
@@ -250,7 +251,8 @@ fn emit_static_factory(
     // from api.json) which produces e.g. `AzFoo_with_resolver` instead
     // of the actual `AzFoo_withResolver`.
     let call = format!(
-        "AzulNative.INSTANCE.{}({})",
+        "{}.INSTANCE.{}({})",
+        super::super::lang_java::functions::native_class_for_func(func, ir),
         func.c_name,
         call_args.join(", ")
     );
@@ -376,7 +378,8 @@ fn emit_instance_method(
     // from api.json) which produces e.g. `AzFoo_with_resolver` instead
     // of the actual `AzFoo_withResolver`.
     let call = format!(
-        "AzulNative.INSTANCE.{}({})",
+        "{}.INSTANCE.{}({})",
+        super::super::lang_java::functions::native_class_for_func(func, ir),
         func.c_name,
         call_args.join(", ")
     );

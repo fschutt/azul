@@ -206,32 +206,59 @@ fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConf
 // ============================================================================
 
 fn emit_native_interface(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
-    builder.line("/// JNA-bound interface to the Azul C ABI.");
-    builder.line("///");
-    builder.line("/// Each method maps 1:1 to an exported C symbol of the same name.");
-    builder.line("/// Use `AzulNative.INSTANCE.<method>(...)` from Kotlin code.");
-    builder.line("interface AzulNative : Library {");
-    builder.indent();
-    builder.line("companion object {");
-    builder.indent();
-    builder.line(&format!(
-        "@JvmField val INSTANCE: AzulNative = Native.load(\"{}\", AzulNative::class.java)",
-        LIBRARY_NAME
-    ));
-    builder.dedent();
-    builder.line("}");
+    builder.line("// ────────────────────────────────────────────────────────────────");
+    builder.line("// FFI interfaces — one per api.json module.");
+    builder.line("//");
+    builder.line("// Splitting AzulNative by module keeps each JNA Proxy `<clinit>`");
+    builder.line("// (which calls Method.getMethod for every interface method) well");
+    builder.line("// under the JVM 64KB per-method bytecode limit. Largest module is");
+    builder.line("// `vec` at ~888 methods (~45KB).");
+    builder.line("//");
+    builder.line("// Kotlin call sites: `AzulNativeApp.INSTANCE.AzApp_create(...)`,");
+    builder.line("// `AzulNativeDom.INSTANCE.AzDom_createBody()`, etc. The per-class");
+    builder.line("// owning module comes from `ir.type_to_module` populated from");
+    builder.line("// api.json.");
+    builder.line("// ────────────────────────────────────────────────────────────────");
     builder.blank();
 
+    // Group functions by module (matching the Java codegen, which is the
+    // reference per the BINDING_STRATEGY_PER_LANGUAGE.md plan).
+    use std::collections::BTreeMap;
+    let mut by_module: BTreeMap<String, Vec<&FunctionDef>> = BTreeMap::new();
     for func in &ir.functions {
         if !should_emit_function(func, ir, config) {
             continue;
         }
-        emit_native_method(builder, func, ir);
+        by_module
+            .entry(super::lang_java::functions::module_for_class(&func.class_name, ir))
+            .or_default()
+            .push(func);
     }
 
-    builder.dedent();
-    builder.line("}");
-    builder.blank();
+    for (module, funcs) in &by_module {
+        let class_name = super::lang_java::functions::module_native_class(module);
+        builder.line(&format!(
+            "/// JNA-bound interface for the {} module of the Azul C ABI.",
+            module
+        ));
+        builder.line(&format!("interface {} : Library {{", class_name));
+        builder.indent();
+        builder.line("companion object {");
+        builder.indent();
+        builder.line(&format!(
+            "@JvmField val INSTANCE: {} = Native.load(\"{}\", {}::class.java)",
+            class_name, LIBRARY_NAME, class_name
+        ));
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+        for func in funcs {
+            emit_native_method(builder, func, ir);
+        }
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    }
 }
 
 fn emit_native_method(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
