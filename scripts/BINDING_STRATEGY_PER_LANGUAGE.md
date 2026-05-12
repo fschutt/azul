@@ -18,40 +18,152 @@ fixes:
 
 ### Thing 1: Cross-thread callbacks need VM lock acquisition
 
-Only **one** callback kind in azul fires off-main-thread:
-`ThreadCallback`, invoked by `Thread::create` (layout/src/thread.rs:846)
-on a `std::thread::spawn`-ed worker. Confirmed by reading the source:
-`HOST_INVOKER_KINDS` deliberately excludes `ThreadCallback`; the 19
-other kinds (Layout, Callback, ButtonOnClick, VirtualView, etc.) all
-fire on the main `App.run` thread.
+The actual threading model in azul (read from source, not folklore):
 
-The fix is **2-3 C function bindings per host VM**, declared in each
-language's `azul.{lua,rb,py,js,pl,…}` wrapper just like any other
-`extern "C"` symbol. The VM-lock dance happens entirely inside the
-thread-callback thunk; the rest of the binding stays pure FFI.
+```
+                      ┌───────────────────┐
+   user clicks ──────►│   Main thread     │
+                      │  ─────────────    │
+   layout/click/      │   App.run() loop  │
+   widget callbacks   │                   │
+   fire here          │   reads receiver  │
+                      │   for Thread msgs │◄─── ThreadReceiveMsg::WriteBack
+                      │                   │     fires WriteBackCallback
+                      │                   │     on this thread
+                      └───────┬───────────┘
+                              │
+              Thread::create(init, writeback, cb)
+                              │
+                              ▼
+                      ┌───────────────────┐
+                      │   Worker thread   │
+                      │  ─────────────    │
+                      │   ThreadCallback  │
+                      │   (cb) fires here │
+                      │                   │
+                      │   sends back via  │
+                      │   ThreadSender    │───► queued for main-thread pickup
+                      └───────────────────┘
+```
 
-| VM | Acquire / release | Library |
+Key facts:
+
+- `Thread::create` spawns a real `std::thread::spawn` worker
+  (layout/src/thread.rs:846).
+- The `ThreadCallback.cb` receives `(RefAny init, ThreadSender,
+  ThreadReceiver)` and runs **on the worker thread**.
+- `ThreadSender::send(ThreadReceiveMsg::WriteBack(WriteBackMsg))`
+  enqueues a message. The worker can do many sends before exiting.
+- Main thread's `App.run` loop polls each Thread's receiver. When it
+  finds a `WriteBack` message, it invokes the carried
+  `WriteBackCallback` **on the main thread**
+  (layout/src/thread.rs:301-305 — doc-comment confirms "runs on the
+  main UI thread").
+
+So in azul there are **two** off-main-thread interaction points, not
+one:
+
+| Callback | Where it fires | Host-VM lock needed for host code? |
 |---|---|---|
-| **CPython** | `PyGILState_Ensure()` → `PyGILState_Release(state)` | `libpython3.X.{so,dylib}` |
-| **MRI Ruby** | `rb_thread_call_with_gvl(fn, data)` | `libruby.{so,dylib}` |
-| **OpenJDK** | `JavaVM::AttachCurrentThread` / `DetachCurrentThread` (via JavaVM function table) | the JVM itself |
-| **CLR / .NET** | nothing — `[UnmanagedCallersOnly]` delegates auto-trampoline from any thread | n/a |
-| **Node V8** | `napi_call_threadsafe_function(...)` *or* sidestep entirely: queue on a Mutex + signal main loop via `setImmediate` polling | `libnode` or pure-JS queue |
-| **Bun** | `bun:ffi` `JSCallback` is already thread-safe | n/a |
-| **Deno** | `Deno.UnsafeCallback.threadSafe(...)` | n/a |
-| **OCaml** | `caml_acquire_runtime_system()` / `caml_release_runtime_system()` | `libcaml.{so,dylib}` |
-| **SBCL** | foreign callables auto-attach (`sb-alien:define-alien-callable :foreign`) | `sbcl-runtime` |
-| **Pharo Smalltalk** | UFFI auto-marshals callbacks to main image thread | n/a |
-| **Lua / LuaJIT** | **cannot** be called from worker thread (single-threaded interpreter) — must use writeback-only pattern | n/a |
-| **Perl** | same as Lua (no `usethreads`) | n/a |
-| **PHP** | same as Lua (typical non-TSRM builds) | n/a |
-| **Go / Zig / Pascal / FreeBASIC / Ada / Fortran / COBOL / VB6 / Algol68** | no lock needed (callback is a real C fn pointer, runs in native context) | n/a |
+| `ThreadCallback`         | worker thread | yes (or use writeback-only pattern) |
+| `WriteBackCallback`      | main thread   | no |
+| `Callback` / `LayoutCallback` / 19 widget kinds | main thread | no |
 
-For the langs marked "cannot": users pass a **Rust extern "C"** function
-to `Thread::create` (worker side, does native work), and the main-thread
-`WriteBackCallback` is the host-language one. This matches the Rust
-`async.rs` example pattern and is more honest about the threading model
-anyway — the worker shouldn't touch the UI.
+`HOST_INVOKER_KINDS` currently has **none** of {`ThreadCallback`,
+`WriteBackCallback`}. The 19 main-thread widget+layout kinds are
+covered. So **two** callback kinds need their FFI plumbing finished:
+
+1. **WriteBackCallback** — fires on main, so adding it to
+   `HOST_INVOKER_KINDS` is purely mechanical: apply
+   `impl_managed_callback!` in `azul-layout::thread`, regenerate
+   per-language setters and from-host-handle constructors. No
+   threading concern.
+
+2. **ThreadCallback** — fires on worker. Adding it to
+   `HOST_INVOKER_KINDS` is mechanical too, BUT the per-language host
+   invoker for this kind must acquire the host VM's lock before
+   calling the user's function. Solved with **2-3 C function bindings
+   per host VM**, declared in each language's wrapper file just like
+   any other `extern "C"` symbol.
+
+### Per-VM lock-acquire pattern
+
+The pure-FFI binding's ThreadCallback thunk looks like (Python
+shown — every language follows the same shape):
+
+```
+extern "C" fn az_thread_callback_host_invoker(
+    id: u64,
+    init_data: *const RefAny,
+    sender: *const ThreadSender,
+    receiver: *const ThreadReceiver,
+) {
+    // 1. Locate the registered Python callable by id.
+    let py_callable = lookup_handle(id);
+
+    // 2. Acquire host VM lock. (Already-attached threads are fast no-ops.)
+    let state = PyGILState_Ensure();
+
+    // 3. Call host code.
+    py_callable.call((init_data, sender, receiver));
+
+    // 4. Release.
+    PyGILState_Release(state);
+}
+```
+
+The body is the *same shape* for every language; only the
+acquire/release call differs. That symmetry is the whole point of
+keeping it in the FFI layer — one pattern in 10 languages, not 10
+extension crates.
+
+| VM | Acquire | Release | Symbol library |
+|---|---|---|---|
+| **CPython** | `PyGILState_Ensure() → state` | `PyGILState_Release(state)` | `libpython3.X.{so,dylib}` (find via `Py_GetPath` or hardcode `python3-config --ldflags` at codegen time) |
+| **MRI Ruby** | `rb_thread_call_with_gvl(fn, data)` — wraps the body, acquire+call+release in one shot | (combined) | `libruby.{so,dylib}` |
+| **OpenJDK** | `(*jvm)->AttachCurrentThread(jvm, &env, NULL)` | `(*jvm)->DetachCurrentThread(jvm)` | from `JavaVM*` cached at JNI_OnLoad — but we are loaded the other direction (Rust calls into Java), so we cache `JavaVM*` once on first init via `JNI_GetCreatedJavaVMs` |
+| **CLR / .NET** | nothing | nothing | `[UnmanagedCallersOnly]` delegate self-trampolines from any thread |
+| **Node (N-API)** | `napi_acquire_threadsafe_function(tsfn) → napi_call_threadsafe_function(tsfn, data, blocking)` | `napi_release_threadsafe_function(tsfn, release_mode)` | `libnode` / N-API shipped with Node |
+| **Bun** | `bun:ffi` `JSCallback` is thread-safe by default | n/a | n/a |
+| **Deno** | `Deno.UnsafeCallback` constructed via `threadSafe(...)` | dispose on Drop | n/a |
+| **OCaml** | `caml_acquire_runtime_system()` | `caml_release_runtime_system()` | the OCaml runtime (statically linked or `libcamlrun.{so,a}`) |
+| **SBCL** | `define-alien-callable :from-foreign t` — runtime attaches automatically | n/a | `sbcl-runtime` (linked into the SBCL binary) |
+| **Pharo Smalltalk** | UFFI marshals callbacks to main image thread via image-side queue | n/a | n/a |
+| **Lua / LuaJIT** | **single-threaded interpreter — no lock exists**. ThreadCallback host-code is NOT supported; use writeback-only pattern (Rust extern "C" on worker, Lua fn on main via WriteBackCallback). | — | — |
+| **Perl** | same as Lua (no `usethreads` typical) | — | — |
+| **PHP** | same as Lua (no TSRM typical) | — | — |
+| **Go / Zig / Pascal / FreeBASIC / Ada / Fortran / COBOL / VB6 / Algol68** | no lock needed (binding is native code) | — | — |
+
+### Why this stays in the FFI layer (not in a per-VM extension)
+
+The user instinct: "if we can just copy the few GIL / threading work
+[per language], it's better to stay raw azul.so only, to not pull in
+tons of dependencies — this way one azul.so can serve 10 languages at
+once." That's correct. The 4-step thunk shape above is the only thing
+that varies per VM, and the variation is small:
+
+- **CPython**: 2-line `Py_BEGIN_ALLOW_THREADS` / `Py_END_ALLOW_THREADS`-style
+  bracketing OR `PyGILState_Ensure/Release` pair.
+- **Ruby**: one call (`rb_thread_call_with_gvl`).
+- **JVM**: one call each side; cached JavaVM pointer.
+- **OCaml**: pair.
+- **Node**: ThreadsafeFunction lifecycle (~5 lines).
+
+The cost of pure-FFI threading: ~5-50 lines of host-language code per
+binding. The cost of native-extension threading: importing one of
+PyO3/napi-rs/magnus/jni-rs/ocaml-rs (each a multi-thousand-LOC
+dependency, with their own update cadence, version pinning, build
+system invasiveness).
+
+For our purposes, FFI wins decisively.
+
+### WriteBackCallback host-invoker addition
+
+`WriteBackCallback` is genuinely main-thread. The fix is mechanical
+codegen plumbing (one `impl_managed_callback!` invocation in
+`azul-layout/src/thread.rs`, automatic propagation through
+`HOST_INVOKER_KINDS`). No threading consideration. This unlocks user-
+side WriteBack handlers in every host-invoker tier language.
 
 ### Thing 2: Compile-time type safety across the boundary
 
@@ -218,6 +330,107 @@ Per-VM lock-acquire shim in each language's host-invoker init.
 ### Phase 6 — Hello-world rewrites (final pass)
 
 Each smoke-test → Python-quality 30-50-line GUI.
+
+---
+
+## Host-invoker tier polish pass (Phase 6 detail)
+
+The 14 "host-invoker tier" languages each have working FFI dispatch
+but stop at a refany-roundtrip smoke test. The polish pass per
+language has the same shape — call it the **Polish Card**. Each card
+takes 1-3 hours.
+
+### The Polish Card (per language)
+
+For language **X**:
+
+1. **Wrapper surface audit** (~30 min).
+   Check that `azul.X` exports: `Dom`, `Button`, `WindowCreateOptions`,
+   `App`, `AppConfig`, `Css`, `CssProperty`, `CssPropertyWithConditions`,
+   `StyleFontSize`, `String`, `RefAny`, plus enums `Update`,
+   `ButtonType`, `WindowDecorations`, `WindowBackgroundMaterial`. If
+   any are missing or behind a non-idiomatic name, file follow-up.
+
+2. **Idiomatic-type mapping** (~30 min).
+   Verify that the codegen emits adapters for:
+   - `AzString` ↔ host string (UTF-8 bytes + length, copy on
+     both sides).
+   - `AzOptionX` ↔ host `nil`/`null`/`None`/`Optional<X>`/`Maybe X`.
+   - `AzResultXString` ↔ host exception (raise/throw) or Result type.
+   - `AzRefAny` + host-handle pattern: callbacks receive the host
+     model object directly (the wrapper does `refany_get` for you).
+   - `PartialEq` → host `==` / `eql?` / etc.
+   - `Display` / `Debug` → host `to_s` / `inspect` / `__str__` /
+     `toString`.
+
+3. **Hello-world rewrite** (~30 min).
+   File: `examples/X/hello-world.<ext>`. Match `examples/python/hello-world.py`'s
+   shape:
+   - Plain host class as model with a `counter` attribute.
+   - `layout(data, info)` returns `Dom.create_body().with_child(...)`.
+   - `on_click(data, info)` does `data.counter += 1; return Update.RefreshDom`.
+   - `app = App.create(model, AppConfig.create())`.
+   - `app.run(WindowCreateOptions.create(layout))`.
+   - Title 'Hello World', 400×300, NoTitleAutoInject decorations,
+     Sidebar background — same window state as the C reference.
+
+4. **Build + verify** (~30 min).
+   - Run with a 5-second timeout. Exit 124 (timed out) = GUI loop ran.
+   - With `AZ_DEBUG=<port>` env var, drive the click probe:
+     `curl -s -X POST http://localhost:<port>/ -d '{"op":"click","selector":".__azul-native-button"}'`
+   - Confirm counter increments by reading `op=get_html_string` before
+     and after.
+
+5. **Commit** (~5 min).
+   Subject: `examples/<X>: idiomatic hello-world (counter increments end-to-end)`.
+
+6. **Memory + plan update** (~5 min).
+   Update memory `full_gui_examples_status.md` to add X to "verified E2E."
+   Tick checkbox in this doc's status table.
+
+### Polish-pass order
+
+Sorted by least-codegen-prerequisite first (cheaper wins early):
+
+| # | Lang | Why this position |
+|---|---|---|
+| 1 | **Node** | Codegen fixes already designed (Phase 1); biggest user base. |
+| 2 | **Ruby** | `self.class.new` codegen fix already landed; just needs regen + finalizer cleanup + hello-world. |
+| 3 | **Perl** | FFI::Platypus is permissive; mostly wrappers + hello-world. |
+| 4 | **Lisp** | CFFI handles struct-by-value; mostly wrappers + hello-world. |
+| 5 | **OCaml** | Ctypes handles struct-by-value; wrappers + AzOption→option mapping. |
+| 6 | **PowerShell** | Sketch already drafted in current hello-world.ps1; verify. |
+| 7 | **C#** | tagged-union layout work needed; PowerShell rides on this. |
+| 8 | **Java** | JNA struct-by-value the main work. |
+| 9 | **Kotlin** | rides on Java once that's working. |
+| 10 | **Pascal** | works in principle; needs the same wrapper surface as the others. |
+| 11 | **Fortran** | same as Pascal. |
+| 12 | **Ada** | same as Pascal. |
+| 13 | **PHP** | other agent's work; pick up when they hand off. |
+| 14 | **Lua** | already E2E — just needs to ride a polish review for parity. |
+
+### What does NOT get polished in this phase
+
+- **Algol68 / FreeBASIC / VB6**: toolchain unavailable on macOS. Skipped.
+- **Smalltalk**: Pharo Tonel layout blocker. Skipped.
+- **COBOL**: copybook FN-* aliases emitted but ENTRY paragraphs are
+  user-side. Smoke-test-tier is the realistic ceiling.
+- **Haskell**: GHC FFI rejects struct-by-value returns. Needs a
+  separate C shim codegen phase (cost: ~1-2 days). Defer.
+
+### Acceptance criteria for "polish pass complete"
+
+- 14 host-invoker-tier languages have an `examples/<lang>/hello-world.<ext>`
+  that:
+  - is structurally identical to `examples/python/hello-world.py`
+    (model class, layout cb, on_click cb, button, App.run)
+  - has been verified E2E via the AZ_DEBUG click probe in CI or
+    manual run
+  - uses the language's idiomatic types (no `AzOptionString` leaks,
+    exceptions for errors, native string handling)
+- The plan's status table at the top of this doc reflects each one
+  ticked.
+- A memory entry per language confirms verified E2E.
 
 ---
 
