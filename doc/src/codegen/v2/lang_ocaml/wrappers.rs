@@ -313,6 +313,13 @@ fn emit_module_interface_for_class(
     } else {
         builder.line(&format!("type t = {} Ctypes.structure", ffi));
     }
+    // AzString.to_string is added by emit_module_impl_for_class as a
+    // host-string accessor; declare its signature here so the .mli
+    // surface matches.
+    if s.name == "String" {
+        builder.line("(** Decode the wrapped UTF-8 bytes into an OCaml string. *)");
+        builder.line("val to_string : t -> string");
+    }
     for func in ir.functions_for_class(&s.name) {
         if func.kind.is_trait_function() {
             continue;
@@ -342,6 +349,25 @@ fn emit_module_impl_for_class(
         builder.line(&format!("type t = {}", wrapper));
     } else {
         builder.line(&format!("type t = {} Ctypes.structure", ffi));
+    }
+
+    // AzString gets a `to_string` helper that decodes the wrapped
+    // UTF-8 bytes into an OCaml string. AzString's C-side layout is
+    // `{ vec: AzU8Vec }`, AzU8Vec is `{ ptr, len, cap, destructor }`.
+    // Field accessors are emitted by lang_ocaml/types.rs:
+    // `az_string_field_vec`, `az_u8_vec_field_ptr`, `_field_len`.
+    if s.name == "String" {
+        builder.line("(** Decode the wrapped UTF-8 bytes into an OCaml string. *)");
+        builder.line("let to_string (self : t) : string =");
+        builder.indent();
+        builder.line("let raw = self.raw in");
+        builder.line("let vec = Ctypes.getf raw az_string_field_vec in");
+        builder.line("let vec_ptr = Ctypes.getf vec az_u8_vec_field_ptr in");
+        builder.line("let vec_len = Unsigned.Size_t.to_int (Ctypes.getf vec az_u8_vec_field_len) in");
+        builder.line("if Ctypes.is_null vec_ptr || vec_len = 0 then \"\"");
+        builder.line("else Ctypes.string_from_ptr (Ctypes.from_voidp Ctypes.char vec_ptr) ~length:vec_len");
+        builder.dedent();
+        builder.blank();
     }
 
     for func in ir.functions_for_class(&s.name) {

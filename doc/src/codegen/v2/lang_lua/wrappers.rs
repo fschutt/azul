@@ -199,6 +199,18 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
         out.push_str(&format!("    -- (no instance methods on {})\n", class));
     }
 
+    // AzString gets a `:to_lua_string()` method that decodes the
+    // wrapped UTF-8 bytes into a Lua string. LuaJIT's `ffi.string`
+    // copies `len` bytes from `ptr` — `self.vec.ptr` / `self.vec.len`
+    // are accessible directly since AzString is a cdata with the C
+    // struct layout.
+    if class == "String" {
+        out.push_str("    function String_methods:to_lua_string()\n");
+        out.push_str("        if self.vec.ptr == nil or self.vec.len == 0 then return '' end\n");
+        out.push_str("        return ffi.string(self.vec.ptr, self.vec.len)\n");
+        out.push_str("    end\n");
+    }
+
     // Metatype binding — only for non-Copy types (those with _delete).
     // For Copy types we still want __index for instance methods, but no __gc.
     if has_delete {

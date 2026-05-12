@@ -156,6 +156,33 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     builder.line("public Pointer rawPointer() { return ptr; }");
     builder.blank();
 
+    // AzString gets a `toString()` override that decodes the wrapped
+    // UTF-8 bytes into a `java.lang.String`. AzString's C-side layout
+    // is `{ vec: AzU8Vec }`, and AzU8Vec is
+    // `{ ptr: u8*, len: usize, cap: usize, destructor: AzU8VecDestructor }`.
+    // The wrapper's `ptr` is the address of the AzString struct, so
+    // offset 0 is `vec.ptr` (the UTF-8 byte buffer) and offset 8 is
+    // `vec.len` (byte length).
+    if s.name == "String" {
+        builder.line("/**");
+        builder.line(" * Decode the wrapped UTF-8 bytes into a `java.lang.String`.");
+        builder.line(" * Reads `vec.ptr` (offset 0) and `vec.len` (offset 8) from");
+        builder.line(" * the AzString struct directly via JNA.");
+        builder.line(" */");
+        builder.line("@Override");
+        builder.line("public java.lang.String toString() {");
+        builder.indent();
+        builder.line("if (ptr == null || closed) return \"\";");
+        builder.line("Pointer vecPtr = ptr.getPointer(0);");
+        builder.line("long vecLen = ptr.getLong(8);");
+        builder.line("if (vecPtr == null || vecLen <= 0) return \"\";");
+        builder.line("byte[] bytes = vecPtr.getByteArray(0, (int) vecLen);");
+        builder.line("return new java.lang.String(bytes, java.nio.charset.StandardCharsets.UTF_8);");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    }
+
     // Methods.
     for func in ir.functions_for_class(&s.name) {
         if func.kind.is_trait_function() {

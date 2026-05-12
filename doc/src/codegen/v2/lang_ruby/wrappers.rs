@@ -114,6 +114,23 @@ fn emit_class_wrapper(
     builder.line("end");
     builder.blank();
 
+    // AzString gets a `to_s` override that decodes the wrapped UTF-8
+    // bytes into a Ruby String. AzString's C-side layout is `{ vec:
+    // AzU8Vec }`, AzU8Vec is `{ ptr, len, cap, destructor }`, so we
+    // read offset 0 (vec.ptr) and offset 8 (vec.len) via FFI::Pointer.
+    if s.name == "String" {
+        builder.line("# Decode the wrapped UTF-8 bytes into a Ruby String.");
+        builder.line("def to_s");
+        builder.indent();
+        builder.line("vec_ptr = @ptr.get_pointer(0)");
+        builder.line("vec_len = @ptr.get_uint64(8)");
+        builder.line("return '' if vec_ptr.null? || vec_len.zero?");
+        builder.line("vec_ptr.read_bytes(vec_len).force_encoding('UTF-8')");
+        builder.dedent();
+        builder.line("end");
+        builder.blank();
+    }
+
     // Emit each function on this class as a Ruby method.
     let mut emitted_any_method = false;
     for func in &ir.functions {

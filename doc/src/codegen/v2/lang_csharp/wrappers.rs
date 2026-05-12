@@ -164,6 +164,28 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     ));
     builder.blank();
 
+    // AzString gets a `ToString()` override that decodes the wrapped
+    // UTF-8 bytes into a managed `string`. AzString's C-side layout
+    // is `{ vec: AzU8Vec }`, AzU8Vec is `{ ptr, len, cap, destructor }`,
+    // so we read `_inner.vec.ptr` and `_inner.vec.len` and copy out.
+    // (`len` is `UIntPtr`; route through ToUInt64 for portability.)
+    if s.name == "String" {
+        builder.line("/// <summary>Decode the wrapped UTF-8 bytes into a managed string.</summary>");
+        builder.line("public override string ToString()");
+        builder.line("{");
+        builder.indent();
+        builder.line("if (_disposed) return \"\";");
+        builder.line("var ptr = _inner.vec.ptr;");
+        builder.line("var len = (long)_inner.vec.len.ToUInt64();");
+        builder.line("if (ptr == System.IntPtr.Zero || len <= 0) return \"\";");
+        builder.line("var bytes = new byte[len];");
+        builder.line("System.Runtime.InteropServices.Marshal.Copy(ptr, bytes, 0, (int)len);");
+        builder.line("return System.Text.Encoding.UTF8.GetString(bytes);");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    }
+
     // Emit methods for each non-trait function on this class.
     for func in ir.functions_for_class(&s.name) {
         if func.kind.is_trait_function() {

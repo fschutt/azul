@@ -221,6 +221,32 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
     ));
     b.blank();
 
+    // AzString gets a `toString()` override that decodes the wrapped
+    // UTF-8 bytes into a JS string. AzString's C-side layout is
+    // `{ vec: AzU8Vec }`, AzU8Vec is `{ ptr, len, cap, destructor }`.
+    // koffi.decode handles the struct read; len comes back as BigInt
+    // (size_t), so coerce to Number for the array bound.
+    if s.name == "String" {
+        b.line("/**");
+        b.line(" * Decode the wrapped UTF-8 bytes into a JS string.");
+        b.line(" * Returns '' if not available on the current runtime (koffi only).");
+        b.line(" */");
+        b.line("toString() {");
+        b.indent();
+        b.line("if (!this._ptr) return '';");
+        b.line("// koffi-only path; Bun / Deno would need separate helpers.");
+        b.line("if (azulFFI.runtime !== 'node-koffi') return '[AzString — decode not implemented for this runtime]';");
+        b.line("const koffi = azulFFI.koffi;");
+        b.line("const az = koffi.decode(this._ptr, 'AzString');");
+        b.line("const len = Number(az.vec.len);");
+        b.line("if (!az.vec.ptr || len === 0) return '';");
+        b.line("const bytes = koffi.decode(az.vec.ptr, koffi.array('uint8_t', len));");
+        b.line("return Buffer.from(bytes).toString('utf8');");
+        b.dedent();
+        b.line("}");
+        b.blank();
+    }
+
     // Methods: Method, MethodMut, DeepCopy, DebugToString, plus static
     // factories (Constructor, StaticMethod, Default, EnumVariantConstructor).
     let mut emitted_any = false;

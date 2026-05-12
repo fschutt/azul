@@ -120,6 +120,30 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     builder.line("fun rawPointer(): Pointer = ptr");
     builder.blank();
 
+    // AzString gets a `toString()` override that decodes the wrapped
+    // UTF-8 bytes into a `kotlin.String`. AzString's C-side layout is
+    // `{ vec: AzU8Vec }`, AzU8Vec is `{ ptr, len, cap, destructor }`,
+    // so offset 0 is `vec.ptr` (the UTF-8 byte buffer) and offset 8 is
+    // `vec.len` (byte length).
+    if s.name == "String" {
+        builder.line("/**");
+        builder.line(" * Decode the wrapped UTF-8 bytes into a `kotlin.String`.");
+        builder.line(" * Reads `vec.ptr` (offset 0) and `vec.len` (offset 8) from");
+        builder.line(" * the AzString struct directly via JNA.");
+        builder.line(" */");
+        builder.line("override fun toString(): kotlin.String {");
+        builder.indent();
+        builder.line("if (closed) return \"\"");
+        builder.line("val vecPtr: Pointer? = ptr.getPointer(0)");
+        builder.line("val vecLen: Long = ptr.getLong(8)");
+        builder.line("if (vecPtr == null || vecLen <= 0) return \"\"");
+        builder.line("val bytes = vecPtr.getByteArray(0, vecLen.toInt())");
+        builder.line("return kotlin.String(bytes, Charsets.UTF_8)");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    }
+
     // companion object holding the static factories.
     let static_funcs: Vec<&FunctionDef> = ir
         .functions_for_class(&s.name)
