@@ -285,8 +285,7 @@ fn get_system_clipboard() -> Option<String> {
 fn set_system_clipboard(text: String) -> bool {
     #[cfg(target_os = "windows")]
     {
-        use clipboard_win::{formats, set_clipboard};
-        set_clipboard(formats::Unicode, &text).is_ok()
+        crate::desktop::shell2::windows::clipboard::write_to_clipboard(&text).is_ok()
     }
     #[cfg(target_os = "macos")]
     {
