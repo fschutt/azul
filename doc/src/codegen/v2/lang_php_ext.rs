@@ -99,9 +99,10 @@ fn emit_handle_table(builder: &mut CodeBuilder) {
 
 /// The C-ABI releaser libazul fires when the last RefAny clone of
 /// a host-handle drops. Removes the entry from `HANDLES` so the
-/// JSON snapshot doesn't leak.
+/// JSON snapshot doesn't leak. Also clears `CALLBACKS` since they
+/// share `NEXT_HANDLE_ID`.
 fn emit_releaser(builder: &mut CodeBuilder) {
-    builder.line("/// Drop the handle table entry for `id`. Called by libazul on");
+    builder.line("/// Drop the handle table entries for `id`. Called by libazul on");
     builder.line("/// the last-clone destructor of a host-handle RefAny.");
     builder.line("unsafe extern \"C\" fn host_handle_releaser(id: u64) {");
     builder.indent();
@@ -110,6 +111,69 @@ fn emit_releaser(builder: &mut CodeBuilder) {
     builder.line("tbl.remove(&id);");
     builder.dedent();
     builder.line("}");
+    builder.line("if let Ok(mut tbl) = CALLBACKS.lock() {");
+    builder.indent();
+    builder.line("tbl.remove(&id);");
+    builder.dedent();
+    builder.line("}");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+
+    emit_generic_invoker(builder);
+}
+
+/// The Rust trampoline registered with libazul via
+/// `AzApp_setGenericInvoker`. libazul calls this from its per-kind
+/// static thunks for every callback kind whose per-kind invoker
+/// slot is empty — which is every kind today, since we're using
+/// the generic dispatch path. The trampoline:
+/// 1. Reads `kind` as a C string.
+/// 2. Looks up the PHP function name in `CALLBACKS` by `handle`.
+/// 3. Calls via `ZendCallable::try_from_name` with `kind` as a
+///    single string argument (the smoke layer passes the kind name;
+///    real args marshalling lands per-kind in Phase 51).
+/// 4. Writes nothing to `ret` — for non-void return kinds the per-
+///    kind thunk already pre-filled `ret` with the default; we
+///    don't override it here. Phase 51 adds per-kind return shape.
+fn emit_generic_invoker(builder: &mut CodeBuilder) {
+    builder.line("/// libazul generic-invoker trampoline. See module-level docs.");
+    builder.line("///");
+    builder.line("/// Safety: invoked on the libazul callback thread; the Zend executor");
+    builder.line("/// must be active (which it is for the duration of the CLI request");
+    builder.line("/// that called App::run). Acquiring CALLBACKS' Mutex from a non-Zend");
+    builder.line("/// thread would deadlock if the Zend invocation re-entered through");
+    builder.line("/// another #[php_function] — we hold no lock across try_call.");
+    builder.line("unsafe extern \"C\" fn azul_generic_invoker(");
+    builder.indent();
+    builder.line("handle: u64,");
+    builder.line("kind: *const ::core::ffi::c_char,");
+    builder.line("_args: *const *const ::core::ffi::c_void,");
+    builder.line("_n_args: usize,");
+    builder.line("_ret: *mut ::core::ffi::c_void,");
+    builder.dedent();
+    builder.line(") {");
+    builder.indent();
+    builder.line("if kind.is_null() { return; }");
+    builder.line("let kind_str = match ::core::ffi::CStr::from_ptr(kind).to_str() {");
+    builder.indent();
+    builder.line("Ok(s) => s.to_string(),");
+    builder.line("Err(_) => return,");
+    builder.dedent();
+    builder.line("};");
+    builder.line("let name = {");
+    builder.indent();
+    builder.line("let tbl = match CALLBACKS.lock() { Ok(t) => t, Err(_) => return };");
+    builder.line("match tbl.get(&handle) { Some(n) => n.clone(), None => return }");
+    builder.dedent();
+    builder.line("};");
+    builder.line("let callable = match ::ext_php_rs::types::ZendCallable::try_from_name(&name) {");
+    builder.indent();
+    builder.line("Ok(c) => c,");
+    builder.line("Err(_) => return,");
+    builder.dedent();
+    builder.line("};");
+    builder.line("let _ = callable.try_call(vec![&kind_str]);");
     builder.dedent();
     builder.line("}");
     builder.blank();
@@ -167,6 +231,7 @@ fn emit_primitive_functions(builder: &mut CodeBuilder) {
     builder.line("unsafe {");
     builder.indent();
     builder.line("AzApp_setHostHandleReleaser(Some(host_handle_releaser));");
+    builder.line("AzApp_setGenericInvoker(Some(azul_generic_invoker));");
     builder.dedent();
     builder.line("}");
     builder.dedent();

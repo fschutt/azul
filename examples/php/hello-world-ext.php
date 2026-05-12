@@ -110,6 +110,8 @@ $fn_count = count(get_extension_funcs('azul-dll'));
 echo "[azul] codegen exposed $fn_count PHP functions; full register+invoke path live.\n";
 
 echo "[azul] PHP host-invoker init phase completed successfully.\n";
-echo "[azul] (Phase 50 wires AzApp_setGenericInvoker so libazul's\n";
-echo "[azul]  static thunks dispatch back into PHP automatically —\n";
-echo "[azul]  today azul_invoke_callback proves the trampoline works.)\n";
+echo "[azul] (azul_host_invoker_init also wired AzApp_setGenericInvoker —\n";
+echo "[azul]  libazul's static callback thunks now route through the\n";
+echo "[azul]  Rust trampoline into ZendCallable::try_call automatically.\n";
+echo "[azul]  Full App::run dispatch lands when the Dom builders codegen\n";
+echo "[azul]  ships in Phase 51.)\n";

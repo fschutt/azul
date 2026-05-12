@@ -56,6 +56,22 @@ extern "C" {
     fn AzApp_setHostHandleReleaser(
         releaser: Option<unsafe extern "C" fn(id: u64)>,
     );
+    /// libazul's generic-invoker setter. The trampoline registered
+    /// here fires for every callback kind whose per-kind invoker
+    /// slot is empty (which is "all of them" until Phase 51 wires
+    /// per-kind setters). `kind` is the wrapper name as a C string
+    /// ("Callback", "LayoutCallback", "ButtonOnClick", ...).
+    fn AzApp_setGenericInvoker(
+        invoker: Option<
+            unsafe extern "C" fn(
+                handle: u64,
+                kind: *const core::ffi::c_char,
+                args: *const *const core::ffi::c_void,
+                n_args: usize,
+                ret: *mut core::ffi::c_void,
+            ),
+        >,
+    );
 }
 
 // Pull in the generated bindings. The generator emits ext-php-rs
