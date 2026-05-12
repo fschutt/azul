@@ -68,16 +68,26 @@ pub fn generate(ir: &CodegenIR) -> Result<String> {
     Ok(builder.finish())
 }
 
-/// The handle table the PHP side uses to store user values
-/// (JSON-encoded) keyed by the host-handle id libazul stamps onto
-/// each RefAny.
+/// The handle tables the PHP side uses:
+/// * `HANDLES` — `id → JSON snapshot` for refany_create/get.
+/// * `CALLBACKS` — `id → function-name String` for register_<kind>_callback.
+/// Phase 49 stores callable names (not Zvals) because Zvals are
+/// per-request-rooted; the user-facing API today is "pass a named
+/// function or a string callable name" rather than "pass an
+/// anonymous closure". Phase 50 plumbs refcount-rooted closures
+/// through a per-call wrapper Zval.
 fn emit_handle_table(builder: &mut CodeBuilder) {
     builder.line("// ------------------------------------------------------------------------");
-    builder.line("// Handle table — keyed by the host-handle id libazul stamps onto");
-    builder.line("// each AzRefAny. Values are JSON snapshots; the Phase 49 codegen");
-    builder.line("// switches to a refcount-rooted Azul\\RefAny class.");
+    builder.line("// Handle tables — keyed by the host-handle id libazul stamps onto");
+    builder.line("// each AzRefAny / callback. Values are JSON snapshots (refany) or");
+    builder.line("// PHP function names (callbacks). Phase 50 swaps callable names for");
+    builder.line("// refcount-rooted closures.");
     builder.line("// ------------------------------------------------------------------------");
     builder.line("static HANDLES: ::once_cell::sync::Lazy<::std::sync::Mutex<::std::collections::HashMap<u64, String>>> =");
+    builder.line(
+        "    ::once_cell::sync::Lazy::new(|| ::std::sync::Mutex::new(::std::collections::HashMap::new()));",
+    );
+    builder.line("static CALLBACKS: ::once_cell::sync::Lazy<::std::sync::Mutex<::std::collections::HashMap<u64, String>>> =");
     builder.line(
         "    ::once_cell::sync::Lazy::new(|| ::std::sync::Mutex::new(::std::collections::HashMap::new()));",
     );
@@ -162,49 +172,76 @@ fn emit_primitive_functions(builder: &mut CodeBuilder) {
     builder.dedent();
     builder.line("}");
     builder.blank();
+
+    builder.line("/// PHP function: `azul_invoke_callback(int $id, string $args_json) : ?string`.");
+    builder.line("///");
+    builder.line("/// Smoke-tests the callable-name → trampoline → Zend invocation path");
+    builder.line("/// for a callback previously stashed via");
+    builder.line("/// `azul_register_<kind>_callback($name)`. Args are JSON-encoded so");
+    builder.line("/// the smoke layer doesn't need a per-kind args marshaller; Phase 50");
+    builder.line("/// replaces this with the libazul generic invoker dispatch.");
+    builder.line("/// Returns the callable's return value as a JSON string, or null on");
+    builder.line("/// missing id / call failure.");
+    builder.line("#[::ext_php_rs::prelude::php_function]");
+    builder.line("pub fn azul_invoke_callback(id: u64, args_json: String) -> Option<String> {");
+    builder.indent();
+    builder.line("let name = CALLBACKS.lock().unwrap().get(&id).cloned()?;");
+    builder.line("let callable = ::ext_php_rs::types::ZendCallable::try_from_name(&name).ok()?;");
+    builder.line("let result = callable.try_call(vec![&args_json]).ok()?;");
+    builder.line("if result.is_null() { return Some(\"null\".to_string()); }");
+    builder.line("if let Some(s) = result.string() { return Some(s); }");
+    builder.line("if let Some(n) = result.long() { return Some(n.to_string()); }");
+    builder.line("if let Some(b) = result.bool() { return Some(b.to_string()); }");
+    builder.line("Some(\"<unrepresented>\".to_string())");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
 }
 
-/// Per callback kind, emit a stub `azul_register_<wrapper>_callback`
-/// PHP function that takes an id (the handle in HANDLES) and returns
-/// the Az<Wrapper> struct id-only (no libffi closure yet — Zend
-/// callable→fnpointer marshalling needs an `Arg::callable()` accept
-/// + libffi dispatch which we wire in Phase 49). For now this is a
-/// stub that records intent and keeps the generator → emit shape
-/// stable across iterations.
+/// Per callback kind, emit `azul_register_<wrapper>_callback(string $name)`
+/// that stashes the named PHP function in `CALLBACKS` and returns its
+/// new handle id. The user then calls libazul-side
+/// `Az<Wrapper>_createFromHostHandle($id)` to mint the wrapper struct
+/// that gets passed to the layout / button / etc. setter.
+///
+/// Why a name and not a Zval: PHP Zvals are rooted in the executor's
+/// per-request frame, so a Zval held in a `'static` HashMap dangles
+/// across requests. Function names are stable. Closures aren't
+/// nameable so Phase 50 introduces a refcount-rooted closure wrapper
+/// — until then users must pass a named function or string callable.
 fn emit_callback_kind_helpers(
     builder: &mut CodeBuilder,
     cb: &super::ir::CallbackTypedefDef,
 ) {
     let wrapper = wrapper_name(cb);
     let fn_name = callback_helper_fn_name(&wrapper);
-    let _ = has_return(cb); // Reserved for Phase 49 — return-arity-aware dispatch.
+    let _ = has_return(cb); // Reserved for Phase 50 — return-arity-aware dispatch.
 
     builder.line(&format!(
-        "/// PHP function stub: `{fn_name}(int $handle_id) : int`.",
+        "/// PHP function: `{fn_name}(string $callable_name) : int`.",
         fn_name = fn_name
     ));
     builder.line("///");
     builder.line(
-        "/// Phase 48 stub — accepts a handle id (PHP side stashes the callable",
-    );
-    builder.line(
-        "/// in HANDLES via azul_refany_create) and returns it unchanged so the",
+        "/// Stash the named PHP function in CALLBACKS, return its host-handle id.",
     );
     builder.line(&format!(
-        "/// PHP caller can pass it back through the Az{wrapper}_createFromHostHandle",
+        "/// Pair with libazul's `Az{wrapper}_createFromHostHandle($id)` to mint",
         wrapper = wrapper
     ));
-    builder.line(
-        "/// path once libffi-closure-from-Zend-callable marshalling lands. Keeps",
-    );
-    builder.line("/// the codegen-to-extension wiring testable end-to-end today.");
+    builder.line("/// the wrapper struct. Validation of callability happens at");
+    builder.line("/// invoke time via `azul_invoke_callback`.");
     builder.line("#[::ext_php_rs::prelude::php_function]");
     builder.line(&format!(
-        "pub fn {fn_name}(handle_id: u64) -> u64 {{",
+        "pub fn {fn_name}(callable_name: String) -> u64 {{",
         fn_name = fn_name
     ));
     builder.indent();
-    builder.line("handle_id");
+    builder.line("let mut next = NEXT_HANDLE_ID.lock().unwrap();");
+    builder.line("*next += 1;");
+    builder.line("let id = *next;");
+    builder.line("CALLBACKS.lock().unwrap().insert(id, callable_name);");
+    builder.line("id");
     builder.dedent();
     builder.line("}");
     builder.blank();
@@ -245,6 +282,7 @@ fn emit_get_module(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line(".function(::ext_php_rs::wrap_function!(azul_refany_create))");
     builder.line(".function(::ext_php_rs::wrap_function!(azul_refany_get))");
     builder.line(".function(::ext_php_rs::wrap_function!(azul_host_invoker_init))");
+    builder.line(".function(::ext_php_rs::wrap_function!(azul_invoke_callback))");
     for cb in host_invoker_kinds(ir) {
         let fn_name = callback_helper_fn_name(wrapper_name(cb));
         builder.line(&format!(

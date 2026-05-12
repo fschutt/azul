@@ -74,26 +74,42 @@ echo "[azul] azul_refany_get round-trip succeeded; counter="
     . $recovered['counter'] . ", label='" . $recovered['label'] . "'.\n";
 
 // 3. Codegen-driven per-kind register helpers. Phase 48 emits one
-// `azul_register_<kind>_callback($handle_id) : int` stub for every
-// host-invoker callback kind. Phase 49 wires them through libffi to
-// the user's PHP callable. For now we verify the stubs are
-// reachable and round-trip the handle id unchanged — that proves
-// the codegen module emitted, the build linked them, and the Zend
-// engine registered them in the function table.
-$button_cb_id = azul_register_button_on_click_callback(7);
-if ($button_cb_id !== 7) {
-    fwrite(STDERR, "[azul] FAIL: register_button_on_click stub returned $button_cb_id.\n");
+// `azul_register_<kind>_callback(string $name) : int` for every
+// host-invoker callback kind. The function stashes the named PHP
+// function in CALLBACKS and returns its handle id. Phase 50 wires
+// the registered ids through libazul's AzApp_setGenericInvoker so
+// libazul fires the PHP function when (e.g.) a button is clicked.
+
+function on_button_click_smoke(string $args_json): string {
+    $args = json_decode($args_json, true);
+    return json_encode(['handled' => true, 'received' => $args]);
+}
+
+$button_cb_id = azul_register_button_on_click_callback('on_button_click_smoke');
+$layout_cb_id = azul_register_layout_callback('on_button_click_smoke');
+echo "[azul] azul_register_button_on_click_callback('on_button_click_smoke') = $button_cb_id.\n";
+
+// 4. azul_invoke_callback — round-trips a stashed callable through
+// the Zend executor from a Rust trampoline. This is the smoke layer
+// for the full host-invoker dispatch path: libazul's generic-invoker
+// trampoline (Phase 50) will call into the same lookup + try_call
+// sequence, but synthesized from libazul's static thunks at runtime.
+$result = azul_invoke_callback($button_cb_id, json_encode(['click_x' => 42, 'click_y' => 17]));
+if ($result === null) {
+    fwrite(STDERR, "[azul] FAIL: azul_invoke_callback($button_cb_id) returned null.\n");
     exit(1);
 }
-$layout_cb_id = azul_register_layout_callback(11);
-if ($layout_cb_id !== 11) {
-    fwrite(STDERR, "[azul] FAIL: register_layout stub returned $layout_cb_id.\n");
+$parsed = json_decode($result, true);
+if (!is_array($parsed) || !($parsed['handled'] ?? false) || ($parsed['received']['click_x'] ?? -1) !== 42) {
+    fwrite(STDERR, "[azul] FAIL: callback round-trip lost data: $result\n");
     exit(1);
 }
+echo "[azul] azul_invoke_callback round-trip: PHP fn fired from Rust, returned $result.\n";
+
 $fn_count = count(get_extension_funcs('azul-dll'));
-echo "[azul] codegen exposed $fn_count PHP functions; register-kind stubs round-trip.\n";
+echo "[azul] codegen exposed $fn_count PHP functions; full register+invoke path live.\n";
 
 echo "[azul] PHP host-invoker init phase completed successfully.\n";
-echo "[azul] (Phase 49 wires libffi-closure-from-Zend-callable so\n";
-echo "[azul]  the register_<kind>_callback helpers can accept actual\n";
-echo "[azul]  PHP callables — today they accept a refany handle id.)\n";
+echo "[azul] (Phase 50 wires AzApp_setGenericInvoker so libazul's\n";
+echo "[azul]  static thunks dispatch back into PHP automatically —\n";
+echo "[azul]  today azul_invoke_callback proves the trampoline works.)\n";
