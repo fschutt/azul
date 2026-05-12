@@ -54,7 +54,6 @@ impl TooltipWindow {
     pub fn new(
         xlib: Rc<Xlib>,
         display: *mut super::dlopen::Display,
-        parent: super::dlopen::Window,
     ) -> Result<Self, String> {
         unsafe {
             // Get screen and root window

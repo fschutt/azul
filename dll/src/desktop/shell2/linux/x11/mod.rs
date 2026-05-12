@@ -2699,7 +2699,7 @@ impl X11Window {
     fn show_tooltip(&mut self, text: String, x: i32, y: i32) {
         // Create tooltip window if needed
         if self.tooltip.is_none() {
-            match tooltip::TooltipWindow::new(self.xlib.clone(), self.display, self.window) {
+            match tooltip::TooltipWindow::new(self.xlib.clone(), self.display) {
                 Ok(tooltip_window) => {
                     self.tooltip = Some(tooltip_window);
                 }
@@ -2719,8 +2719,7 @@ impl X11Window {
             use azul_core::{geom::LogicalPosition, resources::DpiScaleFactor};
 
             let position = LogicalPosition::new(x as f32, y as f32);
-            // Use default DPI factor - tooltips don't need precise scaling
-            let dpi = DpiScaleFactor::new(1.0);
+            let dpi = DpiScaleFactor::new(self.common.current_window_state.size.dpi as f32 / 96.0);
 
             if let Err(e) = tooltip.show(&text, position, dpi) {
                 log_error!(LogCategory::Window, "[X11] Failed to show tooltip: {}", e);
