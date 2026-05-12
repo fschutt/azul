@@ -31,7 +31,9 @@ use super::MacOSWindow;
 // Re-export common types
 pub use crate::desktop::shell2::common::event::HitTestNode;
 // Import V2 cross-platform event processing trait
-use crate::desktop::shell2::common::event::PlatformWindow;
+use crate::desktop::shell2::common::event::{
+    PlatformWindow, BUTTON_STATE_LEFT, BUTTON_STATE_RIGHT, BUTTON_STATE_MIDDLE, BUTTON_STATE_NONE,
+};
 
 /// Convert macOS window coordinates to Azul logical coordinates.
 ///
@@ -113,10 +115,10 @@ impl MacOSWindow {
 
         // Record input sample for gesture detection (button down starts new session)
         let button_state = match button {
-            MouseButton::Left => 0x01,
-            MouseButton::Right => 0x02,
-            MouseButton::Middle => 0x04,
-            _ => 0x00,
+            MouseButton::Left => BUTTON_STATE_LEFT,
+            MouseButton::Right => BUTTON_STATE_RIGHT,
+            MouseButton::Middle => BUTTON_STATE_MIDDLE,
+            _ => BUTTON_STATE_NONE,
         };
         self.record_input_sample(position, button_state, true, false, None);
 
@@ -158,10 +160,10 @@ impl MacOSWindow {
 
         // Record input sample for gesture detection (button up ends session)
         let button_state = match button {
-            MouseButton::Left => 0x01,
-            MouseButton::Right => 0x02,
-            MouseButton::Middle => 0x04,
-            _ => 0x00,
+            MouseButton::Left => BUTTON_STATE_LEFT,
+            MouseButton::Right => BUTTON_STATE_RIGHT,
+            MouseButton::Middle => BUTTON_STATE_MIDDLE,
+            _ => BUTTON_STATE_NONE,
         };
         self.record_input_sample(position, button_state, false, true, None);
 
@@ -206,17 +208,17 @@ impl MacOSWindow {
 
         // Record input sample for gesture detection (movement during button press)
         let button_state = if self.common.current_window_state.mouse_state.left_down {
-            0x01
+            BUTTON_STATE_LEFT
         } else {
-            0x00
+            BUTTON_STATE_NONE
         } | if self.common.current_window_state.mouse_state.right_down {
-            0x02
+            BUTTON_STATE_RIGHT
         } else {
-            0x00
+            BUTTON_STATE_NONE
         } | if self.common.current_window_state.mouse_state.middle_down {
-            0x04
+            BUTTON_STATE_MIDDLE
         } else {
-            0x00
+            BUTTON_STATE_NONE
         };
         self.record_input_sample(position, button_state, false, false, None);
 
