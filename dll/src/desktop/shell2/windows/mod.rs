@@ -603,15 +603,47 @@ impl Win32Window {
             if let Err(e) = result.regenerate_layout() {
                 log_error!(LogCategory::Layout, "First frame layout error: {:?}", e);
             }
+
+            // size_to_content: the HWND was created as a 1×1 hidden placeholder
+            // (see wcreate::create_hwnd). Now that the first layout has produced
+            // a root size, resize the window to fit content before the
+            // first_frame_shown gate inside render_and_present calls ShowWindow.
+            if options.size_to_content {
+                if let Some(layout_window) = result.common.layout_window.as_ref() {
+                    if let Some(dom_result) = layout_window
+                        .layout_results
+                        .get(&azul_core::dom::DomId::ROOT_ID)
+                    {
+                        let root_size = dom_result
+                            .layout_tree
+                            .get_content_size(dom_result.layout_tree.root);
+                        let w = libm::roundf(root_size.width).max(1.0) as i32;
+                        let h = libm::roundf(root_size.height).max(1.0) as i32;
+                        log_trace!(
+                            LogCategory::Window,
+                            "[Win32] size_to_content: resizing window to {}x{}",
+                            w,
+                            h
+                        );
+                        if let Err(e) = wcreate::set_window_size(result.hwnd, w, h, &result.win32) {
+                            log_warn!(
+                                LogCategory::Window,
+                                "[Win32] size_to_content set_window_size failed: {:?}",
+                                e
+                            );
+                        }
+                    }
+                }
+            }
+
             result.common.frame_needs_regeneration = false;
             let _ = result.render_and_present(true);
         }
         timing_log!("Render first frame (async - not waiting for completion)");
 
-        // Store visibility flags for run.rs to use when showing the window
-        // The window will be shown by run.rs after waiting for new_frame_ready
-        // DO NOT call show_window_with_frame here!
-        timing_log!("Skip show window (will be shown by run.rs after first frame ready)");
+        // The window will be shown after the first frame renders via the
+        // `first_frame_shown` gate inside render_and_present (CPU and GPU paths).
+        timing_log!("Skip show window (will be shown after first frame render)");
 
         // Invoke create_callback if provided (for GL resource upload, config loading, etc.)
         // This runs AFTER GL context is ready but BEFORE any layout is done

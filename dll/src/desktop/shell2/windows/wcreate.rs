@@ -2,12 +2,10 @@
 //!
 //! Provides [`register_window_class`], [`create_hwnd`], and [`create_gl_context`]
 //! (which attempts OpenGL 3.2 Core, then 3.0, then legacy `wglCreateContext`).
-//! Also contains helpers for window sizing ([`get_client_rect`], [`set_window_size`])
-//! and visibility ([`show_window_with_frame`]).
+//! Also contains helpers for window sizing ([`get_client_rect`], [`set_window_size`]).
 
 use std::{mem, ptr};
 
-use azul_core::window::WindowFrame;
 use azul_layout::window_state::WindowCreateOptions;
 
 use super::dlopen::{
@@ -74,9 +72,13 @@ pub fn create_hwnd(
 
         let parent = parent_hwnd.unwrap_or(ptr::null_mut());
 
-        // Calculate initial window size
+        // Calculate initial window size.
+        // For `size_to_content`, create with a 1×1 placeholder. The window is
+        // created hidden (no WS_VISIBLE in `style`); the shell will run the
+        // first layout, call `set_window_size` to fit content, then
+        // `ShowWindow(SW_SHOWNORMAL)`.
         let (width, height) = if options.size_to_content {
-            (0, 0)
+            (1, 1)
         } else {
             (
                 libm::roundf(options.window_state.size.dimensions.width) as i32,
@@ -550,43 +552,6 @@ const WGL_CONTEXT_MINOR_VERSION_ARB: u32 = 0x2092;
 const WGL_CONTEXT_PROFILE_MASK_ARB: u32 = 0x9126;
 const WGL_CONTEXT_CORE_PROFILE_BIT_ARB: u32 = 0x00000001;
 const WGL_CONTEXT_FLAGS_ARB: u32 = 0x2094;
-
-/// Show or hide a window with the appropriate frame state
-pub fn show_window_with_frame(
-    hwnd: HWND,
-    frame: WindowFrame,
-    is_visible: bool,
-    win32: &Win32Libraries,
-) {
-    log_trace!(
-        LogCategory::Window,
-        "[Win32] show_window_with_frame() called, frame: {:?}, is_visible: {}",
-        frame,
-        is_visible
-    );
-    let mut show_cmd = SW_HIDE;
-
-    if is_visible {
-        show_cmd = match frame {
-            WindowFrame::Normal => SW_SHOWNORMAL,
-            WindowFrame::Minimized => SW_MINIMIZE,
-            WindowFrame::Maximized => SW_MAXIMIZE,
-            WindowFrame::Fullscreen => SW_MAXIMIZE,
-        };
-    }
-
-    log_trace!(
-        LogCategory::Window,
-        "[Win32] calling ShowWindow with cmd: {}",
-        show_cmd
-    );
-    let result = unsafe { (win32.user32.ShowWindow)(hwnd, show_cmd) };
-    log_trace!(
-        LogCategory::Window,
-        "[Win32] ShowWindow returned: {}",
-        result
-    );
-}
 
 /// Get client rectangle size
 pub fn get_client_rect(hwnd: HWND, win32: &Win32Libraries) -> Result<(u32, u32), WindowError> {
