@@ -5427,26 +5427,18 @@
                             {
                                 "label": {
                                     "type": "OptionString"
-                                }
-                            },
-                            {
-                                "modal": {
-                                    "type": "bool"
-                                }
-                            },
-                            {
+                                },
                                 "described_by": {
                                     "type": "OptionString"
-                                }
-                            },
-                            {
-                                "role": {
-                                    "type": "AccessibilityRole"
-                                }
-                            },
-                            {
+                                },
                                 "description": {
                                     "type": "OptionString"
+                                },
+                                "role": {
+                                    "type": "AccessibilityRole"
+                                },
+                                "modal": {
+                                    "type": "bool"
                                 }
                             }
                         ],
@@ -38561,7 +38553,7 @@
                         "doc": [
                             "What triggered the current `layout()` invocation.",
                             "",
-                            "The framework re-invokes the layout callback for any change that may produce a structurally different DOM (resize across a CSS breakpoint, theme toggle, route switch, callback returning Update::RefreshDom). Read via `LayoutCallbackInfo.relayout_reason()` so the callback can branch — for example, skip expensive analytics on `Resize` calls."
+                            "The framework re-invokes the layout callback for any change that may produce a structurally different DOM (resize across a CSS breakpoint, theme toggle, route switch, callback returning Update::RefreshDom). Read via `LayoutCallbackInfo.relayout_reason()` so the callback can branch - for example, skip expensive analytics on `Resize` calls."
                         ],
                         "external": "azul_core::callbacks::RelayoutReason",
                         "custom_impls": [

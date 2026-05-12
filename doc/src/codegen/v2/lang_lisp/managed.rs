@@ -102,7 +102,7 @@ pub fn emit_internal_bindings(builder: &mut CodeBuilder, ir: &CodegenIR) {
 
     // Per-kind invoker callbacks
     for cb in host_invoker_kinds(ir) {
-        emit_per_kind_invoker(builder, cb);
+        emit_per_kind_invoker(builder, cb, ir);
     }
 
     builder.line(";;; Initialise once at module load. Idempotent because");
@@ -126,7 +126,7 @@ pub fn emit_internal_bindings(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.blank();
 }
 
-fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &super::super::ir::CallbackTypedefDef) {
+fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &super::super::ir::CallbackTypedefDef, ir: &CodegenIR) {
     let wrapper = wrapper_name(cb);
     let kebab = to_kebab_case(wrapper);
     let cb_has_return = has_return(cb);
@@ -170,8 +170,47 @@ fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &super::super::ir::Callb
             "          (let ((ret (funcall fn {})))",
             user_args.join(" ")
         ));
-        builder.line("            (when (integerp ret)");
-        builder.line("              (setf (mem-ref out :int32) ret)))");
+        // Numeric returns (Update enum) → write int32 at out.
+        // Wrapper-class returns (Dom from LayoutCallback, etc.) → the
+        // user gave us a CLOS instance whose `*-ptr` accessor holds
+        // a `(:struct az-<foo>)` value; memcpy the bytes through the
+        // out-pointer. We compute the slot name by convention from
+        // the return-type's snake-case class name. The struct's CFFI
+        // foreign-type size is requested via `foreign-type-size`.
+        // Wrapper class name (no Az prefix) and CFFI struct name (with az- prefix).
+        let ret_info = match cb.return_type.as_deref() {
+            Some(rt) => {
+                let trimmed = rt.trim();
+                if let Some(s) = ir.find_struct(trimmed) {
+                    let class_kebab = super::ident_to_kebab(&s.name); // e.g. "dom"
+                    let struct_kebab = super::to_kebab_case(&s.name); // e.g. "az-dom"
+                    Some((class_kebab, struct_kebab))
+                } else {
+                    None
+                }
+            }
+            None => None,
+        };
+        builder.line("            (cond");
+        builder.line("              ((integerp ret)");
+        builder.line("               (setf (cffi:mem-ref out :int32) ret))");
+        if let Some((class_kebab, struct_kebab)) = ret_info {
+            // Wrapper instance: pointer accessor is `<class>-ptr` (e.g.
+            // `dom-ptr`), CFFI struct type is `(:struct az-<...>)`.
+            builder.line(&format!(
+                "              ((and ret (typep ret '{}))",
+                class_kebab
+            ));
+            builder.line(&format!(
+                "               (let ((src ({}-ptr ret)))",
+                class_kebab
+            ));
+            builder.line(&format!(
+                "                 (cffi:foreign-funcall \"memcpy\" :pointer out :pointer src :size (cffi:foreign-type-size '(:struct {})) :pointer)))",
+                struct_kebab
+            ));
+        }
+        builder.line("              (t nil)))");
     } else {
         builder.line(&format!(
             "          (funcall fn {})",

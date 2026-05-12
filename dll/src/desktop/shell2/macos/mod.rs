@@ -2357,13 +2357,11 @@ impl event::PlatformWindow for MacOSWindow {
     impl_platform_window_getters!(common);
 
     fn get_raw_window_handle(&self) -> RawWindowHandle {
-        RawWindowHandle::MacOS(MacOSHandle {
-            ns_window: &*self.window as *const NSWindow as *mut std::ffi::c_void,
-            ns_view: std::ptr::null_mut(), // Not used in current implementation
-        })
+        MacOSWindow::get_raw_window_handle(self)
     }
 
     fn prepare_callback_invocation(&mut self) -> event::InvokeSingleCallbackBorrows<'_> {
+        let window_handle = self.get_raw_window_handle();
         let layout_window = self
             .common.layout_window
             .as_mut()
@@ -2371,10 +2369,7 @@ impl event::PlatformWindow for MacOSWindow {
 
         event::InvokeSingleCallbackBorrows {
             layout_window,
-            window_handle: RawWindowHandle::MacOS(MacOSHandle {
-                ns_window: &*self.window as *const NSWindow as *mut std::ffi::c_void,
-                ns_view: std::ptr::null_mut(),
-            }),
+            window_handle,
             gl_context_ptr: &self.common.gl_context_ptr,
             image_cache: &mut self.common.image_cache,
             fc_cache_clone: (*self.common.fc_cache).clone(),
@@ -3057,17 +3052,21 @@ impl MacOSWindow {
             LogCategory::Window,
             "[MacOSWindow::new] Positioning window..."
         );
-        unsafe {
-            // Simplified positioning: just center the window
-            // Complex monitor enumeration can hang before event loop starts
-            window.center();
-
-            // TODO: Implement proper multi-monitor positioning after event loop starts
-            // For now, user can move window manually or we can position it later
-
-            // REMOVED: makeKeyAndOrderFront - will be called after first frame is ready
+        {
+            let monitor_index = options.window_state.monitor_id.into_option().unwrap_or(0);
+            let target_monitor_id = azul_core::window::MonitorId {
+                index: monitor_index as usize,
+                hash: 0,
+            };
+            position_window_on_monitor(
+                &window,
+                target_monitor_id,
+                options.window_state.position,
+                options.window_state.size,
+                mtm,
+            );
         }
-        log_trace!(LogCategory::Window, "[MacOSWindow::new] Window centered");
+        log_trace!(LogCategory::Window, "[MacOSWindow::new] Window positioned");
 
         // Apply initial window state based on options.window_state.flags.frame
         // Note: These will be applied before window is visible
@@ -4157,46 +4156,25 @@ impl MacOSWindow {
         self.sync_window_state();
     }
 
-    /// Handle windowShouldClose delegate callback
-    ///
-    /// This is called synchronously when the user clicks the close button.
-    /// It invokes the close callback and returns whether the window should close.
-    ///
-    /// Returns: Ok(true) if window should close, Ok(false) if close was prevented
-    fn handle_window_should_close(&mut self) -> Result<bool, String> {
-        log_debug!(LogCategory::Window, "[handle_window_should_close] START");
-
-        // Save previous state BEFORE making changes
+    /// Process close event: save state, set flag, run callbacks, handle result.
+    /// Returns true if the close was confirmed (callback did not clear the flag).
+    fn process_close_event(&mut self) -> bool {
         self.common.previous_window_state = Some(self.common.current_window_state.clone());
-
-        // Set close_requested flag
         self.common.current_window_state.flags.close_requested = true;
 
-        // Invoke close callback if it exists
-        // This uses the V2 event system to detect CloseRequested and dispatch callbacks
         let result = self.process_window_events(0);
 
-        // Process the result - regenerate layout if callback modified DOM
         match result {
             azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
-                log_debug!(
-                    LogCategory::Callbacks,
-                    "[handle_window_should_close] Callback requested DOM regeneration"
-                );
                 if let Err(e) = self.regenerate_layout() {
                     log_warn!(
                         LogCategory::Layout,
-                        "[handle_window_should_close] Layout regeneration failed: {}",
+                        "[process_close_event] Layout regeneration failed: {}",
                         e
                     );
-                    // Continue anyway - don't block close on layout errors
                 }
             }
             azul_core::events::ProcessEventResult::ShouldIncrementalRelayout => {
-                log_debug!(
-                    LogCategory::Callbacks,
-                    "[handle_window_should_close] Incremental relayout requested"
-                );
                 if let Some(layout_window) = self.common.layout_window.as_mut() {
                     let mut debug_messages = None;
                     if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout(
@@ -4205,36 +4183,34 @@ impl MacOSWindow {
                         &mut self.common.renderer_resources,
                         &mut debug_messages,
                     ) {
-                        log_warn!(LogCategory::Layout, "[handle_window_should_close] Incremental relayout failed: {}", e);
+                        log_warn!(LogCategory::Layout, "[process_close_event] Incremental relayout failed: {}", e);
                     }
                 }
                 self.common.frame_needs_regeneration = true;
             }
             azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => {
-                log_debug!(
-                    LogCategory::Callbacks,
-                    "[handle_window_should_close] Callback requested re-render"
-                );
                 self.request_redraw();
             }
             _ => {}
         }
 
-        // Check if callback cleared the flag (preventing close)
-        let should_close = self.common.current_window_state.flags.close_requested;
+        self.common.current_window_state.flags.close_requested
+    }
+
+    /// Handle windowShouldClose delegate callback
+    ///
+    /// Called synchronously when the user clicks the close button.
+    /// Returns: Ok(true) if window should close, Ok(false) if close was prevented
+    fn handle_window_should_close(&mut self) -> Result<bool, String> {
+        log_debug!(LogCategory::Window, "[handle_window_should_close] START");
+
+        let should_close = self.process_close_event();
 
         if should_close {
-            log_debug!(
-                LogCategory::Window,
-                "[handle_window_should_close] Close confirmed"
-            );
-            // Mark window as closed so is_open() returns false
+            log_debug!(LogCategory::Window, "[handle_window_should_close] Close confirmed");
             self.is_open = false;
         } else {
-            log_debug!(
-                LogCategory::Window,
-                "[handle_window_should_close] Close prevented by callback"
-            );
+            log_debug!(LogCategory::Window, "[handle_window_should_close] Close prevented by callback");
         }
 
         Ok(should_close)
@@ -4242,64 +4218,13 @@ impl MacOSWindow {
 
     /// Handle close request from WindowDelegate
     fn handle_close_request(&mut self) {
-        log_debug!(
-            LogCategory::Window,
-            "[MacOSWindow] Processing close request"
-        );
+        log_debug!(LogCategory::Window, "[MacOSWindow] Processing close request");
 
-        // Save previous state BEFORE making changes
-        self.common.previous_window_state = Some(self.common.current_window_state.clone());
-
-        // Set close_requested flag in current state
-        self.common.current_window_state.flags.close_requested = true;
-
-        // Use V2 event system to detect CloseRequested and dispatch callbacks
-        // This allows callbacks to modify DOM or prevent close by clearing the flag
-        let result = self.process_window_events(0);
-
-        // Process the result - regenerate layout if needed
-        match result {
-            azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
-                if let Err(e) = self.regenerate_layout() {
-                    log_warn!(
-                        LogCategory::Layout,
-                        "[MacOSWindow] Layout regeneration failed after close callback: {}",
-                        e
-                    );
-                }
-            }
-            azul_core::events::ProcessEventResult::ShouldIncrementalRelayout => {
-                if let Some(layout_window) = self.common.layout_window.as_mut() {
-                    let mut debug_messages = None;
-                    if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout(
-                        layout_window,
-                        &self.common.current_window_state,
-                        &mut self.common.renderer_resources,
-                        &mut debug_messages,
-                    ) {
-                        log_warn!(LogCategory::Layout, "[MacOSWindow] Incremental relayout failed: {}", e);
-                    }
-                }
-                self.common.frame_needs_regeneration = true;
-            }
-            azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => {
-                self.request_redraw();
-            }
-            _ => {}
-        }
-
-        // Check if callback cleared the flag (preventing close)
-        if self.common.current_window_state.flags.close_requested {
-            log_debug!(
-                LogCategory::Window,
-                "[MacOSWindow] Close confirmed, closing window"
-            );
+        if self.process_close_event() {
+            log_debug!(LogCategory::Window, "[MacOSWindow] Close confirmed, closing window");
             self.close_window();
         } else {
-            log_debug!(
-                LogCategory::Window,
-                "[MacOSWindow] Close cancelled by callback"
-            );
+            log_debug!(LogCategory::Window, "[MacOSWindow] Close cancelled by callback");
         }
     }
 
@@ -5909,19 +5834,7 @@ impl MacOSWindow {
     }
 
     pub fn close(&mut self) {
-        // Release power management assertion if active
-        if let Some(assertion_id) = self.pm_assertion_id.take() {
-            unsafe {
-                IOPMAssertionRelease(assertion_id);
-            }
-            log_trace!(
-                LogCategory::Platform,
-                "[macOS] Released power assertion on window close"
-            );
-        }
-
-        self.window.close();
-        self.is_open = false;
+        self.close_window();
     }
 
     /// Request a redraw of the window.
@@ -6393,40 +6306,18 @@ impl MacOSWindow {
         actions
     }
 
-    /// Inject a menu bar into the window
-    ///
-    /// On macOS, this creates a native NSMenu hierarchy attached to the application.
-    /// Menu callbacks are wired up to trigger when menu items are clicked.
-    ///
-    /// # Implementation
-    /// This method is deprecated in favor of `set_application_menu()` which provides
-    /// a complete NSMenu implementation with callback integration.
-    ///
-    /// # Returns
-    /// * `Ok(())` if menu injection succeeded
-    /// * `Err(String)` if menu injection failed
-    pub fn inject_menu_bar(&mut self) -> Result<(), String> {
-        // Native macOS menu integration is fully implemented via set_application_menu()
-        // See menu.rs for AzulMenuTarget bridge and MenuState implementation
-        log_debug!(
-            LogCategory::Window,
-            "[inject_menu_bar] Use set_application_menu() for native macOS menus"
-        );
-        Ok(())
-    }
-
     /// Gets information about the screen the window is currently on.
-    pub fn get_screen_info(&self) -> Option<objc2::rc::Retained<objc2_app_kit::NSScreen>> {
+    fn get_screen_info(&self) -> Option<objc2::rc::Retained<objc2_app_kit::NSScreen>> {
         self.window.screen()
     }
 
     /// Returns the frame of the window in screen coordinates.
-    pub fn get_window_frame(&self) -> objc2_foundation::NSRect {
+    fn get_window_frame(&self) -> objc2_foundation::NSRect {
         self.window.frame()
     }
 
     /// Returns the DPI scale factor for the window.
-    pub fn get_backing_scale_factor(&self) -> f64 {
+    fn get_backing_scale_factor(&self) -> f64 {
         self.window.backingScaleFactor()
     }
 

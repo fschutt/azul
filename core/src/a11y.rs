@@ -1006,14 +1006,14 @@ impl MeterAriaInfo {
 pub struct DialogAriaInfo {
     /// Accessible label / title for the dialog.
     pub label: OptionString,
-    /// `true` if the dialog is modal (focus trapped, background inert).
-    pub modal: bool,
     /// Optional ID of another node that describes the dialog content.
     pub described_by: OptionString,
-    /// Role for the dialog. Defaults to `Dialog`; use `Alert` for urgent dialogs.
-    pub role: AccessibilityRole,
     /// Optional inline description.
     pub description: OptionString,
+    /// Role for the dialog. Defaults to `Dialog`; use `Alert` for urgent dialogs.
+    pub role: AccessibilityRole,
+    /// `true` if the dialog is modal (focus trapped, background inert).
+    pub modal: bool,
 }
 
 impl_option!(
