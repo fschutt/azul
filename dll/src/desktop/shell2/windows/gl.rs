@@ -16,26 +16,6 @@ use super::{
     wcreate::CLASS_NAME,
 };
 
-/// Loads a DLL by name, returns `None` if loading fails.
-fn load_dll(name: &str) -> Option<HINSTANCE> {
-    use winapi::um::libloaderapi::LoadLibraryA;
-
-    fn encode_ascii(s: &str) -> Vec<u8> {
-        let mut bytes = s.as_bytes().to_vec();
-        bytes.push(0);
-        bytes
-    }
-
-    let mut dll_name = encode_ascii(name);
-    let handle = unsafe { LoadLibraryA(dll_name.as_mut_ptr() as *const i8) };
-
-    if handle.is_null() {
-        None
-    } else {
-        Some(handle)
-    }
-}
-
 /// OpenGL functions from `wglGetProcAddress` OR loaded from `opengl32.dll`.
 pub struct GlFunctions {
     pub _opengl32_dll_handle: Option<HINSTANCE>,
@@ -55,7 +35,7 @@ impl GlFunctions {
         // zero-initialize all function pointers
         let context: GenericGlContext = unsafe { mem::zeroed() };
 
-        let opengl32_dll = load_dll("opengl32.dll");
+        let opengl32_dll = super::load_dll("opengl32.dll").map(|h| h as HINSTANCE);
 
         Self {
             _opengl32_dll_handle: opengl32_dll,
@@ -115,7 +95,7 @@ impl fmt::Debug for ExtraWglFunctions {
 
 /// Errors that can occur when loading WGL extension functions.
 #[derive(Debug, Copy, Clone)]
-pub enum ExtraWglFunctionsLoadError {
+pub(crate) enum ExtraWglFunctionsLoadError {
     FailedToCreateDummyWindow,
     FailedToFindPixelFormat,
     FailedToSetPixelFormat,
@@ -166,19 +146,28 @@ impl ExtraWglFunctions {
 
             let pixel_format = ChoosePixelFormat(dummy_dc, &pfd);
             if pixel_format == 0 {
+                ReleaseDC(dummy_window, dummy_dc);
+                DestroyWindow(dummy_window);
                 return Err(FailedToFindPixelFormat);
             }
 
             if SetPixelFormat(dummy_dc, pixel_format, &pfd) != TRUE {
+                ReleaseDC(dummy_window, dummy_dc);
+                DestroyWindow(dummy_window);
                 return Err(FailedToSetPixelFormat);
             }
 
             let dummy_context = wglCreateContext(dummy_dc);
             if dummy_context.is_null() {
+                ReleaseDC(dummy_window, dummy_dc);
+                DestroyWindow(dummy_window);
                 return Err(FailedToCreateDummyGlContext);
             }
 
             if wglMakeCurrent(dummy_dc, dummy_context) != TRUE {
+                wglDeleteContext(dummy_context);
+                ReleaseDC(dummy_window, dummy_dc);
+                DestroyWindow(dummy_window);
                 return Err(FailedToActivateDummyGlContext);
             }
 
