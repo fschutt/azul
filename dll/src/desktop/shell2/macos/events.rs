@@ -726,10 +726,10 @@ impl MacOSWindow {
         }
 
         // Check if any CSS breakpoints were crossed
-        // Common breakpoints: 320, 480, 640, 768, 1024, 1280, 1440, 1920
-        let breakpoints = [320.0, 480.0, 640.0, 768.0, 1024.0, 1280.0, 1440.0, 1920.0];
-        let breakpoint_crossed =
-            old_context.viewport_breakpoint_changed(&self.dynamic_selector_context, &breakpoints);
+        let breakpoint_crossed = old_context.viewport_breakpoint_changed(
+            &self.dynamic_selector_context,
+            crate::desktop::shell2::common::CSS_BREAKPOINTS,
+        );
 
         if breakpoint_crossed {
             // The user's `layout()` callback may branch on

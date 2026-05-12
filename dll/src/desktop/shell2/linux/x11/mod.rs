@@ -70,9 +70,7 @@ use crate::desktop::{
 };
 use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
-/// Common responsive breakpoints (in logical pixels) for detecting viewport
-/// breakpoint crossings on resize.
-const CSS_BREAKPOINTS: &[f32] = &[320.0, 480.0, 640.0, 768.0, 1024.0, 1280.0, 1440.0, 1920.0];
+use super::super::common::CSS_BREAKPOINTS;
 
 /// Fallback background color (blue) used when CPU rendering is not available.
 const CPU_FALLBACK_BG_COLOR: u64 = 0x0000FF;

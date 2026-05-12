@@ -31,6 +31,8 @@ pub use compositor::{
 };
 pub use cpu_compositor::CpuCompositor;
 pub use dlopen::DynamicLibrary;
+
+pub const CSS_BREAKPOINTS: &[f32] = &[320.0, 480.0, 640.0, 768.0, 1024.0, 1280.0, 1440.0, 1920.0];
 pub use error::{CompositorError, DlError, WindowError};
 pub use event::{CommonWindowState, HitTestNode, PlatformWindow};
 pub use layout::{generate_frame, regenerate_layout};
