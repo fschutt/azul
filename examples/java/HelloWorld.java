@@ -34,7 +34,7 @@ public final class HelloWorld {
         byte[] bytes = s.getBytes(java.nio.charset.StandardCharsets.UTF_8);
         com.sun.jna.Memory mem = new com.sun.jna.Memory(bytes.length);
         mem.write(0, bytes, 0, bytes.length);
-        return AzulNative.AzString_fromUtf8(mem, bytes.length);
+        return AzulNativeStr.AzString_fromUtf8(mem, bytes.length);
     }
 
     // The AzulHostInvoker dispatch contract is: every registered
@@ -58,7 +58,7 @@ public final class HelloWorld {
         (long id, Pointer dataPtr, Pointer infoPtr, Pointer outPtr) -> {
             Object recovered = AzulHostInvoker.refanyGet(dataPtr);
             if (!(recovered instanceof MyDataModel)) {
-                AzDom.ByValue empty = AzulNative.AzDom_createBody();
+                AzDom.ByValue empty = AzulNativeDom.AzDom_createBody();
                 empty.write();
                 outPtr.write(0, empty.getPointer().getByteArray(0, empty.size()), 0, empty.size());
                 return;
@@ -70,11 +70,11 @@ public final class HelloWorld {
 
             // <div font-size:32px><text>{counter}</text></div>
             AzDom.ByValue counterText =
-                AzulNative.AzDom_createText(str(java.lang.String.valueOf(m.counter)));
+                AzulNativeDom.AzDom_createText(str(java.lang.String.valueOf(m.counter)));
             AzDom.ByValue label =
-                AzulNative.AzDom_withChild(
-                    AzulNative.AzDom_withCss(
-                        AzulNative.AzDom_createDiv(),
+                AzulNativeDom.AzDom_withChild(
+                    AzulNativeDom.AzDom_withCss(
+                        AzulNativeDom.AzDom_createDiv(),
                         str("font-size: 32px;")
                     ),
                     counterText
@@ -82,21 +82,21 @@ public final class HelloWorld {
 
             // <button>Increase counter</button>
             AzButton.ByValue btn =
-                AzulNative.AzButton_withOnClick(
-                    AzulNative.AzButton_withButtonType(
-                        AzulNative.AzButton_create(str("Increase counter")),
+                AzulNativeWidgets.AzButton_withOnClick(
+                    AzulNativeWidgets.AzButton_withButtonType(
+                        AzulNativeWidgets.AzButton_create(str("Increase counter")),
                         AzButtonType.Primary.value
                     ),
                     clickData,
                     clickCb
                 );
 
-            AzDom.ByValue body = AzulNative.AzDom_withChild(
-                AzulNative.AzDom_withChild(
-                    AzulNative.AzDom_createBody(),
+            AzDom.ByValue body = AzulNativeDom.AzDom_withChild(
+                AzulNativeDom.AzDom_withChild(
+                    AzulNativeDom.AzDom_createBody(),
                     label
                 ),
-                AzulNative.AzButton_dom(btn)
+                AzulNativeWidgets.AzButton_dom(btn)
             );
 
             // Marshal the body bytes into the framework's out-pointer
@@ -112,7 +112,7 @@ public final class HelloWorld {
         AzRefAny.ByValue data = AzulHostInvoker.refanyCreate(MODEL);
         AzLayoutCallback.ByValue layoutCb = AzulHostInvoker.registerLayoutCallback(LAYOUT_INVOKER);
 
-        AzWindowCreateOptions.ByValue wco = AzulNative.AzWindowCreateOptions_default();
+        AzWindowCreateOptions.ByValue wco = AzulNativeWindow.AzWindowCreateOptions_default();
         // JNA assignment to a nested-struct field is a Java reference
         // swap, not a byte copy into the parent's storage. Flush layoutCb
         // bytes into the wco's existing layout_callback memory directly.
@@ -123,9 +123,9 @@ public final class HelloWorld {
         // Re-read so the in-Java mirror reflects the byte change.
         wco.read();
 
-        AzAppConfig.ByValue cfg = AzulNative.AzAppConfig_create();
-        AzApp.ByValue app = AzulNative.AzApp_create(data, cfg);
+        AzAppConfig.ByValue cfg = AzulNativeApp.AzAppConfig_create();
+        AzApp.ByValue app = AzulNativeApp.AzApp_create(data, cfg);
         app.write();
-        AzulNative.AzApp_run(app.getPointer(), wco);
+        AzulNativeApp.AzApp_run(app.getPointer(), wco);
     }
 }

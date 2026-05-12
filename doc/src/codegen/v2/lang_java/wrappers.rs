@@ -165,20 +165,21 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     }
 
     // close() / AutoCloseable.
-    emit_close_method(builder, &s.name, &class_name);
+    emit_close_method(builder, &s.name, &class_name, ir);
 
     builder.dedent();
     builder.line("}");
 }
 
-fn emit_close_method(builder: &mut CodeBuilder, raw_type_name: &str, class_name: &str) {
+fn emit_close_method(builder: &mut CodeBuilder, raw_type_name: &str, class_name: &str, ir: &CodegenIR) {
     builder.line("/** Frees the underlying native resources. Idempotent. */");
     builder.line("@Override");
     builder.line("public void close() {");
     builder.indent();
     builder.line("if (closed || ptr == null) return;");
     builder.line(&format!(
-        "AzulNative.INSTANCE.Az{}_delete(ptr);",
+        "{}.INSTANCE.Az{}_delete(ptr);",
+        super::functions::native_class_for_class(raw_type_name, ir),
         raw_type_name
     ));
     builder.line("ptr = null;");
@@ -339,7 +340,8 @@ fn emit_wrapper_method(
     // snake_case (`AzFoo_with_capacity`) which drifts from the actual
     // C ABI symbol the codegen registered.
     let call = format!(
-        "AzulNative.INSTANCE.{}({})",
+        "{}.INSTANCE.{}({})",
+        super::functions::native_class_for_func(func, ir),
         func.c_name,
         call_args.join(", ")
     );

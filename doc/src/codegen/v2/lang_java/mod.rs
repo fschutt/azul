@@ -88,12 +88,13 @@ pub const END_LINE: &str = "// ==END==";
 pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     let mut out = String::new();
 
-    // 1. Native FFI interface (one file: AzulNative.java)
-    out.push_str(&emit_file(
-        "AzulNative.java",
-        |builder| functions::generate_native_interface(builder, ir, config),
-        config,
-    )?);
+    // 1. Native FFI interface — emitted as one file per api.json
+    //    module: AzulNativeApp.java, AzulNativeDom.java, ... Each is
+    //    a `public final class AzulNative<Module>` with the methods
+    //    of that module. See `functions::generate_native_module_files`
+    //    for the rationale (JVM 64KB <clinit> limit on JNA Proxy
+    //    bytecode + idiomatic per-module structure).
+    functions::generate_native_module_files(&mut out, ir, config)?;
 
     // 2. POD/struct types — one file per type. Tagged-union enums are
     //    flattened into `<Type>_Tag.java` + `<Type>.java`.

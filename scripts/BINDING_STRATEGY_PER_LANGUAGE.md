@@ -41,6 +41,67 @@ builder API, `data.counter += 1` in a callback).
 
 ---
 
+## Module system principle (added 2026-05-12)
+
+Every binding must integrate with the host language's NATIVE module
+system. The IR already has the structure — `api.json` declares 24
+modules (`app`, `dom`, `window`, `css`, `widgets`, `callbacks`, `gl`,
+`svg`, `image`, `vec`, `option`, …); `func.class_name` plus
+`ir.type_to_module` tells codegen which module a function belongs to.
+We've been ignoring that structure and emitting flat namespaces; that
+worked for shipping minimal viable bindings but produces non-idiomatic
+output and creates JNA-Proxy-style size cliffs at scale.
+
+Target per-language shape:
+
+| Language | Native module unit | Codegen target |
+|---|---|---|
+| C, C++ | (none — single header by design) | **Keep flat `azul.h` / `azul.hpp`.** Single-header is the value prop |
+| Rust | `mod` | `mod app { ... } mod dom { ... }` blocks inside `azul.rs` or directory tree |
+| Python | package + submodules | `azul/__init__.py` + `azul/app.py`, `azul/dom.py`, … |
+| JavaScript / Node | named exports | `module.exports = { App, Dom, … }`, optionally one file per module |
+| Java | package + per-module sub-interfaces | `interface AzulNativeApp : Library`, `interface AzulNativeDom : Library`, etc. — one per `api.json` module. Wrappers `com.azul.App`, `com.azul.Dom`, … |
+| Kotlin | package + per-module sub-interfaces | Same shape as Java. Solves the JNA 64KB Proxy `<clinit>` overflow naturally (largest module `vec` has ~888 methods → ~45KB bytecode, well under cap) |
+| C# | namespace | `namespace Azul.App`, `namespace Azul.Dom`, … (partial classes spread across files OK) |
+| Ruby | nested modules | `module Azul; module App; …; module Dom; …; end; end` |
+| Lua | nested tables | `azul.app.create()`, `azul.dom.body()` — already partial; finish the split |
+| Perl | packages | `Azul::App`, `Azul::Dom`, … |
+| OCaml | submodules | `module App = struct ... end module Dom = struct ... end` inside `Azul` |
+| PHP | namespaces | `Azul\App`, `Azul\Dom`, … (already idiomatic in lang_php_ext) |
+| Pascal | unit-per-module | `Azul.App.pas`, `Azul.Dom.pas`, … (FPC `{$mode delphiunicode}` namespace units) |
+| Go | sub-packages | `azul/app`, `azul/dom`, … |
+| Zig | file-as-module | `azul/app.zig`, `azul/dom.zig` |
+| Fortran | per-module file | `module azul_app` |
+| Haskell | hierarchical module | `Azul.App`, `Azul.Dom`, … |
+| Common Lisp | packages | `(defpackage :azul/app …)`, `(defpackage :azul/dom …)` |
+
+**Why this matters now.** Kotlin's full-GUI hello-world is the most
+visible blocker — JNA's `Native.load` Proxy mode generates one
+dynamic class whose `<clinit>` bytecode exceeds 64KB at ~1700 methods.
+`Native.register` direct mapping hangs at the same scale in Kotlin
+even though it works for Java. Splitting per api.json module gives
+us:
+
+- Each per-module interface stays under the 64KB Proxy cap by a wide
+  margin (largest is `vec` at ~888 methods, ~45KB).
+- Java keeps working via either Proxy mode (now under cap per
+  module) or `Native.register` (works either way).
+- Kotlin gets the same path Java has, no `getFunction` lookup-table
+  dance, no joint-compile chicken-and-egg.
+- All other JVM-style bindings (C#, eventually Scala/Groovy) get the
+  same shape for free.
+
+**Audit after this principle was added.** The morning's E2E commits
+(OCaml 616a9fd8a, C# 48a70edde, Java d098cf92c+6e7cc7bd2) shipped
+working hello-worlds via flat-namespace codegen. They pass the AZ_DEBUG
+counter probe but emit one giant `azul.ml` / `Azul.cs` / `AzulNative.java`
+with everything in the top-level namespace. The 5→8 exit-condition
+behavior is correct; the structural follow-up (subdivide by api.json
+module) is its own pass — these commits are *not* wrong, they're
+unfinished w.r.t. the new principle.
+
+---
+
 ## Concurrent-agent note
 
 While this plan runs, **another agent is applying fixes to the main
