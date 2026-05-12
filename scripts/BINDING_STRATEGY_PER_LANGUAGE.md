@@ -1,5 +1,40 @@
 # Per-language binding strategy
 
+## EXIT CONDITION (the ONLY bar that counts)
+
+A language hello-world is "done" when:
+
+```
+DYLD_LIBRARY_PATH=. AZ_DEBUG=<port> <run-the-binary>
+# then in another terminal:
+curl -s -X POST http://localhost:<port>/ \
+  -d '{"op":"get_html_string"}' | grep 'font-size: 32px'
+# the counter visible inside that <div> reads 5
+for i in 1 2 3; do
+  curl -s -X POST http://localhost:<port>/ \
+    -d '{"op":"click","selector":".__azul-native-button"}'
+done
+curl ... grep ...
+# the counter visible inside that <div> reads 8
+```
+
+That is **the** "done" condition. Not "codegen committed." Not
+"compiles cleanly." Not "smoke test prints success." If the binary
+doesn't survive an AZ_DEBUG click probe with counter 5→8, the
+language is NOT done.
+
+**Languages currently passing this bar** (2026-05-12):
+- Lua, Zig, Go, Node, Ruby.
+
+**Everything else is in progress or stuck.**
+
+Honest current state of each hello-world is in the "User review
+2026-05-12" section below. Stop claiming langs are done before
+they pass the AZ_DEBUG counter probe.
+
+---
+
+
 The honest decision tree for how each language binding should reach
 Python-quality hello-world (37 lines, plain class as model, fluent
 builder API, `data.counter += 1` in a callback).

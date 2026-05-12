@@ -83,12 +83,19 @@ let layout (data_ptr : unit Ctypes.ptr) (_info : unit Ctypes.ptr)
    directly via Ctypes' getf+setf+setf copy-out-set-back idiom. *)
 
 let () =
+  prerr_endline "[debug] start";
+  let _ = layout in   (* keep layout binding alive *)
   let data = Azul.azul_refany_create model in
-  (* `azul_window_create_options_with_layout` is the codegen-emitted
-     smart constructor that builds a default WCO + stuffs the
-     host-invoker-registered AzLayoutCallback (ctx preserved) into
-     window_state.layout_callback. *)
-  let wco = Azul.azul_window_create_options_with_layout layout in
+  prerr_endline "[debug] refany ok";
+  (* DEBUG ISOLATION: skip the smart constructor; use the default WCO
+     directly without mutating layout_callback. If this still crashes,
+     the bug isn't in the field mutation — it's somewhere else. *)
+  let wco_wrap = Azul.WindowCreateOptions.default () in
+  let wco = Azul.raw_window_create_options wco_wrap in
+  prerr_endline "[debug] default wco ok";
   let app_config = Azul.AppConfig.create () in
+  prerr_endline "[debug] app_config ok";
   let app = Azul.App.create data (Azul.raw_app_config app_config) in
-  Azul.App.run app wco
+  prerr_endline "[debug] app create ok, calling run";
+  Azul.App.run app wco;
+  prerr_endline "[debug] App.run returned"
