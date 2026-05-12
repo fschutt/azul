@@ -464,6 +464,7 @@ pub type eglGetError = unsafe extern "C" fn() -> u32;
 pub type eglGetProcAddress = unsafe extern "C" fn(*const c_char) -> *const c_void;
 pub type eglDestroySurface = unsafe extern "C" fn(EGLDisplay, EGLSurface) -> u32;
 pub type eglDestroyContext = unsafe extern "C" fn(EGLDisplay, EGLContext) -> u32;
+pub type eglTerminate = unsafe extern "C" fn(EGLDisplay) -> u32;
 
 // XKB types
 #[repr(C)]

@@ -11,9 +11,10 @@ use super::{
     dlopen::{Library, Wayland},
 };
 use crate::desktop::shell2::{
-    common::{dlopen::DynamicLibrary, WindowError},
+    common::{debug_server::LogCategory, dlopen::DynamicLibrary, WindowError},
     linux::x11::dlopen::Egl,
 };
+use crate::{log_debug, log_warn};
 
 /// EGL-based OpenGL context for a Wayland surface.
 pub struct GlContext {
@@ -22,6 +23,7 @@ pub struct GlContext {
     pub egl_context: Option<EGLContext>,
     pub egl_surface: Option<EGLSurface>,
     wl_egl_window: Option<*mut wl_egl_window>,
+    wayland: Option<Rc<Wayland>>,
 }
 
 impl Default for GlContext {
@@ -32,6 +34,7 @@ impl Default for GlContext {
             egl_context: None,
             egl_surface: None,
             wl_egl_window: None,
+            wayland: None,
         }
     }
 }
@@ -58,6 +61,12 @@ impl GlContext {
         if unsafe { (egl.eglInitialize)(egl_display, &mut major, &mut minor) } == 0 {
             return Err(WindowError::PlatformError("eglInitialize failed".into()));
         }
+        log_debug!(
+            LogCategory::Platform,
+            "[EGL] Initialized EGL {}.{}",
+            major,
+            minor
+        );
 
         if unsafe { (egl.eglBindAPI)(EGL_OPENGL_API) } == 0 {
             return Err(WindowError::ContextCreationFailed);
@@ -99,7 +108,7 @@ impl GlContext {
             return Err(WindowError::ContextCreationFailed);
         }
 
-        let context_attribs = [
+        let context_attribs_32_core = [
             EGL_CONTEXT_MAJOR_VERSION as i32,
             3,
             EGL_CONTEXT_MINOR_VERSION as i32,
@@ -108,17 +117,71 @@ impl GlContext {
             EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT as i32,
             EGL_NONE as i32,
         ];
-        let egl_context = unsafe {
+
+        let mut egl_context = unsafe {
             (egl.eglCreateContext)(
                 egl_display,
                 config,
                 std::ptr::null_mut(),
-                context_attribs.as_ptr(),
+                context_attribs_32_core.as_ptr(),
             )
         };
+
         if egl_context.is_null() {
+            log_debug!(
+                LogCategory::Platform,
+                "[EGL] OpenGL 3.2 Core failed, trying 3.0..."
+            );
+
+            let context_attribs_30 = [
+                EGL_CONTEXT_MAJOR_VERSION as i32,
+                3,
+                EGL_CONTEXT_MINOR_VERSION as i32,
+                0,
+                EGL_NONE as i32,
+            ];
+
+            egl_context = unsafe {
+                (egl.eglCreateContext)(
+                    egl_display,
+                    config,
+                    std::ptr::null_mut(),
+                    context_attribs_30.as_ptr(),
+                )
+            };
+        }
+
+        if egl_context.is_null() {
+            log_debug!(
+                LogCategory::Platform,
+                "[EGL] OpenGL 3.0 failed, trying default..."
+            );
+
+            let context_attribs_default = [EGL_NONE as i32];
+
+            egl_context = unsafe {
+                (egl.eglCreateContext)(
+                    egl_display,
+                    config,
+                    std::ptr::null_mut(),
+                    context_attribs_default.as_ptr(),
+                )
+            };
+        }
+
+        if egl_context.is_null() {
+            let egl_error = unsafe { (egl.eglGetError)() };
+            log_warn!(
+                LogCategory::Platform,
+                "[EGL] All context creation attempts failed, last error=0x{:x}",
+                egl_error
+            );
             return Err(WindowError::ContextCreationFailed);
         }
+        log_debug!(
+            LogCategory::Platform,
+            "[EGL] OpenGL context created successfully"
+        );
 
         let egl_window = unsafe { (wayland.wl_egl_window_create)(surface, width, height) };
         if egl_window.is_null() {
@@ -143,6 +206,7 @@ impl GlContext {
             egl_context: Some(egl_context),
             egl_surface: Some(egl_surface),
             wl_egl_window: Some(egl_window),
+            wayland: Some(wayland.clone()),
         })
     }
 
@@ -212,7 +276,14 @@ impl Drop for GlContext {
                 );
                 (egl.eglDestroySurface)(display, surface);
                 (egl.eglDestroyContext)(display, context);
+                (egl.eglTerminate)(display);
             }
+        }
+
+        if let (Some(wayland), Some(wl_egl_window)) =
+            (self.wayland.take(), self.wl_egl_window.take())
+        {
+            unsafe { (wayland.wl_egl_window_destroy)(wl_egl_window) };
         }
     }
 }
