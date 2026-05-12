@@ -3723,7 +3723,6 @@ impl WaylandPopup {
             scrollbar_drag_state: None,
             last_hovered_node: None,
             frame_needs_regeneration: true,
-                next_relayout_reason: azul_core::callbacks::RelayoutReason::Initial,
             frame_callback_pending: false,
 
             resources: parent.resources.clone(),
