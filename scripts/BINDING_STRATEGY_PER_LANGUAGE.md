@@ -454,6 +454,45 @@ Sorted by least-codegen-prerequisite first (cheaper wins early):
 - **Haskell**: GHC FFI rejects struct-by-value returns. Needs a
   separate C shim codegen phase (cost: ~1-2 days). Defer.
 
+### Phase 5 (ThreadCallback) design notes
+
+When picked up: the macro `impl_managed_callback!` in
+`core/src/host_invoker.rs` currently assumes the **second** callback
+arg is the `info_ty` with a `get_ctx()` method (returning
+`OptionRefAny` so the static thunk can find the host-handle id).
+
+For the two off-host-invoker kinds we want to add:
+
+| Kind | Args (1, 2, 3, ...) | Return | get_ctx() lives on |
+|---|---|---|---|
+| `WriteBackCallback` | `RefAny thread_data`, `RefAny writeback_data`, `CallbackInfo info` | `Update` | `info` (3rd arg) OR `WriteBackCallback.ctx` (the wrapper struct's own field) |
+| `ThreadCallback` | `RefAny init_data`, `ThreadSender sender`, `ThreadReceiver receiver` | `()` | `sender.get_ctx()` (2nd arg, exists) OR `ThreadCallback.ctx` (wrapper field) |
+
+ThreadCallback fits the macro shape if we add it with:
+- `info_ty: ThreadSender` (has `get_ctx`)
+- `extra_args: [receiver: ThreadReceiver]`
+- `return_ty: ()`, `default_ret: ()`
+
+WriteBackCallback does NOT fit — its second arg is plain `RefAny`,
+not the info-ty-with-ctx. Options:
+1. Extend the macro with a Form 3 that takes ctx-arg-position
+   explicitly.
+2. Or read ctx from the wrapper struct's own field
+   (`writeback_callback.ctx`) before invoking, but that requires the
+   thunk to receive the wrapper struct rather than just `.cb` and `.ctx`
+   separately.
+3. Or change WriteBackCallback's signature so info comes second.
+   Most invasive.
+
+Defer to a follow-up session — needs decision from someone familiar
+with the macro internals.
+
+For ThreadCallback specifically, per-language host-invokers must
+acquire the VM lock before dispatching to host code (Python
+PyGILState_Ensure, Ruby rb_thread_call_with_gvl, etc.). The lock-
+acquire shape per VM is documented in the "Per-VM lock-acquire
+pattern" section above.
+
 ### Acceptance criteria for "polish pass complete"
 
 - 14 host-invoker-tier languages have an `examples/<lang>/hello-world.<ext>`
