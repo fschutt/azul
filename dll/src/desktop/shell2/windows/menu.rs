@@ -24,6 +24,8 @@ pub struct WindowsMenuBar {
     pub callbacks: BTreeMap<u16, CoreMenuCallback>,
     /// Hash of the Menu structure for change detection
     pub hash: u64,
+    /// Stored DestroyMenu function pointer for cleanup in Drop
+    destroy_menu_fn: unsafe extern "system" fn(HMENU) -> i32,
 }
 
 /// Global atomic counter for unique Win32 command IDs
@@ -43,6 +45,7 @@ impl WindowsMenuBar {
             _native_ptr: root,
             callbacks: command_map,
             hash,
+            destroy_menu_fn: win32.user32.DestroyMenu,
         }
     }
 
@@ -58,13 +61,7 @@ impl WindowsMenuBar {
         command_map: &mut BTreeMap<u16, CoreMenuCallback>,
         win32: &Win32Libraries,
     ) {
-        use super::dlopen::encode_wide;
-
-        // Win32 menu flags
-        const MF_STRING: u32 = 0x00000000;
-        const MF_POPUP: u32 = 0x00000010;
-        const MF_SEPARATOR: u32 = 0x00000800;
-        const MF_MENUBREAK: u32 = 0x00000040;
+        use super::dlopen::{constants::*, encode_wide};
 
         for item in items {
             match item {
@@ -125,9 +122,9 @@ impl WindowsMenuBar {
 
 impl Drop for WindowsMenuBar {
     fn drop(&mut self) {
-        // Note: Win32 automatically destroys menus when the window is destroyed
-        // or when SetMenu() is called with a different menu.
-        // Explicit cleanup with DestroyMenu() could be added here if needed.
+        if !self._native_ptr.is_null() {
+            unsafe { (self.destroy_menu_fn)(self._native_ptr) };
+        }
     }
 }
 
@@ -169,49 +166,4 @@ pub fn set_menu_bar(
         // No menu in either case
         (None, None) => {}
     }
-}
-
-/// Creates and displays a context (popup) menu
-///
-/// Returns the menu callbacks so the caller can handle WM_COMMAND messages
-pub fn create_and_show_context_menu(
-    hwnd: super::dlopen::HWND,
-    menu: &Menu,
-    screen_x: i32,
-    screen_y: i32,
-    win32: &Win32Libraries,
-) -> BTreeMap<u16, CoreMenuCallback> {
-    // Win32 popup menu flags
-    const TPM_LEFTALIGN: u32 = 0x0000;
-    const TPM_TOPALIGN: u32 = 0x0000;
-
-    let mut popup_menu = unsafe { (win32.user32.CreatePopupMenu)() };
-    let mut callbacks = BTreeMap::new();
-
-    WindowsMenuBar::recursive_construct_menu(
-        &mut popup_menu,
-        menu.items.as_ref(),
-        &mut callbacks,
-        win32,
-    );
-
-    let align = TPM_TOPALIGN | TPM_LEFTALIGN; // TODO: support menu.position
-
-    // Make the window the foreground window (required for popup menus)
-    unsafe { (win32.user32.SetForegroundWindow)(hwnd) };
-
-    // Display the popup menu
-    unsafe {
-        (win32.user32.TrackPopupMenu)(
-            popup_menu,
-            align,
-            screen_x,
-            screen_y,
-            0,
-            hwnd,
-            ptr::null_mut(),
-        )
-    };
-
-    callbacks
 }
