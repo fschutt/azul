@@ -193,19 +193,32 @@ impl GlContext {
             Vsync::DontCare => 1,
         };
 
-        unsafe {
-            (self.egl.eglSwapInterval)(self.egl_display, interval);
+        if unsafe { (self.egl.eglSwapInterval)(self.egl_display, interval) } == 0 {
+            let err = unsafe { (self.egl.eglGetError)() };
+            log_warn!(
+                LogCategory::Platform,
+                "[EGL] eglSwapInterval failed, error=0x{:x}",
+                err
+            );
         }
     }
 
     /// Makes the OpenGL context current on the calling thread.
     pub fn make_current(&self) {
-        unsafe {
+        if unsafe {
             (self.egl.eglMakeCurrent)(
                 self.egl_display,
                 self.egl_surface,
                 self.egl_surface,
                 self.egl_context,
+            )
+        } == 0
+        {
+            let err = unsafe { (self.egl.eglGetError)() };
+            log_warn!(
+                LogCategory::Platform,
+                "[EGL] eglMakeCurrent failed, error=0x{:x}",
+                err
             );
         }
     }
@@ -216,6 +229,21 @@ impl GlContext {
             Err(WindowError::PlatformError("eglSwapBuffers failed".into()))
         } else {
             Ok(())
+        }
+    }
+}
+
+impl Drop for GlContext {
+    fn drop(&mut self) {
+        unsafe {
+            (self.egl.eglMakeCurrent)(
+                self.egl_display,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            );
+            (self.egl.eglDestroySurface)(self.egl_display, self.egl_surface);
+            (self.egl.eglDestroyContext)(self.egl_display, self.egl_context);
         }
     }
 }
