@@ -86,6 +86,14 @@ pub fn emit_interface_types(
             builder.line(&format!("val {} : {} typ", ffi, ffi));
             builder.line(&format!("val {}_to_int : int -> int", ffi));
             builder.line(&format!("val {}_of_int : int -> int", ffi));
+            // Expose per-variant integer constants so hello-worlds can
+            // write `Azul.az_button_type_variant_primary` rather than
+            // bare literals. The .ml emits these (line ~530); the .mli
+            // needs the matching `val` declarations.
+            for v in &e.variants {
+                let lit = sanitize_identifier(&super::to_snake_case(&v.name));
+                builder.line(&format!("val {}_variant_{} : int", ffi, lit));
+            }
         }
     }
 
