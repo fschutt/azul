@@ -4609,7 +4609,7 @@ impl MacOSWindow {
         );
 
         // Look up callback from tag
-        let callback = match self.menu_state.get_callback_for_tag(tag as i64) {
+        let callback = match self.menu_state.get_callback_for_tag(tag) {
             Some(cb) => cb.clone(),
             None => {
                 log_warn!(

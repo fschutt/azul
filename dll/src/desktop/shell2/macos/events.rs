@@ -1097,95 +1097,24 @@ impl MacOSWindow {
 
     /// Recursively builds an NSMenu from Azul MenuItem array
     ///
-    /// This mirrors the Win32 recursive_construct_menu() logic:
-    /// - Leaf items (no children) -> addItem with callback
-    /// - Items with children -> create submenu and recurse
-    /// - Separators -> add separator item
+    /// Delegates to `menu::build_menu_items` which handles leaf items,
+    /// submenus, separators, and MenuItemState.
     pub(crate) fn recursive_build_nsmenu(
         menu: &objc2_app_kit::NSMenu,
         items: &[azul_core::menu::MenuItem],
         mtm: &objc2::MainThreadMarker,
         menu_state: &mut crate::desktop::shell2::macos::menu::MenuState,
     ) {
-        use objc2_app_kit::{NSMenu, NSMenuItem};
-        use objc2_foundation::NSString;
-
-        for item in items {
-            match item {
-                azul_core::menu::MenuItem::String(string_item) => {
-                    let menu_item = NSMenuItem::new(*mtm);
-                    let title = NSString::from_str(&string_item.label);
-                    menu_item.setTitle(&title);
-
-                    // Set enabled/disabled state based on MenuItemState
-                    let enabled = match string_item.menu_item_state {
-                        azul_core::menu::MenuItemState::Normal => true,
-                        azul_core::menu::MenuItemState::Disabled => false,
-                        azul_core::menu::MenuItemState::Greyed => false,
-                    };
-                    menu_item.setEnabled(enabled);
-
-                    // Check if this item has children (submenu)
-                    if !string_item.children.as_ref().is_empty() {
-                        // Create submenu and recurse
-                        let submenu = NSMenu::new(*mtm);
-                        let submenu_title = NSString::from_str(&string_item.label);
-                        submenu.setTitle(&submenu_title);
-
-                        // Recursively build submenu items
-                        Self::recursive_build_nsmenu(
-                            &submenu,
-                            string_item.children.as_ref(),
-                            mtm,
-                            menu_state,
-                        );
-
-                        // Attach submenu to menu item
-                        menu_item.setSubmenu(Some(&submenu));
-
-                        log_debug!(
-                            LogCategory::Input,
-                            "[Context Menu] Created submenu '{}' with {} items",
-                            string_item.label,
-                            string_item.children.as_ref().len()
-                        );
-                    } else {
-                        use crate::desktop::shell2::macos::menu;
-                        // Leaf item - wire up callback using the same system as menu bar
-                        if let Some(callback) = string_item.callback.as_option() {
-                            let tag = menu_state.register_callback(callback.clone());
-                            menu_item.setTag(tag as isize);
-
-                            // Use shared AzulMenuTarget for callback dispatch
-                            let target = menu::AzulMenuTarget::shared_instance(*mtm);
-                            unsafe {
-                                menu_item.setTarget(Some(&target));
-                                menu_item.setAction(Some(objc2::sel!(menuItemAction:)));
-                            }
-                        }
-
-                        // Set keyboard shortcut if present
-                        if let Some(ref accelerator) = string_item.accelerator.into_option() {
-                            menu::set_menu_item_accelerator(&menu_item, accelerator);
-                        }
-                    }
-
-                    menu.addItem(&menu_item);
-                }
-
-                azul_core::menu::MenuItem::Separator => {
-                    let separator = unsafe { NSMenuItem::separatorItem(*mtm) };
-                    menu.addItem(&separator);
-                }
-
-                azul_core::menu::MenuItem::BreakLine => {
-                    // BreakLine is for horizontal menu layouts, not supported in NSMenu
-                    // Just add a separator as a visual indication
-                    let separator = unsafe { NSMenuItem::separatorItem(*mtm) };
-                    menu.addItem(&separator);
-                }
-            }
-        }
+        let mut command_map = std::collections::HashMap::new();
+        let mut next_tag = menu_state.next_tag();
+        crate::desktop::shell2::macos::menu::build_menu_items(
+            items,
+            menu,
+            &mut command_map,
+            &mut next_tag,
+            *mtm,
+        );
+        menu_state.merge_callbacks(command_map, next_tag);
     }
 
     // Helper Functions for V2 Event System

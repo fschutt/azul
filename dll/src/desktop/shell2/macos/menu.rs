@@ -104,7 +104,9 @@ pub struct MenuState {
     /// The NSMenu instance
     ns_menu: Option<Retained<NSMenu>>,
     /// Command ID to callback mapping (tag -> CoreMenuCallback)
-    command_map: HashMap<i64, azul_core::menu::CoreMenuCallback>,
+    command_map: HashMap<isize, azul_core::menu::CoreMenuCallback>,
+    /// Monotonically increasing tag counter to avoid collisions
+    next_tag: isize,
 }
 
 impl MenuState {
@@ -113,6 +115,7 @@ impl MenuState {
             current_hash: 0,
             ns_menu: None,
             command_map: HashMap::new(),
+            next_tag: 1,
         }
     }
 
@@ -122,7 +125,7 @@ impl MenuState {
 
         if new_hash != self.current_hash {
             // Menu changed, rebuild it
-            let (ns_menu, command_map) = create_nsmenu(menu, mtm);
+            let (ns_menu, command_map) = create_nsmenu(menu, &mut self.next_tag, mtm);
             self.ns_menu = Some(ns_menu);
             self.command_map = command_map;
             self.current_hash = new_hash;
@@ -138,65 +141,93 @@ impl MenuState {
     }
 
     /// Look up callback for a command tag
-    pub fn get_callback_for_tag(&self, tag: i64) -> Option<&azul_core::menu::CoreMenuCallback> {
+    pub fn get_callback_for_tag(&self, tag: isize) -> Option<&azul_core::menu::CoreMenuCallback> {
         self.command_map.get(&tag)
     }
 
     /// Register a callback and return a unique tag for it
     /// Used by context menus to register callbacks dynamically
-    pub fn register_callback(&mut self, callback: azul_core::menu::CoreMenuCallback) -> i64 {
-        // Find next available tag
-        let tag = self.command_map.keys().max().unwrap_or(&1000) + 1;
+    pub fn register_callback(&mut self, callback: azul_core::menu::CoreMenuCallback) -> isize {
+        let tag = self.next_tag;
+        self.next_tag += 1;
         self.command_map.insert(tag, callback);
         tag
+    }
+
+    /// Get the current next_tag value (for external callers that build menus)
+    pub fn next_tag(&self) -> isize {
+        self.next_tag
+    }
+
+    /// Merge externally-built callbacks into this state and advance the tag counter
+    pub fn merge_callbacks(
+        &mut self,
+        callbacks: HashMap<isize, azul_core::menu::CoreMenuCallback>,
+        new_next_tag: isize,
+    ) {
+        self.command_map.extend(callbacks);
+        self.next_tag = new_next_tag;
     }
 }
 
 /// Create an NSMenu from Azul Menu structure
 fn create_nsmenu(
     menu: &Menu,
+    next_tag: &mut isize,
     mtm: MainThreadMarker,
 ) -> (
     Retained<NSMenu>,
-    HashMap<i64, azul_core::menu::CoreMenuCallback>,
+    HashMap<isize, azul_core::menu::CoreMenuCallback>,
 ) {
     let ns_menu = NSMenu::new(mtm);
     let mut command_map = HashMap::new();
-    let mut next_tag = 1i64;
 
     // Build menu items recursively
-    build_menu_items(&menu.items, &ns_menu, &mut command_map, &mut next_tag, mtm);
+    build_menu_items(menu.items.as_slice(), &ns_menu, &mut command_map, next_tag, mtm);
 
     (ns_menu, command_map)
 }
 
-/// Recursively build menu items
-fn build_menu_items(
-    items: &azul_core::menu::MenuItemVec,
+/// Recursively build NSMenu items from Azul MenuItem array
+///
+/// Used by both menu bar construction and context menu construction.
+pub(crate) fn build_menu_items(
+    items: &[MenuItem],
     parent_menu: &NSMenu,
-    command_map: &mut HashMap<i64, azul_core::menu::CoreMenuCallback>,
-    next_tag: &mut i64,
+    command_map: &mut HashMap<isize, azul_core::menu::CoreMenuCallback>,
+    next_tag: &mut isize,
     mtm: MainThreadMarker,
 ) {
-    let items = items.as_slice();
     for item in items.iter() {
         match item {
             MenuItem::String(string_item) => {
-                if string_item.children.is_empty() {
-                    // Leaf menu item
-                    let menu_item = NSMenuItem::new(mtm);
-                    let title = NSString::from_str(&string_item.label);
-                    menu_item.setTitle(&title);
+                let menu_item = NSMenuItem::new(mtm);
+                let title = NSString::from_str(&string_item.label);
+                menu_item.setTitle(&title);
 
-                    // If has callback, assign tag and connect to target
+                // Set enabled/disabled state
+                let enabled = match string_item.menu_item_state {
+                    azul_core::menu::MenuItemState::Normal => true,
+                    azul_core::menu::MenuItemState::Disabled => false,
+                    azul_core::menu::MenuItemState::Greyed => false,
+                };
+                menu_item.setEnabled(enabled);
+
+                if !string_item.children.is_empty() {
+                    // Submenu
+                    let submenu = NSMenu::new(mtm);
+                    submenu.setTitle(&title);
+                    build_menu_items(string_item.children.as_slice(), &submenu, command_map, next_tag, mtm);
+                    menu_item.setSubmenu(Some(&submenu));
+                } else {
+                    // Leaf item - wire up callback
                     if let Some(callback) = string_item.callback.as_option() {
                         let tag = *next_tag;
                         *next_tag += 1;
 
-                        menu_item.setTag(tag as isize);
+                        menu_item.setTag(tag);
                         command_map.insert(tag, callback.clone());
 
-                        // Set action and target for callback dispatch
                         let target = AzulMenuTarget::shared_instance(mtm);
                         unsafe {
                             menu_item.setTarget(Some(&target));
@@ -208,30 +239,15 @@ fn build_menu_items(
                     if let Some(accelerator) = string_item.accelerator.as_option() {
                         set_menu_item_accelerator(&menu_item, accelerator);
                     }
-
-                    parent_menu.addItem(&menu_item);
-                } else {
-                    // Submenu
-                    let submenu = NSMenu::new(mtm);
-                    let title = NSString::from_str(&string_item.label);
-                    submenu.setTitle(&title);
-
-                    let menu_item = NSMenuItem::new(mtm);
-                    menu_item.setTitle(&title);
-                    menu_item.setSubmenu(Some(&submenu));
-
-                    // Recursively build children
-                    build_menu_items(&string_item.children, &submenu, command_map, next_tag, mtm);
-
-                    parent_menu.addItem(&menu_item);
                 }
+
+                parent_menu.addItem(&menu_item);
             }
             MenuItem::Separator => {
                 let separator = unsafe { NSMenuItem::separatorItem(mtm) };
                 parent_menu.addItem(&separator);
             }
             MenuItem::BreakLine => {
-                // BreakLine is not supported in macOS menus, treat as separator
                 let separator = unsafe { NSMenuItem::separatorItem(mtm) };
                 parent_menu.addItem(&separator);
             }
