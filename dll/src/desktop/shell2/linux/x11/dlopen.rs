@@ -3,7 +3,7 @@
 //! are re-exported by the Wayland subsystem.
 
 use std::{
-    ffi::{c_char, c_int, c_long, c_uchar, c_uint, c_ulong, c_void, CStr, CString},
+    ffi::{c_void, CStr, CString},
     rc::Rc,
 };
 
@@ -18,6 +18,7 @@ use crate::load_symbol;
 /// Wrapper for dlopen, dlsym, dlclose.
 pub struct Library {
     handle: *mut c_void,
+    name: String,
 }
 
 impl DynamicLibraryTrait for Library {
@@ -32,7 +33,10 @@ impl DynamicLibraryTrait for Library {
                 suggestion: format!("dlopen failed: {}", error),
             })
         } else {
-            Ok(Self { handle })
+            Ok(Self {
+                handle,
+                name: name.to_string(),
+            })
         }
     }
 
@@ -42,7 +46,7 @@ impl DynamicLibraryTrait for Library {
         if sym.is_null() {
             Err(DlError::SymbolNotFound {
                 symbol: name.to_string(),
-                library: "unknown".to_string(),
+                library: self.name.clone(),
                 suggestion: "Symbol not found in library".to_string(),
             })
         } else {
@@ -91,22 +95,13 @@ pub struct Xlib {
     pub XMoveWindow: XMoveWindow,
     pub XDestroyWindow: XDestroyWindow,
     pub XSendEvent: XSendEvent,
-    pub XCreateGC: unsafe extern "C" fn(*mut Display, Drawable, c_ulong, *mut c_void) -> GC,
-    pub XFreeGC: unsafe extern "C" fn(*mut Display, GC) -> c_int,
-    pub XSetForeground: unsafe extern "C" fn(*mut Display, GC, c_ulong) -> c_int,
-    pub XFillRectangle:
-        unsafe extern "C" fn(*mut Display, Drawable, GC, c_int, c_int, c_uint, c_uint) -> c_int,
-    pub XClearWindow: unsafe extern "C" fn(*mut Display, Window) -> c_int,
-    pub XDrawString: unsafe extern "C" fn(
-        *mut Display,
-        Drawable,
-        GC,
-        c_int,
-        c_int,
-        *const c_char,
-        c_int,
-    ) -> c_int,
-    pub XFlush: unsafe extern "C" fn(*mut Display) -> c_int,
+    pub XCreateGC: XCreateGC,
+    pub XFreeGC: XFreeGC,
+    pub XSetForeground: XSetForeground,
+    pub XFillRectangle: XFillRectangle,
+    pub XClearWindow: XClearWindow,
+    pub XDrawString: XDrawString,
+    pub XFlush: XFlush,
     pub XSync: XSync,
     pub XConnectionNumber: XConnectionNumber,
     pub XSetLocaleModifiers: XSetLocaleModifiers,
@@ -125,21 +120,8 @@ pub struct Xlib {
     pub XSetErrorHandler: XSetErrorHandler,
     pub XChangeProperty: XChangeProperty,
     pub XChangeWindowAttributes: XChangeWindowAttributes,
-    pub XGetWindowProperty: unsafe extern "C" fn(
-        *mut Display,
-        Window,
-        Atom,
-        c_long,
-        c_long,
-        c_int,
-        Atom,
-        *mut Atom,
-        *mut c_int,
-        *mut c_ulong,
-        *mut c_ulong,
-        *mut *mut c_uchar,
-    ) -> c_int,
-    pub XFree: unsafe extern "C" fn(*mut c_void) -> c_int,
+    pub XGetWindowProperty: XGetWindowProperty,
+    pub XFree: XFree,
     pub XResizeWindow: XResizeWindow,
     pub XUnmapWindow: XUnmapWindow,
     pub XCreateFontCursor: XCreateFontCursor,
@@ -157,9 +139,9 @@ pub struct Xlib {
     pub XMatchVisualInfo: XMatchVisualInfo,
     pub XFreeColormap: XFreeColormap,
     // XImage functions for CPU rendering
-    pub XCreateImage: unsafe extern "C" fn(*mut Display, *mut c_void, c_uint, c_int, c_int, *mut c_char, c_uint, c_uint, c_int, c_int) -> *mut XImage,
-    pub XPutImage: unsafe extern "C" fn(*mut Display, Drawable, GC, *mut XImage, c_int, c_int, c_int, c_int, c_uint, c_uint) -> c_int,
-    pub XDestroyImage: unsafe extern "C" fn(*mut XImage) -> c_int,
+    pub XCreateImage: XCreateImage,
+    pub XPutImage: XPutImage,
+    pub XDestroyImage: XDestroyImage,
 }
 
 impl Xlib {
