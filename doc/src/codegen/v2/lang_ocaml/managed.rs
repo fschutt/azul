@@ -141,6 +141,27 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.dedent();
     builder.blank();
 
+    // Generic mark-as-consumed helper. Used by user code after
+    // passing a wrapper by-value into a consuming C function —
+    // without this, the wrapper's `Gc.finalise` would later fire
+    // `<X>_delete` on memory libazul has already moved/freed,
+    // causing a double-free (manifested as a SIGABRT in U8Vec::drop
+    // reachable from App.run → MacOSWindow::new_with_options_internal).
+    //
+    // Every wrapper record we emit has the same shape
+    // `{mutable raw; mutable disposed}` — `disposed` is field index 1.
+    // We use `Obj.set_field` to flip it without naming the concrete
+    // type. Unsafe but uniform; the alternative is one
+    // `consume_<type>` per wrapper.
+    builder.line("(* Mark a wrapper as consumed (its raw struct moved into a C call). *)");
+    builder.line("(* Stops `Gc.finalise` from later calling `<X>_delete` on freed memory. *)");
+    builder.line("let azul_consume (a : 'a) : unit =");
+    builder.indent();
+    builder.line("(* Field 1 of every wrapper record is `mutable disposed : bool`. *)");
+    builder.line("Obj.set_field (Obj.repr a) 1 (Obj.repr true)");
+    builder.dedent();
+    builder.blank();
+
     // Smart WindowCreateOptions constructor: built from `_default()`
     // and stuffs the host-invoker-registered AzLayoutCallback (with
     // ctx preserved) into the window_state.layout_callback field.
@@ -429,6 +450,9 @@ pub fn emit_managed_interface(builder: &mut CodeBuilder, ir: &CodegenIR) {
     );
     builder.line(
         "val azul_refany_get : az_ref_any Ctypes.structure Ctypes.ptr -> 'a option",
+    );
+    builder.line(
+        "val azul_consume : 'a -> unit",
     );
     builder.line(
         "val azul_window_create_options_with_layout : 'a -> az_window_create_options Ctypes.structure",
