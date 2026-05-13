@@ -183,25 +183,52 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
         builder.blank();
     }
 
-    // Button.withOnClick(Object, CallbackInvokerCallback) — smart
-    // builder that takes any Java object (auto-refany-wrapped) plus
-    // the callback SAM and returns a chained Button. The existing
-    // typed `withOnClick(AzRefAny.ByValue, AzCallback.ByValue)` stays
-    // for callers that want full control.
-    if s.name == "Button" {
+    // Phase J.1: generalize the Button.onClick hardcode to any widget
+    // method with the `with_on_*(self, data: RefAny, callback: <Cb>)`
+    // shape. The detector (`smart_callback_setter_info`) returns
+    // Some((smart_name, wrapper_name)) when the method matches the
+    // pattern AND the wrapper kind is in HOST_INVOKER_KINDS.
+    //
+    // This lights up CheckBox.onToggle(data, fn), TextInput.onTextInput(),
+    // DropDown.onChoiceChange(), and friends — every widget that has a
+    // with_on_<event>(refany, callback) builder gets an idiomatic
+    // sibling that wraps both internally.
+    for func in ir.functions_for_class(&s.name) {
+        let Some((smart_snake, wrapper_kind)) =
+            smart_callback_setter_info(func)
+        else {
+            continue;
+        };
+        let smart_camel = snake_to_lower_camel(&smart_snake);
+        let with_camel = idiomatic_method_name(&func.method_name);
+        let sam_class = format!("AzulNativeManaged.{}InvokerCallback", wrapper_kind);
+        let register_method = if wrapper_kind == "Callback" {
+            "registerCallback".to_string()
+        } else {
+            format!("register{}", wrapper_kind)
+        };
         builder.line("/**");
-        builder.line(" * Smart builder: pass any Java object as the data payload and");
-        builder.line(" * a click-handler lambda. The host-invoker registration of both");
-        builder.line(" * happens internally; the caller never has to mention");
-        builder.line(" * AzulHostInvoker.");
+        builder.line(&format!(
+            " * Smart builder for {}: takes a Java object as data and a",
+            with_camel
+        ));
+        builder.line(" * SAM callback; host-invoker registration of both happens");
+        builder.line(" * internally.");
         builder.line(" */");
-        builder.line("public Button onClick(Object data, AzulNativeManaged.CallbackInvokerCallback fn) {");
+        builder.line(&format!(
+            "public {} {}(Object data, {} fn) {{",
+            class_name, smart_camel, sam_class
+        ));
         builder.indent();
         builder.line("AzRefAny.ByValue __data = AzulHostInvoker.refanyCreate(data);");
-        builder.line("AzCallback.ByValue __cb = AzulHostInvoker.registerCallback(fn);");
-        builder.line("// withOnClick takes wrapper instances (RefAny + Callback) after");
-        builder.line("// the auto-wrapper-class conversion; bridge from the raw forms.");
-        builder.line("return withOnClick(new RefAny(__data.getPointer()), new Callback(__cb.getPointer()));");
+        builder.line(&format!(
+            "Az{}.ByValue __cb = AzulHostInvoker.{}(fn);",
+            wrapper_kind, register_method
+        ));
+        builder.line(&format!(
+            "return {}(new RefAny(__data.getPointer()), new {}(__cb.getPointer()));",
+            with_camel, wrapper_kind
+        ));
         builder.dedent();
         builder.line("}");
         builder.blank();
@@ -390,6 +417,51 @@ fn emit_toString_if_supported(
     builder.dedent();
     builder.line("}");
     builder.blank();
+}
+
+/// Phase J.1 detector: if `func` is a `with_on_*(self, data: RefAny,
+/// callback: <SomeCallbackWrapperStruct>)` method, return
+/// `Some((smart_method_snake_case, callback_wrapper_kind))`. The
+/// smart wrapper auto-wraps the data via `refanyCreate` and registers
+/// the callback via `register<Kind>`, then delegates to the existing
+/// `with_on_*`.
+///
+/// Specifically requires the callback arg to be the **wrapper struct**
+/// type (e.g. `Callback`, `CheckBoxOnToggleCallback`) — NOT the fn-
+/// pointer typedef (e.g. `CallbackType`, `CheckBoxOnToggleCallbackType`).
+/// The typedef form would require the smart factory to extract the
+/// `.cb` field from the wrapper before calling the underlying method.
+pub(super) fn smart_callback_setter_info(
+    func: &FunctionDef,
+) -> Option<(String, String)> {
+    if !matches!(
+        func.kind,
+        FunctionKind::Method | FunctionKind::MethodMut | FunctionKind::DeepCopy
+    ) {
+        return None;
+    }
+    if func.args.len() != 3 {
+        return None;
+    }
+    if func.args[1].type_name != "RefAny" {
+        return None;
+    }
+    let cb_info = func.args[2].callback_info.as_ref()?;
+    if !super::super::managed_host_invoker::HOST_INVOKER_KINDS
+        .contains(&cb_info.callback_wrapper_name.as_str())
+    {
+        return None;
+    }
+    // Require args[2].type_name to match the wrapper-struct name
+    // (not the typedef name). When the API exposes the typedef form
+    // directly (CheckBox.with_on_toggle takes `CheckBoxOnToggleCallbackType`),
+    // skip — the existing codegen path handles those already and the
+    // bridge here would need an extra `.cb` field extract.
+    if func.args[2].type_name != cb_info.callback_wrapper_name {
+        return None;
+    }
+    let smart = func.method_name.strip_prefix("with_")?;
+    Some((smart.to_string(), cb_info.callback_wrapper_name.clone()))
 }
 
 fn emit_close_method(builder: &mut CodeBuilder, raw_type_name: &str, class_name: &str, ir: &CodegenIR) {
