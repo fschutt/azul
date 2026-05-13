@@ -483,12 +483,13 @@ pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     diff == 0
 }
 
-/// Send an HTTP response.
-fn send_response(
+/// Send an HTTP response, optionally with immutable cache headers.
+fn send_response_inner(
     stream: &mut TcpStream,
     status: u16,
     content_type: &str,
     body: &[u8],
+    cache_immutable: bool,
 ) -> Result<(), String> {
     let status_text = match status {
         200 => "OK",
@@ -501,9 +502,15 @@ fn send_response(
         _ => "Unknown",
     };
 
+    let cache_header = if cache_immutable {
+        "Cache-Control: public, max-age=31536000, immutable\r\n"
+    } else {
+        ""
+    };
+
     let response = format!(
-        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        status, status_text, content_type, body.len()
+        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n{}Connection: close\r\n\r\n",
+        status, status_text, content_type, body.len(), cache_header
     );
 
     stream.write_all(response.as_bytes())
@@ -516,31 +523,22 @@ fn send_response(
     Ok(())
 }
 
-/// Send an HTTP response with cache headers for immutable assets.
+fn send_response(
+    stream: &mut TcpStream,
+    status: u16,
+    content_type: &str,
+    body: &[u8],
+) -> Result<(), String> {
+    send_response_inner(stream, status, content_type, body, false)
+}
+
 fn send_response_cached(
     stream: &mut TcpStream,
     status: u16,
     content_type: &str,
     body: &[u8],
 ) -> Result<(), String> {
-    let status_text = match status {
-        200 => "OK",
-        _ => "Unknown",
-    };
-
-    let response = format!(
-        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nCache-Control: public, max-age=31536000, immutable\r\nConnection: close\r\n\r\n",
-        status, status_text, content_type, body.len()
-    );
-
-    stream.write_all(response.as_bytes())
-        .map_err(|e| format!("write error: {}", e))?;
-    stream.write_all(body)
-        .map_err(|e| format!("write body error: {}", e))?;
-    stream.flush()
-        .map_err(|e| format!("flush error: {}", e))?;
-
-    Ok(())
+    send_response_inner(stream, status, content_type, body, true)
 }
 
 #[cfg(test)]
