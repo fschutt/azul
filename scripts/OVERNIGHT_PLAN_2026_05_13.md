@@ -97,16 +97,18 @@ After A.3 + A.4, no user code should need to mention `AzulHostInvoker`. Verify b
 
 ### A.6 Module-load auto-init
 
-So users don't even have to call `azul_host_invoker_init()`. Static initializers / module imports trigger it on first use.
+So users don't even have to call `azul_host_invoker_init()`. Audited
+2026-05-13 across all 8 bindings — every one already auto-initializes
+on first use; no hello-world makes an explicit init call.
 
-- [ ] **A.6.1 Java:** `static { AzulHostInvoker.ensureInitialized(); }` on `App` class. (Or trigger from `App.create`.)
-- [ ] **A.6.2 Kotlin:** Same in `App.companion`.
-- [ ] **A.6.3 C#:** Static constructor on `App` class.
-- [ ] **A.6.4 Ruby:** `Azul.host_invoker_init` at end of `Azul.rb`.
-- [ ] **A.6.5 Node:** Call from `azul.js` module body.
-- [ ] **A.6.6 OCaml:** Call from module init.
-- [ ] **A.6.7 Lua:** Same.
-- [ ] **A.6.8 PHP:** Already auto-inits on `azul_host_invoker_init()`. Wire from module load.
+- [x] **A.6.1 Java:** Lazy init via `private static ensureInitialized()` called inside every `AzulHostInvoker.refanyCreate / refanyGet / registerCallback`. Verified line 38, 379-…  in `examples/java/com/azul/AzulHostInvoker.java`.
+- [x] **A.6.2 Kotlin:** Same lazy-init pattern — `ensureInitialized()` private companion method called from every public Host-Invoker entry. Verified line 99695 of `examples/kotlin/Azul.kt`.
+- [x] **A.6.3 C#:** `_livePins.Add(releaser); AzApp_setHostHandleReleaser(...);` runs inside static init of the `HostInvoker` class. First use of any `HostInvoker.*` method triggers it.
+- [x] **A.6.4 Ruby:** `Native.az_app_set_host_handle_releaser(releaser)` runs at the top of `azul.rb` module body (line ~48635), so `require 'azul'` is the init point.
+- [x] **A.6.5 Node:** `_ensureHostInvokerInit()` private function (line 44061) called from `refanyCreate` and `registerCallback` (lines 44651, 44702).
+- [x] **A.6.6 OCaml:** Module init in `Azul.Internal` runs the setHostHandleReleaser+invoker calls at module-load time.
+- [x] **A.6.7 Lua:** Top-level `C.AzApp_setHostHandleReleaser(_releaser)` in `azul.lua` body — fires once when the module is first `require`'d.
+- [x] **A.6.8 PHP:** `azul_host_invoker_init()` exists for explicit-init scripts; classes that need it (Phase 51 `Azul\App`) call it via libazul's own ensureInitialized-on-first-class-use path.
 
 ### A.7 Hello-world rewrites (Python-quality)
 
