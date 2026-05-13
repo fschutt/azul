@@ -225,35 +225,39 @@ These bite us repeatedly across bindings. Fix once in shared infra.
 
 - [x] **E.1** `scripts/test_all_e2e.sh` — drives each lang's AZ_DEBUG counter probe. Verified PASS for lua, node, ruby, scala (the four with toolchains we have on-machine). Skips Java/Kotlin (mvn-package / kotlinc not wired into the script yet — placeholder), Go/Zig/C#/OCaml (need their compiled binaries on disk to chain in). *(this commit)*
 - [x] **E.2** `scripts/probe_az_debug.sh <port> [expected_before=5] [expected_after=8]` — single helper. Waits up to 10s for the AZ_DEBUG server, posts the click sequence, parses the counter from HTML via python3 regex, exits non-zero on mismatch. *(this commit)*
-- [ ] **E.3** Memory: refresh `full_gui_examples_status.md` at session end with final E2E-passing count.
-- [ ] **E.4** Memory: refresh `language_audit_2026_05_12.md` with per-language string/RefAny/iterator/option/result accessor presence.
+- [x] **E.3** Memory `full_gui_examples_status.md` refreshed with the session-end snapshot (E2E count 10 unchanged; lua/node/ruby/scala verified by the new test runner).
+- [x] **E.4** Memory `language_audit_2026_05_12.md` updated with the per-language accessor matrix (AzString / AzOption / AzVec / AzResult coverage and caveats per binding).
 
 ---
 
 ## Phase F — Documentation
 
 - [ ] **F.1** Per-binding README:
-  - [ ] examples/java/README.md
-  - [ ] examples/kotlin/README.md
-  - [ ] examples/csharp/README.md
-  - [ ] examples/scala/README.md
-  - [ ] examples/ruby/README.md
-  - [ ] examples/node/README.md
-  - [ ] examples/ocaml/README.md
-  - [ ] examples/lua/README.md
-  - [ ] examples/go/README.md
-  - [ ] examples/zig/README.md
-  - [ ] examples/php/README.md (extension-tier)
-  - [ ] examples/pascal/README.md (with libazul-blocker note)
-  - [ ] examples/perl/README.md
-  - [ ] examples/lisp/README.md (with blocker note)
-  - [ ] examples/powershell/README.md (Windows-only)
-  - [ ] examples/cobol/README.md
-  - [ ] examples/fortran/README.md
-  - [ ] examples/haskell/README.md (blocker)
-  - [ ] examples/smalltalk/README.md (blocker)
-- [ ] **F.2** Update `scripts/BINDING_STRATEGY_PER_LANGUAGE.md` — strike done items, update the status table.
-- [ ] **F.3** Top-level `BINDINGS.md` overview — one paragraph per language, link to the example dir.
+  - [x] examples/java/README.md
+  - [x] examples/kotlin/README.md
+  - [x] examples/csharp/README.md
+  - [x] examples/scala/README.md
+  - [x] examples/ruby/README.md
+  - [x] examples/node/README.md
+  - [x] examples/ocaml/README.md
+  - [x] examples/lua/README.md
+  - [x] examples/go/README.md
+  - [x] examples/zig/README.md
+  - [x] examples/php/README.md (extension-tier)
+  - [x] examples/pascal/README.md (with libazul-blocker note)
+  - [x] examples/perl/README.md
+  - [x] examples/lisp/README.md (with blocker note)
+  - [x] examples/powershell/README.md (Windows-only)
+  - [x] examples/cobol/README.md
+  - [x] examples/fortran/README.md
+  - [x] examples/haskell/README.md (blocker)
+  - [x] examples/smalltalk/README.md (blocker)
+  - [x] examples/ada/README.md (toolchain-blocker)
+  - [x] examples/algol68/README.md (toolchain-blocker)
+  - [x] examples/freebasic/README.md (toolchain-blocker)
+  - [x] examples/vb6/README.md (toolchain-blocker)
+- [⊘] **F.2** `BINDING_STRATEGY_PER_LANGUAGE.md` update deferred — the plan file (`OVERNIGHT_PLAN_2026_05_13.md`) is the live status doc for this session; a strategy-doc rewrite would duplicate. Worth refreshing as a follow-up if the binding strategy doc continues to be cited.
+- [⊘] **F.3** Top-level `BINDINGS.md` deferred — same redundancy as F.2.
 
 ---
 
@@ -303,6 +307,7 @@ These bite us repeatedly across bindings. Fix once in shared infra.
   - A.7 hello-world rewrites: Scala 132→77, Java 132→86, Kotlin 102→67 lines using the smart WCO factory — `cb7553744`. Scala AZ_DEBUG 5→8 verified.
   - A.7 round 2: C# 129→84, Ruby 94→69 — `2019af733`. C# smart factory widened to accept any `Delegate`; Ruby `Button#on_click` no longer double-registers via the already-wrapping `with_on_click`. Ruby AZ_DEBUG 5→8 verified post-rewrite. Node/Lua/Go/Zig already idiomatic.
   - E.1 + E.2: `scripts/test_all_e2e.sh` + `scripts/probe_az_debug.sh`. PASS results for lua/node/ruby/scala on macOS-aarch64 — `f1c1c6134`.
-  - D.1: Ruby MonomorphizedKind::TaggedUnion outer-struct tag width fixed (`:uint32` → `:uint8`) — recurring repr(C, u8) bug. D.2 / D.3 / D.4 audited clean across the remaining bindings.
+  - D.1: Ruby MonomorphizedKind::TaggedUnion outer-struct tag width fixed (`:uint32` → `:uint8`) — recurring repr(C, u8) bug. D.2 / D.3 / D.4 audited clean across the remaining bindings — `fca80a479`.
+  - E.3 + E.4 + F.1: memory refresh (full_gui_examples_status + language_audit_2026_05_12 accessor matrix) + 23 per-binding READMEs (this commit). F.2/F.3 deferred as redundant with the plan doc.
 
 End of plan.
