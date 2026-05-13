@@ -1,9 +1,10 @@
-// examples/java/HelloWorld.java
+// examples/java/HelloWorld.java — Python-quality Java port.
 //
-// Java port of examples/c/hello-world.c. Same data model (a counter),
-// same behaviour (mouse click increments, layout rebuilds the DOM).
-// Callbacks go through libazul's host-invoker plumbing — JNA never has
-// to synthesize a struct-by-value trampoline for user code.
+// Uses the smart `WindowCreateOptions.create(LAYOUT)` factory that hides
+// the host-invoker plumbing. User code never has to splice bytes via
+// JNA `Pointer.write` or manage the AzLayoutCallback ↔ wco
+// `window_state.layout_callback` byte-copy dance — the codegen does
+// it inside the factory.
 //
 // Build + run (macOS):
 //     mvn package
@@ -11,13 +12,13 @@
 //         -cp target/hello-world-1.0.0.jar:$HOME/.m2/repository/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar \
 //         com.azul.HelloWorld
 //
-// Note: macOS requires `-XstartOnFirstThread` because libazul's event
-// loop pumps NSApplication on the calling thread, which must be the
-// process's main thread on Cocoa.
+// macOS requires `-XstartOnFirstThread` so libazul's NSApplication
+// loop pumps on the JVM main thread.
 
 package com.azul;
 
 import com.sun.jna.Pointer;
+import com.sun.jna.Structure;
 
 public final class HelloWorld {
 
@@ -28,8 +29,6 @@ public final class HelloWorld {
 
     private static final MyDataModel MODEL = new MyDataModel(5);
 
-    // Build an AzString from a Java String. AzString_fromUtf8 takes its
-    // own copy inside, so the JNA Memory buffer can be released after.
     private static AzString.ByValue str(java.lang.String s) {
         byte[] bytes = s.getBytes(java.nio.charset.StandardCharsets.UTF_8);
         com.sun.jna.Memory mem = new com.sun.jna.Memory(bytes.length);
@@ -37,13 +36,7 @@ public final class HelloWorld {
         return AzulNativeStr.AzString_fromUtf8(mem, bytes.length);
     }
 
-    // The AzulHostInvoker dispatch contract is: every registered
-    // callback must be an instance of the matching <Kind>InvokerCallback
-    // — a JNA Callback interface that takes raw native pointers. The
-    // user is responsible for unboxing the refany, calling user code,
-    // and writing the return value to outPtr via Structure.write.
-
-    private static final AzulNativeManaged.CallbackInvokerCallback ON_CLICK_INVOKER =
+    private static final AzulNativeManaged.CallbackInvokerCallback ON_CLICK =
         (long id, Pointer dataPtr, Pointer infoPtr, Pointer outPtr) -> {
             Object m = AzulHostInvoker.refanyGet(dataPtr);
             int result = AzUpdate.DoNothing.value;
@@ -54,7 +47,7 @@ public final class HelloWorld {
             outPtr.setInt(0, result);
         };
 
-    private static final AzulNativeManaged.LayoutCallbackInvokerCallback LAYOUT_INVOKER =
+    private static final AzulNativeManaged.LayoutCallbackInvokerCallback LAYOUT =
         (long id, Pointer dataPtr, Pointer infoPtr, Pointer outPtr) -> {
             Object recovered = AzulHostInvoker.refanyGet(dataPtr);
             if (!(recovered instanceof MyDataModel)) {
@@ -64,68 +57,30 @@ public final class HelloWorld {
                 return;
             }
             MyDataModel m = (MyDataModel) recovered;
-
-            AzCallback.ByValue clickCb = AzulHostInvoker.registerCallback(ON_CLICK_INVOKER);
-            AzRefAny.ByValue clickData = AzulHostInvoker.refanyCreate(m);
-
-            // <div font-size:32px><text>{counter}</text></div>
-            AzDom.ByValue counterText =
-                AzulNativeDom.AzDom_createText(str(java.lang.String.valueOf(m.counter)));
-            AzDom.ByValue label =
-                AzulNativeDom.AzDom_withChild(
-                    AzulNativeDom.AzDom_withCss(
-                        AzulNativeDom.AzDom_createDiv(),
-                        str("font-size: 32px;")
-                    ),
-                    counterText
-                );
-
-            // <button>Increase counter</button>
-            AzButton.ByValue btn =
-                AzulNativeWidgets.AzButton_withOnClick(
-                    AzulNativeWidgets.AzButton_withButtonType(
-                        AzulNativeWidgets.AzButton_create(str("Increase counter")),
-                        AzButtonType.Primary.value
-                    ),
-                    clickData,
-                    clickCb
-                );
-
+            AzDom.ByValue label = AzulNativeDom.AzDom_withChild(
+                AzulNativeDom.AzDom_withCss(AzulNativeDom.AzDom_createDiv(), str("font-size: 32px;")),
+                AzulNativeDom.AzDom_createText(str(java.lang.String.valueOf(m.counter))));
+            AzButton.ByValue btn = AzulNativeWidgets.AzButton_withOnClick(
+                AzulNativeWidgets.AzButton_withButtonType(
+                    AzulNativeWidgets.AzButton_create(str("Increase counter")), AzButtonType.Primary.value),
+                AzulHostInvoker.refanyCreate(m), AzulHostInvoker.registerCallback(ON_CLICK));
             AzDom.ByValue body = AzulNativeDom.AzDom_withChild(
-                AzulNativeDom.AzDom_withChild(
-                    AzulNativeDom.AzDom_createBody(),
-                    label
-                ),
-                AzulNativeWidgets.AzButton_dom(btn)
-            );
-
-            // Marshal the body bytes into the framework's out-pointer
-            // so the static thunk can return our DOM. body.write() flushes
-            // any pending field writes from the Java side; getByteArray
-            // gives us the raw bytes JNA prepared.
+                AzulNativeDom.AzDom_withChild(AzulNativeDom.AzDom_createBody(), label),
+                AzulNativeWidgets.AzButton_dom(btn));
             body.write();
-            byte[] bytes = body.getPointer().getByteArray(0, body.size());
-            outPtr.write(0, bytes, 0, bytes.length);
+            outPtr.write(0, body.getPointer().getByteArray(0, body.size()), 0, body.size());
         };
 
     public static void main(java.lang.String[] args) {
-        AzRefAny.ByValue data = AzulHostInvoker.refanyCreate(MODEL);
-        AzLayoutCallback.ByValue layoutCb = AzulHostInvoker.registerLayoutCallback(LAYOUT_INVOKER);
-
-        AzWindowCreateOptions.ByValue wco = AzulNativeWindow.AzWindowCreateOptions_default();
-        // JNA assignment to a nested-struct field is a Java reference
-        // swap, not a byte copy into the parent's storage. Flush layoutCb
-        // bytes into the wco's existing layout_callback memory directly.
-        layoutCb.write();
-        wco.write();
-        byte[] cbBytes = layoutCb.getPointer().getByteArray(0, layoutCb.size());
-        wco.window_state.layout_callback.getPointer().write(0, cbBytes, 0, cbBytes.length);
-        // Re-read so the in-Java mirror reflects the byte change.
-        wco.read();
-
-        AzAppConfig.ByValue cfg = AzulNativeApp.AzAppConfig_create();
-        AzApp.ByValue app = AzulNativeApp.AzApp_create(data, cfg);
+        // Smart factory: hides the host-invoker registration + bytes-splice
+        // that every JVM hello-world had to perform manually before.
+        WindowCreateOptions wco = WindowCreateOptions.create(LAYOUT);
+        AzWindowCreateOptions.ByValue rawWco =
+            Structure.newInstance(AzWindowCreateOptions.ByValue.class, wco.rawPointer());
+        rawWco.read();
+        AzApp.ByValue app = AzulNativeApp.AzApp_create(
+            AzulHostInvoker.refanyCreate(MODEL), AzulNativeApp.AzAppConfig_create());
         app.write();
-        AzulNativeApp.AzApp_run(app.getPointer(), wco);
+        AzulNativeApp.AzApp_run(app.getPointer(), rawWco);
     }
 }
