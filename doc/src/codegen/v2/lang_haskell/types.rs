@@ -453,6 +453,14 @@ fn emit_struct_decl(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     }
     builder.blank();
 
+    // Phase H.6: AzString → Haskell String round-trip helper.
+    // Triggered by TypeCategory::String (the IR's marker for the UTF-8
+    // wrapper type) rather than a name-string match — keeps codegen
+    // honest if there's ever more than one string type.
+    if matches!(s.category, TypeCategory::String) {
+        emit_string_to_string_helper(builder, s);
+    }
+
     // Phase H.3: AzVec<T> → Haskell list helper.
     // Detect via the (ptr, len, cap, destructor) field pattern that every
     // codegen-emitted Vec type has. Skips structs that don't match the
@@ -679,6 +687,114 @@ fn emit_tagged_union_decl(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR
         "poke _ _ = error \"Azul.Types.poke {}: tagged-union poke not implemented; use the raw FFI primitives\"",
         name
     ));
+    builder.dedent();
+    builder.blank();
+
+    // Phase H.4/H.5: tag-byte discriminator accessors for Option/Result-
+    // shaped enums. The full Storable peek/poke is a separate task
+    // (variants have payload-type-dependent offsets), but the tag is at
+    // offset 0 in every #[repr(C, u8)] tagged-union — peek that single
+    // byte and compare. Mirrors OCaml's `az_option_<T>_is_some` from A.1.4.
+    if is_option_shape(e) {
+        emit_option_tag_helpers(builder, e);
+    } else if is_result_shape(e) {
+        emit_result_tag_helpers(builder, e);
+    }
+}
+
+/// Emit a `azStringToString :: AzString -> IO String` helper that
+/// decodes the wrapped UTF-8 bytes via the U8Vec's (ptr, len) fields.
+/// Triggered by TypeCategory::String — no name allowlist.
+fn emit_string_to_string_helper(builder: &mut CodeBuilder, s: &super::super::ir::StructDef) {
+    // Identify the single byte-buffer field (U8Vec). Assume it's the
+    // first field — the IR's AzString definition has exactly one field
+    // of type "U8Vec".
+    let Some(field) = s.fields.first() else {
+        return;
+    };
+    let field_name = haskell_field_name(&s.name, &field.name);
+    let lname = lower_first(&haskell_data_name(&s.name));
+    builder.line("-- | Phase H.6: decode the wrapped UTF-8 bytes into a Haskell String.");
+    builder.line("-- Uses the underlying U8Vec's (ptr, len) accessors via peekCStringLen.");
+    builder.line(&format!(
+        "{}ToString :: {} -> IO String",
+        lname,
+        haskell_data_name(&s.name)
+    ));
+    builder.line(&format!("{}ToString s = do", lname));
+    builder.indent();
+    builder.line(&format!("let __vec = {} s", field_name));
+    builder.line("    __p = u8VecPtr __vec");
+    builder.line("    __n = fromIntegral (u8VecLen __vec) :: Int");
+    // peekCStringLen expects (CString, Int); CString = Ptr CChar.
+    builder.line("peekCStringLen (castPtr __p, __n)");
+    builder.dedent();
+    builder.blank();
+}
+
+/// True when this enum has exactly two variants named (None, Some) — the
+/// AzOption pattern. Variant order in the enum is irrelevant; tag values
+/// come from declaration position in the C ABI.
+fn is_option_shape(e: &EnumDef) -> bool {
+    e.variants.len() == 2
+        && e.variants.iter().any(|v| v.name == "None")
+        && e.variants.iter().any(|v| v.name == "Some")
+}
+
+fn is_result_shape(e: &EnumDef) -> bool {
+    e.variants.len() == 2
+        && e.variants.iter().any(|v| v.name == "Ok")
+        && e.variants.iter().any(|v| v.name == "Err")
+}
+
+fn emit_option_tag_helpers(builder: &mut CodeBuilder, e: &EnumDef) {
+    let name = haskell_data_name(&e.name);
+    let lname = lower_first(&name);
+    let none_idx = e.variants.iter().position(|v| v.name == "None").unwrap();
+    let some_idx = e.variants.iter().position(|v| v.name == "Some").unwrap();
+    builder.line("-- | Phase H.4: read the tag byte at offset 0.");
+    builder.line("-- True if the underlying Option is the None variant.");
+    builder.line(&format!("{}IsNone :: Ptr {} -> IO Bool", lname, name));
+    builder.line(&format!("{}IsNone p = do", lname));
+    builder.indent();
+    builder.line(&format!(
+        "tag <- peekByteOff (castPtr p :: Ptr Word8) 0 :: IO Word8"
+    ));
+    builder.line(&format!("pure (tag == {})", none_idx));
+    builder.dedent();
+    builder.line(&format!("{}IsSome :: Ptr {} -> IO Bool", lname, name));
+    builder.line(&format!("{}IsSome p = do", lname));
+    builder.indent();
+    builder.line(&format!(
+        "tag <- peekByteOff (castPtr p :: Ptr Word8) 0 :: IO Word8"
+    ));
+    builder.line(&format!("pure (tag == {})", some_idx));
+    builder.dedent();
+    builder.blank();
+}
+
+fn emit_result_tag_helpers(builder: &mut CodeBuilder, e: &EnumDef) {
+    let name = haskell_data_name(&e.name);
+    let lname = lower_first(&name);
+    let ok_idx = e.variants.iter().position(|v| v.name == "Ok").unwrap();
+    let err_idx = e.variants.iter().position(|v| v.name == "Err").unwrap();
+    builder.line("-- | Phase H.5: read the tag byte at offset 0.");
+    builder.line("-- True if the underlying Result is the Ok variant.");
+    builder.line(&format!("{}IsOk :: Ptr {} -> IO Bool", lname, name));
+    builder.line(&format!("{}IsOk p = do", lname));
+    builder.indent();
+    builder.line(&format!(
+        "tag <- peekByteOff (castPtr p :: Ptr Word8) 0 :: IO Word8"
+    ));
+    builder.line(&format!("pure (tag == {})", ok_idx));
+    builder.dedent();
+    builder.line(&format!("{}IsErr :: Ptr {} -> IO Bool", lname, name));
+    builder.line(&format!("{}IsErr p = do", lname));
+    builder.indent();
+    builder.line(&format!(
+        "tag <- peekByteOff (castPtr p :: Ptr Word8) 0 :: IO Word8"
+    ));
+    builder.line(&format!("pure (tag == {})", err_idx));
     builder.dedent();
     builder.blank();
 }

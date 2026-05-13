@@ -247,6 +247,7 @@ fn generate_types_module(ir: &CodegenIR, config: &CodegenConfig) -> Result<Strin
     builder.line("module Azul.Types where");
     builder.blank();
     builder.line("import Foreign.C.Types");
+    builder.line("import Foreign.C.String (peekCStringLen)");
     builder.line("import Foreign.Ptr (Ptr, FunPtr, castPtr, nullPtr)");
     builder.line("import Foreign.Storable (Storable(..))");
     builder.line("import Data.Word (Word8, Word16, Word32, Word64)");
