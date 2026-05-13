@@ -120,8 +120,8 @@ Phase A.1 added `.unwrap()` and `.is_some()` accessors. Phase I.5 makes the wrap
 - [ ] **I.5.1 Java/Kotlin/Scala** — return `Optional<T>` directly from any C-ABI helper that returns `AzOptionT` (auto-unwrap at the wrapper boundary). For `AzResultT`, throw a typed exception (`AzulErrorException`) on Err, return T on Ok. Mirrors the existing `unwrap()` but pushes the host idiom up to the call site.
 - [ ] **I.5.2 C#** — return `T?` directly; throw `AzulException` for Err.
 - [x] **I.5.3 Ruby** — `classify_return(func, ir)` predicate detects `Option<T>` / `Result<T,E>` return types via variant-name shape `[None,Some]` / `[Ok,Err]`. emit_method_body emits `_ret.to_opt` for Option (returns nil or payload) and `_ret.unwrap` for Result (returns payload or raises). Routes through the AzOption*/AzResult* accessor methods already emitted by A.1.4. *(this iteration)*
-- [ ] **I.5.4 Node** — return `null` on None; throw `Error` on Err.
-- [ ] **I.5.5 Lua** — return `nil` on None; `error()` on Err.
+- [x] **I.5.4 Node** — `optionToNullable(_ret)` / `resultUnwrap(_ret)` auto-applied at wrapper-method return when return-type name starts with "Option" / "Result". 279 sites emitted. Module-level helpers from A.1.4 already in place. *(this iteration)*
+- [x] **I.5.5 Lua** — `(C.<x>(...)):to_opt()` / `:unwrap()` auto-emitted via the existing per-cdata metatype methods. Both varargs-passthrough and enumerated-args paths handled. 472 sites emitted. *(this iteration)*
 - [ ] **I.5.6 OCaml** — return `option`/`result` directly at the binding boundary (the codegen currently emits `az_result_t` opaque blobs; need per-variant typed extraction — see auto_conversion_audit.md).
 - [ ] **I.5.7 Python** — already idiomatic.
 - [ ] **I.5.8 Haskell** — handled in H.4 + H.5.

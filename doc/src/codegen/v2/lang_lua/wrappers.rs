@@ -492,10 +492,29 @@ fn emit_instance_method(out: &mut String, class: &str, lua_method: &str, func: &
     // rule in Java/Kotlin/C#/Ruby/Node.
     let has_az_string = func.args.iter().any(is_az_string_owned_arg);
 
-    if !has_callback_arg(func) && !has_az_string {
+    // Phase I.5.5 (Lua): Option/Result auto-unwrap at the wrapper
+    // boundary. Routes through the per-cdata `:to_opt()` / `:unwrap()`
+    // methods emitted by A.1.4 via ffi.metatype.
+    let unwrap_call = match func.return_type.as_deref().map(str::trim) {
+        Some(rt) if rt.starts_with("Option") => Some(":to_opt()"),
+        Some(rt) if rt.starts_with("Result") => Some(":unwrap()"),
+        _ => None,
+    };
+
+    if !has_callback_arg(func) && !has_az_string && unwrap_call.is_none() {
         out.push_str(&format!(
             "    function {}_methods:{}(...) return C.{}(self, ...) end\n",
             class, lua_method, func.c_name
+        ));
+        return;
+    }
+
+    if !has_callback_arg(func) && !has_az_string {
+        // Auto-unwrap only path: keep the varargs varadic, wrap the return.
+        let unwrap = unwrap_call.unwrap();
+        out.push_str(&format!(
+            "    function {}_methods:{}(...) return (C.{}(self, ...)){} end\n",
+            class, lua_method, func.c_name, unwrap
         ));
         return;
     }
@@ -526,11 +545,26 @@ fn emit_instance_method(out: &mut String, class: &str, lua_method: &str, func: &
             call_args.push(visible[i].clone());
         }
     }
-    out.push_str(&format!(
-        "        return C.{}({})\n",
-        func.c_name,
-        call_args.join(", ")
-    ));
+    // Phase I.5.5 (Lua): auto-unwrap Option/Result return at the body
+    // end. Reused detection from above (varargs short-circuit path).
+    let unwrap_call = match func.return_type.as_deref().map(str::trim) {
+        Some(rt) if rt.starts_with("Option") => Some(":to_opt()"),
+        Some(rt) if rt.starts_with("Result") => Some(":unwrap()"),
+        _ => None,
+    };
+    match unwrap_call {
+        Some(uw) => out.push_str(&format!(
+            "        return (C.{}({})){}\n",
+            func.c_name,
+            call_args.join(", "),
+            uw
+        )),
+        None => out.push_str(&format!(
+            "        return C.{}({})\n",
+            func.c_name,
+            call_args.join(", ")
+        )),
+    }
     out.push_str("    end\n");
 }
 

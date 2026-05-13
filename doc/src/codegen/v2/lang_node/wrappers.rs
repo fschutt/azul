@@ -684,6 +684,15 @@ fn emit_instance_method(
     let user_args = user_args(f);
     let params = render_params(&user_args);
     let call_args = render_call_args(&user_args);
+    // Phase I.5.4 (Node): Option/Result auto-unwrap at the wrapper
+    // boundary. Detect by return-type name prefix (the IR convention
+    // for tagged-union helpers); use the module-level
+    // `optionToNullable` / `resultUnwrap` helpers (managed.rs).
+    let idiom: Option<&'static str> = match f.return_type.as_deref().map(str::trim) {
+        Some(rt) if rt.starts_with("Option") => Some("optionToNullable"),
+        Some(rt) if rt.starts_with("Result") => Some("resultUnwrap"),
+        _ => None,
+    };
 
     if !f.doc.is_empty() {
         b.line("/**");
@@ -740,6 +749,13 @@ fn emit_instance_method(
         for n in &consumed_args {
             b.line(&format!("_consume({});", n));
         }
+    } else if let Some(wrap) = idiom {
+        // Option/Result auto-unwrap.
+        b.line(&format!("const _ret = {};", call));
+        for n in &consumed_args {
+            b.line(&format!("_consume({});", n));
+        }
+        b.line(&format!("return {}(_ret);", wrap));
     } else {
         b.line(&format!("return {};", call));
         for n in &consumed_args {
