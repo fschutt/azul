@@ -187,16 +187,24 @@ fn emit_invoker(builder: &mut CodeBuilder, cb: &super::super::ir::CallbackTypede
     builder.line("my $sub = $_handles{$id};");
     builder.line("return unless defined $sub;");
     if has_ret {
+        // B.5.1 fix: pass out_ptr to the user sub so primitive returns
+        // (AzUpdate u32 etc.) can be written back via `pack`. The user
+        // sub signature now includes the trailing `$out_ptr` arg; a
+        // typical AzUpdate handler does
+        //     pack_into('uint32', $out_ptr, 0, $val)
+        // or the Platypus equivalent. Struct returns (AzDom) still need
+        // a record-to-pointer memcpy primitive from the spike in B.5.2.
+        let out_arg = format!("$_[{}]", n_args + 1);
+        let mut full_args = user_args_list.clone();
+        full_args.push(out_arg);
         builder.line(&format!(
             "my $ret = eval {{ $sub->({}) }};",
-            user_args_list.join(", ")
+            full_args.join(", ")
         ));
         builder.line(&format!(
             "if ($@) {{ warn \"[azul] {} invoker error: $@\"; return; }}",
             wrapper
         ));
-        builder.line("# out_ptr write left to the user closure — non-primitive returns need");
-        builder.line("# struct marshalling we don't surface from a generic invoker.");
         builder.line("return;");
     } else {
         builder.line(&format!(

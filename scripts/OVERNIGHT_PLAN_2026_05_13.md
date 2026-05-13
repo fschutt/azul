@@ -273,11 +273,11 @@ The PHP extension build now works (verified 2026-05-13; CLT libclang is sufficie
 ### B.4 PowerShell — Windows-only
 
 - [—] **B.4.1** macOS E2E. *(reason: pwsh CFRunLoop conflict, Windows is the supported target)*.
-- [ ] **B.4.2** Document Windows build/run steps in `examples/powershell/README.md`.
+- [x] **B.4.2** Windows build+run steps documented in `examples/powershell/README.md`: `cargo build --release --features build-dll` → copy `azul.dll` next to script → `pwsh -ExecutionPolicy Bypass -File hello-world.ps1`. Notes the macOS workaround (use C# directly) since pwsh CFRunLoop conflicts with libazul's NSApp on Darwin. *(this iteration)*
 
 ### B.5 Perl — full E2E
 
-- [ ] **B.5.1** Codegen: `lang_perl/managed.rs:emit_invoker` — pass `out_ptr` to user sub when `has_ret`. (One-line fix per memory/perl_layout_callback_2026_05_13.md.)
+- [x] **B.5.1** `lang_perl/managed.rs::emit_invoker` now passes `out_ptr` (the trailing closure arg `$_[n+1]`) to the user sub for every has-return callback kind. Primitive returns (AzUpdate u32 etc.) can be written via `pack_into('uint32', $out_ptr, 0, $val)`. Struct returns (AzDom) still need B.5.2 Platypus record-to-pointer spike. *(this iteration)*
 - [ ] **B.5.2** Spike: Platypus record-to-pointer memcpy primitive. Test on AzUpdate (4 bytes) first.
 - [ ] **B.5.3** Then on AzDom (240 bytes) for LayoutCallback.
 - [ ] **B.5.4** Rewrite `examples/perl/hello-world.pl` as full-GUI.
