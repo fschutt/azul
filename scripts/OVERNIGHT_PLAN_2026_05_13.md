@@ -29,7 +29,130 @@ Every wakeup, the loop:
 
 ---
 
-## Phase A — Cross-binding ergonomics (Python-parity)
+## ⭐ Phase H — Haskell deep polish (user-set, do first)
+
+Set 2026-05-13 evening by the user: "finish off making Haskell very nice".
+
+- [ ] **H.1** Layout-callback ergonomics: emit a `Layout :: MyDataModel -> Dom` style entry point on top of the inbound trampoline (B.8.3 landed the trampoline; this is the user-facing Haskell-friendly wrapper). The wrapper marshals the RefAny into a phantom-typed `RefAny a`, calls the user fn, pokes the returned `Dom` into the out-ptr. Mirrors what Python's `def layout(data, info) -> Dom` provides.
+- [ ] **H.2** Wire `App.run` from Haskell — splice the LayoutCallback trampoline FunPtr into a `WindowCreateOptions`'s nested `window_state.layout_callback` field; build matching `Storable` plumbing so `pokeByteOff/peekByteOff` reaches that field. Once H.1 is in, this is the full GUI hello-world (AZ_DEBUG verification blocked by C.1).
+- [ ] **H.3** AzVec\<T\> → Haskell `[T]`. Use the existing `<X>Vec.ptr/len` Storable accessors, peek N elements into a list. Per-vec-elem-type instance via the codegen.
+- [ ] **H.4** AzOption\<T\> → Haskell `Maybe T`. Tag-byte discriminator (already settled for OCaml in A.1.4); extract payload via per-variant `Storable` offsets.
+- [ ] **H.5** AzResult\<T,E\> → Haskell `Either E T`. Same shape as H.4 with the Err arm.
+- [ ] **H.6** AzString \<-> Haskell `String` / `Text`. Round-trip via `peekCStringLen` from `vec.ptr/vec.len`. Already partially handled by the C-shim layer's outbound bytes-extract; expose at the umbrella `Azul` module level.
+- [ ] **H.7** RAII `withFoo :: (Foo -> IO a) -> IO a` for every emitted wrapper class. The Haskell codegen umbrella already declares the names; fill in the bodies via `Control.Exception.bracket (Foo_create) Foo_delete`.
+- [ ] **H.8** `deriving (Show, Eq)` for every emitted wrapper data type via the per-type C-ABI helpers (`<Type>_clone` / `<Type>_partialEq` / `<Type>_toDbgString`). When the API provides them, route Haskell's `Show`/`Eq` through them; when not, leave the auto-derived `instance Show T where show _ = "<T>"`.
+- [ ] **H.9** Hello-world rewrite — collapse the smoke test to a Python-quality `MyDataModel -> Dom` form using H.1–H.7.
+- [ ] **H.10** README update + cabal manifest description refresh.
+
+---
+
+## ⭐ Phase I — Per-language native idiom integration (user-set, do after H)
+
+Set 2026-05-13 evening by the user: "review the other langs for all the 'lang-specific integrations' we can do, especially integrating the 'traits' — Debug, PartialEq, Hash, etc.".
+
+This is the second pass on every binding after Phase A landed the four big accessors (`AzString` / `AzOption` / `AzVec` / `AzResult`). Now we attach the wrapper types to each host language's *native trait system* so user code reaches them through `==`, `hash`, `print`, `for x in vec:` etc. without having to call any `_partialEq` / `_clone` / `_toDbgString` helper explicitly.
+
+The codegen drives this from three IR signals (set per-type via `derive` in api.json):
+
+- `PartialEq` → host-language equality
+- `Hash` → host-language hashing
+- `Clone` → host-language deep-copy
+- `Debug` → host-language `toString` / `repr` / `inspect`
+
+### I.1 Iterators / iterable protocol
+
+Vec\<T\> wrappers currently expose `to_a` / `toList` / `toByteArray` (snapshot to a host array). The user-facing iteration should also work:
+
+- [ ] **I.1.1 Python** — already has `__iter__` via PyO3 sequence protocol (verify; no change needed if so).
+- [ ] **I.1.2 Java** — implement `Iterable<T>` on every `AzXVec` wrapper, yielding wrapper-typed elements.
+- [ ] **I.1.3 Kotlin** — `operator fun iterator(): Iterator<T>` on every Vec wrapper (`for (x in vec)` syntax).
+- [ ] **I.1.4 Scala** — rides on Java's `Iterable`; expose Scala collection conversion (`toSeq`).
+- [ ] **I.1.5 C#** — implement `IEnumerable<T>` on every Vec wrapper (`foreach (var x in vec)`).
+- [ ] **I.1.6 Ruby** — `include Enumerable` + `each` method on Vec wrappers.
+- [ ] **I.1.7 Node** — `Symbol.iterator` generator on Vec wrappers (`for (const x of vec)`).
+- [ ] **I.1.8 Lua** — `__index`/`__len` metamethod or `__pairs` for `pairs(vec)` / `ipairs(vec)`.
+- [ ] **I.1.9 OCaml** — `Vec.to_list` / `Vec.to_array` / `Vec.iter` / `Vec.map` family.
+- [ ] **I.1.10 Haskell** — handled in H.3 (instance Foldable / Traversable, or direct `[T]` conversion).
+
+### I.2 Equality + hashing (trait routing)
+
+For every struct where the IR has `PartialEq` in `derive`, route the host-language equality through `Az<X>_partialEq`. Same for `Hash`.
+
+- [ ] **I.2.1 Java** — override `equals(Object)` calling `AzX_partialEq`; override `hashCode()` calling `AzX_hash` if available, else compute from the wrapper's `Pointer.hashCode()`.
+- [ ] **I.2.2 Kotlin** — same as Java (overriding `equals` + `hashCode`).
+- [ ] **I.2.3 Scala** — rides on Java.
+- [ ] **I.2.4 C#** — override `Equals(object)` + `GetHashCode()`.
+- [ ] **I.2.5 Ruby** — override `==` (and `eql?`) + `hash`.
+- [ ] **I.2.6 Node** — `equals(other)` instance method (JS has no `==` overload).
+- [ ] **I.2.7 Lua** — `__eq` metamethod.
+- [ ] **I.2.8 OCaml** — `let equal a b = ...` + `let hash t = ...` helpers per module.
+- [ ] **I.2.9 Haskell** — handled in H.8 (deriving Eq via `partialEq`).
+
+### I.3 Debug / Display routing
+
+For every struct with `Debug` in `derive` and a `_toDbgString` C-ABI helper, override the host `toString` / `__repr__` / `inspect`.
+
+- [ ] **I.3.1 Java/Kotlin/Scala** — override `toString()` (only for types where AzX.toString isn't already shadowed by something else — Java's `toString()` for the wrapper currently returns the default Object.toString unless we override).
+- [ ] **I.3.2 C#** — `override string ToString()` per wrapper.
+- [ ] **I.3.3 Ruby** — `def to_s` + `def inspect` per wrapper.
+- [ ] **I.3.4 Node** — `toString()` (also wire `[util.inspect.custom]` for Node's REPL).
+- [ ] **I.3.5 Lua** — `__tostring` metamethod.
+- [ ] **I.3.6 OCaml** — `let to_string t = ...` per module.
+- [ ] **I.3.7 Haskell** — handled in H.8.
+
+### I.4 Clone / deep-copy routing
+
+Every wrapper class with a `_clone` C-ABI export → host-native deep-copy:
+
+- [ ] **I.4.1 Java** — implement `Cloneable` + `public Object clone()` calling `AzX_clone`.
+- [ ] **I.4.2 Kotlin/Scala** — `fun copy(): T` / `def copy(): T`.
+- [ ] **I.4.3 C#** — `public T Clone()` and implement `ICloneable`.
+- [ ] **I.4.4 Ruby** — override `dup` and `clone`.
+- [ ] **I.4.5 Node** — `clone()` instance method (JS has no built-in clone protocol).
+- [ ] **I.4.6 Lua** — `:clone()` method (already exposed by existing codegen — verify).
+- [ ] **I.4.7 OCaml** — `let clone t = ...` per module.
+- [ ] **I.4.8 Haskell** — handled in H.8 if needed.
+
+### I.5 Native error / Option / Result idioms (deeper than Phase A.1)
+
+Phase A.1 added `.unwrap()` and `.is_some()` accessors. Phase I.5 makes the wrappers feel native:
+
+- [ ] **I.5.1 Java/Kotlin/Scala** — return `Optional<T>` directly from any C-ABI helper that returns `AzOptionT` (auto-unwrap at the wrapper boundary). For `AzResultT`, throw a typed exception (`AzulErrorException`) on Err, return T on Ok. Mirrors the existing `unwrap()` but pushes the host idiom up to the call site.
+- [ ] **I.5.2 C#** — return `T?` directly; throw `AzulException` for Err.
+- [ ] **I.5.3 Ruby** — return `nil` on None; raise `Azul::Error` on Err.
+- [ ] **I.5.4 Node** — return `null` on None; throw `Error` on Err.
+- [ ] **I.5.5 Lua** — return `nil` on None; `error()` on Err.
+- [ ] **I.5.6 OCaml** — return `option`/`result` directly at the binding boundary (the codegen currently emits `az_result_t` opaque blobs; need per-variant typed extraction — see auto_conversion_audit.md).
+- [ ] **I.5.7 Python** — already idiomatic.
+- [ ] **I.5.8 Haskell** — handled in H.4 + H.5.
+
+### I.6 Verify hello-world impact
+
+After I.1–I.5 land per language, the hello-world should benefit. Re-measure LOC and update the per-binding READMEs.
+
+- [ ] **I.6.x** Per-binding hello-world re-pass: verify each call site that previously needed a manual unwrap / explicit conversion can drop it.
+
+---
+
+## ⭐ Phase J — Codegen audit for function-specific hacks (user-set, do during I)
+
+Set 2026-05-13 evening by the user: "review the codegen for any 'function-specific hacks', i.e. where the agent tried to optimize for 'making the hello-world pass' but not 'making the general case pass'".
+
+Grep the codegen for hardcoded special-cases — `if s.name == "X"`, `if func.c_name == "AzY_z"`, `class_name match { "Button" => ... }` — and refactor to type-driven rules where possible. When the rule needs api.json metadata that doesn't exist yet, document the gap rather than papering over it.
+
+Known patterns to audit (grep starting points):
+
+- [ ] **J.1** `if s.name == "Button"` smart-factory branches — already type-driven for AzString/wrapper-class args, but the `onClick(Object data, ...)` SAM-accepting overload is hardcoded per binding. Lift to "any method whose final two args are `(RefAny, Callback)` gets a smart factory variant".
+- [ ] **J.2** `if s.name == "WindowCreateOptions"` smart-factory branches — same pattern; lift to "any method that takes a `*LayoutCallbackType` fn-pointer arg gets a smart factory taking the host SAM".
+- [ ] **J.3** `if s.name == "String"` toString / from_lua / etc. — there are good reasons String is special (AzU8Vec interior), but the codegen should produce these via a single "AzString trait routing" predicate rather than per-binding `if s.name == "String"` blocks.
+- [ ] **J.4** `if func.c_name == "AzWindowCreateOptions_create"` Lua bypass — landed for Lua to keep host-invoker ctx; check if other bindings need the same and if so generalize.
+- [ ] **J.5** Audit every `lang_<x>/wrappers.rs` for `if s.name == ...` / `if func.c_name == ...` / `if class_name == ...` and reduce.
+
+### J.6 Hello-world dependency audit
+
+- [ ] **J.6** Walk each hello-world. For every wrapper method it calls, verify the codegen path is general (not "this method was special-cased so the hello-world works"). Document any genuine special-cases in api.json as derive flags or per-type tags so future code can target the metadata rather than a string match.
+
+---
 
 The big arc. Every E2E-passing binding gets the same family of changes so the user-facing hello-world collapses from ~150 lines to ~30. The pattern is identical per language; only the surface syntax differs.
 
