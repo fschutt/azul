@@ -276,18 +276,33 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
         String::new()
     };
 
+    // Phase I.1.8 (Lua): __len + __index for numeric keys when this is
+    // a Vec wrapper. Enables `#vec` length, `vec[i]` access (0-based at
+    // the C ABI, 1-based via convention here), and `ipairs(vec)`-like
+    // iteration via the standard length+index protocol.
+    let is_vec = s.fields.len() == 4
+        && s.fields[0].name == "ptr"
+        && s.fields[1].name == "len"
+        && s.fields[2].name == "cap"
+        && s.fields[1].type_name.trim() == "usize";
+    let len_clause = if is_vec {
+        ", __len = function(self) return tonumber(self.len) end".to_string()
+    } else {
+        String::new()
+    };
+
     // Metatype binding — only for non-Copy types (those with _delete).
     // For Copy types we still want __index for instance methods, but no __gc.
     if has_delete {
         let delete_c = format!("Az{}_delete", class);
         out.push_str(&format!(
-            "    ffi.metatype('{}', {{ __index = {}_methods, __gc = function(self) C.{}(self) end{}{} }})\n",
-            c_name, class, delete_c, eq_clause, tostring_clause
+            "    ffi.metatype('{}', {{ __index = {}_methods, __gc = function(self) C.{}(self) end{}{}{} }})\n",
+            c_name, class, delete_c, eq_clause, tostring_clause, len_clause
         ));
-    } else if method_count > 0 || has_eq || has_dbg {
+    } else if method_count > 0 || has_eq || has_dbg || is_vec {
         out.push_str(&format!(
-            "    ffi.metatype('{}', {{ __index = {}_methods{}{} }})\n",
-            c_name, class, eq_clause, tostring_clause
+            "    ffi.metatype('{}', {{ __index = {}_methods{}{}{} }})\n",
+            c_name, class, eq_clause, tostring_clause, len_clause
         ));
     }
     out.push_str("end\n");

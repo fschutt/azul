@@ -358,6 +358,10 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
     // Phase I.3.4 (Node): toString() routed through Az<X>_toDbgString.
     emit_node_toString_if_supported(b, s, ir);
 
+    // Phase I.1.7 (Node): if this wrapper is a Vec (ptr/len/cap/destructor
+    // shape), expose Symbol.iterator so `for (const x of vec)` works.
+    emit_node_iterator_if_vec(b, s);
+
     // Explicit `delete()` for callers who need deterministic disposal.
     if has_delete {
         b.line("/**");
@@ -546,6 +550,44 @@ fn emit_enum_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, e: &EnumDef) {
 // ============================================================================
 // Method emission helpers
 // ============================================================================
+
+/// Phase I.1.7 (Node): if this wrapper's underlying struct matches the
+/// Vec shape, expose `[Symbol.iterator]` so `for (const x of vec)`
+/// works. Pure type-driven from the (ptr, len, cap, destructor) field
+/// pattern.
+fn emit_node_iterator_if_vec(b: &mut CodeBuilder, s: &StructDef) {
+    if s.fields.len() != 4 {
+        return;
+    }
+    if s.fields[0].name != "ptr"
+        || s.fields[1].name != "len"
+        || s.fields[2].name != "cap"
+    {
+        return;
+    }
+    if s.fields[1].type_name.trim() != "usize" {
+        return;
+    }
+    b.line("/**");
+    b.line(" * Phase I.1: iterate the underlying Vec via Symbol.iterator.");
+    b.line(" * `for (const x of vec)` walks ptr[0..len].");
+    b.line(" */");
+    b.line("*[Symbol.iterator]() {");
+    b.indent();
+    b.line("if (this._ptr == null) return;");
+    b.line("const buf = this._ptr.ptr;");
+    b.line("const n = Number(this._ptr.len);");
+    b.line("for (let i = 0; i < n; i++) {");
+    b.indent();
+    // koffi: index into the buffer pointer directly. For primitive
+    // elements that's an integer; for struct elements it's a Struct.
+    b.line("yield buf[i];");
+    b.dedent();
+    b.line("}");
+    b.dedent();
+    b.line("}");
+    b.blank();
+}
 
 /// Phase I.3.4 (Node): emit `toString()` instance method routed
 /// through `Az<X>_toDbgString`. Decodes the returned AzString to a JS

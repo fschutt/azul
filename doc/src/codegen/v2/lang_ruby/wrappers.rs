@@ -209,8 +209,105 @@ fn emit_class_wrapper(
     // Az<X>_toDbgString when TypeTraits.is_debug.
     emit_rb_to_s_if_supported(builder, s, ir);
 
+    // Phase I.1.6 (Ruby): if this wrapper's underlying struct is a Vec
+    // (ptr/len/cap/destructor shape), include Enumerable + emit `each`.
+    emit_rb_each_if_vec(builder, s, ir);
+
     builder.dedent();
     builder.line(&format!("end # class {}", class_name));
+}
+
+/// Phase I.1.6 (Ruby): if this wrapper's underlying struct matches the
+/// codegen-emitted Vec shape (fields [ptr, len, cap, destructor]),
+/// `include Enumerable` and emit a `def each` that iterates via FFI
+/// pointer arithmetic. Pure type-driven (no name allowlist).
+fn emit_rb_each_if_vec(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    _ir: &CodegenIR,
+) {
+    let Some(elem_rust) = detect_vec_elem_type(s) else {
+        return;
+    };
+    builder.line("include Enumerable");
+    builder.line("# Phase I.1: iterate the underlying Vec buffer.");
+    builder.line("def each");
+    builder.indent();
+    builder.line("return enum_for(:each) unless block_given?");
+    // @ptr is the FFI::Struct returned by-value (an AzXVec). Access
+    // its fields directly via the [] indexer.
+    builder.line("buf = @ptr[:ptr]");
+    builder.line("n = @ptr[:len]");
+    builder.line("return if buf.null? || n.zero?");
+    // Primitive vs struct element handling.
+    let primitive = matches!(
+        elem_rust.as_str(),
+        "u8" | "i8" | "u16" | "i16" | "u32" | "i32" | "u64" | "i64" | "f32" | "f64" | "bool"
+    );
+    if primitive {
+        let read_method = match elem_rust.as_str() {
+            "u8" => "read_uint8",
+            "i8" => "read_int8",
+            "u16" => "read_uint16",
+            "i16" => "read_int16",
+            "u32" => "read_uint32",
+            "i32" => "read_int32",
+            "u64" => "read_uint64",
+            "i64" => "read_int64",
+            "f32" => "read_float",
+            "f64" => "read_double",
+            "bool" => "read_uint8",
+            _ => unreachable!(),
+        };
+        let elem_size = match elem_rust.as_str() {
+            "u8" | "i8" | "bool" => 1,
+            "u16" | "i16" => 2,
+            "u32" | "i32" | "f32" => 4,
+            _ => 8,
+        };
+        builder.line(&format!("(0...n).each {{ |i| yield (buf + i * {}).{} }}", elem_size, read_method));
+    } else {
+        // Struct element: overlay FFI::Struct per offset.
+        let elem_prefixed = format!("Az{}", elem_rust);
+        builder.line(&format!("elem_size = Native::{}.size", elem_prefixed));
+        builder.line("(0...n).each do |i|");
+        builder.indent();
+        builder.line(&format!(
+            "yield Native::{}.new(buf + i * elem_size)",
+            elem_prefixed
+        ));
+        builder.dedent();
+        builder.line("end");
+    }
+    builder.dedent();
+    builder.line("end");
+    builder.blank();
+}
+
+/// Vec-shape detector mirroring lang_haskell::types::detect_vec_elem_type.
+fn detect_vec_elem_type(s: &StructDef) -> Option<String> {
+    if s.fields.len() != 4 {
+        return None;
+    }
+    let f_ptr = &s.fields[0];
+    let f_len = &s.fields[1];
+    let f_cap = &s.fields[2];
+    if f_ptr.name != "ptr" || f_len.name != "len" || f_cap.name != "cap" {
+        return None;
+    }
+    if f_len.type_name.trim() != "usize" || f_cap.type_name.trim() != "usize" {
+        return None;
+    }
+    let raw = f_ptr.type_name.trim();
+    let elem = raw
+        .strip_prefix("*mut ")
+        .or_else(|| raw.strip_prefix("*const "))
+        .map(str::trim)
+        .unwrap_or(raw);
+    if elem.is_empty() {
+        return None;
+    }
+    Some(elem.to_string())
 }
 
 /// Phase I.3.3 (Ruby): override `to_s` + `inspect` routed through

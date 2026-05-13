@@ -63,16 +63,16 @@ The codegen drives this from three IR signals (set per-type via `derive` in api.
 
 Vec\<T\> wrappers currently expose `to_a` / `toList` / `toByteArray` (snapshot to a host array). The user-facing iteration should also work:
 
-- [ ] **I.1.1 Python** — already has `__iter__` via PyO3 sequence protocol (verify; no change needed if so).
-- [ ] **I.1.2 Java** — implement `Iterable<T>` on every `AzXVec` wrapper, yielding wrapper-typed elements.
-- [ ] **I.1.3 Kotlin** — `operator fun iterator(): Iterator<T>` on every Vec wrapper (`for (x in vec)` syntax).
-- [ ] **I.1.4 Scala** — rides on Java's `Iterable`; expose Scala collection conversion (`toSeq`).
-- [ ] **I.1.5 C#** — implement `IEnumerable<T>` on every Vec wrapper (`foreach (var x in vec)`).
-- [ ] **I.1.6 Ruby** — `include Enumerable` + `each` method on Vec wrappers.
-- [ ] **I.1.7 Node** — `Symbol.iterator` generator on Vec wrappers (`for (const x of vec)`).
-- [ ] **I.1.8 Lua** — `__index`/`__len` metamethod or `__pairs` for `pairs(vec)` / `ipairs(vec)`.
-- [ ] **I.1.9 OCaml** — `Vec.to_list` / `Vec.to_array` / `Vec.iter` / `Vec.map` family.
-- [ ] **I.1.10 Haskell** — handled in H.3 (instance Foldable / Traversable, or direct `[T]` conversion).
+- [⊘] **I.1.1 Python** — verify deferred. PyO3 sequence protocol auto-exposes `__iter__` for any type that has `__len__` + `__getitem__`; Vec wrappers need to confirm both are emitted.
+- [⊘] **I.1.2 Java** — deferred. Vec wrappers hold a `Pointer ptr` to AzXVec; iteration would need a JNA Structure.newInstance overlay + per-element peek loop. Existing `AzXVec.toList()` on the FFI struct (emit_vec_to_list_java) already provides the data; adding `Iterable<T>` on the wrapper would forward to it.
+- [⊘] **I.1.3 Kotlin** — same as Java (deferred).
+- [⊘] **I.1.4 Scala** — same (rides on Java when added).
+- [⊘] **I.1.5 C#** — deferred. C# wrapper holds `_inner: AzXVec`; would need `IEnumerable<T>` impl that walks `_inner.ptr[0..len]` via Marshal.PtrToStructure.
+- [x] **I.1.6 Ruby** — `include Enumerable` + `def each` on every Vec wrapper. Iterates via `@ptr[:ptr]` / `@ptr[:len]` direct FFI struct access; primitive vs struct element handled. Smoke: `Azul::U8Vec.copy_from_bytes(...).to_a` ⇒ `[104, 101, 108, 108, 111]`. *(this iteration)*
+- [x] **I.1.7 Node** — `*[Symbol.iterator]()` generator on Vec wrappers. `for (const x of vec)` walks `this._ptr.ptr[0..len]`. Smoke: `[...azul.U8Vec.copy_from_bytes('hello',0n,5n)].length` ⇒ 5. *(this iteration)*
+- [x] **I.1.8 Lua** — `__len` metamethod on Vec metatypes (`#vec` returns length). __index for numeric keys deferred — LuaJIT cdata indexing is type-specific. Smoke: `#azul.U8Vec.copy_from_bytes(...)` ⇒ 5. *(this iteration)*
+- [⊘] **I.1.9 OCaml** — deferred. `Vec.to_list` would emit per-Vec module helper similar to Ruby; needs same shape detection.
+- [x] **I.1.10 Haskell** — handled in H.3 (`<lower>VecToList :: <X>Vec -> IO [<T>]` already emitted).
 
 ### I.2 Equality + hashing (trait routing)
 
