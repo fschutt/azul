@@ -162,3 +162,16 @@ examples/smalltalk/BaselineOfAzul.st
 examples/smalltalk/crash.dmp
 examples/smalltalk/PharoDebug.log
 examples/smalltalk/smoketest.st
+
+# Phase-C transpile-blueprint experiment build artifacts.
+# third_party/remill is a tracked git submodule (pinned to v6.0.1);
+# everything else under third_party/ is build output and stays local.
+third_party/cxx-common/
+third_party/cxx-common-arm64.tar.xz
+third_party/remill-install/
+experiments/transpile-blueprint/out/
+experiments/transpile-blueprint/target/
+experiments/transpile-blueprint/Cargo.lock
+# Whitelist the cxx shim header — the global `*.h` rule above (intended
+# for generated azul.h) would otherwise drop it.
+!experiments/transpile-blueprint/cpp/*.h

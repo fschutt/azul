@@ -11,6 +11,8 @@ members = [
 exclude = [
     ".claude-agents",
     "tests",
+    "experiments",
+    "third_party",
 ]
 
 [workspace.dependencies]
