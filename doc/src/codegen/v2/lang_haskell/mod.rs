@@ -184,6 +184,9 @@ fn generate_umbrella(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     // happens via the qualified import, not via an unqualified one.
     builder.line("import qualified Azul.Types as T");
     builder.line("import qualified Azul.Internal.FFI as FFI");
+    builder.line("import qualified Foreign.Marshal.Alloc");
+    builder.line("import qualified Foreign.Storable");
+    builder.line("import qualified System.IO.Unsafe");
     builder.line("import Control.Exception (bracket)");
     builder.line("import Foreign.Ptr (Ptr, FunPtr, nullPtr)");
     builder.line("import Foreign.Marshal.Alloc (alloca)");

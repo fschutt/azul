@@ -95,8 +95,77 @@ pub fn emit_wrapper_bodies(
         emit_newtype(builder, s);
         emit_bracket_constructor(builder, s, ir);
         emit_dispose(builder, s);
+        // Phase H.8: route Show / Eq through the C-ABI `_toDbgString` /
+        // `_partialEq` helpers when api.json's `derive` / `custom_impls`
+        // lists indicate the underlying type supports them.
+        emit_show_instance_if_supported(builder, s, ir);
+        emit_eq_instance_if_supported(builder, s, ir);
     }
     Ok(())
+}
+
+/// Emit `instance Show <X> where show = ...` routed through
+/// `c_Az<X>_toDbgString_via` when TypeTraits.is_debug is set. The
+/// helper allocates an AzString out-buffer, calls the C-side debug
+/// formatter, decodes it back to a Haskell String.
+fn emit_show_instance_if_supported(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    ir: &CodegenIR,
+) {
+    if !s.traits.is_debug {
+        return;
+    }
+    // Confirm the helper actually exists at the FFI level (some types
+    // with derive(Debug) at the Rust level still skip the C-ABI export
+    // for category-related reasons).
+    let helper = format!("Az{}_toDbgString_via", s.name);
+    if !ir.functions.iter().any(|f| f.c_name == helper) {
+        return;
+    }
+    let wname = haskell_data_name(&s.name);
+    builder.line(&format!("instance Show {} where", wname));
+    builder.indent();
+    builder.line(&format!("show ({} p) = System.IO.Unsafe.unsafePerformIO $", wname));
+    builder.indent();
+    builder.line("Foreign.Marshal.Alloc.alloca $ \\__buf -> do");
+    builder.indent();
+    builder.line(&format!("FFI.c_{} p __buf", helper));
+    builder.line("__s <- Foreign.Storable.peek __buf");
+    builder.line("T.azStringToString __s");
+    builder.dedent();
+    builder.dedent();
+    builder.dedent();
+    builder.blank();
+}
+
+/// Emit `instance Eq <X> where (==) = ...` routed through
+/// `c_Az<X>_partialEq` when TypeTraits.is_partial_eq is set.
+fn emit_eq_instance_if_supported(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    ir: &CodegenIR,
+) {
+    if !s.traits.is_partial_eq {
+        return;
+    }
+    let helper = format!("Az{}_partialEq", s.name);
+    if !ir.functions.iter().any(|f| f.c_name == helper) {
+        return;
+    }
+    let wname = haskell_data_name(&s.name);
+    builder.line(&format!("instance Eq {} where", wname));
+    builder.indent();
+    builder.line(&format!(
+        "({} a) == ({} b) = System.IO.Unsafe.unsafePerformIO $ do",
+        wname, wname
+    ));
+    builder.indent();
+    builder.line(&format!("__cb <- FFI.c_{} a b", helper));
+    builder.line("pure (__cb /= 0)");
+    builder.dedent();
+    builder.dedent();
+    builder.blank();
 }
 
 // emit_callback_register_helpers moved to functions.rs (same module as
