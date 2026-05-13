@@ -83,11 +83,11 @@ d. Returns the wrapper-class WCO.
 
 Same pattern, smaller scope. Codegen for `AzButton_withOnClick(button, refAny, cb)` detects callable arg, auto-registers, returns the modified Button wrapper.
 
-- [ ] **A.4.1 Java/Kotlin/C#/Scala** — single shared codegen path (`lang_jvm/...`).
-- [ ] **A.4.2 Ruby:** `btn.on_click(refany) { |data, info| ... }`.
-- [ ] **A.4.3 Node:** `btn.onClick(refany, fn)`.
-- [ ] **A.4.4 OCaml:** `Button.on_click ~data ~fn button`.
-- [ ] **A.4.5 Lua:** `btn:on_click(refany, fn)`.
+- [x] **A.4.1 Java/Kotlin/C#/Scala**: `button.onClick(data, fn)` (Java/Kotlin) / `button.OnClick(data, fn)` (C#) added as a smart builder. Wraps `data` via `refanyCreate` and `fn` via `registerCallback`, then chains through the existing `withOnClick(refAny, cb)` instance method. Scala rides on Java's bytecode. *(this commit)*
+- [x] **A.4.2 Ruby:** `btn.on_click(data, click_fn = nil, &block)` — accepts a Proc/lambda OR a block. Goes through `Azul._register_callback` and `Azul.refany_create`, calls existing `with_on_click`. *(this commit)*
+- [x] **A.4.3 Node:** `btn.onClick(data, fn)` — calls `refanyCreate(data)` and `registerCallback('Callback', fn)` and chains through `with_on_click`. *(this commit)*
+- [⊘] **A.4.4 OCaml:** Deferred for the same Ctypes-design reasons as A.3.7. Separate task.
+- [x] **A.4.5 Lua:** `btn:on_click(data, fn)` — wraps `data` via `azul.refany_create` and reuses the existing auto-registering `with_on_click`. *(this commit)*
 
 ### A.5 Hide AzulHostInvoker entirely
 
@@ -305,6 +305,7 @@ These bite us repeatedly across bindings. Fix once in shared infra.
   - A.1.4 round 3: OCaml `az_<...>_is_ok`/`is_err`/`is_some`/`is_none` tag-byte helpers — `980c1b7b0`
   - A.2 enum constants — Node/Ruby/Lua already exposed; OCaml gets idiomatic `module Update = struct let refresh_dom : int = 1 end`; Java/Kotlin/C#/Scala hello-worlds updated to use `AzUpdate.RefreshDom.value` — `11585ad55`
   - A.3.1 + A.3.2 + A.3.3 + A.3.4: `WindowCreateOptions.create(layout fn)` smart factory for Java/Kotlin/C#/Scala — `83bb63ba9`
-  - A.3.5 + A.3.6: Ruby `create_with_layout` block-or-proc, Node `createWithLayout(fn)` (this commit). Lua already done before this session; OCaml deferred.
+  - A.3.5 + A.3.6: Ruby `create_with_layout` block-or-proc, Node `createWithLayout(fn)` — `e772d8e5a`. Lua already done before this session; OCaml deferred.
+  - A.4 smart `Button.on_click(data, fn)` across Java/Kotlin/C#/Scala/Ruby/Node/Lua (this commit); OCaml deferred.
 
 End of plan.

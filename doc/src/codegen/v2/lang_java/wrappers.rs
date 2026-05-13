@@ -183,6 +183,28 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
         builder.blank();
     }
 
+    // Button.withOnClick(Object, CallbackInvokerCallback) — smart
+    // builder that takes any Java object (auto-refany-wrapped) plus
+    // the callback SAM and returns a chained Button. The existing
+    // typed `withOnClick(AzRefAny.ByValue, AzCallback.ByValue)` stays
+    // for callers that want full control.
+    if s.name == "Button" {
+        builder.line("/**");
+        builder.line(" * Smart builder: pass any Java object as the data payload and");
+        builder.line(" * a click-handler lambda. The host-invoker registration of both");
+        builder.line(" * happens internally; the caller never has to mention");
+        builder.line(" * AzulHostInvoker.");
+        builder.line(" */");
+        builder.line("public Button onClick(Object data, AzulNativeManaged.CallbackInvokerCallback fn) {");
+        builder.indent();
+        builder.line("AzRefAny.ByValue __data = AzulHostInvoker.refanyCreate(data);");
+        builder.line("AzCallback.ByValue __cb = AzulHostInvoker.registerCallback(fn);");
+        builder.line("return withOnClick(__data, __cb);");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    }
+
     // WindowCreateOptions.create(LayoutCallbackInvokerCallback) — smart
     // factory that hides the host-invoker plumbing. The user passes a
     // SAM callback; we register it via AzulHostInvoker, splice the

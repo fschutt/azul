@@ -125,6 +125,24 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     // `{ vec: AzU8Vec }`, AzU8Vec is `{ ptr, len, cap, destructor }`,
     // so offset 0 is `vec.ptr` (the UTF-8 byte buffer) and offset 8 is
     // `vec.len` (byte length).
+    // Button.onClick(Any, CallbackInvokerCallback) — smart builder
+    // mirror of Java's. Accepts any host object + the SAM, handles
+    // refany+callback registration internally.
+    if s.name == "Button" {
+        builder.line("/**");
+        builder.line(" * Smart builder: pass any host object as the data payload and");
+        builder.line(" * a click-handler lambda. Host-invoker registration is hidden.");
+        builder.line(" */");
+        builder.line("fun onClick(data: Any, fn: AzulNativeManaged.CallbackInvokerCallback): Button {");
+        builder.indent();
+        builder.line("val __data = AzulHostInvoker.refanyCreate(data)");
+        builder.line("val __cb = AzulHostInvoker.registerCallback(fn)");
+        builder.line("return withOnClick(__data, __cb)");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    }
+
     if s.name == "String" {
         builder.line("/**");
         builder.line(" * Decode the wrapped UTF-8 bytes into a `kotlin.String`.");

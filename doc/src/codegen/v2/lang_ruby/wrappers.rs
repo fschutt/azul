@@ -131,6 +131,25 @@ fn emit_class_wrapper(
         builder.blank();
     }
 
+    // Button#on_click(data, fn_or_block) — smart instance method:
+    // accepts any Ruby object as the data payload and a Proc / lambda
+    // / block as the click handler. Wraps both via the host invoker.
+    if s.name == "Button" {
+        builder.line("# Smart builder: pass any Ruby object as the data payload and");
+        builder.line("# a click-handler Proc/lambda/block. Returns a new Button with");
+        builder.line("# the callback wired up.");
+        builder.line("def on_click(data, click_fn = nil, &block)");
+        builder.indent();
+        builder.line("fn = click_fn || block");
+        builder.line("raise ArgumentError, 'click fn required' unless fn");
+        builder.line("data_ref = Azul.refany_create(data)");
+        builder.line("cb_struct = Azul._register_callback('Callback', fn)");
+        builder.line("self.with_on_click(data_ref, cb_struct)");
+        builder.dedent();
+        builder.line("end");
+        builder.blank();
+    }
+
     // WindowCreateOptions.create_with_layout(fn) — smart factory that
     // hides the host-invoker plumbing. Ruby FFI's nested-struct field
     // assignment uses the same memory (no JNA reference-swap quirk),

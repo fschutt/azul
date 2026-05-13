@@ -169,6 +169,26 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     // is `{ vec: AzU8Vec }`, AzU8Vec is `{ ptr, len, cap, destructor }`,
     // so we read `_inner.vec.ptr` and `_inner.vec.len` and copy out.
     // (`len` is `UIntPtr`; route through ToUInt64 for portability.)
+    // Button.OnClick(object, CallbackInvokerDelegate) — smart builder.
+    // Mirrors Java/Kotlin's `onClick`. Accepts any managed object +
+    // the delegate, handles refany + callback registration internally.
+    if s.name == "Button" {
+        builder.line("/// <summary>");
+        builder.line("/// Smart builder: pass any managed object as the data payload");
+        builder.line("/// and a click-handler delegate. The host-invoker registration");
+        builder.line("/// is hidden — the caller never has to touch HostInvoker.");
+        builder.line("/// </summary>");
+        builder.line("public Button OnClick(object data, HostInvoker.CallbackInvokerDelegate fn)");
+        builder.line("{");
+        builder.indent();
+        builder.line("var __data = HostInvoker.RefanyCreate(data);");
+        builder.line("var __cb = HostInvoker.RegisterCallback(fn);");
+        builder.line("return WithOnClick(__data, __cb);");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    }
+
     if s.name == "String" {
         builder.line("/// <summary>Decode the wrapped UTF-8 bytes into a managed string.</summary>");
         builder.line("public override string ToString()");

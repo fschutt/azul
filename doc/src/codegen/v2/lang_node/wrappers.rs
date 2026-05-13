@@ -247,6 +247,24 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
         b.blank();
     }
 
+    // Button.onClick(data, fn) — smart builder. Wraps `data` in a
+    // RefAny and `fn` in a Callback via the host invoker. Returns a
+    // new Button koffi struct with the click wiring set.
+    if s.name == "Button" {
+        b.line("/**");
+        b.line(" * Smart builder: pass any JS value as the data payload and a");
+        b.line(" * click-handler function. Host-invoker registration is hidden.");
+        b.line(" */");
+        b.line("onClick(data, fn) {");
+        b.indent();
+        b.line("const __data = refanyCreate(data);");
+        b.line("const __cb = registerCallback('Callback', fn);");
+        b.line("return this.with_on_click(__data, __cb);");
+        b.dedent();
+        b.line("}");
+        b.blank();
+    }
+
     // WindowCreateOptions.createWithLayout(fn) — smart factory. The
     // codegen-emitted `create(fn)` routes through
     // `AzWindowCreateOptions_create` which takes a raw `AzLayoutCallbackType`

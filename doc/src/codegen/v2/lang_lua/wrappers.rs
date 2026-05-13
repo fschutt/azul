@@ -199,6 +199,24 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
         out.push_str(&format!("    -- (no instance methods on {})\n", class));
     }
 
+    // Button:on_click(data, fn) — smart builder mirror of the
+    // Java/Kotlin/C#/Ruby/Node smart on_click. Wraps `data` in a
+    // RefAny and uses with_on_click (which already auto-registers
+    // the callback).
+    if class == "Button" {
+        out.push_str(&format!(
+            "    function {}_methods:on_click(data, fn)\n",
+            class
+        ));
+        out.push_str(
+            "        local data_ref = azul.refany_create(data)\n",
+        );
+        out.push_str(
+            "        return self:with_on_click(data_ref, fn)\n",
+        );
+        out.push_str("    end\n");
+    }
+
     // AzString gets a `:to_lua_string()` method that decodes the
     // wrapped UTF-8 bytes into a Lua string. LuaJIT's `ffi.string`
     // copies `len` bytes from `ptr` — `self.vec.ptr` / `self.vec.len`
