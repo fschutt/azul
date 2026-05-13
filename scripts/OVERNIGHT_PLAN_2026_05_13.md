@@ -123,8 +123,8 @@ Phase A.1 added `.unwrap()` and `.is_some()` accessors. Phase I.5 makes the wrap
 - [x] **I.5.4 Node** — `optionToNullable(_ret)` / `resultUnwrap(_ret)` auto-applied at wrapper-method return when return-type name starts with "Option" / "Result". 279 sites emitted. Module-level helpers from A.1.4 already in place. *(this iteration)*
 - [x] **I.5.5 Lua** — `(C.<x>(...)):to_opt()` / `:unwrap()` auto-emitted via the existing per-cdata metatype methods. Both varargs-passthrough and enumerated-args paths handled. 472 sites emitted. *(this iteration)*
 - [ ] **I.5.6 OCaml** — return `option`/`result` directly at the binding boundary (the codegen currently emits `az_result_t` opaque blobs; need per-variant typed extraction — see auto_conversion_audit.md).
-- [ ] **I.5.7 Python** — already idiomatic.
-- [ ] **I.5.8 Haskell** — handled in H.4 + H.5.
+- [x] **I.5.7 Python** — already idiomatic (PyO3 maps `Option<T>` → `Option[T]` and `Result<T,E>` → raises on Err).
+- [x] **I.5.8 Haskell** — handled in H.4 + H.5 (tag-byte accessors `<lower>IsNone` / `_IsSome` / `_IsOk` / `_IsErr`; full payload extraction deferred).
 
 ### I.6 Verify hello-world impact
 
@@ -256,8 +256,8 @@ After A.1 + A.2 + A.3 + A.4 + A.5 + A.6 are done per language, the hello-world c
 
 The PHP extension build now works (verified 2026-05-13; CLT libclang is sufficient). Smoke layer fully passes. Remaining for E2E:
 
-- [ ] **B.1.1** Codegen `Azul\Dom::createBody/createDiv/createText` + `withChild/withCss` as ext-php-rs class methods on `lang_php_ext.rs`. *(NOTE: that file is the other agent's territory — coordinate or wait.)*
-- [ ] **B.1.2** Codegen `Azul\App::create($data, $config)` + `Azul\App::run(WindowCreateOptions $wco)`.
+- [x] **B.1.1** `Azul\Dom` emitted as ext-php-rs `#[php_class]` (see commit `e9a07b490` Phase 51). PHP_CLASS_ALLOWLIST extended; per-class impl blocks emit createBody / createDiv / createText / withChild / withCss via the IR-driven render_method path. Verified via PHP smoke test.
+- [x] **B.1.2** Same Phase 51 commit emits `Azul\App::create($data, $config)`, `Azul\App::run(WindowCreateOptions $wco)`, plus `Azul\AppConfig::create()` and `Azul\WindowCreateOptions::default()`. impl AzulApp emitted in php_api.rs.
 - [⊘] **B.1.3** Documented blocker (memory: `php_b13_smart_factory.md`). The smart factory needs either a libazul-side `AzApp_setLayoutCallbackInvoker` C export (analogous to existing `setCallbackInvoker`) OR an ext-php-rs Zval-to-AzDom-inner decode path. macOS App.run anyway blocked on C.1, so even with B.1.3 wired the AZ_DEBUG probe wouldn't reach today. *(this iteration: scope reviewed, blocker documented)*
 - [⊘] **B.1.4** Gated on B.1.3.
 - [⊘] **B.1.5** Gated on B.1.3 + C.1 (macOS libazul webrender).
@@ -312,8 +312,8 @@ The PHP extension build now works (verified 2026-05-13; CLT libclang is sufficie
 
 ### B.9 Smalltalk — Pharo Tonel layout
 
-- [ ] **B.9.1** Document the Tonel layout blocker properly in memory.
-- [ ] **B.9.2** Decision: attempt fix (multi-day) OR accept smoke-only.
+- [x] **B.9.1** Documented in `memory/smalltalk_tonel_blocker.md`: Pharo's TonelReader expects a package DIRECTORY (`.class.st` per class + `package.st` baseline), but codegen emits one combined `Azul.st`. The syntax is correct Tonel — only the file LAYOUT needs restructuring. *(this iteration)*
+- [—] **B.9.2** Accept smoke-only ceiling. Full package-tree emission is a focused 1-2 day task (per-class `.class.st` files via lang_haskell's FILE_MARKER pattern). Deferred until demand. *(this iteration)*
 
 ### B.10 Toolchain-blocked langs
 
