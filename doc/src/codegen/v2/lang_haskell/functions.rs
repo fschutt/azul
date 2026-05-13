@@ -61,6 +61,32 @@ pub fn emit_foreign_imports(
         }
         emit_callback_wrapper(builder, cb, ir);
     }
+
+    // Inbound trampolines: GHC's `foreign import ccall "wrapper"` can't
+    // match the C ABI's by-value-struct-arg / by-value-struct-return
+    // shape for callbacks. For each callback typedef, the cshim emits a
+    // C trampoline that handles the ABI shape and forwards to a
+    // Haskell-friendly inner with by-pointer args and out-pointer
+    // return. The three imports below let user code:
+    //
+    //   1. Wrap a Haskell fn `(Ptr Arg1 -> ... -> Ptr Ret -> IO ())` as
+    //      a `FunPtr` via `mk_<X>_inner`.
+    //   2. Register that FunPtr via `c_<X>_set_inner` so the trampoline
+    //      knows where to delegate.
+    //   3. Take `p_<X>_trampoline` as the actual C fn pointer to splice
+    //      into AzLayoutCallback / button.with_on_click / etc.
+    builder.blank();
+    builder.line("-- ---------------------------------------------------------------------------");
+    builder.line("-- Inbound trampolines (Haskell-friendly out-pointer inner + C-ABI trampoline).");
+    builder.line("-- See cbits/azul_shims.c for the matching `Az<X>_trampoline` / `_set_inner`.");
+    builder.line("-- ---------------------------------------------------------------------------");
+    builder.blank();
+    for cb in &ir.callback_typedefs {
+        if !config.should_include_type(&cb.name) {
+            continue;
+        }
+        emit_inbound_trampoline_imports(builder, cb, ir);
+    }
     Ok(())
 }
 
@@ -300,6 +326,138 @@ fn emit_callback_wrapper(
         mk_name, func_ty, func_ty
     ));
     builder.dedent();
+}
+
+/// Emit the inbound-trampoline import triplet for one callback typedef:
+///
+/// ```haskell
+/// foreign import ccall "wrapper"
+///     mk_LayoutCallbackType_inner :: (Ptr (RefAny ()) -> Ptr LayoutCallbackInfo -> Ptr Dom -> IO ())
+///                                 -> IO (FunPtr (...))
+/// foreign import ccall "AzLayoutCallbackType_set_inner"
+///     c_AzLayoutCallbackType_set_inner :: FunPtr (...) -> IO ()
+/// foreign import ccall "&AzLayoutCallbackType_trampoline"
+///     p_AzLayoutCallbackType_trampoline :: FunPtr (...)
+/// ```
+///
+/// The wrapper inner signature uses by-pointer args + out-pointer return
+/// so GHC's `foreign import ccall "wrapper"` accepts it; the matching C
+/// trampoline (see `cshim.rs::emit_inbound_trampoline`) dereferences /
+/// addresses-of as needed to bridge with the C ABI's by-value-struct
+/// shape that libazul invokes.
+fn emit_inbound_trampoline_imports(
+    builder: &mut CodeBuilder,
+    cb: &super::super::ir::CallbackTypedefDef,
+    ir: &CodegenIR,
+) {
+    // Inner signature: each arg is `Ptr T` (Haskell can't take aggregate
+    // structs by value); aggregate return becomes a trailing `Ptr R`
+    // out-parameter; primitive return stays as the primitive.
+    let mut inner_atoms: Vec<String> = Vec::new();
+    for a in &cb.args {
+        let raw = haskell_field_type(
+            &a.type_name,
+            super::super::ir::FieldRefKind::Owned,
+            ir,
+        );
+        // Primitive args stay primitive; aggregate args are `Ptr T`.
+        if is_haskell_ffi_primitive(&raw) {
+            inner_atoms.push(raw);
+        } else {
+            inner_atoms.push(format!("Ptr {}", raw));
+        }
+    }
+
+    let ret_is_aggregate = match cb.return_type.as_deref() {
+        Some(r) => {
+            let t = r.trim();
+            if matches!(t, "" | "void" | "()" | "c_void") {
+                false
+            } else {
+                let raw = haskell_field_type(
+                    t,
+                    super::super::ir::FieldRefKind::Owned,
+                    ir,
+                );
+                !is_haskell_ffi_primitive(&raw)
+            }
+        }
+        None => false,
+    };
+
+    let inner_ret_ty;
+    if ret_is_aggregate {
+        let raw = haskell_field_type(
+            cb.return_type.as_deref().unwrap(),
+            super::super::ir::FieldRefKind::Owned,
+            ir,
+        );
+        inner_atoms.push(format!("Ptr {}", raw));
+        inner_ret_ty = "()".to_string();
+    } else {
+        inner_ret_ty = match cb.return_type.as_deref() {
+            None => "()".to_string(),
+            Some(r) => {
+                let t = r.trim();
+                if matches!(t, "" | "void" | "()" | "c_void") {
+                    "()".to_string()
+                } else {
+                    haskell_field_type(t, super::super::ir::FieldRefKind::Owned, ir)
+                }
+            }
+        };
+    }
+
+    let inner_func_ty = if inner_atoms.is_empty() {
+        format!("IO {}", paren_if_needed(&inner_ret_ty))
+    } else {
+        format!(
+            "{} -> IO {}",
+            inner_atoms
+                .iter()
+                .map(|a| paren_if_needed(a))
+                .collect::<Vec<_>>()
+                .join(" -> "),
+            paren_if_needed(&inner_ret_ty)
+        )
+    };
+
+    let mk_inner_name = format!("mk_{}_inner", cb.name);
+    let c_setter_name = format!("c_Az{}_set_inner", cb.name);
+    let p_trampoline_name = format!("p_Az{}_trampoline", cb.name);
+
+    builder.line("foreign import ccall \"wrapper\"");
+    builder.indent();
+    builder.line(&format!(
+        "{} :: ({}) -> IO (FunPtr ({}))",
+        mk_inner_name, inner_func_ty, inner_func_ty
+    ));
+    builder.dedent();
+
+    builder.line(&format!(
+        "foreign import ccall unsafe \"Az{}_set_inner\"",
+        cb.name
+    ));
+    builder.indent();
+    builder.line(&format!(
+        "{} :: FunPtr ({}) -> IO ()",
+        c_setter_name, inner_func_ty
+    ));
+    builder.dedent();
+
+    // p_<X>_trampoline is the C fn-pointer value of the trampoline,
+    // imported as a FunPtr to splice into AzLayoutCallback / Button.
+    // The FunPtr's type parameter doesn't need to be precise — Haskell
+    // never *calls* through it; it only needs to be the right size to
+    // poke into a struct field. We use `()` to keep the signature short.
+    builder.line(&format!(
+        "foreign import ccall unsafe \"&Az{}_trampoline\"",
+        cb.name
+    ));
+    builder.indent();
+    builder.line(&format!("{} :: FunPtr ()", p_trampoline_name));
+    builder.dedent();
+    builder.blank();
 }
 
 // ============================================================================

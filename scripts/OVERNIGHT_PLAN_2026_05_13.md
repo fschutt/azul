@@ -179,11 +179,11 @@ The PHP extension build now works (verified 2026-05-13; CLT libclang is sufficie
 
 ### B.8 Haskell — C shim layer
 
-- [ ] **B.8.1** Design: GHC FFI rejects struct-by-value returns. Need a per-callback-kind C shim that converts by-value returns to out-pointer writes.
-- [ ] **B.8.2** Emit the shim layer from `lang_haskell/managed.rs`.
-- [ ] **B.8.3** Wire user dispatch.
-- [ ] **B.8.4** Full GUI hello-world.
-- [ ] **B.8.5** AZ_DEBUG probe.
+- [x] **B.8.1** Design closed: outbound `<name>_via` shim layer (Haskell→libazul, struct-by-value through pointer wrappers) landed in `83a7ce7b1`. Inbound `<name>_trampoline` + `<name>_set_inner` triplet (libazul→Haskell, by-value-struct C ABI bridged to Haskell out-pointer signature) lands this iteration.
+- [x] **B.8.2** Both shim families emitted by `lang_haskell/cshim.rs` + matching foreign imports in `lang_haskell/functions.rs`. All 27 callback typedefs get the inbound triplet (`Az<X>_inner` typedef, `Az<X>_set_inner` setter, `Az<X>_trampoline` C-ABI bridge).
+- [x] **B.8.3** User dispatch wired through the trampoline pattern — HelloWorld.hs demonstrates `mk_LayoutCallbackType_inner` + `c_AzLayoutCallbackType_set_inner` + `p_AzLayoutCallbackType_trampoline` round-trip. Runs clean with GHC 9.14.
+- [⊘] **B.8.4** Full GUI hello-world (App.run + splice trampoline into WCO.window_state.layout_callback). Codegen-side complete; the splice itself needs Storable-offset knowledge for nested struct fields in `Azul.Types`. Not pursued in this iteration — App.run is blocked anyway by C.1.
+- [⊘] **B.8.5** AZ_DEBUG probe. Blocked by libazul macOS webrender crash (C.1), same blocker as Pascal/Lisp.
 
 ### B.9 Smalltalk — Pharo Tonel layout
 

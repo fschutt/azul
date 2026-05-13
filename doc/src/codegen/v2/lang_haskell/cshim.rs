@@ -18,7 +18,7 @@
 //! `Internal.FFI` hides the alloca dance so user code keeps the
 //! natural `args -> IO T` shape.
 
-use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory};
+use super::super::ir::{ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionDef, TypeCategory};
 use super::super::config::CodegenConfig;
 
 /// Top-level entry: produce the full `cbits/azul_shims.c` source as a
@@ -40,7 +40,226 @@ pub fn generate_c_shims(ir: &CodegenIR, config: &CodegenConfig) -> String {
         }
         emit_one(&mut out, func, ir);
     }
+
+    // Inbound trampolines: per callback typedef, emit a C function that
+    // matches the C ABI's by-value-struct signature and forwards to a
+    // Haskell-friendly inner function pointer (out-pointer return). GHC's
+    // `foreign import ccall "wrapper"` cannot match the by-value C ABI
+    // directly, so libazul calls the trampoline; the trampoline
+    // dereferences/addresses-of as needed and delegates to the inner.
+    out.push_str(
+        "\n\
+         /* ============================================================ */\n\
+         /* Inbound trampolines for callback typedefs.                   */\n\
+         /* Bridges the C ABI's by-value-struct signature to a Haskell-  */\n\
+         /* friendly out-pointer signature. One static slot per typedef  */\n\
+         /* — registers a Haskell-generated FunPtr via `_set_inner`,     */\n\
+         /* and exports `_trampoline` as the C function pointer to       */\n\
+         /* splice into AzLayoutCallback / button.with_on_click / etc.   */\n\
+         /* ============================================================ */\n\n",
+    );
+    for cb in &ir.callback_typedefs {
+        if !should_emit_inbound_trampoline(cb, config) {
+            continue;
+        }
+        emit_inbound_trampoline(&mut out, cb);
+    }
     out
+}
+
+/// True if a callback typedef needs an inbound trampoline. We emit one
+/// for every included callback typedef — even primitive-only ones — so
+/// the user-facing API is uniform (always go through `_inner` + setter +
+/// trampoline). The cost is one extra indirection per call.
+fn should_emit_inbound_trampoline(cb: &CallbackTypedefDef, config: &CodegenConfig) -> bool {
+    config.should_include_type(&cb.name)
+}
+
+/// Emit the inbound-trampoline triplet for one callback typedef:
+///
+/// ```c
+/// /* Inner sig (Haskell-friendly: by-pointer args, out-ptr return). */
+/// typedef void (*AzN_inner)(<ptr-args>, AzR *__out);
+/// static AzN_inner g_AzN_inner = 0;
+/// void AzN_set_inner(AzN_inner f) { g_AzN_inner = f; }
+/// /* Trampoline matches the C-ABI by-value signature. */
+/// AzR AzN_trampoline(<by-value-args>) {
+///     AzR __ret;
+///     g_AzN_inner(<address-of-args>, &__ret);
+///     return __ret;
+/// }
+/// ```
+///
+/// For void-returning callbacks the trampoline omits the `__ret` plumbing.
+/// For primitive-returning callbacks the inner takes the primitive return
+/// by value (no out-pointer).
+fn emit_inbound_trampoline(out: &mut String, cb: &CallbackTypedefDef) {
+    let returns_void = match &cb.return_type {
+        None => true,
+        Some(r) => matches!(r.trim(), "" | "void" | "()" | "c_void"),
+    };
+    let ret_is_aggregate = match &cb.return_type {
+        Some(r) => {
+            let t = r.trim();
+            !matches!(t, "" | "void" | "()" | "c_void")
+                && !t.starts_with("*const ")
+                && !t.starts_with("*mut ")
+                && !t.starts_with('&')
+                && !is_c_primitive(t)
+        }
+        None => false,
+    };
+
+    let inner_name = format!("Az{}_inner", cb.name);
+    let setter_name = format!("Az{}_set_inner", cb.name);
+    let trampoline_name = format!("Az{}_trampoline", cb.name);
+
+    // Build the by-value (C-ABI) parameter list and the
+    // address-of-passing inner-call argument list.
+    let mut abi_params: Vec<String> = Vec::new();
+    let mut inner_args: Vec<String> = Vec::new();
+    let mut inner_params: Vec<String> = Vec::new();
+    for (idx, a) in cb.args.iter().enumerate() {
+        let raw_name = if a.name.is_empty() {
+            format!("_arg{}", idx)
+        } else {
+            sanitize_c_arg(&a.name)
+        };
+        // Type names like `*mut T` / `*const T` represent raw-pointer
+        // args; c_typename already inlines the `*` so we treat them as
+        // pointers regardless of the surrounding ref_kind (which the IR
+        // sometimes records as Owned for these encodings).
+        let type_is_ptr_prefix = a.type_name.starts_with("*mut ")
+            || a.type_name.starts_with("*const ");
+        let c_ty = c_typename(&a.type_name);
+        if type_is_ptr_prefix {
+            // c_ty already ends in ` *` (or `const T *`) — emit the
+            // identifier directly. No extra address-of needed when
+            // forwarding to the inner.
+            abi_params.push(format!("{}{}", c_ty, raw_name));
+            inner_args.push(raw_name.clone());
+            inner_params.push(format!("{}{}", c_ty, raw_name));
+            continue;
+        }
+        match a.ref_kind {
+            ArgRefKind::Owned => {
+                if is_c_primitive(&a.type_name) {
+                    // Primitive args pass by value end-to-end.
+                    abi_params.push(format!("{} {}", c_ty, raw_name));
+                    inner_args.push(raw_name.clone());
+                    inner_params.push(format!("{} {}", c_ty, raw_name));
+                } else {
+                    // Aggregate by-value at the C ABI; Haskell can't
+                    // take it by value, so the trampoline takes the
+                    // address of its local copy and passes a pointer
+                    // through.
+                    abi_params.push(format!("{} {}", c_ty, raw_name));
+                    inner_args.push(format!("&{}", raw_name));
+                    inner_params.push(format!("const {} *{}", c_ty, raw_name));
+                }
+            }
+            ArgRefKind::Ref | ArgRefKind::Ptr => {
+                abi_params.push(format!("const {} *{}", c_ty, raw_name));
+                inner_args.push(raw_name.clone());
+                inner_params.push(format!("const {} *{}", c_ty, raw_name));
+            }
+            ArgRefKind::RefMut | ArgRefKind::PtrMut => {
+                abi_params.push(format!("{} *{}", c_ty, raw_name));
+                inner_args.push(raw_name.clone());
+                inner_params.push(format!("{} *{}", c_ty, raw_name));
+            }
+        }
+    }
+
+    let abi_params_str = if abi_params.is_empty() {
+        "void".to_string()
+    } else {
+        abi_params.join(", ")
+    };
+
+    // Inner-signature out-pointer return (aggregate case) or by-value
+    // primitive return.
+    let (inner_ret_c, abi_ret_c) = match cb.return_type.as_deref() {
+        None => ("void".to_string(), "void".to_string()),
+        Some(r) => {
+            let t = r.trim();
+            if matches!(t, "" | "void" | "()" | "c_void") {
+                ("void".to_string(), "void".to_string())
+            } else if ret_is_aggregate {
+                // Inner signature gets a trailing `AzR *__out` and
+                // returns void; trampoline returns `AzR` by value.
+                ("void".to_string(), c_typename(t))
+            } else {
+                // Primitive return: inner returns the primitive too.
+                (c_typename(t), c_typename(t))
+            }
+        }
+    };
+
+    let mut inner_params_with_out = inner_params.clone();
+    if ret_is_aggregate {
+        inner_params_with_out.push(format!("{} *__out", abi_ret_c));
+    }
+    let inner_params_str = if inner_params_with_out.is_empty() {
+        "void".to_string()
+    } else {
+        inner_params_with_out.join(", ")
+    };
+
+    out.push_str(&format!(
+        "/* === {} (return: {}, args: {}) === */\n",
+        cb.name,
+        cb.return_type.as_deref().unwrap_or("void"),
+        cb.args.len()
+    ));
+    out.push_str(&format!(
+        "typedef {} (*{})({});\n",
+        inner_ret_c, inner_name, inner_params_str,
+    ));
+    out.push_str(&format!("static {} g_{} = 0;\n", inner_name, inner_name));
+    out.push_str(&format!(
+        "void {}({} f) {{ g_{} = f; }}\n",
+        setter_name, inner_name, inner_name,
+    ));
+
+    // Trampoline body.
+    let mut inner_args_with_out = inner_args.clone();
+    if ret_is_aggregate {
+        inner_args_with_out.push("&__ret".to_string());
+    }
+    let inner_call_args = inner_args_with_out.join(", ");
+
+    if returns_void {
+        out.push_str(&format!(
+            "{} {}({}) {{ if (g_{}) g_{}({}); }}\n\n",
+            abi_ret_c, trampoline_name, abi_params_str, inner_name, inner_name, inner_call_args,
+        ));
+    } else if ret_is_aggregate {
+        out.push_str(&format!(
+            "{} {}({}) {{ {} __ret; \
+             if (g_{}) g_{}({}); \
+             return __ret; }}\n\n",
+            abi_ret_c,
+            trampoline_name,
+            abi_params_str,
+            abi_ret_c,
+            inner_name,
+            inner_name,
+            inner_call_args,
+        ));
+    } else {
+        // Primitive return — inner returns the primitive directly.
+        out.push_str(&format!(
+            "{} {}({}) {{ return g_{} ? g_{}({}) : ({})0; }}\n\n",
+            abi_ret_c,
+            trampoline_name,
+            abi_params_str,
+            inner_name,
+            inner_name,
+            inner_call_args,
+            abi_ret_c,
+        ));
+    }
 }
 
 /// True if a function passes the same inclusion filter as the
@@ -136,7 +355,19 @@ fn is_c_primitive(t: &str) -> bool {
 /// their `<stdint.h>` form; everything else gets the `Az` prefix that
 /// the generated `azul.h` uses.
 fn c_typename(t: &str) -> String {
-    match t.trim() {
+    let t = t.trim();
+    // Pointer-prefix forms: `*mut T` → `T *`, `*const T` → `const T *`.
+    // The IR encodes some raw-pointer types this way (e.g.
+    // `*mut c_void` for RefAnyDestructorType arg). Recurse into the
+    // pointee so the C output picks up `void *` / `AzFoo *` rather than
+    // the literal pasted `Az*mut c_void`.
+    if let Some(inner) = t.strip_prefix("*mut ") {
+        return format!("{} *", c_typename(inner));
+    }
+    if let Some(inner) = t.strip_prefix("*const ") {
+        return format!("const {} *", c_typename(inner));
+    }
+    match t {
         "u8" => "uint8_t".to_string(),
         "u16" => "uint16_t".to_string(),
         "u32" => "uint32_t".to_string(),
