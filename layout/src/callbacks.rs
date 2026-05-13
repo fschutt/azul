@@ -585,6 +585,7 @@ impl Callback {
     /// function pointer of type `CallbackType`. This is guaranteed when CoreCallback
     /// is created through standard APIs, but unsafe code could violate this.
     pub fn from_core(core: CoreCallback) -> Self {
+        debug_assert!(core.cb != 0, "CoreCallback.cb is null");
         Self {
             cb: unsafe { core::mem::transmute(core.cb) },
             ctx: core.ctx,
@@ -609,18 +610,6 @@ impl From<Callback> for CoreCallback {
     }
 }
 
-/// Convert a raw function pointer to CoreCallback
-///
-/// This is a helper function that wraps the function pointer cast.
-/// Cannot use From trait due to orphan rules (extern "C" fn is not a local type).
-#[inline]
-pub fn callback_type_to_core(cb: CallbackType) -> CoreCallback {
-    CoreCallback {
-        cb: cb as usize,
-        ctx: OptionRefAny::None,
-    }
-}
-
 impl Callback {
     /// Safely invoke the callback with the given data and info
     ///
@@ -628,17 +617,6 @@ impl Callback {
     pub fn invoke(&self, data: RefAny, info: CallbackInfo) -> Update {
         (self.cb)(data, info)
     }
-}
-
-/// Safe conversion from CoreCallback to function pointer
-///
-/// This provides a type-safe way to convert CoreCallback.cb (usize) to the actual
-/// function pointer type without using transmute directly in application code.
-///
-/// # Safety
-/// The caller must ensure the usize was originally a valid CallbackType function pointer.
-pub unsafe fn core_callback_to_fn(core: CoreCallback) -> CallbackType {
-    core::mem::transmute(core.cb)
 }
 
 /// FFI-safe Option<Callback> type for C interop.
@@ -3330,16 +3308,6 @@ impl CallbackInfo {
         &self.get_layout_window().file_drop_manager
     }
 
-    /// Get all selection ranges from multi_cursor (replaces legacy get_all_selections)
-    pub fn get_all_selection_ranges(&self) -> Vec<SelectionRange> {
-        self.get_layout_window()
-            .text_edit_manager.multi_cursor.as_ref()
-            .map(|mc| mc.selections.iter().filter_map(|s| match &s.selection {
-                Selection::Range(r) => Some(*r),
-                _ => None,
-            }).collect()).unwrap_or_default()
-    }
-
     // Drag-Drop Manager Access
 
     /// Get immutable reference to the drag-drop manager
@@ -4299,6 +4267,7 @@ impl RenderImageCallback {
     /// This is safe because we ensure that the usize in CoreRenderImageCallback
     /// was originally created from a valid RenderImageCallbackType function pointer.
     pub fn from_core(core_callback: &azul_core::callbacks::CoreRenderImageCallback) -> Self {
+        debug_assert!(core_callback.cb != 0, "CoreRenderImageCallback.cb is null");
         Self {
             cb: unsafe { core::mem::transmute(core_callback.cb) },
             ctx: core_callback.ctx.clone(),
