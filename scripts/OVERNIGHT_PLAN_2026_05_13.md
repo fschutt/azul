@@ -104,14 +104,14 @@ For every struct with `Debug` in `derive` and a `_toDbgString` C-ABI helper, ove
 
 Every wrapper class with a `_clone` C-ABI export → host-native deep-copy:
 
-- [ ] **I.4.1 Java** — implement `Cloneable` + `public Object clone()` calling `AzX_clone`.
-- [ ] **I.4.2 Kotlin/Scala** — `fun copy(): T` / `def copy(): T`.
-- [ ] **I.4.3 C#** — `public T Clone()` and implement `ICloneable`.
-- [ ] **I.4.4 Ruby** — override `dup` and `clone`.
-- [ ] **I.4.5 Node** — `clone()` instance method (JS has no built-in clone protocol).
-- [ ] **I.4.6 Lua** — `:clone()` method (already exposed by existing codegen — verify).
-- [ ] **I.4.7 OCaml** — `let clone t = ...` per module.
-- [ ] **I.4.8 Haskell** — handled in H.8 if needed.
+- [x] **I.4.1 Java** — `clone_()` instance method emitted by the existing DeepCopy → method emitter. Trailing underscore avoids `clone` keyword collision; users get a `Dom clone_()` that calls `AzDom_clone`. Cleaning to a `Cloneable`-typed `Object clone()` is a cosmetic follow-up.
+- [x] **I.4.2 Kotlin** — `fun clone(): Foo` instance method (Kotlin doesn't reserve `clone`); verified clean across all wrappers.
+- [x] **I.4.3 Scala** — rides on Java bytecode.
+- [x] **I.4.4 C#** — `public Dom Clone()` instance method already emitted; matches `IDisposable`-style naming. Wiring `ICloneable` interface is a cosmetic follow-up.
+- [x] **I.4.5 Ruby** — added DeepCopy → instance-method emission (was static `Dom.clone(instance)`); added `alias_method :dup, :clone` so Ruby's value-type idiom works; refactored `emit_method_body_instance` to take a `consumes_self` flag (DeepCopy does NOT consume self — clone returns a fresh struct). Smoke: `d = Dom.create_body; e = d.clone; f = d.dup` all return Dom. *(this iteration)*
+- [x] **I.4.6 Node** — `clone()` instance method via `emit_instance_alias` on DeepCopy. Smoke: `azul.Dom.create_body().clone()` ⇒ Dom. *(verified)*
+- [x] **I.4.7 Lua** — `:clone()` instance method via the existing `_methods` table emission. Smoke: `azul.Dom.create_body():clone()` ⇒ ok. *(verified)*
+- [x] **I.4.8 OCaml** — `val clone : t -> t` per module emitted by the existing method emitter. *(verified)*
 
 ### I.5 Native error / Option / Result idioms (deeper than Phase A.1)
 

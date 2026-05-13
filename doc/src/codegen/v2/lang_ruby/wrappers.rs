@@ -328,7 +328,14 @@ fn emit_method(builder: &mut CodeBuilder, func: &FunctionDef, prefixed: &str, ty
     let ruby_method = ruby_method_name(&func.method_name);
     let native_call = native_function_name(&func.c_name);
 
-    let takes_self = matches!(func.kind, FunctionKind::Method | FunctionKind::MethodMut);
+    // Phase I.4.4 (Ruby): treat DeepCopy as an instance method too, so
+    // `dom.clone` works (instead of the awkward `Dom.clone(dom)`
+    // static form). The C signature `Az<X> clone(const Az<X>*)` matches
+    // a takes-self method exactly.
+    let takes_self = matches!(
+        func.kind,
+        FunctionKind::Method | FunctionKind::MethodMut | FunctionKind::DeepCopy
+    );
     // `return_type` is the unprefixed IR name (e.g. "App"); `prefixed` is
     // "AzApp". Strip the leading prefix off `prefixed` for the comparison.
     let owning_class = prefixed
@@ -342,16 +349,22 @@ fn emit_method(builder: &mut CodeBuilder, func: &FunctionDef, prefixed: &str, ty
         .unwrap_or(false);
 
     // Strip an explicit `self` from the visible argument list (Ruby
-    // supplies it via `@ptr`).
-    let visible_args: Vec<&_> = func
-        .args
-        .iter()
-        .filter(|a| {
-            // The api.json/ir convention is to name the receiver after the
-            // class (lower-cased). Skip both that and a literal "self".
-            a.name != "self" && a.name != type_snake
-        })
-        .collect();
+    // supplies it via `@ptr`). For DeepCopy methods the first arg IS
+    // the receiver regardless of how api.json names it (`instance`,
+    // lowercased class, etc.) — drop args[0] unconditionally. Same fix
+    // the JVM/.NET/Go wrappers landed in earlier phases.
+    let visible_args: Vec<&_> = if matches!(func.kind, FunctionKind::DeepCopy)
+        && !func.args.is_empty()
+    {
+        func.args.iter().skip(1).collect()
+    } else {
+        func.args
+            .iter()
+            .filter(|a| {
+                a.name != "self" && a.name != type_snake
+            })
+            .collect()
+    };
 
     let arg_names: Vec<String> = visible_args.iter().map(|a| ruby_arg_name(&a.name)).collect();
 
@@ -399,6 +412,10 @@ fn emit_method(builder: &mut CodeBuilder, func: &FunctionDef, prefixed: &str, ty
             }
         }
         let call = format!("Native.{}({})", native_call, call_args.join(", "));
+        // DeepCopy does NOT consume self — clone returns a fresh copy
+        // while leaving the original intact. Mark consumes_self=false
+        // for that path; everything else (with-builders etc.) consumes.
+        let consumes_self = !matches!(func.kind, FunctionKind::DeepCopy);
         emit_method_body_instance(
             builder,
             &call,
@@ -406,9 +423,17 @@ fn emit_method(builder: &mut CodeBuilder, func: &FunctionDef, prefixed: &str, ty
             returns_self_type,
             prefixed,
             &consumed_names,
+            consumes_self,
         );
         builder.dedent();
         builder.line("end");
+        // Phase I.4.4 (Ruby): alias `dup` to `clone` for DeepCopy
+        // methods so user code matches Ruby's value-type idiom.
+        if matches!(func.kind, FunctionKind::DeepCopy)
+            && ruby_method == "clone"
+        {
+            builder.line("alias_method :dup, :clone");
+        }
         builder.blank();
         return;
     }
@@ -499,6 +524,7 @@ fn emit_method_body_instance(
     returns_self_type: bool,
     prefixed: &str,
     consumed_names: &[String],
+    consumes_self: bool,
 ) {
     let _ = prefixed;
     match return_type {
@@ -508,7 +534,7 @@ fn emit_method_body_instance(
                 builder.line(&format!("Azul._consume({})", n));
             }
         }
-        Some(_) if returns_self_type => {
+        Some(_) if returns_self_type && consumes_self => {
             // Consuming-builder: self is moved into the C call along
             // with any owned-by-value wrapper args. The returned value
             // is a fresh struct; wrap in a new instance, and mark all
@@ -524,6 +550,15 @@ fn emit_method_body_instance(
             builder.line("rescue StandardError");
             builder.line("end");
             builder.line("@ptr = nil");
+            builder.line("self.class.new(_next)");
+        }
+        Some(_) if returns_self_type => {
+            // Non-consuming clone-style method: self stays valid; just
+            // wrap the returned struct in a fresh instance.
+            builder.line(&format!("_next = {}", call));
+            for n in consumed_names {
+                builder.line(&format!("Azul._consume({})", n));
+            }
             builder.line("self.class.new(_next)");
         }
         Some(_) => {
