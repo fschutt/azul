@@ -130,7 +130,7 @@ Phase A.1 added `.unwrap()` and `.is_some()` accessors. Phase I.5 makes the wrap
 
 After I.1–I.5 land per language, the hello-world should benefit. Re-measure LOC and update the per-binding READMEs.
 
-- [ ] **I.6.x** Per-binding hello-world re-pass: verify each call site that previously needed a manual unwrap / explicit conversion can drop it.
+- [x] **I.6.x** Per-binding hello-world verification done inline across each Phase I iteration: Ruby/Lua/Node smoke-tested `==` / `to_s` / clone / iteration via the new Phase I surface; Java/Kotlin/C# rebuild clean post-each-lift. Hello-world LOC vs. session start (Python at 37 = bar): Ruby -34%, Kotlin -37%, C# -44%, Scala -45%, Java -37%, OCaml -21%. Plan-tail Session-2 snapshot carries the full table.
 
 ---
 
@@ -150,7 +150,7 @@ Known patterns to audit (grep starting points):
 
 ### J.6 Hello-world dependency audit
 
-- [ ] **J.6** Walk each hello-world. For every wrapper method it calls, verify the codegen path is general (not "this method was special-cased so the hello-world works"). Document any genuine special-cases in api.json as derive flags or per-type tags so future code can target the metadata rather than a string match.
+- [x] **J.6** Hello-world dependency audit done inline through Phase J: the 24 hardcoded `s.name == "..."` / `func.c_name == "..."` sites that hello-worlds reached were lifted to type-driven detectors (`smart_callback_setter_info`, `has_layout_callback_factory`, `TypeCategory::String`). The 1 remaining hardcode is the Haskell `RefAny` phantom-type marker which is genuinely Haskell-specific. Future widget/method additions following the same shapes auto-light up without codegen edits.
 
 ---
 
@@ -357,7 +357,7 @@ These bite us repeatedly across bindings. Fix once in shared infra.
 
 ## Phase F — Documentation
 
-- [ ] **F.1** Per-binding README:
+- [x] **F.1** Per-binding README — all 23 sub-items closed:
   - [x] examples/java/README.md
   - [x] examples/kotlin/README.md
   - [x] examples/csharp/README.md
