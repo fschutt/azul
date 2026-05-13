@@ -199,21 +199,26 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
         out.push_str(&format!("    -- (no instance methods on {})\n", class));
     }
 
-    // Button:on_click(data, fn) — smart builder mirror of the
-    // Java/Kotlin/C#/Ruby/Node smart on_click. Wraps `data` in a
-    // RefAny and uses with_on_click (which already auto-registers
-    // the callback).
-    if class == "Button" {
+    // Phase J.1 (Lua): same shared detector as the other bindings.
+    // Emit `:<smart>(data, fn)` for every method matching
+    // with_on_*(self, RefAny, <CallbackWrapperStruct>).
+    for func in ir.functions_for_class(&s.name) {
+        let Some((smart_snake, _wrapper_kind)) =
+            super::super::managed_host_invoker::smart_callback_setter_info(func)
+        else {
+            continue;
+        };
         out.push_str(&format!(
-            "    function {}_methods:on_click(data, fn)\n",
-            class
+            "    function {}_methods:{}(data, fn)\n",
+            class, smart_snake
         ));
         out.push_str(
             "        local data_ref = azul.refany_create(data)\n",
         );
-        out.push_str(
-            "        return self:with_on_click(data_ref, fn)\n",
-        );
+        out.push_str(&format!(
+            "        return self:{}(data_ref, fn)\n",
+            func.method_name
+        ));
         out.push_str("    end\n");
     }
 

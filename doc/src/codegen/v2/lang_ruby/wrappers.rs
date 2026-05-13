@@ -134,17 +134,31 @@ fn emit_class_wrapper(
     // Button#on_click(data, fn_or_block) — smart instance method:
     // accepts any Ruby object as the data payload and a Proc / lambda
     // / block as the click handler. Wraps both via the host invoker.
-    if s.name == "Button" {
-        builder.line("# Smart builder: pass any Ruby object as the data payload and");
-        builder.line("# a click-handler Proc/lambda/block. Returns a new Button with");
-        builder.line("# the callback wired up. `with_on_click` already auto-registers");
-        builder.line("# the callable, so we just wrap the data + delegate.");
-        builder.line("def on_click(data, click_fn = nil, &block)");
+    // Phase J.1 (Ruby): same shared detector. Emit `def <event>(data, fn
+    // = nil, &block)` for every method matching the with_on_*(self,
+    // RefAny, <CallbackWrapperStruct>) shape.
+    for func in ir.functions_for_class(&s.name) {
+        let Some((smart_snake, _wrapper_kind)) =
+            super::super::managed_host_invoker::smart_callback_setter_info(func)
+        else {
+            continue;
+        };
+        // Ruby method names are snake_case; the smart name is already
+        // snake_case from the detector.
+        builder.line(&format!("# Smart builder: pass any Ruby object + a Proc/lambda/block."));
+        builder.line(&format!(
+            "# Delegates to {} which already auto-registers via _register_callback.",
+            func.method_name
+        ));
+        builder.line(&format!(
+            "def {}(data, fn_arg = nil, &block)",
+            smart_snake
+        ));
         builder.indent();
-        builder.line("fn = click_fn || block");
-        builder.line("raise ArgumentError, 'click fn required' unless fn");
+        builder.line("fn = fn_arg || block");
+        builder.line("raise ArgumentError, 'callback fn required' unless fn");
         builder.line("data_ref = Azul::RefAny.wrap(data)");
-        builder.line("self.with_on_click(data_ref, fn)");
+        builder.line(&format!("self.{}(data_ref, fn)", func.method_name));
         builder.dedent();
         builder.line("end");
         builder.blank();

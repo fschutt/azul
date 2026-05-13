@@ -195,7 +195,7 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     // sibling that wraps both internally.
     for func in ir.functions_for_class(&s.name) {
         let Some((smart_snake, wrapper_kind)) =
-            smart_callback_setter_info(func)
+            super::super::managed_host_invoker::smart_callback_setter_info(func)
         else {
             continue;
         };
@@ -419,50 +419,8 @@ fn emit_toString_if_supported(
     builder.blank();
 }
 
-/// Phase J.1 detector: if `func` is a `with_on_*(self, data: RefAny,
-/// callback: <SomeCallbackWrapperStruct>)` method, return
-/// `Some((smart_method_snake_case, callback_wrapper_kind))`. The
-/// smart wrapper auto-wraps the data via `refanyCreate` and registers
-/// the callback via `register<Kind>`, then delegates to the existing
-/// `with_on_*`.
-///
-/// Specifically requires the callback arg to be the **wrapper struct**
-/// type (e.g. `Callback`, `CheckBoxOnToggleCallback`) — NOT the fn-
-/// pointer typedef (e.g. `CallbackType`, `CheckBoxOnToggleCallbackType`).
-/// The typedef form would require the smart factory to extract the
-/// `.cb` field from the wrapper before calling the underlying method.
-pub(super) fn smart_callback_setter_info(
-    func: &FunctionDef,
-) -> Option<(String, String)> {
-    if !matches!(
-        func.kind,
-        FunctionKind::Method | FunctionKind::MethodMut | FunctionKind::DeepCopy
-    ) {
-        return None;
-    }
-    if func.args.len() != 3 {
-        return None;
-    }
-    if func.args[1].type_name != "RefAny" {
-        return None;
-    }
-    let cb_info = func.args[2].callback_info.as_ref()?;
-    if !super::super::managed_host_invoker::HOST_INVOKER_KINDS
-        .contains(&cb_info.callback_wrapper_name.as_str())
-    {
-        return None;
-    }
-    // Require args[2].type_name to match the wrapper-struct name
-    // (not the typedef name). When the API exposes the typedef form
-    // directly (CheckBox.with_on_toggle takes `CheckBoxOnToggleCallbackType`),
-    // skip — the existing codegen path handles those already and the
-    // bridge here would need an extra `.cb` field extract.
-    if func.args[2].type_name != cb_info.callback_wrapper_name {
-        return None;
-    }
-    let smart = func.method_name.strip_prefix("with_")?;
-    Some((smart.to_string(), cb_info.callback_wrapper_name.clone()))
-}
+// Phase J.1 detector now lives in `codegen::v2::managed_host_invoker`
+// as `smart_callback_setter_info` — shared across every binding.
 
 fn emit_close_method(builder: &mut CodeBuilder, raw_type_name: &str, class_name: &str, ir: &CodegenIR) {
     builder.line("/** Frees the underlying native resources. Idempotent. */");

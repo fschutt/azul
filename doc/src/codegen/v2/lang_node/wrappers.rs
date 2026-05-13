@@ -273,19 +273,31 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
         b.blank();
     }
 
-    // Button.onClick(data, fn) — smart builder. Wraps `data` in a
-    // RefAny and `fn` in a Callback via the host invoker. Returns a
-    // new Button koffi struct with the click wiring set.
-    if s.name == "Button" {
+    // Phase J.1 (Node): same shared detector. Emit `<smart>(data, fn)`
+    // for every method matching with_on_*(self, RefAny, <CallbackWrapper>).
+    for func in ir.functions_for_class(&s.name) {
+        let Some((smart_snake, wrapper_kind)) =
+            super::super::managed_host_invoker::smart_callback_setter_info(func)
+        else {
+            continue;
+        };
+        // Node uses snake_case for both with_on_* and the smart sibling
+        // (JS allows underscore identifiers).
         b.line("/**");
-        b.line(" * Smart builder: pass any JS value as the data payload and a");
-        b.line(" * click-handler function. Host-invoker registration is hidden.");
+        b.line(&format!(
+            " * Smart builder for {}: JS value + handler fn. Host-invoker",
+            func.method_name
+        ));
+        b.line(" * registration is hidden.");
         b.line(" */");
-        b.line("onClick(data, fn) {");
+        b.line(&format!("{}(data, fn) {{", smart_snake));
         b.indent();
         b.line("const __data = refanyCreate(data);");
-        b.line("const __cb = registerCallback('Callback', fn);");
-        b.line("return this.with_on_click(__data, __cb);");
+        b.line(&format!(
+            "const __cb = registerCallback('{}', fn);",
+            wrapper_kind
+        ));
+        b.line(&format!("return this.{}(__data, __cb);", func.method_name));
         b.dedent();
         b.line("}");
         b.blank();

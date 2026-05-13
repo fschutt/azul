@@ -173,20 +173,44 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     // user's preferred delegate shape (`Func<IntPtr, IntPtr, int>` or
     // the raw 4-arg `CallbackInvokerDelegate`); both flow through
     // `RegisterCallback(Delegate)`.
-    if s.name == "Button" {
+    // Phase J.1 (C#): same shared detector. Emit `<Event>(object data,
+    // Delegate fn)` for every method matching with_on_*(self, RefAny,
+    // <CallbackWrapperStruct>).
+    for func in ir.functions_for_class(&s.name) {
+        let Some((smart_snake, wrapper_kind)) =
+            super::super::managed_host_invoker::smart_callback_setter_info(func)
+        else {
+            continue;
+        };
+        let smart_pascal = super::snake_to_pascal(&smart_snake);
+        let with_pascal = super::snake_to_pascal(&func.method_name);
+        let register_method = if wrapper_kind == "Callback" {
+            "RegisterCallback".to_string()
+        } else {
+            format!("Register{}", wrapper_kind)
+        };
         builder.line("/// <summary>");
-        builder.line("/// Smart builder: pass any managed object as the data payload");
-        builder.line("/// and a click-handler delegate. The host-invoker registration");
-        builder.line("/// is hidden — the caller never has to touch HostInvoker.");
+        builder.line(&format!(
+            "/// Smart builder for {}: object payload + delegate; host-",
+            with_pascal
+        ));
+        builder.line("/// invoker registration of both is hidden.");
         builder.line("/// </summary>");
-        builder.line("public Button OnClick(object data, Delegate fn)");
+        builder.line(&format!(
+            "public {} {}(object data, Delegate fn)",
+            class_name, smart_pascal
+        ));
         builder.line("{");
         builder.indent();
         builder.line("var __data = HostInvoker.RefanyCreate(data);");
-        builder.line("var __cb = HostInvoker.RegisterCallback(fn);");
-        builder.line("// WithOnClick now takes wrapper instances (RefAny + Callback) after");
-        builder.line("// auto-wrapper-class conversion. Bridge from the raw FFI structs.");
-        builder.line("return WithOnClick(new RefAny(__data), new Callback(__cb));");
+        builder.line(&format!(
+            "var __cb = HostInvoker.{}(fn);",
+            register_method
+        ));
+        builder.line(&format!(
+            "return {}(new RefAny(__data), new {}(__cb));",
+            with_pascal, wrapper_kind
+        ));
         builder.dedent();
         builder.line("}");
         builder.blank();

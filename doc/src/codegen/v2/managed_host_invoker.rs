@@ -100,6 +100,45 @@ pub fn wrapper_name(cb: &CallbackTypedefDef) -> &str {
     cb.name.strip_suffix("Type").unwrap_or(cb.name.as_str())
 }
 
+/// Phase J.1 detector: shared across every language binding. If `func`
+/// is a `with_on_*(self, data: RefAny, callback: <Wrapper>)` method
+/// whose `Wrapper` is in [`HOST_INVOKER_KINDS`], return `Some((smart,
+/// wrapper))` where `smart` is the snake-case sibling method name
+/// (`"on_click"` etc.) and `wrapper` is the callback wrapper kind
+/// (`"Callback"`, `"ButtonOnClickCallback"`, ...).
+///
+/// Requires args[2].type_name to match the wrapper struct name (NOT
+/// the fn-pointer typedef form). When the API exposes the typedef
+/// form (`CheckBoxOnToggleCallbackType` etc.) the smart factory would
+/// need an extra `.cb` field extract bridge; today only Button matches
+/// the wrapper-struct shape.
+pub fn smart_callback_setter_info(
+    func: &super::ir::FunctionDef,
+) -> Option<(String, String)> {
+    use super::ir::FunctionKind;
+    if !matches!(
+        func.kind,
+        FunctionKind::Method | FunctionKind::MethodMut | FunctionKind::DeepCopy
+    ) {
+        return None;
+    }
+    if func.args.len() != 3 {
+        return None;
+    }
+    if func.args[1].type_name != "RefAny" {
+        return None;
+    }
+    let cb_info = func.args[2].callback_info.as_ref()?;
+    if !HOST_INVOKER_KINDS.contains(&cb_info.callback_wrapper_name.as_str()) {
+        return None;
+    }
+    if func.args[2].type_name != cb_info.callback_wrapper_name {
+        return None;
+    }
+    let smart = func.method_name.strip_prefix("with_")?;
+    Some((smart.to_string(), cb_info.callback_wrapper_name.clone()))
+}
+
 /// Map a Rust/IR type name to its cdef C-ABI type name.
 ///
 /// Primitives lower to their `<stdint.h>` / `<stdbool.h>` form; non-primitives

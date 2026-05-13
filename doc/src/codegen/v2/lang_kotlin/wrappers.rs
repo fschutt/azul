@@ -130,21 +130,44 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     // `{ vec: AzU8Vec }`, AzU8Vec is `{ ptr, len, cap, destructor }`,
     // so offset 0 is `vec.ptr` (the UTF-8 byte buffer) and offset 8 is
     // `vec.len` (byte length).
-    // Button.onClick(Any, CallbackInvokerCallback) — smart builder
-    // mirror of Java's. Accepts any host object + the SAM, handles
-    // refany+callback registration internally.
-    if s.name == "Button" {
+    // Phase J.1 (Kotlin): same shared detector as Java drives the smart
+    // `<event>(data, fn)` factory for every method matching the
+    // `with_on_*(self, RefAny, <CallbackWrapperStruct>)` shape.
+    for func in ir.functions_for_class(&s.name) {
+        let Some((smart_snake, wrapper_kind)) =
+            super::super::managed_host_invoker::smart_callback_setter_info(func)
+        else {
+            continue;
+        };
+        let smart_camel = super::super::lang_java::snake_to_lower_camel(&smart_snake);
+        let with_camel = idiomatic_method_name(&func.method_name);
+        let sam_class = format!("AzulNativeManaged.{}InvokerCallback", wrapper_kind);
+        let register_method = if wrapper_kind == "Callback" {
+            "registerCallback".to_string()
+        } else {
+            format!("register{}", wrapper_kind)
+        };
         builder.line("/**");
-        builder.line(" * Smart builder: pass any host object as the data payload and");
-        builder.line(" * a click-handler lambda. Host-invoker registration is hidden.");
+        builder.line(&format!(
+            " * Smart builder for {}: SAM + host object. Auto-registers via",
+            with_camel
+        ));
+        builder.line(" * AzulHostInvoker.");
         builder.line(" */");
-        builder.line("fun onClick(data: Any, fn: AzulNativeManaged.CallbackInvokerCallback): Button {");
+        builder.line(&format!(
+            "fun {}(data: Any, fn: {}): {} {{",
+            smart_camel, sam_class, class_name
+        ));
         builder.indent();
         builder.line("val __data = AzulHostInvoker.refanyCreate(data)");
-        builder.line("val __cb = AzulHostInvoker.registerCallback(fn)");
-        builder.line("// withOnClick now takes RefAny + Callback wrapper instances after");
-        builder.line("// auto-wrapper-class conversion. Bridge from the raw .ByValue forms.");
-        builder.line("return withOnClick(RefAny(__data.pointer), Callback(__cb.pointer))");
+        builder.line(&format!(
+            "val __cb = AzulHostInvoker.{}(fn)",
+            register_method
+        ));
+        builder.line(&format!(
+            "return {}(RefAny(__data.pointer), {}(__cb.pointer))",
+            with_camel, wrapper_kind
+        ));
         builder.dedent();
         builder.line("}");
         builder.blank();
