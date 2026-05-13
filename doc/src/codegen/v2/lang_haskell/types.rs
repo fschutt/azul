@@ -452,6 +452,80 @@ fn emit_struct_decl(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
         builder.line(&format!("{}_alignment_total = 1", tname));
     }
     builder.blank();
+
+    // Phase H.3: AzVec<T> → Haskell list helper.
+    // Detect via the (ptr, len, cap, destructor) field pattern that every
+    // codegen-emitted Vec type has. Skips structs that don't match the
+    // shape exactly (so non-Vec structs with happenstance "Vec" suffixes
+    // are left alone).
+    if let Some(elem_ty) = detect_vec_elem_type(s) {
+        emit_vec_to_list_helper(builder, s, &elem_ty, ir);
+    }
+}
+
+/// True if this struct matches the codegen-emitted Vec shape:
+/// fields = [ptr : *mut|*const T, len : usize, cap : usize, destructor : <Self>Destructor]
+/// Returns the element type (T) on match.
+fn detect_vec_elem_type(s: &super::super::ir::StructDef) -> Option<String> {
+    if s.fields.len() != 4 {
+        return None;
+    }
+    let f_ptr = &s.fields[0];
+    let f_len = &s.fields[1];
+    let f_cap = &s.fields[2];
+    let _f_dst = &s.fields[3];
+    if f_ptr.name != "ptr" || f_len.name != "len" || f_cap.name != "cap" {
+        return None;
+    }
+    if f_len.type_name.trim() != "usize" || f_cap.type_name.trim() != "usize" {
+        return None;
+    }
+    // Element type from the ptr field. The ref_kind / type_name carry
+    // the raw-pointer marker.
+    let raw = f_ptr.type_name.trim();
+    let elem = raw
+        .strip_prefix("*mut ")
+        .or_else(|| raw.strip_prefix("*const "))
+        .map(str::trim)
+        .unwrap_or(raw);
+    if elem.is_empty() {
+        return None;
+    }
+    Some(elem.to_string())
+}
+
+fn emit_vec_to_list_helper(
+    builder: &mut CodeBuilder,
+    s: &super::super::ir::StructDef,
+    elem_rust: &str,
+    ir: &CodegenIR,
+) {
+    let vec_name = haskell_data_name(&s.name);
+    let elem_haskell = haskell_field_type(
+        elem_rust,
+        super::super::ir::FieldRefKind::Owned,
+        ir,
+    );
+    let lname = lower_first(&vec_name);
+    let helper = format!("{}ToList", lname);
+
+    builder.line("-- | Phase H.3: Decode the underlying buffer into a Haskell list.");
+    builder.line("-- Iterates `len` elements starting at `ptr`, peeking each at the");
+    builder.line("-- C-ABI element offset. Pure type-driven from the (ptr, len, cap,");
+    builder.line("-- destructor) field pattern; no per-Vec hardcoding.");
+    builder.line(&format!("{} :: {} -> IO [{}]", helper, vec_name, elem_haskell));
+    builder.line(&format!("{} v = do", helper));
+    builder.indent();
+    let ptr_field = haskell_field_name(&s.name, "ptr");
+    let len_field = haskell_field_name(&s.name, "len");
+    builder.line(&format!("let __p = {} v", ptr_field));
+    builder.line(&format!(
+        "    __n = fromIntegral ({} v) :: Int",
+        len_field
+    ));
+    builder.line("mapM (peekElemOff __p) [0 .. __n - 1]");
+    builder.dedent();
+    builder.blank();
 }
 
 use super::lower_first;
