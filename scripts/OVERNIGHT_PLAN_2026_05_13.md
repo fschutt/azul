@@ -117,8 +117,8 @@ Every wrapper class with a `_clone` C-ABI export → host-native deep-copy:
 
 Phase A.1 added `.unwrap()` and `.is_some()` accessors. Phase I.5 makes the wrappers feel native:
 
-- [ ] **I.5.1 Java/Kotlin/Scala** — return `Optional<T>` directly from any C-ABI helper that returns `AzOptionT` (auto-unwrap at the wrapper boundary). For `AzResultT`, throw a typed exception (`AzulErrorException`) on Err, return T on Ok. Mirrors the existing `unwrap()` but pushes the host idiom up to the call site.
-- [ ] **I.5.2 C#** — return `T?` directly; throw `AzulException` for Err.
+- [⊘] **I.5.1 Java/Kotlin/Scala** — deferred (depth). Requires per-Some-variant payload extraction: emit Java code that peeks the tag byte, reads the variant's payload offset (alignment-dependent), and constructs a wrapper `T` from the raw FFI struct. A.1.4's existing `unwrap()`/`isSome()` methods on the AzOptionT wrapper already cover power-user access; the I.5.1 ask was to push host-idiomatic `Optional<T>` to the call site. ~2-3 days of focused work per binding.
+- [⊘] **I.5.2 C#** — deferred (same shape as I.5.1, slightly easier since C# struct-field-access is direct byte-copy semantics).
 - [x] **I.5.3 Ruby** — `classify_return(func, ir)` predicate detects `Option<T>` / `Result<T,E>` return types via variant-name shape `[None,Some]` / `[Ok,Err]`. emit_method_body emits `_ret.to_opt` for Option (returns nil or payload) and `_ret.unwrap` for Result (returns payload or raises). Routes through the AzOption*/AzResult* accessor methods already emitted by A.1.4. *(this iteration)*
 - [x] **I.5.4 Node** — `optionToNullable(_ret)` / `resultUnwrap(_ret)` auto-applied at wrapper-method return when return-type name starts with "Option" / "Result". 279 sites emitted. Module-level helpers from A.1.4 already in place. *(this iteration)*
 - [x] **I.5.5 Lua** — `(C.<x>(...)):to_opt()` / `:unwrap()` auto-emitted via the existing per-cdata metatype methods. Both varargs-passthrough and enumerated-args paths handled. 472 sites emitted. *(this iteration)*
