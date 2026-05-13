@@ -115,47 +115,26 @@ fn emit_one(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
         "unsafe"
     };
 
-    let hs_binding = format!("c_{}", func.c_name);
-
-    // Build the type signature: arg1 -> arg2 -> ... -> IO Ret.
-    // Aggregates are wrapped in `Ptr T` because GHC's foreign-import
-    // only allows pass-by-value for primitives.
-    let mut atoms: Vec<String> = Vec::new();
-    for a in &func.args {
-        let ty = match a.ref_kind {
-            ArgRefKind::Owned => map_arg_owned_ffi(&a.type_name, ir),
-            ArgRefKind::Ref
-            | ArgRefKind::RefMut
-            | ArgRefKind::Ptr
-            | ArgRefKind::PtrMut => format!("Ptr {}", map_arg_owned(&a.type_name, ir)),
-        };
-        atoms.push(ty);
-    }
-
-    let returns_void = func
-        .return_type
-        .as_ref()
-        .map(|r| {
-            let t = r.trim();
-            matches!(t, "" | "void" | "()" | "c_void")
-        })
-        .unwrap_or(true);
-
-    let return_ty = if returns_void {
-        "()".to_string()
+    // Functions whose C-ABI signature has struct-by-value args/return
+    // route through the C shim layer (`<name>_via`); GHC's FFI can't
+    // marshal those directly. The shim takes aggregate args as
+    // `const T*` (Haskell allocates + pokes; shim derefs), and writes
+    // aggregate returns through a trailing `T *__out` (Haskell
+    // allocates the buffer). See `cshim.rs` for the generator and
+    // `cabal.rs` for the `c-sources: cbits/azul_shims.c` declaration.
+    if super::cshim::needs_shim(func) {
+        emit_shimmed(builder, func, ir, safety);
     } else {
-        let r = func.return_type.as_deref().unwrap_or("()");
-        // FFI return value also can't be a struct-by-value. The C ABI
-        // returns AzApp etc. struct-by-value at the C level; from
-        // Haskell we lose the ability to inspect the returned struct
-        // directly. Foreign-import emits `IO (Ptr T)` for aggregates
-        // but the runtime path would need a wrapper that allocates
-        // a buffer and copies the returned bytes. For smoke-test
-        // purposes we still emit `Ptr T` for aggregate returns so the
-        // declaration type-checks. Functions that USE these returns
-        // need a separate wrapper layer.
-        map_arg_owned_ffi(r, ir)
-    };
+        emit_direct(builder, func, ir, safety);
+    }
+}
+
+/// Functions with primitive-only signatures pass through GHC's
+/// foreign-import unchanged.
+fn emit_direct(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR, safety: &str) {
+    let hs_binding = format!("c_{}", func.c_name);
+    let atoms = build_haskell_args(func, ir);
+    let return_ty = build_haskell_return(func, ir);
 
     let sig = if atoms.is_empty() {
         format!("IO {}", paren_if_needed(&return_ty))
@@ -178,6 +157,81 @@ fn emit_one(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
     builder.indent();
     builder.line(&format!("{} :: {}", hs_binding, sig));
     builder.dedent();
+}
+
+/// Functions with struct-by-value args or return route through a C
+/// shim. The foreign-import points at `<c_name>_via`; aggregate args
+/// stay typed as `Ptr T` (same as before), aggregate returns become a
+/// trailing `Ptr T -> IO ()` out-parameter. The natural-shape Haskell
+/// wrapper is left for the Azul.hs umbrella module to bracket-wrap
+/// (alloca + peek); the raw `_via` binding is the FFI-level thing.
+fn emit_shimmed(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR, safety: &str) {
+    let hs_binding = format!("c_{}_via", func.c_name);
+    let mut atoms = build_haskell_args(func, ir);
+    // Delegate the aggregate-return predicate to cshim — `is_haskell_ffi_primitive`
+    // returns TRUE for `Ptr T` (a pointer IS something GHC can pass by value),
+    // so it's the wrong oracle for "is the C ABI returning a struct here".
+    let aggregate_return = super::cshim::return_is_aggregate(func);
+    let return_ty = if aggregate_return {
+        let r = func.return_type.as_deref().unwrap();
+        let raw = map_arg_owned(r, ir);
+        atoms.push(format!("Ptr {}", raw));
+        "()".to_string()
+    } else {
+        build_haskell_return(func, ir)
+    };
+    let sig = if atoms.is_empty() {
+        format!("IO {}", paren_if_needed(&return_ty))
+    } else {
+        format!(
+            "{} -> IO {}",
+            atoms
+                .iter()
+                .map(|a| paren_if_needed(a))
+                .collect::<Vec<_>>()
+                .join(" -> "),
+            paren_if_needed(&return_ty)
+        )
+    };
+    builder.line(&format!(
+        "foreign import ccall {} \"{}_via\"",
+        safety, func.c_name
+    ));
+    builder.indent();
+    builder.line(&format!("{} :: {}", hs_binding, sig));
+    builder.dedent();
+}
+
+fn build_haskell_args(func: &FunctionDef, ir: &CodegenIR) -> Vec<String> {
+    let mut atoms: Vec<String> = Vec::new();
+    for a in &func.args {
+        let ty = match a.ref_kind {
+            ArgRefKind::Owned => map_arg_owned_ffi(&a.type_name, ir),
+            ArgRefKind::Ref
+            | ArgRefKind::RefMut
+            | ArgRefKind::Ptr
+            | ArgRefKind::PtrMut => format!("Ptr {}", map_arg_owned(&a.type_name, ir)),
+        };
+        atoms.push(ty);
+    }
+    atoms
+}
+
+fn build_haskell_return(func: &FunctionDef, ir: &CodegenIR) -> String {
+    let returns_void = func
+        .return_type
+        .as_ref()
+        .map(|r| {
+            let t = r.trim();
+            matches!(t, "" | "void" | "()" | "c_void")
+        })
+        .unwrap_or(true);
+    if returns_void {
+        "()".to_string()
+    } else {
+        let r = func.return_type.as_deref().unwrap_or("()");
+        map_arg_owned_ffi(r, ir)
+    }
 }
 
 // ============================================================================

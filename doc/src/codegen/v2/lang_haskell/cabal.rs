@@ -54,6 +54,13 @@ library
                         Azul.Types
                         Azul.Internal.FFI
     hs-source-dirs:     src
+    -- C shim layer for struct-by-value FFI. GHC's foreign-import doesn't
+    -- support passing or returning C structs by value; the shim takes
+    -- aggregate args/returns through pointers and dereferences them
+    -- before calling into libazul. Generated alongside the Haskell
+    -- modules.
+    c-sources:          cbits/azul_shims.c
+    include-dirs:       cbits
     -- Wide base range: GHC 8.10 ships base 4.14, latest GHC 9.14 ships
     -- base 4.22. We don't depend on anything base-API-specific so any
     -- recent version works.

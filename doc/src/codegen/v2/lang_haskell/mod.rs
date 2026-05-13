@@ -72,6 +72,8 @@ use super::config::CodegenConfig;
 use super::generator::CodeBuilder;
 use super::ir::CodegenIR;
 
+pub mod cshim;
+
 /// File-marker header that introduces each per-file section in the
 /// concatenated output. The orchestrator splits on lines that start
 /// with this prefix.
@@ -91,11 +93,15 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     let ffi = generate_ffi(ir, config)?;
     let types_src = generate_types_module(ir, config)?;
     let cabal_src = cabal::generate_cabal();
+    let cshim_src = cshim::generate_c_shims(ir, config);
 
-    let mut out = String::with_capacity(umbrella.len() + ffi.len() + types_src.len() + cabal_src.len() + 256);
+    let mut out = String::with_capacity(
+        umbrella.len() + ffi.len() + types_src.len() + cabal_src.len() + cshim_src.len() + 256,
+    );
     push_section(&mut out, "src/Azul.hs", &umbrella);
     push_section(&mut out, "src/Azul/Internal/FFI.hs", &ffi);
     push_section(&mut out, "src/Azul/Types.hs", &types_src);
+    push_section(&mut out, "cbits/azul_shims.c", &cshim_src);
     push_section(&mut out, "azul.cabal", &cabal_src);
     Ok(out)
 }

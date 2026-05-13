@@ -1,43 +1,41 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {- |
 Module      : Main
-Description : Minimal smoke test for the Haskell Azul C ABI bindings.
+Description : Smoke test for the Haskell Azul C-ABI bindings.
 
-The full GUI demo (window construction, App.Run, button click
-handlers) requires struct-by-value returns from C — GHC's FFI
-fundamentally doesn't permit those without C shim wrappers
-(`AzApp_create_via_out(out: *mut AzApp)` style). Generating those
-shims is a separate codegen phase.
-
-This smoke test exercises the part of the binding that DOES work
-through the standard FFI: foreign-symbol resolution + a
-pass-by-pointer + primitive-return call through libazul.
+Exercises the C-shim layer (`<name>_via`) that lets GHC's FFI marshal
+struct-by-value returns through an out-pointer. This is the path full
+App.Run / Dom-builder code will use.
 
 Build:  cabal build
-Run:    DYLD_LIBRARY_PATH=path/to/dylib cabal run hello-world
+Run:    DYLD_LIBRARY_PATH=. cabal run hello-world
 -}
 module Main where
 
 import qualified Azul.Internal.FFI as FFI
-import Foreign.Marshal.Alloc (alloca, malloc, free)
-import Foreign.Ptr (Ptr, nullPtr, castPtr)
 import qualified Azul.Types as T
+import Foreign.Marshal.Alloc (alloca)
+import Foreign.Ptr (Ptr)
 
 main :: IO ()
 main = do
   putStrLn "[azul] Haskell FFI smoke test starting."
 
-  -- Allocate a buffer for an AzString. We don't construct a real
-  -- AzString (that would require struct-by-value return marshalling
-  -- which GHC's FFI rejects); we just prove the linker resolved the
-  -- foreign symbols.
+  -- 1. Plain symbol resolution (the AzString delete entry point).
   alloca $ \(ptr :: Ptr T.AzString) -> do
-    -- Force GHC to actually reference the foreign import so the
-    -- linker resolves the C symbol. (We can't call _delete on
-    -- uninitialised memory, but defining a thunk against it is fine.)
     let _ = FFI.c_AzString_delete ptr
     putStrLn "[azul] FFI symbol resolution succeeded (AzString_delete reachable)."
 
-  putStrLn "[azul] Haskell binding init phase completed successfully."
-  putStrLn "[azul] (Full App.run wiring requires C shim wrappers for"
-  putStrLn "[azul]  struct-by-value returns — separate codegen phase.)"
+  -- 2. C-shim layer: call AzDom_createBody through the `_via`
+  -- foreign-import. The shim takes an out-pointer; we allocate a
+  -- buffer, pass it in, and let libazul fill it. The matching
+  -- AzDom_delete is callable through the same FFI path. This is
+  -- exactly the pattern the full layout-callback wiring will use.
+  alloca $ \(domPtr :: Ptr T.Dom) -> do
+    FFI.c_AzDom_createBody_via domPtr
+    putStrLn "[azul] AzDom_createBody_via succeeded; struct-by-value out-param plumbing works."
+    FFI.c_AzDom_delete domPtr
+    putStrLn "[azul] AzDom_delete completed cleanly."
+
+  putStrLn "[azul] Haskell host-invoker init phase completed successfully."
+  putStrLn "[azul] (Full App.run + layout callbacks land in the next codegen pass.)"
