@@ -460,6 +460,56 @@ fn emit_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Codegen
         }
     }
 
+    // AzResult<T, E>.unwrap() — return Ok payload or throw on Err.
+    if enum_def.name.starts_with("Result") && enum_def.variants.len() == 2 {
+        let ok = enum_def.variants.iter().find(|v| v.name == "Ok");
+        let err = enum_def.variants.iter().find(|v| v.name == "Err");
+        if let (Some(ov), Some(_)) = (ok, err) {
+            let payload_tuple = match &ov.kind {
+                EnumVariantKind::Tuple(types) if types.len() == 1 => {
+                    Some((types[0].0.clone(), types[0].1.clone()))
+                }
+                _ => None,
+            };
+            if let Some((payload_ty, ref_kind)) = payload_tuple {
+                let (kt, _default) = ref_kind_kt_field(&payload_ty, &ref_kind, ir);
+                builder.line("/**");
+                builder.line(" * Return the Ok payload, or throw a RuntimeException carrying");
+                builder.line(" * the Err payload's toString() when the tag is Err.");
+                builder.line(" */");
+                builder.line(&format!("fun unwrap(): {} {{", kt));
+                builder.indent();
+                builder.line("val p = pointer ?: throw RuntimeException(\"unwrap on null pointer\")");
+                builder.line("if (p.getByte(0).toInt() == 0) {");
+                builder.indent();
+                builder.line(&format!(
+                    "val __ok = Structure.newInstance({}Variant_Ok::class.java, p)",
+                    name
+                ));
+                builder.line("__ok.read()");
+                builder.line("return __ok.payload");
+                builder.dedent();
+                builder.line("}");
+                builder.line(&format!(
+                    "val __err = Structure.newInstance({}Variant_Err::class.java, p)",
+                    name
+                ));
+                builder.line("__err.read()");
+                builder.line(&format!(
+                    "throw RuntimeException(\"{} unwrap on Err: ${{__err.payload}}\")",
+                    name
+                ));
+                builder.dedent();
+                builder.line("}");
+
+                builder.line("/** True when the tag is Ok. */");
+                builder.line("fun isOk(): Boolean = (pointer?.getByte(0)?.toInt() ?: -1) == 0");
+                builder.line("/** True when the tag is Err. */");
+                builder.line("fun isErr(): Boolean = !isOk()");
+            }
+        }
+    }
+
     builder.line(&format!(
         "class ByValue : {}(), Structure.ByValue",
         name

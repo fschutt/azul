@@ -25,7 +25,7 @@ use azul_layout::window_state::FullWindowState;
 use rust_fontconfig::FcFontCache;
 use rust_fontconfig::registry::FcFontRegistry;
 
-use super::cb_gen::CallbackWasm;
+use super::DiscoveredCallback;
 
 /// Collected image to serve at `/az/img/{id}`.
 #[derive(Debug, Clone)]
@@ -51,6 +51,10 @@ pub struct RenderOutput {
     pub html: String,
     pub images: Vec<CollectedImage>,
     pub fonts: Vec<CollectedFont>,
+    /// Callbacks discovered during the DOM walk, each tagged with its
+    /// `az_N` synthetic node ID. Phase C consumers dedupe these by
+    /// `callback.cb` to produce the per-process `CallbackWasm` list.
+    pub callbacks: Vec<DiscoveredCallback>,
 }
 
 /// Render the initial full HTML page for a route.
@@ -66,7 +70,6 @@ pub fn render_initial_page(
     fc_cache: &Arc<FcFontCache>,
     _font_registry: Option<&FcFontRegistry>,
     mini_wasm: &[u8],
-    cb_wasms: &[CallbackWasm],
     active_route: Option<&RouteMatch>,
     bundled_fonts: &[azul_core::resources::NamedFont],
 ) -> RenderOutput {
@@ -89,11 +92,9 @@ pub fn render_initial_page(
         eprintln!("[azul-web] StyledDom cascade complete: {} nodes", node_count);
     }
 
-    // 3. Generate preload hints
-    let preload_hints = generate_preload_hints(mini_wasm, cb_wasms);
-    let loader_js_content = super::loader_js::generate_loader_js("stub", cb_wasms);
-
-    // 4. Walk the StyledDom: generate HTML structure + CSS rules from computed styles
+    // 3. Walk the StyledDom: generate HTML structure + CSS rules from computed styles.
+    //    The walk also collects every callback fn-pointer it sees, deduped by
+    //    fn-ptr in mod.rs to produce the global CallbackWasm list.
     let mut ctx = RenderContext::new();
 
     // Collect bundled fonts as @font-face rules
@@ -122,6 +123,14 @@ pub fn render_initial_page(
             ctx.images.len(), ctx.fonts.len(),
         );
     }
+
+    // 4. Generate preload hints + loader JS now that the walk has populated
+    //    `ctx.callbacks`. The preload hints list every discovered callback's
+    //    `/az/cb/{name}.{hash}.wasm` URL so the browser warms its cache; the
+    //    server still answers each one with a tiny stub (or 404) until the
+    //    remill-based lift in Phase C is wired up.
+    let preload_hints = generate_preload_hints(mini_wasm, &ctx.callbacks);
+    let loader_js_content = super::loader_js::generate_loader_js("stub", &ctx.callbacks);
 
     // 5. Build stylesheet
     let stylesheet = build_stylesheet(&ctx);
@@ -158,6 +167,7 @@ pub fn render_initial_page(
         html,
         images: ctx.images,
         fonts: ctx.fonts,
+        callbacks: ctx.callbacks,
     }
 }
 
@@ -181,6 +191,10 @@ struct RenderContext {
     font_face_rules: Vec<String>,
     images: Vec<CollectedImage>,
     fonts: Vec<CollectedFont>,
+    /// Callbacks discovered during the walk, paired with their `az_N` ID.
+    /// Each entry's `callback` is the underlying `CoreCallback` (fn-ptr
+    /// usize + optional ctx). Returned to the caller via `RenderOutput`.
+    callbacks: Vec<DiscoveredCallback>,
 }
 
 impl RenderContext {
@@ -192,6 +206,7 @@ impl RenderContext {
             font_face_rules: Vec::new(),
             images: Vec::new(),
             fonts: Vec::new(),
+            callbacks: Vec::new(),
         }
     }
 
@@ -299,6 +314,19 @@ impl RenderContext {
             if let Some(first_cb) = nd.callbacks.as_ref().first() {
                 let ev_name = event_filter_to_js_name(&first_cb.event);
                 attrs.push_str(&format!(" data-az-ev=\"{}\"", ev_name));
+                // Phase C discovery: resolve the fn-pointer to a symbol name
+                // and stash it for the caller. The discovered callback gets
+                // dispatched server-side via `/az/exec/{node_id}` until the
+                // remill lift gives us bytes to ship to the browser.
+                let core_cb = first_cb.callback.clone();
+                let name = super::resolve_fn_ptr_name(core_cb.cb);
+                let content_hash = super::fnv1a64_hex(name.as_bytes());
+                self.callbacks.push(DiscoveredCallback {
+                    node_idx: az_id as u32,
+                    name,
+                    content_hash,
+                    callback: core_cb,
+                });
             }
         }
 
@@ -454,7 +482,14 @@ fn debug_print_dom(dom: &Dom, depth: usize, counter: &mut usize) {
 }
 
 /// Generate `<link rel="preload">` hints for WASM assets.
-fn generate_preload_hints(mini_wasm: &[u8], cb_wasms: &[CallbackWasm]) -> String {
+///
+/// Per-route: emits one `/az/mini.{hash}.wasm` hint (always) plus one
+/// `/az/cb/{name}.{hash}.wasm` hint per *unique* callback symbol discovered
+/// while rendering this route. The callback hints currently resolve to a
+/// 404 — the server side has no bytes to hand back until Phase C's
+/// remill lift is wired in — but emitting them gives the browser a name
+/// to cache against and matches the URL scheme `server.rs` already serves.
+fn generate_preload_hints(mini_wasm: &[u8], discovered: &[DiscoveredCallback]) -> String {
     let mut hints = String::new();
     if !mini_wasm.is_empty() {
         let hash = content_hash(mini_wasm);
@@ -463,30 +498,25 @@ fn generate_preload_hints(mini_wasm: &[u8], cb_wasms: &[CallbackWasm]) -> String
             hash
         ));
     }
-    for cb in cb_wasms {
-        if cb.is_client_side && !cb.wasm_bytes.is_empty() {
-            hints.push_str(&format!(
-                "<link rel=\"preload\" href=\"/az/cb/{}.{}.wasm\" as=\"fetch\" crossorigin>\n",
-                cb.name, cb.content_hash
-            ));
+    // Dedupe by content_hash (which is fnv1a64(name)) so a callback bound
+    // to multiple nodes still only gets one preload hint.
+    let mut seen: BTreeMap<String, ()> = BTreeMap::new();
+    for cb in discovered {
+        if seen.insert(cb.content_hash.clone(), ()).is_some() {
+            continue;
         }
+        hints.push_str(&format!(
+            "<link rel=\"preload\" href=\"/az/cb/{}.{}.wasm\" as=\"fetch\" crossorigin>\n",
+            cb.name, cb.content_hash
+        ));
     }
     hints
 }
 
-/// FNV-1a 64-bit offset basis.
-const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
-/// FNV-1a 64-bit prime.
-const FNV_PRIME: u64 = 0x100000001b3;
-
-/// Simple FNV-1a content hash for cache-busting URLs.
+/// FNV-1a 64-bit content hash for cache-busting URLs. Thin wrapper over
+/// `super::fnv1a64_hex` so the existing call site keeps reading naturally.
 fn content_hash(data: &[u8]) -> String {
-    let mut hash: u64 = FNV_OFFSET_BASIS;
-    for byte in data {
-        hash ^= *byte as u64;
-        hash = hash.wrapping_mul(FNV_PRIME);
-    }
-    format!("{:016x}", hash)
+    super::fnv1a64_hex(data)
 }
 
 /// Map NodeType to HTML tag name.

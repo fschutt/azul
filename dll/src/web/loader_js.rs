@@ -7,12 +7,17 @@
 //! Includes routing support: intercepts `<a>` clicks with `data-az-route`
 //! and handles browser back/forward via `popstate`.
 
-use super::cb_gen::CallbackWasm;
+use super::DiscoveredCallback;
 
 /// Generate the loader JavaScript for the current phase.
+///
+/// Phase 0 takes both args ignored — the loader is a fixed string. Future
+/// phases will inline the `mini_wasm_hash` URL and a `_callbacks` lookup
+/// table so the browser can fetch `/az/cb/{name}.{hash}.wasm` and run
+/// the lifted bytecode client-side.
 pub fn generate_loader_js(
     _mini_wasm_hash: &str,
-    _callbacks: &[CallbackWasm],
+    _callbacks: &[DiscoveredCallback],
 ) -> String {
     generate_phase0_loader()
 }
@@ -112,12 +117,5 @@ if (document.readyState === 'loading') {
 
 /// Content hash for the loader JS (for cache-busting).
 pub fn loader_js_hash(content: &str) -> String {
-    const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
-    const FNV_PRIME: u64 = 0x100000001b3;
-    let mut hash: u64 = FNV_OFFSET_BASIS;
-    for byte in content.as_bytes() {
-        hash ^= *byte as u64;
-        hash = hash.wrapping_mul(FNV_PRIME);
-    }
-    format!("{:016x}", hash)
+    super::fnv1a64_hex(content.as_bytes())
 }

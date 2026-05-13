@@ -420,6 +420,46 @@ fn generate_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Cod
         }
     }
 
+    // AzResult<T, E>.Unwrap() — return Ok or throw on Err.
+    if enum_def.name.starts_with("Result") && enum_def.variants.len() == 2 {
+        let ok = enum_def.variants.iter().find(|v| v.name == "Ok");
+        let err = enum_def.variants.iter().find(|v| v.name == "Err");
+        if let (Some(ov), Some(_)) = (ok, err) {
+            let payload_tuple = match &ov.kind {
+                EnumVariantKind::Tuple(types) if types.len() == 1 => {
+                    Some((types[0].0.clone(), types[0].1.clone()))
+                }
+                _ => None,
+            };
+            if let Some((payload_ty, ref_kind)) = payload_tuple {
+                let payload_cs = ref_kind_field_type(&payload_ty, &ref_kind, ir);
+                builder.line("/// <summary>");
+                builder.line("/// Return the Ok payload, or throw on Err.");
+                builder.line("/// </summary>");
+                builder.line(&format!("public {} Unwrap()", payload_cs));
+                builder.line("{");
+                builder.indent();
+                builder.line(&format!(
+                    "if (Ok.tag == {}_Tag.Ok) return Ok.payload;",
+                    name
+                ));
+                builder.line(&format!(
+                    "throw new System.InvalidOperationException(\"{} unwrap on Err: \" + Err.payload.ToString());",
+                    name
+                ));
+                builder.dedent();
+                builder.line("}");
+                builder.line("/// <summary>True when the tag is Ok.</summary>");
+                builder.line(&format!(
+                    "public bool IsOk() => Ok.tag == {}_Tag.Ok;",
+                    name
+                ));
+                builder.line("/// <summary>True when the tag is Err.</summary>");
+                builder.line("public bool IsErr() => !IsOk();");
+            }
+        }
+    }
+
     builder.dedent();
     builder.line("}");
     builder.blank();

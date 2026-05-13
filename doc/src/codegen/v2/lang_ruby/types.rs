@@ -618,6 +618,41 @@ fn emit_tagged_union(
         }
     }
 
+    // AzResult<T, E>.unwrap — return Ok payload, raise on Err.
+    if e.name.starts_with("Result") && e.variants.len() == 2 {
+        let ok = e.variants.iter().find(|v| v.name == "Ok");
+        let err = e.variants.iter().find(|v| v.name == "Err");
+        if let (Some(ov), Some(_)) = (ok, err) {
+            let has_single = matches!(
+                &ov.kind,
+                EnumVariantKind::Tuple(types) if types.len() == 1
+            );
+            if has_single {
+                builder.line("# Return the Ok payload, or raise RuntimeError on Err.");
+                builder.line("def unwrap");
+                builder.indent();
+                builder.line("if self[:tag] == 0");
+                builder.indent();
+                builder.line("return self[:payload][:Ok][:payload]");
+                builder.dedent();
+                builder.line("else");
+                builder.indent();
+                builder.line(&format!(
+                    "raise \"{} unwrap on Err: #{{self[:payload][:Err][:payload].inspect}}\"",
+                    e.name
+                ));
+                builder.dedent();
+                builder.line("end");
+                builder.dedent();
+                builder.line("end");
+                builder.line("# True when the tag is Ok.");
+                builder.line("def ok?; self[:tag] == 0; end");
+                builder.line("# True when the tag is Err.");
+                builder.line("def err?; self[:tag] != 0; end");
+            }
+        }
+    }
+
     builder.dedent();
     builder.line("end");
 }

@@ -606,6 +606,72 @@ b.line(&format!("public byte tag; // {}_Tag.{}", name, v.name));
                 }
             }
 
+            // AzResult<T, E>.unwrap() — return the Ok payload, throw a
+            // RuntimeException on Err. Like Rust's Result::unwrap; the
+            // exception message carries the Err payload's `toString()`
+            // when we can render it.
+            if enum_def.name.starts_with("Result") && enum_def.variants.len() == 2 {
+                let ok = enum_def.variants.iter().find(|v| v.name == "Ok");
+                let err = enum_def.variants.iter().find(|v| v.name == "Err");
+                if let (Some(ov), Some(_)) = (ok, err) {
+                    let payload_ty_opt = match &ov.kind {
+                        EnumVariantKind::Tuple(types) if types.len() == 1 => {
+                            Some((types[0].0.clone(), types[0].1.clone()))
+                        }
+                        _ => None,
+                    };
+                    if let Some((payload_ty, ref_kind)) = payload_ty_opt {
+                        let payload_java = ref_kind_field_type(&payload_ty, &ref_kind, ir);
+                        let boxed = java_boxed(&payload_java);
+                        b.line("/**");
+                        b.line(" * Return the Ok payload, or throw a RuntimeException carrying");
+                        b.line(" * the Err payload's toString() when the tag is Err.");
+                        b.line(" */");
+                        b.line(&format!("public {} unwrap() {{", boxed));
+                        b.indent();
+                        b.line("if (getPointer() == null) throw new RuntimeException(\"unwrap on null pointer\");");
+                        b.line("byte tag = getPointer().getByte(0);");
+                        b.line("if (tag == 0) {");
+                        b.indent();
+                        b.line(&format!(
+                            "{}Variant_Ok __ok = Structure.newInstance({}Variant_Ok.class, getPointer());",
+                            name, name
+                        ));
+                        b.line("__ok.read();");
+                        b.line("return __ok.payload;");
+                        b.dedent();
+                        b.line("}");
+                        b.line(&format!(
+                            "{}Variant_Err __err = Structure.newInstance({}Variant_Err.class, getPointer());",
+                            name, name
+                        ));
+                        b.line("__err.read();");
+                        b.line(&format!(
+                            "throw new RuntimeException(\"{} unwrap on Err: \" + java.lang.String.valueOf(__err.payload));",
+                            name
+                        ));
+                        b.dedent();
+                        b.line("}");
+
+                        b.line("/** True when the tag is Ok. */");
+                        b.line("public boolean isOk() {");
+                        b.indent();
+                        b.line("if (getPointer() == null) return false;");
+                        b.line("return getPointer().getByte(0) == 0;");
+                        b.dedent();
+                        b.line("}");
+
+                        b.line("/** True when the tag is Err. */");
+                        b.line("public boolean isErr() {");
+                        b.indent();
+                        b.line("if (getPointer() == null) return true;");
+                        b.line("return getPointer().getByte(0) != 0;");
+                        b.dedent();
+                        b.line("}");
+                    }
+                }
+            }
+
             // ByValue / ByReference variants for passing the union by
             // value across the FFI boundary.
             b.line(&format!(
