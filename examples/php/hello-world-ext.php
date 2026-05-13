@@ -109,13 +109,10 @@ echo "[azul] azul_invoke_callback round-trip: PHP fn fired from Rust, returned $
 $fn_count = count(get_extension_funcs('azul-dll'));
 echo "[azul] codegen exposed $fn_count PHP functions; full register+invoke path live.\n";
 
-// 5. Dom class — Phase 51 introduces `Azul\Dom` as a real PHP class
-// wrapping the C-ABI AzDom struct. Construct a body + a div + read
-// back nodeCount through the Zend object boundary, proving:
-//   * #[php_class] AzulDom registered via module.class::<...>()
-//   * Static constructors (createBody/createDiv) reach libazul
-//   * Instance methods call the C-ABI with `&self.inner`
-//   * Drop fires AzDom_delete on PHP-side garbage collection
+// 5. Phase 51 classes: `Azul\Dom`, `Azul\App`, `Azul\AppConfig`,
+//    `Azul\WindowCreateOptions`, `Azul\Button` are emitted from the
+//    same IR-driven `#[php_class]` path, with cross-class wrappers
+//    accepting `&AzulOther` and i64 (the host handle id) for RefAny.
 $body = Azul\Dom::createBody();
 $div  = Azul\Dom::createDiv();
 if ($body->nodeCount() !== 1 || $div->nodeCount() !== 1) {
@@ -125,9 +122,21 @@ if ($body->nodeCount() !== 1 || $div->nodeCount() !== 1) {
 }
 echo "[azul] Azul\\Dom::createBody()->nodeCount() = " . $body->nodeCount() . " (PHP class round-trip).\n";
 
-echo "[azul] PHP host-invoker init phase completed successfully.\n";
-echo "[azul] (azul_host_invoker_init also wired AzApp_setGenericInvoker —\n";
-echo "[azul]  libazul's static callback thunks now route through the\n";
-echo "[azul]  Rust trampoline into ZendCallable::try_call automatically.\n";
-echo "[azul]  Full App::run dispatch lands when the Dom builders codegen\n";
-echo "[azul]  ships in Phase 51.)\n";
+// Phase 51 chain: refany_create → register_layout_callback →
+// WindowCreateOptions → AppConfig → App. Each step constructs a real
+// libazul value; the App::run() method is callable but not invoked
+// from the smoke test (it would block on the event loop).
+$model_id     = azul_refany_create('counter:5');
+$layout_cb_id = azul_register_layout_callback('layout');  // not actually fired here
+$wco          = Azul\WindowCreateOptions::default();
+$cfg          = Azul\AppConfig::create();
+$app          = Azul\App::create($model_id, $cfg);
+echo "[azul] Azul\\App::create(refany={$model_id}, cfg) → AzulApp object.\n";
+echo "[azul] Azul\\App has run() method: " . (method_exists($app, 'run') ? 'YES' : 'NO') . ".\n";
+echo "[azul] Phase 51 host-invoker + Dom + App chain reachable from PHP.\n";
+
+function layout($args_json) { return '{"unused":"smoke test"}'; }
+
+echo "[azul] (Full App.run with layout-callback splice still needs the\n";
+echo "[azul]  WindowCreateOptions.layout_callback wiring; the smart\n";
+echo "[azul]  create(callable) factory is the next codegen step.)\n";
