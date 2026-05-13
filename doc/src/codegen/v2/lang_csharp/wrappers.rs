@@ -192,7 +192,7 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
         builder.blank();
     }
 
-    if s.name == "String" {
+    if matches!(s.category, TypeCategory::String) {
         builder.line("/// <summary>Decode the wrapped UTF-8 bytes into a managed string.</summary>");
         builder.line("public override string ToString()");
         builder.line("{");
@@ -358,7 +358,7 @@ fn emit_cs_toString_if_supported(
     s: &StructDef,
     ir: &CodegenIR,
 ) {
-    if s.name == "String" {
+    if matches!(s.category, TypeCategory::String) {
         return;
     }
     let dbg_sym = format!("Az{}_toDbgString", s.name);

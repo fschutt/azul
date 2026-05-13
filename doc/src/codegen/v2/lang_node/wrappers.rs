@@ -252,7 +252,7 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
     // `{ vec: AzU8Vec }`, AzU8Vec is `{ ptr, len, cap, destructor }`.
     // koffi.decode handles the struct read; len comes back as BigInt
     // (size_t), so coerce to Number for the array bound.
-    if s.name == "String" {
+    if matches!(s.category, TypeCategory::String) {
         b.line("/**");
         b.line(" * Decode the wrapped UTF-8 bytes into a JS string.");
         b.line(" * Returns '' if not available on the current runtime (koffi only).");
@@ -597,7 +597,7 @@ fn emit_node_toString_if_supported(
     s: &StructDef,
     ir: &CodegenIR,
 ) {
-    if s.name == "String" {
+    if matches!(s.category, TypeCategory::String) {
         return;
     }
     let dbg_sym = format!("Az{}_toDbgString", s.name);

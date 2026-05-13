@@ -316,7 +316,7 @@ fn emit_module_interface_for_class(
     // AzString.to_string is added by emit_module_impl_for_class as a
     // host-string accessor; declare its signature here so the .mli
     // surface matches.
-    if s.name == "String" {
+    if matches!(s.category, TypeCategory::String) {
         // Use a non-docstring comment to avoid OCaml's "ambiguous
         // documentation comment" warning (escalated to error) — the
         // docstring would attach to either `type t` above or the next
@@ -360,7 +360,7 @@ fn emit_module_impl_for_class(
     // `{ vec: AzU8Vec }`, AzU8Vec is `{ ptr, len, cap, destructor }`.
     // Field accessors are emitted by lang_ocaml/types.rs:
     // `az_string_field_vec`, `az_u8_vec_field_ptr`, `_field_len`.
-    if s.name == "String" {
+    if matches!(s.category, TypeCategory::String) {
         // Plain comment, not a docstring — avoids OCaml's ambiguous-
         // documentation warning when both type t and the following let
         // are candidates for attachment.
@@ -407,7 +407,7 @@ fn emit_ocaml_to_string_if_supported(
     ir: &CodegenIR,
     has_wrapper: bool,
 ) {
-    if s.name == "String" {
+    if matches!(s.category, TypeCategory::String) {
         return;
     }
     let dbg_sym = format!("Az{}_toDbgString", s.name);

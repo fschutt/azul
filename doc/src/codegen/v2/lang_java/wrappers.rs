@@ -163,7 +163,7 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     // The wrapper's `ptr` is the address of the AzString struct, so
     // offset 0 is `vec.ptr` (the UTF-8 byte buffer) and offset 8 is
     // `vec.len` (byte length).
-    if s.name == "String" {
+    if matches!(s.category, TypeCategory::String) {
         builder.line("/**");
         builder.line(" * Decode the wrapped UTF-8 bytes into a `java.lang.String`.");
         builder.line(" * Reads `vec.ptr` (offset 0) and `vec.len` (offset 8) from");
@@ -351,7 +351,7 @@ fn emit_toString_if_supported(
     s: &StructDef,
     ir: &CodegenIR,
 ) {
-    if s.name == "String" {
+    if matches!(s.category, TypeCategory::String) {
         return;
     }
     let dbg_sym = format!("Az{}_toDbgString", s.name);

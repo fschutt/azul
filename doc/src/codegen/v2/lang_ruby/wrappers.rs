@@ -27,7 +27,7 @@ use std::collections::BTreeSet;
 
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
-use super::super::ir::{CodegenIR, FunctionDef, FunctionKind, StructDef};
+use super::super::ir::{CodegenIR, FunctionDef, FunctionKind, StructDef, TypeCategory};
 use super::types::{should_emit_struct, snake_case};
 
 // ============================================================================
@@ -118,7 +118,7 @@ fn emit_class_wrapper(
     // bytes into a Ruby String. AzString's C-side layout is `{ vec:
     // AzU8Vec }`, AzU8Vec is `{ ptr, len, cap, destructor }`, so we
     // read offset 0 (vec.ptr) and offset 8 (vec.len) via FFI::Pointer.
-    if s.name == "String" {
+    if matches!(s.category, TypeCategory::String) {
         builder.line("# Decode the wrapped UTF-8 bytes into a Ruby String.");
         builder.line("def to_s");
         builder.indent();
@@ -318,7 +318,7 @@ fn emit_rb_to_s_if_supported(
     s: &StructDef,
     ir: &CodegenIR,
 ) {
-    if s.name == "String" {
+    if matches!(s.category, TypeCategory::String) {
         return;
     }
     let dbg_sym = format!("Az{}_toDbgString", s.name);

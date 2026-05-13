@@ -144,7 +144,7 @@ Known patterns to audit (grep starting points):
 
 - [ ] **J.1** `if s.name == "Button"` smart-factory branches — already type-driven for AzString/wrapper-class args, but the `onClick(Object data, ...)` SAM-accepting overload is hardcoded per binding. Lift to "any method whose final two args are `(RefAny, Callback)` gets a smart factory variant".
 - [ ] **J.2** `if s.name == "WindowCreateOptions"` smart-factory branches — same pattern; lift to "any method that takes a `*LayoutCallbackType` fn-pointer arg gets a smart factory taking the host SAM".
-- [ ] **J.3** `if s.name == "String"` toString / from_lua / etc. — there are good reasons String is special (AzU8Vec interior), but the codegen should produce these via a single "AzString trait routing" predicate rather than per-binding `if s.name == "String"` blocks.
+- [x] **J.3** `if s.name == "String"` → `matches!(s.category, TypeCategory::String)` across all 7 binding modules (13 sites). The IR's `TypeCategory::String` marker was already populated from api.json; the codegen sites just hadn't routed through it. Java/Kotlin/C#/Ruby/Node/Lua/OCaml all rebuild clean. *(this iteration)*
 - [ ] **J.4** `if func.c_name == "AzWindowCreateOptions_create"` Lua bypass — landed for Lua to keep host-invoker ctx; check if other bindings need the same and if so generalize.
 - [ ] **J.5** Audit every `lang_<x>/wrappers.rs` for `if s.name == ...` / `if func.c_name == ...` / `if class_name == ...` and reduce.
 

@@ -150,7 +150,7 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
         builder.blank();
     }
 
-    if s.name == "String" {
+    if matches!(s.category, TypeCategory::String) {
         builder.line("/**");
         builder.line(" * Decode the wrapped UTF-8 bytes into a `kotlin.String`.");
         builder.line(" * Reads `vec.ptr` (offset 0) and `vec.len` (offset 8) from");
@@ -448,7 +448,7 @@ fn emit_kt_toString_if_supported(
     s: &StructDef,
     ir: &CodegenIR,
 ) {
-    if s.name == "String" {
+    if matches!(s.category, TypeCategory::String) {
         return; // Vec-direct decode already in place.
     }
     let dbg_sym = format!("Az{}_toDbgString", s.name);
