@@ -415,6 +415,15 @@ fn build_method_signature(
         if is_self_arg(&a.name) {
             continue;
         }
+        // Auto-string-conversion (type-driven, no method-name allow-
+        // list): Owned `String` args surface as plain OCaml `string`
+        // at the wrapper signature; impl wraps with `azul_az_string`.
+        if a.type_name.trim() == "String"
+            && matches!(a.ref_kind, ArgRefKind::Owned)
+        {
+            atoms.push("string".to_string());
+            continue;
+        }
         // VAL signature lives in type position — OCaml types apply
         // constructors postfix (`T ptr`, not `ptr T`) and primitive
         // names differ from their Ctypes value-typ counterparts
@@ -545,9 +554,18 @@ fn emit_method_impl(
         };
         call_args.push(self_expr);
     }
+    // Auto-string-conversion (mirrors Java/Kotlin/C#/Ruby/Node/Lua):
+    // any Owned `String` arg accepts a plain OCaml string; route it
+    // through `azul_az_string` (emitted in managed.rs preamble) so the
+    // wrapper receives an `az_string Ctypes.structure`. Pure type-
+    // driven; no method-name allowlist.
     for a in &user_args {
         let id = sanitize_identifier(&to_snake_case(&a.name));
-        call_args.push(id);
+        if a.type_name.trim() == "String" && matches!(a.ref_kind, ArgRefKind::Owned) {
+            call_args.push(format!("(azul_az_string {})", id));
+        } else {
+            call_args.push(id);
+        }
     }
     let call_str = if call_args.is_empty() {
         format!("{} ()", raw_binding)

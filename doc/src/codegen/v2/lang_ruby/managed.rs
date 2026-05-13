@@ -107,6 +107,27 @@ pub fn emit_managed_module(builder: &mut super::super::generator::CodeBuilder, i
     builder.line("end");
     builder.blank();
 
+    // Auto-AzString conversion: codegen emits Azul._az_string(x) for
+    // any wrapper-method arg whose IR type is `String` and ref_kind is
+    // Owned. Accepts a plain Ruby string and returns an AzString::ByValue
+    // FFI struct. Also passes through values that are already AzString
+    // structs / raw pointers / wrapper instances, so the helper is
+    // idempotent across the wrapper layer's call paths.
+    builder.line("# Auto-AzString-conversion helper.");
+    builder.line("# Wrapper methods route every Owned `String` arg through this so");
+    builder.line("# user code can pass plain Ruby strings directly (Dom.create_text(\"hi\")).");
+    builder.line("def self._az_string(val)");
+    builder.indent();
+    builder.line("return val if val.is_a?(FFI::Struct) || val.is_a?(FFI::Pointer)");
+    builder.line("return val.ptr if val.respond_to?(:ptr)");
+    builder.line("bytes = val.to_s.encode(Encoding::UTF_8).bytes");
+    builder.line("buf = FFI::MemoryPointer.new(:uint8, bytes.size)");
+    builder.line("buf.write_array_of_uint8(bytes) if bytes.size > 0");
+    builder.line("Native.az_string_from_utf8(buf, bytes.size)");
+    builder.dedent();
+    builder.line("end");
+    builder.blank();
+
     // Releaser: clears the hash entry. Pinned for process lifetime.
     builder.line("releaser = FFI::Function.new(:void, [:uint64]) do |id|");
     builder.indent();

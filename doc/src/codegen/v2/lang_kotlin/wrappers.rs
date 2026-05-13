@@ -25,7 +25,7 @@ use anyhow::Result;
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{
-    ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FunctionDef, FunctionKind, StructDef,
+    ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FunctionArg, FunctionDef, FunctionKind, StructDef,
     TypeCategory,
 };
 use super::{ffi_type_name, map_kt_owned, map_kt_return, sanitize_kt_identifier};
@@ -137,7 +137,9 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
         builder.indent();
         builder.line("val __data = AzulHostInvoker.refanyCreate(data)");
         builder.line("val __cb = AzulHostInvoker.registerCallback(fn)");
-        builder.line("return withOnClick(__data, __cb)");
+        builder.line("// withOnClick now takes RefAny + Callback wrapper instances after");
+        builder.line("// auto-wrapper-class conversion. Bridge from the raw .ByValue forms.");
+        builder.line("return withOnClick(RefAny(__data.pointer), Callback(__cb.pointer))");
         builder.dedent();
         builder.line("}");
         builder.blank();
@@ -260,6 +262,107 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     builder.blank();
 }
 
+/// Auto-string-conversion rule: any Owned `String` arg at the C ABI
+/// accepts a `kotlin.String` at the wrapper level. Returns true if this
+/// arg should be re-typed to `kotlin.String` and converted in pre-call
+/// lines. Pure type-driven; no method-name allowlist.
+fn is_az_string_owned_arg(a: &FunctionArg) -> bool {
+    a.type_name.trim() == "String" && matches!(a.ref_kind, ArgRefKind::Owned)
+}
+
+/// Auto-wrapper-class rule: any Owned arg whose type matches an
+/// emitted wrapper struct accepts the wrapper instance at the param;
+/// pre-call splice writes the underlying Pointer into a
+/// `.ByValue` Structure overlay so the C ABI sees a real struct
+/// value. Pure type-driven; no method-name allowlist.
+///
+/// Strict: only true when the codegen actually emits a wrapper class
+/// for the named type (has a delete function + not excluded by
+/// category). Otherwise we'd reference classes that don't exist.
+fn is_wrapper_class_owned_arg(a: &FunctionArg, ir: &CodegenIR) -> bool {
+    if !matches!(a.ref_kind, ArgRefKind::Owned) {
+        return false;
+    }
+    let tn = a.type_name.trim();
+    if tn == "String" {
+        return false;
+    }
+    let Some(s) = ir.find_struct(tn) else {
+        return false;
+    };
+    if !s.generic_params.is_empty() {
+        return false;
+    }
+    if matches!(
+        s.category,
+        super::super::ir::TypeCategory::Recursive
+            | super::super::ir::TypeCategory::VecRef
+            | super::super::ir::TypeCategory::DestructorOrClone
+            | super::super::ir::TypeCategory::GenericTemplate
+    ) {
+        return false;
+    }
+    // Kotlin's wrapper-class emission uses the same has_delete_function
+    // gate as Java's. Probe it directly.
+    ir.functions.iter().any(|f| {
+        f.class_name == tn && matches!(f.kind, FunctionKind::Delete)
+    })
+}
+
+/// Emit the pre-call wrapper-class conversion lines for one user arg.
+/// Mirrors Java's emission: Structure.newInstance + .read() splice over
+/// the wrapper's underlying Pointer to produce a `.ByValue` overlay
+/// the C ABI accepts.
+fn emit_kt_wrapper_class_conv(
+    pre_call_lines: &mut Vec<String>,
+    raw_name: &str,
+    type_name: &str,
+) -> String {
+    let ffi = ffi_type_name(type_name);
+    let raw_local = format!("__{}_raw", raw_name);
+    pre_call_lines.push(format!(
+        "val {raw_local} = Structure.newInstance({ffi}.ByValue::class.java, {arg}.rawPointer()) as {ffi}.ByValue",
+        raw_local = raw_local,
+        ffi = ffi,
+        arg = raw_name,
+    ));
+    pre_call_lines.push(format!("{}.read()", raw_local));
+    raw_local
+}
+
+/// Emit the pre-call AzString conversion lines for one user arg.
+/// Mirrors Java's emission: UTF-8 byte buffer + `AzString_fromUtf8`.
+fn emit_kt_az_string_conv(
+    pre_call_lines: &mut Vec<String>,
+    raw_name: &str,
+) -> String {
+    let az_name = format!("__{}_az", raw_name);
+    let bytes_name = format!("__{}_bytes", raw_name);
+    let mem_name = format!("__{}_mem", raw_name);
+    pre_call_lines.push(format!(
+        "val {bytes} = {raw}.toByteArray(Charsets.UTF_8)",
+        bytes = bytes_name,
+        raw = raw_name,
+    ));
+    pre_call_lines.push(format!(
+        "val {mem} = Memory({bytes}.size.toLong())",
+        mem = mem_name,
+        bytes = bytes_name,
+    ));
+    pre_call_lines.push(format!(
+        "{mem}.write(0, {bytes}, 0, {bytes}.size)",
+        mem = mem_name,
+        bytes = bytes_name,
+    ));
+    pre_call_lines.push(format!(
+        "val {az} = AzulNativeStr.INSTANCE.AzString_fromUtf8({mem}, {bytes}.size.toLong())",
+        az = az_name,
+        mem = mem_name,
+        bytes = bytes_name,
+    ));
+    az_name
+}
+
 fn emit_static_factory(
     builder: &mut CodeBuilder,
     class_name: &str,
@@ -285,12 +388,18 @@ fn emit_static_factory(
         .args
         .iter()
         .map(|a| {
-            let kt = match a.ref_kind {
-                ArgRefKind::Owned => map_kt_owned(&a.type_name, ir),
-                ArgRefKind::Ref
-                | ArgRefKind::RefMut
-                | ArgRefKind::Ptr
-                | ArgRefKind::PtrMut => "Pointer?".to_string(),
+            let kt = if is_az_string_owned_arg(a) {
+                "kotlin.String".to_string()
+            } else if is_wrapper_class_owned_arg(a, ir) {
+                sanitize_kt_identifier(a.type_name.trim())
+            } else {
+                match a.ref_kind {
+                    ArgRefKind::Owned => map_kt_owned(&a.type_name, ir),
+                    ArgRefKind::Ref
+                    | ArgRefKind::RefMut
+                    | ArgRefKind::Ptr
+                    | ArgRefKind::PtrMut => "Pointer?".to_string(),
+                }
             };
             format!("{}: {}", sanitize_kt_identifier(&a.name), kt)
         })
@@ -299,10 +408,24 @@ fn emit_static_factory(
     // No wrapper-boundary callback substitution. The wrapper signature
     // carries the C ABI type unchanged; users call AzulHostInvoker.register*
     // themselves to construct the wrapper struct. Matches C# / Java / Lua.
+    // Auto-string-conversion + auto-wrapper-class conversion (rules
+    // above): Owned `String` args take a kotlin.String; Owned wrapper-
+    // class args take the wrapper instance + emit Structure.newInstance
+    // splice in pre-call lines.
+    let mut pre_call_lines: Vec<String> = Vec::new();
     let call_args: Vec<String> = func
         .args
         .iter()
-        .map(|a| sanitize_kt_identifier(&a.name))
+        .map(|a| {
+            let raw_name = sanitize_kt_identifier(&a.name);
+            if is_az_string_owned_arg(a) {
+                emit_kt_az_string_conv(&mut pre_call_lines, &raw_name)
+            } else if is_wrapper_class_owned_arg(a, ir) {
+                emit_kt_wrapper_class_conv(&mut pre_call_lines, &raw_name, a.type_name.trim())
+            } else {
+                raw_name
+            }
+        })
         .collect();
 
     if !func.doc.is_empty() {
@@ -326,6 +449,10 @@ fn emit_static_factory(
         displayed_return
     ));
     builder.indent();
+
+    for stmt in &pre_call_lines {
+        builder.line(stmt);
+    }
 
     // Use `func.c_name` to match the AzulNative interface (where
     // functions are declared by their C ABI symbol with camelCase
@@ -394,12 +521,18 @@ fn emit_instance_method(
     let arg_sig: Vec<String> = user_args
         .iter()
         .map(|a| {
-            let kt = match a.ref_kind {
-                ArgRefKind::Owned => map_kt_owned(&a.type_name, ir),
-                ArgRefKind::Ref
-                | ArgRefKind::RefMut
-                | ArgRefKind::Ptr
-                | ArgRefKind::PtrMut => "Pointer?".to_string(),
+            let kt = if is_az_string_owned_arg(a) {
+                "kotlin.String".to_string()
+            } else if is_wrapper_class_owned_arg(a, ir) {
+                sanitize_kt_identifier(a.type_name.trim())
+            } else {
+                match a.ref_kind {
+                    ArgRefKind::Owned => map_kt_owned(&a.type_name, ir),
+                    ArgRefKind::Ref
+                    | ArgRefKind::RefMut
+                    | ArgRefKind::Ptr
+                    | ArgRefKind::PtrMut => "Pointer?".to_string(),
+                }
             };
             format!("{}: {}", sanitize_kt_identifier(&a.name), kt)
         })
@@ -419,12 +552,22 @@ fn emit_instance_method(
     };
 
     let mut call_args: Vec<String> = vec![self_arg];
-    // Callback args: no wrapper-boundary substitution. The wrapper
-    // signature already matches the C ABI type; users construct the
-    // AzCallback struct themselves via AzulHostInvoker.register*.
+    // Auto-string-conversion + auto-wrapper-class conversion: Owned
+    // `String` args take a kotlin.String + AzString_fromUtf8 splice;
+    // Owned wrapper-class args take the wrapper instance + Structure.
+    // newInstance splice. Pure type-driven (see top-of-file predicates).
     for a in &user_args {
         let raw_name = sanitize_kt_identifier(&a.name);
-        call_args.push(raw_name);
+        if is_az_string_owned_arg(a) {
+            let az_name = emit_kt_az_string_conv(&mut pre_call_lines, &raw_name);
+            call_args.push(az_name);
+        } else if is_wrapper_class_owned_arg(a, ir) {
+            let raw_local =
+                emit_kt_wrapper_class_conv(&mut pre_call_lines, &raw_name, a.type_name.trim());
+            call_args.push(raw_local);
+        } else {
+            call_args.push(raw_name);
+        }
     }
 
     if !func.doc.is_empty() {

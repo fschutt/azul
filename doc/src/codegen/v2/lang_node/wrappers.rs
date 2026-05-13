@@ -87,6 +87,30 @@ pub fn generate_wrappers(b: &mut CodeBuilder, ir: &CodegenIR) {
     b.line("}");
     b.blank();
 
+    // Auto-AzString-conversion helper. Wrapper methods route Owned
+    // `String` args through this so user code can pass plain JS
+    // strings directly (`Dom.create_text(\"hi\")`). Pass-through for
+    // already-AzString values (existing koffi objects or wrapper
+    // instances with `_ptr`). Pure type-driven; no method-name allow-
+    // list (the codegen detects `type_name == \"String\"` + Owned in
+    // `render_call_args`).
+    b.line("// Auto-AzString-conversion helper. Wrapper methods route Owned");
+    b.line("// `String` args through this so plain JS strings work directly.");
+    b.line("function _azString(val) {");
+    b.indent();
+    b.line("if (val == null) return val;");
+    b.line("if (typeof val === 'object') {");
+    b.indent();
+    b.line("if (val._ptr !== undefined) return val._ptr;");
+    b.line("return val;");
+    b.dedent();
+    b.line("}");
+    b.line("const buf = Buffer.from(String(val), 'utf8');");
+    b.line("return lib.AzString_fromUtf8(buf, buf.length);");
+    b.dedent();
+    b.line("}");
+    b.blank();
+
     b.line("// ----------------------------------------------------------------------------");
     b.line("// Wrapper classes (one per disposable struct / tagged-union enum).");
     b.line("// ----------------------------------------------------------------------------");
@@ -723,15 +747,31 @@ fn render_params(args: &[&super::super::ir::FunctionArg]) -> String {
 fn render_call_args(args: &[&super::super::ir::FunctionArg]) -> String {
     args.iter()
         .map(|a| {
+            // Auto-string-conversion (type-driven; no method-name allow-
+            // list): Owned `String` args route through `_azString` so
+            // plain JS strings get converted to AzString in line. The
+            // helper is a pass-through for already-AzString values.
+            let n = sanitize_js_identifier(&a.name);
+            if is_az_string_owned_arg(a) {
+                return format!("_azString({n})", n = n);
+            }
             // If the arg is a wrapper-class instance the user will pass
             // the wrapper directly; pull `._ptr` out so the FFI gets a
             // raw pointer. We use a permissive `?._ptr ?? value` guard
             // so primitives (numbers, booleans) pass through unchanged.
-            let n = sanitize_js_identifier(&a.name);
             format!("({n} && {n}._ptr !== undefined ? {n}._ptr : {n})", n = n)
         })
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+/// Auto-string-conversion rule (mirrors Java/Kotlin/C#/Ruby): any Owned
+/// `String` arg at the C ABI accepts a plain JS string at the wrapper
+/// level. The call site routes the value through `_azString` (emitted
+/// in the module preamble).
+fn is_az_string_owned_arg(a: &super::super::ir::FunctionArg) -> bool {
+    a.type_name.trim() == "String"
+        && matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned)
 }
 
 fn jsdoc_escape(s: &str) -> String {

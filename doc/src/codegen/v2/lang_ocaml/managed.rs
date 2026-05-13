@@ -162,6 +162,24 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.dedent();
     builder.blank();
 
+    // Auto-AzString-conversion helper. Wrapper methods route every
+    // Owned `String` arg through this so user code can pass plain
+    // OCaml strings directly (`Dom.create_text \"hi\"`). Pure type-
+    // driven; the codegen emits the route in `wrappers.rs` based on
+    // arg.type_name == \"String\" and ref_kind == Owned.
+    builder.line("(* Convert an OCaml string into an AzString Ctypes.structure. *)");
+    builder.line("(* Used by every wrapper method whose arg has IR type `String`   *)");
+    builder.line("(* and ref_kind Owned. Idempotent on already-AzString values     *)");
+    builder.line("(* (those skip this helper at the call site by codegen choice).  *)");
+    builder.line("let azul_az_string (s : string) : az_string Ctypes.structure =");
+    builder.indent();
+    builder.line("let len = Stdlib.String.length s in");
+    builder.line("let buf = Ctypes.allocate_n Ctypes.char ~count:len in");
+    builder.line("Stdlib.String.iteri (fun i c -> Ctypes.(buf +@ i) <-@ c) s;");
+    builder.line("ffi_az_string_from_utf8 (Ctypes.to_voidp buf) (Unsigned.Size_t.of_int len)");
+    builder.dedent();
+    builder.blank();
+
     // Smart WindowCreateOptions constructor: built from `_default()`
     // and stuffs the host-invoker-registered AzLayoutCallback (with
     // ctx preserved) into the window_state.layout_callback field.

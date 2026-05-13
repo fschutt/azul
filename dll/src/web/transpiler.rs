@@ -1,9 +1,21 @@
 //! Transpiler trait and stub implementation.
 //!
 //! The `Transpiler` trait abstracts over the x86-64 → WASM lifting pipeline.
-//! Phase 0 uses `StubTranspiler` which returns errors for all lift operations.
-//! When remill-rs is available, a real transpiler will implement this trait
-//! with x86-64 → LLVM IR → WASM compilation.
+//! The trait is the *only* surface this module exposes — callers feed in
+//! `(fn_name, fn_addr, fn_size)` and get back `WasmModule` bytes, which
+//! keeps the lift step decoupled from windowing, the event loop, and the
+//! `run_web` orchestrator. That isolation is what lets the web.md flow
+//! choose *when* lifting runs (build-time, first-request, lazy-per-callback)
+//! without touching this file.
+//!
+//! Implementations:
+//! - [`StubTranspiler`] — always available pure-Rust fallback. Returns
+//!   `TranspileError` from both lift methods so the web backend falls back
+//!   to server-side callback execution (POST → run natively → return HTML).
+//! - [`RemillTranspiler`] — opt-in via the `web-transpiler` Cargo feature
+//!   (pulls in the `third_party/remill-rs` submodule). Lifts x86-64 → LLVM
+//!   IR → WASM. Lives in a sibling file (`transpiler_remill.rs`) so the
+//!   remill toolchain only links when the feature is on.
 
 /// Error returned when a function cannot be transpiled.
 #[derive(Debug, Clone)]
@@ -105,8 +117,15 @@ impl Transpiler for StubTranspiler {
 
 /// Get the default transpiler for the current build.
 ///
-/// Returns `StubTranspiler` until remill-rs is integrated.
+/// With the `web-transpiler` feature ON, returns [`RemillTranspiler`].
+/// Otherwise returns the pure-Rust [`StubTranspiler`] fallback.
 pub fn default_transpiler() -> Box<dyn Transpiler> {
-    // Future: check for remill availability and return a real transpiler
-    Box::new(StubTranspiler)
+    #[cfg(feature = "web-transpiler")]
+    {
+        Box::new(crate::web::transpiler_remill::RemillTranspiler::new())
+    }
+    #[cfg(not(feature = "web-transpiler"))]
+    {
+        Box::new(StubTranspiler)
+    }
 }

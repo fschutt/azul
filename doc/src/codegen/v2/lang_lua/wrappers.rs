@@ -437,7 +437,13 @@ fn emit_data_enum_wrapper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
 fn emit_instance_method(out: &mut String, class: &str, lua_method: &str, func: &FunctionDef) {
     let lua_method = sanitize_lua_ident(lua_method);
 
-    if !has_callback_arg(func) {
+    // Detect Owned `String` args. When present, we have to enumerate
+    // args (can't use the `(...)` varargs passthrough) so we can route
+    // each one through `azul._az_string(...)`. Mirrors the auto-string
+    // rule in Java/Kotlin/C#/Ruby/Node.
+    let has_az_string = func.args.iter().any(is_az_string_owned_arg);
+
+    if !has_callback_arg(func) && !has_az_string {
         out.push_str(&format!(
             "    function {}_methods:{}(...) return C.{}(self, ...) end\n",
             class, lua_method, func.c_name
@@ -460,11 +466,17 @@ fn emit_instance_method(out: &mut String, class: &str, lua_method: &str, func: &
         visible.join(", ")
     ));
 
-    // Body: 8-space indent (inside the function body, inside the do-block).
+    // Body: 8-space indent.
     emit_callback_pin_lines(out, "        ", &func.args[1..], &visible);
 
     let mut call_args = vec!["self".to_string()];
-    call_args.extend(visible.iter().cloned());
+    for (i, a) in func.args.iter().skip(1).enumerate() {
+        if is_az_string_owned_arg(a) {
+            call_args.push(format!("azul._az_string({})", visible[i]));
+        } else {
+            call_args.push(visible[i].clone());
+        }
+    }
     out.push_str(&format!(
         "        return C.{}({})\n",
         func.c_name,
@@ -473,15 +485,55 @@ fn emit_instance_method(out: &mut String, class: &str, lua_method: &str, func: &
     out.push_str("    end\n");
 }
 
+/// Auto-string-conversion rule (mirrors Java/Kotlin/C#/Ruby/Node):
+/// any Owned `String` arg accepts a plain Lua string at the wrapper
+/// level. The call site routes the value through `azul._az_string`
+/// (defined in `mod.rs` postlude). Pure type-driven; no method-name
+/// allowlist.
+fn is_az_string_owned_arg(a: &super::super::ir::FunctionArg) -> bool {
+    a.type_name.trim() == "String"
+        && matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned)
+}
+
 /// Emit one entry of a static-method table:
 ///     method = function(args) ... end,
 fn emit_static_method(out: &mut String, lua_method: &str, func: &FunctionDef) {
     let lua_method = sanitize_lua_ident(lua_method);
 
-    if !has_callback_arg(func) {
+    // When the func has Owned `String` args, switch from the varargs
+    // passthrough to an enumerated form so we can route each through
+    // `azul._az_string`.
+    let has_az_string = func.args.iter().any(is_az_string_owned_arg);
+
+    if !has_callback_arg(func) && !has_az_string {
         out.push_str(&format!(
             "    {} = function(...) return C.{}(...) end,\n",
             lua_method, func.c_name
+        ));
+        return;
+    }
+
+    if !has_callback_arg(func) && has_az_string {
+        // Enumerated form for auto-string-conversion only.
+        let visible: Vec<String> = func
+            .args
+            .iter()
+            .map(|a| sanitize_lua_ident(&a.name))
+            .collect();
+        let mut call_args: Vec<String> = Vec::new();
+        for (i, a) in func.args.iter().enumerate() {
+            if is_az_string_owned_arg(a) {
+                call_args.push(format!("azul._az_string({})", visible[i]));
+            } else {
+                call_args.push(visible[i].clone());
+            }
+        }
+        out.push_str(&format!(
+            "    {} = function({}) return C.{}({}) end,\n",
+            lua_method,
+            visible.join(", "),
+            func.c_name,
+            call_args.join(", "),
         ));
         return;
     }
@@ -575,10 +627,25 @@ fn emit_static_method(out: &mut String, lua_method: &str, func: &FunctionDef) {
     // Body: 8-space indent.
     emit_callback_pin_lines(out, "        ", &func.args[..], &visible);
 
+    // Route Owned `String` args through azul._az_string in line. The
+    // helper is a pass-through for non-string values, so it's safe to
+    // apply uniformly per-arg.
+    let final_args: Vec<String> = func
+        .args
+        .iter()
+        .enumerate()
+        .map(|(i, a)| {
+            if is_az_string_owned_arg(a) {
+                format!("azul._az_string({})", visible[i])
+            } else {
+                visible[i].clone()
+            }
+        })
+        .collect();
     out.push_str(&format!(
         "        return C.{}({})\n",
         func.c_name,
-        visible.join(", ")
+        final_args.join(", ")
     ));
     out.push_str("    end,\n");
 }

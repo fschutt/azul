@@ -21,7 +21,7 @@ use anyhow::Result;
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{
-    ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FunctionDef, FunctionKind, StructDef,
+    ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FunctionArg, FunctionDef, FunctionKind, StructDef,
     TypeCategory,
 };
 use super::{emit_file, ffi_type_name, map_jvm_type, map_jvm_type_byvalue, sanitize_identifier, snake_to_lower_camel};
@@ -199,7 +199,9 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
         builder.indent();
         builder.line("AzRefAny.ByValue __data = AzulHostInvoker.refanyCreate(data);");
         builder.line("AzCallback.ByValue __cb = AzulHostInvoker.registerCallback(fn);");
-        builder.line("return withOnClick(__data, __cb);");
+        builder.line("// withOnClick takes wrapper instances (RefAny + Callback) after");
+        builder.line("// the auto-wrapper-class conversion; bridge from the raw forms.");
+        builder.line("return withOnClick(new RefAny(__data.getPointer()), new Callback(__cb.getPointer()));");
         builder.dedent();
         builder.line("}");
         builder.blank();
@@ -318,15 +320,68 @@ fn emit_wrapper_method(
             .collect()
     };
 
+    // Auto-conversion rules (both type-driven; no method-name allow-
+    // list, no per-class hardcoding):
+    //
+    // 1. AzString Owned: parameter takes `java.lang.String`; emit a
+    //    UTF-8-bytes → AzString_fromUtf8 conversion pre-call line.
+    // 2. Wrapper-class Owned: parameter takes the wrapper class (e.g.
+    //    `Dom child` instead of `AzDom.ByValue child`); emit a
+    //    Structure.newInstance + .read() splice pre-call line.
+    //
+    // Both apply uniformly to every emitted wrapper method.
+    let is_az_string_owned_arg = |a: &&FunctionArg| -> bool {
+        a.type_name.trim() == "String" && matches!(a.ref_kind, ArgRefKind::Owned)
+    };
+    let is_wrapper_class_owned_arg = |a: &&FunctionArg| -> bool {
+        if !matches!(a.ref_kind, ArgRefKind::Owned) {
+            return false;
+        }
+        let tn = a.type_name.trim();
+        if tn == "String" {
+            return false;
+        }
+        // Strict: only treat as wrapper-class arg if the codegen
+        // actually emits a wrapper file for it (i.e. has a delete fn
+        // and isn't in an excluded TypeCategory). Without this guard,
+        // structs that exist in the IR but never get a wrapper class
+        // (Vec inner types, internal data carriers) get over-converted
+        // and the generated code references missing classes.
+        let Some(s) = ir.find_struct(tn) else {
+            return false;
+        };
+        if !s.generic_params.is_empty() {
+            return false;
+        }
+        if matches!(
+            s.category,
+            super::super::ir::TypeCategory::Recursive
+                | super::super::ir::TypeCategory::VecRef
+                | super::super::ir::TypeCategory::DestructorOrClone
+                | super::super::ir::TypeCategory::GenericTemplate
+        ) {
+            return false;
+        }
+        has_delete_function(tn, ir)
+    };
+
     let arg_sig: Vec<String> = user_args
         .iter()
         .map(|a| {
-            let jt = match a.ref_kind {
-                ArgRefKind::Owned => map_jvm_type_byvalue(&a.type_name, ir),
-                ArgRefKind::Ref
-                | ArgRefKind::RefMut
-                | ArgRefKind::Ptr
-                | ArgRefKind::PtrMut => "Pointer".to_string(),
+            let jt = if is_az_string_owned_arg(a) {
+                "java.lang.String".to_string()
+            } else if is_wrapper_class_owned_arg(a) {
+                // Wrapper class — strip `Az` prefix the same way
+                // `wrapper_class_name` would.
+                wrapper_class_name(a.type_name.trim())
+            } else {
+                match a.ref_kind {
+                    ArgRefKind::Owned => map_jvm_type_byvalue(&a.type_name, ir),
+                    ArgRefKind::Ref
+                    | ArgRefKind::RefMut
+                    | ArgRefKind::Ptr
+                    | ArgRefKind::PtrMut => "Pointer".to_string(),
+                }
             };
             format!("{} {}", jt, sanitize_identifier(&a.name))
         })
@@ -374,9 +429,55 @@ fn emit_wrapper_method(
     // unchanged. Users construct the wrapper struct via
     // `AzulHostInvoker.register*(handler)` themselves and pass that.
     // (Same conclusion C# / Lua reached.)
+    //
+    // Auto-string-conversion: any Owned `String` arg accepts a
+    // `java.lang.String` at the wrapper level. Convert UTF-8 bytes →
+    // AzString.ByValue via the C-API helper before the call.
     for a in &user_args {
         let raw_name = sanitize_identifier(&a.name);
-        call_args.push(raw_name);
+        if is_az_string_owned_arg(a) {
+            let az_name = format!("__{}_az", raw_name);
+            let bytes_name = format!("__{}_bytes", raw_name);
+            let mem_name = format!("__{}_mem", raw_name);
+            pre_call_lines.push(format!(
+                "byte[] {bytes} = {raw}.getBytes(java.nio.charset.StandardCharsets.UTF_8);",
+                bytes = bytes_name,
+                raw = raw_name,
+            ));
+            pre_call_lines.push(format!(
+                "com.sun.jna.Memory {mem} = new com.sun.jna.Memory({bytes}.length);",
+                mem = mem_name,
+                bytes = bytes_name,
+            ));
+            pre_call_lines.push(format!(
+                "{mem}.write(0, {bytes}, 0, {bytes}.length);",
+                mem = mem_name,
+                bytes = bytes_name,
+            ));
+            pre_call_lines.push(format!(
+                "AzString.ByValue {az} = AzulNativeStr.INSTANCE.AzString_fromUtf8({mem}, {bytes}.length);",
+                az = az_name,
+                mem = mem_name,
+                bytes = bytes_name,
+            ));
+            call_args.push(az_name);
+        } else if is_wrapper_class_owned_arg(a) {
+            // Splice the wrapper's underlying Pointer into a
+            // by-value Structure overlay so the C ABI sees a real
+            // struct value. Same pattern the self-by-value path uses.
+            let ffi = ffi_type_name(a.type_name.trim());
+            let raw_local = format!("__{}_raw", raw_name);
+            pre_call_lines.push(format!(
+                "{ffi}.ByValue {raw_local} = Structure.newInstance({ffi}.ByValue.class, {arg}.rawPointer());",
+                ffi = ffi,
+                raw_local = raw_local,
+                arg = raw_name,
+            ));
+            pre_call_lines.push(format!("{}.read();", raw_local));
+            call_args.push(raw_local);
+        } else {
+            call_args.push(raw_name);
+        }
     }
 
     if !func.doc.is_empty() {

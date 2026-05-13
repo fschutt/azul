@@ -103,14 +103,28 @@ pub fn generate(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
     builder.raw(&wrappers::generate_wrappers(ir));
 
     // 8. Postlude: ergonomic helpers that need to attach to wrapper tables
-    //    after the wrappers have created them. `azul.String.from_lua(s)` is
-    //    the only one today — wraps a regular Lua string in an AzString
-    //    without forcing callers to deal with `ffi.cast('const uint8_t*', s)`.
+    //    after the wrappers have created them.
+    //    - `azul.String.from_lua(s)` — explicit Lua-string → AzString.
+    //    - `azul._az_string(v)` — auto-conversion helper used by the
+    //      wrapper codegen for every Owned `String` arg, so plain Lua
+    //      strings flow through `Dom.create_text("hi")` directly.
     builder.line("");
     builder.line("-- Postlude: convenience helpers that hang off generated wrappers.");
     builder.line("azul.String.from_lua = function(s)");
     builder.line("    return C.AzString_copyFromBytes(");
     builder.line("        ffi.cast('const uint8_t*', s), 0, #s)");
+    builder.line("end");
+    builder.blank();
+    builder.line("-- Auto-AzString-conversion helper. Wrapper methods route every Owned");
+    builder.line("-- `String` arg through this so user code can pass plain Lua strings");
+    builder.line("-- directly. Idempotent for cdata/AzString values already passed in.");
+    builder.line("azul._az_string = function(v)");
+    builder.line("    if v == nil then return v end");
+    builder.line("    local t = type(v)");
+    builder.line("    if t == 'string' then");
+    builder.line("        return C.AzString_copyFromBytes(ffi.cast('const uint8_t*', v), 0, #v)");
+    builder.line("    end");
+    builder.line("    return v");
     builder.line("end");
     builder.blank();
 

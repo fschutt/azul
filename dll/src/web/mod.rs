@@ -23,6 +23,8 @@ pub mod html_render;
 pub mod loader_js;
 pub mod classify;
 pub mod transpiler;
+#[cfg(feature = "web-transpiler")]
+pub mod transpiler_remill;
 
 use std::collections::{BTreeMap, HashMap};
 use std::net::SocketAddr;

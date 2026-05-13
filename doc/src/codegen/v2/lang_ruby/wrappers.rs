@@ -285,8 +285,15 @@ fn emit_method(builder: &mut CodeBuilder, func: &FunctionDef, prefixed: &str, ty
             // Callback args have already been replaced by an FFI::Struct
             // value; pass them as-is. Other args go through _unwrap so
             // both wrapper instances and raw cdata are accepted.
+            //
+            // Auto-string-conversion: Owned `String` args go through
+            // `Azul._az_string` (defined in managed.rs preamble) so
+            // user code can pass plain Ruby strings directly. Pure
+            // type-driven; no method-name allowlist.
             if visible_args[i].callback_info.is_some() {
                 call_args.push(name.clone());
+            } else if is_az_string_owned_arg(visible_args[i]) {
+                call_args.push(format!("Azul._az_string({})", name));
             } else {
                 call_args.push(unwrap_expr(name));
             }
@@ -319,13 +326,22 @@ fn emit_method(builder: &mut CodeBuilder, func: &FunctionDef, prefixed: &str, ty
     builder.indent();
     emit_callback_register_lines(builder, &visible_args, &arg_names);
     // For static calls we forward the user-supplied args. Callback args
-    // are already wrapper structs (from `_register_callback`); other
-    // args go through `_unwrap` so both wrapper instances and raw cdata
-    // are accepted.
+    // are already wrapper structs (from `_register_callback`); Owned
+    // `String` args go through `Azul._az_string` so user code can pass
+    // plain Ruby strings directly. Other args go through `_unwrap` so
+    // both wrapper instances and raw cdata are accepted.
     let call_args: Vec<String> = arg_names
         .iter()
         .zip(visible_args.iter())
-        .map(|(n, a)| if a.callback_info.is_some() { n.clone() } else { unwrap_expr(n) })
+        .map(|(n, a)| {
+            if a.callback_info.is_some() {
+                n.clone()
+            } else if is_az_string_owned_arg(a) {
+                format!("Azul._az_string({})", n)
+            } else {
+                unwrap_expr(n)
+            }
+        })
         .collect();
     let call = format!("Native.{}({})", native_call, call_args.join(", "));
     emit_method_body_static(
@@ -472,6 +488,16 @@ fn emit_method_body_static(
 /// no module-level helper is required.
 fn unwrap_expr(name: &str) -> String {
     format!("({n}.respond_to?(:ptr) ? {n}.ptr : {n})", n = name)
+}
+
+/// Auto-string-conversion rule (mirrors Java/Kotlin/C#): any Owned
+/// `String` arg at the C ABI accepts a plain Ruby string at the wrapper
+/// level. The call site routes the value through `Azul._az_string`
+/// (emitted from `managed.rs`). Pure type-driven; no method-name
+/// allowlist.
+fn is_az_string_owned_arg(a: &super::super::ir::FunctionArg) -> bool {
+    a.type_name.trim() == "String"
+        && matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned)
 }
 
 // ============================================================================

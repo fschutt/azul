@@ -23,8 +23,8 @@ use anyhow::Result;
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{
-    ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FunctionDef, FunctionKind, StructDef,
-    TypeCategory,
+    ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FunctionArg, FunctionDef, FunctionKind,
+    StructDef, TypeCategory,
 };
 use super::{ffi_type_name, map_type_to_csharp, sanitize_identifier, snake_to_pascal};
 
@@ -184,7 +184,9 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
         builder.indent();
         builder.line("var __data = HostInvoker.RefanyCreate(data);");
         builder.line("var __cb = HostInvoker.RegisterCallback(fn);");
-        builder.line("return WithOnClick(__data, __cb);");
+        builder.line("// WithOnClick now takes wrapper instances (RefAny + Callback) after");
+        builder.line("// auto-wrapper-class conversion. Bridge from the raw FFI structs.");
+        builder.line("return WithOnClick(new RefAny(__data), new Callback(__cb));");
         builder.dedent();
         builder.line("}");
         builder.blank();
@@ -336,16 +338,65 @@ fn emit_wrapper_method(
             .collect()
     };
 
+    // Auto-conversion rules (mirrors Java/Kotlin; pure type-driven, no
+    // method-name allowlist):
+    // 1. Owned `String` arg → param takes `string`; emit UTF-8 →
+    //    AzString_fromUtf8 conversion at the start of the body.
+    // 2. Owned wrapper-class arg → param takes the wrapper class
+    //    (e.g. `Dom child` rather than `AzDom child`); the call site
+    //    reaches into `child.Raw` (every emitted wrapper class
+    //    exposes `Raw => _inner`).
+    let is_az_string_owned_arg = |a: &&FunctionArg| -> bool {
+        a.type_name.trim() == "String" && matches!(a.ref_kind, ArgRefKind::Owned)
+    };
+    let is_wrapper_class_owned_arg = |a: &&FunctionArg| -> bool {
+        if !matches!(a.ref_kind, ArgRefKind::Owned) {
+            return false;
+        }
+        let tn = a.type_name.trim();
+        if tn == "String" {
+            return false;
+        }
+        let Some(s) = ir.find_struct(tn) else {
+            return false;
+        };
+        if !s.generic_params.is_empty() {
+            return false;
+        }
+        if matches!(
+            s.category,
+            TypeCategory::Recursive
+                | TypeCategory::VecRef
+                | TypeCategory::DestructorOrClone
+                | TypeCategory::GenericTemplate
+        ) {
+            return false;
+        }
+        // Strict: only convert when the codegen actually emits a
+        // wrapper class for the named type. C# wrapper emission is
+        // gated on having a delete fn (same rule as Java/Kotlin).
+        ir.functions
+            .iter()
+            .any(|f| f.class_name == tn && matches!(f.kind, FunctionKind::Delete))
+    };
+
     // Build argument signature.
     let arg_sig: Vec<String> = user_args
         .iter()
         .map(|a| {
-            let cs_type = match a.ref_kind {
-                ArgRefKind::Owned => map_type_to_csharp(&a.type_name, ir),
-                ArgRefKind::Ref
-                | ArgRefKind::RefMut
-                | ArgRefKind::Ptr
-                | ArgRefKind::PtrMut => "IntPtr".to_string(),
+            let cs_type = if is_az_string_owned_arg(a) {
+                "string".to_string()
+            } else if is_wrapper_class_owned_arg(a) {
+                // C# wrapper class name strips the `Az` prefix.
+                a.type_name.trim().to_string()
+            } else {
+                match a.ref_kind {
+                    ArgRefKind::Owned => map_type_to_csharp(&a.type_name, ir),
+                    ArgRefKind::Ref
+                    | ArgRefKind::RefMut
+                    | ArgRefKind::Ptr
+                    | ArgRefKind::PtrMut => "IntPtr".to_string(),
+                }
             };
             format!("{} {}", cs_type, sanitize_identifier(&a.name))
         })
@@ -390,12 +441,54 @@ fn emit_wrapper_method(
     // (`AzCallback` struct or `AzCallbackType` typedef) and is passed
     // through unchanged. Users construct the wrapper struct themselves
     // via `HostInvoker.RegisterCallback(delegate)` and pass that.
-    // Substituting here would force the wrapper signature to take
-    // `Delegate` (losing the static type info api.json carries) and
-    // cause wrapper-vs-native arg-type mismatches that take downstream
-    // type analysis to settle.
+    //
+    // Auto-string-conversion: see rule predicate above. Owned `String`
+    // args get a UTF-8-bytes → AzString_fromUtf8 conversion emitted at
+    // the start of the method body; the call site uses the converted
+    // local name instead of the raw parameter.
+    let mut pre_call_lines: Vec<String> = Vec::new();
     for a in &user_args {
-        call_args.push(sanitize_identifier(&a.name));
+        let raw_name = sanitize_identifier(&a.name);
+        if is_az_string_owned_arg(a) {
+            let az_name = format!("__{}_az", raw_name);
+            let bytes_name = format!("__{}_bytes", raw_name);
+            let ptr_name = format!("__{}_ptr", raw_name);
+            pre_call_lines.push(format!(
+                "var {bytes} = System.Text.Encoding.UTF8.GetBytes({raw});",
+                bytes = bytes_name,
+                raw = raw_name,
+            ));
+            pre_call_lines.push(format!(
+                "var {ptr} = System.Runtime.InteropServices.Marshal.AllocHGlobal({bytes}.Length);",
+                ptr = ptr_name,
+                bytes = bytes_name,
+            ));
+            pre_call_lines.push(format!(
+                "System.Runtime.InteropServices.Marshal.Copy({bytes}, 0, {ptr}, {bytes}.Length);",
+                bytes = bytes_name,
+                ptr = ptr_name,
+            ));
+            pre_call_lines.push(format!(
+                "var {az} = NativeMethods.AzString_fromUtf8({ptr}, (UIntPtr){bytes}.Length);",
+                az = az_name,
+                ptr = ptr_name,
+                bytes = bytes_name,
+            ));
+            // Free the temp buffer once AzString_fromUtf8 has owned the
+            // bytes (the AzString takes a copy internally).
+            pre_call_lines.push(format!(
+                "System.Runtime.InteropServices.Marshal.FreeHGlobal({ptr});",
+                ptr = ptr_name,
+            ));
+            call_args.push(az_name);
+        } else if is_wrapper_class_owned_arg(a) {
+            // Every wrapper class exposes `public Az<T> Raw => _inner;`
+            // — reach in directly. No struct-to-pointer marshal needed
+            // because C# struct-field-assignment is a byte copy.
+            call_args.push(format!("{}.Raw", raw_name));
+        } else {
+            call_args.push(raw_name);
+        }
     }
 
     let is_static = matches!(
@@ -463,6 +556,13 @@ fn emit_wrapper_method(
 
     if !is_static {
         builder.line("if (_disposed) throw new ObjectDisposedException(nameof(_inner));");
+    }
+
+    // Auto-string-conversion pre-call lines (see the rule predicate
+    // above). Emitted before any of the call-emission branches so the
+    // converted AzString locals are in scope for the call expression.
+    for stmt in &pre_call_lines {
+        builder.line(stmt);
     }
 
     // Special-case shortcut (see `static_callback_ctor` definition above).

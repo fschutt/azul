@@ -29,13 +29,6 @@ public final class HelloWorld {
 
     private static final MyDataModel MODEL = new MyDataModel(5);
 
-    private static AzString.ByValue str(java.lang.String s) {
-        byte[] bytes = s.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        com.sun.jna.Memory mem = new com.sun.jna.Memory(bytes.length);
-        mem.write(0, bytes, 0, bytes.length);
-        return AzulNativeStr.AzString_fromUtf8(mem, bytes.length);
-    }
-
     private static final AzulNativeManaged.CallbackInvokerCallback ON_CLICK =
         (long id, Pointer dataPtr, Pointer infoPtr, Pointer outPtr) -> {
             Object m = AzulHostInvoker.refanyGet(dataPtr);
@@ -51,24 +44,28 @@ public final class HelloWorld {
         (long id, Pointer dataPtr, Pointer infoPtr, Pointer outPtr) -> {
             Object recovered = AzulHostInvoker.refanyGet(dataPtr);
             if (!(recovered instanceof MyDataModel)) {
-                AzDom.ByValue empty = AzulNativeDom.AzDom_createBody();
-                empty.write();
-                outPtr.write(0, empty.getPointer().getByteArray(0, empty.size()), 0, empty.size());
+                Dom empty = Dom.createBody();
+                AzDom.ByValue emptyRaw = (AzDom.ByValue) Structure.newInstance(AzDom.ByValue.class, empty.rawPointer());
+                emptyRaw.read();
+                outPtr.write(0, emptyRaw.getPointer().getByteArray(0, emptyRaw.size()), 0, emptyRaw.size());
                 return;
             }
             MyDataModel m = (MyDataModel) recovered;
-            AzDom.ByValue label = AzulNativeDom.AzDom_withChild(
-                AzulNativeDom.AzDom_withCss(AzulNativeDom.AzDom_createDiv(), str("font-size: 32px;")),
-                AzulNativeDom.AzDom_createText(str(java.lang.String.valueOf(m.counter))));
-            AzButton.ByValue btn = AzulNativeWidgets.AzButton_withOnClick(
-                AzulNativeWidgets.AzButton_withButtonType(
-                    AzulNativeWidgets.AzButton_create(str("Increase counter")), AzButtonType.Primary.value),
-                AzulHostInvoker.refanyCreate(m), AzulHostInvoker.registerCallback(ON_CLICK));
-            AzDom.ByValue body = AzulNativeDom.AzDom_withChild(
-                AzulNativeDom.AzDom_withChild(AzulNativeDom.AzDom_createBody(), label),
-                AzulNativeWidgets.AzButton_dom(btn));
-            body.write();
-            outPtr.write(0, body.getPointer().getByteArray(0, body.size()), 0, body.size());
+            Dom label = Dom.createDiv()
+                .withCss("font-size: 32px;")
+                .withChild(Dom.createText(java.lang.String.valueOf(m.counter)));
+            Dom buttonDom = new Dom(
+                Button.create("Increase counter")
+                    .withButtonType(AzButtonType.Primary.value)
+                    .onClick(m, ON_CLICK)
+                    .dom()
+                    .getPointer());
+            Dom body = Dom.createBody()
+                .withChild(label)
+                .withChild(buttonDom);
+            AzDom.ByValue bodyRaw = (AzDom.ByValue) Structure.newInstance(AzDom.ByValue.class, body.rawPointer());
+            bodyRaw.read();
+            outPtr.write(0, bodyRaw.getPointer().getByteArray(0, bodyRaw.size()), 0, bodyRaw.size());
         };
 
     public static void main(java.lang.String[] args) {

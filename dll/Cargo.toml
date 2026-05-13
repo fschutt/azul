@@ -314,6 +314,17 @@ web = [
     "brotli-decompressor",
 ]
 
+# x86-64 → WASM transpiler backend for the web feature.
+# OFF by default: `default_transpiler()` returns `StubTranspiler`, the
+# pure-Rust fallback that errors on lift and lets callbacks run server-side.
+# ON: pulls in the remill-rs git submodule (third_party/remill-rs) and routes
+# `default_transpiler()` through `RemillTranspiler`, which lifts x86-64 →
+# LLVM IR → WASM. This is intentionally an opt-in feature so the default
+# `web` build stays dependency-free and the transpile step's position in
+# the web.md flow (build-time, first-request, lazy-per-callback) stays a
+# caller decision rather than a hard-wired pipeline stage.
+web-transpiler = ["web"]
+
 # -----------------------------------------------------------------------------
 # Accessibility
 # -----------------------------------------------------------------------------
@@ -417,6 +428,15 @@ php-extension = ["build-dll", "ext-php-rs", "link-static", "once_cell"]
 # probes RSS after each batch of iterations. Used to reproduce the calc.c
 # resize leak deterministically.
 e2e-test = ["serde_json", "azul-layout?/probe"]
+
+# -----------------------------------------------------------------------------
+# Examples
+# -----------------------------------------------------------------------------
+
+[[example]]
+name = "transpile_fn"
+path = "examples/transpile_fn.rs"
+required-features = ["web", "link-static"]
 
 # -----------------------------------------------------------------------------
 # Package Metadata
