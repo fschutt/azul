@@ -64,7 +64,7 @@ The codegen drives this from three IR signals (set per-type via `derive` in api.
 Vec\<T\> wrappers currently expose `to_a` / `toList` / `toByteArray` (snapshot to a host array). The user-facing iteration should also work:
 
 - [⊘] **I.1.1 Python** — verify deferred. PyO3 sequence protocol auto-exposes `__iter__` for any type that has `__len__` + `__getitem__`; Vec wrappers need to confirm both are emitted.
-- [⊘] **I.1.2 Java** — deferred. Vec wrappers hold a `Pointer ptr` to AzXVec; iteration would need a JNA Structure.newInstance overlay + per-element peek loop. Existing `AzXVec.toList()` on the FFI struct (emit_vec_to_list_java) already provides the data; adding `Iterable<T>` on the wrapper would forward to it.
+- [x] **I.1.2 Java** — Vec wrappers (detected via [ptr,len,cap,destructor] field-shape predicate) now `implements AutoCloseable, Iterable<T>`. iterator() body overlays AzXVec via JNA Structure.newInstance, walks `ptr + i*elemSize` for `i in 0..len`, yields wrapper-class instances. Gated on element having an emitted wrapper (skips enum / typedef elements like IdOrClass/DynamicSelector). `for (T x : vec)` works. *(this iteration)*
 - [⊘] **I.1.3 Kotlin** — same as Java (deferred).
 - [⊘] **I.1.4 Scala** — same (rides on Java when added).
 - [⊘] **I.1.5 C#** — deferred. C# wrapper holds `_inner: AzXVec`; would need `IEnumerable<T>` impl that walks `_inner.ptr[0..len]` via Marshal.PtrToStructure.

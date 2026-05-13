@@ -131,9 +131,26 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
         builder.line(" */");
     }
 
+    // Phase I.1.2 (Java): if this wrapper's underlying struct matches
+    // the Vec shape (ptr/len/cap/destructor), declare `implements
+    // Iterable<T>` so user code can write `for (T x : vec)`.
+    let vec_elem_type = detect_vec_elem_type_jvm(s);
+    // Iterable only when the element type is an emitted struct
+    // wrapper class — skip enum/typedef elements (`IdOrClass`,
+    // `DynamicSelector`, etc.) which don't get their own class.
+    let elem_has_wrapper = |elem: &str| -> bool {
+        ir.find_struct(elem).is_some() && has_delete_function(elem, ir)
+    };
+    let interfaces = match &vec_elem_type {
+        Some(elem) if elem_has_wrapper(elem) => {
+            let elem_wrapper = wrapper_class_name(elem);
+            format!("AutoCloseable, Iterable<{}>", elem_wrapper)
+        }
+        _ => "AutoCloseable".to_string(),
+    };
     builder.line(&format!(
-        "public final class {} implements AutoCloseable {{",
-        class_name
+        "public final class {} implements {} {{",
+        class_name, interfaces
     ));
     builder.indent();
 
@@ -290,6 +307,16 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     // round-trip).
     emit_toString_if_supported(builder, s, ir);
 
+    // Phase I.1.2 (Java): emit Iterable<T>.iterator() when the Vec
+    // shape was detected AND the element has a wrapper class. The
+    // body overlays AzXVec via JNA Structure.newInstance, reads
+    // ptr+len, and walks the buffer one element at a time.
+    if let Some(elem) = vec_elem_type.as_deref() {
+        if ir.find_struct(elem).is_some() && has_delete_function(elem, ir) {
+            emit_jvm_vec_iterator(builder, s, elem);
+        }
+    }
+
     // close() / AutoCloseable.
     emit_close_method(builder, &s.name, &class_name, ir);
 
@@ -421,6 +448,100 @@ fn emit_toString_if_supported(
 
 // Phase J.1 detector now lives in `codegen::v2::managed_host_invoker`
 // as `smart_callback_setter_info` — shared across every binding.
+
+/// Phase I.1.2 (Java): Vec-shape detector. Mirrors the Haskell H.3 /
+/// Ruby I.1.6 pattern: struct fields exactly [ptr, len, cap, destructor]
+/// with ptr being a `*mut|*const T` typedef. Returns the element type T.
+fn detect_vec_elem_type_jvm(s: &StructDef) -> Option<String> {
+    if s.fields.len() != 4 {
+        return None;
+    }
+    if s.fields[0].name != "ptr"
+        || s.fields[1].name != "len"
+        || s.fields[2].name != "cap"
+    {
+        return None;
+    }
+    if s.fields[1].type_name.trim() != "usize"
+        || s.fields[2].type_name.trim() != "usize"
+    {
+        return None;
+    }
+    let raw = s.fields[0].type_name.trim();
+    let elem = raw
+        .strip_prefix("*mut ")
+        .or_else(|| raw.strip_prefix("*const "))
+        .map(str::trim)
+        .unwrap_or(raw);
+    if elem.is_empty() {
+        return None;
+    }
+    Some(elem.to_string())
+}
+
+/// Emit `Iterable<T>.iterator()` body for a Vec wrapper. Reads
+/// ptr/len from the underlying AzXVec struct overlay, then yields
+/// wrapper-class instances by overlaying each element at
+/// `ptr + i * elemSize`.
+fn emit_jvm_vec_iterator(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    elem_type: &str,
+) {
+    let vec_ffi = ffi_type_name(&s.name);
+    let elem_ffi = ffi_type_name(elem_type);
+    let elem_wrapper = wrapper_class_name(elem_type);
+    builder.line("/**");
+    builder.line(&format!(
+        " * Phase I.1: iterate the underlying Vec yielding {} elements.",
+        elem_wrapper
+    ));
+    builder.line(" * Each element overlays a slice of the native buffer via JNA.");
+    builder.line(" */");
+    builder.line("@Override");
+    builder.line(&format!(
+        "public java.util.Iterator<{}> iterator() {{",
+        elem_wrapper
+    ));
+    builder.indent();
+    builder.line(&format!(
+        "final {}.ByValue __raw = (({}.ByValue) Structure.newInstance({}.ByValue.class, ptr));",
+        vec_ffi, vec_ffi, vec_ffi
+    ));
+    builder.line("__raw.read();");
+    builder.line("final Pointer __buf = __raw.ptr;");
+    builder.line("final long __n = __raw.len;");
+    builder.line(&format!(
+        "final int __sz = Structure.newInstance({}.class).size();",
+        elem_ffi
+    ));
+    builder.line(&format!(
+        "return new java.util.Iterator<{}>() {{",
+        elem_wrapper
+    ));
+    builder.indent();
+    builder.line("private long __i = 0;");
+    builder.line("@Override public boolean hasNext() { return __i < __n; }");
+    builder.line("@Override");
+    builder.line(&format!("public {} next() {{", elem_wrapper));
+    builder.indent();
+    builder.line("if (__i >= __n) throw new java.util.NoSuchElementException();");
+    builder.line("Pointer __ep = __buf.share(__i * __sz);");
+    builder.line("__i++;");
+    builder.line(&format!(
+        "{}.ByValue __ev = ({}.ByValue) Structure.newInstance({}.ByValue.class, __ep);",
+        elem_ffi, elem_ffi, elem_ffi
+    ));
+    builder.line("__ev.read();");
+    builder.line(&format!("return new {}(__ev.getPointer());", elem_wrapper));
+    builder.dedent();
+    builder.line("}");
+    builder.dedent();
+    builder.line("};");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+}
 
 fn emit_close_method(builder: &mut CodeBuilder, raw_type_name: &str, class_name: &str, ir: &CodegenIR) {
     builder.line("/** Frees the underlying native resources. Idempotent. */");
