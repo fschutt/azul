@@ -299,10 +299,13 @@ pub fn run(
     // Resolve rendering backend from AZ_BACKEND env / config
     let backend = resolve_backend(&root_window);
 
-    // Web mode — serve as HTTP server, no native window
+    // Web mode — serve as HTTP server, no native window. Match by
+    // reference so `backend` survives for the Headless check below;
+    // `WebConfig` isn't `Copy`.
     #[cfg(feature = "web")]
-    if let super::AzBackend::Web(bind_addr) = backend {
-        return crate::web::run_web(app_data, config, fc_cache, font_registry, root_window, bind_addr);
+    if let super::AzBackend::Web(web_cfg) = &backend {
+        let web_cfg = web_cfg.clone();
+        return crate::web::run_web(app_data, config, fc_cache, font_registry, root_window, web_cfg);
     }
 
     // Headless mode — no native window, CPU rendering only
@@ -635,8 +638,8 @@ pub fn run(
 ) -> Result<(), WindowError> {
     let (_debug_request_rx, _component_map) = setup_debug_and_e2e(&config);
     #[cfg(feature = "web")]
-    if let super::AzBackend::Web(bind_addr) = resolve_backend(&root_window) {
-        return crate::web::run_web(app_data, config, fc_cache, font_registry, root_window, bind_addr);
+    if let super::AzBackend::Web(web_cfg) = resolve_backend(&root_window) {
+        return crate::web::run_web(app_data, config, fc_cache, font_registry, root_window, web_cfg);
     }
     if resolve_backend(&root_window) == super::AzBackend::Headless {
         return run_headless(app_data, config, fc_cache, font_registry, root_window, _debug_request_rx, _component_map);
@@ -658,8 +661,8 @@ pub fn run(
 ) -> Result<(), WindowError> {
     let (debug_request_rx, component_map) = setup_debug_and_e2e(&config);
     #[cfg(feature = "web")]
-    if let super::AzBackend::Web(bind_addr) = resolve_backend(&root_window) {
-        return crate::web::run_web(app_data, config, fc_cache, font_registry, root_window, bind_addr);
+    if let super::AzBackend::Web(web_cfg) = resolve_backend(&root_window) {
+        return crate::web::run_web(app_data, config, fc_cache, font_registry, root_window, web_cfg);
     }
     if resolve_backend(&root_window) == super::AzBackend::Headless {
         return run_headless(app_data, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
@@ -938,8 +941,8 @@ pub fn run(
 ) -> Result<(), WindowError> {
     let (debug_request_rx, component_map) = setup_debug_and_e2e(&config);
     #[cfg(feature = "web")]
-    if let super::AzBackend::Web(bind_addr) = resolve_backend(&root_window) {
-        return crate::web::run_web(app_data, config, fc_cache, font_registry, root_window, bind_addr);
+    if let super::AzBackend::Web(web_cfg) = resolve_backend(&root_window) {
+        return crate::web::run_web(app_data, config, fc_cache, font_registry, root_window, web_cfg);
     }
     if resolve_backend(&root_window) == super::AzBackend::Headless {
         return run_headless(app_data, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);

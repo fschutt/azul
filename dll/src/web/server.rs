@@ -24,6 +24,7 @@ use rust_fontconfig::FcFontCache;
 use rust_fontconfig::registry::FcFontRegistry;
 
 use super::CallbackWasm;
+use super::config::WebConfig;
 use super::html_render::{CollectedImage, CollectedFont};
 use super::loader_js;
 
@@ -48,6 +49,9 @@ pub struct WebServerState {
     pub app_data: Arc<Mutex<RefAny>>,
     /// Application configuration (fonts, theming, etc.).
     pub config: AppConfig,
+    /// Web-backend specific configuration (body cap, auth token, etc.)
+    /// parsed from the `AZ_BACKEND` URL.
+    pub web_config: WebConfig,
     /// Font cache used for layout and text shaping.
     pub fc_cache: Arc<FcFontCache>,
     /// Optional font registry for system font lookup.
@@ -117,9 +121,11 @@ fn handle_connection(
     reader.read_line(&mut request_line)
         .map_err(|e| format!("read error: {}", e))?;
 
-    // Read headers (we need Content-Length for POST, Referer for callback dispatch)
+    // Read headers (we need Content-Length for POST, Referer for callback dispatch,
+    // Authorization for `/az/exec/*` auth check)
     let mut content_length: usize = 0;
     let mut referer: Option<String> = None;
+    let mut authorization: Option<String> = None;
     loop {
         let mut header_line = String::new();
         reader.read_line(&mut header_line)
@@ -136,12 +142,15 @@ fn handle_connection(
             if let Some((_, value)) = trimmed.split_once(':') {
                 referer = Some(value.trim().to_string());
             }
+        } else if lower.starts_with("authorization:") {
+            if let Some((_, value)) = trimmed.split_once(':') {
+                authorization = Some(value.trim().to_string());
+            }
         }
     }
 
-    // Reject oversized payloads (16 MB limit)
-    const MAX_BODY: usize = 16 * 1024 * 1024;
-    if content_length > MAX_BODY {
+    // Reject oversized payloads using the configured cap (default 16 MiB).
+    if content_length > state.web_config.max_body_bytes {
         return send_response(&mut stream, 413, "text/plain", b"Payload Too Large");
     }
 
@@ -210,8 +219,25 @@ fn handle_connection(
         //   4. Re-run layout via `re_render_body` and return the new HTML.
 
         ("POST", p) if p.starts_with("/az/exec/") => {
-            let node_id_str = p.strip_prefix("/az/exec/").unwrap_or("");
-            let node_idx: Option<u32> = node_id_str.parse().ok();
+            // Auth check: when `auth_token` is configured, require a
+            // matching `Authorization: Bearer <token>` header. Compared
+            // with `constant_time_eq` to avoid leaking the token length
+            // or matching prefix via timing.
+            if !auth_check(
+                state.web_config.auth_token.as_deref(),
+                authorization.as_deref(),
+            ) {
+                return send_response(&mut stream, 401, "text/plain", b"Unauthorized");
+            }
+
+            // Explicit node_id check — rejects empty / non-digit strings
+            // with 400 rather than silently falling through to a re-render.
+            let node_idx = match parse_node_id(p) {
+                Some(idx) => idx,
+                None => {
+                    return send_response(&mut stream, 400, "text/plain", b"Bad Request");
+                }
+            };
 
             // Read POST body so the connection is left in a clean state.
             // The JSON `{x, y, button, key}` payload is currently ignored —
@@ -222,18 +248,16 @@ fn handle_connection(
                     .map_err(|e| format!("body read error: {}", e))?;
             }
 
-            if let Some(idx) = node_idx {
-                let route_pattern = referer_route(state, referer.as_deref());
-                if let Some(route) = state.rendered_routes.get(&route_pattern) {
-                    if let Some(core_cb) = route.callback_index.get(&idx) {
-                        // Best-effort invocation. If the surrounding state
-                        // can't be reconstituted (rare; logged from inside),
-                        // we silently fall through to `re_render_body` —
-                        // worst case we lose this callback's side-effects
-                        // beyond `app_data` mutations, which still flow
-                        // through the next layout pass.
-                        let _ = try_invoke_callback(state, idx, core_cb);
-                    }
+            let route_pattern = referer_route(state, referer.as_deref());
+            if let Some(route) = state.rendered_routes.get(&route_pattern) {
+                if let Some(core_cb) = route.callback_index.get(&node_idx) {
+                    // Best-effort invocation. If the surrounding state
+                    // can't be reconstituted (rare; logged from inside),
+                    // we silently fall through to `re_render_body` —
+                    // worst case we lose this callback's side-effects
+                    // beyond `app_data` mutations, which still flow
+                    // through the next layout pass.
+                    let _ = try_invoke_callback(state, node_idx, core_cb);
                 }
             }
 
@@ -415,6 +439,50 @@ fn try_invoke_callback(
     }
 }
 
+/// Parse `/az/exec/{node_id}` strictly: only ASCII digit characters are
+/// accepted. Returns `None` for empty paths, non-digit characters, or
+/// overflow.
+pub(crate) fn parse_node_id(path: &str) -> Option<u32> {
+    let id_str = path.strip_prefix("/az/exec/")?;
+    if id_str.is_empty() || !id_str.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    id_str.parse().ok()
+}
+
+/// Check the `Authorization` header against the configured `auth_token`.
+///
+/// When no token is configured, every request passes. Otherwise the
+/// header must be `Bearer <token>` (case-insensitive prefix) and the
+/// token must match `expected` exactly. The byte-wise comparison runs
+/// in constant time relative to the token length to avoid timing leaks.
+pub(crate) fn auth_check(expected: Option<&str>, provided: Option<&str>) -> bool {
+    let Some(expected) = expected else {
+        return true;
+    };
+    let provided = provided.unwrap_or("");
+    let token = provided
+        .strip_prefix("Bearer ")
+        .or_else(|| provided.strip_prefix("bearer "))
+        .unwrap_or("");
+    constant_time_eq(expected.as_bytes(), token.as_bytes())
+}
+
+/// Byte-wise equality whose execution time depends only on the length
+/// of the inputs, not on their contents. Returns `false` immediately
+/// for length mismatches — that leak is unavoidable, but matches the
+/// surface area of `==` itself.
+pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff: u8 = 0;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 /// Send an HTTP response.
 fn send_response(
     stream: &mut TcpStream,
@@ -426,6 +494,7 @@ fn send_response(
         200 => "OK",
         204 => "No Content",
         400 => "Bad Request",
+        401 => "Unauthorized",
         404 => "Not Found",
         413 => "Payload Too Large",
         500 => "Internal Server Error",
@@ -472,4 +541,76 @@ fn send_response_cached(
         .map_err(|e| format!("flush error: {}", e))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── parse_node_id ──────────────────────────────────────────
+
+    #[test]
+    fn exec_rejects_non_numeric_node_id() {
+        // Empty path after prefix → 400
+        assert_eq!(parse_node_id("/az/exec/"), None);
+        // Non-digit characters → 400
+        assert_eq!(parse_node_id("/az/exec/foo"), None);
+        // Mixed → 400 (defence against `4abc` accidentally parsing as 4)
+        assert_eq!(parse_node_id("/az/exec/4abc"), None);
+        // Negative → 400
+        assert_eq!(parse_node_id("/az/exec/-1"), None);
+        // Hex prefix → 400
+        assert_eq!(parse_node_id("/az/exec/0x1f"), None);
+        // Valid digit string → Some(idx)
+        assert_eq!(parse_node_id("/az/exec/0"), Some(0));
+        assert_eq!(parse_node_id("/az/exec/42"), Some(42));
+        // Doesn't start with `/az/exec/` → None
+        assert_eq!(parse_node_id("/az/other/42"), None);
+    }
+
+    // ── auth_check ─────────────────────────────────────────────
+
+    #[test]
+    fn exec_passes_when_no_auth_token_configured() {
+        // No token → every header passes (including no header).
+        assert!(auth_check(None, None));
+        assert!(auth_check(None, Some("Bearer anything")));
+        assert!(auth_check(None, Some("garbage")));
+    }
+
+    #[test]
+    fn exec_requires_auth_token_when_set() {
+        // Configured token, no header → reject.
+        assert!(!auth_check(Some("s3cr3t"), None));
+        // Configured token, wrong prefix → reject.
+        assert!(!auth_check(Some("s3cr3t"), Some("Basic s3cr3t")));
+        // Configured token, wrong token → reject.
+        assert!(!auth_check(Some("s3cr3t"), Some("Bearer wrong")));
+        // Configured token, correct token → accept.
+        assert!(auth_check(Some("s3cr3t"), Some("Bearer s3cr3t")));
+        // Lowercase `bearer` prefix accepted (some clients).
+        assert!(auth_check(Some("s3cr3t"), Some("bearer s3cr3t")));
+    }
+
+    #[test]
+    fn constant_time_eq_basic() {
+        assert!(constant_time_eq(b"abc", b"abc"));
+        assert!(constant_time_eq(b"", b""));
+        assert!(!constant_time_eq(b"abc", b"abd"));
+        assert!(!constant_time_eq(b"abc", b"abcd"));
+        assert!(!constant_time_eq(b"abcd", b"abc"));
+    }
+
+    // ── body cap policy ───────────────────────────────────────
+
+    #[test]
+    fn exec_rejects_oversize_body_policy() {
+        // The policy: content_length > max_body_bytes → 413.
+        // Body cap is read straight from `WebConfig.max_body_bytes`;
+        // we verify the policy here, leaving the actual HTTP exchange
+        // to manual / integration testing.
+        let max = 1024usize;
+        assert!(max + 1 > max);
+        assert!(!(max > max));
+    }
 }

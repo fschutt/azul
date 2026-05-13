@@ -149,7 +149,7 @@ pub fn discover_and_transpile_callbacks(
     out
 }
 
-/// Run the web backend — called from `run()` when `AzBackend::Web(addr)`.
+/// Run the web backend — called from `run()` when `AzBackend::Web(cfg)`.
 ///
 /// This function blocks (like `run_headless`) serving HTTP requests until
 /// the process is terminated.
@@ -159,7 +159,7 @@ pub fn run_web(
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
-    bind_addr: SocketAddr,
+    web_config: config::WebConfig,
 ) -> Result<(), WindowError> {
 
     eprintln!("[azul-web] Starting web backend...");
@@ -296,11 +296,13 @@ pub fn run_web(
     );
 
     // Phase E: Start HTTP server
+    let bind_addr = web_config.bind;
     eprintln!("[azul-web] Listening on http://{}", bind_addr);
 
     let state = server::WebServerState {
         app_data: Arc::new(Mutex::new(app_data)),
         config,
+        web_config,
         fc_cache,
         font_registry,
         window_state,

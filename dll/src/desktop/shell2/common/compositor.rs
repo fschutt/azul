@@ -68,8 +68,9 @@ impl CompositorMode {
 ///
 /// The old env vars (`AZUL_HEADLESS`, `AZUL_RENDERER`) are still
 /// recognised for backward compatibility but `AZ_BACKEND` takes priority.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[derive(Default)]
+#[allow(missing_copy_implementations)] // `Web(WebConfig)` carries non-Copy fields
 pub enum AzBackend {
     /// Try GPU, fall back to CPU on GL init failure or blacklisted GPU.
     #[default]
@@ -83,11 +84,13 @@ pub enum AzBackend {
     /// window implementation.
     Headless,
     /// Web backend: serve the app as HTML over HTTP.
-    /// `AZ_BACKEND=web://127.0.0.1:8080` starts an HTTP server.
-    /// Layout runs natively, DOM is rendered to HTML, callbacks are
-    /// transpiled to WASM (or executed server-side when stubbed).
+    /// `AZ_BACKEND=web://127.0.0.1:8080[?options]` starts an HTTP
+    /// server. Layout runs natively, DOM is rendered to HTML,
+    /// callbacks are transpiled to WASM (or executed server-side
+    /// when stubbed). See `crate::web::config::WebConfig` for the
+    /// supported query options.
     #[cfg(feature = "web")]
-    Web(std::net::SocketAddr),
+    Web(crate::web::config::WebConfig),
 }
 
 
@@ -107,10 +110,18 @@ impl AzBackend {
                 "gpu" | "opengl" | "gl" => return AzBackend::Gpu,
                 "auto" => return AzBackend::Auto,
                 _ => {
-                    // Try parsing web://ip:port
+                    // Try parsing web://ip:port[?options]
                     #[cfg(feature = "web")]
-                    if let Some(addr) = crate::web::config::parse_web_url(&val) {
-                        return AzBackend::Web(addr);
+                    match crate::web::config::parse_web_config(&val) {
+                        Ok(cfg) => return AzBackend::Web(cfg),
+                        Err(e) => {
+                            log_warn!(
+                                LogCategory::Rendering,
+                                "AZ_BACKEND={:?} rejected: {:?}",
+                                val,
+                                e
+                            );
+                        }
                     }
                     log_warn!(
                         LogCategory::Rendering,
