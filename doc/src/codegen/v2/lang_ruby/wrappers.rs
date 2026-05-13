@@ -207,7 +207,7 @@ fn emit_class_wrapper(
         if !should_emit_method(func) {
             continue;
         }
-        emit_method(builder, func, &prefixed, &snake);
+        emit_method(builder, func, &prefixed, &snake, ir);
         emitted_any_method = true;
     }
 
@@ -435,7 +435,40 @@ fn should_emit_method(func: &FunctionDef) -> bool {
     )
 }
 
-fn emit_method(builder: &mut CodeBuilder, func: &FunctionDef, prefixed: &str, type_snake: &str) {
+/// Phase I.5.3 (Ruby): classify the return type so we can auto-unwrap
+/// `Option<T>` → nil/value and `Result<T,E>` → value/raise at the
+/// wrapper boundary. Detection via the enum variant names `[None,Some]`
+/// or `[Ok,Err]` — same predicate Haskell H.4/H.5 used.
+#[derive(Clone, Copy, PartialEq)]
+enum ReturnIdiom {
+    Plain,
+    Option,
+    Result,
+}
+
+fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
+    let Some(rt) = func.return_type.as_deref() else {
+        return ReturnIdiom::Plain;
+    };
+    let rt = rt.trim();
+    if let Some(e) = ir.find_enum(rt) {
+        if e.variants.len() == 2 {
+            let has_none = e.variants.iter().any(|v| v.name == "None");
+            let has_some = e.variants.iter().any(|v| v.name == "Some");
+            if has_none && has_some {
+                return ReturnIdiom::Option;
+            }
+            let has_ok = e.variants.iter().any(|v| v.name == "Ok");
+            let has_err = e.variants.iter().any(|v| v.name == "Err");
+            if has_ok && has_err {
+                return ReturnIdiom::Result;
+            }
+        }
+    }
+    ReturnIdiom::Plain
+}
+
+fn emit_method(builder: &mut CodeBuilder, func: &FunctionDef, prefixed: &str, type_snake: &str, ir: &CodegenIR) {
     let ruby_method = ruby_method_name(&func.method_name);
     let native_call = native_function_name(&func.c_name);
 
@@ -447,6 +480,7 @@ fn emit_method(builder: &mut CodeBuilder, func: &FunctionDef, prefixed: &str, ty
         func.kind,
         FunctionKind::Method | FunctionKind::MethodMut | FunctionKind::DeepCopy
     );
+    let idiom = classify_return(func, ir);
     // `return_type` is the unprefixed IR name (e.g. "App"); `prefixed` is
     // "AzApp". Strip the leading prefix off `prefixed` for the comparison.
     let owning_class = prefixed
@@ -535,6 +569,7 @@ fn emit_method(builder: &mut CodeBuilder, func: &FunctionDef, prefixed: &str, ty
             prefixed,
             &consumed_names,
             consumes_self,
+            idiom,
         );
         builder.dedent();
         builder.line("end");
@@ -587,6 +622,7 @@ fn emit_method(builder: &mut CodeBuilder, func: &FunctionDef, prefixed: &str, ty
         returns_self_type,
         prefixed,
         &consumed_names,
+        idiom,
     );
     builder.dedent();
     builder.line("end");
@@ -636,8 +672,25 @@ fn emit_method_body_instance(
     prefixed: &str,
     consumed_names: &[String],
     consumes_self: bool,
+    idiom: ReturnIdiom,
 ) {
     let _ = prefixed;
+    // Phase I.5.3 (Ruby): Option<T>/Result<T,E> auto-unwrap at the
+    // wrapper boundary. Detected via classify_return; the AzOption /
+    // AzResult FFI structs already expose to_opt / unwrap methods
+    // emitted by the accessor codegen.
+    if matches!(idiom, ReturnIdiom::Option | ReturnIdiom::Result) {
+        builder.line(&format!("_ret = {}", call));
+        for n in consumed_names {
+            builder.line(&format!("Azul._consume({})", n));
+        }
+        match idiom {
+            ReturnIdiom::Option => builder.line("_ret.to_opt"),
+            ReturnIdiom::Result => builder.line("_ret.unwrap"),
+            _ => unreachable!(),
+        };
+        return;
+    }
     match return_type {
         None => {
             builder.line(call);
@@ -695,7 +748,20 @@ fn emit_method_body_static(
     returns_self_type: bool,
     prefixed: &str,
     consumed_names: &[String],
+    idiom: ReturnIdiom,
 ) {
+    if matches!(idiom, ReturnIdiom::Option | ReturnIdiom::Result) {
+        builder.line(&format!("_ret = {}", call));
+        for n in consumed_names {
+            builder.line(&format!("Azul._consume({})", n));
+        }
+        match idiom {
+            ReturnIdiom::Option => builder.line("_ret.to_opt"),
+            ReturnIdiom::Result => builder.line("_ret.unwrap"),
+            _ => unreachable!(),
+        };
+        return;
+    }
     let _ = prefixed;
     match return_type {
         None => {

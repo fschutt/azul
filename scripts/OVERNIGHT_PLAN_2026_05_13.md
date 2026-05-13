@@ -119,7 +119,7 @@ Phase A.1 added `.unwrap()` and `.is_some()` accessors. Phase I.5 makes the wrap
 
 - [ ] **I.5.1 Java/Kotlin/Scala** — return `Optional<T>` directly from any C-ABI helper that returns `AzOptionT` (auto-unwrap at the wrapper boundary). For `AzResultT`, throw a typed exception (`AzulErrorException`) on Err, return T on Ok. Mirrors the existing `unwrap()` but pushes the host idiom up to the call site.
 - [ ] **I.5.2 C#** — return `T?` directly; throw `AzulException` for Err.
-- [ ] **I.5.3 Ruby** — return `nil` on None; raise `Azul::Error` on Err.
+- [x] **I.5.3 Ruby** — `classify_return(func, ir)` predicate detects `Option<T>` / `Result<T,E>` return types via variant-name shape `[None,Some]` / `[Ok,Err]`. emit_method_body emits `_ret.to_opt` for Option (returns nil or payload) and `_ret.unwrap` for Result (returns payload or raises). Routes through the AzOption*/AzResult* accessor methods already emitted by A.1.4. *(this iteration)*
 - [ ] **I.5.4 Node** — return `null` on None; throw `Error` on Err.
 - [ ] **I.5.5 Lua** — return `nil` on None; `error()` on Err.
 - [ ] **I.5.6 OCaml** — return `option`/`result` directly at the binding boundary (the codegen currently emits `az_result_t` opaque blobs; need per-variant typed extraction — see auto_conversion_audit.md).
