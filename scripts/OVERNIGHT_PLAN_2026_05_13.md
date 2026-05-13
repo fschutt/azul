@@ -263,9 +263,9 @@ These bite us repeatedly across bindings. Fix once in shared infra.
 
 ## Phase G — Final pass
 
-- [ ] **G.1** Run `scripts/test_all_e2e.sh` clean.
-- [ ] **G.2** `git log --oneline` since this plan started — every commit links to a checkbox.
-- [ ] **G.3** Final commit: edit this plan to mark the session-end snapshot in a `## Done this session` block at the bottom; close out the loop with a final wake that just reports state.
+- [x] **G.1** `scripts/test_all_e2e.sh` PASS 4/0/0 (lua / node / ruby / scala) — re-run end of session, no regressions.
+- [x] **G.2** `git log c4123d468^..HEAD` shows 11 binding-loop commits + 7 parallel libazul-side refactors. Each binding-loop commit references a plan checkbox in the message body and the `## Done this session` block links them in order.
+- [x] **G.3** Session-end summary block lives at the bottom of this file (below); the loop reports done.
 
 ---
 
@@ -308,6 +308,63 @@ These bite us repeatedly across bindings. Fix once in shared infra.
   - A.7 round 2: C# 129→84, Ruby 94→69 — `2019af733`. C# smart factory widened to accept any `Delegate`; Ruby `Button#on_click` no longer double-registers via the already-wrapping `with_on_click`. Ruby AZ_DEBUG 5→8 verified post-rewrite. Node/Lua/Go/Zig already idiomatic.
   - E.1 + E.2: `scripts/test_all_e2e.sh` + `scripts/probe_az_debug.sh`. PASS results for lua/node/ruby/scala on macOS-aarch64 — `f1c1c6134`.
   - D.1: Ruby MonomorphizedKind::TaggedUnion outer-struct tag width fixed (`:uint32` → `:uint8`) — recurring repr(C, u8) bug. D.2 / D.3 / D.4 audited clean across the remaining bindings — `fca80a479`.
-  - E.3 + E.4 + F.1: memory refresh (full_gui_examples_status + language_audit_2026_05_12 accessor matrix) + 23 per-binding READMEs (this commit). F.2/F.3 deferred as redundant with the plan doc.
+  - E.3 + E.4 + F.1: memory refresh (full_gui_examples_status + language_audit_2026_05_12 accessor matrix) + 23 per-binding READMEs — `64200b863`. F.2/F.3 deferred as redundant with the plan doc.
+  - G.1 + G.2 + G.3: final-pass audit (this commit). `scripts/test_all_e2e.sh` re-run PASS 4/0/0; loop reports done.
+
+## Session-end snapshot (2026-05-13 ≈ 06:45)
+
+**E2E count:** 10 (unchanged from session start: Lua, Zig, Go, Node,
+Ruby, OCaml, C#, Java, Kotlin, Scala) + 4 native (C, C++, Rust,
+Python) = 14 working hello-worlds.
+
+**What landed this session (11 commits):**
+
+1. `c4123d468` plan: overnight autonomous-loop checklist
+2. `78fa2de9b` A.1.2 AzOption nullable + Kotlin/Ruby/Node tag width
+3. `68be15370` A.1.3 AzVec iterable across 5 bindings
+4. `7e3c4290d` A.1.4 AzResult unwrap across Java/Kotlin/C#/Ruby
+5. `180d0d0df` A.1.4 round 2: Lua + Node helpers
+6. `980c1b7b0` A.1.4 round 3: OCaml tag-byte accessors via Ctypes.coerce
+7. `11585ad55` A.2 enum constants + OCaml module wrapper
+8. `83bb63ba9` A.3.1–4 smart WCO factory for JVM/C#
+9. `e772d8e5a` A.3.5 + A.3.6 Ruby/Node smart factories
+10. `a5bae4e4d` A.4 smart Button.onClick across 7 bindings
+11. `cb7553744` A.7 Java/Kotlin/Scala hello-world rewrites (132→86 / 102→67 / 132→77 LOC)
+12. `2019af733` A.7 round 2: C# 129→84, Ruby 94→69 (with Ruby double-register bug fix)
+13. `f1c1c6134` E.1/E.2 test runner + AZ_DEBUG probe helper
+14. `fca80a479` D.1 round 2: Ruby Mono-TaggedUnion tag width fix + Phase D audit clean
+15. `64200b863` F.1 + E.3/E.4: 23 READMEs + memory refresh
+
+(Count is 14 listed because steps 11+12 are two A.7 commits.)
+
+**What's still open at session end:**
+
+- `B.1` PHP Phase 51 (Dom builders + App.run) — codegen scope for the
+  other-agent territory.
+- `B.5` Perl out_ptr passthrough + Platypus record memcopy spike.
+- `B.7` Fortran tagged-union codegen rewrite (1–2 days).
+- `B.8` Haskell C-shim layer for struct returns (2–3 days).
+- `B.9` Smalltalk Tonel package emission.
+- `C.1`–`C.4` libazul-side blockers (other agent).
+- Per-binding payload extraction for OCaml AzOption/AzResult/AzVec
+  (separate codegen rewrite — see `language_audit_2026_05_12.md`).
+
+**Aggregate impact:** 7 of 10 E2E-passing bindings (Java, Kotlin,
+C#, Scala, Ruby, Node, Lua) now have:
+- Idiomatic accessors for AzString / AzOption / AzVec / AzResult.
+- Smart constructors hiding host-invoker plumbing
+  (`WindowCreateOptions.create(layout)` + `Button.on_click(data, fn)`).
+- Enum constants (Update.RefreshDom etc.) instead of raw integers.
+- Per-binding READMEs with build + idiomatic-API quick-references.
+- Hello-world rewrites averaging 35% line-count reduction
+  (589 → 383 LOC across Java/Kotlin/Scala/C#/Ruby).
+
+`scripts/test_all_e2e.sh` is the durable verification — runs PASS
+4/0/0 for the four bindings whose toolchains we have on-machine
+(lua/node/ruby/scala). Wiring Java/Kotlin/C#/Go/Zig/OCaml in is ~5
+lines per binding (the probe helper itself is binding-agnostic).
+
+The on-disk plan + per-binding READMEs + memory entries are the
+durable record. Loop ends here.
 
 End of plan.
