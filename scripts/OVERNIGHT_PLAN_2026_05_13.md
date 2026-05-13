@@ -258,9 +258,9 @@ The PHP extension build now works (verified 2026-05-13; CLT libclang is sufficie
 
 - [ ] **B.1.1** Codegen `Azul\Dom::createBody/createDiv/createText` + `withChild/withCss` as ext-php-rs class methods on `lang_php_ext.rs`. *(NOTE: that file is the other agent's territory — coordinate or wait.)*
 - [ ] **B.1.2** Codegen `Azul\App::create($data, $config)` + `Azul\App::run(WindowCreateOptions $wco)`.
-- [ ] **B.1.3** Codegen `Azul\WindowCreateOptions::create(callable $layout)` smart constructor (Phase A.3 PHP).
-- [ ] **B.1.4** Rewrite `examples/php/hello-world-ext.php` as the Python-quality hello-world.
-- [ ] **B.1.5** AZ_DEBUG 5 → 8 probe verified; add to `memory/full_gui_examples_status.md`.
+- [⊘] **B.1.3** Documented blocker (memory: `php_b13_smart_factory.md`). The smart factory needs either a libazul-side `AzApp_setLayoutCallbackInvoker` C export (analogous to existing `setCallbackInvoker`) OR an ext-php-rs Zval-to-AzDom-inner decode path. macOS App.run anyway blocked on C.1, so even with B.1.3 wired the AZ_DEBUG probe wouldn't reach today. *(this iteration: scope reviewed, blocker documented)*
+- [⊘] **B.1.4** Gated on B.1.3.
+- [⊘] **B.1.5** Gated on B.1.3 + C.1 (macOS libazul webrender).
 
 ### B.2 Pascal — wait on libazul
 
@@ -285,8 +285,8 @@ The PHP extension build now works (verified 2026-05-13; CLT libclang is sufficie
 
 ### B.6 COBOL — accept smoke ceiling OR push to E2E
 
-- [ ] **B.6.1** Verify smoke test still passes after recent codegen changes (cbool / tag width / Destructor — none affect COBOL).
-- [ ] **B.6.2** Decision: pursue E2E (full ENTRY-paragraph wiring is user-side; possibly add codegen helpers) OR document the smoke ceiling in `memory/`.
+- [x] **B.6.1** Smoke verified 2026-05-13 evening: `cobc -x -free hello-world.cob -L. -lazul && DYLD_LIBRARY_PATH=. ./hello-world` ⇒ "COBOL binding init phase completed successfully." azul.cpy (56k LOC) parses; level-78 host-invoker aliases resolve. *(this iteration)*
+- [—] **B.6.2** Smoke ceiling accepted (reason: full E2E requires ~200 LOC of user-side ENTRY-paragraph scaffolding per app — COBOL has no closures + CALL...RETURNING doesn't accept TYPEDEF records, so per-kind dispatchers must live in user PROCEDURE DIVISION code). Documented in `memory/cobol_smoke_ceiling.md`. *(this iteration)*
 
 ### B.7 Fortran — tagged-union rewrite
 
