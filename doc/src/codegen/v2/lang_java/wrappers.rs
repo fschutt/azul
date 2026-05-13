@@ -183,6 +183,41 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
         builder.blank();
     }
 
+    // WindowCreateOptions.create(LayoutCallbackInvokerCallback) — smart
+    // factory that hides the host-invoker plumbing. The user passes a
+    // SAM callback; we register it via AzulHostInvoker, splice the
+    // resulting AzLayoutCallback bytes into a `_default()` WCO's
+    // embedded layout_callback storage, and hand back the wrapped
+    // instance. Replaces the manual:
+    //
+    //     AzLayoutCallback.ByValue cb = AzulHostInvoker.registerLayoutCallback(fn);
+    //     AzWindowCreateOptions.ByValue wco = AzulNativeWindow.AzWindowCreateOptions_default();
+    //     cb.write(); wco.write();
+    //     wco.window_state.layout_callback.getPointer().write(0, cb.getPointer().getByteArray(0, cb.size()), 0, cb.size());
+    //     wco.read();
+    //
+    // boilerplate every JVM hello-world has today.
+    if s.name == "WindowCreateOptions" {
+        builder.line("/**");
+        builder.line(" * Smart factory: pass a layout-callback lambda; the host-invoker");
+        builder.line(" * registration and bytes-copy plumbing happen internally. The");
+        builder.line(" * caller never has to mention AzulHostInvoker.");
+        builder.line(" */");
+        builder.line("public static WindowCreateOptions create(AzulNativeManaged.LayoutCallbackInvokerCallback fn) {");
+        builder.indent();
+        builder.line("AzLayoutCallback.ByValue __cb = AzulHostInvoker.registerLayoutCallback(fn);");
+        builder.line("AzWindowCreateOptions.ByValue __wco = AzulNativeWindow.INSTANCE.AzWindowCreateOptions_default();");
+        builder.line("__cb.write();");
+        builder.line("__wco.write();");
+        builder.line("byte[] __cbBytes = __cb.getPointer().getByteArray(0, __cb.size());");
+        builder.line("__wco.window_state.layout_callback.getPointer().write(0, __cbBytes, 0, __cbBytes.length);");
+        builder.line("__wco.read();");
+        builder.line("return new WindowCreateOptions(__wco.getPointer());");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    }
+
     // Methods.
     for func in ir.functions_for_class(&s.name) {
         if func.kind.is_trait_function() {

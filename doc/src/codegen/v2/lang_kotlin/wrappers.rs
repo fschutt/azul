@@ -144,6 +144,20 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
         builder.blank();
     }
 
+    // WindowCreateOptions.create(layout fn) — smart factory; see the
+    // Java mirror for the full rationale. Kotlin emits the body inside
+    // the companion object alongside the rest of the static factories,
+    // but the codegen path here is straightforward enough to inline.
+    // We append the create() to the companion object via a marker
+    // method invoked from the companion emission later. For now,
+    // emit it as a top-level method on the wrapper itself; Kotlin
+    // resolves `WindowCreateOptions.create(...)` to a member method
+    // when called from another class.
+    //
+    // (Companion-object emission would be more idiomatic but the
+    // existing codegen-emitted companion lives in `static_funcs` loop
+    // below, separate from this hook — so we open the companion
+    // ourselves here.)
     // companion object holding the static factories.
     let static_funcs: Vec<&FunctionDef> = ir
         .functions_for_class(&s.name)
@@ -158,9 +172,35 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
         })
         .collect();
 
-    if !static_funcs.is_empty() {
+    // Smart-factory hook (must be inside the companion object). Pre-
+    // populated for WindowCreateOptions; sibling bindings follow the
+    // same pattern. Opens the companion even when `static_funcs` is
+    // empty, so a wrapper that has ONLY a smart factory still gets a
+    // companion object emitted.
+    let needs_companion = !static_funcs.is_empty() || s.name == "WindowCreateOptions";
+    if needs_companion {
         builder.line("companion object {");
         builder.indent();
+        if s.name == "WindowCreateOptions" {
+            builder.line("/**");
+            builder.line(" * Smart factory: pass a layout-callback lambda; the host-invoker");
+            builder.line(" * registration and bytes-copy plumbing happen internally. The");
+            builder.line(" * caller never has to mention AzulHostInvoker.");
+            builder.line(" */");
+            builder.line("fun create(fn: AzulNativeManaged.LayoutCallbackInvokerCallback): WindowCreateOptions {");
+            builder.indent();
+            builder.line("val __cb = AzulHostInvoker.registerLayoutCallback(fn)");
+            builder.line("val __wco = AzulNativeWindow.INSTANCE.AzWindowCreateOptions_default()");
+            builder.line("__cb.write()");
+            builder.line("__wco.write()");
+            builder.line("val __cbBytes = __cb.getPointer().getByteArray(0, __cb.size())");
+            builder.line("__wco.window_state.layout_callback.getPointer().write(0, __cbBytes, 0, __cbBytes.size)");
+            builder.line("__wco.read()");
+            builder.line("return WindowCreateOptions(__wco.getPointer())");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
         for func in static_funcs {
             emit_static_factory(builder, &class_name, &ffi_name, func, ir);
         }

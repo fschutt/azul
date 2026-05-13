@@ -186,6 +186,31 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
         builder.blank();
     }
 
+    // WindowCreateOptions.Create(LayoutCallbackInvokerDelegate) — smart
+    // factory. C# struct-field assignment IS a byte copy (unlike JNA's
+    // reference-swap), so we can splice the resulting AzLayoutCallback
+    // straight into wco.window_state.layout_callback without manual
+    // Marshal acrobatics. See lang_java/wrappers.rs for the boilerplate
+    // version the user no longer has to write.
+    if s.name == "WindowCreateOptions" {
+        builder.line("/// <summary>");
+        builder.line("/// Smart factory: pass a layout-callback delegate; the host-invoker");
+        builder.line("/// registration and field-copy plumbing happen internally.");
+        builder.line("/// </summary>");
+        builder.line("public static WindowCreateOptions Create(HostInvoker.LayoutCallbackInvokerDelegate fn)");
+        builder.line("{");
+        builder.indent();
+        builder.line("var __cb = HostInvoker.RegisterLayoutCallback(fn);");
+        builder.line("var __wco = NativeMethods.AzWindowCreateOptions_default();");
+        builder.line("var __ws = __wco.window_state;");
+        builder.line("__ws.layout_callback = __cb;");
+        builder.line("__wco.window_state = __ws;");
+        builder.line("return new WindowCreateOptions(__wco);");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    }
+
     // Emit methods for each non-trait function on this class.
     for func in ir.functions_for_class(&s.name) {
         if func.kind.is_trait_function() {

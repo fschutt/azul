@@ -70,10 +70,10 @@ b. Constructs the WCO via `_default()`.
 c. Copies the resulting `AzLayoutCallback` bytes into the WCO's `window_state.layout_callback`.
 d. Returns the wrapper-class WCO.
 
-- [ ] **A.3.1 Java:** Static factory on `com.azul.WindowCreateOptions`.
-- [ ] **A.3.2 Kotlin:** Companion-object factory.
-- [ ] **A.3.3 C#:** Static `WindowCreateOptions.Create(...)` taking `Func<...>`.
-- [ ] **A.3.4 Scala:** Same as Java (rides on Java's codegen).
+- [x] **A.3.1 Java:** `WindowCreateOptions.create(AzulNativeManaged.LayoutCallbackInvokerCallback fn)` static factory. Calls `AzulHostInvoker.registerLayoutCallback(fn)` + splices the cb bytes into a `_default()` WCO via `Pointer.write` (JNA reference-swap workaround). Verified compiles. *(this commit)*
+- [x] **A.3.2 Kotlin:** Companion-object `WindowCreateOptions.create(fn)`. Same shape as Java. Opens the companion even when there are no other static factories, so the smart create still lands. *(this commit)*
+- [x] **A.3.3 C#:** Static `WindowCreateOptions.Create(HostInvoker.LayoutCallbackInvokerDelegate fn)`. C# struct-field assignment IS a byte copy (no JNA quirk), so the splice is `__wco.window_state.layout_callback = __cb` re-assigned to the parent struct. *(this commit)*
+- [x] **A.3.4 Scala:** Rides on Java — Scala's `com.azul.WindowCreateOptions.create(...)` is the same JVM method. No Scala-side codegen change needed.
 - [ ] **A.3.5 Ruby:** `Azul::WindowCreateOptions.create { |data, info| ... }` (block).
 - [ ] **A.3.6 Node:** `azul.WindowCreateOptions.create(fn)`.
 - [ ] **A.3.7 OCaml:** `Azul.WindowCreateOptions.create ~layout:fn`.
@@ -303,6 +303,7 @@ These bite us repeatedly across bindings. Fix once in shared infra.
   - A.1.4 (AzResult unwrap across Java/Kotlin/C#/Ruby) — `7e3c4290d`
   - A.1.4 round 2: Lua per-cdata + Node module-level helpers — `180d0d0df`
   - A.1.4 round 3: OCaml `az_<...>_is_ok`/`is_err`/`is_some`/`is_none` tag-byte helpers — `980c1b7b0`
-  - A.2 enum constants — Node/Ruby/Lua already exposed; OCaml gets idiomatic `module Update = struct let refresh_dom : int = 1 end`; Java/Kotlin/C#/Scala hello-worlds updated to use `AzUpdate.RefreshDom.value` (this commit)
+  - A.2 enum constants — Node/Ruby/Lua already exposed; OCaml gets idiomatic `module Update = struct let refresh_dom : int = 1 end`; Java/Kotlin/C#/Scala hello-worlds updated to use `AzUpdate.RefreshDom.value` — `11585ad55`
+  - A.3.1 + A.3.2 + A.3.3 + A.3.4: `WindowCreateOptions.create(layout fn)` smart factory for Java/Kotlin/C#/Scala (this commit)
 
 End of plan.
