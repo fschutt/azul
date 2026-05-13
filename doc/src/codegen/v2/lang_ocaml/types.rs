@@ -509,6 +509,64 @@ fn emit_tagged_union_fields(builder: &mut CodeBuilder, e: &EnumDef, ir: &Codegen
     let (size, align) = c_size_of_tagged_enum(e, ir, &mut Vec::new());
     emit_byte_blob_fields(builder, &ffi, size, align);
     builder.line(&format!("let () = seal {}", ffi));
+
+    // AzOption / AzResult tag-byte helpers. The variant tag is at
+    // offset 0 of the blob (repr(C, u8)). Without per-variant typed
+    // views (a bigger codegen rework) we can't extract the payload,
+    // but we CAN expose `is_ok` / `is_err` (for Result) or
+    // `is_some` / `is_none` (for Option) by reading byte 0 via
+    // Ctypes.coerce. That's enough to write idiomatic `match` code:
+    //     if Azul.is_result_ok r then ... else ...
+    //
+    // Variant ordering matters: AzOption has None first (tag 0) and
+    // Some second (tag 1); AzResult has Ok first (tag 0) and Err
+    // second (tag 1). The codegen finds the actual variant index
+    // rather than assuming.
+    if e.is_union {
+        let some_or_ok_idx = e
+            .variants
+            .iter()
+            .position(|v| v.name == "Some" || v.name == "Ok");
+        let none_or_err_idx = e
+            .variants
+            .iter()
+            .position(|v| v.name == "None" || v.name == "Err");
+        let is_option_or_result = e.name.starts_with("Option")
+            || e.name.starts_with("Result");
+        if is_option_or_result && some_or_ok_idx.is_some() && none_or_err_idx.is_some() {
+            let positive_idx = some_or_ok_idx.unwrap();
+            let (positive_name, negative_name) = if e.name.starts_with("Option") {
+                ("is_some", "is_none")
+            } else {
+                ("is_ok", "is_err")
+            };
+            builder.blank();
+            builder.line(&format!(
+                "(* Tag-byte accessors for {} (offset 0, repr(C,u8)). *)",
+                ffi
+            ));
+            builder.line(&format!(
+                "let {}_{} (r : {} Ctypes.structure) : bool =",
+                ffi, positive_name, ffi
+            ));
+            builder.indent();
+            builder.line("let raw_ptr = Ctypes.addr r in");
+            builder.line(&format!(
+                "let tag_ptr = Ctypes.coerce (Ctypes.ptr {}) (Ctypes.ptr Ctypes.uint8_t) raw_ptr in",
+                ffi
+            ));
+            builder.line(&format!(
+                "Unsigned.UInt8.to_int (Ctypes.(!@) tag_ptr) = {}",
+                positive_idx
+            ));
+            builder.dedent();
+            builder.line(&format!(
+                "let {}_{} (r : {} Ctypes.structure) : bool = not ({}_{} r)",
+                ffi, negative_name, ffi, ffi, positive_name
+            ));
+        }
+    }
+
     builder.blank();
 }
 
