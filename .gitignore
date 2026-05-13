@@ -164,7 +164,8 @@ examples/smalltalk/PharoDebug.log
 examples/smalltalk/smoketest.st
 
 # Phase-C transpile-blueprint experiment build artifacts.
-# third_party/remill is a tracked git submodule (pinned to v6.0.1);
+# third_party/remill is a tracked git submodule (pinned to v6.0.0 —
+# v6.0.1 bumped XED 2022 → 2025, breaking the pre-built cxx-common);
 # everything else under third_party/ is build output and stays local.
 third_party/cxx-common/
 third_party/cxx-common-arm64.tar.xz

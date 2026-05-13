@@ -104,15 +104,115 @@ entry:
     }
 }
 
-// ── RemillLifter (feature-gated) ────────────────────────────────────────
+// ── RemillCliLifter ─────────────────────────────────────────────────────
+//
+// Subprocess-based integration with remill's standalone `remill-lift`
+// binary. Works today (no need to link remill's static libs from Rust)
+// and produces the same LLVM IR the future FFI path will. The CLI is
+// remill's own canonical entry point: bin/lift/Lift.cpp.
 
-#[cfg(feature = "remill")]
-pub struct RemillLifter;
+pub struct RemillCliLifter {
+    pub lift_bin: std::path::PathBuf,
+}
 
-#[cfg(feature = "remill")]
-impl LlvmLifter for RemillLifter {
+impl RemillCliLifter {
+    /// Resolve the remill-lift binary path. Order:
+    ///   1. $REMILL_LIFT_BIN, if set.
+    ///   2. third_party/remill-install/build/remill/bin/lift/remill-lift-17
+    ///      relative to CARGO_MANIFEST_DIR (the local cmake build).
+    pub fn discover() -> Option<Self> {
+        if let Ok(p) = std::env::var("REMILL_LIFT_BIN") {
+            let pb = std::path::PathBuf::from(p);
+            if pb.is_file() {
+                return Some(Self { lift_bin: pb });
+            }
+        }
+        let local = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../third_party/remill-install/build/remill/bin/lift/remill-lift-17");
+        if local.is_file() {
+            return Some(Self { lift_bin: local });
+        }
+        None
+    }
+}
+
+impl LlvmLifter for RemillCliLifter {
     fn name(&self) -> &str {
-        "RemillLifter (remill v6 via cxx)"
+        "RemillCliLifter (subprocess to remill-lift-17)"
+    }
+    fn is_real(&self) -> bool {
+        true
+    }
+    fn lift(
+        &self,
+        bytes: &[u8],
+        base_addr: u64,
+        arch: Arch,
+        export_symbol: &str,
+    ) -> Result<LiftedIr, String> {
+        let mut hex = String::with_capacity(bytes.len() * 2);
+        for b in bytes {
+            hex.push_str(&format!("{:02x}", b));
+        }
+
+        // remill's standalone CLI bails out on null-page addresses with a
+        // useless message; lift everything at a fixed high virtual address
+        // and let the caller's symbol_export name override the resulting
+        // function name in a later pass if needed.
+        let lift_addr: u64 = 0x100000000;
+
+        let out_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("out/blueprint.remill.ll");
+        std::fs::create_dir_all(out_path.parent().unwrap())
+            .map_err(|e| format!("mkdir out/: {e}"))?;
+
+        let _ = base_addr;
+        let _ = export_symbol;
+
+        let status = std::process::Command::new(&self.lift_bin)
+            .arg("--arch").arg(arch.tag())
+            .arg("--os").arg("macos")
+            .arg("--address").arg(format!("0x{:x}", lift_addr))
+            .arg("--entry_address").arg(format!("0x{:x}", lift_addr))
+            .arg("--bytes").arg(&hex)
+            .arg("--ir_out").arg(&out_path)
+            .output()
+            .map_err(|e| format!("spawn remill-lift: {e}"))?;
+
+        if !status.status.success() {
+            return Err(format!(
+                "remill-lift failed: {}\nstderr:\n{}",
+                status.status,
+                String::from_utf8_lossy(&status.stderr),
+            ));
+        }
+
+        let ir = std::fs::read_to_string(&out_path)
+            .map_err(|e| format!("read remill output: {e}"))?;
+        if ir.is_empty() {
+            return Err("remill returned empty IR".into());
+        }
+        Ok(LiftedIr {
+            ir,
+            export_symbol: export_symbol.to_string(),
+        })
+    }
+}
+
+// ── RemillFfiLifter (cxx feature, currently unwired — see cpp/shim.cpp) ─
+//
+// The longer-term integration target: link remill's static libs in-process
+// via cxx-rs. Currently the build.rs scaffold compiles cpp/shim.cpp but
+// linking the full transitive closure (remill_bc + remill_arch +
+// sleigh + LLVM + glog + gflags + xed) is not wired up. Use the CLI
+// lifter above until then.
+#[cfg(feature = "remill")]
+pub struct RemillFfiLifter;
+
+#[cfg(feature = "remill")]
+impl LlvmLifter for RemillFfiLifter {
+    fn name(&self) -> &str {
+        "RemillFfiLifter (cxx, link-WIP)"
     }
     fn is_real(&self) -> bool {
         true
@@ -125,8 +225,7 @@ impl LlvmLifter for RemillLifter {
         export_symbol: &str,
     ) -> Result<LiftedIr, String> {
         let ir =
-            crate::ffi::ffi::lift_bytes_to_llvm_ir(arch.tag(), bytes, base_addr)
-                .map_err(|e| format!("remill shim: {e}"))?;
+            crate::ffi::ffi::lift_bytes_to_llvm_ir(arch.tag(), bytes, base_addr);
         if ir.is_empty() {
             return Err("remill returned empty IR (lift failed)".into());
         }

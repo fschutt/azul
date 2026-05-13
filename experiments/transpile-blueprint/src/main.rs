@@ -27,7 +27,7 @@ mod lifter;
 #[cfg(feature = "remill")]
 mod ffi;
 
-use lifter::{Arch, LlvmLifter, StubLifter};
+use lifter::{Arch, LlvmLifter, RemillCliLifter, StubLifter};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -86,21 +86,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
 
     // [4] lift to LLVM IR
-    let use_remill = std::env::args().any(|a| a == "--lifter=remill");
-    let lifter: Box<dyn LlvmLifter> = if use_remill {
-        #[cfg(feature = "remill")]
-        { Box::new(lifter::RemillLifter) }
-        #[cfg(not(feature = "remill"))]
-        {
-            eprintln!(
-                "--lifter=remill requires building with --features remill \
-                 AND REMILL_INSTALL_DIR pointing at a built remill install. \
-                 Falling back to StubLifter."
-            );
-            Box::new(StubLifter)
+    //   --lifter=stub       (default)           → StubLifter
+    //   --lifter=remill     (or no flag + found) → RemillCliLifter (subprocess)
+    //   --lifter=remill-ffi (Cargo feature)      → RemillFfiLifter (cxx, WIP)
+    let args: Vec<String> = std::env::args().collect();
+    let lifter_choice = args.iter()
+        .find_map(|a| a.strip_prefix("--lifter=").map(str::to_string))
+        .unwrap_or_else(|| "auto".to_string());
+
+    let lifter: Box<dyn LlvmLifter> = match lifter_choice.as_str() {
+        "stub" => Box::new(StubLifter),
+        "remill" => match RemillCliLifter::discover() {
+            Some(l) => Box::new(l),
+            None => return Err(
+                "--lifter=remill but remill-lift-17 not found. \
+                 Either set $REMILL_LIFT_BIN, or build remill via \
+                 `bash scripts/build_remill.sh`."
+                .into(),
+            ),
+        },
+        "remill-ffi" => {
+            #[cfg(feature = "remill")]
+            { Box::new(lifter::RemillFfiLifter) }
+            #[cfg(not(feature = "remill"))]
+            { return Err("--lifter=remill-ffi requires --features remill".into()); }
         }
-    } else {
-        Box::new(StubLifter)
+        "auto" => match RemillCliLifter::discover() {
+            Some(l) => Box::new(l),
+            None => Box::new(StubLifter),
+        },
+        other => return Err(format!("unknown --lifter={other}").into()),
     };
 
     println!("[4] lifter:        {} ({})",
