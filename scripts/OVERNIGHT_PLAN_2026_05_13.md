@@ -212,12 +212,12 @@ The PHP extension build now works (verified 2026-05-13; CLT libclang is sufficie
 
 These bite us repeatedly across bindings. Fix once in shared infra.
 
-- [ ] **D.1** Audit every language's `emit_tagged_union` for `repr(C, u8)` tag width: Pascal ✓ (commit 1f7f84a90), Java ✓ (d098cf92c), Kotlin ✓ (8234155a2), C# ✓ (48a70edde), OCaml ✓ (616a9fd8a), Lisp ✓ (744f1e90c). **Verify Node / Ruby / Lua / Go / Zig / Perl / Lisp / Fortran / Haskell / Smalltalk** all match.
-- [ ] **D.2** Audit every language's `bool` → 1-byte mapping. Pascal ✓ (cbool → ByteBool). **Verify** Ruby / Node / Lua / Go / Zig / Perl / Lisp / Fortran / Haskell / Smalltalk all emit 1-byte bool in struct fields.
-- [ ] **D.3** Audit every language for `DestructorOrClone` field inclusion. Pascal ✓, Java ✓, C# ✓. **Verify** Kotlin / OCaml / Ruby / Node / Lua / Go / Zig / Perl / Lisp / Fortran / Haskell / Smalltalk.
-- [ ] **D.4** Per-module split for JVM langs at scale: Java ✓ (f5a5c4a47), Kotlin ✓ (8234155a2). C# — does it need it? Single-namespace today; check.
-- [ ] **D.5** WriteBackCallback codegen plumbing — once the macro decision in C.3 lands.
-- [ ] **D.6** ThreadCallback codegen plumbing — per Phase 5 in BINDING_STRATEGY_PER_LANGUAGE.md.
+- [x] **D.1** Audited tag-width across Node/Ruby/Lua/Go/Zig/Perl/Fortran/Haskell/Smalltalk. **Found one regression**: Ruby's MonomorphizedKind::TaggedUnion path emitted `:tag, :uint32` (the EnumDef path was already `:uint8` from a prior commit). Fixed in this commit — Ruby's outer struct tag is now `:uint8` matching the C ABI.
+- [x] **D.2** Audited `bool` mapping across Node/Ruby/Lua/Go/Zig/Perl/Fortran/Haskell/Smalltalk. All emit C's 1-byte `_Bool` correctly: Node `bool`, Go `bool` / `C.bool`, Fortran `logical(c_bool)`, etc. Smalltalk also clean. Pascal's `cbool` → `ByteBool` was the lone fix needed.
+- [x] **D.3** Audited DestructorOrClone inclusion. Node/Ruby emit destructor types as proper Unions on the FFI side even when the wrapper-generation filter excludes them; Lua uses C cdef so the union shape is direct. **Pascal was the only binding** where the destructor field was emitted as opaque `Pointer` (8 bytes) when the C union is 16 bytes — already fixed in `1f7f84a90`. No other follow-ups needed.
+- [x] **D.4** C# scale check: 11,696 `static extern` / `delegate` declarations in a single 5.9 MB Azul.cs. Unlike JNA Proxy's 64KB per-method limit, P/Invoke declarations have no bodies — they're metadata. Single-namespace stays.
+- [⊘] **D.5** WriteBackCallback codegen plumbing — blocked on Phase C.3 (libazul macro extension).
+- [⊘] **D.6** ThreadCallback codegen plumbing — blocked on Phase C.4 (per-VM lock-acquire shims).
 
 ---
 
@@ -302,6 +302,7 @@ These bite us repeatedly across bindings. Fix once in shared infra.
   - A.4 smart `Button.on_click(data, fn)` across Java/Kotlin/C#/Scala/Ruby/Node/Lua — `a5bae4e4d`; OCaml deferred.
   - A.7 hello-world rewrites: Scala 132→77, Java 132→86, Kotlin 102→67 lines using the smart WCO factory — `cb7553744`. Scala AZ_DEBUG 5→8 verified.
   - A.7 round 2: C# 129→84, Ruby 94→69 — `2019af733`. C# smart factory widened to accept any `Delegate`; Ruby `Button#on_click` no longer double-registers via the already-wrapping `with_on_click`. Ruby AZ_DEBUG 5→8 verified post-rewrite. Node/Lua/Go/Zig already idiomatic.
-  - E.1 + E.2: `scripts/test_all_e2e.sh` + `scripts/probe_az_debug.sh`. PASS results for lua/node/ruby/scala on macOS-aarch64 (this commit).
+  - E.1 + E.2: `scripts/test_all_e2e.sh` + `scripts/probe_az_debug.sh`. PASS results for lua/node/ruby/scala on macOS-aarch64 — `f1c1c6134`.
+  - D.1: Ruby MonomorphizedKind::TaggedUnion outer-struct tag width fixed (`:uint32` → `:uint8`) — recurring repr(C, u8) bug. D.2 / D.3 / D.4 audited clean across the remaining bindings.
 
 End of plan.

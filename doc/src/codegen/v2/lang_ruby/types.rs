@@ -322,12 +322,16 @@ fn emit_monomorphized_alias(
             builder.dedent();
             builder.line("end");
 
-            // Outer struct holding tag + payload.
+            // Outer struct holding tag + payload. Tag is `:uint8` to
+            // match the C ABI's `#[repr(C, u8)]` — a 4-byte tag here
+            // would shift payload offsets on small-aligned variants.
+            // (Same recurring bug class fixed for the EnumDef path in
+            // commit 78fa2de9b.)
             builder.line(&format!("class {}", name));
             builder.indent();
             builder.line("layout(");
             builder.indent();
-            builder.line(":tag, :uint32,");
+            builder.line(":tag, :uint8,");
             builder.line(&format!(":payload, {}.by_value", payload_name));
             builder.dedent();
             builder.line(")");
