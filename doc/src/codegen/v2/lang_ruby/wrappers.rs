@@ -205,8 +205,52 @@ fn emit_class_wrapper(
     // C-ABI helpers when TypeTraits flags them and the symbol exists.
     emit_rb_eq_hash_if_supported(builder, s, ir);
 
+    // Phase I.3.3 (Ruby): override to_s + inspect through
+    // Az<X>_toDbgString when TypeTraits.is_debug.
+    emit_rb_to_s_if_supported(builder, s, ir);
+
     builder.dedent();
     builder.line(&format!("end # class {}", class_name));
+}
+
+/// Phase I.3.3 (Ruby): override `to_s` + `inspect` routed through
+/// `Az<X>_toDbgString` when TypeTraits.is_debug + helper exists. Skips
+/// AzString (its existing `to_s` vec-direct decoder).
+fn emit_rb_to_s_if_supported(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    ir: &CodegenIR,
+) {
+    if s.name == "String" {
+        return;
+    }
+    let dbg_sym = format!("Az{}_toDbgString", s.name);
+    let has_dbg = s.traits.is_debug
+        && ir.functions.iter().any(|f| f.c_name == dbg_sym);
+    if !has_dbg {
+        return;
+    }
+    let snake = snake_case(&s.name);
+    builder.line(&format!("# String repr routed through {}.", dbg_sym));
+    builder.line("def to_s");
+    builder.indent();
+    builder.line("return '' if @ptr.nil?");
+    builder.line(&format!(
+        "az_str = Native.az_{}_to_dbg_string(@ptr)",
+        snake
+    ));
+    // az_str is an AzString::ByValue FFI::Struct. Decode via vec.ptr/.len.
+    builder.line("vec_ptr = az_str[:vec][:ptr]");
+    builder.line("vec_len = az_str[:vec][:len]");
+    builder.line("return '' if vec_ptr.null? || vec_len.zero?");
+    builder.line("out = vec_ptr.read_bytes(vec_len).force_encoding('UTF-8')");
+    // Free the AzString via the FFI struct's address.
+    builder.line("Native.az_string_delete(FFI::Pointer.new(az_str.to_ptr.address))");
+    builder.line("out");
+    builder.dedent();
+    builder.line("end");
+    builder.line("alias_method :inspect, :to_s");
+    builder.blank();
 }
 
 /// Phase I.2.5 (Ruby): override `==` / `eql?` / `hash` routed through

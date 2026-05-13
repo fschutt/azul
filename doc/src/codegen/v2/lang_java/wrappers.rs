@@ -256,6 +256,13 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     // to identity-based defaults when the helpers aren't available.
     emit_equals_hashcode_if_supported(builder, s, &class_name, ir);
 
+    // Phase I.3 (Java): override Object.toString() through the
+    // codegen-emitted `Az<X>_toDbgString` C-ABI helper when TypeTraits
+    // flags `is_debug`. Existing AzString toString override is left in
+    // place since it accesses the underlying U8Vec directly (no helper
+    // round-trip).
+    emit_toString_if_supported(builder, s, ir);
+
     // close() / AutoCloseable.
     emit_close_method(builder, &s.name, &class_name, ir);
 
@@ -333,6 +340,56 @@ fn emit_equals_hashcode_if_supported(
         builder.line("}");
         builder.blank();
     }
+}
+
+/// Phase I.3 (Java): override Object.toString() routed through the
+/// codegen-emitted `Az<X>_toDbgString` C export when TypeTraits.is_debug
+/// is set and the helper actually exists. Skips when this is the String
+/// wrapper class — that already has a vec-direct toString.
+fn emit_toString_if_supported(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    ir: &CodegenIR,
+) {
+    if s.name == "String" {
+        return;
+    }
+    let dbg_sym = format!("Az{}_toDbgString", s.name);
+    let has_dbg = s.traits.is_debug
+        && ir.functions.iter().any(|f| f.c_name == dbg_sym);
+    if !has_dbg {
+        return;
+    }
+    let native = super::functions::native_class_for_class(&s.name, ir);
+    builder.line("/**");
+    builder.line(&format!(
+        " * String representation routed through {}.",
+        dbg_sym
+    ));
+    builder.line(" */");
+    builder.line("@Override");
+    builder.line("public java.lang.String toString() {");
+    builder.indent();
+    builder.line("if (ptr == null || closed) return super.toString();");
+    builder.line(&format!(
+        "AzString.ByValue __s = {}.INSTANCE.{}(ptr);",
+        native, dbg_sym
+    ));
+    // Decode the AzString. The AzString struct's first field is a
+    // U8Vec; offset 0 is vec.ptr, offset 8 is vec.len.
+    builder.line("__s.write();");
+    builder.line("Pointer __sp = __s.getPointer();");
+    builder.line("Pointer __vecPtr = __sp.getPointer(0);");
+    builder.line("long __vecLen = __sp.getLong(8);");
+    builder.line("if (__vecPtr == null || __vecLen <= 0) return \"\";");
+    builder.line("byte[] __bytes = __vecPtr.getByteArray(0, (int) __vecLen);");
+    builder.line("java.lang.String __out = new java.lang.String(__bytes, java.nio.charset.StandardCharsets.UTF_8);");
+    // Free the freshly-allocated AzString to avoid leaking the U8Vec.
+    builder.line("AzulNativeStr.INSTANCE.AzString_delete(__sp);");
+    builder.line("return __out;");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
 }
 
 fn emit_close_method(builder: &mut CodeBuilder, raw_type_name: &str, class_name: &str, ir: &CodegenIR) {

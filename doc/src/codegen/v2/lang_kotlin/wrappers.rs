@@ -256,6 +256,9 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     // codegen-emitted C-ABI helpers when TypeTraits says they exist.
     emit_kt_equals_hashcode_if_supported(builder, s, &class_name, &ffi_name, ir);
 
+    // Phase I.3 (Kotlin): toString() routed through Az<X>_toDbgString.
+    emit_kt_toString_if_supported(builder, s, ir);
+
     // close()
     builder.line("/** Frees the underlying native resources. Idempotent. */");
     builder.line("override fun close() {");
@@ -437,6 +440,46 @@ fn emit_kt_equals_hashcode_if_supported(
         builder.line("override fun hashCode(): Int = ptr?.hashCode() ?: 0");
         builder.blank();
     }
+}
+
+/// Phase I.3 (Kotlin): override toString() through Az<X>_toDbgString.
+fn emit_kt_toString_if_supported(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    ir: &CodegenIR,
+) {
+    if s.name == "String" {
+        return; // Vec-direct decode already in place.
+    }
+    let dbg_sym = format!("Az{}_toDbgString", s.name);
+    let has_dbg = s.traits.is_debug
+        && ir.functions.iter().any(|f| f.c_name == dbg_sym);
+    if !has_dbg {
+        return;
+    }
+    let native = super::super::lang_java::functions::native_class_for_class(&s.name, ir);
+    builder.line(&format!("/** String repr routed through {}. */", dbg_sym));
+    builder.line("override fun toString(): kotlin.String {");
+    builder.indent();
+    builder.line("if (ptr == null || closed) return super.toString()");
+    builder.line(&format!(
+        "val __s = {}.INSTANCE.{}(ptr)",
+        native, dbg_sym
+    ));
+    builder.line("__s.write()");
+    builder.line("val __sp = __s.pointer");
+    builder.line("val __vecPtr: Pointer? = __sp.getPointer(0)");
+    builder.line("val __vecLen: Long = __sp.getLong(8)");
+    builder.line("if (__vecPtr == null || __vecLen <= 0) return \"\"");
+    builder.line("val __bytes = __vecPtr.getByteArray(0, __vecLen.toInt())");
+    // ByteArray.toString(Charset) avoids the wrapper-class `String`
+    // constructor collision (see earlier fix in s.name == \"String\" block).
+    builder.line("val __out = __bytes.toString(Charsets.UTF_8)");
+    builder.line("AzulNativeStr.INSTANCE.AzString_delete(__sp)");
+    builder.line("return __out");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
 }
 
 fn emit_static_factory(

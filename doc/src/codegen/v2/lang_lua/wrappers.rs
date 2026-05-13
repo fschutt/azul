@@ -258,18 +258,36 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
         String::new()
     };
 
+    // Phase I.3.5 (Lua): __tostring metamethod via Az<X>_toDbgString.
+    let dbg_sym = format!("Az{}_toDbgString", s.name);
+    let has_dbg = s.traits.is_debug
+        && ir.functions.iter().any(|f| f.c_name == dbg_sym)
+        && s.name != "String";
+    let tostring_clause = if has_dbg {
+        format!(
+            ", __tostring = function(self) \
+             local az = C.{}(self); \
+             if az.vec.ptr == nil or az.vec.len == 0 then return '' end; \
+             return ffi.string(az.vec.ptr, tonumber(az.vec.len)) \
+             end",
+            dbg_sym
+        )
+    } else {
+        String::new()
+    };
+
     // Metatype binding — only for non-Copy types (those with _delete).
     // For Copy types we still want __index for instance methods, but no __gc.
     if has_delete {
         let delete_c = format!("Az{}_delete", class);
         out.push_str(&format!(
-            "    ffi.metatype('{}', {{ __index = {}_methods, __gc = function(self) C.{}(self) end{} }})\n",
-            c_name, class, delete_c, eq_clause
+            "    ffi.metatype('{}', {{ __index = {}_methods, __gc = function(self) C.{}(self) end{}{} }})\n",
+            c_name, class, delete_c, eq_clause, tostring_clause
         ));
-    } else if method_count > 0 || has_eq {
+    } else if method_count > 0 || has_eq || has_dbg {
         out.push_str(&format!(
-            "    ffi.metatype('{}', {{ __index = {}_methods{} }})\n",
-            c_name, class, eq_clause
+            "    ffi.metatype('{}', {{ __index = {}_methods{}{} }})\n",
+            c_name, class, eq_clause, tostring_clause
         ));
     }
     out.push_str("end\n");

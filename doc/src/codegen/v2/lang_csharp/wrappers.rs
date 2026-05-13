@@ -250,6 +250,9 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     // exports when TypeTraits says they're supported.
     emit_cs_equals_hashcode_if_supported(builder, s, &class_name, ir);
 
+    // Phase I.3 (C#): override ToString() through Az<X>_toDbgString.
+    emit_cs_toString_if_supported(builder, s, ir);
+
     // IDisposable boilerplate.
     emit_dispose_methods(builder, &class_name, &s.name);
 
@@ -347,6 +350,74 @@ fn emit_cs_equals_hashcode_if_supported(
         builder.line("public override int GetHashCode() => _inner.GetHashCode();");
         builder.blank();
     }
+}
+
+/// Phase I.3 (C#): override ToString() through Az<X>_toDbgString.
+fn emit_cs_toString_if_supported(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    ir: &CodegenIR,
+) {
+    if s.name == "String" {
+        return;
+    }
+    let dbg_sym = format!("Az{}_toDbgString", s.name);
+    let has_dbg = s.traits.is_debug
+        && ir.functions.iter().any(|f| f.c_name == dbg_sym);
+    if !has_dbg {
+        return;
+    }
+    // Skip when the user-facing surface already defines `ToString()`
+    // (e.g. `AzUrl_toString` / `AzJson_toString` map to `Url.ToString` /
+    // `Json.ToString`). Avoid CS0111 duplicate-member errors.
+    if ir.functions.iter().any(|f| {
+        f.class_name == s.name
+            && idiomatic_method_name(&f.method_name) == "ToString"
+    }) {
+        return;
+    }
+    builder.line(&format!(
+        "/// <summary>String repr routed through {}.</summary>",
+        dbg_sym
+    ));
+    builder.line("public override string ToString()");
+    builder.line("{");
+    builder.indent();
+    builder.line("if (_disposed) return base.ToString() ?? \"\";");
+    // Marshal _inner to AllocHGlobal'd pointer (same pattern as Equals).
+    builder.line(&format!(
+        "var sz = System.Runtime.InteropServices.Marshal.SizeOf<Az{}>();",
+        s.name
+    ));
+    builder.line("var p = System.Runtime.InteropServices.Marshal.AllocHGlobal(sz);");
+    builder.line("try");
+    builder.line("{");
+    builder.indent();
+    builder.line("System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, p, false);");
+    builder.line(&format!("var s = NativeMethods.{}(p);", dbg_sym));
+    // Decode AzString via marshal to pointer, read vec.ptr/.len, free.
+    builder.line("var sPtr = System.Runtime.InteropServices.Marshal.AllocHGlobal(System.Runtime.InteropServices.Marshal.SizeOf<AzString>());");
+    builder.line("try");
+    builder.line("{");
+    builder.indent();
+    builder.line("System.Runtime.InteropServices.Marshal.StructureToPtr(s, sPtr, false);");
+    builder.line("var vecPtr = System.Runtime.InteropServices.Marshal.ReadIntPtr(sPtr, 0);");
+    builder.line("var vecLen = (int)System.Runtime.InteropServices.Marshal.ReadInt64(sPtr, System.IntPtr.Size);");
+    builder.line("if (vecPtr == System.IntPtr.Zero || vecLen <= 0) return \"\";");
+    builder.line("var bytes = new byte[vecLen];");
+    builder.line("System.Runtime.InteropServices.Marshal.Copy(vecPtr, bytes, 0, vecLen);");
+    builder.line("var result = System.Text.Encoding.UTF8.GetString(bytes);");
+    builder.line("NativeMethods.AzString_delete(sPtr);");
+    builder.line("return result;");
+    builder.dedent();
+    builder.line("}");
+    builder.line("finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(sPtr); }");
+    builder.dedent();
+    builder.line("}");
+    builder.line("finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(p); }");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
 }
 
 fn emit_dispose_methods(builder: &mut CodeBuilder, class_name: &str, raw_type_name: &str) {

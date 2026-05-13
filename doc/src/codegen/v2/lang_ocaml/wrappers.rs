@@ -388,8 +388,58 @@ fn emit_module_impl_for_class(
     // the codegen-emitted `Az<X>_partialEq` / `Az<X>_hash` exports.
     emit_ocaml_eq_hash_if_supported(builder, s, ir, has_wrapper);
 
+    // Phase I.3.6 (OCaml): `to_string` per module routed through
+    // Az<X>_toDbgString.
+    emit_ocaml_to_string_if_supported(builder, s, ir, has_wrapper);
+
     builder.dedent();
     builder.line("end");
+    builder.blank();
+}
+
+/// Phase I.3.6 (OCaml): emit `to_string` per-module helper routed
+/// through `Az<X>_toDbgString`. Decodes the returned AzString via the
+/// existing `string_from_ptr` pattern from String.to_string. Skips the
+/// String wrapper itself (already has the vec-direct decoder).
+fn emit_ocaml_to_string_if_supported(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    ir: &CodegenIR,
+    has_wrapper: bool,
+) {
+    if s.name == "String" {
+        return;
+    }
+    let dbg_sym = format!("Az{}_toDbgString", s.name);
+    let has_dbg = s.traits.is_debug
+        && ir.functions.iter().any(|f| f.c_name == dbg_sym);
+    if !has_dbg {
+        return;
+    }
+    // Skip when the user-facing surface already defines `to_string`
+    // (e.g. `AzUrl_toString` maps to `Url.to_string : t -> az_string`).
+    // We can't override without breaking the .mli signature.
+    if ir.functions.iter().any(|f| {
+        f.class_name == s.name
+            && idiomatic_method_name(&f.method_name) == "to_string"
+    }) {
+        return;
+    }
+    let self_t = if has_wrapper { "t.raw" } else { "t" };
+    let raw_dbg = ocaml_binding_name(&dbg_sym);
+    builder.line(&format!("(* String repr routed through {}. *)", dbg_sym));
+    builder.line("let to_string (t : t) : string =");
+    builder.indent();
+    builder.line(&format!(
+        "let __s = {} (Ctypes.addr {}) in",
+        raw_dbg, self_t
+    ));
+    builder.line("let vec = Ctypes.getf __s az_string_field_vec in");
+    builder.line("let vec_ptr = Ctypes.getf vec az_u8_vec_field_ptr in");
+    builder.line("let vec_len = Unsigned.Size_t.to_int (Ctypes.getf vec az_u8_vec_field_len) in");
+    builder.line("if Ctypes.is_null vec_ptr || vec_len = 0 then \"\"");
+    builder.line("else Ctypes.string_from_ptr (Ctypes.from_voidp Ctypes.char vec_ptr) ~length:vec_len");
+    builder.dedent();
     builder.blank();
 }
 

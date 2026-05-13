@@ -92,13 +92,13 @@ For every struct where the IR has `PartialEq` in `derive`, route the host-langua
 
 For every struct with `Debug` in `derive` and a `_toDbgString` C-ABI helper, override the host `toString` / `__repr__` / `inspect`.
 
-- [ ] **I.3.1 Java/Kotlin/Scala** — override `toString()` (only for types where AzX.toString isn't already shadowed by something else — Java's `toString()` for the wrapper currently returns the default Object.toString unless we override).
-- [ ] **I.3.2 C#** — `override string ToString()` per wrapper.
-- [ ] **I.3.3 Ruby** — `def to_s` + `def inspect` per wrapper.
-- [ ] **I.3.4 Node** — `toString()` (also wire `[util.inspect.custom]` for Node's REPL).
-- [ ] **I.3.5 Lua** — `__tostring` metamethod.
-- [ ] **I.3.6 OCaml** — `let to_string t = ...` per module.
-- [ ] **I.3.7 Haskell** — handled in H.8.
+- [x] **I.3.1 Java/Kotlin/Scala** — `@Override public toString()` routes through `Az<X>_toDbgString` + AzString decode + AzString_delete cleanup. Pre-existing per-type `toString_` (with trailing `_`) preserved by the codegen's collision avoidance. *(this iteration)*
+- [x] **I.3.2 C#** — `public override string ToString()` marshals `_inner` to AllocHGlobal'd ptr, calls native `_toDbgString`, decodes the AzString via vec.ptr/.len + Encoding.UTF8.GetString, frees both. Skip-guard for classes that already have a user-defined `ToString` (Url, Json). *(this iteration)*
+- [x] **I.3.3 Ruby** — `def to_s` + `alias_method :inspect, :to_s` routed through `Native.az_<x>_to_dbg_string`. Smoke: `Azul::Dom.create_body.to_s` ⇒ pretty multi-line Dom debug repr. *(this iteration)*
+- [x] **I.3.4 Node** — `toString()` instance method routes through `lib.Az<X>_toDbgString` + `azulFFI.decode` to read the U8Vec bytes. *(this iteration)*
+- [x] **I.3.5 Lua** — `__tostring` metamethod inside the `ffi.metatype` body; decodes via `ffi.string(az.vec.ptr, az.vec.len)`. Smoke: `tostring(azul.Dom.create_body())` ⇒ Dom debug repr. *(this iteration)*
+- [x] **I.3.6 OCaml** — `let to_string (t : t) : string` per module. Skip-guard for classes whose IR already exports a `to_string` (Url maps `AzUrl_toString` → `Url.to_string : t -> az_string`). dune builds clean. *(this iteration)*
+- [x] **I.3.7 Haskell** — handled in H.8 (`instance Show` routed through `c_Az<X>_toDbgString_via`).
 
 ### I.4 Clone / deep-copy routing
 

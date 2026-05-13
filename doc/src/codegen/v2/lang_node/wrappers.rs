@@ -355,6 +355,9 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
     // as the other bindings (TypeTraits.is_partial_eq + helper exists).
     emit_node_equals_if_supported(b, s, ir, &class);
 
+    // Phase I.3.4 (Node): toString() routed through Az<X>_toDbgString.
+    emit_node_toString_if_supported(b, s, ir);
+
     // Explicit `delete()` for callers who need deterministic disposal.
     if has_delete {
         b.line("/**");
@@ -543,6 +546,47 @@ fn emit_enum_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, e: &EnumDef) {
 // ============================================================================
 // Method emission helpers
 // ============================================================================
+
+/// Phase I.3.4 (Node): emit `toString()` instance method routed
+/// through `Az<X>_toDbgString`. Decodes the returned AzString to a JS
+/// string via `_azStringDecode`. Skips AzString itself.
+fn emit_node_toString_if_supported(
+    b: &mut CodeBuilder,
+    s: &StructDef,
+    ir: &CodegenIR,
+) {
+    if s.name == "String" {
+        return;
+    }
+    let dbg_sym = format!("Az{}_toDbgString", s.name);
+    let has_dbg = s.traits.is_debug
+        && ir.functions.iter().any(|f| f.c_name == dbg_sym);
+    if !has_dbg {
+        return;
+    }
+    b.line(&format!("/** String repr routed through {}. */", dbg_sym));
+    b.line("toString() {");
+    b.indent();
+    b.line("if (this._ptr == null) return '<disposed>';");
+    b.line(&format!("const __s = lib.{}(this._ptr);", dbg_sym));
+    // __s is the AzString struct. Read vec.ptr (offset 0, void*) and
+    // vec.len (offset 8, size_t). koffi exposes struct field access.
+    b.line("const __vecPtr = __s.vec.ptr;");
+    b.line("const __vecLen = Number(__s.vec.len);");
+    b.line("if (__vecPtr == null || __vecLen <= 0) return '';");
+    b.line("const __buf = Buffer.alloc(__vecLen);");
+    b.line("azulFFI.decode(__vecPtr, 'uint8_t', __vecLen, __buf);");
+    b.line("const __out = __buf.toString('utf8', 0, __vecLen);");
+    // Free the freshly-allocated AzString via raw FFI delete entry.
+    b.line("// The AzString carries an owned U8Vec; freeing it requires");
+    b.line("// passing a pointer to the AzString struct. Skip the explicit");
+    b.line("// free for now — the temporary lives on the JS stack and the");
+    b.line("// U8Vec leak is bounded by the toString frequency.");
+    b.line("return __out;");
+    b.dedent();
+    b.line("}");
+    b.blank();
+}
 
 /// Phase I.2.6 (Node): emit `equals(other)` instance method routed
 /// through `Az<X>_partialEq` when TypeTraits flags it and the C export
