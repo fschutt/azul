@@ -94,6 +94,35 @@ fn has_delete(type_name: &str, ir: &CodegenIR) -> bool {
         .any(|f| f.class_name == type_name && f.kind == FunctionKind::Delete)
 }
 
+/// Phase I.1.3 (Kotlin): Vec-shape detector. Same predicate as Haskell
+/// H.3 / Ruby I.1.6 / Java I.1.2.
+fn detect_vec_elem_type_kt(s: &StructDef) -> Option<String> {
+    if s.fields.len() != 4 {
+        return None;
+    }
+    if s.fields[0].name != "ptr"
+        || s.fields[1].name != "len"
+        || s.fields[2].name != "cap"
+    {
+        return None;
+    }
+    if s.fields[1].type_name.trim() != "usize"
+        || s.fields[2].type_name.trim() != "usize"
+    {
+        return None;
+    }
+    let raw = s.fields[0].type_name.trim();
+    let elem = raw
+        .strip_prefix("*mut ")
+        .or_else(|| raw.strip_prefix("*const "))
+        .map(str::trim)
+        .unwrap_or(raw);
+    if elem.is_empty() {
+        return None;
+    }
+    Some(elem.to_string())
+}
+
 fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     let class_name = sanitize_kt_identifier(&s.name);
     let ffi_name = ffi_type_name(&s.name);
@@ -106,14 +135,31 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
         
     }
 
+    // Phase I.1.3 (Kotlin): when this wrapper's underlying struct is a
+    // Vec with a wrapper-class element, declare `Iterable<T>` so
+    // `for (x in vec) { ... }` works idiomatically.
+    let vec_elem_type = detect_vec_elem_type_kt(s);
+    let vec_elem_has_wrapper = |elem: &str| -> bool {
+        ir.find_struct(elem).is_some()
+            && ir.functions.iter().any(|f| {
+                f.class_name == elem && f.kind == FunctionKind::Delete
+            })
+    };
+    let extra_iface = match &vec_elem_type {
+        Some(elem) if vec_elem_has_wrapper(elem) => {
+            format!(", Iterable<{}>", sanitize_kt_identifier(elem))
+        }
+        _ => String::new(),
+    };
+
     // `internal constructor`: accessible from sibling classes in the
     // same Kotlin module (this file), which is where smart factories
     // and auto-wrapper-class converted call sites construct wrappers
     // from raw pointers. Users outside the module use the static
     // factories.
     builder.line(&format!(
-        "class {} internal constructor(internal val ptr: Pointer) : AutoCloseable {{",
-        class_name
+        "class {} internal constructor(internal val ptr: Pointer) : AutoCloseable{} {{",
+        class_name, extra_iface
     ));
     builder.indent();
 
@@ -283,6 +329,15 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
 
     // Phase I.3 (Kotlin): toString() routed through Az<X>_toDbgString.
     emit_kt_toString_if_supported(builder, s, ir);
+
+    // Phase I.1.3 (Kotlin): iterator() body for Vec wrappers with a
+    // wrapper-class element type. Mirrors Java's I.1.2 emission via
+    // JNA Structure.newInstance.
+    if let Some(elem) = vec_elem_type.as_deref() {
+        if vec_elem_has_wrapper(elem) {
+            emit_kt_vec_iterator(builder, s, elem);
+        }
+    }
 
     // close()
     builder.line("/** Frees the underlying native resources. Idempotent. */");
@@ -502,6 +557,63 @@ fn emit_kt_toString_if_supported(
     builder.line("val __out = __bytes.toString(Charsets.UTF_8)");
     builder.line("AzulNativeStr.INSTANCE.AzString_delete(__sp)");
     builder.line("return __out");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+}
+
+/// Phase I.1.3 (Kotlin): emit `iterator()` body for a Vec wrapper.
+/// Same JNA Structure overlay pattern as Java I.1.2.
+fn emit_kt_vec_iterator(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    elem_type: &str,
+) {
+    let vec_ffi = ffi_type_name(&s.name);
+    let elem_ffi = ffi_type_name(elem_type);
+    let elem_wrapper = sanitize_kt_identifier(elem_type);
+    builder.line(&format!(
+        "/// Phase I.1: iterate the underlying Vec yielding {} elements.",
+        elem_wrapper
+    ));
+    builder.line(&format!(
+        "override fun iterator(): Iterator<{}> {{",
+        elem_wrapper
+    ));
+    builder.indent();
+    builder.line(&format!(
+        "val __raw = Structure.newInstance({}.ByValue::class.java, ptr) as {}.ByValue",
+        vec_ffi, vec_ffi
+    ));
+    builder.line("__raw.read()");
+    builder.line("val __buf = __raw.ptr");
+    builder.line("val __n = __raw.len");
+    builder.line(&format!(
+        "val __sz = Structure.newInstance({}::class.java).size()",
+        elem_ffi
+    ));
+    builder.line(&format!(
+        "return object : Iterator<{}> {{",
+        elem_wrapper
+    ));
+    builder.indent();
+    builder.line("private var __i: Long = 0");
+    builder.line("override fun hasNext(): Boolean = __i < __n");
+    builder.line(&format!("override fun next(): {} {{", elem_wrapper));
+    builder.indent();
+    builder.line("if (__i >= __n) throw NoSuchElementException()");
+    builder.line("val __ep = __buf!!.share(__i * __sz)");
+    builder.line("__i++");
+    builder.line(&format!(
+        "val __ev = Structure.newInstance({}.ByValue::class.java, __ep) as {}.ByValue",
+        elem_ffi, elem_ffi
+    ));
+    builder.line("__ev.read()");
+    builder.line(&format!("return {}(__ev.pointer)", elem_wrapper));
+    builder.dedent();
+    builder.line("}");
+    builder.dedent();
+    builder.line("}");
     builder.dedent();
     builder.line("}");
     builder.blank();

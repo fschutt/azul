@@ -129,6 +129,35 @@ fn has_delete_function(type_name: &str, ir: &CodegenIR) -> bool {
 // Wrapper class emission
 // ============================================================================
 
+/// Phase I.1.5 (C#): Vec-shape detector. Same as Haskell H.3 / Java
+/// I.1.2 / Kotlin I.1.3.
+fn detect_vec_elem_type_cs(s: &StructDef) -> Option<String> {
+    if s.fields.len() != 4 {
+        return None;
+    }
+    if s.fields[0].name != "ptr"
+        || s.fields[1].name != "len"
+        || s.fields[2].name != "cap"
+    {
+        return None;
+    }
+    if s.fields[1].type_name.trim() != "usize"
+        || s.fields[2].type_name.trim() != "usize"
+    {
+        return None;
+    }
+    let raw = s.fields[0].type_name.trim();
+    let elem = raw
+        .strip_prefix("*mut ")
+        .or_else(|| raw.strip_prefix("*const "))
+        .map(str::trim)
+        .unwrap_or(raw);
+    if elem.is_empty() {
+        return None;
+    }
+    Some(elem.to_string())
+}
+
 fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     let class_name = sanitize_class_name(&s.name);
     let ffi_name = ffi_type_name(&s.name);
@@ -139,7 +168,24 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
         }
     }
 
-    builder.line(&format!("public sealed class {} : IDisposable", class_name));
+    // Phase I.1.5 (C#): when the struct is a Vec with a wrapper-class
+    // element, declare `IEnumerable<T>` so `foreach (var x in vec)`
+    // works.
+    let vec_elem_type = detect_vec_elem_type_cs(s);
+    let vec_elem_has_wrapper = |elem: &str| -> bool {
+        ir.find_struct(elem).is_some()
+            && ir.functions.iter().any(|f| {
+                f.class_name == elem && f.kind == FunctionKind::Delete
+            })
+    };
+    let extra_iface = match &vec_elem_type {
+        Some(elem) if vec_elem_has_wrapper(elem) => {
+            format!(", System.Collections.Generic.IEnumerable<{}>", sanitize_class_name(elem))
+        }
+        _ => String::new(),
+    };
+
+    builder.line(&format!("public sealed class {} : IDisposable{}", class_name, extra_iface));
     builder.line("{");
     builder.indent();
 
@@ -276,6 +322,13 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
 
     // Phase I.3 (C#): override ToString() through Az<X>_toDbgString.
     emit_cs_toString_if_supported(builder, s, ir);
+
+    // Phase I.1.5 (C#): GetEnumerator() body for Vec wrappers.
+    if let Some(elem) = vec_elem_type.as_deref() {
+        if vec_elem_has_wrapper(elem) {
+            emit_cs_vec_enumerator(builder, s, elem);
+        }
+    }
 
     // IDisposable boilerplate.
     emit_dispose_methods(builder, &class_name, &s.name);
@@ -441,6 +494,52 @@ fn emit_cs_toString_if_supported(
     builder.line("finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(p); }");
     builder.dedent();
     builder.line("}");
+    builder.blank();
+}
+
+/// Phase I.1.5 (C#): IEnumerable<T> GetEnumerator() body for a Vec
+/// wrapper. Iterates `_inner.ptr[0..len]` overlaying AzElem via
+/// Marshal.PtrToStructure.
+fn emit_cs_vec_enumerator(
+    builder: &mut CodeBuilder,
+    _s: &StructDef,
+    elem_type: &str,
+) {
+    let elem_ffi = format!("Az{}", elem_type);
+    let elem_wrapper = sanitize_class_name(elem_type);
+    builder.line(&format!(
+        "/// <summary>Phase I.1: iterate the Vec yielding {} elements.</summary>",
+        elem_wrapper
+    ));
+    builder.line(&format!(
+        "public System.Collections.Generic.IEnumerator<{}> GetEnumerator()",
+        elem_wrapper
+    ));
+    builder.line("{");
+    builder.indent();
+    builder.line("if (_disposed) yield break;");
+    builder.line("var __buf = _inner.ptr;");
+    builder.line("var __n = (long)_inner.len;");
+    builder.line(&format!(
+        "var __sz = System.Runtime.InteropServices.Marshal.SizeOf<{}>();",
+        elem_ffi
+    ));
+    builder.line("for (long __i = 0; __i < __n; __i++)");
+    builder.line("{");
+    builder.indent();
+    builder.line(&format!(
+        "var __ep = System.IntPtr.Add(__buf, (int)(__i * __sz));"
+    ));
+    builder.line(&format!(
+        "var __ev = System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__ep);",
+        elem_ffi
+    ));
+    builder.line(&format!("yield return new {}(__ev);", elem_wrapper));
+    builder.dedent();
+    builder.line("}");
+    builder.dedent();
+    builder.line("}");
+    builder.line("System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();");
     builder.blank();
 }
 

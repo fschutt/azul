@@ -65,9 +65,9 @@ Vec\<T\> wrappers currently expose `to_a` / `toList` / `toByteArray` (snapshot t
 
 - [⊘] **I.1.1 Python** — verify deferred. PyO3 sequence protocol auto-exposes `__iter__` for any type that has `__len__` + `__getitem__`; Vec wrappers need to confirm both are emitted.
 - [x] **I.1.2 Java** — Vec wrappers (detected via [ptr,len,cap,destructor] field-shape predicate) now `implements AutoCloseable, Iterable<T>`. iterator() body overlays AzXVec via JNA Structure.newInstance, walks `ptr + i*elemSize` for `i in 0..len`, yields wrapper-class instances. Gated on element having an emitted wrapper (skips enum / typedef elements like IdOrClass/DynamicSelector). `for (T x : vec)` works. *(this iteration)*
-- [⊘] **I.1.3 Kotlin** — same as Java (deferred).
-- [⊘] **I.1.4 Scala** — same (rides on Java when added).
-- [⊘] **I.1.5 C#** — deferred. C# wrapper holds `_inner: AzXVec`; would need `IEnumerable<T>` impl that walks `_inner.ptr[0..len]` via Marshal.PtrToStructure.
+- [x] **I.1.3 Kotlin** — Vec wrappers now declare `Iterable<T>`. `operator fun iterator(): Iterator<T>` body overlays AzXVec via JNA Structure.newInstance + per-element walk (same JNA pattern as Java I.1.2). `for (x in vec) { ... }` works. kotlinc 0 errors. *(this iteration)*
+- [x] **I.1.4 Scala** — rides on Java/Kotlin bytecode automatically (Java's Iterable<T> impl is visible to Scala).
+- [x] **I.1.5 C#** — Vec wrappers declare `System.Collections.Generic.IEnumerable<T>`. `GetEnumerator()` body walks `_inner.ptr[0..len]` via Marshal.PtrToStructure + `yield return`. `foreach (var x in vec) { ... }` works. dotnet build 0 errors. *(this iteration)*
 - [x] **I.1.6 Ruby** — `include Enumerable` + `def each` on every Vec wrapper. Iterates via `@ptr[:ptr]` / `@ptr[:len]` direct FFI struct access; primitive vs struct element handled. Smoke: `Azul::U8Vec.copy_from_bytes(...).to_a` ⇒ `[104, 101, 108, 108, 111]`. *(this iteration)*
 - [x] **I.1.7 Node** — `*[Symbol.iterator]()` generator on Vec wrappers. `for (const x of vec)` walks `this._ptr.ptr[0..len]`. Smoke: `[...azul.U8Vec.copy_from_bytes('hello',0n,5n)].length` ⇒ 5. *(this iteration)*
 - [x] **I.1.8 Lua** — `__len` metamethod on Vec metatypes (`#vec` returns length). __index for numeric keys deferred — LuaJIT cdata indexing is type-specific. Smoke: `#azul.U8Vec.copy_from_bytes(...)` ⇒ 5. *(this iteration)*
