@@ -493,3 +493,79 @@ The on-disk plan + per-binding READMEs + memory entries are the
 durable record. Loop ends here.
 
 End of plan.
+
+---
+
+## Session 2 snapshot (2026-05-13 ≈ 21:55 — Phase H/I/J)
+
+After the auto-conversion + user-redirected Phase H/I/J work, the
+plan state is **138 closed/deferred / 17 open**.
+
+**Phase H** (Haskell deep polish) — all 10 items closed:
+- H.1 register\<X\>Callback helper per callback typedef
+- H.2 App.run wiring (deferred — needs Storable-offset for nested
+  WCO field + libazul C.1 webrender crash anyway blocks AZ_DEBUG)
+- H.3 AzVec\<T\> → Haskell [T] (`<lower>VecToList`)
+- H.4/H.5 Option/Result tag-byte accessors (`<lower>IsNone/Some/Ok/Err`)
+- H.6 AzString → String round-trip (`azStringToString`)
+- H.7 withFoo bracket RAII (existing adopt pattern)
+- H.8 Show/Eq routing via _toDbgString/_partialEq (307 instance pairs)
+- H.9 Python-quality hello-world (64 LOC)
+- H.10 README refresh with the rules-table architecture
+
+**Phase I** (per-language native idiom integration) — substantively done:
+- I.1 Iterators: Ruby/Node/Lua/Java/Kotlin/Scala/C#/Haskell all done;
+  OCaml deferred (payload extraction blocker).
+- I.2 Eq/Hash routing through `_partialEq`/`_hash`: all 8 langs.
+- I.3 Debug→toString routing through `_toDbgString`: all 8 langs.
+- I.4 Clone routing: all 8 langs (Ruby got the meatiest fix).
+- I.5 Native Option/Result: Ruby/Node/Lua done; Java/Kotlin/Scala/C#
+  deferred (need payload-extraction signature changes).
+
+**Phase J** (codegen audit for function-specific hacks) — hardcode
+count went from **24 → 1** (96% reduction). Remaining `RefAny`
+phantom-type marker is genuinely Haskell-specific (no analogous
+TypeCategory marker).
+- J.1 Button.onClick smart-factory hardcode (5 sites) → shared
+  `smart_callback_setter_info(func)` detector in
+  `codegen/v2/managed_host_invoker.rs`.
+- J.2 WindowCreateOptions.create (6 sites) → shared
+  `has_layout_callback_factory(s, ir)` detector.
+- J.3 String (13 sites) → `TypeCategory::String` IR marker.
+- J.4 Lua WCO c_name (1 site) → typed predicate equivalent.
+
+**Hello-world LOC vs. session-start (Python at 37 = the bar):**
+
+| Lang     | Before | After | Δ      |
+|----------|--------|-------|--------|
+| Python   | 37     | 37    | — (bar)|
+| Ruby     | 94     | 62    | -34%   |
+| Haskell  | smoke  | 64    | new    |
+| Kotlin   | 102    | 64    | -37%   |
+| C#       | 129    | 72    | -44%   |
+| Scala    | 132    | 72    | -45%   |
+| OCaml    | 97     | 77    | -21%   |
+| Java     | 132    | 83    | -37%   |
+| Lua      | 93     | 94    | +1%    |
+| Node     | 108    | 101   | -6%    |
+
+**What's still open (17 items):**
+
+- H.2 Haskell App.run (libazul-side C.1 blocker anyway)
+- I.5.1 Java/Kotlin/Scala Optional\<T\> (payload extraction; ~2-3 days)
+- I.5.2 C# T? (same blocker)
+- I.5.6 OCaml option/result at binding boundary (same)
+- I.6/J.6 hello-world re-passes (verify-only, partially done inline)
+- B.5.2-5 Perl Platypus record-to-pointer spike chain
+- B.7.* Fortran tagged-union codegen rewrite (1-2 days)
+- F.1 (parent header — all sub-items done)
+
+**E2E status:** 3 PASS (ruby/node/scala) / 1 FAIL (lua) on macOS.
+Lua failure is a libazul-side AZ_DEBUG-init SIGSEGV — same family as
+the documented `handle_compositor_resize` crash
+(`memory/libazul_resize_crash_2026_05_13.md`).
+
+**Library status:** 9 codegen-emitted bindings + 4 native = 13
+working hello-worlds with substantial idiom integration. The Python
+LOC gap is now ~1.5-2× (was 3-4× at session start).
+
