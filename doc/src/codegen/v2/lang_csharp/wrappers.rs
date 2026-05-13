@@ -241,7 +241,7 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     // shape the C# hello-world uses) OR the more literal
     // `HostInvoker.LayoutCallbackInvokerDelegate` — both flow through
     // `RegisterLayoutCallback(Delegate)`'s reflection-based dispatch.
-    if s.name == "WindowCreateOptions" {
+    if super::super::managed_host_invoker::has_layout_callback_factory(s, ir) {
         builder.line("/// <summary>");
         builder.line("/// Smart factory: pass a layout-callback delegate; the host-invoker");
         builder.line("/// registration and field-copy plumbing happen internally.");

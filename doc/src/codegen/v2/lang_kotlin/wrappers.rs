@@ -229,11 +229,13 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     // same pattern. Opens the companion even when `static_funcs` is
     // empty, so a wrapper that has ONLY a smart factory still gets a
     // companion object emitted.
-    let needs_companion = !static_funcs.is_empty() || s.name == "WindowCreateOptions";
+    let has_smart_layout =
+        super::super::managed_host_invoker::has_layout_callback_factory(s, ir);
+    let needs_companion = !static_funcs.is_empty() || has_smart_layout;
     if needs_companion {
         builder.line("companion object {");
         builder.indent();
-        if s.name == "WindowCreateOptions" {
+        if has_smart_layout {
             builder.line("/**");
             builder.line(" * Smart factory: pass a layout-callback lambda; the host-invoker");
             builder.line(" * registration and bytes-copy plumbing happen internally. The");

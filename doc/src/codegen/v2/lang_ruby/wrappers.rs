@@ -178,7 +178,7 @@ fn emit_class_wrapper(
     // C-side `_create` which discards the ctx (the host-handle id) —
     // so callbacks fire but the user's Proc is never reached. This
     // helper fixes that by going through `_default` + struct splice.
-    if s.name == "WindowCreateOptions" {
+    if super::super::managed_host_invoker::has_layout_callback_factory(s, ir) {
         builder.line("# Smart factory: pass a layout-callback Proc/lambda/block;");
         builder.line("# the host-invoker registration and struct-field splice happen");
         builder.line("# internally. Replaces the manual register_callback +");

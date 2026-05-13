@@ -100,6 +100,42 @@ pub fn wrapper_name(cb: &CallbackTypedefDef) -> &str {
     cb.name.strip_suffix("Type").unwrap_or(cb.name.as_str())
 }
 
+/// Phase J.2 detector: does this struct `s` have a layout-callback
+/// constructor pattern, i.e. a `_default` static factory AND a
+/// static factory whose only arg is a LayoutCallback fn-pointer
+/// typedef AND returns the owning class? When matched, the binding
+/// emits a smart `<class>.create(<host_sam>)` factory that registers
+/// the SAM via the host invoker and splices the wrapper struct into
+/// the WCO's nested `window_state.layout_callback` field — preserving
+/// the host-handle ctx that the raw `_create(rawFnPtr)` path discards.
+///
+/// Today only `WindowCreateOptions` matches; the predicate is metadata-
+/// driven so a future class with the same pattern lights up
+/// automatically.
+pub fn has_layout_callback_factory(
+    s: &super::ir::StructDef,
+    ir: &super::ir::CodegenIR,
+) -> bool {
+    use super::ir::FunctionKind;
+    let has_default = ir.functions.iter().any(|f| {
+        f.class_name == s.name && matches!(f.kind, FunctionKind::Default)
+    });
+    if !has_default {
+        return false;
+    }
+    ir.functions.iter().any(|f| {
+        f.class_name == s.name
+            && matches!(f.kind, FunctionKind::Constructor | FunctionKind::StaticMethod)
+            && f.args.len() == 1
+            && f.args[0]
+                .callback_info
+                .as_ref()
+                .map(|c| c.callback_wrapper_name == "LayoutCallback")
+                .unwrap_or(false)
+            && f.return_type.as_deref().map(|r| r.trim() == s.name).unwrap_or(false)
+    })
+}
+
 /// Phase J.1 detector: shared across every language binding. If `func`
 /// is a `with_on_*(self, data: RefAny, callback: <Wrapper>)` method
 /// whose `Wrapper` is in [`HOST_INVOKER_KINDS`], return `Some((smart,

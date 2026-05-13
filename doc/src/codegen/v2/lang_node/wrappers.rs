@@ -313,7 +313,7 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
     // struct (cb + ctx) to `window_state.layout_callback` so dispatch
     // works. koffi's JS-side nested-struct assignment is byte-copy
     // semantics, matching the C side.
-    if s.name == "WindowCreateOptions" {
+    if super::super::managed_host_invoker::has_layout_callback_factory(s, ir) {
         b.line("/**");
         b.line(" * Smart factory: pass a layout-callback function; the host-invoker");
         b.line(" * registration and field-copy plumbing happen internally. The");

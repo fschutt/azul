@@ -248,7 +248,7 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     //     wco.read();
     //
     // boilerplate every JVM hello-world has today.
-    if s.name == "WindowCreateOptions" {
+    if super::super::managed_host_invoker::has_layout_callback_factory(s, ir) {
         builder.line("/**");
         builder.line(" * Smart factory: pass a layout-callback lambda; the host-invoker");
         builder.line(" * registration and bytes-copy plumbing happen internally. The");
