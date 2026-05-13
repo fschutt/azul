@@ -245,12 +245,108 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
         emit_wrapper_method(builder, &class_name, func, ir);
     }
 
+    // Phase I.2 (C#): override Equals(object) + GetHashCode() routed
+    // through the codegen-emitted `Az<X>_partialEq` / `Az<X>_hash`
+    // exports when TypeTraits says they're supported.
+    emit_cs_equals_hashcode_if_supported(builder, s, &class_name, ir);
+
     // IDisposable boilerplate.
     emit_dispose_methods(builder, &class_name, &s.name);
 
     builder.dedent();
     builder.line("}");
     builder.blank();
+}
+
+/// Phase I.2 (C#): override Equals(object) + GetHashCode() to route
+/// through the codegen-emitted `Az<X>_partialEq` / `Az<X>_hash` C
+/// exports when TypeTraits flags them. Pure type-driven.
+fn emit_cs_equals_hashcode_if_supported(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    class_name: &str,
+    ir: &CodegenIR,
+) {
+    let eq_sym = format!("Az{}_partialEq", s.name);
+    let has_eq = s.traits.is_partial_eq
+        && ir.functions.iter().any(|f| f.c_name == eq_sym);
+    let hash_sym = format!("Az{}_hash", s.name);
+    let has_hash = s.traits.is_hash
+        && ir.functions.iter().any(|f| f.c_name == hash_sym);
+
+    if has_eq {
+        builder.line(&format!(
+            "/// <summary>Equality routed through {}.</summary>",
+            eq_sym
+        ));
+        builder.line("public override bool Equals(object? other)");
+        builder.line("{");
+        builder.indent();
+        builder.line(&format!("if (other is not {} o) return false;", class_name));
+        builder.line("if (_disposed || o._disposed) return false;");
+        // The native helpers take `const Az<X>*`. We marshal _inner to a
+        // heap copy (matching the same pattern other instance methods
+        // use), call the helper, then free.
+        builder.line(&format!(
+            "var sz = System.Runtime.InteropServices.Marshal.SizeOf<Az{}>();",
+            s.name
+        ));
+        builder.line("var aPtr = System.Runtime.InteropServices.Marshal.AllocHGlobal(sz);");
+        builder.line("var bPtr = System.Runtime.InteropServices.Marshal.AllocHGlobal(sz);");
+        builder.line("try");
+        builder.line("{");
+        builder.indent();
+        builder.line("System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, aPtr, false);");
+        builder.line("System.Runtime.InteropServices.Marshal.StructureToPtr(o._inner, bPtr, false);");
+        builder.line(&format!(
+            "return NativeMethods.{}(aPtr, bPtr);",
+            eq_sym
+        ));
+        builder.dedent();
+        builder.line("}");
+        builder.line("finally");
+        builder.line("{");
+        builder.indent();
+        builder.line("System.Runtime.InteropServices.Marshal.FreeHGlobal(aPtr);");
+        builder.line("System.Runtime.InteropServices.Marshal.FreeHGlobal(bPtr);");
+        builder.dedent();
+        builder.line("}");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    }
+
+    if has_hash {
+        builder.line(&format!(
+            "/// <summary>Hash routed through {}.</summary>",
+            hash_sym
+        ));
+        builder.line("public override int GetHashCode()");
+        builder.line("{");
+        builder.indent();
+        builder.line("if (_disposed) return 0;");
+        builder.line(&format!(
+            "var sz = System.Runtime.InteropServices.Marshal.SizeOf<Az{}>();",
+            s.name
+        ));
+        builder.line("var p = System.Runtime.InteropServices.Marshal.AllocHGlobal(sz);");
+        builder.line("try");
+        builder.line("{");
+        builder.indent();
+        builder.line("System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, p, false);");
+        builder.line(&format!("var h = NativeMethods.{}(p);", hash_sym));
+        builder.line("return (int)(h ^ (h >> 32));");
+        builder.dedent();
+        builder.line("}");
+        builder.line("finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(p); }");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    } else if has_eq {
+        // equals/hashCode contract.
+        builder.line("public override int GetHashCode() => _inner.GetHashCode();");
+        builder.blank();
+    }
 }
 
 fn emit_dispose_methods(builder: &mut CodeBuilder, class_name: &str, raw_type_name: &str) {

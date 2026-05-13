@@ -252,6 +252,10 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
         emit_instance_method(builder, &class_name, &ffi_name, func, ir);
     }
 
+    // Phase I.2 (Kotlin): equals + hashCode routed through the
+    // codegen-emitted C-ABI helpers when TypeTraits says they exist.
+    emit_kt_equals_hashcode_if_supported(builder, s, &class_name, &ffi_name, ir);
+
     // close()
     builder.line("/** Frees the underlying native resources. Idempotent. */");
     builder.line("override fun close() {");
@@ -376,6 +380,63 @@ fn emit_kt_az_string_conv(
         bytes = bytes_name,
     ));
     az_name
+}
+
+/// Phase I.2 (Kotlin): override equals + hashCode routed through the
+/// codegen-emitted `Az<X>_partialEq` / `Az<X>_hash` exports when
+/// TypeTraits flags them. Mirrors lang_java emission. Pure type-driven.
+fn emit_kt_equals_hashcode_if_supported(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    class_name: &str,
+    _ffi_name: &str,
+    ir: &CodegenIR,
+) {
+    let native = super::super::lang_java::functions::native_class_for_class(&s.name, ir);
+    let eq_sym = format!("Az{}_partialEq", s.name);
+    let has_eq = s.traits.is_partial_eq
+        && ir.functions.iter().any(|f| f.c_name == eq_sym);
+    let hash_sym = format!("Az{}_hash", s.name);
+    let has_hash = s.traits.is_hash
+        && ir.functions.iter().any(|f| f.c_name == hash_sym);
+
+    if has_eq {
+        builder.line(&format!(
+            "/** Equality routed through {}. */",
+            eq_sym
+        ));
+        builder.line("override fun equals(other: Any?): Boolean {");
+        builder.indent();
+        builder.line(&format!("if (other !is {}) return false", class_name));
+        builder.line("if (this.ptr == null || other.ptr == null) return this.ptr === other.ptr");
+        builder.line(&format!(
+            "return {}.INSTANCE.{}(this.ptr, other.ptr).toInt() != 0",
+            native, eq_sym
+        ));
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    }
+
+    if has_hash {
+        builder.line(&format!("/** Hash routed through {}. */", hash_sym));
+        builder.line("override fun hashCode(): Int {");
+        builder.indent();
+        builder.line("if (ptr == null) return 0");
+        builder.line(&format!(
+            "val h = {}.INSTANCE.{}(ptr)",
+            native, hash_sym
+        ));
+        builder.line("return (h xor (h ushr 32)).toInt()");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    } else if has_eq {
+        // equals/hashCode contract: when equals is overridden, hashCode
+        // must be too. Fall back to identity.
+        builder.line("override fun hashCode(): Int = ptr?.hashCode() ?: 0");
+        builder.blank();
+    }
 }
 
 fn emit_static_factory(

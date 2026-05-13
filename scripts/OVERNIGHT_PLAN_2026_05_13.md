@@ -78,10 +78,10 @@ Vec\<T\> wrappers currently expose `to_a` / `toList` / `toByteArray` (snapshot t
 
 For every struct where the IR has `PartialEq` in `derive`, route the host-language equality through `Az<X>_partialEq`. Same for `Hash`.
 
-- [ ] **I.2.1 Java** — override `equals(Object)` calling `AzX_partialEq`; override `hashCode()` calling `AzX_hash` if available, else compute from the wrapper's `Pointer.hashCode()`.
-- [ ] **I.2.2 Kotlin** — same as Java (overriding `equals` + `hashCode`).
-- [ ] **I.2.3 Scala** — rides on Java.
-- [ ] **I.2.4 C#** — override `Equals(object)` + `GetHashCode()`.
+- [x] **I.2.1 Java** — override `equals(Object)` routed through `AzX_partialEq` (compares against `!= 0` since JNA maps C bool → byte on macOS/Linux); `hashCode()` routed through `AzX_hash` (folded `long` → `int`); identity fallback when only equals is available. Pure type-driven from `TypeTraits.is_partial_eq` / `is_hash` AND helper-exported check. *(this iteration)*
+- [x] **I.2.2 Kotlin** — same shape: `override fun equals(other: Any?) ... return native.partialEq(this.ptr, other.ptr).toInt() != 0`; `override fun hashCode(): Int`. *(this iteration)*
+- [x] **I.2.3 Scala** — rides on Java bytecode automatically.
+- [x] **I.2.4 C#** — `public override bool Equals(object? other)` marshals `_inner` to AllocHGlobal'd pointer, calls native `_partialEq`; `GetHashCode()` same pattern with `_hash` (long → int via XOR fold). *(this iteration)*
 - [ ] **I.2.5 Ruby** — override `==` (and `eql?`) + `hash`.
 - [ ] **I.2.6 Node** — `equals(other)` instance method (JS has no `==` overload).
 - [ ] **I.2.7 Lua** — `__eq` metamethod.

@@ -250,11 +250,89 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
         emit_wrapper_method(builder, &class_name, func, ir);
     }
 
+    // Phase I.2: route Object.equals(Object) + hashCode() through the
+    // codegen-emitted `_partialEq` / `_hash` C-ABI helpers when
+    // TypeTraits says they're supported. Pure type-driven; falls back
+    // to identity-based defaults when the helpers aren't available.
+    emit_equals_hashcode_if_supported(builder, s, &class_name, ir);
+
     // close() / AutoCloseable.
     emit_close_method(builder, &s.name, &class_name, ir);
 
     builder.dedent();
     builder.line("}");
+}
+
+/// Phase I.2 (Java): override Object.equals(Object) + hashCode() to
+/// route through the codegen-emitted `Az<X>_partialEq` / `Az<X>_hash`
+/// C exports. Pure type-driven from `TypeTraits.is_partial_eq` /
+/// `TypeTraits.is_hash`; only emits the override when the helper
+/// actually exists in `ir.functions`.
+fn emit_equals_hashcode_if_supported(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    class_name: &str,
+    ir: &CodegenIR,
+) {
+    let native = super::functions::native_class_for_class(&s.name, ir);
+    let eq_sym = format!("Az{}_partialEq", s.name);
+    let has_eq = s.traits.is_partial_eq
+        && ir.functions.iter().any(|f| f.c_name == eq_sym);
+    let hash_sym = format!("Az{}_hash", s.name);
+    let has_hash = s.traits.is_hash
+        && ir.functions.iter().any(|f| f.c_name == hash_sym);
+
+    if has_eq {
+        builder.line("/**");
+        builder.line(" * Equality routed through the codegen-emitted");
+        builder.line(&format!(" * {} C-ABI helper.", eq_sym));
+        builder.line(" */");
+        builder.line("@Override");
+        builder.line("public boolean equals(Object other) {");
+        builder.indent();
+        builder.line(&format!("if (!(other instanceof {})) return false;", class_name));
+        builder.line(&format!("{} o = ({}) other;", class_name, class_name));
+        builder.line("if (this.ptr == null || o.ptr == null) return this.ptr == o.ptr;");
+        // JNA maps C `bool` to `byte` on macOS/Linux (no explicit
+        // @MarshalAs(U1)). Compare against zero.
+        builder.line(&format!(
+            "return {}.INSTANCE.{}(this.ptr, o.ptr) != 0;",
+            native, eq_sym
+        ));
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    }
+
+    if has_hash {
+        builder.line("/**");
+        builder.line(" * Hash routed through the codegen-emitted");
+        builder.line(&format!(" * {} C-ABI helper.", hash_sym));
+        builder.line(" */");
+        builder.line("@Override");
+        builder.line("public int hashCode() {");
+        builder.indent();
+        builder.line("if (ptr == null) return 0;");
+        builder.line(&format!(
+            "long h = {}.INSTANCE.{}(ptr);",
+            native, hash_sym
+        ));
+        builder.line("return (int) (h ^ (h >>> 32));");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    } else if has_eq {
+        // Contract requires hashCode override when equals is overridden.
+        // Fall back to a Pointer-based hash so the contract holds.
+        builder.line("/** Identity-based hashCode to honor the equals/hashCode contract. */");
+        builder.line("@Override");
+        builder.line("public int hashCode() {");
+        builder.indent();
+        builder.line("return ptr == null ? 0 : ptr.hashCode();");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+    }
 }
 
 fn emit_close_method(builder: &mut CodeBuilder, raw_type_name: &str, class_name: &str, ir: &CodegenIR) {
