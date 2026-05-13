@@ -90,6 +90,153 @@ pub fn emit_foreign_imports(
     Ok(())
 }
 
+/// Phase H.1 — per-callback-typedef `register<X>Callback` helpers that
+/// hide the inbound-trampoline triplet (mk_inner + set_inner +
+/// trampoline) behind a single user-facing API. The user passes a
+/// Haskell function of the natural shape (`Ptr Arg1 -> ... -> IO Ret`);
+/// the helper wraps it, registers it as the inner, and returns
+/// `FunPtr ()` to splice into libazul's C-ABI parameter.
+///
+/// Lives here (FFI.hs) so the helper signatures use the SAME
+/// `Azul.Types`-unqualified type names as the `mk_<X>_inner` declarations
+/// above. Pure type-driven; no method-name allowlist.
+pub fn emit_callback_register_helpers(
+    builder: &mut CodeBuilder,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) -> Result<()> {
+    if ir.callback_typedefs.is_empty() {
+        return Ok(());
+    }
+    builder.blank();
+    builder.line("-- ---------------------------------------------------------------------------");
+    builder.line("-- Phase H.1: Per-callback-typedef `register<X>Callback` helpers.");
+    builder.line("--");
+    builder.line("-- Hide the inbound-trampoline triplet (mk_inner + set_inner +");
+    builder.line("-- trampoline) behind a single user-facing API. Users pass a Haskell");
+    builder.line("-- function of the natural shape; the helper handles all marshalling");
+    builder.line("-- and returns a `FunPtr ()` to splice into libazul's C-ABI param.");
+    builder.line("-- ---------------------------------------------------------------------------");
+    builder.blank();
+    for cb in &ir.callback_typedefs {
+        if !config.should_include_type(&cb.name) {
+            continue;
+        }
+        emit_one_register_helper(builder, cb, ir);
+    }
+    Ok(())
+}
+
+fn emit_one_register_helper(
+    builder: &mut CodeBuilder,
+    cb: &super::super::ir::CallbackTypedefDef,
+    ir: &CodegenIR,
+) {
+    use super::super::ir::FieldRefKind;
+    // Build user-facing arg signature, mirroring exactly what
+    // `mk_<X>_inner` accepts (minus the trailing out-ptr for aggregate
+    // returns). We use `haskell_field_type` directly so the names line
+    // up with the FFI-side declarations.
+    let mut user_arg_types: Vec<String> = Vec::new();
+    for a in &cb.args {
+        let kind = match a.ref_kind {
+            ArgRefKind::Owned => FieldRefKind::Owned,
+            ArgRefKind::Ref => FieldRefKind::Ref,
+            ArgRefKind::RefMut => FieldRefKind::RefMut,
+            ArgRefKind::Ptr => FieldRefKind::Ptr,
+            ArgRefKind::PtrMut => FieldRefKind::PtrMut,
+        };
+        let raw = super::types::haskell_field_type(&a.type_name, kind, ir);
+        if is_haskell_ffi_primitive(&raw) {
+            user_arg_types.push(raw);
+        } else {
+            user_arg_types.push(format!("Ptr {}", raw));
+        }
+    }
+
+    // Return-type classification (matches inbound trampoline emission).
+    let returns_void = match cb.return_type.as_deref() {
+        None => true,
+        Some(r) => matches!(r.trim(), "" | "void" | "()" | "c_void"),
+    };
+    let ret_raw = match cb.return_type.as_deref() {
+        None => "()".to_string(),
+        Some(r) => {
+            let t = r.trim();
+            if matches!(t, "" | "void" | "()" | "c_void") {
+                "()".to_string()
+            } else {
+                super::types::haskell_field_type(t, FieldRefKind::Owned, ir)
+            }
+        }
+    };
+    let ret_is_aggregate = !returns_void && !is_haskell_ffi_primitive(&ret_raw);
+
+    let user_ret = ret_raw.clone();
+    let user_func_ty = if user_arg_types.is_empty() {
+        format!("IO {}", paren_if_needed(&user_ret))
+    } else {
+        format!(
+            "{} -> IO {}",
+            user_arg_types
+                .iter()
+                .map(|a| paren_if_needed(a))
+                .collect::<Vec<_>>()
+                .join(" -> "),
+            paren_if_needed(&user_ret)
+        )
+    };
+
+    let helper_name = format!("register{}Callback", cb.name);
+
+    builder.line(&format!(
+        "-- | Register a user function as the {} callback.",
+        cb.name
+    ));
+    builder.line("--");
+    builder.line("-- The returned 'FunPtr ()' is the C function pointer to splice into");
+    builder.line("-- the libazul parameter that takes this callback typedef.");
+    builder.line(&format!(
+        "{} :: ({}) -> IO (FunPtr ())",
+        helper_name, user_func_ty
+    ));
+    builder.line(&format!("{} userFn = do", helper_name));
+    builder.indent();
+    let args_vars: Vec<String> = (0..cb.args.len()).map(|i| format!("a{}", i)).collect();
+    let call_args = args_vars.join(" ");
+    if returns_void {
+        let args_pat = args_vars.join(" ");
+        builder.line(&format!(
+            "innerFn <- mk_{}_inner $ \\{} -> userFn {}",
+            cb.name, args_pat, call_args,
+        ));
+    } else if ret_is_aggregate {
+        let args_pat = if args_vars.is_empty() {
+            String::from("outPtr")
+        } else {
+            format!("{} outPtr", args_vars.join(" "))
+        };
+        builder.line(&format!(
+            "innerFn <- mk_{}_inner $ \\{} -> do",
+            cb.name, args_pat,
+        ));
+        builder.indent();
+        builder.line(&format!("__ret <- userFn {}", call_args));
+        builder.line("poke outPtr __ret");
+        builder.dedent();
+    } else {
+        let args_pat = args_vars.join(" ");
+        builder.line(&format!(
+            "innerFn <- mk_{}_inner $ \\{} -> userFn {}",
+            cb.name, args_pat, call_args,
+        ));
+    }
+    builder.line(&format!("c_Az{}_set_inner innerFn", cb.name));
+    builder.line(&format!("pure p_Az{}_trampoline", cb.name));
+    builder.dedent();
+    builder.blank();
+}
+
 fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
     if !config.should_include_type(&func.class_name) {
         return false;
@@ -495,6 +642,58 @@ fn map_arg_owned_ffi(type_name: &str, ir: &CodegenIR) -> String {
         // Caller-side marshalling (alloca/poke/peek) happens in the
         // wrapper layer.
         format!("Ptr {}", raw)
+    }
+}
+
+/// Public re-export for wrappers.rs (Phase H.1 register helpers need
+/// to reason about which callback typedefs have aggregate returns).
+pub fn is_haskell_ffi_primitive_pub(ty: &str) -> bool {
+    is_haskell_ffi_primitive(ty)
+}
+
+/// Public re-export for wrappers.rs: map an IR callback-arg / return
+/// type to its `Azul.Types`-side Haskell name, *qualified as `T.`*
+/// since the umbrella module imports `Azul.Types as T`. Primitives
+/// stay unqualified (they're imported from Foreign.C.Types / Data.Word).
+pub fn map_field_type_for_callback(type_name: &str) -> String {
+    let t = type_name.trim();
+    // Pointer-prefix forms (`*mut T` / `*const T`): map to `Ptr <T>`.
+    // `c_void` collapses to `()`.
+    if let Some(inner) = t.strip_prefix("*mut ").or_else(|| t.strip_prefix("*const ")) {
+        let inner_t = map_field_type_for_callback(inner);
+        // Paren the inner if it contains whitespace (e.g. `RefAny ()`).
+        let inner_p = if inner_t.contains(' ') {
+            format!("({})", inner_t)
+        } else {
+            inner_t
+        };
+        return format!("Ptr {}", inner_p);
+    }
+    match t {
+        "u8" => "Word8".to_string(),
+        "u16" => "Word16".to_string(),
+        "u32" => "Word32".to_string(),
+        "u64" => "Word64".to_string(),
+        "i8" => "Int8".to_string(),
+        "i16" => "Int16".to_string(),
+        "i32" => "Int32".to_string(),
+        "i64" => "Int64".to_string(),
+        "usize" => "CSize".to_string(),
+        "isize" => "CSSize".to_string(),
+        "f32" => "CFloat".to_string(),
+        "f64" => "CDouble".to_string(),
+        "bool" => "CBool".to_string(),
+        "void" | "()" | "c_void" => "()".to_string(),
+        "c_int" => "CInt".to_string(),
+        "c_uint" => "CUInt".to_string(),
+        "c_long" => "CLong".to_string(),
+        "c_ulong" => "CULong".to_string(),
+        "char" | "c_char" => "CChar".to_string(),
+        // RefAny needs the phantom-type parameter.
+        "RefAny" => "T.RefAny ()".to_string(),
+        // Aggregate / wrapper type — qualify as `T.<Name>` because the
+        // umbrella module imports `Azul.Types as T`.
+        other => format!("T.{}", other),
     }
 }
 

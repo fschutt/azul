@@ -33,7 +33,7 @@ Every wakeup, the loop:
 
 Set 2026-05-13 evening by the user: "finish off making Haskell very nice".
 
-- [ ] **H.1** Layout-callback ergonomics: emit a `Layout :: MyDataModel -> Dom` style entry point on top of the inbound trampoline (B.8.3 landed the trampoline; this is the user-facing Haskell-friendly wrapper). The wrapper marshals the RefAny into a phantom-typed `RefAny a`, calls the user fn, pokes the returned `Dom` into the out-ptr. Mirrors what Python's `def layout(data, info) -> Dom` provides.
+- [x] **H.1** `register<X>Callback` helper emitted per callback typedef (LayoutCallbackType, ButtonOnClickCallbackType, etc.) — hides mk_inner + set_inner + trampoline behind one user-facing API. User writes `myLayout :: Ptr (RefAny ()) -> Ptr LayoutCallbackInfo -> IO Dom`; helper returns a `FunPtr ()` to splice into libazul's C-ABI param. Pure type-driven; lives in `Azul.Internal.FFI`. Smoke test verified. *(this iteration)*
 - [ ] **H.2** Wire `App.run` from Haskell — splice the LayoutCallback trampoline FunPtr into a `WindowCreateOptions`'s nested `window_state.layout_callback` field; build matching `Storable` plumbing so `pokeByteOff/peekByteOff` reaches that field. Once H.1 is in, this is the full GUI hello-world (AZ_DEBUG verification blocked by C.1).
 - [ ] **H.3** AzVec\<T\> → Haskell `[T]`. Use the existing `<X>Vec.ptr/len` Storable accessors, peek N elements into a list. Per-vec-elem-type instance via the codegen.
 - [ ] **H.4** AzOption\<T\> → Haskell `Maybe T`. Tag-byte discriminator (already settled for OCaml in A.1.4); extract payload via per-variant `Storable` offsets.

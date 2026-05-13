@@ -27,7 +27,7 @@ use std::collections::BTreeSet;
 
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
-use super::super::ir::{CodegenIR, FunctionKind, StructDef, TypeCategory};
+use super::super::ir::{ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionKind, StructDef, TypeCategory};
 use super::{haskell_data_name, sanitize_doc};
 
 // ============================================================================
@@ -98,6 +98,11 @@ pub fn emit_wrapper_bodies(
     }
     Ok(())
 }
+
+// emit_callback_register_helpers moved to functions.rs (same module as
+// the FFI declarations they pair with). FFI.hs imports Azul.Types
+// unqualified, which means the helper signatures don't need `T.`
+// prefixes — they share the same scope as the mk_<X>_inner types.
 
 // ============================================================================
 // Filters

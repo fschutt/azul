@@ -185,7 +185,7 @@ fn generate_umbrella(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     builder.line("import qualified Azul.Types as T");
     builder.line("import qualified Azul.Internal.FFI as FFI");
     builder.line("import Control.Exception (bracket)");
-    builder.line("import Foreign.Ptr (Ptr, nullPtr)");
+    builder.line("import Foreign.Ptr (Ptr, FunPtr, nullPtr)");
     builder.line("import Foreign.Marshal.Alloc (alloca)");
     builder.line("import Foreign.Storable (Storable(..))");
     builder.blank();
@@ -210,11 +210,21 @@ fn generate_ffi(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     builder.line("import Azul.Types");
     builder.line("import Foreign.C.Types");
     builder.line("import Foreign.Ptr (Ptr, FunPtr)");
+    builder.line("import Foreign.Marshal.Alloc (alloca)");
+    builder.line("import Foreign.Storable (Storable(..), poke)");
     builder.line("import Data.Word (Word8, Word16, Word32, Word64)");
     builder.line("import Data.Int (Int8, Int16, Int32, Int64)");
     builder.blank();
 
     functions::emit_foreign_imports(&mut builder, ir, config)?;
+
+    // Phase H.1 — per callback typedef, emit a `register<X>Callback`
+    // helper that hides the inbound-trampoline triplet
+    // (mk_<X>_inner + c_Az<X>_set_inner + p_Az<X>_trampoline) behind a
+    // single user-facing API. Lives here (FFI.hs) so the type
+    // signatures match the mk_<X>_inner shape exactly — both modules
+    // import `Azul.Types` unqualified.
+    functions::emit_callback_register_helpers(&mut builder, ir, config)?;
 
     Ok(builder.finish())
 }
