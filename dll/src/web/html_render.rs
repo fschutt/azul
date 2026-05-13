@@ -243,7 +243,6 @@ impl RenderContext {
         let az_id = self.node_counter;
         self.node_counter += 1;
 
-        // Text nodes → escaped text (no wrapper element)
         if let NodeType::Text(ref text) = nd.node_type {
             return html_escape(text.as_str());
         }
@@ -254,7 +253,21 @@ impl RenderContext {
         };
         let is_void = is_void_element(tag);
 
-        // ── Build attributes ──
+        let mut attrs = self.build_node_attrs(nd, az_id);
+        self.collect_image(nd, &mut attrs);
+        self.emit_css_from_cache(cache, idx, az_id);
+        self.emit_callback_attrs(nd, az_id, &mut attrs);
+
+        if is_void {
+            return format!("<{}{}/>", tag, attrs);
+        }
+
+        let children_html = self.render_children(nd, node_id, idx, node_data, hierarchy, cache);
+        format!("<{}{}>{}</{}>", tag, attrs, children_html, tag)
+    }
+
+    /// Build the HTML attribute string from a node's DOM attributes.
+    fn build_node_attrs(&self, nd: &NodeData, az_id: usize) -> String {
         let mut classes = Vec::new();
         let mut html_attrs = Vec::new();
 
@@ -286,62 +299,64 @@ impl RenderContext {
             attrs.push(' ');
             attrs.push_str(a);
         }
+        attrs
+    }
 
-        // ── Handle image nodes → /az/img/{id} ──
-        if let NodeType::Image(ref img_ref) = nd.node_type {
-            let image_ref: &ImageRef = img_ref.as_ref();
-            if let Some(raw_image) = image_ref.get_rawimage() {
-                let img_id = self.images.len();
-                let (data, content_type) = match azul_layout::image::encode_png(&raw_image) {
-                    Ok(encoded) => (encoded.into_library_owned_vec(), "image/png"),
-                    Err(_) => {
-                        let bytes = raw_image.pixels.into_library_owned_vec();
-                        (bytes, "application/octet-stream")
-                    }
-                };
-                self.images.push(CollectedImage { id: img_id, data, content_type });
-                attrs.push_str(&format!(" src=\"/az/img/{}\"", img_id));
+    /// If the node is an image, collect it and append the `src` attribute.
+    fn collect_image(&mut self, nd: &NodeData, attrs: &mut String) {
+        let NodeType::Image(ref img_ref) = nd.node_type else { return };
+        let image_ref: &ImageRef = img_ref.as_ref();
+        let Some(raw_image) = image_ref.get_rawimage() else { return };
+        let img_id = self.images.len();
+        let (data, content_type) = match azul_layout::image::encode_png(&raw_image) {
+            Ok(encoded) => (encoded.into_library_owned_vec(), "image/png"),
+            Err(_) => {
+                let bytes = raw_image.pixels.into_library_owned_vec();
+                (bytes, "application/octet-stream")
             }
+        };
+        self.images.push(CollectedImage { id: img_id, data, content_type });
+        attrs.push_str(&format!(" src=\"/az/img/{}\"", img_id));
+    }
+
+    /// Append callback data attributes for Phase 0 server-side execution and
+    /// stash the discovered callback for the caller (Phase C remill lift).
+    fn emit_callback_attrs(&mut self, nd: &NodeData, az_id: usize, attrs: &mut String) {
+        if nd.callbacks.as_ref().is_empty() {
+            return;
         }
+        self.callback_count += 1;
+        attrs.push_str(&format!(" data-az-cb=\"{}\"", az_id));
+        let Some(first_cb) = nd.callbacks.as_ref().first() else { return };
+        let ev_name = event_filter_to_js_name(&first_cb.event);
+        attrs.push_str(&format!(" data-az-ev=\"{}\"", ev_name));
+        let core_cb = first_cb.callback.clone();
+        let name = super::resolve_fn_ptr_name(core_cb.cb);
+        let content_hash = super::fnv1a64_hex(name.as_bytes());
+        self.callbacks.push(DiscoveredCallback {
+            node_idx: az_id as u32,
+            name,
+            content_hash,
+            callback: core_cb,
+        });
+    }
 
-        // ── CSS from computed styles (Azul cascade already resolved) ──
-        self.emit_css_from_cache(cache, idx, az_id);
-
-        // ── Callback data attributes (Phase 0 server-side execution) ──
-        if !nd.callbacks.as_ref().is_empty() {
-            self.callback_count += 1;
-            attrs.push_str(&format!(" data-az-cb=\"{}\"", az_id));
-            if let Some(first_cb) = nd.callbacks.as_ref().first() {
-                let ev_name = event_filter_to_js_name(&first_cb.event);
-                attrs.push_str(&format!(" data-az-ev=\"{}\"", ev_name));
-                // Phase C discovery: resolve the fn-pointer to a symbol name
-                // and stash it for the caller. The discovered callback gets
-                // dispatched server-side via `/az/exec/{node_id}` until the
-                // remill lift gives us bytes to ship to the browser.
-                let core_cb = first_cb.callback.clone();
-                let name = super::resolve_fn_ptr_name(core_cb.cb);
-                let content_hash = super::fnv1a64_hex(name.as_bytes());
-                self.callbacks.push(DiscoveredCallback {
-                    node_idx: az_id as u32,
-                    name,
-                    content_hash,
-                    callback: core_cb,
-                });
-            }
-        }
-
-        if is_void {
-            return format!("<{}{}/>", tag, attrs);
-        }
-
-        // ── Children (walk the arena hierarchy) ──
+    /// Render inline text and child nodes via the arena hierarchy.
+    fn render_children(
+        &mut self,
+        nd: &NodeData,
+        node_id: NodeId,
+        idx: usize,
+        node_data: &[NodeData],
+        hierarchy: &[azul_core::styled_dom::NodeHierarchyItem],
+        cache: &CssPropertyCache,
+    ) -> String {
         let mut children_html = String::new();
 
         if let Some(text) = node_type_inline_text(&nd.node_type) {
             children_html.push_str(&html_escape(text));
         }
 
-        // Walk children via first_child / next_sibling in the flat hierarchy
         if let Some(first_child) = hierarchy.get(idx).and_then(|h| h.first_child_id(node_id)) {
             let mut child_id = first_child;
             loop {
@@ -355,7 +370,7 @@ impl RenderContext {
             }
         }
 
-        format!("<{}{}>{}</{}>", tag, attrs, children_html, tag)
+        children_html
     }
 
     /// Emit CSS rules for a node from the property cache.

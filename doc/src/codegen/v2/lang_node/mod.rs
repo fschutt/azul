@@ -142,9 +142,60 @@ fn generate_azul_js(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
     // `registerCallback` / `refanyCreate`.
     managed::emit_managed(&mut b, ir);
     wrappers::generate_wrappers(&mut b, ir);
+    emit_value_helpers(&mut b);
     emit_exports(&mut b, ir);
 
     Ok(b.finish())
+}
+
+/// AzOption / AzResult helpers exposed on the module so user code can do
+/// `azul.optionToNullable(opt)` / `azul.resultUnwrap(res, 'Name')` without
+/// having to know which variant koffi materialized. AzOption/AzResult
+/// types don't get a per-type JS wrapper class (they're koffi unions), so
+/// module-level helpers fill the ergonomic gap. Mirrors the per-type
+/// `toNullable` / `Unwrap` methods that Java/Kotlin/C#/Ruby get.
+fn emit_value_helpers(b: &mut CodeBuilder) {
+    b.blank();
+    b.line("// ----------------------------------------------------------------------------");
+    b.line("// AzOption / AzResult helpers. Operate on koffi-decoded objects whose Ok /");
+    b.line("// Some / Err / None members each carry a `tag` byte at offset 0 (shared via");
+    b.line("// repr(C, u8)). Per-type methods aren't possible on koffi unions, so these");
+    b.line("// expose the same affordance as Java's .toNullable() / .unwrap() but at");
+    b.line("// module level.");
+    b.line("// ----------------------------------------------------------------------------");
+    b.line("function optionToNullable(opt) {");
+    b.indent();
+    b.line("if (!opt) return null;");
+    b.line("// Tag byte lives in either variant (they overlap); prefer Some/None.");
+    b.line("var tag = (opt.Some && opt.Some.tag) != null ? opt.Some.tag");
+    b.line("        : (opt.None && opt.None.tag) != null ? opt.None.tag");
+    b.line("        : null;");
+    b.line("if (tag === 0 || tag == null) return null;");
+    b.line("return opt.Some && opt.Some.payload;");
+    b.dedent();
+    b.line("}");
+    b.blank();
+    b.line("function resultUnwrap(res, label) {");
+    b.indent();
+    b.line("if (!res) throw new Error('unwrap on null');");
+    b.line("var tag = (res.Ok && res.Ok.tag) != null ? res.Ok.tag");
+    b.line("        : (res.Err && res.Err.tag) != null ? res.Err.tag");
+    b.line("        : null;");
+    b.line("if (tag === 0) return res.Ok.payload;");
+    b.line("var name = label || 'Result';");
+    b.line("var errPayload = res.Err && res.Err.payload;");
+    b.line("throw new Error(name + ' unwrap on Err: ' + (errPayload && errPayload.toString ? errPayload.toString() : JSON.stringify(errPayload)));");
+    b.dedent();
+    b.line("}");
+    b.blank();
+    b.line("function resultIsOk(res) {");
+    b.indent();
+    b.line("if (!res) return false;");
+    b.line("var tag = (res.Ok && res.Ok.tag) != null ? res.Ok.tag : (res.Err && res.Err.tag);");
+    b.line("return tag === 0;");
+    b.dedent();
+    b.line("}");
+    b.line("function resultIsErr(res) { return !resultIsOk(res); }");
 }
 
 fn emit_header(b: &mut CodeBuilder) {
@@ -469,6 +520,11 @@ fn emit_exports(b: &mut CodeBuilder, ir: &CodegenIR) {
     b.line("registerCallback,");
     b.line("refanyCreate,");
     b.line("refanyGet,");
+    b.line("// AzOption / AzResult ergonomic helpers.");
+    b.line("optionToNullable,");
+    b.line("resultUnwrap,");
+    b.line("resultIsOk,");
+    b.line("resultIsErr,");
     // List wrapper class names
     for s in &ir.structs {
         if !wrappers::should_emit_struct(s) {

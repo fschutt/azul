@@ -292,7 +292,63 @@ fn emit_data_enum_wrapper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
             _ => {}
         }
     }
-    if method_count == 0 {
+    // AzOption<T>:to_opt() / is_some / is_none — Lua nullable mirror.
+    let mut auto_method_count = 0usize;
+    if class.starts_with("Option") && e.variants.len() == 2 {
+        let has_some_with_payload = e.variants.iter().any(|v| {
+            v.name == "Some" && matches!(&v.kind, EnumVariantKind::Tuple(t) if t.len() == 1)
+        });
+        if has_some_with_payload {
+            out.push_str(&format!(
+                "    function {}_methods:to_opt()\n",
+                class
+            ));
+            out.push_str("        if self.Some.tag == 0 then return nil end\n");
+            out.push_str("        return self.Some.payload\n");
+            out.push_str("    end\n");
+            out.push_str(&format!(
+                "    function {}_methods:is_some() return self.Some.tag ~= 0 end\n",
+                class
+            ));
+            out.push_str(&format!(
+                "    function {}_methods:is_none() return self.Some.tag == 0 end\n",
+                class
+            ));
+            auto_method_count += 3;
+        }
+    }
+
+    // AzResult<T,E>:unwrap() / is_ok / is_err — Lua mirror of the
+    // Java/Kotlin/C#/Ruby helpers.
+    if class.starts_with("Result") && e.variants.len() == 2 {
+        let has_ok_with_payload = e.variants.iter().any(|v| {
+            v.name == "Ok" && matches!(&v.kind, EnumVariantKind::Tuple(t) if t.len() == 1)
+        });
+        let has_err = e.variants.iter().any(|v| v.name == "Err");
+        if has_ok_with_payload && has_err {
+            out.push_str(&format!(
+                "    function {}_methods:unwrap()\n",
+                class
+            ));
+            out.push_str("        if self.Ok.tag == 0 then return self.Ok.payload end\n");
+            out.push_str(&format!(
+                "        error('{} unwrap on Err: ' .. tostring(self.Err.payload))\n",
+                class
+            ));
+            out.push_str("    end\n");
+            out.push_str(&format!(
+                "    function {}_methods:is_ok() return self.Ok.tag == 0 end\n",
+                class
+            ));
+            out.push_str(&format!(
+                "    function {}_methods:is_err() return self.Ok.tag ~= 0 end\n",
+                class
+            ));
+            auto_method_count += 3;
+        }
+    }
+
+    if method_count == 0 && auto_method_count == 0 {
         out.push_str(&format!("    -- (no instance methods on {})\n", class));
     }
 
@@ -302,7 +358,7 @@ fn emit_data_enum_wrapper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
             "    ffi.metatype('{}', {{ __index = {}_methods, __gc = function(self) C.{}(self) end }})\n",
             c_name, class, delete_c
         ));
-    } else if method_count > 0 {
+    } else if method_count + auto_method_count > 0 {
         out.push_str(&format!(
             "    ffi.metatype('{}', {{ __index = {}_methods }})\n",
             c_name, class
