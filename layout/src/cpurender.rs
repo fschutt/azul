@@ -15,7 +15,7 @@ use azul_core::{
     },
     ui_solver::GlyphInstance,
 };
-use azul_css::props::basic::{ColorU, ColorOrSystem, FontRef};
+use azul_css::props::basic::{ColorU, ColorOrSystem, FontRef, pixel::DEFAULT_FONT_SIZE};
 use azul_css::props::style::filter::StyleFilter;
 
 use agg_rust::{
@@ -45,6 +45,10 @@ use crate::{
     solver3::display_list::{BorderRadius, DisplayList, DisplayListItem, LocalScrollId},
     text3::cache::{FontHash, FontManager},
 };
+
+const IDENTITY_EPSILON: f32 = 0.0001;
+const IDENTITY_EPSILON_F64: f64 = 0.0001;
+const MAX_SHADOW_PIXBUF_SIZE: u32 = 4096;
 
 // ============================================================================
 // Retained-Mode Compositor — Layer Tree
@@ -258,12 +262,12 @@ impl CompositorState {
                 DisplayListItem::PushReferenceFrame { initial_transform, bounds, .. } => {
                     let m = &initial_transform.m;
                     let is_identity =
-                        (m[0][0] - 1.0).abs() < 0.0001 &&
-                        m[0][1].abs() < 0.0001 &&
-                        m[1][0].abs() < 0.0001 &&
-                        (m[1][1] - 1.0).abs() < 0.0001 &&
-                        m[3][0].abs() < 0.0001 &&
-                        m[3][1].abs() < 0.0001;
+                        (m[0][0] - 1.0).abs() < IDENTITY_EPSILON &&
+                        m[0][1].abs() < IDENTITY_EPSILON &&
+                        m[1][0].abs() < IDENTITY_EPSILON &&
+                        (m[1][1] - 1.0).abs() < IDENTITY_EPSILON &&
+                        m[3][0].abs() < IDENTITY_EPSILON &&
+                        m[3][1].abs() < IDENTITY_EPSILON;
                     if !is_identity {
                         let b = *bounds.inner();
                         let pw = (b.size.width * dpi_factor).ceil().max(1.0) as u32;
@@ -289,7 +293,7 @@ impl CompositorState {
                     if layer_stack.len() > 1 {
                         let top_id = *layer_stack.last().unwrap();
                         if let Some(layer) = self.layers.get(&top_id) {
-                            if !layer.transform.is_identity(0.0001) {
+                            if !layer.transform.is_identity(IDENTITY_EPSILON_F64) {
                                 layer_stack.pop();
                             }
                         }
@@ -747,8 +751,8 @@ fn apply_layer_filters(pixmap: &mut AzulPixmap, filters: &[StyleFilter], dpi_fac
     for filter in filters {
         match filter {
             StyleFilter::Blur(blur) => {
-                let rx = blur.width.to_pixels_internal(0.0, 16.0, 16.0) * dpi_factor;
-                let ry = blur.height.to_pixels_internal(0.0, 16.0, 16.0) * dpi_factor;
+                let rx = blur.width.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * dpi_factor;
+                let ry = blur.height.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * dpi_factor;
                 let radius = ((rx + ry) / 2.0).ceil() as u32;
                 if radius > 0 {
                     let w = pixmap.width;
@@ -1332,7 +1336,7 @@ fn agg_fill_transformed_path_clipped(
     transform: &TransAffine,
     clip: Option<AzRect>,
 ) {
-    if transform.is_identity(0.0001) {
+    if transform.is_identity(IDENTITY_EPSILON_F64) {
         agg_fill_path_clipped(pixmap, path, color, rule, clip);
     } else {
         let mut transformed = ConvTransform::new(path, transform.clone());
@@ -1716,10 +1720,10 @@ fn render_box_shadow(
         None => return Ok(()),
     };
 
-    let offset_x = shadow.offset_x.inner.to_pixels_internal(0.0, 16.0, 16.0) * dpi_factor;
-    let offset_y = shadow.offset_y.inner.to_pixels_internal(0.0, 16.0, 16.0) * dpi_factor;
-    let blur_r = (shadow.blur_radius.inner.to_pixels_internal(0.0, 16.0, 16.0) * dpi_factor).max(0.0);
-    let spread = shadow.spread_radius.inner.to_pixels_internal(0.0, 16.0, 16.0) * dpi_factor;
+    let offset_x = shadow.offset_x.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * dpi_factor;
+    let offset_y = shadow.offset_y.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * dpi_factor;
+    let blur_r = (shadow.blur_radius.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * dpi_factor).max(0.0);
+    let spread = shadow.spread_radius.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * dpi_factor;
 
     let color = shadow.color;
     if color.a == 0 {
@@ -1740,7 +1744,7 @@ fn render_box_shadow(
     let sw = shadow_w.ceil() as u32;
     let sh = shadow_h.ceil() as u32;
 
-    if sw == 0 || sh == 0 || sw > 4096 || sh > 4096 {
+    if sw == 0 || sh == 0 || sw > MAX_SHADOW_PIXBUF_SIZE || sh > MAX_SHADOW_PIXBUF_SIZE {
         return Ok(());
     }
 
@@ -1783,7 +1787,7 @@ fn render_box_shadow(
     Ok(())
 }
 
-/// Alpha-blend one RGBA buffer onto another at (dx, dy).
+/// Alpha-blend one premultiplied-alpha RGBA buffer onto another at (dx, dy).
 fn blit_buffer(dst: &mut AzulPixmap, src: &[u8], src_w: u32, src_h: u32, dx: i32, dy: i32) {
     let dw = dst.width as i32;
     let dh = dst.height as i32;
@@ -1816,11 +1820,12 @@ fn blit_buffer(dst: &mut AzulPixmap, src: &[u8], src_w: u32, src_h: u32, dx: i32
                 dst.data[di + 2] = src[si + 2];
                 dst.data[di + 3] = 255;
             } else {
-                let da = 255 - sa;
-                dst.data[di] = ((src[si] as u32 * sa + dst.data[di] as u32 * da) / 255) as u8;
-                dst.data[di + 1] = ((src[si + 1] as u32 * sa + dst.data[di + 1] as u32 * da) / 255) as u8;
-                dst.data[di + 2] = ((src[si + 2] as u32 * sa + dst.data[di + 2] as u32 * da) / 255) as u8;
-                dst.data[di + 3] = ((sa + dst.data[di + 3] as u32 * da / 255).min(255)) as u8;
+                // Premultiplied-alpha compositing: src RGB already premultiplied by AGG
+                let inv_sa = 255 - sa;
+                dst.data[di]     = ((src[si] as u32 + dst.data[di] as u32 * inv_sa / 255).min(255)) as u8;
+                dst.data[di + 1] = ((src[si + 1] as u32 + dst.data[di + 1] as u32 * inv_sa / 255).min(255)) as u8;
+                dst.data[di + 2] = ((src[si + 2] as u32 + dst.data[di + 2] as u32 * inv_sa / 255).min(255)) as u8;
+                dst.data[di + 3] = ((sa + dst.data[di + 3] as u32 * inv_sa / 255).min(255)) as u8;
             }
         }
     }
@@ -2572,8 +2577,6 @@ fn render_single_item(
                 styles,
                 border_radius,
             } => {
-                use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
-
                 let default_color = ColorU { r: 0, g: 0, b: 0, a: 255 };
 
                 let w_top = widths.top.and_then(|w| w.get_property().cloned())
