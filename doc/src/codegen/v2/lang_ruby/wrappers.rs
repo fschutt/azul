@@ -137,14 +137,14 @@ fn emit_class_wrapper(
     if s.name == "Button" {
         builder.line("# Smart builder: pass any Ruby object as the data payload and");
         builder.line("# a click-handler Proc/lambda/block. Returns a new Button with");
-        builder.line("# the callback wired up.");
+        builder.line("# the callback wired up. `with_on_click` already auto-registers");
+        builder.line("# the callable, so we just wrap the data + delegate.");
         builder.line("def on_click(data, click_fn = nil, &block)");
         builder.indent();
         builder.line("fn = click_fn || block");
         builder.line("raise ArgumentError, 'click fn required' unless fn");
-        builder.line("data_ref = Azul.refany_create(data)");
-        builder.line("cb_struct = Azul._register_callback('Callback', fn)");
-        builder.line("self.with_on_click(data_ref, cb_struct)");
+        builder.line("data_ref = Azul::RefAny.wrap(data)");
+        builder.line("self.with_on_click(data_ref, fn)");
         builder.dedent();
         builder.line("end");
         builder.blank();

@@ -169,16 +169,17 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     // is `{ vec: AzU8Vec }`, AzU8Vec is `{ ptr, len, cap, destructor }`,
     // so we read `_inner.vec.ptr` and `_inner.vec.len` and copy out.
     // (`len` is `UIntPtr`; route through ToUInt64 for portability.)
-    // Button.OnClick(object, CallbackInvokerDelegate) — smart builder.
-    // Mirrors Java/Kotlin's `onClick`. Accepts any managed object +
-    // the delegate, handles refany + callback registration internally.
+    // Button.OnClick(object, Delegate) — smart builder. Accepts the
+    // user's preferred delegate shape (`Func<IntPtr, IntPtr, int>` or
+    // the raw 4-arg `CallbackInvokerDelegate`); both flow through
+    // `RegisterCallback(Delegate)`.
     if s.name == "Button" {
         builder.line("/// <summary>");
         builder.line("/// Smart builder: pass any managed object as the data payload");
         builder.line("/// and a click-handler delegate. The host-invoker registration");
         builder.line("/// is hidden — the caller never has to touch HostInvoker.");
         builder.line("/// </summary>");
-        builder.line("public Button OnClick(object data, HostInvoker.CallbackInvokerDelegate fn)");
+        builder.line("public Button OnClick(object data, Delegate fn)");
         builder.line("{");
         builder.indent();
         builder.line("var __data = HostInvoker.RefanyCreate(data);");
@@ -206,18 +207,20 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
         builder.blank();
     }
 
-    // WindowCreateOptions.Create(LayoutCallbackInvokerDelegate) — smart
-    // factory. C# struct-field assignment IS a byte copy (unlike JNA's
-    // reference-swap), so we can splice the resulting AzLayoutCallback
-    // straight into wco.window_state.layout_callback without manual
-    // Marshal acrobatics. See lang_java/wrappers.rs for the boilerplate
-    // version the user no longer has to write.
+    // WindowCreateOptions.Create(Delegate) — smart factory. C#
+    // struct-field assignment IS a byte copy (unlike JNA's reference-
+    // swap), so we splice the resulting AzLayoutCallback straight into
+    // wco.window_state.layout_callback. `Delegate` is the parameter
+    // type so users can pass `Func<IntPtr, IntPtr, AzDom>` (the
+    // shape the C# hello-world uses) OR the more literal
+    // `HostInvoker.LayoutCallbackInvokerDelegate` — both flow through
+    // `RegisterLayoutCallback(Delegate)`'s reflection-based dispatch.
     if s.name == "WindowCreateOptions" {
         builder.line("/// <summary>");
         builder.line("/// Smart factory: pass a layout-callback delegate; the host-invoker");
         builder.line("/// registration and field-copy plumbing happen internally.");
         builder.line("/// </summary>");
-        builder.line("public static WindowCreateOptions Create(HostInvoker.LayoutCallbackInvokerDelegate fn)");
+        builder.line("public static WindowCreateOptions Create(Delegate fn)");
         builder.line("{");
         builder.indent();
         builder.line("var __cb = HostInvoker.RegisterLayoutCallback(fn);");

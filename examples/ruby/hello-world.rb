@@ -1,23 +1,16 @@
 # frozen_string_literal: true
 #
-# examples/ruby/hello-world.rb
+# examples/ruby/hello-world.rb — Python-quality Ruby port.
 #
-# Ruby port of examples/c/hello-world.c. Same data model (a counter),
-# same behaviour (mouse click increments, layout rebuilds the DOM).
-# Callbacks go through libazul's host-invoker plumbing — ruby-ffi never
-# has to synthesize a struct-by-value trampoline for user code.
+# Uses the smart `WindowCreateOptions.create_with_layout(&block)`
+# factory and `Button#on_click(data, &block)` smart builder. User code
+# never has to call `Azul._register_callback` directly.
 #
-# Run with:
-#     ruby -I. hello-world.rb
-#
-# Requires the `ffi` gem (`gem install --user-install ffi -v 1.15.5`
-# on system Ruby 2.6 on macOS).
+# Run:  ruby -I. hello-world.rb
+# Reqs: `ffi` gem.
 
 require 'azul'
 
-# ── Helpers ───────────────────────────────────────────────────────────
-# AzString constructor: copy a Ruby String into an AzString wrapper.
-# The auto-generated wrapper doesn't yet accept Ruby Strings directly.
 def az_str(s)
   bytes = s.encode(Encoding::UTF_8).bytes
   buf = FFI::MemoryPointer.new(:uint8, bytes.size)
@@ -25,18 +18,13 @@ def az_str(s)
   Azul::String.new(Azul::Native.az_string_from_utf8(buf, bytes.size))
 end
 
-# ── Data model ────────────────────────────────────────────────────────
 class MyDataModel
   attr_accessor :counter
-  def initialize(counter)
-    @counter = counter
-  end
+  def initialize(counter); @counter = counter; end
 end
 
 model = MyDataModel.new(5)
 data  = Azul::RefAny.wrap(model)
-
-# ── Callbacks ─────────────────────────────────────────────────────────
 
 on_click = lambda do |data_ptr, _info|
   m = Azul::RefAny.unwrap(data_ptr)
@@ -49,43 +37,31 @@ layout = lambda do |data_ptr, _info|
   m = Azul::RefAny.unwrap(data_ptr)
   next Azul::Dom.create_body if m.nil?
 
-  # Counter label wrapped in a font-size-32 div. Consuming `with_*`
-  # builders so the codegen's `Azul._consume(...)` calls keep the
-  # ObjectSpace finalizers from double-freeing on builder-chain moves.
-  #
-  # `CssProperty` is a tagged-union without a Ruby wrapper class today;
-  # we use the Native form directly. The result is an FFI::Struct that
-  # `CssPropertyWithConditions.simple` accepts.
+  # CssProperty is a tagged-union without a Ruby wrapper class today;
+  # use the Native form directly.
   font_size_px = Azul::Native.az_style_font_size_px(32.0)
   font_size_prop = Azul::Native.az_css_property_font_size(font_size_px)
   label = Azul::Dom.create_div
     .with_css_property(Azul::CssPropertyWithConditions.simple(font_size_prop))
     .with_child(Azul::Dom.create_text(az_str(m.counter.to_s)))
 
-  # Increment button.
+  # Smart .on_click(data, &block) wraps refany + register internally.
   button = Azul::Button.create(az_str('Increase counter'))
     .with_button_type(Azul::ButtonType::Primary)
-    .with_on_click(Azul::Native.az_ref_any_clone(data), on_click)
+    .on_click(m, on_click)
 
   Azul::Dom.create_body
     .with_child(label)
     .with_child(Azul::Dom.new(button.dom))
 end
 
-# ── Main ──────────────────────────────────────────────────────────────
-#
-# Window setup uses `WindowCreateOptions.default()` + field assignment
-# rather than `WindowCreateOptions.create(layout)`, because the latter
-# routes through `AzWindowCreateOptions_create(AzLayoutCallbackType)`,
-# which takes a raw fn pointer and discards the host-invoker ctx
-# carrying our dispatch handle. Polish item for follow-up codegen pass.
-window = Azul::WindowCreateOptions.default
-window.ptr[:window_state][:layout_callback] = Azul._register_callback('LayoutCallback', layout)
+# Smart factory: hides the manual layout_callback splice. Window
+# state extras (title, size, flags) still hang off the wrapper's
+# raw ptr like before.
+window = Azul::WindowCreateOptions.create_with_layout(layout)
 window.ptr[:window_state][:title] = az_str('Hello World').ptr
 window.ptr[:window_state][:size][:dimensions][:width]  = 400.0
 window.ptr[:window_state][:size][:dimensions][:height] = 300.0
-# NoTitleAutoInject: OS draws close/min/max buttons; framework
-# auto-injects a Titlebar with drag support.
 window.ptr[:window_state][:flags][:decorations]         = Azul::WindowDecorations::NoTitleAutoInject
 window.ptr[:window_state][:flags][:background_material] = Azul::WindowBackgroundMaterial::Sidebar
 

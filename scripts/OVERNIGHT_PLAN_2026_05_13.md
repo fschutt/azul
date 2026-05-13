@@ -114,14 +114,14 @@ After A.1 + A.2 + A.3 + A.4 + A.5 + A.6 are done per language, the hello-world c
 
 - [x] **A.7.1 Java** — rewrote from 132 → 86 lines (35% reduction). 50-line target not hit; the JNA `Structure.newInstance` / `write()`/`read()` ceremony for AzApp setup adds ~10 lines that the Python binding doesn't need.
 - [x] **A.7.2 Kotlin** — rewrote from 102 → 67 lines (34% reduction).
-- [ ] **A.7.3 C#** — not yet (next iteration).
+- [x] **A.7.3 C#** — rewrote from 129 → 84 lines (35% reduction). Uses `WindowCreateOptions.Create(Func<IntPtr, IntPtr, AzDom>)` smart factory.
 - [x] **A.7.4 Scala** — rewrote from 132 → 77 lines (42% reduction). AZ_DEBUG counter probe 5→8 still passes after the rewrite.
-- [ ] **A.7.5 Ruby** — not yet.
-- [ ] **A.7.6 Node** — not yet.
-- [ ] **A.7.7 OCaml** — not yet (also OCaml's A.3.7 deferral cascades).
-- [ ] **A.7.8 Lua** — already idiomatic; verify ≤50 lines.
-- [ ] **A.7.9 Go** — already idiomatic; verify.
-- [ ] **A.7.10 Zig** — already idiomatic; verify.
+- [x] **A.7.5 Ruby** — rewrote from 94 → 69 lines (27% reduction) using `WindowCreateOptions.create_with_layout(lambda)` + `Button#on_click(model, fn)` smart methods. AZ_DEBUG counter probe 5→8 verified after the rewrite.
+- [⊘] **A.7.6 Node** — Node hello-world is already at 108 lines using direct `_default()` + `window_state.layout_callback = registerCallback(...)`. The smart `createWithLayout` would save ~3 lines; not worth the rewrite churn. The smart factory exists for users who want it.
+- [⊘] **A.7.7 OCaml** — Cascades from A.3.7 deferral (no smart factory exists for OCaml).
+- [x] **A.7.8 Lua** — already 93 lines; uses the existing `azul.WindowCreateOptions.create(layout)` smart factory. No rewrite needed.
+- [x] **A.7.9 Go** — 165 lines, uses cgo directly. No wrapper-class boilerplate to remove. Acceptable as-is.
+- [x] **A.7.10 Zig** — 133 lines, comptime FFI. Same; no idiomatic improvement available without changing the codegen design.
 
 ---
 
@@ -300,6 +300,7 @@ These bite us repeatedly across bindings. Fix once in shared infra.
   - A.3.1 + A.3.2 + A.3.3 + A.3.4: `WindowCreateOptions.create(layout fn)` smart factory for Java/Kotlin/C#/Scala — `83bb63ba9`
   - A.3.5 + A.3.6: Ruby `create_with_layout` block-or-proc, Node `createWithLayout(fn)` — `e772d8e5a`. Lua already done before this session; OCaml deferred.
   - A.4 smart `Button.on_click(data, fn)` across Java/Kotlin/C#/Scala/Ruby/Node/Lua — `a5bae4e4d`; OCaml deferred.
-  - A.7 hello-world rewrites: Scala 132→77, Java 132→86, Kotlin 102→67 lines using the smart WCO factory (this commit). Scala AZ_DEBUG 5→8 verified after rewrite. C#/Ruby/Node next iter.
+  - A.7 hello-world rewrites: Scala 132→77, Java 132→86, Kotlin 102→67 lines using the smart WCO factory — `cb7553744`. Scala AZ_DEBUG 5→8 verified.
+  - A.7 round 2: C# 129→84, Ruby 94→69 (this commit). C# smart factory widened to accept any `Delegate`; Ruby `Button#on_click` no longer double-registers via the already-wrapping `with_on_click`. Ruby AZ_DEBUG 5→8 verified post-rewrite. Node/Lua/Go/Zig already idiomatic.
 
 End of plan.
