@@ -86,7 +86,7 @@ For every struct where the IR has `PartialEq` in `derive`, route the host-langua
 - [x] **I.2.6 Node** — `equals(other)` instance method routed through `lib.Az<X>_partialEq`. JS has no `==` overload so explicit method. Smoke: `domA.equals(domB)` ⇒ true. *(this iteration)*
 - [x] **I.2.7 Lua** — `__eq` metamethod in `ffi.metatype` routed through `C.Az<X>_partialEq`. Smoke: `domA == domB` ⇒ true. *(this iteration)*
 - [x] **I.2.8 OCaml** — `let equal (a : t) (b : t) : bool = az_<x>_partial_eq (addr a.raw) (addr b.raw)` + `let hash (t : t) : int` per module. Builds clean under dune. *(this iteration)*
-- [ ] **I.2.9 Haskell** — handled in H.8 (deriving Eq via `partialEq`).
+- [x] **I.2.9 Haskell** — handled in H.8 (deriving Eq via `partialEq`).
 
 ### I.3 Debug / Display routing
 

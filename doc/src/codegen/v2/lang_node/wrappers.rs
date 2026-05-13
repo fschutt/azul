@@ -628,9 +628,11 @@ fn emit_node_toString_if_supported(
     b.line("const __vecPtr = __s.vec.ptr;");
     b.line("const __vecLen = Number(__s.vec.len);");
     b.line("if (__vecPtr == null || __vecLen <= 0) return '';");
-    b.line("const __buf = Buffer.alloc(__vecLen);");
-    b.line("azulFFI.decode(__vecPtr, 'uint8_t', __vecLen, __buf);");
-    b.line("const __out = __buf.toString('utf8', 0, __vecLen);");
+    // koffi.decode(ptr, type, length) returns a Buffer-like of `length`
+    // elements. `azulFFI.koffi` is the raw koffi handle on Node;
+    // Bun/Deno paths bypass via their own decode helpers.
+    b.line("const __bytes = azulFFI.koffi.decode(__vecPtr, 'uint8_t', __vecLen);");
+    b.line("const __out = Buffer.from(__bytes).toString('utf8');");
     // Free the freshly-allocated AzString via raw FFI delete entry.
     b.line("// The AzString carries an owned U8Vec; freeing it requires");
     b.line("// passing a pointer to the AzString struct. Skip the explicit");
