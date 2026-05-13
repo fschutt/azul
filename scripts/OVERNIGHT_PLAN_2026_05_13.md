@@ -82,10 +82,10 @@ For every struct where the IR has `PartialEq` in `derive`, route the host-langua
 - [x] **I.2.2 Kotlin** — same shape: `override fun equals(other: Any?) ... return native.partialEq(this.ptr, other.ptr).toInt() != 0`; `override fun hashCode(): Int`. *(this iteration)*
 - [x] **I.2.3 Scala** — rides on Java bytecode automatically.
 - [x] **I.2.4 C#** — `public override bool Equals(object? other)` marshals `_inner` to AllocHGlobal'd pointer, calls native `_partialEq`; `GetHashCode()` same pattern with `_hash` (long → int via XOR fold). *(this iteration)*
-- [ ] **I.2.5 Ruby** — override `==` (and `eql?`) + `hash`.
-- [ ] **I.2.6 Node** — `equals(other)` instance method (JS has no `==` overload).
-- [ ] **I.2.7 Lua** — `__eq` metamethod.
-- [ ] **I.2.8 OCaml** — `let equal a b = ...` + `let hash t = ...` helpers per module.
+- [x] **I.2.5 Ruby** — `def ==` + `alias_method :eql?, :==` + `def hash` routed through `Native.az_<x>_partial_eq` / `_hash`. Smoke: `Azul::Dom.create_body == Azul::Dom.create_body` ⇒ true. *(this iteration)*
+- [x] **I.2.6 Node** — `equals(other)` instance method routed through `lib.Az<X>_partialEq`. JS has no `==` overload so explicit method. Smoke: `domA.equals(domB)` ⇒ true. *(this iteration)*
+- [x] **I.2.7 Lua** — `__eq` metamethod in `ffi.metatype` routed through `C.Az<X>_partialEq`. Smoke: `domA == domB` ⇒ true. *(this iteration)*
+- [x] **I.2.8 OCaml** — `let equal (a : t) (b : t) : bool = az_<x>_partial_eq (addr a.raw) (addr b.raw)` + `let hash (t : t) : int` per module. Builds clean under dune. *(this iteration)*
 - [ ] **I.2.9 Haskell** — handled in H.8 (deriving Eq via `partialEq`).
 
 ### I.3 Debug / Display routing

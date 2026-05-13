@@ -201,8 +201,64 @@ fn emit_class_wrapper(
         builder.line("# (no public methods exposed)");
     }
 
+    // Phase I.2.5: route ==/eql?/hash through the codegen-emitted
+    // C-ABI helpers when TypeTraits flags them and the symbol exists.
+    emit_rb_eq_hash_if_supported(builder, s, ir);
+
     builder.dedent();
     builder.line(&format!("end # class {}", class_name));
+}
+
+/// Phase I.2.5 (Ruby): override `==` / `eql?` / `hash` routed through
+/// the codegen-emitted `Az<X>_partialEq` / `Az<X>_hash` exports.
+fn emit_rb_eq_hash_if_supported(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    ir: &CodegenIR,
+) {
+    let eq_sym = format!("Az{}_partialEq", s.name);
+    let has_eq = s.traits.is_partial_eq
+        && ir.functions.iter().any(|f| f.c_name == eq_sym);
+    let hash_sym = format!("Az{}_hash", s.name);
+    let has_hash = s.traits.is_hash
+        && ir.functions.iter().any(|f| f.c_name == hash_sym);
+    let snake = snake_case(&s.name);
+
+    if has_eq {
+        builder.line(&format!("# Equality routed through {}.", eq_sym));
+        builder.line("def ==(other)");
+        builder.indent();
+        builder.line("return false unless other.is_a?(self.class)");
+        builder.line("return @ptr == other.ptr if @ptr.nil? || other.ptr.nil?");
+        builder.line(&format!(
+            "Native.az_{}_partial_eq(@ptr, other.ptr)",
+            snake
+        ));
+        builder.dedent();
+        builder.line("end");
+        builder.line("alias_method :eql?, :==");
+        builder.blank();
+    }
+
+    if has_hash {
+        builder.line(&format!("# Hash routed through {}.", hash_sym));
+        builder.line("def hash");
+        builder.indent();
+        builder.line("return 0 if @ptr.nil?");
+        builder.line(&format!("Native.az_{}_hash(@ptr)", snake));
+        builder.dedent();
+        builder.line("end");
+        builder.blank();
+    } else if has_eq {
+        // == / hash contract: equal values must hash equal. Fall back
+        // to pointer-address hash.
+        builder.line("def hash");
+        builder.indent();
+        builder.line("@ptr.nil? ? 0 : @ptr.address.hash");
+        builder.dedent();
+        builder.line("end");
+        builder.blank();
+    }
 }
 
 /// Should this function be exposed as a Ruby method on the wrapper?

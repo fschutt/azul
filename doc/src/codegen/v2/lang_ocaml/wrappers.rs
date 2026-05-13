@@ -383,9 +383,63 @@ fn emit_module_impl_for_class(
         }
         emit_method_impl(builder, func, ir, has_wrapper, &s.name);
     }
+
+    // Phase I.2.8 (OCaml): `equal` + `hash` per module, routed through
+    // the codegen-emitted `Az<X>_partialEq` / `Az<X>_hash` exports.
+    emit_ocaml_eq_hash_if_supported(builder, s, ir, has_wrapper);
+
     builder.dedent();
     builder.line("end");
     builder.blank();
+}
+
+/// Phase I.2.8 (OCaml): emit `equal` + `hash` module helpers routed
+/// through the C-ABI `_partialEq` / `_hash` exports. Pure type-driven.
+fn emit_ocaml_eq_hash_if_supported(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    ir: &CodegenIR,
+    has_wrapper: bool,
+) {
+    let eq_sym = format!("Az{}_partialEq", s.name);
+    let has_eq = s.traits.is_partial_eq
+        && ir.functions.iter().any(|f| f.c_name == eq_sym);
+    let hash_sym = format!("Az{}_hash", s.name);
+    let has_hash = s.traits.is_hash
+        && ir.functions.iter().any(|f| f.c_name == hash_sym);
+
+    let self_a = if has_wrapper { "a.raw" } else { "a" };
+    let self_b = if has_wrapper { "b.raw" } else { "b" };
+    let self_t = if has_wrapper { "t.raw" } else { "t" };
+    let raw_eq = ocaml_binding_name(&eq_sym);
+    let raw_hash = ocaml_binding_name(&hash_sym);
+
+    if has_eq {
+        builder.line(&format!(
+            "(* Equality routed through {}. *)",
+            eq_sym
+        ));
+        builder.line("let equal (a : t) (b : t) : bool =");
+        builder.indent();
+        builder.line(&format!(
+            "{} (Ctypes.addr {}) (Ctypes.addr {})",
+            raw_eq, self_a, self_b
+        ));
+        builder.dedent();
+        builder.blank();
+    }
+
+    if has_hash {
+        builder.line(&format!("(* Hash routed through {}. *)", hash_sym));
+        builder.line("let hash (t : t) : int =");
+        builder.indent();
+        builder.line(&format!(
+            "Unsigned.UInt64.to_int ({} (Ctypes.addr {}))",
+            raw_hash, self_t
+        ));
+        builder.dedent();
+        builder.blank();
+    }
 }
 
 /// Build the OCaml type signature for a wrapper-side method.

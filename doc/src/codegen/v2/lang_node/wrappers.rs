@@ -350,6 +350,11 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
         b.line("// SKIPPED: no idiomatic methods to surface (use azul.__ffi.lib for raw access).");
     }
 
+    // Phase I.2.6 (Node): equals(other) routed through Az<X>_partialEq.
+    // JS has no `==` overload, so we expose it as a method. Same gate
+    // as the other bindings (TypeTraits.is_partial_eq + helper exists).
+    emit_node_equals_if_supported(b, s, ir, &class);
+
     // Explicit `delete()` for callers who need deterministic disposal.
     if has_delete {
         b.line("/**");
@@ -538,6 +543,38 @@ fn emit_enum_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, e: &EnumDef) {
 // ============================================================================
 // Method emission helpers
 // ============================================================================
+
+/// Phase I.2.6 (Node): emit `equals(other)` instance method routed
+/// through `Az<X>_partialEq` when TypeTraits flags it and the C export
+/// exists. Pure type-driven; no method-name allowlist.
+fn emit_node_equals_if_supported(
+    b: &mut CodeBuilder,
+    s: &StructDef,
+    ir: &CodegenIR,
+    class: &str,
+) {
+    let eq_sym = format!("Az{}_partialEq", s.name);
+    let has_eq = s.traits.is_partial_eq
+        && ir.functions.iter().any(|f| f.c_name == eq_sym);
+    if !has_eq {
+        return;
+    }
+    b.line("/**");
+    b.line(&format!(
+        " * Equality routed through `lib.{}`. JS has no `==` overload,",
+        eq_sym
+    ));
+    b.line(" * so this is exposed as an explicit method.");
+    b.line(" */");
+    b.line(&format!("equals(other) {{"));
+    b.indent();
+    b.line(&format!("if (!(other instanceof {})) return false;", class));
+    b.line("if (this._ptr == null || other._ptr == null) return this._ptr === other._ptr;");
+    b.line(&format!("return lib.{}(this._ptr, other._ptr);", eq_sym));
+    b.dedent();
+    b.line("}");
+    b.blank();
+}
 
 fn emit_instance_method(
     b: &mut CodeBuilder,

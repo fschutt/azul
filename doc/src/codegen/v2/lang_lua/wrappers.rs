@@ -247,18 +247,29 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
         out.push_str("    end\n");
     }
 
+    // Phase I.2.7 (Lua): __eq metamethod via Az<X>_partialEq when
+    // TypeTraits.is_partial_eq and the helper is exported.
+    let eq_sym = format!("Az{}_partialEq", s.name);
+    let has_eq = s.traits.is_partial_eq
+        && ir.functions.iter().any(|f| f.c_name == eq_sym);
+    let eq_clause = if has_eq {
+        format!(", __eq = function(a, b) return C.{}(a, b) end", eq_sym)
+    } else {
+        String::new()
+    };
+
     // Metatype binding — only for non-Copy types (those with _delete).
     // For Copy types we still want __index for instance methods, but no __gc.
     if has_delete {
         let delete_c = format!("Az{}_delete", class);
         out.push_str(&format!(
-            "    ffi.metatype('{}', {{ __index = {}_methods, __gc = function(self) C.{}(self) end }})\n",
-            c_name, class, delete_c
+            "    ffi.metatype('{}', {{ __index = {}_methods, __gc = function(self) C.{}(self) end{} }})\n",
+            c_name, class, delete_c, eq_clause
         ));
-    } else if method_count > 0 {
+    } else if method_count > 0 || has_eq {
         out.push_str(&format!(
-            "    ffi.metatype('{}', {{ __index = {}_methods }})\n",
-            c_name, class
+            "    ffi.metatype('{}', {{ __index = {}_methods{} }})\n",
+            c_name, class, eq_clause
         ));
     }
     out.push_str("end\n");
