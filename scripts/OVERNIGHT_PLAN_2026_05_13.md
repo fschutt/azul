@@ -49,11 +49,11 @@ Each takes one wrapper method per binding. AzString is done (commit 7c0d4f250) �
 
 Today many bindings return raw `1` and tag it with a comment `// Update.RefreshDom`. Need to surface unit-only enum variants as named constants:
 
-- [ ] **A.2.1 Node:** `azul.Update.RefreshDom` etc. instead of `return 1; // Update.RefreshDom`.
-- [ ] **A.2.2 Ruby:** `Azul::Update::RefreshDom`.
-- [ ] **A.2.3 OCaml:** `Azul.Update.RefreshDom` (already partly there via the `Tag` constructor mapping).
-- [ ] **A.2.4 Lua:** `azul.Update.RefreshDom`.
-- [ ] **A.2.5 Audit Java/Kotlin/C#/Scala for raw-int returns** in hello-world; replace.
+- [x] **A.2.1 Node:** `azul.Update.RefreshDom` etc. — already done before this session; hello-world destructures `Update` from `azul`. Verified.
+- [x] **A.2.2 Ruby:** `Azul::Update::DoNothing` / `RefreshDom` — already exposed via `Update = Native::AzUpdate`; hello-world uses them. Verified.
+- [x] **A.2.3 OCaml:** `Azul.Update.refresh_dom` etc. — emits a module wrapper alongside the existing `az_update_variant_*` constants. snake_case values (OCaml convention; uppercase is reserved for constructors). Commit alongside A.2.5.
+- [x] **A.2.4 Lua:** `azul.Update.RefreshDom` — already exposed via the variant Tag table; hello-world uses it. Verified.
+- [x] **A.2.5 Audit Java/Kotlin/C#/Scala for raw-int returns** in hello-world — replaced `1; // Update.RefreshDom` etc. with `AzUpdate.RefreshDom.value` (Java / Kotlin / Scala) and `(int)AzUpdate.RefreshDom` (C#). Scala AZ_DEBUG counter probe 5→8 still passes after the change. Commit below.
 
 ### A.3 Smart constructor: WindowCreateOptions.create(layout_fn)
 
@@ -302,6 +302,7 @@ These bite us repeatedly across bindings. Fix once in shared infra.
   - A.1.3 (AzVec iterable across Java/Kotlin/C#/Ruby/Lua) — `68be15370`
   - A.1.4 (AzResult unwrap across Java/Kotlin/C#/Ruby) — `7e3c4290d`
   - A.1.4 round 2: Lua per-cdata + Node module-level helpers — `180d0d0df`
-  - A.1.4 round 3: OCaml `az_<...>_is_ok`/`is_err`/`is_some`/`is_none` tag-byte helpers (this commit)
+  - A.1.4 round 3: OCaml `az_<...>_is_ok`/`is_err`/`is_some`/`is_none` tag-byte helpers — `980c1b7b0`
+  - A.2 enum constants — Node/Ruby/Lua already exposed; OCaml gets idiomatic `module Update = struct let refresh_dom : int = 1 end`; Java/Kotlin/C#/Scala hello-worlds updated to use `AzUpdate.RefreshDom.value` (this commit)
 
 End of plan.

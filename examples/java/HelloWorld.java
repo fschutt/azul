@@ -46,10 +46,10 @@ public final class HelloWorld {
     private static final AzulNativeManaged.CallbackInvokerCallback ON_CLICK_INVOKER =
         (long id, Pointer dataPtr, Pointer infoPtr, Pointer outPtr) -> {
             Object m = AzulHostInvoker.refanyGet(dataPtr);
-            int result = 0; // AzUpdate.DoNothing
+            int result = AzUpdate.DoNothing.value;
             if (m instanceof MyDataModel) {
                 ((MyDataModel) m).counter += 1;
-                result = 1; // AzUpdate.RefreshDom
+                result = AzUpdate.RefreshDom.value;
             }
             outPtr.setInt(0, result);
         };

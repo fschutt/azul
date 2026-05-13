@@ -41,7 +41,10 @@ private fun str(s: kotlin.String): AzString.ByValue {
 
 private val onClickInvoker = AzulNativeManaged.CallbackInvokerCallback { _, dataPtr, _, outPtr ->
     val m = AzulHostInvoker.refanyGet(dataPtr)
-    val result = if (m is MyDataModel) { m.counter += 1; 1 } else 0
+    val result = if (m is MyDataModel) {
+        m.counter += 1
+        AzUpdate.RefreshDom.value
+    } else AzUpdate.DoNothing.value
     outPtr!!.setInt(0, result)
 }
 

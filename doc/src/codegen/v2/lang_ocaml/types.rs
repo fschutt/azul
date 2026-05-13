@@ -841,6 +841,24 @@ fn emit_unit_enum(builder: &mut CodeBuilder, e: &EnumDef) {
         ));
     }
     builder.blank();
+
+    // Idiomatic module wrapper: `Azul.Update.refresh_dom` instead of
+    // `Azul.az_update_variant_refresh_dom`. Variants land as snake_case
+    // module values (OCaml convention; uppercase would be reserved for
+    // constructors, which we don't use here because the C ABI value is
+    // an int, not a typed variant). The module shadows any sibling
+    // type alias by name; OCaml resolves identifiers from the most
+    // recent binding, so `Azul.Update.refresh_dom : int` and
+    // `Azul.az_update : int typ` coexist without conflict.
+    builder.line(&format!("module {} = struct", e.name));
+    builder.indent();
+    for (idx, v) in e.variants.iter().enumerate() {
+        let lit = sanitize_identifier(&super::to_snake_case(&v.name));
+        builder.line(&format!("let {} : int = {}", lit, idx));
+    }
+    builder.dedent();
+    builder.line("end");
+    builder.blank();
 }
 
 // ============================================================================

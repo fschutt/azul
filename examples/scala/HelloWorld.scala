@@ -48,11 +48,11 @@ object HelloWorld {
     new AzulNativeManaged.CallbackInvokerCallback {
       override def invoke(id: Long, dataPtr: Pointer, infoPtr: Pointer, outPtr: Pointer): Unit = {
         val m = AzulHostInvoker.refanyGet(dataPtr)
-        var result = 0 // AzUpdate.DoNothing
+        var result = AzUpdate.DoNothing.value
         m match {
           case model: MyDataModel =>
             model.counter += 1
-            result = 1 // AzUpdate.RefreshDom
+            result = AzUpdate.RefreshDom.value
           case _ =>
         }
         outPtr.setInt(0, result)

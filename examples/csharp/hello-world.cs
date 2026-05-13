@@ -47,9 +47,9 @@ namespace HelloWorld
         private static int OnClick(IntPtr dataPtr, IntPtr infoPtr)
         {
             var m = HostInvoker.RefanyGet(dataPtr) as MyDataModel;
-            if (m == null) return 0; // Update.DoNothing
+            if (m == null) return (int)AzUpdate.DoNothing;
             m.Counter += 1;
-            return 1; // Update.RefreshDom
+            return (int)AzUpdate.RefreshDom;
         }
 
         private static AzDom Layout(IntPtr dataPtr, IntPtr infoPtr)
