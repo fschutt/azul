@@ -247,6 +247,33 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
         b.blank();
     }
 
+    // WindowCreateOptions.createWithLayout(fn) — smart factory. The
+    // codegen-emitted `create(fn)` routes through
+    // `AzWindowCreateOptions_create` which takes a raw `AzLayoutCallbackType`
+    // function pointer and discards the host-invoker `ctx` — callbacks
+    // would never reach the user's JS function. This helper instead
+    // registers the callback through the host-invoker handle table,
+    // grabs a `_default()` WCO, and assigns the full AzLayoutCallback
+    // struct (cb + ctx) to `window_state.layout_callback` so dispatch
+    // works. koffi's JS-side nested-struct assignment is byte-copy
+    // semantics, matching the C side.
+    if s.name == "WindowCreateOptions" {
+        b.line("/**");
+        b.line(" * Smart factory: pass a layout-callback function; the host-invoker");
+        b.line(" * registration and field-copy plumbing happen internally. The");
+        b.line(" * caller never has to touch AzulHostInvoker or `_register_callback`.");
+        b.line(" */");
+        b.line("static createWithLayout(fn) {");
+        b.indent();
+        b.line("const cb = registerCallback('LayoutCallback', fn);");
+        b.line("const opts = lib.AzWindowCreateOptions_default();");
+        b.line("opts.window_state.layout_callback = cb;");
+        b.line("return new WindowCreateOptions(opts);");
+        b.dedent();
+        b.line("}");
+        b.blank();
+    }
+
     // Methods: Method, MethodMut, DeepCopy, DebugToString, plus static
     // factories (Constructor, StaticMethod, Default, EnumVariantConstructor).
     let mut emitted_any = false;

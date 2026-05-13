@@ -131,6 +131,40 @@ fn emit_class_wrapper(
         builder.blank();
     }
 
+    // WindowCreateOptions.create_with_layout(fn) — smart factory that
+    // hides the host-invoker plumbing. Ruby FFI's nested-struct field
+    // assignment uses the same memory (no JNA reference-swap quirk),
+    // so we register the user's callable, fetch a `_default()` wco,
+    // splice the AzLayoutCallback struct into the embedded
+    // window_state.layout_callback, and return the wrapper. Existing
+    // `create()` is left intact for the legacy non-host-invoker path.
+    //
+    // The codegen-emitted `create()` already auto-registers via
+    // `Azul._register_callback('LayoutCallback', ...)` for the
+    // function-pointer arg, but it then passes the raw fnptr to the
+    // C-side `_create` which discards the ctx (the host-handle id) —
+    // so callbacks fire but the user's Proc is never reached. This
+    // helper fixes that by going through `_default` + struct splice.
+    if s.name == "WindowCreateOptions" {
+        builder.line("# Smart factory: pass a layout-callback Proc/lambda/block;");
+        builder.line("# the host-invoker registration and struct-field splice happen");
+        builder.line("# internally. Replaces the manual register_callback +");
+        builder.line("# `_default` + field-assign dance.");
+        builder.line("def self.create_with_layout(layout_fn = nil, &block)");
+        builder.indent();
+        builder.line("fn = layout_fn || block");
+        builder.line("raise ArgumentError, 'layout fn required' unless fn");
+        builder.line("cb_struct = Azul._register_callback('LayoutCallback', fn)");
+        builder.line("wco = Native.az_window_create_options_default()");
+        builder.line("# Splice the AzLayoutCallback into the embedded slot.");
+        builder.line("ws = Native::AzFullWindowState.new(wco[:window_state].to_ptr)");
+        builder.line("ws[:layout_callback] = cb_struct");
+        builder.line("new(wco)");
+        builder.dedent();
+        builder.line("end");
+        builder.blank();
+    }
+
     // Emit each function on this class as a Ruby method.
     let mut emitted_any_method = false;
     for func in &ir.functions {

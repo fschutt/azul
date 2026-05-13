@@ -74,10 +74,10 @@ d. Returns the wrapper-class WCO.
 - [x] **A.3.2 Kotlin:** Companion-object `WindowCreateOptions.create(fn)`. Same shape as Java. Opens the companion even when there are no other static factories, so the smart create still lands. *(this commit)*
 - [x] **A.3.3 C#:** Static `WindowCreateOptions.Create(HostInvoker.LayoutCallbackInvokerDelegate fn)`. C# struct-field assignment IS a byte copy (no JNA quirk), so the splice is `__wco.window_state.layout_callback = __cb` re-assigned to the parent struct. *(this commit)*
 - [x] **A.3.4 Scala:** Rides on Java — Scala's `com.azul.WindowCreateOptions.create(...)` is the same JVM method. No Scala-side codegen change needed.
-- [ ] **A.3.5 Ruby:** `Azul::WindowCreateOptions.create { |data, info| ... }` (block).
-- [ ] **A.3.6 Node:** `azul.WindowCreateOptions.create(fn)`.
-- [ ] **A.3.7 OCaml:** `Azul.WindowCreateOptions.create ~layout:fn`.
-- [ ] **A.3.8 Lua:** `azul.WindowCreateOptions.create(fn)`.
+- [x] **A.3.5 Ruby:** `Azul::WindowCreateOptions.create_with_layout(proc_or_block)` — registers via `Azul._register_callback` and splices the AzLayoutCallback into `wco[:window_state][:layout_callback]` directly. Existing `create()` is left intact for the legacy fn-pointer path.
+- [x] **A.3.6 Node:** `WindowCreateOptions.createWithLayout(fn)` — registers via `registerCallback('LayoutCallback', fn)` and assigns to `opts.window_state.layout_callback` (koffi byte-copy semantics). Existing `create()` is left as-is.
+- [⊘] **A.3.7 OCaml:** Deferred — OCaml's existing WCO module wrapper has Ctypes-specific field-access plumbing that needs more design work to splice in a typed AzLayoutCallback. The user can still construct the WCO manually via the existing `default()` + `Ctypes.setf` path. Separate task.
+- [x] **A.3.8 Lua:** `azul.WindowCreateOptions.create(fn)` — already done before this session by the existing wrapper-table emission; the codegen routes through `_register_callback` and does the direct field assignment. Hello-world uses it.
 
 ### A.4 Smart Button.on_click(refany, fn)
 
@@ -304,6 +304,7 @@ These bite us repeatedly across bindings. Fix once in shared infra.
   - A.1.4 round 2: Lua per-cdata + Node module-level helpers — `180d0d0df`
   - A.1.4 round 3: OCaml `az_<...>_is_ok`/`is_err`/`is_some`/`is_none` tag-byte helpers — `980c1b7b0`
   - A.2 enum constants — Node/Ruby/Lua already exposed; OCaml gets idiomatic `module Update = struct let refresh_dom : int = 1 end`; Java/Kotlin/C#/Scala hello-worlds updated to use `AzUpdate.RefreshDom.value` — `11585ad55`
-  - A.3.1 + A.3.2 + A.3.3 + A.3.4: `WindowCreateOptions.create(layout fn)` smart factory for Java/Kotlin/C#/Scala (this commit)
+  - A.3.1 + A.3.2 + A.3.3 + A.3.4: `WindowCreateOptions.create(layout fn)` smart factory for Java/Kotlin/C#/Scala — `83bb63ba9`
+  - A.3.5 + A.3.6: Ruby `create_with_layout` block-or-proc, Node `createWithLayout(fn)` (this commit). Lua already done before this session; OCaml deferred.
 
 End of plan.
