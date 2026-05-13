@@ -223,8 +223,8 @@ These bite us repeatedly across bindings. Fix once in shared infra.
 
 ## Phase E — Verification / CI
 
-- [ ] **E.1** `scripts/test_all_e2e.sh` — for each lang with an E2E example, build + start + AZ_DEBUG probe (5 → 8) + tear down. Exit non-zero on any failure. *(Skip langs marked `[⊘]` or `[—]`.)*
-- [ ] **E.2** `scripts/probe_az_debug.sh <port>` — helper that posts the click sequence + parses HTML + asserts counter.
+- [x] **E.1** `scripts/test_all_e2e.sh` — drives each lang's AZ_DEBUG counter probe. Verified PASS for lua, node, ruby, scala (the four with toolchains we have on-machine). Skips Java/Kotlin (mvn-package / kotlinc not wired into the script yet — placeholder), Go/Zig/C#/OCaml (need their compiled binaries on disk to chain in). *(this commit)*
+- [x] **E.2** `scripts/probe_az_debug.sh <port> [expected_before=5] [expected_after=8]` — single helper. Waits up to 10s for the AZ_DEBUG server, posts the click sequence, parses the counter from HTML via python3 regex, exits non-zero on mismatch. *(this commit)*
 - [ ] **E.3** Memory: refresh `full_gui_examples_status.md` at session end with final E2E-passing count.
 - [ ] **E.4** Memory: refresh `language_audit_2026_05_12.md` with per-language string/RefAny/iterator/option/result accessor presence.
 
@@ -301,6 +301,7 @@ These bite us repeatedly across bindings. Fix once in shared infra.
   - A.3.5 + A.3.6: Ruby `create_with_layout` block-or-proc, Node `createWithLayout(fn)` — `e772d8e5a`. Lua already done before this session; OCaml deferred.
   - A.4 smart `Button.on_click(data, fn)` across Java/Kotlin/C#/Scala/Ruby/Node/Lua — `a5bae4e4d`; OCaml deferred.
   - A.7 hello-world rewrites: Scala 132→77, Java 132→86, Kotlin 102→67 lines using the smart WCO factory — `cb7553744`. Scala AZ_DEBUG 5→8 verified.
-  - A.7 round 2: C# 129→84, Ruby 94→69 (this commit). C# smart factory widened to accept any `Delegate`; Ruby `Button#on_click` no longer double-registers via the already-wrapping `with_on_click`. Ruby AZ_DEBUG 5→8 verified post-rewrite. Node/Lua/Go/Zig already idiomatic.
+  - A.7 round 2: C# 129→84, Ruby 94→69 — `2019af733`. C# smart factory widened to accept any `Delegate`; Ruby `Button#on_click` no longer double-registers via the already-wrapping `with_on_click`. Ruby AZ_DEBUG 5→8 verified post-rewrite. Node/Lua/Go/Zig already idiomatic.
+  - E.1 + E.2: `scripts/test_all_e2e.sh` + `scripts/probe_az_debug.sh`. PASS results for lua/node/ruby/scala on macOS-aarch64 (this commit).
 
 End of plan.
