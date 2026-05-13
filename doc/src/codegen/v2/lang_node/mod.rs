@@ -520,6 +520,8 @@ fn emit_exports(b: &mut CodeBuilder, ir: &CodegenIR) {
     b.line("registerCallback,");
     b.line("refanyCreate,");
     b.line("refanyGet,");
+    b.line("// Auto-AzString-conversion helper (referenced by hello-world).");
+    b.line("_azString,");
     b.line("// AzOption / AzResult ergonomic helpers.");
     b.line("optionToNullable,");
     b.line("resultUnwrap,");
