@@ -637,19 +637,26 @@ fn emit_static_method(out: &mut String, lua_method: &str, func: &FunctionDef) {
 
     // Special-case 2: `WindowCreateOptions::create(layout_callback)` —
     // the C-ABI takes a raw function pointer and calls
-    // `LayoutCallback::create(cb)` internally, which discards any ctx.
-    // We bypass that by constructing the options via `_default()` and
-    // assigning the wrapper directly to `window_state.layout_callback`
-    // — the same path the framework's own constructor uses, just with
-    // the host-handle ctx preserved.
-    if func.c_name == "AzWindowCreateOptions_create"
+    // Phase J.4 (Lua): detect via type-driven rule rather than the
+    // hardcoded `func.c_name == "AzWindowCreateOptions_create"` match.
+    // Trigger: static factory whose only arg is a LayoutCallback fn-
+    // pointer typedef AND whose return type would carry a nested
+    // `window_state.layout_callback` field (which is true today only for
+    // WindowCreateOptions; the body assumes that path).
+    //
+    // `LayoutCallback::create(cb)` internally would discard the host-
+    // invoker ctx; the smart body bypasses by constructing via
+    // `_default()` and splicing the wrapper struct into the embedded
+    // layout_callback field, preserving ctx.
+    let is_layout_constructor = func.args.len() == 1
         && cb_args.len() == 1
         && cb_args[0]
             .callback_info
             .as_ref()
             .map(|c| c.callback_wrapper_name == "LayoutCallback")
             .unwrap_or(false)
-    {
+        && func.return_type.as_deref().map(|r| r.trim() == func.class_name).unwrap_or(false);
+    if is_layout_constructor {
         let arg_name = sanitize_lua_ident(&func.args[0].name);
         out.push_str(&format!(
             "    {} = function({})\n",
