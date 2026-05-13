@@ -11,13 +11,6 @@
 
 require 'azul'
 
-def az_str(s)
-  bytes = s.encode(Encoding::UTF_8).bytes
-  buf = FFI::MemoryPointer.new(:uint8, bytes.size)
-  buf.write_array_of_uint8(bytes)
-  Azul::String.new(Azul::Native.az_string_from_utf8(buf, bytes.size))
-end
-
 class MyDataModel
   attr_accessor :counter
   def initialize(counter); @counter = counter; end
@@ -43,10 +36,10 @@ layout = lambda do |data_ptr, _info|
   font_size_prop = Azul::Native.az_css_property_font_size(font_size_px)
   label = Azul::Dom.create_div
     .with_css_property(Azul::CssPropertyWithConditions.simple(font_size_prop))
-    .with_child(Azul::Dom.create_text(az_str(m.counter.to_s)))
+    .with_child(Azul::Dom.create_text(m.counter.to_s))
 
   # Smart .on_click(data, &block) wraps refany + register internally.
-  button = Azul::Button.create(az_str('Increase counter'))
+  button = Azul::Button.create('Increase counter')
     .with_button_type(Azul::ButtonType::Primary)
     .on_click(m, on_click)
 
@@ -59,7 +52,7 @@ end
 # state extras (title, size, flags) still hang off the wrapper's
 # raw ptr like before.
 window = Azul::WindowCreateOptions.create_with_layout(layout)
-window.ptr[:window_state][:title] = az_str('Hello World').ptr
+window.ptr[:window_state][:title] = Azul._az_string('Hello World')
 window.ptr[:window_state][:size][:dimensions][:width]  = 400.0
 window.ptr[:window_state][:size][:dimensions][:height] = 300.0
 window.ptr[:window_state][:flags][:decorations]         = Azul::WindowDecorations::NoTitleAutoInject

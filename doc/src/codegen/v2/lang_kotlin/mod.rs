@@ -786,8 +786,11 @@ fn emit_vec_to_list_kt(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
             "if (ptr == null || len == 0L) return {}(0)",
             ret
         ));
+        // `ptr` is `@JvmField var` (mutable, nullable). Kotlin can't
+        // smart-cast a mutable property across the null guard above,
+        // so use `!!` to assert non-null at the call site.
         builder.line(&format!(
-            "return ptr.{}(0, len.toInt())",
+            "return ptr!!.{}(0, len.toInt())",
             jna_method
         ));
         builder.dedent();
@@ -820,7 +823,9 @@ fn emit_vec_to_list_kt(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
     ));
     builder.line("for (__i in 0 until len) {");
     builder.indent();
-    builder.line("val __ep = ptr.share(__i * __size)");
+    // `ptr` is mutable; smart-cast across the null guard above doesn't
+    // apply. Assert non-null with `!!`.
+    builder.line("val __ep = ptr!!.share(__i * __size)");
     builder.line(&format!(
         "val __e = Structure.newInstance({}::class.java, __ep)",
         elem_kt

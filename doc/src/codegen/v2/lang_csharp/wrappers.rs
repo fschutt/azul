@@ -450,9 +450,13 @@ fn emit_wrapper_method(
     for a in &user_args {
         let raw_name = sanitize_identifier(&a.name);
         if is_az_string_owned_arg(a) {
-            let az_name = format!("__{}_az", raw_name);
-            let bytes_name = format!("__{}_bytes", raw_name);
-            let ptr_name = format!("__{}_ptr", raw_name);
+            // C# keyword-escapes with `@` prefix; strip it so local var
+            // names like `__@class_bytes` (invalid) become
+            // `__class_bytes` (valid).
+            let stem = raw_name.trim_start_matches('@');
+            let az_name = format!("__{}_az", stem);
+            let bytes_name = format!("__{}_bytes", stem);
+            let ptr_name = format!("__{}_ptr", stem);
             pre_call_lines.push(format!(
                 "var {bytes} = System.Text.Encoding.UTF8.GetBytes({raw});",
                 bytes = bytes_name,

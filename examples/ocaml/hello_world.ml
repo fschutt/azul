@@ -9,7 +9,6 @@
    Run (macOS):  DYLD_LIBRARY_PATH=. ./_build/default/hello_world.exe
    Run (Linux):  LD_LIBRARY_PATH=. ./_build/default/hello_world.exe *)
 
-open Ctypes
 (* Avoid `open Azul`: the Azul module shadows Stdlib.String with its own
    `String` wrapper module. Reference Azul members explicitly. *)
 
@@ -17,23 +16,11 @@ open Ctypes
 type my_data_model = { mutable counter : int }
 let model = { counter = 5 }
 
-(* ── Helpers ────────────────────────────────────────────────────────── *)
-
-(* Copy an OCaml string into a fresh `az_string structure` via the
-   public `String.from_utf8` wrapper. Extract the raw struct so we
-   can pass it by-value to FFI-shaped functions (Dom.create_text,
-   Button.create, etc.) which take raw `az_string`. *)
-let az_str (s : string) : Azul.az_string Ctypes.structure =
-  let len = Stdlib.String.length s in
-  let buf = allocate_n char ~count:len in
-  Stdlib.String.iteri (fun i c -> (buf +@ i) <-@ c) s;
-  Azul.raw_string_wrapper
-    (Azul.String.from_utf8 (to_voidp buf) (Unsigned.Size_t.of_int len))
-
 (* ── Callbacks ──────────────────────────────────────────────────────── *)
 (* User functions return the *raw* `az_dom Ctypes.structure` because
-   the codegen's invoker writes the bytes through an out-pointer. We
-   extract `.raw` from each `dom` wrapper at the return site. *)
+   the codegen's invoker writes the bytes through an out-pointer. Plain
+   OCaml strings flow into Dom.* / Button.* via the codegen-emitted
+   auto-string-conversion (`azul_az_string` helper). *)
 
 let on_click (data_ptr : unit Ctypes.ptr) (_info : unit Ctypes.ptr) : int =
   let ref_ptr = Ctypes.from_voidp Azul.az_ref_any data_ptr in
@@ -49,23 +36,16 @@ let layout (data_ptr : unit Ctypes.ptr) (_info : unit Ctypes.ptr)
   match Azul.azul_refany_get ref_ptr with
   | None -> Azul.raw_dom (Azul.Dom.create_body ())
   | Some (m : my_data_model) ->
-      (* Each callback registration produces a fresh handle into the
-         libazul handle table — we can reuse `model` (a real OCaml
-         value living module-globally) without cloning the AzRefAny. *)
       let click_cb = Azul.azul_register_callback on_click in
       let click_data = Azul.azul_refany_create m in
 
-      let counter_dom = Azul.Dom.create_text (az_str (string_of_int m.counter)) in
+      let counter_dom = Azul.Dom.create_text (string_of_int m.counter) in
       let label_div =
-        Azul.Dom.with_css
-          (Azul.Dom.create_div ())
-          (az_str "font-size: 32px;")
+        Azul.Dom.with_css (Azul.Dom.create_div ()) "font-size: 32px;"
       in
-      let label_div =
-        Azul.Dom.with_child label_div (Azul.raw_dom counter_dom)
-      in
+      let label_div = Azul.Dom.with_child label_div (Azul.raw_dom counter_dom) in
 
-      let button = Azul.Button.create (az_str "Increase counter") in
+      let button = Azul.Button.create "Increase counter" in
       let button = Azul.Button.with_button_type button 1 (* ButtonType.Primary *) in
       let button = Azul.Button.with_on_click button click_data click_cb in
       let button_dom = Azul.Button.dom button in

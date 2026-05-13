@@ -51,8 +51,9 @@ local function layout(data, _info)
     local m = azul.refany_get(data)
     if m == nil then return azul.Dom.create_body() end
 
-    -- Counter label (wrapped in a div so the font-size sticks).
-    local label = azul.Dom.create_text(azul.String.from_lua(tostring(m.counter)))
+    -- Counter label (wrapped in a div so the font-size sticks). Plain
+    -- Lua strings flow through codegen-emitted auto-conversion.
+    local label = azul.Dom.create_text(tostring(m.counter))
     local label_wrapper = azul.Dom.create_div()
     label_wrapper:add_css_property(
         azul.CssPropertyWithConditions.simple(
@@ -61,7 +62,7 @@ local function layout(data, _info)
 
     -- Increment button. The wrapper auto-registers `on_click` via the
     -- host-invoker path; we just pass the function in.
-    local button = azul.Button.create(azul.String.from_lua('Increase counter'))
+    local button = azul.Button.create('Increase counter')
     button:set_button_type(azul.ButtonType.Primary)
     button:set_on_click(data:clone(), on_click)
     local button_dom = button:dom()
@@ -78,7 +79,7 @@ end
 local data   = azul.refany_create(model)
 local window = azul.WindowCreateOptions.create(layout)
 
-window.window_state.title = azul.String.from_lua('Hello World')
+window.window_state.title = azul._az_string('Hello World')
 window.window_state.size.dimensions.width  = 400.0
 window.window_state.size.dimensions.height = 300.0
 

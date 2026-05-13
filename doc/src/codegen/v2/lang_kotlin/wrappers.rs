@@ -106,8 +106,13 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
         
     }
 
+    // `internal constructor`: accessible from sibling classes in the
+    // same Kotlin module (this file), which is where smart factories
+    // and auto-wrapper-class converted call sites construct wrappers
+    // from raw pointers. Users outside the module use the static
+    // factories.
     builder.line(&format!(
-        "class {} private constructor(private val ptr: Pointer) : AutoCloseable {{",
+        "class {} internal constructor(internal val ptr: Pointer) : AutoCloseable {{",
         class_name
     ));
     builder.indent();
@@ -158,7 +163,11 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
         builder.line("val vecLen: Long = ptr.getLong(8)");
         builder.line("if (vecPtr == null || vecLen <= 0) return \"\"");
         builder.line("val bytes = vecPtr.getByteArray(0, vecLen.toInt())");
-        builder.line("return kotlin.String(bytes, Charsets.UTF_8)");
+        // ByteArray.toString(Charset) — Kotlin's idiom for UTF-8
+        // decode. Using `kotlin.String(bytes, charset)` constructor
+        // form clashes with the local `String` wrapper class when
+        // imports collide.
+        builder.line("return bytes.toString(Charsets.UTF_8)");
         builder.dedent();
         builder.line("}");
         builder.blank();
@@ -318,8 +327,10 @@ fn emit_kt_wrapper_class_conv(
     raw_name: &str,
     type_name: &str,
 ) -> String {
+    // Strip backticks for the local var prefix (see emit_kt_az_string_conv).
+    let stem = raw_name.trim_matches('`');
     let ffi = ffi_type_name(type_name);
-    let raw_local = format!("__{}_raw", raw_name);
+    let raw_local = format!("__{}_raw", stem);
     pre_call_lines.push(format!(
         "val {raw_local} = Structure.newInstance({ffi}.ByValue::class.java, {arg}.rawPointer()) as {ffi}.ByValue",
         raw_local = raw_local,
@@ -336,9 +347,13 @@ fn emit_kt_az_string_conv(
     pre_call_lines: &mut Vec<String>,
     raw_name: &str,
 ) -> String {
-    let az_name = format!("__{}_az", raw_name);
-    let bytes_name = format!("__{}_bytes", raw_name);
-    let mem_name = format!("__{}_mem", raw_name);
+    // Strip backticks if `raw_name` is keyword-escaped (e.g. `` `class` ``).
+    // Backticks can't appear inside a compound identifier; they only wrap
+    // a whole identifier. Build the local names from the unescaped form.
+    let stem = raw_name.trim_matches('`');
+    let az_name = format!("__{}_az", stem);
+    let bytes_name = format!("__{}_bytes", stem);
+    let mem_name = format!("__{}_mem", stem);
     pre_call_lines.push(format!(
         "val {bytes} = {raw}.toByteArray(Charsets.UTF_8)",
         bytes = bytes_name,
@@ -653,8 +668,11 @@ fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef) {
                 ));
                 builder.indent();
                 builder.line(&format!("val u = {}()", ffi_name));
+                // `.value` is Int; AzX_Tag is repr(C, u8) so the tag
+                // field is `Byte`. Cast explicitly — Kotlin doesn't
+                // implicitly narrow Int → Byte.
                 builder.line(&format!(
-                    "u.{}.tag = {}_Tag.{}.value",
+                    "u.{}.tag = {}_Tag.{}.value.toByte()",
                     variant_ident, ffi_name, variant_ident
                 ));
                 builder.line(&format!("u.setType(\"{}\")", v.name));

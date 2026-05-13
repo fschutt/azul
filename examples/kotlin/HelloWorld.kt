@@ -12,19 +12,11 @@
 
 package com.azul
 
-import com.sun.jna.Memory
 import com.sun.jna.Pointer
 import com.sun.jna.Structure
 
 class MyDataModel(var counter: Int)
 private val MODEL = MyDataModel(5)
-
-private fun str(s: kotlin.String): AzString.ByValue {
-    val bytes = s.toByteArray(Charsets.UTF_8)
-    val mem = Memory(bytes.size.toLong())
-    mem.write(0, bytes, 0, bytes.size)
-    return AzulNativeStr.INSTANCE.AzString_fromUtf8(mem, bytes.size.toLong())
-}
 
 private val onClick = AzulNativeManaged.CallbackInvokerCallback { _, dataPtr, _, outPtr ->
     val m = AzulHostInvoker.refanyGet(dataPtr)
@@ -33,26 +25,31 @@ private val onClick = AzulNativeManaged.CallbackInvokerCallback { _, dataPtr, _,
     outPtr!!.setInt(0, result)
 }
 
+private fun writeDom(outPtr: Pointer, dom: Dom) {
+    val raw = Structure.newInstance(AzDom.ByValue::class.java, dom.rawPointer()) as AzDom.ByValue
+    raw.read()
+    outPtr.write(0, raw.pointer.getByteArray(0, raw.size()), 0, raw.size())
+}
+
 private val layout = AzulNativeManaged.LayoutCallbackInvokerCallback { _, dataPtr, _, outPtr ->
     val m = AzulHostInvoker.refanyGet(dataPtr)
     if (m !is MyDataModel) {
-        val empty = AzulNativeDom.INSTANCE.AzDom_createBody()
-        empty.write()
-        outPtr!!.write(0, empty.pointer.getByteArray(0, empty.size()), 0, empty.size())
+        writeDom(outPtr!!, Dom.createBody())
         return@LayoutCallbackInvokerCallback
     }
-    val label = AzulNativeDom.INSTANCE.AzDom_withChild(
-        AzulNativeDom.INSTANCE.AzDom_withCss(AzulNativeDom.INSTANCE.AzDom_createDiv(), str("font-size: 32px;")),
-        AzulNativeDom.INSTANCE.AzDom_createText(str(m.counter.toString())))
-    val btn = AzulNativeWidgets.INSTANCE.AzButton_withOnClick(
-        AzulNativeWidgets.INSTANCE.AzButton_withButtonType(
-            AzulNativeWidgets.INSTANCE.AzButton_create(str("Increase counter")), AzButtonType.Primary.value),
-        AzulHostInvoker.refanyCreate(m), AzulHostInvoker.registerCallback(onClick))
-    val body = AzulNativeDom.INSTANCE.AzDom_withChild(
-        AzulNativeDom.INSTANCE.AzDom_withChild(AzulNativeDom.INSTANCE.AzDom_createBody(), label),
-        AzulNativeWidgets.INSTANCE.AzButton_dom(btn))
-    body.write()
-    outPtr!!.write(0, body.pointer.getByteArray(0, body.size()), 0, body.size())
+    val label = Dom.createDiv()
+        .withCss("font-size: 32px;")
+        .withChild(Dom.createText(m.counter.toString()))
+    val buttonDom = Dom(
+        Button.create("Increase counter")
+            .withButtonType(AzButtonType.Primary.value)
+            .onClick(m, onClick)
+            .dom()
+            .pointer)
+    val body = Dom.createBody()
+        .withChild(label)
+        .withChild(buttonDom)
+    writeDom(outPtr!!, body)
 }
 
 fun main() {

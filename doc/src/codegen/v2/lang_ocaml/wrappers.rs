@@ -317,7 +317,11 @@ fn emit_module_interface_for_class(
     // host-string accessor; declare its signature here so the .mli
     // surface matches.
     if s.name == "String" {
-        builder.line("(** Decode the wrapped UTF-8 bytes into an OCaml string. *)");
+        // Use a non-docstring comment to avoid OCaml's "ambiguous
+        // documentation comment" warning (escalated to error) — the
+        // docstring would attach to either `type t` above or the next
+        // val below.
+        builder.line("(* Decode the wrapped UTF-8 bytes into an OCaml string. *)");
         builder.line("val to_string : t -> string");
     }
     for func in ir.functions_for_class(&s.name) {
@@ -357,7 +361,10 @@ fn emit_module_impl_for_class(
     // Field accessors are emitted by lang_ocaml/types.rs:
     // `az_string_field_vec`, `az_u8_vec_field_ptr`, `_field_len`.
     if s.name == "String" {
-        builder.line("(** Decode the wrapped UTF-8 bytes into an OCaml string. *)");
+        // Plain comment, not a docstring — avoids OCaml's ambiguous-
+        // documentation warning when both type t and the following let
+        // are candidates for attachment.
+        builder.line("(* Decode the wrapped UTF-8 bytes into an OCaml string. *)");
         builder.line("let to_string (self : t) : string =");
         builder.indent();
         builder.line("let raw = self.raw in");

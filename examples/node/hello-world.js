@@ -32,14 +32,6 @@ const {
 } = azul;
 const lib = azul.__lib;
 
-// AzString constructor: copy a JS UTF-8 string into an AzString.
-// The wrapper layer doesn't yet auto-convert JS strings, so we use
-// a tiny helper. The result is an `azul.String` wrapper instance.
-function azStr(s) {
-    const buf = Buffer.from(s, 'utf8');
-    return new azul.String(lib.AzString_fromUtf8(buf, buf.length));
-}
-
 // ── Data model ────────────────────────────────────────────────────────
 // Plain JS object held alive by libazul via the host-handle table.
 
@@ -59,15 +51,16 @@ function layout(dataPtr, _info) {
     const m = refanyGet(dataPtr);
     if (m == null) return Dom.create_body();
 
-    // Counter label wrapped in a font-size-32 div.
+    // Counter label wrapped in a font-size-32 div. Plain JS strings
+    // flow directly through the codegen-emitted auto-string-conversion.
     const label = Dom.create_div()
         .with_css_property(
             CssPropertyWithConditions.simple(
                 CssProperty.font_size(StyleFontSize.px(32.0))))
-        .with_child(Dom.create_text(azStr(String(m.counter))));
+        .with_child(Dom.create_text(String(m.counter)));
 
     // Increment button.
-    const button = Button.create(azStr('Increase counter'))
+    const button = Button.create('Increase counter')
         .with_button_type(ButtonType.Primary)
         .with_on_click(lib.AzRefAny_clone(data), onClick);
 
@@ -96,7 +89,7 @@ process.on('uncaughtException', (e) => {
 
 const window = lib.AzWindowCreateOptions_default();
 window.window_state.layout_callback = registerCallback('LayoutCallback', layout);
-window.window_state.title           = lib.AzString_fromUtf8(Buffer.from('Hello World'), 11);
+window.window_state.title           = azul._azString('Hello World');
 window.window_state.size.dimensions.width  = 400.0;
 window.window_state.size.dimensions.height = 300.0;
 // NoTitleAutoInject: OS draws close/min/max buttons; framework

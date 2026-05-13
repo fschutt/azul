@@ -21,13 +21,6 @@ object HelloWorld {
   class MyDataModel(var counter: Int)
   private val MODEL = new MyDataModel(5)
 
-  private def str(s: java.lang.String): AzString.ByValue = {
-    val bytes = s.getBytes(java.nio.charset.StandardCharsets.UTF_8)
-    val mem = new com.sun.jna.Memory(bytes.length.toLong)
-    mem.write(0, bytes, 0, bytes.length)
-    AzulNativeStr.AzString_fromUtf8(mem, bytes.length.toLong)
-  }
-
   private val ON_CLICK: AzulNativeManaged.CallbackInvokerCallback =
     new AzulNativeManaged.CallbackInvokerCallback {
       override def invoke(id: Long, dataPtr: Pointer, infoPtr: Pointer, outPtr: Pointer): Unit =
@@ -40,27 +33,29 @@ object HelloWorld {
         }
     }
 
+  private def writeDom(outPtr: Pointer, dom: Dom): Unit = {
+    val raw = Structure.newInstance(classOf[AzDom.ByValue], dom.rawPointer())
+    raw.read()
+    outPtr.write(0, raw.getPointer().getByteArray(0, raw.size()), 0, raw.size())
+  }
+
   private val LAYOUT: AzulNativeManaged.LayoutCallbackInvokerCallback =
     new AzulNativeManaged.LayoutCallbackInvokerCallback {
       override def invoke(id: Long, dataPtr: Pointer, infoPtr: Pointer, outPtr: Pointer): Unit =
         AzulHostInvoker.refanyGet(dataPtr) match {
           case m: MyDataModel =>
-            val label = AzulNativeDom.AzDom_withChild(
-              AzulNativeDom.AzDom_withCss(AzulNativeDom.AzDom_createDiv(), str("font-size: 32px;")),
-              AzulNativeDom.AzDom_createText(str(java.lang.String.valueOf(m.counter))))
-            val btn = AzulNativeWidgets.AzButton_withOnClick(
-              AzulNativeWidgets.AzButton_withButtonType(
-                AzulNativeWidgets.AzButton_create(str("Increase counter")), AzButtonType.Primary.value),
-              AzulHostInvoker.refanyCreate(m), AzulHostInvoker.registerCallback(ON_CLICK))
-            val body = AzulNativeDom.AzDom_withChild(
-              AzulNativeDom.AzDom_withChild(AzulNativeDom.AzDom_createBody(), label),
-              AzulNativeWidgets.AzButton_dom(btn))
-            body.write()
-            outPtr.write(0, body.getPointer().getByteArray(0, body.size()), 0, body.size())
+            val label = Dom.createDiv()
+              .withCss("font-size: 32px;")
+              .withChild(Dom.createText(java.lang.String.valueOf(m.counter)))
+            val buttonDom = new Dom(
+              Button.create("Increase counter")
+                .withButtonType(AzButtonType.Primary.value)
+                .onClick(m, ON_CLICK)
+                .dom()
+                .getPointer())
+            writeDom(outPtr, Dom.createBody().withChild(label).withChild(buttonDom))
           case _ =>
-            val empty = AzulNativeDom.AzDom_createBody()
-            empty.write()
-            outPtr.write(0, empty.getPointer().getByteArray(0, empty.size()), 0, empty.size())
+            writeDom(outPtr, Dom.createBody())
         }
     }
 

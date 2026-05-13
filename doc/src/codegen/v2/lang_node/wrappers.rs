@@ -96,6 +96,8 @@ pub fn generate_wrappers(b: &mut CodeBuilder, ir: &CodegenIR) {
     // `render_call_args`).
     b.line("// Auto-AzString-conversion helper. Wrapper methods route Owned");
     b.line("// `String` args through this so plain JS strings work directly.");
+    b.line("// `globalThis.String` avoids colliding with the wrapper class");
+    b.line("// `String` emitted in this module's local scope.");
     b.line("function _azString(val) {");
     b.indent();
     b.line("if (val == null) return val;");
@@ -105,7 +107,7 @@ pub fn generate_wrappers(b: &mut CodeBuilder, ir: &CodegenIR) {
     b.line("return val;");
     b.dedent();
     b.line("}");
-    b.line("const buf = Buffer.from(String(val), 'utf8');");
+    b.line("const buf = Buffer.from(globalThis.String(val), 'utf8');");
     b.line("return lib.AzString_fromUtf8(buf, buf.length);");
     b.dedent();
     b.line("}");

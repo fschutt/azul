@@ -8,7 +8,6 @@
 
 using System;
 using System.Runtime.InteropServices;
-using System.Text;
 using Azul;
 
 namespace HelloWorld
@@ -23,18 +22,6 @@ namespace HelloWorld
     {
         private static readonly MyDataModel _model = new MyDataModel(5);
 
-        private static AzString Str(string s)
-        {
-            var bytes = Encoding.UTF8.GetBytes(s);
-            var p = Marshal.AllocHGlobal(bytes.Length);
-            try
-            {
-                Marshal.Copy(bytes, 0, p, bytes.Length);
-                return NativeMethods.AzString_fromUtf8(p, (UIntPtr)bytes.Length);
-            }
-            finally { Marshal.FreeHGlobal(p); }
-        }
-
         private static int OnClick(IntPtr dataPtr, IntPtr infoPtr)
         {
             var m = HostInvoker.RefanyGet(dataPtr) as MyDataModel;
@@ -46,18 +33,19 @@ namespace HelloWorld
         private static AzDom Layout(IntPtr dataPtr, IntPtr infoPtr)
         {
             var m = HostInvoker.RefanyGet(dataPtr) as MyDataModel;
-            if (m == null) return NativeMethods.AzDom_createBody();
-            var label = NativeMethods.AzDom_withChild(
-                NativeMethods.AzDom_withCss(NativeMethods.AzDom_createDiv(), Str("font-size: 32px;")),
-                NativeMethods.AzDom_createText(Str(m.Counter.ToString())));
-            var btn = NativeMethods.AzButton_withOnClick(
-                NativeMethods.AzButton_withButtonType(
-                    NativeMethods.AzButton_create(Str("Increase counter")), AzButtonType.Primary),
-                HostInvoker.RefanyCreate(m),
-                HostInvoker.RegisterCallback(new Func<IntPtr, IntPtr, int>(OnClick)));
-            return NativeMethods.AzDom_withChild(
-                NativeMethods.AzDom_withChild(NativeMethods.AzDom_createBody(), label),
-                NativeMethods.AzButton_dom(btn));
+            if (m == null) return Dom.CreateBody().Raw;
+            var label = Dom.CreateDiv()
+                .WithCss("font-size: 32px;")
+                .WithChild(Dom.CreateText(m.Counter.ToString()));
+            var buttonDom = new Dom(
+                Button.Create("Increase counter")
+                    .WithButtonType(AzButtonType.Primary)
+                    .OnClick(m, new Func<IntPtr, IntPtr, int>(OnClick))
+                    .Dom());
+            return Dom.CreateBody()
+                .WithChild(label)
+                .WithChild(buttonDom)
+                .Raw;
         }
 
         public static int Main(string[] args)
