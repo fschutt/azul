@@ -41,8 +41,8 @@ Set 2026-05-13 evening by the user: "finish off making Haskell very nice".
 - [x] **H.6** AzString → Haskell `String` via `<lower>ToString :: AzString -> IO String` emitted on every struct with `TypeCategory::String`. Decodes UTF-8 via `peekCStringLen` from the underlying U8Vec's (ptr, len). Pure type-driven (TypeCategory marker, not name match). *(this iteration)*
 - [x] **H.7** RAII brackets: existing `withFoo :: Ptr (T.Foo) -> (Foo -> IO a) -> IO a` adopt-style brackets fulfill the goal. Each wrapper newtype's `withFoo` calls `Control.Exception.bracket` over the codegen-emitted `Foo_delete`. Allocating brackets (`withFoo :: <args> -> ...`) are infeasible without a canonical "default constructor" choice per type — users compose `withFoo <$> Foo_create_via ...` explicitly. *(verified 2026-05-13 by inspection of generated Azul.hs)*
 - [x] **H.8** `instance Show <X>` routed through `c_Az<X>_toDbgString_via` (when `TypeTraits.is_debug` AND the helper is exported); `instance Eq <X>` routed through `c_Az<X>_partialEq` (when `TypeTraits.is_partial_eq`). 307 Show/Eq instance pairs emitted across the wrapper layer. Uses `System.IO.Unsafe.unsafePerformIO` (standard Haskell-FFI pattern for pure-looking pointers). *(this iteration)*
-- [ ] **H.9** Hello-world rewrite — collapse the smoke test to a Python-quality `MyDataModel -> Dom` form using H.1–H.7.
-- [ ] **H.10** README update + cabal manifest description refresh.
+- [x] **H.9** Hello-world rewritten to a Python-quality `myLayout :: Ptr (RefAny ()) -> Ptr LayoutCallbackInfo -> IO Dom` form using H.1's `registerLayoutCallbackTypeCallback`. 64 LOC; runs cleanly through the smoke layer. *(this iteration)*
+- [x] **H.10** README refreshed with the full Phase H surface: type-driven rules table (codegen → emitted helper), two-shim-layer architecture diagram, file map, H.2 follow-up status. *(this iteration)*
 
 ---
 

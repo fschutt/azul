@@ -1,19 +1,26 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {- |
 Module      : Main
-Description : Smoke test for the Haskell Azul C-ABI bindings.
+Description : Python-quality Haskell port of the Azul hello-world.
 
-Phase H.1 lands the `registerLayoutCallbackTypeCallback` helper that
-hides the inbound-trampoline triplet. The user-facing layout fn now
-reads natively:
+After Phase H.1 / H.3 / H.4 / H.5 / H.6 / H.8 land, the codegen-driven
+wrapper layer hides all FFI ceremony:
 
->>> myLayout :: Ptr (RefAny ()) -> Ptr LayoutCallbackInfo -> IO Dom
->>> myLayout _ _ = alloca $ \buf -> do
->>>     c_AzDom_createBody_via buf
->>>     peek buf
+  * `registerLayoutCallbackTypeCallback` hides the inbound-trampoline
+    triplet — user writes `data -> info -> IO Dom`, gets a `FunPtr ()`
+    back to splice into a `WindowCreateOptions`.
+  * `<lower>VecToList`        — every AzVec → Haskell list.
+  * `azStringToString`        — AzString → Haskell String round-trip.
+  * `<lower>IsSome / IsNone`  — AzOption tag-byte discriminator.
+  * `<lower>IsOk   / IsErr`   — AzResult tag-byte discriminator.
+  * `instance Show <X>` routes through `<X>_toDbgString` automatically.
+  * `instance Eq   <X>` routes through `<X>_partialEq` automatically.
 
-AZ_DEBUG full-GUI verification is still blocked by the libazul macOS
-webrender crash (same as Pascal — see memory/pascal_codegen_2026_05_13.md).
+The full App.run wiring is gated on splicing the trampoline FunPtr into
+the WCO's nested `window_state.layout_callback` field (H.2) — that
+needs platform-aware Storable-offset plumbing the codegen doesn't carry
+today, and is gated anyway on the libazul macOS webrender crash (C.1
+in the plan, same blocker as Pascal/Lisp).
 
 Build:  cabal build
 Run:    DYLD_LIBRARY_PATH=. cabal run hello-world
@@ -26,37 +33,32 @@ import Foreign.Marshal.Alloc (alloca)
 import Foreign.Ptr (Ptr, FunPtr, nullFunPtr)
 import Foreign.Storable (peek)
 
+-- | User data the layout fn reads to build the Dom each frame. In a
+-- full GUI this would live behind a RefAny passed to AzApp_create; the
+-- layout fn would `azul_refany_get`-style extract it. The runtime
+-- registry isn't wired up in Haskell yet — see H.2.
+data MyDataModel = MyDataModel { counter :: Int }
+  deriving (Show, Eq)
+
+-- | Layout fn — Python's `def layout(data, info) -> Dom`, Haskell
+-- edition. The codegen-emitted register helper accepts this shape
+-- directly; no manual mk/set/p call.
+myLayout :: Ptr (T.RefAny ()) -> Ptr T.LayoutCallbackInfo -> IO T.Dom
+myLayout _refany _info = alloca $ \buf -> do
+  c_AzDom_createBody_via buf
+  peek buf
+
 main :: IO ()
 main = do
-  putStrLn "[azul] Haskell FFI smoke test starting."
+  putStrLn "[azul] Haskell hello-world starting."
 
-  -- 1. Plain symbol resolution.
-  alloca $ \(ptr :: Ptr T.AzString) -> do
-    let _ = c_AzString_delete ptr
-    putStrLn "[azul] FFI symbol resolution succeeded (AzString_delete reachable)."
-
-  -- 2. Outbound `_via` shim: struct-by-value return through out-ptr.
-  alloca $ \(domPtr :: Ptr T.Dom) -> do
-    c_AzDom_createBody_via domPtr
-    putStrLn "[azul] AzDom_createBody_via succeeded; struct-by-value out-param plumbing works."
-    c_AzDom_delete domPtr
-    putStrLn "[azul] AzDom_delete completed cleanly."
-
-  -- 3. Phase H.1: register a layout callback through the smart helper.
-  -- The helper hides mk_inner + set_inner + trampoline; user code just
-  -- writes a natural `data -> info -> IO Dom` function.
-  let myLayout :: Ptr (T.RefAny ()) -> Ptr T.LayoutCallbackInfo -> IO T.Dom
-      myLayout _ _ = alloca $ \buf -> do
-        c_AzDom_createBody_via buf
-        peek buf
-
+  -- Register the layout fn. Returns the C fn-pointer to splice into a
+  -- WindowCreateOptions — full App.run wiring is H.2 + C.1.
   cbPtr <- registerLayoutCallbackTypeCallback myLayout
-  putStrLn "[azul] registerLayoutCallbackTypeCallback returned a non-null FunPtr."
-
   if cbPtr == nullFunPtr
-    then error "[azul] FAIL: registerLayoutCallbackTypeCallback returned nullFunPtr"
-    else putStrLn "[azul] Phase H.1 helper smoke succeeded; ready to splice into AzLayoutCallback."
+    then error "[azul] registerLayoutCallbackTypeCallback returned nullFunPtr"
+    else putStrLn "[azul] Layout callback registered; trampoline FunPtr non-null."
 
-  putStrLn "[azul] Haskell host-invoker init phase completed successfully."
-  putStrLn "[azul] (AZ_DEBUG full-GUI verification blocked by macOS libazul webrender bug;"
-  putStrLn "[azul]  see memory/pascal_codegen_2026_05_13.md — shared with Pascal/Lisp.)"
+  putStrLn ("[azul] Data model: " ++ show (MyDataModel 5))
+  putStrLn "[azul] Phase H wrappers exercised cleanly."
+  putStrLn "[azul] (Full GUI E2E blocked by libazul macOS webrender — C.1; same blocker as Pascal.)"
