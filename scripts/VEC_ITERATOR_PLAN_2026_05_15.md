@@ -157,8 +157,8 @@ pub fn clone_export_name(elem_rust: &str, ir: &CodegenIR) -> Option<String>;
 
 ## Phase V9 — Python verification
 
-- [ ] **V9.1** Confirm `__getitem__` + `__len__` emissions on every Vec-shaped wrapper. *Effort: 0.5h.*
-- [ ] **V9.2** Smoke test. *Effort: 0.5h.*
+- [x] **V9.1** Confirmed 2026-05-16: `lang_python.rs` does **NOT** emit `__getitem__` / `__len__` / `__iter__` on Vec-shaped wrappers. Only `__str__` + `__repr__` are emitted (`generate_pymethods` at `lang_python.rs:1229-1235`). The primitive Vec types (`U8Vec`, `StringVec`, `GLuintVec`, `GLintVec`) are in `CAPI_DIRECT` and bypass pyclass emission entirely — they get `FromPyObject`/`IntoPyObject` impls (`lang_python.rs:386-425`) that convert directly to/from Python `bytes` / `List[str]` / `List[int]`, so those are iterable as native Python types. Non-primitive Vec wrappers (`DomVec`, `StyledDomVec`, `CssVec`, etc. — ~79 in api.json) get an opaque pyclass with no sequence protocol; `len(dom_vec)` errors. The codegen-emitted `len(&self, dom_vec)` is a regular method (and has a bug: takes both `&self` and an extra `dom_vec` arg).
+- [—] **V9.2** Won't fix this session — needs codegen work to add `__len__` + `__getitem__` pymethods for non-primitive Vec wrappers (the PyO3 sequence protocol then auto-exposes `__iter__`). Follow-up shape: in `lang_python.rs::generate_pymethods`, when the struct is a Vec wrapper (detect via `detect_vec_elem_type` from V0.2.1), emit `fn __len__(&self) -> usize { self.inner.len }` and `fn __getitem__(&self, idx: usize) -> PyResult<<Wrapper>>` that clones the element via `Az<T>_clone` (mirrors the JVM/CLR clone-via path landed in `4edb65d7c`). Effort: ~1.5h after V0.2.1 lands.
 
 ---
 
