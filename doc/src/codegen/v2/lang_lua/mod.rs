@@ -128,6 +128,46 @@ pub fn generate(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
     builder.line("end");
     builder.blank();
 
+    // CC-4: recursive opts-table applier — mirrors Ruby's `_apply_opts`
+    // (commit fa0b5f06b) and Node's `_applyOpts` (commit 070a3c946).
+    // Routed through every struct wrapper's `:with(opts)` method so users
+    // can replace
+    //   window.window_state.title = azul._az_string('Hello World')
+    //   window.window_state.size.dimensions.width = 400.0
+    //   …
+    // with
+    //   window:with({ window_state = { title = 'Hello World',
+    //                  size = { dimensions = { width = 400.0 } } } })
+    // The LuaJIT FFI lets us assign nested cdata struct fields directly
+    // (`struct.field = value`); we only need to recurse into Lua tables
+    // and auto-convert strings. cdata values (including wrapper
+    // instances, numeric enum constants from `C.AzFoo_Variant`, and
+    // numeric primitives) all fall through to direct assignment — the
+    // FFI handles the byte-copy.
+    builder.line("-- CC-4 recursive opts-table applier. Each struct wrapper's");
+    builder.line("-- `:with(opts)` method routes through this. Lua strings auto-convert");
+    builder.line("-- to AzString via `_az_string`; nested tables recurse; cdata values");
+    builder.line("-- (wrapper instances, enum constants, numbers) direct-assign.");
+    builder.line("azul._apply_opts = function(struct, opts)");
+    // `opts` is always a plain Lua table; `not opts` is safe to falsy-
+    // check. We deliberately do NOT check `struct == nil` because cdata
+    // types with a `__eq` metamethod (Phase I.2.7) crash LuaJIT when
+    // compared against a non-cdata `nil` — `__eq` is invoked with `nil`
+    // as the second operand, which the C-side `_partialEq` dereferences.
+    builder.line("    if not opts then return end");
+    builder.line("    for k, v in pairs(opts) do");
+    builder.line("        local t = type(v)");
+    builder.line("        if t == 'string' then");
+    builder.line("            struct[k] = azul._az_string(v)");
+    builder.line("        elseif t == 'table' then");
+    builder.line("            azul._apply_opts(struct[k], v)");
+    builder.line("        else");
+    builder.line("            struct[k] = v");
+    builder.line("        end");
+    builder.line("    end");
+    builder.line("end");
+    builder.blank();
+
     // 9. Trailer.
     builder.line("return azul");
 

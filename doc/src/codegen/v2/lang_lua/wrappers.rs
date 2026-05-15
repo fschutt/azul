@@ -222,6 +222,22 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
         out.push_str("    end\n");
     }
 
+    // CC-4 (Lua): fluent `:with(opts)` builder. Recursively assigns
+    // nested table fields into the underlying cdata struct, auto-
+    // converting Lua strings to AzString. Returns self for chain
+    // composition with `:with_*` builder methods. Pure cdata-driven;
+    // no per-field allow-list. Routes through `azul._apply_opts` for
+    // the recursion logic (defined in the module postlude).
+    //
+    // Drops user-visible drilling like
+    //   window.window_state.title = azul._az_string('...')
+    // in favor of
+    //   window:with({ window_state = { title = 'Hello World' } })
+    out.push_str(&format!(
+        "    function {}_methods:with(opts) azul._apply_opts(self, opts); return self end\n",
+        class
+    ));
+
     // AzString gets a `:to_lua_string()` method that decodes the
     // wrapped UTF-8 bytes into a Lua string. LuaJIT's `ffi.string`
     // copies `len` bytes from `ptr` — `self.vec.ptr` / `self.vec.len`

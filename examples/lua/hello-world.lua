@@ -77,16 +77,22 @@ end
 -- ── Main ──────────────────────────────────────────────────────────────
 
 local data   = azul.refany_create(model)
-local window = azul.WindowCreateOptions.create(layout)
 
-window.window_state.title = azul._az_string('Hello World')
-window.window_state.size.dimensions.width  = 400.0
-window.window_state.size.dimensions.height = 300.0
-
--- NoTitleAutoInject: OS draws close/min/max buttons; framework
--- auto-injects a Titlebar with drag support.
-window.window_state.flags.decorations         = azul.WindowDecorations.NoTitleAutoInject
-window.window_state.flags.background_material = azul.WindowBackgroundMaterial.Sidebar
+-- Fluent `:with(opts)` builder: recursively assigns nested window-state
+-- fields, auto-converting Lua strings to AzString. Replaces the prior
+-- `window.window_state.field = ...` drilling. NoTitleAutoInject lets
+-- the OS draw close/min/max buttons while the framework auto-injects
+-- a draggable titlebar.
+local window = azul.WindowCreateOptions.create(layout):with({
+    window_state = {
+        title = 'Hello World',
+        size = { dimensions = { width = 400.0, height = 300.0 } },
+        flags = {
+            decorations         = azul.WindowDecorations.NoTitleAutoInject,
+            background_material = azul.WindowBackgroundMaterial.Sidebar,
+        },
+    },
+})
 
 local app = azul.App.create(data, azul.AppConfig.create())
 app:run(window)
