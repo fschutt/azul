@@ -235,9 +235,12 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
     }
 
     // AzVec<T>:to_lua_array() — returns a Lua table with the elements
-    // copied out. LuaJIT cdata supports indexing the typed pointer so
-    // `self.ptr[i]` works for primitive elements directly; for struct
-    // elements the user receives a cdata view (no copy).
+    // copied out. For primitive `self.ptr` (`*uint8`, `*int32`, …),
+    // `self.ptr[i]` is a value read — safe past the Vec being closed.
+    // For struct `self.ptr` (`*AzDom`, …), `self.ptr[i]` is a cdata
+    // overlay onto the Vec's buffer — would dangle if the Vec is
+    // closed. Clone each element via `Az<T>_clone` (when available)
+    // so the yielded entries own independent heap allocations.
     if s.category == TypeCategory::Vec {
         out.push_str(&format!(
             "    function {}_methods:to_lua_array()\n",
@@ -246,7 +249,62 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
         out.push_str("        if self.ptr == nil or self.len == 0 then return {} end\n");
         out.push_str("        local t = {}\n");
         out.push_str("        for i = 0, tonumber(self.len) - 1 do\n");
-        out.push_str("            t[i + 1] = self.ptr[i]\n");
+
+        // Detect the element type from the first field. The IR
+        // stores it as `*const T` / `*mut T` or sometimes bare `T`
+        // depending on the source; strip the pointer-kind prefix
+        // when present, otherwise pass the bare name through (same
+        // logic as Java's `detect_vec_elem_type_jvm` at
+        // `lang_java/wrappers.rs:455`).
+        let elem_rust: Option<String> = s.fields.first().map(|f| {
+            let raw = f.type_name.trim();
+            raw.strip_prefix("*const ")
+                .or_else(|| raw.strip_prefix("*mut "))
+                .map(|t| t.trim().to_string())
+                .unwrap_or_else(|| raw.to_string())
+        });
+        let is_primitive = elem_rust
+            .as_deref()
+            .map(|t| {
+                matches!(
+                    t,
+                    "u8" | "i8"
+                        | "u16"
+                        | "i16"
+                        | "u32"
+                        | "i32"
+                        | "u64"
+                        | "i64"
+                        | "f32"
+                        | "f64"
+                        | "bool"
+                        | "usize"
+                        | "isize"
+                )
+            })
+            .unwrap_or(false);
+        let has_clone = elem_rust
+            .as_deref()
+            .map(|t| {
+                ir.functions
+                    .iter()
+                    .any(|f| f.class_name == t && matches!(f.kind, FunctionKind::DeepCopy))
+            })
+            .unwrap_or(false);
+
+        if is_primitive {
+            out.push_str("            t[i + 1] = self.ptr[i]\n");
+        } else if has_clone {
+            let elem_ty = elem_rust.as_deref().unwrap_or("");
+            out.push_str(&format!(
+                "            t[i + 1] = C.Az{}_clone(self.ptr[i])\n",
+                elem_ty
+            ));
+        } else {
+            out.push_str("            -- WARNING: element has no _clone — borrowed view dangles if the Vec is closed.\n");
+            out.push_str("            t[i + 1] = self.ptr[i]\n");
+        }
+
         out.push_str("        end\n");
         out.push_str("        return t\n");
         out.push_str("    end\n");

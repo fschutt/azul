@@ -238,7 +238,7 @@ fn emit_class_wrapper(
 fn emit_rb_each_if_vec(
     builder: &mut CodeBuilder,
     s: &StructDef,
-    _ir: &CodegenIR,
+    ir: &CodegenIR,
 ) {
     let Some(elem_rust) = detect_vec_elem_type(s) else {
         return;
@@ -281,15 +281,42 @@ fn emit_rb_each_if_vec(
         };
         builder.line(&format!("(0...n).each {{ |i| yield (buf + i * {}).{} }}", elem_size, read_method));
     } else {
-        // Struct element: overlay FFI::Struct per offset.
+        // Struct element. The naive `Native::Az<T>.new(buf + i*size)`
+        // overlay would dangle the moment this Vec is closed —
+        // every yielded element would carry a pointer into the
+        // Vec's owned heap. Clone each element via `Az<T>_clone`
+        // (when available) so the yielded FFI::Struct owns its own
+        // heap allocations and survives the Vec being closed.
+        // Mirrors Java/Kotlin/C# Vec-iterator clone-via-_clone
+        // pattern (commit 4edb65d7c).
         let elem_prefixed = format!("Az{}", elem_rust);
+        let elem_snake = super::types::snake_case(&elem_rust);
+        let has_clone = ir.functions.iter().any(|f| {
+            f.class_name == elem_rust
+                && matches!(f.kind, FunctionKind::DeepCopy)
+        });
         builder.line(&format!("elem_size = Native::{}.size", elem_prefixed));
         builder.line("(0...n).each do |i|");
         builder.indent();
-        builder.line(&format!(
-            "yield Native::{}.new(buf + i * elem_size)",
-            elem_prefixed
-        ));
+        if has_clone {
+            // Clone via the C export. `Native.az_<elem>_clone`
+            // returns a fresh FFI::Struct whose internal heap
+            // allocations are independent of the Vec's buffer.
+            builder.line(&format!(
+                "yield Native.az_{}_clone(buf + i * elem_size)",
+                elem_snake
+            ));
+        } else {
+            // No _clone available — fall back to the borrowed
+            // overlay shape and rely on the user not retaining
+            // yielded elements past the Vec's lifetime. Comment
+            // emitted for runtime clarity.
+            builder.line("# WARNING: element type has no _clone — yielded values borrow from the Vec's buffer.");
+            builder.line(&format!(
+                "yield Native::{}.new(buf + i * elem_size)",
+                elem_prefixed
+            ));
+        }
         builder.dedent();
         builder.line("end");
     }
