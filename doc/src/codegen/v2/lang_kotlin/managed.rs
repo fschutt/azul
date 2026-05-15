@@ -364,6 +364,8 @@ fn emit_kt_typed_invoker_sam(
     builder.line("rawStruct.read()");
     builder.line("val sz = rawStruct.size()");
     builder.line("outPtr?.write(0, rawStruct.pointer.getByteArray(0, sz), 0, sz)");
+    // libazul takes ownership of the struct bytes via outPtr.
+    builder.line("result.__consume()");
     builder.dedent();
     builder.line("}");
     builder.line(&format!("return register{}(raw as Any)", wrapper));

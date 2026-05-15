@@ -625,6 +625,20 @@ fn emit_close_method(builder: &mut CodeBuilder, raw_type_name: &str, class_name:
     builder.line("}");
     builder.blank();
 
+    // Mark this wrapper as consumed without calling Az<X>_delete.
+    // Used by codegen-emitted call sites where the C ABI takes
+    // ownership of the underlying bytes by-value (DeepCopy `with_*`
+    // methods, owned-by-value wrapper args, CC-2 typed-SAM byte
+    // splice). Without this, the wrapper's deferred finalizer
+    // double-drops the now-Rust-owned struct.
+    builder.line("/** Internal: mark consumed (called by codegen-emitted bridges that transfer ownership to the C ABI by-value). */");
+    builder.line("void __consume() {");
+    builder.indent();
+    builder.line("closed = true;");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+
     // Defensive finalizer in case the user forgets try-with-resources.
     builder.line("@Override");
     builder.line("@SuppressWarnings(\"deprecation\")");
@@ -887,6 +901,10 @@ fn emit_wrapper_method(
 
     let mut pre_call_lines: Vec<String> = Vec::new();
     let mut call_args: Vec<String> = Vec::new();
+    // After the C-ABI call, mark these wrapper names consumed (no-ops
+    // their finalizer's AzX_delete) — the C side took ownership of
+    // their bytes by-value.
+    let mut consume_after_call: Vec<String> = Vec::new();
     if takes_self {
         if self_by_value {
             // Build a JNA `.ByValue` Structure overlaying our pointer
@@ -900,6 +918,11 @@ fn emit_wrapper_method(
             ));
             pre_call_lines.push("__self.read();".to_string());
             call_args.push("__self".to_string());
+            // DeepCopy / consuming-self method: the C ABI takes the
+            // struct by-value; this wrapper's bytes are now Rust-owned
+            // and will be dropped by libazul. Mark `this` consumed so
+            // the deferred finalizer doesn't double-drop.
+            consume_after_call.push("this".to_string());
         } else {
             call_args.push("this.ptr".to_string());
         }
@@ -956,6 +979,11 @@ fn emit_wrapper_method(
             ));
             pre_call_lines.push(format!("{}.read();", raw_local));
             call_args.push(raw_local);
+            // C ABI receives the struct by-value → take ownership of
+            // the underlying heap allocations. Mark the caller's
+            // wrapper consumed so its deferred finalizer doesn't
+            // double-drop.
+            consume_after_call.push(raw_name.clone());
         } else {
             call_args.push(raw_name);
         }
@@ -1056,12 +1084,20 @@ fn emit_wrapper_method(
         call_args.join(", ")
     );
 
+    let emit_consume = |b: &mut CodeBuilder| {
+        for name in &consume_after_call {
+            b.line(&format!("{}.__consume();", name));
+        }
+    };
+
     if return_jvm == "void" {
         builder.line(&format!("{};", call));
+        emit_consume(builder);
     } else if returns_self {
         // The C ABI returned a struct-by-value; the JNA shim returned a
         // ByValue Structure. We adopt its `Pointer` for the wrapper.
         builder.line(&format!("{} __raw = {};", return_jvm, call));
+        emit_consume(builder);
         builder.line(&format!(
             "return new {}(__raw.getPointer());",
             class_name
@@ -1070,6 +1106,7 @@ fn emit_wrapper_method(
         // Non-self wrapper-class return: same shape as returns_self
         // but wraps in the return-type's wrapper class.
         builder.line(&format!("{} __raw = {};", return_jvm, call));
+        emit_consume(builder);
         builder.line(&format!(
             "return new {}(__raw.getPointer());",
             wrapper
@@ -1082,6 +1119,7 @@ fn emit_wrapper_method(
             } => {
                 let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
                 builder.line(&format!("{} __ret = {};", return_jvm, call));
+                emit_consume(builder);
                 emit_option_return_body(builder, &raw, ir);
             }
             ReturnIdiom::Result {
@@ -1090,10 +1128,19 @@ fn emit_wrapper_method(
             } => {
                 let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
                 builder.line(&format!("{} __ret = {};", return_jvm, call));
+                emit_consume(builder);
                 emit_result_return_body(builder, &raw, ir);
             }
             ReturnIdiom::Plain => {
-                builder.line(&format!("return {};", call));
+                if consume_after_call.is_empty() {
+                    builder.line(&format!("return {};", call));
+                } else {
+                    // Capture result so consume calls can run between
+                    // call and return without inlining side-effects.
+                    builder.line(&format!("{} __ret = {};", return_jvm, call));
+                    emit_consume(builder);
+                    builder.line("return __ret;");
+                }
             }
         }
     }

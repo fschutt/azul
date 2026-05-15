@@ -570,6 +570,17 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     builder.line("closed = true");
     builder.dedent();
     builder.line("}");
+    builder.blank();
+
+    // Mark this wrapper as consumed without calling Az<X>_delete.
+    // Used by codegen-emitted call sites where the C ABI takes
+    // ownership of the underlying bytes by-value.
+    builder.line("/** Internal: mark consumed (called by codegen-emitted bridges that transfer ownership to the C ABI by-value). */");
+    builder.line("internal fun __consume() {");
+    builder.indent();
+    builder.line("closed = true");
+    builder.dedent();
+    builder.line("}");
 
     builder.dedent();
     builder.line("}");
@@ -889,6 +900,7 @@ fn emit_static_factory(
     // class args take the wrapper instance + emit Structure.newInstance
     // splice in pre-call lines.
     let mut pre_call_lines: Vec<String> = Vec::new();
+    let mut consume_after_call: Vec<String> = Vec::new();
     let call_args: Vec<String> = func
         .args
         .iter()
@@ -897,7 +909,13 @@ fn emit_static_factory(
             if is_az_string_owned_arg(a) {
                 emit_kt_az_string_conv(&mut pre_call_lines, &raw_name)
             } else if is_wrapper_class_owned_arg(a, ir) {
-                emit_kt_wrapper_class_conv(&mut pre_call_lines, &raw_name, a.type_name.trim())
+                let local =
+                    emit_kt_wrapper_class_conv(&mut pre_call_lines, &raw_name, a.type_name.trim());
+                // C ABI consumes the by-value struct; mark the
+                // caller's wrapper so its deferred finalizer skips
+                // AzX_delete.
+                consume_after_call.push(raw_name);
+                local
             } else {
                 raw_name
             }
@@ -975,19 +993,34 @@ fn emit_static_factory(
         call_args.join(", ")
     );
 
+    let emit_consume = |b: &mut CodeBuilder, names: &[String]| {
+        for name in names {
+            b.line(&format!("{}.__consume()", name));
+        }
+    };
+
     if return_kt == "Unit" {
         builder.line(&format!("{}", call));
+        emit_consume(builder, &consume_after_call);
     } else if returns_self {
         // ByValue → adopt its underlying Pointer.
         builder.line(&format!("val raw = {}", call));
+        emit_consume(builder, &consume_after_call);
         builder.line(&format!("return {}(raw.pointer)", class_name));
     } else if let Some(ref wrapper) = returns_wrapper_other {
         builder.line(&format!("val raw = {}", call));
+        emit_consume(builder, &consume_after_call);
         builder.line(&format!("return {}(raw.pointer)", wrapper));
     } else {
         match &idiom {
             ReturnIdiom::Plain => {
-                builder.line(&format!("return {}", call));
+                if consume_after_call.is_empty() {
+                    builder.line(&format!("return {}", call));
+                } else {
+                    builder.line(&format!("val __ret = {}", call));
+                    emit_consume(builder, &consume_after_call);
+                    builder.line("return __ret");
+                }
             }
             ReturnIdiom::Option {
                 payload_ty,
@@ -995,6 +1028,7 @@ fn emit_static_factory(
             } => {
                 let (raw, _) = super::ref_kind_kt_field(payload_ty, ref_kind, ir);
                 builder.line(&format!("val __ret = {}", call));
+                emit_consume(builder, &consume_after_call);
                 emit_kt_option_body(builder, &raw, ir);
             }
             ReturnIdiom::Result {
@@ -1003,6 +1037,7 @@ fn emit_static_factory(
             } => {
                 let (raw, _) = super::ref_kind_kt_field(payload_ty, ref_kind, ir);
                 builder.line(&format!("val __ret = {}", call));
+                emit_consume(builder, &consume_after_call);
                 emit_kt_result_body(builder, &raw, ir);
             }
         }
@@ -1071,6 +1106,7 @@ fn emit_instance_method(
         .collect();
 
     let mut pre_call_lines: Vec<String> = Vec::new();
+    let mut consume_after_call: Vec<String> = Vec::new();
     let self_arg = if self_by_value {
         let self_ty = format!("Az{}", func.class_name);
         pre_call_lines.push(format!(
@@ -1078,6 +1114,8 @@ fn emit_instance_method(
             self_ty, self_ty
         ));
         pre_call_lines.push("__self.read()".to_string());
+        // DeepCopy / consuming-self method.
+        consume_after_call.push("this".to_string());
         "__self".to_string()
     } else {
         "this.ptr".to_string()
@@ -1096,6 +1134,7 @@ fn emit_instance_method(
         } else if is_wrapper_class_owned_arg(a, ir) {
             let raw_local =
                 emit_kt_wrapper_class_conv(&mut pre_call_lines, &raw_name, a.type_name.trim());
+            consume_after_call.push(raw_name);
             call_args.push(raw_local);
         } else {
             call_args.push(raw_name);
@@ -1174,18 +1213,33 @@ fn emit_instance_method(
         call_args.join(", ")
     );
 
+    let emit_consume = |b: &mut CodeBuilder, names: &[String]| {
+        for name in names {
+            b.line(&format!("{}.__consume()", name));
+        }
+    };
+
     if return_kt == "Unit" {
         builder.line(&format!("{}", call));
+        emit_consume(builder, &consume_after_call);
     } else if returns_self {
         builder.line(&format!("val raw = {}", call));
+        emit_consume(builder, &consume_after_call);
         builder.line(&format!("return {}(raw.pointer)", class_name));
     } else if let Some(ref wrapper) = returns_wrapper_other {
         builder.line(&format!("val raw = {}", call));
+        emit_consume(builder, &consume_after_call);
         builder.line(&format!("return {}(raw.pointer)", wrapper));
     } else {
         match &idiom {
             ReturnIdiom::Plain => {
-                builder.line(&format!("return {}", call));
+                if consume_after_call.is_empty() {
+                    builder.line(&format!("return {}", call));
+                } else {
+                    builder.line(&format!("val __ret = {}", call));
+                    emit_consume(builder, &consume_after_call);
+                    builder.line("return __ret");
+                }
             }
             ReturnIdiom::Option {
                 payload_ty,
@@ -1193,6 +1247,7 @@ fn emit_instance_method(
             } => {
                 let (raw, _) = super::ref_kind_kt_field(payload_ty, ref_kind, ir);
                 builder.line(&format!("val __ret = {}", call));
+                emit_consume(builder, &consume_after_call);
                 emit_kt_option_body(builder, &raw, ir);
             }
             ReturnIdiom::Result {
@@ -1201,6 +1256,7 @@ fn emit_instance_method(
             } => {
                 let (raw, _) = super::ref_kind_kt_field(payload_ty, ref_kind, ir);
                 builder.line(&format!("val __ret = {}", call));
+                emit_consume(builder, &consume_after_call);
                 emit_kt_result_body(builder, &raw, ir);
             }
         }

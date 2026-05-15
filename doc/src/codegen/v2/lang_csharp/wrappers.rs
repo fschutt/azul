@@ -815,6 +815,22 @@ fn emit_dispose_methods(builder: &mut CodeBuilder, class_name: &str, raw_type_na
 
     builder.line(&format!("~{}() {{ Dispose(false); }}", class_name));
     builder.blank();
+
+    // Mark this wrapper as consumed without calling Az<X>_delete.
+    // Used by codegen-emitted call sites where the C ABI takes
+    // ownership of the underlying bytes by-value (DeepCopy `with_*`
+    // methods, owned-by-value wrapper args, CC-2 typed-SAM byte
+    // splice). Sets `_disposed = true` and suppresses the finalizer
+    // so the deferred ~ClassName() doesn't double-drop.
+    builder.line("/// <summary>Internal: mark consumed (used by codegen-emitted bridges that transfer ownership by-value to the C ABI).</summary>");
+    builder.line("internal void __Consume()");
+    builder.line("{");
+    builder.indent();
+    builder.line("_disposed = true;");
+    builder.line("System.GC.SuppressFinalize(this);");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
 }
 
 // ============================================================================
@@ -933,9 +949,15 @@ fn emit_wrapper_method(
             ArgRefKind::Owned
         )).unwrap_or(false);
     let mut call_args: Vec<String> = Vec::new();
+    // Names to mark consumed (no-op their finalizer's Az<X>_delete)
+    // after the C-ABI call: any wrapper passed by-value, plus the
+    // implicit `this` when self_by_value.
+    let mut consume_after_call: Vec<String> = Vec::new();
     if takes_self {
         if self_by_value {
             call_args.push("_inner".to_string());
+            // DeepCopy / consuming-self method.
+            consume_after_call.push("this".to_string());
         } else {
             call_args.push("(IntPtr)__self".to_string());
         }
@@ -1012,6 +1034,9 @@ fn emit_wrapper_method(
             // — reach in directly. No struct-to-pointer marshal needed
             // because C# struct-field-assignment is a byte copy.
             call_args.push(format!("{}.Raw", raw_name));
+            // C ABI takes by-value; the caller's wrapper is now
+            // ownership-transferred. Mark consumed.
+            consume_after_call.push(raw_name.clone());
         } else {
             call_args.push(raw_name);
         }
@@ -1183,18 +1208,25 @@ fn emit_wrapper_method(
         builder.line(&format!(
             "System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, __self, false);",
         ));
+        let emit_cs_consume = |b: &mut CodeBuilder, names: &[String]| {
+            for n in names {
+                b.line(&format!("{}.__Consume();", n));
+            }
+        };
         if return_cs == "void" {
             builder.line(&format!("{};", call));
             builder.line(&format!(
                 "_inner = System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__self);",
                 ffi_class_name
             ));
+            emit_cs_consume(builder, &consume_after_call);
         } else if returns_self {
             builder.line(&format!("var __raw = {};", call));
             builder.line(&format!(
                 "_inner = System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__self);",
                 ffi_class_name
             ));
+            emit_cs_consume(builder, &consume_after_call);
             builder.line(&format!("return new {}(__raw);", class_name));
         } else if let Some(ref wrapper) = returns_wrapper_other {
             builder.line(&format!("var __raw = {};", call));
@@ -1202,6 +1234,7 @@ fn emit_wrapper_method(
                 "_inner = System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__self);",
                 ffi_class_name
             ));
+            emit_cs_consume(builder, &consume_after_call);
             builder.line(&format!("return new {}(__raw);", wrapper));
         } else {
             builder.line(&format!("var __ret = {};", call));
@@ -1209,6 +1242,7 @@ fn emit_wrapper_method(
                 "_inner = System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__self);",
                 ffi_class_name
             ));
+            emit_cs_consume(builder, &consume_after_call);
             match &idiom {
                 ReturnIdiom::Plain => builder.line("return __ret;"),
                 ReturnIdiom::Option { payload_ty, ref_kind } => {
@@ -1231,51 +1265,89 @@ fn emit_wrapper_method(
         builder.line("}");
     } else if takes_self && self_by_value {
         // By-value self: simple call, no Marshal needed.
+        let emit_cs_consume = |b: &mut CodeBuilder, names: &[String]| {
+            for n in names {
+                b.line(&format!("{}.__Consume();", n));
+            }
+        };
         if return_cs == "void" {
             builder.line(&format!("{};", call));
+            emit_cs_consume(builder, &consume_after_call);
         } else if returns_self {
             builder.line(&format!("var __raw = {};", call));
+            emit_cs_consume(builder, &consume_after_call);
             builder.line(&format!("return new {}(__raw);", class_name));
         } else if let Some(ref wrapper) = returns_wrapper_other {
             builder.line(&format!("var __raw = {};", call));
+            emit_cs_consume(builder, &consume_after_call);
             builder.line(&format!("return new {}(__raw);", wrapper));
         } else {
             match &idiom {
-                ReturnIdiom::Plain => builder.line(&format!("return {};", call)),
+                ReturnIdiom::Plain => {
+                    if consume_after_call.is_empty() {
+                        builder.line(&format!("return {};", call));
+                    } else {
+                        builder.line(&format!("var __ret = {};", call));
+                        emit_cs_consume(builder, &consume_after_call);
+                        builder.line("return __ret;");
+                    }
+                }
                 ReturnIdiom::Option { payload_ty, ref_kind } => {
                     let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
                     builder.line(&format!("var __ret = {};", call));
+                    emit_cs_consume(builder, &consume_after_call);
                     emit_cs_option_body(builder, &raw, ir);
                 }
                 ReturnIdiom::Result { payload_ty, ref_kind } => {
                     let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
                     builder.line(&format!("var __ret = {};", call));
+                    emit_cs_consume(builder, &consume_after_call);
                     emit_cs_result_body(builder, &raw, ir);
                 }
             };
         }
-    } else if return_cs == "void" {
-        builder.line(&format!("{};", call));
-    } else if returns_self {
-        builder.line(&format!("var __raw = {};", call));
-        builder.line(&format!("return new {}(__raw);", class_name));
-    } else if let Some(ref wrapper) = returns_wrapper_other {
-        builder.line(&format!("var __raw = {};", call));
-        builder.line(&format!("return new {}(__raw);", wrapper));
     } else {
-        match &idiom {
-            ReturnIdiom::Plain => builder.line(&format!("return {};", call)),
-            ReturnIdiom::Option { payload_ty, ref_kind } => {
-                let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
-                builder.line(&format!("var __ret = {};", call));
-                emit_cs_option_body(builder, &raw, ir);
-            }
-            ReturnIdiom::Result { payload_ty, ref_kind } => {
-                let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
-                builder.line(&format!("var __ret = {};", call));
-                emit_cs_result_body(builder, &raw, ir);
+        let emit_cs_consume = |b: &mut CodeBuilder, names: &[String]| {
+            for n in names {
+                b.line(&format!("{}.__Consume();", n));
             }
         };
+        if return_cs == "void" {
+            builder.line(&format!("{};", call));
+            emit_cs_consume(builder, &consume_after_call);
+        } else if returns_self {
+            builder.line(&format!("var __raw = {};", call));
+            emit_cs_consume(builder, &consume_after_call);
+            builder.line(&format!("return new {}(__raw);", class_name));
+        } else if let Some(ref wrapper) = returns_wrapper_other {
+            builder.line(&format!("var __raw = {};", call));
+            emit_cs_consume(builder, &consume_after_call);
+            builder.line(&format!("return new {}(__raw);", wrapper));
+        } else {
+            match &idiom {
+                ReturnIdiom::Plain => {
+                    if consume_after_call.is_empty() {
+                        builder.line(&format!("return {};", call));
+                    } else {
+                        builder.line(&format!("var __ret = {};", call));
+                        emit_cs_consume(builder, &consume_after_call);
+                        builder.line("return __ret;");
+                    }
+                }
+                ReturnIdiom::Option { payload_ty, ref_kind } => {
+                    let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
+                    builder.line(&format!("var __ret = {};", call));
+                    emit_cs_consume(builder, &consume_after_call);
+                    emit_cs_option_body(builder, &raw, ir);
+                }
+                ReturnIdiom::Result { payload_ty, ref_kind } => {
+                    let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
+                    builder.line(&format!("var __ret = {};", call));
+                    emit_cs_consume(builder, &consume_after_call);
+                    emit_cs_result_body(builder, &raw, ir);
+                }
+            };
+        }
     }
 
     builder.dedent();

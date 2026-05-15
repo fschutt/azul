@@ -497,6 +497,9 @@ fn emit_typed_invoker_sam(
     b.line("raw_struct.read();");
     b.line("int sz = raw_struct.size();");
     b.line("outPtr.write(0, raw_struct.getPointer().getByteArray(0, sz), 0, sz);");
+    // libazul takes ownership of the struct bytes via outPtr; the
+    // user's wrapper would otherwise double-drop on GC.
+    b.line("result.__consume();");
     b.dedent();
     b.line("};");
     b.line(&format!("return register{}((Object) raw);", wrapper));
