@@ -658,7 +658,7 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     // JNA Structure.newInstance.
     if let Some(elem) = vec_elem_type.as_deref() {
         if vec_elem_has_wrapper(elem) {
-            emit_kt_vec_iterator(builder, s, elem);
+            emit_kt_vec_iterator(builder, s, elem, ir);
         }
     }
 
@@ -896,20 +896,32 @@ fn emit_kt_toString_if_supported(
     builder.blank();
 }
 
-/// Phase I.1.3 (Kotlin): emit `iterator()` body for a Vec wrapper.
-/// Same JNA Structure overlay pattern as Java I.1.2.
+/// Iterate the underlying Vec yielding wrapper elements. Each
+/// element is deep-cloned via the type's `_clone` C export so the
+/// yielded wrapper owns its own heap allocations and survives the
+/// Vec being closed. If no `_clone` export exists, fall back to a
+/// buffer-borrowed wrapper marked consumed (no finalize-time
+/// `AzX_delete` on Vec-internal memory).
 fn emit_kt_vec_iterator(
     builder: &mut CodeBuilder,
     s: &StructDef,
     elem_type: &str,
+    ir: &CodegenIR,
 ) {
     let vec_ffi = ffi_type_name(&s.name);
     let elem_ffi = ffi_type_name(elem_type);
     let elem_wrapper = sanitize_kt_identifier(elem_type);
+    let clone_call = format_clone_call_kt(elem_type, ir);
+
     builder.line(&format!(
-        "/// Phase I.1: iterate the underlying Vec yielding {} elements.",
+        "/// Iterate the underlying Vec yielding {} elements.",
         elem_wrapper
     ));
+    if clone_call.is_some() {
+        builder.line("/// Each element is deep-cloned via _clone; safe past Vec close.");
+    } else {
+        builder.line("/// Buffer-borrowed iteration (no _clone available); don't keep yielded wrappers past the Vec's lifetime.");
+    }
     builder.line(&format!(
         "override fun iterator(): Iterator<{}> {{",
         elem_wrapper
@@ -938,12 +950,23 @@ fn emit_kt_vec_iterator(
     builder.line("if (__i >= __n) throw NoSuchElementException()");
     builder.line("val __ep = __buf!!.share(__i * __sz)");
     builder.line("__i++");
-    builder.line(&format!(
-        "val __ev = Structure.newInstance({}.ByValue::class.java, __ep) as {}.ByValue",
-        elem_ffi, elem_ffi
-    ));
-    builder.line("__ev.read()");
-    builder.line(&format!("return {}(__ev.pointer)", elem_wrapper));
+    if let Some(ref clone) = clone_call {
+        builder.line(&format!(
+            "val __cloned = {}(__ep) as {}.ByValue",
+            clone, elem_ffi
+        ));
+        builder.line("__cloned.write()");
+        builder.line(&format!("return {}(__cloned.pointer)", elem_wrapper));
+    } else {
+        builder.line(&format!(
+            "val __ev = Structure.newInstance({}.ByValue::class.java, __ep) as {}.ByValue",
+            elem_ffi, elem_ffi
+        ));
+        builder.line("__ev.read()");
+        builder.line(&format!("val __borrowed = {}(__ev.pointer)", elem_wrapper));
+        builder.line("__borrowed.__consume()");
+        builder.line("return __borrowed");
+    }
     builder.dedent();
     builder.line("}");
     builder.dedent();

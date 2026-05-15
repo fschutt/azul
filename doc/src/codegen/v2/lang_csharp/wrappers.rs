@@ -689,7 +689,7 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     // Phase I.1.5 (C#): GetEnumerator() body for Vec wrappers.
     if let Some(elem) = vec_elem_type.as_deref() {
         if vec_elem_has_wrapper(elem) {
-            emit_cs_vec_enumerator(builder, s, elem);
+            emit_cs_vec_enumerator(builder, s, elem, ir);
         }
     }
 
@@ -860,20 +860,33 @@ fn emit_cs_toString_if_supported(
     builder.blank();
 }
 
-/// Phase I.1.5 (C#): IEnumerable<T> GetEnumerator() body for a Vec
-/// wrapper. Iterates `_inner.ptr[0..len]` overlaying AzElem via
-/// Marshal.PtrToStructure.
+/// IEnumerable<T> GetEnumerator() body for a Vec wrapper.
+///
+/// Each yielded element is deep-cloned via the element type's
+/// `_clone` C export so the wrapper owns its own heap allocations
+/// and survives the Vec being disposed. If `_clone` isn't
+/// available, fall back to a buffer-borrowed wrapper marked
+/// consumed (its `Dispose()` is a no-op so no AzX_delete on
+/// Vec-internal memory).
 fn emit_cs_vec_enumerator(
     builder: &mut CodeBuilder,
     _s: &StructDef,
     elem_type: &str,
+    ir: &CodegenIR,
 ) {
     let elem_ffi = format!("Az{}", elem_type);
     let elem_wrapper = sanitize_class_name(elem_type);
+    let clone_call = format_clone_call_cs(elem_type, ir);
+
     builder.line(&format!(
-        "/// <summary>Phase I.1: iterate the Vec yielding {} elements.</summary>",
+        "/// <summary>Iterate the Vec yielding {} elements.</summary>",
         elem_wrapper
     ));
+    if clone_call.is_some() {
+        builder.line("/// <remarks>Each element is deep-cloned via _clone; safe past Vec dispose.</remarks>");
+    } else {
+        builder.line("/// <remarks>Buffer-borrowed iteration (no _clone available); don't keep yielded wrappers past the Vec's lifetime.</remarks>");
+    }
     builder.line(&format!(
         "public System.Collections.Generic.IEnumerator<{}> GetEnumerator()",
         elem_wrapper
@@ -890,14 +903,22 @@ fn emit_cs_vec_enumerator(
     builder.line("for (long __i = 0; __i < __n; __i++)");
     builder.line("{");
     builder.indent();
-    builder.line(&format!(
-        "var __ep = System.IntPtr.Add(__buf, (int)(__i * __sz));"
-    ));
-    builder.line(&format!(
-        "var __ev = System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__ep);",
-        elem_ffi
-    ));
-    builder.line(&format!("yield return new {}(__ev);", elem_wrapper));
+    builder.line("var __ep = System.IntPtr.Add(__buf, (int)(__i * __sz));");
+    if let Some(ref clone) = clone_call {
+        builder.line(&format!("var __cloned = {}(__ep);", clone));
+        builder.line(&format!("yield return new {}(__cloned);", elem_wrapper));
+    } else {
+        builder.line(&format!(
+            "var __ev = System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__ep);",
+            elem_ffi
+        ));
+        builder.line(&format!(
+            "var __borrowed = new {}(__ev);",
+            elem_wrapper
+        ));
+        builder.line("__borrowed.__Consume();");
+        builder.line("yield return __borrowed;");
+    }
     builder.dedent();
     builder.line("}");
     builder.dedent();

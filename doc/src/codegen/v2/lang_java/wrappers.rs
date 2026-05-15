@@ -378,7 +378,7 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     // ptr+len, and walks the buffer one element at a time.
     if let Some(elem) = vec_elem_type.as_deref() {
         if ir.find_struct(elem).is_some() && has_delete_function(elem, ir) {
-            emit_jvm_vec_iterator(builder, s, elem);
+            emit_jvm_vec_iterator(builder, s, elem, ir);
         }
     }
 
@@ -544,24 +544,60 @@ fn detect_vec_elem_type_jvm(s: &StructDef) -> Option<String> {
     Some(elem.to_string())
 }
 
-/// Emit `Iterable<T>.iterator()` body for a Vec wrapper. Reads
-/// ptr/len from the underlying AzXVec struct overlay, then yields
-/// wrapper-class instances by overlaying each element at
-/// `ptr + i * elemSize`.
+/// Emit `Iterable<T>.iterator()` body for a Vec wrapper.
+///
+/// **Memory safety**: each `next()` call clones the element via the
+/// type's `Az<X>_clone` C export so the returned wrapper owns its
+/// own heap allocations independent of the Vec's buffer. Without
+/// the clone, every element wrapper would hold a Pointer into the
+/// Vec's `ptr` buffer — closing the Vec (or GC'ing it) would free
+/// that buffer and leave every yielded wrapper dangling. The
+/// per-element clone cost is amortized over typical iteration; for
+/// hot loops over primitive-element Vecs we fall back to the
+/// codegen-emitted `toByteArray` / `toIntArray` / etc. helpers
+/// which copy the whole buffer once.
+///
+/// If the element type doesn't expose a `_clone` C export, fall
+/// back to a borrow-shape iterator that yields wrappers backed by
+/// the Vec's buffer + arms the wrappers consumed so their
+/// finalize-time `AzX_delete` doesn't try to free Vec-internal
+/// memory.
 fn emit_jvm_vec_iterator(
     builder: &mut CodeBuilder,
     s: &StructDef,
     elem_type: &str,
+    ir: &CodegenIR,
 ) {
     let vec_ffi = ffi_type_name(&s.name);
     let elem_ffi = ffi_type_name(elem_type);
     let elem_wrapper = wrapper_class_name(elem_type);
+    let clone_call = format_clone_call_jvm(elem_type, ir);
+
     builder.line("/**");
     builder.line(&format!(
-        " * Phase I.1: iterate the underlying Vec yielding {} elements.",
+        " * Iterate the underlying Vec yielding {} elements. Each",
         elem_wrapper
     ));
-    builder.line(" * Each element overlays a slice of the native buffer via JNA.");
+    if clone_call.is_some() {
+        builder.line(
+            " * element is deep-cloned via the type's _clone C export so the",
+        );
+        builder.line(
+            " * yielded wrapper owns its own heap allocations and survives",
+        );
+        builder.line(" * the Vec being closed.");
+    } else {
+        builder.line(
+            " * element is a buffer-borrowed wrapper marked consumed (no",
+        );
+        builder.line(
+            " * finalize-time AzX_delete on Vec-internal memory). Treat",
+        );
+        builder.line(
+            " * iteration as single-pass: don't store yielded wrappers past",
+        );
+        builder.line(" * the Vec's lifetime.");
+    }
     builder.line(" */");
     builder.line("@Override");
     builder.line(&format!(
@@ -593,12 +629,35 @@ fn emit_jvm_vec_iterator(
     builder.line("if (__i >= __n) throw new java.util.NoSuchElementException();");
     builder.line("Pointer __ep = __buf.share(__i * __sz);");
     builder.line("__i++;");
-    builder.line(&format!(
-        "{}.ByValue __ev = ({}.ByValue) Structure.newInstance({}.ByValue.class, __ep);",
-        elem_ffi, elem_ffi, elem_ffi
-    ));
-    builder.line("__ev.read();");
-    builder.line(&format!("return new {}(__ev.getPointer());", elem_wrapper));
+    if let Some(ref clone) = clone_call {
+        // Deep-clone via the type's _clone C export. The returned
+        // wrapper owns its own heap allocations; safe even after
+        // the Vec is closed.
+        builder.line(&format!(
+            "{}.ByValue __cloned = {}(__ep);",
+            elem_ffi, clone
+        ));
+        builder.line("__cloned.write();");
+        builder.line(&format!(
+            "return new {}(__cloned.getPointer());",
+            elem_wrapper
+        ));
+    } else {
+        // No _clone available — yield a buffer-borrowed wrapper and
+        // mark it consumed so finalize() skips AzX_delete on
+        // Vec-internal memory.
+        builder.line(&format!(
+            "{}.ByValue __ev = ({}.ByValue) Structure.newInstance({}.ByValue.class, __ep);",
+            elem_ffi, elem_ffi, elem_ffi
+        ));
+        builder.line("__ev.read();");
+        builder.line(&format!(
+            "{} __borrowed = new {}(__ev.getPointer());",
+            elem_wrapper, elem_wrapper
+        ));
+        builder.line("__borrowed.__consume();");
+        builder.line("return __borrowed;");
+    }
     builder.dedent();
     builder.line("}");
     builder.dedent();
