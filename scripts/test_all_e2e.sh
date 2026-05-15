@@ -100,10 +100,72 @@ else
     SKIP_LIST+=("scala: scalac/java not in PATH")
 fi
 
-# (Java, Kotlin: need mvn package / kotlinc to compile a runnable jar.
-# Add when CI environment guarantees those toolchains.)
+# Java — mvn package, then java with JNA.
+# Compile step is gated by mvn availability; runtime is gated by the jar
+# existing (so a previously-built CI artefact still runs without mvn).
+run_java() {
+    pushd "$ROOT/examples/java" >/dev/null
+    if [ ! -f "target/hello-world-1.0.0.jar" ]; then
+        if ! command -v mvn >/dev/null 2>&1; then
+            SKIP_LIST+=("java: target/hello-world-1.0.0.jar missing and mvn not in PATH")
+            popd >/dev/null; return
+        fi
+        if ! mvn -q package > /tmp/java_compile.log 2>&1; then
+            echo "[java] mvn package FAIL — see /tmp/java_compile.log"
+            FAIL_LIST+=("java")
+            popd >/dev/null; return
+        fi
+    fi
+    DYLD_LIBRARY_PATH=. AZ_DEBUG=18005 run_with_probe java 18005 \
+        java -XstartOnFirstThread -Djna.library.path=. \
+             -cp "target/hello-world-1.0.0.jar:$JNA_JAR" \
+             com.azul.HelloWorld
+    popd >/dev/null
+}
+if command -v java >/dev/null 2>&1 && [ -f "$JNA_JAR" ]; then
+    run_java
+else
+    SKIP_LIST+=("java: java not in PATH or JNA_JAR missing ($JNA_JAR)")
+fi
 
-# Go / Zig / C# / OCaml — placeholder hooks; uncomment when a runnable
+# Kotlin — kotlinc -> hello-world.jar, then java with JNA.
+run_kotlin() {
+    pushd "$ROOT/examples/kotlin" >/dev/null
+    if [ ! -f "hello-world.jar" ]; then
+        if ! command -v kotlinc >/dev/null 2>&1; then
+            SKIP_LIST+=("kotlin: hello-world.jar missing and kotlinc not in PATH")
+            popd >/dev/null; return
+        fi
+        if ! kotlinc -J-Xmx4g -cp "$JNA_JAR" Azul.kt HelloWorld.kt -include-runtime \
+                -d hello-world.jar > /tmp/kotlin_compile.log 2>&1; then
+            echo "[kotlin] kotlinc FAIL — see /tmp/kotlin_compile.log"
+            FAIL_LIST+=("kotlin")
+            popd >/dev/null; return
+        fi
+    fi
+    DYLD_LIBRARY_PATH=. AZ_DEBUG=18006 run_with_probe kotlin 18006 \
+        java -XstartOnFirstThread -Djna.library.path=. \
+             -cp "hello-world.jar:$JNA_JAR" \
+             com.azul.HelloWorldKt
+    popd >/dev/null
+}
+if command -v java >/dev/null 2>&1 && [ -f "$JNA_JAR" ]; then
+    run_kotlin
+else
+    SKIP_LIST+=("kotlin: java not in PATH or JNA_JAR missing ($JNA_JAR)")
+fi
+
+# C# — dotnet run. dotnet builds in-place; no separate compile guard.
+if command -v dotnet >/dev/null 2>&1; then
+    pushd "$ROOT/examples/csharp" >/dev/null
+    DYLD_LIBRARY_PATH=. AZ_DEBUG=18007 run_with_probe csharp 18007 \
+        dotnet run -c Release
+    popd >/dev/null
+else
+    SKIP_LIST+=("csharp: dotnet not in PATH")
+fi
+
+# Go / Zig / OCaml — placeholder hooks; uncomment when a runnable
 # binary is built in CI for each. The probe script itself is binding-
 # agnostic — only the launch invocation differs.
 
