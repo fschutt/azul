@@ -39,21 +39,30 @@ let layout (data_ptr : unit Ctypes.ptr) (_info : unit Ctypes.ptr)
       let click_cb = Azul.azul_register_callback on_click in
       let click_data = Azul.azul_refany_create m in
 
-      let counter_dom = Azul.Dom.create_text (string_of_int m.counter) in
+      (* CC-6: `with_*` functions take the receiver as their first arg
+         and consume it. To compose them with OCaml's `|>` pipeline we
+         flip the arg order at the call site with local helpers — same
+         semantics, but the value flows left-to-right top-down. *)
+      let with_css css d        = Azul.Dom.with_css d css in
+      let with_child child d    = Azul.Dom.with_child d child in
+      let as_btn_type t b       = Azul.Button.with_button_type b t in
+      let on_click_ data cb b   = Azul.Button.with_on_click b data cb in
+
       let label_div =
-        Azul.Dom.with_css (Azul.Dom.create_div ()) "font-size: 32px;"
+        Azul.Dom.create_div ()
+        |> with_css "font-size: 32px;"
+        |> with_child (Azul.raw_dom (Azul.Dom.create_text (string_of_int m.counter)))
       in
-      let label_div = Azul.Dom.with_child label_div (Azul.raw_dom counter_dom) in
-
-      let button = Azul.Button.create "Increase counter" in
-      let button = Azul.Button.with_button_type button 1 (* ButtonType.Primary *) in
-      let button = Azul.Button.with_on_click button click_data click_cb in
-      let button_dom = Azul.Button.dom button in
-
-      let body = Azul.Dom.create_body () in
-      let body = Azul.Dom.with_child body (Azul.raw_dom label_div) in
-      let body = Azul.Dom.with_child body button_dom in
-      Azul.raw_dom body
+      let button_dom =
+        Azul.Button.create "Increase counter"
+        |> as_btn_type 1 (* ButtonType.Primary *)
+        |> on_click_ click_data click_cb
+        |> Azul.Button.dom
+      in
+      Azul.Dom.create_body ()
+      |> with_child (Azul.raw_dom label_div)
+      |> with_child button_dom
+      |> Azul.raw_dom
 
 (* ── Main ───────────────────────────────────────────────────────────── *)
 (* We skip `WindowCreateOptions.create(layout)` because that routes
