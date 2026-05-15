@@ -336,7 +336,7 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
     for f in &funcs {
         match f.kind {
             FunctionKind::Method | FunctionKind::MethodMut => {
-                emit_instance_method(b, f, &class, has_delete);
+                emit_instance_method(b, f, &class, has_delete, ir);
                 emitted_any = true;
             }
             FunctionKind::DeepCopy => {
@@ -517,7 +517,7 @@ fn emit_enum_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, e: &EnumDef) {
     for f in &funcs {
         match f.kind {
             FunctionKind::Method | FunctionKind::MethodMut => {
-                emit_instance_method(b, f, &class, has_delete);
+                emit_instance_method(b, f, &class, has_delete, ir);
                 emitted_any = true;
             }
             FunctionKind::DeepCopy => {
@@ -676,25 +676,266 @@ fn emit_node_equals_if_supported(
     b.blank();
 }
 
+/// Information needed by [`emit_node_option_result_body`] to inline
+/// the extraction logic for an Az<Option> / Az<Result> return.
+struct NodeOptResultInfo {
+    /// "Option" or "Result" — drives the `.Some.tag` vs `.Ok.tag`
+    /// path and the empty-return value (null for Option, throw for
+    /// Result-Err).
+    kind: &'static str,
+    /// IR name of the outer enum (e.g. `OptionDom`, `ResultIcuError`)
+    /// — looked up to find `Az<X>_delete`.
+    outer_name: String,
+    /// IR name of the Some/Ok payload type (e.g. `Dom`, `String`).
+    payload_ty: String,
+}
+
+/// Classify the function's return type into an Option/Result shape +
+/// payload type. Returns None for plain returns. Mirrors the JVM
+/// `classify_return` predicate.
+fn classify_option_result_node(f: &FunctionDef, ir: &CodegenIR) -> Option<NodeOptResultInfo> {
+    use super::super::ir::{EnumVariantKind, MonomorphizedKind};
+    let rt = f.return_type.as_deref()?.trim();
+    // Monomorphized type alias path (most common).
+    if let Some(ta) = ir.find_type_alias(rt) {
+        if let Some(ref mono) = ta.monomorphized_def {
+            if let MonomorphizedKind::TaggedUnion { ref variants, .. } = mono.kind {
+                if variants.len() == 2 {
+                    let some = variants.iter().find(|v| v.name == "Some");
+                    let none = variants.iter().find(|v| v.name == "None");
+                    if let (Some(_), Some(sv)) = (none, some) {
+                        if let Some(ref pt) = sv.payload_type {
+                            return Some(NodeOptResultInfo {
+                                kind: "Option",
+                                outer_name: rt.to_string(),
+                                payload_ty: pt.clone(),
+                            });
+                        }
+                    }
+                    let ok = variants.iter().find(|v| v.name == "Ok");
+                    let err = variants.iter().find(|v| v.name == "Err");
+                    if let (Some(ov), Some(_)) = (ok, err) {
+                        if let Some(ref pt) = ov.payload_type {
+                            return Some(NodeOptResultInfo {
+                                kind: "Result",
+                                outer_name: rt.to_string(),
+                                payload_ty: pt.clone(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Direct-enum path.
+    if let Some(e) = ir.find_enum(rt) {
+        if e.variants.len() == 2 {
+            let some = e.variants.iter().find(|v| v.name == "Some");
+            let none = e.variants.iter().find(|v| v.name == "None");
+            if let (Some(_), Some(sv)) = (none, some) {
+                if let EnumVariantKind::Tuple(types) = &sv.kind {
+                    if types.len() == 1 {
+                        return Some(NodeOptResultInfo {
+                            kind: "Option",
+                            outer_name: rt.to_string(),
+                            payload_ty: types[0].0.clone(),
+                        });
+                    }
+                }
+            }
+            let ok = e.variants.iter().find(|v| v.name == "Ok");
+            let err = e.variants.iter().find(|v| v.name == "Err");
+            if let (Some(ov), Some(_)) = (ok, err) {
+                if let EnumVariantKind::Tuple(types) = &ov.kind {
+                    if types.len() == 1 {
+                        return Some(NodeOptResultInfo {
+                            kind: "Result",
+                            outer_name: rt.to_string(),
+                            payload_ty: types[0].0.clone(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// True iff `Az<type_name>_delete` is exported by the IR.
+fn node_has_delete(type_name: &str, ir: &CodegenIR) -> bool {
+    ir.functions
+        .iter()
+        .any(|f| f.class_name == type_name && matches!(f.kind, FunctionKind::Delete))
+}
+
+/// True iff `Az<type_name>_deepCopy` (DeepCopy kind) is exported.
+fn node_has_clone(type_name: &str, ir: &CodegenIR) -> bool {
+    ir.functions
+        .iter()
+        .any(|f| f.class_name == type_name && matches!(f.kind, FunctionKind::DeepCopy))
+}
+
+/// True iff the IR's struct for `payload_ty` is categorised as a
+/// `TypeCategory::String`.
+fn node_payload_is_string(payload_ty: &str, ir: &CodegenIR) -> bool {
+    use super::super::ir::TypeCategory;
+    ir.find_struct(payload_ty)
+        .map(|s| matches!(s.category, TypeCategory::String))
+        .unwrap_or(false)
+}
+
+/// True iff `payload_ty` has an emitted Node wrapper class.
+fn node_payload_has_wrapper(payload_ty: &str, ir: &CodegenIR) -> bool {
+    use super::super::ir::TypeCategory;
+    let Some(s) = ir.find_struct(payload_ty) else {
+        return false;
+    };
+    if matches!(
+        s.category,
+        TypeCategory::Recursive
+            | TypeCategory::VecRef
+            | TypeCategory::DestructorOrClone
+            | TypeCategory::GenericTemplate
+    ) {
+        return false;
+    }
+    node_has_delete(payload_ty, ir)
+}
+
+/// Emit the body of an Option/Result return inline. `_ret` is the
+/// koffi-decoded outer struct already declared.
+///
+/// Three payload shapes (mirrors JVM 75a1fbcd2):
+///   - AzString → decode `payload.vec.{ptr,len}` bytes into a JS
+///     string via `koffi.decode(ptr, 'char', len)`, then call
+///     `Az<Outer>_delete(_ret)` to free the embedded buffer.
+///   - Wrapper-class → call `Az<Payload>_clone(payload)` for an
+///     independent allocation, wrap in the JS wrapper class, then
+///     `Az<Outer>_delete(_ret)` drops the original.
+///   - Primitive / other → capture the value, then `_delete`.
+///
+/// koffi auto-encodes JS objects into temp buffers when passing to
+/// struct-pointer params, so `lib.Az<Outer>_delete(_ret)` works
+/// even though `_ret` is a JS object rather than a raw pointer.
+fn emit_node_option_result_body(
+    b: &mut CodeBuilder,
+    info: &NodeOptResultInfo,
+    ir: &CodegenIR,
+) {
+    let outer_delete = if node_has_delete(&info.outer_name, ir) {
+        format!("lib.Az{}_delete(_ret);", info.outer_name)
+    } else {
+        String::new()
+    };
+    let tag_path = if info.kind == "Option" {
+        "_ret.Some.tag"
+    } else {
+        "_ret.Ok.tag"
+    };
+    let payload_path = if info.kind == "Option" {
+        "_ret.Some.payload"
+    } else {
+        "_ret.Ok.payload"
+    };
+
+    if info.kind == "Result" {
+        // Err branch raises before delete (so the user can inspect
+        // the Err payload if they catch). Delete still happens.
+        b.line(&format!("if ({} !== 0) {{", tag_path));
+        b.indent();
+        b.line(&format!(
+            "const _errMsg = '{} unwrap on Err: ' + JSON.stringify(_ret.Err.payload);",
+            info.outer_name
+        ));
+        if !outer_delete.is_empty() {
+            b.line(&outer_delete);
+        }
+        b.line("throw new Error(_errMsg);");
+        b.dedent();
+        b.line("}");
+    } else {
+        // Option: tag 0 = None → return null + delete.
+        b.line(&format!("if ({} === 0) {{", tag_path));
+        b.indent();
+        if !outer_delete.is_empty() {
+            b.line(&outer_delete);
+        }
+        b.line("return null;");
+        b.dedent();
+        b.line("}");
+    }
+
+    if node_payload_is_string(&info.payload_ty, ir) {
+        // AzString payload — extract bytes via vec.ptr / vec.len,
+        // decode into a JS string, then delete to free the buffer.
+        b.line(&format!("const __azs = {};", payload_path));
+        b.line("const __vp = __azs.vec.ptr;");
+        b.line("const __vl = Number(__azs.vec.len);");
+        b.line("let __out;");
+        b.line("if (!__vp || __vl <= 0) {");
+        b.indent();
+        b.line("__out = '';");
+        b.dedent();
+        b.line("} else {");
+        b.indent();
+        b.line(
+            "__out = Buffer.from(koffi.decode(__vp, 'char', __vl)).toString('utf8');",
+        );
+        b.dedent();
+        b.line("}");
+        if !outer_delete.is_empty() {
+            b.line(&outer_delete);
+        }
+        b.line("return __out;");
+    } else if node_payload_has_wrapper(&info.payload_ty, ir)
+        && node_has_clone(&info.payload_ty, ir)
+    {
+        // Wrapper-class payload — clone for an independent
+        // allocation, then delete the outer (drops the original
+        // payload's heap allocations).
+        b.line(&format!(
+            "const __cloned = lib.Az{}_deepCopy({});",
+            info.payload_ty, payload_path
+        ));
+        if !outer_delete.is_empty() {
+            b.line(&outer_delete);
+        }
+        b.line(&format!("return new {}(__cloned);", info.payload_ty));
+    } else {
+        // Primitive / non-cloneable: capture before delete (the
+        // value is by-value-decoded, but we capture defensively).
+        b.line(&format!("const __val = {};", payload_path));
+        if !outer_delete.is_empty() {
+            b.line(&outer_delete);
+        }
+        b.line("return __val;");
+    }
+}
+
 fn emit_instance_method(
     b: &mut CodeBuilder,
     f: &FunctionDef,
     class: &str,
     has_delete: bool,
+    ir: &CodegenIR,
 ) {
     let method = sanitize_js_identifier(&f.method_name);
     let user_args = user_args(f);
     let params = render_params(&user_args);
     let call_args = render_call_args(&user_args);
     // Phase I.5.4 (Node): Option/Result auto-unwrap at the wrapper
-    // boundary. Detect by return-type name prefix (the IR convention
-    // for tagged-union helpers); use the module-level
-    // `optionToNullable` / `resultUnwrap` helpers (managed.rs).
-    let idiom: Option<&'static str> = match f.return_type.as_deref().map(str::trim) {
-        Some(rt) if rt.starts_with("Option") => Some("optionToNullable"),
-        Some(rt) if rt.starts_with("Result") => Some("resultUnwrap"),
-        _ => None,
-    };
+    // boundary. Detect by variant-shape — same predicate the
+    // JVM/Ruby/Lua bindings use. Inline the extraction so each call
+    // site can call the per-type `_delete` (and per-payload `_clone`
+    // for wrapper payloads). The pre-existing module-level
+    // `optionToNullable` / `resultUnwrap` helpers (managed.rs) are
+    // kept for backward compatibility but no longer the primary
+    // path.
+    let opt_or_result_info = classify_option_result_node(f, ir);
+    // `Some("Option")` or `Some("Result")` if this is a tagged
+    // single-payload Option/Result return; used to switch between
+    // the .Some.tag / .Ok.tag accessors below.
+    let idiom_kind: Option<&'static str> = opt_or_result_info.as_ref().map(|i| i.kind);
 
     if !f.doc.is_empty() {
         b.line("/**");
@@ -751,13 +992,20 @@ fn emit_instance_method(
         for n in &consumed_args {
             b.line(&format!("_consume({});", n));
         }
-    } else if let Some(wrap) = idiom {
-        // Option/Result auto-unwrap.
+    } else if let Some(info) = opt_or_result_info.as_ref() {
+        // Inline Option/Result extraction with delete + per-payload
+        // clone. Three payload shapes (mirrors JVM 75a1fbcd2 +
+        // Ruby/Lua 654b8cbd8):
+        //   - AzString → decode UTF-8, then _delete to free Vec.ptr.
+        //   - Wrapper-class → _clone payload first, then _delete.
+        //   - Primitive / other → capture value, _delete (no-op
+        //     heap-wise but consistent so future heap-bearing
+        //     payloads don't silently leak).
         b.line(&format!("const _ret = {};", call));
         for n in &consumed_args {
             b.line(&format!("_consume({});", n));
         }
-        b.line(&format!("return {}(_ret);", wrap));
+        emit_node_option_result_body(b, info, ir);
     } else {
         b.line(&format!("return {};", call));
         for n in &consumed_args {
