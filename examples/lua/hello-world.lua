@@ -51,27 +51,24 @@ local function layout(data, _info)
     local m = azul.refany_get(data)
     if m == nil then return azul.Dom.create_body() end
 
-    -- Counter label (wrapped in a div so the font-size sticks). Plain
-    -- Lua strings flow through codegen-emitted auto-conversion.
-    local label = azul.Dom.create_text(tostring(m.counter))
+    -- CC-6: mutators (`add_*` / `set_*`) now return self so the wrapper
+    -- chain reads top-down. Plain Lua strings flow through auto-string
+    -- conversion. `with_*` consumes self (and returns the new instance),
+    -- mirroring the by-value Rust builder; `add_*` mutates in place and
+    -- returns self for syntactic chaining only — both compose cleanly.
     local label_wrapper = azul.Dom.create_div()
-    label_wrapper:add_css_property(
-        azul.CssPropertyWithConditions.simple(
+        :add_css_property(azul.CssPropertyWithConditions.simple(
             azul.CssProperty.font_size(azul.StyleFontSize.px(32.0))))
-    label_wrapper:add_child(label)
+        :add_child(azul.Dom.create_text(tostring(m.counter)))
 
-    -- Increment button. The wrapper auto-registers `on_click` via the
-    -- host-invoker path; we just pass the function in.
-    local button = azul.Button.create('Increase counter')
-    button:set_button_type(azul.ButtonType.Primary)
-    button:set_on_click(data:clone(), on_click)
-    local button_dom = button:dom()
+    local button_dom = azul.Button.create('Increase counter')
+        :set_button_type(azul.ButtonType.Primary)
+        :set_on_click(data:clone(), on_click)
+        :dom()
 
-    -- Body.
-    local body = azul.Dom.create_body()
-    body:add_child(label_wrapper)
-    body:add_child(button_dom)
-    return body
+    return azul.Dom.create_body()
+        :add_child(label_wrapper)
+        :add_child(button_dom)
 end
 
 -- ── Main ──────────────────────────────────────────────────────────────

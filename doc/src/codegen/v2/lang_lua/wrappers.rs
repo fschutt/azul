@@ -597,16 +597,37 @@ fn emit_instance_method(out: &mut String, class: &str, lua_method: &str, func: &
 
     let needs_consume = consumed_self || !consumed_arg_indices.is_empty();
 
+    // CC-6 (Lua): void-returning mutator methods that DON'T consume self
+    // (e.g. `add_child`, `set_button_type`, `add_css_property`) currently
+    // emit `return C.AzFoo_addX(self, ...)`, which yields nil at the Lua
+    // level — chaining `body:add_child(label):add_child(button)` errors
+    // with `attempt to index a nil value`. Re-emit them as
+    // `C.AzFoo_addX(self, ...); return self` so the receiver flows
+    // through the chain. We deliberately exclude `consumed_self` cases:
+    // the `with_*` builders consume the receiver, so returning `self`
+    // would hand the caller a now-Rust-owned cdata. Auto-unwrap returns
+    // (Option/Result) are non-void so they bypass this entirely.
+    let returns_self = func.return_type.is_none() && !consumed_self;
+
     if !has_callback_arg(func) && !has_az_string && unwrap_call.is_none() && !needs_consume {
-        out.push_str(&format!(
-            "    function {}_methods:{}(...) return C.{}(self, ...) end\n",
-            class, lua_method, func.c_name
-        ));
+        if returns_self {
+            out.push_str(&format!(
+                "    function {}_methods:{}(...) C.{}(self, ...); return self end\n",
+                class, lua_method, func.c_name
+            ));
+        } else {
+            out.push_str(&format!(
+                "    function {}_methods:{}(...) return C.{}(self, ...) end\n",
+                class, lua_method, func.c_name
+            ));
+        }
         return;
     }
 
     if !has_callback_arg(func) && !has_az_string && !needs_consume {
         // Auto-unwrap only path: keep the varargs varadic, wrap the return.
+        // `returns_self` is impossible here (unwrap_call only triggers on
+        // Option/Result, which are non-void), so no chainable branch.
         let unwrap = unwrap_call.unwrap();
         out.push_str(&format!(
             "    function {}_methods:{}(...) return (C.{}(self, ...)){} end\n",
@@ -669,6 +690,16 @@ fn emit_instance_method(out: &mut String, class: &str, lua_method: &str, func: &
                 call_args.join(", "),
                 uw
             )),
+            None if returns_self => {
+                // CC-6: void-return mutator (no consume, no unwrap). Emit
+                // the call as a statement, then return self for chaining.
+                out.push_str(&format!(
+                    "        C.{}({})\n",
+                    func.c_name,
+                    call_args.join(", ")
+                ));
+                out.push_str("        return self\n");
+            }
             None => out.push_str(&format!(
                 "        return C.{}({})\n",
                 func.c_name,
@@ -684,6 +715,16 @@ fn emit_instance_method(out: &mut String, class: &str, lua_method: &str, func: &
                 call_args.join(", "),
                 uw
             )),
+            None if returns_self => {
+                // CC-6: void-return mutator with consume lines. Skip the
+                // `_ret` capture entirely; emit the call as a statement,
+                // run the consume lines, then return self for chaining.
+                out.push_str(&format!(
+                    "        C.{}({})\n",
+                    func.c_name,
+                    call_args.join(", ")
+                ));
+            }
             None => out.push_str(&format!(
                 "        local _ret = C.{}({})\n",
                 func.c_name,
@@ -694,7 +735,11 @@ fn emit_instance_method(out: &mut String, class: &str, lua_method: &str, func: &
             out.push_str(line);
             out.push('\n');
         }
-        out.push_str("        return _ret\n");
+        if returns_self {
+            out.push_str("        return self\n");
+        } else {
+            out.push_str("        return _ret\n");
+        }
     }
     out.push_str("    end\n");
 }
