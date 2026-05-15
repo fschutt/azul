@@ -254,6 +254,23 @@ pub fn emit_host_invoker_class(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("}");
     builder.dedent();
     builder.line("}");
+    builder.blank();
+
+    // Phase CC-5: wrap an object in the `RefAny` wrapper class
+    // directly. Convenience over `RefanyCreate(object)` which returns
+    // the raw `AzRefAny` FFI struct. Most wrapper-class call sites
+    // (`App.Create`, etc.) accept the wrapper form.
+    builder.line("/// <summary>");
+    builder.line("/// Wrap an arbitrary managed object in a `RefAny` wrapper.");
+    builder.line("/// Convenience over `RefanyCreate(object)` which returns the raw");
+    builder.line("/// `AzRefAny` FFI struct.");
+    builder.line("/// </summary>");
+    builder.line("public static RefAny RefanyWrap(object value)");
+    builder.line("{");
+    builder.indent();
+    builder.line("return new RefAny(RefanyCreate(value));");
+    builder.dedent();
+    builder.line("}");
 
     builder.dedent();
     builder.line("}");

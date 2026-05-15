@@ -1,11 +1,8 @@
 // examples/java/HelloWorld.java — Python-quality Java port.
 //
-// Uses both smart factories: the typed `LayoutCallback` SAM that
-// returns a `Dom` directly (CC-2) AND the
-// `WindowCreateOptions.create(LayoutCallback)` factory that hides
-// the AzLayoutCallback ↔ wco `window_state.layout_callback` byte
-// splice. User code never reaches for `Structure.newInstance`,
-// `outPtr.write`, or any other JNA pointer-byte ceremony.
+// Uses the typed `LayoutCallback` SAM that returns a `Dom` directly
+// (CC-2) and the wrapper-class `App` API (CC-5): no JNA byte splice,
+// no Marshal/AllocHGlobal-style pointer dance.
 //
 // Build + run (macOS):
 //     mvn package
@@ -19,7 +16,6 @@
 package com.azul;
 
 import com.sun.jna.Pointer;
-import com.sun.jna.Structure;
 
 public final class HelloWorld {
 
@@ -65,15 +61,8 @@ public final class HelloWorld {
         };
 
     public static void main(java.lang.String[] args) {
-        // Smart factory: hides the host-invoker registration + bytes-splice
-        // that every JVM hello-world had to perform manually before.
-        WindowCreateOptions wco = WindowCreateOptions.create(LAYOUT);
-        AzWindowCreateOptions.ByValue rawWco =
-            Structure.newInstance(AzWindowCreateOptions.ByValue.class, wco.rawPointer());
-        rawWco.read();
-        AzApp.ByValue app = AzulNativeApp.AzApp_create(
-            AzulHostInvoker.refanyCreate(MODEL), AzulNativeApp.AzAppConfig_create());
-        app.write();
-        AzulNativeApp.AzApp_run(app.getPointer(), rawWco);
+        try (App app = App.create(AzulHostInvoker.refanyWrap(MODEL), AppConfig.create())) {
+            app.run(WindowCreateOptions.create(LAYOUT));
+        }
     }
 }

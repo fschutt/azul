@@ -1,11 +1,8 @@
 // examples/kotlin/HelloWorld.kt — Python-quality Kotlin port.
 //
-// Uses two smart factories: the typed `LayoutCallback` SAM that
-// returns a `Dom` directly (CC-2), plus
-// `WindowCreateOptions.create(LayoutCallback)` that hides the
-// AzLayoutCallback ↔ wco `window_state.layout_callback` byte splice.
-// User code never reaches for `Structure.newInstance` /
-// `outPtr.write` / any JNA pointer-byte ceremony.
+// Uses the typed `LayoutCallback` SAM that returns a `Dom` directly
+// (CC-2) and the wrapper-class `App` API (CC-5): no JNA byte splice,
+// no Marshal/AllocHGlobal-style pointer dance.
 //
 // Build:  kotlinc -J-Xmx4g -cp $JNA_JAR Azul.kt HelloWorld.kt -include-runtime -d hello-world.jar
 // Run:    DYLD_LIBRARY_PATH=. java -XstartOnFirstThread -Djna.library.path=. \
@@ -16,7 +13,6 @@
 package com.azul
 
 import com.sun.jna.Pointer
-import com.sun.jna.Structure
 
 class MyDataModel(var counter: Int)
 private val MODEL = MyDataModel(5)
@@ -52,12 +48,7 @@ private val layout = AzulHostInvoker.LayoutCallback { _, dataPtr, _ ->
 }
 
 fun main() {
-    // Smart factory hides the host-invoker register + bytes-splice.
-    val wco = WindowCreateOptions.create(layout)
-    val rawWco = Structure.newInstance(AzWindowCreateOptions.ByValue::class.java, wco.rawPointer())
-    rawWco.read()
-    val data = AzulHostInvoker.refanyCreate(MODEL)
-    val app = AzulNativeApp.INSTANCE.AzApp_create(data, AzulNativeApp.INSTANCE.AzAppConfig_create())
-    app.write()
-    AzulNativeApp.INSTANCE.AzApp_run(app.pointer, rawWco)
+    App.create(AzulHostInvoker.refanyWrap(MODEL), AppConfig.create()).use { app ->
+        app.run(WindowCreateOptions.create(layout))
+    }
 }

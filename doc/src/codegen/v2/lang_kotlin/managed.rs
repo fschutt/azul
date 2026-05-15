@@ -223,6 +223,22 @@ pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("}");
     builder.blank();
 
+    // Phase CC-5 (Kotlin): wrap an Any in the `RefAny` wrapper class
+    // directly. Convenience over `refanyCreate(Any)` which returns
+    // the raw `AzRefAny.ByValue`.
+    builder.line("/**");
+    builder.line(" * Wrap an arbitrary Kotlin object in a `RefAny` wrapper.");
+    builder.line(" * Convenience over `refanyCreate(Any)` which returns the raw");
+    builder.line(" * `AzRefAny.ByValue` FFI struct.");
+    builder.line(" */");
+    builder.line("@JvmStatic fun refanyWrap(value: Any): RefAny {");
+    builder.indent();
+    builder.line("val raw = refanyCreate(value)");
+    builder.line("return RefAny(raw.pointer)");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+
     // Phase CC-2 (Kotlin): typed LayoutCallback SAM that returns `Dom`
     // directly. Same shape as the Java mirror — saves the
     // Structure.newInstance + read + outPtr.write byte splice from

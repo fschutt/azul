@@ -236,6 +236,25 @@ pub fn emit_files(out: &mut String, ir: &CodegenIR, config: &CodegenConfig) -> R
             b.line("}");
             b.blank();
 
+            // Phase CC-5: wrap an Object directly in the `RefAny`
+            // wrapper class (rather than the raw `AzRefAny.ByValue`
+            // FFI struct). Saves the user from doing
+            // `new RefAny(refanyCreate(model).getPointer())` at every
+            // `App.create(...)` call site.
+            b.line("/**");
+            b.line(" * Wrap an arbitrary Java object in a `RefAny` wrapper class.");
+            b.line(" * Convenience over `refanyCreate(Object)` which returns the");
+            b.line(" * raw `AzRefAny.ByValue` FFI struct; this is the form most");
+            b.line(" * wrapper-class call sites (`App.create`, etc.) accept.");
+            b.line(" */");
+            b.line("public static RefAny refanyWrap(Object value) {");
+            b.indent();
+            b.line("AzRefAny.ByValue raw = refanyCreate(value);");
+            b.line("return new RefAny(raw.getPointer());");
+            b.dedent();
+            b.line("}");
+            b.blank();
+
             // Phase CC-2: typed LayoutCallback SAM + registration helper.
             // The raw `LayoutCallbackInvokerCallback` forces user code to
             // write the AzDom.ByValue Structure.newInstance + .read() +

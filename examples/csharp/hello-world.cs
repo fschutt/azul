@@ -1,16 +1,13 @@
 // examples/csharp/hello-world.cs — Python-quality C# port.
 //
-// Uses the smart `WindowCreateOptions.Create(Layout)` factory and a
-// typed `Func<IntPtr, IntPtr, Dom>` layout delegate that returns a
-// wrapper `Dom` directly. The host-invoker dispatch extracts `.Raw`
-// via reflection and marshals the struct into outPtr. User code
-// never reaches for `Marshal.StructureToPtr` or `.Raw`.
+// Uses the wrapper-class `App.Create(...).Run(wco)` path (CC-5) and
+// a typed layout delegate returning a wrapper `Dom` (CC-2). No
+// Marshal.AllocHGlobal, no .Raw extraction, no IntPtr ceremony.
 //
 // Build + run (macOS):
 //     DYLD_LIBRARY_PATH=. dotnet run
 
 using System;
-using System.Runtime.InteropServices;
 using Azul;
 
 namespace HelloWorld
@@ -52,22 +49,8 @@ namespace HelloWorld
 
         public static int Main(string[] args)
         {
-            // Smart factory: hides the host-invoker register +
-            // window_state.layout_callback splice. Returns the wrapper
-            // class; pull the raw struct back out for AzApp_run.
-            using var wco = WindowCreateOptions.Create(new Func<IntPtr, IntPtr, Dom>(Layout));
-            var rawWco = wco.Raw;
-
-            var appRaw = NativeMethods.AzApp_create(
-                HostInvoker.RefanyCreate(_model), NativeMethods.AzAppConfig_create());
-
-            var appPtr = Marshal.AllocHGlobal(Marshal.SizeOf<AzApp>());
-            try
-            {
-                Marshal.StructureToPtr(appRaw, appPtr, false);
-                NativeMethods.AzApp_run(appPtr, rawWco);
-            }
-            finally { Marshal.FreeHGlobal(appPtr); }
+            using var app = App.Create(HostInvoker.RefanyWrap(_model), AppConfig.Create());
+            app.Run(WindowCreateOptions.Create(new Func<IntPtr, IntPtr, Dom>(Layout)));
             return 0;
         }
     }
