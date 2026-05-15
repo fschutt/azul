@@ -426,8 +426,11 @@ fn emit_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Codegen
     emit_field_order(builder, &field_names);
 
     // AzOption<T>.toNullable() — Kotlin nullable mirror of the Java
-    // accessor (lang_java/types.rs).
-    if enum_def.name.starts_with("Option") && enum_def.variants.len() == 2 {
+    // accessor (lang_java/types.rs). Detected shape-only (variants
+    // exactly [None, Some]) — the name doesn't have to start with
+    // "Option" (e.g. `MaybeFoo` would still get the accessor if its
+    // variants match).
+    if enum_def.variants.len() == 2 {
         let none = enum_def.variants.iter().find(|v| v.name == "None");
         let some = enum_def.variants.iter().find(|v| v.name == "Some");
         if let (Some(_), Some(sv)) = (none, some) {
@@ -461,7 +464,10 @@ fn emit_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Codegen
     }
 
     // AzResult<T, E>.unwrap() — return Ok payload or throw on Err.
-    if enum_def.name.starts_with("Result") && enum_def.variants.len() == 2 {
+    // Detected shape-only (variants exactly [Ok, Err]) — types like
+    // `IcuResult` that don't start with the literal "Result" prefix
+    // still get the accessor.
+    if enum_def.variants.len() == 2 {
         let ok = enum_def.variants.iter().find(|v| v.name == "Ok");
         let err = enum_def.variants.iter().find(|v| v.name == "Err");
         if let (Some(ov), Some(_)) = (ok, err) {

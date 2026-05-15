@@ -23,10 +23,177 @@ use anyhow::Result;
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{
-    ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FunctionArg, FunctionDef, FunctionKind,
-    StructDef, TypeCategory,
+    ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FieldRefKind, FunctionArg, FunctionDef,
+    FunctionKind, MonomorphizedKind, StructDef, TypeCategory,
 };
+use super::types::ref_kind_field_type;
 use super::{ffi_type_name, map_type_to_csharp, sanitize_identifier, snake_to_pascal};
+
+/// Phase I.5.2 (C#): how the wrapper method should idiomise an
+/// `Option<T>` / `Result<T, E>` return. Mirrors the Java + Kotlin
+/// `ReturnIdiom` enum (lang_java/wrappers.rs).
+#[derive(Clone)]
+enum ReturnIdiom {
+    Plain,
+    Option {
+        payload_ty: String,
+        ref_kind: FieldRefKind,
+    },
+    Result {
+        payload_ty: String,
+        ref_kind: FieldRefKind,
+    },
+}
+
+fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
+    let Some(rt) = func.return_type.as_deref() else {
+        return ReturnIdiom::Plain;
+    };
+    let rt = rt.trim();
+    if let Some(ta) = ir.find_type_alias(rt) {
+        if let Some(ref mono) = ta.monomorphized_def {
+            if let MonomorphizedKind::TaggedUnion { ref variants, .. } = mono.kind {
+                if variants.len() == 2 {
+                    let none = variants.iter().find(|v| v.name == "None");
+                    let some = variants.iter().find(|v| v.name == "Some");
+                    if let (Some(_), Some(sv)) = (none, some) {
+                        if let Some(ref pt) = sv.payload_type {
+                            return ReturnIdiom::Option {
+                                payload_ty: pt.clone(),
+                                ref_kind: sv.payload_ref_kind.clone(),
+                            };
+                        }
+                    }
+                    let ok = variants.iter().find(|v| v.name == "Ok");
+                    let err = variants.iter().find(|v| v.name == "Err");
+                    if let (Some(ov), Some(_)) = (ok, err) {
+                        if let Some(ref pt) = ov.payload_type {
+                            return ReturnIdiom::Result {
+                                payload_ty: pt.clone(),
+                                ref_kind: ov.payload_ref_kind.clone(),
+                            };
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if let Some(e) = ir.find_enum(rt) {
+        if e.variants.len() == 2 {
+            let none = e.variants.iter().find(|v| v.name == "None");
+            let some = e.variants.iter().find(|v| v.name == "Some");
+            if let (Some(_), Some(sv)) = (none, some) {
+                if let EnumVariantKind::Tuple(types) = &sv.kind {
+                    if types.len() == 1 {
+                        return ReturnIdiom::Option {
+                            payload_ty: types[0].0.clone(),
+                            ref_kind: types[0].1.clone(),
+                        };
+                    }
+                }
+            }
+            let ok = e.variants.iter().find(|v| v.name == "Ok");
+            let err = e.variants.iter().find(|v| v.name == "Err");
+            if let (Some(ov), Some(_)) = (ok, err) {
+                if let EnumVariantKind::Tuple(types) = &ov.kind {
+                    if types.len() == 1 {
+                        return ReturnIdiom::Result {
+                            payload_ty: types[0].0.clone(),
+                            ref_kind: types[0].1.clone(),
+                        };
+                    }
+                }
+            }
+        }
+    }
+    ReturnIdiom::Plain
+}
+
+/// True iff `type_name` has a corresponding wrapper class emitted by
+/// `emit_wrapper_class`. Mirrors the Java/Kotlin gate: the struct
+/// exists, isn't an excluded category, and a `_delete` C function
+/// is exported.
+fn has_cs_wrapper_class(type_name: &str, ir: &CodegenIR) -> bool {
+    let Some(s) = ir.find_struct(type_name) else {
+        return false;
+    };
+    if !s.generic_params.is_empty() {
+        return false;
+    }
+    if matches!(
+        s.category,
+        TypeCategory::Recursive
+            | TypeCategory::VecRef
+            | TypeCategory::DestructorOrClone
+            | TypeCategory::GenericTemplate
+    ) {
+        return false;
+    }
+    ir.functions
+        .iter()
+        .any(|f| f.class_name == type_name && matches!(f.kind, FunctionKind::Delete))
+}
+
+/// Map a payload's raw C# field type to the user-visible display type.
+/// AzString → `string`; AzX with wrapper → `X`; else passthrough.
+fn payload_display_cs(raw: &str, ir: &CodegenIR) -> String {
+    if raw == "AzString" {
+        return "string".to_string();
+    }
+    if let Some(unprefixed) = raw.strip_prefix("Az") {
+        if has_cs_wrapper_class(unprefixed, ir) {
+            return unprefixed.to_string();
+        }
+    }
+    raw.to_string()
+}
+
+/// Emit the body of an `Option<T>` return for C#. `__ret` (the AzOption
+/// FFI struct value) has already been declared.
+fn emit_cs_option_body(builder: &mut CodeBuilder, raw_payload_cs: &str, ir: &CodegenIR) {
+    if raw_payload_cs == "AzString" {
+        builder.line("var __nv = __ret.AsNullable();");
+        builder.line("if (__nv == null) return null;");
+        builder.line("var __azs = __nv.Value;");
+        builder.line("var __vp = __azs.vec.ptr;");
+        builder.line("var __vl = (long)__azs.vec.len.ToUInt64();");
+        builder.line("if (__vp == System.IntPtr.Zero || __vl <= 0) return \"\";");
+        builder.line("var __bytes = new byte[__vl];");
+        builder.line("System.Runtime.InteropServices.Marshal.Copy(__vp, __bytes, 0, (int)__vl);");
+        builder.line("return System.Text.Encoding.UTF8.GetString(__bytes);");
+        return;
+    }
+    if let Some(unprefixed) = raw_payload_cs.strip_prefix("Az") {
+        if has_cs_wrapper_class(unprefixed, ir) {
+            builder.line("var __nv = __ret.AsNullable();");
+            builder.line("if (__nv == null) return null;");
+            builder.line(&format!("return new {}(__nv.Value);", unprefixed));
+            return;
+        }
+    }
+    builder.line("return __ret.AsNullable();");
+}
+
+fn emit_cs_result_body(builder: &mut CodeBuilder, raw_payload_cs: &str, ir: &CodegenIR) {
+    if raw_payload_cs == "AzString" {
+        builder.line("var __azs = __ret.Unwrap();");
+        builder.line("var __vp = __azs.vec.ptr;");
+        builder.line("var __vl = (long)__azs.vec.len.ToUInt64();");
+        builder.line("if (__vp == System.IntPtr.Zero || __vl <= 0) return \"\";");
+        builder.line("var __bytes = new byte[__vl];");
+        builder.line("System.Runtime.InteropServices.Marshal.Copy(__vp, __bytes, 0, (int)__vl);");
+        builder.line("return System.Text.Encoding.UTF8.GetString(__bytes);");
+        return;
+    }
+    if let Some(unprefixed) = raw_payload_cs.strip_prefix("Az") {
+        if has_cs_wrapper_class(unprefixed, ir) {
+            builder.line(&format!("var __u = __ret.Unwrap();"));
+            builder.line(&format!("return new {}(__u);", unprefixed));
+            return;
+        }
+    }
+    builder.line("return __ret.Unwrap();");
+}
 
 // ============================================================================
 // Public entry points (called from mod.rs)
@@ -832,10 +999,43 @@ fn emit_wrapper_method(
         .map(|r| r.trim() == func.class_name)
         .unwrap_or(false);
 
+    let idiom = classify_return(func, ir);
+
     let displayed_return = if returns_self {
         class_name.to_string()
     } else {
-        return_cs.clone()
+        match &idiom {
+            ReturnIdiom::Plain => return_cs.clone(),
+            ReturnIdiom::Option {
+                payload_ty,
+                ref_kind,
+            } => {
+                let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
+                let display = payload_display_cs(&raw, ir);
+                // For value-type payloads (primitives + structs), use
+                // `Nullable<T>` syntax. For the wrapper-class display
+                // (e.g. `Dom`) C# reference-type nullability syntax
+                // (`Dom?`) is equivalent; we keep `T?` uniformly.
+                if display == "string" {
+                    "string".to_string()
+                } else if has_cs_wrapper_class(display.as_str(), ir) {
+                    // Wrapper classes are reference types; use `?` for
+                    // C# 8+ nullable-reference annotation. The runtime
+                    // type is the same; the annotation is purely an
+                    // analyzer hint.
+                    format!("{}?", display)
+                } else {
+                    format!("{}?", display)
+                }
+            }
+            ReturnIdiom::Result {
+                payload_ty,
+                ref_kind,
+            } => {
+                let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
+                payload_display_cs(&raw, ir)
+            }
+        }
     };
 
     builder.line(&format!(
@@ -921,7 +1121,17 @@ fn emit_wrapper_method(
                 "_inner = System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__self);",
                 ffi_class_name
             ));
-            builder.line("return __ret;");
+            match &idiom {
+                ReturnIdiom::Plain => builder.line("return __ret;"),
+                ReturnIdiom::Option { payload_ty, ref_kind } => {
+                    let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
+                    emit_cs_option_body(builder, &raw, ir);
+                }
+                ReturnIdiom::Result { payload_ty, ref_kind } => {
+                    let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
+                    emit_cs_result_body(builder, &raw, ir);
+                }
+            };
         }
         builder.dedent();
         builder.line("}");
@@ -939,7 +1149,19 @@ fn emit_wrapper_method(
             builder.line(&format!("var __raw = {};", call));
             builder.line(&format!("return new {}(__raw);", class_name));
         } else {
-            builder.line(&format!("return {};", call));
+            match &idiom {
+                ReturnIdiom::Plain => builder.line(&format!("return {};", call)),
+                ReturnIdiom::Option { payload_ty, ref_kind } => {
+                    let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
+                    builder.line(&format!("var __ret = {};", call));
+                    emit_cs_option_body(builder, &raw, ir);
+                }
+                ReturnIdiom::Result { payload_ty, ref_kind } => {
+                    let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
+                    builder.line(&format!("var __ret = {};", call));
+                    emit_cs_result_body(builder, &raw, ir);
+                }
+            };
         }
     } else if return_cs == "void" {
         builder.line(&format!("{};", call));
@@ -947,7 +1169,19 @@ fn emit_wrapper_method(
         builder.line(&format!("var __raw = {};", call));
         builder.line(&format!("return new {}(__raw);", class_name));
     } else {
-        builder.line(&format!("return {};", call));
+        match &idiom {
+            ReturnIdiom::Plain => builder.line(&format!("return {};", call)),
+            ReturnIdiom::Option { payload_ty, ref_kind } => {
+                let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
+                builder.line(&format!("var __ret = {};", call));
+                emit_cs_option_body(builder, &raw, ir);
+            }
+            ReturnIdiom::Result { payload_ty, ref_kind } => {
+                let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
+                builder.line(&format!("var __ret = {};", call));
+                emit_cs_result_body(builder, &raw, ir);
+            }
+        };
     }
 
     builder.dedent();

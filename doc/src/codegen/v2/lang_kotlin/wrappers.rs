@@ -25,10 +25,179 @@ use anyhow::Result;
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{
-    ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FunctionArg, FunctionDef, FunctionKind, StructDef,
-    TypeCategory,
+    ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FieldRefKind, FunctionArg, FunctionDef,
+    FunctionKind, MonomorphizedKind, StructDef, TypeCategory,
 };
 use super::{ffi_type_name, map_kt_owned, map_kt_return, sanitize_kt_identifier};
+
+/// Phase I.5.1 (Kotlin): how the wrapper method should idiomise an
+/// `Option<T>` / `Result<T, E>` return. Mirrors the Java
+/// `ReturnIdiom` enum (lang_java/wrappers.rs) — the carried
+/// `payload_ty` + `ref_kind` let the emitter compute a typed Kotlin
+/// nullable / bare-Ok signature at the wrapper boundary.
+#[derive(Clone)]
+enum ReturnIdiom {
+    Plain,
+    Option {
+        payload_ty: String,
+        ref_kind: FieldRefKind,
+    },
+    Result {
+        payload_ty: String,
+        ref_kind: FieldRefKind,
+    },
+}
+
+/// Detect Az*Option / Az*Result returns via variant shape rather than
+/// name prefix. Identical predicate to the Java mirror.
+fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
+    let Some(rt) = func.return_type.as_deref() else {
+        return ReturnIdiom::Plain;
+    };
+    let rt = rt.trim();
+    if let Some(ta) = ir.find_type_alias(rt) {
+        if let Some(ref mono) = ta.monomorphized_def {
+            if let MonomorphizedKind::TaggedUnion { ref variants, .. } = mono.kind {
+                if variants.len() == 2 {
+                    let none = variants.iter().find(|v| v.name == "None");
+                    let some = variants.iter().find(|v| v.name == "Some");
+                    if let (Some(_), Some(sv)) = (none, some) {
+                        if let Some(ref pt) = sv.payload_type {
+                            return ReturnIdiom::Option {
+                                payload_ty: pt.clone(),
+                                ref_kind: sv.payload_ref_kind.clone(),
+                            };
+                        }
+                    }
+                    let ok = variants.iter().find(|v| v.name == "Ok");
+                    let err = variants.iter().find(|v| v.name == "Err");
+                    if let (Some(ov), Some(_)) = (ok, err) {
+                        if let Some(ref pt) = ov.payload_type {
+                            return ReturnIdiom::Result {
+                                payload_ty: pt.clone(),
+                                ref_kind: ov.payload_ref_kind.clone(),
+                            };
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if let Some(e) = ir.find_enum(rt) {
+        if e.variants.len() == 2 {
+            let none = e.variants.iter().find(|v| v.name == "None");
+            let some = e.variants.iter().find(|v| v.name == "Some");
+            if let (Some(_), Some(sv)) = (none, some) {
+                if let EnumVariantKind::Tuple(types) = &sv.kind {
+                    if types.len() == 1 {
+                        return ReturnIdiom::Option {
+                            payload_ty: types[0].0.clone(),
+                            ref_kind: types[0].1.clone(),
+                        };
+                    }
+                }
+            }
+            let ok = e.variants.iter().find(|v| v.name == "Ok");
+            let err = e.variants.iter().find(|v| v.name == "Err");
+            if let (Some(ov), Some(_)) = (ok, err) {
+                if let EnumVariantKind::Tuple(types) = &ov.kind {
+                    if types.len() == 1 {
+                        return ReturnIdiom::Result {
+                            payload_ty: types[0].0.clone(),
+                            ref_kind: types[0].1.clone(),
+                        };
+                    }
+                }
+            }
+        }
+    }
+    ReturnIdiom::Plain
+}
+
+/// True iff `type_name` has a corresponding `class <X> : AutoCloseable`
+/// wrapper emitted by `emit_wrapper`. Enums (`CssDeclaration`,
+/// `AccessibilityAction`, ...) are emitted as `<X>Helpers` static-
+/// factory objects with no constructor-taking-Pointer.
+fn has_kt_wrapper_class(type_name: &str, ir: &CodegenIR) -> bool {
+    let Some(s) = ir.find_struct(type_name) else {
+        return false;
+    };
+    if !s.generic_params.is_empty() {
+        return false;
+    }
+    if matches!(
+        s.category,
+        TypeCategory::Recursive
+            | TypeCategory::VecRef
+            | TypeCategory::DestructorOrClone
+            | TypeCategory::GenericTemplate
+    ) {
+        return false;
+    }
+    ir.functions
+        .iter()
+        .any(|f| f.class_name == type_name && matches!(f.kind, FunctionKind::Delete))
+}
+
+/// Map a payload's "raw" Kotlin field type to the user-visible display
+/// type at the wrapper boundary. Same three-case table as Java:
+/// `AzString` → `kotlin.String`, `AzX` with wrapper → `X`, otherwise
+/// the raw type.
+fn payload_display_kt(raw: &str, ir: &CodegenIR) -> String {
+    if raw == "AzString" {
+        return "kotlin.String".to_string();
+    }
+    if let Some(unprefixed) = raw.strip_prefix("Az") {
+        if has_kt_wrapper_class(unprefixed, ir) {
+            return unprefixed.to_string();
+        }
+    }
+    raw.to_string()
+}
+
+/// Emit the body for an `Option<T>` return. `__ret` (the FFI `Az*Option`
+/// ByValue) has already been declared.
+fn emit_kt_option_body(builder: &mut CodeBuilder, raw_payload_kt: &str, ir: &CodegenIR) {
+    if raw_payload_kt == "AzString" {
+        builder.line("val __nv = __ret.toNullable() ?: return null");
+        builder.line("val __sp = __nv.pointer");
+        builder.line("val __vp = __sp.getPointer(0)");
+        builder.line("val __vl = __sp.getLong(8)");
+        builder.line("if (__vp == null || __vl <= 0) return \"\"");
+        builder.line("return __vp.getByteArray(0, __vl.toInt()).toString(Charsets.UTF_8)");
+        return;
+    }
+    if let Some(unprefixed) = raw_payload_kt.strip_prefix("Az") {
+        if has_kt_wrapper_class(unprefixed, ir) {
+            builder.line("val __nv = __ret.toNullable() ?: return null");
+            builder.line(&format!("return {}(__nv.pointer)", unprefixed));
+            return;
+        }
+    }
+    builder.line("return __ret.toNullable()");
+}
+
+/// Emit the body for a `Result<T, E>` return (throws on Err — same
+/// idiom as Rust's `Result::unwrap`).
+fn emit_kt_result_body(builder: &mut CodeBuilder, raw_payload_kt: &str, ir: &CodegenIR) {
+    if raw_payload_kt == "AzString" {
+        builder.line("val __u = __ret.unwrap()");
+        builder.line("val __sp = __u.pointer");
+        builder.line("val __vp = __sp.getPointer(0)");
+        builder.line("val __vl = __sp.getLong(8)");
+        builder.line("if (__vp == null || __vl <= 0) return \"\"");
+        builder.line("return __vp.getByteArray(0, __vl.toInt()).toString(Charsets.UTF_8)");
+        return;
+    }
+    if let Some(unprefixed) = raw_payload_kt.strip_prefix("Az") {
+        if has_kt_wrapper_class(unprefixed, ir) {
+            builder.line("val __u = __ret.unwrap()");
+            builder.line(&format!("return {}(__u.pointer)", unprefixed));
+            return;
+        }
+    }
+    builder.line("return __ret.unwrap()");
+}
 
 pub fn emit_all(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) -> Result<()> {
     builder.line("// --------------------------------------------------------------------------");
@@ -640,6 +809,8 @@ fn emit_static_factory(
         .map(|r| r.trim() == func.class_name)
         .unwrap_or(false);
 
+    let idiom = classify_return(func, ir);
+
     let arg_sig: Vec<String> = func
         .args
         .iter()
@@ -695,7 +866,24 @@ fn emit_static_factory(
     let displayed_return = if returns_self {
         class_name.to_string()
     } else {
-        return_kt.clone()
+        match &idiom {
+            ReturnIdiom::Plain => return_kt.clone(),
+            ReturnIdiom::Option {
+                payload_ty,
+                ref_kind,
+            } => {
+                let (raw, _) = super::ref_kind_kt_field(payload_ty, ref_kind, ir);
+                let display = payload_display_kt(&raw, ir);
+                format!("{}?", display)
+            }
+            ReturnIdiom::Result {
+                payload_ty,
+                ref_kind,
+            } => {
+                let (raw, _) = super::ref_kind_kt_field(payload_ty, ref_kind, ir);
+                payload_display_kt(&raw, ir)
+            }
+        }
     };
 
     builder.line(&format!(
@@ -729,7 +917,27 @@ fn emit_static_factory(
         builder.line(&format!("val raw = {}", call));
         builder.line(&format!("return {}(raw.pointer)", class_name));
     } else {
-        builder.line(&format!("return {}", call));
+        match &idiom {
+            ReturnIdiom::Plain => {
+                builder.line(&format!("return {}", call));
+            }
+            ReturnIdiom::Option {
+                payload_ty,
+                ref_kind,
+            } => {
+                let (raw, _) = super::ref_kind_kt_field(payload_ty, ref_kind, ir);
+                builder.line(&format!("val __ret = {}", call));
+                emit_kt_option_body(builder, &raw, ir);
+            }
+            ReturnIdiom::Result {
+                payload_ty,
+                ref_kind,
+            } => {
+                let (raw, _) = super::ref_kind_kt_field(payload_ty, ref_kind, ir);
+                builder.line(&format!("val __ret = {}", call));
+                emit_kt_result_body(builder, &raw, ir);
+            }
+        }
     }
 
     builder.dedent();
@@ -834,10 +1042,29 @@ fn emit_instance_method(
         
     }
 
+    let idiom = classify_return(func, ir);
+
     let displayed_return = if returns_self {
         class_name.to_string()
     } else {
-        return_kt.clone()
+        match &idiom {
+            ReturnIdiom::Plain => return_kt.clone(),
+            ReturnIdiom::Option {
+                payload_ty,
+                ref_kind,
+            } => {
+                let (raw, _) = super::ref_kind_kt_field(payload_ty, ref_kind, ir);
+                let display = payload_display_kt(&raw, ir);
+                format!("{}?", display)
+            }
+            ReturnIdiom::Result {
+                payload_ty,
+                ref_kind,
+            } => {
+                let (raw, _) = super::ref_kind_kt_field(payload_ty, ref_kind, ir);
+                payload_display_kt(&raw, ir)
+            }
+        }
     };
 
     builder.line(&format!(
@@ -871,7 +1098,27 @@ fn emit_instance_method(
         builder.line(&format!("val raw = {}", call));
         builder.line(&format!("return {}(raw.pointer)", class_name));
     } else {
-        builder.line(&format!("return {}", call));
+        match &idiom {
+            ReturnIdiom::Plain => {
+                builder.line(&format!("return {}", call));
+            }
+            ReturnIdiom::Option {
+                payload_ty,
+                ref_kind,
+            } => {
+                let (raw, _) = super::ref_kind_kt_field(payload_ty, ref_kind, ir);
+                builder.line(&format!("val __ret = {}", call));
+                emit_kt_option_body(builder, &raw, ir);
+            }
+            ReturnIdiom::Result {
+                payload_ty,
+                ref_kind,
+            } => {
+                let (raw, _) = super::ref_kind_kt_field(payload_ty, ref_kind, ir);
+                builder.line(&format!("val __ret = {}", call));
+                emit_kt_result_body(builder, &raw, ir);
+            }
+        }
     }
 
     builder.dedent();

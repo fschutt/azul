@@ -383,8 +383,10 @@ fn generate_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Cod
 
     // AzOption<T>.AsNullable() — Nullable<T> for value-type payloads,
     // direct reference for reference-type payloads (C# nullable
-    // reference types: returns null when tag is None).
-    if enum_def.name.starts_with("Option") && enum_def.variants.len() == 2 {
+    // reference types: returns null when tag is None). Detected shape-
+    // only — types like `MaybeFoo` whose variants are [None, Some]
+    // still get the accessor.
+    if enum_def.variants.len() == 2 {
         let none = enum_def.variants.iter().find(|v| v.name == "None");
         let some = enum_def.variants.iter().find(|v| v.name == "Some");
         if let (Some(_), Some(sv)) = (none, some) {
@@ -420,8 +422,10 @@ fn generate_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Cod
         }
     }
 
-    // AzResult<T, E>.Unwrap() — return Ok or throw on Err.
-    if enum_def.name.starts_with("Result") && enum_def.variants.len() == 2 {
+    // AzResult<T, E>.Unwrap() — return Ok or throw on Err. Detected
+    // shape-only — types like `IcuResult` whose variants are [Ok,
+    // Err] still get the accessor regardless of name prefix.
+    if enum_def.variants.len() == 2 {
         let ok = enum_def.variants.iter().find(|v| v.name == "Ok");
         let err = enum_def.variants.iter().find(|v| v.name == "Err");
         if let (Some(ov), Some(_)) = (ok, err) {
@@ -722,7 +726,7 @@ fn generate_callback_delegate(
 // ============================================================================
 
 /// Map a `(type_name, FieldRefKind)` pair to the C# field type string.
-fn ref_kind_field_type(type_name: &str, ref_kind: &FieldRefKind, ir: &CodegenIR) -> String {
+pub(super) fn ref_kind_field_type(type_name: &str, ref_kind: &FieldRefKind, ir: &CodegenIR) -> String {
     match ref_kind {
         FieldRefKind::Owned => {
             // Callback typedefs are .NET delegate types (managed object
