@@ -690,7 +690,38 @@ fn emit_method_impl(
         .map(|r| r.trim() == class_name)
         .unwrap_or(false);
 
-    let body = if returns_self && has_wrapper {
+    let self_by_value = takes_self
+        && func
+            .args
+            .first()
+            .map(|a| matches!(a.ref_kind, ArgRefKind::Owned))
+            .unwrap_or(false);
+
+    // Consume `self` after a DeepCopy / consuming-self call:
+    // the C ABI took the struct by value, so the wrapper's
+    // Gc.finalise would otherwise re-fire `Az<X>_delete` on
+    // bytes Rust already dropped. `azul_consume` (defined in
+    // managed.rs:158) sets the wrapper record's `disposed`
+    // flag so the finaliser short-circuits.
+    let body = if self_by_value && has_wrapper {
+        let inner = if returns_self {
+            format!(
+                "let _ret = make_{} ({}) in azul_consume self; _ret",
+                ocaml_wrapper_type_name(class_name),
+                call_str
+            )
+        } else if func
+            .return_type
+            .as_deref()
+            .map(|s| matches!(s.trim(), "" | "void" | "()" | "c_void"))
+            .unwrap_or(true)
+        {
+            format!("{}; azul_consume self", call_str)
+        } else {
+            format!("let _ret = {} in azul_consume self; _ret", call_str)
+        };
+        inner
+    } else if returns_self && has_wrapper {
         format!("make_{} ({})", ocaml_wrapper_type_name(class_name), call_str)
     } else {
         call_str

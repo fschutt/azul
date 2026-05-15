@@ -492,6 +492,28 @@ fn emit_instance_method(out: &mut String, class: &str, lua_method: &str, func: &
     // rule in Java/Kotlin/C#/Ruby/Node.
     let has_az_string = func.args.iter().any(is_az_string_owned_arg);
 
+    // Consume-after-by-value (mirrors lang_java/kotlin/csharp's
+    // `consume_after_call` walk landed in 62094b885). Any arg whose IR
+    // ref_kind is Owned has its bytes transferred to Rust by the C
+    // call; LuaJIT's __gc metatype handler would otherwise re-run
+    // Az<X>_delete on those now-Rust-owned bytes. `azul._consume`
+    // (defined in lang_lua/managed.rs) calls `ffi.gc(c, nil)` to
+    // detach the finalizer per-instance. Safe on primitives — the
+    // helper type-checks for cdata first.
+    let consumed_self = func
+        .args
+        .first()
+        .map(|a| matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned))
+        .unwrap_or(false);
+    let consumed_arg_indices: Vec<usize> = func
+        .args
+        .iter()
+        .enumerate()
+        .skip(1)
+        .filter(|(_, a)| matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned))
+        .map(|(i, _)| i)
+        .collect();
+
     // Phase I.5.5 (Lua): Option/Result auto-unwrap at the wrapper
     // boundary. Routes through the per-cdata `:to_opt()` / `:unwrap()`
     // methods emitted by A.1.4 via ffi.metatype.
@@ -501,7 +523,9 @@ fn emit_instance_method(out: &mut String, class: &str, lua_method: &str, func: &
         _ => None,
     };
 
-    if !has_callback_arg(func) && !has_az_string && unwrap_call.is_none() {
+    let needs_consume = consumed_self || !consumed_arg_indices.is_empty();
+
+    if !has_callback_arg(func) && !has_az_string && unwrap_call.is_none() && !needs_consume {
         out.push_str(&format!(
             "    function {}_methods:{}(...) return C.{}(self, ...) end\n",
             class, lua_method, func.c_name
@@ -509,7 +533,7 @@ fn emit_instance_method(out: &mut String, class: &str, lua_method: &str, func: &
         return;
     }
 
-    if !has_callback_arg(func) && !has_az_string {
+    if !has_callback_arg(func) && !has_az_string && !needs_consume {
         // Auto-unwrap only path: keep the varargs varadic, wrap the return.
         let unwrap = unwrap_call.unwrap();
         out.push_str(&format!(
@@ -552,18 +576,53 @@ fn emit_instance_method(out: &mut String, class: &str, lua_method: &str, func: &
         Some(rt) if rt.starts_with("Result") => Some(":unwrap()"),
         _ => None,
     };
-    match unwrap_call {
-        Some(uw) => out.push_str(&format!(
-            "        return (C.{}({})){}\n",
-            func.c_name,
-            call_args.join(", "),
-            uw
-        )),
-        None => out.push_str(&format!(
-            "        return C.{}({})\n",
-            func.c_name,
-            call_args.join(", ")
-        )),
+    // Capture the result before emitting consume calls (statements
+    // can't follow a `return`), then return at the end.
+    let consume_lines: Vec<String> = {
+        let mut v = Vec::new();
+        for idx in &consumed_arg_indices {
+            v.push(format!("        azul._consume({})", visible[*idx - 1]));
+        }
+        if consumed_self {
+            v.push("        azul._consume(self)".to_string());
+        }
+        v
+    };
+
+    if consume_lines.is_empty() {
+        match unwrap_call {
+            Some(uw) => out.push_str(&format!(
+                "        return (C.{}({})){}\n",
+                func.c_name,
+                call_args.join(", "),
+                uw
+            )),
+            None => out.push_str(&format!(
+                "        return C.{}({})\n",
+                func.c_name,
+                call_args.join(", ")
+            )),
+        }
+    } else {
+        // Multi-line: capture, consume, return.
+        match unwrap_call {
+            Some(uw) => out.push_str(&format!(
+                "        local _ret = (C.{}({})){}\n",
+                func.c_name,
+                call_args.join(", "),
+                uw
+            )),
+            None => out.push_str(&format!(
+                "        local _ret = C.{}({})\n",
+                func.c_name,
+                call_args.join(", ")
+            )),
+        }
+        for line in &consume_lines {
+            out.push_str(line);
+            out.push('\n');
+        }
+        out.push_str("        return _ret\n");
     }
     out.push_str("    end\n");
 }

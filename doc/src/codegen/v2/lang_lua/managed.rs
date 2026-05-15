@@ -247,4 +247,17 @@ function azul.refany_get(refany)
     if id == 0ULL then return nil end
     return _lua_handles[tonumber(id)]
 end
+
+--- Mark a cdata as consumed by the C ABI: detach its __gc finalizer
+--- so LuaJIT won't call `AzX_delete` on bytes that Rust has already
+--- dropped. Called by codegen-emitted bridges after any C call that
+--- takes the wrapper by value (DeepCopy self, owned-by-value wrapper
+--- arg, callback-return byte splice). ffi.gc(cdata, nil) is the
+--- documented LuaJIT primitive for clearing per-instance finalizers
+--- even when the ctype's metatype declared __gc.
+function azul._consume(c)
+    if type(c) == 'cdata' then
+        ffi.gc(c, nil)
+    end
+end
 "#;
