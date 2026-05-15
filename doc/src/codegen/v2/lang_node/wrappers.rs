@@ -372,7 +372,7 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
 
     // Phase I.1.7 (Node): if this wrapper is a Vec (ptr/len/cap/destructor
     // shape), expose Symbol.iterator so `for (const x of vec)` works.
-    emit_node_iterator_if_vec(b, s);
+    emit_node_iterator_if_vec(b, s, ir);
 
     // Explicit `delete()` for callers who need deterministic disposal.
     if has_delete {
@@ -563,11 +563,17 @@ fn emit_enum_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, e: &EnumDef) {
 // Method emission helpers
 // ============================================================================
 
-/// Phase I.1.7 (Node): if this wrapper's underlying struct matches the
-/// Vec shape, expose `[Symbol.iterator]` so `for (const x of vec)`
-/// works. Pure type-driven from the (ptr, len, cap, destructor) field
-/// pattern.
-fn emit_node_iterator_if_vec(b: &mut CodeBuilder, s: &StructDef) {
+/// Vec → host-iterable. Three element shapes (mirrors the
+/// Java/Kotlin/C#/Ruby/Lua Vec-iterator clone-via-_clone fix):
+///
+///   - Primitive element (`u8`/`i32`/`f64`/...): `buf[i]` is a JS
+///     Number — value-decoded by koffi, fully independent.
+///   - Wrapper-class element with `_deepCopy`: clone each element
+///     via `lib.Az<Elem>_deepCopy(buf[i])`, wrap in
+///     `new <Elem>(__cloned)`. Safe past the Vec being closed.
+///   - Fallback (no clone): yield `buf[i]` with a doc comment
+///     warning the user not to retain past Vec lifetime.
+fn emit_node_iterator_if_vec(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     if s.fields.len() != 4 {
         return;
     }
@@ -580,9 +586,68 @@ fn emit_node_iterator_if_vec(b: &mut CodeBuilder, s: &StructDef) {
     if s.fields[1].type_name.trim() != "usize" {
         return;
     }
+
+    // Strip `*const T` / `*mut T` to recover element T (mirrors
+    // Java's detect_vec_elem_type_jvm).
+    let elem_raw = s.fields[0].type_name.trim();
+    let elem_ty = elem_raw
+        .strip_prefix("*const ")
+        .or_else(|| elem_raw.strip_prefix("*mut "))
+        .map(str::trim)
+        .unwrap_or(elem_raw)
+        .to_string();
+    let is_primitive = matches!(
+        elem_ty.as_str(),
+        "u8" | "i8"
+            | "u16"
+            | "i16"
+            | "u32"
+            | "i32"
+            | "u64"
+            | "i64"
+            | "f32"
+            | "f64"
+            | "bool"
+            | "usize"
+            | "isize"
+    );
+    let has_clone = ir
+        .functions
+        .iter()
+        .any(|f| f.class_name == elem_ty && matches!(f.kind, FunctionKind::DeepCopy));
+    let has_wrapper = {
+        use super::super::ir::TypeCategory;
+        ir.find_struct(&elem_ty)
+            .map(|s| {
+                !matches!(
+                    s.category,
+                    TypeCategory::Recursive
+                        | TypeCategory::VecRef
+                        | TypeCategory::DestructorOrClone
+                        | TypeCategory::GenericTemplate
+                )
+            })
+            .unwrap_or(false)
+            && ir.functions.iter().any(|f| {
+                f.class_name == elem_ty && matches!(f.kind, FunctionKind::Delete)
+            })
+    };
+
     b.line("/**");
-    b.line(" * Phase I.1: iterate the underlying Vec via Symbol.iterator.");
-    b.line(" * `for (const x of vec)` walks ptr[0..len].");
+    if is_primitive {
+        b.line(" * Iterate the underlying Vec — yields Number-typed");
+        b.line(" * primitive elements decoded by-value (safe past close).");
+    } else if has_clone && has_wrapper {
+        b.line(" * Iterate the underlying Vec — each yielded element is");
+        b.line(" * deep-cloned via the type's _deepCopy export so the");
+        b.line(" * returned wrapper owns its own heap allocations and");
+        b.line(" * survives the Vec being closed.");
+    } else {
+        b.line(" * Iterate the underlying Vec — yielded elements borrow");
+        b.line(" * from the Vec's buffer; don't keep them past the Vec's");
+        b.line(" * lifetime. No _deepCopy export available for the element");
+        b.line(" * type.");
+    }
     b.line(" */");
     b.line("*[Symbol.iterator]() {");
     b.indent();
@@ -591,9 +656,14 @@ fn emit_node_iterator_if_vec(b: &mut CodeBuilder, s: &StructDef) {
     b.line("const n = Number(this._ptr.len);");
     b.line("for (let i = 0; i < n; i++) {");
     b.indent();
-    // koffi: index into the buffer pointer directly. For primitive
-    // elements that's an integer; for struct elements it's a Struct.
-    b.line("yield buf[i];");
+    if is_primitive {
+        b.line("yield buf[i];");
+    } else if has_clone && has_wrapper {
+        b.line(&format!("const __cloned = lib.Az{}_deepCopy(buf[i]);", elem_ty));
+        b.line(&format!("yield new {}(__cloned);", elem_ty));
+    } else {
+        b.line("yield buf[i];");
+    }
     b.dedent();
     b.line("}");
     b.dedent();
