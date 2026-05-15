@@ -598,61 +598,43 @@ fn emit_tagged_union(
     builder.dedent();
     builder.line(")");
 
-    // AzOption<T>.to_opt — Ruby nullable mirror. Returns nil when the
-    // C-ABI tag is None, the Some payload otherwise.
-    if e.name.starts_with("Option") && e.variants.len() == 2 {
+    // AzOption<T>.to_opt — Ruby nullable mirror with delete+clone
+    // semantics (mirrors JVM commit 75a1fbcd2).
+    //
+    // Three extraction shapes:
+    //   1. AzString payload → decode UTF-8 into a Ruby String, then
+    //      call Native.az_option_<x>_delete to free the embedded
+    //      AzString's Vec.ptr buffer.
+    //   2. Wrapper-class payload → call Native.az_<payload>_clone to
+    //      produce an independent struct, wrap in Azul::<Payload>,
+    //      then delete the original Option (drops the original
+    //      payload's heap allocations).
+    //   3. Primitive payload → read the value (independent), delete
+    //      the Option (no-op heap-wise but consistent).
+    if e.variants.len() == 2 {
         let none = e.variants.iter().find(|v| v.name == "None");
         let some = e.variants.iter().find(|v| v.name == "Some");
         if let (Some(_), Some(sv)) = (none, some) {
-            let has_single_payload = matches!(
-                &sv.kind,
-                EnumVariantKind::Tuple(types) if types.len() == 1
-            );
-            if has_single_payload {
-                builder.line("# Decode this Option as a Ruby nullable.");
-                builder.line("# Returns nil when the C-ABI tag is None,");
-                builder.line("# the Some payload otherwise.");
-                builder.line("def to_opt");
-                builder.indent();
-                builder.line("return nil if self[:tag] == 0");
-                builder.line("self[:payload][:Some][:payload]");
-                builder.dedent();
-                builder.line("end");
+            if let EnumVariantKind::Tuple(types) = &sv.kind {
+                if types.len() == 1 {
+                    let payload_ty = types[0].0.trim();
+                    emit_ruby_to_opt_body(builder, &e.name, payload_ty, ir);
+                }
             }
         }
     }
 
-    // AzResult<T, E>.unwrap — return Ok payload, raise on Err.
-    if e.name.starts_with("Result") && e.variants.len() == 2 {
+    // AzResult<T, E>.unwrap — return Ok payload or raise. Same three
+    // shapes as to_opt; Err branch raises before any delete.
+    if e.variants.len() == 2 {
         let ok = e.variants.iter().find(|v| v.name == "Ok");
         let err = e.variants.iter().find(|v| v.name == "Err");
         if let (Some(ov), Some(_)) = (ok, err) {
-            let has_single = matches!(
-                &ov.kind,
-                EnumVariantKind::Tuple(types) if types.len() == 1
-            );
-            if has_single {
-                builder.line("# Return the Ok payload, or raise RuntimeError on Err.");
-                builder.line("def unwrap");
-                builder.indent();
-                builder.line("if self[:tag] == 0");
-                builder.indent();
-                builder.line("return self[:payload][:Ok][:payload]");
-                builder.dedent();
-                builder.line("else");
-                builder.indent();
-                builder.line(&format!(
-                    "raise \"{} unwrap on Err: #{{self[:payload][:Err][:payload].inspect}}\"",
-                    e.name
-                ));
-                builder.dedent();
-                builder.line("end");
-                builder.dedent();
-                builder.line("end");
-                builder.line("# True when the tag is Ok.");
-                builder.line("def ok?; self[:tag] == 0; end");
-                builder.line("# True when the tag is Err.");
-                builder.line("def err?; self[:tag] != 0; end");
+            if let EnumVariantKind::Tuple(types) = &ov.kind {
+                if types.len() == 1 {
+                    let payload_ty = types[0].0.trim();
+                    emit_ruby_unwrap_body(builder, &e.name, payload_ty, ir);
+                }
             }
         }
     }
@@ -888,6 +870,189 @@ pub(crate) fn ruby_symbol_for_callback(name: &str) -> String {
 }
 
 /// Naive CamelCase → snake_case (sufficient for AzFooBar style identifiers).
+/// True when the IR has an `Az<payload_ty>_clone` (DeepCopy) export.
+fn ruby_has_clone(payload_ty: &str, ir: &CodegenIR) -> bool {
+    use super::super::ir::FunctionKind;
+    ir.functions
+        .iter()
+        .any(|f| f.class_name == payload_ty && matches!(f.kind, FunctionKind::DeepCopy))
+}
+
+/// True when the IR has an `Az<option_ty>_delete` export — needed
+/// to free the outer Option/Result struct after payload extraction.
+fn ruby_has_delete(option_ty: &str, ir: &CodegenIR) -> bool {
+    use super::super::ir::FunctionKind;
+    ir.functions
+        .iter()
+        .any(|f| f.class_name == option_ty && matches!(f.kind, FunctionKind::Delete))
+}
+
+/// True when the IR's struct for `payload_ty` is categorised as
+/// String (TypeCategory::String) — same J.3 type-driven predicate
+/// used by the JVM/CLR fix.
+fn ruby_payload_is_string(payload_ty: &str, ir: &CodegenIR) -> bool {
+    use super::super::ir::TypeCategory;
+    ir.find_struct(payload_ty)
+        .map(|s| matches!(s.category, TypeCategory::String))
+        .unwrap_or(false)
+}
+
+/// True when the IR has a wrapper class for `payload_ty` (struct
+/// with `_delete`, not in an excluded category).
+fn ruby_payload_has_wrapper(payload_ty: &str, ir: &CodegenIR) -> bool {
+    use super::super::ir::{FunctionKind, TypeCategory};
+    let Some(s) = ir.find_struct(payload_ty) else {
+        return false;
+    };
+    if matches!(
+        s.category,
+        TypeCategory::Recursive
+            | TypeCategory::VecRef
+            | TypeCategory::DestructorOrClone
+            | TypeCategory::GenericTemplate
+    ) {
+        return false;
+    }
+    ir.functions
+        .iter()
+        .any(|f| f.class_name == payload_ty && matches!(f.kind, FunctionKind::Delete))
+}
+
+/// Emit the Ruby `def to_opt ... end` body for an `AzOption<T>` enum.
+/// Three extraction shapes (AzString decode / wrapper clone / primitive).
+fn emit_ruby_to_opt_body(
+    builder: &mut CodeBuilder,
+    option_name: &str,
+    payload_ty: &str,
+    ir: &CodegenIR,
+) {
+    let option_snake = snake_case(option_name);
+    let delete_call = if ruby_has_delete(option_name, ir) {
+        Some(format!("Native.az_{}_delete(self.to_ptr)", option_snake))
+    } else {
+        None
+    };
+    let emit_delete = |b: &mut CodeBuilder| {
+        if let Some(ref del) = delete_call {
+            b.line(del);
+        }
+    };
+
+    builder.line("# Decode this Option as a Ruby nullable. The outer");
+    builder.line("# Option is freed after payload extraction; wrapper");
+    builder.line("# payloads are cloned so the returned object owns its");
+    builder.line("# heap allocations independently.");
+    builder.line("def to_opt");
+    builder.indent();
+    builder.line("if self[:tag] == 0");
+    builder.indent();
+    emit_delete(builder);
+    builder.line("return nil");
+    builder.dedent();
+    builder.line("end");
+
+    if ruby_payload_is_string(payload_ty, ir) {
+        // AzString payload — read vec.ptr/.len, decode UTF-8, then
+        // delete the Option (frees the Vec.ptr buffer).
+        builder.line("__azs = self[:payload][:Some][:payload]");
+        builder.line("__vp = __azs[:vec][:ptr]");
+        builder.line("__vl = __azs[:vec][:len]");
+        builder.line("__out = (__vp.nil? || __vp.null? || __vl == 0) ? \"\" : __vp.read_bytes(__vl.to_i).force_encoding(Encoding::UTF_8)");
+        emit_delete(builder);
+        builder.line("__out");
+    } else if ruby_has_clone(payload_ty, ir) && ruby_payload_has_wrapper(payload_ty, ir) {
+        // Wrapper-class payload — clone first, wrap in the Azul::T
+        // class, then delete the Option.
+        let payload_snake = snake_case(payload_ty);
+        let wrapper_class = format!("Azul::{}", payload_ty);
+        builder.line(&format!(
+            "__cloned = Native.az_{}_clone(self[:payload][:Some][:payload].to_ptr)",
+            payload_snake
+        ));
+        emit_delete(builder);
+        builder.line(&format!("{}.new(__cloned)", wrapper_class));
+    } else {
+        // Primitive or non-cloneable struct — pass-through then
+        // delete. The returned value is captured into a local
+        // before delete so any internal pointer fields aren't
+        // freed under the caller (best-effort; non-cloneable
+        // wrapper payloads are rare).
+        builder.line("__val = self[:payload][:Some][:payload]");
+        emit_delete(builder);
+        builder.line("__val");
+    }
+
+    builder.dedent();
+    builder.line("end");
+}
+
+/// Emit the Ruby `def unwrap ... end` body for an `AzResult<T, E>`
+/// enum. Same three extraction shapes as [`emit_ruby_to_opt_body`];
+/// Err branch raises before any delete.
+fn emit_ruby_unwrap_body(
+    builder: &mut CodeBuilder,
+    result_name: &str,
+    payload_ty: &str,
+    ir: &CodegenIR,
+) {
+    let result_snake = snake_case(result_name);
+    let delete_call = if ruby_has_delete(result_name, ir) {
+        Some(format!("Native.az_{}_delete(self.to_ptr)", result_snake))
+    } else {
+        None
+    };
+    let emit_delete = |b: &mut CodeBuilder| {
+        if let Some(ref del) = delete_call {
+            b.line(del);
+        }
+    };
+
+    builder.line("# Return the Ok payload, or raise RuntimeError on Err.");
+    builder.line("# Wrapper payloads are cloned; primitives are passed");
+    builder.line("# through; the outer Result is freed after extraction.");
+    builder.line("def unwrap");
+    builder.indent();
+    builder.line("if self[:tag] != 0");
+    builder.indent();
+    // Err branch — raise before delete (so the user can read the Err
+    // payload if they catch). Delete still runs on cleanup.
+    builder.line(&format!(
+        "raise \"{} unwrap on Err: #{{self[:payload][:Err][:payload].inspect}}\"",
+        result_name
+    ));
+    builder.dedent();
+    builder.line("end");
+
+    if ruby_payload_is_string(payload_ty, ir) {
+        builder.line("__azs = self[:payload][:Ok][:payload]");
+        builder.line("__vp = __azs[:vec][:ptr]");
+        builder.line("__vl = __azs[:vec][:len]");
+        builder.line("__out = (__vp.nil? || __vp.null? || __vl == 0) ? \"\" : __vp.read_bytes(__vl.to_i).force_encoding(Encoding::UTF_8)");
+        emit_delete(builder);
+        builder.line("__out");
+    } else if ruby_has_clone(payload_ty, ir) && ruby_payload_has_wrapper(payload_ty, ir) {
+        let payload_snake = snake_case(payload_ty);
+        let wrapper_class = format!("Azul::{}", payload_ty);
+        builder.line(&format!(
+            "__cloned = Native.az_{}_clone(self[:payload][:Ok][:payload].to_ptr)",
+            payload_snake
+        ));
+        emit_delete(builder);
+        builder.line(&format!("{}.new(__cloned)", wrapper_class));
+    } else {
+        builder.line("__val = self[:payload][:Ok][:payload]");
+        emit_delete(builder);
+        builder.line("__val");
+    }
+
+    builder.dedent();
+    builder.line("end");
+    builder.line("# True when the tag is Ok.");
+    builder.line("def ok?; self[:tag] == 0; end");
+    builder.line("# True when the tag is Err.");
+    builder.line("def err?; self[:tag] != 0; end");
+}
+
 pub(crate) fn snake_case(input: &str) -> String {
     let mut out = String::with_capacity(input.len() + 4);
     for (i, c) in input.chars().enumerate() {

@@ -359,20 +359,22 @@ fn emit_data_enum_wrapper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
             _ => {}
         }
     }
-    // AzOption<T>:to_opt() / is_some / is_none — Lua nullable mirror.
+    // AzOption<T>:to_opt() / is_some / is_none — Lua nullable mirror
+    // with delete+clone semantics (mirrors Ruby/JVM commits 75a1fbcd2
+    // + memory_safety_session_2026_05_15).
     let mut auto_method_count = 0usize;
-    if class.starts_with("Option") && e.variants.len() == 2 {
-        let has_some_with_payload = e.variants.iter().any(|v| {
-            v.name == "Some" && matches!(&v.kind, EnumVariantKind::Tuple(t) if t.len() == 1)
-        });
-        if has_some_with_payload {
-            out.push_str(&format!(
-                "    function {}_methods:to_opt()\n",
-                class
-            ));
-            out.push_str("        if self.Some.tag == 0 then return nil end\n");
-            out.push_str("        return self.Some.payload\n");
-            out.push_str("    end\n");
+    if e.variants.len() == 2 {
+        let some_payload = e
+            .variants
+            .iter()
+            .find(|v| v.name == "Some")
+            .and_then(|v| match &v.kind {
+                EnumVariantKind::Tuple(t) if t.len() == 1 => Some(&t[0].0),
+                _ => None,
+            });
+        let has_none = e.variants.iter().any(|v| v.name == "None");
+        if let (Some(payload_ty), true) = (some_payload, has_none) {
+            emit_lua_to_opt_body(out, class, payload_ty, ir);
             out.push_str(&format!(
                 "    function {}_methods:is_some() return self.Some.tag ~= 0 end\n",
                 class
@@ -387,22 +389,18 @@ fn emit_data_enum_wrapper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
 
     // AzResult<T,E>:unwrap() / is_ok / is_err — Lua mirror of the
     // Java/Kotlin/C#/Ruby helpers.
-    if class.starts_with("Result") && e.variants.len() == 2 {
-        let has_ok_with_payload = e.variants.iter().any(|v| {
-            v.name == "Ok" && matches!(&v.kind, EnumVariantKind::Tuple(t) if t.len() == 1)
-        });
+    if e.variants.len() == 2 {
+        let ok_payload = e
+            .variants
+            .iter()
+            .find(|v| v.name == "Ok")
+            .and_then(|v| match &v.kind {
+                EnumVariantKind::Tuple(t) if t.len() == 1 => Some(&t[0].0),
+                _ => None,
+            });
         let has_err = e.variants.iter().any(|v| v.name == "Err");
-        if has_ok_with_payload && has_err {
-            out.push_str(&format!(
-                "    function {}_methods:unwrap()\n",
-                class
-            ));
-            out.push_str("        if self.Ok.tag == 0 then return self.Ok.payload end\n");
-            out.push_str(&format!(
-                "        error('{} unwrap on Err: ' .. tostring(self.Err.payload))\n",
-                class
-            ));
-            out.push_str("    end\n");
+        if let (Some(payload_ty), true) = (ok_payload, has_err) {
+            emit_lua_unwrap_body(out, class, payload_ty, ir);
             out.push_str(&format!(
                 "    function {}_methods:is_ok() return self.Ok.tag == 0 end\n",
                 class
@@ -632,6 +630,162 @@ fn emit_instance_method(out: &mut String, class: &str, lua_method: &str, func: &
 /// level. The call site routes the value through `azul._az_string`
 /// (defined in `mod.rs` postlude). Pure type-driven; no method-name
 /// allowlist.
+/// True iff the IR exports `Az<payload_ty>_clone` (FunctionKind::DeepCopy).
+fn lua_has_clone(payload_ty: &str, ir: &CodegenIR) -> bool {
+    ir.functions
+        .iter()
+        .any(|f| f.class_name == payload_ty && matches!(f.kind, FunctionKind::DeepCopy))
+}
+
+/// True iff the IR exports `Az<option_ty>_delete`.
+fn lua_has_delete(option_ty: &str, ir: &CodegenIR) -> bool {
+    ir.functions
+        .iter()
+        .any(|f| f.class_name == option_ty && matches!(f.kind, FunctionKind::Delete))
+}
+
+/// True iff the IR's struct for `payload_ty` is `TypeCategory::String`.
+fn lua_payload_is_string(payload_ty: &str, ir: &CodegenIR) -> bool {
+    use super::super::ir::TypeCategory;
+    ir.find_struct(payload_ty)
+        .map(|s| matches!(s.category, TypeCategory::String))
+        .unwrap_or(false)
+}
+
+/// Emit Lua `:to_opt()` for an Az<Option> enum. Three extraction
+/// shapes (mirrors Ruby and JVM/CLR): AzString decode / wrapper-class
+/// clone-then-delete / primitive pass-through.
+fn emit_lua_to_opt_body(
+    out: &mut String,
+    class: &str,
+    payload_ty: &str,
+    ir: &CodegenIR,
+) {
+    let option_name = format!("Az{}", class);
+    let has_delete = lua_has_delete(class, ir);
+    // Lua __gc fires later on the same cdata; we must call
+    // `azul._consume(self)` after the explicit _delete to disarm
+    // the metatype's finalizer, otherwise the cdata double-frees.
+    let delete_line = if has_delete {
+        format!(
+            "        C.{}_delete(self)\n        azul._consume(self)\n",
+            option_name
+        )
+    } else {
+        String::new()
+    };
+
+    out.push_str(&format!("    function {}_methods:to_opt()\n", class));
+    out.push_str("        if self.Some.tag == 0 then\n");
+    if has_delete {
+        // Inner-block indent: 12 spaces. delete_line carries 8;
+        // prefix the first occurrence with 4 extra and re-indent
+        // subsequent lines via str::replace.
+        let inner = delete_line.replace("\n        ", "\n            ");
+        out.push_str(&format!("    {}", inner));
+    }
+    out.push_str("            return nil\n");
+    out.push_str("        end\n");
+
+    if lua_payload_is_string(payload_ty, ir) {
+        // AzString payload — decode bytes into a Lua string, then
+        // delete the Option to free the Vec.ptr buffer.
+        out.push_str("        local __azs = self.Some.payload\n");
+        out.push_str("        local __out\n");
+        out.push_str("        if __azs.vec.ptr == nil or __azs.vec.len == 0 then\n");
+        out.push_str("            __out = \"\"\n");
+        out.push_str("        else\n");
+        out.push_str(
+            "            __out = ffi.string(__azs.vec.ptr, tonumber(__azs.vec.len))\n",
+        );
+        out.push_str("        end\n");
+        if has_delete {
+            out.push_str(&delete_line);
+        }
+        out.push_str("        return __out\n");
+    } else if lua_has_clone(payload_ty, ir) {
+        // Wrapper / cloneable payload — clone for an independent
+        // allocation, then delete the Option (drops the original
+        // payload's heap allocations).
+        out.push_str(&format!(
+            "        local __cloned = C.Az{}_clone(self.Some.payload)\n",
+            payload_ty
+        ));
+        if has_delete {
+            out.push_str(&delete_line);
+        }
+        out.push_str("        return __cloned\n");
+    } else {
+        // Primitive / non-cloneable: capture the value before delete
+        // so the local owns it independently.
+        out.push_str("        local __val = self.Some.payload\n");
+        if has_delete {
+            out.push_str(&delete_line);
+        }
+        out.push_str("        return __val\n");
+    }
+
+    out.push_str("    end\n");
+}
+
+/// Emit Lua `:unwrap()` for an Az<Result> enum. Same three extraction
+/// shapes as [`emit_lua_to_opt_body`]; Err branch raises before delete.
+fn emit_lua_unwrap_body(
+    out: &mut String,
+    class: &str,
+    payload_ty: &str,
+    ir: &CodegenIR,
+) {
+    let result_name = format!("Az{}", class);
+    let has_delete = lua_has_delete(class, ir);
+    let delete_line = if has_delete {
+        format!("        C.{}_delete(self)\n", result_name)
+    } else {
+        String::new()
+    };
+
+    out.push_str(&format!("    function {}_methods:unwrap()\n", class));
+    out.push_str("        if self.Ok.tag ~= 0 then\n");
+    out.push_str(&format!(
+        "            error('{} unwrap on Err: ' .. tostring(self.Err.payload))\n",
+        class
+    ));
+    out.push_str("        end\n");
+
+    if lua_payload_is_string(payload_ty, ir) {
+        out.push_str("        local __azs = self.Ok.payload\n");
+        out.push_str("        local __out\n");
+        out.push_str("        if __azs.vec.ptr == nil or __azs.vec.len == 0 then\n");
+        out.push_str("            __out = \"\"\n");
+        out.push_str("        else\n");
+        out.push_str(
+            "            __out = ffi.string(__azs.vec.ptr, tonumber(__azs.vec.len))\n",
+        );
+        out.push_str("        end\n");
+        if has_delete {
+            out.push_str(&delete_line);
+        }
+        out.push_str("        return __out\n");
+    } else if lua_has_clone(payload_ty, ir) {
+        out.push_str(&format!(
+            "        local __cloned = C.Az{}_clone(self.Ok.payload)\n",
+            payload_ty
+        ));
+        if has_delete {
+            out.push_str(&delete_line);
+        }
+        out.push_str("        return __cloned\n");
+    } else {
+        out.push_str("        local __val = self.Ok.payload\n");
+        if has_delete {
+            out.push_str(&delete_line);
+        }
+        out.push_str("        return __val\n");
+    }
+
+    out.push_str("    end\n");
+}
+
 fn is_az_string_owned_arg(a: &super::super::ir::FunctionArg) -> bool {
     a.type_name.trim() == "String"
         && matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned)
