@@ -1,25 +1,7 @@
-// examples/node/hello-world.js
-//
-// Node port of examples/c/hello-world.c, written against the
-// idiomatic `azul` wrapper layer. Same data model (a counter), same
-// behaviour (mouse click increments, layout rebuilds the DOM).
-//
-// Callbacks go through libazul's host-invoker plumbing
-// (`AzCallback_createFromHostHandle`, `AzApp_setCallbackInvoker`)
-// so koffi never needs to synthesize a struct-by-value trampoline
-// for the user function. The wrapper layer's consuming builders
-// (`with_child` / `with_button_type` / etc.) do the right thing
-// under koffi: each call moves the receiver and any by-value
-// wrapper args into the C call, unregisters them from their
-// `FinalizationRegistry`, and wraps the returned struct in a fresh
-// wrapper instance. So a chain like
-// `Dom.create_body().with_child(label).with_child(button.dom())`
-// is safe — no double-free on the moved-from steps.
-//
-// Run with:
-//     node hello-world.js   (after `npm install` in this dir)
-//     bun  run hello-world.js
-//     deno run --allow-ffi --unstable-ffi hello-world.js
+// examples/node/hello-world.js — Node port of examples/c/hello-world.c.
+// Run: node hello-world.js   (after `npm install`)
+//      bun  run hello-world.js
+//      deno run --allow-ffi --unstable-ffi hello-world.js
 
 'use strict';
 
@@ -30,15 +12,7 @@ const {
     Update, WindowBackgroundMaterial, WindowCreateOptions, WindowDecorations,
     refanyCreate, refanyGet,
 } = azul;
-const lib = azul.__lib;
-
-// ── Data model ────────────────────────────────────────────────────────
-// Plain JS object held alive by libazul via the host-handle table.
-
 const model = { counter: 5 };
-const data  = refanyCreate(model);
-
-// ── Callbacks ─────────────────────────────────────────────────────────
 
 function onClick(dataPtr, _info) {
     const m = refanyGet(dataPtr);
@@ -51,39 +25,27 @@ function layout(dataPtr, _info) {
     const m = refanyGet(dataPtr);
     if (m == null) return Dom.create_body();
 
-    // Counter label wrapped in a font-size-32 div. Plain JS strings
-    // flow directly through the codegen-emitted auto-string-conversion.
     const label = Dom.create_div()
         .with_css_property(
             CssPropertyWithConditions.simple(
                 CssProperty.font_size(StyleFontSize.px(32.0))))
         .with_child(Dom.create_text(String(m.counter)));
 
-    // Increment button.
     const button = Button.create('Increase counter')
         .with_button_type(ButtonType.Primary)
-        .with_on_click(lib.AzRefAny_clone(data), onClick);
+        .on_click(model, onClick);
 
     return Dom.create_body()
         .with_child(label)
         .with_child(button.dom());
 }
 
-// ── Main ──────────────────────────────────────────────────────────────
-//
-// Without this, an uncaught exception from inside a koffi-registered
-// callback aborts the process (SIGABRT) before the host-invoker
-// thunk's own try/catch can log it. The handler is a no-op for
-// healthy GUI runs.
+// Catch uncaught exceptions from inside koffi-registered callbacks
+// before they SIGABRT the process via the libffi trampoline.
 process.on('uncaughtException', (e) => {
     console.error('[azul] uncaught:', e && e.stack ? e.stack : e);
 });
 
-// Smart factory + fluent `.with(opts)` builder. `createWithLayout`
-// hides the host-invoker registration; `with({...})` recursively
-// assigns nested window-state fields, auto-converting JS strings to
-// AzString. NoTitleAutoInject lets the OS draw close/min/max buttons
-// while the framework auto-injects a draggable titlebar.
 const window = WindowCreateOptions.createWithLayout(layout).with({
     window_state: {
         title: 'Hello World',
@@ -95,5 +57,4 @@ const window = WindowCreateOptions.createWithLayout(layout).with({
     },
 });
 
-const app = App.create(data, AppConfig.create());
-app.run(window);
+App.create(refanyCreate(model), AppConfig.create()).run(window);
