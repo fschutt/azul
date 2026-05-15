@@ -400,11 +400,35 @@ fn emit_instance_method(
             "ret := &{}{{ inner: {} }}",
             go_name, call
         ));
+        // Register the matching finalizer on the returned wrapper —
+        // without this, the returned `*Foo` would never have its
+        // `_delete` called and the underlying allocation leaks until
+        // process exit. Mirrors the `runtime.SetFinalizer(self, …)`
+        // block emit_static_factory uses (lang_go/wrappers.rs:299-306).
+        b.line(&format!(
+            "runtime.SetFinalizer(ret, func(x *{}) {{ x.Close() }})",
+            go_name
+        ));
+        // If self was consumed by-value, clear its finalizer so the
+        // user's deferred `self.Close()` (or the GC's eventual
+        // finalizer fire) doesn't double-drop the stale bytes.
+        if self_by_value {
+            b.line("runtime.SetFinalizer(self, nil)");
+        }
         b.line("return ret");
     } else if return_ty.is_empty() {
         b.line(&call);
+        if self_by_value {
+            b.line("runtime.SetFinalizer(self, nil)");
+        }
     } else {
-        b.line(&format!("return {}", call));
+        if self_by_value {
+            b.line(&format!("ret := {}", call));
+            b.line("runtime.SetFinalizer(self, nil)");
+            b.line("return ret");
+        } else {
+            b.line(&format!("return {}", call));
+        }
     }
 
     b.dedent();

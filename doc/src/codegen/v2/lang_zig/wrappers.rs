@@ -179,6 +179,13 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
 
     out.push_str(&format!("pub const {} = struct {{\n", zig_name));
     out.push_str(&format!("    inner: C.{},\n", ffi_name));
+    // Consume-after-by-value sentinel: set true after a C ABI call
+    // takes `self.inner` by value (DeepCopy / consuming-self
+    // method). `deinit` then skips `_delete` to avoid double-free
+    // on stale Rust-owned bytes. Defaults to false on every
+    // wrapper-construction path. Mirrors the JVM/CLR `closed` flag
+    // pattern landed in commit 62094b885.
+    out.push_str("    consumed: bool = false,\n");
     out.push('\n');
     out.push_str("    const Self = @This();\n");
     out.push('\n');
@@ -264,7 +271,11 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
     if has_delete {
         out.push_str("    /// Free the underlying native resources.\n");
         out.push_str("    /// Idiomatic Zig: pair `App.create(...)` with `defer app.deinit();`.\n");
+        out.push_str("    /// Skipped when `self.consumed` is set — a previous DeepCopy /\n");
+        out.push_str("    /// consuming-self call transferred ownership of `inner` to Rust\n");
+        out.push_str("    /// and a follow-up `_delete` would double-free.\n");
         out.push_str("    pub fn deinit(self: *Self) void {\n");
+        out.push_str("        if (self.consumed) return;\n");
         out.push_str(&format!("        C.{}_delete(&self.inner);\n", ffi_name));
         out.push_str("    }\n");
     }
@@ -380,21 +391,54 @@ fn emit_instance_method(
         safe_name, full_params, return_zig
     ));
 
-    let call_args_full = if user_call_args.is_empty() {
-        "&self.inner".to_string()
+    // Inspect args[0]: Owned ⇒ C ABI takes `self` by value
+    // (`AzFoo`); Ref/Ptr ⇒ takes a pointer (`AzFoo*`). The C
+    // declaration must match — passing `&self.inner` where a value
+    // is expected produces a Zig type-checker error
+    // ("expected AzFoo, found *AzFoo"). Same detection JVM/CLR/Pascal
+    // wrappers use.
+    let self_by_value = f
+        .args
+        .first()
+        .map(|a| matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned))
+        .unwrap_or(false);
+    let self_expr = if self_by_value {
+        "self.inner"
     } else {
-        format!("&self.inner, {}", user_call_args)
+        "&self.inner"
+    };
+    let call_args_full = if user_call_args.is_empty() {
+        self_expr.to_string()
+    } else {
+        format!("{}, {}", self_expr, user_call_args)
     };
 
     // Use the canonical C symbol from the IR (`Az<Class>_<lowerCamelMethod>`).
     let call = format!("C.{}({})", f.c_name, call_args_full);
 
+    // Mark `self` consumed when the C ABI took it by value — the
+    // sentinel is checked in `deinit` to skip the now-double-free
+    // `_delete` call. Mirrors the JVM/CLR `__consume()` pattern.
+    let consume_self_line = if self_by_value {
+        "        self.consumed = true;\n"
+    } else {
+        ""
+    };
+
     if return_zig == "void" {
         out.push_str(&format!("        {};\n", call));
+        out.push_str(consume_self_line);
     } else if returns_self {
-        out.push_str(&format!("        return Self{{ .inner = {} }};\n", call));
+        out.push_str(&format!(
+            "        const _ret = Self{{ .inner = {} }};\n",
+            call
+        ));
+        out.push_str(consume_self_line);
+        out.push_str("        return _ret;\n");
     } else {
-        out.push_str(&format!("        return {};\n", call));
+        out.push_str(&format!("        const _ret = {};\n", call));
+        out.push_str(consume_self_line);
+        out.push_str("        return _ret;\n");
     }
 
     out.push_str("    }\n\n");

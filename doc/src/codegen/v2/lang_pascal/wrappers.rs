@@ -414,6 +414,7 @@ fn emit_method_impl(
     builder.indent();
 
     let mut call_args: Vec<String> = Vec::new();
+    let mut self_by_value = false;
     if takes_self {
         // Inspect args[0] of the IR signature: Owned means the C
         // function takes the record by value (`AzFoo`), Ref/Ptr/etc.
@@ -421,7 +422,7 @@ fn emit_method_impl(
         // declaration mirrors this, so we must match — passing `@FRaw`
         // where a value is expected raises "Incompatible type for
         // arg no. 1: Got Pointer, expected TAzFoo".
-        let self_by_value = func
+        self_by_value = func
             .args
             .first()
             .map(|a| matches!(a.ref_kind, ArgRefKind::Owned))
@@ -455,6 +456,17 @@ fn emit_method_impl(
     } else {
         builder.line(&format!("{};", call));
     }
+
+    // Consume-after-by-value: when the C ABI takes `self` by value
+    // (DeepCopy / consuming-self method), Rust now owns the bytes
+    // inside `FRaw`. Flip `FOwned := False;` so the destructor's
+    // `if FOwned then <Type>_delete(@FRaw)` guard skips on cleanup
+    // and we don't double-free. Mirrors the JVM/CLR `__consume`
+    // pattern landed in commit 62094b885.
+    if self_by_value {
+        builder.line("FOwned := False;");
+    }
+
     builder.dedent();
     builder.line("end;");
     builder.blank();
