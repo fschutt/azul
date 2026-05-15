@@ -1112,6 +1112,14 @@ fn emit_wrapper_method(
             wrapper
         ));
     } else {
+        // The Option/Result type name for the _delete call lookup
+        // (e.g. "OptionDom", "ResultIcuError"). Same string the IR
+        // stored in `func.return_type`.
+        let option_or_result_ty = func
+            .return_type
+            .as_deref()
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default();
         match &idiom {
             ReturnIdiom::Option {
                 payload_ty,
@@ -1120,7 +1128,7 @@ fn emit_wrapper_method(
                 let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
                 builder.line(&format!("{} __ret = {};", return_jvm, call));
                 emit_consume(builder);
-                emit_option_return_body(builder, &raw, ir);
+                emit_option_return_body(builder, &raw, &option_or_result_ty, ir);
             }
             ReturnIdiom::Result {
                 payload_ty,
@@ -1129,7 +1137,7 @@ fn emit_wrapper_method(
                 let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
                 builder.line(&format!("{} __ret = {};", return_jvm, call));
                 emit_consume(builder);
-                emit_result_return_body(builder, &raw, ir);
+                emit_result_return_body(builder, &raw, &option_or_result_ty, ir);
             }
             ReturnIdiom::Plain => {
                 if consume_after_call.is_empty() {
@@ -1164,59 +1172,199 @@ fn emit_wrapper_method(
 /// 3. Anything else (primitives, raw FFI structs without wrappers,
 ///    `Pointer`) — return `Optional.ofNullable(__ret.toNullable())`
 ///    directly.
-fn emit_option_return_body(builder: &mut CodeBuilder, raw_payload_jvm: &str, ir: &CodegenIR) {
+fn emit_option_return_body(
+    builder: &mut CodeBuilder,
+    raw_payload_jvm: &str,
+    option_type_name: &str,
+    ir: &CodegenIR,
+) {
+    let option_delete = format_option_delete_call_jvm(option_type_name, ir);
     if is_az_string_jvm(raw_payload_jvm, ir) {
+        // AzString payload: decode UTF-8 into an independent
+        // java.lang.String, then drop the Option so libazul frees the
+        // embedded AzString's Vec.ptr buffer.
         builder.line(&format!("{} __nv = __ret.toNullable();", raw_payload_jvm));
-        builder.line("if (__nv == null) return java.util.Optional.empty();");
+        builder.line("if (__nv == null) {");
+        builder.indent();
+        if let Some(ref del) = option_delete {
+            builder.line(&format!("{};", del));
+        }
+        builder.line("return java.util.Optional.empty();");
+        builder.dedent();
+        builder.line("}");
         builder.line("Pointer __sp = __nv.getPointer();");
         builder.line("Pointer __vecPtr = __sp.getPointer(0);");
         builder.line("long __vecLen = __sp.getLong(8);");
-        builder.line("if (__vecPtr == null || __vecLen <= 0) return java.util.Optional.of(\"\");");
+        builder.line("java.lang.String __out;");
+        builder.line("if (__vecPtr == null || __vecLen <= 0) {");
+        builder.indent();
+        builder.line("__out = \"\";");
+        builder.dedent();
+        builder.line("} else {");
+        builder.indent();
         builder.line("byte[] __bytes = __vecPtr.getByteArray(0, (int) __vecLen);");
         builder.line(
-            "return java.util.Optional.of(new java.lang.String(__bytes, java.nio.charset.StandardCharsets.UTF_8));",
+            "__out = new java.lang.String(__bytes, java.nio.charset.StandardCharsets.UTF_8);",
         );
+        builder.dedent();
+        builder.line("}");
+        if let Some(ref del) = option_delete {
+            builder.line(&format!("{};", del));
+        }
+        builder.line("return java.util.Optional.of(__out);");
         return;
     }
     if let Some(unprefixed) = raw_payload_jvm.strip_prefix("Az") {
         if has_wrapper_class(unprefixed, ir) {
+            // Wrapper-class payload: clone the payload via the
+            // type's `_clone` C export so the new wrapper owns
+            // independent heap allocations, then drop the Option to
+            // free the original payload's allocations. If the type
+            // doesn't expose `_clone`, fall back to the borrow-from-
+            // Option-Memory shape (small Option-shell leak but no
+            // dangling pointers).
+            let clone_call = format_clone_call_jvm(unprefixed, ir);
             builder.line(&format!("{} __nv = __ret.toNullable();", raw_payload_jvm));
-            builder.line("if (__nv == null) return java.util.Optional.empty();");
-            builder.line(&format!(
-                "return java.util.Optional.of(new {}(__nv.getPointer()));",
-                unprefixed
-            ));
+            builder.line("if (__nv == null) {");
+            builder.indent();
+            if let Some(ref del) = option_delete {
+                builder.line(&format!("{};", del));
+            }
+            builder.line("return java.util.Optional.empty();");
+            builder.dedent();
+            builder.line("}");
+            if let Some(ref clone) = clone_call {
+                builder.line(&format!(
+                    "{} __cloned = {}(__nv.getPointer());",
+                    raw_payload_jvm, clone
+                ));
+                builder.line("__cloned.write();");
+                if let Some(ref del) = option_delete {
+                    builder.line(&format!("{};", del));
+                }
+                builder.line(&format!(
+                    "return java.util.Optional.of(new {}(__cloned.getPointer()));",
+                    unprefixed
+                ));
+            } else {
+                builder.line(&format!(
+                    "return java.util.Optional.of(new {}(__nv.getPointer()));",
+                    unprefixed
+                ));
+            }
             return;
         }
     }
-    builder.line("return java.util.Optional.ofNullable(__ret.toNullable());");
+    // Primitive / Pointer payload: independent value, safely drop
+    // the Option. (For primitives _delete is essentially a no-op but
+    // we still issue it for consistency and so future heap-bearing
+    // primitives don't silently leak.)
+    builder.line(&format!(
+        "{} __opt = __ret.toNullable();",
+        java_boxed(&payload_display_type(raw_payload_jvm, ir))
+    ));
+    if let Some(ref del) = option_delete {
+        builder.line(&format!("{};", del));
+    }
+    builder.line("return java.util.Optional.ofNullable(__opt);");
+}
+
+/// Build a `<NativeClass>.INSTANCE.Az<OptionT>_delete(__ret.getPointer())`
+/// call expression, or None when the IR has no matching _delete fn.
+fn format_option_delete_call_jvm(option_type_name: &str, ir: &CodegenIR) -> Option<String> {
+    if !has_delete_function(option_type_name, ir) {
+        return None;
+    }
+    let native = super::functions::native_class_for_class(option_type_name, ir);
+    let ffi_name = ffi_type_name(option_type_name);
+    Some(format!(
+        "{}.INSTANCE.{}_delete(__ret.getPointer())",
+        native, ffi_name
+    ))
+}
+
+/// Build a `<NativeClass>.INSTANCE.Az<T>_clone` expression (not yet
+/// invoked) for the wrapper-class payload type, or None when no
+/// `_clone` C export exists.
+fn format_clone_call_jvm(payload_type_name: &str, ir: &CodegenIR) -> Option<String> {
+    use super::super::ir::FunctionKind;
+    let has_clone = ir.functions.iter().any(|f| {
+        f.class_name == payload_type_name && matches!(f.kind, FunctionKind::DeepCopy)
+    });
+    if !has_clone {
+        return None;
+    }
+    let native = super::functions::native_class_for_class(payload_type_name, ir);
+    let ffi_name = ffi_type_name(payload_type_name);
+    Some(format!("{}.INSTANCE.{}_clone", native, ffi_name))
 }
 
 /// Emit the body of a wrapper method whose return is the bare Ok
 /// payload of a `Result<T, E>` (throws `RuntimeException` on Err — the
 /// FFI struct's `unwrap()` does that lift). Same three cases as
 /// [`emit_option_return_body`].
-fn emit_result_return_body(builder: &mut CodeBuilder, raw_payload_jvm: &str, ir: &CodegenIR) {
+fn emit_result_return_body(
+    builder: &mut CodeBuilder,
+    raw_payload_jvm: &str,
+    result_type_name: &str,
+    ir: &CodegenIR,
+) {
+    let result_delete = format_option_delete_call_jvm(result_type_name, ir);
     if is_az_string_jvm(raw_payload_jvm, ir) {
         builder.line(&format!("{} __u = __ret.unwrap();", raw_payload_jvm));
         builder.line("Pointer __sp = __u.getPointer();");
         builder.line("Pointer __vecPtr = __sp.getPointer(0);");
         builder.line("long __vecLen = __sp.getLong(8);");
-        builder.line("if (__vecPtr == null || __vecLen <= 0) return \"\";");
+        builder.line("java.lang.String __out;");
+        builder.line("if (__vecPtr == null || __vecLen <= 0) {");
+        builder.indent();
+        builder.line("__out = \"\";");
+        builder.dedent();
+        builder.line("} else {");
+        builder.indent();
         builder.line("byte[] __bytes = __vecPtr.getByteArray(0, (int) __vecLen);");
         builder.line(
-            "return new java.lang.String(__bytes, java.nio.charset.StandardCharsets.UTF_8);",
+            "__out = new java.lang.String(__bytes, java.nio.charset.StandardCharsets.UTF_8);",
         );
+        builder.dedent();
+        builder.line("}");
+        if let Some(ref del) = result_delete {
+            builder.line(&format!("{};", del));
+        }
+        builder.line("return __out;");
         return;
     }
     if let Some(unprefixed) = raw_payload_jvm.strip_prefix("Az") {
         if has_wrapper_class(unprefixed, ir) {
+            let clone_call = format_clone_call_jvm(unprefixed, ir);
             builder.line(&format!("{} __u = __ret.unwrap();", raw_payload_jvm));
-            builder.line(&format!("return new {}(__u.getPointer());", unprefixed));
+            if let Some(ref clone) = clone_call {
+                builder.line(&format!(
+                    "{} __cloned = {}(__u.getPointer());",
+                    raw_payload_jvm, clone
+                ));
+                builder.line("__cloned.write();");
+                if let Some(ref del) = result_delete {
+                    builder.line(&format!("{};", del));
+                }
+                builder.line(&format!(
+                    "return new {}(__cloned.getPointer());",
+                    unprefixed
+                ));
+            } else {
+                builder.line(&format!("return new {}(__u.getPointer());", unprefixed));
+            }
             return;
         }
     }
-    builder.line("return __ret.unwrap();");
+    builder.line(&format!(
+        "{} __u = __ret.unwrap();",
+        java_boxed(&payload_display_type(raw_payload_jvm, ir))
+    ));
+    if let Some(ref del) = result_delete {
+        builder.line(&format!("{};", del));
+    }
+    builder.line("return __u;");
 }
 
 // ============================================================================

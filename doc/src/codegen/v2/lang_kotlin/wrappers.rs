@@ -166,48 +166,153 @@ fn is_az_string_kt(raw: &str, ir: &CodegenIR) -> bool {
         .unwrap_or(false)
 }
 
+/// Build an `<NativeClass>.INSTANCE.Az<OptionT>_delete(__ret.getPointer())`
+/// call (or None when there's no _delete export).
+fn format_option_delete_call_kt(option_type_name: &str, ir: &CodegenIR) -> Option<String> {
+    use super::super::ir::FunctionKind;
+    let has_delete = ir
+        .functions
+        .iter()
+        .any(|f| f.class_name == option_type_name && matches!(f.kind, FunctionKind::Delete));
+    if !has_delete {
+        return None;
+    }
+    let native =
+        super::super::lang_java::functions::native_class_for_class(option_type_name, ir);
+    let ffi_name = ffi_type_name(option_type_name);
+    Some(format!(
+        "{}.INSTANCE.{}_delete(__ret.getPointer())",
+        native, ffi_name
+    ))
+}
+
+/// Build an `<NativeClass>.INSTANCE.Az<T>_clone` expression for a
+/// wrapper-class payload type, or None if no _clone export exists.
+fn format_clone_call_kt(payload_type_name: &str, ir: &CodegenIR) -> Option<String> {
+    use super::super::ir::FunctionKind;
+    let has_clone = ir.functions.iter().any(|f| {
+        f.class_name == payload_type_name && matches!(f.kind, FunctionKind::DeepCopy)
+    });
+    if !has_clone {
+        return None;
+    }
+    let native =
+        super::super::lang_java::functions::native_class_for_class(payload_type_name, ir);
+    let ffi_name = ffi_type_name(payload_type_name);
+    Some(format!("{}.INSTANCE.{}_clone", native, ffi_name))
+}
+
 /// Emit the body for an `Option<T>` return. `__ret` (the FFI `Az*Option`
 /// ByValue) has already been declared.
-fn emit_kt_option_body(builder: &mut CodeBuilder, raw_payload_kt: &str, ir: &CodegenIR) {
+fn emit_kt_option_body(
+    builder: &mut CodeBuilder,
+    raw_payload_kt: &str,
+    option_type_name: &str,
+    ir: &CodegenIR,
+) {
+    let option_delete = format_option_delete_call_kt(option_type_name, ir);
+    let emit_delete = |b: &mut CodeBuilder| {
+        if let Some(ref del) = option_delete {
+            b.line(del);
+        }
+    };
     if is_az_string_kt(raw_payload_kt, ir) {
-        builder.line("val __nv = __ret.toNullable() ?: return null");
+        builder.line("val __nv = __ret.toNullable()");
+        builder.line("if (__nv == null) {");
+        builder.indent();
+        emit_delete(builder);
+        builder.line("return null");
+        builder.dedent();
+        builder.line("}");
         builder.line("val __sp = __nv.pointer");
         builder.line("val __vp = __sp.getPointer(0)");
         builder.line("val __vl = __sp.getLong(8)");
-        builder.line("if (__vp == null || __vl <= 0) return \"\"");
-        builder.line("return __vp.getByteArray(0, __vl.toInt()).toString(Charsets.UTF_8)");
+        builder.line("val __out: kotlin.String = if (__vp == null || __vl <= 0) \"\" else");
+        builder.indent();
+        builder.line("__vp.getByteArray(0, __vl.toInt()).toString(Charsets.UTF_8)");
+        builder.dedent();
+        emit_delete(builder);
+        builder.line("return __out");
         return;
     }
     if let Some(unprefixed) = raw_payload_kt.strip_prefix("Az") {
         if has_kt_wrapper_class(unprefixed, ir) {
-            builder.line("val __nv = __ret.toNullable() ?: return null");
-            builder.line(&format!("return {}(__nv.pointer)", unprefixed));
+            let clone_call = format_clone_call_kt(unprefixed, ir);
+            builder.line("val __nv = __ret.toNullable()");
+            builder.line("if (__nv == null) {");
+            builder.indent();
+            emit_delete(builder);
+            builder.line("return null");
+            builder.dedent();
+            builder.line("}");
+            if let Some(ref clone) = clone_call {
+                builder.line(&format!(
+                    "val __cloned = {}(__nv.pointer) as {}.ByValue",
+                    clone, raw_payload_kt
+                ));
+                builder.line("__cloned.write()");
+                emit_delete(builder);
+                builder.line(&format!("return {}(__cloned.pointer)", unprefixed));
+            } else {
+                builder.line(&format!("return {}(__nv.pointer)", unprefixed));
+            }
             return;
         }
     }
-    builder.line("return __ret.toNullable()");
+    // Primitive / Pointer payload — independent value already.
+    builder.line("val __opt = __ret.toNullable()");
+    emit_delete(builder);
+    builder.line("return __opt");
 }
 
 /// Emit the body for a `Result<T, E>` return (throws on Err — same
 /// idiom as Rust's `Result::unwrap`).
-fn emit_kt_result_body(builder: &mut CodeBuilder, raw_payload_kt: &str, ir: &CodegenIR) {
+fn emit_kt_result_body(
+    builder: &mut CodeBuilder,
+    raw_payload_kt: &str,
+    result_type_name: &str,
+    ir: &CodegenIR,
+) {
+    let result_delete = format_option_delete_call_kt(result_type_name, ir);
+    let emit_delete = |b: &mut CodeBuilder| {
+        if let Some(ref del) = result_delete {
+            b.line(del);
+        }
+    };
     if is_az_string_kt(raw_payload_kt, ir) {
         builder.line("val __u = __ret.unwrap()");
         builder.line("val __sp = __u.pointer");
         builder.line("val __vp = __sp.getPointer(0)");
         builder.line("val __vl = __sp.getLong(8)");
-        builder.line("if (__vp == null || __vl <= 0) return \"\"");
-        builder.line("return __vp.getByteArray(0, __vl.toInt()).toString(Charsets.UTF_8)");
+        builder.line("val __out: kotlin.String = if (__vp == null || __vl <= 0) \"\" else");
+        builder.indent();
+        builder.line("__vp.getByteArray(0, __vl.toInt()).toString(Charsets.UTF_8)");
+        builder.dedent();
+        emit_delete(builder);
+        builder.line("return __out");
         return;
     }
     if let Some(unprefixed) = raw_payload_kt.strip_prefix("Az") {
         if has_kt_wrapper_class(unprefixed, ir) {
+            let clone_call = format_clone_call_kt(unprefixed, ir);
             builder.line("val __u = __ret.unwrap()");
-            builder.line(&format!("return {}(__u.pointer)", unprefixed));
+            if let Some(ref clone) = clone_call {
+                builder.line(&format!(
+                    "val __cloned = {}(__u.pointer) as {}.ByValue",
+                    clone, raw_payload_kt
+                ));
+                builder.line("__cloned.write()");
+                emit_delete(builder);
+                builder.line(&format!("return {}(__cloned.pointer)", unprefixed));
+            } else {
+                builder.line(&format!("return {}(__u.pointer)", unprefixed));
+            }
             return;
         }
     }
-    builder.line("return __ret.unwrap()");
+    builder.line("val __u = __ret.unwrap()");
+    emit_delete(builder);
+    builder.line("return __u");
 }
 
 pub fn emit_all(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) -> Result<()> {
@@ -1027,18 +1132,28 @@ fn emit_static_factory(
                 ref_kind,
             } => {
                 let (raw, _) = super::ref_kind_kt_field(payload_ty, ref_kind, ir);
+                let option_ty = func
+                    .return_type
+                    .as_deref()
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_default();
                 builder.line(&format!("val __ret = {}", call));
                 emit_consume(builder, &consume_after_call);
-                emit_kt_option_body(builder, &raw, ir);
+                emit_kt_option_body(builder, &raw, &option_ty, ir);
             }
             ReturnIdiom::Result {
                 payload_ty,
                 ref_kind,
             } => {
                 let (raw, _) = super::ref_kind_kt_field(payload_ty, ref_kind, ir);
+                let result_ty = func
+                    .return_type
+                    .as_deref()
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_default();
                 builder.line(&format!("val __ret = {}", call));
                 emit_consume(builder, &consume_after_call);
-                emit_kt_result_body(builder, &raw, ir);
+                emit_kt_result_body(builder, &raw, &result_ty, ir);
             }
         }
     }
@@ -1246,18 +1361,28 @@ fn emit_instance_method(
                 ref_kind,
             } => {
                 let (raw, _) = super::ref_kind_kt_field(payload_ty, ref_kind, ir);
+                let option_ty = func
+                    .return_type
+                    .as_deref()
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_default();
                 builder.line(&format!("val __ret = {}", call));
                 emit_consume(builder, &consume_after_call);
-                emit_kt_option_body(builder, &raw, ir);
+                emit_kt_option_body(builder, &raw, &option_ty, ir);
             }
             ReturnIdiom::Result {
                 payload_ty,
                 ref_kind,
             } => {
                 let (raw, _) = super::ref_kind_kt_field(payload_ty, ref_kind, ir);
+                let result_ty = func
+                    .return_type
+                    .as_deref()
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_default();
                 builder.line(&format!("val __ret = {}", call));
                 emit_consume(builder, &consume_after_call);
-                emit_kt_result_body(builder, &raw, ir);
+                emit_kt_result_body(builder, &raw, &result_ty, ir);
             }
         }
     }

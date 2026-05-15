@@ -159,51 +159,182 @@ fn is_az_string_cs(raw: &str, ir: &CodegenIR) -> bool {
         .unwrap_or(false)
 }
 
+/// Build a `NativeMethods.Az<OptionT>_delete(...)` invocation that
+/// frees the C-ABI-allocated Option/Result struct. C# requires a
+/// heap-copy pointer (no `__ret.Pointer` accessor on the bare value-
+/// type struct), so we marshal-out + free. None when no _delete
+/// export exists in the IR.
+fn format_option_delete_block_cs(option_type_name: &str, ir: &CodegenIR) -> Option<String> {
+    use super::super::ir::FunctionKind;
+    let has_delete = ir
+        .functions
+        .iter()
+        .any(|f| f.class_name == option_type_name && matches!(f.kind, FunctionKind::Delete));
+    if !has_delete {
+        return None;
+    }
+    let ffi_name = ffi_type_name(option_type_name);
+    // Returns a `{ ... }`-scoped block (single line) so multiple
+    // emit_delete calls in the same method body don't collide on
+    // local-variable names. The block marshals __ret to a heap-
+    // copy IntPtr, calls _delete, frees the heap copy.
+    Some(format!(
+        "{{ var __del_ptr = System.Runtime.InteropServices.Marshal.AllocHGlobal(System.Runtime.InteropServices.Marshal.SizeOf<{ffi}>()); System.Runtime.InteropServices.Marshal.StructureToPtr(__ret, __del_ptr, false); NativeMethods.{ffi}_delete(__del_ptr); System.Runtime.InteropServices.Marshal.FreeHGlobal(__del_ptr); }}",
+        ffi = ffi_name,
+    ))
+}
+
+fn format_clone_call_cs(payload_type_name: &str, ir: &CodegenIR) -> Option<String> {
+    use super::super::ir::FunctionKind;
+    let has_clone = ir.functions.iter().any(|f| {
+        f.class_name == payload_type_name && matches!(f.kind, FunctionKind::DeepCopy)
+    });
+    if !has_clone {
+        return None;
+    }
+    let ffi_name = ffi_type_name(payload_type_name);
+    // The clone fn takes an IntPtr; the caller marshals the payload
+    // first. We return the bare method name.
+    Some(format!("NativeMethods.{}_clone", ffi_name))
+}
+
 /// Emit the body of an `Option<T>` return for C#. `__ret` (the AzOption
 /// FFI struct value) has already been declared.
-fn emit_cs_option_body(builder: &mut CodeBuilder, raw_payload_cs: &str, ir: &CodegenIR) {
+fn emit_cs_option_body(
+    builder: &mut CodeBuilder,
+    raw_payload_cs: &str,
+    option_type_name: &str,
+    ir: &CodegenIR,
+) {
+    let delete_block = format_option_delete_block_cs(option_type_name, ir);
+    let emit_delete = |b: &mut CodeBuilder| {
+        if let Some(block) = delete_block.as_ref() {
+            b.line(block);
+        }
+    };
     if is_az_string_cs(raw_payload_cs, ir) {
         builder.line("var __nv = __ret.AsNullable();");
-        builder.line("if (__nv == null) return null;");
+        builder.line("if (__nv == null) {");
+        builder.indent();
+        emit_delete(builder);
+        builder.line("return null;");
+        builder.dedent();
+        builder.line("}");
         builder.line("var __azs = __nv.Value;");
         builder.line("var __vp = __azs.vec.ptr;");
         builder.line("var __vl = (long)__azs.vec.len.ToUInt64();");
-        builder.line("if (__vp == System.IntPtr.Zero || __vl <= 0) return \"\";");
+        builder.line("string __out;");
+        builder.line("if (__vp == System.IntPtr.Zero || __vl <= 0) {");
+        builder.indent();
+        builder.line("__out = \"\";");
+        builder.dedent();
+        builder.line("} else {");
+        builder.indent();
         builder.line("var __bytes = new byte[__vl];");
         builder.line("System.Runtime.InteropServices.Marshal.Copy(__vp, __bytes, 0, (int)__vl);");
-        builder.line("return System.Text.Encoding.UTF8.GetString(__bytes);");
+        builder.line("__out = System.Text.Encoding.UTF8.GetString(__bytes);");
+        builder.dedent();
+        builder.line("}");
+        emit_delete(builder);
+        builder.line("return __out;");
         return;
     }
     if let Some(unprefixed) = raw_payload_cs.strip_prefix("Az") {
         if has_cs_wrapper_class(unprefixed, ir) {
+            let clone_call = format_clone_call_cs(unprefixed, ir);
             builder.line("var __nv = __ret.AsNullable();");
-            builder.line("if (__nv == null) return null;");
-            builder.line(&format!("return new {}(__nv.Value);", unprefixed));
+            builder.line("if (__nv == null) {");
+            builder.indent();
+            emit_delete(builder);
+            builder.line("return null;");
+            builder.dedent();
+            builder.line("}");
+            if let Some(ref clone) = clone_call {
+                // Allocate a temp pointer for the payload, clone via
+                // C ABI, wrap the clone, then drop the Option.
+                builder.line(&format!(
+                    "var __nv_ptr = System.Runtime.InteropServices.Marshal.AllocHGlobal(System.Runtime.InteropServices.Marshal.SizeOf<{}>());",
+                    raw_payload_cs
+                ));
+                builder.line(&format!(
+                    "System.Runtime.InteropServices.Marshal.StructureToPtr(__nv.Value, __nv_ptr, false);"
+                ));
+                builder.line(&format!("var __cloned = {}(__nv_ptr);", clone));
+                builder.line(
+                    "System.Runtime.InteropServices.Marshal.FreeHGlobal(__nv_ptr);",
+                );
+                emit_delete(builder);
+                builder.line(&format!("return new {}(__cloned);", unprefixed));
+            } else {
+                builder.line(&format!("return new {}(__nv.Value);", unprefixed));
+            }
             return;
         }
     }
-    builder.line("return __ret.AsNullable();");
+    builder.line("var __opt = __ret.AsNullable();");
+    emit_delete(builder);
+    builder.line("return __opt;");
 }
 
-fn emit_cs_result_body(builder: &mut CodeBuilder, raw_payload_cs: &str, ir: &CodegenIR) {
+fn emit_cs_result_body(
+    builder: &mut CodeBuilder,
+    raw_payload_cs: &str,
+    result_type_name: &str,
+    ir: &CodegenIR,
+) {
+    let delete_block = format_option_delete_block_cs(result_type_name, ir);
+    let emit_delete = |b: &mut CodeBuilder| {
+        if let Some(block) = delete_block.as_ref() {
+            b.line(block);
+        }
+    };
     if is_az_string_cs(raw_payload_cs, ir) {
         builder.line("var __azs = __ret.Unwrap();");
         builder.line("var __vp = __azs.vec.ptr;");
         builder.line("var __vl = (long)__azs.vec.len.ToUInt64();");
-        builder.line("if (__vp == System.IntPtr.Zero || __vl <= 0) return \"\";");
+        builder.line("string __out;");
+        builder.line("if (__vp == System.IntPtr.Zero || __vl <= 0) {");
+        builder.indent();
+        builder.line("__out = \"\";");
+        builder.dedent();
+        builder.line("} else {");
+        builder.indent();
         builder.line("var __bytes = new byte[__vl];");
         builder.line("System.Runtime.InteropServices.Marshal.Copy(__vp, __bytes, 0, (int)__vl);");
-        builder.line("return System.Text.Encoding.UTF8.GetString(__bytes);");
+        builder.line("__out = System.Text.Encoding.UTF8.GetString(__bytes);");
+        builder.dedent();
+        builder.line("}");
+        emit_delete(builder);
+        builder.line("return __out;");
         return;
     }
     if let Some(unprefixed) = raw_payload_cs.strip_prefix("Az") {
         if has_cs_wrapper_class(unprefixed, ir) {
-            builder.line(&format!("var __u = __ret.Unwrap();"));
-            builder.line(&format!("return new {}(__u);", unprefixed));
+            let clone_call = format_clone_call_cs(unprefixed, ir);
+            builder.line("var __u = __ret.Unwrap();");
+            if let Some(ref clone) = clone_call {
+                builder.line(&format!(
+                    "var __u_ptr = System.Runtime.InteropServices.Marshal.AllocHGlobal(System.Runtime.InteropServices.Marshal.SizeOf<{}>());",
+                    raw_payload_cs
+                ));
+                builder.line(
+                    "System.Runtime.InteropServices.Marshal.StructureToPtr(__u, __u_ptr, false);",
+                );
+                builder.line(&format!("var __cloned = {}(__u_ptr);", clone));
+                builder.line(
+                    "System.Runtime.InteropServices.Marshal.FreeHGlobal(__u_ptr);",
+                );
+                emit_delete(builder);
+                builder.line(&format!("return new {}(__cloned);", unprefixed));
+            } else {
+                builder.line(&format!("return new {}(__u);", unprefixed));
+            }
             return;
         }
     }
-    builder.line("return __ret.Unwrap();");
+    builder.line("var __u = __ret.Unwrap();");
+    emit_delete(builder);
+    builder.line("return __u;");
 }
 
 // ============================================================================
@@ -1105,6 +1236,15 @@ fn emit_wrapper_method(
         None
     };
 
+    // IR-side name of the Option/Result return type, used to look up
+    // the matching _delete export so we can free the wrapper's outer
+    // heap allocations after payload extraction.
+    let option_or_result_ty = func
+        .return_type
+        .as_deref()
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+
     let displayed_return = if returns_self {
         class_name.to_string()
     } else if let Some(ref wrapper) = returns_wrapper_other {
@@ -1247,11 +1387,11 @@ fn emit_wrapper_method(
                 ReturnIdiom::Plain => builder.line("return __ret;"),
                 ReturnIdiom::Option { payload_ty, ref_kind } => {
                     let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
-                    emit_cs_option_body(builder, &raw, ir);
+                    emit_cs_option_body(builder, &raw, &option_or_result_ty, ir);
                 }
                 ReturnIdiom::Result { payload_ty, ref_kind } => {
                     let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
-                    emit_cs_result_body(builder, &raw, ir);
+                    emit_cs_result_body(builder, &raw, &option_or_result_ty, ir);
                 }
             };
         }
@@ -1296,13 +1436,13 @@ fn emit_wrapper_method(
                     let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
                     builder.line(&format!("var __ret = {};", call));
                     emit_cs_consume(builder, &consume_after_call);
-                    emit_cs_option_body(builder, &raw, ir);
+                    emit_cs_option_body(builder, &raw, &option_or_result_ty, ir);
                 }
                 ReturnIdiom::Result { payload_ty, ref_kind } => {
                     let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
                     builder.line(&format!("var __ret = {};", call));
                     emit_cs_consume(builder, &consume_after_call);
-                    emit_cs_result_body(builder, &raw, ir);
+                    emit_cs_result_body(builder, &raw, &option_or_result_ty, ir);
                 }
             };
         }
@@ -1338,13 +1478,13 @@ fn emit_wrapper_method(
                     let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
                     builder.line(&format!("var __ret = {};", call));
                     emit_cs_consume(builder, &consume_after_call);
-                    emit_cs_option_body(builder, &raw, ir);
+                    emit_cs_option_body(builder, &raw, &option_or_result_ty, ir);
                 }
                 ReturnIdiom::Result { payload_ty, ref_kind } => {
                     let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
                     builder.line(&format!("var __ret = {};", call));
                     emit_cs_consume(builder, &consume_after_call);
-                    emit_cs_result_body(builder, &raw, ir);
+                    emit_cs_result_body(builder, &raw, &option_or_result_ty, ir);
                 }
             };
         }
