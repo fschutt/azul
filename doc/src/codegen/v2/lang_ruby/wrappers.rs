@@ -104,6 +104,26 @@ fn emit_class_wrapper(
     builder.line("end");
     builder.blank();
 
+    // CC-4: fluent `with(opts_hash)` builder. Recursively assigns
+    // hash keys into the underlying FFI::Struct's nested fields,
+    // auto-converting Ruby Strings to AzString via `Azul._az_string`.
+    // Drops user-visible field-drilling like
+    //   `window.ptr[:window_state][:title] = Azul._az_string('...')`
+    // in favor of
+    //   `window.with(window_state: { title: 'Hello World' })`
+    // Returns self for chain composition with `.with_*` builder
+    // methods. Pure FFI::Struct-driven; no per-field allow-list.
+    builder.line("# Fluent builder: recursively assigns `opts_hash` into the wrapper's");
+    builder.line("# nested FFI::Struct fields. Ruby Strings auto-convert to AzString.");
+    builder.line("# Returns self for chaining.");
+    builder.line("def with(opts)");
+    builder.indent();
+    builder.line("Azul._apply_opts(@ptr, opts)");
+    builder.line("self");
+    builder.dedent();
+    builder.line("end");
+    builder.blank();
+
     // Finalizer factory: a class-level proc that closes over `ptr` only.
     // This is critical — closing over `self` would keep the instance alive
     // and the finalizer would never fire.

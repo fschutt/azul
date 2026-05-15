@@ -49,14 +49,19 @@ layout = lambda do |data_ptr, _info|
 end
 
 # Smart factory: hides the manual layout_callback splice. Window
-# state extras (title, size, flags) still hang off the wrapper's
-# raw ptr like before.
-window = Azul::WindowCreateOptions.create_with_layout(layout)
-window.ptr[:window_state][:title] = Azul._az_string('Hello World')
-window.ptr[:window_state][:size][:dimensions][:width]  = 400.0
-window.ptr[:window_state][:size][:dimensions][:height] = 300.0
-window.ptr[:window_state][:flags][:decorations]         = Azul::WindowDecorations::NoTitleAutoInject
-window.ptr[:window_state][:flags][:background_material] = Azul::WindowBackgroundMaterial::Sidebar
+# Fluent `with(opts)` builder: recursively assigns nested fields,
+# auto-converts Ruby Strings to AzString. Replaces the previous
+# `window.ptr[:window_state][:title] = Azul._az_string(...)` drilling.
+window = Azul::WindowCreateOptions.create_with_layout(layout).with(
+  window_state: {
+    title: 'Hello World',
+    size: { dimensions: { width: 400.0, height: 300.0 } },
+    flags: {
+      decorations: Azul::WindowDecorations::NoTitleAutoInject,
+      background_material: Azul::WindowBackgroundMaterial::Sidebar,
+    },
+  },
+)
 
 app = Azul::App.create(data, Azul::AppConfig.create)
 app.run(window.ptr)

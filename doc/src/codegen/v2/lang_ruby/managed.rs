@@ -128,6 +128,49 @@ pub fn emit_managed_module(builder: &mut super::super::generator::CodeBuilder, i
     builder.line("end");
     builder.blank();
 
+    // CC-4: recursive opts-hash applier. Each wrapper class's
+    // `with(opts)` instance method routes through this helper to
+    // assign nested fields of the underlying FFI::Struct. Hash
+    // values that are themselves Hashes recurse into the nested
+    // struct; Ruby Strings auto-convert via `_az_string`. Other
+    // values are forwarded by-value.
+    //
+    // Drops user-visible drilling like
+    //   `window.ptr[:window_state][:title] = Azul._az_string('...')`
+    // in favor of
+    //   `window.with(window_state: { title: 'Hello World' })`.
+    builder.line("def self._apply_opts(struct, opts)");
+    builder.indent();
+    builder.line("opts.each do |key, value|");
+    builder.indent();
+    builder.line("if value.is_a?(::Hash)");
+    builder.indent();
+    builder.line("_apply_opts(struct[key], value)");
+    builder.dedent();
+    // Fully-qualified ::String references Ruby's built-in String —
+    // inside `module Azul` the bare `String` would resolve to the
+    // codegen-emitted `Azul::String` wrapper class instead and the
+    // is_a? check would silently return false for Ruby string
+    // literals.
+    builder.line("elsif value.is_a?(::String)");
+    builder.indent();
+    builder.line("struct[key] = _az_string(value)");
+    builder.dedent();
+    builder.line("elsif value.respond_to?(:ptr) && value.ptr.is_a?(FFI::Struct)");
+    builder.indent();
+    builder.line("struct[key] = value.ptr");
+    builder.dedent();
+    builder.line("else");
+    builder.indent();
+    builder.line("struct[key] = value");
+    builder.dedent();
+    builder.line("end");
+    builder.dedent();
+    builder.line("end");
+    builder.dedent();
+    builder.line("end");
+    builder.blank();
+
     // Releaser: clears the hash entry. Pinned for process lifetime.
     builder.line("releaser = FFI::Function.new(:void, [:uint64]) do |id|");
     builder.indent();
