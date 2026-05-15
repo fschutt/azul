@@ -141,8 +141,8 @@ pub fn clone_export_name(elem_rust: &str, ir: &CodegenIR) -> Option<String>;
 
 ## Phase V7 — OCaml
 
-- [ ] **V7.1** Add Vec detection + emit `to_list : t -> Elem.t list` with per-element clone. *Effort: 3h.*
-- [ ] **V7.2** Primitive path: `to_array`. *Effort: 1h.*
+- [x] **V7.1** Closed 2026-05-16: layout-driven `detect_vec_to_list_shape` in `lang_ocaml/wrappers.rs` emits `to_list : t -> <elem_ffi> Ctypes.structure list` for every Vec wrapper whose element has a `_clone` export. 52 modules pick it up. Returns the raw FFI structure (not the per-module wrapper `t`) because the OCaml module-emit order doesn't guarantee the element module is in scope at Vec-module declaration time — users wrap manually via `<ElemModule>.make_<elem>` if needed. The clone-per-element gives the memory-safety win regardless of return type.
+- [⊘] **V7.2** Primitive path (`to_array` / `to_list` for `U8Vec` / `U32Vec` / `F32Vec` …) blocked by the OCaml types codegen emitting `field <vec> "ptr" (ptr void)` for primitive elements (no `az_<primitive>` ctype view exists). Dereferencing the void pointer yields `unit`. Implementation needs a per-primitive `Ctypes.from_voidp <view> __ptr` cast AND a Ctypes-native return type (`Unsigned.UInt8.t list` etc.). ~1.5h of focused work. Not blocking V7.1.
 - [ ] **V7.3** Smoke test. *Effort: 1h.*
 
 ---

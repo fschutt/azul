@@ -32,7 +32,7 @@ use std::collections::BTreeSet;
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{
-    ArgRefKind, CodegenIR, EnumVariantKind, FunctionDef, FunctionKind, StructDef, TypeCategory,
+    ArgRefKind, CodegenIR, EnumVariantKind, FieldRefKind, FunctionDef, FunctionKind, StructDef, TypeCategory,
 };
 use super::functions::ocaml_binding_name;
 use super::{
@@ -331,6 +331,14 @@ fn emit_module_interface_for_class(
         let sig = build_method_signature(func, ir, has_wrapper, &s.name);
         builder.line(&sig);
     }
+    // V7 (OCaml): Vec wrappers get `to_list : t -> <elem_ffi> Ctypes.structure list`
+    // with per-element clone via `Az<Elem>_clone`. Returns raw FFI
+    // structs (not wrapper `t`s) so the .mli compiles regardless of
+    // module-emit order — the Vec module may appear before the element
+    // module in the output. Users wrap manually via
+    // `Elem.make_<elem_snake>` if they want a managed handle. The
+    // clone-per-element gives the memory-safety win regardless.
+    emit_ocaml_vec_to_list_signature_if_vec(builder, s, ir);
     builder.dedent();
     builder.line("end");
     builder.blank();
@@ -392,9 +400,166 @@ fn emit_module_impl_for_class(
     // Az<X>_toDbgString.
     emit_ocaml_to_string_if_supported(builder, s, ir, has_wrapper);
 
+    // V7 (OCaml): Vec wrappers get per-element clone-via `to_list`.
+    // Pattern mirrors the Lua / Ruby / Node Vec iterator fixes
+    // (commits bb06ba101 / e56d41caf / 4edb65d7c). See the .mli
+    // signature emitter for the design rationale.
+    emit_ocaml_vec_to_list_if_vec(builder, s, ir, has_wrapper);
+
     builder.dedent();
     builder.line("end");
     builder.blank();
+}
+
+/// V7 (OCaml) — `.mli` signature for `to_list` when this struct is a Vec
+/// wrapper (`TypeCategory::Vec`) AND the element type has a `_clone`
+/// export OR is a primitive type. Returns the raw FFI element type;
+/// users wrap manually via the element module's `make_*` if needed
+/// (the module-emit order doesn't guarantee the element wrapper
+/// module is in scope when the Vec module is being declared).
+fn emit_ocaml_vec_to_list_signature_if_vec(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    ir: &CodegenIR,
+) {
+    let Some(spec) = detect_vec_to_list_shape(s, ir) else {
+        return;
+    };
+    builder.line(&format!("(* Yield a Lua-style {} list cloned out of the Vec — each element is *)", spec.return_doc));
+    builder.line("(* an independent heap allocation that survives the Vec being closed. *)");
+    builder.line(&format!("val to_list : t -> {}", spec.return_type));
+}
+
+/// V7 (OCaml) — `.ml` implementation for `to_list`. Walks the Vec's
+/// ptr/len fields, clones each element (when available) into a fresh
+/// allocation, returns an OCaml list. Per-element shape matches Lua's
+/// `to_lua_array` clone-via path (`lang_lua/wrappers.rs:244-311`).
+fn emit_ocaml_vec_to_list_if_vec(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    ir: &CodegenIR,
+    has_wrapper: bool,
+) {
+    let Some(spec) = detect_vec_to_list_shape(s, ir) else {
+        return;
+    };
+    let vec_snake = ocaml_ffi_type_name(&s.name);
+    let self_t = if has_wrapper { "self.raw" } else { "self" };
+
+    builder.line(&format!("(* Clone each element into an OCaml {} list. *)", spec.return_doc));
+    builder.line(&format!("let to_list (self : t) : {} =", spec.return_type));
+    builder.indent();
+    builder.line(&format!(
+        "let __ptr = Ctypes.getf {} {}_field_ptr in",
+        self_t, vec_snake
+    ));
+    builder.line(&format!(
+        "let __len = Unsigned.Size_t.to_int (Ctypes.getf {} {}_field_len) in",
+        self_t, vec_snake
+    ));
+    builder.line("if Ctypes.is_null __ptr || __len = 0 then []");
+    builder.line("else");
+    builder.indent();
+    builder.line("let rec __aux i acc =");
+    builder.indent();
+    builder.line("if i < 0 then acc");
+    builder.line("else");
+    builder.indent();
+    builder.line(&format!("let __elem = {} in", spec.element_expr));
+    builder.line("__aux (i - 1) (__elem :: acc)");
+    builder.dedent();
+    builder.dedent();
+    builder.line("in __aux (__len - 1) []");
+    builder.dedent();
+    builder.dedent();
+    builder.blank();
+}
+
+/// Per-element extraction recipe for a Vec to_list emitter. Built once
+/// from the IR; used by both signature and impl emitters so the .mli
+/// and .ml stay consistent.
+struct VecToListSpec {
+    /// OCaml return type after `t ->` in the val-declaration / let-impl.
+    /// `int list`, `float list`, `az_dom Ctypes.structure list`, etc.
+    return_type: String,
+    /// Short human description for the docstring (`"int"`, `"AzDom"`).
+    return_doc: String,
+    /// OCaml expression that yields the i-th element of the Vec (uses
+    /// `__ptr` and `i` as free variables). Either a primitive deref or
+    /// a `c_AzElem_clone` invocation.
+    element_expr: String,
+}
+
+/// Decide what shape `to_list` should take for this struct. Returns
+/// `None` when the struct isn't a Vec, when we can't detect the
+/// element type, or when the element has no `_clone` export AND isn't
+/// a primitive (we don't want to emit a dangling-by-design iterator).
+fn detect_vec_to_list_shape(s: &StructDef, ir: &CodegenIR) -> Option<VecToListSpec> {
+    // `TypeCategory::Vec` is unreliable: the IR builder only stamps it
+    // on the four "C-API direct" Vec types (`AzU8Vec`, `AzStringVec`,
+    // `AzGLuintVec`, `AzGLintVec`) plus on non-Vec C-API-direct types
+    // like `StringMenuItem` (`ir_builder.rs:2225-2254`). For the dozens
+    // of `Az<X>Vec` types that fall through to `TypeCategory::Regular`
+    // we'd skip emission. Use the actual struct layout instead — Vecs
+    // are uniformly `{ ptr: *const T, len: usize, cap: usize, destructor }`.
+    let first = s.fields.first()?;
+    let second = s.fields.get(1)?;
+    if first.name != "ptr"
+        || !matches!(first.ref_kind, FieldRefKind::Ptr | FieldRefKind::PtrMut)
+    {
+        return None;
+    }
+    if second.name != "len" || second.type_name.trim() != "usize" {
+        return None;
+    }
+    let elem_rust = first.type_name.trim().to_string();
+
+    // Skip primitive elements: the field accessor's ptr type is
+    // `ptr void` (the OCaml types codegen drops to that fallback when
+    // the element isn't an `az_<X>` ctype view), so a raw `!@(__ptr +@ i)`
+    // dereferences a void pointer to `unit`. Untangling that needs a
+    // per-primitive `Ctypes.from_voidp <view>` cast and a Ctypes-native
+    // return type (`Unsigned.UInt8.t list` etc.), which falls outside
+    // the V7 handoff scope ("per-element clone via `c_AzElem_clone`").
+    // The four primitive-keyed Vecs (`U8Vec`, `U32Vec`, `F32Vec`, …)
+    // get a follow-up entry in `VEC_ITERATOR_PLAN_2026_05_15.md`.
+    if ocaml_primitive_for_rust(&elem_rust).is_some() {
+        return None;
+    }
+
+    // Wrapper-class element: call `Az<Elem>_clone` so the yielded
+    // element owns independent heap allocations. Without `_clone` we
+    // skip — handing the user a `Ctypes.structure` over the Vec's
+    // internal buffer would dangle as soon as the Vec is closed.
+    let has_clone = ir.functions.iter().any(|f| {
+        f.class_name == elem_rust && matches!(f.kind, FunctionKind::DeepCopy)
+    });
+    if !has_clone {
+        return None;
+    }
+    let elem_ffi = ocaml_ffi_type_name(&elem_rust);
+    let clone_binding = ocaml_binding_name(&format!("Az{}_clone", elem_rust));
+    Some(VecToListSpec {
+        return_type: format!("{} Ctypes.structure list", elem_ffi),
+        return_doc: format!("Az{}", elem_rust),
+        // `Ctypes.(+@) __ptr i` is pointer arithmetic — element-sized
+        // offset from `__ptr`. The clone returns the struct by value
+        // so the list entry is independent of the Vec's backing buffer.
+        element_expr: format!("{} (Ctypes.(+@) __ptr i)", clone_binding),
+    })
+}
+
+/// Map a primitive Rust type name to its OCaml-native equivalent + a
+/// short doc word. Returns `None` for non-primitive types.
+fn ocaml_primitive_for_rust(rust: &str) -> Option<(&'static str, &'static str)> {
+    Some(match rust {
+        "bool" => ("bool", "bool"),
+        "u8" | "i8" | "u16" | "i16" | "u32" | "i32" | "usize" | "isize" => ("int", "int"),
+        "u64" => ("Unsigned.uint64", "uint64"),
+        "i64" => ("Signed.int64", "int64"),
+        "f32" | "f64" => ("float", "float"),
+        _ => return None,
+    })
 }
 
 /// Phase I.3.6 (OCaml): emit `to_string` per-module helper routed
