@@ -144,10 +144,12 @@ fn has_kt_wrapper_class(type_name: &str, ir: &CodegenIR) -> bool {
 /// `AzString` → `kotlin.String`, `AzX` with wrapper → `X`, otherwise
 /// the raw type.
 fn payload_display_kt(raw: &str, ir: &CodegenIR) -> String {
-    if raw == "AzString" {
-        return "kotlin.String".to_string();
-    }
     if let Some(unprefixed) = raw.strip_prefix("Az") {
+        if let Some(s) = ir.find_struct(unprefixed) {
+            if matches!(s.category, TypeCategory::String) {
+                return "kotlin.String".to_string();
+            }
+        }
         if has_kt_wrapper_class(unprefixed, ir) {
             return unprefixed.to_string();
         }
@@ -155,10 +157,19 @@ fn payload_display_kt(raw: &str, ir: &CodegenIR) -> String {
     raw.to_string()
 }
 
+fn is_az_string_kt(raw: &str, ir: &CodegenIR) -> bool {
+    let Some(unprefixed) = raw.strip_prefix("Az") else {
+        return false;
+    };
+    ir.find_struct(unprefixed)
+        .map(|s| matches!(s.category, TypeCategory::String))
+        .unwrap_or(false)
+}
+
 /// Emit the body for an `Option<T>` return. `__ret` (the FFI `Az*Option`
 /// ByValue) has already been declared.
 fn emit_kt_option_body(builder: &mut CodeBuilder, raw_payload_kt: &str, ir: &CodegenIR) {
-    if raw_payload_kt == "AzString" {
+    if is_az_string_kt(raw_payload_kt, ir) {
         builder.line("val __nv = __ret.toNullable() ?: return null");
         builder.line("val __sp = __nv.pointer");
         builder.line("val __vp = __sp.getPointer(0)");
@@ -180,7 +191,7 @@ fn emit_kt_option_body(builder: &mut CodeBuilder, raw_payload_kt: &str, ir: &Cod
 /// Emit the body for a `Result<T, E>` return (throws on Err — same
 /// idiom as Rust's `Result::unwrap`).
 fn emit_kt_result_body(builder: &mut CodeBuilder, raw_payload_kt: &str, ir: &CodegenIR) {
-    if raw_payload_kt == "AzString" {
+    if is_az_string_kt(raw_payload_kt, ir) {
         builder.line("val __u = __ret.unwrap()");
         builder.line("val __sp = __u.pointer");
         builder.line("val __vp = __sp.getPointer(0)");
@@ -444,56 +455,69 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     // same pattern. Opens the companion even when `static_funcs` is
     // empty, so a wrapper that has ONLY a smart factory still gets a
     // companion object emitted.
-    let has_smart_layout =
-        super::super::managed_host_invoker::has_layout_callback_factory(s, ir);
-    let needs_companion = !static_funcs.is_empty() || has_smart_layout;
+    let layout_factory_info =
+        super::super::managed_host_invoker::layout_callback_factory_info(s, ir);
+    let needs_companion = !static_funcs.is_empty() || layout_factory_info.is_some();
     if needs_companion {
         builder.line("companion object {");
         builder.indent();
-        if has_smart_layout {
-            builder.line("/**");
-            builder.line(" * Smart factory: pass a layout-callback lambda; the host-invoker");
-            builder.line(" * registration and bytes-copy plumbing happen internally. The");
-            builder.line(" * caller never has to mention AzulHostInvoker.");
-            builder.line(" */");
-            builder.line("fun create(fn: AzulNativeManaged.LayoutCallbackInvokerCallback): WindowCreateOptions {");
-            builder.indent();
-            builder.line("val __cb = AzulHostInvoker.registerLayoutCallback(fn)");
-            builder.line("val __wco = AzulNativeWindow.INSTANCE.AzWindowCreateOptions_default()");
-            builder.line("__cb.write()");
-            builder.line("__wco.write()");
-            builder.line("val __cbBytes = __cb.getPointer().getByteArray(0, __cb.size())");
-            builder.line("__wco.window_state.layout_callback.getPointer().write(0, __cbBytes, 0, __cbBytes.size)");
-            builder.line("__wco.read()");
-            builder.line("return WindowCreateOptions(__wco.getPointer())");
-            builder.dedent();
-            builder.line("}");
-            builder.blank();
+        if let Some(info) = layout_factory_info.as_ref() {
+            let wrapper_class = sanitize_kt_identifier(&info.class_name);
+            let ffi_class = ffi_type_name(&info.class_name);
+            let cb_ffi = ffi_type_name(&info.callback_wrapper);
+            let register_fn = format!("register{}", info.callback_wrapper);
+            let native_class =
+                super::super::lang_java::functions::native_class_for_class(&info.class_name, ir);
+            let field_path = info.field_path.join(".");
+            let sam_raw = format!(
+                "AzulNativeManaged.{}InvokerCallback",
+                info.callback_wrapper
+            );
+            let sam_typed = format!("AzulHostInvoker.{}", info.callback_wrapper);
 
-            // Phase CC-2 (Kotlin): typed `LayoutCallback` SAM
-            // overload. User returns a `Dom` directly; the
-            // AzulHostInvoker.registerLayoutCallback(LayoutCallback)
-            // bridge does the AzDom-byte splice. Same plumbing inside;
-            // user-facing signature is `(id, dataPtr, infoPtr) -> Dom`.
-            builder.line("/**");
-            builder.line(" * Smart factory (typed): pass a `LayoutCallback` that returns a");
-            builder.line(" * `Dom` directly. The host-invoker bridge handles the AzDom-byte");
-            builder.line(" * splice; user code never reaches for `Structure.newInstance` or");
-            builder.line(" * `Pointer.write`.");
-            builder.line(" */");
-            builder.line("fun create(fn: AzulHostInvoker.LayoutCallback): WindowCreateOptions {");
-            builder.indent();
-            builder.line("val __cb = AzulHostInvoker.registerLayoutCallback(fn)");
-            builder.line("val __wco = AzulNativeWindow.INSTANCE.AzWindowCreateOptions_default()");
-            builder.line("__cb.write()");
-            builder.line("__wco.write()");
-            builder.line("val __cbBytes = __cb.getPointer().getByteArray(0, __cb.size())");
-            builder.line("__wco.window_state.layout_callback.getPointer().write(0, __cbBytes, 0, __cbBytes.size)");
-            builder.line("__wco.read()");
-            builder.line("return WindowCreateOptions(__wco.getPointer())");
-            builder.dedent();
-            builder.line("}");
-            builder.blank();
+            for (sam_type, doc_note) in [
+                (
+                    sam_raw.as_str(),
+                    "Smart factory: pass a layout-callback lambda; the host-invoker registration and bytes-copy plumbing happen internally.",
+                ),
+                (
+                    sam_typed.as_str(),
+                    "Smart factory (typed): pass a typed callback that returns a wrapper directly; the bridge splices the bytes into the embedded callback field.",
+                ),
+            ] {
+                builder.line("/**");
+                builder.line(&format!(" * {}", doc_note));
+                builder.line(" */");
+                builder.line(&format!(
+                    "fun create(fn: {}): {} {{",
+                    sam_type, wrapper_class
+                ));
+                builder.indent();
+                builder.line(&format!(
+                    "val __cb = AzulHostInvoker.{}(fn)",
+                    register_fn
+                ));
+                builder.line(&format!(
+                    "val __wco = {}.INSTANCE.{}()",
+                    native_class, info.default_c_name
+                ));
+                builder.line("__cb.write()");
+                builder.line("__wco.write()");
+                builder.line("val __cbBytes = __cb.getPointer().getByteArray(0, __cb.size())");
+                builder.line(&format!(
+                    "__wco.{}.getPointer().write(0, __cbBytes, 0, __cbBytes.size)",
+                    field_path
+                ));
+                builder.line("__wco.read()");
+                builder.line(&format!(
+                    "return {}(__wco.getPointer())",
+                    wrapper_class
+                ));
+                builder.dedent();
+                builder.line("}");
+                builder.blank();
+                let _ = (ffi_class.as_str(), cb_ffi.as_str()); // referenced via register/default; keep names alive for IR-driven debugging
+            }
         }
         for func in static_funcs {
             emit_static_factory(builder, &class_name, &ffi_name, func, ir);

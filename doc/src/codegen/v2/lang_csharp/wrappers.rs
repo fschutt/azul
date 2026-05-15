@@ -137,10 +137,12 @@ fn has_cs_wrapper_class(type_name: &str, ir: &CodegenIR) -> bool {
 /// Map a payload's raw C# field type to the user-visible display type.
 /// AzString → `string`; AzX with wrapper → `X`; else passthrough.
 fn payload_display_cs(raw: &str, ir: &CodegenIR) -> String {
-    if raw == "AzString" {
-        return "string".to_string();
-    }
     if let Some(unprefixed) = raw.strip_prefix("Az") {
+        if let Some(s) = ir.find_struct(unprefixed) {
+            if matches!(s.category, TypeCategory::String) {
+                return "string".to_string();
+            }
+        }
         if has_cs_wrapper_class(unprefixed, ir) {
             return unprefixed.to_string();
         }
@@ -148,10 +150,19 @@ fn payload_display_cs(raw: &str, ir: &CodegenIR) -> String {
     raw.to_string()
 }
 
+fn is_az_string_cs(raw: &str, ir: &CodegenIR) -> bool {
+    let Some(unprefixed) = raw.strip_prefix("Az") else {
+        return false;
+    };
+    ir.find_struct(unprefixed)
+        .map(|s| matches!(s.category, TypeCategory::String))
+        .unwrap_or(false)
+}
+
 /// Emit the body of an `Option<T>` return for C#. `__ret` (the AzOption
 /// FFI struct value) has already been declared.
 fn emit_cs_option_body(builder: &mut CodeBuilder, raw_payload_cs: &str, ir: &CodegenIR) {
-    if raw_payload_cs == "AzString" {
+    if is_az_string_cs(raw_payload_cs, ir) {
         builder.line("var __nv = __ret.AsNullable();");
         builder.line("if (__nv == null) return null;");
         builder.line("var __azs = __nv.Value;");
@@ -175,7 +186,7 @@ fn emit_cs_option_body(builder: &mut CodeBuilder, raw_payload_cs: &str, ir: &Cod
 }
 
 fn emit_cs_result_body(builder: &mut CodeBuilder, raw_payload_cs: &str, ir: &CodegenIR) {
-    if raw_payload_cs == "AzString" {
+    if is_az_string_cs(raw_payload_cs, ir) {
         builder.line("var __azs = __ret.Unwrap();");
         builder.line("var __vp = __azs.vec.ptr;");
         builder.line("var __vl = (long)__azs.vec.len.ToUInt64();");
@@ -454,20 +465,74 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     // shape the C# hello-world uses) OR the more literal
     // `HostInvoker.LayoutCallbackInvokerDelegate` — both flow through
     // `RegisterLayoutCallback(Delegate)`'s reflection-based dispatch.
-    if super::super::managed_host_invoker::has_layout_callback_factory(s, ir) {
+    if let Some(info) = super::super::managed_host_invoker::layout_callback_factory_info(s, ir) {
+        // Class name (e.g. "WindowCreateOptions") and Az-prefixed FFI
+        // names come from the factory-info IR scan; the field path
+        // (`["window_state", "layout_callback"]`) drives the splice.
+        // C# struct-field assignment IS a byte copy (unlike JNA's
+        // reference-swap), so we re-assign nested-struct values up
+        // the chain to write back into the parent.
+        let wrapper_class = info.class_name.clone();
+        let register_fn = format!("Register{}", info.callback_wrapper);
         builder.line("/// <summary>");
         builder.line("/// Smart factory: pass a layout-callback delegate; the host-invoker");
         builder.line("/// registration and field-copy plumbing happen internally.");
         builder.line("/// </summary>");
-        builder.line("public static WindowCreateOptions Create(Delegate fn)");
+        builder.line(&format!(
+            "public static {} Create(Delegate fn)",
+            wrapper_class
+        ));
         builder.line("{");
         builder.indent();
-        builder.line("var __cb = HostInvoker.RegisterLayoutCallback(fn);");
-        builder.line("var __wco = NativeMethods.AzWindowCreateOptions_default();");
-        builder.line("var __ws = __wco.window_state;");
-        builder.line("__ws.layout_callback = __cb;");
-        builder.line("__wco.window_state = __ws;");
-        builder.line("return new WindowCreateOptions(__wco);");
+        builder.line(&format!("var __cb = HostInvoker.{}(fn);", register_fn));
+        builder.line(&format!(
+            "var __wco = NativeMethods.{}();",
+            info.default_c_name
+        ));
+        // Walk the path: capture intermediate copies, splice cb into
+        // the leaf, then re-assign back up. Path length 1 collapses
+        // to a single assignment.
+        let depth = info.field_path.len();
+        for (i, seg) in info.field_path.iter().enumerate().take(depth.saturating_sub(1)) {
+            let parent_var = if i == 0 {
+                "__wco".to_string()
+            } else {
+                format!("__lvl{}", i - 1)
+            };
+            builder.line(&format!(
+                "var __lvl{i} = {parent}.{seg};",
+                i = i,
+                parent = parent_var,
+                seg = seg
+            ));
+        }
+        let leaf_parent = if depth <= 1 {
+            "__wco".to_string()
+        } else {
+            format!("__lvl{}", depth - 2)
+        };
+        let leaf_field = info
+            .field_path
+            .last()
+            .cloned()
+            .unwrap_or_else(|| "callback".to_string());
+        builder.line(&format!("{}.{} = __cb;", leaf_parent, leaf_field));
+        // Re-assign intermediates back up the chain.
+        for i in (0..depth.saturating_sub(1)).rev() {
+            let parent_var = if i == 0 {
+                "__wco".to_string()
+            } else {
+                format!("__lvl{}", i - 1)
+            };
+            let seg = &info.field_path[i];
+            builder.line(&format!(
+                "{parent}.{seg} = __lvl{i};",
+                parent = parent_var,
+                seg = seg,
+                i = i
+            ));
+        }
+        builder.line(&format!("return new {}(__wco);", wrapper_class));
         builder.dedent();
         builder.line("}");
         builder.blank();

@@ -255,77 +255,18 @@ pub fn emit_files(out: &mut String, ir: &CodegenIR, config: &CodegenConfig) -> R
             b.line("}");
             b.blank();
 
-            // Phase CC-2: typed LayoutCallback SAM + registration helper.
-            // The raw `LayoutCallbackInvokerCallback` forces user code to
-            // write the AzDom.ByValue Structure.newInstance + .read() +
-            // outPtr.write byte splice manually inside every layout
-            // branch — six lines of JNA ceremony per hello-world. The
-            // typed SAM hides that. User code becomes:
-            //
-            //     LayoutCallback LAYOUT = (id, dataPtr, infoPtr) -> {
-            //         // build wrapper Dom; return it
-            //         return body;
-            //     };
-            //     WindowCreateOptions.create(LAYOUT);
-            //
-            // The bridging adapter pulls `rawPointer()` from the
-            // returned Dom, overlays it as a ByValue Structure, and
-            // memcpy's the bytes to outPtr. No user-visible JNA splice.
-            b.line("/**");
-            b.line(" * Typed layout-callback SAM. Returns a `Dom` wrapper directly;");
-            b.line(" * the host-invoker bridge handles the AzDom-byte splice into");
-            b.line(" * outPtr internally. Saves five lines of JNA ceremony per");
-            b.line(" * layout branch over the raw `LayoutCallbackInvokerCallback`.");
-            b.line(" */");
-            b.line("@FunctionalInterface");
-            b.line("public interface LayoutCallback {");
-            b.indent();
-            b.line("Dom invoke(long id, Pointer dataPtr, Pointer infoPtr);");
-            b.dedent();
-            b.line("}");
-            b.blank();
-
-            b.line("/**");
-            b.line(" * Register a typed `LayoutCallback`. Internally wraps it in a");
-            b.line(" * raw `LayoutCallbackInvokerCallback` that performs the");
-            b.line(" * AzDom-byte splice into outPtr, then delegates to the regular");
-            b.line(" * `register(Object)` path so the host-handle bookkeeping is");
-            b.line(" * unchanged.");
-            b.line(" */");
-            b.line("public static AzLayoutCallback.ByValue registerLayoutCallback(LayoutCallback fn) {");
-            b.indent();
-            b.line("AzulNativeManaged.LayoutCallbackInvokerCallback raw =");
-            b.indent();
-            b.line("(long id, Pointer arg0, Pointer arg1, Pointer outPtr) -> {");
-            b.indent();
-            b.line("Dom result = fn.invoke(id, arg0, arg1);");
-            b.line("if (result == null) return;");
-            b.line("AzDom.ByValue raw_struct =");
-            b.indent();
-            b.line("(AzDom.ByValue) Structure.newInstance(AzDom.ByValue.class, result.rawPointer());");
-            b.dedent();
-            b.line("raw_struct.read();");
-            b.line("int sz = raw_struct.size();");
-            b.line("outPtr.write(0, raw_struct.getPointer().getByteArray(0, sz), 0, sz);");
-            b.dedent();
-            b.line("};");
-            b.dedent();
-            b.line("return registerLayoutCallback(raw);");
-            b.dedent();
-            b.line("}");
-            b.blank();
-
-            b.line("/**");
-            b.line(" * Register a raw `LayoutCallbackInvokerCallback`. Overload of");
-            b.line(" * the generic `register(Object)` that types the return so the");
-            b.line(" * smart `WindowCreateOptions.create(...)` factory has an exact");
-            b.line(" * call shape to match against.");
-            b.line(" */");
-            b.line("public static AzLayoutCallback.ByValue registerLayoutCallback(AzulNativeManaged.LayoutCallbackInvokerCallback fn) {");
-            b.indent();
-            b.line("return registerLayoutCallback((Object) fn);");
-            b.dedent();
-            b.line("}");
+            // Phase CC-2: typed-SAM bridge per kind with wrapper-class
+            // return. Iterates `host_invoker_kinds(ir)`; for each kind
+            // whose return is a struct with an emitted wrapper class,
+            // emit a typed `<Wrapper>Callback` interface (returns the
+            // wrapper) and a `register<Wrapper>(<Wrapper>Callback)`
+            // overload that wraps typed → raw with the
+            // Structure.newInstance + read + outPtr.write splice.
+            // Everything driven by IR metadata; no class names or
+            // ABI symbols hardcoded.
+            for cb in host_invoker_kinds(ir) {
+                emit_typed_invoker_sam(b, cb, ir);
+            }
 
             b.dedent();
             b.line("}");
@@ -422,4 +363,156 @@ fn lower_first(name: &str) -> String {
         Some(c) => c.to_ascii_lowercase().to_string() + chars.as_str(),
         None => String::new(),
     }
+}
+
+/// Emit a typed-SAM bridge for one host-invoker callback kind:
+///
+///   interface <Wrapper>Callback {
+///       <ReturnWrapper> invoke(long id, Pointer arg0, ..., Pointer argN);
+///   }
+///   public static Az<Wrapper>.ByValue register<Wrapper>(<Wrapper>Callback fn) { ... }
+///
+/// Skips kinds whose return is not a wrapper-class struct — the
+/// caller still has the raw `<Wrapper>InvokerCallback` four-arg
+/// outPtr-write SAM for those.
+fn emit_typed_invoker_sam(
+    b: &mut super::super::generator::CodeBuilder,
+    cb: &super::super::ir::CallbackTypedefDef,
+    ir: &super::super::ir::CodegenIR,
+) {
+    use super::super::ir::FunctionKind;
+    let wrapper = wrapper_name(cb);
+    let cb_has_return = has_return(cb);
+    if !cb_has_return {
+        return;
+    }
+    let Some(ret_ty) = cb.return_type.as_deref() else {
+        return;
+    };
+    let ret_ty = ret_ty.trim();
+    // Only emit when the return type is a struct with an emitted
+    // wrapper class — i.e. there's a `<ReturnType>_delete` function
+    // and the struct isn't filtered out. Primitive / enum returns
+    // (e.g. Update for ButtonOnClickCallback) keep using the raw
+    // outPtr-write path because the typed wrapper would just be a
+    // boxed primitive without a meaningful splice savings.
+    let Some(ret_struct) = ir.find_struct(ret_ty) else {
+        return;
+    };
+    if !ir.functions.iter().any(|f| {
+        f.class_name == ret_ty && matches!(f.kind, FunctionKind::Delete)
+    }) {
+        return;
+    }
+    if matches!(
+        ret_struct.category,
+        super::super::ir::TypeCategory::Recursive
+            | super::super::ir::TypeCategory::VecRef
+            | super::super::ir::TypeCategory::DestructorOrClone
+            | super::super::ir::TypeCategory::GenericTemplate
+    ) {
+        return;
+    }
+
+    let wrapper_class = ret_ty.to_string();
+    let ffi_ret = super::ffi_type_name(ret_ty);
+    let cb_ffi = super::ffi_type_name(wrapper);
+    let raw_sam = format!("AzulNativeManaged.{}InvokerCallback", wrapper);
+
+    // Typed interface signature: `(long id, Pointer arg0, ..., Pointer argN) -> <Wrapper>`.
+    let mut typed_params = vec!["long id".to_string()];
+    let mut typed_args = vec!["id".to_string()];
+    let mut raw_lambda_params = vec!["long id".to_string()];
+    for (i, a) in cb.args.iter().enumerate() {
+        let nm = if a.name.is_empty() {
+            format!("arg{}", i)
+        } else {
+            a.name.clone()
+        };
+        typed_params.push(format!("Pointer {}", nm));
+        typed_args.push(nm.clone());
+        raw_lambda_params.push(format!("Pointer {}", nm));
+    }
+    raw_lambda_params.push("Pointer outPtr".to_string());
+
+    b.line("/**");
+    b.line(&format!(
+        " * Typed {} SAM. Returns a `{}` wrapper directly; the host-invoker",
+        wrapper, wrapper_class
+    ));
+    b.line(
+        " * bridge handles the struct-byte splice into outPtr internally.",
+    );
+    b.line(" */");
+    b.line("@FunctionalInterface");
+    b.line(&format!("public interface {} {{", wrapper));
+    b.indent();
+    b.line(&format!(
+        "{} invoke({});",
+        wrapper_class,
+        typed_params.join(", ")
+    ));
+    b.dedent();
+    b.line("}");
+    b.blank();
+
+    b.line("/**");
+    b.line(&format!(
+        " * Register a typed `{}`. Wraps it in a raw",
+        wrapper
+    ));
+    b.line(&format!(
+        " * `{}InvokerCallback` that performs the `{}`-byte splice",
+        wrapper, ret_ty
+    ));
+    b.line(" * into outPtr; delegates to the generic Object overload.");
+    b.line(" */");
+    b.line(&format!(
+        "public static {}.ByValue register{}({} fn) {{",
+        cb_ffi, wrapper, wrapper
+    ));
+    b.indent();
+    b.line(&format!(
+        "{} raw = ({}) -> {{",
+        raw_sam,
+        raw_lambda_params.join(", ")
+    ));
+    b.indent();
+    b.line(&format!(
+        "{} result = fn.invoke({});",
+        wrapper_class,
+        typed_args.join(", ")
+    ));
+    b.line("if (result == null) return;");
+    b.line(&format!(
+        "{}.ByValue raw_struct =",
+        ffi_ret
+    ));
+    b.indent();
+    b.line(&format!(
+        "({}.ByValue) Structure.newInstance({}.ByValue.class, result.rawPointer());",
+        ffi_ret, ffi_ret
+    ));
+    b.dedent();
+    b.line("raw_struct.read();");
+    b.line("int sz = raw_struct.size();");
+    b.line("outPtr.write(0, raw_struct.getPointer().getByteArray(0, sz), 0, sz);");
+    b.dedent();
+    b.line("};");
+    b.line(&format!("return register{}((Object) raw);", wrapper));
+    b.dedent();
+    b.line("}");
+    b.blank();
+
+    // Typed overload of register that takes the raw SAM so the smart
+    // factory's overload resolution has an exact-type match.
+    b.line(&format!(
+        "public static {}.ByValue register{}({} fn) {{",
+        cb_ffi, wrapper, raw_sam
+    ));
+    b.indent();
+    b.line(&format!("return register{}((Object) fn);", wrapper));
+    b.dedent();
+    b.line("}");
+    b.blank();
 }

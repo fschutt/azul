@@ -116,24 +116,97 @@ pub fn has_layout_callback_factory(
     s: &super::ir::StructDef,
     ir: &super::ir::CodegenIR,
 ) -> bool {
+    layout_callback_factory_info(s, ir).is_some()
+}
+
+/// Metadata for emitting a smart `<class>.create(<host_sam>)` factory.
+/// Everything the per-binding emitter needs is derived from the IR
+/// scan — no class names, factory names, or field paths are hardcoded
+/// in the language emitters.
+#[derive(Clone, Debug)]
+pub struct LayoutCallbackFactoryInfo {
+    /// The owning class name (e.g. `"WindowCreateOptions"`). Same as
+    /// `s.name` — surfaced here so the emitter doesn't repeat the
+    /// derivation.
+    pub class_name: String,
+    /// The `_default` factory function's C-ABI name (e.g.
+    /// `"AzWindowCreateOptions_default"`). The emitter calls this to
+    /// build the empty struct that the callback bytes splice into.
+    pub default_c_name: String,
+    /// The callback kind wrapper (e.g. `"LayoutCallback"`). Used to
+    /// pick the `Az<Wrapper>` ByValue struct + the host-invoker
+    /// register method name.
+    pub callback_wrapper: String,
+    /// Dotted path from the owning class to the embedded callback
+    /// field (e.g. `["window_state", "layout_callback"]`). The
+    /// emitter joins this with the language's field-access syntax.
+    pub field_path: Vec<String>,
+}
+
+/// Like [`has_layout_callback_factory`] but returns the IR-derived
+/// metadata needed for per-binding emission. None when the struct
+/// doesn't match the pattern.
+pub fn layout_callback_factory_info(
+    s: &super::ir::StructDef,
+    ir: &super::ir::CodegenIR,
+) -> Option<LayoutCallbackFactoryInfo> {
     use super::ir::FunctionKind;
-    let has_default = ir.functions.iter().any(|f| {
+    let default_func = ir.functions.iter().find(|f| {
         f.class_name == s.name && matches!(f.kind, FunctionKind::Default)
-    });
-    if !has_default {
-        return false;
-    }
-    ir.functions.iter().any(|f| {
+    })?;
+    let create_func = ir.functions.iter().find(|f| {
         f.class_name == s.name
             && matches!(f.kind, FunctionKind::Constructor | FunctionKind::StaticMethod)
             && f.args.len() == 1
             && f.args[0]
                 .callback_info
                 .as_ref()
-                .map(|c| c.callback_wrapper_name == "LayoutCallback")
-                .unwrap_or(false)
+                .is_some()
             && f.return_type.as_deref().map(|r| r.trim() == s.name).unwrap_or(false)
+    })?;
+    let callback_wrapper = create_func.args[0]
+        .callback_info
+        .as_ref()?
+        .callback_wrapper_name
+        .clone();
+    if !HOST_INVOKER_KINDS.contains(&callback_wrapper.as_str()) {
+        return None;
+    }
+    // Find the field in `s` (recursively) whose type matches the
+    // callback wrapper struct. The C ABI splices the registered
+    // callback bytes into this field; the path tells the emitter
+    // where to write.
+    let field_path = find_field_of_type(s, &callback_wrapper, ir)?;
+    Some(LayoutCallbackFactoryInfo {
+        class_name: s.name.clone(),
+        default_c_name: default_func.c_name.clone(),
+        callback_wrapper,
+        field_path,
     })
+}
+
+/// Recursively scan `s` for a field whose type is the named struct.
+/// Returns the dotted path; None if not found. Used to discover where
+/// the smart factory should splice the registered-callback bytes.
+fn find_field_of_type(
+    s: &super::ir::StructDef,
+    target_type: &str,
+    ir: &super::ir::CodegenIR,
+) -> Option<Vec<String>> {
+    for f in &s.fields {
+        let tn = f.type_name.trim();
+        if tn == target_type {
+            return Some(vec![f.name.clone()]);
+        }
+        if let Some(child) = ir.find_struct(tn) {
+            if let Some(sub) = find_field_of_type(child, target_type, ir) {
+                let mut path = vec![f.name.clone()];
+                path.extend(sub);
+                return Some(path);
+            }
+        }
+    }
+    None
 }
 
 /// Phase J.1 detector: shared across every language binding. If `func`

@@ -291,49 +291,64 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     //     wco.read();
     //
     // boilerplate every JVM hello-world has today.
-    if super::super::managed_host_invoker::has_layout_callback_factory(s, ir) {
-        builder.line("/**");
-        builder.line(" * Smart factory: pass a layout-callback lambda; the host-invoker");
-        builder.line(" * registration and bytes-copy plumbing happen internally. The");
-        builder.line(" * caller never has to mention AzulHostInvoker.");
-        builder.line(" */");
-        builder.line("public static WindowCreateOptions create(AzulNativeManaged.LayoutCallbackInvokerCallback fn) {");
-        builder.indent();
-        builder.line("AzLayoutCallback.ByValue __cb = AzulHostInvoker.registerLayoutCallback(fn);");
-        builder.line("AzWindowCreateOptions.ByValue __wco = AzulNativeWindow.INSTANCE.AzWindowCreateOptions_default();");
-        builder.line("__cb.write();");
-        builder.line("__wco.write();");
-        builder.line("byte[] __cbBytes = __cb.getPointer().getByteArray(0, __cb.size());");
-        builder.line("__wco.window_state.layout_callback.getPointer().write(0, __cbBytes, 0, __cbBytes.length);");
-        builder.line("__wco.read();");
-        builder.line("return new WindowCreateOptions(__wco.getPointer());");
-        builder.dedent();
-        builder.line("}");
-        builder.blank();
+    if let Some(info) = super::super::managed_host_invoker::layout_callback_factory_info(s, ir) {
+        let wrapper_class = wrapper_class_name(&info.class_name);
+        let ffi_class = ffi_type_name(&info.class_name);
+        let cb_ffi = ffi_type_name(&info.callback_wrapper);
+        let register_fn = format!("register{}", info.callback_wrapper);
+        let native_class = super::functions::native_class_for_class(&info.class_name, ir);
+        let field_path = info.field_path.join(".");
+        let sam_raw = format!(
+            "AzulNativeManaged.{}InvokerCallback",
+            info.callback_wrapper
+        );
+        let sam_typed = format!("AzulHostInvoker.{}", info.callback_wrapper);
 
-        // Phase CC-2: typed-SAM overload. User writes
-        // `(id, dataPtr, infoPtr) -> Dom` instead of a raw four-arg
-        // outPtr-write lambda; the bridge in AzulHostInvoker handles
-        // the AzDom byte splice.
-        builder.line("/**");
-        builder.line(" * Smart factory (typed): pass a `LayoutCallback` that returns a");
-        builder.line(" * `Dom` directly. The host-invoker bridge splices the AzDom");
-        builder.line(" * bytes into outPtr internally — user code never writes");
-        builder.line(" * `Structure.newInstance` / `outPtr.write`.");
-        builder.line(" */");
-        builder.line("public static WindowCreateOptions create(AzulHostInvoker.LayoutCallback fn) {");
-        builder.indent();
-        builder.line("AzLayoutCallback.ByValue __cb = AzulHostInvoker.registerLayoutCallback(fn);");
-        builder.line("AzWindowCreateOptions.ByValue __wco = AzulNativeWindow.INSTANCE.AzWindowCreateOptions_default();");
-        builder.line("__cb.write();");
-        builder.line("__wco.write();");
-        builder.line("byte[] __cbBytes = __cb.getPointer().getByteArray(0, __cb.size());");
-        builder.line("__wco.window_state.layout_callback.getPointer().write(0, __cbBytes, 0, __cbBytes.length);");
-        builder.line("__wco.read();");
-        builder.line("return new WindowCreateOptions(__wco.getPointer());");
-        builder.dedent();
-        builder.line("}");
-        builder.blank();
+        // Emit two overloads — raw (4-arg outPtr-write) and typed
+        // (returns wrapper struct directly). Both bodies are derived
+        // from the same factory info; differ only in the SAM type.
+        for (sam_type, doc_note) in [
+            (
+                sam_raw.as_str(),
+                "Smart factory: pass a layout-callback lambda; the host-invoker registration and bytes-copy plumbing happen internally.",
+            ),
+            (
+                sam_typed.as_str(),
+                "Smart factory (typed): pass a typed callback that returns a wrapper struct directly; the bridge splices the bytes into the embedded callback field.",
+            ),
+        ] {
+            builder.line("/**");
+            builder.line(&format!(" * {}", doc_note));
+            builder.line(" */");
+            builder.line(&format!(
+                "public static {} create({} fn) {{",
+                wrapper_class, sam_type
+            ));
+            builder.indent();
+            builder.line(&format!(
+                "{}.ByValue __cb = AzulHostInvoker.{}(fn);",
+                cb_ffi, register_fn
+            ));
+            builder.line(&format!(
+                "{}.ByValue __wco = {}.INSTANCE.{}();",
+                ffi_class, native_class, info.default_c_name
+            ));
+            builder.line("__cb.write();");
+            builder.line("__wco.write();");
+            builder.line("byte[] __cbBytes = __cb.getPointer().getByteArray(0, __cb.size());");
+            builder.line(&format!(
+                "__wco.{}.getPointer().write(0, __cbBytes, 0, __cbBytes.length);",
+                field_path
+            ));
+            builder.line("__wco.read();");
+            builder.line(&format!(
+                "return new {}(__wco.getPointer());",
+                wrapper_class
+            ));
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
     }
 
     // Methods.
@@ -721,15 +736,32 @@ fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
 ///   `Pointer` stays `Pointer`; raw FFI structs without a wrapper stay
 ///   `AzY`)
 fn payload_display_type(raw: &str, ir: &CodegenIR) -> String {
-    if raw == "AzString" {
-        return "java.lang.String".to_string();
-    }
     if let Some(unprefixed) = raw.strip_prefix("Az") {
+        // TypeCategory-driven (J.3 pattern): any struct flagged as
+        // String in api.json — not just the literal "String" type —
+        // gets the java.lang.String round-trip at the wrapper boundary.
+        if let Some(s) = ir.find_struct(unprefixed) {
+            if matches!(s.category, TypeCategory::String) {
+                return "java.lang.String".to_string();
+            }
+        }
         if has_wrapper_class(unprefixed, ir) {
             return unprefixed.to_string();
         }
     }
     raw.to_string()
+}
+
+/// Detect whether a payload's raw Java type maps to an
+/// `azul.json`-categorised String struct (i.e. UTF-8-decode at the
+/// boundary applies).
+fn is_az_string_jvm(raw: &str, ir: &CodegenIR) -> bool {
+    let Some(unprefixed) = raw.strip_prefix("Az") else {
+        return false;
+    };
+    ir.find_struct(unprefixed)
+        .map(|s| matches!(s.category, TypeCategory::String))
+        .unwrap_or(false)
 }
 
 fn emit_wrapper_method(
@@ -1058,8 +1090,8 @@ fn emit_wrapper_method(
 ///    `Pointer`) — return `Optional.ofNullable(__ret.toNullable())`
 ///    directly.
 fn emit_option_return_body(builder: &mut CodeBuilder, raw_payload_jvm: &str, ir: &CodegenIR) {
-    if raw_payload_jvm == "AzString" {
-        builder.line("AzString __nv = __ret.toNullable();");
+    if is_az_string_jvm(raw_payload_jvm, ir) {
+        builder.line(&format!("{} __nv = __ret.toNullable();", raw_payload_jvm));
         builder.line("if (__nv == null) return java.util.Optional.empty();");
         builder.line("Pointer __sp = __nv.getPointer();");
         builder.line("Pointer __vecPtr = __sp.getPointer(0);");
@@ -1090,8 +1122,8 @@ fn emit_option_return_body(builder: &mut CodeBuilder, raw_payload_jvm: &str, ir:
 /// FFI struct's `unwrap()` does that lift). Same three cases as
 /// [`emit_option_return_body`].
 fn emit_result_return_body(builder: &mut CodeBuilder, raw_payload_jvm: &str, ir: &CodegenIR) {
-    if raw_payload_jvm == "AzString" {
-        builder.line("AzString __u = __ret.unwrap();");
+    if is_az_string_jvm(raw_payload_jvm, ir) {
+        builder.line(&format!("{} __u = __ret.unwrap();", raw_payload_jvm));
         builder.line("Pointer __sp = __u.getPointer();");
         builder.line("Pointer __vecPtr = __sp.getPointer(0);");
         builder.line("long __vecLen = __sp.getLong(8);");

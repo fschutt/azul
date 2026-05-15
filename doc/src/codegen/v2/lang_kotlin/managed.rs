@@ -16,7 +16,7 @@
 use super::super::generator::CodeBuilder;
 use super::super::ir::CodegenIR;
 use super::super::managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name};
-use super::LIBRARY_NAME;
+use super::{ffi_type_name, LIBRARY_NAME};
 
 /// Append the host-invoker block to the existing `Azul.kt` body.
 pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
@@ -239,62 +239,144 @@ pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("}");
     builder.blank();
 
-    // Phase CC-2 (Kotlin): typed LayoutCallback SAM that returns `Dom`
-    // directly. Same shape as the Java mirror — saves the
-    // Structure.newInstance + read + outPtr.write byte splice from
-    // user code.
+    // Phase CC-2 (Kotlin): typed-SAM bridge per kind with wrapper-class
+    // return. Iterates `host_invoker_kinds(ir)`; for each kind whose
+    // return is a struct with an emitted wrapper class, emit a typed
+    // `<Wrapper>Callback` interface and a `register<Wrapper>` overload
+    // that splices the wrapper's bytes into outPtr. Pure IR-driven —
+    // no ABI symbols or class names hardcoded.
+    for cb in host_invoker_kinds(ir) {
+        emit_kt_typed_invoker_sam(builder, cb, ir);
+    }
+
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+}
+
+/// Emit the typed-SAM bridge for one host-invoker kind on the Kotlin
+/// side. Mirrors `lang_java/managed::emit_typed_invoker_sam`; the
+/// only differences are language syntax (`fun interface`, `as Any`
+/// boxing) and Kotlin's strict-null requirement on the platform-type
+/// Pointer args.
+fn emit_kt_typed_invoker_sam(
+    builder: &mut super::super::generator::CodeBuilder,
+    cb: &super::super::ir::CallbackTypedefDef,
+    ir: &super::super::ir::CodegenIR,
+) {
+    use super::super::ir::FunctionKind;
+    let wrapper = wrapper_name(cb);
+    let cb_has_return = has_return(cb);
+    if !cb_has_return {
+        return;
+    }
+    let Some(ret_ty) = cb.return_type.as_deref() else {
+        return;
+    };
+    let ret_ty = ret_ty.trim();
+    let Some(ret_struct) = ir.find_struct(ret_ty) else {
+        return;
+    };
+    if !ir.functions.iter().any(|f| {
+        f.class_name == ret_ty && matches!(f.kind, FunctionKind::Delete)
+    }) {
+        return;
+    }
+    if matches!(
+        ret_struct.category,
+        super::super::ir::TypeCategory::Recursive
+            | super::super::ir::TypeCategory::VecRef
+            | super::super::ir::TypeCategory::DestructorOrClone
+            | super::super::ir::TypeCategory::GenericTemplate
+    ) {
+        return;
+    }
+
+    let wrapper_class = ret_ty.to_string();
+    let ffi_ret = ffi_type_name(ret_ty);
+    let cb_ffi = ffi_type_name(wrapper);
+    let raw_sam = format!("AzulNativeManaged.{}InvokerCallback", wrapper);
+
+    let mut typed_params = vec!["id: Long".to_string()];
+    let mut typed_args = vec!["id".to_string()];
+    let mut raw_lambda_args = vec!["id".to_string()];
+    for (i, a) in cb.args.iter().enumerate() {
+        let nm = if a.name.is_empty() {
+            format!("arg{}", i)
+        } else {
+            a.name.clone()
+        };
+        typed_params.push(format!("{}: Pointer?", nm));
+        typed_args.push(nm.clone());
+        raw_lambda_args.push(nm);
+    }
+    raw_lambda_args.push("outPtr".to_string());
+
     builder.line("/**");
-    builder.line(" * Typed layout-callback SAM. Returns a `Dom` wrapper directly;");
-    builder.line(" * the host-invoker bridge handles the AzDom-byte splice into");
-    builder.line(" * outPtr internally. Saves five lines of JNA ceremony per");
-    builder.line(" * layout branch.");
-    builder.line(" *");
-    builder.line(" * The `Pointer?` parameters mirror JNA's platform-type signature");
-    builder.line(" * (libazul never passes null in practice, but Kotlin's strict-null");
-    builder.line(" * checks require the nullable form to compose with the raw");
-    builder.line(" * `LayoutCallbackInvokerCallback` adapter).");
+    builder.line(&format!(
+        " * Typed {} SAM. Returns a `{}` wrapper directly; the host-invoker",
+        wrapper, wrapper_class
+    ));
+    builder.line(
+        " * bridge handles the struct-byte splice into outPtr internally.",
+    );
     builder.line(" */");
-    builder.line("fun interface LayoutCallback {");
+    builder.line(&format!("fun interface {} {{", wrapper));
     builder.indent();
-    builder.line("fun invoke(id: Long, dataPtr: Pointer?, infoPtr: Pointer?): Dom");
+    builder.line(&format!(
+        "fun invoke({}): {}",
+        typed_params.join(", "),
+        wrapper_class
+    ));
     builder.dedent();
     builder.line("}");
     builder.blank();
 
     builder.line("/**");
-    builder.line(" * Register a typed `LayoutCallback`. Wraps it in a raw");
-    builder.line(" * `LayoutCallbackInvokerCallback` that performs the AzDom-byte");
-    builder.line(" * splice; delegates registration to the generic Object overload.");
+    builder.line(&format!(
+        " * Register a typed `{}`. Wraps it in a raw",
+        wrapper
+    ));
+    builder.line(&format!(
+        " * `{}InvokerCallback` that performs the `{}`-byte splice.",
+        wrapper, ret_ty
+    ));
     builder.line(" */");
-    builder.line("@JvmStatic fun registerLayoutCallback(fn: LayoutCallback): AzLayoutCallback.ByValue {");
+    builder.line(&format!(
+        "@JvmStatic fun register{}(fn: {}): {}.ByValue {{",
+        wrapper, wrapper, cb_ffi
+    ));
     builder.indent();
-    builder.line("val raw = AzulNativeManaged.LayoutCallbackInvokerCallback {");
+    builder.line(&format!(
+        "val raw = {} {{",
+        raw_sam
+    ));
     builder.indent();
-    builder.line("id, arg0, arg1, outPtr ->");
-    builder.line("val result = fn.invoke(id, arg0, arg1)");
-    builder.line("val rawStruct = Structure.newInstance(AzDom.ByValue::class.java, result.rawPointer()) as AzDom.ByValue");
+    builder.line(&format!("{} ->", raw_lambda_args.join(", ")));
+    builder.line(&format!(
+        "val result = fn.invoke({})",
+        typed_args.join(", ")
+    ));
+    builder.line(&format!(
+        "val rawStruct = Structure.newInstance({}.ByValue::class.java, result.rawPointer()) as {}.ByValue",
+        ffi_ret, ffi_ret
+    ));
     builder.line("rawStruct.read()");
     builder.line("val sz = rawStruct.size()");
     builder.line("outPtr?.write(0, rawStruct.pointer.getByteArray(0, sz), 0, sz)");
     builder.dedent();
     builder.line("}");
-    builder.line("return registerLayoutCallback(raw as Any)");
+    builder.line(&format!("return register{}(raw as Any)", wrapper));
     builder.dedent();
     builder.line("}");
     builder.blank();
 
-    builder.line("/**");
-    builder.line(" * Register a raw `LayoutCallbackInvokerCallback`. Overload of");
-    builder.line(" * the generic `registerLayoutCallback(Any)` for exact-type");
-    builder.line(" * resolution from the smart `WindowCreateOptions.create(...)`");
-    builder.line(" * factory.");
-    builder.line(" */");
-    builder.line("@JvmStatic fun registerLayoutCallback(fn: AzulNativeManaged.LayoutCallbackInvokerCallback): AzLayoutCallback.ByValue {");
+    builder.line(&format!(
+        "@JvmStatic fun register{}(fn: {}): {}.ByValue {{",
+        wrapper, raw_sam, cb_ffi
+    ));
     builder.indent();
-    builder.line("return registerLayoutCallback(fn as Any)");
-    builder.dedent();
-    builder.line("}");
-
+    builder.line(&format!("return register{}(fn as Any)", wrapper));
     builder.dedent();
     builder.line("}");
     builder.blank();
