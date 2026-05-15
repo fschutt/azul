@@ -1153,6 +1153,13 @@ fn emit_static_factory(b: &mut CodeBuilder, f: &FunctionDef, class_name: &str) {
         .map(|r| r.trim() == f.class_name)
         .unwrap_or(false);
 
+    // Any wrapper-typed owned-by-value arg has its bytes
+    // transferred to Rust by the C call; the caller's JS wrapper
+    // would otherwise double-drop on FinalizationRegistry sweep.
+    // Mirrors the instance-method emit at line 753 and the audit
+    // 4.1 / 5.2 fixes for the JVM/CLR family.
+    let consumed_args = consumed_wrapper_args(&user_args);
+
     if !f.doc.is_empty() {
         b.line("/**");
         for d in &f.doc {
@@ -1166,11 +1173,24 @@ fn emit_static_factory(b: &mut CodeBuilder, f: &FunctionDef, class_name: &str) {
     emit_callback_register_lines(b, &user_args);
     let call = format!("lib.{}({})", f.c_name, call_args);
     if returns_self {
-        b.line(&format!("return new {}({});", class_name, call));
+        b.line(&format!("const _next = {};", call));
+        for n in &consumed_args {
+            b.line(&format!("_consume({});", n));
+        }
+        b.line(&format!("return new {}(_next);", class_name));
     } else if f.return_type.is_none() {
         b.line(&format!("{};", call));
-    } else {
+        for n in &consumed_args {
+            b.line(&format!("_consume({});", n));
+        }
+    } else if consumed_args.is_empty() {
         b.line(&format!("return {};", call));
+    } else {
+        b.line(&format!("const _ret = {};", call));
+        for n in &consumed_args {
+            b.line(&format!("_consume({});", n));
+        }
+        b.line("return _ret;");
     }
     b.dedent();
     b.line("}");
