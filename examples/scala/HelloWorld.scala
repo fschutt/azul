@@ -46,7 +46,7 @@ object HelloWorld {
           case m: MyDataModel =>
             val label = Dom.createDiv()
               .withCss("font-size: 32px;")
-              .withChild(Dom.createText(java.lang.String.valueOf(m.counter)))
+              .withChild(Dom.createText(String.valueOf(m.counter)))
             val buttonDom = new Dom(
               Button.create("Increase counter")
                 .withButtonType(AzButtonType.Primary.value)
@@ -59,7 +59,7 @@ object HelloWorld {
         }
     }
 
-  def main(args: Array[java.lang.String]): Unit = {
+  def main(args: Array[String]): Unit = {
     // Smart factory: hides the host-invoker register + bytes-splice
     // (compare with the pre-rewrite version's ~6 lines of boilerplate).
     val wco = WindowCreateOptions.create(LAYOUT)

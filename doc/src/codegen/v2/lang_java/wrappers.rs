@@ -1128,6 +1128,10 @@ fn emit_wrapper_method(
     // boundary instead of the raw FFI struct. Pattern matches the
     // payload-display-type rule applied to plain (non-Option/Result)
     // returns — same IR-driven predicate, no name allowlist.
+    // Route the IR name through `wrapper_class_name` so the rename
+    // rules (e.g. `String` → `AzulString` to avoid shadowing
+    // `java.lang.String` inside `package com.azul`) apply uniformly
+    // to display + construction sites.
     let returns_wrapper_other: Option<String> = if returns_self {
         None
     } else if matches!(idiom, ReturnIdiom::Plain) {
@@ -1135,7 +1139,7 @@ fn emit_wrapper_method(
             .as_deref()
             .map(|r| r.trim())
             .filter(|r| has_wrapper_class(r, ir))
-            .map(|r| r.to_string())
+            .map(|r| wrapper_class_name(r))
     } else {
         None
     };
@@ -1555,6 +1559,16 @@ fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef) {
 // ============================================================================
 
 fn wrapper_class_name(raw: &str) -> String {
+    // The codegen-emitted `String` wrapper (AzString backing) collides
+    // with `java.lang.String` inside `package com.azul`. Java has no
+    // verbatim-identifier syntax, so users were forced into qualified
+    // calls like `java.lang.String.valueOf(m.counter)` every time they
+    // touched the JDK-bundled string. Rename the wrapper to `AzulString`
+    // — preserves the type's purpose (Azul-managed UTF-8 string) and
+    // restores the unqualified `String` for the JDK class.
+    if raw == "String" {
+        return "AzulString".to_string();
+    }
     sanitize_identifier(raw)
 }
 

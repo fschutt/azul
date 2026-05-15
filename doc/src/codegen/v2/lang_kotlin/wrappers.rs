@@ -28,7 +28,7 @@ use super::super::ir::{
     ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FieldRefKind, FunctionArg, FunctionDef,
     FunctionKind, MonomorphizedKind, StructDef, TypeCategory,
 };
-use super::{ffi_type_name, map_kt_owned, map_kt_return, sanitize_kt_identifier};
+use super::{ffi_type_name, kotlin_class_name, map_kt_owned, map_kt_return, sanitize_kt_identifier};
 
 /// Phase I.5.1 (Kotlin): how the wrapper method should idiomise an
 /// `Option<T>` / `Result<T, E>` return. Mirrors the Java
@@ -409,7 +409,7 @@ fn detect_vec_elem_type_kt(s: &StructDef) -> Option<String> {
 }
 
 fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
-    let class_name = sanitize_kt_identifier(&s.name);
+    let class_name = kotlin_class_name(&s.name);
     let ffi_name = ffi_type_name(&s.name);
 
     if !s.doc.is_empty() {
@@ -432,7 +432,7 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     };
     let extra_iface = match &vec_elem_type {
         Some(elem) if vec_elem_has_wrapper(elem) => {
-            format!(", Iterable<{}>", sanitize_kt_identifier(elem))
+            format!(", Iterable<{}>", kotlin_class_name(elem))
         }
         _ => String::new(),
     };
@@ -567,7 +567,7 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
         builder.line("companion object {");
         builder.indent();
         if let Some(info) = layout_factory_info.as_ref() {
-            let wrapper_class = sanitize_kt_identifier(&info.class_name);
+            let wrapper_class = kotlin_class_name(&info.class_name);
             let ffi_class = ffi_type_name(&info.class_name);
             let cb_ffi = ffi_type_name(&info.callback_wrapper);
             let register_fn = format!("register{}", info.callback_wrapper);
@@ -962,7 +962,7 @@ fn emit_kt_vec_iterator(
 ) {
     let vec_ffi = ffi_type_name(&s.name);
     let elem_ffi = ffi_type_name(elem_type);
-    let elem_wrapper = sanitize_kt_identifier(elem_type);
+    let elem_wrapper = kotlin_class_name(elem_type);
     let clone_call = format_clone_call_kt(elem_type, ir);
 
     builder.line(&format!(
@@ -1058,7 +1058,7 @@ fn emit_static_factory(
             let kt = if is_az_string_owned_arg(a) {
                 "kotlin.String".to_string()
             } else if is_wrapper_class_owned_arg(a, ir) {
-                sanitize_kt_identifier(a.type_name.trim())
+                kotlin_class_name(a.type_name.trim())
             } else {
                 match a.ref_kind {
                     ArgRefKind::Owned => map_kt_owned(&a.type_name, ir),
@@ -1119,7 +1119,7 @@ fn emit_static_factory(
             .as_deref()
             .map(|r| r.trim())
             .filter(|r| has_kt_wrapper_class(r, ir))
-            .map(|r| r.to_string())
+            .map(|r| kotlin_class_name(r))
     } else {
         None
     };
@@ -1281,7 +1281,7 @@ fn emit_instance_method(
             let kt = if is_az_string_owned_arg(a) {
                 "kotlin.String".to_string()
             } else if is_wrapper_class_owned_arg(a, ir) {
-                sanitize_kt_identifier(a.type_name.trim())
+                kotlin_class_name(a.type_name.trim())
             } else {
                 match a.ref_kind {
                     ArgRefKind::Owned => map_kt_owned(&a.type_name, ir),
@@ -1348,7 +1348,7 @@ fn emit_instance_method(
             .as_deref()
             .map(|r| r.trim())
             .filter(|r| has_kt_wrapper_class(r, ir))
-            .map(|r| r.to_string())
+            .map(|r| kotlin_class_name(r))
     } else {
         None
     };
@@ -1468,7 +1468,7 @@ fn emit_instance_method(
 }
 
 fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef) {
-    let class_name = sanitize_kt_identifier(&e.name);
+    let class_name = kotlin_class_name(&e.name);
     let ffi_name = ffi_type_name(&e.name);
 
     if !e.doc.is_empty() {

@@ -1105,6 +1105,19 @@ pub fn sanitize_kt_identifier(name: &str) -> String {
     }
 }
 
+/// Sanitise a name for use as a Kotlin wrapper-class / type name.
+/// Mirrors `sanitize_kt_identifier` PLUS the Java `String` → `AzulString`
+/// rename so the emitted wrapper doesn't shadow `kotlin.String` /
+/// `java.lang.String` inside `package com.azul`. Used by every call
+/// site that materialises a *type or class* name — call sites that
+/// materialise *argument* names should keep using `sanitize_kt_identifier`.
+pub fn kotlin_class_name(name: &str) -> String {
+    if name == "String" {
+        return "AzulString".to_string();
+    }
+    sanitize_kt_identifier(name)
+}
+
 /// Hard reserved keywords in Kotlin that *cannot* be used as
 /// identifiers without backticks.
 pub fn is_kotlin_hard_keyword(name: &str) -> bool {

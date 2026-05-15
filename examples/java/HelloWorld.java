@@ -48,7 +48,7 @@ public final class HelloWorld {
             MyDataModel m = (MyDataModel) recovered;
             Dom label = Dom.createDiv()
                 .withCss("font-size: 32px;")
-                .withChild(Dom.createText(java.lang.String.valueOf(m.counter)));
+                .withChild(Dom.createText(String.valueOf(m.counter)));
             Dom buttonDom = Button.create("Increase counter")
                 .withButtonType(AzButtonType.Primary.value)
                 .onClick(m, ON_CLICK)
@@ -58,7 +58,7 @@ public final class HelloWorld {
                 .withChild(buttonDom);
         };
 
-    public static void main(java.lang.String[] args) {
+    public static void main(String[] args) {
         try (App app = App.create(AzulHostInvoker.refanyWrap(MODEL), AppConfig.create())) {
             app.run(WindowCreateOptions.create(LAYOUT));
         }
