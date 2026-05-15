@@ -321,18 +321,48 @@ fn emit_wrapper_method(
         }
     }
 
+    // Consume-after-by-value: when the C ABI took `handle` by value
+    // (DeepCopy / consuming-self), Rust owns those bytes. Nil out
+    // `handle` so the WeakRegistry finalizer's `handle isNil`
+    // short-circuit skips on cleanup. Mirrors Pascal/Fortran
+    // FOwned/owned-flag and JVM `__consume()` patterns.
+    let self_by_value = takes_self
+        && func
+            .args
+            .first()
+            .map(|a| matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned))
+            .unwrap_or(false);
+
     // Decide what to do with the primitive return value.
     if return_type == "void" {
         builder.line(&format!("{}.", prim_call));
+        if self_by_value {
+            builder.line("handle := nil.");
+        }
         builder.line("^ self");
     } else if returns_self && is_static {
         builder.line(&format!("^ self wrap: ({})", prim_call));
     } else if returns_self && !is_static {
         // Instance method that returns the same type — wrap the new
-        // handle in a fresh wrapper instance.
-        builder.line(&format!("^ self class wrap: ({})", prim_call));
+        // handle in a fresh wrapper instance. If self_by_value, mark
+        // the old wrapper consumed before constructing the new one.
+        if self_by_value {
+            builder.line(&format!("| _ret |"));
+            builder.line(&format!("_ret := self class wrap: ({}).", prim_call));
+            builder.line("handle := nil.");
+            builder.line("^ _ret");
+        } else {
+            builder.line(&format!("^ self class wrap: ({})", prim_call));
+        }
     } else {
-        builder.line(&format!("^ {}", prim_call));
+        if self_by_value {
+            builder.line(&format!("| _ret |"));
+            builder.line(&format!("_ret := {}.", prim_call));
+            builder.line("handle := nil.");
+            builder.line("^ _ret");
+        } else {
+            builder.line(&format!("^ {}", prim_call));
+        }
     }
 
     builder.dedent();

@@ -447,10 +447,23 @@ fn emit_instance_method(out: &mut String, f: &FunctionDef, _takes_union_ptr: boo
 
     emit_callback_register_lines(out, &user_args);
 
-    // The C function takes the receiver as `<ClassName>*` (a pointer
-    // to the FFI struct). We forward via FFI::addr so the C side gets
-    // a stable address into our cdata.
-    let mut call = format!("Azul::lib()->{}(\\FFI::addr($this->ptr)", f.c_name);
+    // Inspect args[0]: Owned ⇒ C ABI takes the receiver by value
+    // (`<ClassName>`); Ref/Ptr ⇒ takes a pointer (`<ClassName>*`).
+    // PHP FFI does NOT auto-dereference, so passing `\FFI::addr(...)`
+    // where a value is expected either crashes or passes garbage —
+    // same shape as the Zig 5.1 fix. Mirrors JVM/CLR `self_by_value`.
+    let self_by_value = f
+        .args
+        .first()
+        .map(|a| matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned))
+        .unwrap_or(false);
+    let self_expr = if self_by_value {
+        "$this->ptr"
+    } else {
+        "\\FFI::addr($this->ptr)"
+    };
+
+    let mut call = format!("Azul::lib()->{}({}", f.c_name, self_expr);
     if !user_call_args.is_empty() {
         call.push_str(", ");
         call.push_str(&user_call_args);
@@ -459,6 +472,17 @@ fn emit_instance_method(out: &mut String, f: &FunctionDef, _takes_union_ptr: boo
 
     if f.return_type.is_none() {
         out.push_str(&format!("        {};\n", call));
+        // Consume-after-by-value: PHP's `__destruct` runs on refcount
+        // hitting 0 and calls `AzFoo_delete(\FFI::addr($this->ptr))`.
+        // After a by-value-consuming call Rust owns the bytes; null
+        // the pointer so __destruct's defined-check skips.
+        if self_by_value {
+            out.push_str("        $this->ptr = null;\n");
+        }
+    } else if self_by_value {
+        out.push_str(&format!("        $__ret = {};\n", call));
+        out.push_str("        $this->ptr = null;\n");
+        out.push_str("        return $__ret;\n");
     } else {
         out.push_str(&format!("        return {};\n", call));
     }

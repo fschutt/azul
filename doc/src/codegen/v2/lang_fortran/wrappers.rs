@@ -439,6 +439,17 @@ fn emit_method_body(
         builder.line(&format!("call {}({})", alias, call_arg_list));
     }
 
+    // Consume-after-by-value: when the C ABI took `self%raw` by value
+    // (DeepCopy / consuming-self method) Rust now owns those bytes.
+    // Flip `self%owned = .false.` so the F2003 `final ::` subroutine
+    // short-circuits on cleanup and we don't double-drop. `self` is
+    // declared `intent(inout)` (line 391) so the mutation is legal.
+    // Mirrors the Pascal `FOwned := False;` and JVM `__consume()`
+    // pattern from commits dbc7d82b9 + 62094b885.
+    if self_by_value {
+        builder.line("self%owned = .false.");
+    }
+
     builder.dedent();
     if is_function {
         builder.line(&format!("end function {}", proc_name));

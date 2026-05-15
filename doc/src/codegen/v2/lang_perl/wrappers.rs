@@ -27,7 +27,7 @@ use std::collections::BTreeSet;
 
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
-use super::super::ir::{CodegenIR, FunctionDef, FunctionKind, StructDef};
+use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, FunctionKind, StructDef};
 use super::types::{should_emit_struct, snake_case};
 
 // ============================================================================
@@ -211,7 +211,29 @@ fn emit_method(builder: &mut CodeBuilder, func: &FunctionDef, prefixed: &str, ty
             call_args.push(unwrap_expr(n));
         }
         let call = format!("{}({})", ffi_call, call_args.join(", "));
-        emit_method_body(builder, &call, &func.return_type, returns_self_type);
+        // Consume-after-by-value: if the C ABI took `$$self` by value
+        // (args[0].ref_kind == Owned — DeepCopy / consuming-self),
+        // Rust now owns those bytes. Set `$$self = undef;` so the
+        // `DESTROY` magic method's `if defined $$self` guard
+        // short-circuits on cleanup. Mirrors the Pascal/Fortran/JVM
+        // `__consume` / FOwned/owned-flag pattern.
+        let self_by_value = func
+            .args
+            .first()
+            .map(|a| matches!(a.ref_kind, ArgRefKind::Owned))
+            .unwrap_or(false);
+        let consume_self = if self_by_value {
+            "$$self = undef;"
+        } else {
+            ""
+        };
+        emit_method_body_with_consume(
+            builder,
+            &call,
+            &func.return_type,
+            returns_self_type,
+            consume_self,
+        );
         builder.dedent();
         builder.line("}");
         builder.blank();
@@ -253,12 +275,47 @@ fn emit_method_body(
     return_type: &Option<String>,
     returns_self_type: bool,
 ) {
+    emit_method_body_with_consume(builder, call, return_type, returns_self_type, "")
+}
+
+/// Like [`emit_method_body`] but injects a consume statement
+/// between the call and the return — for `self_by_value` methods
+/// the codegen needs to run `$$self = undef;` so the DESTROY
+/// magic method doesn't double-drop after the C ABI took the
+/// bytes by value.
+fn emit_method_body_with_consume(
+    builder: &mut CodeBuilder,
+    call: &str,
+    return_type: &Option<String>,
+    returns_self_type: bool,
+    consume_stmt: &str,
+) {
+    let has_consume = !consume_stmt.is_empty();
     match return_type {
-        None => builder.line(&format!("{};", call)),
-        Some(_) if returns_self_type => {
-            builder.line(&format!("return __PACKAGE__->new({});", call));
+        None => {
+            builder.line(&format!("{};", call));
+            if has_consume {
+                builder.line(consume_stmt);
+            }
         }
-        Some(_) => builder.line(&format!("return {};", call)),
+        Some(_) if returns_self_type => {
+            if has_consume {
+                builder.line(&format!("my $_raw = {};", call));
+                builder.line(consume_stmt);
+                builder.line("return __PACKAGE__->new($_raw);");
+            } else {
+                builder.line(&format!("return __PACKAGE__->new({});", call));
+            }
+        }
+        Some(_) => {
+            if has_consume {
+                builder.line(&format!("my $_ret = {};", call));
+                builder.line(consume_stmt);
+                builder.line("return $_ret;");
+            } else {
+                builder.line(&format!("return {};", call));
+            }
+        }
     }
 }
 
