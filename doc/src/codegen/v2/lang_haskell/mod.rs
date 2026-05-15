@@ -188,6 +188,8 @@ fn generate_umbrella(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     builder.line("import qualified Foreign.Storable");
     builder.line("import qualified System.IO.Unsafe");
     builder.line("import Control.Exception (bracket)");
+    builder.line("import qualified Control.Monad");
+    builder.line("import Data.IORef (IORef, newIORef, readIORef, writeIORef)");
     builder.line("import Foreign.Ptr (Ptr, FunPtr, nullPtr)");
     builder.line("import Foreign.Marshal.Alloc (alloca)");
     builder.line("import Foreign.Storable (Storable(..))");

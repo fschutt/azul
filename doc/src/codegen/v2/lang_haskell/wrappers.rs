@@ -126,7 +126,7 @@ fn emit_show_instance_if_supported(
     let wname = haskell_data_name(&s.name);
     builder.line(&format!("instance Show {} where", wname));
     builder.indent();
-    builder.line(&format!("show ({} p) = System.IO.Unsafe.unsafePerformIO $", wname));
+    builder.line(&format!("show ({} p _) = System.IO.Unsafe.unsafePerformIO $", wname));
     builder.indent();
     builder.line("Foreign.Marshal.Alloc.alloca $ \\__buf -> do");
     builder.indent();
@@ -157,7 +157,7 @@ fn emit_eq_instance_if_supported(
     builder.line(&format!("instance Eq {} where", wname));
     builder.indent();
     builder.line(&format!(
-        "({} a) == ({} b) = System.IO.Unsafe.unsafePerformIO $ do",
+        "({} a _) == ({} b _) = System.IO.Unsafe.unsafePerformIO $ do",
         wname, wname
     ));
     builder.indent();
@@ -214,7 +214,7 @@ fn emit_newtype(builder: &mut CodeBuilder, s: &StructDef) {
         }
     }
     // Reference the underlying data type via `T.` qualifier
-    // (Azul.Types as T) so this wrapper newtype isn't a duplicate
+    // (Azul.Types as T) so this wrapper isn't a duplicate
     // declaration of `Azul.Types.<Foo>`. RefAny is a phantom type
     // (`newtype RefAny a = ...`) so it needs an explicit argument.
     let qualified = if wname == "RefAny" {
@@ -222,71 +222,138 @@ fn emit_newtype(builder: &mut CodeBuilder, s: &StructDef) {
     } else {
         format!("T.{}", wname)
     };
+    // Two-field `data` rather than a newtype: pairs the raw pointer
+    // with a per-instance consumed-flag IORef so the bracket /
+    // dispose helpers can short-circuit when the C ABI has already
+    // taken ownership of the bytes by value (DeepCopy / consuming-
+    // self / owned-by-value wrapper arg). Without this tombstone
+    // the bracket's release action would re-fire `c_AzFoo_delete`
+    // on Rust-owned bytes — exactly the double-free landed in
+    // 62094b885 for the JVM/CLR family. Pattern matches Ruby's
+    // `ObjectSpace.undefine_finalizer` and Lua's `ffi.gc(c, nil)`.
+    //
+    // Field selectors stay backward-compatible: `un<Wname>` still
+    // returns the raw `Ptr`, callers using only the pointer don't
+    // need to know about the IORef. New `<wname>Consumed` selector
+    // exposes the flag for callers that need it explicitly.
     builder.line(&format!(
-        "newtype {} = {} {{ un{} :: Ptr ({}) }}",
-        wname, wname, wname, qualified
+        "data {} = {} {{ un{} :: !(Ptr ({})), {}Consumed :: !(IORef Bool) }}",
+        wname,
+        wname,
+        wname,
+        qualified,
+        lower_first(&wname)
     ));
     builder.blank();
+}
+
+/// Lower-case the first letter (Haskell field-selector convention:
+/// `Foo { fooConsumed = ... }`).
+fn lower_first(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) => c.to_lowercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
 }
 
 fn emit_bracket_constructor(builder: &mut CodeBuilder, s: &StructDef, _ir: &CodegenIR) {
     let wname = haskell_data_name(&s.name);
     let with_name = format!("with{}", wname);
+    let mk_name = format!("mk{}", wname);
     let dispose_name = format!("dispose{}", wname);
+    let consume_name = format!("consume{}", wname);
     let raw_delete = format!("FFI.c_Az{}_delete", s.name);
-    // The wrapper newtype wraps `Ptr T.<wname>`. The bracket-takes
-    // form needs to accept that same type so the user's pointer
-    // value matches the newtype constructor's expected payload.
+    let consumed_field = format!("{}Consumed", lower_first(&wname));
     let qualified_inner = if wname == "RefAny" {
         "T.RefAny ()".to_string()
     } else {
         format!("T.{}", wname)
     };
 
-    // We can't always synthesise a faithful constructor call from the
-    // IR alone: most azul constructors take heterogeneous, type-rich
-    // arguments and return the struct by value, while our wrapper
-    // stores 'Ptr <Wrapper>' for symmetric RAII. The most honest shape
-    // is therefore an 'alloca'-based bracket: the user supplies
-    // ownership of an already-acquired raw pointer; we run the
-    // continuation and call '_delete' on the way out unconditionally.
-    //
-    // This matches how Haskell's 'Foreign.Marshal.Alloc' wrappers are
-    // typically used and lets the C-API layer (FFI module) own the
-    // construction details.
+    // `mkFoo`: pair a raw pointer with a fresh IORef False
+    // (un-consumed). Used by every method that returns a fresh
+    // wrapper instance — the new wrapper owns its own
+    // tombstone.
+    builder.line(&format!(
+        "-- | Wrap a raw '{}' pointer in a managed '{}' with a fresh consumed-flag.",
+        qualified_inner, wname
+    ));
+    builder.line(&format!(
+        "{} :: Ptr ({}) -> IO {}",
+        mk_name, qualified_inner, wname
+    ));
+    builder.line(&format!(
+        "{} raw = do consumed <- newIORef False; pure ({} raw consumed)",
+        mk_name, wname
+    ));
+    builder.blank();
+
+    // `withFoo`: bracket-style RAII. The release action checks the
+    // tombstone before firing `_delete` — if a consuming-self
+    // method previously called `consumeFoo`, the release is a
+    // no-op (Rust has already dropped the bytes).
     builder.line(&format!(
         "-- | RAII smart constructor for '{}'. Takes ownership of a raw",
         wname
     ));
-    builder.line("-- pointer that the caller acquired through the FFI module, runs the");
-    builder.line(&format!(
-        "-- continuation, and releases the resource via '{}' on the way out,",
-        dispose_name
-    ));
-    builder.line("-- even if the continuation throws (see 'Control.Exception.bracket').");
+    builder.line("-- pointer, runs the continuation, and releases the resource on the way");
+    builder.line("-- out (even on exception). Skipped automatically when the wrapper has");
+    builder.line(&format!("-- been consumed by a by-value C call (see '{}').", consume_name));
     builder.line(&format!(
         "{} :: Ptr ({}) -> ({} -> IO a) -> IO a",
         with_name, qualified_inner, wname
     ));
     builder.line(&format!(
-        "{} raw action = bracket (pure ({} raw)) (\\h -> {} (un{} h)) action",
-        with_name, wname, raw_delete, wname
+        "{} raw action = do",
+        with_name
     ));
+    builder.indent();
+    builder.line(&format!("h <- {} raw", mk_name));
+    builder.line(&format!(
+        "bracket (pure h) (\\h' -> do c <- readIORef ({} h'); Control.Monad.unless c ({} (un{} h'))) action",
+        consumed_field, raw_delete, wname
+    ));
+    builder.dedent();
     builder.blank();
 }
 
 fn emit_dispose(builder: &mut CodeBuilder, s: &StructDef) {
     let wname = haskell_data_name(&s.name);
     let dispose_name = format!("dispose{}", wname);
+    let consume_name = format!("consume{}", wname);
+    let consumed_field = format!("{}Consumed", lower_first(&wname));
+    let raw_delete = format!("FFI.c_Az{}_delete", s.name);
 
     builder.line(&format!(
         "-- | Explicit early disposal of '{}'. 'with{}' calls this for you on scope exit.",
         wname, wname
     ));
+    builder.line(&format!("-- Short-circuits when the wrapper has been consumed."));
     builder.line(&format!("{} :: {} -> IO ()", dispose_name, wname));
+    builder.line(&format!("{} h = do", dispose_name));
+    builder.indent();
+    builder.line(&format!("c <- readIORef ({} h)", consumed_field));
     builder.line(&format!(
-        "{} h = FFI.c_Az{}_delete (un{} h)",
-        dispose_name, s.name, wname
+        "Control.Monad.unless c $ do {} (un{} h); writeIORef ({} h) True",
+        raw_delete, wname, consumed_field
+    ));
+    builder.dedent();
+    builder.blank();
+
+    // `consumeFoo`: explicit tombstone-set, called by codegen-emitted
+    // bridges that pass `self` / args by value to the C ABI (the
+    // bytes are now Rust-owned). Pattern matches Ruby's
+    // `Azul._consume`, Lua's `azul._consume`, JVM `__consume()`.
+    builder.line(&format!(
+        "-- | Mark a '{}' as consumed (called by codegen-emitted bridges that",
+        wname
+    ));
+    builder.line("-- transfer ownership of the underlying bytes to the C ABI by value).");
+    builder.line(&format!("{} :: {} -> IO ()", consume_name, wname));
+    builder.line(&format!(
+        "{} h = writeIORef ({} h) True",
+        consume_name, consumed_field
     ));
     builder.blank();
 }
