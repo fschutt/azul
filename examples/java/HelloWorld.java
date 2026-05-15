@@ -1,10 +1,11 @@
 // examples/java/HelloWorld.java — Python-quality Java port.
 //
-// Uses the smart `WindowCreateOptions.create(LAYOUT)` factory that hides
-// the host-invoker plumbing. User code never has to splice bytes via
-// JNA `Pointer.write` or manage the AzLayoutCallback ↔ wco
-// `window_state.layout_callback` byte-copy dance — the codegen does
-// it inside the factory.
+// Uses both smart factories: the typed `LayoutCallback` SAM that
+// returns a `Dom` directly (CC-2) AND the
+// `WindowCreateOptions.create(LayoutCallback)` factory that hides
+// the AzLayoutCallback ↔ wco `window_state.layout_callback` byte
+// splice. User code never reaches for `Structure.newInstance`,
+// `outPtr.write`, or any other JNA pointer-byte ceremony.
 //
 // Build + run (macOS):
 //     mvn package
@@ -40,15 +41,13 @@ public final class HelloWorld {
             outPtr.setInt(0, result);
         };
 
-    private static final AzulNativeManaged.LayoutCallbackInvokerCallback LAYOUT =
-        (long id, Pointer dataPtr, Pointer infoPtr, Pointer outPtr) -> {
+    // Typed layout callback: returns Dom directly. The host-invoker
+    // bridge handles the AzDom-byte splice into the libazul out-pointer.
+    private static final AzulHostInvoker.LayoutCallback LAYOUT =
+        (long id, Pointer dataPtr, Pointer infoPtr) -> {
             Object recovered = AzulHostInvoker.refanyGet(dataPtr);
             if (!(recovered instanceof MyDataModel)) {
-                Dom empty = Dom.createBody();
-                AzDom.ByValue emptyRaw = (AzDom.ByValue) Structure.newInstance(AzDom.ByValue.class, empty.rawPointer());
-                emptyRaw.read();
-                outPtr.write(0, emptyRaw.getPointer().getByteArray(0, emptyRaw.size()), 0, emptyRaw.size());
-                return;
+                return Dom.createBody();
             }
             MyDataModel m = (MyDataModel) recovered;
             Dom label = Dom.createDiv()
@@ -60,12 +59,9 @@ public final class HelloWorld {
                     .onClick(m, ON_CLICK)
                     .dom()
                     .getPointer());
-            Dom body = Dom.createBody()
+            return Dom.createBody()
                 .withChild(label)
                 .withChild(buttonDom);
-            AzDom.ByValue bodyRaw = (AzDom.ByValue) Structure.newInstance(AzDom.ByValue.class, body.rawPointer());
-            bodyRaw.read();
-            outPtr.write(0, bodyRaw.getPointer().getByteArray(0, bodyRaw.size()), 0, bodyRaw.size());
         };
 
     public static void main(java.lang.String[] args) {

@@ -221,6 +221,64 @@ pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("return synchronized(handles) { handles[id] }");
     builder.dedent();
     builder.line("}");
+    builder.blank();
+
+    // Phase CC-2 (Kotlin): typed LayoutCallback SAM that returns `Dom`
+    // directly. Same shape as the Java mirror — saves the
+    // Structure.newInstance + read + outPtr.write byte splice from
+    // user code.
+    builder.line("/**");
+    builder.line(" * Typed layout-callback SAM. Returns a `Dom` wrapper directly;");
+    builder.line(" * the host-invoker bridge handles the AzDom-byte splice into");
+    builder.line(" * outPtr internally. Saves five lines of JNA ceremony per");
+    builder.line(" * layout branch.");
+    builder.line(" *");
+    builder.line(" * The `Pointer?` parameters mirror JNA's platform-type signature");
+    builder.line(" * (libazul never passes null in practice, but Kotlin's strict-null");
+    builder.line(" * checks require the nullable form to compose with the raw");
+    builder.line(" * `LayoutCallbackInvokerCallback` adapter).");
+    builder.line(" */");
+    builder.line("fun interface LayoutCallback {");
+    builder.indent();
+    builder.line("fun invoke(id: Long, dataPtr: Pointer?, infoPtr: Pointer?): Dom");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+
+    builder.line("/**");
+    builder.line(" * Register a typed `LayoutCallback`. Wraps it in a raw");
+    builder.line(" * `LayoutCallbackInvokerCallback` that performs the AzDom-byte");
+    builder.line(" * splice; delegates registration to the generic Object overload.");
+    builder.line(" */");
+    builder.line("@JvmStatic fun registerLayoutCallback(fn: LayoutCallback): AzLayoutCallback.ByValue {");
+    builder.indent();
+    builder.line("val raw = AzulNativeManaged.LayoutCallbackInvokerCallback {");
+    builder.indent();
+    builder.line("id, arg0, arg1, outPtr ->");
+    builder.line("val result = fn.invoke(id, arg0, arg1)");
+    builder.line("val rawStruct = Structure.newInstance(AzDom.ByValue::class.java, result.rawPointer()) as AzDom.ByValue");
+    builder.line("rawStruct.read()");
+    builder.line("val sz = rawStruct.size()");
+    builder.line("outPtr?.write(0, rawStruct.pointer.getByteArray(0, sz), 0, sz)");
+    builder.dedent();
+    builder.line("}");
+    builder.line("return registerLayoutCallback(raw as Any)");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+
+    builder.line("/**");
+    builder.line(" * Register a raw `LayoutCallbackInvokerCallback`. Overload of");
+    builder.line(" * the generic `registerLayoutCallback(Any)` for exact-type");
+    builder.line(" * resolution from the smart `WindowCreateOptions.create(...)`");
+    builder.line(" * factory.");
+    builder.line(" */");
+    builder.line("@JvmStatic fun registerLayoutCallback(fn: AzulNativeManaged.LayoutCallbackInvokerCallback): AzLayoutCallback.ByValue {");
+    builder.indent();
+    builder.line("return registerLayoutCallback(fn as Any)");
+    builder.dedent();
+    builder.line("}");
+
     builder.dedent();
     builder.line("}");
     builder.blank();

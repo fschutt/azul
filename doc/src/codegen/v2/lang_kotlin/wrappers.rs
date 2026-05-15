@@ -469,6 +469,31 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
             builder.dedent();
             builder.line("}");
             builder.blank();
+
+            // Phase CC-2 (Kotlin): typed `LayoutCallback` SAM
+            // overload. User returns a `Dom` directly; the
+            // AzulHostInvoker.registerLayoutCallback(LayoutCallback)
+            // bridge does the AzDom-byte splice. Same plumbing inside;
+            // user-facing signature is `(id, dataPtr, infoPtr) -> Dom`.
+            builder.line("/**");
+            builder.line(" * Smart factory (typed): pass a `LayoutCallback` that returns a");
+            builder.line(" * `Dom` directly. The host-invoker bridge handles the AzDom-byte");
+            builder.line(" * splice; user code never reaches for `Structure.newInstance` or");
+            builder.line(" * `Pointer.write`.");
+            builder.line(" */");
+            builder.line("fun create(fn: AzulHostInvoker.LayoutCallback): WindowCreateOptions {");
+            builder.indent();
+            builder.line("val __cb = AzulHostInvoker.registerLayoutCallback(fn)");
+            builder.line("val __wco = AzulNativeWindow.INSTANCE.AzWindowCreateOptions_default()");
+            builder.line("__cb.write()");
+            builder.line("__wco.write()");
+            builder.line("val __cbBytes = __cb.getPointer().getByteArray(0, __cb.size())");
+            builder.line("__wco.window_state.layout_callback.getPointer().write(0, __cbBytes, 0, __cbBytes.size)");
+            builder.line("__wco.read()");
+            builder.line("return WindowCreateOptions(__wco.getPointer())");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
         }
         for func in static_funcs {
             emit_static_factory(builder, &class_name, &ffi_name, func, ir);

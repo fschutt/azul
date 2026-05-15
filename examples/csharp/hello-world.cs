@@ -1,7 +1,10 @@
 // examples/csharp/hello-world.cs — Python-quality C# port.
 //
-// Uses the smart `WindowCreateOptions.Create(Layout)` factory; user
-// code never has to set `wco.window_state.layout_callback` manually.
+// Uses the smart `WindowCreateOptions.Create(Layout)` factory and a
+// typed `Func<IntPtr, IntPtr, Dom>` layout delegate that returns a
+// wrapper `Dom` directly. The host-invoker dispatch extracts `.Raw`
+// via reflection and marshals the struct into outPtr. User code
+// never reaches for `Marshal.StructureToPtr` or `.Raw`.
 //
 // Build + run (macOS):
 //     DYLD_LIBRARY_PATH=. dotnet run
@@ -30,10 +33,10 @@ namespace HelloWorld
             return (int)AzUpdate.RefreshDom;
         }
 
-        private static AzDom Layout(IntPtr dataPtr, IntPtr infoPtr)
+        private static Dom Layout(IntPtr dataPtr, IntPtr infoPtr)
         {
             var m = HostInvoker.RefanyGet(dataPtr) as MyDataModel;
-            if (m == null) return Dom.CreateBody().Raw;
+            if (m == null) return Dom.CreateBody();
             var label = Dom.CreateDiv()
                 .WithCss("font-size: 32px;")
                 .WithChild(Dom.CreateText(m.Counter.ToString()));
@@ -44,8 +47,7 @@ namespace HelloWorld
                     .Dom());
             return Dom.CreateBody()
                 .WithChild(label)
-                .WithChild(buttonDom)
-                .Raw;
+                .WithChild(buttonDom);
         }
 
         public static int Main(string[] args)
@@ -53,7 +55,7 @@ namespace HelloWorld
             // Smart factory: hides the host-invoker register +
             // window_state.layout_callback splice. Returns the wrapper
             // class; pull the raw struct back out for AzApp_run.
-            using var wco = WindowCreateOptions.Create(new Func<IntPtr, IntPtr, AzDom>(Layout));
+            using var wco = WindowCreateOptions.Create(new Func<IntPtr, IntPtr, Dom>(Layout));
             var rawWco = wco.Raw;
 
             var appRaw = NativeMethods.AzApp_create(

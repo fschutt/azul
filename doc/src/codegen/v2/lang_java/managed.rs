@@ -234,6 +234,79 @@ pub fn emit_files(out: &mut String, ir: &CodegenIR, config: &CodegenConfig) -> R
             b.line("}");
             b.dedent();
             b.line("}");
+            b.blank();
+
+            // Phase CC-2: typed LayoutCallback SAM + registration helper.
+            // The raw `LayoutCallbackInvokerCallback` forces user code to
+            // write the AzDom.ByValue Structure.newInstance + .read() +
+            // outPtr.write byte splice manually inside every layout
+            // branch — six lines of JNA ceremony per hello-world. The
+            // typed SAM hides that. User code becomes:
+            //
+            //     LayoutCallback LAYOUT = (id, dataPtr, infoPtr) -> {
+            //         // build wrapper Dom; return it
+            //         return body;
+            //     };
+            //     WindowCreateOptions.create(LAYOUT);
+            //
+            // The bridging adapter pulls `rawPointer()` from the
+            // returned Dom, overlays it as a ByValue Structure, and
+            // memcpy's the bytes to outPtr. No user-visible JNA splice.
+            b.line("/**");
+            b.line(" * Typed layout-callback SAM. Returns a `Dom` wrapper directly;");
+            b.line(" * the host-invoker bridge handles the AzDom-byte splice into");
+            b.line(" * outPtr internally. Saves five lines of JNA ceremony per");
+            b.line(" * layout branch over the raw `LayoutCallbackInvokerCallback`.");
+            b.line(" */");
+            b.line("@FunctionalInterface");
+            b.line("public interface LayoutCallback {");
+            b.indent();
+            b.line("Dom invoke(long id, Pointer dataPtr, Pointer infoPtr);");
+            b.dedent();
+            b.line("}");
+            b.blank();
+
+            b.line("/**");
+            b.line(" * Register a typed `LayoutCallback`. Internally wraps it in a");
+            b.line(" * raw `LayoutCallbackInvokerCallback` that performs the");
+            b.line(" * AzDom-byte splice into outPtr, then delegates to the regular");
+            b.line(" * `register(Object)` path so the host-handle bookkeeping is");
+            b.line(" * unchanged.");
+            b.line(" */");
+            b.line("public static AzLayoutCallback.ByValue registerLayoutCallback(LayoutCallback fn) {");
+            b.indent();
+            b.line("AzulNativeManaged.LayoutCallbackInvokerCallback raw =");
+            b.indent();
+            b.line("(long id, Pointer arg0, Pointer arg1, Pointer outPtr) -> {");
+            b.indent();
+            b.line("Dom result = fn.invoke(id, arg0, arg1);");
+            b.line("if (result == null) return;");
+            b.line("AzDom.ByValue raw_struct =");
+            b.indent();
+            b.line("(AzDom.ByValue) Structure.newInstance(AzDom.ByValue.class, result.rawPointer());");
+            b.dedent();
+            b.line("raw_struct.read();");
+            b.line("int sz = raw_struct.size();");
+            b.line("outPtr.write(0, raw_struct.getPointer().getByteArray(0, sz), 0, sz);");
+            b.dedent();
+            b.line("};");
+            b.dedent();
+            b.line("return registerLayoutCallback(raw);");
+            b.dedent();
+            b.line("}");
+            b.blank();
+
+            b.line("/**");
+            b.line(" * Register a raw `LayoutCallbackInvokerCallback`. Overload of");
+            b.line(" * the generic `register(Object)` that types the return so the");
+            b.line(" * smart `WindowCreateOptions.create(...)` factory has an exact");
+            b.line(" * call shape to match against.");
+            b.line(" */");
+            b.line("public static AzLayoutCallback.ByValue registerLayoutCallback(AzulNativeManaged.LayoutCallbackInvokerCallback fn) {");
+            b.indent();
+            b.line("return registerLayoutCallback((Object) fn);");
+            b.dedent();
+            b.line("}");
 
             b.dedent();
             b.line("}");

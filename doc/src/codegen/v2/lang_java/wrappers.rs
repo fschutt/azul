@@ -310,6 +310,30 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
         builder.dedent();
         builder.line("}");
         builder.blank();
+
+        // Phase CC-2: typed-SAM overload. User writes
+        // `(id, dataPtr, infoPtr) -> Dom` instead of a raw four-arg
+        // outPtr-write lambda; the bridge in AzulHostInvoker handles
+        // the AzDom byte splice.
+        builder.line("/**");
+        builder.line(" * Smart factory (typed): pass a `LayoutCallback` that returns a");
+        builder.line(" * `Dom` directly. The host-invoker bridge splices the AzDom");
+        builder.line(" * bytes into outPtr internally — user code never writes");
+        builder.line(" * `Structure.newInstance` / `outPtr.write`.");
+        builder.line(" */");
+        builder.line("public static WindowCreateOptions create(AzulHostInvoker.LayoutCallback fn) {");
+        builder.indent();
+        builder.line("AzLayoutCallback.ByValue __cb = AzulHostInvoker.registerLayoutCallback(fn);");
+        builder.line("AzWindowCreateOptions.ByValue __wco = AzulNativeWindow.INSTANCE.AzWindowCreateOptions_default();");
+        builder.line("__cb.write();");
+        builder.line("__wco.write();");
+        builder.line("byte[] __cbBytes = __cb.getPointer().getByteArray(0, __cb.size());");
+        builder.line("__wco.window_state.layout_callback.getPointer().write(0, __cbBytes, 0, __cbBytes.length);");
+        builder.line("__wco.read();");
+        builder.line("return new WindowCreateOptions(__wco.getPointer());");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
     }
 
     // Methods.
