@@ -687,9 +687,13 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     emit_cs_toString_if_supported(builder, s, ir);
 
     // Phase I.1.5 (C#): GetEnumerator() body for Vec wrappers.
+    // Wrapper-element Vecs get IEnumerable<T>; primitive-element
+    // Vecs get a bulk-copy `ToXxxArray()` sibling instead.
     if let Some(elem) = vec_elem_type.as_deref() {
         if vec_elem_has_wrapper(elem) {
             emit_cs_vec_enumerator(builder, s, elem, ir);
+        } else {
+            emit_cs_vec_primitive_array(builder, s, elem);
         }
     }
 
@@ -868,6 +872,49 @@ fn emit_cs_toString_if_supported(
 /// available, fall back to a buffer-borrowed wrapper marked
 /// consumed (its `Dispose()` is a no-op so no AzX_delete on
 /// Vec-internal memory).
+/// Primitive-element Vec sibling: bulk-copy via `Marshal.Copy` into
+/// a C# native typed array (`byte[]`/`int[]`/`long[]`/...). One
+/// memcpy — fully independent of the Vec's lifetime.
+fn emit_cs_vec_primitive_array(
+    builder: &mut CodeBuilder,
+    _s: &StructDef,
+    elem_rust: &str,
+) {
+    let (cs_ty, copy_arr_ty, method_name) = match elem_rust.trim() {
+        "u8" | "i8" | "bool" => ("byte", "byte", "ToByteArray"),
+        "u16" | "i16" => ("short", "short", "ToShortArray"),
+        "u32" | "i32" => ("int", "int", "ToIntArray"),
+        "u64" | "i64" | "usize" | "isize" => ("long", "long", "ToLongArray"),
+        "f32" => ("float", "float", "ToFloatArray"),
+        "f64" => ("double", "double", "ToDoubleArray"),
+        _ => return,
+    };
+    builder.line(&format!(
+        "/// <summary>Bulk-copy the Vec's `{}` elements into a {}[] (one Marshal.Copy, GC-owned).</summary>",
+        elem_rust, cs_ty
+    ));
+    builder.line(&format!("public {}[] {}()", cs_ty, method_name));
+    builder.line("{");
+    builder.indent();
+    builder.line(&format!(
+        "if (_disposed) return System.Array.Empty<{}>();",
+        cs_ty
+    ));
+    builder.line("var __buf = _inner.ptr;");
+    builder.line("var __n = (long)_inner.len;");
+    builder.line(&format!(
+        "if (__buf == System.IntPtr.Zero || __n <= 0) return System.Array.Empty<{}>();",
+        cs_ty
+    ));
+    builder.line(&format!("var __out = new {}[(int)__n];", cs_ty));
+    builder.line("System.Runtime.InteropServices.Marshal.Copy(__buf, __out, 0, (int)__n);");
+    builder.line("return __out;");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+    let _ = copy_arr_ty;
+}
+
 fn emit_cs_vec_enumerator(
     builder: &mut CodeBuilder,
     _s: &StructDef,

@@ -379,6 +379,14 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     if let Some(elem) = vec_elem_type.as_deref() {
         if ir.find_struct(elem).is_some() && has_delete_function(elem, ir) {
             emit_jvm_vec_iterator(builder, s, elem, ir);
+        } else {
+            // Primitive (or non-wrapper) element: emit a bulk-copy
+            // sibling array method (`toByteArray()` / `toIntArray()`
+            // / etc.) that uses JNA's typed `getXxxArray(0, len)`
+            // primitives. One memcpy into a fresh JVM-managed array
+            // — fully independent of the Vec's lifetime, and faster
+            // than per-element iteration for primitive buffers.
+            emit_jvm_vec_primitive_array(builder, s, elem);
         }
     }
 
@@ -662,6 +670,58 @@ fn emit_jvm_vec_iterator(
     builder.line("}");
     builder.dedent();
     builder.line("};");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+}
+
+/// Primitive-element Vecs get a `toXxxArray()` sibling method that
+/// bulk-copies the buffer into a JVM-managed array. Driven by the
+/// Rust primitive name from `detect_vec_elem_type_jvm`; non-
+/// primitives fall through (no method emitted) and the caller
+/// gets the `Iterable<T>` clone-each path instead.
+fn emit_jvm_vec_primitive_array(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    elem_rust: &str,
+) {
+    // Map Rust primitive → (JVM array type, JNA getXxxArray method).
+    let (arr_ty, getter, method_name) = match elem_rust.trim() {
+        "u8" | "i8" | "bool" => ("byte[]", "getByteArray", "toByteArray"),
+        "u16" | "i16" => ("short[]", "getShortArray", "toShortArray"),
+        "u32" | "i32" => ("int[]", "getIntArray", "toIntArray"),
+        "u64" | "i64" | "usize" | "isize" => ("long[]", "getLongArray", "toLongArray"),
+        "f32" => ("float[]", "getFloatArray", "toFloatArray"),
+        "f64" => ("double[]", "getDoubleArray", "toDoubleArray"),
+        _ => return,
+    };
+    let vec_ffi = ffi_type_name(&s.name);
+    builder.line("/**");
+    builder.line(&format!(
+        " * Bulk-copy the Vec's `{}` elements into a JVM-managed `{}`.",
+        elem_rust, arr_ty
+    ));
+    builder.line(" * One memcpy — safe to use past the Vec being closed");
+    builder.line(" * (the returned array owns its own JVM-heap memory).");
+    builder.line(" */");
+    // Strip the trailing `[]` for the empty-array literal so it
+    // reads `new byte[0]` not `new byte[][0]`.
+    let elem_arr_ty = &arr_ty[..arr_ty.len() - 2];
+    builder.line(&format!("public {} {}() {{", arr_ty, method_name));
+    builder.indent();
+    builder.line(&format!(
+        "{}.ByValue __raw = ({}.ByValue) Structure.newInstance({}.ByValue.class, ptr);",
+        vec_ffi, vec_ffi, vec_ffi
+    ));
+    builder.line("__raw.read();");
+    builder.line(&format!(
+        "if (__raw.ptr == null || __raw.len <= 0) return new {}[0];",
+        elem_arr_ty
+    ));
+    builder.line(&format!(
+        "return __raw.ptr.{}(0, (int) __raw.len);",
+        getter
+    ));
     builder.dedent();
     builder.line("}");
     builder.blank();

@@ -655,10 +655,14 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
 
     // Phase I.1.3 (Kotlin): iterator() body for Vec wrappers with a
     // wrapper-class element type. Mirrors Java's I.1.2 emission via
-    // JNA Structure.newInstance.
+    // JNA Structure.newInstance. Primitive-element Vecs get a
+    // bulk-copy sibling array (`toByteArray()` / `toIntArray()` /
+    // …) instead.
     if let Some(elem) = vec_elem_type.as_deref() {
         if vec_elem_has_wrapper(elem) {
             emit_kt_vec_iterator(builder, s, elem, ir);
+        } else {
+            emit_kt_vec_primitive_array(builder, s, elem);
         }
     }
 
@@ -902,6 +906,54 @@ fn emit_kt_toString_if_supported(
 /// Vec being closed. If no `_clone` export exists, fall back to a
 /// buffer-borrowed wrapper marked consumed (no finalize-time
 /// `AzX_delete` on Vec-internal memory).
+/// Primitive-element Vec sibling: bulk-copy into a Kotlin native
+/// typed array (`ByteArray`/`IntArray`/...) via JNA's `getXxxArray`.
+fn emit_kt_vec_primitive_array(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    elem_rust: &str,
+) {
+    let (kt_arr, getter, method_name) = match elem_rust.trim() {
+        "u8" | "i8" | "bool" => ("ByteArray", "getByteArray", "toByteArray"),
+        "u16" | "i16" => ("ShortArray", "getShortArray", "toShortArray"),
+        "u32" | "i32" => ("IntArray", "getIntArray", "toIntArray"),
+        "u64" | "i64" | "usize" | "isize" => {
+            ("LongArray", "getLongArray", "toLongArray")
+        }
+        "f32" => ("FloatArray", "getFloatArray", "toFloatArray"),
+        "f64" => ("DoubleArray", "getDoubleArray", "toDoubleArray"),
+        _ => return,
+    };
+    let vec_ffi = ffi_type_name(&s.name);
+    builder.line(&format!(
+        "/// Bulk-copy the Vec's `{}` elements into a {} (one memcpy, JVM-owned).",
+        elem_rust, kt_arr
+    ));
+    builder.line(&format!("fun {}(): {} {{", method_name, kt_arr));
+    builder.indent();
+    builder.line(&format!(
+        "val __raw = Structure.newInstance({}.ByValue::class.java, ptr) as {}.ByValue",
+        vec_ffi, vec_ffi
+    ));
+    builder.line("__raw.read()");
+    // Capture into a local so Kotlin's flow-typing can prove the
+    // pointer is non-null after the empty-len short-circuit. JNA
+    // exposes Structure fields as mutable, so Kotlin won't smart-
+    // cast across the null-check directly.
+    builder.line("val __p = __raw.ptr");
+    builder.line(&format!(
+        "if (__p == null || __raw.len <= 0) return {}(0)",
+        kt_arr
+    ));
+    builder.line(&format!(
+        "return __p.{}(0, __raw.len.toInt())",
+        getter
+    ));
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+}
+
 fn emit_kt_vec_iterator(
     builder: &mut CodeBuilder,
     s: &StructDef,
