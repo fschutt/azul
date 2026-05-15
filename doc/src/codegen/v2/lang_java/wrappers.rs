@@ -975,6 +975,24 @@ fn emit_wrapper_method(
         .map(|r| r.trim() == func.class_name)
         .unwrap_or(false);
 
+    // Auto-wrap non-self wrapper-class returns: if the IR return
+    // type is a struct that has an emitted wrapper class (i.e.
+    // `has_wrapper_class` is true), surface the wrapper at the
+    // boundary instead of the raw FFI struct. Pattern matches the
+    // payload-display-type rule applied to plain (non-Option/Result)
+    // returns — same IR-driven predicate, no name allowlist.
+    let returns_wrapper_other: Option<String> = if returns_self {
+        None
+    } else if matches!(idiom, ReturnIdiom::Plain) {
+        func.return_type
+            .as_deref()
+            .map(|r| r.trim())
+            .filter(|r| has_wrapper_class(r, ir))
+            .map(|r| r.to_string())
+    } else {
+        None
+    };
+
     // Phase I.5.1: idiomise Option<T> / Result<T, E> return types at the
     // wrapper boundary. The FFI struct still exposes
     // `toNullable()` / `unwrap()` (from `types.rs`); the wrapper layer
@@ -983,6 +1001,8 @@ fn emit_wrapper_method(
     // Err — same idiom as Rust's `Result::unwrap`).
     let displayed_return = if returns_self {
         class_name.to_string()
+    } else if let Some(ref wrapper) = returns_wrapper_other {
+        wrapper.clone()
     } else {
         match &idiom {
             ReturnIdiom::Plain => return_jvm.clone(),
@@ -1045,6 +1065,14 @@ fn emit_wrapper_method(
         builder.line(&format!(
             "return new {}(__raw.getPointer());",
             class_name
+        ));
+    } else if let Some(ref wrapper) = returns_wrapper_other {
+        // Non-self wrapper-class return: same shape as returns_self
+        // but wraps in the return-type's wrapper class.
+        builder.line(&format!("{} __raw = {};", return_jvm, call));
+        builder.line(&format!(
+            "return new {}(__raw.getPointer());",
+            wrapper
         ));
     } else {
         match &idiom {

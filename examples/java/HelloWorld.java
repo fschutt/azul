@@ -49,12 +49,10 @@ public final class HelloWorld {
             Dom label = Dom.createDiv()
                 .withCss("font-size: 32px;")
                 .withChild(Dom.createText(java.lang.String.valueOf(m.counter)));
-            Dom buttonDom = new Dom(
-                Button.create("Increase counter")
-                    .withButtonType(AzButtonType.Primary.value)
-                    .onClick(m, ON_CLICK)
-                    .dom()
-                    .getPointer());
+            Dom buttonDom = Button.create("Increase counter")
+                .withButtonType(AzButtonType.Primary.value)
+                .onClick(m, ON_CLICK)
+                .dom();
             return Dom.createBody()
                 .withChild(label)
                 .withChild(buttonDom);

@@ -912,8 +912,24 @@ fn emit_static_factory(
         
     }
 
+    // Auto-wrap non-self wrapper-class returns: same IR-driven
+    // predicate as Java's `returns_wrapper_other`.
+    let returns_wrapper_other: Option<String> = if returns_self {
+        None
+    } else if matches!(idiom, ReturnIdiom::Plain) {
+        func.return_type
+            .as_deref()
+            .map(|r| r.trim())
+            .filter(|r| has_kt_wrapper_class(r, ir))
+            .map(|r| r.to_string())
+    } else {
+        None
+    };
+
     let displayed_return = if returns_self {
         class_name.to_string()
+    } else if let Some(ref wrapper) = returns_wrapper_other {
+        wrapper.clone()
     } else {
         match &idiom {
             ReturnIdiom::Plain => return_kt.clone(),
@@ -965,6 +981,9 @@ fn emit_static_factory(
         // ByValue → adopt its underlying Pointer.
         builder.line(&format!("val raw = {}", call));
         builder.line(&format!("return {}(raw.pointer)", class_name));
+    } else if let Some(ref wrapper) = returns_wrapper_other {
+        builder.line(&format!("val raw = {}", call));
+        builder.line(&format!("return {}(raw.pointer)", wrapper));
     } else {
         match &idiom {
             ReturnIdiom::Plain => {
@@ -1093,8 +1112,22 @@ fn emit_instance_method(
 
     let idiom = classify_return(func, ir);
 
+    let returns_wrapper_other: Option<String> = if returns_self {
+        None
+    } else if matches!(idiom, ReturnIdiom::Plain) {
+        func.return_type
+            .as_deref()
+            .map(|r| r.trim())
+            .filter(|r| has_kt_wrapper_class(r, ir))
+            .map(|r| r.to_string())
+    } else {
+        None
+    };
+
     let displayed_return = if returns_self {
         class_name.to_string()
+    } else if let Some(ref wrapper) = returns_wrapper_other {
+        wrapper.clone()
     } else {
         match &idiom {
             ReturnIdiom::Plain => return_kt.clone(),
@@ -1146,6 +1179,9 @@ fn emit_instance_method(
     } else if returns_self {
         builder.line(&format!("val raw = {}", call));
         builder.line(&format!("return {}(raw.pointer)", class_name));
+    } else if let Some(ref wrapper) = returns_wrapper_other {
+        builder.line(&format!("val raw = {}", call));
+        builder.line(&format!("return {}(raw.pointer)", wrapper));
     } else {
         match &idiom {
             ReturnIdiom::Plain => {

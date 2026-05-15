@@ -1066,8 +1066,24 @@ fn emit_wrapper_method(
 
     let idiom = classify_return(func, ir);
 
+    // Auto-wrap non-self wrapper-class returns (same predicate as
+    // Java/Kotlin's `returns_wrapper_other`).
+    let returns_wrapper_other: Option<String> = if returns_self {
+        None
+    } else if matches!(idiom, ReturnIdiom::Plain) {
+        func.return_type
+            .as_deref()
+            .map(|r| r.trim())
+            .filter(|r| has_cs_wrapper_class(r, ir))
+            .map(|r| r.to_string())
+    } else {
+        None
+    };
+
     let displayed_return = if returns_self {
         class_name.to_string()
+    } else if let Some(ref wrapper) = returns_wrapper_other {
+        wrapper.clone()
     } else {
         match &idiom {
             ReturnIdiom::Plain => return_cs.clone(),
@@ -1180,6 +1196,13 @@ fn emit_wrapper_method(
                 ffi_class_name
             ));
             builder.line(&format!("return new {}(__raw);", class_name));
+        } else if let Some(ref wrapper) = returns_wrapper_other {
+            builder.line(&format!("var __raw = {};", call));
+            builder.line(&format!(
+                "_inner = System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__self);",
+                ffi_class_name
+            ));
+            builder.line(&format!("return new {}(__raw);", wrapper));
         } else {
             builder.line(&format!("var __ret = {};", call));
             builder.line(&format!(
@@ -1213,6 +1236,9 @@ fn emit_wrapper_method(
         } else if returns_self {
             builder.line(&format!("var __raw = {};", call));
             builder.line(&format!("return new {}(__raw);", class_name));
+        } else if let Some(ref wrapper) = returns_wrapper_other {
+            builder.line(&format!("var __raw = {};", call));
+            builder.line(&format!("return new {}(__raw);", wrapper));
         } else {
             match &idiom {
                 ReturnIdiom::Plain => builder.line(&format!("return {};", call)),
@@ -1233,6 +1259,9 @@ fn emit_wrapper_method(
     } else if returns_self {
         builder.line(&format!("var __raw = {};", call));
         builder.line(&format!("return new {}(__raw);", class_name));
+    } else if let Some(ref wrapper) = returns_wrapper_other {
+        builder.line(&format!("var __raw = {};", call));
+        builder.line(&format!("return new {}(__raw);", wrapper));
     } else {
         match &idiom {
             ReturnIdiom::Plain => builder.line(&format!("return {};", call)),

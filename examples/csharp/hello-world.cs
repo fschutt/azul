@@ -37,11 +37,10 @@ namespace HelloWorld
             var label = Dom.CreateDiv()
                 .WithCss("font-size: 32px;")
                 .WithChild(Dom.CreateText(m.Counter.ToString()));
-            var buttonDom = new Dom(
-                Button.Create("Increase counter")
-                    .WithButtonType(AzButtonType.Primary)
-                    .OnClick(m, new Func<IntPtr, IntPtr, int>(OnClick))
-                    .Dom());
+            var buttonDom = Button.Create("Increase counter")
+                .WithButtonType(AzButtonType.Primary)
+                .OnClick(m, new Func<IntPtr, IntPtr, int>(OnClick))
+                .Dom();
             return Dom.CreateBody()
                 .WithChild(label)
                 .WithChild(buttonDom);
