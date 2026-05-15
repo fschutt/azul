@@ -113,6 +113,61 @@ pub fn generate_wrappers(b: &mut CodeBuilder, ir: &CodegenIR) {
     b.line("}");
     b.blank();
 
+    // CC-4: recursive opts-object applier. Each struct wrapper's
+    // `with(opts)` instance method routes through this helper to
+    // assign nested fields of the underlying koffi struct. Plain
+    // `{}` literals recurse into the nested struct field; JS string
+    // values auto-convert via `_azString`; wrapper-class instances
+    // forward via their `_ptr`; everything else (numbers, enum
+    // constants, booleans, Buffers, raw koffi structs) assigns
+    // directly. Pure type-driven; no per-field allow-list.
+    //
+    // Drops user-visible drilling like
+    //   `window._ptr.window_state.title = azul._azString('...')`
+    // in favor of
+    //   `window.with({ window_state: { title: 'Hello World' } })`.
+    b.line("// CC-4 recursive opts-object applier. Routed through every");
+    b.line("// struct wrapper's `with(opts)` method below.");
+    b.line("function _applyOpts(struct, opts) {");
+    b.indent();
+    b.line("if (struct == null || opts == null) return;");
+    b.line("for (const key of Object.keys(opts)) {");
+    b.indent();
+    b.line("const value = opts[key];");
+    b.line("if (value === null || value === undefined) continue;");
+    b.line("if (typeof value === 'string') {");
+    b.indent();
+    b.line("struct[key] = _azString(value);");
+    b.dedent();
+    // Wrapper-class instance: forward its underlying koffi value.
+    // Checked before the plain-object branch so we don't recurse
+    // into wrapper internals.
+    b.line("} else if (typeof value === 'object' && value._ptr !== undefined) {");
+    b.indent();
+    b.line("struct[key] = value._ptr;");
+    b.dedent();
+    // Plain-object literal: recurse into nested koffi struct. We
+    // detect via `Object.getPrototypeOf(value) === Object.prototype`
+    // so class instances, Buffers, Arrays, koffi-managed structs
+    // (with non-Object prototypes) fall through to direct-assign.
+    b.line("} else if (typeof value === 'object'");
+    b.indent();
+    b.line("&& Object.getPrototypeOf(value) === Object.prototype) {");
+    b.dedent();
+    b.indent();
+    b.line("_applyOpts(struct[key], value);");
+    b.dedent();
+    b.line("} else {");
+    b.indent();
+    b.line("struct[key] = value;");
+    b.dedent();
+    b.line("}");
+    b.dedent();
+    b.line("}");
+    b.dedent();
+    b.line("}");
+    b.blank();
+
     b.line("// ----------------------------------------------------------------------------");
     b.line("// Wrapper classes (one per disposable struct / tagged-union enum).");
     b.line("// ----------------------------------------------------------------------------");
@@ -245,6 +300,30 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
         "[Symbol.for('nodejs.util.inspect.custom')]() {{ return `{} {{ ptr: ${{this._ptr}} }}`; }}",
         class
     ));
+    b.blank();
+
+    // CC-4: fluent `.with(opts)` builder. Recursively assigns nested
+    // object literals into the underlying koffi struct's fields,
+    // auto-converting JS strings to AzString and unwrapping wrapper
+    // instances via `_ptr`. Returns `this` for chain composition.
+    // Drops user-visible drilling like
+    //   `window._ptr.window_state.title = azul._azString('...')`
+    // in favor of
+    //   `window.with({ window_state: { title: 'Hello World' } })`.
+    // Pure koffi-struct-driven; no per-field allow-list. Calling on
+    // a wrapper whose `_ptr` is an opaque pointer (not a koffi
+    // struct) is a user error and throws on first field assignment.
+    b.line("/**");
+    b.line(" * Fluent builder: recursively assign `opts` into the wrapper's");
+    b.line(" * underlying koffi struct fields. JS strings auto-convert to AzString.");
+    b.line(" * Returns this for chaining.");
+    b.line(" */");
+    b.line("with(opts) {");
+    b.indent();
+    b.line("_applyOpts(this._ptr, opts);");
+    b.line("return this;");
+    b.dedent();
+    b.line("}");
     b.blank();
 
     // AzString gets a `toString()` override that decodes the wrapped

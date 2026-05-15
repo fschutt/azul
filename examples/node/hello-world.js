@@ -27,8 +27,8 @@ const azul = require('./azul.js');
 const {
     App, AppConfig, Button, ButtonType, Dom,
     CssProperty, CssPropertyWithConditions, StyleFontSize,
-    Update, WindowBackgroundMaterial, WindowDecorations,
-    refanyCreate, refanyGet, registerCallback,
+    Update, WindowBackgroundMaterial, WindowCreateOptions, WindowDecorations,
+    refanyCreate, refanyGet,
 } = azul;
 const lib = azul.__lib;
 
@@ -71,14 +71,6 @@ function layout(dataPtr, _info) {
 
 // ── Main ──────────────────────────────────────────────────────────────
 //
-// We build the window via `AzWindowCreateOptions_default()` plus
-// direct field assignment rather than `WindowCreateOptions.create(layout)`
-// because the latter goes through `AzWindowCreateOptions_create`, which
-// expects an `AzLayoutCallbackType` (a raw fn pointer) and would
-// discard the host-invoker `ctx` carrying our dispatch handle. The
-// assignment to `window_state.layout_callback` takes the full
-// `AzLayoutCallback` struct (cb + ctx) so dispatch reaches our JS fn.
-//
 // Without this, an uncaught exception from inside a koffi-registered
 // callback aborts the process (SIGABRT) before the host-invoker
 // thunk's own try/catch can log it. The handler is a no-op for
@@ -87,15 +79,21 @@ process.on('uncaughtException', (e) => {
     console.error('[azul] uncaught:', e && e.stack ? e.stack : e);
 });
 
-const window = lib.AzWindowCreateOptions_default();
-window.window_state.layout_callback = registerCallback('LayoutCallback', layout);
-window.window_state.title           = azul._azString('Hello World');
-window.window_state.size.dimensions.width  = 400.0;
-window.window_state.size.dimensions.height = 300.0;
-// NoTitleAutoInject: OS draws close/min/max buttons; framework
-// auto-injects a Titlebar with drag support.
-window.window_state.flags.decorations         = WindowDecorations.NoTitleAutoInject;
-window.window_state.flags.background_material = WindowBackgroundMaterial.Sidebar;
+// Smart factory + fluent `.with(opts)` builder. `createWithLayout`
+// hides the host-invoker registration; `with({...})` recursively
+// assigns nested window-state fields, auto-converting JS strings to
+// AzString. NoTitleAutoInject lets the OS draw close/min/max buttons
+// while the framework auto-injects a draggable titlebar.
+const window = WindowCreateOptions.createWithLayout(layout).with({
+    window_state: {
+        title: 'Hello World',
+        size: { dimensions: { width: 400.0, height: 300.0 } },
+        flags: {
+            decorations: WindowDecorations.NoTitleAutoInject,
+            background_material: WindowBackgroundMaterial.Sidebar,
+        },
+    },
+});
 
 const app = App.create(data, AppConfig.create());
 app.run(window);
