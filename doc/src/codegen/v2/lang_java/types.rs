@@ -296,7 +296,7 @@ b.line(&format!("public byte tag; // {}_Tag.{}", name, v.name));
                     // `Long` / etc. for primitive payloads, and the
                     // generated `AzWhatever` reference type for struct
                     // payloads.
-                    if ta.name.starts_with("Option") && variants.len() == 2 {
+                    if variants.len() == 2 {
                         let none = variants.iter().find(|v| v.name == "None");
                         let some = variants.iter().find(|v| v.name == "Some");
                         if let (Some(_), Some(sv)) = (none, some) {
@@ -570,8 +570,11 @@ b.line(&format!("public byte tag; // {}_Tag.{}", name, v.name));
             // AzOption<T>.toNullable() — decode the tagged union as a
             // host-language nullable. Tag byte at offset 0 (shared
             // across variants via repr(C, u8)). See lang_csharp /
-            // lang_kotlin / etc. for the per-binding mirror.
-            if enum_def.name.starts_with("Option") && enum_def.variants.len() == 2 {
+            // lang_kotlin / etc. for the per-binding mirror. Detected
+            // shape-only (variants exactly [None, Some]) — the name
+            // doesn't have to start with "Option" (e.g. `MaybeFoo`
+            // would still get the accessor if its variants match).
+            if enum_def.variants.len() == 2 {
                 let none = enum_def.variants.iter().find(|v| v.name == "None");
                 let some = enum_def.variants.iter().find(|v| v.name == "Some");
                 if let (Some(_), Some(sv)) = (none, some) {
@@ -609,8 +612,11 @@ b.line(&format!("public byte tag; // {}_Tag.{}", name, v.name));
             // AzResult<T, E>.unwrap() — return the Ok payload, throw a
             // RuntimeException on Err. Like Rust's Result::unwrap; the
             // exception message carries the Err payload's `toString()`
-            // when we can render it.
-            if enum_def.name.starts_with("Result") && enum_def.variants.len() == 2 {
+            // when we can render it. Detected shape-only (variants
+            // exactly [Ok, Err]) — types like `IcuResult` that don't
+            // start with the literal "Result" prefix still get the
+            // accessor.
+            if enum_def.variants.len() == 2 {
                 let ok = enum_def.variants.iter().find(|v| v.name == "Ok");
                 let err = enum_def.variants.iter().find(|v| v.name == "Err");
                 if let (Some(ov), Some(_)) = (ok, err) {
@@ -957,7 +963,7 @@ pub(crate) fn emit_byvalue_byref(builder: &mut CodeBuilder, type_name: &str) {
 }
 
 /// Map a `(type_name, FieldRefKind)` pair to the Java field type.
-fn ref_kind_field_type(type_name: &str, ref_kind: &FieldRefKind, ir: &CodegenIR) -> String {
+pub(super) fn ref_kind_field_type(type_name: &str, ref_kind: &FieldRefKind, ir: &CodegenIR) -> String {
     match ref_kind {
         FieldRefKind::Owned => map_jvm_type(type_name, ir),
         FieldRefKind::Ref
@@ -972,7 +978,7 @@ fn ref_kind_field_type(type_name: &str, ref_kind: &FieldRefKind, ir: &CodegenIR)
 /// Convert a Java type name to its boxed (reference) wrapper. Primitives
 /// can't be `null`, so AzOption.toNullable() returns boxed forms (`Integer`
 /// rather than `int`, etc.). Reference types are returned as-is.
-fn java_boxed(t: &str) -> String {
+pub(super) fn java_boxed(t: &str) -> String {
     match t.trim() {
         "byte" => "Byte".to_string(),
         "short" => "Short".to_string(),

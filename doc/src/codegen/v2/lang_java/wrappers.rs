@@ -21,9 +21,10 @@ use anyhow::Result;
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{
-    ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FunctionArg, FunctionDef, FunctionKind, StructDef,
-    TypeCategory,
+    ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FieldRefKind, FunctionArg, FunctionDef,
+    FunctionKind, MonomorphizedKind, StructDef, TypeCategory,
 };
+use super::types::{java_boxed, ref_kind_field_type};
 use super::{emit_file, ffi_type_name, map_jvm_type, map_jvm_type_byvalue, sanitize_identifier, snake_to_lower_camel};
 
 // ============================================================================
@@ -113,6 +114,31 @@ fn has_delete_function(type_name: &str, ir: &CodegenIR) -> bool {
     ir.functions
         .iter()
         .any(|f| f.class_name == type_name && f.kind == FunctionKind::Delete)
+}
+
+/// True iff the codegen emits a `class <type_name> extends AutoCloseable`
+/// wrapper for this type — i.e. it's a non-excluded struct with a
+/// `_delete` C function. Enums (e.g. `CssDeclaration`,
+/// `AccessibilityAction`) get only a `<X>Helpers` static-factory class
+/// and an `Az<X>` JNA Union; no constructor-taking-Pointer is available
+/// and `new <X>(...)` would be a compile error.
+fn has_wrapper_class(type_name: &str, ir: &CodegenIR) -> bool {
+    let Some(s) = ir.find_struct(type_name) else {
+        return false;
+    };
+    if !s.generic_params.is_empty() {
+        return false;
+    }
+    if matches!(
+        s.category,
+        TypeCategory::Recursive
+            | TypeCategory::VecRef
+            | TypeCategory::DestructorOrClone
+            | TypeCategory::GenericTemplate
+    ) {
+        return false;
+    }
+    has_delete_function(type_name, ir)
 }
 
 // ============================================================================
@@ -571,6 +597,117 @@ fn emit_close_method(builder: &mut CodeBuilder, raw_type_name: &str, class_name:
     let _ = class_name;
 }
 
+/// Phase I.5.1: how the wrapper method should idiomise an Option<T> /
+/// Result<T, E> return. Detection lives in [`classify_return`]; the
+/// caller computes the user-visible display type from the carried
+/// `payload_ty` + `ref_kind` and rewrites the method body to call
+/// `__ret.toNullable()` / `__ret.unwrap()` on the FFI struct.
+#[derive(Clone)]
+enum ReturnIdiom {
+    Plain,
+    Option {
+        payload_ty: String,
+        ref_kind: FieldRefKind,
+    },
+    Result {
+        payload_ty: String,
+        ref_kind: FieldRefKind,
+    },
+}
+
+/// Look up the wrapper-method return type and decide whether it should
+/// be idiomised at the call site. Mirrors the Ruby/Node `classify_return`
+/// predicate but extracts the payload type so the Java side can produce
+/// a typed `java.util.Optional<T>` signature rather than a raw `Object`.
+fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
+    let Some(rt) = func.return_type.as_deref() else {
+        return ReturnIdiom::Plain;
+    };
+    let rt = rt.trim();
+    // Az*Option / Az*Result types are monomorphized aliases — the
+    // codegen IR stores them as `TypeAliasDef.monomorphized_def`.
+    if let Some(ta) = ir.find_type_alias(rt) {
+        if let Some(ref mono) = ta.monomorphized_def {
+            if let MonomorphizedKind::TaggedUnion { ref variants, .. } = mono.kind {
+                if variants.len() == 2 {
+                    let none = variants.iter().find(|v| v.name == "None");
+                    let some = variants.iter().find(|v| v.name == "Some");
+                    if let (Some(_), Some(sv)) = (none, some) {
+                        if let Some(ref payload_ty) = sv.payload_type {
+                            return ReturnIdiom::Option {
+                                payload_ty: payload_ty.clone(),
+                                ref_kind: sv.payload_ref_kind.clone(),
+                            };
+                        }
+                    }
+                    let ok = variants.iter().find(|v| v.name == "Ok");
+                    let err = variants.iter().find(|v| v.name == "Err");
+                    if let (Some(ov), Some(_)) = (ok, err) {
+                        if let Some(ref payload_ty) = ov.payload_type {
+                            return ReturnIdiom::Result {
+                                payload_ty: payload_ty.clone(),
+                                ref_kind: ov.payload_ref_kind.clone(),
+                            };
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Fallback: hand-authored Option/Result enums (rare; the api.json
+    // sources are normally typedefs).
+    if let Some(e) = ir.find_enum(rt) {
+        if e.variants.len() == 2 {
+            let none = e.variants.iter().find(|v| v.name == "None");
+            let some = e.variants.iter().find(|v| v.name == "Some");
+            if let (Some(_), Some(sv)) = (none, some) {
+                if let EnumVariantKind::Tuple(types) = &sv.kind {
+                    if types.len() == 1 {
+                        return ReturnIdiom::Option {
+                            payload_ty: types[0].0.clone(),
+                            ref_kind: types[0].1.clone(),
+                        };
+                    }
+                }
+            }
+            let ok = e.variants.iter().find(|v| v.name == "Ok");
+            let err = e.variants.iter().find(|v| v.name == "Err");
+            if let (Some(ov), Some(_)) = (ok, err) {
+                if let EnumVariantKind::Tuple(types) = &ov.kind {
+                    if types.len() == 1 {
+                        return ReturnIdiom::Result {
+                            payload_ty: types[0].0.clone(),
+                            ref_kind: types[0].1.clone(),
+                        };
+                    }
+                }
+            }
+        }
+    }
+    ReturnIdiom::Plain
+}
+
+/// Map a payload's "raw" Java field type (what JNA carries on the
+/// FFI struct) to the user-visible display type at the wrapper
+/// boundary:
+///
+/// - `AzString` → `java.lang.String` (UTF-8 decode inline)
+/// - `AzX` with a wrapper class → `X` (the wrapper)
+/// - Anything else → the raw type itself (primitives stay primitives;
+///   `Pointer` stays `Pointer`; raw FFI structs without a wrapper stay
+///   `AzY`)
+fn payload_display_type(raw: &str, ir: &CodegenIR) -> String {
+    if raw == "AzString" {
+        return "java.lang.String".to_string();
+    }
+    if let Some(unprefixed) = raw.strip_prefix("Az") {
+        if has_wrapper_class(unprefixed, ir) {
+            return unprefixed.to_string();
+        }
+    }
+    raw.to_string()
+}
+
 fn emit_wrapper_method(
     builder: &mut CodeBuilder,
     class_name: &str,
@@ -585,6 +722,8 @@ fn emit_wrapper_method(
         .as_ref()
         .map(|r| map_jvm_type_byvalue(r, ir))
         .unwrap_or_else(|| "void".to_string());
+
+    let idiom = classify_return(func, ir);
 
     let takes_self = matches!(
         func.kind,
@@ -780,10 +919,34 @@ fn emit_wrapper_method(
         .map(|r| r.trim() == func.class_name)
         .unwrap_or(false);
 
+    // Phase I.5.1: idiomise Option<T> / Result<T, E> return types at the
+    // wrapper boundary. The FFI struct still exposes
+    // `toNullable()` / `unwrap()` (from `types.rs`); the wrapper layer
+    // simply rebrands the visible signature to `java.util.Optional<T>`
+    // for Option and the bare payload type for Result (which throws on
+    // Err — same idiom as Rust's `Result::unwrap`).
     let displayed_return = if returns_self {
         class_name.to_string()
     } else {
-        return_jvm.clone()
+        match &idiom {
+            ReturnIdiom::Plain => return_jvm.clone(),
+            ReturnIdiom::Option {
+                payload_ty,
+                ref_kind,
+            } => {
+                let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
+                let display = payload_display_type(&raw, ir);
+                format!("java.util.Optional<{}>", java_boxed(&display))
+            }
+            ReturnIdiom::Result {
+                payload_ty,
+                ref_kind,
+            } => {
+                let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
+                let display = payload_display_type(&raw, ir);
+                java_boxed(&display)
+            }
+        }
     };
 
     let modifiers = if is_static { "public static" } else { "public" };
@@ -828,12 +991,101 @@ fn emit_wrapper_method(
             class_name
         ));
     } else {
-        builder.line(&format!("return {};", call));
+        match &idiom {
+            ReturnIdiom::Option {
+                payload_ty,
+                ref_kind,
+            } => {
+                let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
+                builder.line(&format!("{} __ret = {};", return_jvm, call));
+                emit_option_return_body(builder, &raw, ir);
+            }
+            ReturnIdiom::Result {
+                payload_ty,
+                ref_kind,
+            } => {
+                let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
+                builder.line(&format!("{} __ret = {};", return_jvm, call));
+                emit_result_return_body(builder, &raw, ir);
+            }
+            ReturnIdiom::Plain => {
+                builder.line(&format!("return {};", call));
+            }
+        }
     }
 
     builder.dedent();
     builder.line("}");
     builder.blank();
+}
+
+// ============================================================================
+// Phase I.5.1 — Option<T> / Result<T, E> idiomatic return bodies
+// ============================================================================
+
+/// Emit the body of a wrapper method whose return is `Optional<T>`. The
+/// FFI `AzOption*.ByValue __ret` has already been declared; we call
+/// `__ret.toNullable()` and wrap the result for the host idiom.
+///
+/// Three paths based on the raw FFI payload type:
+/// 1. `AzString` — decode UTF-8 bytes into `java.lang.String` inline.
+/// 2. `AzX` with a wrapper class — construct `new X(__nv.getPointer())`.
+/// 3. Anything else (primitives, raw FFI structs without wrappers,
+///    `Pointer`) — return `Optional.ofNullable(__ret.toNullable())`
+///    directly.
+fn emit_option_return_body(builder: &mut CodeBuilder, raw_payload_jvm: &str, ir: &CodegenIR) {
+    if raw_payload_jvm == "AzString" {
+        builder.line("AzString __nv = __ret.toNullable();");
+        builder.line("if (__nv == null) return java.util.Optional.empty();");
+        builder.line("Pointer __sp = __nv.getPointer();");
+        builder.line("Pointer __vecPtr = __sp.getPointer(0);");
+        builder.line("long __vecLen = __sp.getLong(8);");
+        builder.line("if (__vecPtr == null || __vecLen <= 0) return java.util.Optional.of(\"\");");
+        builder.line("byte[] __bytes = __vecPtr.getByteArray(0, (int) __vecLen);");
+        builder.line(
+            "return java.util.Optional.of(new java.lang.String(__bytes, java.nio.charset.StandardCharsets.UTF_8));",
+        );
+        return;
+    }
+    if let Some(unprefixed) = raw_payload_jvm.strip_prefix("Az") {
+        if has_wrapper_class(unprefixed, ir) {
+            builder.line(&format!("{} __nv = __ret.toNullable();", raw_payload_jvm));
+            builder.line("if (__nv == null) return java.util.Optional.empty();");
+            builder.line(&format!(
+                "return java.util.Optional.of(new {}(__nv.getPointer()));",
+                unprefixed
+            ));
+            return;
+        }
+    }
+    builder.line("return java.util.Optional.ofNullable(__ret.toNullable());");
+}
+
+/// Emit the body of a wrapper method whose return is the bare Ok
+/// payload of a `Result<T, E>` (throws `RuntimeException` on Err — the
+/// FFI struct's `unwrap()` does that lift). Same three cases as
+/// [`emit_option_return_body`].
+fn emit_result_return_body(builder: &mut CodeBuilder, raw_payload_jvm: &str, ir: &CodegenIR) {
+    if raw_payload_jvm == "AzString" {
+        builder.line("AzString __u = __ret.unwrap();");
+        builder.line("Pointer __sp = __u.getPointer();");
+        builder.line("Pointer __vecPtr = __sp.getPointer(0);");
+        builder.line("long __vecLen = __sp.getLong(8);");
+        builder.line("if (__vecPtr == null || __vecLen <= 0) return \"\";");
+        builder.line("byte[] __bytes = __vecPtr.getByteArray(0, (int) __vecLen);");
+        builder.line(
+            "return new java.lang.String(__bytes, java.nio.charset.StandardCharsets.UTF_8);",
+        );
+        return;
+    }
+    if let Some(unprefixed) = raw_payload_jvm.strip_prefix("Az") {
+        if has_wrapper_class(unprefixed, ir) {
+            builder.line(&format!("{} __u = __ret.unwrap();", raw_payload_jvm));
+            builder.line(&format!("return new {}(__u.getPointer());", unprefixed));
+            return;
+        }
+    }
+    builder.line("return __ret.unwrap();");
 }
 
 // ============================================================================
