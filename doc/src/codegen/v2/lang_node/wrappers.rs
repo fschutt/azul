@@ -382,17 +382,22 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
         b.blank();
     }
 
-    // WindowCreateOptions.createWithLayout(fn) — smart factory. The
-    // codegen-emitted `create(fn)` routes through
-    // `AzWindowCreateOptions_create` which takes a raw `AzLayoutCallbackType`
-    // function pointer and discards the host-invoker `ctx` — callbacks
-    // would never reach the user's JS function. This helper instead
-    // registers the callback through the host-invoker handle table,
-    // grabs a `_default()` WCO, and assigns the full AzLayoutCallback
-    // struct (cb + ctx) to `window_state.layout_callback` so dispatch
-    // works. koffi's JS-side nested-struct assignment is byte-copy
-    // semantics, matching the C side.
-    if super::super::managed_host_invoker::has_layout_callback_factory(s, ir) {
+    // <Class>.createWithLayout(fn) — smart factory. The codegen-emitted
+    // `create(fn)` routes through the raw fn-pointer C ABI which
+    // discards the host-invoker `ctx` — callbacks would never reach the
+    // user's JS function. This helper instead registers the callback
+    // through the host-invoker handle table, grabs a `_default()` value,
+    // and assigns the registered struct (cb + ctx) into a nested field
+    // path so dispatch works. koffi's JS-side nested-struct assignment
+    // is byte-copy semantics, matching the C side.
+    //
+    // Class name, default factory name, callback-wrapper name, and the
+    // nested field path are all IR-derived via
+    // [`layout_callback_factory_info`] — adding/renaming the eligible
+    // class in api.json lights this up without touching this emitter.
+    if let Some(info) =
+        super::super::managed_host_invoker::layout_callback_factory_info(s, ir)
+    {
         b.line("/**");
         b.line(" * Smart factory: pass a layout-callback function; the host-invoker");
         b.line(" * registration and field-copy plumbing happen internally. The");
@@ -400,10 +405,16 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
         b.line(" */");
         b.line("static createWithLayout(fn) {");
         b.indent();
-        b.line("const cb = registerCallback('LayoutCallback', fn);");
-        b.line("const opts = lib.AzWindowCreateOptions_default();");
-        b.line("opts.window_state.layout_callback = cb;");
-        b.line("return new WindowCreateOptions(opts);");
+        b.line(&format!(
+            "const cb = registerCallback('{}', fn);",
+            info.callback_wrapper
+        ));
+        b.line(&format!("const opts = lib.{}();", info.default_c_name));
+        b.line(&format!("opts.{} = cb;", info.field_path.join(".")));
+        b.line(&format!(
+            "return new {}(opts);",
+            info.class_name
+        ));
         b.dedent();
         b.line("}");
         b.blank();
