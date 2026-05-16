@@ -196,40 +196,87 @@ pub fn discover_and_transpile_callbacks(
     // key for cache + dispatch.
     let mut seen: BTreeMap<usize, ()> = BTreeMap::new();
     let mut out = Vec::new();
+
+    // M5: get a transpiler instance. With `web-transpiler` feature
+    // OFF: `StubTranspiler` whose `lift_function` always errors —
+    // we fall back to the M3 no-op WASM. With it ON + remill-lift-17
+    // discoverable: `RemillTranspiler` runs the real subprocess
+    // pipeline (`remill-lift-17 → llc → wasm-ld`) and we ship the
+    // lifted module.
+    let transpiler = transpiler::default_transpiler();
+    let transpiler_available = transpiler.is_available();
+    eprintln!(
+        "[azul-web] transpiler: {} (available={})",
+        transpiler.name(),
+        transpiler_available
+    );
+
     for (_pattern, list) in discovered_per_route.iter() {
         for d in list {
             if seen.insert(d.fn_addr, ()).is_none() {
-                // M3: emit a hand-rolled no-op WASM module per
-                // discovered callback. The export is named
-                // `WASM_CALLBACK_EXPORT` so loader.js can call into
-                // it without per-callback name lookup. The body is
-                // `i32.const 0` (Update::DoNothing) regardless of
-                // the user's actual callback — M5+ replaces this
-                // with the real lifted body once the remill
-                // pipeline is wired through.
-                let wasm_bytes = emit_noop_callback_wasm();
-                // Keep the URL hash name-derived for now so it matches
-                // the `<link rel="preload">` hint emitted by
-                // `html_render::generate_preload_hints`, which only has
-                // access to `DiscoveredCallback` (no wasm_bytes yet at
-                // render time). Once M5's real lift makes per-callback
-                // bytes actually differ, the right move is to thread
-                // a content-hash-of-bytes back into the preload-hint
-                // emission so cache invalidation tracks real content
-                // changes. For M3 (all callbacks share the same no-op
-                // body) name-based hashing is sufficient.
+                let (wasm_bytes, is_client_side) = lift_or_noop(
+                    transpiler.as_ref(),
+                    transpiler_available,
+                    &d.name,
+                    d.fn_addr,
+                    d.fn_size,
+                );
                 out.push(CallbackWasm {
                     name: d.name.clone(),
                     content_hash: d.content_hash.clone(),
                     fn_addr: d.fn_addr,
                     fn_size: d.fn_size,
                     wasm_bytes,
-                    is_client_side: false,
+                    is_client_side,
                 });
             }
         }
     }
     out
+}
+
+/// Try the real lift; on any failure return the M3 no-op WASM. The
+/// `is_client_side` flag tracks whether the bytes are a real lift
+/// (true) or a no-op fallback (false) so M5 debugging can distinguish
+/// the two in logs / DevTools.
+///
+/// Lift failures we tolerate (and silently no-op):
+///   - transpiler not available (web-transpiler feature off, or
+///     remill-lift-17 / llc / wasm-ld binaries missing on the host).
+///   - lift errored at one of the pipeline stages (remill, llc, or
+///     wasm-ld — see `TranspileError.reason` for the per-stage cause).
+/// Either way the no-op fallback keeps the browser-side dispatch
+/// functional (the callback is a no-op but the JS path still works);
+/// user direction is `complex callbacks broken-for-now is acceptable`.
+fn lift_or_noop(
+    transpiler: &dyn transpiler::Transpiler,
+    transpiler_available: bool,
+    name: &str,
+    fn_addr: usize,
+    fn_size: usize,
+) -> (Vec<u8>, bool) {
+    if !transpiler_available {
+        return (emit_noop_callback_wasm(), false);
+    }
+    match transpiler.lift_function(name, fn_addr, fn_size) {
+        Ok(module) => {
+            eprintln!(
+                "[azul-web]   lifted: {} → {} bytes ({} exports, {} mini imports)",
+                name,
+                module.bytes.len(),
+                module.exports.len(),
+                module.imports_from_mini.len()
+            );
+            (module.bytes, true)
+        }
+        Err(e) => {
+            eprintln!(
+                "[azul-web]   lift failed for {}: {} — falling back to no-op",
+                name, e.reason
+            );
+            (emit_noop_callback_wasm(), false)
+        }
+    }
 }
 
 /// Export name for every per-callback WASM module. loader.js calls
