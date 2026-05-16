@@ -98,6 +98,81 @@ pub struct CallbackSignature {
     pub ret: Option<Pcs>,
 }
 
+/// Look up the wrapper signature for an eventloop function
+/// (`AzStartup_<name>`) by its full symbol name. Returns `None` for
+/// any non-eventloop symbol so the caller can fall back to the
+/// callback-kind table.
+///
+/// Eventloop signatures follow the C-ABI declared in
+/// `dll/src/web/eventloop.rs`:
+///
+///   AzStartup_alloc(u32 size) -> u32
+///   AzStartup_free(u32 ptr, u32 size) -> ()
+///   AzStartup_init(u32 json_ptr, u32 json_len) -> u32
+///   AzStartup_dispatchEvent(u32 kind, u32 ptr, u32 len) -> u32
+///   AzStartup_getPatches(u32 out_ptr, u32 out_cap) -> u32
+///   AzStartup_registerStateDeserializer(usize fn_ptr) -> ()
+///
+/// All u32 args land in W<n> (low 32 bits of X<n>) per AArch64 PCS.
+/// `usize` on AArch64 is 64-bit; we use `Pcs::GprI64` for the
+/// `registerStateDeserializer` arg so the full address survives —
+/// the lifted body stores it via i64 ops, and the wrapper exposes a
+/// 64-bit JS-side parameter.
+pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
+    // X<n> slot byte offsets inside %struct.State per the lift's GEPs.
+    const X0: u64 = 544;
+    const X1: u64 = 560;
+    const X2: u64 = 576;
+    match name {
+        "AzStartup_alloc" => Some(CallbackSignature {
+            kind: "AzStartup_alloc".to_string(),
+            args: vec![Pcs::Wreg { state_byte_offset: X0 }],
+            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+        }),
+        "AzStartup_free" => Some(CallbackSignature {
+            kind: "AzStartup_free".to_string(),
+            args: vec![
+                Pcs::Wreg { state_byte_offset: X0 },
+                Pcs::Wreg { state_byte_offset: X1 },
+            ],
+            ret: None,
+        }),
+        "AzStartup_init" => Some(CallbackSignature {
+            kind: "AzStartup_init".to_string(),
+            args: vec![
+                Pcs::Wreg { state_byte_offset: X0 },
+                Pcs::Wreg { state_byte_offset: X1 },
+            ],
+            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+        }),
+        "AzStartup_dispatchEvent" => Some(CallbackSignature {
+            kind: "AzStartup_dispatchEvent".to_string(),
+            args: vec![
+                Pcs::Wreg { state_byte_offset: X0 },
+                Pcs::Wreg { state_byte_offset: X1 },
+                Pcs::Wreg { state_byte_offset: X2 },
+            ],
+            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+        }),
+        "AzStartup_getPatches" => Some(CallbackSignature {
+            kind: "AzStartup_getPatches".to_string(),
+            args: vec![
+                Pcs::Wreg { state_byte_offset: X0 },
+                Pcs::Wreg { state_byte_offset: X1 },
+            ],
+            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+        }),
+        "AzStartup_registerStateDeserializer" => Some(CallbackSignature {
+            kind: "AzStartup_registerStateDeserializer".to_string(),
+            // usize fn_ptr — full 64-bit native address; JS-side
+            // parameter is i64.
+            args: vec![Pcs::GprI64 { state_byte_offset: X0 }],
+            ret: None,
+        }),
+        _ => None,
+    }
+}
+
 /// Look up the wrapper signature for a callback typedef by its
 /// short name (without the trailing `Type` — i.e. `Callback`, not
 /// `CallbackType`). Returns the canonical `Callback` shape for
@@ -328,6 +403,8 @@ impl RemillTranspiler {
         fn_name: &str,
         fn_addr: usize,
         fn_size: usize,
+        sig: &CallbackSignature,
+        export_as: &str,
     ) -> Result<WasmModule, TranspileError> {
         let tools = self.tools(fn_name)?;
         std::fs::create_dir_all(&self.scratch_dir).map_err(|e| TranspileError {
@@ -408,15 +485,17 @@ impl RemillTranspiler {
             reason: format!("write patched IR: {e}"),
         })?;
 
-        // Pick the wrapper signature for this callback. Today the
-        // discovery side doesn't carry the typedef name through, so
-        // we default to the canonical `Callback` shape — correct for
-        // every widget OnClick/Hover/etc. callback (they all match
-        // `fn(AzRefAny, AzCallbackInfo) -> AzUpdate`). M7+ extends
-        // `DiscoveredCallback` with a typedef tag set at the
-        // attachment site (set_on_toggle / set_on_value_change /
-        // layout_callback) and we'd plumb that through here.
-        let sig = signature_for_callback_kind("Callback");
+        // Wrapper signature + export name are caller-chosen. For
+        // per-callback widget lifts (`lift_function`) the canonical
+        // `Callback` shape exported as `callback`. For eventloop
+        // lifts (M8.2 — `lift_eventloop_objects`) the caller picks
+        // per AzStartup_<name>. The discovery side doesn't carry a
+        // typedef tag through yet for widget callbacks; M7+ extends
+        // `DiscoveredCallback` with one set at the attachment site
+        // (set_on_toggle / set_on_value_change / layout_callback)
+        // and the caller would route per kind via
+        // `signature_for_callback_kind`.
+        //
         // M7: parse branch-destination externs from the lifted IR.
         // remill emits each `bl <target>` whose destination is
         // outside the byte map as a `declare ptr @sub_<hex>(...)`.
@@ -450,7 +529,7 @@ impl RemillTranspiler {
                 );
             }
         }
-        let helper_ir = emit_helper_ir(lift_addr, &sig, &branch_externs);
+        let helper_ir = emit_helper_ir(lift_addr, sig, &branch_externs, export_as);
         let helper_ir_path = self.scratch_dir.join(format!("{}.helper.ll", stem));
         std::fs::write(&helper_ir_path, &helper_ir).map_err(|e| TranspileError {
             fn_name: fn_name.to_string(),
@@ -506,14 +585,16 @@ impl RemillTranspiler {
             fn_name,
         )?;
 
-        // wasm-ld → final module. Export `callback` (the wrapper) — the
-        // raw `sub_<addr>` is now inlined away.
+        // wasm-ld → final module. Export under the caller-chosen name
+        // (`callback` for per-widget lifts, `AzStartup_<name>` for
+        // eventloop lifts). The raw `sub_<addr>` is now inlined away.
         let wasm_path = self.scratch_dir.join(format!("{}.wasm", stem));
+        let export_flag = format!("--export={}", export_as);
         run_tool(
             tools.wasm_ld,
             &[
                 "--no-entry",
-                "--export=callback",
+                &export_flag,
                 "--allow-undefined",
                 "-o",
                 wasm_path.to_str().expect("scratch path is utf-8"),
@@ -531,9 +612,8 @@ impl RemillTranspiler {
             content_hash: super::fnv1a64_hex(&wasm_bytes),
             bytes: wasm_bytes,
             // The M6 pipeline replaces the raw `sub_<addr>` export
-            // with a wrapper exported as `callback` — stable name
-            // loader.js dispatches under.
-            exports: vec!["callback".to_string()],
+            // with a wrapper exported under `export_as`.
+            exports: vec![export_as.to_string()],
             // TODO(M7/WB1.3): scan the lifted IR for external `call`s
             // and surface them as imports from azul-mini.wasm. For
             // now, leave empty so the caller treats the module as
@@ -556,7 +636,11 @@ impl Transpiler for RemillTranspiler {
         fn_addr: usize,
         fn_size: usize,
     ) -> Result<WasmModule, TranspileError> {
-        self.pipeline_single(fn_name, fn_addr, fn_size)
+        // Per-widget callback lifts use the canonical Callback shape +
+        // export under the stable name `callback` (so loader.js can
+        // dispatch without per-callback name lookups).
+        let sig = signature_for_callback_kind("Callback");
+        self.pipeline_single(fn_name, fn_addr, fn_size, &sig, super::WASM_CALLBACK_EXPORT)
     }
 
     fn lift_and_link_framework(
@@ -912,6 +996,7 @@ fn emit_helper_ir(
     lift_addr: u64,
     sig: &CallbackSignature,
     branch_externs: &[String],
+    export_as: &str,
 ) -> String {
     // SP register slot in the State struct (aarch64-specific).
     let sp_off: u64 = 1040;
@@ -943,6 +1028,7 @@ fn emit_helper_ir(
             sym = sym
         ));
     }
+    let _ = export_as; // used inside the format string via the named arg below
     format!(
         r#"; M6 helper module — see `dll/src/web/transpiler_remill.rs::emit_helper_ir`.
 target datalayout = "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128"
@@ -1022,9 +1108,10 @@ declare ptr @sub_{lift_addr_hex}(ptr noalias, i64, ptr noalias)
 declare void @llvm.memset.p0.i64(ptr nocapture writeonly, i8, i64, i1 immarg)
 
 ; Callback kind: {kind}. Wrapper synthesized from
-; `signature_for_callback_kind({kind:?})` — see top of
-; `transpiler_remill.rs` for the PCS table.
-define {ret_ty} @callback({params}) {{
+; the matching `CallbackSignature`. PCS table at the top of
+; `transpiler_remill.rs`. Exports as `{export_as}` so wasm-ld can
+; surface it to the loader / JS.
+define {ret_ty} @{export_as}({params}) {{
   ; State: register-file storage. Strictly aliased (no `ptrtoint`
   ; ever taken of `%state_buf`), so opt -O2's SROA can promote it
   ; into individual scalar slots after the lifted body inlines.
@@ -1064,6 +1151,7 @@ define {ret_ty} @callback({params}) {{
         state_size = state_size,
         stack_size = stack_size,
         branch_stubs = branch_stubs.trim_end(),
+        export_as = export_as,
     )
 }
 

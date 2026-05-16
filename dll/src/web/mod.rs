@@ -196,6 +196,53 @@ pub(crate) fn resolve_fn_ptr_name(fn_ptr: usize) -> String {
     resolve_fn_ptr(fn_ptr).name
 }
 
+/// Resolve a symbol name to its address in the current process.
+///
+/// Uses `dlsym(RTLD_DEFAULT, name)` on unix-like platforms. Returns
+/// `None` if the symbol is undefined or `dlsym` returns null
+/// (architecturally the same as "symbol not found" for our use case
+/// — we never expose `dlerror()` because the only consumer
+/// (`run_web`'s eventloop-lift loop) treats any failure as
+/// "fall back to a stub eventloop").
+///
+/// Used by M8.2 to recover the address of every `AzStartup_*` symbol
+/// listed in [`EVENTLOOP_SYMBOLS`] so the remill lift pipeline can
+/// read function bytes from `.text`.
+pub(crate) fn dlsym_self(name: &str) -> Option<usize> {
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "ios", target_os = "android"))]
+    unsafe {
+        // RTLD_DEFAULT: look up the symbol in the global scope of the
+        // running process (matches the running dylib's exported
+        // surface). macOS: -2 cast to handle; Linux: 0 cast to handle.
+        // Using `core::ptr::null_mut()` works on both because the
+        // dlopen handle is opaque pointer-sized and dlsym checks for
+        // sentinel values internally on macOS.
+        #[cfg(target_os = "macos")]
+        const RTLD_DEFAULT: *mut core::ffi::c_void = (-2_isize) as *mut core::ffi::c_void;
+        #[cfg(not(target_os = "macos"))]
+        const RTLD_DEFAULT: *mut core::ffi::c_void = core::ptr::null_mut();
+
+        extern "C" {
+            fn dlsym(
+                handle: *mut core::ffi::c_void,
+                symbol: *const core::ffi::c_char,
+            ) -> *mut core::ffi::c_void;
+        }
+        let c_name = std::ffi::CString::new(name).ok()?;
+        let ptr = dlsym(RTLD_DEFAULT, c_name.as_ptr());
+        if ptr.is_null() {
+            None
+        } else {
+            Some(ptr as usize)
+        }
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "ios", target_os = "android")))]
+    {
+        let _ = name;
+        None
+    }
+}
+
 /// Aggregate `DiscoveredCallback`s from every rendered route into a
 /// deduplicated `Vec<CallbackWasm>` keyed by function pointer.
 ///
