@@ -63,28 +63,129 @@ All preloaded via `<link rel="preload">` in `<head>`.
 
 ### 1. `azul-mini.wasm` — the eventloop / HeadlessWindow simulator
 
-**The architectural decision that matters most:** this is NOT
-remill-lifted from the host binary. It's a **dedicated Rust crate
-(`azul-web-eventloop`) compiled directly to `wasm32-unknown-unknown`**.
+**The architectural decision that matters most (revised 2026-05-19
+per user direction):** the eventloop is **lifted from the same
+native libazul binary** via the M5-M7 remill pipeline. NOT a
+separately-compiled `wasm32` crate.
 
-Rationale:
-- The eventloop is azul's OWN code (not user code). We control the
-  source. No need to round-trip through remill's State-struct
-  representation.
-- `cargo build --target wasm32-unknown-unknown` produces small,
-  debuggable, idiomatic WASM. The lift pipeline's per-callback ~460B
-  output would balloon to MB-scale for the full event dispatch
-  logic if we tried to remill it.
-- Build-time lifting via the same M5-M7 path can be revisited later
-  for parts of the framework where it makes sense; the eventloop
-  itself doesn't gain from it.
+Rationale (corrected from initial draft):
+- One build pipeline. `cargo build -p azul-dll` is the only build
+  step; the eventloop bytes get lifted out of it at server startup.
+  No separate `wasm32-unknown-unknown` target, no duplicate
+  dependency tree, no two-toolchain CI matrix.
+- The lift pipeline is the same one that already handles user
+  callbacks. Bug-for-bug equivalent code paths.
+- Cross-calls between eventloop functions + user callbacks are
+  uniform: every call goes through the M7 intercept (resolved
+  `sub_<hex>` → typed extern in the linked output module).
+- Server startup cost (a few extra remill-lift subprocess calls
+  for the ~5-10 eventloop functions) is a few seconds. Acceptable.
 
-**Crate layout proposal**: new crate `web-eventloop/` (sibling of
-`dll/`, `core/`, `layout/`). Depends on slim subsets of
-`azul-core` + `azul-layout` (event dispatch, reconciliation,
-StyledDom storage). NO desktop deps (webrender, fonts, GL,
-event-loop crates). Probably needs `azul-core`/`-layout` to grow
-`no_std` + `wasm32` feature gates that prune the desktop bits.
+**Source layout:** add `dll/src/web/eventloop.rs` containing a small
+set of `extern "C" fn AzStartup_*` definitions in idiomatic Rust.
+They live in libazul, get compiled into the dll normally, and at
+runtime `web::run_web` does:
+
+  1. `dlsym` for each `AzStartup_*` to recover its fn-ptr + size.
+  2. Pass each to `RemillTranspiler::lift_function` (per M5-M7).
+  3. Link the resulting `.o` files together via `wasm-ld` into
+     a single `azul-mini.wasm`. Cross-references between
+     eventloop functions resolve statically inside the module.
+  4. Serve at `/az/mini.<hash>.wasm`.
+
+**Hiding from language bindings.** `AzStartup_*` are framework-
+internal — they should NOT appear in the C header, Python module,
+Lua bindings, etc. Mechanism:
+
+- These functions live in `dll/src/web/eventloop.rs` (not in
+  `target/codegen/dll_api_internal.rs`), so they're not in api.json
+  and the codegen never sees them.
+- They're declared with `#[no_mangle] pub extern "C"` so they show
+  up as exported symbols for `dlsym` discovery at runtime.
+- A new constant `WEB_EVENTLOOP_SYMBOLS: &[&str] = &["AzStartup_init",
+  "AzStartup_dispatchEvent", "AzStartup_getPatches",
+  "AzStartup_alloc", "AzStartup_free"]` in `dll/src/web/mod.rs`
+  lists the symbols `run_web` looks up + lifts. The web backend
+  is the only consumer.
+
+**Proposed `AzStartup_*` surface (Rust signatures, become extern C):**
+
+```rust
+// dll/src/web/eventloop.rs
+
+use core::sync::atomic::AtomicPtr;
+use core::sync::atomic::Ordering;
+
+// Single-tab/single-window assumption — one global state.
+static EVENTLOOP: AtomicPtr<EventloopState> = AtomicPtr::new(core::ptr::null_mut());
+
+struct EventloopState {
+    app_data: azul_core::refany::RefAny,
+    current_dom: azul_core::styled_dom::StyledDom,
+    cb_table_indices: alloc::collections::BTreeMap<u32, u32>,
+    pending_patches: alloc::vec::Vec<u8>, // TLV-encoded bytes
+}
+
+/// Allocator surface. Eventloop's lifted WASM exports these; JS
+/// uses them to stage byte buffers (state JSON, event payloads,
+/// patch readback). Implementation just delegates to the global
+/// allocator — `alloc::alloc::alloc` / `dealloc` with `Layout`.
+#[no_mangle]
+pub extern "C" fn AzStartup_alloc(size: u32) -> u32 { ... }
+#[no_mangle]
+pub extern "C" fn AzStartup_free(ptr: u32, size: u32) { ... }
+
+/// Hydrate `EVENTLOOP` from JSON bytes the server embedded in the
+/// HTML head. The user opted in by defining `MyDataModel_fromJson`
+/// (the existing REFLECT_JSON convention); the eventloop calls it
+/// via a registered fn-ptr (see `register_initial_state_deserializer`
+/// below).
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_init(json_ptr: u32, json_len: u32) -> u32 { ... }
+
+/// Run one event through hit-test + EventFilter dispatch.
+/// `event_bytes` is a fixed-layout struct produced by the JS-side
+/// `azDispatch(...)`. Returns the number of patches queued.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_dispatchEvent(
+    kind: u32,
+    event_bytes_ptr: u32,
+    event_bytes_len: u32,
+) -> u32 { ... }
+
+/// Drain queued DOM mutations into the JS-allocated readback buffer.
+/// Returns bytes actually written (0 if no pending patches).
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_getPatches(out_ptr: u32, out_cap: u32) -> u32 { ... }
+```
+
+**Internal user-fn registration.** `AzStartup_init` needs to
+deserialize the state JSON into a typed `RefAny`. The framework
+doesn't know the user's type. Mirror of the REFLECT_JSON pattern:
+the user has already provided `MyDataModel_fromJson(AzJson) ->
+AzResultRefAnyString`. The framework stores this fn-ptr globally
+at app creation time:
+
+```rust
+// dll/src/web/eventloop.rs (additional)
+
+static INITIAL_STATE_DESERIALIZER: AtomicPtr<()> = AtomicPtr::new(core::ptr::null_mut());
+
+/// Called from `AzApp_create` (or similar) when the host is running
+/// the web backend. Records the user-provided `<Type>_fromJson` fn-ptr
+/// so `AzStartup_init` can deserialize the embedded state JSON.
+/// Discovered + lifted alongside the other AzStartup_* symbols.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_registerStateDeserializer(
+    fn_ptr: extern "C" fn(AzJson) -> AzResultRefAnyString,
+) { ... }
+```
+
+The user's existing `AZ_REFLECT_JSON` C macro already wires this
+fn-ptr into a typed registration; M8 adds a call to
+`AzStartup_registerStateDeserializer` in the macro expansion for
+the web backend, gated on the same `AZ_BACKEND=web://` runtime
+check the desktop path uses.
 
 **Exported surface (called from JS via `listener.js`):**
 
@@ -447,25 +548,88 @@ extending to a compact binary format is similar.
 ### M8.0 — Pre-decisions (~1h, user-driven)
 
 Decisions that gate the implementation:
-1. Eventloop = dedicated Rust crate, NOT remill-lifted? (Recommend yes.)
+1. ~~Eventloop = dedicated Rust crate, NOT remill-lifted?~~ **DECIDED 2026-05-19: lifted from libazul via the same M5-M7 pipeline.** No separate `wasm32` build.
 2. Layout callback return: hidden-pointer or serialized bytes? (Recommend bytes.)
 3. RefAny initial state: JSON via REFLECT_JSON, or binary postcard? (Recommend JSON — REFLECT_JSON already exists.)
-4. Cross-module allocator: shared `az_alloc` in azul-mini, or per-module? (Recommend shared.)
+4. Cross-module allocator: shared `AzStartup_alloc` in the lifted azul-mini, or per-module? (Recommend shared.)
 5. Patch encoding: TLV bytes (proposed) or JSON? (Recommend TLV — smaller, faster.)
 6. Event marshalling format: fixed 64-byte buffer (proposed) or per-event-kind variable? (Recommend fixed for simplicity.)
 
-### M8.1 — `azul-web-eventloop` crate skeleton (~4-6h)
+### M8.1 — `AzStartup_*` extern C functions in `dll/src/web/eventloop.rs` (~4-6h)
 
-Create `web-eventloop/` crate:
-- `Cargo.toml` targeting `wasm32-unknown-unknown` + `lib.crate-type = ["cdylib"]`.
-- Pull in `azul-core` + `azul-layout` with minimum-viable feature flags (need to add `wasm` feature that prunes desktop deps).
-- Implement `az_alloc` / `az_free` via `dlmalloc` or `wee_alloc`.
-- Implement `az_init` reading state bytes (deserialize JSON via existing path).
-- Stub `az_dispatch_event` returning 0.
-- Stub `az_get_patches` returning 0.
-- Build + verify: `wasm-validate` clean, size <100KB.
+Add `dll/src/web/eventloop.rs` containing the eventloop in Rust
+with `#[no_mangle] pub extern "C"` exports. Mark `mod eventloop;`
+inside `dll/src/web/mod.rs`, gated on the same `web` feature.
 
-### M8.2 — Server-side layout-cb lift (~2-3h)
+  - `AzStartup_alloc` / `AzStartup_free` — wrappers over the global allocator.
+  - `AzStartup_init(json_ptr, json_len)` — store the deserialized state in `EVENTLOOP`. Stub initially.
+  - `AzStartup_dispatchEvent` / `AzStartup_getPatches` — stubs returning 0.
+  - `AzStartup_registerStateDeserializer(fn_ptr)` — store the user-provided fn-ptr.
+
+Verify:
+- `cargo build -p azul-dll --features "build-dll web web-transpiler"` — no new errors.
+- `nm -gU target/release/libazul.dylib | grep AzStartup_` shows the new exports.
+
+This is just the source-code surface — no lifting yet. Internal
+state (`EVENTLOOP` static, `EventloopState` struct) is also defined
+here.
+
+### M8.1b — azul-doc classification for eventloop symbols (~1h)
+
+The `AzStartup_*` symbols must NOT appear in api.json or in any
+language binding. The classification path:
+
+  - In `dll/src/web/mod.rs`, declare:
+    ```rust
+    pub const EVENTLOOP_SYMBOLS: &[&str] = &[
+        "AzStartup_alloc",
+        "AzStartup_free",
+        "AzStartup_init",
+        "AzStartup_dispatchEvent",
+        "AzStartup_getPatches",
+        "AzStartup_registerStateDeserializer",
+    ];
+    ```
+  - api.json never references them (they're not codegen-emitted;
+    they're hand-written in `dll/src/web/eventloop.rs`). No binding
+    will see them.
+  - The web backend's startup phase iterates `EVENTLOOP_SYMBOLS`,
+    `dlsym`'s each, lifts each, links them all together.
+  - Optionally surface the symbols in `azul-doc`'s
+    `classify_api_functions` as a new `FnClass::EventLoopInternal`
+    variant so doc audits can find them, but this is informational
+    only — the bindings codegen already ignores anything not in
+    api.json's classes.
+
+### M8.2 — Lift eventloop + serve `azul-mini.wasm` (~3-4h)
+
+Extend `run_web` to lift the `AzStartup_*` symbols at startup:
+
+```rust
+// dll/src/web/mod.rs::run_web (sketch)
+let transpiler = transpiler::default_transpiler();
+let mut eventloop_objects: Vec<Vec<u8>> = Vec::new();
+for sym_name in EVENTLOOP_SYMBOLS {
+    // dlsym in the running process to recover fn_addr.
+    let fn_addr = unsafe { dlsym_self(sym_name)? };
+    let sym = resolve_fn_ptr(fn_addr);
+    // Per-function lift (M5-M7 pipeline). Output is wasm32 .o bytes.
+    let module = transpiler.lift_function(&sym.name, sym.addr, sym.size)?;
+    eventloop_objects.push(module.bytes);
+}
+// Link them into one azul-mini.wasm. wasm-ld resolves cross-references
+// statically; AzStartup_* are kept as exports.
+let mini_wasm = link_objects_to_wasm(&eventloop_objects, &EVENTLOOP_SYMBOLS)?;
+```
+
+`link_objects_to_wasm` is a new helper in `transpiler_remill.rs`
+that runs `wasm-ld` over multiple `.o` inputs with `--export=` per
+`AzStartup_*` symbol. The existing `lift_and_link_framework` method
+on `Transpiler` is conceptually the right place — it already takes
+a `Vec<(name, addr, size)>` shape; just needs the per-fn lifts to
+produce `.o` files instead of `.wasm`, then a single final link.
+
+### M8.3 — Server-side layout-cb lift (~2-3h)
 
 Extend `run_web` to:
 - Read `root_window.window_state.layout_callback` fn-ptr.
@@ -477,55 +641,70 @@ Extend `run_web` to:
 Also extend M7-arch's `signature_for_callback_kind` with
 "LayoutCallback" → serialized-bytes return shape.
 
-### M8.3 — Hit-test + EventFilter in eventloop (~6-10h)
+### M8.4 — Hit-test + EventFilter in eventloop (~6-10h)
 
-Port `azul-layout`'s `dispatch_events_propagated` + hit-test logic.
+Inside the Rust `AzStartup_dispatchEvent` body, port
+`azul-layout`'s `dispatch_events_propagated` + hit-test logic.
 This is the core of M8 — needs careful translation:
 - Hit-test: given `(x, y)` + a `StyledDom`, return list of node IDs
   the point is over.
 - EventFilter match: given a list of nodes + an event type, return
   list of `(node_id, callback_id)` pairs to invoke.
-- Dispatch: for each pair, look up the callback in the table,
-  invoke via `call_indirect` with the user's RefAny + a synthesized
-  `CallbackInfo`.
+- Dispatch: for each pair, look up the callback in the JS-owned
+  WebAssembly.Table, invoke via `call_indirect` with the user's
+  RefAny + a synthesized `CallbackInfo`.
 
-### M8.4 — Reconciliation + patch emission (~4-6h)
+Note: this is hand-written Rust that gets lifted by M8.2's
+pipeline. It can use `core::arch::wasm32::*` intrinsics for the
+indirect call IFF that produces clean LLVM IR that remill can lift.
+Otherwise: emit the indirect call as an inline-asm-equivalent
+construct that the M6 intercept pass converts to a wasm-side
+`call_indirect`. **Open question for the implementing agent.**
 
-After RefreshDom, eventloop calls layout callback, gets new DOM,
-diffs against `current_dom` via `reconcile_dom`, emits patch ops
-into `pending_patches`. JS pulls patches via `az_get_patches`.
+### M8.5 — Reconciliation + patch emission (~4-6h)
 
-### M8.5 — `listener.js` rewrite (~3-4h)
+After RefreshDom, eventloop calls the layout callback (via
+WebAssembly.Table[0]), gets new DOM, diffs against `current_dom`
+via `reconcile_dom`, emits patch ops into `pending_patches`. JS
+pulls via `AzStartup_getPatches`.
+
+### M8.6 — `listener.js` rewrite (~3-4h)
 
 Replace M4's loader with the bootstrap shape above. Wire native
 event listeners on root, dispatch via fixed buffer, apply patches.
 
-### M8.6 — Initial state hydration (~2-3h)
+### M8.7 — Initial state hydration (~2-3h)
 
-Server-side: serialize `app_data` to JSON. Add
-`fn serialize_app_data_to_json(&RefAny) -> Result<String>` using
-the existing REFLECT_JSON convention.
+Server-side: serialize `app_data` to JSON via the existing
+REFLECT_JSON convention.
 Embed in HTML head: `<script id="az-state" type="application/json">{...}</script>`.
 
-### M8.7 — End-to-end hello-world (~2-4h)
+User opts in by defining `<Type>_fromJson` (already required by
+AZ_REFLECT_JSON for the existing JSON support). The macro expansion
+gains a runtime registration: when `AZ_BACKEND=web://` is set,
+call `AzStartup_registerStateDeserializer(<Type>_fromJson)`. That
+fn-ptr gets lifted alongside the user's other callbacks; the
+eventloop calls it via WebAssembly.Table during `AzStartup_init`.
+
+### M8.8 — End-to-end hello-world (~2-4h)
 
 Click button three times in a real browser. Counter 5→6→7→8.
 Zero POST `/az/exec/` in server access log.
 
-### M8.8 — Framework-call routing in per-callback intercept (~3-5h)
+### M8.9 — Framework-call routing in per-callback intercept (~3-5h)
 
 Update M7's `emit_helper_ir` branch-stubs section: when a resolved
 symbol matches an azul-mini export, emit an import instead of a
 noop stub. Eventloop's table-based dispatch handles the call.
 
-Without M8.8 the counter wouldn't actually increment (the framework
-calls in `on_click` are still noop-stubbed); WITH M8.8 the lifted
+Without M8.9 the counter wouldn't actually increment (the framework
+calls in `on_click` are still noop-stubbed); WITH M8.9 the lifted
 body calls into azul-mini for the framework helpers and the user's
 counter mutation actually happens.
 
 **This is the milestone that makes the demo work.**
 
-### M8.9 — Cleanup + production-ish polish (~2-4h)
+### M8.10 — Cleanup + production-ish polish (~2-4h)
 
 - Wasm size budget (azul-mini target <500KB).
 - Error handling on instantiation failures.
@@ -534,9 +713,12 @@ counter mutation actually happens.
 
 ### Estimated total: ~30-50h focused work
 
-Front-loaded risk in M8.3 (hit-test + dispatch port) and M8.8
+Front-loaded risk in M8.4 (hit-test + dispatch port) and M8.9
 (framework-call routing). Both have clear paths but are real
-engineering.
+engineering. M8.2 (lift + link the eventloop functions) is also
+non-trivial — requires extending `transpiler_remill.rs` to
+produce intermediate `.o` files instead of always going to final
+`.wasm`, and a new `link_objects_to_wasm` helper.
 
 ## What this architecture deliberately doesn't do (yet)
 
@@ -598,18 +780,21 @@ engineering.
 ## Build/run commands the new agent will need
 
 ```bash
-# Build the eventloop (after M8.1).
-cargo build -p azul-web-eventloop --target wasm32-unknown-unknown --release
-
-# Build libazul with the web stack.
+# Build libazul with the web stack — single build, includes the
+# AzStartup_* eventloop functions in dll/src/web/eventloop.rs.
 cargo build -p azul-dll --release --features "build-dll web web-transpiler" --no-default-features
+
+# Confirm the eventloop symbols are exported (after M8.1).
+nm -gU target/release/deps/libazul.dylib | grep AzStartup_
 
 # Build the C hello-world.
 cd examples/c && cc -o hello-world.bin hello-world.c -lazul -L../../target/release -I../../dll
 
-# Run + manually click in browser.
+# Run. Server startup now takes a few extra seconds for the eventloop lifts.
 DYLD_LIBRARY_PATH=../../target/release AZ_BACKEND=web://127.0.0.1:8080 ./hello-world.bin
-# Open http://127.0.0.1:8080/
+
+# Inspect the produced azul-mini.wasm (in $TMPDIR/azul-web-transpiler-<pid>/).
+wasm-objdump -x $TMPDIR/azul-web-transpiler-*/azul-mini.wasm | head
 
 # Verify zero POST round-trips after page load.
 grep -c "POST /az/exec/" <server-log>  # expected: 0 after M8 done
