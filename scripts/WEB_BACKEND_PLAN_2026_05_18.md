@@ -226,58 +226,48 @@ The hello-world `on_click` doesn't call any framework functions (it's pure compu
 
 ---
 
-## M8 — Build & link `azul-mini.wasm` (WB1.4/1.5)
+## M8 — `azul-mini.wasm` as a HeadlessWindow simulator (user-driven; revised direction)
 
-Switch `generate_mini_wasm` from the 8-byte stub to the real `RemillTranspiler::lift_and_link_framework(FnClass::Framework_subset)`.
+**This milestone is sketched, not specified.** The architectural direction (per user revision 2026-05-18) is different from the original "lift 200 framework functions individually" plan. The user will drive the experiment; below captures the direction so future-us doesn't lose it.
 
-**Steps:**
-1. Iterate `classify_api_functions()` output, filter to `FnClass::ImportFromAzulMini` (the renamed `Framework` variant).
-2. For each, resolve `(name, addr, size)` via `dladdr` against the running binary's exports.
-3. Lift each function through the full pipeline (remill + intrinsic-lower + signature-rewrite + opt + llc).
-4. Link the resulting objects into a single `azul-mini.wasm` via `wasm-ld --export-dynamic` so callback modules can import them.
-5. Stash the bytes in `WebServerState.mini_wasm` (currently the 8-byte stub).
-6. Server already serves it at `/az/mini.{hash}.wasm`; the URL hash gets recomputed automatically.
+**Revised vision.** Instead of `azul-mini.wasm` being a flat library of ~200 framework exports that per-callback modules import, it's a self-contained **HeadlessWindow simulator** that runs the same `azul-layout` event loop and styling engine in the browser. The browser DOM is the rendering surface; JS is the event source and patch applier; WASM is the brain.
 
-**Subset for hello-world:** the callback uses ~6 framework functions (`AzDom_createBody`, `AzDom_addChild`, `AzDom_createDiv`, `AzCss_empty`, `AzString_copyFromBytes`, `AzCssProperty_fontSize`). Lift these first to keep `azul-mini.wasm` under 100 KB for the hello-world demo. Expand to the full ~200-function set in a follow-up.
+**Roles:**
 
-**What this de-risks:**
-- The framework's functions lift cleanly (these are mostly C-ABI shims over Rust impls — should be among the friendliest cases for remill).
-- The link step correctly resolves cross-function references *within* `azul-mini.wasm` (e.g. `AzDom_createBody` internally calls `AzDom_new`).
-- Hand-written shims for browser-native operations (`AzHttp_fetch` → JS `fetch()`) are wired into `azul-mini.wasm`'s body, not into per-callback modules.
+- **WASM-side (`azul-mini.wasm`).** Owns the `RefAny`. Owns the parallel `StyledDom` arena (the same data structure the desktop backend's `LayoutWindow` keeps). On each input event:
+  1. Run hit-testing against the WASM-side `StyledDom`.
+  2. Run `EventFilter` matching to find which callbacks fire.
+  3. Invoke the matching callbacks (which live in their own per-callback WASM modules — see M5–M7).
+  4. Re-run the layout callback if any returned `RefreshDom`.
+  5. Diff the new `StyledDom` against the previous one (`reconcile_dom` already exists).
+  6. Emit a list of patch operations to JS.
+- **JS-side (`loader.js`).** Owns the browser DOM. Listens for mouse/keyboard/scroll events on the root container; dispatches `(x, y, button, key)` to WASM via exported entry points. Applies patch operations from WASM back onto the real DOM.
 
-**Expected output:** `azul-mini.wasm` size 50–500 KB. Browser DevTools shows `<link rel="preload" href="/az/mini.<hash>.wasm">` fetching before any callback.
+**Key insight from the user:** the browser doesn't own the event loop. JS event handlers replace `MacOSWindow`'s `NSEvent` / `WindowsWindow`'s `WM_*` / X11's `XEvent` as the input source — same dispatch logic, different driver.
 
-**Risk:** High. First time the framework gets lifted. Likely surprises: functions that touch native pointers (`AzGl_*` — should be classified `DomPatcher`, not Framework), functions that take callbacks-as-args (need a separate pattern), functions that call into `std`'s collections (may need feature-flagging or shimming).
+**Initial state hydration.** When server-rendered HTML loads, the page needs to hand WASM the initial `RefAny` state. Options to consider:
+- Server embeds the JSON-serialized `RefAny` in a `<script type="application/json" id="az-initial-state">` tag; JS reads it, copies bytes into WASM linear memory, calls `azul_mini.init(state_ptr, state_len)`.
+- Server serves `/az/initial-state` as a separate JSON fetch; WASM bootstrap awaits it.
+
+**Transpile path.** The HeadlessWindow simulator is a single Rust function (call it `azul_web_main` or similar) that wraps the existing `HeadlessWindow` + event loop. We can transpile *that one function* through the same `RemillTranspiler` pipeline — it's a closed-world entry point with known dependencies (the entire `azul-layout` crate it transitively links). Custom IR rewriting wires up the JS-facing entry points (`dispatch_click`, `dispatch_keydown`, `get_pending_patches`, `init_state`).
+
+**What this means for the callback model.** Per-callback WASM modules (M5–M7) become **leaves** the HeadlessWindow's event dispatcher routes to — analogous to how the desktop event loop's `dispatch_events_propagated` invokes user `Callback`s today. Callbacks import very few framework symbols (just enough to construct their `Update` return); the heavy lifting (layout, styling, hit-test) lives in `azul-mini.wasm`.
+
+**Default = client-side. No server fallback by default.** Callbacks that don't lift cleanly are simply broken for now. The `POST /az/exec/{node_id}` path stays in the codebase as a *noted possible recovery*, but `loader.js` does NOT call it by default. The user's stance: "complex callbacks broken for now" is acceptable for the next several months while the lift pipeline matures.
+
+**Scope flag for the autonomous loop.** M8 is **not** autonomous-loop work — the architectural decisions need user input (state-hydration mechanism, JS↔WASM entry-point shape, patch-operation encoding). The loop should stop at M7 and hand off.
 
 ---
 
-## M9 — Client-side DOM patching
+## M9 — Browser-side patcher + dispatcher (also user-driven)
 
-Today `loader_js` does `document.open() + document.write(serverResponse) + document.close()` after the server POST returns. That tears down everything and rebuilds the whole page — works, but loses scroll position, form state, focus.
+Pairs with M8. The JS side needs:
 
-Client-side patching:
-1. Callback returns `Update::RefreshDom` (1).
-2. Browser calls `azul-mini.wasm`'s `run_layout(refany_ptr)` (or similar) to recompute the StyledDom *in the browser*.
-3. A patching algorithm (morphdom-style) diffs the new HTML against the live DOM and applies minimal mutations.
+1. **Patcher.** Receives an opaque byte stream from WASM describing DOM mutations (`SetAttr(node, attr, val)`, `AddChild(parent, html)`, `RemoveChild(parent, idx)`, etc.). Apply each in order. Simpler than morphdom because the diff is already computed WASM-side; JS just executes the patch script.
+2. **Dispatcher.** Listens on the root container for mouse/keyboard/scroll/focus events. Marshals each into a fixed-format byte sequence WASM can decode. Calls into WASM's event-entry export.
+3. **State bootstrap.** Reads the server-embedded initial `RefAny` (JSON in a script tag, or a separate fetch) and hands it to WASM during init.
 
-This is the piece that turns "POST round-trip per click" into "no server round-trip ever after the initial load."
-
-**Steps:**
-1. Export `run_layout` from `azul-mini.wasm` (probably already exists; verify).
-2. Add a client-side morphdom-ish patcher (vendor or write — ~200 LOC of vanilla JS).
-3. In the click handler, after calling the per-callback WASM:
-   - If return is `DoNothing` (0): bail.
-   - If `RefreshDom` (1): call `azul-mini.wasm.run_layout(refany)`, get new HTML, diff against `document`, apply.
-   - If `RefreshDomAllWindows` etc.: full re-render (rare).
-4. Skip the POST entirely on `RefreshDom`.
-
-**What this de-risks:**
-- The end-to-end "browser is a dumb render target, azul runs its own cascade in WASM" vision.
-- The performance claim (no network on click).
-
-**Expected output:** Counter increment is instant. DevTools Network shows no POST. Page state (scroll, focus, etc.) is preserved.
-
-**Risk:** Medium. The patching algorithm is well-trodden ground (morphdom, idiomorph). The wasm-side `run_layout` may need new exports or wrappers.
+Same scope flag as M8: user-driven, not autonomous-loop.
 
 ---
 
@@ -352,6 +342,13 @@ Front-loaded risk is in M6/M7 (the IR-pass engineering). M0–M5 is mostly mecha
 
 ## Loop integration
 
-This plan is suitable for the autonomous-loop cadence: each milestone is independent and commit-safe. Suggested wake-on-completion order: M0 → M1 → M2 → ... → M5 sequentially, then pause for user review before M6 (the heavy IR work). M6+ benefits from interactive debugging on lifted output, so the loop may not be the right vehicle there.
+**Decision (2026-05-18):** Autonomous loop drives M0–M7. M8/M9 are user-driven (architectural decisions on HeadlessWindow simulator + JS bridge need user input).
 
-**Open question for the user:** should the autonomous loop pick this up after the current pause, or do you want to drive M0–M5 interactively given the high "wiring across a lot of files" character of those milestones? Either works; the plan is durable.
+Cadence: 60s `<<autonomous-loop-dynamic>>`. End-of-loop trigger: any of (a) M7 complete, (b) commit-safe blocker at a milestone, (c) item balloons >30 min.
+
+Stall behavior per milestone:
+- M0 — if server.rs imports turn out to need a wider refactor than expected, commit what compiles and document.
+- M6 — if `opt -O2` SROA doesn't evaporate the State struct on first attempt, commit-safe and try `remill-opt` as an intermediate; if that also fails, file a blocker.
+- M7 — if the intercept pass surfaces api.json signature gaps, file each gap and skip the corresponding symbol (return `TranspileError`); proceed with the symbols that resolve cleanly.
+
+Server-side fallback (`POST /az/exec/{node_id}`) is **NOT** wired into `loader.js` by default per user direction. Complex callbacks broken-for-now is acceptable.

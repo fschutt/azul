@@ -370,7 +370,9 @@ fn try_invoke_callback(
 
     use azul_core::callbacks::Update;
     use azul_core::id::NodeId;
-    use azul_core::window::{DomNodeId, DomId, MonitorVec, OptionLogicalPosition, RawWindowHandle, WebHandle};
+    use azul_core::dom::{DomId, DomNodeId};
+    use azul_core::geom::OptionLogicalPosition;
+    use azul_core::window::{MonitorVec, RawWindowHandle, WebHandle};
     use azul_core::resources::RendererResources;
     use azul_core::gl::OptionGlContextPtr;
     use azul_core::styled_dom::NodeHierarchyItemId;

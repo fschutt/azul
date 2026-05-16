@@ -7,7 +7,7 @@
 //! Includes routing support: intercepts `<a>` clicks with `data-az-route`
 //! and handles browser back/forward via `popstate`.
 
-use super::DiscoveredCallback;
+use super::CallbackWasm;
 
 /// Generate the loader JavaScript for the current phase.
 ///
@@ -17,7 +17,7 @@ use super::DiscoveredCallback;
 /// the lifted bytecode client-side.
 pub fn generate_loader_js(
     _mini_wasm_hash: &str,
-    _callbacks: &[DiscoveredCallback],
+    _callbacks: &[CallbackWasm],
 ) -> String {
     generate_phase0_loader()
 }

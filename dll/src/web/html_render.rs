@@ -130,7 +130,14 @@ pub fn render_initial_page(
     //    server still answers each one with a tiny stub (or 404) until the
     //    remill-based lift in Phase C is wired up.
     let preload_hints = generate_preload_hints(mini_wasm, &ctx.callbacks);
-    let loader_js_content = super::loader_js::generate_loader_js("stub", &ctx.callbacks);
+    // Pass an empty callback list here; the second `generate_loader_js`
+    // call inside `server::run_server` uses the real `WebServerState.cb_wasms`
+    // list. This first render-time call would need the cb_wasms but they
+    // aren't built until after discovery + lift run (timing inverted from
+    // `render_initial_page`). The Phase-0 loader ignores both args, so the
+    // empty slice is currently harmless; revisit once M4 wires real per-callback
+    // module preloading into the HTML head.
+    let loader_js_content = super::loader_js::generate_loader_js("stub", &[]);
 
     // 5. Build stylesheet
     let stylesheet = build_stylesheet(&ctx);
@@ -308,10 +315,15 @@ impl RenderContext {
         let image_ref: &ImageRef = img_ref.as_ref();
         let Some(raw_image) = image_ref.get_rawimage() else { return };
         let img_id = self.images.len();
-        let (data, content_type) = match azul_layout::image::encode_png(&raw_image) {
+        let (data, content_type) = match azul_layout::image::encode::encode_png(&raw_image).into_result() {
             Ok(encoded) => (encoded.into_library_owned_vec(), "image/png"),
             Err(_) => {
-                let bytes = raw_image.pixels.into_library_owned_vec();
+                // Fallback to raw pixel bytes (rarely useful in a browser but
+                // avoids dropping the image entirely if PNG encoding fails).
+                let bytes = match raw_image.pixels {
+                    azul_core::resources::RawImageData::U8(v) => v.into_library_owned_vec(),
+                    _ => Vec::new(),
+                };
                 (bytes, "application/octet-stream")
             }
         };
@@ -465,12 +477,15 @@ fn debug_print_dom(dom: &Dom, depth: usize, counter: &mut usize) {
     let node_data = &dom.root;
 
     let tag = node_type_to_html_tag(&node_data.node_type);
-    let css_count = node_data.css_props.as_ref().len();
+    // Field rename: NodeData.css_props was replaced by NodeData.style
+    // (an azul_css::css::Css value) when the per-node style storage was
+    // unified. `.style.css_rules` is the corresponding rule list.
+    let css_count = node_data.style.rules.as_ref().len();
     let cb_count = node_data.callbacks.as_ref().len();
     let attr_count = node_data.attributes().as_ref().len();
 
     let mut extras = Vec::new();
-    if css_count > 0 { extras.push(format!("{} css_props", css_count)); }
+    if css_count > 0 { extras.push(format!("{} css rules", css_count)); }
     if cb_count > 0 { extras.push(format!("{} callbacks", cb_count)); }
     if attr_count > 0 { extras.push(format!("{} attrs", attr_count)); }
 
@@ -487,8 +502,15 @@ fn debug_print_dom(dom: &Dom, depth: usize, counter: &mut usize) {
         eprintln!("[azul-web]   {}[{}] <{}>{}", indent, node_id, tag, extras_str);
     }
 
-    for prop in node_data.css_props.as_ref().iter() {
-        eprintln!("[azul-web]   {}  style: {}", indent, prop.property.format_css());
+    for rule_block in node_data.style.rules.as_ref().iter() {
+        // CSS rule blocks now hold declaration lists, not flat per-node
+        // property entries. Print the count rather than each property to
+        // keep this debug emit compact.
+        eprintln!(
+            "[azul-web]   {}  rule: {} declaration(s)",
+            indent,
+            rule_block.declarations.as_ref().len()
+        );
     }
 
     for child in dom.children.as_ref().iter() {

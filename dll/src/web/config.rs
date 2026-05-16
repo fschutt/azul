@@ -35,7 +35,7 @@ pub const DEFAULT_MAX_BODY_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_BODY_BYTES_LIMIT: usize = 1024 * 1024 * 1024;
 
 /// Configuration for the web backend, parsed from the `AZ_BACKEND` URL.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct WebConfig {
     /// Bind address (`host:port`).
     pub bind: SocketAddr,

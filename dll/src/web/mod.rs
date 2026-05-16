@@ -197,7 +197,10 @@ pub fn run_web(
     // Phase D: Pre-render all routes. The walk also collects every
     // callback fn-pointer it sees, which feeds Phase C below.
     let window_state = root_window.window_state.clone();
-    let default_layout_callback = root_window.window_state.layout_callback;
+    // LayoutCallback is not Copy (holds a host-invoker handle). Clone
+    // up front so the inline-route arm (line 232) and the
+    // WebServerState builder (line 325) both have an owned value.
+    let default_layout_callback = root_window.window_state.layout_callback.clone();
 
     let mut rendered_routes: HashMap<String, server::RenderedRoute> = HashMap::new();
     let mut all_images = Vec::new();
@@ -229,7 +232,7 @@ pub fn run_web(
         rendered_routes.insert("/".to_string(), server::RenderedRoute {
             pattern: "/".to_string(),
             html: output.html,
-            layout_callback: default_layout_callback,
+            layout_callback: default_layout_callback.clone(),
             callback_index,
         });
     } else {
