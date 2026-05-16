@@ -77,20 +77,43 @@ var azFnAddrToTableIdx = new Map();
 
 // =====================================================================
 // Imports given to mini.wasm at instantiate-time.
+// `__indirect_function_table` + `__az_resolve_callback` are the
+// load-bearing ones; everything else (remill FPU helpers, lift
+// dedup artifacts like `sub_<hex>.1`) falls through to a Proxy
+// that returns shape-appropriate no-ops. Without the Proxy, any
+// new import added by a future eventloop lift fails instantiation.
 // =====================================================================
 function azMakeMiniImports() {
     azTable = new WebAssembly.Table({ initial: 64, element: 'anyfunc' });
-    return {
-        env: {
-            __indirect_function_table: azTable,
-            __az_resolve_callback: function(fnAddr) {
-                // BigInt → Number (safe; node_idx fits in u32).
-                var n = Number(fnAddr);
-                var idx = azFnAddrToTableIdx.get(n);
-                return idx === undefined ? SENTINEL_NO_NODE : idx;
-            },
+    var i64_noop  = function() { return 0n; };
+    var i32_noop  = function() { return 0; };
+    var void_noop = function() { /* no return */ };
+    var realEnv = {
+        __indirect_function_table: azTable,
+        __az_resolve_callback: function(fnAddr) {
+            var n = Number(fnAddr);
+            var idx = azFnAddrToTableIdx.get(n);
+            return idx === undefined ? SENTINEL_NO_NODE : idx;
         },
     };
+    function stubFor(name) {
+        if (name.indexOf('write_memory') !== -1 ||
+            name.indexOf('barrier') !== -1 ||
+            name.indexOf('exception_clear') !== -1) return void_noop;
+        if (/(?:_64|_f64)\b/.test(name)) return i64_noop;
+        return i32_noop;
+    }
+    var handler = {
+        get: function(_t, prop) {
+            if (typeof prop !== 'string') return undefined;
+            if (Object.prototype.hasOwnProperty.call(realEnv, prop)) {
+                return realEnv[prop];
+            }
+            return stubFor(prop);
+        },
+        has: function() { return true; },
+    };
+    return { env: new Proxy({}, handler) };
 }
 
 // =====================================================================
@@ -233,23 +256,20 @@ async function azBootstrap() {
 }
 
 // =====================================================================
-// M8.7c-3 hydration: construct an AArch64-layout AzRefAny tree in
-// wasm memory matching what the lifted cb expects to dereference.
+// M8.7c-3 hydration. We read the server-embedded az-hydrate block
+// for the user's type_id + initial data, then call mini's lifted
+// `AzStartup_hydrate(type_id_lo, type_id_hi, data_ptr, data_size)`
+// to build the wasm-side RefAny tree. The hydrate fn allocates
+// RefCountInner + RefAny via Box::new (routed through __rust_alloc,
+// our bump allocator) — so the field offsets / pointer widths
+// automatically match what the lifted cb expects.
 //
-// Layout (all sizes in bytes, all pointers 8B even in wasm32 — the
-// lifted code was originally arm64 so it does 64-bit loads on the
-// aggregates):
-//
-//   MyDataModel  @ azModelPtr    : { counter: u32 }            → 4B
-//   RefCountInner @ innerPtr     : 112B with type_id at +56
-//   AzRefAny @ azRefAnyPtr       : { sharing_info: RefCount,
-//                                    instance_id: u64 }        → 24B
-//   RefCount   = { ptr: u64, run_destructor: u64 (1B padded) } → 16B
-//
-// The 64-bit pointer fields are written with `setBigUint64` so the
-// lifted `ldr x9, [x0]` reads a 64-bit value where the low 32 bits
-// are the wasm offset and the high 32 bits are zero — wasm linear
-// memory addressing ignores the high bits.
+// We only have to hand JS-layout the *user's data* (which is
+// type-specific and can't be Rust-side without per-type codegen).
+// For hello-world's MyDataModel that's a single u32 counter at
+// offset 0; future types might serialize via postcard or json and
+// the lifted user `_fromJson` would take over (lifting that adds a
+// hidden-return wrapper variant — out of scope today).
 // =====================================================================
 function azHydrate() {
     var script = document.getElementById('az-hydrate');
@@ -265,50 +285,29 @@ function azHydrate() {
         return;
     }
     var typeIdBigInt = BigInt(payload.type_id);
+    var typeIdLo = Number(typeIdBigInt & 0xFFFFFFFFn);
+    var typeIdHi = Number((typeIdBigInt >> 32n) & 0xFFFFFFFFn);
     var counter = (typeof payload.json === 'number') ? payload.json : 0;
 
-    // Allocate the 3 blocks via the mini's bump allocator.
-    azModelPtr   = azMini.AzStartup_alloc(4);
-    var innerPtr = azMini.AzStartup_alloc(112);
-    azRefAnyPtr  = azMini.AzStartup_alloc(24);
-    if (!azModelPtr || !innerPtr || !azRefAnyPtr) {
-        console.error('[azul-web] hydrate alloc failed', azModelPtr, innerPtr, azRefAnyPtr);
+    // Allocate user-data slot + write counter (hello-world's
+    // MyDataModel = { counter: u32 }).
+    azModelPtr = azMini.AzStartup_alloc(4);
+    if (!azModelPtr) {
+        console.error('[azul-web] hydrate alloc(4) failed');
         return;
     }
+    new DataView(azMemory.buffer).setUint32(azModelPtr, counter >>> 0, true);
 
-    var view = new DataView(azMemory.buffer);
-
-    // MyDataModel: just the counter.
-    view.setUint32(azModelPtr, counter >>> 0, true);
-
-    // RefCountInner — fields at offsets matching the desktop
-    // `#[repr(C)]` layout (8B pointers, 8B usize on arm64).
-    view.setBigUint64(innerPtr +   0, BigInt(azModelPtr), true);  // _internal_ptr
-    view.setBigUint64(innerPtr +   8, 1n, true);                    // num_copies
-    view.setBigUint64(innerPtr +  16, 0n, true);                    // num_refs
-    view.setBigUint64(innerPtr +  24, 0n, true);                    // num_mutable_refs
-    view.setBigUint64(innerPtr +  32, 4n, true);                    // _internal_len
-    view.setBigUint64(innerPtr +  40, 4n, true);                    // _internal_layout_size
-    view.setBigUint64(innerPtr +  48, 4n, true);                    // _internal_layout_align
-    view.setBigUint64(innerPtr +  56, typeIdBigInt, true);          // type_id ★
-    // type_name (AzString, 24B), custom_destructor (8B), serialize_fn
-    // (8B), deserialize_fn (8B) — all zero is fine for the cb's
-    // downcast path (is_type only reads type_id).
-    view.setBigUint64(innerPtr +  64, 0n, true);
-    view.setBigUint64(innerPtr +  72, 0n, true);
-    view.setBigUint64(innerPtr +  80, 0n, true);
-    view.setBigUint64(innerPtr +  88, 0n, true);
-    view.setBigUint64(innerPtr +  96, 0n, true);
-    view.setBigUint64(innerPtr + 104, 0n, true);
-
-    // AzRefAny: { sharing_info: RefCount { ptr: u64, run_destructor: bool },
-    //             instance_id: u64 }
-    view.setBigUint64(azRefAnyPtr +  0, BigInt(innerPtr), true);  // sharing_info.ptr
-    view.setBigUint64(azRefAnyPtr +  8, 0n, true);                  // sharing_info.run_destructor
-    view.setBigUint64(azRefAnyPtr + 16, 0n, true);                  // instance_id
-
+    // Hand to AzStartup_hydrate — the mini-side fn does the
+    // RefCountInner + RefAny construction in lifted Rust code, no
+    // hand-laid-out JS bytes.
+    azRefAnyPtr = azMini.AzStartup_hydrate(typeIdLo, typeIdHi, azModelPtr, 4);
+    if (!azRefAnyPtr) {
+        console.error('[azul-web] AzStartup_hydrate returned 0');
+        return;
+    }
     console.info('[azul-web] hydrate ok: refany=' + azRefAnyPtr +
-                 ' inner=' + innerPtr + ' model=' + azModelPtr +
+                 ' model=' + azModelPtr +
                  ' counter=' + counter + ' type_id=' + payload.type_id);
 }
 

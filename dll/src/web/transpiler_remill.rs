@@ -149,6 +149,18 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
             ],
             ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
         }),
+        "AzStartup_hydrate" => Some(CallbackSignature {
+            kind: "AzStartup_hydrate".to_string(),
+            // (type_id_lo: u32, type_id_hi: u32, data_ptr: u32,
+            //  data_size: u32) -> refany_ptr: u32
+            args: vec![
+                Pcs::Wreg { state_byte_offset: X0 },
+                Pcs::Wreg { state_byte_offset: X1 },
+                Pcs::Wreg { state_byte_offset: X2 },
+                Pcs::Wreg { state_byte_offset: X3 },
+            ],
+            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+        }),
         "AzStartup_dispatchEvent" => Some(CallbackSignature {
             kind: "AzStartup_dispatchEvent".to_string(),
             // (state, kind, evt_ptr, evt_len, out_len_ptr) -> patches_ptr
@@ -427,9 +439,23 @@ impl RemillTranspiler {
         // function in this process's .text. Reading is read-only and
         // bounded by `fn_size`; the slice is consumed before any other
         // operation that could remap memory.
-        let bytes: Vec<u8> = unsafe {
+        let raw_bytes: Vec<u8> = unsafe {
             std::slice::from_raw_parts(fn_addr as *const u8, fn_size).to_vec()
         };
+        // Tail-call wrapper detection (macOS arm64): C-ABI shims in
+        // libazul are commonly compiled as a single `b <inner>`
+        // (unconditional branch to a Rust internal). remill lifts
+        // this as `__remill_missing_block` and returns immediately,
+        // leaving X0 unchanged — the wrapper looks like a no-op
+        // identity function (returns arg0).
+        //
+        // Fix: rewrite the prologue from `b imm26` (encoding 0x14...)
+        // to `bl imm26` + `ret` (encodings 0x94... + 0xD65F03C0).
+        // This is a 4→8-byte transformation that turns the tail call
+        // into a regular call+return, which remill lifts as
+        // `call sub_<target>; ret`. The PLT-stub/thunk fix-up then
+        // makes sure the target resolves to the inner's lifted body.
+        let bytes = rewrite_tailcall_wrapper(&raw_bytes);
 
         let arch_tag = host_arch_tag().ok_or_else(|| TranspileError {
             fn_name: fn_name.to_string(),
@@ -547,26 +573,36 @@ impl RemillTranspiler {
         let mut resolved_branches: Vec<ResolvedBranchExtern> =
             Vec::with_capacity(branch_sym_names.len());
         for sym_name in &branch_sym_names {
-            let kind = if let Some(host_addr) =
+            let (kind, resolved_addr) = if let Some(host_addr) =
                 branch_target_to_host_addr(sym_name, fn_addr, lift_addr)
             {
                 let resolved = super::resolve_fn_ptr(host_addr);
                 let kind = classify_branch_extern(&resolved.name);
                 eprintln!(
-                    "[azul-web]   intercept: {} → host=0x{:016x} = {} [{:?}]",
-                    sym_name, host_addr, resolved.name, kind,
+                    "[azul-web]   intercept: {} → host=0x{:016x} = {} (real=0x{:016x}) [{:?}]",
+                    sym_name, host_addr, resolved.name, resolved.addr, kind,
                 );
-                kind
+                // Stub→real fixup: when dladdr resolved a PLT trampoline
+                // address to a different real symbol address, we need
+                // the lifted body of the dep to be reachable from a
+                // sub_<stub_addr> name (which is what the caller's IR
+                // declares). The dep is lifted at lift_addr=real_addr
+                // (see lift_with_transitive_deps), so its body is
+                // defined as `sub_<real_addr>`. Carry the real addr
+                // through so emit_helper_ir can emit a thunk
+                // `sub_<stub_addr> -> tail-call sub_<real_addr>`.
+                (kind, Some(resolved.addr))
             } else {
                 eprintln!(
                     "[azul-web]   intercept: {} (lift-space addr parse failed)",
                     sym_name
                 );
-                BranchExternKind::Noop
+                (BranchExternKind::Noop, None)
             };
             resolved_branches.push(ResolvedBranchExtern {
                 sym_name: sym_name.clone(),
                 kind,
+                real_addr: resolved_addr,
             });
         }
         let helper_ir = emit_helper_ir(lift_addr, sig, &resolved_branches, export_as);
@@ -1124,12 +1160,19 @@ impl Transpiler for RemillTranspiler {
         let mut object_paths: Vec<PathBuf> = Vec::with_capacity(symbols.len());
         let mut exports: Vec<String> = Vec::with_capacity(symbols.len());
         for (i, ((name, addr, size), sig)) in symbols.iter().zip(sigs.iter()).enumerate() {
-            // Unique lift_addr per function so each lifted module's
-            // top-level `sub_<lift_addr_hex>` is a distinct symbol.
-            // 0x1000 stride is much larger than any plausible function
-            // (256B read window today), so back-references stay within
-            // their own lift's namespace.
-            let lift_addr = 0x100000000_u64 + (i as u64) * 0x1000;
+            // CRITICAL: lift_addr MUST equal the native addr so
+            // inter-fn `bl` targets align. AzStartup_hydrate doing
+            // `bl AzStartup_alloc` lifts to `call sub_<native_addr_of_alloc>`;
+            // if alloc's body is at `sub_<some_synthetic>` the linker
+            // can't connect them — the helper IR emits a noop stub
+            // and the cross-fn call silently does nothing. Aligning
+            // lift_addr with native_addr means alloc's body is
+            // emitted as `sub_<native_addr_of_alloc>`, matching
+            // every bl target from any other lifted eventloop fn.
+            //
+            // (Same mechanism as `lift_with_transitive_deps` for
+            // per-cb / per-layout wasms.)
+            let lift_addr = *addr as u64;
             eprintln!(
                 "[azul-web]   eventloop[{i}]: lifting {} addr=0x{:016x} size={} lift_addr=0x{:x}",
                 name, addr, size, lift_addr,
@@ -1327,6 +1370,40 @@ fn host_os_tag() -> &'static str {
     }
 }
 
+/// arm64-only: if the first 4 bytes are an `B <imm26>` unconditional
+/// branch (tail call), rewrite to `BL <imm26>` + `RET` so remill
+/// lifts as a regular call+return instead of bailing into
+/// `__remill_missing_block`.
+///
+/// `B`  encoding: `0b000101 imm26` → `0x14000000 | imm26`.
+/// `BL` encoding: `0b100101 imm26` → `0x94000000 | imm26` (same `imm26`,
+/// bit 31 set so the link-register save happens).
+/// `RET (x30)` encoding: `0xD65F03C0`.
+///
+/// On non-arm64 hosts (or when the first 4 bytes don't match), the
+/// input bytes are returned unchanged.
+fn rewrite_tailcall_wrapper(raw: &[u8]) -> Vec<u8> {
+    #[cfg(target_arch = "aarch64")]
+    {
+        if raw.len() >= 4 {
+            let first = u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]);
+            // Unconditional branch (B): bits 31..26 == 0b000101.
+            if (first >> 26) & 0x3F == 0b000101 {
+                let bl_word = first | 0x8000_0000;
+                let ret_word: u32 = 0xD65F_03C0;
+                let mut out = Vec::with_capacity(raw.len().max(8));
+                out.extend_from_slice(&bl_word.to_le_bytes());
+                out.extend_from_slice(&ret_word.to_le_bytes());
+                if raw.len() > 8 {
+                    out.extend_from_slice(&raw[8..]);
+                }
+                return out;
+            }
+        }
+    }
+    raw.to_vec()
+}
+
 fn bytes_to_hex(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len() * 2);
     for b in bytes {
@@ -1464,11 +1541,55 @@ fn emit_helper_ir(
     for ext in branch_externs {
         match ext.kind {
             BranchExternKind::Noop => {
-                branch_stubs.push_str(&format!(
-                    "define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) alwaysinline {{ \
-                     ret ptr %memory }}\n",
-                    sym = ext.sym_name,
-                ));
+                // Three sub-cases:
+                //
+                // 1. Stub→real mismatch (PLT trampoline): emit a
+                //    thunk so the caller's `call sub_<stub_addr>`
+                //    reaches the body that the recursive lift
+                //    defined at `sub_<real_addr>`. The thunk is the
+                //    only thing produced under sub_<stub_addr>; the
+                //    real body's link comes from a sibling .o.
+                //
+                // 2. Stub == real (no PLT in between): don't emit a
+                //    body. wasm-ld pairs the call with whatever .o
+                //    defines sub_<addr> (typically the recursive
+                //    lift's per-dep object).
+                //
+                // 3. real_addr is None (parse failed) OR no lifted
+                //    body exists anywhere: wasm-ld leaves the
+                //    symbol as an `env.sub_<addr>` import that JS's
+                //    Proxy fallback satisfies with a no-op stub.
+                //
+                // alwaysinline is dropped here so opt -O2 keeps the
+                // call site intact for the linker to retarget.
+                if let Some(real_addr) = ext.real_addr {
+                    // Extract the stub-addr hex from the sym name.
+                    // sym_name is "sub_<hex>" or "sub_<hex>.N".
+                    let stub_hex = ext.sym_name
+                        .strip_prefix("sub_")
+                        .and_then(|s| s.split('.').next())
+                        .and_then(|h| u64::from_str_radix(h, 16).ok());
+                    if let Some(stub_addr) = stub_hex {
+                        if (stub_addr as usize) != real_addr {
+                            // Thunk: tail-call the real lifted body.
+                            // `linkonce_odr` so multiple callers
+                            // (each emitting their own thunk for the
+                            // same stub→real pair) dedupe at link.
+                            branch_stubs.push_str(&format!(
+                                "declare ptr @sub_{real:x}(ptr, i64, ptr)\n\
+                                 define linkonce_odr ptr @{stub_name}(ptr %state, i64 %pc, ptr %memory) {{\n  \
+                                   %r = musttail call ptr @sub_{real:x}(ptr %state, i64 %pc, ptr %memory)\n  \
+                                   ret ptr %r\n\
+                                 }}\n",
+                                real = real_addr as u64,
+                                stub_name = ext.sym_name,
+                            ));
+                            continue;
+                        }
+                    }
+                }
+                // Fall-through cases 2 and 3 — leave extern unresolved.
+                let _ = ext;
             }
             BranchExternKind::RustAlloc | BranchExternKind::RustAllocZeroed => {
                 // size = State.X0; align ignored (8-byte minimum).
@@ -1799,11 +1920,34 @@ fn parse_extern_sub_declares(ir: &str) -> Vec<String> {
         let Some(paren_idx) = rest.find('(') else {
             continue;
         };
-        let hex_part = &rest[..paren_idx];
+        // remill emits a fresh `declare` per call site when the same
+        // bl target appears multiple times in a function, suffixing
+        // with `.N` to dedupe within LLVM's IR-level symbol table:
+        //
+        //   declare ptr @sub_101d8a6e4(...)
+        //   declare ptr @sub_101d8a6e4.2(...)
+        //
+        // Each suffixed extern is a SEPARATE symbol from the linker's
+        // POV, so we have to emit a helper-IR body for EACH variant.
+        // Otherwise the second/third call sites become unresolved
+        // imports (env.sub_<hex>.2) that wasm-ld passes through with
+        // --allow-undefined → JS Proxy noops them at runtime → the
+        // call silently returns 0 instead of (e.g.) allocating.
+        let name_part = &rest[..paren_idx];
+        // Hex digits, optionally followed by `.N` where N is decimal.
+        let (hex_part, suffix) = match name_part.find('.') {
+            Some(dot) => (&name_part[..dot], &name_part[dot..]),
+            None => (name_part, ""),
+        };
         if !hex_part.chars().all(|c| c.is_ascii_hexdigit()) {
             continue;
         }
-        let sym = format!("sub_{}", hex_part);
+        if !suffix.is_empty()
+            && !suffix.trim_start_matches('.').chars().all(|c| c.is_ascii_digit())
+        {
+            continue;
+        }
+        let sym = format!("sub_{}{}", hex_part, suffix);
         if seen.insert(sym.clone()) {
             out.push(sym);
         }
@@ -1834,7 +1978,17 @@ fn branch_target_to_host_addr(
     fn_addr: usize,
     lift_addr: u64,
 ) -> Option<usize> {
-    let hex = sym_name.strip_prefix("sub_")?;
+    let rest = sym_name.strip_prefix("sub_")?;
+    // remill suffixes repeat call sites of the same bl target with
+    // `.N` (e.g. `sub_104bfa724.2` is the second call to __rust_alloc
+    // from the same function). The trailing `.N` is part of LLVM's
+    // IR-symbol-table dedup, NOT part of the address — strip it
+    // before parsing so all variants resolve to the same host addr
+    // (and the same classification + body emission).
+    let hex = match rest.find('.') {
+        Some(dot) => &rest[..dot],
+        None => rest,
+    };
     let raw = u64::from_str_radix(hex, 16).ok()?;
     let offset = raw.wrapping_sub(lift_addr) as i64 as isize;
     Some((fn_addr as isize).wrapping_add(offset) as usize)
@@ -1856,32 +2010,87 @@ fn branch_target_to_host_addr(
 /// the api.json fns are what we EXPECT to reach; if we hit something
 /// outside that surface, treat it as a leaf.
 pub fn is_recursable_dep(resolved_name: &str) -> bool {
-    // Reject explicit mangled prefixes first. These are common and
-    // cheap to check.
-    let mangled_prefixes = [
-        "_ZN",        // Itanium C++ ABI
-        "_R",         // Rust v0 ABI (also matches _RNvCs…)
-        "___rustc",   // rustc internals (with macOS leading _)
-        "__rustc",
-        "__rust_",    // __rust_alloc etc. — handled by classify_branch_extern
-        "_dyld",
-        "_dispatch",
-        "_pthread",
-        "_objc_",
-    ];
-    for prefix in &mangled_prefixes {
+    // System libraries: dyld / dispatch / pthread / objc internals
+    // never make sense to lift. (libSystem in general; we'd never
+    // run their lifted bodies in the wasm world.)
+    let system_prefixes = ["_dyld", "_dispatch", "_pthread", "_objc_"];
+    for prefix in &system_prefixes {
         if resolved_name.starts_with(prefix) {
             return false;
         }
     }
 
-    // Reject single-leading-underscore C-internal symbols
-    // (`_main`, `_malloc`, `_memcpy`, etc.). These are libSystem
-    // functions whose bodies we don't want to lift — they'd pull in
-    // a huge libc surface.
+    // Rust v0 ABI compiler-internal symbols (`__rustc_*`,
+    // `_RNvCs..._7___rustc...`). Includes the no-op-shim +
+    // __rust_alloc, both of which have purpose-built helper-IR
+    // bodies (classify_branch_extern handles them).
+    if resolved_name.contains("___rustc") || resolved_name.contains("__rust_") {
+        return false;
+    }
+
+    // Itanium-mangled Rust internals: `_ZN<len><crate>...E`. The
+    // crate name is the FIRST length-prefixed identifier. Skip
+    // runtime crates whose call graphs explode (panic, formatting,
+    // allocator wiring) but DO recurse into our own crates
+    // (`azul_core`, `azul_css`, `azul_layout`, `webrender_*`) and
+    // any third-party crate the user might want lifted.
+    if let Some(rest) = resolved_name.strip_prefix("_ZN") {
+        // Parse the first length-prefixed identifier.
+        let mut digits = 0usize;
+        for c in rest.chars() {
+            if c.is_ascii_digit() {
+                digits += 1;
+            } else {
+                break;
+            }
+        }
+        if digits > 0 {
+            if let Ok(len) = rest[..digits].parse::<usize>() {
+                let name_start = digits;
+                let name_end = name_start + len;
+                if name_end <= rest.len() {
+                    let crate_name = &rest[name_start..name_end];
+                    // Known-noisy runtime crates that we never want
+                    // to follow into.
+                    let runtime_crates = [
+                        "core",
+                        "std",
+                        "alloc",
+                        "compiler_builtins",
+                        "panic_abort",
+                        "panic_unwind",
+                        "rustc_demangle",
+                        "backtrace",
+                        "addr2line",
+                        "gimli",
+                        "object",
+                        "miniz_oxide",
+                    ];
+                    if runtime_crates.iter().any(|c| *c == crate_name) {
+                        return false;
+                    }
+                    // Anything else (incl. azul_*, webrender_*,
+                    // serde_*) — recurse.
+                    return true;
+                }
+            }
+        }
+        // Couldn't parse — be conservative and skip.
+        return false;
+    }
+
+    // Rust v0 mangling (`_RNvCs...`). The crate identifier is harder
+    // to extract; for now, skip these conservatively. Most rustc
+    // internals manifest as `_RNvCs<hash>_7___rustc<...>` which the
+    // contains("___rustc") check above already handles. Other v0
+    // names are rare in our lift path.
+    if resolved_name.starts_with("_R") {
+        return false;
+    }
+
+    // C-internal libSystem entry points (`_main`, `_malloc`,
+    // `_memcpy`, …) — leading `_` + lowercase, not `Az`-prefixed.
     if let Some(rest) = resolved_name.strip_prefix('_') {
-        // Az-prefixed symbols on macOS may have a leading underscore
-        // added by the linker (e.g. `_AzRefAny_clone`) — allow those.
         if !rest.starts_with("Az") {
             return false;
         }
@@ -1956,12 +2165,25 @@ pub fn classify_branch_extern(resolved_name: &str) -> BranchExternKind {
 #[derive(Debug, Clone)]
 pub struct ResolvedBranchExtern {
     /// The raw `sub_<hex>` name as it appears in the lifted IR's
-    /// `declare` line.
+    /// `declare` line. The `<hex>` is the bl-target address in lift
+    /// space — i.e. the user-binary instruction address (which on
+    /// macOS arm64 is often a `__TEXT.__stubs` PLT trampoline).
     pub sym_name: String,
     /// Classification driving the body shape. Determined by
     /// dladdr-resolving `sym_name` then calling
     /// [`classify_branch_extern`] on the result.
     pub kind: BranchExternKind,
+    /// Host-binary address the bl actually lands at AFTER any
+    /// PLT-stub chase. `Some(real_addr)` when the stub trampoline
+    /// resolution flipped the target (e.g. user-binary stub →
+    /// libazul `AzRefAny_isType`); `None` when the parse failed or
+    /// when the bl target was already a real symbol with no stub
+    /// in between. emit_helper_ir uses this to synthesize a thunk
+    /// `sub_<stub_addr> -> tail-call sub_<real_addr>` so the
+    /// lifted real body (defined at `sub_<real_addr>` by the
+    /// recursive lift) is reachable from the caller's
+    /// `call sub_<stub_addr>` site.
+    pub real_addr: Option<usize>,
 }
 
 fn run_tool(prog: &Path, args: &[&str], fn_name: &str) -> Result<(), TranspileError> {

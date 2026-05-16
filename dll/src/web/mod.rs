@@ -42,6 +42,7 @@ pub const EVENTLOOP_SYMBOLS: &[&str] = &[
     "AzStartup_alloc",
     "AzStartup_free",
     "AzStartup_init",
+    "AzStartup_hydrate",
     "AzStartup_dispatchEvent",
     "AzStartup_registerStateDeserializer",
 ];
@@ -171,10 +172,16 @@ pub struct FnPtrSymbol {
 
 /// Conservative byte window the lift pipeline reads starting at the
 /// resolved symbol address. arm64 instructions are 4 bytes each, so
-/// 256 bytes = 64 instructions — comfortable headroom for any leaf
-/// callback (and large enough on x86-64 to cover any reasonable
-/// prologue + body too, since remill stops at the first `ret`).
-const LIFT_READ_WINDOW: usize = 256;
+/// 4 KiB = 1024 instructions — comfortable headroom for the longest
+/// libazul functions we lift (AzStartup_hydrate is ~400B; some
+/// recursive-lift deps in azul-core go past 1KB). remill stops at
+/// the first `ret` so over-reading into the next function's
+/// prologue is harmless.
+///
+/// Was 256 (covered hello-world's leaf cb but truncated multi-Box
+/// helpers like AzStartup_hydrate mid-function — the lift returned
+/// stale values from the alloc dance instead of the final Box ptr).
+const LIFT_READ_WINDOW: usize = 4096;
 
 /// macOS arm64: if `addr` points at a `__TEXT.__stubs` PLT trampoline
 /// (`adrp x16, GOT_PAGE ; ldr x16, [x16, GOT_OFF] ; br x16`), parse

@@ -49,9 +49,12 @@
 
 use std::alloc::{alloc, dealloc, Layout};
 use std::collections::BTreeMap;
+use std::ffi::c_void;
+use std::sync::atomic::AtomicUsize;
 
-use azul_core::refany::RefAny;
+use azul_core::refany::{RefAny, RefCount, RefCountInner};
 use azul_core::styled_dom::StyledDom;
+use azul_css::AzString;
 
 // =====================================================================
 // Event-format spec (Q5 decision: fixed 256-byte buffer per dispatch).
@@ -250,6 +253,109 @@ pub unsafe extern "C" fn AzStartup_init(_json_ptr: u32, _json_len: u32) -> u32 {
         cb_fn_cache: BTreeMap::new(),
     });
     Box::into_raw(state) as usize as u32
+}
+
+/// Server-side no-op destructor used by [`AzStartup_hydrate`]'s
+/// synthesized `RefCountInner`. The hydrated RefAny lives for the
+/// life of the wasm instance, so the destructor is never invoked in
+/// practice (run_destructor is set to `false`). The fn-pointer slot
+/// still needs to hold a valid address for the Rust struct to be
+/// constructible — this is that address.
+extern "C" fn hydrate_noop_destructor(_ptr: *mut c_void) {}
+
+/// Build a wasm-side `RefAny` from a raw type_id + data buffer.
+///
+/// Called by loader.js at bootstrap (after `AzStartup_init`):
+///   1. JS allocates `data_size` bytes via [`AzStartup_alloc`].
+///   2. JS writes the user's data bytes (e.g. the `MyDataModel`
+///      counter int) into that buffer.
+///   3. JS calls `AzStartup_hydrate(type_id_lo, type_id_hi, data_ptr,
+///      data_size)` and gets back a wasm offset pointing to a fully
+///      constructed `AzRefAny` (sharing_info → RefCountInner →
+///      user data).
+///
+/// All allocations route through `__rust_alloc` (the M8.4c bump
+/// allocator), so the returned pointer is a valid wasm32 offset and
+/// every deref the lifted callback does lands in linear memory at
+/// AArch64-layout positions (Box::new writes the struct using the
+/// real Rust types, so the field offsets automatically match what
+/// the lifted body expects).
+///
+/// `run_destructor` is `false` because the wasm instance never tears
+/// down the hydrated RefAny — there's nothing to drop.
+///
+/// type_id is split into two u32 halves so JS doesn't have to BigInt
+/// the arg (and the lift wrapper doesn't need a 64-bit param slot,
+/// which the current `Pcs::Wreg`-only sig table can't represent).
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_hydrate(
+    type_id_lo: u32,
+    type_id_hi: u32,
+    data_ptr: u32,
+    data_size: u32,
+) -> u32 {
+    let type_id: u64 = (type_id_lo as u64) | ((type_id_hi as u64) << 32);
+    if data_size == 0 || data_ptr == 0 {
+        return 0;
+    }
+
+    // M8.7c-3 lift constraint: don't use `Box::new(StructLiteral)`
+    // because the struct-literal codegen loads `sizeof::<T>()` +
+    // `alignof::<T>()` from an arm64 const pool (`adrp+ldr`), and
+    // those loads don't lift (the wasm offset doesn't correspond to
+    // anywhere wasm-ld emitted the constant). Instead allocate fixed
+    // upper-bound sizes via the existing AzStartup_alloc path
+    // (whose size arg comes from a register-passed u32) and write
+    // fields one at a time via plain field assignment, which lifts
+    // to direct offset stores.
+    //
+    // 128 bytes covers RefCountInner (~112B) with 16B padding;
+    // 32 bytes covers AzRefAny (24B) aligned up.
+    let inner_ptr_u32 = AzStartup_alloc(128);
+    let refany_ptr_u32 = AzStartup_alloc(32);
+    if inner_ptr_u32 == 0 || refany_ptr_u32 == 0 {
+        return 0;
+    }
+
+    let inner = inner_ptr_u32 as usize as *mut RefCountInner;
+    let refany = refany_ptr_u32 as usize as *mut RefAny;
+
+    // RefCountInner. Field writes are direct stores at known offsets
+    // — no struct literal, no Box::new.
+    (*inner)._internal_ptr = data_ptr as usize as *const c_void;
+    // AtomicUsize is `#[repr(transparent)]` over UnsafeCell<usize>;
+    // writing a fresh value via assignment is equivalent to
+    // AtomicUsize::new() + the lift sees a simple word store.
+    core::ptr::write(
+        core::ptr::addr_of_mut!((*inner).num_copies),
+        AtomicUsize::new(1),
+    );
+    core::ptr::write(
+        core::ptr::addr_of_mut!((*inner).num_refs),
+        AtomicUsize::new(0),
+    );
+    core::ptr::write(
+        core::ptr::addr_of_mut!((*inner).num_mutable_refs),
+        AtomicUsize::new(0),
+    );
+    (*inner)._internal_len = data_size as usize;
+    (*inner)._internal_layout_size = data_size as usize;
+    (*inner)._internal_layout_align = 8;
+    (*inner).type_id = type_id;
+    core::ptr::write(
+        core::ptr::addr_of_mut!((*inner).type_name),
+        AzString::from_const_str(""),
+    );
+    (*inner).custom_destructor = hydrate_noop_destructor;
+    (*inner).serialize_fn = 0;
+    (*inner).deserialize_fn = 0;
+
+    // AzRefAny.
+    (*refany).sharing_info.ptr = inner as *const RefCountInner;
+    (*refany).sharing_info.run_destructor = false;
+    (*refany).instance_id = 0;
+
+    refany_ptr_u32
 }
 
 /// Record the user-supplied `<Type>_fromJson` fn-pointer on the App
