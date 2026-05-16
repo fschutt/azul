@@ -73,6 +73,14 @@ cfg-if = { version = "1.0", optional = true }
 # Brotli decompression for embedded compressed assets (web backend api.json)
 brotli-decompressor = { version = "5", default-features = false, features = ["std"], optional = true }
 
+# Mach-O / ELF / PE parsing for the web-transpiler SymbolTable. Wraps
+# every platform under one `goblin::Object::parse` call, so the
+# SymbolTable's macOS / Linux backends share most of their code.
+# (Default features include elf32/elf64/mach32/mach64/pe32/pe64; some
+# of goblin's internal macros reference elf32 even when only elf64 is
+# wanted, so defaults are the path of least friction.)
+goblin = { version = "0.10", optional = true }
+
 # Custom allocators — use these to aggressively return freed pages to the OS.
 # Thanks to the C API boundary, the azul library can use a different allocator
 # than the binary linking against it, so enabling these only affects azul's
@@ -332,7 +340,7 @@ web = [
 # `web` build stays dependency-free and the transpile step's position in
 # the web.md flow (build-time, first-request, lazy-per-callback) stays a
 # caller decision rather than a hard-wired pipeline stage.
-web-transpiler = ["web"]
+web-transpiler = ["web", "dep:goblin"]
 
 # -----------------------------------------------------------------------------
 # Accessibility

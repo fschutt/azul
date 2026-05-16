@@ -29,6 +29,7 @@
 //! server-side dispatch.
 
 use super::transpiler::{TranspileError, Transpiler, WasmModule};
+use super::symbol_table::{self, FnClass as SymFnClass};
 use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -367,6 +368,19 @@ pub struct RemillTranspiler {
     /// Output scratch directory; defaults to
     /// `$TMPDIR/azul-web-transpiler-<pid>`. Created on first lift call.
     scratch_dir: PathBuf,
+    /// Per-`(canonical_addr, export_as)` cache of produced .o files.
+    /// Without this, the recursive transitive lift redoes work for
+    /// every callback that shares deps — layout cb and on_click both
+    /// drag in AzRefCount_clone, AzRefAny_isType, …; each per-cb
+    /// transitive walk re-spawned remill+opt+llc+llvm-link for the
+    /// same fn. The cache makes the layout-cb lift's 40+ deps lift
+    /// once globally instead of once per callback that needs them.
+    /// Keyed by (canonical_addr, export_as) because the same fn can
+    /// be exported under different names (root → `callback`, dep →
+    /// `__az_dep_<addr>`) and the produced .o's export differs.
+    object_cache: std::sync::Mutex<
+        std::collections::HashMap<(usize, String), PathBuf>,
+    >,
 }
 
 impl RemillTranspiler {
@@ -382,6 +396,7 @@ impl RemillTranspiler {
             llvm_link: discover_llvm_link(),
             wasm_ld: discover_wasm_ld(),
             scratch_dir,
+            object_cache: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -439,23 +454,20 @@ impl RemillTranspiler {
         // function in this process's .text. Reading is read-only and
         // bounded by `fn_size`; the slice is consumed before any other
         // operation that could remap memory.
-        let raw_bytes: Vec<u8> = unsafe {
+        //
+        // M8.8 Stage 1: the SymbolTable's `bytes` field is the exact
+        // slice for this entry — derived from
+        // `next_symbol_addr - this_addr` at table-build, not the
+        // pre-M8.8 flat 4 KiB window. When the table isn't installed
+        // (early-boot, build error), `fn_size` is the legacy flat
+        // window per `LIFT_READ_WINDOW`.
+        let bytes: Vec<u8> = unsafe {
             std::slice::from_raw_parts(fn_addr as *const u8, fn_size).to_vec()
         };
-        // Tail-call wrapper detection (macOS arm64): C-ABI shims in
-        // libazul are commonly compiled as a single `b <inner>`
-        // (unconditional branch to a Rust internal). remill lifts
-        // this as `__remill_missing_block` and returns immediately,
-        // leaving X0 unchanged — the wrapper looks like a no-op
-        // identity function (returns arg0).
-        //
-        // Fix: rewrite the prologue from `b imm26` (encoding 0x14...)
-        // to `bl imm26` + `ret` (encodings 0x94... + 0xD65F03C0).
-        // This is a 4→8-byte transformation that turns the tail call
-        // into a regular call+return, which remill lifts as
-        // `call sub_<target>; ret`. The PLT-stub/thunk fix-up then
-        // makes sure the target resolves to the inner's lifted body.
-        let bytes = rewrite_tailcall_wrapper(&raw_bytes);
+        // `rewrite_tailcall_wrapper` deleted in M8.8 Stage 1. Bare-`b`
+        // tail-call shims are now classified as `SymKind::Stub` at
+        // table-build time and chained through to the real callee, so
+        // `fn_addr` here points at the target's body, not the shim.
 
         let arch_tag = host_arch_tag().ok_or_else(|| TranspileError {
             fn_name: fn_name.to_string(),
@@ -511,10 +523,44 @@ impl RemillTranspiler {
         //    size reduction: 50-80%.
         //
         // 5. `llc -mtriple=wasm32` on the cleaned IR.
-        let lifted_ir = std::fs::read_to_string(&lifted_ir_path).map_err(|e| TranspileError {
-            fn_name: fn_name.to_string(),
-            reason: format!("read lifted IR: {e}"),
+        let raw_lifted_ir = std::fs::read_to_string(&lifted_ir_path).map_err(|e| {
+            TranspileError {
+                fn_name: fn_name.to_string(),
+                reason: format!("read lifted IR: {e}"),
+            }
         })?;
+
+        // M8.8 Stage 1: rewrite every `@sub_<hex>[.N]` token to use
+        // the symbol's canonical post-PLT-chase address as its hex.
+        // Eliminates the `.N` suffix (every call site to the same
+        // callee dedupes to one canonical name), the PLT-stub thunk
+        // mismatch (caller sees the same name the dep lift defined
+        // under), and bare-`b` shim mismatches (table chain
+        // pre-redirects the shim → target). See module docs.
+        //
+        // Follow-up dedup pass: when the rewriter collapses two
+        // originally-distinct externs (`sub_<addr>` and
+        // `sub_<addr>.2`) to the same canonical name, the IR ends up
+        // with two identical `declare ptr @sub_<canonical>(...)`
+        // lines. llvm-link rejects that as a redefinition. The dedup
+        // pass collapses repeated declares to one.
+        let lifted_ir = match symbol_table::get() {
+            Some(table) => {
+                let rewritten =
+                    rewrite_sub_names_to_canonical(&raw_lifted_ir, table, fn_addr, lift_addr);
+                dedup_sub_declares(&rewritten)
+            }
+            None => raw_lifted_ir,
+        };
+
+        // The entry's defn after rewrite uses fn_addr as its hex
+        // (since the dispatcher pre-chases the chain, fn_addr IS the
+        // canonical address). Pass fn_addr to inject_alwaysinline so
+        // it finds the right `define` line.
+        let canonical_entry_addr = symbol_table::get()
+            .and_then(|t| t.canonical_addr_for(fn_addr))
+            .unwrap_or(fn_addr) as u64;
+
         // For AzStartup_* eventloop functions we deliberately do NOT
         // inject alwaysinline on the lifted body. Reason: with
         // alwaysinline, opt -O2 inlines the lifted body into the
@@ -536,7 +582,7 @@ impl RemillTranspiler {
         let patched_ir = if export_as.starts_with("AzStartup_") {
             lifted_ir.clone()
         } else {
-            inject_alwaysinline(&lifted_ir, lift_addr)
+            inject_alwaysinline(&lifted_ir, canonical_entry_addr)
         };
         let patched_ir_path = self.scratch_dir.join(format!("{}.patched.ll", stem));
         std::fs::write(&patched_ir_path, &patched_ir).map_err(|e| TranspileError {
@@ -555,57 +601,42 @@ impl RemillTranspiler {
         // and the caller would route per kind via
         // `signature_for_callback_kind`.
         //
-        // M7: parse branch-destination externs from the lifted IR.
-        // remill emits each `bl <target>` whose destination is
-        // outside the byte map as a `declare ptr @sub_<hex>(...)`.
-        // The `<hex>` is the low 32 bits of the lift-space target
-        // (sign-extended to i32 → relative offset from lift_addr).
-        // To recover the host-binary address:
-        //   host_target = fn_addr + signed_i32(hex)
-        // dladdr-resolve each host_target → symbol name. The symbol
-        // table tells us which framework function the lift was about
-        // to call (`AzDom_addChild`, `AzString_clone`, …); M8 will
-        // route those to typed externs from `azul-mini.wasm`. For
-        // M7 we emit noop stubs so the imports disappear from the
-        // produced WASM (currently the JS-side Proxy noops them at
-        // load time; now the WASM is self-contained).
+        // M8.8 Stage 1: parse `declare ptr @sub_<hex>` lines from the
+        // post-rewrite IR. Each `<hex>` is now the symbol's canonical
+        // address (PLT-chased, stub-shim-chased). The helper IR
+        // generator looks up each address in the SymbolTable and
+        // emits the body shape that matches the classification —
+        // BumpAlloc bumps, CallIndirect bridges, ResolveCallback
+        // bridges to JS, Leaf noops, Recursable gets no body (the
+        // recursive walker provides it from a sibling .o).
         let branch_sym_names = parse_extern_sub_declares(&lifted_ir);
         let mut resolved_branches: Vec<ResolvedBranchExtern> =
             Vec::with_capacity(branch_sym_names.len());
         for sym_name in &branch_sym_names {
-            let (kind, resolved_addr) = if let Some(host_addr) =
-                branch_target_to_host_addr(sym_name, fn_addr, lift_addr)
-            {
-                let resolved = super::resolve_fn_ptr(host_addr);
-                let kind = classify_branch_extern(&resolved.name);
-                eprintln!(
-                    "[azul-web]   intercept: {} → host=0x{:016x} = {} (real=0x{:016x}) [{:?}]",
-                    sym_name, host_addr, resolved.name, resolved.addr, kind,
-                );
-                // Stub→real fixup: when dladdr resolved a PLT trampoline
-                // address to a different real symbol address, we need
-                // the lifted body of the dep to be reachable from a
-                // sub_<stub_addr> name (which is what the caller's IR
-                // declares). The dep is lifted at lift_addr=real_addr
-                // (see lift_with_transitive_deps), so its body is
-                // defined as `sub_<real_addr>`. Carry the real addr
-                // through so emit_helper_ir can emit a thunk
-                // `sub_<stub_addr> -> tail-call sub_<real_addr>`.
-                (kind, Some(resolved.addr))
-            } else {
-                eprintln!(
-                    "[azul-web]   intercept: {} (lift-space addr parse failed)",
-                    sym_name
-                );
-                (BranchExternKind::Noop, None)
-            };
+            let addr = parse_sub_hex_as_addr(sym_name).unwrap_or(0);
+            let classification = symbol_table::get()
+                .and_then(|t| t.lookup(addr))
+                .map(|e| e.classification);
+            eprintln!(
+                "[azul-web]   intercept: {} → addr=0x{:016x} class={:?}",
+                sym_name, addr, classification,
+            );
             resolved_branches.push(ResolvedBranchExtern {
                 sym_name: sym_name.clone(),
-                kind,
-                real_addr: resolved_addr,
+                classification,
             });
         }
-        let helper_ir = emit_helper_ir(lift_addr, sig, &resolved_branches, export_as);
+        // Helper IR's entry-call references must use the canonical
+        // entry address, NOT lift_addr — the lifted IR's defn after
+        // rewrite is `define ptr @sub_<canonical_entry_addr_hex>`,
+        // and the per-cb path uses a synthetic lift_addr of
+        // 0x100000000 that wouldn't match.
+        let helper_ir = emit_helper_ir(
+            canonical_entry_addr,
+            sig,
+            &resolved_branches,
+            export_as,
+        );
         let helper_ir_path = self.scratch_dir.join(format!("{}.helper.ll", stem));
         std::fs::write(&helper_ir_path, &helper_ir).map_err(|e| TranspileError {
             fn_name: fn_name.to_string(),
@@ -812,15 +843,14 @@ impl RemillTranspiler {
         roots: Vec<TransitiveLiftRoot>,
     ) -> Result<WasmModule, TranspileError> {
         // Hard cap on the number of functions a single root's
-        // transitive closure can pull in. Tightened from 256 because
-        // a naïve walk into the Rust runtime (panic_fmt → formatting
-        // → printf-equivalents → …) snowballs past hundreds of fns
-        // and each remill subprocess takes seconds. The cap is paired
-        // with `is_recursable_dep` below, which already skips Rust /
-        // C++ runtime internals — so in practice we hit dozens of
-        // fns, not hundreds. 64 leaves slack while still aborting
-        // promptly on a runaway walk.
-        const MAX_RECURSIVE_DEPTH: usize = 64;
+        // transitive closure can pull in. Bumped from 64 → 256 in
+        // M8.8 once exact-size lifts surface the full layout-cb
+        // dependency graph (40+ azul-css / azul-core / azul-layout
+        // helpers around CssVec/DomVec/Dom clones+drops). With the
+        // per-canonical-addr `object_cache` below, repeat lifts of
+        // the same dep across multiple callbacks are O(1), so the
+        // cap is about call-graph fan-out, not throughput.
+        const MAX_RECURSIVE_DEPTH: usize = 256;
 
         let mut visited: HashSet<usize> = HashSet::new();
         let mut queue: VecDeque<TransitiveLiftTarget> = VecDeque::new();
@@ -866,15 +896,46 @@ impl RemillTranspiler {
             // symbols align without rewriting.
             let lift_addr = addr as u64;
 
-            eprintln!(
-                "[azul-web]   transitive[{}]: lifting {} addr=0x{:016x} \
-                 size={} export_as={}",
-                lifted_count, name, addr, size, export_as
-            );
-
-            let obj = self.produce_object_for(
-                &name, addr, size, &sig, &export_as, lift_addr,
-            )?;
+            // M8.8 perf: check the per-(addr, export_as) cache before
+            // running the (expensive) remill+opt+llc+llvm-link
+            // subprocess chain. Cross-callback dep sharing falls out
+            // for free — layout cb and on_click both pulling in
+            // AzRefCount_clone now reuse one .o instead of producing
+            // two identical ones.
+            let cache_key = (addr, export_as.clone());
+            let cached = self
+                .object_cache
+                .lock()
+                .unwrap()
+                .get(&cache_key)
+                .cloned();
+            let obj = match cached {
+                Some(p) => {
+                    eprintln!(
+                        "[azul-web]   transitive[{}]: cached {} addr=0x{:016x} → {}",
+                        lifted_count,
+                        name,
+                        addr,
+                        p.display()
+                    );
+                    p
+                }
+                None => {
+                    eprintln!(
+                        "[azul-web]   transitive[{}]: lifting {} addr=0x{:016x} \
+                         size={} export_as={}",
+                        lifted_count, name, addr, size, export_as
+                    );
+                    let produced = self.produce_object_for(
+                        &name, addr, size, &sig, &export_as, lift_addr,
+                    )?;
+                    self.object_cache
+                        .lock()
+                        .unwrap()
+                        .insert(cache_key, produced.clone());
+                    produced
+                }
+            };
             object_paths.push(obj);
             exports.push(export_as);
 
@@ -890,48 +951,60 @@ impl RemillTranspiler {
                     continue;
                 }
             };
-            for sym in parse_extern_sub_declares(&lifted_ir) {
-                let Some(host_addr) =
-                    branch_target_to_host_addr(&sym, addr, lift_addr)
-                else {
-                    eprintln!("[azul-web]     dep: {} (lift-space parse failed)", sym);
+            // M8.8 Stage 1: walk dep call sites via the post-rewrite
+            // IR. Each `sub_<hex>` is the dep's canonical address
+            // (PLT-chased, shim-chased) — no per-call lift-space
+            // arithmetic. SymbolTable classification drives the
+            // "recurse-or-skip" decision; only Recursable symbols
+            // get queued.
+            let rewritten_for_walk = match symbol_table::get() {
+                Some(table) => {
+                    rewrite_sub_names_to_canonical(&lifted_ir, table, addr, lift_addr)
+                }
+                None => lifted_ir.clone(),
+            };
+            for sym in parse_extern_sub_declares(&rewritten_for_walk) {
+                let Some(canonical_addr) = parse_sub_hex_as_addr(&sym) else {
+                    eprintln!("[azul-web]     dep: {} (canonical hex parse failed)", sym);
                     continue;
                 };
-                let resolved = super::resolve_fn_ptr(host_addr);
-                let kind = classify_branch_extern(&resolved.name);
-                let already_visited = visited.contains(&resolved.addr);
+                let entry = match symbol_table::get().and_then(|t| t.lookup(canonical_addr)) {
+                    Some(e) => e.clone(),
+                    None => {
+                        eprintln!(
+                            "[azul-web]     dep: {} addr=0x{:016x} not in SymbolTable — skipping",
+                            sym, canonical_addr,
+                        );
+                        continue;
+                    }
+                };
+                let already_visited = visited.contains(&entry.canonical_addr);
                 eprintln!(
-                    "[azul-web]     dep: {} → host=0x{:016x} resolved={}@0x{:016x} kind={:?} visited={}",
-                    sym, host_addr, resolved.name, resolved.addr, kind, already_visited,
+                    "[azul-web]     dep: {} → resolved={}@0x{:016x} class={:?} visited={}",
+                    sym,
+                    entry.canonical_name,
+                    entry.canonical_addr,
+                    entry.classification,
+                    already_visited,
                 );
                 if already_visited {
                     continue;
                 }
-                if !matches!(kind, BranchExternKind::Noop) {
-                    continue;
-                }
-                if resolved.name.starts_with("cb_") {
-                    continue;
-                }
-                if !is_recursable_dep(&resolved.name) {
-                    // Mangled Rust/C++ runtime internals (panic
-                    // machinery, libcore formatting, libunwind, ...)
-                    // have huge call graphs that don't terminate
-                    // cleanly within MAX_RECURSIVE_DEPTH and aren't
-                    // exercised by hello-world's happy path. Leave
-                    // them as the helper-IR noop body — if a panic
-                    // ever fires through one of these, the cb just
-                    // no-ops instead of asserting.
-                    eprintln!(
-                        "[azul-web]     dep: {} (resolved={}) skipped — runtime-internal",
-                        sym, resolved.name,
-                    );
+                if !entry.classification.is_recursable() {
+                    // Leaf / BumpAlloc / CallIndirect /
+                    // ResolveCallback / NeverLift: the helper IR
+                    // emits the right body. Don't recurse into the
+                    // dep's own call graph.
                     continue;
                 }
                 queue.push_back(TransitiveLiftTarget::Dep {
-                    name: resolved.name,
-                    addr: resolved.addr,  // use dladdr's symbol-start, not the bl target
-                    size: resolved.size,
+                    name: entry.canonical_name.clone(),
+                    addr: entry.canonical_addr,
+                    size: if entry.size > 0 {
+                        entry.size
+                    } else {
+                        super::LIFT_READ_WINDOW
+                    },
                 });
             }
         }
@@ -1370,39 +1443,11 @@ fn host_os_tag() -> &'static str {
     }
 }
 
-/// arm64-only: if the first 4 bytes are an `B <imm26>` unconditional
-/// branch (tail call), rewrite to `BL <imm26>` + `RET` so remill
-/// lifts as a regular call+return instead of bailing into
-/// `__remill_missing_block`.
-///
-/// `B`  encoding: `0b000101 imm26` → `0x14000000 | imm26`.
-/// `BL` encoding: `0b100101 imm26` → `0x94000000 | imm26` (same `imm26`,
-/// bit 31 set so the link-register save happens).
-/// `RET (x30)` encoding: `0xD65F03C0`.
-///
-/// On non-arm64 hosts (or when the first 4 bytes don't match), the
-/// input bytes are returned unchanged.
-fn rewrite_tailcall_wrapper(raw: &[u8]) -> Vec<u8> {
-    #[cfg(target_arch = "aarch64")]
-    {
-        if raw.len() >= 4 {
-            let first = u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]);
-            // Unconditional branch (B): bits 31..26 == 0b000101.
-            if (first >> 26) & 0x3F == 0b000101 {
-                let bl_word = first | 0x8000_0000;
-                let ret_word: u32 = 0xD65F_03C0;
-                let mut out = Vec::with_capacity(raw.len().max(8));
-                out.extend_from_slice(&bl_word.to_le_bytes());
-                out.extend_from_slice(&ret_word.to_le_bytes());
-                if raw.len() > 8 {
-                    out.extend_from_slice(&raw[8..]);
-                }
-                return out;
-            }
-        }
-    }
-    raw.to_vec()
-}
+// `rewrite_tailcall_wrapper` deleted in M8.8 Stage 1. Bare-`b imm26`
+// shims are detected at SymbolTable build time
+// (`symbol_table::detect_arm64_tail_shims`) and chained to their
+// target; `resolve_fn_ptr` chases the chain so the lifter sees the
+// target's bytes, not the shim's, and remill emits a real body.
 
 fn bytes_to_hex(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len() * 2);
@@ -1539,63 +1584,20 @@ fn emit_helper_ir(
     // azul-mini.wasm imports `memory` from JS with growth allowed.
     let mut branch_stubs = String::new();
     for ext in branch_externs {
-        match ext.kind {
-            BranchExternKind::Noop => {
-                // Three sub-cases:
-                //
-                // 1. Stub→real mismatch (PLT trampoline): emit a
-                //    thunk so the caller's `call sub_<stub_addr>`
-                //    reaches the body that the recursive lift
-                //    defined at `sub_<real_addr>`. The thunk is the
-                //    only thing produced under sub_<stub_addr>; the
-                //    real body's link comes from a sibling .o.
-                //
-                // 2. Stub == real (no PLT in between): don't emit a
-                //    body. wasm-ld pairs the call with whatever .o
-                //    defines sub_<addr> (typically the recursive
-                //    lift's per-dep object).
-                //
-                // 3. real_addr is None (parse failed) OR no lifted
-                //    body exists anywhere: wasm-ld leaves the
-                //    symbol as an `env.sub_<addr>` import that JS's
-                //    Proxy fallback satisfies with a no-op stub.
-                //
-                // alwaysinline is dropped here so opt -O2 keeps the
-                // call site intact for the linker to retarget.
-                if let Some(real_addr) = ext.real_addr {
-                    // Extract the stub-addr hex from the sym name.
-                    // sym_name is "sub_<hex>" or "sub_<hex>.N".
-                    let stub_hex = ext.sym_name
-                        .strip_prefix("sub_")
-                        .and_then(|s| s.split('.').next())
-                        .and_then(|h| u64::from_str_radix(h, 16).ok());
-                    if let Some(stub_addr) = stub_hex {
-                        if (stub_addr as usize) != real_addr {
-                            // Thunk: tail-call the real lifted body.
-                            // `linkonce_odr` so multiple callers
-                            // (each emitting their own thunk for the
-                            // same stub→real pair) dedupe at link.
-                            branch_stubs.push_str(&format!(
-                                "declare ptr @sub_{real:x}(ptr, i64, ptr)\n\
-                                 define linkonce_odr ptr @{stub_name}(ptr %state, i64 %pc, ptr %memory) {{\n  \
-                                   %r = musttail call ptr @sub_{real:x}(ptr %state, i64 %pc, ptr %memory)\n  \
-                                   ret ptr %r\n\
-                                 }}\n",
-                                real = real_addr as u64,
-                                stub_name = ext.sym_name,
-                            ));
-                            continue;
-                        }
-                    }
-                }
-                // Fall-through cases 2 and 3 — leave extern unresolved.
-                let _ = ext;
-            }
-            BranchExternKind::RustAlloc | BranchExternKind::RustAllocZeroed => {
-                // size = State.X0; align ignored (8-byte minimum).
-                // Bump @__bump_ptr; write old value to X0 (return).
+        // SSA-name suffix: derive from the sym_name's hex. After
+        // canonicalization there's no `.N` to strip, so a single
+        // address-based suffix is unique across call sites.
+        let n_suffix = ext.sym_name.as_str();
+        match ext.classification {
+            // Recursable: NO body — the recursive walker lifts this
+            // function in a sibling .o, and wasm-ld matches the
+            // sub_<canonical_addr_hex> defn to the sub_<canonical_addr_hex>
+            // declare automatically. Drop through to no-emission.
+            Some(SymFnClass::Recursable) => {}
+            // BumpAlloc: __rust_alloc / __rust_alloc_zeroed body.
+            Some(SymFnClass::BumpAlloc) => {
                 branch_stubs.push_str(&format!(
-                    "; bump-allocator body for {label}\n\
+                    "; bump-allocator body for {sym}\n\
                      define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) alwaysinline {{\n  \
                        %x0_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x0_off}\n  \
                        %size_{n} = load i64, ptr %x0_p_{n}, align 8\n  \
@@ -1610,16 +1612,11 @@ fn emit_helper_ir(
                        ret ptr %memory\n\
                      }}\n",
                     sym = ext.sym_name,
-                    label = match ext.kind {
-                        BranchExternKind::RustAlloc => "__rust_alloc",
-                        BranchExternKind::RustAllocZeroed => "__rust_alloc_zeroed",
-                        _ => unreachable!(),
-                    },
-                    n = ext.sym_name, // SSA-name suffix; sym names are unique per call site
+                    n = n_suffix,
                     x0_off = x0_off,
                 ));
             }
-            BranchExternKind::AzCallIndirect => {
+            Some(SymFnClass::CallIndirect) => {
                 // table_idx=X0(u32), refany_lo=X1(u64), refany_hi=X2(u64),
                 // info_ptr=X3(u32). Returns i32 in X0.
                 //
@@ -1651,14 +1648,14 @@ fn emit_helper_ir(
                        ret ptr %memory\n\
                      }}\n",
                     sym = ext.sym_name,
-                    n = ext.sym_name,
+                    n = n_suffix,
                     x0_off = x0_off,
                     x1_off = x0_off + 16,
                     x2_off = x0_off + 32,
                     x3_off = x0_off + 48,
                 ));
             }
-            BranchExternKind::AzResolveCallback => {
+            Some(SymFnClass::ResolveCallback) => {
                 // Read u64 fn_addr from State.X0. Call the JS-imported
                 // @__az_resolve_callback(i64 fn_addr) -> i32. Result
                 // goes into State.X0.
@@ -1688,9 +1685,48 @@ fn emit_helper_ir(
                        ret ptr %memory\n\
                      }}\n",
                     sym = ext.sym_name,
-                    n = ext.sym_name,
+                    n = n_suffix,
                     x0_off = x0_off,
                 ));
+            }
+            // Leaf: known-not-recursable (system libs, mangled Rust
+            // runtime). Emit a noop body so the symbol resolves at
+            // link time — avoids `env.sub_<hex>` imports that would
+            // otherwise require JS-side Proxy noops. The body
+            // returns memory unchanged + leaves State.X0 untouched
+            // (the lift's call site reads back whatever was there
+            // before, typically junk; safe for void/error returns).
+            Some(SymFnClass::Leaf) => {
+                branch_stubs.push_str(&format!(
+                    "; Leaf body for {sym} — noop, returns memory unchanged\n\
+                     define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) alwaysinline {{\n  \
+                       ret ptr %memory\n\
+                     }}\n",
+                    sym = ext.sym_name,
+                ));
+            }
+            // NeverLift: AzApp_run + other server-entry-points. Should
+            // never appear in a cb body; emit a trap so we hear about
+            // it loudly if it ever fires through.
+            Some(SymFnClass::NeverLift) => {
+                branch_stubs.push_str(&format!(
+                    "; NeverLift trap for {sym}\n\
+                     define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) {{\n  \
+                       unreachable\n\
+                     }}\n",
+                    sym = ext.sym_name,
+                ));
+            }
+            // No classification: the SymbolTable didn't have this
+            // address. Indicates an image we didn't enumerate, or a
+            // dynamically-resolved address. Leave as extern so
+            // wasm-ld emits an `env.sub_<hex>` import; the M8.8
+            // verification flags this as a coverage gap.
+            None => {
+                eprintln!(
+                    "[azul-web]   unclassified extern: {} — emitting env import",
+                    ext.sym_name
+                );
             }
         }
     }
@@ -1905,10 +1941,10 @@ define {ret_ty} @{export_as}({params}) {{
 /// `define`, not a `declare`). Returns the bare symbol names like
 /// `"sub_fffffda4"`.
 ///
-/// Plain text-grep is robust enough for this — remill's emitted IR
-/// uses a consistent declaration shape per `sub_<hex>` extern, one
-/// per line, with no comment artifacts that could trip a naïve
-/// matcher.
+/// **M8.8 Stage 1**: post-rewrite IR no longer carries `.N` suffix
+/// duplicates — `rewrite_sub_names_to_canonical` collapsed every
+/// reference to the same canonical address into one name. So this
+/// parser doesn't need the per-call-site dedup logic anymore.
 fn parse_extern_sub_declares(ir: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
@@ -1920,34 +1956,11 @@ fn parse_extern_sub_declares(ir: &str) -> Vec<String> {
         let Some(paren_idx) = rest.find('(') else {
             continue;
         };
-        // remill emits a fresh `declare` per call site when the same
-        // bl target appears multiple times in a function, suffixing
-        // with `.N` to dedupe within LLVM's IR-level symbol table:
-        //
-        //   declare ptr @sub_101d8a6e4(...)
-        //   declare ptr @sub_101d8a6e4.2(...)
-        //
-        // Each suffixed extern is a SEPARATE symbol from the linker's
-        // POV, so we have to emit a helper-IR body for EACH variant.
-        // Otherwise the second/third call sites become unresolved
-        // imports (env.sub_<hex>.2) that wasm-ld passes through with
-        // --allow-undefined → JS Proxy noops them at runtime → the
-        // call silently returns 0 instead of (e.g.) allocating.
-        let name_part = &rest[..paren_idx];
-        // Hex digits, optionally followed by `.N` where N is decimal.
-        let (hex_part, suffix) = match name_part.find('.') {
-            Some(dot) => (&name_part[..dot], &name_part[dot..]),
-            None => (name_part, ""),
-        };
+        let hex_part = &rest[..paren_idx];
         if !hex_part.chars().all(|c| c.is_ascii_hexdigit()) {
             continue;
         }
-        if !suffix.is_empty()
-            && !suffix.trim_start_matches('.').chars().all(|c| c.is_ascii_digit())
-        {
-            continue;
-        }
-        let sym = format!("sub_{}{}", hex_part, suffix);
+        let sym = format!("sub_{}", hex_part);
         if seen.insert(sym.clone()) {
             out.push(sym);
         }
@@ -1955,235 +1968,174 @@ fn parse_extern_sub_declares(ir: &str) -> Vec<String> {
     out
 }
 
-/// Recover the host-binary address a `sub_<hex>` branch destination
-/// points at. remill names branch destinations after the full
-/// lift-space target address, formatted as hex; the offset from the
-/// lift_addr base maps to the host binary as:
+/// Collapse repeated `declare ptr @sub_<hex>(...)` lines (one per
+/// distinct hex) — the rewriter's `.N`-suffix collapse leaves
+/// duplicates that llvm-link rejects as "invalid redefinition". This
+/// pass keeps the first declare and drops every subsequent one with
+/// the same hex; signatures match by construction since remill emits
+/// one shape per declare.
 ///
-///   host_target = fn_addr + (lift_space_target - lift_addr)
-///
-/// Note: remill sometimes emits only the low 32 bits (when the target
-/// is a relative branch within the lifted byte map) and sometimes the
-/// full 64-bit lift-space address (for cross-module / far calls like
-/// `__rust_alloc`). Treating the hex as `u64` and computing
-/// `wrapping_sub(lift_addr)` works in both cases: a low-32 hex like
-/// `0xfffffda4` minus `0x100000000` wraps to `-0x25c`, which is the
-/// expected backward branch offset; a 9+-char hex like
-/// `0x1000c3940` minus `0x100000000` is `0xc3940`, the forward
-/// (cross-module) offset.
-///
-/// Returns `None` if the hex doesn't parse as u64.
-fn branch_target_to_host_addr(
-    sym_name: &str,
-    fn_addr: usize,
-    lift_addr: u64,
-) -> Option<usize> {
-    let rest = sym_name.strip_prefix("sub_")?;
-    // remill suffixes repeat call sites of the same bl target with
-    // `.N` (e.g. `sub_104bfa724.2` is the second call to __rust_alloc
-    // from the same function). The trailing `.N` is part of LLVM's
-    // IR-symbol-table dedup, NOT part of the address — strip it
-    // before parsing so all variants resolve to the same host addr
-    // (and the same classification + body emission).
-    let hex = match rest.find('.') {
-        Some(dot) => &rest[..dot],
-        None => rest,
-    };
-    let raw = u64::from_str_radix(hex, 16).ok()?;
-    let offset = raw.wrapping_sub(lift_addr) as i64 as isize;
-    Some((fn_addr as isize).wrapping_add(offset) as usize)
-}
-
-/// Should the transitive walker enqueue this resolved dependency
-/// for its own lift pass?
-///
-/// We recurse into anything that looks like part of azul's C API
-/// surface (`Az*`) or a user-defined C function (no leading `_`,
-/// no path separators). Mangled Rust/C++ runtime fns
-/// (`_ZN4core9panicking…`, `_RNvCs…`, `___rustc…`) are left as
-/// helper-IR noops — their callgraphs explode past
-/// `MAX_RECURSIVE_DEPTH` and aren't exercised by the happy path of
-/// any realistic widget callback. If a panic ever fires through one
-/// of these the cb just silently no-ops, matching M3's stub behavior.
-///
-/// This is the dual of the user's pre-compile-all api.json walk:
-/// the api.json fns are what we EXPECT to reach; if we hit something
-/// outside that surface, treat it as a leaf.
-pub fn is_recursable_dep(resolved_name: &str) -> bool {
-    // System libraries: dyld / dispatch / pthread / objc internals
-    // never make sense to lift. (libSystem in general; we'd never
-    // run their lifted bodies in the wasm world.)
-    let system_prefixes = ["_dyld", "_dispatch", "_pthread", "_objc_"];
-    for prefix in &system_prefixes {
-        if resolved_name.starts_with(prefix) {
-            return false;
-        }
-    }
-
-    // Rust v0 ABI compiler-internal symbols (`__rustc_*`,
-    // `_RNvCs..._7___rustc...`). Includes the no-op-shim +
-    // __rust_alloc, both of which have purpose-built helper-IR
-    // bodies (classify_branch_extern handles them).
-    if resolved_name.contains("___rustc") || resolved_name.contains("__rust_") {
-        return false;
-    }
-
-    // Itanium-mangled Rust internals: `_ZN<len><crate>...E`. The
-    // crate name is the FIRST length-prefixed identifier. Skip
-    // runtime crates whose call graphs explode (panic, formatting,
-    // allocator wiring) but DO recurse into our own crates
-    // (`azul_core`, `azul_css`, `azul_layout`, `webrender_*`) and
-    // any third-party crate the user might want lifted.
-    if let Some(rest) = resolved_name.strip_prefix("_ZN") {
-        // Parse the first length-prefixed identifier.
-        let mut digits = 0usize;
-        for c in rest.chars() {
-            if c.is_ascii_digit() {
-                digits += 1;
-            } else {
-                break;
-            }
-        }
-        if digits > 0 {
-            if let Ok(len) = rest[..digits].parse::<usize>() {
-                let name_start = digits;
-                let name_end = name_start + len;
-                if name_end <= rest.len() {
-                    let crate_name = &rest[name_start..name_end];
-                    // Known-noisy runtime crates that we never want
-                    // to follow into.
-                    let runtime_crates = [
-                        "core",
-                        "std",
-                        "alloc",
-                        "compiler_builtins",
-                        "panic_abort",
-                        "panic_unwind",
-                        "rustc_demangle",
-                        "backtrace",
-                        "addr2line",
-                        "gimli",
-                        "object",
-                        "miniz_oxide",
-                    ];
-                    if runtime_crates.iter().any(|c| *c == crate_name) {
-                        return false;
-                    }
-                    // Anything else (incl. azul_*, webrender_*,
-                    // serde_*) — recurse.
-                    return true;
+/// The pass is scoped to `declare ptr @sub_<hex>` lines specifically
+/// to avoid mangling other LLVM IR (we DON'T want to dedup
+/// `define`s — that would silently drop the body).
+fn dedup_sub_declares(ir: &str) -> String {
+    let mut out = String::with_capacity(ir.len());
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for line in ir.lines() {
+        let trimmed = line.trim_start();
+        if let Some(rest) = trimmed.strip_prefix("declare ptr @sub_") {
+            if let Some(paren_idx) = rest.find('(') {
+                let hex_part = &rest[..paren_idx];
+                if hex_part.chars().all(|c| c.is_ascii_hexdigit())
+                    && !seen.insert(hex_part.to_string())
+                {
+                    // Already saw this declare — skip the duplicate.
+                    continue;
                 }
             }
         }
-        // Couldn't parse — be conservative and skip.
-        return false;
+        out.push_str(line);
+        out.push('\n');
     }
+    out
+}
 
-    // Rust v0 mangling (`_RNvCs...`). The crate identifier is harder
-    // to extract; for now, skip these conservatively. Most rustc
-    // internals manifest as `_RNvCs<hash>_7___rustc<...>` which the
-    // contains("___rustc") check above already handles. Other v0
-    // names are rare in our lift path.
-    if resolved_name.starts_with("_R") {
-        return false;
-    }
+/// Parse a `sub_<hex>` symbol name back into a host address. Returns
+/// `None` for malformed inputs. After
+/// `rewrite_sub_names_to_canonical`, every `sub_<hex>` reference in
+/// the IR uses the canonical address as its hex, so this is a direct
+/// host-address parser — no lift-space arithmetic needed.
+fn parse_sub_hex_as_addr(sym_name: &str) -> Option<usize> {
+    let hex = sym_name.strip_prefix("sub_")?;
+    usize::from_str_radix(hex, 16).ok()
+}
 
-    // C-internal libSystem entry points (`_main`, `_malloc`,
-    // `_memcpy`, …) — leading `_` + lowercase, not `Az`-prefixed.
-    if let Some(rest) = resolved_name.strip_prefix('_') {
-        if !rest.starts_with("Az") {
-            return false;
+/// Post-lift IR rewriter — Stage 1's load-bearing change.
+///
+/// Walks every `@sub_<hex>[.N]` token in the lifted IR and rewrites
+/// it to `@sub_<canonical_addr_hex>` based on the SymbolTable's
+/// chain map. This single pass dissolves four pre-M8.8 problems:
+///
+///   1. **`.N` suffix dedup** — remill emits `sub_<addr>.2`,
+///      `sub_<addr>.3`, … for repeat call sites of the same `bl`
+///      target. The pre-M8.8 path emitted a separate helper-IR
+///      body per `.N` to keep wasm-ld from leaving them as imports.
+///      Post-rewrite, every `.N` collapses to the same canonical
+///      name — wasm-ld dedupes naturally.
+///
+///   2. **PLT-stub thunk mismatch** — caller's IR previously said
+///      `sub_<stub_addr>` while the dep's lifted body was defined
+///      as `sub_<real_addr>`. The pre-M8.8 path emitted a
+///      `linkonce_odr` thunk `sub_<stub_addr> → musttail
+///      sub_<real_addr>` to bridge. Post-rewrite, the chain map
+///      pre-canonicalizes the caller's reference to `sub_<real_addr>`
+///      and wasm-ld matches the dep's defn directly.
+///
+///   3. **Bare-`b imm26` tail-call shims** — same as PLT stubs but
+///      detected at the byte level. SymbolTable's
+///      `detect_arm64_tail_shims` populates the chain map for
+///      these; the rewriter applies it.
+///
+///   4. **`lift_addr` arithmetic** — `branch_target_to_host_addr`
+///      computed `host_target = fn_addr + (lift_target - lift_addr)`
+///      at every callsite. The rewriter centralizes this so
+///      downstream helpers operate in canonical-address space only.
+///
+/// Reference form:
+///
+///   `@sub_<hex>`     — entry defn, branch declare/call, etc.
+///   `@sub_<hex>.<N>` — remill's per-call-site dedup variant
+///
+/// where `<hex>` is hexadecimal and `<N>` is decimal. The rewriter
+/// matches both shapes and emits `@sub_<canonical_addr_hex>` (no
+/// `.N`). Tokens with non-hex bodies are left intact (rare; some
+/// helper-IR names like `@__remill_*` start with `@` but the
+/// `sub_` prefix discriminator keeps them out of the match).
+fn rewrite_sub_names_to_canonical(
+    ir: &str,
+    table: &symbol_table::SymbolTable,
+    fn_addr: usize,
+    lift_addr: u64,
+) -> String {
+    let mut out = String::with_capacity(ir.len() + 128);
+    let bytes = ir.as_bytes();
+    let mut cursor = 0;
+    while let Some(rel) = ir[cursor..].find("@sub_") {
+        let abs = cursor + rel;
+        out.push_str(&ir[cursor..abs]);
+        // Now at "@sub_". Consume the prefix.
+        let hex_start = abs + 5;
+        let mut j = hex_start;
+        while j < bytes.len() && bytes[j].is_ascii_hexdigit() {
+            j += 1;
         }
+        if j == hex_start {
+            // Not a real `@sub_<hex>` — emit prefix verbatim and advance.
+            out.push_str("@sub_");
+            cursor = hex_start;
+            continue;
+        }
+        let hex_end = j;
+        let mut end = hex_end;
+        // Optional `.<N>` decimal suffix — consume so the rewrite
+        // collapses `.N` variants to the same canonical name.
+        if end + 1 < bytes.len() && bytes[end] == b'.' {
+            let suffix_start = end + 1;
+            let mut m = suffix_start;
+            while m < bytes.len() && bytes[m].is_ascii_digit() {
+                m += 1;
+            }
+            if m > suffix_start {
+                end = m;
+            }
+        }
+        let hex = &ir[hex_start..hex_end];
+        match u64::from_str_radix(hex, 16) {
+            Ok(raw) => {
+                // Map lift-space hex → host addr.
+                let offset = raw.wrapping_sub(lift_addr) as i64 as isize;
+                let host_addr = (fn_addr as isize).wrapping_add(offset) as usize;
+                let canonical_addr = table
+                    .canonical_addr_for(host_addr)
+                    .unwrap_or(host_addr);
+                out.push_str(&format!("@sub_{:x}", canonical_addr));
+            }
+            Err(_) => {
+                // Hex didn't parse — leave the original token intact.
+                out.push_str(&ir[abs..end]);
+            }
+        }
+        cursor = end;
     }
-
-    true
+    out.push_str(&ir[cursor..]);
+    out
 }
 
-/// Classification of a resolved branch-extern symbol — drives the
-/// helper-IR body emit choice (noop vs. bump allocator vs. ...).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BranchExternKind {
-    /// Default: emit a body that returns the memory token unchanged
-    /// (no state mutation, no allocation).
-    Noop,
-    /// `__rust_alloc(size, align) -> ptr` — emit a body that reads
-    /// `size` from State.X0, bumps `@__bump_ptr` by it (8-byte
-    /// aligned), writes the old `@__bump_ptr` value back to State.X0.
-    RustAlloc,
-    /// `__rust_alloc_zeroed` — same as RustAlloc since wasm linear
-    /// memory is zero-initialized and bump never reuses memory.
-    RustAllocZeroed,
-    /// `__az_call_indirect(table_idx, refany_lo, refany_hi, info_ptr)
-    /// -> i32` — emit a body that reads the four args from State.X0-X3
-    /// and does a wasm `call_indirect` via `inttoptr i32 %tidx to ptr`
-    /// + a typed `call i32 %fn(i64, i64, i32)`. The LLVM wasm backend
-    /// lowers the inttoptr+call combination to `call_indirect` using
-    /// `__indirect_function_table` (imported from JS).
-    AzCallIndirect,
-    /// `__az_resolve_callback(cb_fn_addr_u64) -> i32` — wasm-side
-    /// import resolved by JS. Helper IR doesn't emit a body; instead
-    /// it leaves the lifted-site call hooked to the JS import.
-    AzResolveCallback,
-}
+// `BranchExternKind` + `classify_branch_extern` deleted in M8.8
+// Stage 1. The SymbolTable's `FnClass` is the unified classification;
+// `symbol_table::classify_for_name` does the suffix matching against
+// `rust_alloc` / `az_call_indirect` / `az_resolve_callback` once at
+// table build time. Every lift consumer reads
+// `entry.classification` (already populated) instead of redoing the
+// regex per call site.
 
-/// Classify a dladdr-resolved symbol name into one of the
-/// known-special bodies. Returns `Noop` for any name not in the
-/// special set.
+/// Per-extern resolution info passed to [`emit_helper_ir`].
 ///
-/// Symbol-name shapes we have to handle:
-///   - Bare `__rust_alloc` (some Linux setups, custom builds).
-///   - macOS-prefixed `___rust_alloc` (leading underscore added).
-///   - Rust v0 mangled name like
-///     `_RNvCs5r5JX3umY3f_7___rustc12___rust_alloc` where the bare
-///     name is the trailing length-prefixed identifier.
-///
-/// Suffix-matching after trimming leading underscores covers all
-/// three shapes. `rust_alloc_zeroed` is checked first because
-/// `ends_with("rust_alloc")` would otherwise match the zeroed name's
-/// substring. `rust_no_alloc_shim_is_unstable_v2` (the rustc-emit
-/// shim that signals "allocator is real, not the no-op stub") does
-/// NOT contain `rust_alloc` as a suffix so it falls through to Noop
-/// correctly.
-pub fn classify_branch_extern(resolved_name: &str) -> BranchExternKind {
-    let s = resolved_name.trim_start_matches('_');
-    if s.ends_with("rust_alloc_zeroed") {
-        BranchExternKind::RustAllocZeroed
-    } else if s.ends_with("rust_alloc") {
-        BranchExternKind::RustAlloc
-    } else if s == "az_call_indirect" || s.ends_with("az_call_indirect") {
-        BranchExternKind::AzCallIndirect
-    } else if s == "az_resolve_callback" || s.ends_with("az_resolve_callback") {
-        BranchExternKind::AzResolveCallback
-    } else {
-        BranchExternKind::Noop
-    }
-}
-
-/// Per-extern resolution info passed to [`emit_helper_ir`] so it can
-/// emit per-symbol bodies (bump allocator for `__rust_alloc`, noop
-/// for everything else).
+/// **M8.8 Stage 1**: the structure collapsed from three fields to two
+/// once the SymbolTable handles PLT-stub chasing and `.N`-suffix
+/// dedup. The helper IR now drives body shape directly off
+/// `classification` (`SymFnClass`). `None` classification means the
+/// table didn't know about this address — log loudly, emit no body,
+/// let it become an env import.
 #[derive(Debug, Clone)]
 pub struct ResolvedBranchExtern {
-    /// The raw `sub_<hex>` name as it appears in the lifted IR's
-    /// `declare` line. The `<hex>` is the bl-target address in lift
-    /// space — i.e. the user-binary instruction address (which on
-    /// macOS arm64 is often a `__TEXT.__stubs` PLT trampoline).
+    /// The `sub_<canonical_addr_hex>` name as it appears in the
+    /// rewritten lifted IR. The `<hex>` is the symbol's canonical
+    /// post-chain address.
     pub sym_name: String,
-    /// Classification driving the body shape. Determined by
-    /// dladdr-resolving `sym_name` then calling
-    /// [`classify_branch_extern`] on the result.
-    pub kind: BranchExternKind,
-    /// Host-binary address the bl actually lands at AFTER any
-    /// PLT-stub chase. `Some(real_addr)` when the stub trampoline
-    /// resolution flipped the target (e.g. user-binary stub →
-    /// libazul `AzRefAny_isType`); `None` when the parse failed or
-    /// when the bl target was already a real symbol with no stub
-    /// in between. emit_helper_ir uses this to synthesize a thunk
-    /// `sub_<stub_addr> -> tail-call sub_<real_addr>` so the
-    /// lifted real body (defined at `sub_<real_addr>` by the
-    /// recursive lift) is reachable from the caller's
-    /// `call sub_<stub_addr>` site.
-    pub real_addr: Option<usize>,
+    /// SymbolTable classification, or `None` if the canonical
+    /// address wasn't in the table (rare; surfaces a missed image).
+    pub classification: Option<SymFnClass>,
 }
 
 fn run_tool(prog: &Path, args: &[&str], fn_name: &str) -> Result<(), TranspileError> {

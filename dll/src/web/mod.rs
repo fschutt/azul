@@ -25,6 +25,8 @@ pub mod classify;
 pub mod transpiler;
 #[cfg(feature = "web-transpiler")]
 pub mod transpiler_remill;
+#[cfg(feature = "web-transpiler")]
+pub mod symbol_table;
 pub mod eventloop;
 pub mod headless;
 pub mod hydration;
@@ -170,169 +172,58 @@ pub struct FnPtrSymbol {
     pub size: usize,
 }
 
-/// Conservative byte window the lift pipeline reads starting at the
-/// resolved symbol address. arm64 instructions are 4 bytes each, so
-/// 4 KiB = 1024 instructions — comfortable headroom for the longest
-/// libazul functions we lift (AzStartup_hydrate is ~400B; some
-/// recursive-lift deps in azul-core go past 1KB). remill stops at
-/// the first `ret` so over-reading into the next function's
-/// prologue is harmless.
+/// Fallback byte window used when the SymbolTable doesn't have an
+/// exact size for an address. Survives the M8.8 refactor as a
+/// safety-net constant; the M8.8 verification checks that lift logs
+/// never see a `cb_<hex>` fallback, which is what would surface a
+/// missed table entry.
 ///
-/// Was 256 (covered hello-world's leaf cb but truncated multi-Box
-/// helpers like AzStartup_hydrate mid-function — the lift returned
-/// stale values from the alloc dance instead of the final Box ptr).
+/// arm64 instructions are 4 bytes each, so 4 KiB = 1024 instructions —
+/// comfortable headroom for the longest libazul functions. remill
+/// stops at the first `ret` so over-reading is harmless.
 const LIFT_READ_WINDOW: usize = 4096;
 
-/// macOS arm64: if `addr` points at a `__TEXT.__stubs` PLT trampoline
-/// (`adrp x16, GOT_PAGE ; ldr x16, [x16, GOT_OFF] ; br x16`), parse
-/// the three instructions to compute the GOT slot address and read
-/// the resolved function pointer out of it.
-///
-/// Modern macOS arm64 (Big Sur+) writes `__got` eagerly at process
-/// load, so the slot is valid at server-startup time without any
-/// `DYLD_BIND_AT_LAUNCH=1` opt-in. Older macOS uses lazy
-/// `__la_symbol_ptr` whose slot points at `dyld_stub_binder` until
-/// the symbol is first called — we detect that by null/low-address
-/// checks and return `None` so the caller falls back to its
-/// `cb_<hex>` path.
-///
-/// Returns `None` if the bytes don't match the stub pattern, the
-/// GOT slot reads as zero/low-mem, or we're not on macOS arm64.
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-fn resolve_macos_arm64_stub(addr: usize) -> Option<usize> {
-    // Stub is 3 instructions × 4 bytes = 12 bytes total. Read as
-    // three u32s aligned at `addr` (arm64 instructions are always
-    // 4-byte aligned).
-    if addr == 0 || addr % 4 != 0 {
-        return None;
-    }
-    let bytes = unsafe { core::slice::from_raw_parts(addr as *const u32, 3) };
-    let adrp = bytes[0];
-    let ldr = bytes[1];
-    let br = bytes[2];
-
-    // br x16: 0xD61F0200
-    if br != 0xD61F0200 {
-        return None;
-    }
-
-    // adrp Xd, #imm: bits 31=1, 28..24=10000, lo2 in 30..29, hi19 in 23..5.
-    // We additionally require Rd=16 (x16) for the stub idiom.
-    if (adrp >> 31) != 1 || ((adrp >> 24) & 0x1F) != 0x10 || (adrp & 0x1F) != 16 {
-        return None;
-    }
-    let immlo = ((adrp >> 29) & 0x3) as i64;
-    let immhi = ((adrp >> 5) & 0x7_FFFF) as i64;
-    let imm21 = (immhi << 2) | immlo;
-    // Sign-extend 21 bits, then << 12 for page-relative immediate.
-    let imm21_se = (imm21 << 43) >> 43;
-    let page_imm = imm21_se << 12;
-    let page_base = ((addr & !0xFFF) as i64).wrapping_add(page_imm) as usize;
-
-    // ldr Xt, [Xn, #imm12<<3] — 64-bit unsigned-offset form:
-    //   bits 31..22 = 1111100101, imm12 in 21..10, Rn=16, Rt=16.
-    if ldr & 0xFFC0_0000 != 0xF940_0000 {
-        return None;
-    }
-    if ((ldr >> 5) & 0x1F) != 16 || (ldr & 0x1F) != 16 {
-        return None;
-    }
-    let imm12 = ((ldr >> 10) & 0xFFF) as usize;
-    let got_slot = page_base.wrapping_add(imm12 * 8);
-
-    // Read 8 bytes at the GOT slot. Catch garbage (null, lazy-binder
-    // sentinel near zero, kernel addrs) and reject.
-    let real_addr = unsafe { core::ptr::read_unaligned(got_slot as *const usize) };
-    if real_addr < 0x1_0000 {
-        return None;
-    }
-    Some(real_addr)
-}
-
-/// Non-macOS-arm64 stub: no-op. Stub resolution is only needed where
-/// the executable uses Mach-O `__stubs` trampolines (macOS). Linux ELF
-/// would need a different parser (R_AARCH64_JUMP_SLOT / .plt).
-#[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
-fn resolve_macos_arm64_stub(_addr: usize) -> Option<usize> {
-    None
-}
+// `resolve_macos_arm64_stub` deleted in M8.8 Stage 1. The PLT-stub
+// chain is now precomputed in `symbol_table::SymbolTable::chain` at
+// server startup by parsing LC_DYSYMTAB.indirectsymoff against
+// __TEXT.__stubs.reserved1 — see `symbol_table::ingest_macho_stubs`.
+// `resolve_fn_ptr` consumes the chain transparently via
+// `SymbolTable::resolve`.
 
 /// Resolve a function pointer to its `(name, addr, size)` triple.
 ///
-/// Uses `dladdr(3)` on unix-like platforms (linked from libSystem on macOS
-/// and libdl on Linux/Android). Windows lacks a stateless equivalent —
-/// `SymFromAddr` requires `SymInitialize` and a cleanup pair — so we fall
-/// back to `cb_{addr:x}` there. The fallback is also used when `dladdr`
-/// reports no symbol (e.g. callbacks built into an executable without
-/// `-rdynamic`, or when the stored pointer is mangled by an upstream
-/// ABI mismatch — see `memory/m1_phase0_findings_2026_05_18.md`).
+/// **M8.8 Stage 1**: when the `SymbolTable` is installed (the normal
+/// case after `run_web`'s startup phase), this delegates to it and
+/// `resolve()` chases the precomputed PLT-stub chain. Sizes are
+/// exact — derived from `(next_symbol_addr - this_addr)` at table
+/// build — instead of the legacy flat-4 KiB window.
 ///
-/// **PLT-stub chase (macOS arm64)**: when `dladdr` fails on `fn_ptr`
-/// AND the bytes at `fn_ptr` match a `__TEXT.__stubs` trampoline,
-/// we read the GOT slot and re-dladdr the resolved target. This is
-/// what lets the recursive lift in `transpiler_remill` walk into
-/// libazul through a user-binary stub instead of stopping at the
-/// `cb_<hex>` fallback. Without it the recursive walk truncates at
-/// every PLT-routed call.
+/// Fallback: when the table isn't installed (e.g. during the table
+/// build itself, or when the SymbolTable build errored out), the
+/// pre-M8.8 dladdr path is preserved. The fallback also runs when
+/// the table doesn't know about an address — log loudly so the user
+/// can add the missing image to the table's image set.
 pub(crate) fn resolve_fn_ptr(fn_ptr: usize) -> FnPtrSymbol {
-    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "ios", target_os = "android"))]
-    unsafe {
-        #[repr(C)]
-        struct DlInfo {
-            dli_fname: *const core::ffi::c_char,
-            dli_fbase: *mut core::ffi::c_void,
-            dli_sname: *const core::ffi::c_char,
-            dli_saddr: *mut core::ffi::c_void,
-        }
-        extern "C" {
-            fn dladdr(addr: *const core::ffi::c_void, info: *mut DlInfo) -> core::ffi::c_int;
-        }
-        let mut info = DlInfo {
-            dli_fname: core::ptr::null(),
-            dli_fbase: core::ptr::null_mut(),
-            dli_sname: core::ptr::null(),
-            dli_saddr: core::ptr::null_mut(),
-        };
-        if dladdr(fn_ptr as *const _, &mut info) != 0 && !info.dli_sname.is_null() {
-            if let Ok(s) = core::ffi::CStr::from_ptr(info.dli_sname).to_str() {
-                if !s.is_empty() {
-                    return FnPtrSymbol {
-                        name: s.to_string(),
-                        addr: info.dli_saddr as usize,
-                        size: LIFT_READ_WINDOW,
-                    };
-                }
-            }
+    #[cfg(feature = "web-transpiler")]
+    if let Some(table) = symbol_table::get() {
+        if let Some(entry) = table.resolve(fn_ptr) {
+            return FnPtrSymbol {
+                name: entry.canonical_name.clone(),
+                addr: entry.canonical_addr,
+                size: if entry.size > 0 { entry.size } else { LIFT_READ_WINDOW },
+            };
         }
     }
-
-    // dladdr failed (no symbol at this address). On macOS arm64, this
-    // is the common case for `__TEXT.__stubs` PLT trampolines — the
-    // stub itself has no symbol, but the GOT slot it loads from
-    // holds the resolved libazul address. Try to chase through.
-    if let Some(real) = resolve_macos_arm64_stub(fn_ptr) {
-        if real != fn_ptr {
-            // Recurse once on the real addr. Cap at one bounce so a
-            // pathological self-pointing GOT slot can't loop forever
-            // (we'd just hit the cb_<hex> fallback for the inner call).
-            let inner = resolve_fn_ptr_direct(real);
-            if !inner.name.starts_with("cb_") {
-                return inner;
-            }
-        }
-    }
-
-    FnPtrSymbol {
-        name: format!("cb_{:016x}", fn_ptr),
-        addr: fn_ptr,
-        size: LIFT_READ_WINDOW,
-    }
+    // Pre-M8.8 fallback path.
+    resolve_fn_ptr_dladdr(fn_ptr)
 }
 
-/// Inner dladdr-only resolver — bypasses the stub-chase so
-/// `resolve_fn_ptr`'s recursion can't cycle. Returns `cb_<hex>` if
-/// dladdr can't name the address.
-fn resolve_fn_ptr_direct(fn_ptr: usize) -> FnPtrSymbol {
+/// dladdr-only resolver used as the fallback when the SymbolTable
+/// either isn't installed or doesn't have an entry for an address.
+/// Returns `cb_<hex>` if dladdr can't name the address — the M8.8
+/// verification checks that this fallback NEVER fires in the lift
+/// logs (any cb_<hex> indicates a missed symbol classification).
+fn resolve_fn_ptr_dladdr(fn_ptr: usize) -> FnPtrSymbol {
     #[cfg(any(target_os = "linux", target_os = "macos", target_os = "ios", target_os = "android"))]
     unsafe {
         #[repr(C)]
@@ -354,8 +245,11 @@ fn resolve_fn_ptr_direct(fn_ptr: usize) -> FnPtrSymbol {
         if dladdr(fn_ptr as *const _, &mut info) != 0 && !info.dli_sname.is_null() {
             if let Ok(s) = core::ffi::CStr::from_ptr(info.dli_sname).to_str() {
                 if !s.is_empty() {
+                    // Strip the macOS leading `_` so the name matches
+                    // what the SymbolTable would have returned.
+                    let canonical = s.strip_prefix('_').unwrap_or(s).to_string();
                     return FnPtrSymbol {
-                        name: s.to_string(),
+                        name: canonical,
                         addr: info.dli_saddr as usize,
                         size: LIFT_READ_WINDOW,
                     };
@@ -753,6 +647,33 @@ pub fn run_web(
         classification.excluded_count(),
     );
 
+    // M8.8 Stage 1: build the SymbolTable from the loaded image. This
+    // is the canonical source of truth for "what address → what name →
+    // what bytes" — every lift consumer reads from it instead of
+    // computing the same metadata locally with different conventions.
+    //
+    // Failure mode: log and continue without a table. The lift
+    // pipeline degrades to the pre-M8.8 dladdr+LIFT_READ_WINDOW path
+    // (preserved as fallback) so the server still starts.
+    #[cfg(feature = "web-transpiler")]
+    {
+        match symbol_table::SymbolTable::build_from_loaded_image(&classification) {
+            Ok(table) => {
+                eprintln!(
+                    "[azul-web] SymbolTable: {} entries across loaded images",
+                    table.len()
+                );
+                let _ = symbol_table::install(table);
+            }
+            Err(e) => {
+                eprintln!(
+                    "[azul-web] SymbolTable build failed: {} — falling back to dladdr",
+                    e
+                );
+            }
+        }
+    }
+
     // Phase B (M8.2): lift the EVENTLOOP_SYMBOLS into azul-mini.wasm.
     // Falls back to an 8-byte WASM_HEADER stub when the transpiler
     // or dlsym path can't satisfy the request — keeps Phase D/E
@@ -896,7 +817,14 @@ pub fn run_web(
         }
         v
     };
-    let layout_wasms = lift_layout_callbacks(&unique_layout_callbacks);
+    // Dev knob: skip layout-cb lift for fast iteration while debugging
+    // cb-side regressions. Set AZ_SKIP_LAYOUT_LIFT=1 to bypass.
+    let layout_wasms = if std::env::var_os("AZ_SKIP_LAYOUT_LIFT").is_some() {
+        eprintln!("[azul-web] AZ_SKIP_LAYOUT_LIFT=1 — skipping layout-cb lift");
+        Vec::new()
+    } else {
+        lift_layout_callbacks(&unique_layout_callbacks)
+    };
 
     eprintln!(
         "[azul-web] Pre-rendered {} routes, {} total images, {} total fonts, {} layout WASMs",
