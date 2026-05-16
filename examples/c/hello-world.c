@@ -77,7 +77,9 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&body, label_wrapper);
     AzDom_addChild(&body, button_dom);
 
-    return AzDom_style(body, AzCss_empty());
+    // No external stylesheet; inline CSS via AzDom_addCssProperty
+    // above (line 63) covers everything this hello-world needs.
+    return body;
 }
 
 // ── Main ────────────────────────────────────────────────────────────────
