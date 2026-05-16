@@ -27,6 +27,8 @@ pub mod transpiler;
 pub mod transpiler_remill;
 #[cfg(feature = "web-transpiler")]
 pub mod symbol_table;
+#[cfg(feature = "web-transpiler-static")]
+pub mod native_remill;
 pub mod eventloop;
 pub mod headless;
 pub mod hydration;

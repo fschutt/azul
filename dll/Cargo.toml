@@ -151,6 +151,14 @@ objc2-app-kit = { version = "0.3.0", default-features = true, optional = true, f
 
 [build-dependencies]
 brotli = "8"
+# M8.9: in-process remill + LLVM + LLD wrapper. Compiles
+# dll/src/web/cpp/azul_remill.cpp + statically links the remill /
+# LLVM / LLD libs from third_party/remill-install/ + cxx-common so
+# libazul.dylib can lift native code → wasm32 without invoking
+# external `remill-lift-17` / `opt` / `llc` / `wasm-ld` subprocesses.
+# Gated by the `web-transpiler-static` feature; the build script
+# no-ops when that's off.
+cc = { version = "1.0", optional = true }
 
 # =============================================================================
 # Features
@@ -341,6 +349,18 @@ web = [
 # the web.md flow (build-time, first-request, lazy-per-callback) stays a
 # caller decision rather than a hard-wired pipeline stage.
 web-transpiler = ["web", "dep:goblin"]
+
+# Statically link remill + LLVM + LLD into libazul.dylib so the
+# transpiler doesn't need external CLI tools. ~120 MB of static
+# libs get pulled in. Requires:
+#   - third_party/remill-install/install/{include,lib}/ populated
+#     (run `bash scripts/build_remill.sh` to bootstrap).
+#   - third_party/cxx-common/vcpkg_macos-13_llvm-17-liftingbits-llvm_xcode-15.0_arm64/
+#     installed/arm64-osx-rel/{include,lib}/ populated (vcpkg-based
+#     LLVM 17 + LLD ship with remill's cxx-common bundle).
+# build.rs invokes `cc` to compile dll/src/web/cpp/azul_remill.cpp
+# + emits the static-lib link line for cargo.
+web-transpiler-static = ["web-transpiler", "dep:cc"]
 
 # -----------------------------------------------------------------------------
 # Accessibility

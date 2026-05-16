@@ -10,6 +10,10 @@ fn main() {
         configure_dynamic_linking(&target);
     }
 
+    if env::var("CARGO_FEATURE_WEB_TRANSPILER_STATIC").is_ok() {
+        build_in_process_remill(&target);
+    }
+
     #[cfg(target_os = "macos")]
     if env::var("CARGO_FEATURE_PYO3").is_ok() {
         println!("cargo:rustc-cdylib-link-arg=-undefined");
@@ -19,6 +23,272 @@ fn main() {
     if target.contains("ios") {
         configure_ios();
     }
+}
+
+// ── M8.9 in-process remill + LLVM + LLD ────────────────────────────────
+
+/// Compile dll/src/web/cpp/azul_remill.cpp and emit the link line
+/// pulling in remill + LLVM + LLD static libs. Active only with the
+/// `web-transpiler-static` feature.
+fn build_in_process_remill(target: &str) {
+    if !target.contains("apple") && !target.contains("darwin") {
+        // Linux + Windows wrappers are M8.10 work — the cxx-common
+        // bundle is macOS-arm64 only today.
+        println!("cargo:warning=web-transpiler-static is macOS-arm64-only for now; skipping");
+        return;
+    }
+
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
+    let workspace_root = Path::new(&manifest_dir).parent().unwrap();
+
+    let remill_install = workspace_root.join("third_party/remill-install/install");
+    let remill_build = workspace_root.join("third_party/remill-install/build/remill");
+    let vcpkg_base = workspace_root.join(
+        "third_party/cxx-common/vcpkg_macos-13_llvm-17-liftingbits-llvm_xcode-15.0_arm64\
+         /installed/arm64-osx-rel",
+    );
+
+    for p in [&remill_install, &remill_build, &vcpkg_base] {
+        if !p.exists() {
+            panic!(
+                "web-transpiler-static requires {} — run `bash scripts/build_remill.sh` \
+                 from the workspace root to bootstrap",
+                p.display()
+            );
+        }
+    }
+
+    let semantics_dir = remill_install.join("share/remill/17/semantics");
+    let build_sem_dir = remill_build.join("lib/Arch");
+    let remill_inc = remill_install.join("include");
+    let vcpkg_inc = vcpkg_base.join("include");
+    let vcpkg_lib = vcpkg_base.join("lib");
+
+    println!("cargo:rerun-if-changed=src/web/cpp/azul_remill.cpp");
+    println!("cargo:rerun-if-changed=src/web/cpp/azul_remill.h");
+
+    // macOS SDK path — needed for libc++ headers (cassert, etc.).
+    // cc-rs sets --target= but doesn't auto-include the libc++
+    // headers from the CommandLineTools SDK.
+    let sdk_path = "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk";
+    let libcxx_dir = format!("{}/usr/include/c++/v1", sdk_path);
+
+    let mut cc_build = cc::Build::new();
+    cc_build
+        .cpp(true)
+        .file("src/web/cpp/azul_remill.cpp")
+        .include("src/web/cpp")
+        .include(&remill_inc)
+        .include(&vcpkg_inc)
+        .flag("-std=c++17")
+        .flag("-fPIC")
+        .flag(&format!("-isysroot{}", sdk_path))
+        .flag(&format!("-isystem{}", libcxx_dir))
+        .define("GFLAGS_IS_A_DLL", "0")
+        .define("NDEBUG", None)
+        .define(
+            "REMILL_INSTALL_SEMANTICS_DIR",
+            format!("\"{}\"", semantics_dir.display()).as_str(),
+        )
+        .define(
+            "REMILL_BUILD_SEMANTICS_DIR_AARCH64",
+            format!("\"{}/AArch64/Runtime\"", build_sem_dir.display()).as_str(),
+        )
+        .define(
+            "REMILL_BUILD_SEMANTICS_DIR_AARCH32",
+            format!("\"{}/AArch32/Runtime\"", build_sem_dir.display()).as_str(),
+        )
+        .define(
+            "REMILL_BUILD_SEMANTICS_DIR_X86",
+            format!("\"{}/X86/Runtime\"", build_sem_dir.display()).as_str(),
+        )
+        .define(
+            "REMILL_BUILD_SEMANTICS_DIR_SPARC32",
+            format!("\"{}/SPARC32/Runtime\"", build_sem_dir.display()).as_str(),
+        )
+        .define(
+            "REMILL_BUILD_SEMANTICS_DIR_SPARC64",
+            format!("\"{}/SPARC64/Runtime\"", build_sem_dir.display()).as_str(),
+        )
+        .define(
+            "REMILL_BUILD_SEMANTICS_DIR_PPC64_32ADDR",
+            format!("\"{}/PPC/Runtime\"", build_sem_dir.display()).as_str(),
+        );
+    cc_build.compile("azul_remill_wrapper");
+
+    // Force-load the wrapper archive so the C-ABI entry points
+    // (az_remill_lift, az_remill_compile_to_wasm32_obj,
+    // az_remill_wasm_link, az_remill_free, az_remill_free_buf)
+    // survive `-Wl,-dead_strip`. cc::Build emits
+    // `cargo:rustc-link-lib=static=azul_remill_wrapper` which causes
+    // normal symbol resolution; but until `native_remill.rs`'s
+    // extern decls are CALLED from somewhere reachable, the linker
+    // treats them as unused and strips. force_load pulls every .o
+    // from the archive even without a call site, mirroring how the
+    // standalone test_full binary linked them in (Rust + cargo's
+    // -Wl,-dead_strip is more aggressive than the standalone path).
+    let out_dir = env::var("OUT_DIR").expect("OUT_DIR");
+    println!(
+        "cargo:rustc-link-arg=-Wl,-force_load,{}/libazul_remill_wrapper.a",
+        out_dir
+    );
+
+    // Emit link args for every static lib remill + LLVM + LLD need.
+    // The set is derived from third_party/remill-install/build/remill/
+    // build.ninja's LINK_LIBRARIES for the remill-lift-17 target,
+    // augmented with the LLVM targets LLD's wasm driver expects via
+    // InitializeAllTargets (PowerPC, NVPTX, Sparc, WebAssembly, ARM,
+    // X86, AArch64 — every backend compiled into this vcpkg LLVM
+    // build), plus libLLVMOption + libLLVMLTO + lld static libs.
+    //
+    // Order doesn't strictly matter on macOS ld64 (it does multiple
+    // passes), but we keep groups together for readability.
+    let lib_paths = build_remill_link_libs(&remill_build, &vcpkg_lib);
+    for lib in &lib_paths {
+        // -Wl,-force_load isn't needed — the wrapper directly
+        // references the symbols (initialize_llvm_targets +
+        // remill::Arch::Get etc.), pulling the rest in via normal
+        // static-archive resolution.
+        println!("cargo:rustc-link-arg={}", lib.display());
+    }
+
+    // macOS deployment target — match the cxx-common build.
+    println!("cargo:rustc-link-arg=-mmacosx-version-min=12.0");
+}
+
+/// Enumerate every static library azul_remill needs to link against.
+/// Returns absolute paths so cargo doesn't have to search.
+fn build_remill_link_libs(remill_build: &Path, vcpkg_lib: &Path) -> Vec<PathBuf> {
+    let mut libs = Vec::new();
+
+    // remill's own static libs (order matters — derived from
+    // build.ninja's LINK_LIBRARIES for remill-lift-17).
+    for rel in &[
+        "lib/BC/libremill_bc.a",
+        "lib/OS/libremill_os.a",
+        "lib/Arch/libremill_arch.a",
+        "lib/Arch/AArch64/libremill_arch_aarch64.a",
+        "lib/Arch/Sleigh/libremill_arch_sleigh.a",
+        "lib/Arch/SPARC32/libremill_arch_sparc32.a",
+        "lib/Arch/SPARC64/libremill_arch_sparc64.a",
+        "lib/Arch/X86/libremill_arch_x86.a",
+        "lib/Version/libremill_version.a",
+        "_deps/sleigh-build/libsla.a",
+        "_deps/sleigh-build/libdecomp.a",
+        "_deps/sleigh-build/support/libslaSupport.a",
+    ] {
+        let p = remill_build.join(rel);
+        if p.exists() {
+            libs.push(p);
+        }
+    }
+
+    // LLVM target backends (CodeGen, AsmParser, AsmPrinter, Desc,
+    // Disassembler, Info, Utils, TargetMCA — not all variants exist
+    // per target).
+    let llvm_targets = ["AArch64", "ARM", "NVPTX", "PowerPC", "Sparc", "WebAssembly", "X86"];
+    let llvm_kinds = [
+        "CodeGen",
+        "AsmParser",
+        "AsmPrinter",
+        "Desc",
+        "Disassembler",
+        "Info",
+        "Utils",
+        "TargetMCA",
+    ];
+    for t in &llvm_targets {
+        for k in &llvm_kinds {
+            let p = vcpkg_lib.join(format!("libLLVM{}{}.a", t, k));
+            if p.exists() {
+                libs.push(p);
+            }
+        }
+    }
+
+    // LLVM core libs (mid-level + analysis + IR + support).
+    for name in &[
+        "libLLVMPasses.a",
+        "libLLVMCoroutines.a",
+        "libLLVMIRPrinter.a",
+        "libLLVMipo.a",
+        "libLLVMVectorize.a",
+        "libLLVMFrontendOpenMP.a",
+        "libLLVMLinker.a",
+        "libLLVMInterpreter.a",
+        "libLLVMMCJIT.a",
+        "libLLVMExecutionEngine.a",
+        "libLLVMOrcTargetProcess.a",
+        "libLLVMOrcShared.a",
+        "libLLVMRuntimeDyld.a",
+        "libLLVMInstrumentation.a",
+        "libLLVMCFGuard.a",
+        "libLLVMGlobalISel.a",
+        "libLLVMMCDisassembler.a",
+        "libLLVMAsmPrinter.a",
+        "libLLVMSelectionDAG.a",
+        "libLLVMCodeGen.a",
+        // CodeGenTypes carries LLT (low-level type) which CodeGen
+        // references heavily. Often missing if downstream projects
+        // enumerate libs by hand — CMake adds it transitively.
+        "libLLVMCodeGenTypes.a",
+        "libLLVMBitWriter.a",
+        "libLLVMObjCARCOpts.a",
+        "libLLVMScalarOpts.a",
+        "libLLVMAggressiveInstCombine.a",
+        "libLLVMInstCombine.a",
+        "libLLVMTarget.a",
+        "libLLVMTransformUtils.a",
+        "libLLVMAnalysis.a",
+        "libLLVMProfileData.a",
+        "libLLVMSymbolize.a",
+        "libLLVMDebugInfoDWARF.a",
+        "libLLVMDebugInfoPDB.a",
+        "libLLVMObject.a",
+        // ObjCopy + ObjectYAML used by lld's IR loading path
+        "libLLVMObjCopy.a",
+        "libLLVMIRReader.a",
+        "libLLVMAsmParser.a",
+        "libLLVMBitReader.a",
+        "libLLVMCore.a",
+        "libLLVMRemarks.a",
+        "libLLVMBitstreamReader.a",
+        "libLLVMTextAPI.a",
+        "libLLVMDebugInfoMSF.a",
+        "libLLVMDebugInfoBTF.a",
+        "libLLVMMCParser.a",
+        "libLLVMMC.a",
+        "libLLVMBinaryFormat.a",
+        "libLLVMTargetParser.a",
+        "libLLVMDebugInfoCodeView.a",
+        "libLLVMSupport.a",
+        "libLLVMDemangle.a",
+        "libLLVMOption.a",
+        "libLLVMLTO.a",
+    ] {
+        let p = vcpkg_lib.join(name);
+        if p.exists() {
+            libs.push(p);
+        }
+    }
+
+    // LLD static libs.
+    for name in &["liblldWasm.a", "liblldCommon.a"] {
+        let p = vcpkg_lib.join(name);
+        if p.exists() {
+            libs.push(p);
+        }
+    }
+
+    // Compression + math deps remill + LLVM rely on.
+    for name in &["libz3.a", "libz.a", "libzstd.a", "libxed.a", "libglog.a", "libgflags.a"] {
+        let p = vcpkg_lib.join(name);
+        if p.exists() {
+            libs.push(p);
+        }
+    }
+
+    libs
 }
 
 // ── Generated file checks ─────────────────────────────────────────────
