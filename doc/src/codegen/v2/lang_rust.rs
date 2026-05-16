@@ -1820,6 +1820,116 @@ impl RustGenerator {
             format!("<{}>", generic_params.join(", "))
         };
 
+        // M2.5 pair-pattern dispatch: when any arg is a callback-wrapper
+        // (per `HOST_INVOKER_KINDS`), the underlying C-ABI export is
+        // emitted as a pair — `<c_name>(.., cb_fn_ptr)` and
+        // `<c_name>WithCtx(.., cb_fn_ptr, ctx_refany)`. The Rust wrapper
+        // keeps its struct-taking signature (so Rust users can still
+        // pass either a bare fn-ptr via `Callback::from(fn)` or a host-
+        // handle struct via `Callback::create_from_host_handle`), and
+        // dispatches at runtime based on `ctx`-presence.
+        //
+        // Only applies to API functions (Constructor/StaticMethod/
+        // Method/MethodMut). Trait functions (`Delete`, `DeepCopy`,
+        // `PartialEq`, `Cmp`, `Hash`, `DebugToString`) on a callback-
+        // wrapper class take the wrapper itself by reference and are
+        // not subject to the pair-pattern emit on the C-ABI side.
+        let is_api_function = matches!(
+            func.kind,
+            FunctionKind::Constructor
+                | FunctionKind::StaticMethod
+                | FunctionKind::Method
+                | FunctionKind::MethodMut
+        );
+        let cb_dispatch: Vec<(String, String, String)> = if is_api_function {
+            func.args
+                .iter()
+                .filter_map(|arg| {
+                    let wrapper_name = arg.type_name.trim();
+                    if !super::managed_host_invoker::is_callback_wrapper(wrapper_name) {
+                        return None;
+                    }
+                    // Don't dispatch when the wrapper IS the receiver
+                    // (e.g. an instance method on `Callback` itself like
+                    // `Callback::to_core(self)`). Receiver detection
+                    // mirrors the `is_self` logic above: name == "self",
+                    // or name == snake-case(class) AND type matches class,
+                    // or name == "object" AND type matches class. Also
+                    // catch &/&mut shaped receivers regardless of name.
+                    let is_self_arg = arg.name == "self"
+                        || (arg.name == self_param_name && arg.type_name == func.class_name)
+                        || (arg.name == "object" && arg.type_name == func.class_name);
+                    if is_self_arg {
+                        return None;
+                    }
+                    if matches!(arg.ref_kind, ArgRefKind::Ref | ArgRefKind::RefMut) {
+                        return None;
+                    }
+                    let ctx_field =
+                        super::managed_host_invoker::callback_ctx_field(wrapper_name, ir)?;
+                    Some((arg.name.clone(), wrapper_name.to_string(), ctx_field))
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        if !cb_dispatch.is_empty() {
+            // Only the single-callback case is handled here; functions
+            // with multiple callback-wrapper args are rare/exotic and
+            // would need a richer dispatch tree. Fall back to a
+            // single struct-shaped call for that edge case.
+            if cb_dispatch.len() == 1 {
+                let (cb_arg, _wrapper, ctx_field) = &cb_dispatch[0];
+                let opt_refany = config.apply_prefix("OptionRefAny");
+                // Always route through the WithCtx variant — the ctx
+                // arg is typed as `OptionRefAny` so a None-ctx callback
+                // is just `OptionRefAny::None` (equivalent to calling
+                // the raw variant). The Rust wrapper destructures the
+                // input `AzCallback` via `ManuallyDrop` + `ptr::read` to
+                // peel off the fn-ptr and ctx fields without tripping
+                // the wrapper's `Drop` impl; the ctx field is moved
+                // through as the WithCtx ctx arg, which the C-ABI fn
+                // consumes.
+                //
+                // C users don't go through this Rust wrapper — they
+                // call the raw `<c_name>(.., fn_ptr)` export directly,
+                // which builds `OptionRefAny::None` internally.
+                let mut ctx_call_args: Vec<String> = Vec::with_capacity(call_args.len() + 1);
+                for s in &call_args {
+                    if s == cb_arg {
+                        ctx_call_args.push("__cb_fn".to_string());
+                        ctx_call_args.push("__cb_ctx".to_string());
+                    } else {
+                        ctx_call_args.push(s.clone());
+                    }
+                }
+                builder.line(&format!(
+                    "pub fn {}{}({}){} {{ unsafe {{",
+                    method_name,
+                    generics,
+                    args.join(", "),
+                    return_type,
+                ));
+                builder.line(&format!(
+                    "    let __cb_md = core::mem::ManuallyDrop::new({});",
+                    cb_arg
+                ));
+                builder.line("    let __cb_fn = __cb_md.cb;");
+                builder.line(&format!(
+                    "    let __cb_ctx: {} = core::ptr::read(&__cb_md.{});",
+                    opt_refany, ctx_field
+                ));
+                builder.line(&format!(
+                    "    {}WithCtx({})",
+                    c_func_name,
+                    ctx_call_args.join(", ")
+                ));
+                builder.line("} }");
+                return;
+            }
+        }
+
         // Generate the method
         builder.line(&format!(
             "pub fn {}{}({}){} {{ unsafe {{ {}({}) }} }}",
@@ -2805,24 +2915,100 @@ impl RustGenerator {
                 | FunctionKind::MethodMut
         );
 
-        let args = if should_substitute_callbacks {
-            self.format_function_args_for_cabi(func, ir, config)
-        } else {
-            self.format_function_args(func, config)
-        };
+        // M2.5 pair-pattern detection: every function with a
+        // callback-wrapper arg (per `HOST_INVOKER_KINDS`) emits two
+        // C-ABI variants — raw `_setOnX(fn_ptr)` and
+        // `_setOnXWithCtx(fn_ptr, refany)`. See
+        // `scripts/WEB_BACKEND_PLAN_2026_05_18.md` M2.5 for the design
+        // and `managed_host_invoker::is_callback_wrapper`.
+        let emit_pair = should_substitute_callbacks && Self::has_callback_wrapper_arg(func);
+
         let return_str = func
             .return_type
             .as_ref()
             .map(|r| format!(" -> {}", config.apply_prefix(r)))
             .unwrap_or_default();
 
+        if !emit_pair {
+            let args = if should_substitute_callbacks {
+                self.format_function_args_for_cabi(func, ir, config)
+            } else {
+                self.format_function_args(func, config)
+            };
+            let body = self.generate_function_body(func, ir, config);
+            builder.line(&format!(
+                "pub unsafe extern \"C\" fn {}({}){} {}",
+                func.c_name, args, return_str, body
+            ));
+            return;
+        }
+
+        // Pair-pattern emit. Both variants share the same body; the
+        // prologue inserted via `inject_prologue_into_body` shadows
+        // the fn-ptr arg with a reconstituted callback-wrapper struct
+        // so the user's `fn_body` (which expects the wrapper struct)
+        // works unchanged.
         let body = self.generate_function_body(func, ir, config);
 
-        // Single-line or multi-line based on body
+        // Raw variant: original c_name, fn-ptr args, ctx: None prologue.
+        let args_raw = self.format_function_args_for_cabi_pair_raw(func, config);
+        let prologue_raw = self.callback_pair_prologue(func, ir, config, false);
+        let body_raw = Self::inject_prologue_into_body(&body, &prologue_raw);
+        builder.line("// Pair-pattern raw variant: takes the callback fn-ptr only.");
+        builder.line("// Use the `WithCtx` sibling below if you need to attach a");
+        builder.line("// host-handle refany ctx (e.g. for managed-FFI dispatch).");
+        if is_export_only {
+            builder.line(&format!("#[cfg(feature = \"{export_feature}\")]"));
+        }
+        builder.line("#[allow(unused_variables)]");
+        builder.line(&format!(
+            "#[cfg_attr(feature = \"{export_feature}\", no_mangle)]"
+        ));
         builder.line(&format!(
             "pub unsafe extern \"C\" fn {}({}){} {}",
-            func.c_name, args, return_str, body
+            func.c_name, args_raw, return_str, body_raw
         ));
+
+        // WithCtx variant: c_name + "WithCtx", fn-ptr + ctx args,
+        // ctx: Some(arg_ctx) prologue.
+        let args_ctx = self.format_function_args_for_cabi_pair_with_ctx(func, config);
+        let prologue_ctx = self.callback_pair_prologue(func, ir, config, true);
+        let body_ctx = Self::inject_prologue_into_body(&body, &prologue_ctx);
+        builder.blank();
+        builder.line("// Pair-pattern WithCtx variant: takes the callback fn-ptr +");
+        builder.line("// a refany ctx. Managed-FFI hosts (Python/Lua/Ruby/...) pass");
+        builder.line("// the host-handle refany from `Az<Wrapper>_createFromHostHandle`");
+        builder.line("// so the callback dispatcher can resolve the GC'd target.");
+        if is_export_only {
+            builder.line(&format!("#[cfg(feature = \"{export_feature}\")]"));
+        }
+        builder.line("#[allow(unused_variables)]");
+        builder.line(&format!(
+            "#[cfg_attr(feature = \"{export_feature}\", no_mangle)]"
+        ));
+        builder.line(&format!(
+            "pub unsafe extern \"C\" fn {}WithCtx({}){} {}",
+            func.c_name, args_ctx, return_str, body_ctx
+        ));
+    }
+
+    /// Splice `prologue` (a sequence of `let` statements) just inside
+    /// the opening brace of `body`. The body string emitted by
+    /// `generate_function_body` is always wrapped in `{ … }`, so the
+    /// transform is a textual `{` → `{ <prologue> ` rewrite at the
+    /// first character. Empty prologue returns the body unchanged.
+    fn inject_prologue_into_body(body: &str, prologue: &str) -> String {
+        if prologue.is_empty() {
+            return body.to_string();
+        }
+        let trimmed = body.trim_start();
+        if let Some(rest) = trimmed.strip_prefix('{') {
+            format!("{{ {}{}", prologue, rest)
+        } else {
+            // Body wasn't braced (shouldn't happen for the function
+            // kinds we emit, but be defensive). Wrap it.
+            format!("{{ {}{} }}", prologue, body)
+        }
     }
 
     fn generate_function_body(
@@ -3194,6 +3380,163 @@ impl RustGenerator {
             })
             .collect::<Vec<_>>()
             .join(", ")
+    }
+
+    /// Args list for the pair-pattern raw variant. Every callback-wrapper
+    /// arg (`callback: AzCallback`) is replaced with the typedef fn-ptr
+    /// form under the same name (`callback: AzCallbackType`). This keeps
+    /// the user's `fn_body` working unchanged because the prologue
+    /// (emitted in `generate_function_body_with_cb_pair_prologue`) binds
+    /// `let callback = AzCallback { cb: callback, ctx: None };` so any
+    /// `callback.cb` / `callback.ctx` reference still resolves.
+    fn format_function_args_for_cabi_pair_raw(
+        &self,
+        func: &FunctionDef,
+        config: &CodegenConfig,
+    ) -> String {
+        let self_snake = to_snake_case(&func.class_name);
+        func.args
+            .iter()
+            .map(|arg| {
+                let is_self = arg.name == "self" || arg.name == self_snake;
+                let type_name = if !is_self
+                    && super::managed_host_invoker::is_callback_wrapper(&arg.type_name)
+                {
+                    config.apply_prefix(&super::managed_host_invoker::callback_typedef_for(
+                        arg.type_name.trim(),
+                    ))
+                } else {
+                    config.apply_prefix(&arg.type_name)
+                };
+                let formatted = match arg.ref_kind {
+                    ArgRefKind::Owned => type_name,
+                    ArgRefKind::Ref => format!("&{}", type_name),
+                    ArgRefKind::RefMut => format!("&mut {}", type_name),
+                    ArgRefKind::Ptr => format!("*const {}", type_name),
+                    ArgRefKind::PtrMut => format!("*mut {}", type_name),
+                };
+                format!("{}: {}", arg.name, formatted)
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    /// Args list for the pair-pattern `_WithCtx` variant. Same as the
+    /// raw variant but with an extra `<arg>_ctx: AzOptionRefAny`
+    /// appended after each callback-wrapper arg.
+    ///
+    /// The ctx arg's type is `OptionRefAny` (not bare `RefAny`) on
+    /// purpose: it matches the layout of the wrapper struct's ctx
+    /// field exactly, so the Rust wrapper method can `core::ptr::read`
+    /// it straight from a `ManuallyDrop<AzCallback>` and pass it
+    /// through without further destructuring. Managed-FFI bindings
+    /// build `AzOptionRefAny::Some(refany)` at their call site; C
+    /// users avoid the WithCtx form entirely and use the raw variant.
+    fn format_function_args_for_cabi_pair_with_ctx(
+        &self,
+        func: &FunctionDef,
+        config: &CodegenConfig,
+    ) -> String {
+        let opt_refany_type = config.apply_prefix("OptionRefAny");
+        let self_snake = to_snake_case(&func.class_name);
+        let mut out = Vec::with_capacity(func.args.len());
+        for arg in &func.args {
+            let is_self = arg.name == "self" || arg.name == self_snake;
+            let is_cb = !is_self
+                && super::managed_host_invoker::is_callback_wrapper(&arg.type_name);
+            let type_name = if is_cb {
+                config.apply_prefix(&super::managed_host_invoker::callback_typedef_for(
+                    arg.type_name.trim(),
+                ))
+            } else {
+                config.apply_prefix(&arg.type_name)
+            };
+            let formatted = match arg.ref_kind {
+                ArgRefKind::Owned => type_name,
+                ArgRefKind::Ref => format!("&{}", type_name),
+                ArgRefKind::RefMut => format!("&mut {}", type_name),
+                ArgRefKind::Ptr => format!("*const {}", type_name),
+                ArgRefKind::PtrMut => format!("*mut {}", type_name),
+            };
+            out.push(format!("{}: {}", arg.name, formatted));
+            if is_cb {
+                out.push(format!("{}_ctx: {}", arg.name, opt_refany_type));
+            }
+        }
+        out.join(", ")
+    }
+
+    /// Build the prologue that re-creates the callback wrapper struct
+    /// from the pair-pattern args, so the user's `fn_body` (which
+    /// references the wrapper by its original name) works unchanged.
+    ///
+    /// `with_ctx == true` produces `<ctx_field>: OptionRefAny::Some(<arg>_ctx)`,
+    /// otherwise `<ctx_field>: OptionRefAny::None`. The actual ctx
+    /// field name (`ctx` for core/layout callbacks, `callable` for
+    /// widget callbacks) comes from
+    /// [`managed_host_invoker::callback_ctx_field`].
+    fn callback_pair_prologue(
+        &self,
+        func: &FunctionDef,
+        ir: &CodegenIR,
+        config: &CodegenConfig,
+        with_ctx: bool,
+    ) -> String {
+        let mut prologue = String::new();
+        let self_snake = to_snake_case(&func.class_name);
+        for arg in &func.args {
+            let wrapper_name = arg.type_name.trim();
+            let is_self = arg.name == "self" || arg.name == self_snake;
+            if is_self || !super::managed_host_invoker::is_callback_wrapper(wrapper_name) {
+                continue;
+            }
+            let wrapper_ty = config.apply_prefix(wrapper_name);
+            let opt_refany = config.apply_prefix("OptionRefAny");
+            let ctx_expr = if with_ctx {
+                // The WithCtx variant takes the ctx as a pre-built
+                // `OptionRefAny`; pass it through verbatim. (See
+                // `format_function_args_for_cabi_pair_with_ctx` for
+                // why the arg type is the option rather than a bare
+                // refany.)
+                format!("{}_ctx", arg.name)
+            } else {
+                format!("{}::None", opt_refany)
+            };
+            let ctx_field = super::managed_host_invoker::callback_ctx_field(wrapper_name, ir)
+                .unwrap_or_else(|| "ctx".to_string());
+            // Shadow the fn-ptr binding with the constructed wrapper so
+            // the user's fn_body (which expects the wrapper) sees the
+            // expected name. The ctx field is named per the IR struct
+            // definition — `ctx` for core/layout, `callable` for widget
+            // callbacks — see `callback_ctx_field`.
+            prologue.push_str(&format!(
+                "let {arg} = {ty} {{ cb: {arg}, {field}: {ctx} }}; ",
+                arg = arg.name,
+                ty = wrapper_ty,
+                field = ctx_field,
+                ctx = ctx_expr,
+            ));
+        }
+        prologue
+    }
+
+    /// Does this function have at least one callback-wrapper arg eligible
+    /// for the pair-pattern emit (see [`format_function_args_for_cabi_pair_raw`])?
+    ///
+    /// Skips:
+    ///   - args named `self` (the receiver — never the callback being
+    ///     registered, even on methods of `Callback` itself).
+    ///   - args matching the function's own class name in snake_case
+    ///     (legacy convention; the IR sometimes surfaces the self-arg
+    ///     under the class's snake name rather than `self`).
+    fn has_callback_wrapper_arg(func: &FunctionDef) -> bool {
+        let self_snake = to_snake_case(&func.class_name);
+        func.args.iter().any(|a| {
+            if a.name == "self" || a.name == self_snake {
+                return false;
+            }
+            super::managed_host_invoker::is_callback_wrapper(&a.type_name)
+        })
     }
 
     /// Generate test module with size/alignment verification tests

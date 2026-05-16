@@ -818,32 +818,38 @@ impl CGenerator {
         config: &CodegenConfig,
         callback_wrappers: &std::collections::HashMap<&str, &str>,
     ) {
-        // Note: historically this site rewrote callback-wrapper args
-        // (`AzCallback`) into their raw fn-pointer typedefs
-        // (`AzCallbackType`) so C consumers could pass `&fn_ptr` directly.
-        // That behaviour is gone — api.json now declares the C-ABI shape
-        // for each function, and managed-FFI bindings (Lua, Ruby, …) rely
-        // on wrapper-shaped C-ABI signatures to thread the host-handle
-        // ctx through. C consumers wrap with `AzCallback_create(fn)` at
-        // the call site, just like they wrap any other constructed value.
         let _ = callback_wrappers;
 
-        let args: Vec<String> = func
-            .args
-            .iter()
-            .map(|arg| {
-                let c_type = self.rust_type_to_c_with_prefix(&arg.type_name, config);
-                let (ptr_prefix, ptr_suffix) = match arg.ref_kind {
-                    ArgRefKind::Owned => ("", ""),
-                    ArgRefKind::Ref => ("const ", "*"),
-                    ArgRefKind::RefMut | ArgRefKind::PtrMut => ("", "*"),
-                    ArgRefKind::Ptr => ("const ", "*"),
-                };
-                // Escape C++ keywords in parameter names
-                let escaped_name = escape_cpp_keyword_for_c(&arg.name);
-                format!("{}{}{} {}", ptr_prefix, c_type, ptr_suffix, escaped_name)
-            })
-            .collect();
+        // M2.5 pair-pattern detection: every function with a
+        // callback-wrapper arg (per `HOST_INVOKER_KINDS`) emits two
+        // C-ABI variants — raw `_setOnX(fn_ptr)` and
+        // `_setOnXWithCtx(fn_ptr, OptionRefAny)`. The raw form is
+        // C-friendly (just a fn-ptr; ctx is implicitly None). The
+        // WithCtx form is for managed-FFI hosts that need the GC'd
+        // refany ctx. Mirrors the Rust-side emit in lang_rust.rs.
+        let self_snake: String = func.class_name.chars().enumerate().flat_map(|(i, c)| {
+            if c.is_uppercase() {
+                let mut v = Vec::new();
+                if i > 0 { v.push('_'); }
+                v.push(c.to_ascii_lowercase());
+                v
+            } else {
+                vec![c]
+            }
+        }).collect();
+        let is_api_function = matches!(
+            func.kind,
+            FunctionKind::Constructor
+                | FunctionKind::StaticMethod
+                | FunctionKind::Method
+                | FunctionKind::MethodMut
+        );
+        let has_cb_wrapper_arg = is_api_function
+            && func.args.iter().any(|a| {
+                let is_self = a.name == "self" || a.name == self_snake;
+                !is_self
+                    && super::managed_host_invoker::is_callback_wrapper(&a.type_name)
+            });
 
         let return_type = func
             .return_type
@@ -851,15 +857,88 @@ impl CGenerator {
             .map(|r| self.rust_type_to_c_with_prefix(r, config))
             .unwrap_or_else(|| "void".to_string());
 
+        if !has_cb_wrapper_arg {
+            let args: Vec<String> = func
+                .args
+                .iter()
+                .map(|arg| {
+                    let c_type = self.rust_type_to_c_with_prefix(&arg.type_name, config);
+                    let (ptr_prefix, ptr_suffix) = match arg.ref_kind {
+                        ArgRefKind::Owned => ("", ""),
+                        ArgRefKind::Ref => ("const ", "*"),
+                        ArgRefKind::RefMut | ArgRefKind::PtrMut => ("", "*"),
+                        ArgRefKind::Ptr => ("const ", "*"),
+                    };
+                    let escaped_name = escape_cpp_keyword_for_c(&arg.name);
+                    format!("{}{}{} {}", ptr_prefix, c_type, ptr_suffix, escaped_name)
+                })
+                .collect();
+            builder.line(&format!(
+                "extern DLLIMPORT {} {}({});",
+                return_type,
+                func.c_name,
+                if args.is_empty() {
+                    "void".to_string()
+                } else {
+                    args.join(", ")
+                }
+            ));
+            return;
+        }
+
+        // Pair-pattern emit. Build the args list twice: once with each
+        // callback-wrapper replaced by its fn-pointer typedef (raw
+        // form), once with the fn-pointer typedef plus a trailing
+        // `<arg>_ctx: AzOptionRefAny` per callback-wrapper arg.
+        let opt_refany_c =
+            self.rust_type_to_c_with_prefix("OptionRefAny", config);
+
+        let mut args_raw: Vec<String> = Vec::with_capacity(func.args.len());
+        let mut args_ctx: Vec<String> = Vec::with_capacity(func.args.len() + 1);
+        for arg in &func.args {
+            let is_self = arg.name == "self" || arg.name == self_snake;
+            let is_cb_wrapper = !is_self
+                && super::managed_host_invoker::is_callback_wrapper(&arg.type_name);
+            let effective_type = if is_cb_wrapper {
+                super::managed_host_invoker::callback_typedef_for(arg.type_name.trim())
+            } else {
+                arg.type_name.clone()
+            };
+            let c_type = self.rust_type_to_c_with_prefix(&effective_type, config);
+            let (ptr_prefix, ptr_suffix) = match arg.ref_kind {
+                ArgRefKind::Owned => ("", ""),
+                ArgRefKind::Ref => ("const ", "*"),
+                ArgRefKind::RefMut | ArgRefKind::PtrMut => ("", "*"),
+                ArgRefKind::Ptr => ("const ", "*"),
+            };
+            let escaped_name = escape_cpp_keyword_for_c(&arg.name);
+            let formatted =
+                format!("{}{}{} {}", ptr_prefix, c_type, ptr_suffix, escaped_name);
+            args_raw.push(formatted.clone());
+            args_ctx.push(formatted);
+            if is_cb_wrapper {
+                args_ctx.push(format!("{} {}_ctx", opt_refany_c, escaped_name));
+            }
+        }
+
+        builder.line(&format!(
+            "/* Raw variant — fn-pointer only. Use the WithCtx sibling below */"
+        ));
+        builder.line("/* if you need to attach a refany ctx (managed-FFI dispatch). */");
         builder.line(&format!(
             "extern DLLIMPORT {} {}({});",
             return_type,
             func.c_name,
-            if args.is_empty() {
-                "void".to_string()
-            } else {
-                args.join(", ")
-            }
+            args_raw.join(", ")
+        ));
+        builder.line(&format!(
+            "/* WithCtx variant — fn-pointer + AzOptionRefAny ctx for host-handle dispatch. */"
+        ));
+        builder.line(&format!(
+            "extern DLLIMPORT {} {}WithCtx({});",
+            return_type,
+            func.c_name,
+            args_ctx.join(", ")
         ));
     }
 

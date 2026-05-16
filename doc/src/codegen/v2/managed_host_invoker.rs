@@ -100,6 +100,50 @@ pub fn wrapper_name(cb: &CallbackTypedefDef) -> &str {
     cb.name.strip_suffix("Type").unwrap_or(cb.name.as_str())
 }
 
+/// Predicate: is `type_name` a callback-wrapper struct from the
+/// host-invoker allowlist? Used by the dll_internal codegen to decide
+/// whether to emit the `_setOnX` / `_setOnXWithCtx` pair pattern for
+/// a function whose arg type is this wrapper.
+///
+/// The pair pattern: for every function `Foo::set_on_x(self, data,
+/// callback: Callback)` in api.json, emit both
+///   - `AzFoo_setOnX(self, data, callback: AzCallbackType)` — raw
+///     fn-ptr form; body wraps as `Callback { cb, ctx: None }`.
+///   - `AzFoo_setOnXWithCtx(self, data, callback: AzCallbackType,
+///     callback_ctx: AzRefAny)` — for managed-FFI hosts whose
+///     callback-handle ctx lives in a GC'd refany. Body wraps as
+///     `Callback { cb, ctx: Some(ctx) }`.
+pub fn is_callback_wrapper(type_name: &str) -> bool {
+    HOST_INVOKER_KINDS.contains(&type_name.trim())
+}
+
+/// Convert a callback-wrapper type name (`"Callback"`,
+/// `"ButtonOnClickCallback"`, …) into its raw-fn-ptr typedef
+/// counterpart (`"CallbackType"`, `"ButtonOnClickCallbackType"`, …).
+/// The typedef is what the pair-pattern `_setOnX(...)` form takes as
+/// its fn-ptr arg; the typedef name follows the convention
+/// `<WrapperName>Type`.
+pub fn callback_typedef_for(wrapper: &str) -> String {
+    format!("{}Type", wrapper)
+}
+
+/// Look up the ctx-equivalent field name for a callback wrapper struct.
+/// All wrappers in `HOST_INVOKER_KINDS` are `{ cb, <ctx_field> }`
+/// where the `<ctx_field>` has type `OptionRefAny` but its name is
+/// either `ctx` (core/layout callbacks: `Callback`, `LayoutCallback`,
+/// `VirtualViewCallback`, `ThreadCallback`) or `callable` (every
+/// widget callback: `ButtonOnClickCallback`, `CheckBoxOnToggleCallback`, …).
+///
+/// Returns `None` if the wrapper isn't a known callback wrapper or if
+/// no field of type `OptionRefAny` is found.
+pub fn callback_ctx_field(wrapper: &str, ir: &super::ir::CodegenIR) -> Option<String> {
+    let s = ir.structs.iter().find(|s| s.name == wrapper)?;
+    s.fields
+        .iter()
+        .find(|f| f.type_name.trim() == "OptionRefAny")
+        .map(|f| f.name.clone())
+}
+
 /// Phase J.2 detector: does this struct `s` have a layout-callback
 /// constructor pattern, i.e. a `_default` static factory AND a
 /// static factory whose only arg is a LayoutCallback fn-pointer
