@@ -452,31 +452,14 @@ fn emit_haskell_method_wrappers(
             continue;
         }
 
-        // Phase 1 simplification: if the function needs a `_via` shim
-        // (struct-by-value-arg-or-return), every non-receiver arg must
-        // be a wrapper class so we can pass its `Ptr T.<X>` via the
-        // existing `unWrapper` selector. Primitive / enum args going
-        // through `_via` need `alloca + poke` plumbing (Phase 2).
+        // Phase 1 + 2: shimmed-with-non-wrapper args used to be a Phase
+        // 1 stall; Phase 2 lights them up via `alloca + poke` per
+        // primitive/enum arg. Wrapper-class args still pass `unWrapper`
+        // directly. No filter rejection here — the body emit branches
+        // per arg below.
         let shimmed = super::cshim::needs_shim(func);
-        if shimmed {
-            let all_extra_wrappers = func.args.iter().skip(1).all(|a| {
-                let t = a.type_name.trim();
-                ir.find_struct(t).map(|s| {
-                    delete_set.contains(t) && matches!(
-                        s.category,
-                        super::super::ir::TypeCategory::Regular
-                            | super::super::ir::TypeCategory::String
-                            | super::super::ir::TypeCategory::CallbackDataPair
-                    )
-                }).unwrap_or(false)
-            });
-            if !all_extra_wrappers {
-                continue;
-            }
-        }
 
         // First arg must be the receiver — Owned (consumed) or Ref/Mut.
-        // For Phase 1, accept all three.
         let self_consumed = func
             .args
             .first()
@@ -489,7 +472,7 @@ fn emit_haskell_method_wrappers(
 
         // The C-shim binding name — `c_<c_name>_via` for shimmed funcs,
         // `c_<c_name>` for primitive-only. `needs_shim` decides.
-        let c_binding = if super::cshim::needs_shim(func) {
+        let c_binding = if shimmed {
             format!("FFI.c_{}_via", func.c_name)
         } else {
             format!("FFI.c_{}", func.c_name)
@@ -502,9 +485,7 @@ fn emit_haskell_method_wrappers(
         }
         sig_parts.push("IO ()".to_string());
 
-        // Function body: marshal each arg (unWrapper for wrappers,
-        // pass-through for primitives), call C binding, consume any
-        // Owned wrapper-class args.
+        // Function body parameter names.
         let mut param_names: Vec<String> = vec!["self".to_string()];
         for (i, a) in func.args.iter().enumerate().skip(1) {
             let nm = if a.name.is_empty() {
@@ -515,17 +496,62 @@ fn emit_haskell_method_wrappers(
             param_names.push(nm);
         }
 
+        // Classify each non-self arg: wrapper / passthrough / poke.
+        //   - Wrapper       → pass `(unWrapper arg)` directly.
+        //   - Passthrough   → pass `arg` directly (primitives in
+        //                     non-shimmed funcs, where the FFI takes
+        //                     the value not a Ptr).
+        //   - Poke          → shimmed primitive/enum arg; needs
+        //                     `alloca + poke` because the `_via` shim
+        //                     takes `Ptr T.<X>` for the by-value arg.
+        enum ArgEmit {
+            Wrapper(String),    // unWrapper(arg)
+            Passthrough,        // arg verbatim
+            Poke,               // alloca + poke, pass the alloca'd ptr
+        }
+        let arg_emits: Vec<ArgEmit> = func
+            .args
+            .iter()
+            .skip(1)
+            .map(|a| {
+                let t = a.type_name.trim();
+                let is_wrapper = ir.find_struct(t).map(|s| {
+                    delete_set.contains(t) && matches!(
+                        s.category,
+                        super::super::ir::TypeCategory::Regular
+                            | super::super::ir::TypeCategory::String
+                            | super::super::ir::TypeCategory::CallbackDataPair
+                    )
+                }).unwrap_or(false);
+                if is_wrapper {
+                    ArgEmit::Wrapper(haskell_data_name(t))
+                } else if shimmed {
+                    // Shimmed FFI binding expects `Ptr T.<X>` for this arg.
+                    ArgEmit::Poke
+                } else {
+                    // Non-shimmed FFI takes the value directly.
+                    ArgEmit::Passthrough
+                }
+            })
+            .collect();
+
+        // Build the call-args list — `unWrapper self` first, then
+        // per-arg expression. For Poke args, we use a placeholder ptr
+        // name `__p_<argname>` which the alloca wrapper binds.
         let mut call_args: Vec<String> = Vec::new();
-        // Self first.
         call_args.push(format!("(un{} self)", haskell_data_name(&s.name)));
-        for (i, a) in func.args.iter().enumerate().skip(1) {
-            let pname = &param_names[i];
-            let t = a.type_name.trim();
-            let is_wrapper = ir.find_struct(t).map(|_| delete_set.contains(t)).unwrap_or(false);
-            if is_wrapper {
-                call_args.push(format!("(un{} {})", haskell_data_name(t), pname));
-            } else {
-                call_args.push(pname.clone());
+        for (i, kind) in arg_emits.iter().enumerate() {
+            let pname = &param_names[i + 1];
+            match kind {
+                ArgEmit::Wrapper(wname) => {
+                    call_args.push(format!("(un{} {})", wname, pname));
+                }
+                ArgEmit::Passthrough => {
+                    call_args.push(pname.clone());
+                }
+                ArgEmit::Poke => {
+                    call_args.push(format!("__p_{}", pname));
+                }
             }
         }
 
@@ -535,9 +561,10 @@ fn emit_haskell_method_wrappers(
             .iter()
             .enumerate()
             .skip(1)
-            .filter(|(_, a)| {
+            .filter(|(i, a)| {
                 let t = a.type_name.trim();
-                let is_wrapper = ir.find_struct(t).map(|_| delete_set.contains(t)).unwrap_or(false);
+                let is_wrapper = matches!(arg_emits[i - 1], ArgEmit::Wrapper(_));
+                let _ = t;
                 is_wrapper && matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned)
             })
             .map(|(i, _)| i)
@@ -555,11 +582,32 @@ fn emit_haskell_method_wrappers(
             param_names.join(" ")
         ));
         builder.indent();
+
+        // Emit nested `alloca` wrappers for each Poke arg. Each adds
+        // one level of indent and binds `__p_<name>` for the body.
+        let poke_args: Vec<(usize, &str)> = arg_emits
+            .iter()
+            .enumerate()
+            .filter(|(_, k)| matches!(k, ArgEmit::Poke))
+            .map(|(i, _)| (i + 1, param_names[i + 1].as_str()))
+            .collect();
+        for (_, name) in &poke_args {
+            builder.line(&format!(
+                "alloca $ \\__p_{} -> do",
+                name
+            ));
+            builder.indent();
+            builder.line(&format!("poke __p_{} {}", name, name));
+        }
+
+        // The C call itself.
         builder.line(&format!(
             "{} {}",
             c_binding,
             call_args.join(" ")
         ));
+        // Owned-arg consume calls go AFTER the C call — at the
+        // innermost-do level, which is the current `builder` cursor.
         for idx in &owned_wrapper_indices {
             let t = func.args[*idx].type_name.trim();
             let consume_fn = format!("consume{}", haskell_data_name(t));
@@ -568,6 +616,11 @@ fn emit_haskell_method_wrappers(
         if self_consumed {
             let consume_fn = format!("consume{}", haskell_data_name(&s.name));
             builder.line(&format!("{} self", consume_fn));
+        }
+
+        // Close each `alloca`'s do-block (dedent once per Poke arg).
+        for _ in &poke_args {
+            builder.dedent();
         }
         builder.dedent();
         builder.blank();
