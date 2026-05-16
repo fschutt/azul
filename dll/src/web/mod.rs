@@ -49,7 +49,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
-use azul_core::callbacks::CoreCallback;
+use azul_core::callbacks::{CoreCallback, LayoutCallback};
 use azul_core::refany::RefAny;
 use azul_core::resources::{AppConfig, RouteMatch};
 use azul_layout::window_state::WindowCreateOptions;
@@ -72,6 +72,38 @@ pub(crate) fn fnv1a64_hex(data: &[u8]) -> String {
         hash = hash.wrapping_mul(FNV_PRIME);
     }
     format!("{:016x}", hash)
+}
+
+/// A lifted layout-callback WASM module. One per unique
+/// `LayoutCallback` fn-pointer across the configured routes.
+///
+/// **M8.3 wrapper status**: today the bytes are lifted under the
+/// canonical Callback wrapper shape, which seeds X0/X1/X2 from the
+/// JS-side `(refany_lo, refany_hi, info_ptr)` args but does NOT
+/// seed X8 (AArch64 hidden return-buffer pointer for >16B
+/// aggregate returns like `AzStyledDom`). Calling the lifted
+/// module from JS would write `AzStyledDom` to address 0 → trap.
+/// M8.5 introduces a `Pcs::HiddenPtrReturn` variant + a heap-allocated
+/// return-buffer wrapper (per Q1 user direction: serialized-bytes
+/// return path).
+///
+/// For M8.3 the bytes still exist + the route serves them, so the
+/// `<link rel="preload">` infrastructure in `html_render` warms the
+/// browser cache. loader.js doesn't call the layout module yet.
+#[derive(Debug, Clone)]
+pub struct LayoutWasm {
+    /// Resolved symbol name (or `cb_{addr:x}` fallback).
+    pub name: String,
+    /// FNV-1a 64-bit hash of `name` — the `{hash}` in the served URL.
+    pub content_hash: String,
+    /// dladdr-resolved symbol address.
+    pub fn_addr: usize,
+    /// The lifted WASM bytes. Empty if the lift errored (transpiler
+    /// unavailable, dlsym miss, etc.); the route handler then 404s.
+    pub wasm_bytes: Vec<u8>,
+    /// `true` when the bytes came from the real lift; `false` when the
+    /// lift errored. Surfaces in `eprintln!` logging for debugging.
+    pub is_client_side: bool,
 }
 
 /// A discovered callback and its WASM module (if transpiled).
@@ -432,6 +464,46 @@ fn generate_mini_wasm_stub() -> Vec<u8> {
     WASM_HEADER.to_vec()
 }
 
+/// M8.3: lift every unique layout callback fn-ptr referenced by the
+/// configured routes. Dedupes by fn-addr so two routes sharing the
+/// same layout function produce one `LayoutWasm` entry. Each lift
+/// runs through the same M5-M7 pipeline as widget callbacks; failure
+/// falls back to the [`emit_noop_callback_wasm`] stub with
+/// `is_client_side = false` (matching the per-callback fallback path).
+pub fn lift_layout_callbacks(layout_callbacks: &[LayoutCallback]) -> Vec<LayoutWasm> {
+    let transpiler = transpiler::default_transpiler();
+    let transpiler_available = transpiler.is_available();
+    let mut seen: BTreeMap<usize, ()> = BTreeMap::new();
+    let mut out: Vec<LayoutWasm> = Vec::new();
+    for cb in layout_callbacks {
+        let cb_addr = cb.cb as usize;
+        if seen.insert(cb_addr, ()).is_some() {
+            continue;
+        }
+        let sym = resolve_fn_ptr(cb_addr);
+        let (wasm_bytes, is_client_side) = lift_or_noop(
+            transpiler.as_ref(),
+            transpiler_available,
+            &sym.name,
+            sym.addr,
+            sym.size,
+        );
+        eprintln!(
+            "[azul-web]   layout-cb: {:<40} addr=0x{:016x} wasm={} client_side={}",
+            sym.name, sym.addr, wasm_bytes.len(), is_client_side,
+        );
+        let content_hash = fnv1a64_hex(sym.name.as_bytes());
+        out.push(LayoutWasm {
+            name: sym.name,
+            content_hash,
+            fn_addr: sym.addr,
+            wasm_bytes,
+            is_client_side,
+        });
+    }
+    out
+}
+
 /// M8.2: lift the EVENTLOOP_SYMBOLS into a real azul-mini.wasm.
 ///
 /// dlsym each AzStartup_* name in the running libazul, feed
@@ -630,9 +702,27 @@ pub fn run_web(
         );
     }
 
+    // Phase C-layout (M8.3): lift the unique layout callbacks referenced
+    // by the rendered routes. Each lift goes through the same M5-M7
+    // pipeline as widget callbacks but is currently wrapped under the
+    // canonical Callback PCS — the X8 hidden-return for AzStyledDom is
+    // M8.5 work. Bytes serve via `/az/layout/<name>.<hash>.wasm`.
+    let unique_layout_callbacks: Vec<LayoutCallback> = {
+        let mut seen: BTreeMap<usize, ()> = BTreeMap::new();
+        let mut v: Vec<LayoutCallback> = Vec::new();
+        for r in rendered_routes.values() {
+            let addr = r.layout_callback.cb as usize;
+            if seen.insert(addr, ()).is_none() {
+                v.push(r.layout_callback.clone());
+            }
+        }
+        v
+    };
+    let layout_wasms = lift_layout_callbacks(&unique_layout_callbacks);
+
     eprintln!(
-        "[azul-web] Pre-rendered {} routes, {} total images, {} total fonts",
-        rendered_routes.len(), all_images.len(), all_fonts.len(),
+        "[azul-web] Pre-rendered {} routes, {} total images, {} total fonts, {} layout WASMs",
+        rendered_routes.len(), all_images.len(), all_fonts.len(), layout_wasms.len(),
     );
 
     // Phase E: Start HTTP server
@@ -648,6 +738,7 @@ pub fn run_web(
         window_state,
         mini_wasm,
         cb_wasms,
+        layout_wasms,
         layout_callback: default_layout_callback,
         rendered_routes,
         images: all_images,

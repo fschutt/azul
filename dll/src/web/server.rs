@@ -23,7 +23,7 @@ use azul_layout::window_state::FullWindowState;
 use rust_fontconfig::FcFontCache;
 use rust_fontconfig::registry::FcFontRegistry;
 
-use super::CallbackWasm;
+use super::{CallbackWasm, LayoutWasm};
 use super::config::WebConfig;
 use super::html_render::{CollectedImage, CollectedFont};
 use super::loader_js;
@@ -62,6 +62,10 @@ pub struct WebServerState {
     pub mini_wasm: Vec<u8>,
     /// Per-callback WASM modules served under `/az/cb/`.
     pub cb_wasms: Vec<CallbackWasm>,
+    /// Per-layout-callback WASM modules served under `/az/layout/`
+    /// (M8.3). Lifted from each unique `LayoutCallback.cb` referenced
+    /// by the configured routes. Deduped by fn-addr.
+    pub layout_wasms: Vec<LayoutWasm>,
     /// Default layout callback used by `re_render_body`.
     pub layout_callback: LayoutCallback,
     /// Pre-rendered routes: pattern → HTML.
@@ -179,6 +183,18 @@ fn handle_connection(
                 send_response_cached(&mut stream, 200, "application/wasm", &cb.wasm_bytes)
             } else {
                 send_response(&mut stream, 404, "text/plain", b"Callback not found")
+            }
+        }
+        ("GET", p) if p.starts_with("/az/layout/") && p.ends_with(".wasm") => {
+            // M8.3: layout-callback WASMs. Same scheme as /az/cb/ —
+            // URL is `/az/layout/{name}.{hash}.wasm`; we dispatch by
+            // name and let the hash piece act as a cache-bust.
+            let name = p.strip_prefix("/az/layout/").unwrap_or("")
+                .split('.').next().unwrap_or("");
+            if let Some(lw) = state.layout_wasms.iter().find(|l| l.name == name) {
+                send_response_cached(&mut stream, 200, "application/wasm", &lw.wasm_bytes)
+            } else {
+                send_response(&mut stream, 404, "text/plain", b"Layout callback not found")
             }
         }
 

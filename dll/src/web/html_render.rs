@@ -129,7 +129,18 @@ pub fn render_initial_page(
     //    `/az/cb/{name}.{hash}.wasm` URL so the browser warms its cache; the
     //    server still answers each one with a tiny stub (or 404) until the
     //    remill-based lift in Phase C is wired up.
-    let preload_hints = generate_preload_hints(mini_wasm, &ctx.callbacks);
+    //
+    //    M8.3 also adds a `/az/layout/{name}.{hash}.wasm` hint for the
+    //    route's layout callback so the browser fetches it in parallel
+    //    with the per-callback modules.
+    let layout_cb_name = super::resolve_fn_ptr(layout_callback.cb as usize).name;
+    let layout_cb_hash = super::fnv1a64_hex(layout_cb_name.as_bytes());
+    let layout_preload_hint = format!(
+        "<link rel=\"preload\" href=\"/az/layout/{}.{}.wasm\" as=\"fetch\" crossorigin>\n",
+        layout_cb_name, layout_cb_hash,
+    );
+    let mut preload_hints = generate_preload_hints(mini_wasm, &ctx.callbacks);
+    preload_hints.push_str(&layout_preload_hint);
     // Pass an empty callback list here; the second `generate_loader_js`
     // call inside `server::run_server` uses the real `WebServerState.cb_wasms`
     // list. This first render-time call would need the cb_wasms but they
