@@ -176,3 +176,7 @@ experiments/transpile-blueprint/Cargo.lock
 # Whitelist the cxx shim header — the global `*.h` rule above (intended
 # for generated azul.h) would otherwise drop it.
 !experiments/transpile-blueprint/cpp/*.h
+# Whitelist the in-process remill wrapper headers (M8.9 in-process
+# lift). Same reason as the blueprint above — global `*.h` rule
+# would otherwise drop them.
+!dll/src/web/cpp/*.h
