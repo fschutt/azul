@@ -395,17 +395,27 @@ impl RemillTranspiler {
         })
     }
 
-    /// Run the three-stage pipeline on a single function: peek bytes from
-    /// the running .text, lift to IR via remill, compile to a wasm32
-    /// object, and link to a self-contained `.wasm` module.
-    fn pipeline_single(
+    /// Run the M5-M7 pipeline through `llc` and return the produced
+    /// wasm32 object path. The caller decides whether to wasm-ld it
+    /// into a self-contained `.wasm` (per-callback case, via
+    /// [`pipeline_single`]) or batch several objects through one
+    /// wasm-ld invocation (eventloop case, via
+    /// [`lift_and_link_eventloop`]).
+    ///
+    /// `lift_addr` MUST be unique across calls that will be linked
+    /// together — remill names the lifted top-level function
+    /// `@sub_<lift_addr_hex>`, and the wrapper IR `@call`s it under
+    /// that name. If two .o files share a lift_addr, wasm-ld will
+    /// see colliding `sub_<hex>` symbols.
+    fn produce_object_for(
         &self,
         fn_name: &str,
         fn_addr: usize,
         fn_size: usize,
         sig: &CallbackSignature,
         export_as: &str,
-    ) -> Result<WasmModule, TranspileError> {
+        lift_addr: u64,
+    ) -> Result<PathBuf, TranspileError> {
         let tools = self.tools(fn_name)?;
         std::fs::create_dir_all(&self.scratch_dir).map_err(|e| TranspileError {
             fn_name: fn_name.to_string(),
@@ -426,10 +436,10 @@ impl RemillTranspiler {
         })?;
 
         // remill-lift takes hex on the cmdline and writes IR to a path.
-        // Address `0x100000000` matches the blueprint experiment — picks
-        // a high virtual address so remill's null-page guard doesn't
-        // bail out.
-        let lift_addr: u64 = 0x100000000;
+        // Address `0x100000000`-class values are high enough that
+        // remill's null-page guard doesn't bail; the caller varies
+        // `lift_addr` per call to keep `sub_<hex>` symbol names unique
+        // when multiple objects will be linked together.
         let stem = sanitize_filename(fn_name);
         let lifted_ir_path = self.scratch_dir.join(format!("{}.lifted.ll", stem));
         let hex = bytes_to_hex(&bytes);
@@ -585,9 +595,31 @@ impl RemillTranspiler {
             fn_name,
         )?;
 
-        // wasm-ld → final module. Export under the caller-chosen name
-        // (`callback` for per-widget lifts, `AzStartup_<name>` for
-        // eventloop lifts). The raw `sub_<addr>` is now inlined away.
+        // produce_object_for stops here — caller decides whether to
+        // wasm-ld this object alone or link several together.
+        Ok(obj_path)
+    }
+
+    /// Default per-callback pipeline: lift a single function, then
+    /// wasm-ld its `.o` into a self-contained `.wasm` module.
+    /// Equivalent to the M5-M7 path.
+    fn pipeline_single(
+        &self,
+        fn_name: &str,
+        fn_addr: usize,
+        fn_size: usize,
+        sig: &CallbackSignature,
+        export_as: &str,
+    ) -> Result<WasmModule, TranspileError> {
+        // Per-callback lifts use the historical fixed lift_addr
+        // (matches the blueprint experiment; harmless because only
+        // one object is linked).
+        let lift_addr: u64 = 0x100000000;
+        let obj_path = self.produce_object_for(
+            fn_name, fn_addr, fn_size, sig, export_as, lift_addr,
+        )?;
+        let tools = self.tools(fn_name)?;
+        let stem = sanitize_filename(fn_name);
         let wasm_path = self.scratch_dir.join(format!("{}.wasm", stem));
         let export_flag = format!("--export={}", export_as);
         run_tool(
@@ -602,23 +634,50 @@ impl RemillTranspiler {
             ],
             fn_name,
         )?;
-
         let wasm_bytes = std::fs::read(&wasm_path).map_err(|e| TranspileError {
             fn_name: fn_name.to_string(),
             reason: format!("read {}: {e}", wasm_path.display()),
         })?;
-
         Ok(WasmModule {
             content_hash: super::fnv1a64_hex(&wasm_bytes),
             bytes: wasm_bytes,
-            // The M6 pipeline replaces the raw `sub_<addr>` export
-            // with a wrapper exported under `export_as`.
             exports: vec![export_as.to_string()],
             // TODO(M7/WB1.3): scan the lifted IR for external `call`s
             // and surface them as imports from azul-mini.wasm. For
             // now, leave empty so the caller treats the module as
             // self-contained.
             imports_from_mini: Vec::new(),
+        })
+    }
+
+    /// Run wasm-ld over a batch of `.o` files into one `.wasm` with
+    /// the named exports. Used by [`lift_and_link_eventloop`] to
+    /// build `azul-mini.wasm` from the per-AzStartup_* objects.
+    fn link_objects_to_wasm(
+        &self,
+        objects: &[PathBuf],
+        exports: &[String],
+        output_stem: &str,
+    ) -> Result<Vec<u8>, TranspileError> {
+        let tools = self.tools(output_stem)?;
+        let wasm_path = self.scratch_dir.join(format!("{}.wasm", output_stem));
+        let mut args: Vec<String> = vec![
+            "--no-entry".to_string(),
+            "--allow-undefined".to_string(),
+            "-o".to_string(),
+            wasm_path.to_string_lossy().into_owned(),
+        ];
+        for e in exports {
+            args.push(format!("--export={}", e));
+        }
+        for p in objects {
+            args.push(p.to_string_lossy().into_owned());
+        }
+        let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        run_tool(tools.wasm_ld, &arg_refs, output_stem)?;
+        std::fs::read(&wasm_path).map_err(|e| TranspileError {
+            fn_name: output_stem.to_string(),
+            reason: format!("read {}: {e}", wasm_path.display()),
         })
     }
 }
@@ -743,6 +802,60 @@ impl Transpiler for RemillTranspiler {
         })
     }
 
+    fn lift_and_link_eventloop(
+        &self,
+        symbols: &[(String, usize, usize)],
+    ) -> Result<WasmModule, TranspileError> {
+        if symbols.is_empty() {
+            return Err(TranspileError {
+                fn_name: "azul-mini".into(),
+                reason: "no eventloop symbols provided".into(),
+            });
+        }
+        // Verify all symbols have a known signature before doing any
+        // expensive lift work. This fails fast on a typo in
+        // EVENTLOOP_SYMBOLS that doesn't have a matching entry in
+        // signature_for_eventloop_fn.
+        let mut sigs: Vec<CallbackSignature> = Vec::with_capacity(symbols.len());
+        for (name, _, _) in symbols {
+            let sig = signature_for_eventloop_fn(name).ok_or_else(|| TranspileError {
+                fn_name: name.clone(),
+                reason: format!(
+                    "no entry in signature_for_eventloop_fn for {} — add it before \
+                     listing in EVENTLOOP_SYMBOLS",
+                    name
+                ),
+            })?;
+            sigs.push(sig);
+        }
+
+        let mut object_paths: Vec<PathBuf> = Vec::with_capacity(symbols.len());
+        let mut exports: Vec<String> = Vec::with_capacity(symbols.len());
+        for (i, ((name, addr, size), sig)) in symbols.iter().zip(sigs.iter()).enumerate() {
+            // Unique lift_addr per function so each lifted module's
+            // top-level `sub_<lift_addr_hex>` is a distinct symbol.
+            // 0x1000 stride is much larger than any plausible function
+            // (256B read window today), so back-references stay within
+            // their own lift's namespace.
+            let lift_addr = 0x100000000_u64 + (i as u64) * 0x1000;
+            eprintln!(
+                "[azul-web]   eventloop[{i}]: lifting {} addr=0x{:016x} size={} lift_addr=0x{:x}",
+                name, addr, size, lift_addr,
+            );
+            let obj = self.produce_object_for(name, *addr, *size, sig, name, lift_addr)?;
+            object_paths.push(obj);
+            exports.push(name.clone());
+        }
+
+        let bytes = self.link_objects_to_wasm(&object_paths, &exports, "azul-mini")?;
+        Ok(WasmModule {
+            content_hash: super::fnv1a64_hex(&bytes),
+            bytes,
+            exports,
+            imports_from_mini: Vec::new(),
+        })
+    }
+
     fn is_available(&self) -> bool {
         self.remill_lift.is_some()
             && self.llc.is_some()
@@ -764,6 +877,15 @@ struct Tools<'a> {
     wasm_ld: &'a Path,
 }
 
+/// Workspace root baked in at compile time via `CARGO_MANIFEST_DIR`.
+/// The dll's manifest is at `<workspace>/dll/Cargo.toml`, so its
+/// parent is the workspace root. Used by the discover_* helpers to
+/// find the bundled `third_party/remill-install/...` regardless of
+/// the running binary's cwd.
+fn workspace_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")
+}
+
 fn discover_remill_lift() -> Option<PathBuf> {
     if let Ok(p) = std::env::var("REMILL_LIFT_BIN") {
         let pb = PathBuf::from(p);
@@ -771,8 +893,15 @@ fn discover_remill_lift() -> Option<PathBuf> {
             return Some(pb);
         }
     }
+    let ws = workspace_root().join(
+        "third_party/remill-install/build/remill/bin/lift/remill-lift-17",
+    );
+    if ws.is_file() {
+        return Some(ws);
+    }
     let candidates = [
-        // Co-located with the workspace via the build_remill.sh script.
+        // Cwd-relative — covers the historical case where the binary
+        // is run from the workspace root.
         "third_party/remill-install/build/remill/bin/lift/remill-lift-17",
         // Fallback for installed remill.
         "/usr/local/bin/remill-lift-17",

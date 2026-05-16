@@ -423,11 +423,60 @@ const WASM_HEADER: [u8; 8] = [
     0x01, 0x00, 0x00, 0x00, // version 1
 ];
 
-/// Generate azul-mini.wasm.
-///
-/// Phase 0: Returns a minimal valid WASM module (~8 bytes).
-fn generate_mini_wasm(_classification: &classify::ApiClassification) -> Vec<u8> {
+/// 8-byte minimum-viable stub. Used as the azul-mini.wasm fallback
+/// when the lift pipeline isn't available (web-transpiler feature off,
+/// remill not installed, dlsym misses, lift errors). Sufficient for
+/// `WebAssembly.instantiate(bytes)` to succeed; exports nothing, so
+/// loader.js's AzStartup_* calls will throw — desktop debug only.
+fn generate_mini_wasm_stub() -> Vec<u8> {
     WASM_HEADER.to_vec()
+}
+
+/// M8.2: lift the EVENTLOOP_SYMBOLS into a real azul-mini.wasm.
+///
+/// dlsym each AzStartup_* name in the running libazul, feed
+/// `(name, addr, size)` tuples to `transpiler.lift_and_link_eventloop`.
+/// On any failure log + fall back to the 8-byte stub so the rest of
+/// run_web can proceed (per the M0-M7 "fail soft" discipline).
+fn lift_eventloop_mini_wasm() -> Vec<u8> {
+    let transpiler = transpiler::default_transpiler();
+    if !transpiler.is_available() {
+        eprintln!(
+            "[azul-web] azul-mini: transpiler unavailable ({}), using 8-byte stub",
+            transpiler.name(),
+        );
+        return generate_mini_wasm_stub();
+    }
+    let mut targets: Vec<(String, usize, usize)> = Vec::with_capacity(EVENTLOOP_SYMBOLS.len());
+    for sym_name in EVENTLOOP_SYMBOLS {
+        let Some(addr) = dlsym_self(sym_name) else {
+            eprintln!(
+                "[azul-web] azul-mini: dlsym({}) returned null — falling back to stub",
+                sym_name,
+            );
+            return generate_mini_wasm_stub();
+        };
+        let sym = resolve_fn_ptr(addr);
+        targets.push((sym_name.to_string(), sym.addr, sym.size));
+    }
+    match transpiler.lift_and_link_eventloop(&targets) {
+        Ok(module) => {
+            eprintln!(
+                "[azul-web] azul-mini: lifted + linked {} bytes ({} exports)",
+                module.bytes.len(),
+                module.exports.len(),
+            );
+            module.bytes
+        }
+        Err(e) => {
+            eprintln!(
+                "[azul-web] azul-mini: lift_and_link_eventloop failed for {}: {} — \
+                 falling back to 8-byte stub",
+                e.fn_name, e.reason,
+            );
+            generate_mini_wasm_stub()
+        }
+    }
 }
 
 /// Run the web backend — called from `run()` when `AzBackend::Web(cfg)`.
@@ -454,12 +503,13 @@ pub fn run_web(
         classification.excluded_count(),
     );
 
-    // Phase B: Generate azul-mini.wasm (stubbed)
-    let mini_wasm = generate_mini_wasm(&classification);
-    eprintln!(
-        "[azul-web] azul-mini.wasm: {} bytes (stub)",
-        mini_wasm.len()
-    );
+    // Phase B (M8.2): lift the EVENTLOOP_SYMBOLS into azul-mini.wasm.
+    // Falls back to an 8-byte WASM_HEADER stub when the transpiler
+    // or dlsym path can't satisfy the request — keeps Phase D/E
+    // unblocked even if the eventloop lift fails.
+    let _ = &classification; // M8.9 will use this to wire framework-call routing.
+    let mini_wasm = lift_eventloop_mini_wasm();
+    eprintln!("[azul-web] azul-mini.wasm: {} bytes", mini_wasm.len());
 
     // Phase D: Pre-render all routes. The walk also collects every
     // callback fn-pointer it sees, which feeds Phase C below.

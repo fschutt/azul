@@ -70,6 +70,22 @@ pub trait Transpiler {
         functions: &[(String, usize, usize)], // (name, addr, size)
     ) -> Result<WasmModule, TranspileError>;
 
+    /// Lift the eventloop's `AzStartup_*` functions from libazul and link
+    /// the resulting wasm32 objects into a single `azul-mini.wasm`.
+    ///
+    /// Each `(name, addr, size)` tuple selects a function whose body
+    /// gets lifted; the per-symbol wrapper signature is resolved via
+    /// `signature_for_eventloop_fn(name)` in the remill implementation.
+    /// The final module exports every `name` so the browser-side
+    /// loader can call them directly.
+    ///
+    /// Stub transpiler returns `Err`; remill transpiler runs the full
+    /// M6/M7 pipeline per symbol and one final wasm-ld link.
+    fn lift_and_link_eventloop(
+        &self,
+        symbols: &[(String, usize, usize)], // (name, addr, size)
+    ) -> Result<WasmModule, TranspileError>;
+
     /// Whether this transpiler is functional (vs. a stub).
     fn is_available(&self) -> bool;
 
@@ -99,6 +115,16 @@ impl Transpiler for StubTranspiler {
     fn lift_and_link_framework(
         &self,
         _functions: &[(String, usize, usize)],
+    ) -> Result<WasmModule, TranspileError> {
+        Err(TranspileError {
+            fn_name: "azul-mini".into(),
+            reason: "transpiler not yet implemented (Phase 0 stub)".into(),
+        })
+    }
+
+    fn lift_and_link_eventloop(
+        &self,
+        _symbols: &[(String, usize, usize)],
     ) -> Result<WasmModule, TranspileError> {
         Err(TranspileError {
             fn_name: "azul-mini".into(),
