@@ -401,7 +401,7 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
     for f in &funcs {
         match f.kind {
             FunctionKind::Constructor | FunctionKind::StaticMethod | FunctionKind::Default => {
-                emit_static_method(out, &f.method_name, f);
+                emit_static_method(out, &f.method_name, f, ir);
             }
             _ => {}
         }
@@ -534,7 +534,7 @@ fn emit_data_enum_wrapper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
             | FunctionKind::Constructor
             | FunctionKind::StaticMethod
             | FunctionKind::Default => {
-                emit_static_method(out, &f.method_name, f);
+                emit_static_method(out, &f.method_name, f, ir);
             }
             _ => {}
         }
@@ -921,7 +921,17 @@ fn is_az_string_owned_arg(a: &super::super::ir::FunctionArg) -> bool {
 
 /// Emit one entry of a static-method table:
 ///     method = function(args) ... end,
-fn emit_static_method(out: &mut String, lua_method: &str, func: &FunctionDef) {
+///
+/// `ir` is threaded through so the WCO smart-factory branch can pull
+/// the splice path (`default_c_name` + nested `field_path`) from
+/// [`layout_callback_factory_info`] instead of hardcoding
+/// `AzWindowCreateOptions_default` / `window_state.layout_callback`.
+fn emit_static_method(
+    out: &mut String,
+    lua_method: &str,
+    func: &FunctionDef,
+    ir: &CodegenIR,
+) {
     let lua_method = sanitize_lua_ident(lua_method);
 
     // When the func has Owned `String` args, switch from the varargs
@@ -1010,42 +1020,51 @@ fn emit_static_method(out: &mut String, lua_method: &str, func: &FunctionDef) {
         }
     }
 
-    // Special-case 2: `WindowCreateOptions::create(layout_callback)` —
-    // the C-ABI takes a raw function pointer and calls
-    // Phase J.4 (Lua): detect via type-driven rule rather than the
-    // hardcoded `func.c_name == "AzWindowCreateOptions_create"` match.
-    // Trigger: static factory whose only arg is a LayoutCallback fn-
-    // pointer typedef AND whose return type would carry a nested
-    // `window_state.layout_callback` field (which is true today only for
-    // WindowCreateOptions; the body assumes that path).
+    // Special-case 2: smart constructor that takes a registered-host
+    // callback and splices it into a nested field of the returned
+    // class. Detection + splice metadata both come from
+    // [`layout_callback_factory_info`] — `class_name`,
+    // `default_c_name`, `callback_wrapper`, and `field_path` are all
+    // IR-derived. The raw `C.<class>_create(<cb_type>)` path discards
+    // the host-invoker ctx; this branch routes through
+    // `<default>_default()` + nested field assignment instead, so the
+    // ctx survives.
     //
-    // `LayoutCallback::create(cb)` internally would discard the host-
-    // invoker ctx; the smart body bypasses by constructing via
-    // `_default()` and splicing the wrapper struct into the embedded
-    // layout_callback field, preserving ctx.
-    let is_layout_constructor = func.args.len() == 1
-        && cb_args.len() == 1
-        && cb_args[0]
-            .callback_info
-            .as_ref()
-            .map(|c| c.callback_wrapper_name == "LayoutCallback")
-            .unwrap_or(false)
-        && func.return_type.as_deref().map(|r| r.trim() == func.class_name).unwrap_or(false);
-    if is_layout_constructor {
-        let arg_name = sanitize_lua_ident(&func.args[0].name);
-        out.push_str(&format!(
-            "    {} = function({})\n",
-            lua_method, arg_name
-        ));
-        out.push_str(&format!(
-            "        local _cb = azul._register_callback('LayoutCallback', {})\n",
-            arg_name
-        ));
-        out.push_str("        local _opts = C.AzWindowCreateOptions_default()\n");
-        out.push_str("        _opts.window_state.layout_callback = _cb\n");
-        out.push_str("        return _opts\n");
-        out.push_str("    end,\n");
-        return;
+    // Trigger here is a structural match on `func` against the class's
+    // factory info (looked up via `ir`); the body is fully driven by
+    // the resulting `LayoutCallbackFactoryInfo`.
+    if let Some(info) = ir
+        .find_struct(&func.class_name)
+        .and_then(|s| super::super::managed_host_invoker::layout_callback_factory_info(s, ir))
+    {
+        let returns_self = func
+            .return_type
+            .as_deref()
+            .map(|r| r.trim() == func.class_name)
+            .unwrap_or(false);
+        let arg_matches_factory = func.args.len() == 1
+            && cb_args.len() == 1
+            && cb_args[0]
+                .callback_info
+                .as_ref()
+                .map(|c| c.callback_wrapper_name == info.callback_wrapper)
+                .unwrap_or(false);
+        if returns_self && arg_matches_factory {
+            let arg_name = sanitize_lua_ident(&func.args[0].name);
+            out.push_str(&format!("    {} = function({})\n", lua_method, arg_name));
+            out.push_str(&format!(
+                "        local _cb = azul._register_callback('{}', {})\n",
+                info.callback_wrapper, arg_name
+            ));
+            out.push_str(&format!("        local _opts = C.{}()\n", info.default_c_name));
+            out.push_str(&format!(
+                "        _opts.{} = _cb\n",
+                info.field_path.join(".")
+            ));
+            out.push_str("        return _opts\n");
+            out.push_str("    end,\n");
+            return;
+        }
     }
 
     // Open: 4-space indent (inside the table literal).
