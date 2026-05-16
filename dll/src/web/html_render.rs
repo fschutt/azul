@@ -343,13 +343,15 @@ impl RenderContext {
         let ev_name = event_filter_to_js_name(&first_cb.event);
         attrs.push_str(&format!(" data-az-ev=\"{}\"", ev_name));
         let core_cb = first_cb.callback.clone();
-        let name = super::resolve_fn_ptr_name(core_cb.cb);
-        let content_hash = super::fnv1a64_hex(name.as_bytes());
+        let sym = super::resolve_fn_ptr(core_cb.cb);
+        let content_hash = super::fnv1a64_hex(sym.name.as_bytes());
         self.callbacks.push(DiscoveredCallback {
             node_idx: az_id as u32,
-            name,
+            name: sym.name,
             content_hash,
             callback: core_cb,
+            fn_addr: sym.addr,
+            fn_size: sym.size,
         });
     }
 

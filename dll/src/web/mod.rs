@@ -62,6 +62,14 @@ pub struct CallbackWasm {
     pub name: String,
     /// Content hash for cache-busting (FNV-1a 64-bit of `name`).
     pub content_hash: String,
+    /// Symbol address — what the lift pipeline reads bytes from. Equal
+    /// to `dli_saddr` when dladdr resolved, otherwise the raw stored
+    /// fn-ptr. Surfaced from [`DiscoveredCallback::fn_addr`] verbatim.
+    pub fn_addr: usize,
+    /// Byte window the lift pipeline reads starting at `fn_addr`.
+    /// Fixed-size today (see [`LIFT_READ_WINDOW`]); a future revision
+    /// could read DWARF / nm to bound it precisely per-symbol.
+    pub fn_size: usize,
     /// WASM bytes. Empty until the remill-based transpiler is wired up.
     pub wasm_bytes: Vec<u8>,
     /// Whether this callback can run client-side (transpiled to WASM)
@@ -82,17 +90,50 @@ pub struct DiscoveredCallback {
     /// The underlying callback (carries the fn-pointer usize plus the
     /// optional ctx for managed-FFI hosts).
     pub callback: CoreCallback,
+    /// dladdr-resolved symbol address (start of the function in .text).
+    /// Equals `callback.cb` when dladdr returned the same value, but
+    /// `dli_saddr` may align downward to a symbol boundary when the
+    /// stored pointer was already authenticated / offset.
+    pub fn_addr: usize,
+    /// Conservative byte window the lift pipeline reads from `fn_addr`.
+    /// Fixed-size today (see [`LIFT_READ_WINDOW`]).
+    pub fn_size: usize,
 }
 
-/// Resolve a function pointer to a symbol name.
+/// Symbol metadata returned by [`resolve_fn_ptr`]. `name` is the
+/// dladdr-resolved symbol or a `cb_{addr:x}` fallback; `addr` is the
+/// canonical start address of the function (from `dli_saddr` when
+/// dladdr succeeded, otherwise the input pointer as-is); `size` is a
+/// conservative read window the lift pipeline can pass to remill —
+/// remill stops at the first `ret` it sees, so the window only needs
+/// to be big enough to span the longest plausible function prologue +
+/// body. The fixed `LIFT_READ_WINDOW` covers ~30 instructions on
+/// arm64, which is comfortably more than any leaf callback in azul's
+/// own surface.
+#[derive(Debug, Clone)]
+pub struct FnPtrSymbol {
+    pub name: String,
+    pub addr: usize,
+    pub size: usize,
+}
+
+/// Conservative byte window the lift pipeline reads starting at the
+/// resolved symbol address. arm64 instructions are 4 bytes each, so
+/// 256 bytes = 64 instructions — comfortable headroom for any leaf
+/// callback (and large enough on x86-64 to cover any reasonable
+/// prologue + body too, since remill stops at the first `ret`).
+const LIFT_READ_WINDOW: usize = 256;
+
+/// Resolve a function pointer to its `(name, addr, size)` triple.
 ///
 /// Uses `dladdr(3)` on unix-like platforms (linked from libSystem on macOS
 /// and libdl on Linux/Android). Windows lacks a stateless equivalent —
 /// `SymFromAddr` requires `SymInitialize` and a cleanup pair — so we fall
 /// back to `cb_{addr:x}` there. The fallback is also used when `dladdr`
 /// reports no symbol (e.g. callbacks built into an executable without
-/// `-rdynamic`).
-pub(crate) fn resolve_fn_ptr_name(fn_addr: usize) -> String {
+/// `-rdynamic`, or when the stored pointer is mangled by an upstream
+/// ABI mismatch — see `memory/m1_phase0_findings_2026_05_18.md`).
+pub(crate) fn resolve_fn_ptr(fn_ptr: usize) -> FnPtrSymbol {
     #[cfg(any(target_os = "linux", target_os = "macos", target_os = "ios", target_os = "android"))]
     unsafe {
         #[repr(C)]
@@ -111,15 +152,29 @@ pub(crate) fn resolve_fn_ptr_name(fn_addr: usize) -> String {
             dli_sname: core::ptr::null(),
             dli_saddr: core::ptr::null_mut(),
         };
-        if dladdr(fn_addr as *const _, &mut info) != 0 && !info.dli_sname.is_null() {
+        if dladdr(fn_ptr as *const _, &mut info) != 0 && !info.dli_sname.is_null() {
             if let Ok(s) = core::ffi::CStr::from_ptr(info.dli_sname).to_str() {
                 if !s.is_empty() {
-                    return s.to_string();
+                    return FnPtrSymbol {
+                        name: s.to_string(),
+                        addr: info.dli_saddr as usize,
+                        size: LIFT_READ_WINDOW,
+                    };
                 }
             }
         }
     }
-    format!("cb_{:016x}", fn_addr)
+    FnPtrSymbol {
+        name: format!("cb_{:016x}", fn_ptr),
+        addr: fn_ptr,
+        size: LIFT_READ_WINDOW,
+    }
+}
+
+/// Back-compat shim — still used by html_render for `<link rel="preload">`
+/// URL generation. New code should call `resolve_fn_ptr` for full metadata.
+pub(crate) fn resolve_fn_ptr_name(fn_ptr: usize) -> String {
+    resolve_fn_ptr(fn_ptr).name
 }
 
 /// Aggregate `DiscoveredCallback`s from every rendered route into a
@@ -133,14 +188,22 @@ pub(crate) fn resolve_fn_ptr_name(fn_addr: usize) -> String {
 pub fn discover_and_transpile_callbacks(
     discovered_per_route: &BTreeMap<String, Vec<DiscoveredCallback>>,
 ) -> Vec<CallbackWasm> {
+    // Dedup by the *resolved* symbol address — two callbacks that
+    // ended up at the same function (e.g. the same `on_click` reused
+    // across nodes) should produce one WASM module. `callback.cb` and
+    // `fn_addr` may differ when dladdr aligned the stored pointer
+    // downward to a symbol boundary; the symbol address is the right
+    // key for cache + dispatch.
     let mut seen: BTreeMap<usize, ()> = BTreeMap::new();
     let mut out = Vec::new();
     for (_pattern, list) in discovered_per_route.iter() {
         for d in list {
-            if seen.insert(d.callback.cb, ()).is_none() {
+            if seen.insert(d.fn_addr, ()).is_none() {
                 out.push(CallbackWasm {
                     name: d.name.clone(),
                     content_hash: d.content_hash.clone(),
+                    fn_addr: d.fn_addr,
+                    fn_size: d.fn_size,
                     wasm_bytes: Vec::new(),
                     is_client_side: false,
                 });
@@ -306,6 +369,12 @@ pub fn run_web(
         "[azul-web] Discovered {} unique callbacks across {} route(s); transpile lift is stubbed",
         cb_wasms.len(), discovered_per_route.len(),
     );
+    for cb in &cb_wasms {
+        eprintln!(
+            "[azul-web]   cb: {:<40} addr=0x{:016x} size={} hash={}",
+            cb.name, cb.fn_addr, cb.fn_size, cb.content_hash
+        );
+    }
 
     eprintln!(
         "[azul-web] Pre-rendered {} routes, {} total images, {} total fonts",
