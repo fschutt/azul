@@ -417,7 +417,40 @@ impl RemillTranspiler {
         // attachment site (set_on_toggle / set_on_value_change /
         // layout_callback) and we'd plumb that through here.
         let sig = signature_for_callback_kind("Callback");
-        let helper_ir = emit_helper_ir(lift_addr, &sig);
+        // M7: parse branch-destination externs from the lifted IR.
+        // remill emits each `bl <target>` whose destination is
+        // outside the byte map as a `declare ptr @sub_<hex>(...)`.
+        // The `<hex>` is the low 32 bits of the lift-space target
+        // (sign-extended to i32 → relative offset from lift_addr).
+        // To recover the host-binary address:
+        //   host_target = fn_addr + signed_i32(hex)
+        // dladdr-resolve each host_target → symbol name. The symbol
+        // table tells us which framework function the lift was about
+        // to call (`AzDom_addChild`, `AzString_clone`, …); M8 will
+        // route those to typed externs from `azul-mini.wasm`. For
+        // M7 we emit noop stubs so the imports disappear from the
+        // produced WASM (currently the JS-side Proxy noops them at
+        // load time; now the WASM is self-contained).
+        let branch_externs = parse_extern_sub_declares(&lifted_ir);
+        for sym_name in &branch_externs {
+            if let Some(host_addr) = branch_target_to_host_addr(sym_name, fn_addr) {
+                let resolved = super::resolve_fn_ptr(host_addr);
+                eprintln!(
+                    "[azul-web]   intercept: {} (relative_offset={:#x}) → \
+                     host=0x{:016x} = {}",
+                    sym_name,
+                    host_addr.wrapping_sub(fn_addr) as isize,
+                    host_addr,
+                    resolved.name
+                );
+            } else {
+                eprintln!(
+                    "[azul-web]   intercept: {} (relative_offset parse failed)",
+                    sym_name
+                );
+            }
+        }
+        let helper_ir = emit_helper_ir(lift_addr, &sig, &branch_externs);
         let helper_ir_path = self.scratch_dir.join(format!("{}.helper.ll", stem));
         std::fs::write(&helper_ir_path, &helper_ir).map_err(|e| TranspileError {
             fn_name: fn_name.to_string(),
@@ -875,7 +908,11 @@ fn inject_alwaysinline(ir: &str, lift_addr: u64) -> String {
 /// call sites should trap the WASM (M7+ would route a typed
 /// `__az_panic` import to `() => throw new Error(...)` in JS); for
 /// the demo path the noop fallback is acceptable.
-fn emit_helper_ir(lift_addr: u64, sig: &CallbackSignature) -> String {
+fn emit_helper_ir(
+    lift_addr: u64,
+    sig: &CallbackSignature,
+    branch_externs: &[String],
+) -> String {
     // SP register slot in the State struct (aarch64-specific).
     let sp_off: u64 = 1040;
     // State alloca size — covers fields up to the SR/PC region at
@@ -891,6 +928,21 @@ fn emit_helper_ir(lift_addr: u64, sig: &CallbackSignature) -> String {
     let stack_size: u64 = 4096;
     let (params, prologue) = emit_wrapper_args_and_prologue(sig);
     let (ret_ty, ret_code) = emit_wrapper_return(sig);
+    // M7: emit a noop body for every branch-destination extern the
+    // lift surfaced. After llvm-link merges these definitions, the
+    // lifted IR's `declare`s get the bodies; opt -O2's inliner
+    // replaces every `call ptr @sub_<hex>(state, pc, memory)` with
+    // `ret ptr %memory` inline → DCE collapses to nothing → the
+    // produced WASM no longer imports them. M8 replaces the noop
+    // bodies with typed externs from azul-mini.wasm.
+    let mut branch_stubs = String::new();
+    for sym in branch_externs {
+        branch_stubs.push_str(&format!(
+            "define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) alwaysinline {{ \
+             ret ptr %memory }}\n",
+            sym = sym
+        ));
+    }
     format!(
         r#"; M6 helper module — see `dll/src/web/transpiler_remill.rs::emit_helper_ir`.
 target datalayout = "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128"
@@ -958,6 +1010,14 @@ define linkonce_odr ptr @__remill_barrier_load_store(ptr %memory) alwaysinline {
 define linkonce_odr ptr @__remill_barrier_store_load(ptr %memory) alwaysinline {{ ret ptr %memory }}
 define linkonce_odr ptr @__remill_barrier_store_store(ptr %memory) alwaysinline {{ ret ptr %memory }}
 
+; M7 branch-destination stubs — see `parse_extern_sub_declares` +
+; `branch_target_to_host_addr`. Each `sub_<hex>` corresponds to a
+; `bl` instruction in the lifted body whose target falls outside
+; the byte map remill saw (i.e. a framework function the callback
+; calls). M8 replaces these noop bodies with typed externs
+; imported from azul-mini.wasm.
+{branch_stubs}
+
 declare ptr @sub_{lift_addr_hex}(ptr noalias, i64, ptr noalias)
 declare void @llvm.memset.p0.i64(ptr nocapture writeonly, i8, i64, i1 immarg)
 
@@ -1003,7 +1063,59 @@ define {ret_ty} @callback({params}) {{
         sp_off = sp_off,
         state_size = state_size,
         stack_size = stack_size,
+        branch_stubs = branch_stubs.trim_end(),
     )
+}
+
+/// Parse the lifted IR for `declare ptr @sub_<hex>(...)` entries
+/// (excluding the lift entry `sub_<lift_addr_hex>` which has a
+/// `define`, not a `declare`). Returns the bare symbol names like
+/// `"sub_fffffda4"`.
+///
+/// Plain text-grep is robust enough for this — remill's emitted IR
+/// uses a consistent declaration shape per `sub_<hex>` extern, one
+/// per line, with no comment artifacts that could trip a naïve
+/// matcher.
+fn parse_extern_sub_declares(ir: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for line in ir.lines() {
+        let trimmed = line.trim_start();
+        let Some(rest) = trimmed.strip_prefix("declare ptr @sub_") else {
+            continue;
+        };
+        let Some(paren_idx) = rest.find('(') else {
+            continue;
+        };
+        let hex_part = &rest[..paren_idx];
+        if !hex_part.chars().all(|c| c.is_ascii_hexdigit()) {
+            continue;
+        }
+        let sym = format!("sub_{}", hex_part);
+        if seen.insert(sym.clone()) {
+            out.push(sym);
+        }
+    }
+    out
+}
+
+/// Recover the host-binary address a `sub_<hex>` branch destination
+/// points at. remill names branch destinations after the low 32 bits
+/// of the lift-space target address; the value (re-interpreted as
+/// `i32`) is the signed byte offset from the lift_addr base. The
+/// lift_addr base maps to the callback's `fn_addr` in the running
+/// binary, so:
+///
+///   host_target = fn_addr + signed_i32(hex)
+///
+/// Returns `None` if the hex doesn't parse. Wraps the addition
+/// modulo `usize` to handle backward branches on 64-bit hosts where
+/// the i32 offset is sign-extended to isize before being added.
+fn branch_target_to_host_addr(sym_name: &str, fn_addr: usize) -> Option<usize> {
+    let hex = sym_name.strip_prefix("sub_")?;
+    let raw = u32::from_str_radix(hex, 16).ok()?;
+    let signed_off = raw as i32 as isize; // sign-extend low 32 bits
+    Some((fn_addr as isize).wrapping_add(signed_off) as usize)
 }
 
 fn run_tool(prog: &Path, args: &[&str], fn_name: &str) -> Result<(), TranspileError> {
