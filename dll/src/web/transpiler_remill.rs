@@ -828,24 +828,29 @@ impl RemillTranspiler {
             for sym in parse_extern_sub_declares(&lifted_ir) {
                 let Some(host_addr) =
                     branch_target_to_host_addr(&sym, addr, lift_addr)
-                else { continue; };
-                if visited.contains(&host_addr) {
+                else {
+                    eprintln!("[azul-web]     dep: {} (lift-space parse failed)", sym);
                     continue;
-                }
+                };
                 let resolved = super::resolve_fn_ptr(host_addr);
                 let kind = classify_branch_extern(&resolved.name);
+                let already_visited = visited.contains(&resolved.addr);
+                eprintln!(
+                    "[azul-web]     dep: {} → host=0x{:016x} resolved={}@0x{:016x} kind={:?} visited={}",
+                    sym, host_addr, resolved.name, resolved.addr, kind, already_visited,
+                );
+                if already_visited {
+                    continue;
+                }
                 if !matches!(kind, BranchExternKind::Noop) {
-                    // Known leaf — helper IR provides the body.
                     continue;
                 }
                 if resolved.name.starts_with("cb_") {
-                    // dladdr couldn't resolve a real symbol —
-                    // dont' attempt to lift garbage bytes.
                     continue;
                 }
                 queue.push_back(TransitiveLiftTarget::Dep {
                     name: resolved.name,
-                    addr: host_addr,
+                    addr: resolved.addr,  // use dladdr's symbol-start, not the bl target
                     size: resolved.size,
                 });
             }
@@ -905,11 +910,23 @@ impl Transpiler for RemillTranspiler {
         fn_addr: usize,
         fn_size: usize,
     ) -> Result<WasmModule, TranspileError> {
-        // Per-widget callback lifts use the canonical Callback shape +
-        // export under the stable name `callback` (so loader.js can
-        // dispatch without per-callback name lookups).
+        // M8.7c-2: per-callback lift is now a RECURSIVE TRANSITIVE
+        // lift, not just one function. Brings in everything the cb
+        // reaches (e.g. on_click's MyDataModel_downcastMut →
+        // AzRefAny_getDataPtr → AzRefCount_increaseRefmut → ...
+        // until known leaves or already-lifted deps). User-facing
+        // export is still `callback` (loader.js dispatches by that
+        // name); transitive deps get `__az_dep_<addr>` placeholder
+        // exports that wasm-ld --gc-sections strips out.
         let sig = signature_for_callback_kind("Callback");
-        self.pipeline_single(fn_name, fn_addr, fn_size, &sig, super::WASM_CALLBACK_EXPORT)
+        let root = TransitiveLiftRoot {
+            fn_name: fn_name.to_string(),
+            fn_addr,
+            fn_size,
+            sig,
+            export_as: super::WASM_CALLBACK_EXPORT.to_string(),
+        };
+        self.lift_with_transitive_deps(vec![root])
     }
 
     fn lift_and_link_framework(
