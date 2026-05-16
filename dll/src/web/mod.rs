@@ -41,9 +41,7 @@ pub const EVENTLOOP_SYMBOLS: &[&str] = &[
     "AzStartup_free",
     "AzStartup_init",
     "AzStartup_dispatchEvent",
-    "AzStartup_getPatches",
     "AzStartup_registerStateDeserializer",
-    "AzStartup_registerCallback",
 ];
 
 use std::collections::{BTreeMap, HashMap};

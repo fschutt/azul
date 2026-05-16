@@ -123,6 +123,8 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
     const X0: u64 = 544;
     const X1: u64 = 560;
     const X2: u64 = 576;
+    const X3: u64 = 592;
+    const X4: u64 = 608;
     match name {
         "AzStartup_alloc" => Some(CallbackSignature {
             kind: "AzStartup_alloc".to_string(),
@@ -139,6 +141,7 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
         }),
         "AzStartup_init" => Some(CallbackSignature {
             kind: "AzStartup_init".to_string(),
+            // (json_ptr: u32, json_len: u32) -> state_ptr: u32
             args: vec![
                 Pcs::Wreg { state_byte_offset: X0 },
                 Pcs::Wreg { state_byte_offset: X1 },
@@ -147,36 +150,24 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
         }),
         "AzStartup_dispatchEvent" => Some(CallbackSignature {
             kind: "AzStartup_dispatchEvent".to_string(),
+            // (state, kind, evt_ptr, evt_len, out_len_ptr) -> patches_ptr
             args: vec![
                 Pcs::Wreg { state_byte_offset: X0 },
                 Pcs::Wreg { state_byte_offset: X1 },
                 Pcs::Wreg { state_byte_offset: X2 },
-            ],
-            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
-        }),
-        "AzStartup_getPatches" => Some(CallbackSignature {
-            kind: "AzStartup_getPatches".to_string(),
-            args: vec![
-                Pcs::Wreg { state_byte_offset: X0 },
-                Pcs::Wreg { state_byte_offset: X1 },
+                Pcs::Wreg { state_byte_offset: X3 },
+                Pcs::Wreg { state_byte_offset: X4 },
             ],
             ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
         }),
         "AzStartup_registerStateDeserializer" => Some(CallbackSignature {
             kind: "AzStartup_registerStateDeserializer".to_string(),
-            // usize fn_ptr — full 64-bit native address; JS-side
-            // parameter is i64.
-            args: vec![Pcs::GprI64 { state_byte_offset: X0 }],
-            ret: None,
-        }),
-        "AzStartup_registerCallback" => Some(CallbackSignature {
-            kind: "AzStartup_registerCallback".to_string(),
+            // (state: u32, fn_addr: u64) -> ()
             args: vec![
-                Pcs::Wreg { state_byte_offset: X0 }, // node_idx
-                Pcs::Wreg { state_byte_offset: X1 }, // event_kind
-                Pcs::Wreg { state_byte_offset: X2 }, // table_idx
+                Pcs::Wreg { state_byte_offset: X0 },
+                Pcs::GprI64 { state_byte_offset: X1 },
             ],
-            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+            ret: None,
         }),
         _ => None,
     }

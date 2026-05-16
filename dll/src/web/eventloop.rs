@@ -1,66 +1,57 @@
 //! Eventloop / HeadlessWindow-simulator surface.
 //!
 //! Defines the `AzStartup_*` C-ABI functions that get lifted via the
-//! M5-M7 remill pipeline into `azul-mini.wasm` at server startup. The
-//! lifted module is what JS calls to drive the browser-side event
-//! loop. See `scripts/M8_ARCHITECTURE_2026_05_19.md`.
+//! M5-M7 remill pipeline into `azul-mini.wasm` at server startup.
+//! The lifted module is what JS calls to drive the browser-side
+//! event loop. See `scripts/M8_ARCHITECTURE_2026_05_19.md` and the
+//! M8.4b reset captured in `memory/m8_4_lift_runtime_gap_2026_05_16.md`.
 //!
-//! M8.1 ships the source surface only — bodies are functional stubs
-//! sufficient to compile, export symbols, and let the lift pipeline
-//! see bytes. Real implementations land in M8.4 (dispatch), M8.5
-//! (patches), M8.7 (init).
+//! # Model (M8.4b reset, per user correction 2026-05-16)
 //!
-//! Pointer types are `u32` because in the lifted WASM, addresses are
-//! 32-bit linear-memory offsets. On native AArch64 the cast
-//! `usize as u32` truncates the high bits — that's harmless because
-//! these functions are only invoked from JS through the lifted module,
-//! never natively. The native build exists so that `dlsym` + the
-//! remill pipeline have function bytes to read at server startup.
+//! `AzStartup_init` creates the global App in WASM (RefAny +
+//! current StyledDom + layout-callback fn-ptr). Native equivalent:
+//! `AzApp::new(app_data, app_config)`. Returns the App pointer.
+//!
+//! `AzStartup_dispatchEvent(state, kind, evt_bytes, evt_len,
+//! out_len_ptr) -> patches_ptr` does *everything* per event,
+//! synchronously:
+//!   1. Decodes the event bytes.
+//!   2. Hit-tests in WASM against the App's StyledDom.
+//!   3. Identifies the user-callback fn-ptr stored on the matching
+//!      node.
+//!   4. Calls back to JS via the imported `__az_resolve_callback`
+//!      to translate that fn-ptr to a `WebAssembly.Table` index.
+//!   5. `call_indirect(idx, refany_lo, refany_hi, info_ptr)` →
+//!      gets the user's `Update` result.
+//!   6. If `Update::RefreshDom`: invokes layout callback + diffs
+//!      against the old StyledDom + emits TLV patches.
+//!   7. Writes the patch byte-stream length to `*out_len_ptr` and
+//!      returns the patch buffer's wasm address.
+//!
+//! JS owns the addr→table mapping (it pre-instantiated all per-cb
+//! WASMs at bootstrap and put each in its table slot). WASM owns
+//! the App state + the dispatch+diff logic.
+//!
+//! # Why no statics
+//!
+//! Rust source-level statics generate AArch64 `adrp+add+ldr` for
+//! reads, which remill lifts to address arithmetic based on
+//! lift_addr — those wasm offsets don't correspond to wasm-ld's
+//! data-section placement of the static. Heap-allocated state
+//! sidesteps this: addresses flow from `__rust_alloc`'s return
+//! value, and as long as that's a valid wasm32 offset (M8.4c
+//! provides a bump-allocator body in helper IR), every subsequent
+//! deref stays valid.
+//!
+//! That's why `AzStartup_init` returns the state pointer instead of
+//! storing it in a `static EVENTLOOP_PTR`. JS threads the pointer
+//! back through every subsequent call.
 
-use core::ptr::null_mut;
-use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 use std::alloc::{alloc, dealloc, Layout};
 use std::collections::BTreeMap;
 
 use azul_core::refany::RefAny;
 use azul_core::styled_dom::StyledDom;
-
-/// Single-tab/single-window: one global EventloopState pointer.
-/// Null until [`AzStartup_init`] populates it.
-static EVENTLOOP_PTR: AtomicPtr<EventloopState> = AtomicPtr::new(null_mut());
-
-/// User-supplied `<Type>_fromJson` fn-pointer registered via
-/// [`AzStartup_registerStateDeserializer`]. Zero means none
-/// registered, in which case [`AzStartup_init`] falls back to the
-/// raw-RefAny-bytes path (riskier; user-acknowledged).
-static STATE_DESERIALIZER: AtomicUsize = AtomicUsize::new(0);
-
-/// Browser-side eventloop state. One per tab.
-pub struct EventloopState {
-    /// User's app data, materialised from the initial JSON. `None`
-    /// until [`AzStartup_init`] hydrates it (M8.7).
-    pub app_data: Option<RefAny>,
-    /// Most recent layout output. Hit-tested against on incoming
-    /// events; reconciled against on RefreshDom. `None` until the
-    /// first layout callback run.
-    pub current_dom: Option<StyledDom>,
-    /// Callback registry: `pack_cb_key(node_idx, event_kind)` → table
-    /// index in the JS-owned `WebAssembly.Table`. JS populates this
-    /// at bootstrap via [`AzStartup_registerCallback`] as each
-    /// per-callback WASM finishes instantiating.
-    pub cb_table_indices: BTreeMap<u64, u32>,
-    /// Pending TLV-encoded DOM patch bytes — drained by
-    /// [`AzStartup_getPatches`].
-    pub pending_patches: Vec<u8>,
-}
-
-/// Pack a `(node_idx, event_kind)` pair into a u64 BTreeMap key. The
-/// node_idx occupies the high 32 bits so a `range` over a single
-/// node's bindings can use `(node_idx<<32)..((node_idx+1)<<32)`.
-#[inline]
-fn pack_cb_key(node_idx: u32, event_kind: u32) -> u64 {
-    ((node_idx as u64) << 32) | (event_kind as u64)
-}
 
 // =====================================================================
 // Event-format spec (Q5 decision: fixed 256-byte buffer per dispatch).
@@ -68,15 +59,13 @@ fn pack_cb_key(node_idx: u32, event_kind: u32) -> u64 {
 // =====================================================================
 
 /// Fixed event-buffer size. 256 bytes leaves headroom for IME
-/// composition strings + future touch events with multiple contact
-/// points beyond hello-world's mouse/keyboard needs. JS allocates
-/// this size via [`AzStartup_alloc`] before every dispatch and frees
-/// after.
+/// composition + future touch events beyond hello-world's mouse/key
+/// needs.
 pub const EVENT_BYTES_LEN: u32 = 256;
 
-/// Event-kind discriminator passed as `AzStartup_dispatchEvent`'s
-/// first arg. Indices match azul's existing EventFilter ordering for
-/// the cases that map directly; the rest are sequential.
+/// Event-kind discriminator passed as the first non-state arg to
+/// `AzStartup_dispatchEvent`. Indices match azul's existing
+/// EventFilter ordering for the cases that map directly.
 pub mod event_kind {
     pub const CLICK:      u32 = 0;
     pub const MOUSEDOWN:  u32 = 1;
@@ -92,37 +81,68 @@ pub mod event_kind {
     pub const SCROLL:     u32 = 11;
 }
 
-/// Common event-bytes layout offsets. JS writes these fields with
-/// `DataView.setUint32(off, val, /*littleEndian=*/ true)`. Per-kind
-/// extras (e.g. mouse `button`, keyboard `key_code`) extend past
-/// `MODIFIERS`.
+/// Common event-bytes layout offsets. JS writes these with
+/// `DataView.setUint32/Float32(off, val, /*LE=*/ true)`. Per-kind
+/// extras live past `MODIFIERS`.
 pub mod event_offset {
-    /// `u32` — synthetic `az_N` node ID under the event target. JS
-    /// derives this from `event.target.id.match(/^az_(\d+)$/)`.
-    /// `0xFFFFFFFF` means "no node found" (window-level event).
-    pub const NODE_IDX:  u32 = 0;
-    /// `f32` — clientX in CSS pixels. 0 for non-pointer events.
-    pub const X:         u32 = 4;
-    /// `f32` — clientY in CSS pixels.
-    pub const Y:         u32 = 8;
-    /// `u32` — `event.button` for mouse / `event.keyCode` for keys.
+    pub const NODE_IDX:      u32 = 0;
+    pub const X:             u32 = 4;
+    pub const Y:             u32 = 8;
     pub const BUTTON_OR_KEY: u32 = 12;
-    /// `u32` — modifier-key bitmap: bit0=shift bit1=ctrl bit2=alt bit3=meta.
-    pub const MODIFIERS: u32 = 16;
+    pub const MODIFIERS:     u32 = 16;
+}
+
+/// Browser-side App state. One per page. Returned from
+/// [`AzStartup_init`] as a heap pointer that JS threads back through
+/// every subsequent call.
+pub struct EventloopState {
+    /// User's app data, materialised by the user-registered JSON
+    /// deserializer during [`AzStartup_init`]. `None` if no
+    /// deserializer was registered + the raw-RefAny-bytes fallback
+    /// also failed.
+    pub app_data: Option<RefAny>,
+    /// Most recent layout output. Hit-tested against incoming events;
+    /// reconciled against on RefreshDom. `None` until the first
+    /// layout-callback run inside dispatch.
+    pub current_dom: Option<StyledDom>,
+    /// User-supplied `<Type>_fromJson` fn-pointer set via
+    /// [`AzStartup_registerStateDeserializer`]. Zero = unset.
+    pub state_deserializer: u64,
+    /// TLV-encoded DOM patch bytes — written by dispatch, read by
+    /// the caller via the return values of dispatchEvent.
+    pub patches: Vec<u8>,
+    /// Bookkeeping for callback dispatch: cached node→callback-fn-ptr
+    /// associations harvested from the StyledDom on first
+    /// hit-test. Populated lazily; cleared on RefreshDom.
+    pub cb_fn_cache: BTreeMap<u32, u64>,
 }
 
 // =====================================================================
-// Allocator surface — shared across all lifted modules (Q3 decision:
-// shared in azul-mini). Layout + per-callback WASMs import these.
+// Imports satisfied by JS at instantiation time (see M8.6 listener.js).
+// =====================================================================
+
+extern "C" {
+    /// Translate a native callback fn-pointer address (as stored on a
+    /// StyledDom node) to the `WebAssembly.Table` index that holds
+    /// the per-callback WASM's `callback` export. JS owns the
+    /// addr→table mapping: at bootstrap it instantiates every
+    /// `/az/cb/<sym>.<hash>.wasm` and records each module's "real"
+    /// fn-addr (from a side-channel — typically the
+    /// `data-az-cb-addr` attribute the server emits per node) under
+    /// the table slot it placed the module's `callback` export in.
+    ///
+    /// Returns `0xFFFFFFFF` if the addr isn't registered.
+    pub fn __az_resolve_callback(cb_fn_addr: u64) -> u32;
+}
+
+// =====================================================================
+// Allocator surface — bump allocator backed by __rust_alloc, which
+// M8.4c provides as a hand-written bump-impl body in helper IR.
+// Layout + per-callback WASMs import these.
 // =====================================================================
 
 /// Allocate `size` bytes of zero-initialised storage and return the
 /// linear-memory offset. Returns 0 on failure.
-///
-/// JS uses this to stage:
-///   - the initial state JSON before calling [`AzStartup_init`],
-///   - per-event 256-byte buffers before [`AzStartup_dispatchEvent`],
-///   - readback buffers for [`AzStartup_getPatches`].
 #[no_mangle]
 pub extern "C" fn AzStartup_alloc(size: u32) -> u32 {
     if size == 0 {
@@ -135,10 +155,7 @@ pub extern "C" fn AzStartup_alloc(size: u32) -> u32 {
     ptr as usize as u32
 }
 
-/// Free a buffer previously returned by [`AzStartup_alloc`]. `size`
-/// must match the original alloc size (we use `Layout` rather than
-/// requesting a `realloc`-style sized free from the underlying
-/// allocator).
+/// Free a buffer previously returned by [`AzStartup_alloc`].
 #[no_mangle]
 pub extern "C" fn AzStartup_free(ptr: u32, size: u32) {
     if ptr == 0 || size == 0 {
@@ -154,140 +171,89 @@ pub extern "C" fn AzStartup_free(ptr: u32, size: u32) {
 // Lifecycle
 // =====================================================================
 
-/// Hydrate the global state from the server-embedded payload.
+/// Allocate the App and return its pointer.
 ///
-/// `json_ptr` + `json_len` describe a byte buffer in shared linear
-/// memory. Behaviour (M8.7 spec):
-///   - If [`STATE_DESERIALIZER`] is registered, call it with the JSON
-///     bytes to obtain the initial `RefAny`.
-///   - Otherwise attempt to decode the bytes as a raw `RefAny`
-///     serialization (riskier — requires the user binding to opt in).
+/// `json_ptr` + `json_len` describe the server-embedded initial
+/// state payload (see `<script id="az-state">` in the rendered
+/// HTML). If a JSON deserializer has been registered via
+/// [`AzStartup_registerStateDeserializer`] before this call, it's
+/// invoked to produce the initial `RefAny`; otherwise the raw-bytes
+/// fallback path is attempted (M8.7).
 ///
-/// Returns 0 on success, non-zero on failure.
+/// Returns the App pointer (as a u32 wasm linear-memory offset),
+/// or `0` on allocation failure.
 ///
-/// **M8.1 stub**: allocates an empty [`EventloopState`], swaps it
-/// into [`EVENTLOOP_PTR`], returns 0. The payload is ignored until
-/// M8.7.
+/// **M8.4b stub**: Box-allocates an empty `EventloopState` and
+/// returns its pointer. The JSON payload is ignored until M8.7; the
+/// deserializer-vs-raw fallback choice is also M8.7. M8.4c provides
+/// the `__rust_alloc` bump-allocator body so `Box::new` actually
+/// returns a valid wasm pointer (today it traps because the lift's
+/// `__rust_alloc` call is noop-stubbed).
 #[no_mangle]
 pub unsafe extern "C" fn AzStartup_init(_json_ptr: u32, _json_len: u32) -> u32 {
     let state = Box::new(EventloopState {
         app_data: None,
         current_dom: None,
-        cb_table_indices: BTreeMap::new(),
-        pending_patches: Vec::new(),
+        state_deserializer: 0,
+        patches: Vec::new(),
+        cb_fn_cache: BTreeMap::new(),
     });
-    let raw = Box::into_raw(state);
-    let prev = EVENTLOOP_PTR.swap(raw, Ordering::SeqCst);
-    if !prev.is_null() {
-        // Re-init: free the previous state. Page refresh path.
-        drop(Box::from_raw(prev));
-    }
-    0
+    Box::into_raw(state) as usize as u32
 }
 
-/// Register the user-supplied `<Type>_fromJson` fn-pointer that
-/// [`AzStartup_init`] consults during hydration.
+/// Record the user-supplied `<Type>_fromJson` fn-pointer on the App
+/// so [`AzStartup_init`]'s deserialization step can call it.
 ///
-/// Called by the framework (under `AZ_BACKEND=web://`) from the
-/// expansion of the `AZ_REFLECT_JSON` C macro. The fn-pointer is
-/// opaque here for M8.1; the typed signature
-/// (`extern "C" fn(AzJson) -> AzResultRefAnyString`) is finalised in
-/// M8.7 once the codegen types are wired through.
-#[no_mangle]
-pub unsafe extern "C" fn AzStartup_registerStateDeserializer(fn_ptr: usize) {
-    STATE_DESERIALIZER.store(fn_ptr, Ordering::SeqCst);
-}
-
-// =====================================================================
-// Callback registration
-// =====================================================================
-
-/// Register a `(node_idx, event_kind) → table_idx` binding so
-/// [`AzStartup_dispatchEvent`] can route events to the right
-/// per-callback WASM. JS calls this once per discovered
-/// `[data-az-cb][data-az-ev]` element after instantiating that
-/// element's callback module.
+/// Should be called BEFORE `AzStartup_init` for the deserializer to
+/// take effect; calling after init is allowed but won't retroactively
+/// re-deserialize.
 ///
-/// Returns `0` on success, `1` if [`EVENTLOOP_PTR`] is null (caller
-/// forgot [`AzStartup_init`]). Subsequent registrations for the same
-/// `(node_idx, event_kind)` overwrite the previous `table_idx` —
-/// matches the "last write wins" semantics of `re_render_body`.
+/// `state` is the App pointer returned by `AzStartup_init` (or 0 if
+/// being called before init — in which case the call is a no-op
+/// and the deserializer setting is lost).
 #[no_mangle]
-pub unsafe extern "C" fn AzStartup_registerCallback(
-    node_idx: u32,
-    event_kind: u32,
-    table_idx: u32,
-) -> u32 {
-    let p = EVENTLOOP_PTR.load(Ordering::SeqCst);
-    if p.is_null() {
-        return 1;
+pub unsafe extern "C" fn AzStartup_registerStateDeserializer(
+    state: u32,
+    fn_addr: u64,
+) {
+    if state == 0 {
+        return;
     }
-    let state = &mut *p;
-    state.cb_table_indices.insert(pack_cb_key(node_idx, event_kind), table_idx);
-    0
+    let s = &mut *(state as usize as *mut EventloopState);
+    s.state_deserializer = fn_addr;
 }
 
 // =====================================================================
 // Event dispatch
 // =====================================================================
 
-/// Process one input event from JS.
+/// Process one input event, returning the patch byte-stream.
 ///
-/// JS marshals the native DOM event into a fixed
-/// [`EVENT_BYTES_LEN`]-byte buffer; `kind` selects the
-/// [`event_kind`] variant. Returns the number of patches queued
-/// (caller drains via [`AzStartup_getPatches`]).
+/// Writes the patch-buffer length (in bytes) to `*out_len_ptr`.
+/// Returns the patch buffer's wasm linear-memory offset (`0` if no
+/// patches were produced, in which case `*out_len_ptr` is also 0).
 ///
-/// **M8.4a — lookup-only stage**: this body extracts `node_idx` from
-/// the event buffer + looks up the registered callback in
-/// [`EventloopState::cb_table_indices`]. The actual `call_indirect`
-/// dispatch into the JS-owned `WebAssembly.Table` lands in M8.4b
-/// (requires a thin `__az_call_indirect` helper IR in the linked
-/// azul-mini.wasm to bridge from Rust source through to a wasm-side
-/// `call_indirect`). For now the return value reports whether a
-/// matching binding was found (`1`) or not (`0`); JS treats both as
-/// "no patches queued" until M8.4b lands.
+/// The buffer is owned by the eventloop and remains valid until the
+/// next `AzStartup_dispatchEvent` call. JS reads it (as a
+/// `Uint8Array` view), applies the TLV patches, then is free to
+/// discard the view — the next dispatch may overwrite.
+///
+/// **M8.4b stub**: writes `0` to `*out_len_ptr` and returns `0`. The
+/// hit-test + cb-resolve + call_indirect + diff loop lands in
+/// M8.4c-d once `__rust_alloc` is wired and `__az_call_indirect`
+/// is available.
 #[no_mangle]
 pub unsafe extern "C" fn AzStartup_dispatchEvent(
-    kind: u32,
-    event_bytes_ptr: u32,
-    event_bytes_len: u32,
+    state: u32,
+    _kind: u32,
+    _event_bytes_ptr: u32,
+    _event_bytes_len: u32,
+    out_len_ptr: u32,
 ) -> u32 {
-    if event_bytes_len < event_offset::MODIFIERS + 4 {
+    if state == 0 || out_len_ptr == 0 {
         return 0;
     }
-    let p = EVENTLOOP_PTR.load(Ordering::SeqCst);
-    if p.is_null() {
-        return 0;
-    }
-    let state = &mut *p;
-    // Read node_idx (u32 LE) from the JS-marshalled buffer. The
-    // pointer is a linear-memory offset; on wasm32 the cast becomes
-    // a no-op, on native AArch64 (only the lift-source path) it
-    // truncates harmlessly because the body never executes natively.
-    let node_idx_ptr = (event_bytes_ptr as usize + event_offset::NODE_IDX as usize) as *const u32;
-    let node_idx = core::ptr::read_unaligned(node_idx_ptr);
-    if node_idx == u32::MAX {
-        // Window-level event without a target node (resize, focus
-        // chrome). M8.4c will route to window-callbacks; for M8.4a
-        // we just drop it.
-        return 0;
-    }
-    let key = pack_cb_key(node_idx, kind);
-    match state.cb_table_indices.get(&key) {
-        Some(_table_idx) => 1, // M8.4b: call_indirect here.
-        None => 0,
-    }
-}
-
-/// Drain queued DOM mutations into the JS-allocated readback buffer
-/// as a TLV byte stream:
-///   `kind:u8 | node_idx:u32 | payload_len:u32 | payload:[u8; payload_len]`
-/// Returns bytes actually written (0 if no pending patches, or if the
-/// buffer is too small — caller should retry with a larger buffer).
-///
-/// **M8.1 stub**: returns 0. M8.5 wires real patch emission.
-#[no_mangle]
-pub unsafe extern "C" fn AzStartup_getPatches(_out_ptr: u32, _out_cap: u32) -> u32 {
+    // Write 0 to *out_len_ptr (no patches).
+    core::ptr::write_unaligned(out_len_ptr as usize as *mut u32, 0);
     0
 }
