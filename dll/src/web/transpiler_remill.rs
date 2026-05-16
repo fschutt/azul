@@ -29,6 +29,7 @@
 //! server-side dispatch.
 
 use super::transpiler::{TranspileError, Transpiler, WasmModule};
+use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -724,6 +725,171 @@ impl RemillTranspiler {
             reason: format!("read {}: {e}", wasm_path.display()),
         })
     }
+
+    /// Recursively lift a set of root functions + every dependency
+    /// they transitively reach. Stops at known-leaf classifications
+    /// + at already-visited native addresses.
+    ///
+    /// **Symbol-naming**: each function is lifted at
+    /// `lift_addr = native_addr`. Caller's `bl <native_target>`
+    /// lifts to `call sub_<low_32_of_native_target>`, which
+    /// matches the callee's defn `define sub_<low_32_of_native_addr>`
+    /// — no rewriting needed.
+    ///
+    /// **Roots vs deps**: each root gets a wrapper exported under
+    /// `export_as` (per its CallbackSignature). Deps recursively
+    /// reached get a wrapper too (cheap to leave; wasm-ld's
+    /// `--gc-sections` strips the unused ones), but their callable
+    /// surface is the lifted body `sub_<addr_hex>` which other
+    /// lifted code calls by name.
+    ///
+    /// **Depth limit**: hard-capped at `MAX_RECURSIVE_DEPTH`
+    /// functions. If hit, returns an error so a runaway chain
+    /// doesn't lock up the server forever.
+    ///
+    /// **Skipped externs**: dladdr fallbacks (`cb_<hex>` names),
+    /// known-leaf classifications (RustAlloc, AzCallIndirect, etc.)
+    /// don't recurse — they get bodies from helper IR. Unresolved
+    /// externs become noop stubs.
+    pub fn lift_with_transitive_deps(
+        &self,
+        roots: Vec<TransitiveLiftRoot>,
+    ) -> Result<WasmModule, TranspileError> {
+        const MAX_RECURSIVE_DEPTH: usize = 256;
+
+        let mut visited: HashSet<usize> = HashSet::new();
+        let mut queue: VecDeque<TransitiveLiftTarget> = VecDeque::new();
+        let mut object_paths: Vec<PathBuf> = Vec::new();
+        let mut exports: Vec<String> = Vec::new();
+
+        for root in roots {
+            queue.push_back(TransitiveLiftTarget::Root(root));
+        }
+
+        let canonical_sig = signature_for_callback_kind("Callback");
+        let mut lifted_count = 0usize;
+
+        while let Some(target) = queue.pop_front() {
+            let (name, addr, size, sig, export_as) = match target {
+                TransitiveLiftTarget::Root(r) => {
+                    (r.fn_name, r.fn_addr, r.fn_size, r.sig, r.export_as)
+                }
+                TransitiveLiftTarget::Dep { name, addr, size } => (
+                    name,
+                    addr,
+                    size,
+                    canonical_sig.clone(),
+                    format!("__az_dep_{:x}", addr),
+                ),
+            };
+
+            if !visited.insert(addr) {
+                continue;
+            }
+            lifted_count += 1;
+            if lifted_count > MAX_RECURSIVE_DEPTH {
+                return Err(TranspileError {
+                    fn_name: name,
+                    reason: format!(
+                        "transitive lift exceeded {} functions — runaway recursion?",
+                        MAX_RECURSIVE_DEPTH
+                    ),
+                });
+            }
+
+            // lift_addr = native addr so caller/callee sub_<hex>
+            // symbols align without rewriting.
+            let lift_addr = addr as u64;
+
+            eprintln!(
+                "[azul-web]   transitive[{}]: lifting {} addr=0x{:016x} \
+                 size={} export_as={}",
+                lifted_count, name, addr, size, export_as
+            );
+
+            let obj = self.produce_object_for(
+                &name, addr, size, &sig, &export_as, lift_addr,
+            )?;
+            object_paths.push(obj);
+            exports.push(export_as);
+
+            // Parse this lift's branch externs + enqueue deps.
+            let stem = sanitize_filename(&name);
+            let lifted_ir_path = self.scratch_dir.join(format!("{}.lifted.ll", stem));
+            let lifted_ir = match std::fs::read_to_string(&lifted_ir_path) {
+                Ok(s) => s,
+                Err(_) => {
+                    // remill should always produce the .lifted.ll
+                    // — if it's missing, something upstream went
+                    // wrong; just continue without enqueueing deps.
+                    continue;
+                }
+            };
+            for sym in parse_extern_sub_declares(&lifted_ir) {
+                let Some(host_addr) =
+                    branch_target_to_host_addr(&sym, addr, lift_addr)
+                else { continue; };
+                if visited.contains(&host_addr) {
+                    continue;
+                }
+                let resolved = super::resolve_fn_ptr(host_addr);
+                let kind = classify_branch_extern(&resolved.name);
+                if !matches!(kind, BranchExternKind::Noop) {
+                    // Known leaf — helper IR provides the body.
+                    continue;
+                }
+                if resolved.name.starts_with("cb_") {
+                    // dladdr couldn't resolve a real symbol —
+                    // dont' attempt to lift garbage bytes.
+                    continue;
+                }
+                queue.push_back(TransitiveLiftTarget::Dep {
+                    name: resolved.name,
+                    addr: host_addr,
+                    size: resolved.size,
+                });
+            }
+        }
+
+        eprintln!(
+            "[azul-web] transitive lift complete: {} functions lifted, {} unique exports",
+            visited.len(),
+            exports.len()
+        );
+
+        let bytes =
+            self.link_objects_to_wasm(&object_paths, &exports, "transitive-lift")?;
+        Ok(WasmModule {
+            content_hash: super::fnv1a64_hex(&bytes),
+            bytes,
+            exports,
+            imports_from_mini: Vec::new(),
+        })
+    }
+}
+
+/// Specifies a root function for [`RemillTranspiler::lift_with_transitive_deps`].
+#[derive(Debug, Clone)]
+pub struct TransitiveLiftRoot {
+    pub fn_name: String,
+    pub fn_addr: usize,
+    pub fn_size: usize,
+    pub sig: CallbackSignature,
+    pub export_as: String,
+}
+
+/// Internal queue item — either a root with a user-chosen wrapper
+/// signature/export, or a transitively-reached dependency that gets
+/// a no-op default wrapper (its callable surface is the
+/// `sub_<addr_hex>` body other lifted code calls by name).
+#[derive(Debug)]
+enum TransitiveLiftTarget {
+    Root(TransitiveLiftRoot),
+    Dep {
+        name: String,
+        addr: usize,
+        size: usize,
+    },
 }
 
 impl Default for RemillTranspiler {
