@@ -7,52 +7,92 @@ audience: contributor
 maturity: wip
 guide_order: null
 topic_only: false
-short_desc: WASM target - DOM-attachment and OffscreenCanvas
+short_desc: WASM target — server-side render, lift, dispatch
 prerequisites: []
 tracked_files:
-  - dll/src/web/cb_gen.rs
   - dll/src/web/classify.rs
   - dll/src/web/config.rs
+  - dll/src/web/eventloop.rs
+  - dll/src/web/headless.rs
   - dll/src/web/html_render.rs
+  - dll/src/web/hydration.rs
   - dll/src/web/loader_js.rs
-  - dll/src/web/mini_gen.rs
   - dll/src/web/mod.rs
   - dll/src/web/server.rs
   - dll/src/web/transpiler.rs
-last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
-generated_at: 2026-05-02T05:50:16Z
+  - dll/src/web/transpiler_remill.rs
+last_generated_rev: 38ff46cf3a85513e90205c82e4613e2a22173e3b
+generated_at: 2026-05-16T20:50:00Z
 default-search-keys:
   - StyledDom
-  - EventFilter
-  - Dom
-  - Css
   - RefAny
+  - LayoutCallback
+  - AzStartup_hydrate
+  - AzStartup_dispatchEvent
   - LayoutCallback
 ---
 
 # Web Backend Internals
 
-## Overview
+## Status (as of M8.7c, 2026-05-16)
 
-*WIP — Phase 0.* Of the five planned phases (A–E), **A** (classify), **D** (HTML pre-render), and **E** (HTTP server) are functional. **Phase B** (mini.wasm generation) is still a stub at the orchestrator level; the underlying lift toolchain (WB1.1) is wired into `RemillTranspiler`. **Phase C** (per-callback transpile) has the lift→llc→wasm-ld subprocess pipeline landed but is missing the four IR passes (intrinsic lowering, signature rewrite, symbol intercept, opt -O2) that real callbacks require. All callbacks currently execute server-side via `POST /az/exec/{node_id}`.
+The web backend executes the hello-world `on_click` callback as
+remill-lifted WebAssembly: the click increments a counter that
+lives in shared linear memory, and the new value is read back +
+applied to the DOM by JS. The lift pipeline, the recursive
+transitive lift, the shared-memory protocol, the hydration of
+`AzRefAny` from the server-embedded JSON snapshot, and the cb
+invocation itself all work end-to-end on macOS arm64.
 
-The web backend turns an Azul application into an HTTP server: setting `AZ_BACKEND=web://0.0.0.0:8080` makes `App::run` dispatch to `run_web` instead of opening a native window. The layout callback runs natively on the server, the resulting `StyledDom` is serialized to HTML plus a per-node `#az_N { … }` stylesheet, and a small bootstrap JavaScript wires up callback dispatch. There is **no** client-side WASM today; that is the long-term goal Phases A–C are converging on.
+The dispatch path that *would* run the wasm-side hit-test and emit
+TLV patches via `AzStartup_dispatchEvent` is built and lifted but
+not yet wired in `loader.js`; the current bootstrap calls the cb
+directly and applies a hardcoded `textContent =` update on the
+counter node. See [What's bypassed](#whats-bypassed) below and
+[`scripts/HACKS_REVIEW_2026_05_16.md`](../../../../scripts/HACKS_REVIEW_2026_05_16.md)
+for the full catalog of remaining work + the
+[`scripts/M8.8_NEW_SESSION_PROMPT.md`](../../../../scripts/M8.8_NEW_SESSION_PROMPT.md)
+fix-order document.
 
-**The architecture summary.** A working web backend ships *two* tiers of WebAssembly: a single `azul-mini.wasm` containing the framework primitives (~200 `Az*` C functions lifted from the native build) plus one small per-callback wasm module for each registered user callback. The two tiers share a single linear memory imported from `azul-mini.wasm`, so pointers are interchangeable. Each callback module imports the `Az*` symbols it needs (and a small set of host shims like `__az_js_fetch` for browser-native operations). The browser dispatches a click event by `fetch()`-ing the relevant callback module and invoking its exported entry point — no server round-trip, no full page rebuild.
+Backup: tag `m8.7c-victory` + branch
+`backup/m8.7c-victory-2026-05-16` both point at the
+known-good commit `7530483aa`.
 
-The pipeline that gets us there is a six-step LLVM-IR transformation, not a direct "machine bytes → wasm" lower; see [Lift pipeline architecture](#lift-pipeline-architecture) below.
+## Three-phase architecture
+
+The whole web backend runs in three temporal phases:
+
+- **Phase A — server startup.** Once per `run_web` invocation,
+  before any HTTP is served. Validates the user's `RefAny` has a
+  registered JSON serializer, classifies api.json, lifts
+  `azul-mini.wasm`, pre-renders every route's HTML, lifts every
+  discovered callback's wasm + every layout callback's wasm,
+  builds `WebServerState`, starts the HTTP listener.
+- **Phase B — browser bootstrap.** Once per page load. JS fetches
+  + instantiates the mini wasm, runs `AzStartup_init` +
+  `AzStartup_hydrate`, fetches + instantiates every per-callback
+  wasm, wires event listeners.
+- **Phase C — user interaction.** Per user input. JS resolves the
+  event target to a node id, invokes the cb wasm with the
+  hydrated `azRefAnyPtr`, reads back the mutated user data,
+  applies a DOM update.
+
+The rest of this document walks each phase in order, citing the
+real symbols in the code. Where the implementation has a known
+hack, the section is annotated with a forward reference to the
+HACKS_REVIEW item that tracks it.
 
 ## Backend selection — web://ip:port
 
-The URL is parsed by `parse_web_url`:
+`parse_web_url` accepts the same URL forms as before
+(`web://127.0.0.1:8080`, `web://0.0.0.0:3000`,
+`web://[::1]:8080`). The `web://` prefix is case-insensitive; an
+optional `?query` (e.g. `?tls=cert.pem`) is stripped before
+`SocketAddr::from_str`. The result is wrapped in
+`AzBackend::Web(WebConfig)` and consumed by the desktop runner,
+which dispatches to `run_web` instead of opening a native window.
 
-```rust,ignore
-pub fn parse_web_url(s: &str) -> Option<SocketAddr>
-```
-
-It accepts `web://127.0.0.1:8080`, `web://0.0.0.0:3000`, and `web://[::1]:8080`. The `web://` prefix is case-insensitive; an optional `?query` (e.g. `?tls=cert.pem`) is stripped before `SocketAddr::from_str`. The result is wrapped in `AzBackend::Web(SocketAddr)` and consumed by the desktop runner, which calls `run_web` instead of the native shell.
-
-## run_web — the five-phase orchestrator
+## Phase A — server startup
 
 ```rust,ignore
 pub fn run_web(
@@ -61,393 +101,671 @@ pub fn run_web(
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
-    bind_addr: SocketAddr,
+    web_config: config::WebConfig,
 ) -> Result<(), WindowError>
 ```
 
-The phases run in order:
+The orchestrator runs the following steps:
 
-- **Phase A.** Functional. Decompresses embedded `api.json` and classifies (`classify_api_functions`). Output is not yet consumed by Phases B/C; that wiring is part of WB1.2.
-- **Phase B.** Stub at the orchestrator level (`generate_mini_wasm` returns the 8-byte WASM header). The toolchain it would use — `RemillTranspiler::lift_and_link_framework` — is implemented but missing the IR-level passes the real lift needs (see [Lift pipeline architecture](#lift-pipeline-architecture)).
-- **Phase C.** Stub at discovery (`discover_and_transpile_callbacks` returns `Vec::new()`); the per-function `RemillTranspiler::lift_function` is wired. Same gap as Phase B: the lift produces verbose unsafe IR that needs four passes before llc can produce a usable callback module.
-- **Phase D.** Functional. `render_initial_page` renders the initial page for each route.
-- **Phase E.** Functional. `run_server` starts the HTTP listener.
+### 1. RefAny serializer validation (`headless.rs::HeadlessApp::validate`)
 
-Phase D walks `config.routes` and calls `render_initial_page` for each. When there are no routes, the root window's layout callback is rendered at `/`. Each `RenderOutput` carries an HTML body, a vector of `CollectedImage`, and a vector of `CollectedFont`. Image and font IDs are *per-render*; the orchestrator rebases them onto a global ID space and rewrites the URLs in the HTML so different routes don't collide.
+Calls `azul_layout::json::refany_serialize_to_json(&app_data)`. If
+the result is `OptionJson::None`, the user forgot to register a
+`_toJson` fn via `AZ_REFLECT_JSON`; the backend prints a fatal
+error and returns `WindowError::PlatformError` before any HTTP
+traffic is served. The hydration payload depends on this
+serializer, so failing fast keeps misconfigured apps from
+silently rendering a broken page.
 
-Phase E hands the merged state to `server::run_server`, which blocks forever serving HTTP.
+### 2. api.json classification (`classify.rs::classify_api_functions`)
 
-## Phase A — classify
-
-The classifier decompresses an embedded brotli'd `api.json` (roughly 120 KB compressed, 3.7 MB raw) and bins every C function into one of three categories *today*:
-
-```rust,ignore
-pub enum FnClass {
-    Framework,             // AzDom_*, AzRefAny_*, ...      → goes into mini.wasm
-    ServerEntryPoint,      // AzApp_run                     → never in WASM
-    ReplaceWithDomPatcher, // AzDisplayList_*, AzGl_*       → emit setStyle() instead
-}
-```
-
-Classification rules:
-
-```rust,ignore
-fn classify_fn(name: &str) -> FnClass {
-    match name {
-        "AzApp_run" => FnClass::ServerEntryPoint,
-        n if n.starts_with("AzDisplayList_") => FnClass::ReplaceWithDomPatcher,
-        n if n.starts_with("AzGl_") => FnClass::ReplaceWithDomPatcher,
-        _ => FnClass::Framework,
-    }
-}
-```
-
-The brotli blob is built at codegen time (`target/codegen/api.json.br`, produced by `azul-doc codegen all`). `classify_api_functions` is called from `run_web` for diagnostics only. Phase 0 doesn't act on the classification.
-
-**Planned refinement (WB1.2).** The intercept pass (described below) decides per-symbol whether the implementation lives in lifted wasm, in `azul-mini.wasm`, or as a JS-side host import. The three-variant enum collapses several of these decisions into "Framework" today; WB1.2 splits it into five variants:
+Decompresses the brotli-compressed embedded api.json (~120 KB
+compressed, ~3.7 MB raw, built by `azul-doc codegen all` into
+`target/codegen/api.json.br`). Walks
+`{version}/api/{module}/classes/{cls}/{constructors|functions}/{fn}`
+and synthesizes `Az{Cls}_{camelCase(fn)}` symbol names matching
+the `cabi_export` symbol table. Each fn gets one of:
 
 ```rust,ignore
 pub enum FnClass {
-    LiftAsIs,                 // pure compute, no env: lift the bytes
-    ImportFromAzulMini,       // framework primitive: AzDom_new, AzRefAny_*
-    ImportFromJsHost,         // env call: AzHttp_fetch, AzClipboard_*, AzWindow_setTitle
-    DomPatcher,               // AzDisplayList_* / AzGl_* → JS-side patch
-    ServerOnly,               // AzApp_run, AzFile_open (native paths) — error if reached from a callback
+    Framework,             // most Az* fns
+    ServerEntryPoint,      // AzApp_run
+    ReplaceWithDomPatcher, // AzDisplayList_*, AzGl_*
 }
 ```
 
-The split matters because each variant maps to a different *implementation* strategy in `azul-mini.wasm`:
+Result is 2532 functions. **Currently built but not yet
+consumed** outside the startup log line — the per-cb transitive
+lift uses dladdr on actual bl targets rather than driving off the
+classification. The "pre-compile every api.json function at
+startup" architecture from the M8.7 plan is still future work.
 
-- `LiftAsIs` and `ImportFromAzulMini` are the two cases the intercept pass actually emits — `LiftAsIs` for the callback's own bytes, `ImportFromAzulMini` for any framework call the callback makes.
-- `ImportFromJsHost` is the escape valve: `AzHttp_fetch` doesn't have a sensible lift (it calls `reqwest`/`ureq` natively); in the browser it routes to `fetch()` via a JS shim. The shim's signature still goes through `azul-mini.wasm`, so callbacks only ever import `Az*` symbols — the host-shim detail is hidden behind the mini boundary.
-- `DomPatcher` covers GL/display-list operations that have no wasm-target meaning (a native GL context handle is not transferrable). These get replaced at intercept time with calls to a JS-side patcher.
-- `ServerOnly` is a correctness check: a lifted callback that calls `AzApp_run` is a bug; the intercept pass refuses to emit and falls back to server dispatch.
+### 3. azul-mini.wasm lift (`transpiler_remill.rs::lift_and_link_eventloop`)
 
-`classify_api_functions` becomes the source of truth for the intercept pass — given a symbol, return the variant, drive the rewrite.
-
-## Phase B — mini_gen
-
-`generate_mini_wasm` returns the smallest valid WASM module:
+Iterates `EVENTLOOP_SYMBOLS`:
 
 ```rust,ignore
-const WASM_HEADER: [u8; 8] = [
-    0x00, 0x61, 0x73, 0x6D,  // \0asm magic
-    0x01, 0x00, 0x00, 0x00,  // version 1
+pub const EVENTLOOP_SYMBOLS: &[&str] = &[
+    "AzStartup_alloc",
+    "AzStartup_free",
+    "AzStartup_init",
+    "AzStartup_hydrate",
+    "AzStartup_dispatchEvent",
+    "AzStartup_registerStateDeserializer",
 ];
 ```
 
-Browsers will load and parse this 8-byte module without complaint, so the `<link rel="preload" href="/az/mini.{hash}.wasm">` hint in the generated HTML resolves rather than 404'ing. The eventual implementation will lift ~200 framework C functions from the running binary through `Transpiler::lift_and_link_framework`.
+For each symbol:
 
-**Current state.** WB1.1 (commit `18706f526`) wired `RemillTranspiler::lift_and_link_framework` into a real subprocess pipeline that produces *valid but bloated* WASM (no IR-level optimisation between lift and llc, so the remill `%struct.State` register-file isn't evaporated). The orchestrator's `generate_mini_wasm` still returns the 8-byte stub; switching it to the real path requires WB1.2 (iterate `FnClass::Framework` from Phase A's classifier) plus the IR passes described in [Lift pipeline architecture](#lift-pipeline-architecture). Without those passes, ~200 framework functions would lift to tens of megabytes of wasm and refuse to load; with them, expected output is ~500 KB – 2 MB.
+1. `dlsym_self(name)` → host address.
+2. `resolve_fn_ptr(addr)` →
+   `FnPtrSymbol { name, addr, size: LIFT_READ_WINDOW }`
+   (the size is a flat 4 KiB read window per
+   [hack #4](#whats-bypassed)).
+3. `produce_object_for(...)` runs the lift pipeline (next
+   section).
+4. `wasm-ld --no-entry --import-table --initial-memory=2097152`
+   over all six `.o` files → `azul-mini.wasm` (~5 KB) with
+   `memory` exported.
 
-## Phase C — transpiler and cb_gen
+Lift order matters: `lift_addr = native_addr` for each fn so that
+when (e.g.) `AzStartup_hydrate` does `bl AzStartup_alloc`, the
+lifted IR's `call sub_<alloc_native_addr>` matches the body
+emitted by alloc's lift at the same name. The synthetic
+`0x100000000 + i*0x1000` lift-addr scheme used in earlier drafts
+caused cross-fn calls to fall through to noop stubs.
 
-The transpiler trait is:
+### 4. Per-route HTML pre-render (`html_render.rs::render_initial_page`)
 
-```rust,ignore
-pub trait Transpiler {
-    fn lift_function(&self, fn_name: &str, fn_addr: usize, fn_size: usize)
-        -> Result<WasmModule, TranspileError>;
-    fn lift_and_link_framework(&self, functions: &[(String, usize, usize)])
-        -> Result<WasmModule, TranspileError>;
-    fn is_available(&self) -> bool;
-    fn name(&self) -> &str;
-}
+For each route (or the root window's layout cb if no routes
+configured):
+
+1. Call the layout cb **natively** with a `LayoutCallbackInfo`
+   constructed from the same `RefAny` + `FullWindowState` the
+   desktop backend uses. `image_cache` and `gl_context` are
+   empty.
+2. Run `StyledDom::create_from_dom(dom)` — Azul's full CSS
+   cascade resolves OS / theme / viewport / container / language
+   queries on the server. Only interactive pseudo-states
+   (`:hover`, `:focus`, `:active`, `:focus-within`) survive as
+   browser-side CSS.
+3. Walk the StyledDom flat arena. Each node gets a synthetic
+   `id="az_N"` and, if a callback is bound,
+   `data-az-cb="N" data-az-ev="click"
+   data-az-wasm="/az/cb/<sym>.<hash>.wasm"`.
+4. Emit `<link rel="preload" as="fetch" crossorigin>` hints for
+   `/az/mini.<hash>.wasm` + each cb's wasm + each layout cb's
+   wasm.
+5. **Embed the hydration payload** as
+   `<script id="az-hydrate" type="application/json">
+   {"type_id":"<decimal_u64>","json":<user_toJson_output>}
+   </script>`
+   where `type_id` is `app_data.get_type_id()` and `json` is the
+   output of the user's registered `_toJson`. For hello-world
+   that's `{"type_id":"4298653512","json":5}`.
+6. Concatenate the resulting body HTML, the bundled stylesheet
+   (cascade-resolved `#az_N { … }` rules), and the inline loader
+   JS (`loader_js::generate_loader_js`).
+
+### 5. Per-cb wasm lift (`mod.rs::discover_and_transpile_callbacks`)
+
+For each unique callback fn-address discovered in the route walk:
+
+1. `resolve_fn_ptr` → name (user-binary or libazul).
+2. `transpiler.lift_function(name, addr, size)` →
+   `lift_with_transitive_deps(roots=vec![...])`.
+
+The recursive transitive lift is the centerpiece (see
+[Lift pipeline](#lift-pipeline) below). For hello-world's
+`on_click`, the closure includes:
+
+```
+on_click                              (user)
+MyDataModelRefMut_create              (user, AZ_REFLECT macro)
+MyDataModel_downcastMut               (user, AZ_REFLECT macro)
+MyDataModelRefMut_delete              (user, AZ_REFLECT macro)
+AzRefAny_isType                       (libazul, via PLT stub)
+AzRefCount_canBeSharedMut             (libazul, via PLT stub)
+AzRefCount_increaseRefmut             (libazul, via PLT stub)
+AzRefAny_getDataPtr                   (libazul, via PLT stub)
+AzRefCount_decreaseRefmut             (libazul, via PLT stub)
+AzRefAny_delete                       (libazul, via PLT stub)
+AzRefCount_clone                      (libazul, via PLT stub)
+RefAny::get_type_id                   (mangled azul_core internal)
+RefCount::can_be_shared_mut           (mangled azul_core internal)
+RefAny::get_data_ptr                  (mangled azul_core internal)
 ```
 
-Two implementations today: `StubTranspiler` (always returns `TranspileError`, used when the `web-transpiler` feature is off) and `RemillTranspiler` (real subprocess pipeline; opt-in via `web-transpiler`). The naive end-to-end pipeline `RemillTranspiler` runs is:
+11–14 functions, all linked into a single ~14 KB `.wasm` that
+imports only `env.memory` + `env.__indirect_function_table` +
+the JS Proxy fallback for unresolved `sub_<hex>` and remill helpers.
+
+### 6. Per-layout-cb wasm lift (`mod.rs::lift_layout_callbacks`)
+
+Same pipeline applied to each unique `LayoutCallback.cb`
+referenced by the configured routes. The closure for hello-world
+is ~42 functions (DOM construction, AzString, AzCssProperty,
+AzButton, ...). The bytes are served at
+`/az/layout/<name>.<hash>.wasm` but **the current loader does not
+instantiate them** — they wait on the [diff-and-patch](#whats-bypassed)
+work.
+
+### 7. Start HTTP listener (`server.rs::run_server`)
+
+`std::net::TcpListener` accept loop, one `std::thread` per
+connection. The 16 MiB body cap is the only DoS guard. Routes:
 
 ```text
-running native binary
-  ─ dladdr / DWARF ─►  (fn_name, fn_addr, fn_size)
-  ─ remill-lift-17 ─►  LLVM IR (with %struct.State + __remill_* intrinsics)
-  ─ llc -mtriple=wasm32 ─► WASM object (LARGE — State struct not evaporated)
-  ─ wasm-ld --no-entry --export=sub_<addr> ─► WASM module
+GET  /                            → pre-rendered route HTML
+GET  /az/loader.js                → inline bootstrap
+GET  /az/mini.<hash>.wasm         → mini bytes (~5 KB)
+GET  /az/cb/<name>.<hash>.wasm    → per-cb bytes (~14 KB)
+GET  /az/layout/<name>.<hash>.wasm → per-layout bytes (preloaded)
+GET  /az/img/<id>                 → image bytes
+GET  /az/font/<id>                → font bytes
+POST /az/exec/<node_id>           → server-side fallback dispatch
+                                    (unused by current loader.js)
 ```
 
-This pipeline works end-to-end for a leaf function (validated via `experiments/transpile-blueprint`: an aarch64 `add w0,w0,w1; ret` produces a valid 230-byte module with `\0asm` magic). It does **not** work for real callbacks, which call into framework functions and reference memory the lift naively models as opaque pointers into a State struct. The missing pieces are described in the next section.
+Wasm + asset responses set
+`Cache-Control: public, max-age=31536000, immutable` because
+URLs embed a content hash.
 
-`cb_gen` is the consumer. It would walk `config.routes`, collect every callback function pointer in the resulting DOM, resolve each pointer to a symbol via `dladdr`, and feed them into `Transpiler::lift_function`. Today it returns `Vec::new()`, which means the HTML emitter has no `<link rel="preload" href="/az/cb/*.wasm">` hints to add and the server's `/az/cb/{name}.wasm` route always 404s.
+## Lift pipeline
 
-## Lift pipeline architecture
+The lift pipeline ships in `transpiler_remill.rs` under the
+`web-transpiler` Cargo feature. It runs **per function** (for
+eventloop fns) or **per transitive closure** (for cbs + layouts).
+The per-function piece is `produce_object_for`; the closure
+walker is `lift_with_transitive_deps`.
 
-The naive `lift → llc → wasm-ld` pipeline that ships in WB1.1 produces *correct* wasm for leaf functions but degrades pathologically for anything that calls into the framework or touches memory. The reason is that remill lifts at the abstraction level of *a CPU executing instructions against a register file in memory* — each guest register is a field of a `%struct.State` value the lifted function reads from and writes to, and every memory access is threaded through an opaque `%memory` token. Without intermediate IR passes, llc sees that verbose register-machine code and lowers it literally, producing dozens of KB of wasm per source instruction.
-
-The real pipeline is six stages, not three:
+### Per-function lift — `produce_object_for`
 
 ```text
-running native binary
-  ─ dladdr / DWARF ─►  (fn_name, fn_addr, fn_size)
-  ─ remill-lift-17 ─►  IR with %struct.State + __remill_* intrinsics
-  ─ intrinsic-lower pass ─►  __remill_function_return / __remill_read_memory_* etc. given concrete bodies
-  ─ signature-rewrite pass ─►  define ptr @sub_X(state, pc, memory) → define <ABI> @<name>(<args>)
-  ─ symbol-intercept pass ─►  __remill_function_call → typed extern (classify-driven)
-  ─ opt -O2 ─►  SROA + mem2reg evaporate the State struct; clean dataflow IR
-  ─ llc -mtriple=wasm32 -O2 ─►  WASM object
-  ─ wasm-ld --import-module=azul-mini --import-memory ─►  WASM module with Az* imports
+host bytes
+  ─ rewrite_tailcall_wrapper (arm64) ──►
+  ─ remill-lift-17 --arch aarch64 --os macos --address <lift_addr>
+       --entry_address <lift_addr> --bytes <hex> ──► .lifted.ll
+  ─ parse_extern_sub_declares  ──►  list of sub_<hex>[.N] externs
+  ─ resolve each extern ───────────►
+       branch_target_to_host_addr (strip .N) → host_addr
+       resolve_fn_ptr             → dladdr + PLT-stub chase
+       classify_branch_extern     → RustAlloc / AzCallIndirect /
+                                    AzResolveCallback / Noop
+  ─ emit_helper_ir ────────────────►  wrapper + per-kind bodies
+                                       + PLT-stub thunks .helper.ll
+  ─ llvm-link patched.ll helper.ll  → linked.ll
+  ─ opt -O2                          → opt.ll
+  ─ llc -mtriple=wasm32 -O2          → .o
 ```
 
-The four middle passes are the work WB1.2 / WB1.3 will land. Each is independent and can be tested in isolation against `experiments/transpile-blueprint`.
+### Tail-call wrapper byte rewrite (`rewrite_tailcall_wrapper`)
 
-### The State struct evaporates — once `opt -O2` runs
+Many C-ABI shims in libazul are compiled as a single
+`b <inner>` (unconditional branch to a Rust internal). Example:
 
-The whole architecture rests on one LLVM property: the State pointer is `noalias`, every field access is a constant-offset GEP, and nothing outside the lifted function takes the State's address. Combined, these let LLVM's alias analysis prove that all State accesses are independent locations. **SROA** (Scalar Replacement of Aggregates) then splits the struct into individual scalar slots; **mem2reg** promotes those slots to SSA values. For a lifted `add w0, w0, w1; ret`, the optimisation flattens 80+ lines of register-file shuffling into:
+```text
+_AzRefCount_canBeSharedMut:
+    b __ZN9azul_core6refany8RefCount17can_be_shared_mut...
+```
+
+remill bails on bare `b imm26` by lifting it as
+`__remill_missing_block` and returning immediately — the body
+appears empty and the wrapper looks like an identity function.
+
+Workaround (arm64-only,
+[hack #6](../../../../scripts/HACKS_REVIEW_2026_05_16.md#6-tail-call-wrapper-byte-rewrite-is-arm64-only)):
+detect the encoding `bits 30..26 == 0b000101` (B unconditional)
+and rewrite the 4 input bytes to `BL imm26` + `RET` (8 bytes
+total) before feeding to remill. The lift then produces a normal
+call+return; the PLT-stub thunk machinery wires the call to the
+real lifted inner body.
+
+### Extern parsing — `.N` suffix handling
+
+remill emits a fresh `declare ptr @sub_<hex>(...)` per call site
+when the same bl target appears multiple times in a function;
+duplicates get the `.1`, `.2`, … suffix from LLVM's IR-level
+symbol-table dedup. `AzStartup_hydrate` doing two
+`bl __rust_alloc` produces:
 
 ```llvm
-define i32 @add(i32 %a, i32 %b) {
-  %r = add i32 %a, %b
-  ret i32 %r
-}
+declare ptr @sub_<rust_alloc_addr>(ptr noalias, i64, ptr noalias)
+declare ptr @sub_<rust_alloc_addr>.2(ptr noalias, i64, ptr noalias)
 ```
 
-The State struct, the GEPs, the PC bookkeeping, the `__remill_function_return` indirection — all gone. What remains is the pure dataflow the native instructions computed. This is why remill chose its register-machine representation: verbose to emit, but mechanically optimisable into something native-looking that lowers cleanly to any LLVM target. The pipeline never explicitly translates "register memory model → linear memory model" — the register model gets optimised *out of existence* before codegen sees it.
+Both `parse_extern_sub_declares` and `branch_target_to_host_addr`
+strip the `.N` suffix so all variants resolve to the same host
+addr and each gets its own bump-allocator body emitted under its
+suffixed name. Without this, the `.N` variants became unresolved
+`env.sub_<hex>.N` imports that JS satisfied with shape-guessed
+noops — the second `__rust_alloc` returned 0 and the whole Box
+chain unraveled silently.
 
-`opt -O2` cannot do this work *until* the four preceding passes have run, because the `__remill_*` intrinsics are declared-but-undefined externs that LLVM treats as side-effecting. They must be lowered to concrete IR first; otherwise SROA refuses to touch the State struct on the assumption that the opaque calls might alias.
+### PLT-stub chase — `mod.rs::resolve_macos_arm64_stub`
 
-### The intrinsic-lowering pass
+dladdr on a `__TEXT.__stubs` trampoline returns the
+`cb_<hex>` placeholder because the stub has no symbol of its own.
+Workaround (macOS arm64 only,
+[hack #5](../../../../scripts/HACKS_REVIEW_2026_05_16.md#5-plt-stub-resolver-is-macos-arm64-only)):
+parse the canonical Apple Silicon stub pattern
 
-remill emits a fixed set of opaque intrinsics that LLVM cannot reason about:
-
-| Intrinsic | Lowered body |
-|---|---|
-| `__remill_function_return(state, pc, memory)` | Read the return register from State (X0 for aarch64, RAX for x86-64), return it directly. |
-| `__remill_read_memory_N(memory, addr)` | `load iN, ptr %addr` (the memory token is dropped). |
-| `__remill_write_memory_N(memory, addr, val)` | `store iN %val, ptr %addr` (memory token returned unchanged). |
-| `__remill_function_call(state, target_pc, memory)` | *Handled by the intercept pass below* — replaced with a typed extern call. |
-| `__remill_jump`, `__remill_missing_block`, `__remill_error` | Lowered to `unreachable` / panics; should never fire for traces lifted from well-formed code. |
-
-The pass is a one-time IR walk per module. Once intrinsics have concrete bodies, the lifted function is no longer opaque to LLVM and downstream optimisation can proceed.
-
-### The signature-rewrite pass
-
-remill produces every lifted function with the same uniform signature:
-
-```llvm
-define ptr @sub_100000000(ptr noalias %state, i64 %program_counter, ptr noalias %memory)
+```text
+adrp x16, GOT_PAGE
+ldr  x16, [x16, GOT_OFF]
+br   x16
 ```
 
-The return type is `ptr` because the body ends in `tail call ptr @__remill_function_return(...)`. That's wrong for the wasm boundary — a caller wants `define i32 @on_click(i32 %data_ptr, i32 %event_ptr)` matching the source-level Rust ABI, not a State pointer.
+compute the GOT slot address, deref it, and re-dladdr the
+resolved target. Modern macOS arm64 eagerly populates `__got`
+at process load, so the slot is valid by the time the server
+runs. `resolve_fn_ptr` does the chase inline so every caller
+sees one address-→-symbol map.
 
-The pass:
+The dep that gets enqueued for transitive lift uses the
+**resolved (libazul) address** for its lift, but the caller's
+lifted IR references the **stub address** in the user binary —
+the linker can't match these names directly. This is what the
+thunk emission below fixes.
 
-1. Looks up the symbol's source signature in `api.json` (Azul has typed metadata for every `Az*` export).
-2. Generates a thin wrapper that allocates the State struct on the stack, writes the input args into the ABI's argument registers (X0/X1/... or RDI/RSI/... depending on host arch), calls the original `sub_<addr>` body, reads the return register out, and returns it as the source-level type.
-3. The wrapper is `internal`-visibility; the original `sub_<addr>` becomes a leaf the wrapper inlines into. After `opt -O2`, the wrapper is the only callable export and the State struct never escapes (no separate alloca survives optimisation).
+### Helper-IR emission — `emit_helper_ir`
 
-This pass is one of two places that needs per-host-arch logic (the other is the intercept pass's argument extraction). aarch64-host and x86-64-host lowering are the only two we need to support today; both are fully specified by the AArch64 PCS and the System V AMD64 ABI respectively.
+Per-fn `.helper.ll` contains:
 
-### The symbol-intercept pass — where the real architectural insight lives
+1. A **wrapper** that exposes the lifted body to a JS-callable
+   signature (currently the canonical
+   `callback(i64 refany_lo, i64 refany_hi, i32 info_ptr) → i32`,
+   [hack #9](../../../../scripts/HACKS_REVIEW_2026_05_16.md#9-per-cb-wrapper-signature-is-hardcoded-to-i64-i64-i32--i32)
+   for the generalization plan). The wrapper:
+   - Allocates a 1088-byte `state_buf` on the wasm shadow stack
+     to hold the lifted body's `%struct.State`.
+   - Allocates a 4096-byte `stack_buf` for SP-relative spills
+     ([hack #13](../../../../scripts/HACKS_REVIEW_2026_05_16.md#13-the-4-kib-stack-inside-each-wrapper-is-hardcoded)).
+   - `memset state_buf` to 0.
+   - Stores incoming args into `State.X<n>` slots at the AArch64
+     PCS offsets baked into `signature_for_callback_kind`.
+   - Sets `State.SP = top(stack_buf)`.
+   - `call sub_<addr>(state, pc, memory)`.
+   - Loads the return register slot (`State.X0` etc.) and
+     returns.
 
-The byte map handed to remill should contain *only the callback's own bytes*, not the framework's. Remill then lifts every framework call as an unresolved `__remill_function_call(state, constant_target_pc, memory)` with the call target baked in as an `i64` constant.
+2. A **per-extern body** per resolved branch:
+   - `RustAlloc` / `RustAllocZeroed` → bump-allocator body
+     reading `size` from `State.X0`, bumping the
+     `@__az_bump_ptr` global, writing the old value back to
+     `State.X0`. `linkonce_odr` + `alwaysinline` so wasm-ld
+     dedupes across `.o` files into one shared heap. Initial
+     `@__az_bump_ptr = 1048576` (1 MiB) leaves the wasm
+     shadow-stack region untouched.
+   - `AzCallIndirect` → `call_indirect` bridge through
+     `__indirect_function_table` (used by the lifted
+     `AzStartup_dispatchEvent` to invoke per-cb table slots).
+   - `AzResolveCallback` → wasm `env` import bridge resolved
+     JS-side (used by `AzStartup_dispatchEvent` for the
+     fn-addr → table-idx lookup).
+   - `Noop` with `real_addr != stub_addr` → **thunk**:
 
-The intercept pass:
+     ```llvm
+     declare ptr @sub_<real_addr>(ptr, i64, ptr)
+     define linkonce_odr ptr @sub_<stub_addr>(
+         ptr %state, i64 %pc, ptr %memory) {
+       %r = musttail call ptr @sub_<real_addr>(
+              ptr %state, i64 %pc, ptr %memory)
+       ret ptr %r
+     }
+     ```
 
-```rust,ignore
-for call in module.calls_to("__remill_function_call") {
-    let target_addr = call.constant_arg("target_pc");
-    let sym = dladdr(target_addr)?;  // address → "AzCallbackInfo_setCssProperty"
+     Routes the caller's `call sub_<stub_addr>` through to the
+     real body the transitive lift emitted at
+     `sub_<real_addr>`. opt usually inlines the musttail away.
+   - `Noop` with `real_addr == stub_addr` → **no body emitted**.
+     The extern stays unresolved; wasm-ld either pairs it with a
+     sibling `.o`'s real body (when the recursive lift covered
+     it) or leaves it as an `env.sub_<hex>` import that JS's
+     Proxy fallback satisfies with shape-guessed noops at
+     runtime
+     ([hack #8](../../../../scripts/HACKS_REVIEW_2026_05_16.md#8-helper-ir-no-longer-emits-noop-bodies-for-noop-kind)).
 
-    match classify_api_functions().get(&sym) {
-        FnClass::ImportFromAzulMini => {
-            // Look up source signature in api.json, extract args from State
-            // following the host ABI, emit typed extern declaration + call,
-            // write result back to State.
-            let extern_fn = module.get_or_declare_extern(&sym, signature_from_api_json(&sym));
-            let args = extract_args_from_state(&call, host_arch_abi());
-            let result = builder.call(extern_fn, args);
-            store_result_to_state(&call, result);
-            call.erase();
-        }
-        FnClass::ImportFromJsHost => { /* same shape; target is host shim like __az_js_fetch */ }
-        FnClass::DomPatcher => { /* same shape; target is __az_dom_patch */ }
-        FnClass::ServerOnly => return Err("callback called server-only function — fall back to /az/exec"),
-        FnClass::LiftAsIs => unreachable!("LiftAsIs is for the callback itself, not its callees"),
-    }
-}
+   The earlier design — emit `alwaysinline` noop bodies for every
+   extern — was the load-bearing bug. opt -O2 was inlining
+   those noops into every call site, erasing the call before
+   wasm-ld could retarget at the real body. Dropping the noop
+   body emission was the unlock that let the cb actually invoke
+   real lifted code.
+
+3. The shared globals at module bottom:
+
+   ```llvm
+   @__az_bump_ptr = linkonce_odr global i32 1048576, align 4
+   @__az_call_observer = linkonce_odr global i32 0, align 4
+   declare i32 @__az_resolve_callback(i64) #1
+   ```
+
+### Recursive transitive lift — `lift_with_transitive_deps`
+
+The per-cb / per-layout pipeline. Given a set of root functions:
+
+1. Lift each root.
+2. Parse externs; for each, run `resolve_fn_ptr` (which already
+   does the PLT-stub chase).
+3. If the resolved name passes `is_recursable_dep`, enqueue it
+   as a dependency to lift at `lift_addr = resolved.addr`.
+4. Continue until the queue empties or `MAX_RECURSIVE_DEPTH = 64`
+   is reached.
+5. wasm-ld over all the resulting `.o` files (one per fn) with
+   `--import-memory --import-table --allow-undefined`.
+
+The recursable-dep filter (`is_recursable_dep`):
+
+- Skip `_dyld_*`, `_dispatch_*`, `_pthread_*`, `_objc_*` (libSystem).
+- Skip anything containing `__rustc` or `__rust_` (compiler-internal
+  symbols handled by `classify_branch_extern`'s RustAlloc kind).
+- For Itanium-mangled `_ZN<len><crate>...E`: parse the crate name.
+  Skip the known-noisy runtime crates (`core`, `std`, `alloc`,
+  `compiler_builtins`, `panic_abort`, `panic_unwind`,
+  `rustc_demangle`, `backtrace`, `addr2line`, `gimli`, `object`,
+  `miniz_oxide`). Recurse into everything else — most importantly
+  `azul_core`, `azul_css`, `azul_layout`, `webrender_*`, and any
+  user-named crate the cb pulls in.
+- Skip `_R*` (Rust v0 mangling) conservatively for now.
+- Skip leading-underscore C internals (`_malloc`, `_memcpy`, ...)
+  unless they're `Az`-prefixed.
+
+This filter
+([hack #7](../../../../scripts/HACKS_REVIEW_2026_05_16.md#7-recursion-filter-has-a-hand-curated-allowlist))
+is hand-curated; the "pre-compile every api.json fn" architecture
+in the M8.7 plan would replace it with a positive whitelist
+driven by the classification.
+
+Each dep gets exported as `__az_dep_<resolved_addr>` (the
+JS-callable wrapper using the canonical signature) — those
+wrappers are not invoked in production but stay around as anchors
+keeping the lifted bodies from being DCE'd by wasm-ld's
+`--gc-sections`.
+
+### Memory layout
+
+One `WebAssembly.Memory` (2 MiB initial, exported by mini,
+imported by every cb / layout):
+
+```text
+0x000000  ┌──────────────────────────┐
+          │ wasm-ld static data      │  mini's globals, cb's
+          │ (per-module overlays —   │  globals overlay the same
+          │  not currently isolated) │  region today
+~0x010000 ├──────────────────────────┤
+          │ per-cb stack             │  alloca [4096 x i8] inside
+          │ (4 KiB per cb wrapper    │  each wrapper, lives on the
+          │  invocation)             │  wasm shadow stack
+~0x100000 ├──────────────────────────┤  ◄── @__az_bump_ptr starts here
+          │ EventloopState           │  AzStartup_init
+          │ MyDataModel { counter }  │  hydrate's alloc(4) for model
+          │ RefCountInner            │  hydrate's alloc(128)
+          │ AzRefAny                 │  hydrate's alloc(32)
+          │ ... subsequent allocs    │  AzStartup_alloc on demand
+0x200000  └──────────────────────────┘  ◄── 2 MiB cap (no grow today)
 ```
 
-After this pass runs, the IR has clean direct calls to `@AzCallbackInfo_setCssProperty` (and `@__az_js_fetch`, etc.); the `__remill_function_call` indirection is gone. `wasm-ld --import-module=azul-mini` then marks those externs as imports the linker doesn't need to resolve locally — the browser-side wasm loader satisfies them at instantiation time from `azul-mini.wasm`'s exports.
+All in one address space, so the cb's `ldr w8, [X0]` (where X0 =
+modelPtr from the hydrated chain) lands at the byte JS hydration
+wrote, and the cb's `*counter += 1` is observable from JS.
 
-The same machinery handles framework primitives (`AzDom_new`), browser-native operations (`AzHttp_fetch` → `fetch()` via a JS shim hosted in `azul-mini.wasm`), and DOM-patch hooks. The only thing that changes per-symbol is which `FnClass` variant `classify.rs` returns — the rewrite shape is uniform.
+The wasm-ld flags are:
 
-### Shared linear memory
+- `azul-mini.wasm`: `--import-table --initial-memory=2097152`,
+  exports `memory`.
+- per-cb / per-layout: `--import-memory --import-table
+  --initial-memory=2097152`. The
+  `--initial-memory` here is just the import descriptor — the
+  actual memory comes from mini at instantiate time.
 
-Each callback wasm and `azul-mini.wasm` must operate on the same `RefAny`, the same DOM arena, the same StyledDom property cache. Pointers in one module's linear memory are not pointers in another module's *unless they share the underlying buffer*. The wasm dynamic-linking convention is:
+## AzStartup_* surface — `eventloop.rs`
 
-```wat
-;; azul-mini.wasm
-(memory (export "memory") 16)   ;; 16 pages = 1 MiB initial
+Mini exports six C-ABI fns:
 
-;; each per-callback wasm
-(import "azul-mini" "memory" (memory 1))
-```
-
-`wasm-ld` flag for the callback side is `--import-memory --shared`. The JS-side `WebAssembly.instantiate` calls pass the same `WebAssembly.Memory` instance to every module, so `i32.load`/`i32.store` against any address see the same bytes. This is the load-bearing piece that lets a callback's compiled-from-Rust `data.users.insert(k, v)` mutate state that `azul-mini.wasm`'s `AzDom_new` later reads.
-
-### Fallback to server-side dispatch
-
-Not every callback will lift cleanly. Anticipated failure modes:
-
-| Mode | Cause | Mitigation |
+| symbol | signature | role |
 |---|---|---|
-| **Excessive size** | Callback inlines std collections (`HashMap::insert` → ~100 KB wasm per call site). | Per-callback dry-run during build classifies as Liftable / TooBig / FallbackToServer; emit `<link rel="preload">` only for Liftable. |
-| **Indirect calls** | `dyn Trait` dispatch lands at a runtime address with no symbol. | Either ship every possible target (closed-world) or fall back to server. |
-| **`malloc`/`errno` references** | Callback inlined libc internals. | Stub in `azul-mini.wasm` with wasm-friendly equivalents (`wee_alloc` / `dlmalloc`-WASM); ignore `errno`. |
-| **Panic paths** | `core::panicking::panic_fmt` chain lifts to megabytes. | Compile callbacks with `panic = "abort"`; intercept-pass replaces the panic call chain with `unreachable`. |
+| `AzStartup_alloc(size: u32) -> u32` | bump | allocate `size` bytes of zero-init linear memory, return wasm offset |
+| `AzStartup_free(ptr: u32, size: u32)` | bump | currently no-op (bump heap doesn't free) |
+| `AzStartup_init(json_ptr: u32, json_len: u32) -> u32` | state | allocate `EventloopState`, return its wasm ptr |
+| `AzStartup_hydrate(type_id_lo, type_id_hi, data_ptr, data_size: u32) -> u32` | hydration | build wasm-side `AzRefAny` tree, return refany ptr |
+| `AzStartup_dispatchEvent(state, kind, evt_ptr, evt_len, out_len_ptr: u32) -> u32` | dispatch | decode event, hit-test, resolve cb, invoke via `__az_call_indirect`, emit patches (BUILT, not yet wired by loader) |
+| `AzStartup_registerStateDeserializer(state: u32, fn_addr: u64)` | deser | store user's `_fromJson` fn-ptr on the state (not used today) |
 
-The existing `POST /az/exec/{node_id}` server-side path is the safety net for everything that doesn't lift. The architectural commitment is "try-lift → fall back" per-callback, not "lift everything or nothing."
-
-### Build-time vs. runtime lifting
-
-Build-time lifting (DWARF + symbol table available, no fork/exec at runtime) is the common case. `discover_and_transpile_callbacks` is the natural home: walk the registered callback function pointers, build an address→symbol map once from the binary's `.symtab`, lift each callback in parallel. Output goes into `target/` as `cb_<symbol_hash>.wasm` and gets served from the build artifact.
-
-Runtime lifting is only needed for callbacks created from JIT'd closures with no static symbol — vanishingly rare in Azul's model (closures monomorphise at compile time). When it's needed, `dladdr` provides the same `(fn_name, fn_addr, fn_size)` triple and the same pipeline runs.
-
-### Architecture verdict
-
-The plan as drafted (Phases A–E + WB1.1) holds up; the work to make Phases B and C real is *concentrated in the four IR passes*, not in additional pipeline stages. Subprocess invocations to `remill-lift-17`, `llc`, and `wasm-ld` are already wired. The next-session work is:
-
-1. **WB1.2** — intrinsic lowering + signature rewrite passes (write as a Rust LLVM pass via `llvm-sys` or stage as a separate IR transformation tool; mcsema's `remill-opt` is a reference).
-2. **WB1.3** — intercept pass driven by the refined `classify.rs` enum. Surface the resulting extern declarations as `imports_from_mini` (currently `Vec::new()` in `RemillTranspiler`).
-3. **WB1.4** — wire `opt -O2` into the subprocess pipeline between the passes and `llc`.
-4. **WB1.5** — switch `generate_mini_wasm` from the 8-byte stub to `lift_and_link_framework(classify_api_functions()::Framework)`.
-5. **WB2.x** — same for `discover_and_transpile_callbacks` (per-callback discovery + lift + emit `<link rel="preload">`).
-
-The "stream into the browser as needed" piece is already structurally correct: per-callback wasm modules with content-hashed URLs (`/az/cb/{name}.{hash}.wasm`, `Cache-Control: immutable, max-age=1y`), `<link rel="preload">` hints emitted by `html_render`, `WebAssembly.instantiateStreaming` on the browser side. Only the *contents* of those modules are stubbed today.
-
-## Phase D — html_render
-
-`render_initial_page` produces a full HTML document. The pipeline:
-
-1. **Run the layout callback** with a `LayoutCallbackInfo` constructed from the same `RefAny` and `FullWindowState` the desktop backend uses. `image_cache` and `gl_context` are empty — no GPU on the server. Active route info is threaded through `LayoutCallbackInfoRefData` so route-aware layout callbacks see the matched pattern.
-
-2. **Run the cascade**: `StyledDom::create_from_dom(dom)` resolves all conditional CSS (OS, theme, viewport, container queries, language) on the server, leaving only interactive pseudo-states (`:hover`, `:focus`, `:active`, `:focus-within`, etc.) to the browser. By the time HTML is emitted, every node has a fully-resolved `computed_values[node]` entry in the property cache.
-
-3. **Walk the StyledDom flat arena** depth-first via `RenderContext::render_node_recursive`. Each node:
-   - Gets a synthetic `id="az_N"` where `N` is a per-render counter.
-   - Emits `<{tag} id="az_N" class="..." data-az-cb="N" ...>` — `data-az-cb` is present iff the node has callbacks. `data-az-ev` records the JS event name (e.g. `click`, `mousedown`) derived from the first callback's `EventFilter`.
-   - Image nodes encode the bitmap to PNG via `azul_layout::image::encode_png`, push a `CollectedImage`, and rewrite the `src` to `/az/img/{id}`.
-   - The `id` and `class` attributes from the DOM are preserved as `data-az-id` and `class=`, since `id="az_N"` is reserved for the synthetic node ID.
-
-4. **Emit CSS rules**: `emit_css_from_cache` produces:
-   - `#az_N { property: value; … }` for the base computed values.
-   - `#az_N:hover { … }` / `:focus` / `:active` / etc. for properties that the property cache marks as state-dependent. The `pseudo_state_to_css` helper maps `PseudoStateType::Dragging` to `:active` because the browser has no "dragging" pseudo-class.
-
-5. **Bundle fonts** as `@font-face` rules pointing at `/az/font/{id}`, then concatenate everything into a single `<style>` block.
-
-6. **Inject the loader JS** via `loader_js::generate_loader_js("stub", &cb_wasms)`.
-
-`RenderOutput` carries the assembled HTML plus the collected image and font vectors that the server will serve under `/az/img/` and `/az/font/`.
-
-### Per-route ID rebasing
-
-The orchestrator rewrites image and font URLs after a route renders so that route 0's `/az/img/3` becomes route 1's `/az/img/8` (or whatever the offset is). The simple `.replace(&old, &new)` is safe because the URLs include a leading `/` and unambiguous numeric suffix.
-
-## Phase E — server
+### AzStartup_hydrate
 
 ```rust,ignore
-pub fn run_server(bind_addr: SocketAddr, state: WebServerState)
-    -> Result<(), String>
+pub unsafe extern "C" fn AzStartup_hydrate(
+    type_id_lo: u32, type_id_hi: u32,
+    data_ptr: u32, data_size: u32,
+) -> u32
 ```
 
-A `TcpListener` accept loop spawning a `std::thread` per connection. Zero external dependencies. The request line and headers are parsed inline via `BufReader::read_line`. The 16 MB body cap is the only DoS guard.
+Builds the wasm-side `AzRefAny → RefCount → RefCountInner →
+user data` tree without going through `Box::new(struct_literal)`
+(whose codegen loads `sizeof::<T>()` + `alignof::<T>()` from
+arm64 const pools that don't lift cleanly,
+[hack #6 in the M8.7c lessons-learned](#6)). Instead:
 
-### Routes
+1. `data_alloc = AzStartup_alloc(128)` for `RefCountInner` (~112 B
+   real + padding).
+2. `refany_alloc = AzStartup_alloc(32)` for `AzRefAny` (24 B real
+   + padding).
+3. Fields written via `core::ptr::addr_of_mut!` + direct stores —
+   no struct-literal init.
+4. `sharing_info.ptr = data_alloc`,
+   `sharing_info.run_destructor = false` (hydrated RefAny lives
+   for the lifetime of the wasm instance,
+   [hack #11](../../../../scripts/HACKS_REVIEW_2026_05_16.md#11-azstartup_hydrate-is-a-hand-rolled-refany-builder)).
+5. `RefCountInner.type_id = (type_id_hi << 32) | type_id_lo`.
+6. `RefCountInner._internal_ptr = data_ptr` (caller-allocated
+   user data buffer).
+7. `num_copies = 1, num_refs = 0, num_mutable_refs = 0`.
 
-- `GET /az/loader.js` returns the bootstrap JS string. Immutable cache OK, not cached today.
-- `GET /az/mini.{hash}.wasm` returns `state.mini_wasm`, an 8-byte stub. Cached, immutable.
-- `GET /az/cb/{name}.{hash}.wasm` returns per-callback WASM. Always 404 in Phase 0.
-- `GET /az/img/{id}` returns the encoded image. Cached, immutable.
-- `GET /az/font/{id}` returns font bytes. Cached, immutable.
-- `POST /az/exec/{node_id}` runs server-side callback dispatch in Phase 0.
-- `GET /favicon.ico` returns 204 No Content.
-- `GET /<route-pattern>` returns pre-rendered HTML for the matching route.
+`data_align` is hardcoded to 8; `custom_destructor` points at a
+no-op `extern "C" fn`. Sufficient for `is_type` /
+`can_be_shared_mut` / `getDataPtr` / `increase_refmut` /
+`decrease_refmut` chains to succeed.
 
-Image, font, and WASM responses include `Cache-Control: public, max-age=31536000, immutable` because their URLs embed a content hash. HTML responses are not cached.
+The longer-term plan is to drop `AzStartup_hydrate`'s hand-rolled
+approach in favor of calling the user's lifted `_fromJson`
+deserializer via `__az_call_indirect` (the path
+`AzStartup_registerStateDeserializer` exists for) — see
+[M8.8 Step 3](../../../../scripts/M8.8_NEW_SESSION_PROMPT.md#step-3--lifted-user-_fromjson-hydration-path).
 
-### POST /az/exec/{node_id} — Phase 0 callback dispatch
+### AzStartup_dispatchEvent
 
-The current implementation is a placeholder:
+Decodes a 256-byte event buffer with the layout from
+`event_offset`:
 
-```rust,ignore
-("POST", p) if p.starts_with("/az/exec/") => {
-    let _node_id_str = p.strip_prefix("/az/exec/").unwrap_or("0");
-    if content_length > 0 {
-        let mut body = vec![0u8; content_length];
-        reader.read_exact(&mut body).map_err(...)?;
-    }
-    let html = re_render_body(state);
-    send_response(&mut stream, 200, "text/html; charset=utf-8", html.as_bytes())
-}
+```text
++0   u32 node_idx
++4   f32 x
++8   f32 y
++12  u32 button_or_key
++16  u32 modifiers
 ```
 
-The node ID is parsed but unused. The body is read but discarded. `re_render_body` re-runs the layout callback with the current `app_data` and returns the entire new HTML page. The browser replaces its document with the response. **No actual callback runs**. Every POST behaves like a forced re-layout. The intended dispatch path — parse `node_id`, look up the registered callback, invoke it with the deserialized `CallbackInfo`, feed the resulting `Update` back through the layout system — is unimplemented.
+Looks up the cb fn-addr via the wasm-side `cb_fn_cache`, calls
+`__az_resolve_callback(fn_addr)` to get the table index, then
+`__az_call_indirect(table_idx, FAKE_REFANY_LO=0x101,
+FAKE_REFANY_HI=0, event_bytes_ptr)`.
 
-### Route matching
+**Currently bypassed by loader.js** (which calls the cb directly
+with the real hydrated `azRefAnyPtr` instead). The dispatchEvent
+chain works in isolation but uses the FAKE_REFANY placeholder
+because there's no `AzStartup_setAppData` helper yet — see
+[M8.8 Step 2](../../../../scripts/M8.8_NEW_SESSION_PROMPT.md#step-2--wire-azstartup_dispatchevent-for-full-event-handling).
 
-The three-stage fallback for `GET /<path>` is:
+## Phase B — browser bootstrap (`loader_js.rs`)
 
-1. Direct lookup in `state.rendered_routes` keyed by the literal path.
-2. Loop through registered routes and call `azul_core::resources::match_route(&pattern, path)` — for parameterized patterns like `/users/{id}` this finds a template, but Phase 0 serves the un-parameterized template HTML rather than re-rendering with the captured params.
-3. Fall back to the `/` route, then to any registered route, then to `404 No routes configured`.
-
-### WebServerState
-
-```rust,ignore
-pub struct WebServerState {
-    pub app_data: Arc<Mutex<RefAny>>,
-    pub config: AppConfig,
-    pub fc_cache: Arc<FcFontCache>,
-    pub font_registry: Option<Arc<FcFontRegistry>>,
-    pub window_state: FullWindowState,
-    pub mini_wasm: Vec<u8>,
-    pub cb_wasms: Vec<CallbackWasm>,
-    pub layout_callback: LayoutCallback,
-    pub rendered_routes: HashMap<String, RenderedRoute>,
-    pub images: Vec<CollectedImage>,
-    pub fonts: Vec<CollectedFont>,
-}
+```text
+1. Find /az/mini.<hash>.wasm URL from <link rel="preload">
+2. azTable = new WebAssembly.Table({initial: 64, element: 'anyfunc'})
+3. Build mini imports:
+     env.__indirect_function_table = azTable
+     env.__az_resolve_callback     = fnAddr → table_idx via Map
+     ... + Proxy fallback: shape-guessed noops by name pattern
+         (_64 / _f64 → 0n;
+          *_memory | barrier | exception_clear → undef;
+          else → 0)
+4. WebAssembly.instantiateStreaming(fetch(miniUrl), imports)
+     → azMini, azMemory = azMini.memory
+5. azState = azMini.AzStartup_init(0, 0)
+6. azHydrate():
+     a. Read #az-hydrate JSON
+     b. typeId = BigInt(payload.type_id)
+     c. counter = payload.json (assumes number — hello-world only)
+     d. azModelPtr = mini.AzStartup_alloc(4)
+        DataView.setUint32(modelPtr, counter)
+     e. azRefAnyPtr = mini.AzStartup_hydrate(
+          typeIdLo, typeIdHi, modelPtr, 4)
+7. For each [data-az-cb][data-az-wasm] in DOM:
+     a. WebAssembly.instantiateStreaming(fetch(url), {
+            env: { memory: azMemory,
+                   __indirect_function_table: azTable,
+                   ...Proxy noop fallback }})
+     b. azTable.set(nodeIdx, cb.exports.callback)
+     c. azNodeCbFns.set(nodeIdx, cb.exports.callback)
+8. azWireListeners():
+     body.addEventListener('click', azInvokeCbDirect)
+     [no mousedown/keydown/focus/resize/scroll — hack #2]
 ```
 
-`Arc<Mutex<RefAny>>` is the only synchronization point. `re_render_body` locks it, calls into `render_initial_page`, and drops the lock. Concurrent requests serialize through this mutex. There is no per-connection state.
+## Phase C — click → cb → DOM update (current direct path)
 
-## loader_js — bootstrap script
+```text
+1. body 'click' fires → azInvokeCbDirect(evt)
+2. nodeIdx = azNodeIdxFromEvent(evt)        [regex on id=az_N]
+3. cbFn = azNodeCbFns.get(nodeIdx)
+4. infoPtr = mini.AzStartup_alloc(256)
+5. update = cbFn(BigInt(azRefAnyPtr), 0n, infoPtr)
+   ─── inside the cb wasm ───
+   Wrapper:
+     a. alloca 1088 B (state) + 4096 B (stack)
+     b. memset state to 0
+     c. State.X0 = refany_ptr  (low 32 = wasm offset)
+        State.X1 = 0
+        State.X2 = info_ptr (zext)
+     d. State.SP = top(stack_buf)
+     e. call sub_<onclick_addr>(state, pc, memory)
 
-`generate_loader_js` returns a fixed JavaScript string. Three things happen on `DOMContentLoaded`:
+   Lifted on_click:
+     - Read State.X0 = refany_ptr
+     - Spill to stack-relative slot
+     - call sub_<MyDataModelRefMut_create>
+     - Reload refany_ptr
+     - call sub_<MyDataModel_downcastMut>:
+         call sub_<stub_isType> → musttail thunk → sub_<real_isType>:
+           call sub_<get_type_id>:
+             load *(refany_ptr + 0)  = inner_ptr
+             load *(inner_ptr + 56) = type_id
+             return type_id in X0
+           compare X0 vs X19 (saved type_id arg)
+           cset W0 = 1
+           return
+         check W0 & 1 → success branch
+         call sub_<stub_canBeSharedMut> → thunk → real
+           (lifted from rewritten BL+RET bytes)
+           call sub_<can_be_shared_mut>:
+             load num_refs, num_mutable_refs (both 0)
+             return 1
+         check W0 & 1 → success
+         call sub_<stub_increaseRefmut> → thunk → real
+           atomic incr num_mutable_refs in linear memory
+         call sub_<stub_getDataPtr> → thunk → real
+           return *(inner_ptr + 0) = modelPtr in X0
+         store modelPtr to local.RefMut.ptr
+         return W0 = 1
+     - tbnz w0, #0 → success branch
+     - ldr x9, [sp + local_refmut_offset] = modelPtr
+     - ldr w8, [x9] = counter (5)
+     - add w8, w8, #1 = 6
+     - str w8, [x9] = write back to *modelPtr
+     - mov w_ret, #1 = AzUpdate_RefreshDom
+     - call sub_<MyDataModelRefMut_delete>
+     - return W0 = 1
 
-1. **Callback wiring**: every element with `data-az-cb` gets an event listener bound to its `data-az-ev` event type. The listener POSTs to `/az/exec/{cb-id}` with `{x, y, button, key}` JSON and replaces the document with the response via `document.open() / document.write() / document.close()`.
+   Wrapper:
+     f. Load State.X0 (low 32 = 1)
+     g. Return as i32
 
-2. **Link interception**: every `<a href="/...">` (excluding `/az/`) becomes an SPA navigation. `azNavigate(path)` does `fetch(path) → document.open/write/close + history.pushState`.
+   ─── back in JS ───
+6. mini.AzStartup_free(infoPtr, 256)
+7. if (update >= 1):
+     newCounter = DataView(memory).getUint32(modelPtr)
+     document.getElementById('az_1').textContent = newCounter
+                                  ^^^^^^^^^^^^^^^
+                                  hardcoded — hack #1
+```
 
-3. **`popstate` handler**: browser back/forward triggers a `fetch(location.pathname)` and the same document-replacement dance.
+## What's bypassed
 
-`document.write` after `document.open` is a documented anti-pattern because it tears down the script that called it. Phase 0 gets away with it because each response is a complete page. For incremental client-side updates the eventual replacement is `morphdom`-style diffing or `documentElement.innerHTML = …`.
+Even though the corresponding code is built and (in some cases)
+lifted into wasm, the current bootstrap does not use:
 
-The `_mini_wasm_hash` and `_callbacks` parameters are accepted but ignored in the Phase 0 generator. The `<link rel="preload">` hints are emitted by `html_render`, not by `loader_js`.
+| built | invoked? | why bypassed |
+|---|---|---|
+| `AzStartup_dispatchEvent` | ✗ | `FAKE_REFANY_LO=0x101` hardcoded; needs `setAppData` wiring + JS to call through it instead of `azInvokeCbDirect` |
+| `AzStartup_registerStateDeserializer` | ✗ | hydration uses `AzStartup_hydrate` hand-rolled path instead of lifting the user's `_fromJson` |
+| `/az/layout/<name>.<hash>.wasm` | ✗ | preloaded by `<link rel="preload">` but loader never instantiates; needed for `Update::RefreshDom` re-layout in the browser |
+| `azApplyPatches` TLV decoder | ✗ | the decoder is in `loader.js` (handles `SetText`) but no wasm-side producer emits patches yet; JS does the direct `textContent =` hardcode |
+| WASM-side hit-test | ✗ | JS-side `azNodeIdxFromEvent` regex on `id="az_N"` IDs |
+| `POST /az/exec/<node_id>` server fallback | ✗ | server-side path exists but loader doesn't fall back to it |
 
-### loader_js_hash
+The full catalog of remaining hacks (19 items grouped into 5
+categories) is in
+[`scripts/HACKS_REVIEW_2026_05_16.md`](../../../../scripts/HACKS_REVIEW_2026_05_16.md);
+the prioritized fix order is in
+[`scripts/M8.8_NEW_SESSION_PROMPT.md`](../../../../scripts/M8.8_NEW_SESSION_PROMPT.md).
 
-FNV-1a 64-bit hash of the loader JS, used for cache-busting URLs. Mirrors `html_render::content_hash` exactly (same constants: `0xcbf29ce484222325` offset basis, `0x100000001b3` prime). Both could be unified into a `util::content_hash` if the duplication grows.
+## What's principled and worth keeping
+
+- **api.json walk** in `classify.rs` — drives off the brotli
+  blob, no hand-coded function list.
+- **Bump allocator in helper IR** — minimal, well-isolated,
+  matches wasm linear-memory semantics.
+- **`--import-memory` + `--import-table` for cb / layout wasms**
+  — the right architecture for shared state across modules.
+- **`AzStartup_hydrate` as a new C-ABI surface** — extends the
+  surface in a way every language binding can call. Per user
+  direction "ship more `AzStartup_*` functions".
+- **PLT-stub THUNK emission** (vs renaming `sub_<addr>` symbols
+  in the lifted IR) — keeps lifted bodies unmodified; lets
+  wasm-ld handle linkage normally. Survives the planned
+  symbol-table-driven replacement of the byte parse.
+- **Pre-validation of RefAny serializer at startup** in
+  `headless.rs::HeadlessApp::validate` — fail-fast for
+  misconfigured apps.
 
 ## Asset URL summary
 
 ```text
-GET /                         → pre-rendered HTML
-GET /az/loader.js             → bootstrap (always served from /az/loader.js)
-GET /az/mini.{hash}.wasm      → framework wasm (8 bytes today)
-GET /az/cb/{name}.{hash}.wasm → callback wasm (404 today)
-GET /az/img/{id}              → image bytes
-GET /az/font/{id}             → font bytes
-POST /az/exec/{node_id}       → callback dispatch → returns full HTML
+GET  /                              → pre-rendered HTML
+GET  /az/loader.js                  → bootstrap JS (inline-embedded)
+GET  /az/mini.{hash}.wasm           → mini wasm (~5 KB)
+GET  /az/cb/{name}.{hash}.wasm      → per-cb wasm (~14 KB)
+GET  /az/layout/{name}.{hash}.wasm  → per-layout wasm
+GET  /az/img/{id}                   → image bytes
+GET  /az/font/{id}                  → font bytes
+POST /az/exec/{node_id}             → server-side fallback dispatch
 ```
 
-The `/az/` prefix is the only reserved namespace. Any other path is matched against registered routes.
+The `/az/` prefix is the only reserved namespace. Any other path
+is matched against registered routes.
 
 ## Cross-references
 
-- [DOM Internals](dom.md) — the `Dom` / `NodeData` / `NodeType` model the renderer walks.
-- [Styling — Cascade](styling/cascade.md) — the `StyledDom` and property cache the renderer reads.
-- [Events](events.md) — the `EventFilter` enum mapped to JS event names.
+- [DOM Internals](dom.md) — the `Dom` / `NodeData` / `NodeType`
+  model the renderer walks.
+- [Styling — Cascade](styling/cascade.md) — the `StyledDom` and
+  property cache the renderer reads.
+- [Events](events.md) — the `EventFilter` enum mapped to JS event
+  names.
+- [`scripts/HACKS_REVIEW_2026_05_16.md`](../../../../scripts/HACKS_REVIEW_2026_05_16.md)
+  — catalog of remaining hacks.
+- [`scripts/M8.8_NEW_SESSION_PROMPT.md`](../../../../scripts/M8.8_NEW_SESSION_PROMPT.md)
+  — prioritized fix order for the next session.
 
 ## Coming Up Next
 
