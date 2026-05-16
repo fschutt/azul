@@ -180,42 +180,133 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.dedent();
     builder.blank();
 
-    // Smart WindowCreateOptions constructor: built from `_default()`
+    // Smart <Class>_with_layout constructor: built from `_default()`
     // and stuffs the host-invoker-registered AzLayoutCallback (with
-    // ctx preserved) into the window_state.layout_callback field.
-    // The raw `AzWindowCreateOptions_create(AzLayoutCallbackType)`
-    // C-ABI export discards ctx because it takes only a fn pointer,
-    // so we cannot use the codegen-emitted `WindowCreateOptions.create`
-    // for any host-invoker-routed layout.
-    builder.line("(* Build a WindowCreateOptions with a host-invoker-routed *)");
-    builder.line("(* layout callback (ctx preserved). Use this instead of *)");
-    builder.line("(* WindowCreateOptions.create, which goes through the *)");
-    builder.line("(* AzLayoutCallbackType raw-fn-pointer path and loses ctx. *)");
-    builder.line("let azul_window_create_options_with_layout (layout_fn : 'a)");
-    builder.indent();
-    builder.line("  : az_window_create_options Ctypes.structure =");
-    // Build the WCO directly from `_default()` — that returns a Ctypes
-    // struct value backed by OCaml-managed memory containing libazul's
-    // default-initialized bytes (including refcounted heap pointers
-    // inside nested U8Vec / AzString fields). Taking `addr` of the
-    // returned binding gives us a stable pointer into that memory we
-    // can navigate to mutate the layout_callback field in place.
+    // ctx preserved) into the leaf field at info.field_path. The raw
+    // `Az<Class>_create(AzLayoutCallbackType)` C-ABI export discards
+    // ctx because it takes only a fn pointer, so we cannot use the
+    // codegen-emitted `<Class>.create` for any host-invoker-routed
+    // layout.
+    //
+    // The helper is emitted once per class that
+    // [`layout_callback_factory_info`] matches — today that's only
+    // `WindowCreateOptions`, but adding another class to api.json
+    // with the same shape lights up an extra helper automatically.
+    //
+    // Build the value directly from `_default()` — that returns a
+    // Ctypes struct backed by OCaml-managed memory containing
+    // libazul's default-initialized bytes (including refcounted heap
+    // pointers inside nested U8Vec / AzString fields). Getting / setting
+    // a field gives us a stable handle into that memory we can navigate
+    // to mutate the leaf callback field in place.
     //
     // DO NOT use `Ctypes.make` + `<-@ default_struct`: that allocates
     // a SEPARATE buffer and memcpys the default bytes into it,
     // creating two aliased copies of the same heap pointers. When
     // libazul later drops one of the copies, the other becomes
-    // invalid. Manifested as `___BUG_IN_CLIENT_OF_LIBMALLOC_POINTER_BEING_FREED_WAS_NOT_ALLOCATED`
-    // inside `<U8Vec as Drop>::drop` from MacOSWindow::new_with_options_internal.
-    builder.line("let wco = ffi_az_window_create_options_default () in");
-    builder.line("let cb = _az_layout_callback_create_from_host_handle");
-    builder.line("           (Unsigned.UInt64.of_int64 (_azul_alloc_handle layout_fn)) in");
-    builder.line("let ws = Ctypes.getf wco az_window_create_options_field_window_state in");
-    builder.line("Ctypes.setf ws az_full_window_state_field_layout_callback cb;");
-    builder.line("Ctypes.setf wco az_window_create_options_field_window_state ws;");
-    builder.line("wco");
-    builder.dedent();
-    builder.blank();
+    // invalid. Manifested as
+    // `___BUG_IN_CLIENT_OF_LIBMALLOC_POINTER_BEING_FREED_WAS_NOT_ALLOCATED`
+    // inside `<U8Vec as Drop>::drop` from
+    // MacOSWindow::new_with_options_internal.
+    for s in &ir.structs {
+        let Some(info) = super::super::managed_host_invoker::layout_callback_factory_info(s, ir)
+        else {
+            continue;
+        };
+        let class_snake = to_snake_lower(&info.class_name);
+        let default_snake = to_snake_lower(&info.default_c_name);
+        let cb_snake = to_snake_lower(&info.callback_wrapper);
+        builder.line(&format!(
+            "(* Build a {} with a host-invoker-routed *)",
+            info.class_name
+        ));
+        builder.line(&format!(
+            "(* {} callback (ctx preserved). Use this instead of *)",
+            info.callback_wrapper
+        ));
+        builder.line(&format!(
+            "(* {}.create, which goes through the *)",
+            info.class_name
+        ));
+        builder.line(&format!(
+            "(* Az{}Type raw-fn-pointer path and loses ctx. *)",
+            info.callback_wrapper
+        ));
+        builder.line(&format!(
+            "let azul_{}_with_layout (layout_fn : 'a)",
+            class_snake
+        ));
+        builder.indent();
+        builder.line(&format!(
+            "  : az_{} Ctypes.structure =",
+            class_snake
+        ));
+        builder.line(&format!("let wco = ffi_{} () in", default_snake));
+        builder.line(&format!(
+            "let cb = _az_{}_create_from_host_handle",
+            cb_snake
+        ));
+        builder.line("           (Unsigned.UInt64.of_int64 (_azul_alloc_handle layout_fn)) in");
+        // Walk the field path: getf each intermediate level, setf the
+        // leaf, then setf back up the chain so the byte-copy nested
+        // structs propagate.
+        let depth = info.field_path.len();
+        let mut parent_var = "wco".to_string();
+        let mut parent_struct_snake = class_snake.clone();
+        let mut intermediates: Vec<(String, String, String, String)> = Vec::new();
+        for (i, seg) in info.field_path.iter().enumerate().take(depth.saturating_sub(1)) {
+            let lvl_var = format!("__lvl{}", i);
+            let field_accessor =
+                format!("az_{}_field_{}", parent_struct_snake, field_accessor_segment(seg));
+            builder.line(&format!(
+                "let {lvl} = Ctypes.getf {parent} {accessor} in",
+                lvl = lvl_var,
+                parent = parent_var,
+                accessor = field_accessor
+            ));
+            let next_struct_snake = to_snake_lower(&info.field_types[i]);
+            intermediates.push((
+                lvl_var.clone(),
+                parent_var.clone(),
+                parent_struct_snake.clone(),
+                seg.clone(),
+            ));
+            parent_var = lvl_var;
+            parent_struct_snake = next_struct_snake;
+        }
+        let leaf_field = info
+            .field_path
+            .last()
+            .expect("layout factory has at least one path segment");
+        let leaf_accessor = format!(
+            "az_{}_field_{}",
+            parent_struct_snake,
+            field_accessor_segment(leaf_field)
+        );
+        builder.line(&format!(
+            "Ctypes.setf {parent} {accessor} cb;",
+            parent = parent_var,
+            accessor = leaf_accessor
+        ));
+        // Write each intermediate back into its parent so the
+        // byte-copy semantics propagate up to `wco`.
+        for (lvl_var, parent_var, parent_struct_snake, seg) in intermediates.iter().rev() {
+            let accessor = format!(
+                "az_{}_field_{}",
+                parent_struct_snake,
+                field_accessor_segment(seg)
+            );
+            builder.line(&format!(
+                "Ctypes.setf {parent} {accessor} {lvl};",
+                parent = parent_var,
+                accessor = accessor,
+                lvl = lvl_var
+            ));
+        }
+        builder.line("wco");
+        builder.dedent();
+        builder.blank();
+    }
 
     // Public per-kind callback registration helpers. Mirror the Lua /
     // Python / Ruby _register_callback dispatch table — a user
@@ -497,6 +588,15 @@ pub fn emit_managed_interface(builder: &mut CodeBuilder, ir: &CodegenIR) {
 
 /// Convert a wrapper name (PascalCase) to snake_case lowercase for use as
 /// an OCaml identifier (Foreign / let binding name).
+/// Mirror of `types.rs::sanitize_field_identifier`: snake-case the IR
+/// field name and route through the shared `sanitize_identifier`
+/// reserved-word guard. Used by the WCO smart-factory emit; field
+/// accessors are generated as `az_<class_snake>_field_<this>` and must
+/// match the bindings emitted in `types.rs`.
+fn field_accessor_segment(name: &str) -> String {
+    super::sanitize_identifier(&super::to_snake_case(name))
+}
+
 fn to_snake_lower(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 8);
     for (i, c) in s.chars().enumerate() {
