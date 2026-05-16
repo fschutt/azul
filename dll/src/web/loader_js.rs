@@ -94,12 +94,22 @@ function azMakeMiniImports() {
 }
 
 // =====================================================================
-// Per-callback WASM imports.
-// Per-cb wasms have their own memory (not imported) and use noop'd
-// framework calls from the M7 intercept pass. The `__remill_*` +
-// `sub_<hex>` imports surface as undefined externs that wasm-ld
-// passes through with --allow-undefined; we satisfy them all with a
-// proxy that returns the right "no-op" type per the call shape.
+// Per-callback / per-layout WASM imports.
+//
+// Per-cb wasms are linked with `--import-memory` + `--import-table`
+// so they share linear address space + the indirect funcref table
+// with mini.wasm. JS routes `env.memory` to mini's exported memory
+// + `env.__indirect_function_table` to the table created in
+// azMakeMiniImports.
+//
+// `--allow-undefined` means any other unresolved symbol becomes an
+// import too — for the lifted remill code that's
+// `__remill_fpu_exception_clear/test` (FP exception helpers) plus
+// any `sub_<hex>` the recursive walk left as a stub. We satisfy
+// them all with a Proxy that returns shape-appropriate no-ops:
+// 0n for *_64 (i64), undefined for void-shaped helpers, 0 for the
+// rest (i32). Surfacing as a Proxy means new mangled imports
+// added by future lift work don't need a per-name JS shim.
 // =====================================================================
 function azCallbackImports() {
     var i64_noop  = function() { return 0n; };
@@ -107,13 +117,23 @@ function azCallbackImports() {
     var void_noop = function() { /* no return */ };
     function stubFor(name) {
         if (name.indexOf('write_memory') !== -1 ||
-            name.indexOf('barrier') !== -1) return void_noop;
+            name.indexOf('barrier') !== -1 ||
+            name.indexOf('exception_clear') !== -1) return void_noop;
         if (/_64\b/.test(name)) return i64_noop;
         return i32_noop;
     }
+    // Real bindings: shared memory + shared table. Everything else
+    // falls through to the Proxy.
+    var realEnv = {
+        memory: azMemory,
+        __indirect_function_table: azTable,
+    };
     var handler = {
         get: function(_target, prop) {
             if (typeof prop !== 'string') return undefined;
+            if (Object.prototype.hasOwnProperty.call(realEnv, prop)) {
+                return realEnv[prop];
+            }
             return stubFor(prop);
         },
         has: function() { return true; },

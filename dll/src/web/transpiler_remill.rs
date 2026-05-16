@@ -695,6 +695,7 @@ impl RemillTranspiler {
         objects: &[PathBuf],
         exports: &[String],
         output_stem: &str,
+        memory_mode: MemoryMode,
     ) -> Result<Vec<u8>, TranspileError> {
         let tools = self.tools(output_stem)?;
         let wasm_path = self.scratch_dir.join(format!("{}.wasm", output_stem));
@@ -702,16 +703,35 @@ impl RemillTranspiler {
             "--no-entry".to_string(),
             "--allow-undefined".to_string(),
             "--import-table".to_string(),
-            // Initial memory: 2 MiB = 32 pages. Stack lives in low
-            // addresses (~64 KiB), bump heap starts at 1 MiB (per
-            // @__az_bump_ptr's initial value) and grows up. 2 MiB
-            // gives us ~1 MiB of heap before exhaustion — enough for
-            // hello-world's stateful demo. JS can grow via
-            // memory.grow if needed later.
-            "--initial-memory=2097152".to_string(),
             "-o".to_string(),
             wasm_path.to_string_lossy().into_owned(),
         ];
+        match memory_mode {
+            MemoryMode::OwnMemory => {
+                // Initial memory: 2 MiB = 32 pages. Stack lives in
+                // low addresses (~64 KiB), bump heap starts at 1 MiB
+                // (per @__az_bump_ptr's initial value) and grows up.
+                // 2 MiB gives us ~1 MiB of heap before exhaustion —
+                // enough for hello-world's stateful demo. JS can grow
+                // via memory.grow if needed later.
+                args.push("--initial-memory=2097152".to_string());
+            }
+            MemoryMode::ImportMemory => {
+                // Per-cb / per-layout wasms import `env.memory` so
+                // they share linear address space with the mini wasm
+                // (which exports `memory`). JS wires
+                // `env.memory = mini.exports.memory` at instantiate
+                // time. Without this each wasm has its own
+                // unconnected memory and any pointer the caller
+                // passes in references the wrong heap.
+                args.push("--import-memory".to_string());
+                // wasm-ld needs to know the minimum/maximum to declare
+                // the memory import. The actual size is set by JS when
+                // it creates the WebAssembly.Memory; these are just
+                // the import descriptor.
+                args.push("--initial-memory=2097152".to_string());
+            }
+        }
         for e in exports {
             args.push(format!("--export={}", e));
         }
@@ -886,8 +906,12 @@ impl RemillTranspiler {
             exports.len()
         );
 
-        let bytes =
-            self.link_objects_to_wasm(&object_paths, &exports, "transitive-lift")?;
+        let bytes = self.link_objects_to_wasm(
+            &object_paths,
+            &exports,
+            "transitive-lift",
+            MemoryMode::ImportMemory,
+        )?;
         Ok(WasmModule {
             content_hash: super::fnv1a64_hex(&bytes),
             bytes,
@@ -895,6 +919,23 @@ impl RemillTranspiler {
             imports_from_mini: Vec::new(),
         })
     }
+}
+
+/// Memory-import vs own-memory selection for
+/// [`RemillTranspiler::link_objects_to_wasm`]. Per-cb / per-layout
+/// wasms import `env.memory` so they share linear address space
+/// with the mini wasm; the mini wasm itself ships an exported
+/// `memory` that the JS bootstrap routes to all other wasms.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MemoryMode {
+    /// `--initial-memory=N` — wasm-ld declares + exports its own
+    /// `memory`. Used by the mini wasm (the source of truth for
+    /// shared memory).
+    OwnMemory,
+    /// `--import-memory` — wasm-ld emits an import for `env.memory`
+    /// instead of declaring its own. JS supplies mini's exported
+    /// memory at instantiate time.
+    ImportMemory,
 }
 
 /// Specifies a root function for [`RemillTranspiler::lift_with_transitive_deps`].
@@ -1098,7 +1139,12 @@ impl Transpiler for RemillTranspiler {
             exports.push(name.clone());
         }
 
-        let bytes = self.link_objects_to_wasm(&object_paths, &exports, "azul-mini")?;
+        let bytes = self.link_objects_to_wasm(
+            &object_paths,
+            &exports,
+            "azul-mini",
+            MemoryMode::OwnMemory,
+        )?;
         Ok(WasmModule {
             content_hash: super::fnv1a64_hex(&bytes),
             bytes,
