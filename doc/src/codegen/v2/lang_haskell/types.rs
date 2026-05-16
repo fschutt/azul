@@ -508,6 +508,7 @@ fn emit_vec_to_list_helper(
     elem_rust: &str,
     ir: &CodegenIR,
 ) {
+    use super::super::ir::FunctionKind;
     let vec_name = haskell_data_name(&s.name);
     let elem_haskell = haskell_field_type(
         elem_rust,
@@ -517,10 +518,56 @@ fn emit_vec_to_list_helper(
     let lname = lower_first(&vec_name);
     let helper = format!("{}ToList", lname);
 
-    builder.line("-- | Phase H.3: Decode the underlying buffer into a Haskell list.");
-    builder.line("-- Iterates `len` elements starting at `ptr`, peeking each at the");
-    builder.line("-- C-ABI element offset. Pure type-driven from the (ptr, len, cap,");
-    builder.line("-- destructor) field pattern; no per-Vec hardcoding.");
+    // V8 (Haskell): when the element type has a `_clone` export, the
+    // Phase-B.8 shim layer already provides `Az<X>_clone_via` (input
+    // ptr + output ptr; `cshim.rs:452-470` emits the wrapper). Each
+    // list entry then owns an independent heap allocation — closing
+    // the Vec later doesn't dangle the yielded `Storable` peeks.
+    //
+    // Without `_clone`, fall back to the legacy shallow `peekElemOff`
+    // path with a warning comment. Pre-existing for POD elements with
+    // no clone; same recipe as the Lua / OCaml fallbacks.
+    let has_clone = ir.functions.iter().any(|f| {
+        f.class_name == elem_rust && matches!(f.kind, FunctionKind::DeepCopy)
+    });
+    let clone_via_binding = format!("az_{}_clone_via_internal", lower_first(&haskell_data_name(elem_rust)));
+
+    if has_clone {
+        // Emit a local foreign-import bound to the same C symbol the
+        // FFI module imports. The duplicate binding is intentional —
+        // Haskell links each module's foreign-import to the C symbol
+        // independently, and using a `_internal` suffix avoids name
+        // clashes with `Azul.Internal.FFI.c_<symbol>` for users who
+        // import both modules unqualified.
+        builder.line(&format!(
+            "foreign import ccall unsafe \"Az{}_clone_via\"",
+            elem_rust
+        ));
+        builder.indent();
+        builder.line(&format!(
+            "{} :: Ptr {} -> Ptr {} -> IO ()",
+            clone_via_binding, elem_haskell, elem_haskell
+        ));
+        builder.dedent();
+        builder.blank();
+    }
+
+    builder.line("-- | Phase H.3 / V8: Decode the underlying buffer into a Haskell list.");
+    if has_clone {
+        builder.line(&format!(
+            "-- Each element is cloned via `Az{}_clone_via` so the yielded list",
+            elem_rust
+        ));
+        builder.line("-- entries own independent heap allocations and survive the Vec being");
+        builder.line("-- closed. Pure type-driven from the (ptr, len, cap, destructor) field");
+        builder.line("-- pattern; no per-Vec hardcoding.");
+    } else {
+        builder.line(&format!(
+            "-- WARNING: no `Az{}_clone` export — falls back to shallow peekElemOff;",
+            elem_rust
+        ));
+        builder.line("-- yielded entries dangle if the Vec is closed before they're consumed.");
+    }
     builder.line(&format!("{} :: {} -> IO [{}]", helper, vec_name, elem_haskell));
     builder.line(&format!("{} v = do", helper));
     builder.indent();
@@ -531,7 +578,21 @@ fn emit_vec_to_list_helper(
         "    __n = fromIntegral ({} v) :: Int",
         len_field
     ));
-    builder.line("mapM (peekElemOff __p) [0 .. __n - 1]");
+    if has_clone {
+        // `Foreign.Marshal.Alloc.alloca` provides a `Ptr <Elem>` for
+        // the clone output; `peek` reads it back as `Elem` and the
+        // Vec mapM yields the list.
+        builder.line(&format!(
+            "let __elem_sz = sizeOf (undefined :: {})",
+            elem_haskell
+        ));
+        builder.line("mapM (\\i -> Foreign.Marshal.Alloc.alloca $ \\__out -> do");
+        builder.line("    let __ep = __p `Foreign.Ptr.plusPtr` (i * __elem_sz)");
+        builder.line(&format!("    {} __ep __out", clone_via_binding));
+        builder.line("    peek __out) [0 .. __n - 1]");
+    } else {
+        builder.line("mapM (peekElemOff __p) [0 .. __n - 1]");
+    }
     builder.dedent();
     builder.blank();
 }

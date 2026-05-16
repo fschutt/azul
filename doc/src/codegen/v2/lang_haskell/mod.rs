@@ -254,6 +254,12 @@ fn generate_types_module(ir: &CodegenIR, config: &CodegenConfig) -> Result<Strin
     builder.line("import Foreign.C.Types");
     builder.line("import Foreign.C.String (peekCStringLen)");
     builder.line("import Foreign.Ptr (Ptr, FunPtr, castPtr, nullPtr)");
+    builder.line("import qualified Foreign.Ptr");
+    // V8: vecToList clone-via path needs `alloca` for the per-element
+    // out-buffer. Qualified-only so the symbol doesn't pollute the
+    // import namespace of users who already had unqualified imports
+    // from Foreign.Marshal.Alloc in their own modules.
+    builder.line("import qualified Foreign.Marshal.Alloc");
     builder.line("import Foreign.Storable (Storable(..))");
     builder.line("import Data.Word (Word8, Word16, Word32, Word64)");
     builder.line("import Data.Int (Int8, Int16, Int32, Int64)");
