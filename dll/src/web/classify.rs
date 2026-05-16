@@ -48,7 +48,30 @@ impl ApiClassification {
 
 /// Classify all API functions by decompressing and parsing the embedded api.json.
 ///
-/// Each function name is classified based on its prefix:
+/// The real api.json structure is nested:
+///
+/// ```text
+/// {
+///   "1.0.0-alpha1": {                  // version
+///     "api": {
+///       "app":      { "classes": { ... } },     // module
+///       "callbacks":{ "classes": { ... } },
+///       "dom":      { "classes": { ... } },
+///       ...
+///     },
+///     "general": {...}, "name": {...}, ...
+///   }
+/// }
+/// ```
+///
+/// Within each class, function definitions live in `constructors` and
+/// `functions` sub-objects. The C function name is
+/// `Az{ClassName}_{snake_case_to_lower_camel(fn_name)}` — for example
+/// `add_window` in the JSON becomes `AzApp_addWindow` in the symbol
+/// table (matches the names emitted by `cabi_export` in
+/// `target/codegen/dll_api_internal.rs`).
+///
+/// Each derived C name is classified by prefix:
 /// - `AzApp_run` → ServerEntryPoint
 /// - `AzDisplayList_*`, `AzGl_*` → ReplaceWithDomPatcher
 /// - Everything else → Framework
@@ -63,27 +86,32 @@ pub fn classify_api_functions() -> ApiClassification {
     let json_str = core::str::from_utf8(&json_bytes)
         .expect("Decompressed api.json is not valid UTF-8");
 
-    // Parse the JSON to extract function names.
-    // The api.json structure has a top-level object with a "classes" array,
-    // each class has "constructors", "methods", "static_methods" etc.
-    // The C function name is constructed as Az{ClassName}_{methodName}.
-    // We use serde_json::Value for simplicity.
     let parsed: serde_json::Value = serde_json::from_str(json_str)
         .expect("Failed to parse decompressed api.json");
 
     let mut functions = Vec::new();
 
-    if let Some(classes) = parsed.get("classes").and_then(|c| c.as_object()) {
-        for (class_name, class_def) in classes {
-            // Collect function names from each section
-            let sections = &[
-                "constructors", "methods", "static_methods",
-                "trait_impls",
-            ];
-            for section in sections {
-                if let Some(fns) = class_def.get(*section).and_then(|f| f.as_object()) {
+    // Walk version → api → module → classes → class → section → fns.
+    let Some(top_obj) = parsed.as_object() else {
+        return ApiClassification { functions };
+    };
+    // There's only one version key in practice, but iterate all to be safe.
+    for (_version, version_def) in top_obj {
+        let Some(api) = version_def.get("api").and_then(|a| a.as_object()) else {
+            continue;
+        };
+        for (_module_name, module_def) in api {
+            let Some(classes) = module_def.get("classes").and_then(|c| c.as_object()) else {
+                continue;
+            };
+            for (class_name, class_def) in classes {
+                for section in &["constructors", "functions"] {
+                    let Some(fns) = class_def.get(*section).and_then(|f| f.as_object()) else {
+                        continue;
+                    };
                     for (fn_name, _) in fns {
-                        let c_name = format!("Az{}_{}", class_name, fn_name);
+                        let camel = snake_case_to_lower_camel(fn_name);
+                        let c_name = format!("Az{}_{}", class_name, camel);
                         let class = classify_fn(&c_name);
                         functions.push((c_name, class));
                     }
@@ -93,6 +121,24 @@ pub fn classify_api_functions() -> ApiClassification {
     }
 
     ApiClassification { functions }
+}
+
+/// `add_window` → `addWindow`. Mirrors `azul-doc::utils::string::
+/// snake_case_to_lower_camel` so the names we synthesize here match the
+/// `cabi_export` symbol names exactly (any drift breaks dlsym).
+fn snake_case_to_lower_camel(snake_str: &str) -> String {
+    let mut parts = snake_str.split('_');
+    let first = parts.next().unwrap_or("");
+    let rest: String = parts
+        .map(|s| {
+            let mut c = s.chars();
+            match c.next() {
+                None => String::new(),
+                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+            }
+        })
+        .collect();
+    format!("{}{}", first, rest)
 }
 
 fn classify_fn(name: &str) -> FnClass {

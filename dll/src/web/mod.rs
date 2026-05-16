@@ -176,6 +176,80 @@ pub struct FnPtrSymbol {
 /// prologue + body too, since remill stops at the first `ret`).
 const LIFT_READ_WINDOW: usize = 256;
 
+/// macOS arm64: if `addr` points at a `__TEXT.__stubs` PLT trampoline
+/// (`adrp x16, GOT_PAGE ; ldr x16, [x16, GOT_OFF] ; br x16`), parse
+/// the three instructions to compute the GOT slot address and read
+/// the resolved function pointer out of it.
+///
+/// Modern macOS arm64 (Big Sur+) writes `__got` eagerly at process
+/// load, so the slot is valid at server-startup time without any
+/// `DYLD_BIND_AT_LAUNCH=1` opt-in. Older macOS uses lazy
+/// `__la_symbol_ptr` whose slot points at `dyld_stub_binder` until
+/// the symbol is first called — we detect that by null/low-address
+/// checks and return `None` so the caller falls back to its
+/// `cb_<hex>` path.
+///
+/// Returns `None` if the bytes don't match the stub pattern, the
+/// GOT slot reads as zero/low-mem, or we're not on macOS arm64.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+fn resolve_macos_arm64_stub(addr: usize) -> Option<usize> {
+    // Stub is 3 instructions × 4 bytes = 12 bytes total. Read as
+    // three u32s aligned at `addr` (arm64 instructions are always
+    // 4-byte aligned).
+    if addr == 0 || addr % 4 != 0 {
+        return None;
+    }
+    let bytes = unsafe { core::slice::from_raw_parts(addr as *const u32, 3) };
+    let adrp = bytes[0];
+    let ldr = bytes[1];
+    let br = bytes[2];
+
+    // br x16: 0xD61F0200
+    if br != 0xD61F0200 {
+        return None;
+    }
+
+    // adrp Xd, #imm: bits 31=1, 28..24=10000, lo2 in 30..29, hi19 in 23..5.
+    // We additionally require Rd=16 (x16) for the stub idiom.
+    if (adrp >> 31) != 1 || ((adrp >> 24) & 0x1F) != 0x10 || (adrp & 0x1F) != 16 {
+        return None;
+    }
+    let immlo = ((adrp >> 29) & 0x3) as i64;
+    let immhi = ((adrp >> 5) & 0x7_FFFF) as i64;
+    let imm21 = (immhi << 2) | immlo;
+    // Sign-extend 21 bits, then << 12 for page-relative immediate.
+    let imm21_se = (imm21 << 43) >> 43;
+    let page_imm = imm21_se << 12;
+    let page_base = ((addr & !0xFFF) as i64).wrapping_add(page_imm) as usize;
+
+    // ldr Xt, [Xn, #imm12<<3] — 64-bit unsigned-offset form:
+    //   bits 31..22 = 1111100101, imm12 in 21..10, Rn=16, Rt=16.
+    if ldr & 0xFFC0_0000 != 0xF940_0000 {
+        return None;
+    }
+    if ((ldr >> 5) & 0x1F) != 16 || (ldr & 0x1F) != 16 {
+        return None;
+    }
+    let imm12 = ((ldr >> 10) & 0xFFF) as usize;
+    let got_slot = page_base.wrapping_add(imm12 * 8);
+
+    // Read 8 bytes at the GOT slot. Catch garbage (null, lazy-binder
+    // sentinel near zero, kernel addrs) and reject.
+    let real_addr = unsafe { core::ptr::read_unaligned(got_slot as *const usize) };
+    if real_addr < 0x1_0000 {
+        return None;
+    }
+    Some(real_addr)
+}
+
+/// Non-macOS-arm64 stub: no-op. Stub resolution is only needed where
+/// the executable uses Mach-O `__stubs` trampolines (macOS). Linux ELF
+/// would need a different parser (R_AARCH64_JUMP_SLOT / .plt).
+#[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+fn resolve_macos_arm64_stub(_addr: usize) -> Option<usize> {
+    None
+}
+
 /// Resolve a function pointer to its `(name, addr, size)` triple.
 ///
 /// Uses `dladdr(3)` on unix-like platforms (linked from libSystem on macOS
@@ -185,7 +259,73 @@ const LIFT_READ_WINDOW: usize = 256;
 /// reports no symbol (e.g. callbacks built into an executable without
 /// `-rdynamic`, or when the stored pointer is mangled by an upstream
 /// ABI mismatch — see `memory/m1_phase0_findings_2026_05_18.md`).
+///
+/// **PLT-stub chase (macOS arm64)**: when `dladdr` fails on `fn_ptr`
+/// AND the bytes at `fn_ptr` match a `__TEXT.__stubs` trampoline,
+/// we read the GOT slot and re-dladdr the resolved target. This is
+/// what lets the recursive lift in `transpiler_remill` walk into
+/// libazul through a user-binary stub instead of stopping at the
+/// `cb_<hex>` fallback. Without it the recursive walk truncates at
+/// every PLT-routed call.
 pub(crate) fn resolve_fn_ptr(fn_ptr: usize) -> FnPtrSymbol {
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "ios", target_os = "android"))]
+    unsafe {
+        #[repr(C)]
+        struct DlInfo {
+            dli_fname: *const core::ffi::c_char,
+            dli_fbase: *mut core::ffi::c_void,
+            dli_sname: *const core::ffi::c_char,
+            dli_saddr: *mut core::ffi::c_void,
+        }
+        extern "C" {
+            fn dladdr(addr: *const core::ffi::c_void, info: *mut DlInfo) -> core::ffi::c_int;
+        }
+        let mut info = DlInfo {
+            dli_fname: core::ptr::null(),
+            dli_fbase: core::ptr::null_mut(),
+            dli_sname: core::ptr::null(),
+            dli_saddr: core::ptr::null_mut(),
+        };
+        if dladdr(fn_ptr as *const _, &mut info) != 0 && !info.dli_sname.is_null() {
+            if let Ok(s) = core::ffi::CStr::from_ptr(info.dli_sname).to_str() {
+                if !s.is_empty() {
+                    return FnPtrSymbol {
+                        name: s.to_string(),
+                        addr: info.dli_saddr as usize,
+                        size: LIFT_READ_WINDOW,
+                    };
+                }
+            }
+        }
+    }
+
+    // dladdr failed (no symbol at this address). On macOS arm64, this
+    // is the common case for `__TEXT.__stubs` PLT trampolines — the
+    // stub itself has no symbol, but the GOT slot it loads from
+    // holds the resolved libazul address. Try to chase through.
+    if let Some(real) = resolve_macos_arm64_stub(fn_ptr) {
+        if real != fn_ptr {
+            // Recurse once on the real addr. Cap at one bounce so a
+            // pathological self-pointing GOT slot can't loop forever
+            // (we'd just hit the cb_<hex> fallback for the inner call).
+            let inner = resolve_fn_ptr_direct(real);
+            if !inner.name.starts_with("cb_") {
+                return inner;
+            }
+        }
+    }
+
+    FnPtrSymbol {
+        name: format!("cb_{:016x}", fn_ptr),
+        addr: fn_ptr,
+        size: LIFT_READ_WINDOW,
+    }
+}
+
+/// Inner dladdr-only resolver — bypasses the stub-chase so
+/// `resolve_fn_ptr`'s recursion can't cycle. Returns `cb_<hex>` if
+/// dladdr can't name the address.
+fn resolve_fn_ptr_direct(fn_ptr: usize) -> FnPtrSymbol {
     #[cfg(any(target_os = "linux", target_os = "macos", target_os = "ios", target_os = "android"))]
     unsafe {
         #[repr(C)]

@@ -755,7 +755,16 @@ impl RemillTranspiler {
         &self,
         roots: Vec<TransitiveLiftRoot>,
     ) -> Result<WasmModule, TranspileError> {
-        const MAX_RECURSIVE_DEPTH: usize = 256;
+        // Hard cap on the number of functions a single root's
+        // transitive closure can pull in. Tightened from 256 because
+        // a naïve walk into the Rust runtime (panic_fmt → formatting
+        // → printf-equivalents → …) snowballs past hundreds of fns
+        // and each remill subprocess takes seconds. The cap is paired
+        // with `is_recursable_dep` below, which already skips Rust /
+        // C++ runtime internals — so in practice we hit dozens of
+        // fns, not hundreds. 64 leaves slack while still aborting
+        // promptly on a runaway walk.
+        const MAX_RECURSIVE_DEPTH: usize = 64;
 
         let mut visited: HashSet<usize> = HashSet::new();
         let mut queue: VecDeque<TransitiveLiftTarget> = VecDeque::new();
@@ -846,6 +855,21 @@ impl RemillTranspiler {
                     continue;
                 }
                 if resolved.name.starts_with("cb_") {
+                    continue;
+                }
+                if !is_recursable_dep(&resolved.name) {
+                    // Mangled Rust/C++ runtime internals (panic
+                    // machinery, libcore formatting, libunwind, ...)
+                    // have huge call graphs that don't terminate
+                    // cleanly within MAX_RECURSIVE_DEPTH and aren't
+                    // exercised by hello-world's happy path. Leave
+                    // them as the helper-IR noop body — if a panic
+                    // ever fires through one of these, the cb just
+                    // no-ops instead of asserting.
+                    eprintln!(
+                        "[azul-web]     dep: {} (resolved={}) skipped — runtime-internal",
+                        sym, resolved.name,
+                    );
                     continue;
                 }
                 queue.push_back(TransitiveLiftTarget::Dep {
@@ -1768,6 +1792,56 @@ fn branch_target_to_host_addr(
     let raw = u64::from_str_radix(hex, 16).ok()?;
     let offset = raw.wrapping_sub(lift_addr) as i64 as isize;
     Some((fn_addr as isize).wrapping_add(offset) as usize)
+}
+
+/// Should the transitive walker enqueue this resolved dependency
+/// for its own lift pass?
+///
+/// We recurse into anything that looks like part of azul's C API
+/// surface (`Az*`) or a user-defined C function (no leading `_`,
+/// no path separators). Mangled Rust/C++ runtime fns
+/// (`_ZN4core9panicking…`, `_RNvCs…`, `___rustc…`) are left as
+/// helper-IR noops — their callgraphs explode past
+/// `MAX_RECURSIVE_DEPTH` and aren't exercised by the happy path of
+/// any realistic widget callback. If a panic ever fires through one
+/// of these the cb just silently no-ops, matching M3's stub behavior.
+///
+/// This is the dual of the user's pre-compile-all api.json walk:
+/// the api.json fns are what we EXPECT to reach; if we hit something
+/// outside that surface, treat it as a leaf.
+pub fn is_recursable_dep(resolved_name: &str) -> bool {
+    // Reject explicit mangled prefixes first. These are common and
+    // cheap to check.
+    let mangled_prefixes = [
+        "_ZN",        // Itanium C++ ABI
+        "_R",         // Rust v0 ABI (also matches _RNvCs…)
+        "___rustc",   // rustc internals (with macOS leading _)
+        "__rustc",
+        "__rust_",    // __rust_alloc etc. — handled by classify_branch_extern
+        "_dyld",
+        "_dispatch",
+        "_pthread",
+        "_objc_",
+    ];
+    for prefix in &mangled_prefixes {
+        if resolved_name.starts_with(prefix) {
+            return false;
+        }
+    }
+
+    // Reject single-leading-underscore C-internal symbols
+    // (`_main`, `_malloc`, `_memcpy`, etc.). These are libSystem
+    // functions whose bodies we don't want to lift — they'd pull in
+    // a huge libc surface.
+    if let Some(rest) = resolved_name.strip_prefix('_') {
+        // Az-prefixed symbols on macOS may have a leading underscore
+        // added by the linker (e.g. `_AzRefAny_clone`) — allow those.
+        if !rest.starts_with("Az") {
+            return false;
+        }
+    }
+
+    true
 }
 
 /// Classification of a resolved branch-extern symbol — drives the
