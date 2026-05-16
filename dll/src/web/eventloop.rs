@@ -121,18 +121,52 @@ pub struct EventloopState {
 // Imports satisfied by JS at instantiation time (see M8.6 listener.js).
 // =====================================================================
 
-extern "C" {
-    /// Translate a native callback fn-pointer address (as stored on a
-    /// StyledDom node) to the `WebAssembly.Table` index that holds
-    /// the per-callback WASM's `callback` export. JS owns the
-    /// addr→table mapping: at bootstrap it instantiates every
-    /// `/az/cb/<sym>.<hash>.wasm` and records each module's "real"
-    /// fn-addr (from a side-channel — typically the
-    /// `data-az-cb-addr` attribute the server emits per node) under
-    /// the table slot it placed the module's `callback` export in.
-    ///
-    /// Returns `0xFFFFFFFF` if the addr isn't registered.
-    pub fn __az_resolve_callback(cb_fn_addr: u64) -> u32;
+/// Translate a native callback fn-pointer address (as stored on a
+/// StyledDom node) to the `WebAssembly.Table` index that holds the
+/// per-callback WASM's `callback` export. JS owns the addr→table
+/// mapping: at bootstrap it instantiates every
+/// `/az/cb/<sym>.<hash>.wasm` and records each module's "real"
+/// fn-addr (from a side-channel — typically the `data-az-cb-addr`
+/// attribute the server emits per node) under the table slot it
+/// placed the module's `callback` export in.
+///
+/// Returns `0xFFFFFFFF` if the addr isn't registered.
+///
+/// Native body is a stub for linker satisfaction (never reached
+/// natively). At lift time the M8.5a intercept replaces the body
+/// with a wasm-imported call to `env.__az_resolve_callback`
+/// satisfied by the loader.js bootstrap.
+#[no_mangle]
+#[inline(never)]
+pub unsafe extern "C" fn __az_resolve_callback(_cb_fn_addr: u64) -> u32 {
+    core::hint::black_box(u32::MAX)
+}
+
+/// Wasm `call_indirect` bridge.
+///
+/// Calls `WebAssembly.Table[table_idx]` with signature
+/// `(i64, i64, i32) -> i32`. The four-arg shape matches every
+/// per-callback wrapper produced by the M5-M7 pipeline — they all
+/// expose `callback(refany_lo: i64, refany_hi: i64, info_ptr: i32)
+/// -> i32` regardless of which user-callback typedef they came from.
+///
+/// Native body is a no-op stub for linker satisfaction (this is
+/// never called natively — the lift's `bl ___az_call_indirect` site
+/// gets replaced by [`transpiler_remill::emit_helper_ir`] with a
+/// wasm-side `call_indirect` via `inttoptr i32 %tidx to ptr` + a
+/// typed `call`).
+#[no_mangle]
+#[inline(never)]
+pub unsafe extern "C" fn __az_call_indirect(
+    _table_idx: u32,
+    _refany_lo: u64,
+    _refany_hi: u64,
+    _info_ptr: u32,
+) -> u32 {
+    // Never reached natively. The lift-time intercept replaces the
+    // body with a wasm call_indirect (see emit_helper_ir's
+    // BranchExternKind::AzCallIndirect arm).
+    core::hint::black_box(0)
 }
 
 // =====================================================================
@@ -231,29 +265,63 @@ pub unsafe extern "C" fn AzStartup_registerStateDeserializer(
 ///
 /// Writes the patch-buffer length (in bytes) to `*out_len_ptr`.
 /// Returns the patch buffer's wasm linear-memory offset (`0` if no
-/// patches were produced, in which case `*out_len_ptr` is also 0).
+/// patches were produced).
 ///
-/// The buffer is owned by the eventloop and remains valid until the
-/// next `AzStartup_dispatchEvent` call. JS reads it (as a
-/// `Uint8Array` view), applies the TLV patches, then is free to
-/// discard the view — the next dispatch may overwrite.
+/// **M8.5a partial dispatch**: extracts `node_idx` from event_bytes,
+/// looks up the App's `cb_fn_cache` for the cb fn-addr at that
+/// node, resolves to a table index via [`__az_resolve_callback`],
+/// invokes via [`__az_call_indirect`]. Patches aren't emitted yet
+/// (M8.5b adds the diff loop); the return value reports the
+/// Update enum the user callback produced as a debugging signal.
 ///
-/// **M8.4b stub**: writes `0` to `*out_len_ptr` and returns `0`. The
-/// hit-test + cb-resolve + call_indirect + diff loop lands in
-/// M8.4c-d once `__rust_alloc` is wired and `__az_call_indirect`
-/// is available.
+/// For M8.5a there's no real hit-test or cb-fn-cache population —
+/// `node_idx` IS treated as the cb fn-addr lookup key (test
+/// fixture). M8.5b populates the cache from the StyledDom.
 #[no_mangle]
 pub unsafe extern "C" fn AzStartup_dispatchEvent(
     state: u32,
     _kind: u32,
-    _event_bytes_ptr: u32,
-    _event_bytes_len: u32,
+    event_bytes_ptr: u32,
+    event_bytes_len: u32,
     out_len_ptr: u32,
 ) -> u32 {
     if state == 0 || out_len_ptr == 0 {
         return 0;
     }
-    // Write 0 to *out_len_ptr (no patches).
-    core::ptr::write_unaligned(out_len_ptr as usize as *mut u32, 0);
-    0
+    if event_bytes_len < event_offset::MODIFIERS + 4 {
+        core::ptr::write_unaligned(out_len_ptr as usize as *mut u32, 0);
+        return 0;
+    }
+    // Read node_idx from event buffer.
+    let node_idx_ptr = (event_bytes_ptr as usize + event_offset::NODE_IDX as usize) as *const u32;
+    let node_idx = core::ptr::read_unaligned(node_idx_ptr);
+    if node_idx == u32::MAX {
+        core::ptr::write_unaligned(out_len_ptr as usize as *mut u32, 0);
+        return 0;
+    }
+    // M8.5a stub: treat node_idx as fn-addr-lookup key. M8.5b
+    // populates cb_fn_cache from StyledDom.
+    let cb_fn_addr = node_idx as u64;
+    let table_idx = __az_resolve_callback(cb_fn_addr);
+    if table_idx == u32::MAX {
+        core::ptr::write_unaligned(out_len_ptr as usize as *mut u32, 0);
+        return 0;
+    }
+    // Read App's RefAny from state. M8.7 populates this from the
+    // server-embedded JSON; for M8.5a it stays zero (the cb body
+    // won't deref it unless framework calls are real — M8.9).
+    let s = &*(state as usize as *const EventloopState);
+    let (refany_lo, refany_hi) = match &s.app_data {
+        // Stub access — the lift would normally GEP through Option<RefAny>.
+        // For M8.5a we just pass zeros; the callback's framework calls
+        // are noop'd anyway.
+        _ => (0u64, 0u64),
+    };
+    // info_ptr is the AzCallbackInfo address. Pass the event_bytes
+    // pointer for now — the callback ignores it under noop stubs.
+    let update = __az_call_indirect(table_idx, refany_lo, refany_hi, event_bytes_ptr);
+    // Write the Update enum value as a debugging signal at *out_len_ptr;
+    // also returns it. M8.5b will replace this with real patch bytes.
+    core::ptr::write_unaligned(out_len_ptr as usize as *mut u32, update);
+    update
 }

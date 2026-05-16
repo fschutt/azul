@@ -488,7 +488,29 @@ impl RemillTranspiler {
             fn_name: fn_name.to_string(),
             reason: format!("read lifted IR: {e}"),
         })?;
-        let patched_ir = inject_alwaysinline(&lifted_ir, lift_addr);
+        // For AzStartup_* eventloop functions we deliberately do NOT
+        // inject alwaysinline on the lifted body. Reason: with
+        // alwaysinline, opt -O2 inlines the lifted body into the
+        // wrapper and then aggressively simplifies away the
+        // resolve+call chain (the wrapper's State alloca doesn't
+        // escape so opt treats every State-flowing operation as
+        // potentially dead — even volatile stores to global anti-DCE
+        // sinks get eliminated through some inliner-internal
+        // simplification pass). Without alwaysinline the wrapper
+        // ends up calling sub_<lift_addr> via a normal call →
+        // call chain stays observable.
+        //
+        // The downside is size: the per-fn wrapper's State alloca
+        // stays as a real 1088-byte stack buffer instead of being
+        // SROA'd into individual register slots. Acceptable for the
+        // ~7 eventloop functions; the M5-M7 per-callback path keeps
+        // alwaysinline since hello-world's on_click has no
+        // observable side effects past its return.
+        let patched_ir = if export_as.starts_with("AzStartup_") {
+            lifted_ir.clone()
+        } else {
+            inject_alwaysinline(&lifted_ir, lift_addr)
+        };
         let patched_ir_path = self.scratch_dir.join(format!("{}.patched.ll", stem));
         std::fs::write(&patched_ir_path, &patched_ir).map_err(|e| TranspileError {
             fn_name: fn_name.to_string(),
@@ -660,6 +682,13 @@ impl RemillTranspiler {
     /// Run wasm-ld over a batch of `.o` files into one `.wasm` with
     /// the named exports. Used by [`lift_and_link_eventloop`] to
     /// build `azul-mini.wasm` from the per-AzStartup_* objects.
+    ///
+    /// Adds `--import-table` so the funcref table is imported from
+    /// `env.__indirect_function_table` (JS-owned, sized + populated
+    /// at instantiate-time with the per-callback WASMs' `callback`
+    /// exports). Without this wasm-ld would emit an internal
+    /// 1-element table that JS can't populate, defeating
+    /// `__az_call_indirect`.
     fn link_objects_to_wasm(
         &self,
         objects: &[PathBuf],
@@ -671,6 +700,7 @@ impl RemillTranspiler {
         let mut args: Vec<String> = vec![
             "--no-entry".to_string(),
             "--allow-undefined".to_string(),
+            "--import-table".to_string(),
             "-o".to_string(),
             wasm_path.to_string_lossy().into_owned(),
         ];
@@ -1208,12 +1238,103 @@ fn emit_helper_ir(
                     x0_off = x0_off,
                 ));
             }
+            BranchExternKind::AzCallIndirect => {
+                // table_idx=X0(u32), refany_lo=X1(u64), refany_hi=X2(u64),
+                // info_ptr=X3(u32). Returns i32 in X0.
+                //
+                // The LLVM wasm backend lowers `inttoptr i32 %tidx to ptr`
+                // followed by an indirect `call` to wasm `call_indirect`
+                // using __indirect_function_table (which wasm-ld auto-imports
+                // from env when any indirect call is present).
+                //
+                // Same anti-DCE rationale as AzResolveCallback:
+                // volatile store to @__az_call_observer after the call.
+                branch_stubs.push_str(&format!(
+                    "; __az_call_indirect bridge — lowers to wasm call_indirect\n\
+                     define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) alwaysinline {{\n  \
+                       %tidx_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x0_off}\n  \
+                       %tidx_64_{n} = load i64, ptr %tidx_p_{n}, align 8\n  \
+                       %tidx_{n} = trunc i64 %tidx_64_{n} to i32\n  \
+                       %lo_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x1_off}\n  \
+                       %lo_{n} = load i64, ptr %lo_p_{n}, align 8\n  \
+                       %hi_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x2_off}\n  \
+                       %hi_{n} = load i64, ptr %hi_p_{n}, align 8\n  \
+                       %info_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x3_off}\n  \
+                       %info_64_{n} = load i64, ptr %info_p_{n}, align 8\n  \
+                       %info_{n} = trunc i64 %info_64_{n} to i32\n  \
+                       %fn_{n} = inttoptr i32 %tidx_{n} to ptr\n  \
+                       %r_{n} = call i32 %fn_{n}(i64 %lo_{n}, i64 %hi_{n}, i32 %info_{n})\n  \
+                       store volatile i32 %r_{n}, ptr @__az_call_observer, align 4\n  \
+                       %r_64_{n} = zext i32 %r_{n} to i64\n  \
+                       store i64 %r_64_{n}, ptr %tidx_p_{n}, align 8\n  \
+                       ret ptr %memory\n\
+                     }}\n",
+                    sym = ext.sym_name,
+                    n = ext.sym_name,
+                    x0_off = x0_off,
+                    x1_off = x0_off + 16,
+                    x2_off = x0_off + 32,
+                    x3_off = x0_off + 48,
+                ));
+            }
+            BranchExternKind::AzResolveCallback => {
+                // Read u64 fn_addr from State.X0. Call the JS-imported
+                // @__az_resolve_callback(i64 fn_addr) -> i32. Result
+                // goes into State.X0.
+                //
+                // The `store volatile` to @__az_call_observer is an
+                // anti-DCE measure. Without it, opt -O2 treats the
+                // wrapper's local State alloca as fully-tracked SSA,
+                // determines the resolve call's result only flows
+                // through State (which doesn't escape), and DCEs the
+                // entire call chain even with `memory(readwrite)` on
+                // the import declaration. A volatile store to a
+                // global is observable in the IR-level memory model
+                // and forces opt to keep the call.
+                branch_stubs.push_str(&format!(
+                    "; __az_resolve_callback bridge → JS-imported\n\
+                     declare i32 @__az_resolve_callback(i64) #1\n\
+                     define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) alwaysinline {{\n  \
+                       %addr_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x0_off}\n  \
+                       %addr_{n} = load i64, ptr %addr_p_{n}, align 8\n  \
+                       %r_{n} = call i32 @__az_resolve_callback(i64 %addr_{n})\n  \
+                       store volatile i32 %r_{n}, ptr @__az_call_observer, align 4\n  \
+                       %r_64_{n} = zext i32 %r_{n} to i64\n  \
+                       store i64 %r_64_{n}, ptr %addr_p_{n}, align 8\n  \
+                       ret ptr %memory\n\
+                     }}\n",
+                    sym = ext.sym_name,
+                    n = ext.sym_name,
+                    x0_off = x0_off,
+                ));
+            }
         }
     }
+    // attributes #1 marks the JS import. Two key parts:
+    //   1. wasm-import-module/wasm-import-name — keeps the declare
+    //      as a wasm import (resolved by JS at instantiate-time).
+    //   2. memory(readwrite, inaccessiblemem: readwrite) — explicit
+    //      side-effect annotation. WITHOUT this, modern LLVM (21+)
+    //      treats an attribute-less external import as `memory(none)`
+    //      (pure), which lets opt DCE the call along with everything
+    //      that depends on it. We were losing the entire dispatch
+    //      chain to this in M8.5a until we added the memory clause.
+    let import_attrs = "attributes #1 = { nounwind \
+        memory(readwrite, inaccessiblemem: readwrite) \
+        \"wasm-import-module\"=\"env\" \
+        \"wasm-import-name\"=\"__az_resolve_callback\" }\n";
     // Shared heap pointer for the bump allocator. linkonce_odr means
     // wasm-ld dedupes across objects → all AzStartup_*'s + any
     // per-callback module that gets the same helper IR see one heap.
-    let bump_global = "@__az_bump_ptr = linkonce_odr global i32 65536, align 4\n";
+    //
+    // @__az_call_observer is an anti-DCE sink: every external-call
+    // bridge body (AzResolveCallback, AzCallIndirect) stores its
+    // result here via `store volatile` so opt can't eliminate the
+    // call when the result only flows through the wrapper's local
+    // State alloca. The store is observable (volatile + global) so
+    // opt must preserve the chain ending in it.
+    let bump_global = "@__az_bump_ptr = linkonce_odr global i32 65536, align 4\n\
+        @__az_call_observer = linkonce_odr global i32 0, align 4\n";
     let _ = export_as; // used inside the format string via the named arg below
     format!(
         r#"; M6 helper module — see `dll/src/web/transpiler_remill.rs::emit_helper_ir`.
@@ -1313,6 +1434,10 @@ define linkonce_odr i1 @__remill_compare_uge(i1 %r) alwaysinline {{ ret i1 %r }}
 ; module emitting the same helper. Initial offset 65536 (64 KiB)
 ; leaves the wasm stack guard zone alone.
 {bump_global}
+
+; JS-imported symbols: attributes block (M8.5a). Marks
+; @__az_resolve_callback as a wasm import from `env`.
+{import_attrs}
 ; M7 branch-destination bodies — see `parse_extern_sub_declares` +
 ; `branch_target_to_host_addr`. Each `sub_<hex>` corresponds to a
 ; `bl` instruction in the lifted body whose target falls outside
@@ -1370,6 +1495,7 @@ define {ret_ty} @{export_as}({params}) {{
         stack_size = stack_size,
         branch_stubs = branch_stubs.trim_end(),
         bump_global = bump_global.trim_end(),
+        import_attrs = import_attrs.trim_end(),
         export_as = export_as,
     )
 }
@@ -1449,6 +1575,17 @@ pub enum BranchExternKind {
     /// `__rust_alloc_zeroed` — same as RustAlloc since wasm linear
     /// memory is zero-initialized and bump never reuses memory.
     RustAllocZeroed,
+    /// `__az_call_indirect(table_idx, refany_lo, refany_hi, info_ptr)
+    /// -> i32` — emit a body that reads the four args from State.X0-X3
+    /// and does a wasm `call_indirect` via `inttoptr i32 %tidx to ptr`
+    /// + a typed `call i32 %fn(i64, i64, i32)`. The LLVM wasm backend
+    /// lowers the inttoptr+call combination to `call_indirect` using
+    /// `__indirect_function_table` (imported from JS).
+    AzCallIndirect,
+    /// `__az_resolve_callback(cb_fn_addr_u64) -> i32` — wasm-side
+    /// import resolved by JS. Helper IR doesn't emit a body; instead
+    /// it leaves the lifted-site call hooked to the JS import.
+    AzResolveCallback,
 }
 
 /// Classify a dladdr-resolved symbol name into one of the
@@ -1475,6 +1612,10 @@ pub fn classify_branch_extern(resolved_name: &str) -> BranchExternKind {
         BranchExternKind::RustAllocZeroed
     } else if s.ends_with("rust_alloc") {
         BranchExternKind::RustAlloc
+    } else if s == "az_call_indirect" || s.ends_with("az_call_indirect") {
+        BranchExternKind::AzCallIndirect
+    } else if s == "az_resolve_callback" || s.ends_with("az_resolve_callback") {
+        BranchExternKind::AzResolveCallback
     } else {
         BranchExternKind::Noop
     }
