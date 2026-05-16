@@ -249,6 +249,18 @@ pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
         emit_kt_typed_invoker_sam(builder, cb, ir);
     }
 
+    // Phase CC-1 (Kotlin): Data<T>-typed SAM bridge. Mirrors
+    // `lang_java/managed::emit_data_typed_invoker_sam` (commit
+    // 533df7ab5). The user writes
+    //   (data: MyDataModel, info: LayoutCallbackInfo) -> Dom
+    // instead of unpacking `Pointer dataPtr` themselves. Per the
+    // user-locked CC-1 scope: iterate all HOST_INVOKER_KINDS at
+    // once; fall back per-kind (skip emit) on non-conforming
+    // signatures; don't abort the whole arc.
+    for cb in host_invoker_kinds(ir) {
+        emit_kt_data_typed_invoker_sam(builder, cb, ir);
+    }
+
     builder.dedent();
     builder.line("}");
     builder.blank();
@@ -382,6 +394,223 @@ fn emit_kt_typed_invoker_sam(
     builder.dedent();
     builder.line("}");
     builder.blank();
+}
+
+/// Phase CC-1 (Kotlin): emit `<Wrapper>WithData<T>` typed SAM +
+/// generic `register<Wrapper>(klass: Class<T>, typed: ...)` overload.
+/// Mirror of `lang_java/managed::emit_data_typed_invoker_sam`. Same
+/// conformance probe: first arg must be `RefAny`; non-wrapper-class
+/// args fall back to `Pointer?`; return must be void / enum /
+/// wrapper struct (skip otherwise).
+fn emit_kt_data_typed_invoker_sam(
+    builder: &mut super::super::generator::CodeBuilder,
+    cb: &super::super::ir::CallbackTypedefDef,
+    ir: &super::super::ir::CodegenIR,
+) {
+    use super::super::ir::FunctionKind;
+    let wrapper = wrapper_name(cb);
+    let cb_ffi = ffi_type_name(wrapper);
+    let raw_sam = format!("AzulNativeManaged.{}InvokerCallback", wrapper);
+
+    // Probe #1: first arg = RefAny.
+    let first = cb.args.first();
+    if first.map(|a| a.type_name.trim() != "RefAny").unwrap_or(true) {
+        return;
+    }
+
+    // Subsequent args: wrapper class when available, else raw Pointer?.
+    enum ArgKind {
+        Wrapper(String),
+        RawPointer,
+    }
+    let mut extra_args: Vec<(ArgKind, String)> = Vec::new();
+    for (i, a) in cb.args.iter().enumerate().skip(1) {
+        let t = a.type_name.trim();
+        let kind = if kt_managed_has_wrapper_class(t, ir) {
+            ArgKind::Wrapper(t.to_string())
+        } else {
+            ArgKind::RawPointer
+        };
+        let name = if a.name.is_empty() {
+            format!("arg{}", i)
+        } else {
+            a.name.clone()
+        };
+        extra_args.push((kind, name));
+    }
+
+    // Probe #2: return type plumbing.
+    enum RetShape {
+        Void,
+        Enum,
+        WrapperStruct,
+    }
+    let (return_decl, ret_shape) = match cb.return_type.as_deref().map(str::trim) {
+        None => ("Unit".to_string(), RetShape::Void),
+        Some("void") => ("Unit".to_string(), RetShape::Void),
+        Some(rt) => {
+            if kt_managed_has_wrapper_class(rt, ir) {
+                (rt.to_string(), RetShape::WrapperStruct)
+            } else if ir.find_enum(rt).is_some() {
+                (ffi_type_name(rt), RetShape::Enum)
+            } else {
+                return;
+            }
+        }
+    };
+    let _ = std::marker::PhantomData::<FunctionKind>;
+
+    // === Typed SAM (fun interface) ===
+    builder.line("/**");
+    builder.line(&format!(
+        " * Typed Data<T> SAM for {}: first arg is the deref'd-and-cast",
+        wrapper
+    ));
+    builder.line(" * `T` payload of the RefAny; remaining args are wrapper-class");
+    builder.line(" * types instead of raw `Pointer`. The matching `register` overload");
+    builder.line(" * handles the refanyGet + isInstance check + arg-wrap + outPtr-write");
+    builder.line(" * plumbing internally.");
+    builder.line(" */");
+    builder.line(&format!("fun interface {}WithData<T> {{", wrapper));
+    builder.indent();
+    let mut iface_params = vec!["data: T".to_string()];
+    for (kind, name) in &extra_args {
+        let ty = match kind {
+            ArgKind::Wrapper(t) => t.clone(),
+            ArgKind::RawPointer => "Pointer?".to_string(),
+        };
+        iface_params.push(format!("{}: {}", name, ty));
+    }
+    builder.line(&format!(
+        "fun invoke({}): {}",
+        iface_params.join(", "),
+        return_decl
+    ));
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+
+    // === Register overload ===
+    builder.line("/**");
+    builder.line(&format!(
+        " * Register a typed Data<T> `{}WithData<T>`. Wraps it in a raw",
+        wrapper
+    ));
+    builder.line(&format!(
+        " * `{}InvokerCallback` that performs refanyGet, runtime-class",
+        wrapper
+    ));
+    builder.line(" * check, arg-wrap, and outPtr-write internally.");
+    builder.line(" */");
+    builder.line(&format!(
+        "@JvmStatic fun <T : Any> register{}(klass: Class<T>, typed: {}WithData<T>): {}.ByValue {{",
+        wrapper, wrapper, cb_ffi
+    ));
+    builder.indent();
+
+    // Raw lambda param list mirrors `<Wrapper>InvokerCallback`'s SAM:
+    // (id, arg0, ..., [outPtr]) — outPtr omitted on void-return kinds.
+    let mut raw_lambda_args = vec!["id".to_string(), "arg0".to_string()];
+    for (_kind, name) in &extra_args {
+        raw_lambda_args.push(name.clone());
+    }
+    if has_return(cb) {
+        raw_lambda_args.push("outPtr".to_string());
+    }
+
+    // Use an `inv@` label on the SAM lambda so the early-skip on
+    // type mismatch can `return@inv` cleanly. Kotlin SAM lambdas
+    // don't have an implicit name we can label-return to.
+    builder.line(&format!("val raw = {} inv@{{", raw_sam));
+    builder.indent();
+    builder.line(&format!("{} ->", raw_lambda_args.join(", ")));
+    builder.line("val __data = refanyGet(arg0)");
+    // Kotlin's `Class<T>.isInstance(null)` returns false → null
+    // payloads silently skip dispatch. Match Java's semantics.
+    builder.line("if (__data != null && !klass.isInstance(__data)) return@inv");
+    // Build wrapper-class args; pass Pointer args through.
+    let mut call_args = vec!["__typed".to_string()];
+    builder.line("@Suppress(\"UNCHECKED_CAST\")");
+    builder.line("val __typed = __data as T");
+    for (kind, name) in &extra_args {
+        match kind {
+            ArgKind::Wrapper(ty) => {
+                // Wrapper class constructors take non-null `Pointer`;
+                // the SAM args are platform-typed `Pointer?`. Force-
+                // unwrap with `!!` — the C-side invoker thunk always
+                // populates these slots; a null here would mean the
+                // underlying libazul thunk crashed already.
+                builder.line(&format!("val __{} = {}({}!!)", name, ty, name));
+                call_args.push(format!("__{}", name));
+            }
+            ArgKind::RawPointer => {
+                call_args.push(name.clone());
+            }
+        }
+    }
+    match ret_shape {
+        RetShape::Void => {
+            builder.line(&format!("typed.invoke({})", call_args.join(", ")));
+        }
+        RetShape::Enum => {
+            builder.line(&format!(
+                "val __result = typed.invoke({})",
+                call_args.join(", ")
+            ));
+            // `enum class AzUpdate(val value: Int)` — `.value` is
+            // already `Int`; no `.toLong()` conversion needed (and
+            // `Pointer.setInt` rejects Long).
+            builder.line("outPtr?.setInt(0, __result.value)");
+        }
+        RetShape::WrapperStruct => {
+            let ffi_ret = ffi_type_name(&return_decl);
+            builder.line(&format!(
+                "val __result = typed.invoke({})",
+                call_args.join(", ")
+            ));
+            builder.line(&format!(
+                "val __raw = Structure.newInstance({}.ByValue::class.java, __result.rawPointer()) as {}.ByValue",
+                ffi_ret, ffi_ret
+            ));
+            builder.line("__raw.read()");
+            builder.line("val sz = __raw.size()");
+            builder.line("outPtr?.write(0, __raw.pointer.getByteArray(0, sz), 0, sz)");
+            builder.line("__result.__consume()");
+        }
+    }
+    builder.dedent();
+    builder.line("}");
+    builder.line(&format!("return register{}(raw as Any)", wrapper));
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+}
+
+/// Mirror of `lang_kotlin/wrappers.rs::has_kt_wrapper_class` kept
+/// local to managed.rs so the helper there can stay private.
+fn kt_managed_has_wrapper_class(
+    type_name: &str,
+    ir: &super::super::ir::CodegenIR,
+) -> bool {
+    use super::super::ir::{FunctionKind, TypeCategory};
+    let Some(s) = ir.find_struct(type_name) else {
+        return false;
+    };
+    if !s.generic_params.is_empty() {
+        return false;
+    }
+    if matches!(
+        s.category,
+        TypeCategory::Recursive
+            | TypeCategory::VecRef
+            | TypeCategory::DestructorOrClone
+            | TypeCategory::GenericTemplate
+    ) {
+        return false;
+    }
+    ir.functions
+        .iter()
+        .any(|f| f.class_name == type_name && matches!(f.kind, FunctionKind::Delete))
 }
 
 fn lower_first(name: &str) -> String {
