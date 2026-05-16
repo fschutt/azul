@@ -76,6 +76,12 @@ pub fn emit_interface_types(
                 "val {} : {} structure typ",
                 ffi, ffi
             ));
+            // I.5.6 (OCaml): expose the Option/Result payload extractor
+            // signatures so users can call `Azul.az_option_dom_intoSome opt`
+            // from outside the umbrella module. The .ml emits the bodies
+            // (`emit_tagged_union_storage_decl`); without matching val
+            // declarations here they're confined to umbrella-internal use.
+            emit_into_signature_if_option_or_result(builder, e, ir);
         } else {
             // For unit enums we don't need a `structure` — they're plain
             // ints at the FFI boundary. Still need a `type` declaration
@@ -564,6 +570,84 @@ fn emit_tagged_union_fields(builder: &mut CodeBuilder, e: &EnumDef, ir: &Codegen
                 "let {}_{} (r : {} Ctypes.structure) : bool = not ({}_{} r)",
                 ffi, negative_name, ffi, ffi, positive_name
             ));
+
+            // I.5.6 (OCaml): payload extractor. For repr(C, u8) tagged
+            // unions the payload starts at offset `max 1 (align_of
+            // payload)` — tag is the first byte; payload is laid out
+            // at its own natural alignment immediately after. Coerce
+            // the struct's raw byte pointer to that offset, then to a
+            // typed payload pointer.
+            //
+            // Per the locked decision: no libazul-side
+            // `AzOption<T>_intoSome` export is required — `Ctypes.alignment`
+            // computed at runtime gives the right offset for any
+            // payload type that's already sealed in the cdef block
+            // (which by topological order is always true at the call
+            // site). For struct payloads we return
+            // `<payload_ffi> Ctypes.structure option`; the user wraps
+            // manually via the per-class `Elem.make_<snake>` helper
+            // if they want a managed handle.
+            let positive_var = &e.variants[positive_idx];
+            if let super::super::ir::EnumVariantKind::Tuple(types) = &positive_var.kind {
+                if let Some((payload_ty, _)) = types.first() {
+                    // Only emit for proper struct payloads. Skip
+                    // VecRef / Boxed / Recursive / DestructorOrClone
+                    // / GenericTemplate payloads — those types are
+                    // either pointer-typedefs (no struct typ to
+                    // coerce into) or codegen-internal scaffolding.
+                    let payload_is_proper_struct =
+                        ir.find_struct(payload_ty).map(|s| {
+                            !matches!(
+                                s.category,
+                                super::super::ir::TypeCategory::VecRef
+                                    | super::super::ir::TypeCategory::Boxed
+                                    | super::super::ir::TypeCategory::Recursive
+                                    | super::super::ir::TypeCategory::DestructorOrClone
+                                    | super::super::ir::TypeCategory::GenericTemplate
+                            )
+                        }).unwrap_or(false);
+                    if payload_is_proper_struct {
+                        let payload_ffi = super::ocaml_ffi_type_name(payload_ty);
+                        let into_name = if e.name.starts_with("Option") {
+                            "intoSome".to_string()
+                        } else if positive_var.name == "Ok" {
+                            "intoOk".to_string()
+                        } else {
+                            "intoErr".to_string()
+                        };
+                        builder.line(&format!(
+                            "let {}_{} (r : {} Ctypes.structure) : {} Ctypes.structure option =",
+                            ffi, into_name, ffi, payload_ffi
+                        ));
+                        builder.indent();
+                        builder.line(&format!(
+                            "if not ({}_{} r) then None",
+                            ffi, positive_name
+                        ));
+                        builder.line("else");
+                        builder.indent();
+                        builder.line("let raw_ptr = Ctypes.addr r in");
+                        builder.line(&format!(
+                            "let byte_ptr = Ctypes.coerce (Ctypes.ptr {}) (Ctypes.ptr Ctypes.char) raw_ptr in",
+                            ffi
+                        ));
+                        // `max 1` guards primitive-aligned payloads
+                        // (align_of u8 == 1 → offset 1 not 0).
+                        builder.line(&format!(
+                            "let payload_align = max 1 (Ctypes.alignment {}) in",
+                            payload_ffi
+                        ));
+                        builder.line("let payload_byte_ptr = Ctypes.(+@) byte_ptr payload_align in");
+                        builder.line(&format!(
+                            "let payload_ptr = Ctypes.coerce (Ctypes.ptr Ctypes.char) (Ctypes.ptr {}) payload_byte_ptr in",
+                            payload_ffi
+                        ));
+                        builder.line("Some (Ctypes.(!@) payload_ptr)");
+                        builder.dedent();
+                        builder.dedent();
+                    }
+                }
+            }
         }
     }
 
@@ -575,6 +659,71 @@ fn emit_tagged_union_fields(builder: &mut CodeBuilder, e: &EnumDef, ir: &Codegen
 /// size and alignment match the C ABI exactly. The fields are named
 /// `_<ffi>_blob_<i>` and aren't intended to be read by user code —
 /// the wrappers use `_create` / `_match` helpers from libazul.
+/// I.5.6 (OCaml) — `.mli` val signature for the Option/Result payload
+/// extractors. Only emits when the .ml-side `emit_tagged_union_storage_decl`
+/// would have emitted the matching `let` (same shape predicate).
+fn emit_into_signature_if_option_or_result(
+    builder: &mut CodeBuilder,
+    e: &super::super::ir::EnumDef,
+    ir: &CodegenIR,
+) {
+    if !e.is_union {
+        return;
+    }
+    let is_option_or_result =
+        e.name.starts_with("Option") || e.name.starts_with("Result");
+    if !is_option_or_result {
+        return;
+    }
+    let some_or_ok_idx = e
+        .variants
+        .iter()
+        .position(|v| v.name == "Some" || v.name == "Ok");
+    let none_or_err_idx = e
+        .variants
+        .iter()
+        .position(|v| v.name == "None" || v.name == "Err");
+    let (Some(positive_idx), Some(_)) = (some_or_ok_idx, none_or_err_idx) else {
+        return;
+    };
+    let ffi = super::ocaml_ffi_type_name(&e.name);
+    let positive_var = &e.variants[positive_idx];
+    let super::super::ir::EnumVariantKind::Tuple(types) = &positive_var.kind else {
+        return;
+    };
+    let Some((payload_ty, _)) = types.first() else {
+        return;
+    };
+    let payload_is_proper_struct = ir
+        .find_struct(payload_ty)
+        .map(|s| {
+            !matches!(
+                s.category,
+                super::super::ir::TypeCategory::VecRef
+                    | super::super::ir::TypeCategory::Boxed
+                    | super::super::ir::TypeCategory::Recursive
+                    | super::super::ir::TypeCategory::DestructorOrClone
+                    | super::super::ir::TypeCategory::GenericTemplate
+            )
+        })
+        .unwrap_or(false);
+    if !payload_is_proper_struct {
+        return;
+    }
+    let payload_ffi = super::ocaml_ffi_type_name(payload_ty);
+    let into_name = if e.name.starts_with("Option") {
+        "intoSome"
+    } else if positive_var.name == "Ok" {
+        "intoOk"
+    } else {
+        "intoErr"
+    };
+    builder.line(&format!(
+        "val {}_{} : {} structure -> {} structure option",
+        ffi, into_name, ffi, payload_ffi
+    ));
+}
+
 fn emit_byte_blob_fields(builder: &mut CodeBuilder, ffi: &str, size: usize, align: usize) {
     let align = align.max(1);
     let unit_size = match align {
