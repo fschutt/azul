@@ -32,6 +32,236 @@ use super::transpiler::{TranspileError, Transpiler, WasmModule};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+// ============================================================================
+// Callback signature architecture (per user direction 2026-05-18)
+// ============================================================================
+//
+// Goal: per-typedef wrapper synthesis. Every callback type defined in
+// api.json (Callback, LayoutCallback, ButtonOnClickCallback,
+// CheckBoxOnToggleCallback, NumberInputOnValueChangeCallback,
+// ThreadCallback, ...) has a known source-level signature. The M6
+// wrapper needs to map that signature to:
+//
+//   1. A wasm-friendly *exposed* arg list (the JS-side signature).
+//   2. The aarch64 PCS placement of each arg in the State struct
+//      (which register slots to seed before the lifted body runs).
+//   3. The aarch64 PCS placement of the return value (which register
+//      to read back, or a hidden-ptr return for large structs).
+//
+// This file describes the data type + a per-kind lookup. Today only
+// `Callback` is fully wired (covers all widget OnClick/Hover/etc.
+// callbacks since they share `fn(AzRefAny, AzCallbackInfo) -> AzUpdate`).
+// Other kinds default to the Callback shape with a fall-through
+// warning — those callbacks will technically dispatch but only the
+// first two args (the RefAny halves) will land in the right registers.
+// Extending the table per kind is mechanical follow-up work.
+//
+// The "which kind is this discovered callback?" half lives on the
+// discovery side and is currently hardcoded to `Callback`. M7
+// extends `DiscoveredCallback` with a typedef tag so per-attachment
+// sites (set_on_toggle, layout_callback, etc.) carry their own
+// kind through to the lift.
+
+/// PCS placement of a single wrapper arg or return slot.
+#[derive(Debug, Clone)]
+pub enum Pcs {
+    /// Single 64-bit register slot in the GPR struct.
+    /// `state_byte_offset` is the byte offset of the X<n> slot
+    /// inside `%struct.State` per the lift's GEPs.
+    GprI64 { state_byte_offset: u64 },
+    /// Two consecutive 64-bit register slots — used for aggregates
+    /// >8B and ≤16B (e.g. AzRefAny). The wrapper takes two `i64`
+    /// args and stores them into two adjacent X<n> slots.
+    GprI64Pair { lo_offset: u64, hi_offset: u64 },
+    /// 32-bit wasm pointer, zero-extended into a single X<n> slot.
+    /// Used for `*const T` args where T is a struct passed by ptr
+    /// (e.g. `*const AzCallbackInfo`).
+    GprPtr32 { state_byte_offset: u64 },
+    /// 32-bit primitive (e.g. bool, u32, i32) stored in the low
+    /// 32 bits of a register slot (W<n>).
+    Wreg { state_byte_offset: u64 },
+}
+
+/// A callback typedef's full wrapper synthesis info.
+#[derive(Debug, Clone)]
+pub struct CallbackSignature {
+    /// Source-level name (`"Callback"`, `"LayoutCallback"`, ...).
+    /// Used in error messages + the helper-IR comment block.
+    pub kind: String,
+    /// PCS placements for each wrapper arg, in source order. The
+    /// wrapper's wasm-side parameter list is derived from these.
+    pub args: Vec<Pcs>,
+    /// PCS placement of the return value. `None` for void returns
+    /// (e.g. `ThreadCallback` which returns `()`). For aggregates
+    /// >16B this would be `Some(Pcs::HiddenPtr { ... })` once we
+    /// add that variant; today only word-sized returns are handled.
+    pub ret: Option<Pcs>,
+}
+
+/// Look up the wrapper signature for a callback typedef by its
+/// short name (without the trailing `Type` — i.e. `Callback`, not
+/// `CallbackType`). Returns the canonical `Callback` shape for
+/// any unrecognized name, so the lift pipeline keeps working when
+/// new typedefs are added to api.json before this table catches
+/// up — at the cost of mis-placed args for kinds with extra
+/// params (CheckBoxOnToggle's bool, NumberInput's i32, etc.).
+pub fn signature_for_callback_kind(kind: &str) -> CallbackSignature {
+    // aarch64 State layout (per the GEPs the lift emits for
+    // `%struct.State`'s GPR substruct). The struct alternates
+    // i64 padding + Reg unions; X<n> ends up at offset
+    // `544 + n * 16` for the registers we care about. SP is at
+    // +1040, X29/X30 at +1008/+1024.
+    const X0: u64 = 544;
+    const X1: u64 = 560;
+    const X2: u64 = 576;
+    const X3: u64 = 592;
+    let canonical_callback = || CallbackSignature {
+        kind: "Callback".to_string(),
+        // `extern "C" fn(AzRefAny, AzCallbackInfo) -> AzUpdate`
+        // AzRefAny: 16B aggregate → X0+X1 pair.
+        // AzCallbackInfo: >16B → *const passed in X2.
+        // AzUpdate: 4B enum → W0 (low 32 bits of X0).
+        args: vec![
+            Pcs::GprI64Pair { lo_offset: X0, hi_offset: X1 },
+            Pcs::GprPtr32 { state_byte_offset: X2 },
+        ],
+        ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+    };
+    match kind {
+        "Callback"
+        | "ButtonOnClickCallback"
+        | "TabOnClickCallback"
+        | "TreeViewOnNodeClickCallback"
+        | "DropDownOnChoiceChangeCallback"
+        | "RibbonOnTabClickCallback" => canonical_callback(),
+        "CheckBoxOnToggleCallback" => CallbackSignature {
+            kind: "CheckBoxOnToggleCallback".to_string(),
+            // ...same as Callback, plus a trailing `bool` arg in X3.
+            args: vec![
+                Pcs::GprI64Pair { lo_offset: X0, hi_offset: X1 },
+                Pcs::GprPtr32 { state_byte_offset: X2 },
+                Pcs::Wreg { state_byte_offset: X3 },
+            ],
+            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+        },
+        // Layout/VirtualView/etc. return structs larger than 16B
+        // (StyledDom, VirtualViewReturn) — the aarch64 PCS uses a
+        // hidden return-by-pointer in X8 for those. Today we
+        // fall through to the Callback shape so the wrapper still
+        // builds; the lifted body's actual return goes to wherever
+        // X8 pointed in the caller's frame (not back through the
+        // wrapper). M7+ work to add `Pcs::HiddenPtrReturn` + emit
+        // the wrapper-side caller-allocated return buffer.
+        _ => {
+            eprintln!(
+                "[azul-web] callback kind {:?} not in signature_for_callback_kind() — \
+                 falling back to canonical Callback shape; first two args + return will \
+                 dispatch correctly but extra args + struct returns will be wrong",
+                kind
+            );
+            canonical_callback()
+        }
+    }
+}
+
+/// Build the wrapper-arg list (wasm-side parameter declarations,
+/// LLVM IR syntax) and the prologue (stores into the State alloca)
+/// from a CallbackSignature.
+fn emit_wrapper_args_and_prologue(sig: &CallbackSignature) -> (String, String) {
+    let mut params: Vec<String> = Vec::new();
+    let mut prologue = String::new();
+    for (i, pcs) in sig.args.iter().enumerate() {
+        match pcs {
+            Pcs::GprI64 { state_byte_offset } => {
+                params.push(format!("i64 %arg{}", i));
+                prologue.push_str(&format!(
+                    "  %arg{i}_p = getelementptr inbounds i8, ptr %state_buf, i64 {off}\n",
+                    i = i,
+                    off = state_byte_offset
+                ));
+                prologue.push_str(&format!(
+                    "  store i64 %arg{i}, ptr %arg{i}_p, align 8\n",
+                    i = i
+                ));
+            }
+            Pcs::GprI64Pair { lo_offset, hi_offset } => {
+                params.push(format!("i64 %arg{}_lo", i));
+                params.push(format!("i64 %arg{}_hi", i));
+                prologue.push_str(&format!(
+                    "  %arg{i}_lo_p = getelementptr inbounds i8, ptr %state_buf, i64 {lo}\n  \
+                       %arg{i}_hi_p = getelementptr inbounds i8, ptr %state_buf, i64 {hi}\n  \
+                       store i64 %arg{i}_lo, ptr %arg{i}_lo_p, align 8\n  \
+                       store i64 %arg{i}_hi, ptr %arg{i}_hi_p, align 8\n",
+                    i = i,
+                    lo = lo_offset,
+                    hi = hi_offset
+                ));
+            }
+            Pcs::GprPtr32 { state_byte_offset } => {
+                params.push(format!("i32 %arg{}", i));
+                prologue.push_str(&format!(
+                    "  %arg{i}_p = getelementptr inbounds i8, ptr %state_buf, i64 {off}\n  \
+                       %arg{i}_i64 = zext i32 %arg{i} to i64\n  \
+                       store i64 %arg{i}_i64, ptr %arg{i}_p, align 8\n",
+                    i = i,
+                    off = state_byte_offset
+                ));
+            }
+            Pcs::Wreg { state_byte_offset } => {
+                params.push(format!("i32 %arg{}", i));
+                prologue.push_str(&format!(
+                    "  %arg{i}_p = getelementptr inbounds i8, ptr %state_buf, i64 {off}\n  \
+                       store i32 %arg{i}, ptr %arg{i}_p, align 4\n",
+                    i = i,
+                    off = state_byte_offset
+                ));
+            }
+        }
+    }
+    (params.join(", "), prologue)
+}
+
+/// Build the return-type fragment and post-call return-read code from
+/// the signature's return PCS.
+fn emit_wrapper_return(sig: &CallbackSignature) -> (String, String) {
+    match sig.ret.as_ref() {
+        None => ("void".to_string(), String::from("  ret void\n")),
+        Some(Pcs::Wreg { state_byte_offset }) => (
+            "i32".to_string(),
+            format!(
+                "  %ret_p = getelementptr inbounds i8, ptr %state_buf, i64 {off}\n  \
+                   %ret_w = load i32, ptr %ret_p, align 4\n  \
+                   ret i32 %ret_w\n",
+                off = state_byte_offset
+            ),
+        ),
+        Some(Pcs::GprI64 { state_byte_offset }) => (
+            "i64".to_string(),
+            format!(
+                "  %ret_p = getelementptr inbounds i8, ptr %state_buf, i64 {off}\n  \
+                   %ret_x = load i64, ptr %ret_p, align 8\n  \
+                   ret i64 %ret_x\n",
+                off = state_byte_offset
+            ),
+        ),
+        // Pair / hidden-ptr returns left for the M7 generalization
+        // pass; canonical Callback shape never hits these.
+        Some(other) => {
+            eprintln!(
+                "[azul-web] callback return PCS {:?} not yet wired — defaulting to i32 X0",
+                other
+            );
+            (
+                "i32".to_string(),
+                "  %ret_p = getelementptr inbounds i8, ptr %state_buf, i64 544\n  \
+                   %ret_w = load i32, ptr %ret_p, align 4\n  \
+                   ret i32 %ret_w\n"
+                    .to_string(),
+            )
+        }
+    }
+}
+
 /// remill-backed transpiler. Holds the resolved tool paths so each
 /// lift call doesn't redo discovery.
 pub struct RemillTranspiler {
@@ -178,7 +408,16 @@ impl RemillTranspiler {
             reason: format!("write patched IR: {e}"),
         })?;
 
-        let helper_ir = emit_helper_ir(lift_addr);
+        // Pick the wrapper signature for this callback. Today the
+        // discovery side doesn't carry the typedef name through, so
+        // we default to the canonical `Callback` shape — correct for
+        // every widget OnClick/Hover/etc. callback (they all match
+        // `fn(AzRefAny, AzCallbackInfo) -> AzUpdate`). M7+ extends
+        // `DiscoveredCallback` with a typedef tag set at the
+        // attachment site (set_on_toggle / set_on_value_change /
+        // layout_callback) and we'd plumb that through here.
+        let sig = signature_for_callback_kind("Callback");
+        let helper_ir = emit_helper_ir(lift_addr, &sig);
         let helper_ir_path = self.scratch_dir.join(format!("{}.helper.ll", stem));
         std::fs::write(&helper_ir_path, &helper_ir).map_err(|e| TranspileError {
             fn_name: fn_name.to_string(),
@@ -603,25 +842,55 @@ fn inject_alwaysinline(ir: &str, lift_addr: u64) -> String {
 ///      through unchanged, barriers are noops. All marked
 ///      `alwaysinline` so opt -O2 inlines them at every call site.
 ///
-///   2. A `callback` wrapper that allocates a 4096-byte stack buffer
-///      for the State struct, zeroes it, seeds the X0/X1/X2 register
-///      slots from the wrapper's `i64` args, points SP at the top of
-///      the buffer (so the lift's SP-relative spills land in-bounds),
-///      calls `sub_<lift_addr>(state_buf, lift_addr, null)`, and
-///      reads X0 back as the i32 return.
+///   2. A `callback` wrapper that allocates a separate buffer for
+///      the State struct AND a separate stack-scratch buffer. The
+///      split lets SROA promote State (no `ptrtoint` ever taken of
+///      it) while the stack-scratch buffer absorbs the lifted body's
+///      SP-relative spills.
 ///
-/// The wrapper's signature `(i64, i64, i64) -> i32` matches the
-/// aarch64 PCS layout of `extern "C" fn(AzRefAny, AzCallbackInfo)
-/// -> AzUpdate`:
-///   X0/X1 = AzRefAny (16-byte struct in two 8-byte regs)
-///   X2    = AzCallbackInfo pointer (struct >16B passed by ptr)
-///   W0    = AzUpdate (4-byte enum, lo half of X0)
-fn emit_helper_ir(lift_addr: u64) -> String {
-    // Per-arch State field offsets. Hardcoded for aarch64 to match the
-    // GEPs the lifted IR emits (X0 at +544, X1 at +560, X2 at +576,
-    // SP at +1040). x86_64 will need its own offsets when we add
-    // x86_64 host support.
-    let (x0_off, x1_off, x2_off, sp_off) = (544u64, 560u64, 576u64, 1040u64);
+/// Wrapper signature: `(i64, i64, i32) -> i32` per the AArch64 PCS
+/// for `extern "C" fn(AzRefAny, AzCallbackInfo) -> AzUpdate`:
+///
+///   X0/X1 = AzRefAny `(refcount_ptr, instance_id)` — 16-byte
+///           struct passed in two 64-bit regs.
+///   X2    = `*const AzCallbackInfo` — the struct itself is huge
+///           (~kilobytes), so the AArch64 PCS passes it by pointer
+///           in X2. On wasm32 the pointer is `i32`; the wrapper
+///           zero-extends to `i64` when storing into State's X2
+///           slot so the lifted body's `i64`-typed register reads
+///           see the right bit pattern.
+///   W0    = AzUpdate (4-byte enum, low half of X0).
+///
+/// Note: this wrapper signature is callback-shape-specific. Other
+/// callback types (`LayoutCallback` returning a struct,
+/// `CheckBoxOnToggleCallback` taking an extra bool arg, …) need
+/// their own signatures synthesized from `api.json`. That
+/// generalization is M7 work.
+///
+/// Panic/unwind: the lifted body may contain code paths reaching
+/// `core::panicking::panic_*` which the lift sees as another
+/// `sub_<hex>` extern. The JS-side proxy noops these, so a "panic"
+/// silently returns memory unchanged and control falls through to
+/// whatever comes next in the lifted body. For correctness, panic
+/// call sites should trap the WASM (M7+ would route a typed
+/// `__az_panic` import to `() => throw new Error(...)` in JS); for
+/// the demo path the noop fallback is acceptable.
+fn emit_helper_ir(lift_addr: u64, sig: &CallbackSignature) -> String {
+    // SP register slot in the State struct (aarch64-specific).
+    let sp_off: u64 = 1040;
+    // State alloca size — covers fields up to the SR/PC region at
+    // offset ~1080. Rounded up to a multiple of 16 for alignment.
+    let state_size: u64 = 1088;
+    // Separate stack-scratch buffer for the lifted body's
+    // SP-relative spills. The body's prologue decrements SP by ~96
+    // and stores X29/X30 at SP-relative addresses; a 4 KiB buffer
+    // leaves headroom for deeper call trees. The SP register holds
+    // the address of the *top* of this buffer (i64 of a wasm32
+    // pointer); SP arithmetic decrements toward lower addresses
+    // within the buffer.
+    let stack_size: u64 = 4096;
+    let (params, prologue) = emit_wrapper_args_and_prologue(sig);
+    let (ret_ty, ret_code) = emit_wrapper_return(sig);
     format!(
         r#"; M6 helper module — see `dll/src/web/transpiler_remill.rs::emit_helper_ir`.
 target datalayout = "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128"
@@ -692,30 +961,48 @@ define linkonce_odr ptr @__remill_barrier_store_store(ptr %memory) alwaysinline 
 declare ptr @sub_{lift_addr_hex}(ptr noalias, i64, ptr noalias)
 declare void @llvm.memset.p0.i64(ptr nocapture writeonly, i8, i64, i1 immarg)
 
-define i32 @callback(i64 %x0_arg, i64 %x1_arg, i64 %x2_arg) {{
-  %state_buf = alloca [4096 x i8], align 16
-  call void @llvm.memset.p0.i64(ptr %state_buf, i8 0, i64 4096, i1 false)
-  %x0_ptr = getelementptr inbounds i8, ptr %state_buf, i64 {x0_off}
-  %x1_ptr = getelementptr inbounds i8, ptr %state_buf, i64 {x1_off}
-  %x2_ptr = getelementptr inbounds i8, ptr %state_buf, i64 {x2_off}
-  %sp_ptr = getelementptr inbounds i8, ptr %state_buf, i64 {sp_off}
-  store i64 %x0_arg, ptr %x0_ptr, align 8
-  store i64 %x1_arg, ptr %x1_ptr, align 8
-  store i64 %x2_arg, ptr %x2_ptr, align 8
-  %sp_top = getelementptr inbounds i8, ptr %state_buf, i64 4096
+; Callback kind: {kind}. Wrapper synthesized from
+; `signature_for_callback_kind({kind:?})` — see top of
+; `transpiler_remill.rs` for the PCS table.
+define {ret_ty} @callback({params}) {{
+  ; State: register-file storage. Strictly aliased (no `ptrtoint`
+  ; ever taken of `%state_buf`), so opt -O2's SROA can promote it
+  ; into individual scalar slots after the lifted body inlines.
+  %state_buf = alloca [{state_size} x i8], align 16
+  ; Stack scratch: SP-relative spills land here. Its address IS
+  ; ptrtoint'd (for the initial SP value), so SROA can't promote
+  ; this one — but it's small and self-contained.
+  %stack_buf = alloca [{stack_size} x i8], align 16
+
+  call void @llvm.memset.p0.i64(ptr %state_buf, i8 0, i64 {state_size}, i1 false)
+
+{prologue}
+  ; SP register holds the address of the top of %stack_buf as an
+  ; i64. The lifted body decrements toward lower addresses within
+  ; the stack buffer; loads/stores via inttoptr land in-bounds.
+  ; This is the ONLY ptrtoint in the wrapper — and it's of
+  ; %stack_buf, not %state_buf, so %state_buf stays SROA-eligible.
+  %sp_top = getelementptr inbounds i8, ptr %stack_buf, i64 {stack_size}
   %sp_int = ptrtoint ptr %sp_top to i64
-  store i64 %sp_int, ptr %sp_ptr, align 8
+  %sp_slot = getelementptr inbounds i8, ptr %state_buf, i64 {sp_off}
+  store i64 %sp_int, ptr %sp_slot, align 8
+
+  ; Memory token is null — every memory op was lowered to a real
+  ; load/store above, so the token is dead inside the body.
   %_ret_mem = call ptr @sub_{lift_addr_hex}(ptr %state_buf, i64 {lift_addr_dec}, ptr null)
-  %ret_w = load i32, ptr %x0_ptr, align 4
-  ret i32 %ret_w
-}}
+
+{ret_code}}}
 "#,
+        kind = sig.kind,
+        ret_ty = ret_ty,
+        params = params,
+        prologue = prologue.trim_end(),
+        ret_code = ret_code,
         lift_addr_hex = format!("{:x}", lift_addr),
         lift_addr_dec = lift_addr,
-        x0_off = x0_off,
-        x1_off = x1_off,
-        x2_off = x2_off,
         sp_off = sp_off,
+        state_size = state_size,
+        stack_size = stack_size,
     )
 }
 
