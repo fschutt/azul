@@ -396,18 +396,31 @@ fn emit_haskell_method_wrappers(
         }
 
         // Return shape — Phase 3 covers wrapper-struct returns;
-        // Phase 4 adds enum + primitive returns. Vec / Option /
-        // Result / String / pointer-typedef returns stay deferred.
+        // Phase 4 adds enum + primitive returns; Phase 5 adds
+        // String + Vec returns via the existing decoder helpers
+        // (`azStringToString`, `<lower>VecToList`) so users get
+        // idiomatic `IO String` / `IO [Elem]` instead of raw
+        // `IO T.AzString` / `IO T.<Y>Vec`.
         enum ReturnShape {
             Void,
             // Aggregate return that goes through `_via outPtr + peek`.
-            // Covers wrapper structs (`Dom`) AND tagged-union enums
-            // (`Update`) since both are aggregate at the C ABI level
-            // (their Storable instance reads the byte representation).
-            Aggregate(String), // user-facing Haskell type (e.g. "T.Dom", "T.Update")
+            // Covers wrapper structs (`Dom`), tagged-union enums
+            // (`Update`), non-wrapper structs (`SvgRect`), and type
+            // aliases (`GLuint`).
+            Aggregate(String), // user-facing Haskell type (e.g. "T.Dom")
             // Primitive return — C ABI returns by value; FFI binding's
             // `IO <Haskell-prim>` shows up directly. No alloca needed.
             Primitive(String), // Haskell-prim name (e.g. "CSize", "Word32")
+            // Phase 5: AzString return → decode to `IO String` via
+            // `T.azStringToString val`. Saves the user a round-trip.
+            StringDecoded,
+            // Phase 5: Vec return → convert to `IO [Elem]` via the
+            // existing `<lower>VecToList` helper. The helper is in
+            // Azul.Types (peek-based shallow walk OR clone-via per V8).
+            VecToList {
+                elem_type: String,   // T.<elem> for the list element
+                helper_name: String, // T.<lower><X>VecToList
+            },
         }
         let return_shape: ReturnShape = match func
             .return_type
@@ -416,43 +429,54 @@ fn emit_haskell_method_wrappers(
         {
             None | Some("") | Some("void") | Some("()") | Some("c_void") => ReturnShape::Void,
             Some(rt) => {
-                // Reject Vec / Option / Result / String / pointer returns
-                // (Phase 5+).
-                if rt.starts_with("Vec") || rt.starts_with("Option")
-                    || rt.starts_with("Result") || rt == "String"
+                // Reject Option / Result / pointer / *Ref returns
+                // (Phase 6+).
+                if rt.starts_with("Option")
+                    || rt.starts_with("Result")
                     || rt.contains('*') || rt.ends_with("Ref")
                 {
                     continue;
                 }
-                let is_wrapper = ir.find_struct(rt).map(|s| {
-                    delete_set.contains(rt) && matches!(
-                        s.category,
-                        super::super::ir::TypeCategory::Regular
-                            | super::super::ir::TypeCategory::String
-                            | super::super::ir::TypeCategory::CallbackDataPair
-                    )
-                }).unwrap_or(false);
-                // For RETURNS we always emit `T.<X>` for IR-known types
-                // — the raw Azul.Types data value, not the wrapper
-                // newtype. The wrapper's Storable instance doesn't
-                // exist (the newtype carries an IORef), so `peek`
-                // wouldn't work. Users wrap manually via `mkFoo` if
-                // they want a managed handle (after malloc'ing
-                // storage — see Phase 6 follow-up notes).
-                if is_wrapper
-                    || ir.find_enum(rt).is_some()
-                    || ir.find_struct(rt).is_some()
-                    || ir.find_type_alias(rt).is_some()
-                {
-                    ReturnShape::Aggregate(format!("T.{}", haskell_data_name(rt)))
+                // Phase 5 — String returns decode to Haskell `String`.
+                if rt == "String" {
+                    ReturnShape::StringDecoded
+                } else if let Some(elem) = vec_struct_elem_type(rt, ir) {
+                    // Phase 5 — Vec returns convert to `IO [Elem]`.
+                    let vec_lower = super::lower_first(&haskell_data_name(rt));
+                    let helper_name = format!("T.{}ToList", vec_lower);
+                    let elem_ty = if elem == "u8" {
+                        "Word8".to_string()
+                    } else {
+                        format!("T.{}", haskell_data_name(&elem))
+                    };
+                    ReturnShape::VecToList {
+                        elem_type: elem_ty,
+                        helper_name,
+                    }
                 } else {
-                    // True primitive — direct map (no qualifier needed).
-                    let prim_ty = super::types::haskell_field_type(
-                        rt,
-                        super::super::ir::FieldRefKind::Owned,
-                        ir,
-                    );
-                    ReturnShape::Primitive(prim_ty)
+                    let is_wrapper = ir.find_struct(rt).map(|s| {
+                        delete_set.contains(rt) && matches!(
+                            s.category,
+                            super::super::ir::TypeCategory::Regular
+                                | super::super::ir::TypeCategory::String
+                                | super::super::ir::TypeCategory::CallbackDataPair
+                        )
+                    }).unwrap_or(false);
+                    if is_wrapper
+                        || ir.find_enum(rt).is_some()
+                        || ir.find_struct(rt).is_some()
+                        || ir.find_type_alias(rt).is_some()
+                    {
+                        ReturnShape::Aggregate(format!("T.{}", haskell_data_name(rt)))
+                    } else {
+                        // True primitive — direct map (no qualifier needed).
+                        let prim_ty = super::types::haskell_field_type(
+                            rt,
+                            super::super::ir::FieldRefKind::Owned,
+                            ir,
+                        );
+                        ReturnShape::Primitive(prim_ty)
+                    }
                 }
             }
         };
@@ -539,6 +563,8 @@ fn emit_haskell_method_wrappers(
             ReturnShape::Void => "IO ()".to_string(),
             ReturnShape::Aggregate(hs) => format!("IO {}", hs),
             ReturnShape::Primitive(hs) => format!("IO {}", hs),
+            ReturnShape::StringDecoded => "IO String".to_string(),
+            ReturnShape::VecToList { elem_type, .. } => format!("IO [{}]", elem_type),
         };
         sig_parts.push(return_sig);
 
@@ -671,19 +697,25 @@ fn emit_haskell_method_wrappers(
             builder.line(&format!("poke __p_{} {}", name, name));
         }
 
-        // Phase 3+4: aggregate returns (wrapper struct OR enum) get
-        // an innermost alloca + outPtr; `peek __outPtr` is the final
-        // IO action. Primitive returns bypass alloca — the C call
-        // returns the value directly; we capture it via `__result <-`
-        // when there are consume actions, otherwise just let the FFI
-        // call's IO be the final expression.
-        let aggregate_return = matches!(return_shape, ReturnShape::Aggregate(_));
+        // Phase 3+4+5 return-shape branching:
+        //   - Aggregate / StringDecoded / VecToList: alloca outPtr +
+        //     peek, with a Phase-5-specific postprocess (azStringToString
+        //     or VecToList helper) before the final IO action.
+        //   - Primitive: no alloca; FFI call's IO IS the final
+        //     expression (or capture via `__result <-` when there
+        //     are consume actions to interleave).
+        let needs_return_alloca = matches!(
+            return_shape,
+            ReturnShape::Aggregate(_)
+                | ReturnShape::StringDecoded
+                | ReturnShape::VecToList { .. }
+        );
         let primitive_return = matches!(return_shape, ReturnShape::Primitive(_));
         let has_consume_actions =
             !owned_wrapper_indices.is_empty() || self_consumed;
         let needs_result_capture = primitive_return && has_consume_actions;
 
-        if aggregate_return {
+        if needs_return_alloca {
             builder.line("alloca $ \\__outPtr -> do");
             builder.indent();
             call_args.push("__outPtr".to_string());
@@ -711,18 +743,37 @@ fn emit_haskell_method_wrappers(
             builder.line(&format!("{} self", consume_fn));
         }
 
-        // Phase 3+4 final return expression.
-        if aggregate_return {
-            // `peek __outPtr` reads the bytes the `_via` shim wrote.
-            builder.line("peek __outPtr");
-            builder.dedent();
-        } else if needs_result_capture {
-            // Primitive return with consume actions: emit the captured
-            // value as the do's final IO expression.
-            builder.line("pure __result");
+        // Phase 3+4+5 final return expression.
+        match &return_shape {
+            ReturnShape::Aggregate(_) => {
+                // `peek __outPtr` reads the bytes the `_via` shim wrote.
+                builder.line("peek __outPtr");
+                builder.dedent();
+            }
+            ReturnShape::StringDecoded => {
+                // peek to AzString value, decode via Types helper.
+                builder.line("__azs <- peek __outPtr");
+                builder.line("T.azStringToString __azs");
+                builder.dedent();
+            }
+            ReturnShape::VecToList { helper_name, .. } => {
+                // peek to <X>Vec value, decode via per-Vec helper.
+                builder.line("__vec <- peek __outPtr");
+                builder.line(&format!("{} __vec", helper_name));
+                builder.dedent();
+            }
+            ReturnShape::Primitive(_) => {
+                if needs_result_capture {
+                    builder.line("pure __result");
+                }
+                // If primitive && no consumes, the bare C call IS the
+                // final IO expression — nothing more to emit.
+            }
+            ReturnShape::Void => {
+                // Void path — bare C call (or last consume action) is
+                // the final IO expression.
+            }
         }
-        // If primitive_return && !has_consume_actions, the bare C
-        // call IS the final IO expression — nothing more to emit.
 
         // Close each `alloca`'s do-block (dedent once per Poke arg).
         for _ in &poke_args {
@@ -747,6 +798,38 @@ fn haskell_arg_type(
     delete_set: &BTreeSet<&str>,
 ) -> String {
     umbrella_haskell_type(a.type_name.trim(), ir, delete_set)
+}
+
+/// Phase 5: detect Vec wrappers by their struct layout (ptr, len, cap,
+/// destructor). Returns the element type when matched. Mirrors the
+/// `detect_vec_elem_type` predicate in `lang_haskell/types.rs:477`.
+fn vec_struct_elem_type(type_name: &str, ir: &CodegenIR) -> Option<String> {
+    let s = ir.find_struct(type_name)?;
+    if s.fields.len() != 4 {
+        return None;
+    }
+    let f_ptr = &s.fields[0];
+    let f_len = &s.fields[1];
+    let f_cap = &s.fields[2];
+    let _f_dst = &s.fields[3];
+    if f_ptr.name != "ptr" || f_len.name != "len" || f_cap.name != "cap" {
+        return None;
+    }
+    if f_len.type_name.trim() != "usize" || f_cap.type_name.trim() != "usize" {
+        return None;
+    }
+    // Element type from the ptr field — strip pointer-syntax prefix
+    // OR use the raw name when the IR carried it as `ref_kind = Ptr/PtrMut`.
+    let raw = f_ptr.type_name.trim();
+    let elem = raw
+        .strip_prefix("*mut ")
+        .or_else(|| raw.strip_prefix("*const "))
+        .map(str::trim)
+        .unwrap_or(raw);
+    if elem.is_empty() {
+        return None;
+    }
+    Some(elem.to_string())
 }
 
 /// Shared name-resolution for both arg and return types in the
