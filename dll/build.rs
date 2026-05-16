@@ -10,6 +10,7 @@ fn main() {
         configure_dynamic_linking(&target);
     }
 
+    #[cfg(feature = "web-transpiler-static")]
     if env::var("CARGO_FEATURE_WEB_TRANSPILER_STATIC").is_ok() {
         build_in_process_remill(&target);
     }
@@ -29,7 +30,8 @@ fn main() {
 
 /// Compile dll/src/web/cpp/azul_remill.cpp and emit the link line
 /// pulling in remill + LLVM + LLD static libs. Active only with the
-/// `web-transpiler-static` feature.
+/// `web-transpiler-static` feature — the `cc` crate is gated on it.
+#[cfg(feature = "web-transpiler-static")]
 fn build_in_process_remill(target: &str) {
     if !target.contains("apple") && !target.contains("darwin") {
         // Linux + Windows wrappers are M8.10 work — the cxx-common
@@ -158,6 +160,7 @@ fn build_in_process_remill(target: &str) {
 
 /// Enumerate every static library azul_remill needs to link against.
 /// Returns absolute paths so cargo doesn't have to search.
+#[cfg(feature = "web-transpiler-static")]
 fn build_remill_link_libs(remill_build: &Path, vcpkg_lib: &Path) -> Vec<PathBuf> {
     let mut libs = Vec::new();
 

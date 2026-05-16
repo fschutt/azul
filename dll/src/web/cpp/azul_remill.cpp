@@ -35,6 +35,8 @@
 #include <remill/OS/OS.h>
 
 #include <lld/Common/Driver.h>
+#include <gflags/gflags.h>
+#include <glog/logging.h>
 
 #include <cstdio>
 #include <cstdlib>
@@ -141,6 +143,17 @@ extern "C" {
 
 void initialize_llvm_targets() {
     std::call_once(llvm_init_once, []() {
+        // gflags + glog — remill's `Arch::Get` / `TraceLifter` /
+        // `LoadArchSemantics` read FLAGS_* values that need
+        // ParseCommandLineFlags to be applied (otherwise some flags
+        // sit at their DEFINE_*() raw defaults, which can diverge
+        // from "after-parse" defaults and cause lift behaviour to
+        // differ vs the remill-lift-17 binary).
+        int dummy_argc = 1;
+        char *dummy_arg = const_cast<char *>("azul-remill");
+        char **dummy_argv = &dummy_arg;
+        google::ParseCommandLineFlags(&dummy_argc, &dummy_argv, true);
+        google::InitGoogleLogging("azul-remill");
         // Source arch: AArch64 (the lifter operates on aarch64 bytes).
         LLVMInitializeAArch64TargetInfo();
         LLVMInitializeAArch64Target();

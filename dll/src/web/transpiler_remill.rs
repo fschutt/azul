@@ -474,32 +474,51 @@ impl RemillTranspiler {
             reason: "unsupported host architecture for remill (need aarch64 or x86_64)".into(),
         })?;
 
-        // remill-lift takes hex on the cmdline and writes IR to a path.
-        // Address `0x100000000`-class values are high enough that
-        // remill's null-page guard doesn't bail; the caller varies
-        // `lift_addr` per call to keep `sub_<hex>` symbol names unique
-        // when multiple objects will be linked together.
+        // M8.9: in-process lift via the statically-linked wrapper.
+        // Default path is the subprocess; the in-process path is
+        // opt-in via `AZ_NATIVE_REMILL=1` env var because
+        // standalone-validated `az_remill_lift` produces extra
+        // traces in `manager.traces` for multi-byte inputs (single
+        // 4-byte ret is byte-identical to remill-lift-17, but
+        // 48-byte AzStartup_alloc produces 3 traces vs subprocess's
+        // 1). gflags/glog init alone doesn't fix the divergence;
+        // needs more investigation. Subprocess path is unchanged.
         let stem = sanitize_filename(fn_name);
         let lifted_ir_path = self.scratch_dir.join(format!("{}.lifted.ll", stem));
-        let hex = bytes_to_hex(&bytes);
-        run_tool(
-            tools.remill_lift,
-            &[
-                "--arch",
-                arch_tag,
-                "--os",
-                host_os_tag(),
-                "--address",
-                &format!("0x{:x}", lift_addr),
-                "--entry_address",
-                &format!("0x{:x}", lift_addr),
-                "--bytes",
-                &hex,
-                "--ir_out",
-                lifted_ir_path.to_str().expect("scratch path is utf-8"),
-            ],
-            fn_name,
-        )?;
+
+        let use_native = cfg!(feature = "web-transpiler-static")
+            && std::env::var_os("AZ_NATIVE_REMILL").is_some();
+
+        if use_native {
+            #[cfg(feature = "web-transpiler-static")]
+            {
+                let ir = super::native_remill::lift(
+                    arch_tag, host_os_tag(), lift_addr, &bytes,
+                )
+                .map_err(|e| TranspileError {
+                    fn_name: fn_name.to_string(),
+                    reason: format!("native lift: {}", e),
+                })?;
+                std::fs::write(&lifted_ir_path, &ir).map_err(|e| TranspileError {
+                    fn_name: fn_name.to_string(),
+                    reason: format!("write lifted IR: {e}"),
+                })?;
+            }
+        } else {
+            let hex = bytes_to_hex(&bytes);
+            run_tool(
+                tools.remill_lift,
+                &[
+                    "--arch", arch_tag,
+                    "--os", host_os_tag(),
+                    "--address", &format!("0x{:x}", lift_addr),
+                    "--entry_address", &format!("0x{:x}", lift_addr),
+                    "--bytes", &hex,
+                    "--ir_out", lifted_ir_path.to_str().expect("scratch path is utf-8"),
+                ],
+                fn_name,
+            )?;
+        }
 
         // M6 — IR cleanup phase.
         //
@@ -1968,29 +1987,69 @@ fn parse_extern_sub_declares(ir: &str) -> Vec<String> {
     out
 }
 
-/// Collapse repeated `declare ptr @sub_<hex>(...)` lines (one per
-/// distinct hex) — the rewriter's `.N`-suffix collapse leaves
-/// duplicates that llvm-link rejects as "invalid redefinition". This
-/// pass keeps the first declare and drops every subsequent one with
-/// the same hex; signatures match by construction since remill emits
-/// one shape per declare.
+/// Collapse repeated `declare ptr @sub_<hex>(...)` lines AND drop
+/// declares for symbols that already have a `define` in the same
+/// module. Either case is `error: invalid redefinition` from
+/// llvm-link / opt.
 ///
-/// The pass is scoped to `declare ptr @sub_<hex>` lines specifically
-/// to avoid mangling other LLVM IR (we DON'T want to dedup
-/// `define`s — that would silently drop the body).
+/// Two situations trigger this:
+///
+///   1. After `rewrite_sub_names_to_canonical`, two `.N`-suffixed
+///      externs that mapped to the same canonical address both
+///      became `declare ptr @sub_<canonical>(...)`.
+///
+///   2. The IR's entry function self-recurses (e.g. AzStartup_alloc
+///      calling itself). remill emits `declare ptr @sub_<entry>` for
+///      the call site + `define ptr @sub_<entry>.2` for the body
+///      definition. After the rewriter strips `.2`, both end up
+///      named `sub_<entry>` and LLVM rejects the double-declaration.
+///
+/// We do a two-pass: first scan for every `define ... @sub_<hex>(`
+/// to learn which symbols are defined, then drop redundant
+/// `declare`s. The pass is scoped to `sub_<hex>` lines so other
+/// LLVM IR (`define linkonce_odr ptr @__remill_*` etc.) isn't
+/// touched.
 fn dedup_sub_declares(ir: &str) -> String {
+    use std::collections::HashSet;
+    // Pass 1: enumerate defined sub_<hex> names.
+    let mut defined: HashSet<String> = HashSet::new();
+    for line in ir.lines() {
+        let trimmed = line.trim_start();
+        // "define ... @sub_<hex>("
+        if let Some(idx) = trimmed.find("@sub_") {
+            let after_at = &trimmed[idx + 1..];
+            if let Some(paren) = after_at.find('(') {
+                let name = &after_at[..paren];
+                if let Some(hex) = name.strip_prefix("sub_") {
+                    if hex.chars().all(|c| c.is_ascii_hexdigit())
+                        && trimmed.starts_with("define ")
+                    {
+                        defined.insert(name.to_string());
+                    }
+                }
+            }
+        }
+    }
+    // Pass 2: emit lines, skipping declares whose name is already
+    // defined OR whose declare we've already emitted.
     let mut out = String::with_capacity(ir.len());
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut seen_declares: HashSet<String> = HashSet::new();
     for line in ir.lines() {
         let trimmed = line.trim_start();
         if let Some(rest) = trimmed.strip_prefix("declare ptr @sub_") {
             if let Some(paren_idx) = rest.find('(') {
                 let hex_part = &rest[..paren_idx];
-                if hex_part.chars().all(|c| c.is_ascii_hexdigit())
-                    && !seen.insert(hex_part.to_string())
-                {
-                    // Already saw this declare — skip the duplicate.
-                    continue;
+                if hex_part.chars().all(|c| c.is_ascii_hexdigit()) {
+                    let name = format!("sub_{}", hex_part);
+                    if defined.contains(&name) {
+                        // A `define` exists for this name; the
+                        // declare is redundant.
+                        continue;
+                    }
+                    if !seen_declares.insert(hex_part.to_string()) {
+                        // Already emitted this declare.
+                        continue;
+                    }
                 }
             }
         }
