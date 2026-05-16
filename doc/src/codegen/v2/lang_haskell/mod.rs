@@ -193,6 +193,12 @@ fn generate_umbrella(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     builder.line("import Foreign.Ptr (Ptr, FunPtr, nullPtr)");
     builder.line("import Foreign.Marshal.Alloc (alloca)");
     builder.line("import Foreign.Storable (Storable(..))");
+    // Item 18 Phase 1: per-method wrapper signatures reference
+    // Foreign.C.Types directly so they match the cdef-emitted FFI
+    // declarations exactly (no `CBool 1` / `fromIntegral` plumbing).
+    builder.line("import Foreign.C.Types");
+    builder.line("import Data.Word (Word8, Word16, Word32, Word64)");
+    builder.line("import Data.Int (Int8, Int16, Int32, Int64)");
     builder.blank();
 
     wrappers::emit_wrapper_bodies(&mut builder, ir, config)?;

@@ -100,6 +100,14 @@ pub fn emit_wrapper_bodies(
         // lists indicate the underlying type supports them.
         emit_show_instance_if_supported(builder, s, ir);
         emit_eq_instance_if_supported(builder, s, ir);
+        // Item 18 (Phase 1): per-method Haskell wrapper functions
+        // (`<lowerClass><MethodCamel> :: ...`). Auto-consumes Owned
+        // wrapper-class args after the C call so the IORef tombstone
+        // disarms the bracket finalizer. Currently scoped to
+        // void-returning methods with primitive-or-wrapper-class args
+        // only — non-void returns, callback args, and Vec/Option/Result
+        // args / returns are out-of-scope for this phase.
+        emit_haskell_method_wrappers(builder, s, ir, &delete_set);
     }
     Ok(())
 }
@@ -356,5 +364,305 @@ fn emit_dispose(builder: &mut CodeBuilder, s: &StructDef) {
         consume_name, consumed_field
     ));
     builder.blank();
+}
+
+/// Item 18 Phase 1 (Haskell): per-method wrapper functions named
+/// `<lowerClass><MethodCamel>`. Scoped to void-returning methods
+/// whose args are all primitives or wrapper-class types. Owned
+/// wrapper-class args are followed by `consume<Class>` so the bracket
+/// release skips `_delete` (the C side has taken ownership of the
+/// bytes by value).
+///
+/// Skipped in Phase 1 — split into follow-up phases:
+///   - non-void return types (need malloc + mkFoo path)
+///   - callback args (need register<X>Callback)
+///   - Vec / Option / Result args or returns
+///   - String args (currently no `azStringFromString` emitter to
+///     convert OCaml-side Strings to AzString round-trippably)
+fn emit_haskell_method_wrappers(
+    builder: &mut CodeBuilder,
+    s: &super::super::ir::StructDef,
+    ir: &CodegenIR,
+    delete_set: &BTreeSet<&str>,
+) {
+    use super::super::ir::FunctionKind;
+    let class_lower = super::lower_first(&haskell_data_name(&s.name));
+
+    for func in ir.functions_for_class(&s.name) {
+        // Phase 1: only Method | MethodMut. Skip DeepCopy (clone)
+        // since it returns Self (non-void).
+        if !matches!(func.kind, FunctionKind::Method | FunctionKind::MethodMut) {
+            continue;
+        }
+
+        // Skip non-void returns (Phase 2).
+        let return_void = func
+            .return_type
+            .as_deref()
+            .map(|r| matches!(r.trim(), "" | "void" | "()" | "c_void"))
+            .unwrap_or(true);
+        if !return_void {
+            continue;
+        }
+
+        // Skip when any arg has a callback or non-Phase-1 shape.
+        let mut method_args_ok = true;
+        for a in func.args.iter().skip(1) {
+            if a.callback_info.is_some() {
+                method_args_ok = false;
+                break;
+            }
+            let t = a.type_name.trim();
+            // Reject Vec / Option / Result / String / pointer / VecRef / Ref
+            // args. (Option/Result auto-unwrap, Vec iteration, String round-trip,
+            // and pointer-typedef aliases are all Phase 2+ work.)
+            if t.starts_with("Vec") || t.starts_with("Option") || t.starts_with("Result")
+                || t == "String" || t.contains('*')
+                || t.ends_with("VecRef") || t.ends_with("Ref")
+            {
+                method_args_ok = false;
+                break;
+            }
+            // Wrapper class OR primitive — accept; else reject. Wrapper
+            // detection also gates on the struct's TypeCategory being a
+            // proper "user-facing" one (Regular / String / CallbackDataPair),
+            // not codegen scaffolding (VecRef / Boxed / Recursive /
+            // DestructorOrClone / GenericTemplate).
+            let is_wrapper = ir.find_struct(t)
+                .map(|s| delete_set.contains(t) && matches!(
+                    s.category,
+                    super::super::ir::TypeCategory::Regular
+                        | super::super::ir::TypeCategory::String
+                        | super::super::ir::TypeCategory::CallbackDataPair
+                ))
+                .unwrap_or(false);
+            let is_primitive = matches!(
+                t,
+                "bool" | "u8" | "i8" | "u16" | "i16" | "u32" | "i32"
+                | "u64" | "i64" | "usize" | "isize" | "f32" | "f64"
+                | "()" | "c_void"
+            );
+            let is_enum = ir.find_enum(t).is_some();
+            if !is_wrapper && !is_primitive && !is_enum {
+                method_args_ok = false;
+                break;
+            }
+        }
+        if !method_args_ok {
+            continue;
+        }
+
+        // Phase 1 simplification: if the function needs a `_via` shim
+        // (struct-by-value-arg-or-return), every non-receiver arg must
+        // be a wrapper class so we can pass its `Ptr T.<X>` via the
+        // existing `unWrapper` selector. Primitive / enum args going
+        // through `_via` need `alloca + poke` plumbing (Phase 2).
+        let shimmed = super::cshim::needs_shim(func);
+        if shimmed {
+            let all_extra_wrappers = func.args.iter().skip(1).all(|a| {
+                let t = a.type_name.trim();
+                ir.find_struct(t).map(|s| {
+                    delete_set.contains(t) && matches!(
+                        s.category,
+                        super::super::ir::TypeCategory::Regular
+                            | super::super::ir::TypeCategory::String
+                            | super::super::ir::TypeCategory::CallbackDataPair
+                    )
+                }).unwrap_or(false)
+            });
+            if !all_extra_wrappers {
+                continue;
+            }
+        }
+
+        // First arg must be the receiver — Owned (consumed) or Ref/Mut.
+        // For Phase 1, accept all three.
+        let self_consumed = func
+            .args
+            .first()
+            .map(|a| matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned))
+            .unwrap_or(false);
+
+        // Build the Haskell-side wrapper.
+        let method_camel = super::lower_first(&pascal_from_snake(&func.method_name));
+        let hs_fn_name = format!("{}{}", class_lower, upper_first(&method_camel));
+
+        // The C-shim binding name — `c_<c_name>_via` for shimmed funcs,
+        // `c_<c_name>` for primitive-only. `needs_shim` decides.
+        let c_binding = if super::cshim::needs_shim(func) {
+            format!("FFI.c_{}_via", func.c_name)
+        } else {
+            format!("FFI.c_{}", func.c_name)
+        };
+
+        // Type signature: `Class -> Arg1 -> ... -> IO ()`.
+        let mut sig_parts = vec![haskell_data_name(&s.name)];
+        for a in func.args.iter().skip(1) {
+            sig_parts.push(haskell_arg_type(a, ir, delete_set));
+        }
+        sig_parts.push("IO ()".to_string());
+
+        // Function body: marshal each arg (unWrapper for wrappers,
+        // pass-through for primitives), call C binding, consume any
+        // Owned wrapper-class args.
+        let mut param_names: Vec<String> = vec!["self".to_string()];
+        for (i, a) in func.args.iter().enumerate().skip(1) {
+            let nm = if a.name.is_empty() {
+                format!("a{}", i)
+            } else {
+                sanitize_haskell_ident(&a.name)
+            };
+            param_names.push(nm);
+        }
+
+        let mut call_args: Vec<String> = Vec::new();
+        // Self first.
+        call_args.push(format!("(un{} self)", haskell_data_name(&s.name)));
+        for (i, a) in func.args.iter().enumerate().skip(1) {
+            let pname = &param_names[i];
+            let t = a.type_name.trim();
+            let is_wrapper = ir.find_struct(t).map(|_| delete_set.contains(t)).unwrap_or(false);
+            if is_wrapper {
+                call_args.push(format!("(un{} {})", haskell_data_name(t), pname));
+            } else {
+                call_args.push(pname.clone());
+            }
+        }
+
+        // Owned wrapper-class args to consume after the call.
+        let owned_wrapper_indices: Vec<usize> = func
+            .args
+            .iter()
+            .enumerate()
+            .skip(1)
+            .filter(|(_, a)| {
+                let t = a.type_name.trim();
+                let is_wrapper = ir.find_struct(t).map(|_| delete_set.contains(t)).unwrap_or(false);
+                is_wrapper && matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned)
+            })
+            .map(|(i, _)| i)
+            .collect();
+
+        if !func.doc.is_empty() {
+            for d in &func.doc {
+                builder.line(&format!("-- | {}", super::sanitize_doc(d)));
+            }
+        }
+        builder.line(&format!("{} :: {}", hs_fn_name, sig_parts.join(" -> ")));
+        builder.line(&format!(
+            "{} {} = do",
+            hs_fn_name,
+            param_names.join(" ")
+        ));
+        builder.indent();
+        builder.line(&format!(
+            "{} {}",
+            c_binding,
+            call_args.join(" ")
+        ));
+        for idx in &owned_wrapper_indices {
+            let t = func.args[*idx].type_name.trim();
+            let consume_fn = format!("consume{}", haskell_data_name(t));
+            builder.line(&format!("{} {}", consume_fn, param_names[*idx]));
+        }
+        if self_consumed {
+            let consume_fn = format!("consume{}", haskell_data_name(&s.name));
+            builder.line(&format!("{} self", consume_fn));
+        }
+        builder.dedent();
+        builder.blank();
+    }
+}
+
+/// Map an IR `FunctionArg` to its Haskell-side type for the method-
+/// wrapper signature. Wrapper classes use the bare wrapper name
+/// (`Dom`, `Button`), primitives map via `Foreign.C.Types`, enums use
+/// the bare data name from `Azul.Types`.
+fn haskell_arg_type(
+    a: &super::super::ir::FunctionArg,
+    ir: &CodegenIR,
+    delete_set: &BTreeSet<&str>,
+) -> String {
+    let t = a.type_name.trim();
+    if let Some(_) = ir.find_struct(t) {
+        if delete_set.contains(t) {
+            return haskell_data_name(t);
+        }
+    }
+    if ir.find_enum(t).is_some() {
+        return format!("T.{}", haskell_data_name(t));
+    }
+    // GHC's Foreign.C.Types provides the C-side typedefs that match
+    // the cdef-emitted bindings exactly. Use those for primitive args
+    // so the user's Haskell type is identical to what the FFI
+    // declaration expects — no manual `CBool 1` / `fromIntegral`
+    // boilerplate at the call site.
+    match t {
+        "bool" => "CBool".to_string(),
+        "u8" => "CUChar".to_string(),
+        "i8" => "CChar".to_string(),
+        "u16" => "CUShort".to_string(),
+        "i16" => "CShort".to_string(),
+        "u32" => "CUInt".to_string(),
+        "i32" => "CInt".to_string(),
+        "u64" => "CULong".to_string(),
+        "i64" => "CLong".to_string(),
+        "usize" => "CSize".to_string(),
+        // GHC's Foreign.C.Types doesn't ship CSsize; Int64 is the
+        // closest portable equivalent (covers ssize_t on every
+        // supported 64-bit target).
+        "isize" => "Int64".to_string(),
+        // GHC FFI bindings (Foreign.C.Types) use CFloat / CDouble
+        // for `float` / `double` C arg types — not the Haskell-native
+        // `Float` / `Double`. They're newtypes around the same bits
+        // but distinct at the type level.
+        "f32" => "CFloat".to_string(),
+        "f64" => "CDouble".to_string(),
+        _ => "CSize /* TODO */".to_string(), // unreachable per the Phase 1 filter
+    }
+}
+
+/// Convert snake_case (`add_child`) or already-camel (`addChild`) to
+/// PascalCase (`AddChild`). Used for method-name suffixing in
+/// `<class><Method>`.
+fn pascal_from_snake(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut next_upper = true;
+    for c in s.chars() {
+        if c == '_' {
+            next_upper = true;
+        } else if next_upper {
+            for u in c.to_uppercase() { out.push(u); }
+            next_upper = false;
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn upper_first(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    if let Some(c) = chars.next() {
+        for u in c.to_uppercase() { out.push(u); }
+    }
+    out.push_str(chars.as_str());
+    out
+}
+
+/// Sanitize a Rust identifier to a Haskell-valid one (lowercase, no
+/// keyword collisions). Simple version — most arg names are already
+/// snake_case and don't clash.
+fn sanitize_haskell_ident(s: &str) -> String {
+    let lowered = super::lower_first(s);
+    match lowered.as_str() {
+        // Reserved Haskell keywords.
+        "case" | "class" | "data" | "default" | "deriving" | "do" | "else"
+        | "if" | "import" | "in" | "infix" | "infixl" | "infixr" | "instance"
+        | "let" | "module" | "newtype" | "of" | "then" | "type" | "where"
+        | "as" | "hiding" | "qualified" => format!("{}_", lowered),
+        _ => lowered,
+    }
 }
 
