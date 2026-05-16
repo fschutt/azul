@@ -395,33 +395,8 @@ fn emit_haskell_method_wrappers(
             continue;
         }
 
-        // Return shape — Phase 3 covers wrapper-struct returns;
-        // Phase 4 adds enum + primitive returns; Phase 5 adds
-        // String + Vec returns via the existing decoder helpers
-        // (`azStringToString`, `<lower>VecToList`) so users get
-        // idiomatic `IO String` / `IO [Elem]` instead of raw
-        // `IO T.AzString` / `IO T.<Y>Vec`.
-        enum ReturnShape {
-            Void,
-            // Aggregate return that goes through `_via outPtr + peek`.
-            // Covers wrapper structs (`Dom`), tagged-union enums
-            // (`Update`), non-wrapper structs (`SvgRect`), and type
-            // aliases (`GLuint`).
-            Aggregate(String), // user-facing Haskell type (e.g. "T.Dom")
-            // Primitive return — C ABI returns by value; FFI binding's
-            // `IO <Haskell-prim>` shows up directly. No alloca needed.
-            Primitive(String), // Haskell-prim name (e.g. "CSize", "Word32")
-            // Phase 5: AzString return → decode to `IO String` via
-            // `T.azStringToString val`. Saves the user a round-trip.
-            StringDecoded,
-            // Phase 5: Vec return → convert to `IO [Elem]` via the
-            // existing `<lower>VecToList` helper. The helper is in
-            // Azul.Types (peek-based shallow walk OR clone-via per V8).
-            VecToList {
-                elem_type: String,   // T.<elem> for the list element
-                helper_name: String, // T.<lower><X>VecToList
-            },
-        }
+        // ReturnShape is defined at module level (below this fn) so
+        // Phase 6 helpers can construct values of it.
         let return_shape: ReturnShape = match func
             .return_type
             .as_deref()
@@ -429,17 +404,20 @@ fn emit_haskell_method_wrappers(
         {
             None | Some("") | Some("void") | Some("()") | Some("c_void") => ReturnShape::Void,
             Some(rt) => {
-                // Reject Option / Result / pointer / *Ref returns
-                // (Phase 6+).
-                if rt.starts_with("Option")
-                    || rt.starts_with("Result")
-                    || rt.contains('*') || rt.ends_with("Ref")
-                {
+                // Reject pointer / *Ref returns (rare; complex).
+                if rt.contains('*') || rt.ends_with("Ref") {
                     continue;
                 }
                 // Phase 5 — String returns decode to Haskell `String`.
                 if rt == "String" {
                     ReturnShape::StringDecoded
+                } else if let Some(shape) = detect_option_shape(rt, ir, delete_set) {
+                    // Phase 6 — Option<T> return → `IO (Maybe T)` via
+                    // tag-byte check + alignment-aware payload peek.
+                    shape
+                } else if let Some(shape) = detect_result_shape(rt, ir, delete_set) {
+                    // Phase 6 — Result<T,E> return → `IO (Either E T)`.
+                    shape
                 } else if let Some(elem) = vec_struct_elem_type(rt, ir) {
                     // Phase 5 — Vec returns convert to `IO [Elem]`.
                     let vec_lower = super::lower_first(&haskell_data_name(rt));
@@ -565,6 +543,19 @@ fn emit_haskell_method_wrappers(
             ReturnShape::Primitive(hs) => format!("IO {}", hs),
             ReturnShape::StringDecoded => "IO String".to_string(),
             ReturnShape::VecToList { elem_type, .. } => format!("IO [{}]", elem_type),
+            ReturnShape::OptionPayload { payload_ty_qualified, payload_is_string, .. } => {
+                let inner = if payload_is_string == &true {
+                    "String".to_string()
+                } else {
+                    payload_ty_qualified.clone()
+                };
+                format!("IO (Maybe {})", inner)
+            }
+            ReturnShape::ResultPayload { ok_ty_qualified, err_ty_qualified, ok_is_string, err_is_string, .. } => {
+                let ok = if ok_is_string == &true { "String".to_string() } else { ok_ty_qualified.clone() };
+                let err = if err_is_string == &true { "String".to_string() } else { err_ty_qualified.clone() };
+                format!("IO (Either {} {})", err, ok)
+            }
         };
         sig_parts.push(return_sig);
 
@@ -709,6 +700,8 @@ fn emit_haskell_method_wrappers(
             ReturnShape::Aggregate(_)
                 | ReturnShape::StringDecoded
                 | ReturnShape::VecToList { .. }
+                | ReturnShape::OptionPayload { .. }
+                | ReturnShape::ResultPayload { .. }
         );
         let primitive_return = matches!(return_shape, ReturnShape::Primitive(_));
         let has_consume_actions =
@@ -743,7 +736,7 @@ fn emit_haskell_method_wrappers(
             builder.line(&format!("{} self", consume_fn));
         }
 
-        // Phase 3+4+5 final return expression.
+        // Phase 3+4+5+6 final return expression.
         match &return_shape {
             ReturnShape::Aggregate(_) => {
                 // `peek __outPtr` reads the bytes the `_via` shim wrote.
@@ -760,6 +753,27 @@ fn emit_haskell_method_wrappers(
                 // peek to <X>Vec value, decode via per-Vec helper.
                 builder.line("__vec <- peek __outPtr");
                 builder.line(&format!("{} __vec", helper_name));
+                builder.dedent();
+            }
+            ReturnShape::OptionPayload {
+                payload_ty_qualified, payload_is_string, ..
+            } => {
+                emit_option_payload_decode(
+                    builder,
+                    payload_ty_qualified,
+                    payload_is_string == &true,
+                );
+                builder.dedent();
+            }
+            ReturnShape::ResultPayload {
+                ok_ty_qualified, err_ty_qualified,
+                ok_is_string, err_is_string, ..
+            } => {
+                emit_result_payload_decode(
+                    builder,
+                    ok_ty_qualified, ok_is_string == &true,
+                    err_ty_qualified, err_is_string == &true,
+                );
                 builder.dedent();
             }
             ReturnShape::Primitive(_) => {
@@ -879,6 +893,235 @@ fn upper_first(s: &str) -> String {
     }
     out.push_str(chars.as_str());
     out
+}
+
+/// Per-method return-shape classifier. Module-level so the
+/// `detect_option_shape` / `detect_result_shape` Phase 6 helpers can
+/// return values of it from outside `emit_haskell_method_wrappers`.
+enum ReturnShape {
+    Void,
+    Aggregate(String),       // T.<X> for IR-known type
+    Primitive(String),       // CSize / Word32 / CBool / ...
+    StringDecoded,           // → IO String via T.azStringToString
+    VecToList {              // → IO [<Elem>] via T.<lower>VecToList
+        elem_type: String,
+        helper_name: String,
+    },
+    OptionPayload {          // → IO (Maybe <Payload>)
+        option_ty_qualified: String,
+        payload_ty_qualified: String,
+        payload_is_string: bool,
+    },
+    ResultPayload {          // → IO (Either Err Ok)
+        result_ty_qualified: String,
+        ok_ty_qualified: String,
+        err_ty_qualified: String,
+        ok_is_string: bool,
+        err_is_string: bool,
+    },
+}
+
+/// Phase 6: detect Option<T> return shape. Matches IR enums whose
+/// name starts with "Option" and whose variants are `[None, Some(T)]`
+/// (or vice versa); rejects when the Some payload isn't a peek-able
+/// Storable type (Vec / pointer / unsupported shape).
+fn detect_option_shape(
+    rt: &str,
+    ir: &CodegenIR,
+    delete_set: &BTreeSet<&str>,
+) -> Option<ReturnShape> {
+    if !rt.starts_with("Option") {
+        return None;
+    }
+    let e = ir.find_enum(rt)?;
+    if !e.is_union {
+        return None;
+    }
+    let some_var = e.variants.iter().find(|v| v.name == "Some")?;
+    let super::super::ir::EnumVariantKind::Tuple(types) = &some_var.kind else {
+        return None;
+    };
+    let (payload_ty, _) = types.first()?;
+    let payload_ty = payload_ty.trim();
+    // Reject Vec / nested Option / pointer payloads — Phase 7+.
+    if payload_ty.starts_with("Vec") || payload_ty.starts_with("Option")
+        || payload_ty.starts_with("Result")
+        || payload_ty.contains('*') || payload_ty.ends_with("Ref")
+    {
+        return None;
+    }
+    let payload_is_string = payload_ty == "String";
+    // Always qualify the payload with `T.` for IR-known types — the
+    // Storable instance is on the Azul.Types data, not on any
+    // wrapper-class newtype. Primitives have no qualifier; the
+    // helper-vs-direct routing in `payload_storable_ty_qualified`
+    // handles both.
+    let payload_ty_qualified = payload_storable_ty_qualified(payload_ty, ir, delete_set);
+    let _ = delete_set;
+    Some(ReturnShape::OptionPayload {
+        option_ty_qualified: format!("T.{}", haskell_data_name(rt)),
+        payload_ty_qualified,
+        payload_is_string,
+    })
+}
+
+/// Resolve a payload type to the Haskell name we'll peek as a
+/// Storable. IR-known types live in `Azul.Types`; primitives stay
+/// bare. Different from `umbrella_haskell_type` which prefers the
+/// wrapper-class name when one exists — Storable peeks don't go
+/// through the wrapper.
+fn payload_storable_ty_qualified(
+    payload_ty: &str,
+    ir: &CodegenIR,
+    _delete_set: &BTreeSet<&str>,
+) -> String {
+    if payload_ty == "String" {
+        return "T.AzString".to_string();
+    }
+    // `RefAny` is a phantom-typed `newtype RefAny a = ...` in
+    // Azul.Types; it needs an explicit type arg. The hand-rolled
+    // umbrella module uses `RefAny ()`. Match that here so the
+    // payload signature compiles.
+    if payload_ty == "RefAny" {
+        return "(T.RefAny ())".to_string();
+    }
+    if ir.find_struct(payload_ty).is_some()
+        || ir.find_enum(payload_ty).is_some()
+        || ir.find_type_alias(payload_ty).is_some()
+    {
+        return format!("T.{}", haskell_data_name(payload_ty));
+    }
+    super::types::haskell_field_type(
+        payload_ty,
+        super::super::ir::FieldRefKind::Owned,
+        ir,
+    )
+}
+
+/// Phase 6: detect Result<T,E> return shape. Matches IR enums whose
+/// name starts with "Result" and whose variants are `[Ok(T), Err(E)]`.
+fn detect_result_shape(
+    rt: &str,
+    ir: &CodegenIR,
+    delete_set: &BTreeSet<&str>,
+) -> Option<ReturnShape> {
+    if !rt.starts_with("Result") {
+        return None;
+    }
+    let e = ir.find_enum(rt)?;
+    if !e.is_union {
+        return None;
+    }
+    let ok_var = e.variants.iter().find(|v| v.name == "Ok")?;
+    let err_var = e.variants.iter().find(|v| v.name == "Err")?;
+    let payload = |v: &super::super::ir::EnumVariantDef| -> Option<String> {
+        let super::super::ir::EnumVariantKind::Tuple(types) = &v.kind else {
+            return None;
+        };
+        types.first().map(|(t, _)| t.trim().to_string())
+    };
+    let ok_ty = payload(ok_var)?;
+    let err_ty = payload(err_var)?;
+    // Reject Vec / nested Option/Result / pointer payloads.
+    let unsupported = |t: &str| {
+        t.starts_with("Vec") || t.starts_with("Option")
+            || t.starts_with("Result")
+            || t.contains('*') || t.ends_with("Ref")
+    };
+    if unsupported(&ok_ty) || unsupported(&err_ty) {
+        return None;
+    }
+    let ok_is_string = ok_ty == "String";
+    let err_is_string = err_ty == "String";
+    let ok_ty_qualified = payload_storable_ty_qualified(&ok_ty, ir, delete_set);
+    let err_ty_qualified = payload_storable_ty_qualified(&err_ty, ir, delete_set);
+    Some(ReturnShape::ResultPayload {
+        result_ty_qualified: format!("T.{}", haskell_data_name(rt)),
+        ok_ty_qualified,
+        err_ty_qualified,
+        ok_is_string,
+        err_is_string,
+    })
+}
+
+/// Phase 6: emit the per-Some payload decode for an Option<T> return.
+/// `__outPtr :: Ptr T.Option<X>` is in scope; we cast to byte ptr,
+/// read tag, conditionally peek the payload at `alignment(T.<X>)`.
+fn emit_option_payload_decode(
+    builder: &mut CodeBuilder,
+    payload_ty_qualified: &str,
+    payload_is_string: bool,
+) {
+    builder.line("__tag <- peek (castPtr __outPtr :: Ptr Word8)");
+    builder.line("if __tag == 0 then pure Nothing");
+    builder.line("else do");
+    builder.indent();
+    builder.line(&format!(
+        "let __align = max 1 (alignment (undefined :: {}))",
+        payload_ty_qualified
+    ));
+    builder.line(&format!(
+        "let __payloadPtr = (castPtr __outPtr `plusPtr` __align) :: Ptr {}",
+        payload_ty_qualified
+    ));
+    if payload_is_string {
+        builder.line("__azs <- peek __payloadPtr");
+        builder.line("__s <- T.azStringToString __azs");
+        builder.line("pure (Just __s)");
+    } else {
+        builder.line("__v <- peek __payloadPtr");
+        builder.line("pure (Just __v)");
+    }
+    builder.dedent();
+}
+
+/// Phase 6: emit the dual-arm decode for a Result<T,E> return.
+fn emit_result_payload_decode(
+    builder: &mut CodeBuilder,
+    ok_ty_qualified: &str,
+    ok_is_string: bool,
+    err_ty_qualified: &str,
+    err_is_string: bool,
+) {
+    builder.line("__tag <- peek (castPtr __outPtr :: Ptr Word8)");
+    builder.line("if __tag == 0 then do");
+    builder.indent();
+    builder.line(&format!(
+        "let __align = max 1 (alignment (undefined :: {}))",
+        ok_ty_qualified
+    ));
+    builder.line(&format!(
+        "let __okPtr = (castPtr __outPtr `plusPtr` __align) :: Ptr {}",
+        ok_ty_qualified
+    ));
+    if ok_is_string {
+        builder.line("__azs <- peek __okPtr");
+        builder.line("__s <- T.azStringToString __azs");
+        builder.line("pure (Right __s)");
+    } else {
+        builder.line("__v <- peek __okPtr");
+        builder.line("pure (Right __v)");
+    }
+    builder.dedent();
+    builder.line("else do");
+    builder.indent();
+    builder.line(&format!(
+        "let __align = max 1 (alignment (undefined :: {}))",
+        err_ty_qualified
+    ));
+    builder.line(&format!(
+        "let __errPtr = (castPtr __outPtr `plusPtr` __align) :: Ptr {}",
+        err_ty_qualified
+    ));
+    if err_is_string {
+        builder.line("__azs <- peek __errPtr");
+        builder.line("__s <- T.azStringToString __azs");
+        builder.line("pure (Left __s)");
+    } else {
+        builder.line("__v <- peek __errPtr");
+        builder.line("pure (Left __v)");
+    }
+    builder.dedent();
 }
 
 /// Sanitize a Rust identifier to a Haskell-valid one (lowercase, no

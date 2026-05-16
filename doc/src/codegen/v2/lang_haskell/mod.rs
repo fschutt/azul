@@ -190,7 +190,9 @@ fn generate_umbrella(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     builder.line("import Control.Exception (bracket)");
     builder.line("import qualified Control.Monad");
     builder.line("import Data.IORef (IORef, newIORef, readIORef, writeIORef)");
-    builder.line("import Foreign.Ptr (Ptr, FunPtr, nullPtr)");
+    // Phase 6 needs castPtr + plusPtr for the Option/Result payload
+    // byte-offset decoders.
+    builder.line("import Foreign.Ptr (Ptr, FunPtr, nullPtr, castPtr, plusPtr)");
     builder.line("import Foreign.Marshal.Alloc (alloca)");
     builder.line("import Foreign.Storable (Storable(..))");
     // Item 18 Phase 1: per-method wrapper signatures reference
