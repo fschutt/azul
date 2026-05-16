@@ -701,6 +701,13 @@ impl RemillTranspiler {
             "--no-entry".to_string(),
             "--allow-undefined".to_string(),
             "--import-table".to_string(),
+            // Initial memory: 2 MiB = 32 pages. Stack lives in low
+            // addresses (~64 KiB), bump heap starts at 1 MiB (per
+            // @__az_bump_ptr's initial value) and grows up. 2 MiB
+            // gives us ~1 MiB of heap before exhaustion — enough for
+            // hello-world's stateful demo. JS can grow via
+            // memory.grow if needed later.
+            "--initial-memory=2097152".to_string(),
             "-o".to_string(),
             wasm_path.to_string_lossy().into_owned(),
         ];
@@ -1291,9 +1298,12 @@ fn emit_helper_ir(
                 // the import declaration. A volatile store to a
                 // global is observable in the IR-level memory model
                 // and forces opt to keep the call.
+                //
+                // The `declare @__az_resolve_callback` is emitted
+                // once outside the loop (see `shared_decls`) so
+                // multiple resolve-call sites don't duplicate it.
                 branch_stubs.push_str(&format!(
                     "; __az_resolve_callback bridge → JS-imported\n\
-                     declare i32 @__az_resolve_callback(i64) #1\n\
                      define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) alwaysinline {{\n  \
                        %addr_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x0_off}\n  \
                        %addr_{n} = load i64, ptr %addr_p_{n}, align 8\n  \
@@ -1333,8 +1343,22 @@ fn emit_helper_ir(
     // call when the result only flows through the wrapper's local
     // State alloca. The store is observable (volatile + global) so
     // opt must preserve the chain ending in it.
-    let bump_global = "@__az_bump_ptr = linkonce_odr global i32 65536, align 4\n\
-        @__az_call_observer = linkonce_odr global i32 0, align 4\n";
+    //
+    // The `declare @__az_resolve_callback` is emitted once here so
+    // multiple AzResolveCallback bridges in the same helper IR
+    // don't duplicate it (which causes wasm-ld to disambiguate
+    // them as `__az_resolve_callback.1` and break the JS import).
+    // Initial bump pointer: 1 MiB. wasm-ld places the C stack between
+    // the data section and ~65 KiB (default 64 KiB stack), so our
+    // heap MUST start above the stack-top to avoid overlap.
+    // 1 MiB = 1048576 is comfortably past any reasonable stack growth
+    // for the eventloop's 5 KiB per-dispatch stack frames. The wasm
+    // module declares initial memory ≥16 pages (1 MiB) via the
+    // `--initial-memory=1048576` flag in link_objects_to_wasm so the
+    // first AzStartup_alloc call is in-bounds without a manual grow.
+    let bump_global = "@__az_bump_ptr = linkonce_odr global i32 1048576, align 4\n\
+        @__az_call_observer = linkonce_odr global i32 0, align 4\n\
+        declare i32 @__az_resolve_callback(i64) #1\n";
     let _ = export_as; // used inside the format string via the named arg below
     format!(
         r#"; M6 helper module — see `dll/src/web/transpiler_remill.rs::emit_helper_ir`.

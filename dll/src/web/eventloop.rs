@@ -136,9 +136,17 @@ pub struct EventloopState {
 /// natively). At lift time the M8.5a intercept replaces the body
 /// with a wasm-imported call to `env.__az_resolve_callback`
 /// satisfied by the loader.js bootstrap.
+///
+/// Both args go through `core::hint::black_box` so the optimizer
+/// can't perform dead-arg elimination at native call sites. Without
+/// this, the native compiler sees `_cb_fn_addr` as unused → doesn't
+/// bother setting up X0 with the real address at the call site →
+/// the lifted body's `bl` site has stale/zero X0 → JS-side import
+/// receives 0n instead of the actual address.
 #[no_mangle]
 #[inline(never)]
-pub unsafe extern "C" fn __az_resolve_callback(_cb_fn_addr: u64) -> u32 {
+pub unsafe extern "C" fn __az_resolve_callback(cb_fn_addr: u64) -> u32 {
+    let _ = core::hint::black_box(cb_fn_addr);
     core::hint::black_box(u32::MAX)
 }
 
@@ -158,14 +166,19 @@ pub unsafe extern "C" fn __az_resolve_callback(_cb_fn_addr: u64) -> u32 {
 #[no_mangle]
 #[inline(never)]
 pub unsafe extern "C" fn __az_call_indirect(
-    _table_idx: u32,
-    _refany_lo: u64,
-    _refany_hi: u64,
-    _info_ptr: u32,
+    table_idx: u32,
+    refany_lo: u64,
+    refany_hi: u64,
+    info_ptr: u32,
 ) -> u32 {
     // Never reached natively. The lift-time intercept replaces the
-    // body with a wasm call_indirect (see emit_helper_ir's
-    // BranchExternKind::AzCallIndirect arm).
+    // body with a wasm call_indirect. All args go through black_box
+    // to defeat the native compiler's dead-arg elimination (same
+    // pattern as __az_resolve_callback).
+    let _ = core::hint::black_box(table_idx);
+    let _ = core::hint::black_box(refany_lo);
+    let _ = core::hint::black_box(refany_hi);
+    let _ = core::hint::black_box(info_ptr);
     core::hint::black_box(0)
 }
 
@@ -292,14 +305,17 @@ pub unsafe extern "C" fn AzStartup_dispatchEvent(
         core::ptr::write_unaligned(out_len_ptr as usize as *mut u32, 0);
         return 0;
     }
-    // Read node_idx from event buffer.
+    // Read node_idx from event buffer. Use `read` (aligned) — JS
+    // always writes u32 at offset 0 which is 4-byte aligned anyway.
+    // `read_unaligned` was producing 0 here through the lift; the
+    // multi-byte-OR pattern apparently didn't survive remill cleanly.
     let node_idx_ptr = (event_bytes_ptr as usize + event_offset::NODE_IDX as usize) as *const u32;
-    let node_idx = core::ptr::read_unaligned(node_idx_ptr);
+    let node_idx = core::ptr::read(node_idx_ptr);
     if node_idx == u32::MAX {
         core::ptr::write_unaligned(out_len_ptr as usize as *mut u32, 0);
         return 0;
     }
-    // M8.5a stub: treat node_idx as fn-addr-lookup key. M8.5b
+    // M8.5a stub: treat node_idx as fn-addr-lookup key. M8.5c
     // populates cb_fn_cache from StyledDom.
     let cb_fn_addr = node_idx as u64;
     let table_idx = __az_resolve_callback(cb_fn_addr);
