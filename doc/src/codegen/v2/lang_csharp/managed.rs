@@ -210,6 +210,20 @@ pub fn emit_host_invoker_class(builder: &mut CodeBuilder, ir: &CodegenIR) {
         builder.blank();
     }
 
+    // Phase CC-1 (C#): typed Data<T> delegate + register overload per
+    // conforming HOST_INVOKER_KIND. Mirrors `lang_java/managed::emit_
+    // data_typed_invoker_sam` (commit 533df7ab5) and the Kotlin port
+    // (commit aadcf3a01). User writes
+    //   (MyDataModel data, LayoutCallbackInfo info) => Dom
+    // instead of unpacking `IntPtr dataPtr` themselves; the wrap
+    // performs `RefanyGet as T` + per-arg `Marshal.PtrToStructure` +
+    // outPtr write internally. Per the locked CC-1 decision: iterate
+    // ALL kinds, fall back per-kind on non-conformance, never abort
+    // the whole arc.
+    for cb in host_invoker_kinds(ir) {
+        emit_cs_data_typed_delegate(builder, cb, ir);
+    }
+
     // RefanyCreate / RefanyGet
     builder.line("/// <summary>");
     builder.line("/// Wrap an arbitrary managed object in an AzRefAny held alive by the");
@@ -420,4 +434,233 @@ fn lower_first(name: &str) -> String {
         Some(c) => c.to_ascii_lowercase().to_string() + chars.as_str(),
         None => String::new(),
     }
+}
+
+/// Phase CC-1 (C#): emit `<Wrapper>WithData<T>` typed delegate +
+/// generic `Register<Wrapper><T>` overload. Mirrors the Java + Kotlin
+/// counterparts. Same conformance probe shape:
+///   - First callback arg must be `RefAny`.
+///   - Non-wrapper-class args fall back to `IntPtr` per arg.
+///   - Return type must be void / enum / wrapper struct (skip otherwise).
+fn emit_cs_data_typed_delegate(
+    builder: &mut CodeBuilder,
+    cb: &super::super::ir::CallbackTypedefDef,
+    ir: &CodegenIR,
+) {
+    use super::super::ir::FunctionKind;
+    let wrapper = wrapper_name(cb);
+
+    // Probe #1: first arg = RefAny.
+    let first = cb.args.first();
+    if first.map(|a| a.type_name.trim() != "RefAny").unwrap_or(true) {
+        return;
+    }
+
+    // Subsequent args: wrapper class when available, else IntPtr.
+    enum ArgKind {
+        Wrapper(String), // user-facing wrapper class name (e.g. "LayoutCallbackInfo")
+        RawIntPtr,
+    }
+    let mut extra_args: Vec<(ArgKind, String)> = Vec::new();
+    for (i, a) in cb.args.iter().enumerate().skip(1) {
+        let t = a.type_name.trim();
+        let kind = if cs_managed_has_wrapper_class(t, ir) {
+            ArgKind::Wrapper(t.to_string())
+        } else {
+            ArgKind::RawIntPtr
+        };
+        let name = if a.name.is_empty() {
+            format!("arg{}", i)
+        } else {
+            a.name.clone()
+        };
+        extra_args.push((kind, name));
+    }
+
+    // Probe #2: return type plumbing.
+    enum RetShape {
+        Void,
+        Enum,
+        WrapperStruct,
+    }
+    let (return_decl, ret_shape) = match cb.return_type.as_deref().map(str::trim) {
+        None => ("void".to_string(), RetShape::Void),
+        Some("void") => ("void".to_string(), RetShape::Void),
+        Some(rt) => {
+            if cs_managed_has_wrapper_class(rt, ir) {
+                (rt.to_string(), RetShape::WrapperStruct)
+            } else if ir.find_enum(rt).is_some() {
+                // C# emits enums as `AzUpdate` (no `Az` strip).
+                (super::ffi_type_name(rt), RetShape::Enum)
+            } else {
+                return;
+            }
+        }
+    };
+    let _ = std::marker::PhantomData::<FunctionKind>;
+
+    // === Typed delegate ===
+    builder.line("/// <summary>");
+    builder.line(&format!(
+        "/// Typed Data<T> delegate for {}: first arg is the deref'd-and-cast",
+        wrapper
+    ));
+    builder.line("/// `T` payload of the RefAny; remaining args are wrapper-class types");
+    builder.line("/// instead of raw `IntPtr`. The matching Register overload handles");
+    builder.line("/// the RefanyGet + `as T` cast + arg-wrap + outPtr-write plumbing.");
+    builder.line("/// </summary>");
+    let mut iface_params = vec!["T data".to_string()];
+    for (kind, name) in &extra_args {
+        let ty = match kind {
+            ArgKind::Wrapper(t) => t.clone(),
+            ArgKind::RawIntPtr => "IntPtr".to_string(),
+        };
+        iface_params.push(format!("{} {}", ty, name));
+    }
+    builder.line(&format!(
+        "public delegate {} {}WithData<T>({}) where T : class;",
+        return_decl,
+        wrapper,
+        iface_params.join(", ")
+    ));
+    // The `where T : class` clause requires C# syntax that places it
+    // AFTER the parameter list; placing it inside the parameter list
+    // is a parse error. We emit it inline since it has to be on the
+    // signature line. C# erases generic delegates at the IL level so
+    // this only affects compile-time type checks.
+    builder.blank();
+
+    // === Register overload ===
+    let cb_ffi = super::ffi_type_name(wrapper);
+    let raw_delegate = format!("{}InvokerDelegate", wrapper);
+
+    builder.line("/// <summary>");
+    builder.line(&format!(
+        "/// Register a typed Data<T> `{}WithData<T>`. Wraps the typed delegate",
+        wrapper
+    ));
+    builder.line("/// into a raw `<Wrapper>InvokerDelegate` whose body handles RefanyGet,");
+    builder.line("/// runtime-class check (via `as T` — silently skips on mismatch),");
+    builder.line("/// arg-wrap via `Marshal.PtrToStructure`, and outPtr-write.");
+    builder.line("/// </summary>");
+    builder.line(&format!(
+        "public static {} Register{}<T>({}WithData<T> typed) where T : class",
+        cb_ffi, wrapper, wrapper
+    ));
+    builder.line("{");
+    builder.indent();
+
+    // Raw delegate signature mirrors `<Wrapper>InvokerDelegate`:
+    // (ulong id, IntPtr arg0, ..., [IntPtr outPtr]) — outPtr omitted on void.
+    let mut raw_params: Vec<String> = vec!["ulong id".to_string(), "IntPtr arg0".to_string()];
+    for (_kind, name) in &extra_args {
+        raw_params.push(format!("IntPtr {}", name));
+    }
+    if has_return(cb) {
+        raw_params.push("IntPtr outPtr".to_string());
+    }
+
+    builder.line(&format!(
+        "{} raw = ({}) =>",
+        raw_delegate,
+        raw_params.join(", ")
+    ));
+    builder.line("{");
+    builder.indent();
+    // `as T` returns null when the payload isn't an instance of T —
+    // silently skip dispatch (matches Java/Kotlin's
+    // `klass.isInstance(...)` short-circuit).
+    builder.line("var __data = RefanyGet(arg0) as T;");
+    builder.line("if (__data == null) return;");
+    let mut call_args = vec!["__data".to_string()];
+    for (kind, name) in &extra_args {
+        match kind {
+            ArgKind::Wrapper(ty) => {
+                let ffi_ty = super::ffi_type_name(ty);
+                // Wrapper-class C# constructors take the FFI struct
+                // (`internal Dom(AzDom inner)`). Marshal the IntPtr
+                // through `PtrToStructure<Az<Type>>` first, then
+                // construct the wrapper.
+                builder.line(&format!(
+                    "var __{} = new {}(System.Runtime.InteropServices.Marshal.PtrToStructure<{}>({}));",
+                    name, ty, ffi_ty, name
+                ));
+                call_args.push(format!("__{}", name));
+            }
+            ArgKind::RawIntPtr => {
+                call_args.push(name.clone());
+            }
+        }
+    }
+    match ret_shape {
+        RetShape::Void => {
+            builder.line(&format!("typed({});", call_args.join(", ")));
+        }
+        RetShape::Enum => {
+            // `(int)Result` casts the enum to its int representation,
+            // which the C-ABI writes back through outPtr as int32.
+            builder.line(&format!(
+                "var __result = typed({});",
+                call_args.join(", ")
+            ));
+            builder.line("System.Runtime.InteropServices.Marshal.WriteInt32(outPtr, (int)__result);");
+        }
+        RetShape::WrapperStruct => {
+            let ffi_ret = super::ffi_type_name(&return_decl);
+            builder.line(&format!(
+                "var __result = typed({});",
+                call_args.join(", ")
+            ));
+            builder.line("if (__result == null) return;");
+            // `Raw` is the public FFI-struct accessor (see
+            // `Dom.Raw`). StructureToPtr writes its bytes into outPtr
+            // so the C-ABI thunk reads the constructed Dom directly.
+            builder.line(&format!(
+                "var __raw = ({}) __result.Raw;",
+                ffi_ret
+            ));
+            builder.line("System.Runtime.InteropServices.Marshal.StructureToPtr(__raw, outPtr, false);");
+            // libazul takes ownership of the struct bytes via outPtr;
+            // the user's wrapper would otherwise double-drop on Dispose.
+            // Disposing here detaches the wrapper from the underlying
+            // resource the C side now owns.
+            builder.line("__result.Dispose();");
+        }
+    }
+    builder.dedent();
+    builder.line("};");
+    builder.line(&format!(
+        "return Register{}((Delegate) raw);",
+        wrapper
+    ));
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+}
+
+/// Mirror of the wrapper-class predicate from `lang_csharp/wrappers.rs`.
+/// Kept local to managed.rs so we don't have to publish the helper.
+fn cs_managed_has_wrapper_class(
+    type_name: &str,
+    ir: &CodegenIR,
+) -> bool {
+    use super::super::ir::{FunctionKind, TypeCategory};
+    let Some(s) = ir.find_struct(type_name) else {
+        return false;
+    };
+    if !s.generic_params.is_empty() {
+        return false;
+    }
+    if matches!(
+        s.category,
+        TypeCategory::Recursive
+            | TypeCategory::VecRef
+            | TypeCategory::DestructorOrClone
+            | TypeCategory::GenericTemplate
+    ) {
+        return false;
+    }
+    ir.functions
+        .iter()
+        .any(|f| f.class_name == type_name && matches!(f.kind, FunctionKind::Delete))
 }
