@@ -26,6 +26,7 @@ pub mod transpiler;
 #[cfg(feature = "web-transpiler")]
 pub mod transpiler_remill;
 pub mod eventloop;
+pub mod headless;
 
 /// Framework-internal eventloop symbols lifted from libazul at server
 /// startup, linked into `azul-mini.wasm`. Hand-written in
@@ -564,6 +565,36 @@ pub fn run_web(
 ) -> Result<(), WindowError> {
 
     eprintln!("[azul-web] Starting web backend...");
+
+    // M8.7a: validate the App can be hydrated on the wasm client.
+    // RefAny needs a registered JSON serializer (AZ_REFLECT_JSON);
+    // layout cb should be dladdr-resolvable (warning only). FATAL
+    // failures abort here, before any HTTP serving.
+    //
+    // Pre-validate via a temporary RefAny-only check — we don't
+    // have the StyledDom yet (that's Phase D's output) so we can't
+    // build a full HeadlessApp until later. But the RefAny JSON
+    // check is the gating one for the web demo to work.
+    {
+        let pre_check = azul_layout::json::refany_serialize_to_json(&app_data);
+        match pre_check {
+            azul_core::json::OptionJson::None => {
+                let msg = "[azul-web] FATAL: web backend requires the root RefAny \
+                           to have a JSON serializer registered via AZ_REFLECT_JSON. \
+                           Got AzRefAny with no toJson fn-ptr — cannot hydrate \
+                           state on the wasm client. See dll/azul.h's AZ_REFLECT_JSON \
+                           macro for how to register.";
+                eprintln!("{}", msg);
+                return Err(WindowError::PlatformError(msg.to_string()));
+            }
+            azul_core::json::OptionJson::Some(ref json) => {
+                eprintln!(
+                    "[azul-web] RefAny JSON-roundtrip check (serialized): {}",
+                    json,
+                );
+            }
+        }
+    }
 
     // Phase A: Classify API functions (stubbed for now)
     let classification = classify::classify_api_functions();

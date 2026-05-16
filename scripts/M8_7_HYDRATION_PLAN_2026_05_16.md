@@ -249,6 +249,155 @@ M8.7a → M8.7b → M8.7c → M8.7d → M8.9 (or a subset of it: lift the
 framework fns needed by `_fromJson` and route them) → M8.7e → M8.5c
 → M8.5d.
 
+## Addendum 2 (user-driven 2026-05-16, after addendum 1)
+
+**Single postcard envelope for the entire HydrationPayload.**
+
+User direction:
+
+> and maybe we can do this for the entire headless app hydration, so
+> we can just do (on server): "app (after initial draw) -> postcard
+> -> send to client -> client rebuilds it"
+
+Final shape:
+
+```rust
+#[derive(Serialize, Deserialize)]
+pub struct HydrationPayload {
+    pub version: u32,
+    pub config: AppConfig,
+    pub window_state: FullWindowState,
+    pub font_cache: FcFontCacheTransport,   // FcFontCache with `path` → URL
+    pub layout_cb_name: String,             // dladdr name, == /az/layout/<name>.<hash>.wasm
+    pub layout_cb_hash: String,
+    pub compact_dom: CompactDom,            // tree structure + per-node cb fn-addrs
+    pub refany_json: String,                // user's _toJson output as raw JSON string
+}
+```
+
+Server: `postcard::to_stdvec(&payload)` → base64-embed in
+`<script id="az-state" type="application/octet-stream">BASE64</script>`.
+
+Client: base64-decode → `postcard::from_bytes::<HydrationPayload>(bytes)`
+→ reconstruct each piece. For `refany_json`, call the user's
+`<Type>_fromJson(json_parse(refany_json))` via `__az_call_indirect`
+into the cb table slot the loader.js reserved for it.
+
+**Why this is the right design**:
+- One serializer (postcard) instead of two (JSON + postcard).
+- No tiny JSON parser to hand-write on the wasm side. Postcard does
+  it all.
+- RefAny piece stays JSON because the user controls its serializer
+  (per the AZ_REFLECT_JSON contract); we just transport the JSON
+  bytes through the postcard envelope opaquely.
+- All other types use their existing serde derives (which most
+  azul types already have for save/load and debug-inspector
+  purposes).
+
+**Implementation prerequisites**:
+- Audit serde derives on AppConfig, FullWindowState, FcFontCache,
+  CompactDom, NodeData, NodeHierarchy, NodeId. Add where missing.
+- Pick the right postcard version + lock it.
+- Decide on `FcFontCacheTransport` shape — `Arc<>` isn't directly
+  serializable; the URL-rewriting also needs the wasm side to
+  reconstruct an `Arc<FcFontCache>` from the transport form.
+
+**Revised iteration breakdown** (replaces the per-piece M8.7b/d):
+
+- M8.7b: define `HydrationPayload` + the
+  `serde_derive`/postcard-`Serialize`/`Deserialize` impls (or add
+  derives) for every nested type. Audit-only commit.
+- M8.7c: server-side `payload_from_app(&HeadlessApp) ->
+  Vec<u8>`. Embed base64 in HTML. Update loader.js to read the
+  script + decode + alloc wasm bytes + call `AzStartup_init`.
+- M8.7d: wasm-side `payload_from_bytes(bytes) -> HydrationPayload`
+  via postcard. Build `HeadlessApp` from it. Store in
+  EventloopState. (RefAny reconstruction via user's `_fromJson`
+  needs M8.9 — gated by framework-call routing.)
+
+The wasm-side postcard deserializer is the big risk. If it lifts
+cleanly through remill (postcard is no_std + heap-minimal), great.
+If not, the same hand-written LLVM IR escape hatch applies — and
+since `HydrationPayload` is a fixed shape, the IR would be
+generatable from a schema.
+
+## Addendum 1 (user-driven 2026-05-16, after initial plan)
+
+**DOM serialization: CompactDom via postcard, not full StyledDom as JSON.**
+
+User direction:
+
+> in the styled dom serialization: maybe we don't even need to
+> serialize the "styled dom" but can serialize the "compressed dom",
+> which is also a lot faster. Potentially we can make it so that we
+> use a custom binary format to save space (i.e. we can dump the node
+> hierarchy, node data and compact cache instead of dumping the
+> entire DOM as JSON). Then we can invoke a function to restore it
+> from bytes (postcard?)
+
+`CompactDom` (defined at `core/src/styled_dom.rs:1976`) is the small
+representation:
+
+```rust
+pub struct CompactDom {
+    pub node_hierarchy: NodeHierarchy,       // parent/child/sibling arena
+    pub node_data: NodeDataContainer<NodeData>, // per-node data (tag, classes, callbacks)
+    pub root: NodeId,
+}
+```
+
+Way smaller than `StyledDom` (which adds `styled_nodes`,
+`cascade_info`, `css_property_cache`, etc.). The wasm side
+re-derives the styling on RefreshDom from the cb's new CompactDom
+output (which is what `Dom -> CompactDom -> StyledDom::create_from_dom`
+does on the server today).
+
+**Revised hydration payload shape**:
+
+```html
+<script id="az-state" type="application/json">{
+  "version": 1,
+  "config": { /* AppConfig as JSON */ },
+  "window_state": { /* FullWindowState as JSON */ },
+  "font_cache": { "fonts": [...] },
+  "layout_cb": "layout",
+  "layout_cb_hash": "9c4f784aa5ce135f",
+  "refany": { /* user's _toJson output */ },
+  "compact_dom_base64": "AAEC..."   /* postcard-encoded CompactDom */
+}</script>
+```
+
+The `compact_dom_base64` field is a base64-encoded postcard byte
+stream. Wasm side:
+1. Parse the JSON envelope (hand-written tiny JSON parser per
+   the existing recommendation).
+2. base64-decode `compact_dom_base64` → bytes.
+3. Pass bytes to a wasm-callable `postcard::from_bytes::<CompactDom>`
+   — same problem family as the hand-written JSON parser. Postcard
+   IS no_std-friendly (designed for embedded), but the lift will
+   still fight us. Open question: should we ship the postcard
+   deserializer as a hand-written LLVM IR helper (since CompactDom
+   is a fixed shape) instead of going through Rust source?
+
+For M8.7's revised milestones:
+- M8.7b: server-side serializer emits the hybrid payload (JSON
+  envelope + base64-postcard DOM).
+- M8.7d: wasm-side JSON parser stays as planned for the envelope,
+  PLUS a postcard deserializer for CompactDom. CompactDom's
+  internal types (NodeHierarchy, NodeDataContainer, NodeData) all
+  need serde + postcard implementations — many do today via
+  `serde` derives; check + add where missing.
+
+**Why this is better than full-StyledDom JSON**:
+- Smaller payload (postcard binary vs JSON of large nested
+  arrays).
+- No need to serialize computed styles — the wasm side recomputes
+  via `StyledDom::create_from_dom` whenever a layout pass runs.
+- Closer to what the desktop side does at runtime (it caches
+  CompactDom internally between layout passes).
+- The "callbacks" on each NodeData already carry the cb fn-addr we
+  need for dispatch — no separate render-tree walk required.
+
 ## Open architectural questions for the user
 
 1. **JSON parser choice**. Hand-written (~200 LOC, lifts cleanly,
