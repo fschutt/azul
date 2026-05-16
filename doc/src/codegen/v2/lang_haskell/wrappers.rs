@@ -395,14 +395,19 @@ fn emit_haskell_method_wrappers(
             continue;
         }
 
-        // Return shape — Phase 3 handles wrapper-struct returns
-        // (alloca outPtr + peek). Phase 1 + 2 covered void returns.
-        // Enums + primitives stay deferred to a future phase (need
-        // a per-primitive `peek <ptr>` that unifies with the SAM
-        // type).
+        // Return shape — Phase 3 covers wrapper-struct returns;
+        // Phase 4 adds enum + primitive returns. Vec / Option /
+        // Result / String / pointer-typedef returns stay deferred.
         enum ReturnShape {
             Void,
-            WrapperStruct(String), // payload type name (e.g. "Dom")
+            // Aggregate return that goes through `_via outPtr + peek`.
+            // Covers wrapper structs (`Dom`) AND tagged-union enums
+            // (`Update`) since both are aggregate at the C ABI level
+            // (their Storable instance reads the byte representation).
+            Aggregate(String), // user-facing Haskell type (e.g. "T.Dom", "T.Update")
+            // Primitive return — C ABI returns by value; FFI binding's
+            // `IO <Haskell-prim>` shows up directly. No alloca needed.
+            Primitive(String), // Haskell-prim name (e.g. "CSize", "Word32")
         }
         let return_shape: ReturnShape = match func
             .return_type
@@ -411,9 +416,14 @@ fn emit_haskell_method_wrappers(
         {
             None | Some("") | Some("void") | Some("()") | Some("c_void") => ReturnShape::Void,
             Some(rt) => {
-                // Wrapper struct: emitted as a Haskell newtype with
-                // `mkFoo` / `withFoo` and a `Storable` instance via
-                // `Azul.Types`.
+                // Reject Vec / Option / Result / String / pointer returns
+                // (Phase 5+).
+                if rt.starts_with("Vec") || rt.starts_with("Option")
+                    || rt.starts_with("Result") || rt == "String"
+                    || rt.contains('*') || rt.ends_with("Ref")
+                {
+                    continue;
+                }
                 let is_wrapper = ir.find_struct(rt).map(|s| {
                     delete_set.contains(rt) && matches!(
                         s.category,
@@ -422,12 +432,27 @@ fn emit_haskell_method_wrappers(
                             | super::super::ir::TypeCategory::CallbackDataPair
                     )
                 }).unwrap_or(false);
-                if is_wrapper {
-                    ReturnShape::WrapperStruct(rt.to_string())
+                // For RETURNS we always emit `T.<X>` for IR-known types
+                // — the raw Azul.Types data value, not the wrapper
+                // newtype. The wrapper's Storable instance doesn't
+                // exist (the newtype carries an IORef), so `peek`
+                // wouldn't work. Users wrap manually via `mkFoo` if
+                // they want a managed handle (after malloc'ing
+                // storage — see Phase 6 follow-up notes).
+                if is_wrapper
+                    || ir.find_enum(rt).is_some()
+                    || ir.find_struct(rt).is_some()
+                    || ir.find_type_alias(rt).is_some()
+                {
+                    ReturnShape::Aggregate(format!("T.{}", haskell_data_name(rt)))
                 } else {
-                    // Skip enum / primitive / Vec / Option / Result
-                    // returns for this phase.
-                    continue;
+                    // True primitive — direct map (no qualifier needed).
+                    let prim_ty = super::types::haskell_field_type(
+                        rt,
+                        super::super::ir::FieldRefKind::Owned,
+                        ir,
+                    );
+                    ReturnShape::Primitive(prim_ty)
                 }
             }
         };
@@ -512,13 +537,8 @@ fn emit_haskell_method_wrappers(
         }
         let return_sig = match &return_shape {
             ReturnShape::Void => "IO ()".to_string(),
-            // Return the raw FFI struct value (`T.<X>`); user wraps
-            // manually via `mkFoo` after malloc'ing storage if they
-            // want a managed handle. Matches the existing HelloWorld.hs
-            // pattern (`alloca buf; ..._via buf; peek buf :: IO T.Dom`).
-            ReturnShape::WrapperStruct(name) => {
-                format!("IO T.{}", haskell_data_name(name))
-            }
+            ReturnShape::Aggregate(hs) => format!("IO {}", hs),
+            ReturnShape::Primitive(hs) => format!("IO {}", hs),
         };
         sig_parts.push(return_sig);
 
@@ -651,22 +671,34 @@ fn emit_haskell_method_wrappers(
             builder.line(&format!("poke __p_{} {}", name, name));
         }
 
-        // Phase 3: wrapper-struct returns get an additional innermost
-        // alloca for the `_via` outPtr; `peek __outPtr` is the final
-        // result. Append `__outPtr` to call_args for these.
-        let needs_return_alloca = matches!(return_shape, ReturnShape::WrapperStruct(_));
-        if needs_return_alloca {
+        // Phase 3+4: aggregate returns (wrapper struct OR enum) get
+        // an innermost alloca + outPtr; `peek __outPtr` is the final
+        // IO action. Primitive returns bypass alloca — the C call
+        // returns the value directly; we capture it via `__result <-`
+        // when there are consume actions, otherwise just let the FFI
+        // call's IO be the final expression.
+        let aggregate_return = matches!(return_shape, ReturnShape::Aggregate(_));
+        let primitive_return = matches!(return_shape, ReturnShape::Primitive(_));
+        let has_consume_actions =
+            !owned_wrapper_indices.is_empty() || self_consumed;
+        let needs_result_capture = primitive_return && has_consume_actions;
+
+        if aggregate_return {
             builder.line("alloca $ \\__outPtr -> do");
             builder.indent();
             call_args.push("__outPtr".to_string());
         }
 
-        // The C call itself.
-        builder.line(&format!(
-            "{} {}",
-            c_binding,
-            call_args.join(" ")
-        ));
+        // The C call itself. For primitive returns with consume
+        // actions, capture the result so we can `pure __result` at
+        // the end.
+        let call_expr = format!("{} {}", c_binding, call_args.join(" "));
+        if needs_result_capture {
+            builder.line(&format!("__result <- {}", call_expr));
+        } else {
+            builder.line(&call_expr);
+        }
+
         // Owned-arg consume calls go AFTER the C call — at the
         // innermost-do level, which is the current `builder` cursor.
         for idx in &owned_wrapper_indices {
@@ -679,12 +711,18 @@ fn emit_haskell_method_wrappers(
             builder.line(&format!("{} self", consume_fn));
         }
 
-        // Phase 3: peek the out-ptr as the final IO action so the
-        // do-block's last expression is `IO T.<X>`.
-        if needs_return_alloca {
+        // Phase 3+4 final return expression.
+        if aggregate_return {
+            // `peek __outPtr` reads the bytes the `_via` shim wrote.
             builder.line("peek __outPtr");
             builder.dedent();
+        } else if needs_result_capture {
+            // Primitive return with consume actions: emit the captured
+            // value as the do's final IO expression.
+            builder.line("pure __result");
         }
+        // If primitive_return && !has_consume_actions, the bare C
+        // call IS the final IO expression — nothing more to emit.
 
         // Close each `alloca`'s do-block (dedent once per Poke arg).
         for _ in &poke_args {
@@ -697,22 +735,35 @@ fn emit_haskell_method_wrappers(
 
 /// Map an IR `FunctionArg` to its Haskell-side type for the method-
 /// wrapper signature. Wrapper classes use the bare wrapper name
-/// (`Dom`, `Button`); everything else routes through the canonical
-/// `super::types::haskell_field_type` mapping so user-facing sigs
-/// match the cdef-emitted FFI binding signatures exactly.
+/// (`Dom`, `Button`); IR-known structs/enums/typedefs that AREN'T
+/// wrappers get `T.` qualification (they live in `Azul.Types` which
+/// the umbrella imports qualified-as-T); primitives route through
+/// the canonical `super::types::haskell_field_type` mapping (no
+/// qualifier needed — `CSize` / `Word32` / `CBool` etc. come from
+/// `Foreign.C.Types` / `Data.Word` directly imported into `Azul.hs`).
 fn haskell_arg_type(
     a: &super::super::ir::FunctionArg,
     ir: &CodegenIR,
     delete_set: &BTreeSet<&str>,
 ) -> String {
-    let t = a.type_name.trim();
+    umbrella_haskell_type(a.type_name.trim(), ir, delete_set)
+}
+
+/// Shared name-resolution for both arg and return types in the
+/// umbrella module emit. See `haskell_arg_type` for the qualification
+/// rules.
+fn umbrella_haskell_type(
+    t: &str,
+    ir: &CodegenIR,
+    delete_set: &BTreeSet<&str>,
+) -> String {
     if ir.find_struct(t).is_some() && delete_set.contains(t) {
         return haskell_data_name(t);
     }
-    // For enums, the canonical mapping returns the bare data name
-    // (e.g. `ButtonType`); qualify it under `T.` since users see
-    // the umbrella module which only re-exports `Azul.Types` qualified.
-    if ir.find_enum(t).is_some() {
+    if ir.find_struct(t).is_some()
+        || ir.find_enum(t).is_some()
+        || ir.find_type_alias(t).is_some()
+    {
         return format!("T.{}", haskell_data_name(t));
     }
     super::types::haskell_field_type(t, super::super::ir::FieldRefKind::Owned, ir)
