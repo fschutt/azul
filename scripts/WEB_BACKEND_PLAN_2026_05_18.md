@@ -73,6 +73,91 @@ The first real change: walk the rendered DOM (each route, after `render_initial_
 
 ---
 
+## M2.5 — Codegen pair pattern for callback-wrapper args (added 2026-05-18)
+
+**Status:** IN PROGRESS as of 2026-05-18. User-requested before M3.
+
+**Why:** every function in api.json that takes a callback-wrapper type
+(any of `HOST_INVOKER_KINDS`: `Callback`, `LayoutCallback`,
+`ButtonOnClickCallback`, `CheckBoxOnToggleCallback`,
+`TextInputOnTextInputCallback`, `ThreadCallback`, ...) currently
+generates a C-ABI export with the **full struct** as a by-value arg
+(e.g. `void AzButton_setOnClick(AzButton*, AzRefAny, AzCallback)`).
+The C user can't pass a bare fn-ptr — they'd have to wrap with
+`AzCallback_create(on_click)`. Worse, the C-ABI mismatch documented
+in M1 findings (`memory/m1_phase0_findings_2026_05_18.md`) means the
+*existing* C declaration `AzCallbackType callback` (one fn-ptr) is
+the result of stale codegen that doesn't match the Rust internal —
+the call mangles the address, breaking both M1 (server dispatch
+crashes) and M2 (dladdr can't resolve the symbol).
+
+**The user's design.** For every function with a callback-wrapper
+arg, emit **two C-ABI variants**:
+
+  - `<original_name>(args..., <cb_arg>: <CallbackType>)` — takes the
+    raw fn-ptr only. Body builds `Callback { cb, ctx: None }`. For
+    C programmers + native Rust raw users.
+  - `<original_name>WithCtx(args..., <cb_arg>: <CallbackType>,
+    <cb_arg>_ctx: AzRefAny)` — takes fn-ptr + ctx refany. Body
+    builds `Callback { cb, ctx: Some(ctx) }`. For managed-FFI
+    languages whose callback-handle ctx lives in a GC'd object.
+
+The existing `<original_name>(<cb_arg>: AzCallback)` form goes away.
+Bindings have to either call the raw form (extract `cb` from any
+struct they were building) or the WithCtx form (extract `cb` + `ctx`
+fields).
+
+**This solves three problems at once:**
+
+1. C ergonomics: `AzButton_setOnClick(&button, data, on_click)`
+   works as written (no `AzCallback_create` wrap needed).
+2. M1 server dispatch crash goes away (no more by-value struct
+   misalignment).
+3. Host-invoker pattern collapses naturally — managed bindings
+   register a callback handle via
+   `AzCallback_createFromHostHandle(id)`, extract its `.cb` (a
+   thunk) and `.ctx` (the host-handle refany), and call
+   `_setOnClickWithCtx(thunk, host_handle_refany)` directly. The
+   intermediate struct construction disappears.
+
+**Scope of code change.** Touches:
+
+  - `doc/src/codegen/v2/lang_rust.rs`: detect callback-wrapper args
+    via `HOST_INVOKER_KINDS`; emit both variants from
+    `generate_function_definition`. The `format_function_args_for_cabi`
+    helper already has a stub comment claiming this substitution
+    happens — just needs the actual implementation.
+  - `doc/src/codegen/v2/lang_c.rs::generate_function_declaration`:
+    emit both `extern DLLIMPORT` declarations in `azul.h`.
+  - The dll_internal.rs Rust wrapper method's body (the
+    `pub fn set_on_click<I0: Into<AzRefAny>>` that calls the C-ABI):
+    dispatch to the right variant based on `callback.ctx` presence.
+  - Each binding's wrapper-emit (`doc/src/codegen/v2/lang_*/`)
+    where it currently builds a struct and calls `_setOnClick(struct)`:
+    rewrite to call the appropriate pair-pattern variant. ~15
+    bindings × 1-2 sites each.
+
+**Estimated effort:** ~3-4h focused. Per-binding sweep is mechanical
+once the codegen layer is right.
+
+**Stall fallback:** if the per-binding sweep balloons, commit-safe
+with the dll_internal.rs + lang_c.rs changes alone. Bindings would
+then fail to build; that's an explicit blocker we either accept
+(focus on C path only for M3-M5) or push through with iterations.
+
+**Verify:** rebuild libazul + C hello-world. Check that:
+  1. The C build succeeds with the un-modified hello-world.c
+     (`AzButton_setOnClick(&button, data, on_click)` as-written).
+  2. After running with `AZ_BACKEND=web://`, the discovery log
+     shows `addr=0x10003fXXX` (real `on_click` address from the
+     binary's symbol table) instead of the M2-captured
+     `0xa9057bfdd10183ff` garbage.
+  3. POST /az/exec/3 stops crashing (server-side dispatch incidentally
+     starts working; we don't depend on it, but it's a nice side
+     effect).
+
+---
+
 ## M3 — Hand-rolled no-op WASM per callback (intermediate-goal half)
 
 Skip the lift pipeline entirely for the first browser-side milestone. For each discovered callback, emit a fixed ~50-byte WASM module that exports one function matching the callback's ABI signature and returns the integer encoding of `Update::DoNothing` (0).
@@ -325,6 +410,7 @@ These are choices that'll matter at some milestone; flagging them now so they do
 | M0 — fix server.rs imports | ~1 h | Low |
 | M1 — verify Phase 0 for C | ~1–2 h | Medium |
 | M2 — dladdr callback discovery | ~3–4 h | Medium |
+| M2.5 — codegen pair pattern (added 2026-05-18) | ~3–4 h | Medium |
 | M3 — hand-rolled no-op WASM | ~2 h | Low |
 | M4 — browser-side fetch + dispatch | ~3 h | Medium |
 | M5 — real lift via RemillTranspiler | ~3–4 h | Medium-high |
@@ -348,6 +434,7 @@ Cadence: 60s `<<autonomous-loop-dynamic>>`. End-of-loop trigger: any of (a) M7 c
 
 Stall behavior per milestone:
 - M0 — if server.rs imports turn out to need a wider refactor than expected, commit what compiles and document.
+- M2.5 — if the per-binding sweep balloons, commit-safe with dll_internal + lang_c changes; flag the bindings that need updating; either accept "C-only path works, other bindings break" temporarily or push through with iterations.
 - M6 — if `opt -O2` SROA doesn't evaporate the State struct on first attempt, commit-safe and try `remill-opt` as an intermediate; if that also fails, file a blocker.
 - M7 — if the intercept pass surfaces api.json signature gaps, file each gap and skip the corresponding symbol (return `TranspileError`); proceed with the symbols that resolve cleanly.
 
