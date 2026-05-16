@@ -249,6 +249,123 @@ M8.7a → M8.7b → M8.7c → M8.7d → M8.9 (or a subset of it: lift the
 framework fns needed by `_fromJson` and route them) → M8.7e → M8.5c
 → M8.5d.
 
+## Addendum 4 (user-driven 2026-05-16, after addendum 3)
+
+**Recursive transitive lift: discover + lift every dependency, link
+all into one shipped wasm.**
+
+User direction:
+
+> so, we analyze the "dependencies" of the various "AzStartup"
+> callbacks: and resolve them until nothing is left. One dependency
+> is the "fn AzStartup_OnEvent() -> xxx" which, internally contains
+> dependencies on the "styled dom -> layout". So this way remill
+> can analyze: ah, we need this layout fn and all sub-depdendencies
+> and bb too! and then we can know that which .bb blocks we need
+> to ship to the user.
+
+This is the architectural answer to the "lift only works for code
+that doesn't call other things" problem we've been hitting all
+along. Instead of noop-stubbing every `bl <addr>` we don't
+recognize, RECURSIVELY LIFT IT TOO.
+
+### Algorithm
+
+1. Start with the set of root entries — initially just the
+   AzStartup_* surface + the user's layout cb + each per-cb (e.g.
+   on_click).
+2. Lift each. Parse the lifted IR for `declare ptr @sub_<hex>`.
+3. For each branch extern: dladdr-resolve to (name, addr, size).
+4. Classify:
+   - Already-lifted (in the visited set): skip.
+   - Known-leaf with helper-IR body (RustAlloc, RustAllocZeroed,
+     AzCallIndirect, AzResolveCallback, __remill_*): use the
+     existing body.
+   - "Unknown leaf": panic handlers, libc malloc, etc. — these stay
+     noop'd (the lifted code's control flow already accounts for
+     panic-as-trap via the M7 stub).
+   - **Anything else**: enqueue for recursive lift.
+5. Loop until the queue is empty.
+6. wasm-ld over all the produced `.o` files into one wasm module.
+
+### Symbol-naming challenge
+
+remill names branch destinations `sub_<low_32_of_lift_space_target>`.
+When function F (lifted at lift_addr A) calls function G:
+- F's IR has `declare ptr @sub_<(A+offset_of_call) low 32>`.
+- G is lifted at its own lift_addr A'. G's body is
+  `define ptr @sub_<A' low 32>`.
+
+For wasm-ld to resolve the call: `(A+offset) low 32 == A' low 32`.
+
+Simplest fix: pick A' such that the equality holds. The natural
+choice is `A' = native_addr_of_G`. Then the caller's offset
+matches the natural offset between native addresses.
+
+This requires:
+- Lift_addr per function = its native address (= what dladdr
+  returns).
+- Single global "already-lifted" set keyed by native addr (so we
+  don't re-lift the same function under different addresses).
+
+### Per-iteration approach
+
+Three sub-steps. Each builds on the previous.
+
+**M8.7c-1: Infrastructure for recursive lift.**
+- New method `lift_with_transitive_deps(roots) -> Vec<ObjectPath>`.
+- Queue + visited-set of native addresses.
+- For each "dependency-role" lift (not the root with its
+  user-facing wrapper), the lifted body is exported as
+  `sub_<native_addr_hex>` with no wrapper.
+- `link_objects_to_wasm` already takes a Vec of object paths +
+  exports list; just feeds it more.
+
+**M8.7c-2: Wire to per-callback lifts.**
+- on_click → recursive lift. Brings in MyDataModelRefMut_create,
+  MyDataModel_downcastMut, MyDataModelRefMut_delete +
+  AzRefAny_newC, AzRefAny_isType, AzRefCount_increaseRefmut, …
+  Each calls more libazul code. Closure stops when only known
+  leaves remain.
+- The per-callback wasm grows substantially. Estimate from
+  hello-world: ~10-50 KB instead of ~462 B.
+
+**M8.7c-3: Wire to dispatch chain.**
+- AzStartup_dispatchEvent → recursive lift. Brings in hit-test,
+  EventFilter matching, dom mutation tracking, reconcile_dom,
+  patch emission.
+- This is where azul-layout's layout pass gets lifted (per the
+  user's "dependencies on styled dom -> layout" — if dispatch
+  needs to invoke layout on RefreshDom, layout's transitive deps
+  come along).
+
+### Known risks
+
+- **Code size explosion**. Lifting all of azul-layout for one
+  app is probably > 10 MB of wasm. M8.10 cleanup might need
+  tree-shaking via wasm-ld's --gc-sections.
+- **Lift compatibility**. Some libazul code uses platform-specific
+  features (objc2 on macOS, COM on Windows) that remill won't
+  handle. We'd need to feature-gate those out.
+- **Stable native addresses**. dladdr returns addresses that move
+  on every `cargo build` (ASLR-friendly). The lifted objects'
+  symbol names embed these addresses. That's fine for one-shot
+  server-startup lifts but bad if we ever wanted to cache the
+  lifted .o between runs.
+
+### Iteration list (revised, replacing M8.7b-3)
+
+- M8.7c-1: `lift_with_transitive_deps` method.
+- M8.7c-2: per-callback recursive lift; verify on_click brings in
+  the user wrappers + AzRefAny + AzRefCount.
+- M8.7c-3: AzStartup_dispatchEvent recursive lift; should pull in
+  the layout pass + hit-test + diff via the call chain.
+
+This is M8.7's hardest sub-step. Once done, lots of the previous
+hand-wired pieces (FAKE_REFANY_LO hack, __az_resolve_callback
+mapping, etc.) become unnecessary — the cb code can just call
+into the lifted framework code naturally.
+
 ## Addendum 3 (user-driven 2026-05-16, after addendum 2)
 
 **Two further refinements.**
