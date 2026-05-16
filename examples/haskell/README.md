@@ -124,3 +124,22 @@ Storable-offset arithmetic the codegen doesn't carry today (the offset
 depends on the exact field layout of WindowState). The pieces are in
 place; the splice is one focused task once libazul's macOS event-loop
 crash (C.1) clears and the codegen exposes the offset.
+
+## Recent updates (2026-05-15/16)
+
+- **R12 consume mechanism** (commit `634ff5de2`): two-field
+  `data Foo = Foo (Ptr T.Foo) (IORef Bool)` with `consumeFoo` /
+  `withFoo` / `disposeFoo` helpers. The bracket release reads the
+  IORef tombstone before firing `_delete`, so consuming-self calls
+  no longer double-free on scope exit.
+- **V8 Vec iter clone-via** (commit `e73ab429c`): `<lower>VecToList`
+  now clones each element via `Az<X>_clone_via` (the Phase-B.8 shim
+  layer) when available, instead of shallow `peekElemOff`. List
+  entries survive the Vec being closed. POD elements without
+  `_clone` fall back to the legacy path with a warning comment.
+- **Per-method emit layer**: investigated 2026-05-16 and re-queued
+  as item 18 in HANDOFF_2026_05_16.md per user direction. ~4-6h
+  focused codegen work to build `Azul.addChild :: Dom -> Dom ->
+  IO ()` wrappers over the raw `c_AzDom_addChild` FFI imports,
+  with auto-`consume<X>` on Owned args. Implementation plan in
+  `memory/haskell_consume_per_method_investigation_2026_05_16.md`.

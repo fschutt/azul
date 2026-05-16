@@ -38,6 +38,21 @@ For Bun: `bun run hello-world.js`. For Deno:
 - `azul.optionToNullable(opt)` — module-level helper since koffi
   unions can't carry methods.
 - `azul.resultUnwrap(res, name)` — throws on Err.
+- Fluent `.with(opts)` builder on every struct wrapper: recursively
+  assigns nested koffi struct fields, auto-converting JS strings
+  to AzString. Drops the
+  `window.window_state.title = azul._azString('...')` drilling.
+
+## Recent updates (2026-05-15/16)
+
+- **Memory-safety arc closed**: `_consume` (commit `8241735fd`),
+  Option/Result delete+clone (`f935bf50e`), Vec iter clone
+  (`e56d41caf`), static-factory consume (`8241735fd`).
+- **CC-4 `.with(opts)` builder** (commit `070a3c946`): see "What's
+  idiomatic" above.
+- **A.7.6 hello-world trim** (commit `70e052b11`): hello-world
+  down from 99 → 60 LOC using the `.on_click(model, fn)` smart
+  factory + `.with({...})` builder.
 
 ## Caveats
 

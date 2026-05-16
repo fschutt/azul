@@ -32,15 +32,33 @@ loop pumps on the JVM main thread.
 - `Button.create(...).withButtonType(...).onClick(data, fn)` for
   clicks — `data` is any object, `fn` is a `CallbackInvokerCallback`
   SAM (lambda).
-- `AzString` decodes to a `java.lang.String` via `.toString()`.
+- `AzulString` decodes to a `java.lang.String` via `.toString()`.
 - `AzOption<T>.toNullable()`, `AzResult<T,E>.unwrap()`,
   `AzVec<T>.toList()` accessors mirror Java collection idioms.
+- Typed `Data<T>` SAMs: `AzulHostInvoker.<Wrapper>WithData<T>` lets
+  you write `(MyDataModel data, LayoutCallbackInfo info) -> Dom`
+  instead of unpacking `Pointer dataPtr` yourself; register via
+  `AzulHostInvoker.register<Wrapper>(MyDataModel.class, fn)`. CC-1,
+  17 of 19 callback kinds.
+- Primitive Vec sibling arrays: `U8Vec.toByteArray()`,
+  `U32Vec.toIntArray()`, etc. — bulk copy without the per-element
+  iteration cost.
+
+## Recent updates (2026-05-15/16)
+
+- **Memory-safety arc closed** (commits `62094b885` consume,
+  `75a1fbcd2` Option/Result delete+clone, `4edb65d7c` Vec iter
+  per-elem clone).
+- **AzulString rename** (commit `af6855e4e`): wrapper formerly named
+  `String` (which shadowed `java.lang.String` inside `package com.azul`)
+  is now `AzulString`. Drops the `java.lang.String.valueOf(...)`
+  qualifier from user code.
+- **CC-1 typed Data<T>** (commit `533df7ab5`): see "What's idiomatic"
+  above. Follow-up: smart-factory integration
+  (`button.onClick<MyDataModel>(fn)`) still TODO.
 
 ## Gotchas
 
-- Inside `package com.azul`, unqualified `String` resolves to the
-  `com.azul.String` wrapper, not `java.lang.String`. Qualify
-  everywhere you need the JVM string.
 - JNA nested-struct field assignment is a Java reference swap, not
   a byte copy. The smart `WindowCreateOptions.create` factory
   already handles the splice; direct callers need

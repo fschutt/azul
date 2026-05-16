@@ -32,8 +32,21 @@ ruby -I. hello-world.rb
 - `Azul::Option<T>#to_opt` returns `nil` or the payload.
 - `Azul::Result<T,E>#unwrap` raises on Err, returns Ok payload.
 - `Azul::Vec<T>#to_a` reads the elements into a Ruby `Array`
-  (via `read_array_of_<type>` for primitives, slot-walk for structs).
+  (via `read_array_of_<type>` for primitives, per-elem clone for structs).
 - Enum constants: `Azul::Update::RefreshDom`, `Azul::ButtonType::Primary`.
+- Fluent `.with(opts_hash)` builder: any struct wrapper accepts a
+  nested-hash opts argument, recursively assigns FFI fields, and
+  auto-converts Ruby strings to AzString. Drops the
+  `window.ptr[:window_state][:title] = Azul._az_string(...)` drilling.
+
+## Recent updates (2026-05-15/16)
+
+- **Memory-safety arc closed** (commits `654b8cbd8` Option/Result
+  delete+clone, `bb06ba101` Vec iter clone, plus `Azul._consume`
+  finalizer-disarm in the JVM/CLR pass).
+- **CC-4 `.with(opts)` fluent builder** (commit `fa0b5f06b`):
+  drops field-drilling boilerplate from hello-world (62 → 67 LOC
+  but reads cleanly as nested hash).
 
 ## Notes
 

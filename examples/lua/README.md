@@ -33,6 +33,26 @@ DYLD_LIBRARY_PATH=. luajit hello-world.lua
   `result:unwrap()` / `:is_ok()` / `:is_err()` via the `ffi.metatype`
   attached to each cdef union.
 - Enum constants: `azul.Update.RefreshDom`, `azul.ButtonType.Primary`.
+- Fluent `:with(opts)` builder on every struct wrapper: recursively
+  assigns nested cdata fields from a Lua table, auto-converting
+  Lua strings to AzString. Returns self for chaining.
+- Chainable void mutators: `add_child` / `set_button_type` etc.
+  now return self (CC-6), so `body:add_child(label):add_child(button)`
+  composes top-down.
+
+## Recent updates (2026-05-15/16)
+
+- **Memory-safety arc closed**: `azul._consume` finalizer-disarm
+  (commit `2bb53b89` ish), Option/Result delete+clone (`654b8cbd8`),
+  Vec iter clone (`bb06ba101`).
+- **CC-4 `:with(opts)` builder** (commit `9125d6c53`).
+  Surfaced a pre-existing `__eq` SIGSEGV bug on `cdata == nil` —
+  worked around in `_apply_opts`; root cause flagged for follow-up
+  (`__eq` should guard `type(b) ~= 'cdata'` before passing to
+  `_partialEq`).
+- **CC-6 void-mutator chaining** (commit `76b804213`): every
+  void-returning MethodMut now returns `self` so `add_*` / `set_*`
+  chain. `with_*` (consume-self) still returns the new instance.
 
 ## Files
 

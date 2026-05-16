@@ -27,3 +27,10 @@ an empty default WCO — libazul-side, not codegen. See
 - `azul.pas` — generated bindings.
 - `hello-world.lpi` — Lazarus project file.
 - `libazul.dylib` — prebuilt native library.
+
+## Recent updates (2026-05-15/16)
+
+- **R8 consume mechanism** (commit `dbc7d82b9`): `FOwned := False`
+  in the codegen-emitted consume helper disarms the Pascal record's
+  finalizer for by-value C calls. Drops the double-free risk from
+  consuming-self method bodies.

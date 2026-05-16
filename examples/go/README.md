@@ -45,3 +45,10 @@ Go's cgo handles the C interop natively.
 165 lines is verbose because Go has no class-method sugar — each
 Az* type's methods become free `Az<Type>_<method>(self, ...)`
 function calls. This is the cgo idiom; Go users expect it.
+
+## Recent updates (2026-05-15/16)
+
+- **R9 consume mechanism** (commit `dbc7d82b9`):
+  `runtime.SetFinalizer(self, nil)` in the codegen-emitted consume
+  helper disarms the Go finalizer for by-value C calls. Mirrors
+  the Ruby `_consume` / Lua `azul._consume` pattern.

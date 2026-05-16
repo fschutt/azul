@@ -29,9 +29,28 @@ macOS requires `-XstartOnFirstThread`.
   host-invoker register + JNA bytes-splice.
 - `Button.create(...).withButtonType(...).onClick(data, fn)` — `fn`
   is a SAM-converted Kotlin lambda.
-- `String.toString()` decodes UTF-8 bytes into `kotlin.String`.
+- `AzulString.toString()` decodes UTF-8 bytes into `kotlin.String`.
 - `Option<T>.toNullable()`, `Result<T,E>.unwrap()`, `Vec<T>.toList()`
   / `toByteArray()` etc.
+- Typed `Data<T>` SAMs: `AzulHostInvoker.<Wrapper>WithData<T> { m, info -> ... }`
+  lets you write the natural data shape instead of unpacking `Pointer`
+  args; register via
+  `AzulHostInvoker.register<Wrapper>(MyDataModel::class.java, fn)`.
+  CC-1, 17 of 19 callback kinds.
+
+## Recent updates (2026-05-15/16)
+
+- **Memory-safety arc closed** (commits `62094b885` / `75a1fbcd2`
+  / `4edb65d7c` — rides on the Java JNA emit).
+- **AzulString rename** (commit `af6855e4e`): wrapper formerly named
+  `String` (which shadowed `kotlin.String` inside `package com.azul`)
+  is now `AzulString`.
+- **CC-1 typed Data<T>** (commit `aadcf3a01`): see "What's idiomatic"
+  above. Implementation lifts from the Java emit (commit `533df7ab5`).
+  Two Kotlin-specific differences: labelled lambda for early-return
+  (`val raw = <Sam> inv@{ ... return@inv ... }`) and `!!` non-null
+  unwrap on the `Pointer?` SAM args before passing to wrapper-class
+  constructors.
 
 ## Per-api.json-module JNA interfaces
 

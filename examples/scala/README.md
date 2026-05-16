@@ -57,3 +57,11 @@ Inside `package com.azul`, unqualified `String` resolves to
 - `HelloWorld.scala` — 77-line port.
 - `build.sh` — compile + run script.
 - `libazul.dylib` — symlink to `../java/libazul.dylib`.
+
+## Recent updates (2026-05-15/16)
+
+Scala rides on the Java bytecode emit, so all Java changes (the
+17-binding memory-safety arc, `String -> AzulString` rename, typed
+Data<T> SAMs in `AzulHostInvoker`) apply automatically. The
+`HelloWorld.scala` example was refreshed to drop the now-redundant
+`java.lang.String.valueOf(...)` qualifier (commit `af6855e4e`).

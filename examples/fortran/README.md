@@ -28,3 +28,9 @@ DYLD_LIBRARY_PATH=. ./hello_world
 - `azul.f90` — generated bindings.
 - `Makefile` — gfortran build.
 - `libazul.dylib` — prebuilt native library.
+
+## Recent updates (2026-05-15/16)
+
+- **R11 consume mechanism** (commit `7f39e0c03`): `owned = .false.`
+  in the codegen-emitted consume helper disarms the F2003 finaliser
+  for by-value C calls. Mirrors the Pascal `FOwned := False` pattern.

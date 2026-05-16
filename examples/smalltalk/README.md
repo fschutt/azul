@@ -15,3 +15,10 @@ currently produce.
 - `HelloWorld.st` — smoke test.
 - `Azul.st` — generated bindings (single-file).
 - `libazul.dylib` — prebuilt native library.
+
+## Recent updates (2026-05-15/16)
+
+- **R14 consume mechanism** (commit `7f39e0c03`): `handle := nil`
+  in the codegen-emitted consume method clears the wrapper's
+  ExternalHandle slot so finalisation skips the
+  `Az<X>_delete` call. Closes the double-free for by-value C calls.

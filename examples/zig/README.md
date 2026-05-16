@@ -43,3 +43,10 @@ the host-managed data lifecycle without a side handle table.
 
 - `hello-world.zig` — 133-line reference implementation.
 - `libazul.dylib` — prebuilt native library.
+
+## Recent updates (2026-05-15/16)
+
+- **R10 consume mechanism** (commit `dbc7d82b9`): `consumed: bool`
+  field on each wrapper struct; consume helper sets it to true to
+  skip the `Az<X>_delete` call in `deinit()`. Closes the double-free
+  risk from consuming-self method bodies.

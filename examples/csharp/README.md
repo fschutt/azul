@@ -31,6 +31,22 @@ method bodies, just metadata.
   `AzVec<T>.ToArray()`, `AzResult<T,E>.Unwrap()`.
 - `using var wco = WindowCreateOptions.Create(...)` — disposable
   pattern; `Dispose()` calls the C-side delete.
+- Typed `Data<T>` delegates: `<Wrapper>WithData<T>` lets you write
+  `(MyDataModel data, LayoutCallbackInfo info) => Dom` instead of
+  unpacking `IntPtr dataPtr` yourself. Register via
+  `HostInvoker.Register<Wrapper><MyDataModel>(fn)` (uses `as T`
+  silent skip on mismatch). CC-1, 17 of 19 callback kinds.
+- Primitive Vec sibling arrays: `U8Vec.ToByteArray()`,
+  `U32Vec.ToIntArray()`, etc.
+
+## Recent updates (2026-05-15/16)
+
+- **Memory-safety arc closed** (commits `62094b885` / `75a1fbcd2`
+  / `4edb65d7c`).
+- **Primitive Vec sibling arrays** (commit `8f09b714d`).
+- **CC-1 typed Data<T>** (commit `ccb59cb60`): see "What's idiomatic"
+  above. Mirrors the Java emit; uses `as T` for the runtime cast
+  (null-silent on mismatch).
 
 ## Gotchas
 

@@ -77,3 +77,11 @@ PHP is the only binding where the codegen lives in
 `doc/src/codegen/v2/lang_php_ext.rs` rather than `lang_php/`. The
 ext-php-rs route is the only way to get host-invoker (closure)
 callbacks into PHP — standard `php-ffi` rejects them.
+
+## Recent updates (2026-05-15/16)
+
+- **R15 consume mechanism** (commit `7f39e0c03`): `$this->ptr = null`
+  in the codegen-emitted consume helper clears the wrapper's
+  internal pointer so `__destruct` skips the `Az<X>_delete` call.
+  Also closes the self-by-value double-free in the
+  `WindowCreateOptions::create` smart factory.

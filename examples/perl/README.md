@@ -26,3 +26,10 @@ install Platypus into Homebrew Perl.)
 - `hello-world.pl` — smoke test (AzString round-trip + RefAny).
 - `lib/Azul.pm` — generated bindings.
 - `libazul.dylib` — prebuilt native library.
+
+## Recent updates (2026-05-15/16)
+
+- **R13 consume mechanism** (commit `7f39e0c03`): `$$self = undef`
+  in the codegen-emitted consume helper invalidates the wrapper's
+  internal ref slot so the DESTROY method's `Az<X>_delete` is a
+  no-op. Closes the double-free for by-value C calls.
