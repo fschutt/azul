@@ -184,21 +184,30 @@ fn emit_class_wrapper(
         builder.blank();
     }
 
-    // WindowCreateOptions.create_with_layout(fn) — smart factory that
-    // hides the host-invoker plumbing. Ruby FFI's nested-struct field
+    // <Class>.create_with_layout(fn) — smart factory that hides the
+    // host-invoker plumbing. Ruby FFI's nested-struct field
     // assignment uses the same memory (no JNA reference-swap quirk),
-    // so we register the user's callable, fetch a `_default()` wco,
-    // splice the AzLayoutCallback struct into the embedded
-    // window_state.layout_callback, and return the wrapper. Existing
-    // `create()` is left intact for the legacy non-host-invoker path.
+    // so we register the user's callable, fetch a `_default()` value,
+    // splice the registered-callback struct into the embedded nested
+    // field, and return the wrapper. Existing `create()` is left
+    // intact for the legacy non-host-invoker path.
     //
     // The codegen-emitted `create()` already auto-registers via
-    // `Azul._register_callback('LayoutCallback', ...)` for the
-    // function-pointer arg, but it then passes the raw fnptr to the
-    // C-side `_create` which discards the ctx (the host-handle id) —
-    // so callbacks fire but the user's Proc is never reached. This
+    // `Azul._register_callback(<wrapper>, ...)` for the function-
+    // pointer arg, but it then passes the raw fnptr to the C-side
+    // `_create` which discards the ctx (the host-handle id) — so
+    // callbacks fire but the user's Proc is never reached. This
     // helper fixes that by going through `_default` + struct splice.
-    if super::super::managed_host_invoker::has_layout_callback_factory(s, ir) {
+    //
+    // Class name, default factory name, callback wrapper, dotted
+    // field path, and the type at each intermediate level are all
+    // IR-derived via [`layout_callback_factory_info`] — adding/
+    // renaming the eligible class in api.json lights this up
+    // without touching this emitter.
+    if let Some(info) =
+        super::super::managed_host_invoker::layout_callback_factory_info(s, ir)
+    {
+        let default_ruby = native_function_name(&info.default_c_name);
         builder.line("# Smart factory: pass a layout-callback Proc/lambda/block;");
         builder.line("# the host-invoker registration and struct-field splice happen");
         builder.line("# internally. Replaces the manual register_callback +");
@@ -207,11 +216,42 @@ fn emit_class_wrapper(
         builder.indent();
         builder.line("fn = layout_fn || block");
         builder.line("raise ArgumentError, 'layout fn required' unless fn");
-        builder.line("cb_struct = Azul._register_callback('LayoutCallback', fn)");
-        builder.line("wco = Native.az_window_create_options_default()");
-        builder.line("# Splice the AzLayoutCallback into the embedded slot.");
-        builder.line("ws = Native::AzFullWindowState.new(wco[:window_state].to_ptr)");
-        builder.line("ws[:layout_callback] = cb_struct");
+        builder.line(&format!(
+            "cb_struct = Azul._register_callback('{}', fn)",
+            info.callback_wrapper
+        ));
+        builder.line(&format!("wco = Native.{}()", default_ruby));
+        builder.line("# Splice the registered callback into the embedded slot.");
+        let depth = info.field_path.len();
+        if depth <= 1 {
+            // Direct leaf assignment.
+            let leaf = info
+                .field_path
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "callback".to_string());
+            builder.line(&format!("wco[:{}] = cb_struct", leaf));
+        } else {
+            // Materialise typed FFI views down to the parent of the
+            // leaf field, then assign. Ruby FFI nested structs share
+            // memory with the parent (unlike JNA's reference-swap),
+            // so no write-back is required.
+            let mut parent_var = "wco".to_string();
+            for (i, seg) in info.field_path.iter().enumerate().take(depth - 1) {
+                let parent_type = format!("Az{}", info.field_types[i]);
+                let lvl_var = format!("__lvl{}", i);
+                builder.line(&format!(
+                    "{lvl} = Native::{ty}.new({parent}[:{seg}].to_ptr)",
+                    lvl = lvl_var,
+                    ty = parent_type,
+                    parent = parent_var,
+                    seg = seg
+                ));
+                parent_var = lvl_var;
+            }
+            let leaf = &info.field_path[depth - 1];
+            builder.line(&format!("{}[:{}] = cb_struct", parent_var, leaf));
+        }
         builder.line("new(wco)");
         builder.dedent();
         builder.line("end");

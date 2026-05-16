@@ -141,6 +141,15 @@ pub struct LayoutCallbackFactoryInfo {
     /// field (e.g. `["window_state", "layout_callback"]`). The
     /// emitter joins this with the language's field-access syntax.
     pub field_path: Vec<String>,
+    /// Type name of each field along `field_path` (same length).
+    /// For path `["window_state", "layout_callback"]`, this is
+    /// `["FullWindowState", "LayoutCallback"]` — the type of each
+    /// segment as declared in its parent struct. Bindings whose FFI
+    /// requires a typed view at each intermediate (e.g. Ruby FFI's
+    /// `Native::AzFullWindowState.new(parent[:window_state].to_ptr)`)
+    /// read from here; bindings that rely on type inference (C#'s
+    /// `var __lvl0 = ...`) can ignore it.
+    pub field_types: Vec<String>,
 }
 
 /// Like [`has_layout_callback_factory`] but returns the IR-derived
@@ -177,12 +186,39 @@ pub fn layout_callback_factory_info(
     // callback bytes into this field; the path tells the emitter
     // where to write.
     let field_path = find_field_of_type(s, &callback_wrapper, ir)?;
+    // Walk the path again to recover the declared type of each
+    // segment. Required for bindings that need a typed FFI view at
+    // each intermediate level (Ruby FFI; potentially Perl/PHP if
+    // they ever grow a smart factory).
+    let field_types = field_types_along_path(s, &field_path, ir)?;
     Some(LayoutCallbackFactoryInfo {
         class_name: s.name.clone(),
         default_c_name: default_func.c_name.clone(),
         callback_wrapper,
         field_path,
+        field_types,
     })
+}
+
+/// Walk `path` from `s` and collect the declared type of each step.
+/// Returns `None` if the path is invalid (segment missing or refers
+/// to a non-struct intermediate). Length always matches `path.len()`.
+fn field_types_along_path(
+    s: &super::ir::StructDef,
+    path: &[String],
+    ir: &super::ir::CodegenIR,
+) -> Option<Vec<String>> {
+    let mut types = Vec::with_capacity(path.len());
+    let mut current = s;
+    for (idx, seg) in path.iter().enumerate() {
+        let field = current.fields.iter().find(|f| &f.name == seg)?;
+        let tn = field.type_name.trim().to_string();
+        types.push(tn.clone());
+        if idx + 1 < path.len() {
+            current = ir.find_struct(&tn)?;
+        }
+    }
+    Some(types)
 }
 
 /// Recursively scan `s` for a field whose type is the named struct.
