@@ -142,7 +142,7 @@ pub fn clone_export_name(elem_rust: &str, ir: &CodegenIR) -> Option<String>;
 ## Phase V7 — OCaml
 
 - [x] **V7.1** Closed 2026-05-16: layout-driven `detect_vec_to_list_shape` in `lang_ocaml/wrappers.rs` emits `to_list : t -> <elem_ffi> Ctypes.structure list` for every Vec wrapper whose element has a `_clone` export. 52 modules pick it up. Returns the raw FFI structure (not the per-module wrapper `t`) because the OCaml module-emit order doesn't guarantee the element module is in scope at Vec-module declaration time — users wrap manually via `<ElemModule>.make_<elem>` if needed. The clone-per-element gives the memory-safety win regardless of return type.
-- [⊘] **V7.2** Primitive path (`to_array` / `to_list` for `U8Vec` / `U32Vec` / `F32Vec` …) blocked by the OCaml types codegen emitting `field <vec> "ptr" (ptr void)` for primitive elements (no `az_<primitive>` ctype view exists). Dereferencing the void pointer yields `unit`. Implementation needs a per-primitive `Ctypes.from_voidp <view> __ptr` cast AND a Ctypes-native return type (`Unsigned.UInt8.t list` etc.). ~1.5h of focused work. Not blocking V7.1.
+- [x] **V7.2** Closed 2026-05-16: per-primitive `to_array` emitter in `lang_ocaml/wrappers.rs`. `u8` → `bytes` (via `string_from_ptr` + `Bytes.of_string`); integer primitives (i8/u16/i16/u32/i32) → `int array` (with `Unsigned.*.to_int` / `Signed.*.to_int` narrowing); `u64` / `i64` keep their native Ctypes-typed array; `f32` / `f64` → `float array`. The void-pointer issue from V7.1 is resolved per-primitive via `Ctypes.from_voidp <ctypes_view> __ptr` cast. Mirrors `8f09b714d` (JVM/CLR primitive Vec sibling arrays). 5 primitive Vec modules pick it up.
 - [ ] **V7.3** Smoke test. *Effort: 1h.*
 
 ---

@@ -339,6 +339,10 @@ fn emit_module_interface_for_class(
     // `Elem.make_<elem_snake>` if they want a managed handle. The
     // clone-per-element gives the memory-safety win regardless.
     emit_ocaml_vec_to_list_signature_if_vec(builder, s, ir);
+    // V7.2 (OCaml): primitive-Vec `to_array` / `to_bytes` — typed-array
+    // variant complementing the wrapper-element `to_list`. Mirrors
+    // commit 8f09b714d (Java/Kotlin/C# primitive Vec sibling arrays).
+    emit_ocaml_vec_to_array_signature_if_primitive(builder, s);
     builder.dedent();
     builder.line("end");
     builder.blank();
@@ -405,6 +409,10 @@ fn emit_module_impl_for_class(
     // (commits bb06ba101 / e56d41caf / 4edb65d7c). See the .mli
     // signature emitter for the design rationale.
     emit_ocaml_vec_to_list_if_vec(builder, s, ir, has_wrapper);
+    // V7.2 (OCaml): primitive-Vec `to_array` — typed-array bulk
+    // copy from the Vec's `(ptr void)` buffer via per-primitive
+    // `Ctypes.from_voidp <view>` cast.
+    emit_ocaml_vec_to_array_if_primitive(builder, s, has_wrapper);
 
     builder.dedent();
     builder.line("end");
@@ -560,6 +568,177 @@ fn ocaml_primitive_for_rust(rust: &str) -> Option<(&'static str, &'static str)> 
         "f32" | "f64" => ("float", "float"),
         _ => return None,
     })
+}
+
+/// V7.2 (OCaml) — per-primitive-Vec emission recipe. Built once from
+/// the IR; consumed by both signature and impl emitters so the .mli
+/// and .ml agree on naming + types.
+struct PrimVecArraySpec {
+    /// OCaml return type after `t ->` (`bytes`, `int array`, `float array`).
+    return_type: &'static str,
+    /// Short doc word (`Bytes.t`, `int array`, `float array`).
+    return_doc: &'static str,
+    /// Ctypes view value used by `Ctypes.from_voidp <view> ptr`.
+    ctypes_view: &'static str,
+    /// OCaml expression mapping a single read element to the
+    /// return-element type. `__elem` is the bound `let` over the
+    /// ith read. Use `__elem` verbatim when no conversion needed.
+    elem_to_ocaml: &'static str,
+}
+
+/// Decide what shape `to_array` should take for this struct. Returns
+/// `None` when the struct isn't a Vec OR the element type isn't a
+/// primitive (the wrapper-element path handles those via `to_list`).
+fn detect_primitive_vec_array_shape(s: &StructDef) -> Option<PrimVecArraySpec> {
+    // Same layout probe as `detect_vec_to_list_shape`: first field
+    // must be `ptr` with a pointer ref_kind, second must be `len:
+    // usize`. This catches the real Az<X>Vec types and rejects the
+    // `TypeCategory::Vec`-tagged non-Vec sentinels (StringMenuItem,
+    // InstantPtr, …).
+    let first = s.fields.first()?;
+    let second = s.fields.get(1)?;
+    if first.name != "ptr"
+        || !matches!(first.ref_kind, FieldRefKind::Ptr | FieldRefKind::PtrMut)
+    {
+        return None;
+    }
+    if second.name != "len" || second.type_name.trim() != "usize" {
+        return None;
+    }
+    let elem_rust = first.type_name.trim();
+    Some(match elem_rust {
+        "u8" => PrimVecArraySpec {
+            return_type: "bytes",
+            return_doc: "Bytes.t",
+            ctypes_view: "Ctypes.uint8_t",
+            // u8 array decodes naturally to OCaml's `bytes` via
+            // string_from_ptr + Bytes.of_string. Handled inline in
+            // the emitter (special-cased) — the per-element formula
+            // here is unused for u8.
+            elem_to_ocaml: "",
+        },
+        "i8" => PrimVecArraySpec {
+            return_type: "int array",
+            return_doc: "int array",
+            ctypes_view: "Ctypes.int8_t",
+            elem_to_ocaml: "__elem",
+        },
+        "u16" => PrimVecArraySpec {
+            return_type: "int array",
+            return_doc: "int array",
+            ctypes_view: "Ctypes.uint16_t",
+            elem_to_ocaml: "Unsigned.UInt16.to_int __elem",
+        },
+        "i16" => PrimVecArraySpec {
+            return_type: "int array",
+            return_doc: "int array",
+            ctypes_view: "Ctypes.int16_t",
+            elem_to_ocaml: "__elem",
+        },
+        "u32" => PrimVecArraySpec {
+            return_type: "int array",
+            return_doc: "int array",
+            ctypes_view: "Ctypes.uint32_t",
+            elem_to_ocaml: "Unsigned.UInt32.to_int __elem",
+        },
+        "i32" => PrimVecArraySpec {
+            return_type: "int array",
+            return_doc: "int array",
+            ctypes_view: "Ctypes.int32_t",
+            elem_to_ocaml: "Signed.Int32.to_int __elem",
+        },
+        "u64" => PrimVecArraySpec {
+            return_type: "Unsigned.UInt64.t array",
+            return_doc: "uint64 array",
+            ctypes_view: "Ctypes.uint64_t",
+            elem_to_ocaml: "__elem",
+        },
+        "i64" => PrimVecArraySpec {
+            return_type: "Signed.Int64.t array",
+            return_doc: "int64 array",
+            ctypes_view: "Ctypes.int64_t",
+            elem_to_ocaml: "__elem",
+        },
+        "f32" => PrimVecArraySpec {
+            return_type: "float array",
+            return_doc: "float array",
+            ctypes_view: "Ctypes.float",
+            elem_to_ocaml: "__elem",
+        },
+        "f64" => PrimVecArraySpec {
+            return_type: "float array",
+            return_doc: "float array",
+            ctypes_view: "Ctypes.double",
+            elem_to_ocaml: "__elem",
+        },
+        _ => return None,
+    })
+}
+
+/// V7.2 (OCaml) — `.mli` signature for `to_array` on primitive-element
+/// Vecs. u8 surfaces as `bytes`; all other integer Vecs as `int array`
+/// (lossy-narrowed for u64 — see the spec); float Vecs as `float array`.
+fn emit_ocaml_vec_to_array_signature_if_primitive(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+) {
+    let Some(spec) = detect_primitive_vec_array_shape(s) else {
+        return;
+    };
+    builder.line(&format!("(* Bulk-copy the Vec's elements into an OCaml-native {}. *)", spec.return_doc));
+    builder.line(&format!("val to_array : t -> {}", spec.return_type));
+}
+
+/// V7.2 (OCaml) — `.ml` implementation for `to_array`. Casts the
+/// void-pointer field to the typed Ctypes view, then either
+/// `string_from_ptr` (u8 → bytes) or `Array.init` (all others).
+fn emit_ocaml_vec_to_array_if_primitive(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    has_wrapper: bool,
+) {
+    let Some(spec) = detect_primitive_vec_array_shape(s) else {
+        return;
+    };
+    let vec_snake = ocaml_ffi_type_name(&s.name);
+    let self_t = if has_wrapper { "self.raw" } else { "self" };
+    let is_u8 = spec.ctypes_view == "Ctypes.uint8_t";
+
+    builder.line(&format!("(* Bulk-copy the Vec's elements into an OCaml-native {}. *)", spec.return_doc));
+    builder.line(&format!("let to_array (self : t) : {} =", spec.return_type));
+    builder.indent();
+    builder.line(&format!(
+        "let __ptr = Ctypes.getf {} {}_field_ptr in",
+        self_t, vec_snake
+    ));
+    builder.line(&format!(
+        "let __len = Unsigned.Size_t.to_int (Ctypes.getf {} {}_field_len) in",
+        self_t, vec_snake
+    ));
+    if is_u8 {
+        // u8 → bytes: `Ctypes.string_from_ptr` copies `__len` bytes
+        // from the casted `char ptr` and returns an OCaml string;
+        // wrap with `Bytes.of_string` so the signature gives `bytes`
+        // (mutable byte array, matching Java/Kotlin/C# `byte[]`).
+        builder.line("if Ctypes.is_null __ptr || __len = 0 then Bytes.empty");
+        builder.line("else Bytes.of_string (Ctypes.string_from_ptr (Ctypes.from_voidp Ctypes.char __ptr) ~length:__len)");
+    } else {
+        builder.line(&format!("if Ctypes.is_null __ptr || __len = 0 then [||]"));
+        builder.line("else");
+        builder.indent();
+        builder.line(&format!(
+            "let __typed = Ctypes.from_voidp {} __ptr in",
+            spec.ctypes_view
+        ));
+        builder.line("Array.init __len (fun i ->");
+        builder.indent();
+        builder.line("let __elem = Ctypes.(!@) (Ctypes.(+@) __typed i) in");
+        builder.line(&format!("{})", spec.elem_to_ocaml));
+        builder.dedent();
+        builder.dedent();
+    }
+    builder.dedent();
+    builder.blank();
 }
 
 /// Phase I.3.6 (OCaml): emit `to_string` per-module helper routed
