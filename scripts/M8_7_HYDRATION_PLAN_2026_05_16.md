@@ -249,6 +249,106 @@ M8.7a → M8.7b → M8.7c → M8.7d → M8.9 (or a subset of it: lift the
 framework fns needed by `_fromJson` and route them) → M8.7e → M8.5c
 → M8.5d.
 
+## Addendum 3 (user-driven 2026-05-16, after addendum 2)
+
+**Two further refinements.**
+
+User direction (verbatim):
+
+> we then need to ship the entire "dependencies" of the "styled dom
+> hydration", i.e. all the stuff to actually calculate the layout
+> positions (in WASM side, not by querying the browser). "None of
+> the upstream types have serde derives" -> should have that behind
+> a feature flag (which is "on" if feature=web-transpiler)
+
+### 3a. WASM-side layout recomputation
+
+The wasm client does layout itself — not browser-driven. This means
+shipping:
+- The layout engine (`azul-layout` crate's actual layout pass).
+- Font metrics (for text measurement; the lifted FcFontCache feeds
+  this).
+- All the inputs to layout: stylesheet, viewport size, font cache,
+  StyledDom.
+
+The wasm side runs layout on RefreshDom + does hit-test against the
+LAYOUT (LogicalRect per node), not just the DOM tree. So
+`HydratedNode.bbox` becomes a *cache* of the initial layout, not the
+authoritative source — the wasm side can recompute when the layout
+cb fires.
+
+This goes through the **remill lift** — same pipeline that already
+handles user callbacks + the layout cb + AzStartup_*. **Not** a
+separate `cargo build --target wasm32-unknown-unknown` of
+azul-layout. Per user direction 2026-05-16:
+
+> "So azul-layout wasm32 build is a critical path item" -> NO. we
+> do this all via remill.
+
+Concretely: the relevant azul-layout entry points (the layout pass +
+its dependencies) get added to a new lift target list (parallel to
+EVENTLOOP_SYMBOLS), lifted at server startup, linked into
+azul-mini.wasm (or a sibling layout-runtime wasm). The wasm-side
+dispatch invokes them via the existing call_indirect /
+__az_resolve_callback path.
+
+The lift pipeline has been struggling with complex Rust code paths
+(memcpy → noop in M8.5, constant pools → bad addresses in M8.5,
+heap allocation → fixed in M8.4c). Each new layer of "lift more
+framework code" surfaces new patterns to plumb through helper IR.
+This is multi-iteration work, but the direction is fixed: one lift
+pipeline for everything.
+
+### 3b. Upstream serde derives behind a feature flag
+
+Adding `Serialize`/`Deserialize` to every type in the dependency
+chain (AppConfig, FullWindowState, FcFontCache, CompactDom,
+NodeData, NodeHierarchyItem, ...) gates the proper hydration
+implementation. Per user direction: behind a feature flag, **on
+by default when `web-transpiler` is on**.
+
+Concretely:
+- `azul-core`: add `serde-derives` feature, `#[cfg_attr(feature =
+  "serde-derives", derive(Serialize, Deserialize))]` on:
+  CompactDom, NodeData, NodeHierarchy/Item, NodeType, NodeId, the
+  Callback/EventFilter variants, …
+- `azul-layout`: add `serde-derives` feature (proxies to
+  `azul-core/serde-derives` + adds it on FullWindowState).
+- `azul-css`: add for color/font/dimension types.
+- `rust-fontconfig`: already has `cache` feature gating serde;
+  expose under a `serde-derives` alias (or just use `cache`).
+- `dll/Cargo.toml`'s `web-transpiler` feature enables them all:
+  ```toml
+  web-transpiler = [
+      "web",
+      "azul-core/serde-derives",
+      "azul-layout/serde-derives",
+      "azul-css/serde-derives",
+      "rust-fontconfig/cache",
+  ]
+  ```
+
+Once these derives exist, the wrapper types in
+`dll/src/web/hydration.rs` (M8.7b's first commit) get DELETED and
+`HydrationPayload` uses the real types directly. Wrappers are a
+stepping stone, not the final design.
+
+### Revised iteration list (M8.7b split)
+
+- **M8.7b-1 (this commit)**: wrapper types + postcard plumbing.
+  Verifies the serialization shape end-to-end on the server side.
+  Wrapper types live in `dll/src/web/hydration.rs`.
+- **M8.7b-2**: add `serde-derives` feature flag to azul-core,
+  azul-layout, azul-css, rust-fontconfig. Wire from dll's
+  `web-transpiler`. Replace wrappers in HydrationPayload with the
+  real upstream types.
+- **M8.7b-3**: lift azul-layout's `do_the_layout` (or equivalent
+  entry point) via remill, same pipeline as EVENTLOOP_SYMBOLS.
+  Link into a layout-runtime wasm (could be azul-mini.wasm itself
+  or sibling). WASM-side dispatch's hit-test invokes it via
+  call_indirect against a stored fn-addr. Multi-iteration work
+  given how much framework code the layout pass pulls in.
+
 ## Addendum 2 (user-driven 2026-05-16, after addendum 1)
 
 **Single postcard envelope for the entire HydrationPayload.**

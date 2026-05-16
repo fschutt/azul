@@ -27,6 +27,7 @@ pub mod transpiler;
 pub mod transpiler_remill;
 pub mod eventloop;
 pub mod headless;
+pub mod hydration;
 
 /// Framework-internal eventloop symbols lifted from libazul at server
 /// startup, linked into `azul-mini.wasm`. Hand-written in
