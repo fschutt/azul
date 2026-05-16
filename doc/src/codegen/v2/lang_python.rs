@@ -1382,10 +1382,19 @@ extern "C" fn invoke_py_layout_callback(
             builder.line("#[staticmethod]");
         }
 
+        // Drop the implicit self-arg — `ir_builder.rs` synthesises an
+        // entry named `to_snake_case(class_name)` (e.g. `list_view_row_vec`
+        // for `ListViewRowVec`) whenever fn_args carries `{ "self": "..." }`.
+        // The previous `to_lowercase()` filter only matched single-word
+        // class names (`Dom` → `dom`); compound names like `DomVec`
+        // (snake `dom_vec`) slipped through and produced
+        // `fn len(&self, dom_vec: AzDomVec)` — both receiver-shadowed
+        // and unusable from Python.
+        let self_arg_name = to_snake_case(&func.class_name);
         let args: Vec<_> = func
             .args
             .iter()
-            .filter(|a| a.name != func.class_name.to_lowercase())
+            .filter(|a| a.name != self_arg_name)
             .collect();
 
         let args_str: String = args
@@ -1501,8 +1510,13 @@ extern "C" fn invoke_py_layout_callback(
             }
         }
 
-        // Convert self to external type if needed
-        let self_var = func.class_name.to_lowercase();
+        // Convert self to external type if needed.
+        // Use `to_snake_case` so compound class names (e.g. `DomVec`)
+        // match the IR-synthesised arg name `dom_vec` rather than
+        // `domvec` — otherwise the fn_body substitutions below would
+        // leave `dom_vec.len()` untouched and a stale `dom_vec` would
+        // shadow `__cloned` in the generated body.
+        let self_var = to_snake_case(&func.class_name);
         let is_method_mut = func.kind == FunctionKind::MethodMut;
         if takes_self {
             builder.line(&format!(
