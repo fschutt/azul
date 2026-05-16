@@ -52,7 +52,7 @@ object HelloWorld {
                 .withButtonType(AzButtonType.Primary.value)
                 .onClick(m, ON_CLICK)
                 .dom()
-                .getPointer())
+                .rawPointer())
             writeDom(outPtr, Dom.createBody().withChild(label).withChild(buttonDom))
           case _ =>
             writeDom(outPtr, Dom.createBody())
