@@ -199,17 +199,108 @@ pub fn discover_and_transpile_callbacks(
     for (_pattern, list) in discovered_per_route.iter() {
         for d in list {
             if seen.insert(d.fn_addr, ()).is_none() {
+                // M3: emit a hand-rolled no-op WASM module per
+                // discovered callback. The export is named
+                // `WASM_CALLBACK_EXPORT` so loader.js can call into
+                // it without per-callback name lookup. The body is
+                // `i32.const 0` (Update::DoNothing) regardless of
+                // the user's actual callback — M5+ replaces this
+                // with the real lifted body once the remill
+                // pipeline is wired through.
+                let wasm_bytes = emit_noop_callback_wasm();
+                // Keep the URL hash name-derived for now so it matches
+                // the `<link rel="preload">` hint emitted by
+                // `html_render::generate_preload_hints`, which only has
+                // access to `DiscoveredCallback` (no wasm_bytes yet at
+                // render time). Once M5's real lift makes per-callback
+                // bytes actually differ, the right move is to thread
+                // a content-hash-of-bytes back into the preload-hint
+                // emission so cache invalidation tracks real content
+                // changes. For M3 (all callbacks share the same no-op
+                // body) name-based hashing is sufficient.
                 out.push(CallbackWasm {
                     name: d.name.clone(),
                     content_hash: d.content_hash.clone(),
                     fn_addr: d.fn_addr,
                     fn_size: d.fn_size,
-                    wasm_bytes: Vec::new(),
+                    wasm_bytes,
                     is_client_side: false,
                 });
             }
         }
     }
+    out
+}
+
+/// Export name for every per-callback WASM module. loader.js calls
+/// `instance.exports[WASM_CALLBACK_EXPORT]` regardless of the underlying
+/// C symbol name (which is in the URL path for cache addressability,
+/// not for runtime lookup). Stays stable across M3 (no-op) → M5
+/// (real lift) → M7 (intercept-pass real callback) so the JS side
+/// doesn't have to track per-callback export names.
+pub const WASM_CALLBACK_EXPORT: &str = "callback";
+
+/// Emit a hand-rolled minimum-viable WASM module exporting a single
+/// `(i32, i32) -> i32` function whose body is `i32.const 0`. ~43 bytes
+/// for the canonical export name. Sufficient for M3-M4 to validate
+/// that per-callback WASM URLs are served correctly and that
+/// `WebAssembly.instantiateStreaming` succeeds on the browser side.
+///
+/// The signature `(i32, i32) -> i32` is a placeholder — loader.js
+/// calls it with `(0, 0)` until the real arg-marshalling lands in
+/// M7+. The return `0` encodes `Update::DoNothing` so the browser's
+/// follow-up POST/render path treats the click as a no-op (per the
+/// user direction `no server fallback by default` the POST isn't
+/// fired anyway; this is just a defensive return value).
+fn emit_noop_callback_wasm() -> Vec<u8> {
+    // WASM binary format reference: https://webassembly.github.io/spec/core/binary
+    // Sections we need:
+    //   - Magic + version (8 bytes)
+    //   - Type section   (1) — one signature  (i32, i32) -> i32
+    //   - Function section (3) — one function using type 0
+    //   - Export section (7) — one export of function 0 under WASM_CALLBACK_EXPORT
+    //   - Code section   (10) — function body: i32.const 0 ; end
+    //
+    // Sizes use LEB128 unsigned; for all values we emit here the
+    // single-byte form is sufficient (every length < 128).
+    const I32: u8 = 0x7F;
+    let export_name = WASM_CALLBACK_EXPORT.as_bytes();
+
+    let mut out: Vec<u8> = Vec::with_capacity(64);
+
+    // Magic + version
+    out.extend_from_slice(&[0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00]);
+
+    // Type section: id=1, body = num_types(1) + [functype]
+    //   functype = 0x60 0x02 i32 i32 0x01 i32
+    let type_body: [u8; 7] = [0x01, 0x60, 0x02, I32, I32, 0x01, I32];
+    out.push(0x01);
+    out.push(type_body.len() as u8);
+    out.extend_from_slice(&type_body);
+
+    // Function section: id=3, body = num_funcs(1) + type_idx(0)
+    out.extend_from_slice(&[0x03, 0x02, 0x01, 0x00]);
+
+    // Export section: id=7, body = num_exports(1) + [export]
+    //   export = name_len + name_bytes + kind(0=fn) + fn_idx(0)
+    let mut export_body: Vec<u8> = Vec::with_capacity(4 + export_name.len());
+    export_body.push(0x01); // num_exports
+    export_body.push(export_name.len() as u8);
+    export_body.extend_from_slice(export_name);
+    export_body.push(0x00); // export kind: function
+    export_body.push(0x00); // function index: 0
+    out.push(0x07);
+    out.push(export_body.len() as u8);
+    out.extend_from_slice(&export_body);
+
+    // Code section: id=10, body = num_funcs(1) + [code]
+    //   code = body_size + locals_count(0) + i32.const 0 (0x41 0x00) + end (0x0B)
+    //   body bytes after body_size = 4
+    let code_body: [u8; 6] = [0x01, 0x04, 0x00, 0x41, 0x00, 0x0B];
+    out.push(0x0A);
+    out.push(code_body.len() as u8);
+    out.extend_from_slice(&code_body);
+
     out
 }
 
