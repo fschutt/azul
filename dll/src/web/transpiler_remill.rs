@@ -169,6 +169,15 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
             args: vec![Pcs::GprI64 { state_byte_offset: X0 }],
             ret: None,
         }),
+        "AzStartup_registerCallback" => Some(CallbackSignature {
+            kind: "AzStartup_registerCallback".to_string(),
+            args: vec![
+                Pcs::Wreg { state_byte_offset: X0 }, // node_idx
+                Pcs::Wreg { state_byte_offset: X1 }, // event_kind
+                Pcs::Wreg { state_byte_offset: X2 }, // table_idx
+            ],
+            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+        }),
         _ => None,
     }
 }
@@ -1224,6 +1233,32 @@ define linkonce_odr ptr @__remill_barrier_load_load(ptr %memory) alwaysinline {{
 define linkonce_odr ptr @__remill_barrier_load_store(ptr %memory) alwaysinline {{ ret ptr %memory }}
 define linkonce_odr ptr @__remill_barrier_store_load(ptr %memory) alwaysinline {{ ret ptr %memory }}
 define linkonce_odr ptr @__remill_barrier_store_store(ptr %memory) alwaysinline {{ ret ptr %memory }}
+
+; Flag-computation intrinsics. remill emits these to compute the
+; result of arithmetic flag effects (zero/sign/carry/overflow); the
+; first arg is the result the lift's high-level operator already
+; computed. Noop body: return %r unchanged. Variadic-correct: the
+; remaining args (the inputs that produced %r) are ignored at this
+; level because the lift's high-level arithmetic was lowered with
+; native i32/i64 ops that already set the right value in %r.
+define linkonce_odr i1 @__remill_flag_computation_sign(i1 %r, ...) alwaysinline {{ ret i1 %r }}
+define linkonce_odr i1 @__remill_flag_computation_zero(i1 %r, ...) alwaysinline {{ ret i1 %r }}
+define linkonce_odr i1 @__remill_flag_computation_carry(i1 %r, ...) alwaysinline {{ ret i1 %r }}
+define linkonce_odr i1 @__remill_flag_computation_overflow(i1 %r, ...) alwaysinline {{ ret i1 %r }}
+
+; Compare-predicate intrinsics. The single arg IS the predicate
+; result; the intrinsic is structurally a no-op identity. Same
+; rationale as the flag-computation ones.
+define linkonce_odr i1 @__remill_compare_eq(i1 %r) alwaysinline {{ ret i1 %r }}
+define linkonce_odr i1 @__remill_compare_neq(i1 %r) alwaysinline {{ ret i1 %r }}
+define linkonce_odr i1 @__remill_compare_slt(i1 %r) alwaysinline {{ ret i1 %r }}
+define linkonce_odr i1 @__remill_compare_sle(i1 %r) alwaysinline {{ ret i1 %r }}
+define linkonce_odr i1 @__remill_compare_sgt(i1 %r) alwaysinline {{ ret i1 %r }}
+define linkonce_odr i1 @__remill_compare_sge(i1 %r) alwaysinline {{ ret i1 %r }}
+define linkonce_odr i1 @__remill_compare_ult(i1 %r) alwaysinline {{ ret i1 %r }}
+define linkonce_odr i1 @__remill_compare_ule(i1 %r) alwaysinline {{ ret i1 %r }}
+define linkonce_odr i1 @__remill_compare_ugt(i1 %r) alwaysinline {{ ret i1 %r }}
+define linkonce_odr i1 @__remill_compare_uge(i1 %r) alwaysinline {{ ret i1 %r }}
 
 ; M7 branch-destination stubs — see `parse_extern_sub_declares` +
 ; `branch_target_to_host_addr`. Each `sub_<hex>` corresponds to a

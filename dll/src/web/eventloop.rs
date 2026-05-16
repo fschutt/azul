@@ -44,12 +44,71 @@ pub struct EventloopState {
     /// events; reconciled against on RefreshDom. `None` until the
     /// first layout callback run.
     pub current_dom: Option<StyledDom>,
-    /// Callback registry: `node_idx` → table index in the JS-owned
-    /// `WebAssembly.Table`. Populated as per-callback WASMs load.
-    pub cb_table_indices: BTreeMap<u32, u32>,
+    /// Callback registry: `pack_cb_key(node_idx, event_kind)` → table
+    /// index in the JS-owned `WebAssembly.Table`. JS populates this
+    /// at bootstrap via [`AzStartup_registerCallback`] as each
+    /// per-callback WASM finishes instantiating.
+    pub cb_table_indices: BTreeMap<u64, u32>,
     /// Pending TLV-encoded DOM patch bytes — drained by
     /// [`AzStartup_getPatches`].
     pub pending_patches: Vec<u8>,
+}
+
+/// Pack a `(node_idx, event_kind)` pair into a u64 BTreeMap key. The
+/// node_idx occupies the high 32 bits so a `range` over a single
+/// node's bindings can use `(node_idx<<32)..((node_idx+1)<<32)`.
+#[inline]
+fn pack_cb_key(node_idx: u32, event_kind: u32) -> u64 {
+    ((node_idx as u64) << 32) | (event_kind as u64)
+}
+
+// =====================================================================
+// Event-format spec (Q5 decision: fixed 256-byte buffer per dispatch).
+// JS-side packing must match. See M8.6 listener.js for the encoder.
+// =====================================================================
+
+/// Fixed event-buffer size. 256 bytes leaves headroom for IME
+/// composition strings + future touch events with multiple contact
+/// points beyond hello-world's mouse/keyboard needs. JS allocates
+/// this size via [`AzStartup_alloc`] before every dispatch and frees
+/// after.
+pub const EVENT_BYTES_LEN: u32 = 256;
+
+/// Event-kind discriminator passed as `AzStartup_dispatchEvent`'s
+/// first arg. Indices match azul's existing EventFilter ordering for
+/// the cases that map directly; the rest are sequential.
+pub mod event_kind {
+    pub const CLICK:      u32 = 0;
+    pub const MOUSEDOWN:  u32 = 1;
+    pub const MOUSEUP:    u32 = 2;
+    pub const MOUSEMOVE:  u32 = 3;
+    pub const DBLCLICK:   u32 = 4;
+    pub const WHEEL:      u32 = 5;
+    pub const KEYDOWN:    u32 = 6;
+    pub const KEYUP:      u32 = 7;
+    pub const FOCUSIN:    u32 = 8;
+    pub const FOCUSOUT:   u32 = 9;
+    pub const RESIZE:     u32 = 10;
+    pub const SCROLL:     u32 = 11;
+}
+
+/// Common event-bytes layout offsets. JS writes these fields with
+/// `DataView.setUint32(off, val, /*littleEndian=*/ true)`. Per-kind
+/// extras (e.g. mouse `button`, keyboard `key_code`) extend past
+/// `MODIFIERS`.
+pub mod event_offset {
+    /// `u32` — synthetic `az_N` node ID under the event target. JS
+    /// derives this from `event.target.id.match(/^az_(\d+)$/)`.
+    /// `0xFFFFFFFF` means "no node found" (window-level event).
+    pub const NODE_IDX:  u32 = 0;
+    /// `f32` — clientX in CSS pixels. 0 for non-pointer events.
+    pub const X:         u32 = 4;
+    /// `f32` — clientY in CSS pixels.
+    pub const Y:         u32 = 8;
+    /// `u32` — `event.button` for mouse / `event.keyCode` for keys.
+    pub const BUTTON_OR_KEY: u32 = 12;
+    /// `u32` — modifier-key bitmap: bit0=shift bit1=ctrl bit2=alt bit3=meta.
+    pub const MODIFIERS: u32 = 16;
 }
 
 // =====================================================================
@@ -140,25 +199,85 @@ pub unsafe extern "C" fn AzStartup_registerStateDeserializer(fn_ptr: usize) {
 }
 
 // =====================================================================
+// Callback registration
+// =====================================================================
+
+/// Register a `(node_idx, event_kind) → table_idx` binding so
+/// [`AzStartup_dispatchEvent`] can route events to the right
+/// per-callback WASM. JS calls this once per discovered
+/// `[data-az-cb][data-az-ev]` element after instantiating that
+/// element's callback module.
+///
+/// Returns `0` on success, `1` if [`EVENTLOOP_PTR`] is null (caller
+/// forgot [`AzStartup_init`]). Subsequent registrations for the same
+/// `(node_idx, event_kind)` overwrite the previous `table_idx` —
+/// matches the "last write wins" semantics of `re_render_body`.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_registerCallback(
+    node_idx: u32,
+    event_kind: u32,
+    table_idx: u32,
+) -> u32 {
+    let p = EVENTLOOP_PTR.load(Ordering::SeqCst);
+    if p.is_null() {
+        return 1;
+    }
+    let state = &mut *p;
+    state.cb_table_indices.insert(pack_cb_key(node_idx, event_kind), table_idx);
+    0
+}
+
+// =====================================================================
 // Event dispatch
 // =====================================================================
 
 /// Process one input event from JS.
 ///
-/// JS marshals the native DOM event into a fixed 256-byte buffer
-/// (event-format spec in M8.6). `kind` selects the union variant
-/// (mouse / keyboard / wheel / focus / resize). Returns the count of
-/// patches queued (0 means no DOM mutation needed).
+/// JS marshals the native DOM event into a fixed
+/// [`EVENT_BYTES_LEN`]-byte buffer; `kind` selects the
+/// [`event_kind`] variant. Returns the number of patches queued
+/// (caller drains via [`AzStartup_getPatches`]).
 ///
-/// **M8.1 stub**: returns 0. M8.4 wires hit-test + EventFilter
-/// dispatch + indirect callback invocation.
+/// **M8.4a — lookup-only stage**: this body extracts `node_idx` from
+/// the event buffer + looks up the registered callback in
+/// [`EventloopState::cb_table_indices`]. The actual `call_indirect`
+/// dispatch into the JS-owned `WebAssembly.Table` lands in M8.4b
+/// (requires a thin `__az_call_indirect` helper IR in the linked
+/// azul-mini.wasm to bridge from Rust source through to a wasm-side
+/// `call_indirect`). For now the return value reports whether a
+/// matching binding was found (`1`) or not (`0`); JS treats both as
+/// "no patches queued" until M8.4b lands.
 #[no_mangle]
 pub unsafe extern "C" fn AzStartup_dispatchEvent(
-    _kind: u32,
-    _event_bytes_ptr: u32,
-    _event_bytes_len: u32,
+    kind: u32,
+    event_bytes_ptr: u32,
+    event_bytes_len: u32,
 ) -> u32 {
-    0
+    if event_bytes_len < event_offset::MODIFIERS + 4 {
+        return 0;
+    }
+    let p = EVENTLOOP_PTR.load(Ordering::SeqCst);
+    if p.is_null() {
+        return 0;
+    }
+    let state = &mut *p;
+    // Read node_idx (u32 LE) from the JS-marshalled buffer. The
+    // pointer is a linear-memory offset; on wasm32 the cast becomes
+    // a no-op, on native AArch64 (only the lift-source path) it
+    // truncates harmlessly because the body never executes natively.
+    let node_idx_ptr = (event_bytes_ptr as usize + event_offset::NODE_IDX as usize) as *const u32;
+    let node_idx = core::ptr::read_unaligned(node_idx_ptr);
+    if node_idx == u32::MAX {
+        // Window-level event without a target node (resize, focus
+        // chrome). M8.4c will route to window-callbacks; for M8.4a
+        // we just drop it.
+        return 0;
+    }
+    let key = pack_cb_key(node_idx, kind);
+    match state.cb_table_indices.get(&key) {
+        Some(_table_idx) => 1, // M8.4b: call_indirect here.
+        None => 0,
+    }
 }
 
 /// Drain queued DOM mutations into the JS-allocated readback buffer
