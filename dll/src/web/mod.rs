@@ -25,6 +25,25 @@ pub mod classify;
 pub mod transpiler;
 #[cfg(feature = "web-transpiler")]
 pub mod transpiler_remill;
+pub mod eventloop;
+
+/// Framework-internal eventloop symbols lifted from libazul at server
+/// startup, linked into `azul-mini.wasm`. Hand-written in
+/// [`eventloop`]; not in `api.json`, so language bindings never see
+/// them. `run_web` iterates this list, `dlsym`s each, lifts via
+/// [`transpiler_remill::RemillTranspiler::lift_function`], then links
+/// the resulting `.o` files into one WASM module via `wasm-ld`.
+///
+/// Keep in sync with the `#[no_mangle] pub extern "C"` exports in
+/// [`eventloop`]. Wired into the lift loop in M8.2.
+pub const EVENTLOOP_SYMBOLS: &[&str] = &[
+    "AzStartup_alloc",
+    "AzStartup_free",
+    "AzStartup_init",
+    "AzStartup_dispatchEvent",
+    "AzStartup_getPatches",
+    "AzStartup_registerStateDeserializer",
+];
 
 use std::collections::{BTreeMap, HashMap};
 use std::net::SocketAddr;
