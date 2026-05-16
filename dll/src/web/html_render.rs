@@ -331,8 +331,18 @@ impl RenderContext {
         attrs.push_str(&format!(" src=\"/az/img/{}\"", img_id));
     }
 
-    /// Append callback data attributes for Phase 0 server-side execution and
-    /// stash the discovered callback for the caller (Phase C remill lift).
+    /// Append callback data attributes for both Phase-0 server-side execution
+    /// and the M4 client-side WASM dispatch path.
+    ///
+    /// Emits:
+    ///   - `data-az-cb="<node_idx>"` — synthetic node ID (server-side
+    ///     route lookup key for `POST /az/exec/{id}`).
+    ///   - `data-az-ev="<event_name>"` — JS event type (`click`,
+    ///     `mouseenter`, …) derived from the first callback's
+    ///     EventFilter. loader_js binds the listener under this name.
+    ///   - `data-az-wasm="/az/cb/<sym>.<hash>.wasm"` — URL of the
+    ///     per-callback WASM module. loader_js fetches +
+    ///     instantiates this on DOMContentLoaded, dispatches on click.
     fn emit_callback_attrs(&mut self, nd: &NodeData, az_id: usize, attrs: &mut String) {
         if nd.callbacks.as_ref().is_empty() {
             return;
@@ -345,6 +355,10 @@ impl RenderContext {
         let core_cb = first_cb.callback.clone();
         let sym = super::resolve_fn_ptr(core_cb.cb);
         let content_hash = super::fnv1a64_hex(sym.name.as_bytes());
+        attrs.push_str(&format!(
+            " data-az-wasm=\"/az/cb/{}.{}.wasm\"",
+            sym.name, content_hash
+        ));
         self.callbacks.push(DiscoveredCallback {
             node_idx: az_id as u32,
             name: sym.name,
