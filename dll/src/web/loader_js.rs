@@ -142,6 +142,17 @@ function azCallbackImports() {
 }
 
 // =====================================================================
+// M8.7c-3 hydration state — wasm-side AzRefAny constructed at boot.
+// =====================================================================
+var azRefAnyPtr = 0;    // wasm offset of the 24B AzRefAny aggregate
+var azModelPtr  = 0;    // wasm offset of the user-data struct
+                          // (hello-world: 4B holding the u32 counter)
+// Per-node callback fns, keyed by node_idx — populated when each
+// per-cb wasm is instantiated. The direct-invoke click path looks
+// these up + calls them with (azRefAnyPtr, 0, info_ptr).
+var azNodeCbFns = new Map();
+
+// =====================================================================
 // Bootstrap.
 // =====================================================================
 async function azBootstrap() {
@@ -165,7 +176,12 @@ async function azBootstrap() {
     azMemory = azMini.memory;
     console.debug('[azul-web] mini exports:', Object.keys(azMini));
 
-    // 2. Initialize App. (No JSON payload in M8.6; M8.7 wires this.)
+    // 2. Initialize App. AzStartup_init returns the eventloop state ptr.
+    //    M8.7c-3 ignores the JSON payload args (the AArch64-layout
+    //    RefAny is constructed entirely on the JS side below — see
+    //    azHydrate); a future pass will run the user's lifted
+    //    fromJson via __az_call_indirect instead of building the
+    //    aggregate by hand.
     azState = azMini.AzStartup_init(0, 0);
     if (!azState) {
         console.error('[azul-web] AzStartup_init returned 0');
@@ -173,9 +189,14 @@ async function azBootstrap() {
     }
     console.debug('[azul-web] AzStartup_init → state ptr', azState);
 
-    // 3. Discover + instantiate per-callback WASMs. Each gets put at
-    //    table[node_idx] (M8.6 stub: table-index == node_idx). The
-    //    node_idx → table_idx map drives __az_resolve_callback.
+    // 3. Hydrate the wasm-side RefAny from the server-embedded
+    //    az-hydrate block.
+    azHydrate();
+
+    // 4. Discover + instantiate per-callback WASMs. Each gets put at
+    //    table[node_idx] AND recorded in azNodeCbFns so the
+    //    direct-invoke click handler below can call them without
+    //    going through AzStartup_dispatchEvent.
     var cbs = document.querySelectorAll('[data-az-cb][data-az-wasm]');
     for (var i = 0; i < cbs.length; i++) {
         var el = cbs[i];
@@ -192,12 +213,12 @@ async function azBootstrap() {
                 console.warn('[azul-web] ' + url + ' has no `callback` export');
                 continue;
             }
-            // Grow the table if needed.
             while (azTable.length <= nodeIdx) {
                 azTable.grow(16);
             }
             azTable.set(nodeIdx, cbFn);
             azFnAddrToTableIdx.set(nodeIdx, nodeIdx);
+            azNodeCbFns.set(nodeIdx, cbFn);
             console.debug('[azul-web] cb node=' + nodeIdx + ' loaded from ' + url +
                           ' → table[' + nodeIdx + ']');
         } catch (e) {
@@ -205,12 +226,140 @@ async function azBootstrap() {
         }
     }
 
-    // 4. Wire native event listeners on the document root. WASM does
-    //    not yet hit-test (M8.5c); JS extracts node_idx from
-    //    event.target.id (="az_N").
+    // 5. Wire native event listeners.
     azWireListeners();
 
     console.info('[azul-web] bootstrap complete');
+}
+
+// =====================================================================
+// M8.7c-3 hydration: construct an AArch64-layout AzRefAny tree in
+// wasm memory matching what the lifted cb expects to dereference.
+//
+// Layout (all sizes in bytes, all pointers 8B even in wasm32 — the
+// lifted code was originally arm64 so it does 64-bit loads on the
+// aggregates):
+//
+//   MyDataModel  @ azModelPtr    : { counter: u32 }            → 4B
+//   RefCountInner @ innerPtr     : 112B with type_id at +56
+//   AzRefAny @ azRefAnyPtr       : { sharing_info: RefCount,
+//                                    instance_id: u64 }        → 24B
+//   RefCount   = { ptr: u64, run_destructor: u64 (1B padded) } → 16B
+//
+// The 64-bit pointer fields are written with `setBigUint64` so the
+// lifted `ldr x9, [x0]` reads a 64-bit value where the low 32 bits
+// are the wasm offset and the high 32 bits are zero — wasm linear
+// memory addressing ignores the high bits.
+// =====================================================================
+function azHydrate() {
+    var script = document.getElementById('az-hydrate');
+    if (!script) {
+        console.warn('[azul-web] no #az-hydrate block in HTML — cb path will get a null refany');
+        return;
+    }
+    var payload;
+    try {
+        payload = JSON.parse(script.textContent);
+    } catch (e) {
+        console.error('[azul-web] az-hydrate JSON parse failed:', e);
+        return;
+    }
+    var typeIdBigInt = BigInt(payload.type_id);
+    var counter = (typeof payload.json === 'number') ? payload.json : 0;
+
+    // Allocate the 3 blocks via the mini's bump allocator.
+    azModelPtr   = azMini.AzStartup_alloc(4);
+    var innerPtr = azMini.AzStartup_alloc(112);
+    azRefAnyPtr  = azMini.AzStartup_alloc(24);
+    if (!azModelPtr || !innerPtr || !azRefAnyPtr) {
+        console.error('[azul-web] hydrate alloc failed', azModelPtr, innerPtr, azRefAnyPtr);
+        return;
+    }
+
+    var view = new DataView(azMemory.buffer);
+
+    // MyDataModel: just the counter.
+    view.setUint32(azModelPtr, counter >>> 0, true);
+
+    // RefCountInner — fields at offsets matching the desktop
+    // `#[repr(C)]` layout (8B pointers, 8B usize on arm64).
+    view.setBigUint64(innerPtr +   0, BigInt(azModelPtr), true);  // _internal_ptr
+    view.setBigUint64(innerPtr +   8, 1n, true);                    // num_copies
+    view.setBigUint64(innerPtr +  16, 0n, true);                    // num_refs
+    view.setBigUint64(innerPtr +  24, 0n, true);                    // num_mutable_refs
+    view.setBigUint64(innerPtr +  32, 4n, true);                    // _internal_len
+    view.setBigUint64(innerPtr +  40, 4n, true);                    // _internal_layout_size
+    view.setBigUint64(innerPtr +  48, 4n, true);                    // _internal_layout_align
+    view.setBigUint64(innerPtr +  56, typeIdBigInt, true);          // type_id ★
+    // type_name (AzString, 24B), custom_destructor (8B), serialize_fn
+    // (8B), deserialize_fn (8B) — all zero is fine for the cb's
+    // downcast path (is_type only reads type_id).
+    view.setBigUint64(innerPtr +  64, 0n, true);
+    view.setBigUint64(innerPtr +  72, 0n, true);
+    view.setBigUint64(innerPtr +  80, 0n, true);
+    view.setBigUint64(innerPtr +  88, 0n, true);
+    view.setBigUint64(innerPtr +  96, 0n, true);
+    view.setBigUint64(innerPtr + 104, 0n, true);
+
+    // AzRefAny: { sharing_info: RefCount { ptr: u64, run_destructor: bool },
+    //             instance_id: u64 }
+    view.setBigUint64(azRefAnyPtr +  0, BigInt(innerPtr), true);  // sharing_info.ptr
+    view.setBigUint64(azRefAnyPtr +  8, 0n, true);                  // sharing_info.run_destructor
+    view.setBigUint64(azRefAnyPtr + 16, 0n, true);                  // instance_id
+
+    console.info('[azul-web] hydrate ok: refany=' + azRefAnyPtr +
+                 ' inner=' + innerPtr + ' model=' + azModelPtr +
+                 ' counter=' + counter + ' type_id=' + payload.type_id);
+}
+
+// =====================================================================
+// Direct cb invocation (skips AzStartup_dispatchEvent).
+//
+// The dispatch chain (mini's dispatchEvent → __az_call_indirect
+// → cb) currently hardcodes FAKE_REFANY (0x101). To exercise the
+// hydrated wasm-side RefAny we bypass it: on click, look up the
+// per-node cb fn we registered at bootstrap and call it directly
+// with (azRefAnyPtr, 0n, info_ptr).
+//
+// The wrapper expects two i64s (the refany aggregate halves) — we
+// pass refany_ptr in the low one and 0 in the high one because the
+// lifted code treats X0 as a 64-bit pointer to the 24B AzRefAny
+// (the canonical_callback sig's GprI64Pair predates the realization
+// that >16B aggregates are passed by hidden pointer in arm64 PCS).
+// Reading X0 as a 64-bit ptr in wasm32 land just truncates to the
+// low 32 — exactly the wasm offset we passed.
+// =====================================================================
+function azInvokeCbDirect(nodeIdx, domEvent) {
+    var cbFn = azNodeCbFns.get(nodeIdx);
+    if (!cbFn) return;
+    if (!azRefAnyPtr) {
+        console.warn('[azul-web] cb node=' + nodeIdx + ' invoked but refany not hydrated');
+        return;
+    }
+    var infoPtr = azMini.AzStartup_alloc(EVENT_BUFFER_SIZE);
+    var update = 0;
+    try {
+        update = cbFn(BigInt(azRefAnyPtr), 0n, infoPtr);
+    } catch (e) {
+        console.warn('[azul-web] cb trapped:', e.message);
+    } finally {
+        azMini.AzStartup_free(infoPtr, EVENT_BUFFER_SIZE);
+    }
+    // Update enum: 0 = DoNothing, 1 = RefreshDom (… see eventloop.rs).
+    // For RefreshDom, read the counter back from wasm memory + apply
+    // a SetText patch to the matching DOM node. The counter node id
+    // is currently hardcoded to az_1 (the only text-containing node
+    // in hello-world); a proper diff loop is M8.5d.
+    if (update >= 1 && azModelPtr) {
+        var view = new DataView(azMemory.buffer);
+        var newCounter = view.getUint32(azModelPtr, true);
+        var el = document.getElementById('az_1');
+        if (el) el.textContent = newCounter.toString();
+        console.info('[azul-web] cb node=' + nodeIdx +
+                     ' → Update=' + update + ' counter=' + newCounter);
+    } else {
+        console.info('[azul-web] cb node=' + nodeIdx + ' → Update=' + update);
+    }
 }
 
 function azNodeIdxFromEvent(domEvent) {
@@ -298,18 +447,16 @@ function azApplyPatches(ptr, len) {
 }
 
 function azWireListeners() {
-    var root = document.body;
-    root.addEventListener('click',     function(e) { azDispatch(EVT_CLICK, e); });
-    root.addEventListener('mousedown', function(e) { azDispatch(EVT_MOUSEDOWN, e); });
-    root.addEventListener('mouseup',   function(e) { azDispatch(EVT_MOUSEUP, e); });
-    root.addEventListener('dblclick',  function(e) { azDispatch(EVT_DBLCLICK, e); });
-    root.addEventListener('wheel',     function(e) { azDispatch(EVT_WHEEL, e); });
-    document.addEventListener('keydown', function(e) { azDispatch(EVT_KEYDOWN, e); });
-    document.addEventListener('keyup',   function(e) { azDispatch(EVT_KEYUP, e); });
-    root.addEventListener('focusin',   function(e) { azDispatch(EVT_FOCUSIN, e); });
-    root.addEventListener('focusout',  function(e) { azDispatch(EVT_FOCUSOUT, e); });
-    window.addEventListener('resize',  function(e) { azDispatch(EVT_RESIZE, e); });
-    window.addEventListener('scroll',  function(e) { azDispatch(EVT_SCROLL, e); });
+    // M8.7c-3: click-only direct invocation. We bypass mini's
+    // AzStartup_dispatchEvent (which still uses FAKE_REFANY) and
+    // call the per-node cb fn directly with the hydrated
+    // azRefAnyPtr. Other event kinds (mousedown, key, etc.) wait
+    // on M8.5d's full dispatch loop.
+    document.body.addEventListener('click', function(e) {
+        var nodeIdx = azNodeIdxFromEvent(e);
+        if (nodeIdx === SENTINEL_NO_NODE) return;
+        azInvokeCbDirect(nodeIdx, e);
+    });
 }
 
 // =====================================================================

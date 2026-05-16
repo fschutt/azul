@@ -73,6 +73,17 @@ pub fn render_initial_page(
     active_route: Option<&RouteMatch>,
     bundled_fonts: &[azul_core::resources::NamedFont],
 ) -> RenderOutput {
+    // M8.7c-3 hydration snapshot. Pulled from app_data so the wasm
+    // client can reconstruct a valid RefAny in linear memory before
+    // calling user callbacks. type_id matches what the C-side
+    // AZ_REFLECT_JSON macro hashed at compile time; `json` is the
+    // user's toJson(refany) serialization (the same one validate()
+    // checks at startup).
+    let hydrate_type_id = app_data.get_type_id();
+    let hydrate_json: String = match azul_layout::json::refany_serialize_to_json(app_data) {
+        azul_core::json::OptionJson::Some(j) => format!("{}", j),
+        azul_core::json::OptionJson::None => String::from("null"),
+    };
     // 1. Run layout callback → Dom (recursive tree with CSS attached)
     let dom = call_layout(app_data, layout_callback, window_state, fc_cache, active_route);
 
@@ -153,6 +164,20 @@ pub fn render_initial_page(
     // 5. Build stylesheet
     let stylesheet = build_stylesheet(&ctx);
 
+    // M8.7c-3 hydration payload. The wasm bootstrap reads this
+    // block, allocates a wasm-side AzRefAny + RefCount +
+    // RefCountInner + user-data tree, and uses the resulting ptr
+    // as the refany arg when invoking user callbacks.
+    //
+    // Encoding: a single JSON object with the type_id (as a decimal
+    // string — JS Number can't hold u64 losslessly so we BigInt-parse)
+    // and the user's toJson serialization. For hello-world.c the
+    // serialization is just the integer counter.
+    let hydrate_block = format!(
+        r#"<script id="az-hydrate" type="application/json">{{"type_id":"{}","json":{}}}</script>"#,
+        hydrate_type_id, hydrate_json,
+    );
+
     let html = format!(
         r#"<!DOCTYPE html>
 <html lang="en">
@@ -160,6 +185,7 @@ pub fn render_initial_page(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Azul Web App</title>
+{}
 {}
 <style>{}
 {}
@@ -175,6 +201,7 @@ pub fn render_initial_page(
 </body>
 </html>"#,
         preload_hints,
+        hydrate_block,
         RESET_CSS,
         stylesheet,
         body_html,
