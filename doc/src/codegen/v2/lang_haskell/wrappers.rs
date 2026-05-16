@@ -395,15 +395,42 @@ fn emit_haskell_method_wrappers(
             continue;
         }
 
-        // Skip non-void returns (Phase 2).
-        let return_void = func
+        // Return shape — Phase 3 handles wrapper-struct returns
+        // (alloca outPtr + peek). Phase 1 + 2 covered void returns.
+        // Enums + primitives stay deferred to a future phase (need
+        // a per-primitive `peek <ptr>` that unifies with the SAM
+        // type).
+        enum ReturnShape {
+            Void,
+            WrapperStruct(String), // payload type name (e.g. "Dom")
+        }
+        let return_shape: ReturnShape = match func
             .return_type
             .as_deref()
-            .map(|r| matches!(r.trim(), "" | "void" | "()" | "c_void"))
-            .unwrap_or(true);
-        if !return_void {
-            continue;
-        }
+            .map(|r| r.trim())
+        {
+            None | Some("") | Some("void") | Some("()") | Some("c_void") => ReturnShape::Void,
+            Some(rt) => {
+                // Wrapper struct: emitted as a Haskell newtype with
+                // `mkFoo` / `withFoo` and a `Storable` instance via
+                // `Azul.Types`.
+                let is_wrapper = ir.find_struct(rt).map(|s| {
+                    delete_set.contains(rt) && matches!(
+                        s.category,
+                        super::super::ir::TypeCategory::Regular
+                            | super::super::ir::TypeCategory::String
+                            | super::super::ir::TypeCategory::CallbackDataPair
+                    )
+                }).unwrap_or(false);
+                if is_wrapper {
+                    ReturnShape::WrapperStruct(rt.to_string())
+                } else {
+                    // Skip enum / primitive / Vec / Option / Result
+                    // returns for this phase.
+                    continue;
+                }
+            }
+        };
 
         // Skip when any arg has a callback or non-Phase-1 shape.
         let mut method_args_ok = true;
@@ -478,12 +505,22 @@ fn emit_haskell_method_wrappers(
             format!("FFI.c_{}", func.c_name)
         };
 
-        // Type signature: `Class -> Arg1 -> ... -> IO ()`.
+        // Type signature: `Class -> Arg1 -> ... -> IO <Return>`.
         let mut sig_parts = vec![haskell_data_name(&s.name)];
         for a in func.args.iter().skip(1) {
             sig_parts.push(haskell_arg_type(a, ir, delete_set));
         }
-        sig_parts.push("IO ()".to_string());
+        let return_sig = match &return_shape {
+            ReturnShape::Void => "IO ()".to_string(),
+            // Return the raw FFI struct value (`T.<X>`); user wraps
+            // manually via `mkFoo` after malloc'ing storage if they
+            // want a managed handle. Matches the existing HelloWorld.hs
+            // pattern (`alloca buf; ..._via buf; peek buf :: IO T.Dom`).
+            ReturnShape::WrapperStruct(name) => {
+                format!("IO T.{}", haskell_data_name(name))
+            }
+        };
+        sig_parts.push(return_sig);
 
         // Function body parameter names.
         let mut param_names: Vec<String> = vec!["self".to_string()];
@@ -523,13 +560,27 @@ fn emit_haskell_method_wrappers(
                             | super::super::ir::TypeCategory::CallbackDataPair
                     )
                 }).unwrap_or(false);
+                // `cshim.rs::is_c_primitive` semantics — the C shim
+                // takes primitives by value (no pointer wrap) even when
+                // the function is shimmed for an aggregate arg/return.
+                // Mirror its predicate here so the Haskell-side arg
+                // marshalling matches the FFI binding signature.
+                let is_c_prim = matches!(
+                    t,
+                    "u8" | "u16" | "u32" | "u64"
+                    | "i8" | "i16" | "i32" | "i64"
+                    | "usize" | "isize" | "f32" | "f64"
+                    | "bool" | "()" | "c_void" | "void"
+                );
                 if is_wrapper {
                     ArgEmit::Wrapper(haskell_data_name(t))
-                } else if shimmed {
-                    // Shimmed FFI binding expects `Ptr T.<X>` for this arg.
+                } else if shimmed && !is_c_prim {
+                    // Shimmed FFI binding expects `Ptr T.<X>` for this
+                    // aggregate (enum / opaque struct) arg.
                     ArgEmit::Poke
                 } else {
-                    // Non-shimmed FFI takes the value directly.
+                    // Non-shimmed FFI takes the value directly, OR
+                    // shimmed-but-primitive (still by value per cshim).
                     ArgEmit::Passthrough
                 }
             })
@@ -600,6 +651,16 @@ fn emit_haskell_method_wrappers(
             builder.line(&format!("poke __p_{} {}", name, name));
         }
 
+        // Phase 3: wrapper-struct returns get an additional innermost
+        // alloca for the `_via` outPtr; `peek __outPtr` is the final
+        // result. Append `__outPtr` to call_args for these.
+        let needs_return_alloca = matches!(return_shape, ReturnShape::WrapperStruct(_));
+        if needs_return_alloca {
+            builder.line("alloca $ \\__outPtr -> do");
+            builder.indent();
+            call_args.push("__outPtr".to_string());
+        }
+
         // The C call itself.
         builder.line(&format!(
             "{} {}",
@@ -618,6 +679,13 @@ fn emit_haskell_method_wrappers(
             builder.line(&format!("{} self", consume_fn));
         }
 
+        // Phase 3: peek the out-ptr as the final IO action so the
+        // do-block's last expression is `IO T.<X>`.
+        if needs_return_alloca {
+            builder.line("peek __outPtr");
+            builder.dedent();
+        }
+
         // Close each `alloca`'s do-block (dedent once per Poke arg).
         for _ in &poke_args {
             builder.dedent();
@@ -629,50 +697,25 @@ fn emit_haskell_method_wrappers(
 
 /// Map an IR `FunctionArg` to its Haskell-side type for the method-
 /// wrapper signature. Wrapper classes use the bare wrapper name
-/// (`Dom`, `Button`), primitives map via `Foreign.C.Types`, enums use
-/// the bare data name from `Azul.Types`.
+/// (`Dom`, `Button`); everything else routes through the canonical
+/// `super::types::haskell_field_type` mapping so user-facing sigs
+/// match the cdef-emitted FFI binding signatures exactly.
 fn haskell_arg_type(
     a: &super::super::ir::FunctionArg,
     ir: &CodegenIR,
     delete_set: &BTreeSet<&str>,
 ) -> String {
     let t = a.type_name.trim();
-    if let Some(_) = ir.find_struct(t) {
-        if delete_set.contains(t) {
-            return haskell_data_name(t);
-        }
+    if ir.find_struct(t).is_some() && delete_set.contains(t) {
+        return haskell_data_name(t);
     }
+    // For enums, the canonical mapping returns the bare data name
+    // (e.g. `ButtonType`); qualify it under `T.` since users see
+    // the umbrella module which only re-exports `Azul.Types` qualified.
     if ir.find_enum(t).is_some() {
         return format!("T.{}", haskell_data_name(t));
     }
-    // GHC's Foreign.C.Types provides the C-side typedefs that match
-    // the cdef-emitted bindings exactly. Use those for primitive args
-    // so the user's Haskell type is identical to what the FFI
-    // declaration expects — no manual `CBool 1` / `fromIntegral`
-    // boilerplate at the call site.
-    match t {
-        "bool" => "CBool".to_string(),
-        "u8" => "CUChar".to_string(),
-        "i8" => "CChar".to_string(),
-        "u16" => "CUShort".to_string(),
-        "i16" => "CShort".to_string(),
-        "u32" => "CUInt".to_string(),
-        "i32" => "CInt".to_string(),
-        "u64" => "CULong".to_string(),
-        "i64" => "CLong".to_string(),
-        "usize" => "CSize".to_string(),
-        // GHC's Foreign.C.Types doesn't ship CSsize; Int64 is the
-        // closest portable equivalent (covers ssize_t on every
-        // supported 64-bit target).
-        "isize" => "Int64".to_string(),
-        // GHC FFI bindings (Foreign.C.Types) use CFloat / CDouble
-        // for `float` / `double` C arg types — not the Haskell-native
-        // `Float` / `Double`. They're newtypes around the same bits
-        // but distinct at the type level.
-        "f32" => "CFloat".to_string(),
-        "f64" => "CDouble".to_string(),
-        _ => "CSize /* TODO */".to_string(), // unreachable per the Phase 1 filter
-    }
+    super::types::haskell_field_type(t, super::super::ir::FieldRefKind::Owned, ir)
 }
 
 /// Convert snake_case (`add_child`) or already-camel (`addChild`) to
