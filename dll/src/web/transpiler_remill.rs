@@ -1426,6 +1426,8 @@ define linkonce_odr ptr @__remill_barrier_load_load(ptr %memory) alwaysinline {{
 define linkonce_odr ptr @__remill_barrier_load_store(ptr %memory) alwaysinline {{ ret ptr %memory }}
 define linkonce_odr ptr @__remill_barrier_store_load(ptr %memory) alwaysinline {{ ret ptr %memory }}
 define linkonce_odr ptr @__remill_barrier_store_store(ptr %memory) alwaysinline {{ ret ptr %memory }}
+; sync_hyper_call (svc/hvc/smc style instructions). Noop pass-through.
+define linkonce_odr ptr @__remill_sync_hyper_call(ptr %state, ptr %memory, i32 %call_num) alwaysinline {{ ret ptr %memory }}
 
 ; Flag-computation intrinsics. remill emits these to compute the
 ; result of arithmetic flag effects (zero/sign/carry/overflow); the
