@@ -332,7 +332,16 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
     let has_eq = s.traits.is_partial_eq
         && ir.functions.iter().any(|f| f.c_name == eq_sym);
     let eq_clause = if has_eq {
-        format!(", __eq = function(a, b) return C.{}(a, b) end", eq_sym)
+        // Guard against `cdata == nil` and cross-type equality; both
+        // LuaJIT idioms invoke __eq with `b = nil` or a non-cdata,
+        // which would otherwise dereference NULL inside the C-side
+        // partialEq comparator and SIGSEGV.
+        format!(
+            ", __eq = function(a, b) \
+             if type(a) ~= 'cdata' or type(b) ~= 'cdata' then return false end; \
+             return C.{}(a, b) end",
+            eq_sym
+        )
     } else {
         String::new()
     };
