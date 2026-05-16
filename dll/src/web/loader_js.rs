@@ -1,85 +1,110 @@
 //! Generate the azul-loader.js bootstrap script.
 //!
-//! M4 (default): client-side WASM dispatch. Each `data-az-cb` element
-//! also carries `data-az-wasm="/az/cb/<sym>.<hash>.wasm"`; loader.js
-//! fetches + instantiates the module on DOMContentLoaded and calls
-//! `instance.exports.callback(0, 0)` on the listed event. Per the
-//! user direction `default = client-side; no server fallback in
-//! loader.js by default`, the loader does NOT fall back to
-//! `POST /az/exec/` when a callback fails to load or runs as a no-op;
-//! it logs to console and stays silent. The server-side path is
-//! preserved (server.rs still serves it) for opt-in debugging.
+//! M8.6 loader: instantiates `azul-mini.wasm` + every per-callback
+//! WASM into a shared `WebAssembly.Table` (funcref), wires native
+//! event listeners on `document.body`, marshals events into a fixed
+//! 256-byte buffer + calls `AzStartup_dispatchEvent`, then applies
+//! the patch byte-stream returned by the eventloop.
 //!
-//! Routing (SPA nav via `<a>` interception, popstate handling) is
-//! unchanged — those don't go through the callback dispatch path.
+//! Architecture (M8.5 confirmed end-to-end via Node):
+//!   - `azul-mini.wasm` exports `AzStartup_init`, `_dispatchEvent`,
+//!     `_alloc`, `_free`, `_registerStateDeserializer` + `memory`.
+//!     Imports `env.__indirect_function_table` + `env.__az_resolve_callback`.
+//!   - Per-callback WASMs (`/az/cb/<sym>.<hash>.wasm`) export
+//!     `callback(i64, i64, i32) -> i32`. JS instantiates each at a
+//!     known table slot.
+//!   - JS maps `node_idx → table_idx` (M8.6 stub: identity, since
+//!     dispatchEvent currently passes `node_idx` to
+//!     `__az_resolve_callback`; M8.5c will swap to real fn-addrs
+//!     looked up from a hydrated StyledDom inside WASM).
+//!
+//! Per the user direction (`default = client-side; no server
+//! fallback in loader.js`), the loader does NOT call POST
+//! `/az/exec/`. Failures log to console + silently no-op.
 
 use super::CallbackWasm;
 
-/// Generate the loader JavaScript for the current phase.
+/// Generate the loader JavaScript.
 ///
-/// Args are kept for forward compatibility (M5+ will inline a
-/// per-callback metadata table for richer features like signature
-/// info, lift-success flags, etc.), but the M4 loader pulls the WASM
-/// URL from each element's `data-az-wasm` attribute and doesn't need
-/// the global list.
+/// Args are kept for forward compatibility — the M8.6 loader pulls
+/// the mini.wasm URL from the `<link rel="preload">` hint in the
+/// HTML head + the per-cb URLs from `[data-az-wasm]` attributes.
 pub fn generate_loader_js(
     _mini_wasm_hash: &str,
     _callbacks: &[CallbackWasm],
 ) -> String {
-    generate_m4_loader()
+    generate_m8_loader()
 }
 
-/// M4 loader: client-side WASM dispatch, no server fallback.
-fn generate_m4_loader() -> String {
+/// M8.6 loader.
+fn generate_m8_loader() -> String {
     r#"(function(){
 'use strict';
 
-// M4: client-side WASM dispatch (no server fallback by default).
-// Each interactive element carries:
-//   data-az-cb    — synthetic node ID (debug/diagnostic only here)
-//   data-az-ev    — DOM event name to bind under
-//   data-az-wasm  — URL of the per-callback WASM module
-//
-// On DOMContentLoaded, every distinct `data-az-wasm` URL is fetched
-// + instantiated via WebAssembly.instantiateStreaming, then cached
-// in a Map keyed by URL. On the listed event, we call
-// `instance.exports.callback(0, 0)`. The return value is currently
-// ignored (placeholder until M7 marshals real args + return → DOM
-// patches). A missing/failed instance logs to console and silently
-// no-ops — we don't fall back to `POST /az/exec/` per user direction.
+// =====================================================================
+// Event-kind constants — must match `event_kind` module in
+// dll/src/web/eventloop.rs.
+// =====================================================================
+var EVT_CLICK     = 0;
+var EVT_MOUSEDOWN = 1;
+var EVT_MOUSEUP   = 2;
+var EVT_MOUSEMOVE = 3;
+var EVT_DBLCLICK  = 4;
+var EVT_WHEEL     = 5;
+var EVT_KEYDOWN   = 6;
+var EVT_KEYUP     = 7;
+var EVT_FOCUSIN   = 8;
+var EVT_FOCUSOUT  = 9;
+var EVT_RESIZE    = 10;
+var EVT_SCROLL    = 11;
 
-var azWasmCache = new Map(); // URL -> Promise<WebAssembly.Instance>
+var EVENT_BUFFER_SIZE = 256;
+var OUT_LEN_SIZE = 4;
+var SENTINEL_NO_NODE = 0xFFFFFFFF;
 
-// M5: import stubs for remill-lifted modules. The lifted IR contains
-// declared-but-undefined symbols that wasm-ld passes through as
-// imports (via `--allow-undefined`):
-//
-//   - `__remill_*` intrinsics — memory/function/atomic ops the lift
-//     models opaquely.
-//   - `sub_<hex>` — branch destinations to addresses outside the
-//     byte map we handed to remill. These are real call targets in
-//     the host binary that the lift saw but didn't follow.
-//
-// We satisfy every import with a JS no-op. The lifted callback
-// can't compute anything meaningful (every memory access returns
-// 0, every external call is dropped), but it WILL instantiate and
-// run — that's the M5 validation goal. M6's IR-passes (intrinsic
-// lowering + signature rewrite) and M7's symbol-intercept pass
-// give bodies to these on the Rust side; the imports disappear
-// from the lifted module's import list and the callback computes
-// real results.
-//
-// A Proxy backs the import object so any name the lifter produces
-// resolves to a noop — beats enumerating every `__remill_*`
-// variant manually and handles the variable `sub_<hex>` set.
-function azRemillImports() {
-    var i64_noop = function() { return 0n; };
-    var i32_noop = function() { return 0; };
+// =====================================================================
+// Shared state (populated by azBootstrap).
+// =====================================================================
+var azMini = null;       // mini.wasm instance.exports
+var azState = 0;          // App state ptr from AzStartup_init
+var azMemory = null;      // mini's WebAssembly.Memory (shared via export)
+var azTable = null;       // WebAssembly.Table for indirect callback dispatch
+
+// node_idx → table_idx (M8.6 stub: identity since dispatchEvent uses
+// node_idx as the fn-addr-lookup key. M8.5c+ will swap to real
+// fn-addrs harvested from a hydrated StyledDom.)
+var azFnAddrToTableIdx = new Map();
+
+// =====================================================================
+// Imports given to mini.wasm at instantiate-time.
+// =====================================================================
+function azMakeMiniImports() {
+    azTable = new WebAssembly.Table({ initial: 64, element: 'anyfunc' });
+    return {
+        env: {
+            __indirect_function_table: azTable,
+            __az_resolve_callback: function(fnAddr) {
+                // BigInt → Number (safe; node_idx fits in u32).
+                var n = Number(fnAddr);
+                var idx = azFnAddrToTableIdx.get(n);
+                return idx === undefined ? SENTINEL_NO_NODE : idx;
+            },
+        },
+    };
+}
+
+// =====================================================================
+// Per-callback WASM imports.
+// Per-cb wasms have their own memory (not imported) and use noop'd
+// framework calls from the M7 intercept pass. The `__remill_*` +
+// `sub_<hex>` imports surface as undefined externs that wasm-ld
+// passes through with --allow-undefined; we satisfy them all with a
+// proxy that returns the right "no-op" type per the call shape.
+// =====================================================================
+function azCallbackImports() {
+    var i64_noop  = function() { return 0n; };
+    var i32_noop  = function() { return 0; };
     var void_noop = function() { /* no return */ };
-    // Per-name policy: read_memory_64 / fetch_and_add_64 / similar
-    // return i64; write_memory_* and barrier_* return void;
-    // everything else returns i32. Pattern-match the import name
-    // to pick the right return type so wasm validation passes.
     function stubFor(name) {
         if (name.indexOf('write_memory') !== -1 ||
             name.indexOf('barrier') !== -1) return void_noop;
@@ -93,96 +118,183 @@ function azRemillImports() {
         },
         has: function() { return true; },
     };
-    var proxy = new Proxy({}, handler);
-    return { env: proxy, remill: proxy };
+    return { env: new Proxy({}, handler) };
 }
 
-function azLoadWasm(url) {
-    var existing = azWasmCache.get(url);
-    if (existing) return existing;
-    var imports = azRemillImports();
-    var p = WebAssembly.instantiateStreaming(fetch(url), imports)
-        .then(function(res) { return res.instance; })
-        .catch(function(err) {
-            console.warn('[azul-web] failed to load ' + url + ':', err);
-            return null; // null-instance signals "skip dispatch"
-        });
-    azWasmCache.set(url, p);
-    return p;
-}
-
-// Pick the callback entry point from the instance's exports.
-// Hand-rolled M3 modules use `callback`. M5+ lifted modules use
-// `sub_<hex>` (remill's auto-generated name) — pick the first
-// function-typed export when `callback` isn't present.
-function azFindCallbackExport(exports) {
-    if (typeof exports.callback === 'function') return exports.callback;
-    for (var k in exports) {
-        if (typeof exports[k] === 'function') return exports[k];
-    }
-    return null;
-}
-
-function azDispatch(instance, evt, cbId, url) {
-    if (!instance) return;
-    var fn = azFindCallbackExport(instance.exports);
-    if (!fn) {
-        console.warn('[azul-web] ' + url + ' has no callable export');
+// =====================================================================
+// Bootstrap.
+// =====================================================================
+async function azBootstrap() {
+    var miniLink = document.querySelector('link[rel="preload"][href*="/az/mini."]');
+    if (!miniLink) {
+        console.error('[azul-web] no /az/mini.<hash>.wasm preload hint found');
         return;
     }
+    var miniUrl = miniLink.getAttribute('href');
+
+    // 1. Fetch + instantiate mini.wasm with shared table + JS-side
+    //    __az_resolve_callback.
+    var imports = azMakeMiniImports();
     try {
-        // M3 no-op: `(i32, i32) -> i32`; called with `(0, 0)`.
-        // M5 lifted: `(ptr, i64, ptr) -> ptr` per remill convention.
-        //            JS numeric args are coerced to the expected
-        //            wasm types; `0n` for the i64. Extra args are
-        //            ignored by WASM if the fn takes fewer.
-        // Either way the return is opaque and ignored until M9
-        // wires the client-side DOM patcher.
-        var ret = fn(0, 0n, 0);
-        if (ret !== 0 && ret !== 0n) {
-            console.debug('[azul-web] cb=' + cbId + ' returned ' + ret);
-        }
+        var miniMod = await WebAssembly.instantiateStreaming(fetch(miniUrl), imports);
+        azMini = miniMod.instance.exports;
     } catch (e) {
-        console.warn('[azul-web] cb=' + cbId + ' threw:', e);
+        console.error('[azul-web] failed to instantiate mini.wasm:', e);
+        return;
+    }
+    azMemory = azMini.memory;
+    console.debug('[azul-web] mini exports:', Object.keys(azMini));
+
+    // 2. Initialize App. (No JSON payload in M8.6; M8.7 wires this.)
+    azState = azMini.AzStartup_init(0, 0);
+    if (!azState) {
+        console.error('[azul-web] AzStartup_init returned 0');
+        return;
+    }
+    console.debug('[azul-web] AzStartup_init → state ptr', azState);
+
+    // 3. Discover + instantiate per-callback WASMs. Each gets put at
+    //    table[node_idx] (M8.6 stub: table-index == node_idx). The
+    //    node_idx → table_idx map drives __az_resolve_callback.
+    var cbs = document.querySelectorAll('[data-az-cb][data-az-wasm]');
+    for (var i = 0; i < cbs.length; i++) {
+        var el = cbs[i];
+        var nodeIdxStr = el.getAttribute('data-az-cb');
+        var nodeIdx = parseInt(nodeIdxStr, 10);
+        if (isNaN(nodeIdx)) continue;
+        var url = el.getAttribute('data-az-wasm');
+        if (!url) continue;
+
+        try {
+            var cbMod = await WebAssembly.instantiateStreaming(fetch(url), azCallbackImports());
+            var cbFn = cbMod.instance.exports.callback;
+            if (typeof cbFn !== 'function') {
+                console.warn('[azul-web] ' + url + ' has no `callback` export');
+                continue;
+            }
+            // Grow the table if needed.
+            while (azTable.length <= nodeIdx) {
+                azTable.grow(16);
+            }
+            azTable.set(nodeIdx, cbFn);
+            azFnAddrToTableIdx.set(nodeIdx, nodeIdx);
+            console.debug('[azul-web] cb node=' + nodeIdx + ' loaded from ' + url +
+                          ' → table[' + nodeIdx + ']');
+        } catch (e) {
+            console.warn('[azul-web] failed to instantiate ' + url + ':', e);
+        }
+    }
+
+    // 4. Wire native event listeners on the document root. WASM does
+    //    not yet hit-test (M8.5c); JS extracts node_idx from
+    //    event.target.id (="az_N").
+    azWireListeners();
+
+    console.info('[azul-web] bootstrap complete');
+}
+
+function azNodeIdxFromEvent(domEvent) {
+    var target = domEvent.target;
+    while (target && target !== document.body) {
+        if (target.id) {
+            var m = target.id.match(/^az_(\d+)$/);
+            if (m) return parseInt(m[1], 10);
+        }
+        target = target.parentNode;
+    }
+    return SENTINEL_NO_NODE;
+}
+
+function azModifierBits(e) {
+    var bits = 0;
+    if (e.shiftKey) bits |= 1;
+    if (e.ctrlKey)  bits |= 2;
+    if (e.altKey)   bits |= 4;
+    if (e.metaKey)  bits |= 8;
+    return bits;
+}
+
+function azDispatch(kind, domEvent) {
+    var nodeIdx = azNodeIdxFromEvent(domEvent);
+    if (nodeIdx === SENTINEL_NO_NODE) return;
+
+    var evtPtr = azMini.AzStartup_alloc(EVENT_BUFFER_SIZE);
+    var outLenPtr = azMini.AzStartup_alloc(OUT_LEN_SIZE);
+    if (!evtPtr || !outLenPtr) {
+        console.warn('[azul-web] alloc failed for event dispatch');
+        return;
+    }
+
+    var view = new DataView(azMemory.buffer);
+    // Layout matches event_offset in dll/src/web/eventloop.rs.
+    view.setUint32(evtPtr + 0,  nodeIdx, true);
+    view.setFloat32(evtPtr + 4, domEvent.clientX || 0, true);
+    view.setFloat32(evtPtr + 8, domEvent.clientY || 0, true);
+    view.setUint32(evtPtr + 12, domEvent.button || domEvent.keyCode || 0, true);
+    view.setUint32(evtPtr + 16, azModifierBits(domEvent), true);
+
+    var patchesPtr = azMini.AzStartup_dispatchEvent(
+        azState, kind, evtPtr, EVENT_BUFFER_SIZE, outLenPtr
+    );
+    var patchesLen = view.getUint32(outLenPtr, true);
+    console.debug('[azul-web] dispatch kind=' + kind + ' node=' + nodeIdx +
+                  ' → patches_ptr=' + patchesPtr + ' patches_len=' + patchesLen);
+
+    if (patchesPtr && patchesLen) {
+        azApplyPatches(patchesPtr, patchesLen);
+    }
+
+    azMini.AzStartup_free(evtPtr, EVENT_BUFFER_SIZE);
+    azMini.AzStartup_free(outLenPtr, OUT_LEN_SIZE);
+}
+
+// TLV patch-stream decoder. Layout per dll/src/web/eventloop.rs
+// AzStartup_getPatches doc (M8.5d will populate this):
+//   kind:u8 | node_idx:u32 | payload_len:u32 | payload:[u8; payload_len]
+//
+// M8.6 stub: dispatchEvent currently returns 0 (no patches). Once
+// M8.5d wires real patches, this decoder applies them to the DOM.
+function azApplyPatches(ptr, len) {
+    var view = new DataView(azMemory.buffer);
+    var off = 0;
+    while (off + 9 <= len) {
+        var kind        = view.getUint8(ptr + off + 0);
+        var nodeIdx     = view.getUint32(ptr + off + 1, true);
+        var payloadLen  = view.getUint32(ptr + off + 5, true);
+        var payloadOff  = ptr + off + 9;
+        switch (kind) {
+            case 1: { // SetText
+                var bytes = new Uint8Array(azMemory.buffer, payloadOff, payloadLen);
+                var text = new TextDecoder().decode(bytes);
+                var el = document.getElementById('az_' + nodeIdx);
+                if (el) el.textContent = text;
+                break;
+            }
+            default:
+                console.debug('[azul-web] unknown patch kind:', kind);
+        }
+        off += 9 + payloadLen;
     }
 }
 
-function azInit() {
-    // Preload every distinct callback WASM up front. The browser
-    // already started the fetches via `<link rel="preload">` in the
-    // HTML head; instantiateStreaming reuses those connections.
-    var urls = new Set();
-    document.querySelectorAll('[data-az-wasm]').forEach(function(el) {
-        var url = el.getAttribute('data-az-wasm');
-        if (url) urls.add(url);
-    });
-    urls.forEach(function(u) { azLoadWasm(u); });
-
-    // Bind per-element listeners.
-    document.querySelectorAll('[data-az-cb]').forEach(function(el) {
-        var cbId = el.getAttribute('data-az-cb');
-        var evType = el.getAttribute('data-az-ev') || 'click';
-        var url = el.getAttribute('data-az-wasm');
-        el.addEventListener(evType, function(e) {
-            e.preventDefault();
-            if (!url) return; // no WASM bound → silent no-op
-            azLoadWasm(url).then(function(inst) {
-                azDispatch(inst, e, cbId, url);
-            });
-        });
-    });
-
-    // Intercept internal link clicks for SPA-style navigation.
-    document.querySelectorAll('a[href^="/"]').forEach(function(el) {
-        el.addEventListener('click', function(e) {
-            var href = el.getAttribute('href');
-            if (!href || href.startsWith('/az/')) return;
-            e.preventDefault();
-            azNavigate(href);
-        });
-    });
+function azWireListeners() {
+    var root = document.body;
+    root.addEventListener('click',     function(e) { azDispatch(EVT_CLICK, e); });
+    root.addEventListener('mousedown', function(e) { azDispatch(EVT_MOUSEDOWN, e); });
+    root.addEventListener('mouseup',   function(e) { azDispatch(EVT_MOUSEUP, e); });
+    root.addEventListener('dblclick',  function(e) { azDispatch(EVT_DBLCLICK, e); });
+    root.addEventListener('wheel',     function(e) { azDispatch(EVT_WHEEL, e); });
+    document.addEventListener('keydown', function(e) { azDispatch(EVT_KEYDOWN, e); });
+    document.addEventListener('keyup',   function(e) { azDispatch(EVT_KEYUP, e); });
+    root.addEventListener('focusin',   function(e) { azDispatch(EVT_FOCUSIN, e); });
+    root.addEventListener('focusout',  function(e) { azDispatch(EVT_FOCUSOUT, e); });
+    window.addEventListener('resize',  function(e) { azDispatch(EVT_RESIZE, e); });
+    window.addEventListener('scroll',  function(e) { azDispatch(EVT_SCROLL, e); });
 }
 
+// =====================================================================
+// Internal-link navigation (SPA-style, unchanged from M4).
+// =====================================================================
 function azNavigate(path) {
     fetch(path)
     .then(function(r) { return r.text(); })
@@ -194,10 +306,17 @@ function azNavigate(path) {
             document.close();
         }
     })
-    .catch(function(err) {
-        console.error('[azul-web] navigation error:', err);
-    });
+    .catch(function(err) { console.error('[azul-web] navigation error:', err); });
 }
+
+document.querySelectorAll('a[href^="/"]').forEach(function(el) {
+    el.addEventListener('click', function(e) {
+        var href = el.getAttribute('href');
+        if (!href || href.startsWith('/az/')) return;
+        e.preventDefault();
+        azNavigate(href);
+    });
+});
 
 window.addEventListener('popstate', function() {
     fetch(location.pathname)
@@ -212,9 +331,9 @@ window.addEventListener('popstate', function() {
 });
 
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', azInit);
+    document.addEventListener('DOMContentLoaded', azBootstrap);
 } else {
-    azInit();
+    azBootstrap();
 }
 })();
 "#.to_string()
