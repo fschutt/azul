@@ -520,26 +520,33 @@ impl RemillTranspiler {
         // M7 we emit noop stubs so the imports disappear from the
         // produced WASM (currently the JS-side Proxy noops them at
         // load time; now the WASM is self-contained).
-        let branch_externs = parse_extern_sub_declares(&lifted_ir);
-        for sym_name in &branch_externs {
-            if let Some(host_addr) = branch_target_to_host_addr(sym_name, fn_addr) {
+        let branch_sym_names = parse_extern_sub_declares(&lifted_ir);
+        let mut resolved_branches: Vec<ResolvedBranchExtern> =
+            Vec::with_capacity(branch_sym_names.len());
+        for sym_name in &branch_sym_names {
+            let kind = if let Some(host_addr) =
+                branch_target_to_host_addr(sym_name, fn_addr, lift_addr)
+            {
                 let resolved = super::resolve_fn_ptr(host_addr);
+                let kind = classify_branch_extern(&resolved.name);
                 eprintln!(
-                    "[azul-web]   intercept: {} (relative_offset={:#x}) → \
-                     host=0x{:016x} = {}",
-                    sym_name,
-                    host_addr.wrapping_sub(fn_addr) as isize,
-                    host_addr,
-                    resolved.name
+                    "[azul-web]   intercept: {} → host=0x{:016x} = {} [{:?}]",
+                    sym_name, host_addr, resolved.name, kind,
                 );
+                kind
             } else {
                 eprintln!(
-                    "[azul-web]   intercept: {} (relative_offset parse failed)",
+                    "[azul-web]   intercept: {} (lift-space addr parse failed)",
                     sym_name
                 );
-            }
+                BranchExternKind::Noop
+            };
+            resolved_branches.push(ResolvedBranchExtern {
+                sym_name: sym_name.clone(),
+                kind,
+            });
         }
-        let helper_ir = emit_helper_ir(lift_addr, sig, &branch_externs, export_as);
+        let helper_ir = emit_helper_ir(lift_addr, sig, &resolved_branches, export_as);
         let helper_ir_path = self.scratch_dir.join(format!("{}.helper.ll", stem));
         std::fs::write(&helper_ir_path, &helper_ir).map_err(|e| TranspileError {
             fn_name: fn_name.to_string(),
@@ -1124,11 +1131,13 @@ fn inject_alwaysinline(ir: &str, lift_addr: u64) -> String {
 fn emit_helper_ir(
     lift_addr: u64,
     sig: &CallbackSignature,
-    branch_externs: &[String],
+    branch_externs: &[ResolvedBranchExtern],
     export_as: &str,
 ) -> String {
     // SP register slot in the State struct (aarch64-specific).
     let sp_off: u64 = 1040;
+    // X0 slot (where args are read + return is written).
+    let x0_off: u64 = 544;
     // State alloca size — covers fields up to the SR/PC region at
     // offset ~1080. Rounded up to a multiple of 16 for alignment.
     let state_size: u64 = 1088;
@@ -1142,21 +1151,69 @@ fn emit_helper_ir(
     let stack_size: u64 = 4096;
     let (params, prologue) = emit_wrapper_args_and_prologue(sig);
     let (ret_ty, ret_code) = emit_wrapper_return(sig);
-    // M7: emit a noop body for every branch-destination extern the
-    // lift surfaced. After llvm-link merges these definitions, the
-    // lifted IR's `declare`s get the bodies; opt -O2's inliner
-    // replaces every `call ptr @sub_<hex>(state, pc, memory)` with
-    // `ret ptr %memory` inline → DCE collapses to nothing → the
-    // produced WASM no longer imports them. M8 replaces the noop
-    // bodies with typed externs from azul-mini.wasm.
+    // M7: emit a body for every branch-destination extern the lift
+    // surfaced. Bodies depend on the symbol's dladdr-resolved
+    // classification:
+    //   - Noop (default): return memory unchanged. Lift's call site
+    //     reads back garbage from X0 — fine for void/error returns
+    //     but breaks any caller that uses the result as a pointer.
+    //   - RustAlloc / RustAllocZeroed: bump `@__bump_ptr` by X0's
+    //     value (size), write the old `@__bump_ptr` value back to
+    //     X0 (the returned pointer). After opt -O2 inlines this
+    //     into the lift's call site, allocator-flowed pointers are
+    //     real wasm32 offsets and subsequent Box::new / Vec::push
+    //     / BTreeMap::insert code paths execute correctly.
+    //
+    // `@__bump_ptr` is declared `linkonce_odr` so the wasm-ld link
+    // step over multiple object files (the azul-mini eventloop
+    // case) dedupes to one shared global — every AzStartup_* shares
+    // the same heap. Initial offset 65536 (64 KiB) leaves the wasm
+    // stack guard zone alone; subsequent grow is fine because
+    // azul-mini.wasm imports `memory` from JS with growth allowed.
     let mut branch_stubs = String::new();
-    for sym in branch_externs {
-        branch_stubs.push_str(&format!(
-            "define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) alwaysinline {{ \
-             ret ptr %memory }}\n",
-            sym = sym
-        ));
+    for ext in branch_externs {
+        match ext.kind {
+            BranchExternKind::Noop => {
+                branch_stubs.push_str(&format!(
+                    "define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) alwaysinline {{ \
+                     ret ptr %memory }}\n",
+                    sym = ext.sym_name,
+                ));
+            }
+            BranchExternKind::RustAlloc | BranchExternKind::RustAllocZeroed => {
+                // size = State.X0; align ignored (8-byte minimum).
+                // Bump @__bump_ptr; write old value to X0 (return).
+                branch_stubs.push_str(&format!(
+                    "; bump-allocator body for {label}\n\
+                     define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) alwaysinline {{\n  \
+                       %x0_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x0_off}\n  \
+                       %size_{n} = load i64, ptr %x0_p_{n}, align 8\n  \
+                       %size_a_{n} = add i64 %size_{n}, 7\n  \
+                       %size_aligned_{n} = and i64 %size_a_{n}, -8\n  \
+                       %old_{n} = load i32, ptr @__az_bump_ptr, align 4\n  \
+                       %old_i64_{n} = zext i32 %old_{n} to i64\n  \
+                       %new_i64_{n} = add i64 %old_i64_{n}, %size_aligned_{n}\n  \
+                       %new_{n} = trunc i64 %new_i64_{n} to i32\n  \
+                       store i32 %new_{n}, ptr @__az_bump_ptr, align 4\n  \
+                       store i64 %old_i64_{n}, ptr %x0_p_{n}, align 8\n  \
+                       ret ptr %memory\n\
+                     }}\n",
+                    sym = ext.sym_name,
+                    label = match ext.kind {
+                        BranchExternKind::RustAlloc => "__rust_alloc",
+                        BranchExternKind::RustAllocZeroed => "__rust_alloc_zeroed",
+                        _ => unreachable!(),
+                    },
+                    n = ext.sym_name, // SSA-name suffix; sym names are unique per call site
+                    x0_off = x0_off,
+                ));
+            }
+        }
     }
+    // Shared heap pointer for the bump allocator. linkonce_odr means
+    // wasm-ld dedupes across objects → all AzStartup_*'s + any
+    // per-callback module that gets the same helper IR see one heap.
+    let bump_global = "@__az_bump_ptr = linkonce_odr global i32 65536, align 4\n";
     let _ = export_as; // used inside the format string via the named arg below
     format!(
         r#"; M6 helper module — see `dll/src/web/transpiler_remill.rs::emit_helper_ir`.
@@ -1251,12 +1308,18 @@ define linkonce_odr i1 @__remill_compare_ule(i1 %r) alwaysinline {{ ret i1 %r }}
 define linkonce_odr i1 @__remill_compare_ugt(i1 %r) alwaysinline {{ ret i1 %r }}
 define linkonce_odr i1 @__remill_compare_uge(i1 %r) alwaysinline {{ ret i1 %r }}
 
-; M7 branch-destination stubs — see `parse_extern_sub_declares` +
+; Bump-allocator shared heap pointer (M8.4c). linkonce_odr so
+; wasm-ld dedupes across all azul-mini objects + any per-callback
+; module emitting the same helper. Initial offset 65536 (64 KiB)
+; leaves the wasm stack guard zone alone.
+{bump_global}
+; M7 branch-destination bodies — see `parse_extern_sub_declares` +
 ; `branch_target_to_host_addr`. Each `sub_<hex>` corresponds to a
 ; `bl` instruction in the lifted body whose target falls outside
-; the byte map remill saw (i.e. a framework function the callback
-; calls). M8 replaces these noop bodies with typed externs
-; imported from azul-mini.wasm.
+; the byte map remill saw. dladdr-resolved symbols matching
+; `__rust_alloc` get a bump-allocator body (M8.4c); everything else
+; gets a noop body (M7 / M8.9 will replace specific framework calls
+; with imports from azul-mini).
 {branch_stubs}
 
 declare ptr @sub_{lift_addr_hex}(ptr noalias, i64, ptr noalias)
@@ -1306,6 +1369,7 @@ define {ret_ty} @{export_as}({params}) {{
         state_size = state_size,
         stack_size = stack_size,
         branch_stubs = branch_stubs.trim_end(),
+        bump_global = bump_global.trim_end(),
         export_as = export_as,
     )
 }
@@ -1343,22 +1407,91 @@ fn parse_extern_sub_declares(ir: &str) -> Vec<String> {
 }
 
 /// Recover the host-binary address a `sub_<hex>` branch destination
-/// points at. remill names branch destinations after the low 32 bits
-/// of the lift-space target address; the value (re-interpreted as
-/// `i32`) is the signed byte offset from the lift_addr base. The
-/// lift_addr base maps to the callback's `fn_addr` in the running
-/// binary, so:
+/// points at. remill names branch destinations after the full
+/// lift-space target address, formatted as hex; the offset from the
+/// lift_addr base maps to the host binary as:
 ///
-///   host_target = fn_addr + signed_i32(hex)
+///   host_target = fn_addr + (lift_space_target - lift_addr)
 ///
-/// Returns `None` if the hex doesn't parse. Wraps the addition
-/// modulo `usize` to handle backward branches on 64-bit hosts where
-/// the i32 offset is sign-extended to isize before being added.
-fn branch_target_to_host_addr(sym_name: &str, fn_addr: usize) -> Option<usize> {
+/// Note: remill sometimes emits only the low 32 bits (when the target
+/// is a relative branch within the lifted byte map) and sometimes the
+/// full 64-bit lift-space address (for cross-module / far calls like
+/// `__rust_alloc`). Treating the hex as `u64` and computing
+/// `wrapping_sub(lift_addr)` works in both cases: a low-32 hex like
+/// `0xfffffda4` minus `0x100000000` wraps to `-0x25c`, which is the
+/// expected backward branch offset; a 9+-char hex like
+/// `0x1000c3940` minus `0x100000000` is `0xc3940`, the forward
+/// (cross-module) offset.
+///
+/// Returns `None` if the hex doesn't parse as u64.
+fn branch_target_to_host_addr(
+    sym_name: &str,
+    fn_addr: usize,
+    lift_addr: u64,
+) -> Option<usize> {
     let hex = sym_name.strip_prefix("sub_")?;
-    let raw = u32::from_str_radix(hex, 16).ok()?;
-    let signed_off = raw as i32 as isize; // sign-extend low 32 bits
-    Some((fn_addr as isize).wrapping_add(signed_off) as usize)
+    let raw = u64::from_str_radix(hex, 16).ok()?;
+    let offset = raw.wrapping_sub(lift_addr) as i64 as isize;
+    Some((fn_addr as isize).wrapping_add(offset) as usize)
+}
+
+/// Classification of a resolved branch-extern symbol — drives the
+/// helper-IR body emit choice (noop vs. bump allocator vs. ...).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BranchExternKind {
+    /// Default: emit a body that returns the memory token unchanged
+    /// (no state mutation, no allocation).
+    Noop,
+    /// `__rust_alloc(size, align) -> ptr` — emit a body that reads
+    /// `size` from State.X0, bumps `@__bump_ptr` by it (8-byte
+    /// aligned), writes the old `@__bump_ptr` value back to State.X0.
+    RustAlloc,
+    /// `__rust_alloc_zeroed` — same as RustAlloc since wasm linear
+    /// memory is zero-initialized and bump never reuses memory.
+    RustAllocZeroed,
+}
+
+/// Classify a dladdr-resolved symbol name into one of the
+/// known-special bodies. Returns `Noop` for any name not in the
+/// special set.
+///
+/// Symbol-name shapes we have to handle:
+///   - Bare `__rust_alloc` (some Linux setups, custom builds).
+///   - macOS-prefixed `___rust_alloc` (leading underscore added).
+///   - Rust v0 mangled name like
+///     `_RNvCs5r5JX3umY3f_7___rustc12___rust_alloc` where the bare
+///     name is the trailing length-prefixed identifier.
+///
+/// Suffix-matching after trimming leading underscores covers all
+/// three shapes. `rust_alloc_zeroed` is checked first because
+/// `ends_with("rust_alloc")` would otherwise match the zeroed name's
+/// substring. `rust_no_alloc_shim_is_unstable_v2` (the rustc-emit
+/// shim that signals "allocator is real, not the no-op stub") does
+/// NOT contain `rust_alloc` as a suffix so it falls through to Noop
+/// correctly.
+pub fn classify_branch_extern(resolved_name: &str) -> BranchExternKind {
+    let s = resolved_name.trim_start_matches('_');
+    if s.ends_with("rust_alloc_zeroed") {
+        BranchExternKind::RustAllocZeroed
+    } else if s.ends_with("rust_alloc") {
+        BranchExternKind::RustAlloc
+    } else {
+        BranchExternKind::Noop
+    }
+}
+
+/// Per-extern resolution info passed to [`emit_helper_ir`] so it can
+/// emit per-symbol bodies (bump allocator for `__rust_alloc`, noop
+/// for everything else).
+#[derive(Debug, Clone)]
+pub struct ResolvedBranchExtern {
+    /// The raw `sub_<hex>` name as it appears in the lifted IR's
+    /// `declare` line.
+    pub sym_name: String,
+    /// Classification driving the body shape. Determined by
+    /// dladdr-resolving `sym_name` then calling
+    /// [`classify_branch_extern`] on the result.
+    pub kind: BranchExternKind,
 }
 
 fn run_tool(prog: &Path, args: &[&str], fn_name: &str) -> Result<(), TranspileError> {
