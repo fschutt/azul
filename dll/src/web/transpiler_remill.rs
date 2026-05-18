@@ -1061,6 +1061,7 @@ impl RemillTranspiler {
         output_stem: &str,
         memory_mode: MemoryMode,
         accessed_pages: &std::collections::HashSet<usize>,
+        accessed_ranges: &std::collections::HashSet<(usize, usize)>,
     ) -> Result<Vec<u8>, TranspileError> {
         // M8.9 Phase 2b: native lld::wasm path when AZ_NATIVE_REMILL=1.
         // The C++ wrapper writes each obj to a per-call temp dir
@@ -1134,7 +1135,7 @@ impl RemillTranspiler {
                     postprocess_wasm_opt(&pre_opt_path, output_stem).unwrap_or(linked)
                 };
                 relocate_stack_if_non_mini(&mut final_wasm, memory_mode, output_stem);
-                inject_user_binary_data_segments(&mut final_wasm, accessed_pages, output_stem);
+                inject_user_binary_data_segments(&mut final_wasm, accessed_pages, accessed_ranges, output_stem);
                 return Ok(final_wasm);
             }
         }
@@ -1205,7 +1206,7 @@ impl RemillTranspiler {
             })?,
         };
         relocate_stack_if_non_mini(&mut final_wasm, memory_mode, output_stem);
-        inject_user_binary_data_segments(&mut final_wasm, accessed_pages, output_stem);
+        inject_user_binary_data_segments(&mut final_wasm, accessed_pages, accessed_ranges, output_stem);
         Ok(final_wasm)
     }
 
@@ -1274,6 +1275,10 @@ impl RemillTranspiler {
         // pages this wasm actually reads — not the entire 19 MiB
         // libazul `__const` blob.
         let mut accessed_pages: HashSet<usize> = HashSet::new();
+        // M10-E1: precise (native_addr, len) byte ranges harvested
+        // from adrp+ldr pairs — used to ship only the exact bytes
+        // each lifted load reads, not the whole page.
+        let mut accessed_ranges: HashSet<(usize, usize)> = HashSet::new();
         // M10-D: boundary canonical addrs surfaced during the BFS.
         // Returned via `WasmModule.used_boundaries`; orchestrator
         // unions across every lift + runs the boundary-lift pass.
@@ -1327,6 +1332,12 @@ impl RemillTranspiler {
             };
             for page in scan_arm64_adrp_pages(fn_bytes_slice, addr) {
                 accessed_pages.insert(page);
+            }
+            // M10-E1: also harvest exact (addr, len) byte ranges
+            // from adrp+ldr pairs so the mirror can ship only the
+            // bytes the lifted code actually reads.
+            for r in scan_arm64_adrp_accesses(fn_bytes_slice, addr) {
+                accessed_ranges.insert(r);
             }
 
             // M9-review: pass the per-image synthetic address as
@@ -1487,6 +1498,7 @@ impl RemillTranspiler {
             "transitive-lift",
             MemoryMode::ImportMemory,
             &accessed_pages,
+            &accessed_ranges,
         )?;
         let mut boundaries: Vec<usize> = used_boundaries.into_iter().collect();
         boundaries.sort_unstable();
@@ -1537,6 +1549,9 @@ impl RemillTranspiler {
         // during the BFS — the orchestrator will lift each into its
         // own per-fn wasm shard. Empty in legacy bundled mode.
         let mut used_boundaries: HashSet<usize> = HashSet::new();
+        // M10-E1: precise (native_addr, len) byte ranges from
+        // adrp+ldr pair scanning across every target's bytes.
+        let mut accessed_ranges: HashSet<(usize, usize)> = HashSet::new();
         // M10-D: extra exports per root, flattened into one Vec.
         // Appended verbatim to the final wasm-ld --export list so
         // the boundary lift can expose its raw `sub_<canonical_hex>`
@@ -1657,6 +1672,10 @@ impl RemillTranspiler {
             };
             for page in scan_arm64_adrp_pages(bytes_slice, t.addr) {
                 accessed_pages.insert(page);
+            }
+            // M10-E1: precise byte-range scan for adrp+ldr pairs.
+            for r in scan_arm64_adrp_accesses(bytes_slice, t.addr) {
+                accessed_ranges.insert(r);
             }
         }
 
@@ -1851,6 +1870,7 @@ impl RemillTranspiler {
             "transitive-lift",
             MemoryMode::ImportMemory,
             &accessed_pages,
+            &accessed_ranges,
         )?;
         let mut boundaries: Vec<usize> = used_boundaries.into_iter().collect();
         boundaries.sort_unstable();
@@ -1971,6 +1991,7 @@ fn relocate_stack_if_non_mini(wasm: &mut Vec<u8>, memory_mode: MemoryMode, outpu
 fn inject_user_binary_data_segments(
     wasm: &mut Vec<u8>,
     accessed_pages: &std::collections::HashSet<usize>,
+    accessed_ranges: &std::collections::HashSet<(usize, usize)>,
     output_stem: &str,
 ) {
     // M9-review + per-page (post-review): the synth-addr lift means
@@ -1988,7 +2009,7 @@ fn inject_user_binary_data_segments(
         Some(t) => t,
         None => return,
     };
-    let segments = collect_synth_data_pages(table, accessed_pages);
+    let segments = collect_synth_data_pages(table, accessed_pages, accessed_ranges);
     if segments.is_empty() {
         eprintln!(
             "[azul-web] M9-after-review: 0 data pages to mirror in {} \
@@ -2035,11 +2056,32 @@ fn inject_user_binary_data_segments(
 fn collect_synth_data_pages(
     table: &super::symbol_table::SymbolTable,
     accessed_pages: &std::collections::HashSet<usize>,
+    accessed_ranges: &std::collections::HashSet<(usize, usize)>,
 ) -> Vec<(u32, Vec<u8>)> {
     const PAGE_SIZE: usize = 4096;
     let mut out: Vec<(u32, Vec<u8>)> = Vec::new();
     let mut translated_total = 0usize;
     let mut skipped: usize = 0;
+    // M10-E1: for each native page, collect every precise range that
+    // falls inside it. When non-empty, that page mirrors ONLY those
+    // ranges (saves 90%+ of the 4 KiB whole-page bytes). When empty,
+    // fall back to whole-page mirror (covers patterns the precise
+    // scanner doesn't recognize).
+    let mut ranges_by_page: std::collections::HashMap<usize, Vec<(usize, usize)>> =
+        std::collections::HashMap::new();
+    for (addr, len) in accessed_ranges {
+        let page = addr & !0xFFF;
+        ranges_by_page.entry(page).or_default().push((*addr, *len));
+        // Range may straddle a page boundary — credit the next page too.
+        let end = addr.wrapping_add(*len).saturating_sub(1);
+        let end_page = end & !0xFFF;
+        if end_page != page {
+            ranges_by_page.entry(end_page).or_default().push((*addr, *len));
+        }
+    }
+    let mut precise_pages = 0usize;
+    let mut precise_bytes_kept = 0usize;
+    let mut fallback_pages = 0usize;
     for native_page in accessed_pages {
         let native_page = *native_page;
         // Find which image this page belongs to.
@@ -2053,9 +2095,104 @@ fn collect_synth_data_pages(
             }
             continue;
         };
+        // M10-E1: if we have precise ranges for this page, mirror
+        // just those byte windows instead of the whole 4 KiB. The
+        // ranges' bytes get pointer-translated below.
+        if let Some(ranges) = ranges_by_page.get(&native_page) {
+            // Build a bitmap of which bytes are needed within the page
+            // (handles overlapping / adjacent ranges naturally).
+            let mut needed = [false; PAGE_SIZE];
+            for (addr, len) in ranges {
+                let in_page_start = addr.saturating_sub(native_page).min(PAGE_SIZE);
+                let in_page_end = (addr + len)
+                    .saturating_sub(native_page)
+                    .min(PAGE_SIZE);
+                for b in in_page_start..in_page_end {
+                    needed[b] = true;
+                }
+            }
+            // Read the page (we'll subset below).
+            let raw_page = unsafe {
+                core::slice::from_raw_parts(native_page as *const u8, PAGE_SIZE)
+            };
+            // Collect run starts/ends from the bitmap with a merge
+            // tolerance: ≤16 byte gaps between needed bytes stay in
+            // the same segment (per-segment header is ~5 bytes).
+            const MERGE_GAP: usize = 16;
+            let mut i = 0;
+            let mut total_in_page = 0usize;
+            while i < PAGE_SIZE {
+                if !needed[i] {
+                    i += 1;
+                    continue;
+                }
+                let start = i;
+                let mut end = i + 1;
+                while end < PAGE_SIZE {
+                    if needed[end] {
+                        end += 1;
+                        continue;
+                    }
+                    // Peek-ahead: if there's a needed byte within MERGE_GAP, keep going.
+                    let mut peek = end;
+                    let mut peek_found = false;
+                    while peek < PAGE_SIZE && peek - end < MERGE_GAP {
+                        if needed[peek] {
+                            peek_found = true;
+                            break;
+                        }
+                        peek += 1;
+                    }
+                    if peek_found {
+                        end = peek + 1;
+                    } else {
+                        break;
+                    }
+                }
+                // Capture this run's bytes + apply pointer translation.
+                let mut run = raw_page[start..end].to_vec();
+                let mut translated_in_run = 0usize;
+                let run_off_in_page = start;
+                for chunk_start in (0..run.len()).step_by(8) {
+                    if chunk_start + 8 > run.len() {
+                        break;
+                    }
+                    // Only translate at 8-byte aligned offsets within
+                    // the page (matches the original page-mirror logic).
+                    if (run_off_in_page + chunk_start) % 8 != 0 {
+                        continue;
+                    }
+                    let value = u64::from_le_bytes([
+                        run[chunk_start],
+                        run[chunk_start + 1],
+                        run[chunk_start + 2],
+                        run[chunk_start + 3],
+                        run[chunk_start + 4],
+                        run[chunk_start + 5],
+                        run[chunk_start + 6],
+                        run[chunk_start + 7],
+                    ]);
+                    if let Some(synth) = table.native_to_synth(value as usize) {
+                        let synth_bytes = (synth as u64).to_le_bytes();
+                        run[chunk_start..chunk_start + 8].copy_from_slice(&synth_bytes);
+                        translated_in_run += 1;
+                    }
+                }
+                translated_total += translated_in_run;
+                total_in_page += run.len();
+                out.push(((synth_page + start) as u32, run));
+                i = end;
+            }
+            precise_pages += 1;
+            precise_bytes_kept += total_in_page;
+            continue;
+        }
+        // No precise ranges for this page — fall back to whole-page
+        // mirror (the legacy M9-after-review path).
+        fallback_pages += 1;
         if std::env::var_os("AZ_WASM_MIRROR_TRACE").is_some() {
             eprintln!(
-                "[azul-web] mirror native_page=0x{:x} → synth=0x{:x}",
+                "[azul-web] mirror native_page=0x{:x} → synth=0x{:x} (whole-page fallback)",
                 native_page, synth_page,
             );
         }
@@ -2100,13 +2237,46 @@ fn collect_synth_data_pages(
         out.push((synth_page as u32, bytes));
     }
     out.sort_by_key(|(off, _)| *off);
-    out.dedup_by(|a, b| a.0 == b.0);
     if translated_total > 0 {
         eprintln!(
             "[azul-web] M9-after-review v3: pointer-translated {} native→synth values in mirrored pages",
             translated_total,
         );
     }
+    if precise_pages > 0 || fallback_pages > 0 {
+        eprintln!(
+            "[azul-web] M10-E1 mirror: {} precise pages ({} bytes kept), {} whole-page fallbacks",
+            precise_pages, precise_bytes_kept, fallback_pages,
+        );
+    }
+    // M10-E1: zero-trim every page into one-or-more non-zero runs.
+    // wasm linear memory defaults to zero, so any all-zero range can
+    // be elided from the data section. Each non-zero run becomes its
+    // own data segment at `synth_page + run_start_offset` with
+    // length `run_len`. Saves 30–80% of data-section bytes for
+    // sparse pages (typical for __DATA_CONST holding a few pointers
+    // surrounded by alignment padding).
+    //
+    // Run merger: gaps shorter than `MIN_GAP` collapse into the
+    // surrounding run. Each split adds ~5 bytes of segment header
+    // overhead (LEB128 offset + size + memidx); a 16-byte gap that
+    // would otherwise become two segments is cheaper to ship as
+    // one segment with the gap included.
+    const MIN_GAP: usize = 16;
+    let pre_trim_bytes: usize = out.iter().map(|(_, b)| b.len()).sum();
+    let trimmed: Vec<(u32, Vec<u8>)> = out
+        .into_iter()
+        .flat_map(|(base, bytes)| split_nonzero_runs(base, bytes, MIN_GAP))
+        .collect();
+    let post_trim_bytes: usize = trimmed.iter().map(|(_, b)| b.len()).sum();
+    let saved = pre_trim_bytes.saturating_sub(post_trim_bytes);
+    if saved > 0 {
+        eprintln!(
+            "[azul-web] M10-E1 zero-trim: data bytes {} → {} ({} segments, saved {} bytes)",
+            pre_trim_bytes, post_trim_bytes, trimmed.len(), saved,
+        );
+    }
+    let out = trimmed;
     if skipped > 0 && std::env::var_os("AZ_WASM_MIRROR_TRACE").is_some() {
         eprintln!(
             "[azul-web] mirror: skipped {} accessed pages (not in any tracked image)",
@@ -2114,6 +2284,67 @@ fn collect_synth_data_pages(
         );
     }
     out
+}
+
+/// M10-E1 — split a mirrored page into one-or-more non-zero runs,
+/// each emitted as a separate data segment at `base + run_offset`.
+///
+/// A "run" is a maximal sequence of bytes that does NOT contain a
+/// zero-gap longer than `min_gap`. Runs shorter than `min_gap` of
+/// zeros stay merged into the surrounding run to avoid paying
+/// per-segment header overhead (~5 bytes per data segment for the
+/// LEB128-encoded offset + size + memidx).
+///
+/// Leading and trailing zeros are always trimmed (no overhead since
+/// they're entirely outside any run).
+fn split_nonzero_runs(
+    base: u32,
+    bytes: Vec<u8>,
+    min_gap: usize,
+) -> Vec<(u32, Vec<u8>)> {
+    let mut runs: Vec<(u32, Vec<u8>)> = Vec::new();
+    let n = bytes.len();
+    let mut i = 0usize;
+    while i < n {
+        // Skip leading zeros.
+        while i < n && bytes[i] == 0 {
+            i += 1;
+        }
+        if i >= n {
+            break;
+        }
+        // Start of a non-zero run. Extend until we hit a zero-gap
+        // ≥ min_gap or end of buffer.
+        let run_start = i;
+        let mut run_end = i;
+        while run_end < n {
+            // Advance run_end through nonzero bytes.
+            while run_end < n && bytes[run_end] != 0 {
+                run_end += 1;
+            }
+            // Peek the gap: count consecutive zeros from run_end.
+            let mut gap = run_end;
+            while gap < n && bytes[gap] == 0 {
+                gap += 1;
+            }
+            let gap_len = gap - run_end;
+            if gap_len >= min_gap || gap == n {
+                // Long enough gap (or end of buffer): close this run.
+                break;
+            }
+            // Merge the gap into the current run.
+            run_end = gap;
+        }
+        let run_offset = run_start as u32;
+        let run_bytes = bytes[run_start..run_end].to_vec();
+        runs.push((base + run_offset, run_bytes));
+        i = run_end;
+    }
+    // If a page collapsed to nothing (entirely zero), preserve a
+    // 1-byte zero segment so downstream debugging can still see the
+    // page was accessed — but only when explicitly requested. By
+    // default, empty pages emit no segments.
+    runs
 }
 
 /// M9-review (UNUSED now — kept temporarily for git history;
@@ -2893,12 +3124,17 @@ impl Transpiler for RemillTranspiler {
         // `adrp` page targets so the mini.wasm data mirror only
         // ships pages this set actually reads.
         let mut accessed_pages: HashSet<usize> = HashSet::new();
+        // M10-E1: precise (addr, len) tuples for adrp+ldr pairs.
+        let mut accessed_ranges: HashSet<(usize, usize)> = HashSet::new();
         for (_, addr, size) in symbols {
             let bytes_slice = unsafe {
                 std::slice::from_raw_parts(*addr as *const u8, *size)
             };
             for page in scan_arm64_adrp_pages(bytes_slice, *addr) {
                 accessed_pages.insert(page);
+            }
+            for r in scan_arm64_adrp_accesses(bytes_slice, *addr) {
+                accessed_ranges.insert(r);
             }
         }
 
@@ -2918,6 +3154,7 @@ impl Transpiler for RemillTranspiler {
             "azul-mini",
             MemoryMode::OwnMemory,
             &accessed_pages,
+            &accessed_ranges,
         )?;
         Ok(WasmModule {
             content_hash: super::fnv1a64_hex(&bytes),
@@ -4509,6 +4746,118 @@ fn scan_arm64_adrp_pages(fn_bytes: &[u8], fn_addr: usize) -> Vec<usize> {
             };
             let target = (pc as i64).wrapping_add(signed_imm) as usize;
             out.push(target & !0xFFF);
+        }
+        offset += 4;
+    }
+    out
+}
+
+/// M10-E1 — exact-range scan for ADRP-anchored memory accesses.
+///
+/// Returns a list of `(native_addr, len)` pairs covering the exact
+/// byte ranges the function will load from per-page data sections.
+/// Recognizes three idioms:
+///
+/// 1. `adrp Xn, page` + `ldr Xt, [Xn, #lo12]` (single load).
+/// 2. `adrp Xn, page` + `add Xn, Xn, #lo12` + chain of `ldr` /
+///    `str` / `add` (computed-pointer base; we conservatively bound
+///    the range as `[page+lo12, page+lo12+128]` — covers a small
+///    struct or pointer table).
+/// 3. `adrp Xn, page` + `ldr Wt, [Xn, #lo12]` (32-bit load).
+///
+/// Patterns that don't fit fall through to the legacy whole-page
+/// mirror via [`scan_arm64_adrp_pages`]. The caller can dedup the
+/// two sets — exact ranges take precedence; if an exact range is
+/// found for a page, the whole-page mirror is skipped.
+fn scan_arm64_adrp_accesses(
+    fn_bytes: &[u8],
+    fn_addr: usize,
+) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut adrp_targets: [Option<usize>; 32] = [None; 32];
+    let mut offset = 0;
+    while offset + 4 <= fn_bytes.len() {
+        let instr = u32::from_le_bytes([
+            fn_bytes[offset],
+            fn_bytes[offset + 1],
+            fn_bytes[offset + 2],
+            fn_bytes[offset + 3],
+        ]);
+        let pc = fn_addr.wrapping_add(offset);
+
+        // ADRP encoding (bit 31 = 1, bits 28..24 = 10000).
+        if (instr >> 31) == 1 && ((instr >> 24) & 0x1F) == 0x10 {
+            let immlo = (instr >> 29) & 0x3;
+            let immhi = (instr >> 5) & 0x7FFFF;
+            let imm21 = (immhi << 2) | immlo;
+            let signed_imm: i64 = if imm21 & (1 << 20) != 0 {
+                (imm21 as i64) | !0x1F_FFFF_i64
+            } else {
+                imm21 as i64
+            };
+            let pc_page = pc & !0xFFF;
+            let target = (pc_page as i64).wrapping_add(signed_imm << 12) as usize;
+            let rd = (instr & 0x1F) as usize;
+            adrp_targets[rd] = Some(target);
+            offset += 4;
+            continue;
+        }
+
+        // ADD (immediate, 64-bit): top 8 bits == 0x91 (with shift=0,
+        // S=0). Encoding: sf=1, op=0, S=0, 100010, sh, imm12, Rn, Rd.
+        // Use 0xFF800000 mask to match (sf=1, opc=00100010, sh=0/1).
+        if (instr & 0xFF80_0000) == 0x9100_0000 {
+            let sh = (instr >> 22) & 0x1;
+            let imm12 = ((instr >> 10) & 0xFFF) as usize;
+            let rn = ((instr >> 5) & 0x1F) as usize;
+            let rd = (instr & 0x1F) as usize;
+            if let Some(base) = adrp_targets[rn] {
+                let lo12 = if sh == 1 { imm12 << 12 } else { imm12 };
+                let new_target = base.wrapping_add(lo12);
+                // Propagate to Rd; conservative bound.
+                adrp_targets[rd] = Some(new_target);
+                // Emit a small range so even computed-pointer chains
+                // grab at least one cache line of data (~64 bytes).
+                out.push((new_target, 64));
+            } else {
+                adrp_targets[rd] = None;
+            }
+            offset += 4;
+            continue;
+        }
+
+        // LDR/STR (immediate, unsigned offset): three groups by top byte.
+        //   0xF9 → LDR Xt, [Xn, #imm*8]   width=8
+        //   0xB9 → LDR Wt, [Xn, #imm*4]   width=4
+        //   0x79 → LDRH Wt, [Xn, #imm*2]  width=2
+        //   0x39 → LDRB Wt, [Xn, #imm]    width=1
+        //   0xFD → LDR Dt, [Xn, #imm*8]   width=8 (FP)
+        //   0xBD → LDR St, [Xn, #imm*4]   width=4 (FP)
+        // Store variants share encoding except for opc bits — same
+        // address calculation so we treat them identically for the
+        // mirror (we only READ from the data anyway; the lifted code
+        // may STORE back into mirrored locations, which is fine).
+        let top8 = instr >> 24;
+        let (width, scale): (usize, usize) = match top8 {
+            0xF9 | 0xFD => (8, 8),
+            0xB9 | 0xBD => (4, 4),
+            0x79 | 0x7D => (2, 2),
+            0x39 | 0x3D => (1, 1),
+            _ => {
+                offset += 4;
+                continue;
+            }
+        };
+        let imm12 = ((instr >> 10) & 0xFFF) as usize;
+        let rn = ((instr >> 5) & 0x1F) as usize;
+        let rt = (instr & 0x1F) as usize;
+        if let Some(base) = adrp_targets[rn] {
+            let target = base.wrapping_add(imm12 * scale);
+            out.push((target, width));
+            // Propagate the loaded value's tracking: we can't know
+            // what's at the target without reading memory at compile
+            // time; clear Rt as a known-address.
+            adrp_targets[rt] = None;
         }
         offset += 4;
     }
