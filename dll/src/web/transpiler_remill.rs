@@ -4814,14 +4814,106 @@ fn scan_arm64_adrp_accesses(
             if let Some(base) = adrp_targets[rn] {
                 let lo12 = if sh == 1 { imm12 << 12 } else { imm12 };
                 let new_target = base.wrapping_add(lo12);
-                // Propagate to Rd; conservative bound.
+                // Propagate to Rd.
                 adrp_targets[rd] = Some(new_target);
-                // Emit a small range so even computed-pointer chains
-                // grab at least one cache line of data (~64 bytes).
+                // Conservative range: 64 bytes covers a typical
+                // pointer-table line. Most accesses through this
+                // pointer get emitted as their own precise ranges by
+                // the LDR/LDP scanners below; this emit only matters
+                // when the pointer is passed to another fn (whose
+                // scan wouldn't re-derive the page from this adrp).
                 out.push((new_target, 64));
             } else {
                 adrp_targets[rd] = None;
             }
+            offset += 4;
+            continue;
+        }
+
+        // MOV (register, alias of ORR with zero register): copy
+        // adrp_targets[Rm] → adrp_targets[Rd]. Without this we lose
+        // the address through a register-shuffle. Encoding:
+        // ORR Xd, XZR, Xm → bits = sf||01_01010|0||0|0|Xm|0|0|0|Xn=31|Xd
+        // For mov xN, xM: instr = 0xAA0003E0 | (m<<16) | (d<<0).
+        // Match top 16 bits 0xAA00 with Xn (bits 9..5) == 0b11111 (31).
+        if (instr & 0xFFE0_FC1F) == 0xAA00_03E0 {
+            let rm = ((instr >> 16) & 0x1F) as usize;
+            let rd = (instr & 0x1F) as usize;
+            adrp_targets[rd] = adrp_targets[rm];
+            offset += 4;
+            continue;
+        }
+
+        // LDUR/STUR (immediate, unscaled offset, signed 9-bit).
+        //   Top 8 bits: 0xF8 (X), 0xB8 (W), 0x78 (H), 0x38 (B), 0xFC/0xBC (FP).
+        //   Distinguished from regular LDR by bits 11..10 = 00 and bit 21 = 0.
+        //   imm9 at bits 20..12, sign-extended.
+        let unscaled_w_for_top8: Option<usize> = match instr >> 24 {
+            0xF8 | 0xFC => Some(8),
+            0xB8 | 0xBC => Some(4),
+            0x78 | 0x7C => Some(2),
+            0x38 | 0x3C => Some(1),
+            _ => None,
+        };
+        if let Some(w) = unscaled_w_for_top8 {
+            if ((instr >> 21) & 0x1) == 0 && ((instr >> 10) & 0x3) == 0 {
+                let imm9_raw = ((instr >> 12) & 0x1FF) as i32;
+                let imm9: i32 = if imm9_raw & 0x100 != 0 {
+                    imm9_raw | !0x1FF
+                } else {
+                    imm9_raw
+                };
+                let rn = ((instr >> 5) & 0x1F) as usize;
+                let rt = (instr & 0x1F) as usize;
+                if let Some(base) = adrp_targets[rn] {
+                    let target = (base as isize).wrapping_add(imm9 as isize) as usize;
+                    out.push((target, w));
+                    adrp_targets[rt] = None;
+                }
+                offset += 4;
+                continue;
+            }
+        }
+
+        // LDP/STP (signed offset): X variant top 7 bits = 1010100,
+        // top 8 = 0xA8 (STP) / 0xA9 (LDP) but bit 22 distinguishes.
+        //   Mask 0xFFC0_0000 == 0xA940_0000 → LDP X signed offset
+        //   Mask 0xFFC0_0000 == 0xA900_0000 → STP X signed offset
+        //   Mask 0xFFC0_0000 == 0x2940_0000 → LDP W signed offset
+        //   Mask 0xFFC0_0000 == 0x2900_0000 → STP W signed offset
+        //
+        // Width is 16 bytes (two Xs) or 8 bytes (two Ws). The imm7
+        // at bits 21..15 is signed, scaled by 8 (X) or 4 (W).
+        let ldp_x = (instr & 0xFFC0_0000) == 0xA940_0000
+            || (instr & 0xFFC0_0000) == 0xA900_0000;
+        let ldp_w = (instr & 0xFFC0_0000) == 0x2940_0000
+            || (instr & 0xFFC0_0000) == 0x2900_0000;
+        // Also support pre-/post-index forms (bit 24 differs); for
+        // mirror purposes the base+imm read still happens.
+        let ldp_x_idx = (instr & 0xFFC0_0000) == 0xA9C0_0000
+            || (instr & 0xFFC0_0000) == 0xA980_0000
+            || (instr & 0xFFC0_0000) == 0xA8C0_0000
+            || (instr & 0xFFC0_0000) == 0xA880_0000;
+        if ldp_x || ldp_w || ldp_x_idx {
+            let (width, scale) = if ldp_w { (8usize, 4usize) } else { (16usize, 8usize) };
+            // imm7 at bits 21..15, sign-extended.
+            let imm7_raw = ((instr >> 15) & 0x7F) as i32;
+            let imm7: i32 = if imm7_raw & 0x40 != 0 {
+                imm7_raw | !0x7F
+            } else {
+                imm7_raw
+            };
+            let byte_imm = (imm7 as isize) * (scale as isize);
+            let rn = ((instr >> 5) & 0x1F) as usize;
+            if let Some(base) = adrp_targets[rn] {
+                let target = (base as isize).wrapping_add(byte_imm) as usize;
+                out.push((target, width));
+            }
+            // LDP loads into two regs — both become "unknown" addresses.
+            let rt = (instr & 0x1F) as usize;
+            let rt2 = ((instr >> 10) & 0x1F) as usize;
+            adrp_targets[rt] = None;
+            adrp_targets[rt2] = None;
             offset += 4;
             continue;
         }
@@ -4833,6 +4925,7 @@ fn scan_arm64_adrp_accesses(
         //   0x39 → LDRB Wt, [Xn, #imm]    width=1
         //   0xFD → LDR Dt, [Xn, #imm*8]   width=8 (FP)
         //   0xBD → LDR St, [Xn, #imm*4]   width=4 (FP)
+        //   0xF8 / 0xB8 → STR/LDR unscaled (LDUR/STUR) — also match.
         // Store variants share encoding except for opc bits — same
         // address calculation so we treat them identically for the
         // mirror (we only READ from the data anyway; the lifted code
@@ -4843,6 +4936,10 @@ fn scan_arm64_adrp_accesses(
             0xB9 | 0xBD => (4, 4),
             0x79 | 0x7D => (2, 2),
             0x39 | 0x3D => (1, 1),
+            // SIMD LDR Qt 128-bit: top byte 0x3D / 0x7D handled above
+            // (but width=2/1 is wrong for SIMD). Catch the 128-bit case
+            // explicitly: top 8 bits = 0x3D with bit 23 set.
+            0x3D if (instr >> 23) & 1 == 1 => (16, 16),
             _ => {
                 offset += 4;
                 continue;
