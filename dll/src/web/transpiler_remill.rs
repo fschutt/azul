@@ -907,7 +907,7 @@ impl RemillTranspiler {
                     })?;
                     obj_bytes.push(bytes);
                 }
-                return super::native_remill::wasm_link(
+                let linked = super::native_remill::wasm_link(
                     &obj_bytes,
                     exports,
                     import_memory,
@@ -917,7 +917,15 @@ impl RemillTranspiler {
                 .map_err(|e| TranspileError {
                     fn_name: output_stem.to_string(),
                     reason: format!("native wasm_link: {}", e),
-                });
+                })?;
+                // Run wasm-opt -Oz on the linked output for the same
+                // size win the subprocess path gets below.
+                let pre_opt_path = self.scratch_dir.join(format!("{}.pre-opt.wasm", output_stem));
+                let _ = std::fs::write(&pre_opt_path, &linked);
+                if let Some(opt) = postprocess_wasm_opt(&pre_opt_path, output_stem) {
+                    return Ok(opt);
+                }
+                return Ok(linked);
             }
         }
         let tools = self.tools(output_stem)?;
@@ -927,10 +935,12 @@ impl RemillTranspiler {
             "--allow-undefined".to_string(),
             // --gc-sections strips unreachable functions (e.g. dead
             // lifted bodies the wrapper doesn't transitively call).
-            // --strip-all removes debug/name/producer custom sections,
-            // shaving ~5-10 KiB per wasm with no runtime impact.
+            // --strip-all removes debug/name/producer custom sections.
+            // --lto-O2 enables cross-object LTO so dead code that
+            // crosses .o boundaries also gets DCE'd.
             "--gc-sections".to_string(),
             "--strip-all".to_string(),
+            "--lto-O2".to_string(),
         ];
         if import_table {
             args.push("--import-table".to_string());
@@ -956,6 +966,16 @@ impl RemillTranspiler {
         }
         let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
         run_tool(tools.wasm_ld, &arg_refs, output_stem)?;
+        // Post-process with binaryen wasm-opt -Oz when available.
+        // wasm-ld already runs --gc-sections + --strip-all + --lto-O2,
+        // but wasm-opt's `-Oz` passes (local-cse, vacuum, simplify-
+        // locals, merge-blocks, ...) shave another 10-20% on lifted
+        // wasm. Best-effort: if wasm-opt isn't installed or fails,
+        // serve the un-opt'd wasm.
+        let final_bytes = postprocess_wasm_opt(&wasm_path, output_stem);
+        if let Some(b) = final_bytes {
+            return Ok(b);
+        }
         std::fs::read(&wasm_path).map_err(|e| TranspileError {
             fn_name: output_stem.to_string(),
             reason: format!("read {}: {e}", wasm_path.display()),
@@ -1902,6 +1922,65 @@ fn discover_wasm_ld() -> Option<PathBuf> {
         }
     }
     None
+}
+
+fn discover_wasm_opt() -> Option<PathBuf> {
+    if let Ok(p) = std::env::var("WASM_OPT") {
+        let pb = PathBuf::from(p);
+        if pb.is_file() {
+            return Some(pb);
+        }
+    }
+    let candidates = [
+        "/opt/homebrew/bin/wasm-opt",
+        "/opt/homebrew/opt/binaryen/bin/wasm-opt",
+        "/usr/local/bin/wasm-opt",
+        "/usr/bin/wasm-opt",
+    ];
+    for c in candidates {
+        let pb = PathBuf::from(c);
+        if pb.is_file() {
+            return Some(pb);
+        }
+    }
+    None
+}
+
+/// Run `wasm-opt -Oz --strip-debug --strip-producers --vacuum` on
+/// the wasm at `input_path`. Returns the optimized bytes on
+/// success, `None` if wasm-opt isn't installed or anything fails
+/// (the caller falls back to the un-opt'd wasm).
+///
+/// `AZ_REMILL_SKIP_WASM_OPT=1` short-circuits — useful when
+/// debugging codegen and you don't want wasm-opt's rewrites in
+/// the way.
+fn postprocess_wasm_opt(input_path: &Path, fn_name: &str) -> Option<Vec<u8>> {
+    if std::env::var_os("AZ_REMILL_SKIP_WASM_OPT").is_some() {
+        return None;
+    }
+    let wasm_opt = discover_wasm_opt()?;
+    let out_path = input_path.with_extension("opt.wasm");
+    let out_path_str = out_path.to_str()?;
+    let in_path_str = input_path.to_str()?;
+    let args: &[&str] = &[
+        "-Oz",
+        "--strip-debug",
+        "--strip-producers",
+        "--vacuum",
+        in_path_str,
+        "-o",
+        out_path_str,
+    ];
+    match run_tool(&wasm_opt, args, fn_name) {
+        Ok(()) => std::fs::read(&out_path).ok(),
+        Err(e) => {
+            eprintln!(
+                "[azul-web]   wasm-opt failed for {}: {} (falling back to un-opt'd wasm)",
+                fn_name, e.reason,
+            );
+            None
+        }
+    }
 }
 
 fn host_arch_tag() -> Option<&'static str> {
