@@ -1,8 +1,11 @@
 # Azul Web Backend — Handoff 2026-05-18 (M9 5-step e2e green)
 
-> **SUPERSEDED 2026-05-19** — see [`STATUS_REPORT_M10_2026_05_19.md`](STATUS_REPORT_M10_2026_05_19.md)
-> for the M10-D landing summary (per-fn boundary wasm shards). The
-> table below is updated through `f30d0ec02`; everything below the
+> **SUPERSEDED 2026-05-19** — see [`STATUS_REPORT_M10_F_2026_05_19.md`](STATUS_REPORT_M10_F_2026_05_19.md)
+> for the M10-E/F size-optimization landing (cb wasms 696-3,482 B,
+> hello-world.bin 96 KB legacy / 147 KB sharded — sharded now BEATS
+> legacy by 31% vs original baseline). [`STATUS_REPORT_M10_2026_05_19.md`](STATUS_REPORT_M10_2026_05_19.md)
+> still describes the M10-D boundary-shard architecture. The table
+> below is updated through `179a7d717`; everything below the
 > "Original M9 close-out" divider is the original M9 handoff kept for
 > context.
 
@@ -20,8 +23,13 @@
 | **C1** bump-heap snapshot/reset helpers | ✅ landed `0fe055b4a` | new `bump-reset-loop.js` gate: 100 cycles, drift=0, counter 5→105 |
 | (export-fix) | ✅ landed `486c9742c` | layout.wasm 297→184 KB (-38%, full hello-world.c) |
 | **D** per-fn wasm sharding (M10-D Steps 1+2+4+5+6) | ✅ landed `f30d0ec02` | sharded gates GREEN; per-cb shrinks; full wire-byte win requires multi-cb dedup. See `STATUS_REPORT_M10_2026_05_19.md` |
+| **E1** precise adrp+ldr data-mirror | ✅ landed `bacb2a3ee` + `0a29daafe` | per-cb data 12KB → 250B; MOV/LDP/LDUR widening |
+| **E2** auto-merge for small cbs | ✅ landed `53c77c2f9` | cbs ≤30 fns inline transitively, SROA evaporates State; v5 on_click 14743 → 696 B |
+| **F1** ADR + register-indexed LDRB | ✅ landed `b317b3fd3` | closed 10 fallback pages (jump-table dispatch); layout 124KB → 86KB |
+| **F2** -Oz LLVM pipeline | ✅ landed `b317b3fd3` | PassBuilder Oz + CodeGenOpt::Default + --lto-O3; cross-cutting size compression |
 | **D-Step3** mini.wasm split | not started | partition `EVENTLOOP_SYMBOLS` into MINI_SHARDS (deferred follow-up) |
-| **E** shared helper-IR runtime wasm | proposed | each boundary shard re-ships ~16 KB of `__remill_*` helpers; one shared runtime would close the size gap |
+| **E3** shared helper-IR runtime wasm | proposed | each boundary shard re-ships ~6 KB of `__remill_*` helpers; one shared runtime would close the size gap |
+| **F3** smart selective inlining for large cbs | proposed | merged + alwaysinline-only-small-deps would close the 86 KB layout gap |
 | **B1.b** real LLVM pass for provenance tracking | not started | needed if more SROA wins required beyond B1.a's 17% |
 | **B2** stack_buf in linear memory | not started | follow-up to B1.x; eliminates last ptrtoint in wrapper |
 

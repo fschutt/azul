@@ -1,5 +1,14 @@
 # Azul Web Backend — M10-D Status Report (2026-05-19)
 
+> **SUPERSEDED by M10-E/F** — see
+> [`STATUS_REPORT_M10_F_2026_05_19.md`](STATUS_REPORT_M10_F_2026_05_19.md)
+> for the latest measurements. The size axis has since shrunk per-cb
+> wasms by another 73-95% via precise data-mirror, auto-merge, and
+> -Oz pipeline. Sharded mode now BEATS legacy by 31% on
+> `hello-world.bin` (this doc still showed it losing by +68%).
+> The architectural description below is still accurate; only the
+> wire-byte numbers are stale.
+
 **Branch:** `layout-debug-clean`
 **Commits this session:** `f30d0ec02` (web: M10-D sharded mode)
 **Predecessor:** `c77ff2265` (docs: M10-D plan)
