@@ -400,6 +400,15 @@ impl RemillTranspiler {
         }
     }
 
+    /// Whether to keep scratch artifacts after the transpiler drops.
+    /// `AZ_REMILL_KEEP_SCRATCH=1` retains the per-fn .lifted.ll /
+    /// .patched.ll / .helper.ll / .o / .wasm files for post-mortem
+    /// debugging. Default behavior wipes them — the build cycle of
+    /// the M8.9 audit left ~95 MB of stale scratch dirs around.
+    fn should_keep_scratch() -> bool {
+        std::env::var_os("AZ_REMILL_KEEP_SCRATCH").is_some()
+    }
+
     /// Whether the in-process remill+LLVM+LLD pipeline should be used
     /// in place of the subprocess `remill-lift-17` + `opt` + `llc` +
     /// `wasm-ld` chain. Requires BOTH the build-time feature
@@ -870,7 +879,16 @@ impl RemillTranspiler {
         // then reads the output wasm back into a heap buffer. From
         // here it's the same input/output shape as the subprocess
         // path — bytes in, bytes out.
-        let initial_memory_bytes: u32 = 2 * 1024 * 1024;
+        //
+        // Initial memory raised to 16 MiB (was 2 MiB) — the bump
+        // allocator never frees, so any non-trivial Vec/Box usage in
+        // a lifted layout cb (hello-world's full StyledDom build →
+        // ~few hundred KiB of NodeData + CssVec) eats through the
+        // 1 MiB heap quickly and traps with "memory access out of
+        // bounds" at the first overflow. 16 MiB gives ~15 MiB of
+        // bump heap before the limit. JS can `memory.grow()` past
+        // that, but a higher initial avoids a grow per layout cb.
+        let initial_memory_bytes: u32 = 16 * 1024 * 1024;
         let import_memory = matches!(memory_mode, MemoryMode::ImportMemory);
         // import_table mirrors the subprocess `--import-table` flag —
         // funcref table is JS-owned (sized + populated with per-cb
@@ -907,6 +925,12 @@ impl RemillTranspiler {
         let mut args: Vec<String> = vec![
             "--no-entry".to_string(),
             "--allow-undefined".to_string(),
+            // --gc-sections strips unreachable functions (e.g. dead
+            // lifted bodies the wrapper doesn't transitively call).
+            // --strip-all removes debug/name/producer custom sections,
+            // shaving ~5-10 KiB per wasm with no runtime impact.
+            "--gc-sections".to_string(),
+            "--strip-all".to_string(),
         ];
         if import_table {
             args.push("--import-table".to_string());
@@ -923,10 +947,6 @@ impl RemillTranspiler {
             // wrong heap.
             args.push("--import-memory".to_string());
         }
-        // Initial memory: 2 MiB = 32 pages. For OwnMemory this is the
-        // initial of the exported memory (stack lives ~0..64KiB, bump
-        // heap starts at 1 MiB per @__az_bump_ptr); for ImportMemory
-        // it's just the import descriptor's minimum.
         args.push(format!("--initial-memory={}", initial_memory_bytes));
         for e in exports {
             args.push(format!("--export={}", e));
@@ -1400,6 +1420,31 @@ impl RemillTranspiler {
             exports,
             imports_from_mini: Vec::new(),
         })
+    }
+}
+
+impl Drop for RemillTranspiler {
+    fn drop(&mut self) {
+        // Wipe the scratch dir on drop. Each lift cycle writes 4-6
+        // .ll files + 1 .o per fn (146 fns for a layout-cb workload
+        // ≈ 800 files ≈ 18 MiB). Without this, server restarts
+        // accumulate ~18 MiB/process forever in $TMPDIR.
+        if RemillTranspiler::should_keep_scratch() {
+            eprintln!(
+                "[azul-web] RemillTranspiler drop: keeping scratch dir {} (AZ_REMILL_KEEP_SCRATCH=1)",
+                self.scratch_dir.display(),
+            );
+            return;
+        }
+        if self.scratch_dir.exists() {
+            if let Err(e) = std::fs::remove_dir_all(&self.scratch_dir) {
+                eprintln!(
+                    "[azul-web] RemillTranspiler drop: failed to wipe scratch dir {}: {}",
+                    self.scratch_dir.display(),
+                    e,
+                );
+            }
+        }
     }
 }
 

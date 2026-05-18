@@ -600,6 +600,11 @@ std::string link_inner(const std::vector<std::vector<uint8_t>> &objs,
     argv_storage.push_back("wasm-ld");
     argv_storage.push_back("--no-entry");
     argv_storage.push_back("--allow-undefined");
+    // --gc-sections drops unreachable lifted bodies; --strip-all
+    // removes debug/name/producer custom sections. Matches the
+    // subprocess wasm-ld args in transpiler_remill.rs.
+    argv_storage.push_back("--gc-sections");
+    argv_storage.push_back("--strip-all");
     if (import_memory) argv_storage.push_back("--import-memory");
     if (import_table) argv_storage.push_back("--import-table");
     if (initial_memory_bytes > 0) {

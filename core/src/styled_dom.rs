@@ -1066,6 +1066,19 @@ impl StyledDom {
         // data structures (CssRuleBlock, CssPathSelector, CssDeclaration).
         drop(css);
 
+        // Apply UA defaults + compute inherited values so consumers that
+        // read `css_property_cache.computed_values` (the web/HTML
+        // renderer in `dll/src/web/html_render.rs`) see resolved
+        // properties. The compact cache below stores the same info in
+        // a different layout for the desktop renderer; computed_values
+        // is the "tall" form that the web renderer's CSS emitter
+        // (`emit_css_from_cache`) walks per node.
+        css_property_cache.apply_ua_css(compact_dom.node_data.as_ref().internal);
+        css_property_cache.compute_inherited_values(
+            node_hierarchy.as_container().internal,
+            compact_dom.node_data.as_ref().internal,
+        );
+
         let t_inherit_compact = std::time::Instant::now();
         let prev_font_hashes: Vec<u64> = css_property_cache.compact_cache
             .as_ref()
