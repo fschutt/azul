@@ -1860,12 +1860,26 @@ fn collect_synth_data_pages(
     const PAGE_SIZE: usize = 4096;
     let mut out: Vec<(u32, Vec<u8>)> = Vec::new();
     let mut translated_total = 0usize;
+    let mut skipped: usize = 0;
     for native_page in accessed_pages {
         let native_page = *native_page;
         // Find which image this page belongs to.
         let Some(synth_page) = table.native_to_synth(native_page) else {
+            skipped += 1;
+            if std::env::var_os("AZ_WASM_MIRROR_TRACE").is_some() {
+                eprintln!(
+                    "[azul-web] mirror SKIP native_page=0x{:x} — not in any tracked image",
+                    native_page,
+                );
+            }
             continue;
         };
+        if std::env::var_os("AZ_WASM_MIRROR_TRACE").is_some() {
+            eprintln!(
+                "[azul-web] mirror native_page=0x{:x} → synth=0x{:x}",
+                native_page, synth_page,
+            );
+        }
         // SAFETY: pages reachable from `adrp` targets in lifted code
         // are in mapped image segments — the loader put them there
         // and they stay mapped for the process lifetime. Reading
@@ -1912,6 +1926,12 @@ fn collect_synth_data_pages(
         eprintln!(
             "[azul-web] M9-after-review v3: pointer-translated {} native→synth values in mirrored pages",
             translated_total,
+        );
+    }
+    if skipped > 0 && std::env::var_os("AZ_WASM_MIRROR_TRACE").is_some() {
+        eprintln!(
+            "[azul-web] mirror: skipped {} accessed pages (not in any tracked image)",
+            skipped,
         );
     }
     out
