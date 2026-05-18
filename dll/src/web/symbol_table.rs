@@ -73,6 +73,19 @@ pub fn get() -> Option<&'static SymbolTable> {
     SYMBOL_TABLE.get()
 }
 
+/// M10-D rollout knob. When the env var `AZ_ENABLE_SHARDS` is set,
+/// `api.json::Framework` symbols classify as [`FnClass::BoundaryImport`]
+/// instead of [`FnClass::Recursable`] — the lift BFS then stops at
+/// every boundary and a separate pass produces per-fn wasm shards.
+///
+/// Once the sharded path is verified end-to-end the polarity will
+/// flip: default = sharded; `AZ_BUNDLED_LEGACY=1` keeps the old
+/// behavior.
+pub fn shards_enabled() -> bool {
+    std::env::var_os("AZ_ENABLE_SHARDS").is_some()
+        && std::env::var_os("AZ_BUNDLED_LEGACY").is_none()
+}
+
 /// Kind of symbol entry. The lift pipeline switches on this to decide
 /// whether to lift the bytes directly (`Function`), to chase through
 /// to a sibling entry (`Stub`), or to skip lifting (`Data`).
@@ -97,6 +110,17 @@ pub enum FnClass {
     /// own crates (azul_core, azul_layout, …). Lift + walk its bl
     /// targets recursively.
     Recursable,
+    /// **M10-D**: `Az*` framework symbol that ships as its own
+    /// per-fn wasm shard. Lift treats it like `Leaf` inside cb /
+    /// layout / mini lifts — emits a `declare` only, no body,
+    /// no transitive recursion into its bl targets. A separate
+    /// boundary-lift pass produces one `.wasm` per BoundaryImport
+    /// that's referenced anywhere; the cb's wasm-ld run sees the
+    /// declare as undefined and (with `--allow-undefined`) turns it
+    /// into an env-import. At instantiate time, JS wires
+    /// `env.sub_<canonical_hex>` to the boundary shard's exported
+    /// body.
+    BoundaryImport,
     /// `__rust_alloc` / `__rust_alloc_zeroed`. Helper IR emits a
     /// body that bumps `@__az_bump_ptr` by State.X0 and returns the
     /// old value. See `emit_helper_ir` BranchExternKind::RustAlloc.
@@ -145,6 +169,14 @@ impl FnClass {
     /// own bl targets.
     pub fn is_recursable(self) -> bool {
         matches!(self, FnClass::Recursable)
+    }
+
+    /// M10-D: whether this symbol ships as its own per-fn wasm shard.
+    /// Lift sites stop recursion at boundary imports and let wasm-ld
+    /// emit an env-import for the canonical `sub_<hex>` body; the
+    /// boundary-lift pass produces the body wasm separately.
+    pub fn is_boundary_import(self) -> bool {
+        matches!(self, FnClass::BoundaryImport)
     }
 }
 
@@ -1651,13 +1683,31 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
         return FnClass::ResolveCallback;
     }
 
-    // 2) api.json — authoritative for Az* names. Framework → Recursable,
-    //    ServerEntryPoint → NeverLift, ReplaceWithDomPatcher → Leaf
-    //    (the lift pipeline never reaches them because they're stripped
-    //    upstream, but classify defensively).
+    // 2) api.json — authoritative for Az* names.
+    //
+    //   • Framework → BoundaryImport (M10-D, sharded mode) OR
+    //     Recursable (legacy bundled mode).
+    //   • ServerEntryPoint → NeverLift.
+    //   • ReplaceWithDomPatcher → Leaf (the lift pipeline never reaches
+    //     them because they're stripped upstream, but classify
+    //     defensively).
+    //
+    // M10-D rollout: while the boundary-lift pass + manifest + sharded
+    // loader.js are being wired up, default to the legacy bundled mode
+    // so the existing acceptance gates stay green. Set
+    // `AZ_ENABLE_SHARDS=1` to opt into the new behavior. Once the
+    // sharded path is end-to-end green, the polarity flips:
+    // default = BoundaryImport; `AZ_BUNDLED_LEGACY=1` keeps the old
+    // Recursable behavior.
     if let Some(api_class) = api.get(name) {
         return match api_class {
-            ApiFnClass::Framework => FnClass::Recursable,
+            ApiFnClass::Framework => {
+                if shards_enabled() {
+                    FnClass::BoundaryImport
+                } else {
+                    FnClass::Recursable
+                }
+            }
             ApiFnClass::ServerEntryPoint => FnClass::NeverLift,
             ApiFnClass::ReplaceWithDomPatcher => FnClass::Leaf,
         };

@@ -126,6 +126,39 @@ pub struct LayoutWasm {
     /// `true` when the bytes came from the real lift; `false` when the
     /// lift errored. Surfaces in `eprintln!` logging for debugging.
     pub is_client_side: bool,
+    /// M10-D: canonical addresses of every BoundaryImport surfaced
+    /// during this layout cb's transitive lift. See [`BoundaryWasm`].
+    pub used_boundaries: Vec<usize>,
+}
+
+/// M10-D — one per-fn wasm shard. The sharded build factors every
+/// `api.json::Framework` symbol out of the cb / layout / mini bundles
+/// into its own wasm. Each cb / layout / mini wasm imports
+/// `env.sub_<canonical_synth_hex>` for every boundary it touches; the
+/// boundary shard's wasm exports the matching `sub_<canonical_synth_hex>`
+/// body. loader.js wires the imports at instantiate-time via the
+/// manifest.
+#[derive(Debug, Clone)]
+pub struct BoundaryWasm {
+    /// Canonical (PLT-chased) address — the dedup key used to union
+    /// `used_boundaries` sets across all lift outputs.
+    pub canonical_addr: usize,
+    /// Canonical C-API name (`AzRefAny_clone`, `AzDom_addChild`, …).
+    /// Surfaces in the served URL `/az/fn/<name>.<hash>.wasm` for
+    /// debugging.
+    pub canonical_name: String,
+    /// The wasm-export name JS resolves: always
+    /// `sub_<canonical_synth_hex>`. Matches the env-import wasm-ld
+    /// emits in dependent shards.
+    pub body_export: String,
+    /// FNV-1a 64-bit hash of the wasm bytes. Used in the served URL.
+    pub content_hash: String,
+    /// The shard's wasm bytes.
+    pub wasm_bytes: Vec<u8>,
+    /// Canonical addresses of every OTHER boundary the shard's BFS
+    /// transitively references. Used by the orchestrator to ensure
+    /// every reachable boundary gets its own shard.
+    pub transitive_boundaries: Vec<usize>,
 }
 
 /// A discovered callback and its WASM module (if transpiled).
@@ -148,6 +181,12 @@ pub struct CallbackWasm {
     /// Whether this callback can run client-side (transpiled to WASM)
     /// or must fall back to server-side execution.
     pub is_client_side: bool,
+    /// M10-D: canonical addresses of every BoundaryImport surfaced
+    /// during this cb's transitive lift. Empty in legacy bundled
+    /// mode. The orchestrator unions this across every cb / layout /
+    /// mini lift, lifts each boundary into its own shard, and serves
+    /// the result at `/az/fn/<name>.<hash>.wasm`.
+    pub used_boundaries: Vec<usize>,
 }
 
 /// One callback found while walking a route's `StyledDom`, bound to a
@@ -372,7 +411,7 @@ pub fn discover_and_transpile_callbacks(
     for (_pattern, list) in discovered_per_route.iter() {
         for d in list {
             if seen.insert(d.fn_addr, ()).is_none() {
-                let (wasm_bytes, is_client_side) = lift_or_noop(
+                let (wasm_bytes, is_client_side, used_boundaries) = lift_or_noop(
                     transpiler.as_ref(),
                     transpiler_available,
                     &d.name,
@@ -393,6 +432,7 @@ pub fn discover_and_transpile_callbacks(
                     fn_size: d.fn_size,
                     wasm_bytes,
                     is_client_side,
+                    used_boundaries,
                 });
             }
         }
@@ -420,28 +460,30 @@ fn lift_or_noop(
     fn_addr: usize,
     fn_size: usize,
     kind: &str,
-) -> (Vec<u8>, bool) {
+) -> (Vec<u8>, bool, Vec<usize>) {
     if !transpiler_available {
-        return (emit_noop_callback_wasm(), false);
+        return (emit_noop_callback_wasm(), false, Vec::new());
     }
     match transpiler.lift_function(name, fn_addr, fn_size, kind) {
         Ok(module) => {
             eprintln!(
-                "[azul-web]   lifted: {} → {} bytes ({} exports, {} mini imports) [kind={}]",
+                "[azul-web]   lifted: {} → {} bytes ({} exports, {} mini imports, \
+                 {} boundary imports) [kind={}]",
                 name,
                 module.bytes.len(),
                 module.exports.len(),
                 module.imports_from_mini.len(),
+                module.used_boundaries.len(),
                 kind,
             );
-            (module.bytes, true)
+            (module.bytes, true, module.used_boundaries)
         }
         Err(e) => {
             eprintln!(
                 "[azul-web]   lift failed for {}: {} — falling back to no-op",
                 name, e.reason
             );
-            (emit_noop_callback_wasm(), false)
+            (emit_noop_callback_wasm(), false, Vec::new())
         }
     }
 }
@@ -533,6 +575,96 @@ fn generate_mini_wasm_stub() -> Vec<u8> {
     WASM_HEADER.to_vec()
 }
 
+/// M10-D — union every `used_boundaries` set from the cb / layout
+/// lifts plus any provided initial set (typically from mini.wasm),
+/// then run [`transpiler_remill::RemillTranspiler::lift_boundary_to_wasm`]
+/// once per unique boundary canonical address. The BFS inside
+/// `lift_boundary_to_wasm` may itself surface new boundary references
+/// (boundaries that depend on other boundaries) — we follow the
+/// chain via a work-queue until the set stabilizes.
+///
+/// Returns one [`BoundaryWasm`] per unique boundary, sorted by
+/// canonical address for deterministic ordering. Empty if the
+/// transpiler isn't the real RemillTranspiler (e.g. StubTranspiler
+/// in tests) — the stub can't lift anything anyway.
+#[cfg(feature = "web-transpiler")]
+pub fn lift_boundary_shards(
+    initial_boundaries: &[usize],
+) -> Vec<BoundaryWasm> {
+    use std::collections::{HashSet, VecDeque};
+    use transpiler::Transpiler;
+
+    if !symbol_table::shards_enabled() {
+        // Legacy bundled mode: framework symbols ship inline in the
+        // cb / layout / mini wasms. No boundary shards needed.
+        return Vec::new();
+    }
+
+    let transpiler = transpiler_remill::RemillTranspiler::new();
+    if !transpiler.is_available() {
+        eprintln!(
+            "[azul-web] boundary-lift: transpiler unavailable, skipping shards"
+        );
+        return Vec::new();
+    }
+
+    let mut pending: VecDeque<usize> = initial_boundaries.iter().copied().collect();
+    let mut done: HashSet<usize> = HashSet::new();
+    let mut shards: Vec<BoundaryWasm> = Vec::new();
+
+    while let Some(addr) = pending.pop_front() {
+        if !done.insert(addr) {
+            continue;
+        }
+        match transpiler.lift_boundary_to_wasm(addr) {
+            Ok(shard) => {
+                eprintln!(
+                    "[azul-web]   boundary[{}]: lifted {} addr=0x{:016x} → {} bytes \
+                     ({} transitive boundaries)",
+                    shards.len() + 1,
+                    shard.canonical_name,
+                    shard.canonical_addr,
+                    shard.wasm_bytes.len(),
+                    shard.transitive_boundaries.len(),
+                );
+                for trans in &shard.transitive_boundaries {
+                    if !done.contains(trans) {
+                        pending.push_back(*trans);
+                    }
+                }
+                shards.push(BoundaryWasm {
+                    canonical_addr: shard.canonical_addr,
+                    canonical_name: shard.canonical_name,
+                    body_export: shard.body_export,
+                    content_hash: shard.content_hash,
+                    wasm_bytes: shard.wasm_bytes,
+                    transitive_boundaries: shard.transitive_boundaries,
+                });
+            }
+            Err(e) => {
+                eprintln!(
+                    "[azul-web]   boundary: lift failed for canonical_addr=0x{:x}: {} \
+                     — skipping",
+                    addr, e.reason,
+                );
+            }
+        }
+    }
+    shards.sort_by_key(|s| s.canonical_addr);
+    eprintln!(
+        "[azul-web] boundary-lift: {} shards total ({} initial seeds)",
+        shards.len(),
+        initial_boundaries.len(),
+    );
+    shards
+}
+
+/// Stub for non-web-transpiler builds — returns an empty Vec.
+#[cfg(not(feature = "web-transpiler"))]
+pub fn lift_boundary_shards(_initial_boundaries: &[usize]) -> Vec<BoundaryWasm> {
+    Vec::new()
+}
+
 /// M8.3: lift every unique layout callback fn-ptr referenced by the
 /// configured routes. Dedupes by fn-addr so two routes sharing the
 /// same layout function produce one `LayoutWasm` entry. Each lift
@@ -550,7 +682,7 @@ pub fn lift_layout_callbacks(layout_callbacks: &[LayoutCallback]) -> Vec<LayoutW
             continue;
         }
         let sym = resolve_fn_ptr(cb_addr);
-        let (wasm_bytes, is_client_side) = lift_or_noop(
+        let (wasm_bytes, is_client_side, used_boundaries) = lift_or_noop(
             transpiler.as_ref(),
             transpiler_available,
             &sym.name,
@@ -574,6 +706,7 @@ pub fn lift_layout_callbacks(layout_callbacks: &[LayoutCallback]) -> Vec<LayoutW
             fn_addr: sym.addr,
             wasm_bytes,
             is_client_side,
+            used_boundaries,
         });
     }
     out
@@ -864,6 +997,44 @@ pub fn run_web(
         rendered_routes.len(), all_images.len(), all_fonts.len(), layout_wasms.len(),
     );
 
+    // Phase F (M10-D): union every cb / layout used_boundaries set
+    // and run the boundary-lift pass. Each unique boundary produces
+    // one wasm shard served at `/az/fn/<name>.<hash>.wasm`. Empty
+    // in legacy bundled mode (when AZ_ENABLE_SHARDS isn't set or
+    // AZ_BUNDLED_LEGACY=1) — the cb / layout wasms still embed
+    // their framework deps inline.
+    let mut initial_boundaries: std::collections::HashSet<usize> =
+        std::collections::HashSet::new();
+    for cb in &cb_wasms {
+        for &addr in &cb.used_boundaries {
+            initial_boundaries.insert(addr);
+        }
+    }
+    for lw in &layout_wasms {
+        for &addr in &lw.used_boundaries {
+            initial_boundaries.insert(addr);
+        }
+    }
+    let initial_seeds: Vec<usize> = {
+        let mut v: Vec<usize> = initial_boundaries.into_iter().collect();
+        v.sort_unstable();
+        v
+    };
+    let boundary_wasms = if symbol_table::shards_enabled() {
+        eprintln!(
+            "[azul-web] M10-D: lifting boundary shards (seed_count={})",
+            initial_seeds.len(),
+        );
+        lift_boundary_shards(&initial_seeds)
+    } else {
+        Vec::new()
+    };
+    eprintln!(
+        "[azul-web] Boundary shards: {} (sharded mode={})",
+        boundary_wasms.len(),
+        symbol_table::shards_enabled(),
+    );
+
     // Phase E: Start HTTP server
     let bind_addr = web_config.bind;
     eprintln!("[azul-web] Listening on http://{}", bind_addr);
@@ -878,6 +1049,7 @@ pub fn run_web(
         mini_wasm,
         cb_wasms,
         layout_wasms,
+        boundary_wasms,
         layout_callback: default_layout_callback,
         rendered_routes,
         images: all_images,

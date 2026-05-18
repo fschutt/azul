@@ -23,7 +23,7 @@ use azul_layout::window_state::FullWindowState;
 use rust_fontconfig::FcFontCache;
 use rust_fontconfig::registry::FcFontRegistry;
 
-use super::{CallbackWasm, LayoutWasm};
+use super::{BoundaryWasm, CallbackWasm, LayoutWasm};
 use super::config::WebConfig;
 use super::html_render::{CollectedImage, CollectedFont};
 use super::loader_js;
@@ -66,6 +66,11 @@ pub struct WebServerState {
     /// (M8.3). Lifted from each unique `LayoutCallback.cb` referenced
     /// by the configured routes. Deduped by fn-addr.
     pub layout_wasms: Vec<LayoutWasm>,
+    /// M10-D — per-boundary-fn WASM modules served under `/az/fn/`.
+    /// One per unique `api.json::Framework` symbol referenced by any
+    /// cb / layout / mini wasm. Empty in legacy bundled mode
+    /// (`AZ_BUNDLED_LEGACY=1` or `AZ_ENABLE_SHARDS` unset).
+    pub boundary_wasms: Vec<BoundaryWasm>,
     /// Default layout callback used by `re_render_body`.
     pub layout_callback: LayoutCallback,
     /// Pre-rendered routes: pattern → HTML.
@@ -196,6 +201,39 @@ fn handle_connection(
             } else {
                 send_response(&mut stream, 404, "text/plain", b"Layout callback not found")
             }
+        }
+        ("GET", p) if p.starts_with("/az/fn/") && p.ends_with(".wasm") => {
+            // M10-D: boundary-shard wasms. URL is
+            // `/az/fn/{canonical_name}.{hash}.wasm`. Dispatched by
+            // canonical name; the hash is cache-bust only.
+            let name = p.strip_prefix("/az/fn/").unwrap_or("")
+                .split('.').next().unwrap_or("");
+            if let Some(bw) = state.boundary_wasms.iter().find(|b| b.canonical_name == name) {
+                send_response_cached(&mut stream, 200, "application/wasm", &bw.wasm_bytes)
+            } else {
+                send_response(&mut stream, 404, "text/plain", b"Boundary shard not found")
+            }
+        }
+        ("GET", p) if p == "/az/manifest.json"
+            || (p.starts_with("/az/manifest.") && p.ends_with(".json")) =>
+        {
+            // M10-D: shard manifest. Lists every shard URL +
+            // exports + imports so loader.js can topo-sort and
+            // instantiate. Generated lazily on first hit so the
+            // manifest's hash field stays in sync with whatever
+            // bytes are actually being served. Both the unversioned
+            // `/az/manifest.json` (loader bootstrap) and hashed
+            // `/az/manifest.<hash>.json` URLs hit this branch.
+            let manifest = build_manifest(state);
+            // No-cache for manifest.json: small payload + always wins
+            // on changes; the wasms it references have their own
+            // hashed URLs for cache busting.
+            send_response(
+                &mut stream,
+                200,
+                "application/json",
+                manifest.as_bytes(),
+            )
         }
 
         // ── Image serving ──
@@ -557,6 +595,114 @@ fn send_response_cached(
     body: &[u8],
 ) -> Result<(), String> {
     send_response_inner(stream, status, content_type, body, true)
+}
+
+/// M10-D — emit the shard manifest as a JSON string.
+///
+/// Shape (v1):
+/// ```json
+/// {
+///   "version": 1,
+///   "mini": { "url": "/az/mini.<hash>.wasm" },
+///   "layout": [ { "name": "...", "url": "...", "fn_addr": 0 }, ... ],
+///   "callbacks": [ { "name": "...", "url": "...", "fn_addr": 0 }, ... ],
+///   "boundaries": [
+///     { "name": "AzRefAny_clone", "url": "/az/fn/AzRefAny_clone.<hash>.wasm",
+///       "body_export": "sub_<hex>", "canonical_addr": 12345,
+///       "transitive_boundaries": [ ... ] },
+///     ...
+///   ]
+/// }
+/// ```
+///
+/// The JSON is hand-rolled (no serde_json dep here) to keep the
+/// server module dependency-free. loader.js parses it via `JSON.parse`.
+pub fn build_manifest(state: &WebServerState) -> String {
+    let mut out = String::with_capacity(4096);
+    out.push_str("{\"version\":1,");
+    // Mini URL
+    let mini_hash = super::fnv1a64_hex(&state.mini_wasm);
+    out.push_str(&format!(
+        "\"mini\":{{\"url\":\"/az/mini.{}.wasm\"}},",
+        mini_hash,
+    ));
+    // Layout WASMs
+    out.push_str("\"layout\":[");
+    let mut first = true;
+    for lw in &state.layout_wasms {
+        if !first { out.push(','); }
+        first = false;
+        out.push_str(&format!(
+            "{{\"name\":\"{}\",\"url\":\"/az/layout/{}.{}.wasm\",\"fn_addr\":{},\
+              \"client_side\":{}}}",
+            json_escape(&lw.name),
+            json_escape(&lw.name),
+            lw.content_hash,
+            lw.fn_addr,
+            lw.is_client_side,
+        ));
+    }
+    out.push_str("],");
+    // Callback WASMs
+    out.push_str("\"callbacks\":[");
+    let mut first = true;
+    for cb in &state.cb_wasms {
+        if !first { out.push(','); }
+        first = false;
+        out.push_str(&format!(
+            "{{\"name\":\"{}\",\"url\":\"/az/cb/{}.{}.wasm\",\"fn_addr\":{},\
+              \"client_side\":{}}}",
+            json_escape(&cb.name),
+            json_escape(&cb.name),
+            cb.content_hash,
+            cb.fn_addr,
+            cb.is_client_side,
+        ));
+    }
+    out.push_str("],");
+    // Boundary WASMs
+    out.push_str("\"boundaries\":[");
+    let mut first = true;
+    for bw in &state.boundary_wasms {
+        if !first { out.push(','); }
+        first = false;
+        out.push_str(&format!(
+            "{{\"name\":\"{}\",\"url\":\"/az/fn/{}.{}.wasm\",\
+              \"body_export\":\"{}\",\"canonical_addr\":{},\
+              \"transitive_boundaries\":[",
+            json_escape(&bw.canonical_name),
+            json_escape(&bw.canonical_name),
+            bw.content_hash,
+            json_escape(&bw.body_export),
+            bw.canonical_addr,
+        ));
+        let mut first_t = true;
+        for &t in &bw.transitive_boundaries {
+            if !first_t { out.push(','); }
+            first_t = false;
+            out.push_str(&format!("{}", t));
+        }
+        out.push_str("]}");
+    }
+    out.push(']');
+    out.push('}');
+    out
+}
+
+fn json_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 #[cfg(test)]

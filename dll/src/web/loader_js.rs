@@ -75,6 +75,16 @@ var azTable = null;       // WebAssembly.Table for indirect callback dispatch
 // fn-addrs harvested from a hydrated StyledDom.)
 var azFnAddrToTableIdx = new Map();
 
+// M10-D: parsed manifest + boundary symbol table. In sharded mode,
+// every Az* framework symbol referenced by a cb / layout / mini wasm
+// becomes an env-import named `sub_<canonical_synth_hex>`. The
+// boundary shard at `/az/fn/<name>.<hash>.wasm` exports the matching
+// `sub_<canonical_synth_hex>` body. Once loaded, the export goes
+// into azBoundarySymbols and azCallbackImports() routes env-imports
+// through it before falling back to stub-noops.
+var azManifest = null;
+var azBoundarySymbols = new Map();   // sub_<synth_hex> → exported wasm fn
+
 // =====================================================================
 // Imports given to mini.wasm at instantiate-time.
 // `__indirect_function_table` + `__az_resolve_callback` are the
@@ -157,11 +167,76 @@ function azCallbackImports() {
             if (Object.prototype.hasOwnProperty.call(realEnv, prop)) {
                 return realEnv[prop];
             }
+            // M10-D: route every `sub_<canonical_synth_hex>` env-import
+            // through the boundary symbol table. In sharded mode the
+            // boundary shard exports the matching body; in legacy
+            // mode the map is empty and we drop to stub-noop, which
+            // matches the pre-M10-D behavior (the cb's wasm bundles
+            // the body so the env-import was never reached).
+            if (azBoundarySymbols.has(prop)) {
+                return azBoundarySymbols.get(prop);
+            }
             return stubFor(prop);
         },
         has: function() { return true; },
     };
     return { env: new Proxy({}, handler) };
+}
+
+// M10-D: fetch the manifest (best-effort) + pre-load every boundary
+// shard. Each shard's `sub_<canonical_synth_hex>` export gets routed
+// into `azBoundarySymbols` so subsequent cb / layout instantiations
+// (which import `env.sub_<canonical_synth_hex>`) resolve to the real
+// boundary body instead of a stub-noop.
+//
+// Skips silently when the manifest endpoint returns 404 / non-JSON
+// (legacy bundled mode = sharded build off; per-cb wasms ship every
+// boundary body inline, no shards needed). Errors loading individual
+// shards downgrade to "stub-noop for that boundary" so a single
+// missing shard doesn't break the whole page.
+async function azLoadBoundaryShards() {
+    try {
+        var resp = await fetch('/az/manifest.json');
+        if (!resp.ok) {
+            console.debug('[azul-web] no manifest available (legacy mode)');
+            return;
+        }
+        azManifest = await resp.json();
+    } catch (e) {
+        console.debug('[azul-web] manifest fetch failed:', e);
+        return;
+    }
+    if (!azManifest || !Array.isArray(azManifest.boundaries) ||
+        azManifest.boundaries.length === 0) {
+        console.debug('[azul-web] manifest has no boundary shards (legacy mode)');
+        return;
+    }
+    console.info('[azul-web] loading ' + azManifest.boundaries.length +
+                 ' boundary shards...');
+    // Parallel-fetch every shard. Each shard's wasm imports
+    // env.memory + env.__indirect_function_table (same wiring as
+    // cb wasms) but exports `sub_<canonical_synth_hex>` (the raw
+    // remill-shape body) for downstream wasms to import.
+    var imports = azCallbackImports();
+    var loads = azManifest.boundaries.map(async function(b) {
+        try {
+            var mod = await WebAssembly.instantiateStreaming(fetch(b.url), imports);
+            var bodyFn = mod.instance.exports[b.body_export];
+            if (typeof bodyFn !== 'function') {
+                console.warn('[azul-web] boundary ' + b.name + ' missing export ' +
+                             b.body_export);
+                return;
+            }
+            azBoundarySymbols.set(b.body_export, bodyFn);
+            console.debug('[azul-web] boundary loaded: ' + b.name + ' → ' +
+                          b.body_export);
+        } catch (e) {
+            console.warn('[azul-web] boundary load failed for ' + b.name + ':', e);
+        }
+    });
+    await Promise.all(loads);
+    console.info('[azul-web] boundary shards ready: ' +
+                 azBoundarySymbols.size + '/' + azManifest.boundaries.length);
 }
 
 // =====================================================================
@@ -191,7 +266,8 @@ async function azBootstrap() {
     var miniUrl = miniLink.getAttribute('href');
 
     // 1. Fetch + instantiate mini.wasm with shared table + JS-side
-    //    __az_resolve_callback.
+    //    __az_resolve_callback. Mini OWNS the shared memory so it
+    //    must instantiate before any wasm that imports memory.
     var imports = azMakeMiniImports();
     try {
         var miniMod = await WebAssembly.instantiateStreaming(fetch(miniUrl), imports);
@@ -202,6 +278,15 @@ async function azBootstrap() {
     }
     azMemory = azMini.memory;
     console.debug('[azul-web] mini exports:', Object.keys(azMini));
+
+    // 1.5. M10-D: load every boundary shard (api.json Framework
+    //      symbols factored out of the cb / layout / mini bundles).
+    //      Their `sub_<canonical_synth_hex>` exports populate
+    //      azBoundarySymbols so subsequent cb / layout instantiations
+    //      can route their env-imports through them. Skips silently
+    //      in legacy bundled mode (no manifest endpoint or empty
+    //      boundaries array).
+    await azLoadBoundaryShards();
 
     // 2. Initialize App. AzStartup_init returns the eventloop state ptr.
     //    M8.7c-3 ignores the JSON payload args (the AArch64-layout

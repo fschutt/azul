@@ -814,7 +814,23 @@ impl RemillTranspiler {
         // ~7 eventloop functions; the M5-M7 per-callback path keeps
         // alwaysinline since hello-world's on_click has no
         // observable side effects past its return.
-        let patched_ir = if export_as.starts_with("AzStartup_") {
+        //
+        // M10-D: boundary-lift roots use the same `AzStartup_` /
+        // `AzBoundary_` skip-alwaysinline path. Boundary shards
+        // EXPORT the raw `sub_<canonical_hex>` body so other wasms
+        // can import it. With alwaysinline on the entry, opt -O2
+        // inlines the body into the (unused) wrapper, then
+        // --gc-sections strips the wrapper → the exported body
+        // disappears too. Skipping alwaysinline keeps the body as
+        // a standalone, exportable function.
+        //
+        // `contains("AzBoundary_")` matches both `AzBoundary_<hex>`
+        // (when the wrapper is exported) and `__az_dep_AzBoundary_<hex>`
+        // (when the wrapper is internal — boundary lift's preferred
+        // shape; the wrapper gets gc-stripped after link).
+        let patched_ir = if export_as.starts_with("AzStartup_")
+            || export_as.contains("AzBoundary_")
+        {
             lifted_ir.clone()
         } else {
             inject_alwaysinline(&lifted_ir, canonical_entry_addr)
@@ -1024,6 +1040,7 @@ impl RemillTranspiler {
             // now, leave empty so the caller treats the module as
             // self-contained.
             imports_from_mini: Vec::new(),
+            used_boundaries: Vec::new(),
         })
     }
 
@@ -1257,6 +1274,17 @@ impl RemillTranspiler {
         // pages this wasm actually reads — not the entire 19 MiB
         // libazul `__const` blob.
         let mut accessed_pages: HashSet<usize> = HashSet::new();
+        // M10-D: boundary canonical addrs surfaced during the BFS.
+        // Returned via `WasmModule.used_boundaries`; orchestrator
+        // unions across every lift + runs the boundary-lift pass.
+        let mut used_boundaries: HashSet<usize> = HashSet::new();
+        // M10-D: extra exports per root, flattened — appended to
+        // wasm-ld's `--export` list so the boundary lift can expose
+        // its raw `sub_<canonical_hex>` body alongside the wrapper.
+        let mut extra_exports: Vec<String> = Vec::new();
+        for r in &roots {
+            extra_exports.extend(r.extra_exports.iter().cloned());
+        }
 
         for root in roots {
             queue.push_back(TransitiveLiftTarget::Root(root));
@@ -1410,6 +1438,14 @@ impl RemillTranspiler {
                 if already_visited {
                     continue;
                 }
+                // M10-D: record boundaries before the recursable
+                // check so they're tracked even though they don't
+                // recurse. Boundaries become env-imports in the
+                // cb wasm and ship as separate per-fn shards.
+                if entry.classification.is_boundary_import() {
+                    used_boundaries.insert(entry.canonical_addr);
+                    continue;
+                }
                 if !entry.classification.is_recursable() {
                     // Leaf / BumpAlloc / CallIndirect /
                     // ResolveCallback / NeverLift: the helper IR
@@ -1429,6 +1465,16 @@ impl RemillTranspiler {
             }
         }
 
+        // M10-D: append per-root extra exports (boundary-lift's
+        // `sub_<canonical_hex>` body export). Dedup so we don't pass
+        // `--export` twice for a name already in the wrapper-export
+        // list.
+        for extra in &extra_exports {
+            if !exports.iter().any(|e| e == extra) {
+                exports.push(extra.clone());
+            }
+        }
+
         eprintln!(
             "[azul-web] transitive lift complete: {} functions lifted, {} unique exports",
             visited.len(),
@@ -1442,11 +1488,20 @@ impl RemillTranspiler {
             MemoryMode::ImportMemory,
             &accessed_pages,
         )?;
+        let mut boundaries: Vec<usize> = used_boundaries.into_iter().collect();
+        boundaries.sort_unstable();
+        if !boundaries.is_empty() {
+            eprintln!(
+                "[azul-web] transitive lift (sequential): used {} boundary imports",
+                boundaries.len(),
+            );
+        }
         Ok(WasmModule {
             content_hash: super::fnv1a64_hex(&bytes),
             bytes,
             exports,
             imports_from_mini: Vec::new(),
+            used_boundaries: boundaries,
         })
     }
 
@@ -1478,6 +1533,18 @@ impl RemillTranspiler {
         // of (name, addr, size, sig, export_as) without any lift.
         let mut visited: HashSet<usize> = HashSet::new();
         let mut targets: Vec<Target> = Vec::new();
+        // M10-D: track every BoundaryImport canonical addr reached
+        // during the BFS — the orchestrator will lift each into its
+        // own per-fn wasm shard. Empty in legacy bundled mode.
+        let mut used_boundaries: HashSet<usize> = HashSet::new();
+        // M10-D: extra exports per root, flattened into one Vec.
+        // Appended verbatim to the final wasm-ld --export list so
+        // the boundary lift can expose its raw `sub_<canonical_hex>`
+        // body alongside the wrapper.
+        let mut extra_exports: Vec<String> = Vec::new();
+        for r in &roots {
+            extra_exports.extend(r.extra_exports.iter().cloned());
+        }
         let mut queue: VecDeque<(String, usize, usize, CallbackSignature, String)> =
             VecDeque::new();
         for r in roots {
@@ -1528,6 +1595,16 @@ impl RemillTranspiler {
             let Some(table) = table else { continue; };
             for dep_addr in bl_targets {
                 let Some(entry) = table.resolve(dep_addr) else { continue; };
+                // M10-D: record every BoundaryImport reached during the
+                // BFS so the orchestrator can lift it into a per-fn
+                // shard. Don't enqueue — boundaries don't bundle their
+                // body into this wasm; the cb's wasm-ld run will leave
+                // `sub_<canonical_hex>` undefined, and `--allow-undefined`
+                // converts it into an env-import wired by loader.js.
+                if entry.classification.is_boundary_import() {
+                    used_boundaries.insert(entry.canonical_addr);
+                    continue;
+                }
                 if !entry.classification.is_recursable() {
                     continue;
                 }
@@ -1736,6 +1813,16 @@ impl RemillTranspiler {
             }
         }
 
+        // M10-D: append per-root extra exports (boundary-lift's
+        // `sub_<canonical_hex>` body export). Dedup so we don't pass
+        // `--export` twice for a name already in the wrapper-export
+        // list.
+        for extra in &extra_exports {
+            if !exports.iter().any(|e| e == extra) {
+                exports.push(extra.clone());
+            }
+        }
+
         eprintln!(
             "[azul-web] transitive lift complete (batched): {} functions, {} unique exports",
             targets.len(),
@@ -1765,11 +1852,20 @@ impl RemillTranspiler {
             MemoryMode::ImportMemory,
             &accessed_pages,
         )?;
+        let mut boundaries: Vec<usize> = used_boundaries.into_iter().collect();
+        boundaries.sort_unstable();
+        if !boundaries.is_empty() {
+            eprintln!(
+                "[azul-web] transitive lift (batched): used {} boundary imports",
+                boundaries.len(),
+            );
+        }
         Ok(WasmModule {
             content_hash: super::fnv1a64_hex(&bytes),
             bytes,
             exports,
             imports_from_mini: Vec::new(),
+            used_boundaries: boundaries,
         })
     }
 }
@@ -2467,6 +2563,39 @@ enum MemoryMode {
     ImportMemory,
 }
 
+/// M10-D — output of [`RemillTranspiler::lift_boundary_to_wasm`]. One
+/// per `api.json::Framework` symbol referenced by any cb / layout /
+/// mini-shard lift in the running server. The shard exports the raw
+/// `sub_<canonical_hex>` body so other wasms can import and call it
+/// directly via `env.sub_<canonical_hex>`.
+#[derive(Debug, Clone)]
+pub struct BoundaryShard {
+    /// Canonical (post-PLT-chase) address of the boundary symbol
+    /// in the loaded image. Used as the dedup key when the
+    /// orchestrator unions used-boundary sets across many lifts.
+    pub canonical_addr: usize,
+    /// Canonical C-API name (`AzRefAny_clone`, `AzDom_addChild`, …).
+    pub canonical_name: String,
+    /// The symbol name the shard's wasm EXPORTS — always
+    /// `sub_<canonical_synth_hex>`. JS wiring sets
+    /// `env.sub_<canonical_synth_hex> = boundaryShard.exports[body_export]`
+    /// when instantiating dependent wasms.
+    pub body_export: String,
+    /// Internal wrapper export name (`AzBoundary_<synth_hex>`) — kept
+    /// for diagnostics; never called from JS or other wasms.
+    pub wrapper_export: String,
+    /// FNV-1a 64-bit content hash of the wasm bytes. Used in the
+    /// served URL `/az/fn/<canonical_name>.<content_hash>.wasm` for
+    /// browser cache busting.
+    pub content_hash: String,
+    /// The shard's wasm bytes (the contents of the served wasm file).
+    pub wasm_bytes: Vec<u8>,
+    /// Canonical addresses of every OTHER boundary the shard's BFS
+    /// surfaced as a transitive dep. The orchestrator follows the
+    /// chain to ensure every downstream shard gets lifted too.
+    pub transitive_boundaries: Vec<usize>,
+}
+
 /// Specifies a root function for [`RemillTranspiler::lift_with_transitive_deps`].
 #[derive(Debug, Clone)]
 pub struct TransitiveLiftRoot {
@@ -2475,6 +2604,13 @@ pub struct TransitiveLiftRoot {
     pub fn_size: usize,
     pub sig: CallbackSignature,
     pub export_as: String,
+    /// M10-D: additional symbol names to add to wasm-ld's `--export`
+    /// list when this root's lift links. The boundary-lift pass uses
+    /// this to export `sub_<canonical_hex>` (the raw lifted body)
+    /// alongside the wrapper, so cb / layout / mini wasms can import
+    /// the boundary's body directly from `env` at instantiate-time.
+    /// Default empty for cb / layout / eventloop lifts.
+    pub extra_exports: Vec<String>,
 }
 
 /// Internal queue item — either a root with a user-chosen wrapper
@@ -2526,6 +2662,7 @@ impl Transpiler for RemillTranspiler {
             fn_size,
             sig,
             export_as: super::WASM_CALLBACK_EXPORT.to_string(),
+            extra_exports: Vec::new(),
         };
         self.lift_with_transitive_deps(vec![root])
     }
@@ -2627,6 +2764,7 @@ impl Transpiler for RemillTranspiler {
             bytes: wasm_bytes,
             exports,
             imports_from_mini: Vec::new(),
+            used_boundaries: Vec::new(),
         })
     }
 
@@ -2786,6 +2924,13 @@ impl Transpiler for RemillTranspiler {
             bytes,
             exports,
             imports_from_mini: Vec::new(),
+            // M10-D: mini's per-symbol lifts don't transitively walk
+            // deps today (each AzStartup_* lifts as a single fn; deps
+            // become undefined → env-imports). So `used_boundaries`
+            // here would always be empty. Populated correctly once
+            // mini's pipeline shifts to per-shard transitive lift in
+            // Step 3.
+            used_boundaries: Vec::new(),
         })
     }
 
@@ -2807,6 +2952,79 @@ impl Transpiler for RemillTranspiler {
 // `impl Transpiler` block because these aren't part of the public
 // Transpiler trait surface.
 impl RemillTranspiler {
+    /// M10-D — lift one boundary symbol into its own per-fn wasm
+    /// shard. The shard exports `sub_<canonical_hex>` (the raw lifted
+    /// body using the standard remill signature
+    /// `ptr (ptr state, i64 pc, ptr memory)`) so other wasms can
+    /// import it via `env.sub_<canonical_hex>` and call it directly
+    /// from their own lifted bodies.
+    ///
+    /// Internally reuses [`Self::lift_with_transitive_deps_batched`]:
+    /// the BFS walks the boundary's own dep graph and pulls every
+    /// Recursable dep into the same shard. Other [`FnClass::BoundaryImport`]
+    /// deps stay as env-imports — they ship as their own shards and
+    /// JS wires them at instantiate-time.
+    ///
+    /// The root's `export_as` uses the `AzBoundary_<hex>` prefix so
+    /// [`produce_object_from_lifted_ir`]'s alwaysinline path is
+    /// skipped (otherwise opt -O2 would inline the body into the
+    /// unused wrapper and --gc-sections would then strip both, taking
+    /// the exported `sub_<canonical_hex>` body with them).
+    pub fn lift_boundary_to_wasm(
+        &self,
+        boundary_addr: usize,
+    ) -> Result<BoundaryShard, TranspileError> {
+        let table = symbol_table::get().ok_or_else(|| TranspileError {
+            fn_name: format!("boundary_0x{:x}", boundary_addr),
+            reason: "SymbolTable not installed — cannot lift boundary".into(),
+        })?;
+        let entry = table.lookup(boundary_addr).ok_or_else(|| TranspileError {
+            fn_name: format!("boundary_0x{:x}", boundary_addr),
+            reason: format!(
+                "boundary canonical addr 0x{:x} not in SymbolTable",
+                boundary_addr,
+            ),
+        })?;
+        let canonical_name = entry.canonical_name.clone();
+        let synth_hex = format!("{:x}", entry.synthetic_addr);
+        let body_export = format!("sub_{}", synth_hex);
+        let fn_size = if entry.size > 0 {
+            entry.size
+        } else {
+            super::LIFT_READ_WINDOW
+        };
+        let canonical_addr = entry.canonical_addr;
+
+        // Wrapper name uses the `AzBoundary_` prefix so the
+        // alwaysinline-skip path triggers in
+        // produce_object_from_lifted_ir. The `__az_dep_` infix tells
+        // the per-target loop to NOT add the wrapper to the export
+        // list — `--gc-sections` then strips the wrapper at link
+        // time (its body is never called; `sub_<X>` is the actual
+        // callable, anchored via `extra_exports`).
+        let wrapper_export = format!("__az_dep_AzBoundary_{}", synth_hex);
+        let root = TransitiveLiftRoot {
+            fn_name: canonical_name.clone(),
+            fn_addr: boundary_addr,
+            fn_size,
+            sig: signature_for_callback_kind("Callback"),
+            export_as: wrapper_export.clone(),
+            extra_exports: vec![body_export.clone()],
+        };
+
+        let module = self.lift_with_transitive_deps(vec![root])?;
+
+        Ok(BoundaryShard {
+            canonical_addr,
+            canonical_name,
+            body_export,
+            wrapper_export,
+            content_hash: module.content_hash,
+            wasm_bytes: module.bytes,
+            transitive_boundaries: module.used_boundaries,
+        })
+    }
+
     /// M10-B1.b — prepare (patched_ir, helper_ir) strings for one
     /// lifted function WITHOUT compiling or writing .o files. Used by
     /// the merged-compile path
@@ -2855,9 +3073,14 @@ impl RemillTranspiler {
             })
             .unwrap_or(fn_addr) as u64;
 
-        let patched_ir = if export_as.starts_with("AzStartup_") {
-            // Same rationale as produce_object_from_lifted_ir: AzStartup_*
-            // can't tolerate alwaysinline (call observer gets DCE'd).
+        let patched_ir = if export_as.starts_with("AzStartup_")
+            || export_as.contains("AzBoundary_")
+        {
+            // Same rationale as produce_object_from_lifted_ir:
+            // AzStartup_* and AzBoundary_* roots can't tolerate
+            // alwaysinline (call-observer gets DCE'd in the AzStartup
+            // case; boundary's exported `sub_<X>` body gets stripped
+            // in the AzBoundary case).
             lifted_ir.clone()
         } else if tag_with_alwaysinline_all {
             inject_alwaysinline_all_subs(&lifted_ir)
@@ -3479,6 +3702,15 @@ fn emit_helper_ir(
             // sub_<canonical_addr_hex> defn to the sub_<canonical_addr_hex>
             // declare automatically. Drop through to no-emission.
             Some(SymFnClass::Recursable) => {}
+            // M10-D BoundaryImport: NO body either, but for a different
+            // reason — there's no sibling .o either. wasm-ld sees the
+            // `declare ptr @sub_<canonical_hex>(...)` as undefined and
+            // (with `--allow-undefined`) emits a wasm function-import
+            // for it. At instantiate time, loader.js wires
+            // `env.sub_<canonical_hex>` to the matching boundary-shard
+            // wasm's exported body. The boundary-lift pass runs once
+            // per server start and produces one wasm per boundary.
+            Some(SymFnClass::BoundaryImport) => {}
             // BumpAlloc: __rust_alloc / __rust_alloc_zeroed body.
             Some(SymFnClass::BumpAlloc) => {
                 branch_stubs.push_str(&format!(

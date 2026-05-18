@@ -31,7 +31,7 @@ impl std::fmt::Display for TranspileError {
 }
 
 /// A lifted WASM module (bytes + metadata).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct WasmModule {
     /// The raw WASM binary bytes.
     pub bytes: Vec<u8>,
@@ -41,6 +41,13 @@ pub struct WasmModule {
     pub exports: Vec<String>,
     /// Functions imported from azul-mini.wasm.
     pub imports_from_mini: Vec<String>,
+    /// M10-D: canonical addresses of every [`FnClass::BoundaryImport`]
+    /// the lift's BFS surfaced as a dependency. Empty in legacy
+    /// bundled mode (when api.json `Framework` symbols classify as
+    /// `Recursable`). The web-orchestrator unions these across every
+    /// per-cb / per-layout / mini lift, then runs a second pass to
+    /// lift each boundary into its own per-fn wasm shard.
+    pub used_boundaries: Vec<usize>,
 }
 
 /// Trait for transpiling native functions to WASM.
