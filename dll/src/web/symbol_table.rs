@@ -101,6 +101,19 @@ pub enum FnClass {
     /// body that bumps `@__az_bump_ptr` by State.X0 and returns the
     /// old value. See `emit_helper_ir` BranchExternKind::RustAlloc.
     BumpAlloc,
+    /// `__rust_realloc(old_ptr, old_size, align, new_size)`. Helper
+    /// IR emits a body that bumps `@__az_bump_ptr` by new_size,
+    /// memcpys `min(old_size, new_size)` bytes from old_ptr into the
+    /// new region, and returns the new pointer. Required so Vec
+    /// resizes (Vec::push past capacity etc.) work for layout-cb
+    /// dispatch. Bump-only allocator means the old region is leaked
+    /// but never reused — fine for short-lived per-request lifts.
+    BumpRealloc,
+    /// `__rust_dealloc(ptr, size, align)`. Helper IR emits a noop
+    /// body (bump-only allocator never frees). Distinguished from
+    /// Leaf so the classifier can flag it explicitly rather than
+    /// silently fall through. Behaviorally identical to Leaf.
+    BumpDealloc,
     /// `__az_call_indirect(tidx, refany_lo, refany_hi, info_ptr)`.
     /// Helper IR lowers to wasm `call_indirect` via the imported
     /// `__indirect_function_table`.
@@ -1193,6 +1206,21 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     //    macOS-style `___rust_alloc`, Linux-style `__rust_alloc`,
     //    and v0-mangled wrappers.
     let stripped = name.trim_start_matches('_');
+    // Order matters: `rust_alloc_zeroed` must match BEFORE `rust_alloc`
+    // (which is a prefix). Similarly `rust_realloc` is a separate
+    // family from `rust_alloc` — keep it ahead of the alloc check so
+    // the alloc match doesn't accidentally trigger on `__rust_realloc`
+    // (which doesn't, but we hardcode order to be defensive).
+    for variant in ["rust_realloc", "rdl_realloc", "rg_realloc"] {
+        if stripped == variant || stripped.ends_with(variant) {
+            return FnClass::BumpRealloc;
+        }
+    }
+    for variant in ["rust_dealloc", "rdl_dealloc", "rg_dealloc"] {
+        if stripped == variant || stripped.ends_with(variant) {
+            return FnClass::BumpDealloc;
+        }
+    }
     for variant in ["rust_alloc_zeroed", "rdl_alloc_zeroed", "rg_alloc_zeroed"] {
         if stripped == variant || stripped.ends_with(variant) {
             return FnClass::BumpAlloc;

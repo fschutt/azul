@@ -1956,6 +1956,10 @@ fn emit_helper_ir(
     //     into the lift's call site, allocator-flowed pointers are
     //     real wasm32 offsets and subsequent Box::new / Vec::push
     //     / BTreeMap::insert code paths execute correctly.
+    //   - RustRealloc: bump alloc fresh region of new_size, memcpy
+    //     min(old_size, new_size) bytes from old, leak the old
+    //     region. Required for Vec resizes in the layout-cb path.
+    //   - RustDealloc: noop body (bump-only allocator doesn't free).
     //
     // `@__bump_ptr` is declared `linkonce_odr` so the wasm-ld link
     // step over multiple object files (the azul-mini eventloop
@@ -1995,6 +1999,60 @@ fn emit_helper_ir(
                     sym = ext.sym_name,
                     n = n_suffix,
                     x0_off = x0_off,
+                ));
+            }
+            // BumpRealloc: __rust_realloc(old_ptr, old_size, align, new_size).
+            //   X0=old_ptr, X1=old_size, X2=align (ignored), X3=new_size.
+            //   Returns: new_ptr in X0.
+            //
+            // Bump-only allocator — alloc fresh region of new_size,
+            // memcpy min(old_size, new_size) bytes from old, leak the
+            // old region. Vec::push past capacity (layout-cb's NodeData
+            // accumulation) needs this to work.
+            Some(SymFnClass::BumpRealloc) => {
+                branch_stubs.push_str(&format!(
+                    "; bump-realloc body for {sym}\n\
+                     define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) alwaysinline {{\n  \
+                       %x0_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x0_off}\n  \
+                       %old_ptr_i64_{n} = load i64, ptr %x0_p_{n}, align 8\n  \
+                       %old_ptr_i32_{n} = trunc i64 %old_ptr_i64_{n} to i32\n  \
+                       %old_ptr_p_{n} = inttoptr i32 %old_ptr_i32_{n} to ptr\n  \
+                       %x1_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x1_off}\n  \
+                       %old_size_{n} = load i64, ptr %x1_p_{n}, align 8\n  \
+                       %x3_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x3_off}\n  \
+                       %new_size_{n} = load i64, ptr %x3_p_{n}, align 8\n  \
+                       %new_size_a_{n} = add i64 %new_size_{n}, 7\n  \
+                       %new_size_aligned_{n} = and i64 %new_size_a_{n}, -8\n  \
+                       %old_bump_{n} = load i32, ptr @__az_bump_ptr, align 4\n  \
+                       %old_bump_i64_{n} = zext i32 %old_bump_{n} to i64\n  \
+                       %new_bump_i64_{n} = add i64 %old_bump_i64_{n}, %new_size_aligned_{n}\n  \
+                       %new_bump_{n} = trunc i64 %new_bump_i64_{n} to i32\n  \
+                       store i32 %new_bump_{n}, ptr @__az_bump_ptr, align 4\n  \
+                       %new_ptr_p_{n} = inttoptr i32 %old_bump_{n} to ptr\n  \
+                       %cmp_{n} = icmp ult i64 %old_size_{n}, %new_size_{n}\n  \
+                       %copy_size_{n} = select i1 %cmp_{n}, i64 %old_size_{n}, i64 %new_size_{n}\n  \
+                       call void @llvm.memcpy.p0.p0.i64(ptr %new_ptr_p_{n}, ptr %old_ptr_p_{n}, i64 %copy_size_{n}, i1 false)\n  \
+                       store i64 %old_bump_i64_{n}, ptr %x0_p_{n}, align 8\n  \
+                       ret ptr %memory\n\
+                     }}\n",
+                    sym = ext.sym_name,
+                    n = n_suffix,
+                    x0_off = x0_off,
+                    x1_off = x0_off + 16,
+                    x3_off = x0_off + 48,
+                ));
+            }
+            // BumpDealloc: __rust_dealloc(ptr, size, align). Bump-only
+            // allocator doesn't free — body is a noop that returns
+            // memory unchanged. X0 (ptr) is left alone (return type
+            // is void; caller discards X0).
+            Some(SymFnClass::BumpDealloc) => {
+                branch_stubs.push_str(&format!(
+                    "; bump-dealloc body for {sym} — noop (bump+leak)\n\
+                     define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) alwaysinline {{\n  \
+                       ret ptr %memory\n\
+                     }}\n",
+                    sym = ext.sym_name,
                 ));
             }
             Some(SymFnClass::CallIndirect) => {
@@ -2272,6 +2330,7 @@ define linkonce_odr i1 @__remill_compare_uge(i1 %r) alwaysinline {{ ret i1 %r }}
 
 declare ptr @sub_{lift_addr_hex}(ptr noalias, i64, ptr noalias)
 declare void @llvm.memset.p0.i64(ptr nocapture writeonly, i8, i64, i1 immarg)
+declare void @llvm.memcpy.p0.p0.i64(ptr nocapture writeonly, ptr nocapture readonly, i64, i1 immarg)
 
 ; Callback kind: {kind}. Wrapper synthesized from
 ; the matching `CallbackSignature`. PCS table at the top of
