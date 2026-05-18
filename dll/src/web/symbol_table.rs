@@ -618,6 +618,59 @@ impl SymbolTable {
             }
         }
 
+        // Pass 3.5: M10-A1 — address-based classifier override for
+        // out-of-image symbols.
+        //
+        // The name-based `classify_for_name` falls through to
+        // `Recursable` for any symbol that doesn't match a known
+        // prefix/suffix pattern. That's correct for our own crates
+        // (azul_*, webrender_*, …) but WRONG for libsystem stubs
+        // that arrived via PLT-chase + dlsym: e.g. `_platform_memmove`
+        // has its leading `_` stripped at ingest, falls through the
+        // pattern table, and ends up Recursable. Lifting one of these
+        // produces garbage because its `synthetic_addr` stays at the
+        // native (6+ GiB) value — no image rebase covers it, so the
+        // per-page data mirror has nothing at the address the lifted
+        // body reads from.
+        //
+        // The fix is structural: if `canonical_addr` falls outside
+        // every tracked `image_rebases` range, it CANNOT be lifted
+        // correctly. Force `Leaf` so the helper IR emits a typed
+        // extern stub instead. Keep the existing classifications for
+        // BumpAlloc/Realloc/Dealloc/CallIndirect[Layout4]/ResolveCallback
+        // (they're identified by name and don't need a body lift) and
+        // for NeverLift.
+        let in_tracked = |addr: usize| -> bool {
+            rebases
+                .iter()
+                .any(|r| addr >= r.native_base && addr < r.native_end)
+        };
+        let mut overridden = 0usize;
+        for entry in self.by_addr.values_mut() {
+            if matches!(
+                entry.classification,
+                FnClass::Leaf
+                    | FnClass::BumpAlloc
+                    | FnClass::BumpRealloc
+                    | FnClass::BumpDealloc
+                    | FnClass::CallIndirect
+                    | FnClass::CallIndirectLayout4
+                    | FnClass::ResolveCallback
+                    | FnClass::NeverLift
+            ) {
+                continue;
+            }
+            if !in_tracked(entry.canonical_addr) {
+                entry.classification = FnClass::Leaf;
+                overridden += 1;
+            }
+        }
+        eprintln!(
+            "[symbol_table] M10-A1: forced Leaf on {} symbols whose \
+             canonical_addr falls outside tracked image ranges",
+            overridden,
+        );
+
         // Pass 4: build the synth-keyed chain mirroring `chain`.
         let synth_of = |addr: usize| -> usize {
             self.by_addr
