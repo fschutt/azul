@@ -55,11 +55,19 @@ pub trait Transpiler {
     /// - `fn_name`: The symbol name (e.g., "on_click", "AzDom_addChild")
     /// - `fn_addr`: The function's address in the running process
     /// - `fn_size`: Estimated size in bytes (from dladdr or DWARF)
+    /// - `kind`: Callback-typedef tag from api.json (e.g. `"Callback"`,
+    ///   `"LayoutCallback"`, `"CheckBoxOnToggleCallback"`). Drives
+    ///   wrapper signature synthesis via the implementation's
+    ///   per-kind PCS table — picks how args land in registers and
+    ///   whether the return uses a hidden destination buffer (X8
+    ///   PCS for `>16B` aggregate returns like `LayoutCallback`'s
+    ///   `AzDom`).
     fn lift_function(
         &self,
         fn_name: &str,
         fn_addr: usize,
         fn_size: usize,
+        kind: &str,
     ) -> Result<WasmModule, TranspileError>;
 
     /// Lift multiple framework functions and link them into a single module.
@@ -105,6 +113,7 @@ impl Transpiler for StubTranspiler {
         fn_name: &str,
         _fn_addr: usize,
         _fn_size: usize,
+        _kind: &str,
     ) -> Result<WasmModule, TranspileError> {
         Err(TranspileError {
             fn_name: fn_name.to_string(),

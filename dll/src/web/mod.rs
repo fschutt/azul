@@ -362,6 +362,13 @@ pub fn discover_and_transpile_callbacks(
                     &d.name,
                     d.fn_addr,
                     d.fn_size,
+                    // Widget callbacks (button on_click, etc.) all share
+                    // the canonical `Callback` shape: `fn(AzRefAny,
+                    // AzCallbackInfo) -> AzUpdate`. M9-1+ can extend
+                    // `DiscoveredCallback` with a per-attachment-site
+                    // typedef tag (CheckBoxOnToggleCallback, …) once
+                    // the discovery side carries one through.
+                    "Callback",
                 );
                 out.push(CallbackWasm {
                     name: d.name.clone(),
@@ -396,18 +403,20 @@ fn lift_or_noop(
     name: &str,
     fn_addr: usize,
     fn_size: usize,
+    kind: &str,
 ) -> (Vec<u8>, bool) {
     if !transpiler_available {
         return (emit_noop_callback_wasm(), false);
     }
-    match transpiler.lift_function(name, fn_addr, fn_size) {
+    match transpiler.lift_function(name, fn_addr, fn_size, kind) {
         Ok(module) => {
             eprintln!(
-                "[azul-web]   lifted: {} → {} bytes ({} exports, {} mini imports)",
+                "[azul-web]   lifted: {} → {} bytes ({} exports, {} mini imports) [kind={}]",
                 name,
                 module.bytes.len(),
                 module.exports.len(),
-                module.imports_from_mini.len()
+                module.imports_from_mini.len(),
+                kind,
             );
             (module.bytes, true)
         }
@@ -531,6 +540,12 @@ pub fn lift_layout_callbacks(layout_callbacks: &[LayoutCallback]) -> Vec<LayoutW
             &sym.name,
             sym.addr,
             sym.size,
+            // LayoutCallback returns AzDom (>16B aggregate), so the
+            // wrapper takes an extra `out_ptr: i32` arg and seeds the
+            // hidden X8 destination register before invoking the body.
+            // See `signature_for_callback_kind("LayoutCallback")` +
+            // `Pcs::HiddenPtrReturn` in transpiler_remill.rs.
+            "LayoutCallback",
         );
         eprintln!(
             "[azul-web]   layout-cb: {:<40} addr=0x{:016x} wasm={} client_side={}",

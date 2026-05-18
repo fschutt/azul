@@ -82,6 +82,16 @@ pub enum Pcs {
     /// 32-bit primitive (e.g. bool, u32, i32) stored in the low
     /// 32 bits of a register slot (W<n>).
     Wreg { state_byte_offset: u64 },
+    /// Caller-allocated destination buffer for large struct returns
+    /// (>16 bytes via AAPCS64 hidden X8). Only valid as the `ret`
+    /// slot of a [`CallbackSignature`] — the wrapper appends one
+    /// extra `i32` arg (the wasm-side pointer of the destination
+    /// slot), zero-extends it to i64, stores into State.X<8>, and
+    /// then returns `i32 0` after the lifted body completes. The
+    /// body's `str xN, [x8, #M]` instructions write directly into
+    /// the caller's slot. `x8_offset` is the byte offset of the
+    /// X<8> slot inside `%struct.State`.
+    HiddenPtrReturn { x8_offset: u64 },
 }
 
 /// A callback typedef's full wrapper synthesis info.
@@ -204,6 +214,13 @@ pub fn signature_for_callback_kind(kind: &str) -> CallbackSignature {
     const X1: u64 = 560;
     const X2: u64 = 576;
     const X3: u64 = 592;
+    // X8 is the Indirect Result Location Register per AAPCS64 —
+    // the caller writes the destination-buffer pointer into X8
+    // before the call, and the callee's `str xN, [x8, #M]`
+    // instructions write the (large) struct return through it.
+    // Used by [`HiddenPtrReturn`] for LayoutCallback (which
+    // returns `AzDom`, > 16 bytes).
+    const X8: u64 = 672;
     let canonical_callback = || CallbackSignature {
         kind: "Callback".to_string(),
         // `extern "C" fn(AzRefAny, AzCallbackInfo) -> AzUpdate`
@@ -233,14 +250,25 @@ pub fn signature_for_callback_kind(kind: &str) -> CallbackSignature {
             ],
             ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
         },
-        // Layout/VirtualView/etc. return structs larger than 16B
-        // (StyledDom, VirtualViewReturn) — the aarch64 PCS uses a
-        // hidden return-by-pointer in X8 for those. Today we
-        // fall through to the Callback shape so the wrapper still
-        // builds; the lifted body's actual return goes to wherever
-        // X8 pointed in the caller's frame (not back through the
-        // wrapper). M7+ work to add `Pcs::HiddenPtrReturn` + emit
-        // the wrapper-side caller-allocated return buffer.
+        "LayoutCallback" => CallbackSignature {
+            kind: "LayoutCallback".to_string(),
+            // `extern "C" fn(AzRefAny, AzLayoutCallbackInfo) -> AzDom`
+            // AzRefAny: 16B aggregate → X0+X1 pair.
+            // AzLayoutCallbackInfo: >16B → *const passed in X2.
+            // AzDom: large aggregate return → hidden X8 destination
+            // pointer (caller-allocated).
+            //
+            // The wrapper appends a 4th `i32 out_ptr` arg, writes
+            // State.X8 from it, and returns `i32 0` after the body
+            // populates the caller's buffer. JS-side signature is
+            // `(refany_lo: i64, refany_hi: i64, info_ptr: i32,
+            //   out_ptr: i32) -> i32`.
+            args: vec![
+                Pcs::GprI64Pair { lo_offset: X0, hi_offset: X1 },
+                Pcs::GprPtr32 { state_byte_offset: X2 },
+            ],
+            ret: Some(Pcs::HiddenPtrReturn { x8_offset: X8 }),
+        },
         _ => {
             eprintln!(
                 "[azul-web] callback kind {:?} not in signature_for_callback_kind() — \
@@ -256,6 +284,12 @@ pub fn signature_for_callback_kind(kind: &str) -> CallbackSignature {
 /// Build the wrapper-arg list (wasm-side parameter declarations,
 /// LLVM IR syntax) and the prologue (stores into the State alloca)
 /// from a CallbackSignature.
+///
+/// When `sig.ret` is [`Pcs::HiddenPtrReturn`], one extra trailing
+/// `i32 %out_ptr` parameter is appended and the prologue zero-extends
+/// it into the X8 (Indirect Result Location) slot of the State
+/// struct. The lifted body's `str xN, [x8, #M]` instructions then
+/// write through that pointer into the caller's destination buffer.
 fn emit_wrapper_args_and_prologue(sig: &CallbackSignature) -> (String, String) {
     let mut params: Vec<String> = Vec::new();
     let mut prologue = String::new();
@@ -305,13 +339,38 @@ fn emit_wrapper_args_and_prologue(sig: &CallbackSignature) -> (String, String) {
                     off = state_byte_offset
                 ));
             }
+            // HiddenPtrReturn is only valid as `sig.ret`, not an arg —
+            // ignore here; the trailing-arg emission below handles it.
+            Pcs::HiddenPtrReturn { .. } => {
+                eprintln!(
+                    "[azul-web] BUG: Pcs::HiddenPtrReturn appeared in sig.args (only valid as sig.ret); skipping",
+                );
+            }
         }
+    }
+    // If the return uses a hidden destination pointer, append the
+    // pointer as an extra `i32` arg AND seed State.X8 with it.
+    if let Some(Pcs::HiddenPtrReturn { x8_offset }) = sig.ret.as_ref() {
+        params.push("i32 %out_ptr".to_string());
+        prologue.push_str(&format!(
+            "  ; HiddenPtrReturn: store out_ptr → State.X8 (AAPCS64 IRL)\n  \
+               %out_ptr_i64 = zext i32 %out_ptr to i64\n  \
+               %x8_p = getelementptr inbounds i8, ptr %state_buf, i64 {off}\n  \
+               store i64 %out_ptr_i64, ptr %x8_p, align 8\n",
+            off = x8_offset
+        ));
     }
     (params.join(", "), prologue)
 }
 
 /// Build the return-type fragment and post-call return-read code from
 /// the signature's return PCS.
+///
+/// [`Pcs::HiddenPtrReturn`] is wired here as `i32` returning a status
+/// code (`0 = ok`). The actual struct return was written by the
+/// lifted body through the X8-seeded destination pointer (see the
+/// `out_ptr` arg appended in [`emit_wrapper_args_and_prologue`]),
+/// so there's nothing to load back from State here.
 fn emit_wrapper_return(sig: &CallbackSignature) -> (String, String) {
     match sig.ret.as_ref() {
         None => ("void".to_string(), String::from("  ret void\n")),
@@ -333,8 +392,15 @@ fn emit_wrapper_return(sig: &CallbackSignature) -> (String, String) {
                 off = state_byte_offset
             ),
         ),
-        // Pair / hidden-ptr returns left for the M7 generalization
-        // pass; canonical Callback shape never hits these.
+        Some(Pcs::HiddenPtrReturn { .. }) => (
+            "i32".to_string(),
+            "  ; HiddenPtrReturn: body wrote the struct through X8 →\n  \
+               ; caller's destination buffer. Return status=0 (ok).\n  \
+               ret i32 0\n"
+                .to_string(),
+        ),
+        // Pair returns left for the M7 generalization pass; canonical
+        // Callback shape never hits this.
         Some(other) => {
             eprintln!(
                 "[azul-web] callback return PCS {:?} not yet wired — defaulting to i32 X0",
@@ -1521,6 +1587,7 @@ impl Transpiler for RemillTranspiler {
         fn_name: &str,
         fn_addr: usize,
         fn_size: usize,
+        kind: &str,
     ) -> Result<WasmModule, TranspileError> {
         // M8.7c-2: per-callback lift is now a RECURSIVE TRANSITIVE
         // lift, not just one function. Brings in everything the cb
@@ -1530,7 +1597,13 @@ impl Transpiler for RemillTranspiler {
         // export is still `callback` (loader.js dispatches by that
         // name); transitive deps get `__az_dep_<addr>` placeholder
         // exports that wasm-ld --gc-sections strips out.
-        let sig = signature_for_callback_kind("Callback");
+        //
+        // M9-1: `kind` selects the wrapper signature. Widget cbs
+        // pass `"Callback"`; layout cbs pass `"LayoutCallback"` so
+        // the wrapper appends an `out_ptr` arg and seeds the X8
+        // hidden-return register for the lifted body to write the
+        // returned AzDom through.
+        let sig = signature_for_callback_kind(kind);
         let root = TransitiveLiftRoot {
             fn_name: fn_name.to_string(),
             fn_addr,
