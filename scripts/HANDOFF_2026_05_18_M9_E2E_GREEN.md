@@ -1,32 +1,58 @@
 # Azul Web Backend — Handoff 2026-05-18 (M9 5-step e2e green)
 
-**Branch:** `layout-debug-clean`
-**Last commit:** `0fe055b4a` (M10-C1 bump-heap snapshot/reset).
-**Loop state:** PAUSED — M10 A1+B1.a+C1 landed; D + B1.b/B2 deferred.
+> **SUPERSEDED 2026-05-19** — see [`STATUS_REPORT_M10_2026_05_19.md`](STATUS_REPORT_M10_2026_05_19.md)
+> for the M10-D landing summary (per-fn boundary wasm shards). The
+> table below is updated through `f30d0ec02`; everything below the
+> "Original M9 close-out" divider is the original M9 handoff kept for
+> context.
 
-## M10 progress (2026-05-18 continuation)
+**Branch:** `layout-debug-clean`
+**Last commit:** `f30d0ec02` (M10-D sharded mode).
+**Loop state:** PAUSED — M10-D architectural plumbing landed. Step 3
+(mini.wasm split) + M10-E (shared helper-IR runtime) are follow-ups.
+
+## M10 progress (current)
 
 | Workstream | Status | Result |
 |------------|--------|--------|
 | **A1** libsystem classifier override by address | ✅ landed `9f852fb6e` | full-cycle.js GREEN on `hello-world.bin`; layout.wasm 388→353 KB (-9%) |
 | **B1.a** alias-scope metadata on guest/host mem ops | ✅ landed `c600271d9` | layout.wasm 353→294 KB (-17%); 50% target unmet — escalation to B1.b possible |
 | **C1** bump-heap snapshot/reset helpers | ✅ landed `0fe055b4a` | new `bump-reset-loop.js` gate: 100 cycles, drift=0, counter 5→105 |
+| (export-fix) | ✅ landed `486c9742c` | layout.wasm 297→184 KB (-38%, full hello-world.c) |
+| **D** per-fn wasm sharding (M10-D Steps 1+2+4+5+6) | ✅ landed `f30d0ec02` | sharded gates GREEN; per-cb shrinks; full wire-byte win requires multi-cb dedup. See `STATUS_REPORT_M10_2026_05_19.md` |
+| **D-Step3** mini.wasm split | not started | partition `EVENTLOOP_SYMBOLS` into MINI_SHARDS (deferred follow-up) |
+| **E** shared helper-IR runtime wasm | proposed | each boundary shard re-ships ~16 KB of `__remill_*` helpers; one shared runtime would close the size gap |
 | **B1.b** real LLVM pass for provenance tracking | not started | needed if more SROA wins required beyond B1.a's 17% |
 | **B2** stack_buf in linear memory | not started | follow-up to B1.x; eliminates last ptrtoint in wrapper |
-| **D** per-fn wasm sharding | not started | needs accurate per-fn size measurement first |
 
 ### Current acceptance-gate status (all GREEN)
 
 ```
-scripts/m9_e2e/full-cycle.js   on hello-world-v5.bin   PASS
-scripts/m9_e2e/click-only.js   on hello-world.bin      PASS
-scripts/m9_e2e/full-cycle.js   on hello-world.bin      PASS  ← M10-A1
-scripts/m9_e2e/bump-reset-loop.js on hello-world-v5.bin PASS  ← M10-C1 (100 cycles)
+# Legacy (bundled) mode — default
+scripts/m9_e2e/full-cycle.js          on hello-world-v5.bin   PASS
+scripts/m9_e2e/click-only.js          on hello-world.bin      PASS
+scripts/m9_e2e/full-cycle.js          on hello-world.bin      PASS  ← M10-A1
+scripts/m9_e2e/bump-reset-loop.js     on hello-world-v5.bin   PASS  ← M10-C1 (100 cycles)
+
+# Sharded mode — AZ_ENABLE_SHARDS=1
+scripts/m9_e2e/full-cycle-sharded.js  on hello-world-v5.bin   PASS  ← M10-D
+scripts/m9_e2e/full-cycle-sharded.js  on hello-world.bin      PASS  ← M10-D
+scripts/m9_e2e/cross-cb-dedup.js      on hello-world*.bin     PASS  ← M10-D
+scripts/m9_e2e/bundle-size-comparison.js                      INFO  ← M10-D
 ```
 
-Layout.wasm sizes after M10 A+B+C:
-- v5: 27 KB (was 30 KB pre-M10)
-- full hello-world.c: 294 KB (was 388 KB pre-M10, -24% total)
+Layout.wasm sizes (legacy mode):
+- v5: 22 KB (was 30 KB pre-M10)
+- full hello-world.c: 184 KB (was 388 KB pre-M10, -53% total)
+
+Layout.wasm sizes (sharded mode, AZ_ENABLE_SHARDS=1):
+- v5: 13 KB (-41% vs legacy v5)
+- full hello-world.c: 133 KB (-28% vs legacy full)
+
+(The per-cb wasm size shrinks proportionally to the boundary fns
+factored out. The sharded total wire-bytes is HIGHER for single-cb
+shapes due to per-shard helper-IR overhead — the win materializes
+with cross-cb dedup. See STATUS_REPORT_M10_2026_05_19.md.)
 
 ---
 

@@ -1,5 +1,21 @@
 # M10 — Workstream D: per-fn sharding + mini.wasm split
 
+> **SUPERSEDED 2026-05-19** — Steps 1+2+4+5+6 landed in `f30d0ec02`.
+> See [`STATUS_REPORT_M10_2026_05_19.md`](STATUS_REPORT_M10_2026_05_19.md)
+> for measured before/after sizes and the rationale for why
+> Step 3 (mini.wasm split) was deferred.
+>
+> Highlights:
+> - All four legacy gates remain GREEN under default behavior.
+> - Three new sharded gates (`full-cycle-sharded.js`,
+>   `cross-cb-dedup.js`, `bundle-size-comparison.js`) pass on both
+>   `hello-world-v5.bin` and `hello-world.bin`.
+> - Boundary lift produces 12 shards for `hello-world.bin`,
+>   3 for `hello-world-v5.bin`.
+> - Net wire-byte savings require multi-cb dedup; single-cb shapes
+>   see overhead from per-shard helper IR. Follow-up workstream M10-E
+>   (shared helper-IR runtime wasm) would close this gap.
+
 **Status:** PLANNED. Next-session work.
 **Prereqs:** M10 A1+B1.a+C1 landed; export-fix landed
 (commit `486c9742c`); current layout.wasm = 184 KB,
