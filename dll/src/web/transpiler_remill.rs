@@ -1723,7 +1723,15 @@ impl RemillTranspiler {
                         .unwrap()
                         .insert((t.addr, t.export_as.clone()), obj.clone());
                     object_paths.push(obj);
-                    exports.push(t.export_as.clone());
+                    // M10-D-prep: only export the actual entry points
+                    // (cb / layout). Dep wrappers (`__az_dep_<addr>`)
+                    // are never called from JS — they're an artifact
+                    // of emit_helper_ir always generating a wrapper
+                    // per per-fn .o. Without exporting them,
+                    // wasm-ld's --gc-sections strips them.
+                    if !t.export_as.starts_with("__az_dep_") {
+                        exports.push(t.export_as.clone());
+                    }
                 }
             }
         }
