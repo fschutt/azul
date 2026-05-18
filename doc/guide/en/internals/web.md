@@ -25,8 +25,8 @@ tracked_files:
   - dll/src/web/symbol_table.rs
   - dll/src/web/transpiler.rs
   - dll/src/web/transpiler_remill.rs
-last_generated_rev: b65538b8e
-generated_at: 2026-05-18T11:30:00Z
+last_generated_rev: b1470628a
+generated_at: 2026-05-18T16:30:00Z
 default-search-keys:
   - StyledDom
   - RefAny
@@ -38,60 +38,146 @@ default-search-keys:
 
 # Web Backend Internals
 
-## Status (as of M8.9 + cleanup, 2026-05-18)
+## Status (as of M9 close-out, 2026-05-18)
 
-The web backend executes the hello-world `on_click` callback as
-remill-lifted WebAssembly: the click increments a counter that
-lives in shared linear memory, and the new value is read back +
-applied to the DOM by JS. **The full lift → compile → link →
-optimize pipeline runs in-process when `AZ_NATIVE_REMILL=1` is
-set**; subprocess fallback still works without the flag.
+**What works end-to-end (hello-world on_click counter):**
 
-What's now wired end-to-end on macOS arm64:
+User clicks the button → wasm-side `AzStartup_dispatchEvent`
+hit-tests, resolves the cb → `__az_call_indirect` invokes the
+lifted `on_click` wasm with the hydrated `AzRefAny` → cb
+increments the counter in-place → wasm reads the new counter,
+encodes a `SetText` TLV patch → JS applies. Counter 5→12 in 7
+clicks passes in BOTH `AZ_NATIVE_REMILL=1` and subprocess
+modes. No JS-side regex hit-test, no JS-side direct cb call, no
+`textContent =` hardcode.
 
-  - **In-process pipeline**: remill + LLVM 17 + LLD wasm + binaryen
-    `wasm-opt -Oz` all linked statically into `libazul.dylib` (130 MB
-    dylib). No external `remill-lift-17` / `opt` / `llc` / `wasm-ld`
-    invocations at runtime when the env flag is set. The C-ABI is
-    `az_remill_lift{,_batch}`, `az_remill_compile_to_wasm32_obj`,
-    `az_remill_wasm_link`. See [In-process pipeline](#in-process-pipeline-m89)
-    below.
+**Architectural pieces built (M9-1..M9-6):**
 
-  - **Batched lift**: `az_remill_lift_batch` shares one
-    `LoadArchSemantics` (~30 ms) across N items. A BFS pre-walk
-    over each fn's bytes (ARM64 BL/B disasm — `scan_arm64_bl_b_targets`
-    in `transpiler_remill.rs`) discovers the full transitive dep
-    graph before lifting. Hello-world cost: ~57 ms for 20 fns
-    (was ~900 ms sequential, **~16× speedup**); layout-cb: 146 deps
-    in 311 ms.
+  - **`Pcs::HiddenPtrReturn`** (`transpiler_remill.rs`) — wrapper
+    synthesis for callbacks returning `>16B` aggregates via
+    AArch64's hidden X8 register. Wrapper takes an extra `i32
+    out_ptr` arg, seeds State.X8, returns `i32` status. Used by
+    the layout cb (`(i64, i64, i32, i32) → i32` shape).
 
-  - **CSS cascade ships to browser**: `StyledDom::create_from_dom`
-    now calls `apply_ua_css` + `compute_inherited_values`
-    (`core/src/styled_dom.rs:1067`) so the web renderer's
-    `emit_css_from_cache` produces real `#az_N { ... }` rules. The
-    hello-world button renders with the full native Bootstrap-style
-    theme (was rendering with default browser button styling).
+  - **Post-link stack relocator**
+    (`transpiler_remill::patch_wasm_sp_init`) — assigns each wasm
+    a non-overlapping stack region by rewriting `global[0]`'s
+    init value. Mini gets slot 0 (192 KiB), each non-mini wasm
+    gets a unique 128 KiB-strided slot. Fixes the cross-module
+    State corruption bug (mini called layout cb → layout's
+    wrapper zeroed mini's State because both stacks landed at
+    ~64 KiB).
 
-  - **Layout-cb LIFTS** (not dispatched yet): the layout callback
-    transitive lift completes in 311 ms and produces a 285 KB wasm
-    served at `/az/layout/<name>.<hash>.wasm`. The browser fetches
-    it but doesn't instantiate / call it — hit-test + diff/patch +
-    dispatch via `AzStartup_dispatchEvent` is still JS-only. See
-    [What's bypassed](#whats-bypassed) and `scripts/STATUS_REPORT_2026_05_18.md`.
+  - **`AzStartup_dispatchEvent` rewrite** — single entry point for
+    the click flow. Hit-tests if event's `node_idx` is `SENTINEL`,
+    resolves cb fn-addr → table_idx, invokes via
+    `__az_call_indirect` with the hydrated refany_ptr (no more
+    FAKE_REFANY), and on `RefreshDom` reads `state.model_ptr` to
+    encode a SetText TLV patch into a returned buffer.
 
-  - **Wasm size**: `--gc-sections` + `--strip-all` at link time +
-    `wasm-opt -Oz` post-link. Hello-world payload: 325 KB → 295 KB
-    (-9.6%).
+  - **`AzStartup_buildCounterPatch`** — wasm-side u32-to-decimal
+    + TLV-encoding routine. Avoids the snprintf-noop trap (Leaf
+    bodies now zero X0 so unlifted libc returns "0" instead of
+    a stale buffer pointer).
 
-  - **Bump allocator**: leak-only (intentional for short-lived
-    requests). `BumpAlloc` / `BumpRealloc` / `BumpDealloc` bodies
-    emitted from helper IR. Initial wasm memory raised to 16 MiB so
-    Vec resizes don't trap.
+**What is stub or scaffolding (NOT production):**
 
-Backup: tag `m8.7c-victory` + branch
-`backup/m8.7c-victory-2026-05-16` both point at the known-good
-commit `7530483aa`. The M8.9 work is on `layout-debug-clean`
-(commits `8d1b5316d` through `b65538b8e`).
+  - **`AzStartup_hitTest`** — currently returns
+    `state.last_registered_cb_node_idx` (the most-recent cb the
+    JS bootstrap reported). For hello-world's single-button DOM
+    this is exact; for any non-trivial layout it's wrong. Real
+    bbox-based hit-test requires the LayoutWindow embed (NOT
+    SHIPPED — see "Gap" below).
+
+  - **`AzStartup_initLayoutCache`** — runs the lifted layout cb
+    once and stores the returned `AzDom` blob pointer in
+    `state.current_dom_ptr`. But **no `Dom → StyledDom`
+    conversion happens**, **no layout runs**, **no
+    `cb_fn_cache` is populated by walking the DOM**. The "WASM
+    DOM" is a placeholder pointer.
+
+  - **`AzStartup_buildLayoutInfo`** — returns a 512-byte
+    zero-blob. Hello-world's layout cb doesn't read any
+    `LayoutCallbackInfo` fields so this works; a real cb that
+    queries `info.system_fonts` or `info.window_size` would
+    deref a NULL `ref_data` and trap.
+
+  - **Data-section mirror** (`SymbolTable::enumerate_low32_data_for_wasm`,
+    `patch_wasm_add_data_segments`) — sound scaffolding but
+    limited to data sections whose runtime address truncated to
+    32 bits falls below 1 MiB. Typical macOS ASLR slides for
+    user binaries are multi-MiB, so in practice this is rarely
+    triggered.
+
+**Full `hello-world.c` (the one with snprintf + const strings)
+still TRAPS** during `AzStartup_initLayoutCache` because the
+lifted layout cb's body reads from libazul `__const` at
+truncated runtime offsets around 200 MiB — past wasm's 16 MiB
+linear memory. `examples/c/hello-world-minimal.c` (returns
+`AzDom_createBody()` with no const strings) works end-to-end
+through the WASM-resident dispatch path.
+
+**Gap vs the user's intent** (see "User intent vs implementation"
+below for the full mapping): of the user's five steps —
+(1) HTML+RefAny, (2) WASM-StyledDom + layout cache,
+(3) JS-events → WASM hit-test, (4) WASM cb dispatch,
+(5) WASM patches → JS apply — steps 1, 4, 5 work. Steps 2 and
+3 are stubs. The architectural skeleton for steps 2-3 is in
+place; the WASM-resident StyledDom + layout cache + real
+hit-test are the genuine next work.
+
+Backup: `m8.9-victory` tag at commit `9780a92b3` is the M8.9
+close-out. The M9 work is on `layout-debug-clean` (commits
+`7a9250fde` through `b1470628a`).
+
+## User intent vs implementation
+
+The user's five-step request:
+
+| step | intent | built | status |
+|--:|---|---|---|
+| 1 | Site init returns RefAny serialized inside HTML | `html_render.rs` emits `<script id="az-hydrate">` with `{type_id, json}`. JS `azHydrate()` reads it + calls `AzStartup_hydrate(type_id, data_ptr, data_size)` to build a wasm-resident `AzRefAny`. | ✅ Works |
+| 2 | WASM initializes, uses RefAny to create initial WASM-StyledDom, runs layout to populate layout cache | `AzStartup_initLayoutCache` invokes the lifted layout cb via `__az_call_indirect_layout4`; cb writes returned `AzDom` blob through X8 into a 256-byte slot owned by `EventloopState.current_dom_ptr`. NO `Dom → StyledDom`. NO layout run. NO cache populated. | ❌ Stub. The Dom blob is stored but never processed. |
+| 3 | JS calls populated layout cache with events for hit testing | `AzStartup_hitTest(state, x_bits, y_bits) → node_idx` exists but returns `state.last_registered_cb_node_idx` — the most recent cb JS registered, ignoring x/y entirely. | ❌ Stub. No real hit-test; only works for single-cb demos. |
+| 4 | WASM determines events, looks up instantiated callback in lookup table, then executes | `AzStartup_dispatchEvent` calls hit-test, resolves cb fn-addr → table_idx via JS-imported `__az_resolve_callback`, invokes cb via `__az_call_indirect` with the hydrated `refany_ptr` (no more FAKE_REFANY). | ✅ Works for the on_click counter. |
+| 5 | WASM returns the "stuff to do" list back to JS | `AzStartup_buildCounterPatch` encodes a SetText TLV (kind=1, node_idx, payload_len, ASCII decimal of the counter). `AzStartup_dispatchEvent` returns `(buf_ptr, buf_len)`; loader.js `azApplyPatches` decodes + applies. | ✅ Works for SetText. Other patch kinds (SetAttr, InsertNode, etc.) deferred until step 2/3 land. |
+
+**Why this is so hard (honest answer):**
+
+The chosen approach — *lifting the user's ARM64-compiled layout
+cb into wasm* — drags in the user binary's transitive dependency
+graph (146+ libazul functions for hello-world's layout cb).
+Two consequences:
+
+  1. **Address-space pollution.** Lifted ARM64 code bakes
+     post-ASLR runtime addresses (e.g. `adrp x0, 0x10c000000`)
+     as wasm `i32.const` values. Truncated to 32 bits those
+     addresses land at offsets the wasm linear memory doesn't
+     cover (libazul `__const` at ~200 MiB; wasm memory is
+     16 MiB). Bumping memory to 1 GiB absorbs the loads but
+     reads zeros (data isn't mirrored), so the cb completes
+     with wrong data → silent garbage. The real fix is at lift
+     time: pass a small synthetic `--address` to remill-lift
+     OR post-IR rewrite of `i64.const <high>` constants. Both
+     are nontrivial.
+
+  2. **Architectural mismatch.** The user's intent
+     ("WASM creates the initial WASM-StyledDom") naturally
+     reads as "wasm-native runtime code constructs StyledDom".
+     The current path ("lifted ARM64 user cb returns Dom; we
+     store the blob and call it the WASM DOM") doesn't deliver
+     a StyledDom at all. A native-wasm32 azul-wasm-runtime
+     crate (parses a Dom description; builds StyledDom; runs
+     layout; exposes hit-test + dispatch) would skip the lift
+     entirely for the framework path. The user cb could still
+     be lifted, with a much smaller transitive surface (only
+     the Dom-building APIs).
+
+These are the architectural calls the next session needs to
+make. The M9 scaffolding (wrapper synthesis, stack relocator,
+dispatch flow, patch encoding) is sound and reusable in either
+direction; the question is whether to keep pushing on the lift
+approach or pivot to the native-wasm runtime.
 
 ## Three-phase architecture
 
@@ -636,29 +722,61 @@ deserializer via `__az_call_indirect` (the path
 `AzStartup_registerStateDeserializer` exists for) — see
 [M8.8 Step 3](../../../../scripts/M8.8_NEW_SESSION_PROMPT.md#step-3--lifted-user-_fromjson-hydration-path).
 
-### AzStartup_dispatchEvent
+### AzStartup_dispatchEvent (M9-6)
 
-Decodes a 256-byte event buffer with the layout from
-`event_offset`:
+Decodes a 256-byte event buffer:
 
 ```text
-+0   u32 node_idx
-+4   f32 x
-+8   f32 y
++0   u32 node_idx     [SENTINEL = 0xFFFFFFFF → wasm hit-test]
++4   f32 x            (clientX, as f32 bits)
++8   f32 y            (clientY, as f32 bits)
 +12  u32 button_or_key
 +16  u32 modifiers
 ```
 
-Looks up the cb fn-addr via the wasm-side `cb_fn_cache`, calls
-`__az_resolve_callback(fn_addr)` to get the table index, then
-`__az_call_indirect(table_idx, FAKE_REFANY_LO=0x101,
-FAKE_REFANY_HI=0, event_bytes_ptr)`.
+1. If `node_idx == SENTINEL`, calls `AzStartup_hitTest(state,
+   x_bits, y_bits)` (M9-4 stub returns
+   `state.last_registered_cb_node_idx`).
+2. Resolves cb fn-addr → table_idx via JS-imported
+   `__az_resolve_callback` (the single remaining JS↔WASM dispatch
+   round-trip).
+3. Invokes the cb via `__az_call_indirect(table_idx,
+   state.refany_ptr as u64, 0, event_bytes_ptr)`. **M9-6: uses
+   the hydrated refany_ptr, not FAKE_REFANY.**
+4. If `update >= UPDATE_REFRESH_DOM` AND `state.model_ptr != 0`:
+   reads counter from `*(state.model_ptr)`, calls
+   `AzStartup_buildCounterPatch` to encode a SetText TLV into
+   the lazily-allocated `state.patch_buf_ptr` (32 bytes),
+   returns `(patch_buf_ptr, used_bytes)`.
+5. Otherwise returns 0 (no patches); surfaces the cb's `update`
+   value in `*out_len_ptr` for diagnostic logging.
 
-**Currently bypassed by loader.js** (which calls the cb directly
-with the real hydrated `azRefAnyPtr` instead). The dispatchEvent
-chain works in isolation but uses the FAKE_REFANY placeholder
-because there's no `AzStartup_setAppData` helper yet — see
-[M8.8 Step 2](../../../../scripts/M8.8_NEW_SESSION_PROMPT.md#step-2--wire-azstartup_dispatchevent-for-full-event-handling).
+### Other M9 mini exports
+
+  - `AzStartup_setLayoutCbTableIdx(state, idx)` — JS hands the
+    layout cb's `WebAssembly.Table` slot to mini after
+    instantiation.
+  - `AzStartup_setRefAny(state, refany_ptr)` — JS hands the
+    hydrated `AzRefAny` pointer to mini.
+  - `AzStartup_setModelPtr(state, model_ptr)` /
+    `AzStartup_setDisplayNode(state, node_idx)` — JS plumbs
+    the per-route model location + text-display node_idx so
+    `AzStartup_dispatchEvent` can encode SetText patches
+    without JS round-trips. Hello-world hardcodes these; a
+    real implementation would discover them by walking the
+    StyledDom (NOT SHIPPED).
+  - `AzStartup_registerCbNode(state, node_idx)` — JS calls
+    this once per per-cb wasm instantiation so the M9-4
+    `AzStartup_hitTest` stub knows which nodes carry callbacks.
+  - `AzStartup_initLayoutCache(state, vw, vh, theme)` — invokes
+    the lifted layout cb via `__az_call_indirect_layout4`,
+    stores the returned `AzDom` blob pointer in
+    `state.current_dom_ptr`. **NO `Dom → StyledDom`, NO layout
+    run** — the "WASM DOM" is a placeholder blob.
+  - `AzStartup_getCurrentDomPtr` / `_getLastLayoutStatus` —
+    JS-side accessors for debugging.
+  - `AzStartup_buildCounterPatch(out_buf, cap, node_idx,
+    counter)` — wasm-side u32-to-decimal + SetText TLV encoder.
 
 ## Phase B — browser bootstrap (`loader_js.rs`)
 
@@ -669,98 +787,109 @@ because there's no `AzStartup_setAppData` helper yet — see
      env.__indirect_function_table = azTable
      env.__az_resolve_callback     = fnAddr → table_idx via Map
      ... + Proxy fallback: shape-guessed noops by name pattern
-         (_64 / _f64 → 0n;
-          *_memory | barrier | exception_clear → undef;
-          else → 0)
 4. WebAssembly.instantiateStreaming(fetch(miniUrl), imports)
      → azMini, azMemory = azMini.memory
 5. azState = azMini.AzStartup_init(0, 0)
 6. azHydrate():
-     a. Read #az-hydrate JSON
-     b. typeId = BigInt(payload.type_id)
-     c. counter = payload.json (assumes number — hello-world only)
-     d. azModelPtr = mini.AzStartup_alloc(4)
+     a. Read #az-hydrate JSON  → {type_id, json}
+     b. azModelPtr = mini.AzStartup_alloc(4)
         DataView.setUint32(modelPtr, counter)
-     e. azRefAnyPtr = mini.AzStartup_hydrate(
+     c. azRefAnyPtr = mini.AzStartup_hydrate(
           typeIdLo, typeIdHi, modelPtr, 4)
+     d. M9-6: mini.AzStartup_setRefAny(azState, azRefAnyPtr)
+              mini.AzStartup_setModelPtr(azState, azModelPtr)
+              mini.AzStartup_setDisplayNode(azState, 1)
+                  [hello-world: counter node_idx = 1]
 7. For each [data-az-cb][data-az-wasm] in DOM:
      a. WebAssembly.instantiateStreaming(fetch(url), {
             env: { memory: azMemory,
                    __indirect_function_table: azTable,
                    ...Proxy noop fallback }})
      b. azTable.set(nodeIdx, cb.exports.callback)
-     c. azNodeCbFns.set(nodeIdx, cb.exports.callback)
-8. azWireListeners():
-     body.addEventListener('click', azInvokeCbDirect)
+     c. M9-4: mini.AzStartup_registerCbNode(azState, nodeIdx)
+8. M9-2/3a: instantiate /az/layout/<name>.<hash>.wasm with the
+   same env, place its `callback` export in azTable, then:
+     mini.AzStartup_setLayoutCbTableIdx(azState, slot)
+     mini.AzStartup_initLayoutCache(azState, vw, vh, 0)
+9. azWireListeners():
+     body.addEventListener('click', evt =>
+         azDispatch(EVT_CLICK, evt))
      [no mousedown/keydown/focus/resize/scroll — hack #2]
 ```
 
-## Phase C — click → cb → DOM update (current direct path)
+## Phase C — click → cb → DOM update (M9-6 wasm-side dispatch)
 
 ```text
-1. body 'click' fires → azInvokeCbDirect(evt)
-2. nodeIdx = azNodeIdxFromEvent(evt)        [regex on id=az_N]
-3. cbFn = azNodeCbFns.get(nodeIdx)
-4. infoPtr = mini.AzStartup_alloc(256)
-5. update = cbFn(BigInt(azRefAnyPtr), 0n, infoPtr)
-   ─── inside the cb wasm ───
-   Wrapper:
-     a. alloca 1088 B (state) + 4096 B (stack)
-     b. memset state to 0
-     c. State.X0 = refany_ptr  (low 32 = wasm offset)
-        State.X1 = 0
-        State.X2 = info_ptr (zext)
-     d. State.SP = top(stack_buf)
-     e. call sub_<onclick_addr>(state, pc, memory)
+1. body 'click' fires → azDispatch(EVT_CLICK, evt)
+2. JS encodes a 256-byte event buffer:
+     [0..4]   = SENTINEL_NO_NODE (0xFFFFFFFF) — let WASM hit-test
+     [4..8]   = clientX as f32 bits
+     [8..12]  = clientY as f32 bits
+     [12..16] = button/keycode
+     [16..20] = modifier bitmask
+3. JS calls AzStartup_dispatchEvent(azState, EVT_CLICK,
+                                      evtPtr, 256, outLenPtr)
 
-   Lifted on_click:
-     - Read State.X0 = refany_ptr
-     - Spill to stack-relative slot
-     - call sub_<MyDataModelRefMut_create>
-     - Reload refany_ptr
-     - call sub_<MyDataModel_downcastMut>:
-         call sub_<stub_isType> → musttail thunk → sub_<real_isType>:
-           call sub_<get_type_id>:
-             load *(refany_ptr + 0)  = inner_ptr
-             load *(inner_ptr + 56) = type_id
-             return type_id in X0
-           compare X0 vs X19 (saved type_id arg)
-           cset W0 = 1
-           return
-         check W0 & 1 → success branch
-         call sub_<stub_canBeSharedMut> → thunk → real
-           (lifted from rewritten BL+RET bytes)
-           call sub_<can_be_shared_mut>:
-             load num_refs, num_mutable_refs (both 0)
-             return 1
-         check W0 & 1 → success
-         call sub_<stub_increaseRefmut> → thunk → real
-           atomic incr num_mutable_refs in linear memory
-         call sub_<stub_getDataPtr> → thunk → real
-           return *(inner_ptr + 0) = modelPtr in X0
-         store modelPtr to local.RefMut.ptr
-         return W0 = 1
-     - tbnz w0, #0 → success branch
-     - ldr x9, [sp + local_refmut_offset] = modelPtr
-     - ldr w8, [x9] = counter (5)
-     - add w8, w8, #1 = 6
-     - str w8, [x9] = write back to *modelPtr
-     - mov w_ret, #1 = AzUpdate_RefreshDom
-     - call sub_<MyDataModelRefMut_delete>
-     - return W0 = 1
-
-   Wrapper:
-     f. Load State.X0 (low 32 = 1)
-     g. Return as i32
+   ─── inside mini.wasm: AzStartup_dispatchEvent ───
+   a. Read event_node_idx from evtPtr+0. If SENTINEL:
+        node_idx = AzStartup_hitTest(state, x_bits, y_bits)
+        (M9-4 stub: returns state.last_registered_cb_node_idx —
+         for hello-world that's 3 = the button)
+   b. cb_fn_addr = node_idx (M8.5a stub: identity)
+   c. table_idx = __az_resolve_callback(cb_fn_addr)
+        (JS-imported bridge — the ONE remaining JS↔WASM
+         dispatch round-trip per the WASM-resident DOM vision)
+   d. refany_lo = state.refany_ptr (M9-6: HYDRATED, not FAKE)
+   e. update = __az_call_indirect(table_idx, refany_lo, 0,
+                                   evtPtr)
+        ─── inside on_click cb wasm (unchanged from M8.9) ───
+        Wrapper synthesizes Pcs::Callback shape, seeds X0/X1/X2,
+        invokes lifted body. Body downcasts refany, increments
+        counter at *(inner_ptr + 0), returns AzUpdate_RefreshDom.
+        ────────────────────────────────────────────────────
+   f. if update >= UPDATE_REFRESH_DOM AND state.model_ptr != 0:
+        counter = *((u32*) state.model_ptr)
+        if state.patch_buf_ptr == 0:
+            state.patch_buf_ptr = AzStartup_alloc(32)
+        used = AzStartup_buildCounterPatch(
+            state.patch_buf_ptr, 32,
+            state.display_text_node_idx (M9-6: hardcoded 1),
+            counter)
+        *outLenPtr = used
+        return state.patch_buf_ptr
+   g. otherwise:
+        *outLenPtr = update    (diagnostic)
+        return 0
 
    ─── back in JS ───
-6. mini.AzStartup_free(infoPtr, 256)
-7. if (update >= 1):
-     newCounter = DataView(memory).getUint32(modelPtr)
-     document.getElementById('az_1').textContent = newCounter
-                                  ^^^^^^^^^^^^^^^
-                                  hardcoded — hack #1
+4. patches_len = *(u32) outLenPtr
+5. if patches_ptr != 0 and patches_len > 0:
+     azApplyPatches(patches_ptr, patches_len)
+       — decodes TLV: kind=1 (SetText) → element.textContent = text
+6. mini.AzStartup_free(evtPtr, 256)
+   mini.AzStartup_free(outLenPtr, 4)
 ```
+
+The `patch_buf_ptr` lives for the eventloop's lifetime — JS
+reads-then-applies before the next dispatch overwrites it.
+No double-free.
+
+### What's STUBBED in this flow
+
+  - `AzStartup_hitTest` returns the last registered cb node; it
+    does not consult any layout cache. For multi-cb DOMs this
+    routes every click to the most-recently-registered cb,
+    which is wrong.
+  - `state.display_text_node_idx` is hardcoded by JS to `1`
+    (the counter div in hello-world). Real demos would need
+    the wasm side to discover text-bearing nodes by walking a
+    populated StyledDom.
+  - `state.model_ptr` assumes the user's data is a `u32` at
+    offset 0 of the model. Hello-world specific.
+
+Closing these stubs requires the WASM-resident StyledDom +
+layout cache (a separate, larger piece of work — see the
+"User intent vs implementation" section at the top).
 
 ## In-process pipeline (M8.9)
 
@@ -813,17 +942,20 @@ Post-link: every wasm runs through binaryen `wasm-opt -Oz
 silently if binaryen isn't installed; override with
 `AZ_REMILL_SKIP_WASM_OPT=1`).
 
-## What's bypassed
+## What's bypassed / status post-M9
 
-Even though the corresponding code is built and (in some cases)
-lifted into wasm, the current bootstrap does not use:
+Updated for M9 close-out. ✓ = wired by M9, ✗ = still bypassed,
+〜 = wired but stub.
 
-| built | invoked? | why bypassed |
+| built | wired? | notes |
 |---|---|---|
-| `AzStartup_dispatchEvent` | ✗ | `FAKE_REFANY_LO=0x101` hardcoded; needs `setAppData` wiring + JS to call through it instead of `azInvokeCbDirect` |
-| `AzStartup_registerStateDeserializer` | ✗ | hydration uses `AzStartup_hydrate` hand-rolled path instead of lifting the user's `_fromJson` |
-| `/az/layout/<name>.<hash>.wasm` | ✗ | **M8.9: lifted successfully** (146 deps, 285 KB wasm) but loader never instantiates; needs the M8.8 Stage 2 probe |
-| `azApplyPatches` TLV decoder | ✗ | the decoder is in `loader.js` (handles `SetText`) but no wasm-side producer emits patches yet; JS does the direct `textContent =` hardcode |
+| `AzStartup_dispatchEvent` | ✓ (M9-6) | now uses hydrated `state.refany_ptr`, calls `__az_call_indirect` with real refany; on `RefreshDom` emits `SetText` TLV via `buildCounterPatch`. The legacy `azInvokeCbDirect` JS path is DELETED. |
+| `AzStartup_registerStateDeserializer` | ✗ | hydration still uses `AzStartup_hydrate`'s hand-rolled path. Lifting the user's `_fromJson` would close this but needs the user-binary data-section mirror to succeed (the `_fromJson` body reads user-binary const strings). |
+| `/az/layout/<name>.<hash>.wasm` | 〜 (M9-2/3a) | instantiated by `loader.js`. Reserved table slot. `AzStartup_initLayoutCache` invokes via `__az_call_indirect_layout4`. **For hello-world-minimal works end-to-end + writes a real `AzDom` blob; for full hello-world.c traps in lifted libazul `__const` reads.** No `Dom → StyledDom` conversion happens yet. |
+| `azApplyPatches` TLV decoder | ✓ (M9-5) | `loader.js` decoder gets real `SetText` TLVs from `AzStartup_buildCounterPatch`. Other TLV kinds (`SetAttr`, `InsertNode`, …) deferred until a real `Dom`-diff lands. |
+| WASM-side hit-test | 〜 (M9-4) | `AzStartup_hitTest` exported; routed through `AzStartup_dispatchEvent` when JS encodes `SENTINEL`. **Stub: returns `state.last_registered_cb_node_idx` regardless of (x, y).** Real bbox walking needs the StyledDom + LayoutWindow embed. |
+| WASM-resident StyledDom | ✗ | `state.current_dom_ptr` stores a raw `AzDom` blob from the cb but never gets converted to `StyledDom`. No layout cache. The "WASM DOM" is a placeholder. |
+| User-binary data-section mirror | 〜 (M9-3b) | scaffolding shipped: `SymbolTable::enumerate_low32_data_for_wasm` + `patch_wasm_add_data_segments`. Filter is `<1 MiB` to fit under the bump heap; typical macOS ASLR slides are multi-MiB so most runs get zero matches. Real fix is at the lift, not the mirror. |
 | WASM-side hit-test | ✗ | JS-side `azNodeIdxFromEvent` regex on `id="az_N"` IDs |
 | `POST /az/exec/<node_id>` server fallback | ✗ | server-side path exists but loader doesn't fall back to it |
 | `EventloopState.current_dom` | ✗ | always `None`; no `HydrationPayload` is serialized into the HTML even though `dll/src/web/hydration.rs` defines the shape |
