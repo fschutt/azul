@@ -961,6 +961,23 @@ impl RemillTranspiler {
         &self,
         roots: Vec<TransitiveLiftRoot>,
     ) -> Result<WasmModule, TranspileError> {
+        // M8.9 Phase 3b: in the native pipeline, pre-walk the dep
+        // graph via ARM64 bytes-scan to discover the full set
+        // upfront, then batch-lift everything in one call. Saves
+        // (N-1)×LoadArchSemantics cost (~30 ms each) — for the
+        // hello-world transitive on_click (~12 fns) that's ~330 ms
+        // off the first request.
+        if self.use_native_remill() {
+            #[cfg(feature = "web-transpiler-static")]
+            return self.lift_with_transitive_deps_batched(roots);
+        }
+        self.lift_with_transitive_deps_sequential(roots)
+    }
+
+    fn lift_with_transitive_deps_sequential(
+        &self,
+        roots: Vec<TransitiveLiftRoot>,
+    ) -> Result<WasmModule, TranspileError> {
         // Hard cap on the number of functions a single root's
         // transitive closure can pull in. Bumped from 64 → 256 in
         // M8.8 once exact-size lifts surface the full layout-cb
@@ -1132,6 +1149,186 @@ impl RemillTranspiler {
             "[azul-web] transitive lift complete: {} functions lifted, {} unique exports",
             visited.len(),
             exports.len()
+        );
+
+        let bytes = self.link_objects_to_wasm(
+            &object_paths,
+            &exports,
+            "transitive-lift",
+            MemoryMode::ImportMemory,
+        )?;
+        Ok(WasmModule {
+            content_hash: super::fnv1a64_hex(&bytes),
+            bytes,
+            exports,
+            imports_from_mini: Vec::new(),
+        })
+    }
+
+    /// Native-only batched transitive lift. Pre-walks the dep graph
+    /// via ARM64 bytes-scan to discover the full set upfront, then
+    /// calls `native_remill::lift_batch` once to lift everything in
+    /// one LoadArchSemantics-amortized pass. Each per-fn IR feeds
+    /// `produce_object_from_lifted_ir`; the resulting .o set links
+    /// to the per-cb wasm via the existing `link_objects_to_wasm`.
+    #[cfg(feature = "web-transpiler-static")]
+    fn lift_with_transitive_deps_batched(
+        &self,
+        roots: Vec<TransitiveLiftRoot>,
+    ) -> Result<WasmModule, TranspileError> {
+        const MAX_RECURSIVE_DEPTH: usize = 256;
+        // Per-target metadata for the lift + post-process pipeline.
+        struct Target {
+            name: String,
+            addr: usize,
+            size: usize,
+            sig: CallbackSignature,
+            export_as: String,
+        }
+
+        let canonical_sig = signature_for_callback_kind("Callback");
+        let table = symbol_table::get();
+
+        // BFS pre-walk via bytes-scan. Builds the deduplicated set
+        // of (name, addr, size, sig, export_as) without any lift.
+        let mut visited: HashSet<usize> = HashSet::new();
+        let mut targets: Vec<Target> = Vec::new();
+        let mut queue: VecDeque<(String, usize, usize, CallbackSignature, String)> =
+            VecDeque::new();
+        for r in roots {
+            queue.push_back((r.fn_name, r.fn_addr, r.fn_size, r.sig, r.export_as));
+        }
+        while let Some((name, addr, size, sig, export_as)) = queue.pop_front() {
+            if !visited.insert(addr) {
+                continue;
+            }
+            if targets.len() >= MAX_RECURSIVE_DEPTH {
+                return Err(TranspileError {
+                    fn_name: name,
+                    reason: format!(
+                        "transitive lift exceeded {} functions — runaway recursion?",
+                        MAX_RECURSIVE_DEPTH
+                    ),
+                });
+            }
+            // Scan this fn's bytes for BL/B targets.
+            let bytes_slice = unsafe { std::slice::from_raw_parts(addr as *const u8, size) };
+            let bl_targets = scan_arm64_bl_b_targets(bytes_slice, addr);
+            targets.push(Target {
+                name: name.clone(),
+                addr,
+                size,
+                sig,
+                export_as,
+            });
+            // Enqueue recursable deps. Use `resolve()` (not `lookup()`)
+            // so PLT-stub / bare-`b` tail-shim addresses chase through
+            // to the real callee — matches the IR-walk path which
+            // operates on canonical-rewritten names.
+            let Some(table) = table else { continue; };
+            for dep_addr in bl_targets {
+                let Some(entry) = table.resolve(dep_addr) else { continue; };
+                if !entry.classification.is_recursable() {
+                    continue;
+                }
+                if visited.contains(&entry.canonical_addr) {
+                    continue;
+                }
+                let dep_size = if entry.size > 0 {
+                    entry.size
+                } else {
+                    super::LIFT_READ_WINDOW
+                };
+                queue.push_back((
+                    entry.canonical_name.clone(),
+                    entry.canonical_addr,
+                    dep_size,
+                    canonical_sig.clone(),
+                    format!("__az_dep_{:x}", entry.canonical_addr),
+                ));
+            }
+        }
+
+        eprintln!(
+            "[azul-web]   transitive (batched): pre-walk discovered {} fns",
+            targets.len(),
+        );
+
+        // Cache check: split into (cached, to_lift) per target.
+        let mut object_paths: Vec<PathBuf> = Vec::with_capacity(targets.len());
+        let mut exports: Vec<String> = Vec::with_capacity(targets.len());
+        let mut to_lift_idx: Vec<usize> = Vec::new();
+        for (i, t) in targets.iter().enumerate() {
+            let key = (t.addr, t.export_as.clone());
+            let cached = self.object_cache.lock().unwrap().get(&key).cloned();
+            if let Some(p) = cached {
+                eprintln!(
+                    "[azul-web]   transitive[{}/{}]: cached {} addr=0x{:016x}",
+                    i + 1,
+                    targets.len(),
+                    t.name,
+                    t.addr,
+                );
+                object_paths.push(p);
+                exports.push(t.export_as.clone());
+            } else {
+                to_lift_idx.push(i);
+            }
+        }
+
+        if !to_lift_idx.is_empty() {
+            let arch_tag = host_arch_tag().ok_or_else(|| TranspileError {
+                fn_name: "transitive-batched".into(),
+                reason: "unsupported host architecture".into(),
+            })?;
+            let bytes_vec: Vec<Vec<u8>> = to_lift_idx
+                .iter()
+                .map(|&i| {
+                    let t = &targets[i];
+                    unsafe {
+                        std::slice::from_raw_parts(t.addr as *const u8, t.size).to_vec()
+                    }
+                })
+                .collect();
+            let items: Vec<(u64, &[u8])> = to_lift_idx
+                .iter()
+                .zip(bytes_vec.iter())
+                .map(|(&i, b)| (targets[i].addr as u64, b.as_slice()))
+                .collect();
+            let t0 = std::time::Instant::now();
+            let per_fn_irs = super::native_remill::lift_batch(
+                arch_tag,
+                host_os_tag(),
+                &items,
+            )
+            .map_err(|e| TranspileError {
+                fn_name: "transitive-batched".into(),
+                reason: format!("native batched lift: {}", e),
+            })?;
+            eprintln!(
+                "[azul-web]   transitive (batched): lifted {} items in {:?}",
+                to_lift_idx.len(),
+                t0.elapsed(),
+            );
+            for (&i, lifted_ir) in to_lift_idx.iter().zip(per_fn_irs.iter()) {
+                let t = &targets[i];
+                let lift_addr = t.addr as u64;
+                let obj = self.produce_object_from_lifted_ir(
+                    &t.name, t.addr, lift_addr, &t.sig, &t.export_as, lifted_ir,
+                )?;
+                self.object_cache
+                    .lock()
+                    .unwrap()
+                    .insert((t.addr, t.export_as.clone()), obj.clone());
+                object_paths.push(obj);
+                exports.push(t.export_as.clone());
+            }
+        }
+
+        eprintln!(
+            "[azul-web] transitive lift complete (batched): {} functions, {} unique exports",
+            targets.len(),
+            exports.len(),
         );
 
         let bytes = self.link_objects_to_wasm(
@@ -2226,6 +2423,55 @@ fn dedup_sub_declares(ir: &str) -> String {
         }
         out.push_str(line);
         out.push('\n');
+    }
+    out
+}
+
+/// Scan a function's raw .text bytes for ARM64 `BL imm26` and
+/// `B imm26` instructions and return the absolute target addresses.
+/// Used by [`pre_walk_transitive_deps`] to discover dependencies via
+/// byte-pattern inspection BEFORE lifting — enables batched lift to
+/// cover the entire dep set in one call.
+///
+/// Both BL (call) and B (branch / tail-call) use the same imm26
+/// encoding. B targets that fall inside the function's own byte
+/// range are intra-function branches (loops, if/else); the BFS
+/// caller filters them via visited-set tracking. B targets outside
+/// the range are tail-call shims which the SymbolTable's
+/// `detect_arm64_tail_shims` would normally collapse, so they hit
+/// the same canonical address as the chained target — visited-set
+/// dedup at the caller side still handles it.
+///
+/// BLR / BR (indirect call / jump) cannot be statically resolved
+/// from bytes — they route through __az_call_indirect machinery
+/// and are bridged in helper IR, not via direct dep traversal.
+fn scan_arm64_bl_b_targets(fn_bytes: &[u8], fn_addr: usize) -> Vec<usize> {
+    let mut out = Vec::new();
+    let mut offset = 0;
+    while offset + 4 <= fn_bytes.len() {
+        let instr = u32::from_le_bytes([
+            fn_bytes[offset],
+            fn_bytes[offset + 1],
+            fn_bytes[offset + 2],
+            fn_bytes[offset + 3],
+        ]);
+        let opcode_top6 = instr >> 26;
+        // BL = 0b100101 (0x25), B = 0b000101 (0x05). Both use imm26.
+        if opcode_top6 == 0x25 || opcode_top6 == 0x05 {
+            let imm26 = instr & 0x03FF_FFFF;
+            // Sign-extend 26 bits → i32.
+            let signed: i32 = if imm26 & (1 << 25) != 0 {
+                (imm26 | 0xFC00_0000) as i32
+            } else {
+                imm26 as i32
+            };
+            let pc = fn_addr.wrapping_add(offset);
+            let target = (pc as isize).wrapping_add((signed as isize) * 4);
+            if target >= 0 {
+                out.push(target as usize);
+            }
+        }
+        offset += 4;
     }
     out
 }
