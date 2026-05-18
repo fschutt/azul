@@ -554,10 +554,20 @@ impl RemillTranspiler {
             fn_name: fn_name.to_string(),
             reason: format!("scratch dir: {e}"),
         })?;
-        let stem = sanitize_filename(fn_name);
-        // Stash the raw lifted IR for debugging.
+        // Stem on `export_as` (not fn_name) because two different
+        // canonical-addr targets can resolve to the SAME fn_name in
+        // the SymbolTable (e.g. aliased / multiply-monomorphized Rust
+        // generics like `CssProperty::clone`). export_as is unique
+        // per (canonical_addr, role) — deps use `__az_dep_<addr_hex>`,
+        // roots use the caller-chosen name. Without this, both .o
+        // files would land at the same path; the second overwrites
+        // the first and both paths get pushed into object_paths,
+        // producing a wasm-ld "duplicate symbol" error.
+        let stem = sanitize_filename(export_as);
+        // Stash the raw lifted IR for debugging (key on fn_name + addr
+        // so the dump is identifiable in scratch listings).
         let _ = std::fs::write(
-            self.scratch_dir.join(format!("{}.lifted.ll", stem)),
+            self.scratch_dir.join(format!("{}_{:x}.lifted.ll", sanitize_filename(fn_name), fn_addr)),
             raw_lifted_ir,
         );
 
@@ -1196,7 +1206,22 @@ impl RemillTranspiler {
         let mut queue: VecDeque<(String, usize, usize, CallbackSignature, String)> =
             VecDeque::new();
         for r in roots {
-            queue.push_back((r.fn_name, r.fn_addr, r.fn_size, r.sig, r.export_as));
+            // Canonicalize the root's fn_addr too — if the user-supplied
+            // addr is a PLT stub or bare-`b` tail-shim, resolve() chases
+            // through to the real callee. Without this, a dep elsewhere
+            // in the graph that lands on the canonical addr produces a
+            // .o whose `define ptr @sub_<canonical_hex>` collides with
+            // the root's .o (the rewrite step renames every lifted
+            // `sub_<X>` to `sub_<canonical_X>`). wasm-ld then errors on
+            // duplicate symbol.
+            let (canonical_addr, canonical_size) = match table.and_then(|t| t.resolve(r.fn_addr)) {
+                Some(entry) => (
+                    entry.canonical_addr,
+                    if entry.size > 0 { entry.size } else { r.fn_size },
+                ),
+                None => (r.fn_addr, r.fn_size),
+            };
+            queue.push_back((r.fn_name, canonical_addr, canonical_size, r.sig, r.export_as));
         }
         while let Some((name, addr, size, sig, export_as)) = queue.pop_front() {
             if !visited.insert(addr) {
@@ -1253,6 +1278,22 @@ impl RemillTranspiler {
             "[azul-web]   transitive (batched): pre-walk discovered {} fns",
             targets.len(),
         );
+
+        // Debug: verify all targets have unique addr — a duplicate
+        // would explain "wasm-ld: error: duplicate symbol: sub_<X>"
+        // (two .o files defining sub_<canonical_X>).
+        if std::env::var_os("AZ_REMILL_DEBUG").is_some() {
+            let mut seen_addrs: HashSet<usize> = HashSet::new();
+            for t in &targets {
+                if !seen_addrs.insert(t.addr) {
+                    eprintln!(
+                        "[az_remill_debug] DUPLICATE addr in targets: {} (export_as={}) — \
+                         would produce duplicate sub_<{:x}>",
+                        t.name, t.export_as, t.addr,
+                    );
+                }
+            }
+        }
 
         // Cache check: split into (cached, to_lift) per target.
         let mut object_paths: Vec<PathBuf> = Vec::with_capacity(targets.len());
@@ -1330,6 +1371,22 @@ impl RemillTranspiler {
             targets.len(),
             exports.len(),
         );
+
+        // Debug: log any duplicate paths (same .o file in object_paths
+        // twice would explain a wasm-ld "duplicate symbol" error).
+        if std::env::var_os("AZ_REMILL_DEBUG").is_some() {
+            let mut seen: HashSet<PathBuf> = HashSet::new();
+            for p in &object_paths {
+                if !seen.insert(p.clone()) {
+                    eprintln!("[az_remill_debug] DUPLICATE .o path in link: {}", p.display());
+                }
+            }
+            eprintln!(
+                "[az_remill_debug] link: {} paths, {} unique",
+                object_paths.len(),
+                seen.len(),
+            );
+        }
 
         let bytes = self.link_objects_to_wasm(
             &object_paths,
