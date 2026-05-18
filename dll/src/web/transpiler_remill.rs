@@ -1156,7 +1156,13 @@ impl RemillTranspiler {
         ];
         if !debug_link {
             args.push("--strip-all".to_string());
-            args.push("--lto-O2".to_string());
+            // M10-F2: --lto-O3 enables LTO with size-aware codegen.
+            // wasm-ld passes the LTO opt level to LLVM; -O3 (not -Oz)
+            // gives the best size in our measurements because LTO
+            // can DCE cross-object dead globals + constants that
+            // per-object opt -Oz already missed. Per-fn opt -Oz still
+            // runs in C++ side via PassBuilder before this link step.
+            args.push("--lto-O3".to_string());
         } else {
             // --keep-section preserves the function-names custom
             // section so wasm-objdump can map indices → `sub_<addr>`.
@@ -4806,8 +4812,19 @@ fn scan_arm64_adrp_accesses(
         ]);
         let pc = fn_addr.wrapping_add(offset);
 
-        // ADRP encoding (bit 31 = 1, bits 28..24 = 10000).
-        if (instr >> 31) == 1 && ((instr >> 24) & 0x1F) == 0x10 {
+        // ADR / ADRP encoding (bits 28..24 = 10000). Bit 31 = 0 →
+        // ADR (byte-aligned target, exact address), 1 → ADRP
+        // (page-aligned target, page-truncated address).
+        //
+        // M10-E3: ADR is used for LLVM jump-table dispatch:
+        //   ADR  Xj, <table>
+        //   LDRB Wk, [Xj, Wm, UXTW]
+        //   ADD  Xj, Xj, Wk, LSL #2
+        //   BR   Xj
+        // The table sits inline in __TEXT immediately after the
+        // dispatching block. Emit a 256-byte conservative range so
+        // the mirror grabs the table bytes (up to 256 switch cases).
+        if ((instr >> 24) & 0x1F) == 0x10 {
             let immlo = (instr >> 29) & 0x3;
             let immhi = (instr >> 5) & 0x7FFFF;
             let imm21 = (immhi << 2) | immlo;
@@ -4816,10 +4833,39 @@ fn scan_arm64_adrp_accesses(
             } else {
                 imm21 as i64
             };
-            let pc_page = pc & !0xFFF;
-            let target = (pc_page as i64).wrapping_add(signed_imm << 12) as usize;
+            let target = if (instr >> 31) == 1 {
+                let pc_page = pc & !0xFFF;
+                (pc_page as i64).wrapping_add(signed_imm << 12) as usize
+            } else {
+                (pc as i64).wrapping_add(signed_imm) as usize
+            };
             let rd = (instr & 0x1F) as usize;
             adrp_targets[rd] = Some(target);
+            if (instr >> 31) == 0 {
+                // ADR: target is exact. Emit a conservative byte range
+                // for jump-table content immediately after the ADR.
+                out.push((target, 256));
+            }
+            offset += 4;
+            continue;
+        }
+
+        // LDRB (register, UXTW extension): top byte 0x38, bits 21=1,
+        // bits 15..13 = 010 (UXTW), bit 11 = 1, bit 10 = 0. Mask:
+        // (instr & 0xFFE0_0C00) == 0x3860_0800
+        //
+        // Used after `ADR Xn, table` to load a byte offset from the
+        // table indexed by another register. If we know Rn's address,
+        // emit a conservative 256-byte range covering typical
+        // jump-table sizes (up to 256 cases). Same fix as the ADR
+        // arm above, reached when the LDRB is decoded.
+        if (instr & 0xFFE0_0C00) == 0x3860_0800 {
+            let rn = ((instr >> 5) & 0x1F) as usize;
+            if let Some(base) = adrp_targets[rn] {
+                out.push((base, 256));
+            }
+            let rt = (instr & 0x1F) as usize;
+            adrp_targets[rt] = None;
             offset += 4;
             continue;
         }

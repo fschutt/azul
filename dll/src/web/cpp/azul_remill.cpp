@@ -518,16 +518,26 @@ std::string compile_inner(const char *const *ir_strs,
         return std::string("lookupTarget wasm32: ") + err_str;
     }
     llvm::TargetOptions opts;
+    // M10-F2: CodeGenOpt::Default for size. Aggressive enables
+    // backend optimizations tuned for raw speed (larger instruction
+    // patterns, more aggressive scheduling) that bloat wasm. Wire
+    // bytes are the dominant cost in the browser; size beats raw
+    // speed for layout / cb wasms.
     std::unique_ptr<llvm::TargetMachine> tm(target->createTargetMachine(
         triple, "generic", "",
         opts,
-        llvm::Reloc::PIC_, llvm::CodeModel::Small, llvm::CodeGenOpt::Aggressive));
+        llvm::Reloc::PIC_, llvm::CodeModel::Small, llvm::CodeGenOpt::Default));
     if (!tm) {
         return "createTargetMachine returned null";
     }
     module->setDataLayout(tm->createDataLayout());
 
-    // Run an O2-equivalent pass pipeline (mirrors `opt -O2`).
+    // M10-F2: Oz-equivalent pass pipeline (mirrors `opt -Oz`).
+    // Same passes as O2 but with size-favoring inliner cost thresholds,
+    // no loop unrolling, no vectorization, prefer-compact instruction
+    // patterns. alwaysinline-marked functions still inline (the
+    // attribute is unconditional); other inlining decisions go to
+    // the smallest-code heuristic.
     llvm::PassBuilder PB(tm.get());
     llvm::LoopAnalysisManager LAM;
     llvm::FunctionAnalysisManager FAM;
@@ -538,7 +548,7 @@ std::string compile_inner(const char *const *ir_strs,
     PB.registerFunctionAnalyses(FAM);
     PB.registerLoopAnalyses(LAM);
     PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
-    auto MPM = PB.buildPerModuleDefaultPipeline(llvm::OptimizationLevel::O2);
+    auto MPM = PB.buildPerModuleDefaultPipeline(llvm::OptimizationLevel::Oz);
     MPM.run(*module, MAM);
 
     // Emit wasm object via the legacy pass manager (TargetMachine's
