@@ -33,10 +33,12 @@ fn main() {
 /// `web-transpiler-static` feature — the `cc` crate is gated on it.
 #[cfg(feature = "web-transpiler-static")]
 fn build_in_process_remill(target: &str) {
-    if !target.contains("apple") && !target.contains("darwin") {
-        // Linux + Windows wrappers are M8.10 work — the cxx-common
-        // bundle is macOS-arm64 only today.
-        println!("cargo:warning=web-transpiler-static is macOS-arm64-only for now; skipping");
+    let is_apple = target.contains("apple") || target.contains("darwin");
+    let is_linux = target.contains("linux") && !target.contains("apple");
+    if !is_apple && !is_linux {
+        // Windows is M8.10 work — needs MSVC-built remill + LLVM, no
+        // ready cxx-common bundle.
+        println!("cargo:warning=web-transpiler-static is macOS + Linux only; skipping for {}", target);
         return;
     }
 
@@ -45,10 +47,29 @@ fn build_in_process_remill(target: &str) {
 
     let remill_install = workspace_root.join("third_party/remill-install/install");
     let remill_build = workspace_root.join("third_party/remill-install/build/remill");
-    let vcpkg_base = workspace_root.join(
-        "third_party/cxx-common/vcpkg_macos-13_llvm-17-liftingbits-llvm_xcode-15.0_arm64\
-         /installed/arm64-osx-rel",
-    );
+    // vcpkg cxx-common bundle path differs per host OS / arch. The
+    // bundle on disk is the one matching the build host — scripts/
+    // build_remill.sh picks it up at bootstrap time.
+    let vcpkg_base = if is_apple {
+        workspace_root.join(
+            "third_party/cxx-common/vcpkg_macos-13_llvm-17-liftingbits-llvm_xcode-15.0_arm64\
+             /installed/arm64-osx-rel",
+        )
+    } else {
+        // Linux x86_64: vcpkg_ubuntu-22.04_llvm-17-liftingbits-llvm_x64-linux.
+        // Linux aarch64: vcpkg_ubuntu-22.04_llvm-17-liftingbits-llvm_arm64-linux.
+        // (Bundles are produced by trail-of-bits CI per their cxx-common repo.)
+        let arch = if target.starts_with("aarch64") {
+            "arm64-linux"
+        } else {
+            "x64-linux"
+        };
+        let bundle = format!(
+            "third_party/cxx-common/vcpkg_ubuntu-22.04_llvm-17-liftingbits-llvm_{arch}\
+             /installed/{arch}-rel"
+        );
+        workspace_root.join(bundle)
+    };
 
     for p in [&remill_install, &remill_build, &vcpkg_base] {
         if !p.exists() {
@@ -69,12 +90,6 @@ fn build_in_process_remill(target: &str) {
     println!("cargo:rerun-if-changed=src/web/cpp/azul_remill.cpp");
     println!("cargo:rerun-if-changed=src/web/cpp/azul_remill.h");
 
-    // macOS SDK path — needed for libc++ headers (cassert, etc.).
-    // cc-rs sets --target= but doesn't auto-include the libc++
-    // headers from the CommandLineTools SDK.
-    let sdk_path = "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk";
-    let libcxx_dir = format!("{}/usr/include/c++/v1", sdk_path);
-
     let mut cc_build = cc::Build::new();
     cc_build
         .cpp(true)
@@ -83,9 +98,23 @@ fn build_in_process_remill(target: &str) {
         .include(&remill_inc)
         .include(&vcpkg_inc)
         .flag("-std=c++17")
-        .flag("-fPIC")
-        .flag(&format!("-isysroot{}", sdk_path))
-        .flag(&format!("-isystem{}", libcxx_dir))
+        .flag("-fPIC");
+    if is_apple {
+        // macOS SDK path — needed for libc++ headers (cassert, etc.).
+        // cc-rs sets --target= but doesn't auto-include the libc++
+        // headers from the CommandLineTools SDK.
+        let sdk_path = "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk";
+        let libcxx_dir = format!("{}/usr/include/c++/v1", sdk_path);
+        cc_build
+            .flag(&format!("-isysroot{}", sdk_path))
+            .flag(&format!("-isystem{}", libcxx_dir));
+    } else {
+        // Linux: cc-rs auto-detects libstdc++ headers from the
+        // installed gcc/clang; no explicit -isystem needed in the
+        // common case. The vcpkg LLVM bundle uses libstdc++ on Linux.
+        cc_build.flag("-fno-rtti");
+    }
+    cc_build
         .define("GFLAGS_IS_A_DLL", "0")
         .define("NDEBUG", None)
         .define(
@@ -121,19 +150,25 @@ fn build_in_process_remill(target: &str) {
     // Force-load the wrapper archive so the C-ABI entry points
     // (az_remill_lift, az_remill_compile_to_wasm32_obj,
     // az_remill_wasm_link, az_remill_free, az_remill_free_buf)
-    // survive `-Wl,-dead_strip`. cc::Build emits
+    // survive dead-strip. cc::Build emits
     // `cargo:rustc-link-lib=static=azul_remill_wrapper` which causes
     // normal symbol resolution; but until `native_remill.rs`'s
     // extern decls are CALLED from somewhere reachable, the linker
     // treats them as unused and strips. force_load pulls every .o
-    // from the archive even without a call site, mirroring how the
-    // standalone test_full binary linked them in (Rust + cargo's
-    // -Wl,-dead_strip is more aggressive than the standalone path).
+    // from the archive even without a call site.
+    //
+    // ld64 (macOS) syntax: `-Wl,-force_load,<archive>`.
+    // GNU ld / lld (Linux) syntax: `-Wl,--whole-archive <archive>
+    //   -Wl,--no-whole-archive`.
     let out_dir = env::var("OUT_DIR").expect("OUT_DIR");
-    println!(
-        "cargo:rustc-link-arg=-Wl,-force_load,{}/libazul_remill_wrapper.a",
-        out_dir
-    );
+    let wrapper_path = format!("{}/libazul_remill_wrapper.a", out_dir);
+    if is_apple {
+        println!("cargo:rustc-link-arg=-Wl,-force_load,{}", wrapper_path);
+    } else {
+        println!("cargo:rustc-link-arg=-Wl,--whole-archive");
+        println!("cargo:rustc-link-arg={}", wrapper_path);
+        println!("cargo:rustc-link-arg=-Wl,--no-whole-archive");
+    }
 
     // Emit link args for every static lib remill + LLVM + LLD need.
     // The set is derived from third_party/remill-install/build/remill/
@@ -154,8 +189,19 @@ fn build_in_process_remill(target: &str) {
         println!("cargo:rustc-link-arg={}", lib.display());
     }
 
-    // macOS deployment target — match the cxx-common build.
-    println!("cargo:rustc-link-arg=-mmacosx-version-min=12.0");
+    if is_apple {
+        // macOS deployment target — match the cxx-common build.
+        println!("cargo:rustc-link-arg=-mmacosx-version-min=12.0");
+    } else {
+        // Linux: need to link libc++ / libstdc++ explicitly because
+        // cc::Build's `.cpp(true)` adds `-lc++` on macOS but Linux
+        // depends on the system C++ runtime. cxx-common's LLVM
+        // build uses libstdc++ on Linux, so link that.
+        println!("cargo:rustc-link-lib=stdc++");
+        println!("cargo:rustc-link-lib=pthread");
+        println!("cargo:rustc-link-lib=dl");
+        println!("cargo:rustc-link-lib=m");
+    }
 }
 
 /// Enumerate every static library azul_remill needs to link against.
