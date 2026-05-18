@@ -1756,21 +1756,42 @@ impl RemillTranspiler {
             // Default path (per-fn .o + wasm-ld) is unchanged so this
             // ships dormant and the cache stays usable for previous
             // session runs.
+            // M10-E2 auto-merge: enable merged compile for SMALL
+            // dep sets (cb wasms with ≤ MERGED_AUTO_THRESHOLD fns).
+            // Small bodies inline cleanly into the wrapper, SROA
+            // promotes the State alloca, ~70% wasm size reduction.
+            // Large bodies (e.g. the full layout cb's 141 deps)
+            // regress under merged mode — opt -O2's natural inliner
+            // bloats the merged module faster than DCE recovers, so
+            // we keep them on the per-fn .o path.
+            //
+            // Explicit env knobs still win:
+            //   AZ_REMILL_MERGED_COMPILE=1 forces ON regardless of size.
+            //   AZ_REMILL_DISABLE_AUTO_MERGE=1 forces OFF (regression-test path).
+            const MERGED_AUTO_THRESHOLD: usize = 30;
+            let env_force_on = std::env::var_os("AZ_REMILL_MERGED_COMPILE").is_some();
+            let env_force_off = std::env::var_os("AZ_REMILL_DISABLE_AUTO_MERGE").is_some();
+            let auto_on = targets.len() <= MERGED_AUTO_THRESHOLD;
             let merged_mode = self.use_native_remill()
-                && std::env::var_os("AZ_REMILL_MERGED_COMPILE").is_some();
+                && !env_force_off
+                && (env_force_on || auto_on);
             if merged_mode {
                 let merge_t0 = std::time::Instant::now();
                 let mut ir_pairs: Vec<(String, String)> =
                     Vec::with_capacity(to_lift_idx.len());
                 // tag_with_alwaysinline_all=true crashes on dep graphs
                 // with recursion cycles (alwaysinline + cycle is a hard
-                // LLVM assert). Default false — opt -O2's own inliner
-                // heuristic still inlines small funcs across the
-                // merged module + skips cycles. Set
-                // AZ_REMILL_MERGED_ALWAYSINLINE=1 to force; useful
-                // when the call graph is known DAG-shaped.
-                let alwaysinline_all =
-                    std::env::var_os("AZ_REMILL_MERGED_ALWAYSINLINE").is_some();
+                // LLVM assert). For small dep sets the call graph is
+                // typically a DAG and the win is dramatic; we auto-
+                // enable for cbs with ≤ MERGED_AUTO_THRESHOLD fns.
+                // Set AZ_REMILL_MERGED_ALWAYSINLINE=1 to force.
+                let alwaysinline_all = auto_on
+                    || std::env::var_os("AZ_REMILL_MERGED_ALWAYSINLINE").is_some();
+                eprintln!(
+                    "[azul-web]   merged-mode: {} fns (alwaysinline_all={})",
+                    targets.len(),
+                    alwaysinline_all,
+                );
                 for (&i, lifted_ir) in to_lift_idx.iter().zip(per_fn_irs.iter()) {
                     let t = &targets[i];
                     let lift_addr = synth_of(t.addr);
