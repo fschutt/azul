@@ -1032,18 +1032,25 @@ impl RemillTranspiler {
         // here it's the same input/output shape as the subprocess
         // path — bytes in, bytes out.
         //
-        // Initial memory raised to 1 GiB (was 16 MiB) — covers the
-        // truncated low-32-bit address range libazul's lifted code
-        // loads from after ASLR for most macOS slides. The bump
-        // allocator base was bumped to 512 MiB so per-request
-        // allocs start above the mirror zone in [0..512 MiB].
+        // Initial memory: 16 MiB. Sized for the user-facing flow,
+        // not for hosting lifted-ARM64 code's post-ASLR runtime
+        // addresses. The bump allocator base in helper IR is 1 MiB.
         //
-        // 3+ GiB was tested and broke JS DataView usage (allocations
-        // above 2 GiB landed at offsets where DataView's
-        // byteOffset arg gets interpreted as a signed integer in
-        // some V8 paths). 1 GiB stays comfortably within DataView's
-        // safe-integer range.
-        let initial_memory_bytes: u32 = 1024 * 1024 * 1024;
+        // NOTE: lifted code's `adrp + ldr` reads bake the
+        // post-ASLR runtime address as a constant. For loads
+        // into libazul's `__const` (truncated to ~200+ MiB on
+        // typical macOS slides) the result is OOB and the cb
+        // traps. Earlier M9-3b iterations bumped this to 1 GiB
+        // to absorb those loads but the underlying issue is the
+        // lift, not the memory size. The proper fix is either
+        // (a) pass a small synthetic `--address` to remill-lift
+        // so the lifted IR uses wasm-friendly offsets, or
+        // (b) post-IR rewrite of `i64.const <high>` constants
+        // that feed `inttoptr` to use a known low offset. Both
+        // are in the next-session work list; 16 MiB keeps the
+        // working flows (on_click counter + minimal layout)
+        // sane while that lands.
+        let initial_memory_bytes: u32 = 16 * 1024 * 1024;
         let import_memory = matches!(memory_mode, MemoryMode::ImportMemory);
         // import_table mirrors the subprocess `--import-table` flag —
         // funcref table is JS-owned (sized + populated with per-cb
@@ -1705,11 +1712,15 @@ fn relocate_stack_if_non_mini(wasm: &mut Vec<u8>, memory_mode: MemoryMode, outpu
 /// will see zero bytes (the wasm linear memory's default).
 #[cfg(feature = "web-transpiler")]
 fn inject_user_binary_data_segments(wasm: &mut Vec<u8>) {
-    // Bound: limit at 512 MiB to match the bump-heap base in
-    // `emit_helper_ir`. Sections whose truncated address + size
-    // falls in [0..512 MiB] get mirrored as wasm Data segments;
-    // the heap [512 MiB..1 GiB] absorbs runtime allocations.
-    let limit: u32 = 512 * 1024 * 1024;
+    // Bound: limit at ~900 KiB (just below the 1 MiB bump-heap
+    // base in `emit_helper_ir`). Only sections whose truncated
+    // runtime address falls below the bump heap get mirrored;
+    // anything past 1 MiB would collide with the heap. For
+    // typical macOS ASLR slides this means: zero matches in
+    // most runs (user-binary slide is multi-MiB), and that's
+    // OK — the data-segment-mirror is a partial workaround,
+    // not the primary fix.
+    let limit: u32 = 900 * 1024;
     let segments = super::symbol_table::SymbolTable::enumerate_low32_data_for_wasm(limit);
     if segments.is_empty() {
         return;
@@ -3042,12 +3053,12 @@ fn emit_helper_ir(
     // module declares initial memory ≥16 pages (1 MiB) via the
     // `--initial-memory=1048576` flag in link_objects_to_wasm so the
     // first AzStartup_alloc call is in-bounds without a manual grow.
-    // Bump base raised to 512 MiB so the heap starts ABOVE the
-    // truncated-low-32-bit native address range that lifted libazul
-    // / libsystem code reads from after dyld's ASLR slide. Initial
-    // wasm memory is 1 GiB (in link_objects_to_wasm), so the heap
-    // gets ~512 MiB before needing memory.grow.
-    let bump_global = "@__az_bump_ptr = linkonce_odr global i32 536870912, align 4\n\
+    // Bump base: 1 MiB. Heap starts above the stack relocator
+    // zone (max ~512 KiB) but below the bulk of wasm memory.
+    // For lifted-ARM64 paths the heap can hit OOB on the first
+    // big alloc; see the parallel comment in link_objects_to_wasm
+    // for the lift-time fix this needs.
+    let bump_global = "@__az_bump_ptr = linkonce_odr global i32 1048576, align 4\n\
         @__az_call_observer = linkonce_odr global i32 0, align 4\n\
         declare i32 @__az_resolve_callback(i64) #1\n";
     let _ = export_as; // used inside the format string via the named arg below
