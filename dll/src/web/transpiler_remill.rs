@@ -1032,15 +1032,19 @@ impl RemillTranspiler {
         // here it's the same input/output shape as the subprocess
         // path — bytes in, bytes out.
         //
-        // Initial memory raised to 16 MiB (was 2 MiB) — the bump
-        // allocator never frees, so any non-trivial Vec/Box usage in
-        // a lifted layout cb (hello-world's full StyledDom build →
-        // ~few hundred KiB of NodeData + CssVec) eats through the
-        // 1 MiB heap quickly and traps with "memory access out of
-        // bounds" at the first overflow. 16 MiB gives ~15 MiB of
-        // bump heap before the limit. JS can `memory.grow()` past
-        // that, but a higher initial avoids a grow per layout cb.
-        let initial_memory_bytes: u32 = 16 * 1024 * 1024;
+        // Initial memory raised to 1 GiB (was 16 MiB) — covers the
+        // truncated low-32-bit address range libazul's lifted code
+        // loads from after ASLR. macOS dyld typically slides libazul
+        // by 0x108xxxxxx (placing __const around wasm offset
+        // ~207 MiB); deeper libsystem dispatch occasionally lands
+        // higher, up to 500 MiB+. 1 GiB initial absorbs both.
+        //
+        // The bump allocator base in helper IR was bumped to 512 MiB
+        // so per-request allocs start above the mirror zone.
+        //
+        // JS can still grow past 1 GiB at runtime via memory.grow();
+        // wasm32 max is just under 4 GiB so there's still headroom.
+        let initial_memory_bytes: u32 = 1024 * 1024 * 1024;
         let import_memory = matches!(memory_mode, MemoryMode::ImportMemory);
         // import_table mirrors the subprocess `--import-table` flag —
         // funcref table is JS-owned (sized + populated with per-cb
@@ -1702,16 +1706,15 @@ fn relocate_stack_if_non_mini(wasm: &mut Vec<u8>, memory_mode: MemoryMode, outpu
 /// will see zero bytes (the wasm linear memory's default).
 #[cfg(feature = "web-transpiler")]
 fn inject_user_binary_data_segments(wasm: &mut Vec<u8>) {
-    // Bound: limit at 8 MiB so we don't try to mirror libazul's
-    // multi-MB const sections (which would inflate mini.wasm and
-    // overlap with the bump heap). 8 MiB comfortably covers a
-    // typical macOS user-binary slide (single-digit MiB) plus
-    // section size; ASLR runs with larger slides will get 0 segments
-    // back and the injector returns silently (see follow-up task
-    // "user-binary data section mirror" for the broader fix that
-    // grows wasm memory + relocates the bump heap to encompass
-    // arbitrary slide values).
-    let limit: u32 = 8 * 1024 * 1024;
+    // Bound: limit at 512 MiB to match the bump-heap base in
+    // `emit_helper_ir`. Sections whose truncated address + size
+    // falls in [0..512 MiB] get mirrored as wasm Data segments;
+    // the heap [512 MiB..1 GiB] absorbs runtime allocations.
+    //
+    // Wide enough to cover libazul's __const (~18 MiB,
+    // typically lands around 207 MiB truncated) and most
+    // libsystem const tables the lifted layout cb chains into.
+    let limit: u32 = 512 * 1024 * 1024;
     let segments = super::symbol_table::SymbolTable::enumerate_low32_data_for_wasm(limit);
     if segments.is_empty() {
         return;
@@ -3044,7 +3047,12 @@ fn emit_helper_ir(
     // module declares initial memory ≥16 pages (1 MiB) via the
     // `--initial-memory=1048576` flag in link_objects_to_wasm so the
     // first AzStartup_alloc call is in-bounds without a manual grow.
-    let bump_global = "@__az_bump_ptr = linkonce_odr global i32 1048576, align 4\n\
+    // Bump base raised to 512 MiB so the heap starts ABOVE the
+    // truncated-low-32-bit native address range that lifted libazul
+    // / libsystem code reads from after dyld's ASLR slide. Initial
+    // wasm memory is 1 GiB (in link_objects_to_wasm), so the heap
+    // gets ~512 MiB before needing memory.grow.
+    let bump_global = "@__az_bump_ptr = linkonce_odr global i32 536870912, align 4\n\
         @__az_call_observer = linkonce_odr global i32 0, align 4\n\
         declare i32 @__az_resolve_callback(i64) #1\n";
     let _ = export_as; // used inside the format string via the named arg below
