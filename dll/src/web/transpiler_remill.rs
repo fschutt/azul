@@ -476,13 +476,14 @@ impl RemillTranspiler {
 
         // M8.9: in-process lift via the statically-linked wrapper.
         // Default path is the subprocess; the in-process path is
-        // opt-in via `AZ_NATIVE_REMILL=1` env var because
-        // standalone-validated `az_remill_lift` produces extra
-        // traces in `manager.traces` for multi-byte inputs (single
-        // 4-byte ret is byte-identical to remill-lift-17, but
-        // 48-byte AzStartup_alloc produces 3 traces vs subprocess's
-        // 1). gflags/glog init alone doesn't fix the divergence;
-        // needs more investigation. Subprocess path is unchanged.
+        // opt-in via `AZ_NATIVE_REMILL=1` env var until Phases 2-3
+        // wire compile/link/batched-lift through. The Phase 1 trace
+        // divergence (in-process lifter producing 3 traces vs
+        // subprocess's 1 for 48-byte AzStartup_alloc) is closed —
+        // `SimpleTraceManager::GetLiftedTraceDefinition` now mirrors
+        // Lift.cpp's: returns an extern declaration for non-entry
+        // addresses, which makes TraceLifter skip recursive lift of
+        // bl targets that fall outside the LiftMemory range.
         let stem = sanitize_filename(fn_name);
         let lifted_ir_path = self.scratch_dir.join(format!("{}.lifted.ll", stem));
 

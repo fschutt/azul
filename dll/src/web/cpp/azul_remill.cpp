@@ -61,7 +61,12 @@ struct LiftMemory {
 
 class SimpleTraceManager : public remill::TraceManager {
 public:
-    SimpleTraceManager(const LiftMemory &mem) : mem_(mem) {}
+    SimpleTraceManager(const remill::Arch *arch, llvm::Module *module,
+                       const LiftMemory &mem, uint64_t entry_addr)
+        : arch_(arch),
+          module_(module),
+          mem_(mem),
+          entry_addr_(entry_addr) {}
 
     bool TryReadExecutableByte(uint64_t addr, uint8_t *byte_out) override {
         if (addr < mem_.base || addr >= mem_.base + mem_.bytes.size()) {
@@ -73,13 +78,29 @@ public:
         return true;
     }
 
+    // Mirror Lift.cpp: return nullptr ONLY for the entry trace (so
+    // TraceLifter lifts it), and an extern declaration for any other
+    // address. TraceLifter::Impl::Lift checks `if (func) continue;` —
+    // a non-null declaration here prevents recursive lift attempts on
+    // bl targets that fall outside our LiftMemory byte range. Without
+    // this, the lifter would call ReadInstructionBytes (which fails),
+    // emit a `__remill_missing_block` body, and store the placeholder
+    // in `traces`. That produced 2 extra `sub_<hex>` defines in the
+    // 48-byte AzStartup_alloc case vs the subprocess remill-lift-17.
     llvm::Function *GetLiftedTraceDefinition(uint64_t addr) override {
         auto it = traces.find(addr);
-        return it == traces.end() ? nullptr : it->second;
-    }
-
-    llvm::Function *GetLiftedTraceDeclaration(uint64_t addr) override {
-        return GetLiftedTraceDefinition(addr);
+        if (it != traces.end()) {
+            return it->second;
+        }
+        if (addr == entry_addr_) {
+            return nullptr;
+        }
+        auto name = TraceName(addr);
+        auto fn = module_->getFunction(name);
+        if (fn == nullptr) {
+            fn = arch_->DeclareLiftedFunction(name, module_);
+        }
+        return fn;
     }
 
     void SetLiftedTraceDefinition(uint64_t addr, llvm::Function *fn) override {
@@ -89,7 +110,10 @@ public:
     std::unordered_map<uint64_t, llvm::Function *> traces;
 
 private:
+    const remill::Arch *arch_;
+    llvm::Module *module_;
     const LiftMemory &mem_;
+    uint64_t entry_addr_;
 };
 
 /* Set *out_ptr to a malloc'd C string copy of `msg`. */
@@ -203,7 +227,7 @@ std::string lift_inner(const std::string &arch_name,
     }
 
     LiftMemory memory{address, bytes};
-    SimpleTraceManager manager(memory);
+    SimpleTraceManager manager(arch.get(), module.get(), memory, address);
     if (!manager.TryReadExecutableByte(address, nullptr)) {
         std::ostringstream oss;
         oss << "no executable code at address 0x" << std::hex << address;
@@ -258,6 +282,24 @@ std::string lift_inner(const std::string &arch_name,
             if (auto call = llvm::dyn_cast<llvm::CallInst>(user)) {
                 call->removeFnAttr(llvm::Attribute::ReadNone);
             }
+        }
+    }
+
+    // Gated on AZ_REMILL_DEBUG=1: dump trace inventory before
+    // optimization. Used to verify the Phase 1 fix kept manager.traces
+    // at size 1 (entry only) for the 48-byte AzStartup_alloc input
+    // where the prior version recursively lifted out-of-range bl
+    // targets.
+    if (std::getenv("AZ_REMILL_DEBUG")) {
+        fprintf(stderr, "[az_remill] manager.traces (size=%zu) for entry 0x%llx:\n",
+                manager.traces.size(), (unsigned long long)address);
+        for (auto &kv : manager.traces) {
+            auto *fn = kv.second;
+            fprintf(stderr, "  0x%llx → %s (%s, %u BBs)\n",
+                    (unsigned long long)kv.first,
+                    fn->getName().str().c_str(),
+                    fn->isDeclaration() ? "DECL" : "DEFN",
+                    fn->isDeclaration() ? 0u : (unsigned)fn->size());
         }
     }
 
