@@ -12,17 +12,21 @@ prerequisites: []
 tracked_files:
   - dll/src/web/classify.rs
   - dll/src/web/config.rs
+  - dll/src/web/cpp/azul_remill.cpp
+  - dll/src/web/cpp/azul_remill.h
   - dll/src/web/eventloop.rs
   - dll/src/web/headless.rs
   - dll/src/web/html_render.rs
   - dll/src/web/hydration.rs
   - dll/src/web/loader_js.rs
   - dll/src/web/mod.rs
+  - dll/src/web/native_remill.rs
   - dll/src/web/server.rs
+  - dll/src/web/symbol_table.rs
   - dll/src/web/transpiler.rs
   - dll/src/web/transpiler_remill.rs
-last_generated_rev: 38ff46cf3a85513e90205c82e4613e2a22173e3b
-generated_at: 2026-05-16T20:50:00Z
+last_generated_rev: b65538b8e
+generated_at: 2026-05-18T11:30:00Z
 default-search-keys:
   - StyledDom
   - RefAny
@@ -34,29 +38,60 @@ default-search-keys:
 
 # Web Backend Internals
 
-## Status (as of M8.7c, 2026-05-16)
+## Status (as of M8.9 + cleanup, 2026-05-18)
 
 The web backend executes the hello-world `on_click` callback as
 remill-lifted WebAssembly: the click increments a counter that
 lives in shared linear memory, and the new value is read back +
-applied to the DOM by JS. The lift pipeline, the recursive
-transitive lift, the shared-memory protocol, the hydration of
-`AzRefAny` from the server-embedded JSON snapshot, and the cb
-invocation itself all work end-to-end on macOS arm64.
+applied to the DOM by JS. **The full lift → compile → link →
+optimize pipeline runs in-process when `AZ_NATIVE_REMILL=1` is
+set**; subprocess fallback still works without the flag.
 
-The dispatch path that *would* run the wasm-side hit-test and emit
-TLV patches via `AzStartup_dispatchEvent` is built and lifted but
-not yet wired in `loader.js`; the current bootstrap calls the cb
-directly and applies a hardcoded `textContent =` update on the
-counter node. See [What's bypassed](#whats-bypassed) below and
-[`scripts/HACKS_REVIEW_2026_05_16.md`](../../../../scripts/HACKS_REVIEW_2026_05_16.md)
-for the full catalog of remaining work + the
-[`scripts/M8.8_NEW_SESSION_PROMPT.md`](../../../../scripts/M8.8_NEW_SESSION_PROMPT.md)
-fix-order document.
+What's now wired end-to-end on macOS arm64:
+
+  - **In-process pipeline**: remill + LLVM 17 + LLD wasm + binaryen
+    `wasm-opt -Oz` all linked statically into `libazul.dylib` (130 MB
+    dylib). No external `remill-lift-17` / `opt` / `llc` / `wasm-ld`
+    invocations at runtime when the env flag is set. The C-ABI is
+    `az_remill_lift{,_batch}`, `az_remill_compile_to_wasm32_obj`,
+    `az_remill_wasm_link`. See [In-process pipeline](#in-process-pipeline-m89)
+    below.
+
+  - **Batched lift**: `az_remill_lift_batch` shares one
+    `LoadArchSemantics` (~30 ms) across N items. A BFS pre-walk
+    over each fn's bytes (ARM64 BL/B disasm — `scan_arm64_bl_b_targets`
+    in `transpiler_remill.rs`) discovers the full transitive dep
+    graph before lifting. Hello-world cost: ~57 ms for 20 fns
+    (was ~900 ms sequential, **~16× speedup**); layout-cb: 146 deps
+    in 311 ms.
+
+  - **CSS cascade ships to browser**: `StyledDom::create_from_dom`
+    now calls `apply_ua_css` + `compute_inherited_values`
+    (`core/src/styled_dom.rs:1067`) so the web renderer's
+    `emit_css_from_cache` produces real `#az_N { ... }` rules. The
+    hello-world button renders with the full native Bootstrap-style
+    theme (was rendering with default browser button styling).
+
+  - **Layout-cb LIFTS** (not dispatched yet): the layout callback
+    transitive lift completes in 311 ms and produces a 285 KB wasm
+    served at `/az/layout/<name>.<hash>.wasm`. The browser fetches
+    it but doesn't instantiate / call it — hit-test + diff/patch +
+    dispatch via `AzStartup_dispatchEvent` is still JS-only. See
+    [What's bypassed](#whats-bypassed) and `scripts/STATUS_REPORT_2026_05_18.md`.
+
+  - **Wasm size**: `--gc-sections` + `--strip-all` at link time +
+    `wasm-opt -Oz` post-link. Hello-world payload: 325 KB → 295 KB
+    (-9.6%).
+
+  - **Bump allocator**: leak-only (intentional for short-lived
+    requests). `BumpAlloc` / `BumpRealloc` / `BumpDealloc` bodies
+    emitted from helper IR. Initial wasm memory raised to 16 MiB so
+    Vec resizes don't trap.
 
 Backup: tag `m8.7c-victory` + branch
-`backup/m8.7c-victory-2026-05-16` both point at the
-known-good commit `7530483aa`.
+`backup/m8.7c-victory-2026-05-16` both point at the known-good
+commit `7530483aa`. The M8.9 work is on `layout-debug-clean`
+(commits `8d1b5316d` through `b65538b8e`).
 
 ## Three-phase architecture
 
@@ -443,17 +478,43 @@ Per-fn `.helper.ll` contains:
 
 ### Recursive transitive lift — `lift_with_transitive_deps`
 
-The per-cb / per-layout pipeline. Given a set of root functions:
+The per-cb / per-layout pipeline. Two code paths based on
+`use_native_remill()`:
+
+**Subprocess path** (`lift_with_transitive_deps_sequential`):
 
 1. Lift each root.
-2. Parse externs; for each, run `resolve_fn_ptr` (which already
-   does the PLT-stub chase).
-3. If the resolved name passes `is_recursable_dep`, enqueue it
-   as a dependency to lift at `lift_addr = resolved.addr`.
-4. Continue until the queue empties or `MAX_RECURSIVE_DEPTH = 64`
-   is reached.
-5. wasm-ld over all the resulting `.o` files (one per fn) with
-   `--import-memory --import-table --allow-undefined`.
+2. Parse externs from the lifted IR; for each, use the
+   SymbolTable's `resolve()` to canonicalize.
+3. If the resolved entry's classification is `Recursable`, enqueue
+   the canonical address as a dep.
+4. Continue until queue empties or `MAX_RECURSIVE_DEPTH = 256`.
+5. wasm-ld over all `.o` files with the standard flags.
+
+**Native batched path** (`lift_with_transitive_deps_batched`,
+M8.9-3b):
+
+1. BFS pre-walk via `scan_arm64_bl_b_targets` — bytes-scan every
+   fn's body for ARM64 BL (0b100101) and B (0b000101) imm26
+   instructions, decode targets, resolve through SymbolTable, and
+   enqueue Recursable canonical addresses. No lift needed in this
+   phase — fast (~ms).
+2. One `az_remill_lift_batch` call lifts the entire dep set in a
+   single `LoadArchSemantics`-amortized session. Per-fn cost
+   drops from ~50 ms to ~5 ms.
+3. Each per-fn IR feeds `produce_object_from_lifted_ir` (cache
+   hits across deps shared with other roots/layouts).
+4. wasm-ld over all `.o` files.
+
+Bytes-scan caveats (handled by SymbolTable's `resolve()` chain):
+
+  - BL targets land at canonical addrs directly.
+  - B targets inside the fn's own range are intra-function
+    branches; SymbolTable lookup returns None → skipped.
+  - B targets outside the range are tail-call shims; `resolve()`
+    chases through the `chain` map to the canonical callee.
+  - BLR / BR (indirect) aren't statically resolvable from bytes —
+    bridged via `__az_call_indirect` in helper IR.
 
 The recursable-dep filter (`is_recursable_dep`):
 
@@ -503,21 +564,23 @@ imported by every cb / layout):
           │ RefCountInner            │  hydrate's alloc(128)
           │ AzRefAny                 │  hydrate's alloc(32)
           │ ... subsequent allocs    │  AzStartup_alloc on demand
-0x200000  └──────────────────────────┘  ◄── 2 MiB cap (no grow today)
+0x1000000 └──────────────────────────┘  ◄── 16 MiB cap (no grow today)
 ```
 
 All in one address space, so the cb's `ldr w8, [X0]` (where X0 =
 modelPtr from the hydrated chain) lands at the byte JS hydration
 wrote, and the cb's `*counter += 1` is observable from JS.
 
-The wasm-ld flags are:
+The wasm-ld flags are (post-M8.9 + cleanup):
 
-- `azul-mini.wasm`: `--import-table --initial-memory=2097152`,
-  exports `memory`.
-- per-cb / per-layout: `--import-memory --import-table
-  --initial-memory=2097152`. The
+- `azul-mini.wasm`: `--no-entry --allow-undefined --gc-sections
+  --strip-all --lto-O2 --import-table --initial-memory=16777216`,
+  exports `memory` + every `AzStartup_*`.
+- per-cb / per-layout: same flags plus `--import-memory`. The
   `--initial-memory` here is just the import descriptor — the
   actual memory comes from mini at instantiate time.
+- Post-link: `wasm-opt -Oz --strip-debug --strip-producers
+  --vacuum` (best-effort; skipped if binaryen isn't installed).
 
 ## AzStartup_* surface — `eventloop.rs`
 
@@ -699,6 +762,57 @@ because there's no `AzStartup_setAppData` helper yet — see
                                   hardcoded — hack #1
 ```
 
+## In-process pipeline (M8.9)
+
+The native pipeline lives in `dll/src/web/cpp/azul_remill.{cpp,h}`
+(C++ wrapper) + `dll/src/web/native_remill.rs` (Rust FFI) + the
+`web-transpiler-static` Cargo feature.
+
+C-ABI surface:
+
+  - `az_remill_lift` — single-fn lift (debug / standalone test).
+  - `az_remill_lift_batch` — N-fn lift sharing one
+    `LoadArchSemantics`; output is N separate per-fn IR strings.
+    See `lift_batch_inner` for the shared-`LiftMemory` +
+    multi-entry `SimpleTraceManager` setup.
+  - `az_remill_compile_to_wasm32_obj` — takes an array of LLVM IR
+    strings, parses each into its own Module, merges via
+    `llvm::Linker::linkInModule`, then runs `opt -O2` via
+    `PassBuilder` + `llc` via the legacy `PassManager`.
+  - `az_remill_wasm_link` — invokes `lld::wasm::link` with
+    `--gc-sections --strip-all --lto-O2 --no-entry --allow-undefined
+    [--import-memory] [--import-table] --initial-memory=N
+    --export=...`; the output wasm is read back into a heap buffer.
+  - `az_remill_free{,_buf}` — release strings / byte buffers.
+
+Thread safety: `FFI_LOCK` in `native_remill.rs` serializes every
+FFI call. LLVM's `TargetRegistry` is read-only after
+`initialize_llvm_targets()`, but `lld::wasm::link` uses
+CommandLine globals that aren't reentrant. Per-fn `LLVMContext`
+instances are local to each call — they could be parallelized if
+`FFI_LOCK` were dropped for `compile_to_wasm32_obj` (deferred —
+needs LLVM thread-safety audit).
+
+Static link line: see `dll/build.rs::build_remill_link_libs`. ~110
+static archives, ~95 MB linker input, produces a 130 MB
+`libazul.dylib`. Build host requirements: macOS arm64 (with the
+`vcpkg_macos-13_llvm-17-liftingbits-llvm_xcode-15.0_arm64` cxx-common
+bundle in `third_party/cxx-common/`) or Linux x64/arm64 (bundle path
+mirrored in `build.rs`; not runtime-tested yet on Linux).
+
+The pipeline is enabled by:
+
+  - **build-time**: `--features web-transpiler-static` (default off
+    on the `web` feature — the dylib is 35 MB without static link).
+  - **run-time**: `AZ_NATIVE_REMILL=1` env var. Without it, the
+    pipeline falls back to subprocess `remill-lift-17` + `opt` +
+    `llc` + `wasm-ld` as it did pre-M8.9.
+
+Post-link: every wasm runs through binaryen `wasm-opt -Oz
+--strip-debug --strip-producers --vacuum` (best-effort — skipped
+silently if binaryen isn't installed; override with
+`AZ_REMILL_SKIP_WASM_OPT=1`).
+
 ## What's bypassed
 
 Even though the corresponding code is built and (in some cases)
@@ -708,14 +822,19 @@ lifted into wasm, the current bootstrap does not use:
 |---|---|---|
 | `AzStartup_dispatchEvent` | ✗ | `FAKE_REFANY_LO=0x101` hardcoded; needs `setAppData` wiring + JS to call through it instead of `azInvokeCbDirect` |
 | `AzStartup_registerStateDeserializer` | ✗ | hydration uses `AzStartup_hydrate` hand-rolled path instead of lifting the user's `_fromJson` |
-| `/az/layout/<name>.<hash>.wasm` | ✗ | preloaded by `<link rel="preload">` but loader never instantiates; needed for `Update::RefreshDom` re-layout in the browser |
+| `/az/layout/<name>.<hash>.wasm` | ✗ | **M8.9: lifted successfully** (146 deps, 285 KB wasm) but loader never instantiates; needs the M8.8 Stage 2 probe |
 | `azApplyPatches` TLV decoder | ✗ | the decoder is in `loader.js` (handles `SetText`) but no wasm-side producer emits patches yet; JS does the direct `textContent =` hardcode |
 | WASM-side hit-test | ✗ | JS-side `azNodeIdxFromEvent` regex on `id="az_N"` IDs |
 | `POST /az/exec/<node_id>` server fallback | ✗ | server-side path exists but loader doesn't fall back to it |
+| `EventloopState.current_dom` | ✗ | always `None`; no `HydrationPayload` is serialized into the HTML even though `dll/src/web/hydration.rs` defines the shape |
+| `HeadlessApp` + `LayoutWindow` cache | ✗ | `HeadlessApp::new()` is dead code; every HTTP request re-runs the layout cb. No layout cache, no font manager init, no hit-tester. |
+| DOM tree navigation in WASM | ✗ | no `getParent` / `getChildren` / `findById` exports in `EVENTLOOP_SYMBOLS`. Native StyledDom has the data; the wasm boundary doesn't expose it. |
 
 The full catalog of remaining hacks (19 items grouped into 5
 categories) is in
 [`scripts/HACKS_REVIEW_2026_05_16.md`](../../../../scripts/HACKS_REVIEW_2026_05_16.md);
+the M8.9-era status snapshot is in
+[`scripts/STATUS_REPORT_2026_05_18.md`](../../../../scripts/STATUS_REPORT_2026_05_18.md);
 the prioritized fix order is in
 [`scripts/M8.8_NEW_SESSION_PROMPT.md`](../../../../scripts/M8.8_NEW_SESSION_PROMPT.md).
 
@@ -741,11 +860,11 @@ the prioritized fix order is in
 ## Asset URL summary
 
 ```text
-GET  /                              → pre-rendered HTML
+GET  /                              → pre-rendered HTML (~20 KB)
 GET  /az/loader.js                  → bootstrap JS (inline-embedded)
-GET  /az/mini.{hash}.wasm           → mini wasm (~5 KB)
-GET  /az/cb/{name}.{hash}.wasm      → per-cb wasm (~14 KB)
-GET  /az/layout/{name}.{hash}.wasm  → per-layout wasm
+GET  /az/mini.{hash}.wasm           → mini wasm (~2.7 KB)
+GET  /az/cb/{name}.{hash}.wasm      → per-cb wasm (~7 KB)
+GET  /az/layout/{name}.{hash}.wasm  → per-layout wasm (~285 KB for hello-world)
 GET  /az/img/{id}                   → image bytes
 GET  /az/font/{id}                  → font bytes
 POST /az/exec/{node_id}             → server-side fallback dispatch
@@ -753,6 +872,8 @@ POST /az/exec/{node_id}             → server-side fallback dispatch
 
 The `/az/` prefix is the only reserved namespace. Any other path
 is matched against registered routes.
+
+Hello-world total wasm payload (post wasm-opt -Oz): 295 KB.
 
 ## Cross-references
 
