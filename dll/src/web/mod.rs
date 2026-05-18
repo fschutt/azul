@@ -62,6 +62,9 @@ pub const EVENTLOOP_SYMBOLS: &[&str] = &[
     "AzStartup_hitTest",
     // M9-5: TLV patch emission.
     "AzStartup_buildCounterPatch",
+    // M9-6: wasm-resident dispatch state setters.
+    "AzStartup_setModelPtr",
+    "AzStartup_setDisplayNode",
 ];
 
 use std::collections::{BTreeMap, HashMap};

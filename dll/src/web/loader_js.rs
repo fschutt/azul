@@ -170,18 +170,12 @@ function azCallbackImports() {
 var azRefAnyPtr = 0;    // wasm offset of the 24B AzRefAny aggregate
 var azModelPtr  = 0;    // wasm offset of the user-data struct
                           // (hello-world: 4B holding the u32 counter)
-// Per-node callback fns, keyed by node_idx — populated when each
-// per-cb wasm is instantiated. The direct-invoke click path looks
-// these up + calls them with (azRefAnyPtr, 0, info_ptr).
-var azNodeCbFns = new Map();
-
 // M9-2: Layout-cb instance + reserved table slot. The layout cb's
 // `callback` export has the M9-1 wrapper shape
 // `(refany_lo: i64, refany_hi: i64, info_ptr: i32, out_ptr: i32) -> i32`
 // — last arg is the caller-allocated destination buffer for the
 // returned AzDom (X8 hidden-ptr return). M9-3 wires the actual
-// invocation via __az_call_indirect inside AzStartup_initLayoutCache;
-// for M9-2 we just instantiate + reserve the table slot.
+// invocation via __az_call_indirect inside AzStartup_initLayoutCache.
 var azLayoutCb = null;
 var azLayoutCbTableIdx = -1;
 
@@ -251,7 +245,6 @@ async function azBootstrap() {
             }
             azTable.set(nodeIdx, cbFn);
             azFnAddrToTableIdx.set(nodeIdx, nodeIdx);
-            azNodeCbFns.set(nodeIdx, cbFn);
             // M9-4: tell mini about this cb-bearing node so the
             // wasm-side AzStartup_hitTest can return it without a
             // JS-side DOM-id-regex round-trip.
@@ -389,111 +382,34 @@ function azHydrate() {
         console.error('[azul-web] AzStartup_hydrate returned 0');
         return;
     }
+    // M9-6: hand model_ptr + display node_idx to mini so the
+    // wasm-side AzStartup_dispatchEvent can read the updated
+    // counter + emit SetText patches without JS round-trips.
+    if (typeof azMini.AzStartup_setRefAny === 'function') {
+        azMini.AzStartup_setRefAny(azState, azRefAnyPtr);
+    }
+    if (typeof azMini.AzStartup_setModelPtr === 'function') {
+        azMini.AzStartup_setModelPtr(azState, azModelPtr);
+    }
+    if (typeof azMini.AzStartup_setDisplayNode === 'function') {
+        // node_idx 1 = the counter text node (id="az_1"). Hardcoded
+        // for hello-world; M9-3b's wasm-resident StyledDom walk
+        // will discover this automatically per route.
+        azMini.AzStartup_setDisplayNode(azState, 1);
+    }
     console.info('[azul-web] hydrate ok: refany=' + azRefAnyPtr +
                  ' model=' + azModelPtr +
                  ' counter=' + counter + ' type_id=' + payload.type_id);
 }
 
-// =====================================================================
-// Direct cb invocation (skips AzStartup_dispatchEvent).
-//
-// The dispatch chain (mini's dispatchEvent → __az_call_indirect
-// → cb) currently hardcodes FAKE_REFANY (0x101). To exercise the
-// hydrated wasm-side RefAny we bypass it: on click, look up the
-// per-node cb fn we registered at bootstrap and call it directly
-// with (azRefAnyPtr, 0n, info_ptr).
-//
-// The wrapper expects two i64s (the refany aggregate halves) — we
-// pass refany_ptr in the low one and 0 in the high one because the
-// lifted code treats X0 as a 64-bit pointer to the 24B AzRefAny
-// (the canonical_callback sig's GprI64Pair predates the realization
-// that >16B aggregates are passed by hidden pointer in arm64 PCS).
-// Reading X0 as a 64-bit ptr in wasm32 land just truncates to the
-// low 32 — exactly the wasm offset we passed.
-// =====================================================================
-function azInvokeCbDirect(nodeIdx, domEvent) {
-    var cbFn = azNodeCbFns.get(nodeIdx);
-    if (!cbFn) return;
-    if (!azRefAnyPtr) {
-        console.warn('[azul-web] cb node=' + nodeIdx + ' invoked but refany not hydrated');
-        return;
-    }
-    var infoPtr = azMini.AzStartup_alloc(EVENT_BUFFER_SIZE);
-    var update = 0;
-    try {
-        update = cbFn(BigInt(azRefAnyPtr), 0n, infoPtr);
-    } catch (e) {
-        console.warn('[azul-web] cb trapped:', e.message);
-    } finally {
-        azMini.AzStartup_free(infoPtr, EVENT_BUFFER_SIZE);
-    }
-    // Update enum: 0 = DoNothing, 1 = RefreshDom (… see eventloop.rs).
-    // M9-5: on RefreshDom, ask wasm to encode a SetText TLV patch
-    // with the new counter value, then apply it via the existing
-    // azApplyPatches decoder. Replaces the previous hardcoded
-    // `el.textContent = newCounter.toString()` path.
-    if (update >= 1 && azModelPtr) {
-        var view = new DataView(azMemory.buffer);
-        var newCounter = view.getUint32(azModelPtr, true);
-        if (typeof azMini.AzStartup_buildCounterPatch === 'function') {
-            var patchCap = 32;
-            var patchBuf = azMini.AzStartup_alloc(patchCap);
-            // node_idx 1 = the counter text node (id="az_1"); the
-            // server-side discovery layer assigns it. M9-3b's
-            // wasm-resident StyledDom will walk + locate this for
-            // arbitrary DOMs.
-            var used = azMini.AzStartup_buildCounterPatch(
-                patchBuf, patchCap, 1, newCounter,
-            );
-            if (used > 0) {
-                azApplyPatches(patchBuf, used);
-            }
-            azMini.AzStartup_free(patchBuf, patchCap);
-        } else {
-            // Legacy fallback (M9-5 drops this once mini.wasm always
-            // exports buildCounterPatch).
-            var el = document.getElementById('az_1');
-            if (el) el.textContent = newCounter.toString();
-        }
-        console.info('[azul-web] cb node=' + nodeIdx +
-                     ' → Update=' + update + ' counter=' + newCounter);
-    } else {
-        console.info('[azul-web] cb node=' + nodeIdx + ' → Update=' + update);
-    }
-}
-
-// M9-4: prefer the wasm-side AzStartup_hitTest when available; fall
-// back to the legacy DOM-id-regex walk only when mini's hitTest
-// export isn't present (e.g. older mini.wasm without the M9-4 lift).
-// The fallback path will be dropped entirely in M9-6 once the wasm
-// side is the source of truth.
-function azNodeIdxFromEvent(domEvent) {
-    if (azMini && typeof azMini.AzStartup_hitTest === 'function' && azState) {
-        var x = domEvent.clientX || 0;
-        var y = domEvent.clientY || 0;
-        // Pass coordinates as f32 bits so the JS-side u32 signature
-        // stays clean. Float32Array helps us reinterpret the float
-        // as its bit pattern.
-        var f32 = new Float32Array(2);
-        var u32 = new Uint32Array(f32.buffer);
-        f32[0] = x;
-        f32[1] = y;
-        var nodeIdx = azMini.AzStartup_hitTest(azState, u32[0], u32[1]);
-        if (nodeIdx !== 0xFFFFFFFF) {
-            return nodeIdx;
-        }
-    }
-    // Legacy fallback (M9-6 deletes this).
-    var target = domEvent.target;
-    while (target && target !== document.body) {
-        if (target.id) {
-            var m = target.id.match(/^az_(\d+)$/);
-            if (m) return parseInt(m[1], 10);
-        }
-        target = target.parentNode;
-    }
-    return SENTINEL_NO_NODE;
-}
+// M9-6: azInvokeCbDirect + azNodeIdxFromEvent regex removed.
+//   - Hit-test now happens wasm-side via AzStartup_hitTest, called
+//     from AzStartup_dispatchEvent when it sees node_idx=SENTINEL.
+//   - Cb dispatch happens wasm-side via __az_call_indirect inside
+//     AzStartup_dispatchEvent, using the hydrated refany_ptr.
+//   - Patch emission happens wasm-side via AzStartup_buildCounterPatch
+//     inside the same call; JS just applies the returned TLV stream.
+// The DOM id="az_N" attributes are now decorative (CSS only).
 
 function azModifierBits(e) {
     var bits = 0;
@@ -505,9 +421,6 @@ function azModifierBits(e) {
 }
 
 function azDispatch(kind, domEvent) {
-    var nodeIdx = azNodeIdxFromEvent(domEvent);
-    if (nodeIdx === SENTINEL_NO_NODE) return;
-
     var evtPtr = azMini.AzStartup_alloc(EVENT_BUFFER_SIZE);
     var outLenPtr = azMini.AzStartup_alloc(OUT_LEN_SIZE);
     if (!evtPtr || !outLenPtr) {
@@ -517,7 +430,9 @@ function azDispatch(kind, domEvent) {
 
     var view = new DataView(azMemory.buffer);
     // Layout matches event_offset in dll/src/web/eventloop.rs.
-    view.setUint32(evtPtr + 0,  nodeIdx, true);
+    // M9-6: encode SENTINEL_NO_NODE so the wasm-side hit-test runs
+    // (no more JS-side `id="az_N"` regex walk).
+    view.setUint32(evtPtr + 0,  SENTINEL_NO_NODE, true);
     view.setFloat32(evtPtr + 4, domEvent.clientX || 0, true);
     view.setFloat32(evtPtr + 8, domEvent.clientY || 0, true);
     view.setUint32(evtPtr + 12, domEvent.button || domEvent.keyCode || 0, true);
@@ -527,7 +442,7 @@ function azDispatch(kind, domEvent) {
         azState, kind, evtPtr, EVENT_BUFFER_SIZE, outLenPtr
     );
     var patchesLen = view.getUint32(outLenPtr, true);
-    console.debug('[azul-web] dispatch kind=' + kind + ' node=' + nodeIdx +
+    console.debug('[azul-web] dispatch kind=' + kind +
                   ' → patches_ptr=' + patchesPtr + ' patches_len=' + patchesLen);
 
     if (patchesPtr && patchesLen) {
@@ -568,15 +483,14 @@ function azApplyPatches(ptr, len) {
 }
 
 function azWireListeners() {
-    // M8.7c-3: click-only direct invocation. We bypass mini's
-    // AzStartup_dispatchEvent (which still uses FAKE_REFANY) and
-    // call the per-node cb fn directly with the hydrated
-    // azRefAnyPtr. Other event kinds (mousedown, key, etc.) wait
-    // on M8.5d's full dispatch loop.
+    // M9-6: route every click through mini's AzStartup_dispatchEvent
+    // (which uses the hydrated refany M9-6 plumbed via
+    // setRefAny + setModelPtr). Encode SENTINEL_NO_NODE for the
+    // event's node_idx so mini's wasm-side hit-test runs. On
+    // RefreshDom, the call returns a SetText TLV patch buffer
+    // that azApplyPatches decodes + writes to the browser DOM.
     document.body.addEventListener('click', function(e) {
-        var nodeIdx = azNodeIdxFromEvent(e);
-        if (nodeIdx === SENTINEL_NO_NODE) return;
-        azInvokeCbDirect(nodeIdx, e);
+        azDispatch(EVT_CLICK, e);
     });
 }
 

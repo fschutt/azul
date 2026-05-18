@@ -161,6 +161,27 @@ pub struct EventloopState {
     /// `3` (the `data-az-cb="3"` value). Real bbox-based hit-test
     /// arrives with M9-3b's LayoutWindow embed.
     pub last_registered_cb_node_idx: u32,
+
+    // M9-6 fields ─────────────────────────────────────────────────
+
+    /// Wasm offset of the user-data model that the hydrated RefAny
+    /// wraps. JS sets this once at hydrate time via
+    /// [`AzStartup_setModelPtr`]. [`AzStartup_dispatchEvent`] reads
+    /// the new counter value from here on RefreshDom so it can
+    /// encode a SetText patch into the returned buffer.
+    pub model_ptr: u32,
+    /// node_idx of the text-bearing display node — hello-world's
+    /// counter sits at `az_1`. JS sets this once at bootstrap via
+    /// [`AzStartup_setDisplayNode`]. M9-3b replaces this with a
+    /// wasm-resident StyledDom walk to find text-bearing nodes
+    /// automatically.
+    pub display_text_node_idx: u32,
+    /// Reserved scratch buffer for [`AzStartup_dispatchEvent`] to
+    /// encode patches into. Allocated lazily (32 bytes max for one
+    /// SetText). The pointer is stable across dispatches; JS reads
+    /// the returned `(patch_ptr, patch_len)` and applies before the
+    /// next dispatch overwrites the buffer.
+    pub patch_buf_ptr: u32,
 }
 
 // =====================================================================
@@ -320,6 +341,9 @@ pub unsafe extern "C" fn AzStartup_init(_json_ptr: u32, _json_len: u32) -> u32 {
         current_dom_ptr: 0,
         last_layout_status: 0,
         last_registered_cb_node_idx: u32::MAX,
+        model_ptr: 0,
+        display_text_node_idx: u32::MAX,
+        patch_buf_ptr: 0,
     });
     Box::into_raw(state) as usize as u32
 }
@@ -624,6 +648,31 @@ pub unsafe extern "C" fn AzStartup_registerCbNode(state: u32, node_idx: u32) {
     s.cb_fn_cache.insert(node_idx, node_idx as u64);
 }
 
+/// Record the wasm offset of the user-data model that the hydrated
+/// AzRefAny wraps. M9-6: lets [`AzStartup_dispatchEvent`] read the
+/// updated counter on RefreshDom without a JS round-trip.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_setModelPtr(state: u32, model_ptr: u32) {
+    if state == 0 {
+        return;
+    }
+    let s = &mut *(state as usize as *mut EventloopState);
+    s.model_ptr = model_ptr;
+}
+
+/// Record the node_idx of the text-bearing display node — the one
+/// that should receive the SetText patch on RefreshDom. Hello-world
+/// passes `1` (the `id="az_1"` counter div). M9-3b will swap this
+/// for a wasm-resident StyledDom walk.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_setDisplayNode(state: u32, node_idx: u32) {
+    if state == 0 {
+        return;
+    }
+    let s = &mut *(state as usize as *mut EventloopState);
+    s.display_text_node_idx = node_idx;
+}
+
 /// Hit-test the wasm-resident DOM at (`x_f32_bits`, `y_f32_bits`) and
 /// return the node_idx that should receive the click, or `u32::MAX`
 /// if no cb-bearing node is registered.
@@ -805,14 +854,30 @@ pub unsafe extern "C" fn AzStartup_dispatchEvent(
         core::ptr::write_unaligned(out_len_ptr as usize as *mut u32, 0);
         return 0;
     }
-    let node_idx_ptr = (event_bytes_ptr as usize + event_offset::NODE_IDX as usize) as *const u32;
-    let node_idx = core::ptr::read(node_idx_ptr);
+    let s = &mut *(state as usize as *mut EventloopState);
+
+    // M9-4/M9-6: if JS encoded SENTINEL (0xFFFFFFFF) as node_idx,
+    // hit-test wasm-side via AzStartup_hitTest. Otherwise honour
+    // the JS-supplied node_idx (legacy back-compat path).
+    let event_node_idx_ptr =
+        (event_bytes_ptr as usize + event_offset::NODE_IDX as usize) as *const u32;
+    let event_node_idx = core::ptr::read(event_node_idx_ptr);
+    let x_bits_ptr = (event_bytes_ptr as usize + event_offset::X as usize) as *const u32;
+    let y_bits_ptr = (event_bytes_ptr as usize + event_offset::Y as usize) as *const u32;
+    let node_idx = if event_node_idx == u32::MAX {
+        AzStartup_hitTest(state, *x_bits_ptr, *y_bits_ptr)
+    } else {
+        event_node_idx
+    };
     if node_idx == u32::MAX {
         core::ptr::write_unaligned(out_len_ptr as usize as *mut u32, 0);
         return 0;
     }
-    // M8.5a stub: treat node_idx as fn-addr-lookup key. M8.5c
-    // populates cb_fn_cache from a hydrated StyledDom.
+
+    // Resolve cb fn-addr → table_idx. M9-3b will replace
+    // `cb_fn_addr = node_idx` with a real per-node fn-addr from
+    // the wasm-resident StyledDom; for now the JS-side
+    // azFnAddrToTableIdx maps identity (node_idx → table_idx).
     let cb_fn_addr = node_idx as u64;
     let table_idx = __az_resolve_callback(cb_fn_addr);
     if table_idx == u32::MAX {
@@ -820,25 +885,48 @@ pub unsafe extern "C" fn AzStartup_dispatchEvent(
         return 0;
     }
 
-    // Invoke the callback. RefAny + AzCallbackInfo are stubbed for
-    // M8.5 — see the FAKE_REFANY_LO comment. M8.7 replaces these
-    // with the hydrated RefAny address (pointing into wasm linear
-    // memory where AzStartup_init deserialized the server-embedded
-    // initial state).
-    let update = __az_call_indirect(
-        table_idx,
-        FAKE_REFANY_LO,
-        FAKE_REFANY_HI,
-        event_bytes_ptr,
-    );
+    // M9-6: invoke the cb with the HYDRATED refany (no more
+    // FAKE_REFANY_LO). The cb's `data: AzRefAny` arg sees a real
+    // wasm-offset pointer to the user data; mutations land in
+    // state.model_ptr's region, observable to JS + to the patch
+    // emit step below.
+    let refany_lo = if s.refany_ptr != 0 {
+        s.refany_ptr as u64
+    } else {
+        FAKE_REFANY_LO
+    };
+    let update = __az_call_indirect(table_idx, refany_lo, FAKE_REFANY_HI, event_bytes_ptr);
 
-    // M8.5d (TBD): on RefreshDom, call the layout callback + diff
-    // against state.current_dom + emit TLV patches into a buffer
-    // owned by the App. For M8.5/M8.6, we surface the cb's Update
-    // value to JS via *out_len_ptr (purely diagnostic — JS treats
-    // any non-zero value as "cb ran but no patches available yet").
-    // The function returns 0 (no patches buffer) so JS knows not to
-    // try to apply any.
+    // M9-5/M9-6: on RefreshDom, encode a SetText TLV patch for the
+    // counter display node and return its buffer. The cb has
+    // already mutated the model in-place via the refany deref chain,
+    // so we just read the updated u32 from `state.model_ptr`,
+    // format to decimal, encode the TLV. JS reads the returned
+    // `(patch_ptr, patch_len)` and applies via the existing
+    // azApplyPatches decoder.
+    if update >= UPDATE_REFRESH_DOM
+        && s.model_ptr != 0
+        && s.display_text_node_idx != u32::MAX
+    {
+        // Lazy-allocate the patch buffer (32 bytes covers any
+        // SetText: 9 header + ≤10 ASCII digits + slack).
+        if s.patch_buf_ptr == 0 {
+            s.patch_buf_ptr = AzStartup_alloc(32);
+        }
+        if s.patch_buf_ptr != 0 {
+            let counter = core::ptr::read_unaligned(s.model_ptr as usize as *const u32);
+            let used = AzStartup_buildCounterPatch(
+                s.patch_buf_ptr,
+                32,
+                s.display_text_node_idx,
+                counter,
+            );
+            core::ptr::write_unaligned(out_len_ptr as usize as *mut u32, used);
+            return s.patch_buf_ptr;
+        }
+    }
+
+    // No patches — surface `update` so JS can log it.
     core::ptr::write_unaligned(out_len_ptr as usize as *mut u32, update);
     0
 }

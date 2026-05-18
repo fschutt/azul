@@ -270,6 +270,15 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
             ],
             ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
         }),
+        "AzStartup_setModelPtr" | "AzStartup_setDisplayNode" => Some(CallbackSignature {
+            kind: name.to_string(),
+            // (state: u32, value: u32) -> ()
+            args: vec![
+                Pcs::Wreg { state_byte_offset: X0 },
+                Pcs::Wreg { state_byte_offset: X1 },
+            ],
+            ret: None,
+        }),
         _ => None,
     }
 }
