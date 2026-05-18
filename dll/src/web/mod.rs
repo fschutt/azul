@@ -65,6 +65,12 @@ pub const EVENTLOOP_SYMBOLS: &[&str] = &[
     // M9-6: wasm-resident dispatch state setters.
     "AzStartup_setModelPtr",
     "AzStartup_setDisplayNode",
+    // M11 Sprint 1: StyledDom hydrate (marker-field flavor — the
+    // walker confirms the AzDom blob is reachable + caches node
+    // count for Sprint 3's diff arena sizing).
+    "AzStartup_hydrateStyledDom",
+    "AzStartup_isStyledDomHydrated",
+    "AzStartup_getDomNodeCount",
 ];
 
 use std::collections::{BTreeMap, HashMap};

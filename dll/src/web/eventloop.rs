@@ -182,6 +182,37 @@ pub struct EventloopState {
     /// the returned `(patch_ptr, patch_len)` and applies before the
     /// next dispatch overwrites the buffer.
     pub patch_buf_ptr: u32,
+
+    // M11 Sprint 1 fields ─────────────────────────────────────────
+
+    /// `1` once [`AzStartup_hydrateStyledDom`] has confirmed the
+    /// AzDom blob at [`Self::current_dom_ptr`] is reachable +
+    /// well-formed. JS calls hydrate immediately after
+    /// `AzStartup_initLayoutCache` succeeds. Sprints 2/3 will read
+    /// this flag and treat the blob as the authoritative wasm-side
+    /// DOM representation for hit-test + diff.
+    ///
+    /// **Why a marker field instead of `Option<StyledDom>`**: the
+    /// canonical `StyledDom` value requires running the cascade
+    /// (`StyledDom::create` → ~5000 LOC of selector matching, UA CSS
+    /// application, computed-value inheritance). That code's
+    /// transitive deps don't survive lift today (per M11 plan's
+    /// "high risk" callout on Stage B.1). For Sprint 1 we
+    /// substitute a marker — the AzDom blob is the source of truth;
+    /// Sprint 3's diff loop walks it directly without needing
+    /// cascade-derived fields. Future work can promote this to a
+    /// real StyledDom once the cascade lift is unblocked.
+    pub current_dom_hydrated: u32,
+    /// Node count of the AzDom tree at [`Self::current_dom_ptr`],
+    /// computed during [`AzStartup_hydrateStyledDom`] via an
+    /// iterative DFS over the tree. Surfaces for JS-side debugging
+    /// + Sprint 3's diff arena sizing. `0` until hydrate runs.
+    pub current_dom_node_count: u32,
+    /// Wasm offset of the previous AzDom blob, captured before each
+    /// RefreshDom-triggered relayout in Sprint 3. `0` until the
+    /// first RefreshDom. Used by `reconcile_dom_with_changes` to
+    /// produce the patch stream.
+    pub prev_dom_ptr: u32,
 }
 
 // =====================================================================
@@ -344,6 +375,9 @@ pub unsafe extern "C" fn AzStartup_init(_json_ptr: u32, _json_len: u32) -> u32 {
         model_ptr: 0,
         display_text_node_idx: u32::MAX,
         patch_buf_ptr: 0,
+        current_dom_hydrated: 0,
+        current_dom_node_count: 0,
+        prev_dom_ptr: 0,
     });
     Box::into_raw(state) as usize as u32
 }
@@ -697,6 +731,158 @@ pub unsafe extern "C" fn AzStartup_hitTest(
     }
     let s = &*(state as usize as *mut EventloopState);
     s.last_registered_cb_node_idx
+}
+
+// =====================================================================
+// M11 Sprint 1 — wasm-side StyledDom hydration
+// =====================================================================
+//
+// After `AzStartup_initLayoutCache` lifts the user's layout cb +
+// writes its returned `AzDom` to `state.current_dom_ptr`, JS calls
+// `AzStartup_hydrateStyledDom(state)`. The hydrate fn walks the
+// tree iteratively (no recursion, no struct literals) to:
+//
+//   1. Confirm the blob is reachable + well-formed.
+//   2. Cache the total node count for diff arena sizing.
+//   3. Set `state.current_dom_hydrated = 1` so subsequent
+//      dispatch / hit-test / diff calls can treat the blob as the
+//      authoritative wasm-side DOM.
+//
+// **Why a marker field instead of `Option<StyledDom>` here**: per
+// the M11 plan's Stage B.1, building a real `StyledDom` requires
+// running the cascade — that path's transitive lift complexity is
+// flagged as high-risk. For Sprint 1 we use the AzDom blob as the
+// authoritative representation. Sprint 3's diff loop walks it
+// directly via `reconcile_dom_with_changes`-shaped logic; cascade
+// derived fields aren't needed until we wire computed styles.
+//
+// **Tree-walk constraints** (same as `AzStartup_hydrate`):
+//   * No `Box::new(StructLiteral)` (the struct literal codegen
+//     emits `adrp+ldr` for sizeof/alignof — M10-F's precise
+//     data-mirror handles those, but we'd rather avoid the round-
+//     trip when possible).
+//   * Fixed-size stack arrays only (recursion + reallocs hit the
+//     bump allocator's "fresh slab per call" mode which inflates
+//     pages quickly).
+//   * Direct pointer arithmetic for struct field offsets — the
+//     compile-time `core::mem::offset_of!` becomes an `adrp+ldr`
+//     that the data mirror covers (since M10-F1's scanner widening).
+
+/// Iterative DFS over the AzDom tree at `root`, returning the total
+/// node count (root inclusive). Returns 0 for null / unreadable.
+///
+/// Constrained to a 256-deep work-stack to keep the wasm code path
+/// allocation-free. Trees deeper than 256 cap their count at the
+/// reachable subtree size — that's an OK degraded mode for a v1.
+/// Sprint 2's hit-test + Sprint 3's diff use the same walker
+/// pattern.
+unsafe fn count_az_dom_nodes(root: *const u8) -> u32 {
+    if root.is_null() {
+        return 0;
+    }
+    // Children offset inside the `#[repr(C)] Dom` struct. The macro
+    // evaluates at compile time → either a literal `mov` or an
+    // `adrp+ldr` from rodata. M10-F1's scanner widens the latter
+    // into the precise data-mirror so the lift sees a real value.
+    let children_off: usize = core::mem::offset_of!(azul_core::dom::Dom, children);
+    // Each Dom child in the children DomVec is `size_of::<Dom>()`
+    // bytes (the AzVec stores them inline). Same compile-time path
+    // as `children_off`.
+    let dom_size: usize = core::mem::size_of::<azul_core::dom::Dom>();
+
+    let mut stack: [*const u8; 256] = [core::ptr::null(); 256];
+    stack[0] = root;
+    let mut sp: usize = 1;
+    let mut count: u32 = 0;
+
+    while sp > 0 {
+        sp -= 1;
+        let node = stack[sp];
+        if node.is_null() {
+            continue;
+        }
+        // saturating_add keeps the count well-defined even if a
+        // malicious blob claimed billions of children — we'd run out
+        // of stack first, but be defensive.
+        count = count.saturating_add(1);
+
+        // DomVec is `#[repr(C)]`: { ptr, len, cap, destructor }.
+        // We only need ptr@0 and len@8. The destructor enum past
+        // offset 16 we ignore.
+        let dvec = node.add(children_off);
+        let child_ptr_raw =
+            core::ptr::read_unaligned(dvec as *const usize) as *const u8;
+        let child_len = core::ptr::read_unaligned(dvec.add(8) as *const usize);
+        if child_ptr_raw.is_null() || child_len == 0 {
+            continue;
+        }
+
+        let mut i: usize = 0;
+        while i < child_len {
+            if sp >= 256 {
+                break;
+            }
+            stack[sp] = child_ptr_raw.add(i * dom_size);
+            sp += 1;
+            i += 1;
+        }
+    }
+
+    count
+}
+
+/// Walk the AzDom blob at `state.current_dom_ptr`, count its
+/// nodes, and mark the state as hydrated.
+///
+/// Status codes:
+///   * `0`  — success, `current_dom_hydrated = 1`,
+///            `current_dom_node_count` filled.
+///   * `1`  — null state pointer.
+///   * `2`  — `current_dom_ptr` is 0 (initLayoutCache wasn't
+///            called yet, or it failed).
+///   * `3`  — tree walk returned 0 (blob unreadable / not a valid
+///            AzDom layout); state is left as un-hydrated.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
+    if state == 0 {
+        return 1;
+    }
+    let s = &mut *(state as usize as *mut EventloopState);
+    if s.current_dom_ptr == 0 {
+        return 2;
+    }
+    let count = count_az_dom_nodes(s.current_dom_ptr as usize as *const u8);
+    if count == 0 {
+        return 3;
+    }
+    s.current_dom_node_count = count;
+    s.current_dom_hydrated = 1;
+    0
+}
+
+/// Read [`EventloopState::current_dom_hydrated`] without
+/// dereferencing the state pointer in JS. Returns `1` if hydrate
+/// has succeeded for the current AzDom blob, `0` otherwise (state
+/// null or initLayoutCache+hydrate not yet run).
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_isStyledDomHydrated(state: u32) -> u32 {
+    if state == 0 {
+        return 0;
+    }
+    let s = &*(state as usize as *mut EventloopState);
+    s.current_dom_hydrated
+}
+
+/// Read [`EventloopState::current_dom_node_count`] for JS-side
+/// debugging + Sprint 3 diff arena sizing. Returns `0` when
+/// hydrate hasn't run.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_getDomNodeCount(state: u32) -> u32 {
+    if state == 0 {
+        return 0;
+    }
+    let s = &*(state as usize as *mut EventloopState);
+    s.current_dom_node_count
 }
 
 // =====================================================================

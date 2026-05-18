@@ -386,6 +386,23 @@ async function azBootstrap() {
                         ? azMini.AzStartup_getCurrentDomPtr(azState) : 0;
                     console.info('[azul-web] initLayoutCache rc=' + initRc +
                                  ' current_dom_ptr=' + domPtr);
+
+                    // M11 Sprint 1: hydrate the wasm-side StyledDom
+                    // marker so Sprint 2 (hit-test) + Sprint 3 (diff)
+                    // can treat the AzDom blob as authoritative.
+                    // Failures log but don't abort — the legacy
+                    // dispatch path keeps working.
+                    if (initRc === 0 && domPtr &&
+                        typeof azMini.AzStartup_hydrateStyledDom === 'function') {
+                        var hydrateRc = azMini.AzStartup_hydrateStyledDom(azState);
+                        var hydrated = (typeof azMini.AzStartup_isStyledDomHydrated === 'function')
+                            ? azMini.AzStartup_isStyledDomHydrated(azState) : 0;
+                        var nodeCount = (typeof azMini.AzStartup_getDomNodeCount === 'function')
+                            ? azMini.AzStartup_getDomNodeCount(azState) : 0;
+                        console.info('[azul-web] hydrateStyledDom rc=' + hydrateRc +
+                                     ' hydrated=' + hydrated +
+                                     ' node_count=' + nodeCount);
+                    }
                 }
             }
         } catch (e) {
