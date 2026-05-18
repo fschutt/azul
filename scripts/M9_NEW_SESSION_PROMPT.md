@@ -44,33 +44,50 @@ the wasm-resident layout cache via normal libazul functions
    `AzStartup_initLayoutCache` to invoke it + build the
    `LayoutWindow` cache.
 
-## Architectural choices to commit to BEFORE starting
+## Architectural decisions — committed (don't relitigate)
 
 (Per `scripts/M9_WASM_DOM_HANDOFF.md` § "Architectural decisions
-to make UPFRONT")
+— committed answers")
 
-1. **StyledDom return buffer**: bump-alloc + leak. Re-layout is
-   rare; the leak is bounded; simplest diff.
+1. **StyledDom return**: CALLER-allocated destination buffer.
+   Wrapper signature is `(refany_lo, refany_hi, info_ptr,
+   out_styled_dom_ptr) → u32 status`. Wrapper writes State.X8
+   from `out_styled_dom_ptr` before invoking the lifted body.
+   `EventloopState.current_dom` IS the destination — no separate
+   alloc, no leak. WHY destination buffers exist at all: ARM64
+   AAPCS64 returns structs > 16 bytes via X8 (Indirect Result
+   Location Register); WASM can return at most one scalar.
+   Either way somebody allocates; caller-allocated makes
+   ownership explicit.
+
 2. **LayoutCallback cb-ptr → table-idx**: keep `cb` as fn-ptr,
    add a wasm-only `extern "C"` trampoline that calls
-   `__az_call_indirect`. Minimal upstream change.
+   `__az_call_indirect_layout4`. Minimal upstream change.
+
 3. **Diff algorithm**: investigate `azul-core/src/diff.rs`
-   FIRST. If `reconcile_dom` is there and produces a useful
-   diff shape, use it. Otherwise write a small StyledDom-aware
-   diff in `eventloop.rs`.
+   FIRST. If `reconcile_dom` produces a `DiffResult` that maps
+   cleanly to the TLV ops, use it. Otherwise write a small
+   StyledDom-aware diff in `eventloop.rs`.
 
-## Phase order
+## Target: ship by evening 2026-05-18
 
-1. **M9-1** wrapper signature (small, ~120 LOC)
-2. **M9-2** info builder + JS instantiates layout (~200 LOC)
-3. **M9-3** embed LayoutWindow in EventloopState + init helper (~400 LOC)
-4. **M9-4** WASM-side hit-test, kill JS regex (~150 LOC)
-5. **M9-5** diff + TLV patch emission, kill textContent= hack (~250 LOC)
-6. **M9-6** loader.js cleanup (~150 LOC, mostly deletions)
+**Critical path = phases 1-3** (layout cb runs in wasm,
+populates the WASM DOM). Phases 4-6 remove the remaining JS
+hacks and are shippable in any order after Phase 3 lands.
+
+Phase order:
+
+1. **M9-1** wrapper sig + `out_styled_dom_ptr` arg + X8 seed (small, ~120 LOC)
+2. **M9-2** `AzStartup_buildLayoutInfo` + JS instantiates layout (~200 LOC)
+3. **M9-3** embed LayoutWindow in EventloopState + `AzStartup_initLayoutCache` (~400 LOC)
+4. **M9-4** `AzStartup_hitTest` + drop JS regex (~150 LOC)
+5. **M9-5** diff + TLV patch emission (~250 LOC)
+6. **M9-6** loader.js cleanup — mostly deletions (~150 LOC)
 
 Each phase = one shippable commit. Verify per phase against
 `/tmp/e2e.js` (counter 5→12) plus the new layout-probe scripts
-in the handoff doc.
+in the handoff doc. Don't conflate phases — small commits are
+easier to bisect when something breaks.
 
 ## CRITICAL verification (don't skip)
 

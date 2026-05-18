@@ -9,6 +9,43 @@
 > sufficient `HeadlessApp` inside `mini.wasm` owns layout,
 > hit-test, dispatch, and DOM queries.
 
+## TL;DR — target: ship M9 by evening 2026-05-18
+
+| phase | LOC | what lands | testable when |
+|---|---:|---|---|
+| 1 | ~120 | wrapper takes `(refany_lo, refany_hi, info_ptr, **out_ptr**) → u32`; writes State.X8 from out_ptr | layout.callback() runs without trapping on signature mismatch |
+| 2 | ~200 | `AzStartup_buildLayoutInfo` builds wasm-side stubs; loader.js instantiates layout wasm + records its table_idx | `/tmp/layout-probe.js` returns status=0, out_ptr filled with plausible StyledDom bytes |
+| 3 | ~400 | `EventloopState.{current_dom, next_dom, layout_window, cb_fn_cache}`; `AzStartup_initLayoutCache` invokes layout cb writing into `current_dom`, runs solver3 | `/tmp/layout-init-probe.js` returns 0 + layout_window has real layout results |
+| 4 | ~150 | `AzStartup_hitTest(x,y) → node_idx` reads from `layout_window`; loader drops `azNodeIdxFromEvent` regex | click on browser button → wasm hit-test resolves to the right node_idx |
+| 5 | ~250 | re-layout on RefreshDom writes into `next_dom`, diff vs `current_dom`, emit TLV patches; loader applies | counter still increments via patches (no `textContent =` hardcode) |
+| 6 | ~150 | loader.js deletes `azInvokeCbDirect`, `azNodeIdxFromEvent`, `azNodeCbFns`, all `id="az_*"` regex usage | loader.js grep for those names returns 0 hits |
+
+**Critical path = phases 1-3** (the "layout cb runs in wasm and
+populates the WASM DOM" milestone). Phases 4-6 are removing the
+remaining JS hacks; they're shippable in any order after Phase 3
+lands.
+
+## Why we need destination buffers (the ARM64 fact)
+
+`AzStyledDom` is ~120 bytes. AAPCS64 returns structs > 16 bytes
+via X8 (the *Indirect Result Location Register*): the caller
+allocates the destination, passes its address in X8, the callee
+writes through that pointer and returns void. The lifted body
+contains literal `str x0, [x8, #0]; str x1, [x8, #8]; ...`
+instructions — they will write to wherever X8 points. If X8 is
+garbage, the stores hit garbage addresses → wasm OOB trap.
+
+WASM functions can return at most ONE scalar. There is no
+"return a 120-byte struct" instruction. So even ignoring PCS, we
+need somebody to allocate a destination and either return its
+address or write through a caller-supplied pointer. We chose the
+**caller-supplied** form (option B in earlier drafts) because
+`EventloopState.current_dom` is ALREADY a 120-byte slot we
+own — passing `&mut state.current_dom as u32` to the wrapper
+means the lifted body writes the StyledDom directly into the
+EventloopState. Zero alloc, zero memcpy, zero leak. The "buffer"
+is just an existing field.
+
 ## The framing that matters
 
 M8.9 closed the lift pipeline. Every callback in the on_click
@@ -91,10 +128,12 @@ Each phase is one shippable commit. Verify per phase against the
 existing e2e (counter 5→12) PLUS the new layout-cb assertions
 listed inline.
 
-### Phase 1 — Fix the layout-cb wrapper signature (small)
+### Phase 1 — Fix the layout-cb wrapper signature (small, ~120 LOC)
 
-**Goal:** Layout cb is CALLABLE from inside wasm (with the right
-args set up).
+**Goal:** Layout cb is CALLABLE from inside wasm. The wrapper
+exports a new shape `callback(refany_lo, refany_hi, info_ptr,
+out_styled_dom_ptr) → u32` and writes State.X8 = out_styled_dom_ptr
+before invoking the lifted body.
 
 **Changes:**
 
@@ -105,46 +144,56 @@ pub enum Pcs {
     GprI64Pair,   // existing
     GprPtr32,     // existing
     Wreg,         // existing
-    HiddenPtrReturn { x8_offset: u64, ret_buf_size: u64 },  // NEW
+    /// Caller-allocated destination buffer for large struct
+    /// returns (>16 bytes via AAPCS64 hidden X8). The wrapper
+    /// adds an extra arg, writes State.X8 from it, and the
+    /// lifted body's `str xN, [x8, #M]` lands in the caller's
+    /// slot. The wrapper returns u32 status (0=ok).
+    HiddenPtrReturn { x8_offset: u64 },  // NEW (offset within State struct)
 }
 ```
 
 1.2. `signature_for_callback_kind("LayoutCallback")` returns:
 - args: `[AzRefAny → GprI64Pair(X0/X1), LayoutCallbackInfo →
   GprPtr32(X2)]`
-- ret: `HiddenPtrReturn { x8_offset: 672, ret_buf_size: 120 }`
-  (size of `AzStyledDom`; verify via `sizeof::<StyledDom>()` at
-  compile time or hardcode for now)
+- ret: `HiddenPtrReturn { x8_offset: 672 }` (offset of X8 slot
+  within the 1088-byte State struct; verify by grepping the
+  generated IR for the State struct's GPR offset table OR by
+  reading `remill-install/include/remill/Arch/AArch64/Runtime/State.h`)
+- The wrapper synthesis treats `HiddenPtrReturn` as an
+  EXTRA i32 arg appended to the JS-facing signature.
 
-1.3. `emit_wrapper_args_and_prologue` writes the X8 slot:
+1.3. `emit_wrapper_args_and_prologue` writes State.X8 from the
+new extra arg:
 ```llvm
-  ; State.X8 (offset 672 from State pointer) ← bump-alloc'd ret buf
-  %ret_buf = call i32 @AzStartup_alloc(i32 120)
-  %ret_buf_i64 = zext i32 %ret_buf to i64
+  ; %out_styled_dom_ptr is the extra i32 arg (4th).
+  ; State.X8 at offset 672 ← zext(arg) to i64.
+  %out_i64 = zext i32 %out_styled_dom_ptr to i64
   %x8_slot = getelementptr inbounds i8, ptr %state_buf, i64 672
-  store i64 %ret_buf_i64, ptr %x8_slot, align 8
+  store i64 %out_i64, ptr %x8_slot, align 8
 ```
 
-1.4. `emit_wrapper_return` for `HiddenPtrReturn`: read back the
-ret_buf offset and return it as i32 (the caller will treat it
-as a wasm offset pointing to the StyledDom).
+1.4. `emit_wrapper_return` for `HiddenPtrReturn`: just `ret i32 0`
+(the lifted body already wrote through X8 into the caller's slot
+— there's no return value to marshal). Status codes (e.g. error
+states) can be wired later.
 
 1.5. Thread `kind: &str` through `Transpiler::lift_function` (so
 the lifter knows it's a layout cb) and propagate to
-`signature_for_callback_kind`. Either add a `lift_function_kind`
-method or change `lift_function`'s signature.
+`signature_for_callback_kind`. Add an
+`fn lift_function_with_kind(name, addr, size, kind: &str)` if
+trait additions are awkward.
 
-1.6. Update `mod.rs::lift_layout_callbacks` to pass `"LayoutCallback"`
-and `mod.rs::discover_and_transpile_callbacks` to pass `"Callback"`.
+1.6. Update `mod.rs::lift_layout_callbacks` to pass
+`"LayoutCallback"` and
+`mod.rs::discover_and_transpile_callbacks` to pass `"Callback"`.
 
 **Verification:**
 - `node /tmp/e2e.js` still passes 5→12 (no regression on on_click).
-- A new `/tmp/layout-probe.js` script (see Phase 2 below) gets
-  past the instantiation step without trapping on signature
-  mismatch.
 - The layout wasm's `callback` export should now have signature
-  `(i64, i64, i32) → i32` where the return is the StyledDom wasm
-  offset.
+  `(i64, i64, i32, i32) → i32` (last i32 = out_styled_dom_ptr).
+- New probe (Phase 2 builds the rest of it) gets past the
+  instantiation step without trapping.
 
 **Commit:** `web: M9-1 layout-cb wrapper with X8 hidden return`
 
@@ -190,14 +239,20 @@ matching `signature_for_eventloop_fn` entry.
 
 **Verification:** new probe script `/tmp/layout-probe.js`:
 ```javascript
-// Instantiate mini + layout, hydrate, then call layout cb directly.
-// Expected: returns nonzero StyledDom offset; no trap.
-const styledDomPtr = layoutI.exports.callback(
-    refanyLo, refanyHi,
-    mini.AzStartup_buildLayoutInfo(800, 600, 0)
+// Instantiate mini + layout, hydrate, allocate dest buffer,
+// then call layout cb directly with out_ptr.
+const outPtr = mini.AzStartup_alloc(120);  // sizeof(AzStyledDom)
+const infoPtr = mini.AzStartup_buildLayoutInfo(800, 600, 0);
+const status = layoutI.exports.callback(
+    refanyLo, refanyHi, infoPtr, outPtr
 );
-console.log("StyledDom offset:", styledDomPtr);
-// Sample first 32 bytes to verify it's a real StyledDom shape.
+console.log("status:", status, "outPtr:", outPtr);
+// Sample first 64 bytes of *outPtr to verify it's a real
+// StyledDom shape (non-zero NodeDataVec.ptr, plausible len, etc.)
+const dv = new DataView(memory.buffer);
+const sample = [];
+for (let i = 0; i < 64; i += 8) sample.push(dv.getBigUint64(outPtr + i, true).toString(16));
+console.log("outPtr[0..64] as u64:", sample.join(" "));
 ```
 
 **Commit:** `web: M9-2 LayoutCallbackInfo builder + JS layout-cb instantiation`
@@ -227,29 +282,38 @@ once after instantiating the layout wasm.
 #[no_mangle]
 pub extern "C" fn AzStartup_initLayoutCache(...) -> u32 {
     let info_ptr = AzStartup_buildLayoutInfo(viewport_w, viewport_h, theme);
-    // Call layout cb via __az_call_indirect using the stashed
-    // layout_cb_table_idx. This returns a StyledDom offset.
-    let styled_dom_ptr = az_call_indirect_layout(
+    // EventloopState.current_dom IS the destination buffer.
+    // Pass &mut state.current_dom as u32 to the lifted layout cb.
+    // The wrapper writes State.X8 = &state.current_dom; the body
+    // writes the StyledDom directly into that slot. No alloc,
+    // no memcpy.
+    let out_ptr = &raw mut state.current_dom as u32;
+    let status = az_call_indirect_layout4(
         state.layout_cb_table_idx,
         state.app_data_lo, state.app_data_hi,
         info_ptr,
+        out_ptr,  // ← caller-allocated dest, NOT a bump alloc
     );
-    // Read the StyledDom from the bump-alloc'd region.
-    let styled_dom: StyledDom = unsafe { ptr::read(styled_dom_ptr as *const _) };
-    // Build LayoutWindow + run solver3.
+    if status != 0 { return status; }  // cb returned a non-ok status
+    // state.current_dom is NOW populated. Build LayoutWindow + solver3.
     let mut layout_window = LayoutWindow::new(FcFontCache::default());
-    layout_window.do_the_layout(&styled_dom, /* viewport */);
-    // Populate cb_fn_cache by walking styled_dom.
-    for (node_idx, node) in styled_dom.iter_nodes() {
+    layout_window.do_the_layout(&state.current_dom, /* viewport */);
+    // Populate cb_fn_cache by walking the populated current_dom.
+    for (node_idx, node) in state.current_dom.iter_nodes() {
         if let Some(fn_addr) = extract_cb_addr(node) {
             state.cb_fn_cache.insert(node_idx, fn_addr);
         }
     }
-    state.current_dom = Some(styled_dom);
     state.layout_window = Some(layout_window);
-    1  // success
+    0  // success
 }
 ```
+
+NOTE: re-layout (on `Update::RefreshDom`) follows the SAME flow,
+just writing into a SECOND slot (e.g. `state.next_dom`) so the
+diff step has both old + new in hand. After the diff emits
+patches, `state.current_dom = state.next_dom`. Two slots total
+for the lifetime of the wasm instance — no growth.
 
 3.4. **CRITICAL refactor:** `LayoutCallback.cb` is currently a
 host `extern "C" fn` pointer. In wasm, that pointer doesn't
@@ -263,9 +327,12 @@ exist — we need a table index instead. Either:
 **Recommendation: (A)** — minimal upstream change. The
 trampoline is a tiny wasm-only function.
 
-3.5. Add `__az_call_indirect_layout` to the helper IR bridge
-generators. Signature differs from `__az_call_indirect`
-(returns i32 = StyledDom offset, takes 3 args instead of 4).
+3.5. Add `__az_call_indirect_layout4` to the helper IR bridge
+generators. Signature differs from `__az_call_indirect`:
+takes 4 args (refany_lo, refany_hi, info_ptr, out_ptr) and
+returns i32 status. The new `4` suffix denotes "4 arg layout
+call shape" so the existing 3-arg `__az_call_indirect` for
+widget callbacks stays untouched.
 
 **Verification:** new probe script `/tmp/layout-init-probe.js`:
 ```javascript
@@ -277,6 +344,12 @@ console.log("initLayoutCache rc:", rc);  // expect 1
 ```
 
 **Commit:** `web: M9-3 WASM-resident LayoutWindow + initLayoutCache`
+
+**One-slot vs two-slot rationale**: the diff step needs the
+PREVIOUS StyledDom to compare against, so re-layout writes into
+a second slot. Single-slot would force us to snapshot via memcpy
+or to compute the diff incrementally as the layout cb writes —
+both are uglier than `current_dom` + `next_dom` + swap-after-diff.
 
 ### Phase 4 — WASM-side hit-test (medium)
 
@@ -419,23 +492,80 @@ only — once WASM takes over, they're unused).
 - The CSS cascade ships to the browser (`apply_ua_css` +
   `compute_inherited_values` in `core/src/styled_dom.rs`).
 
-## Architectural decisions to make UPFRONT
+## Architectural decisions — committed answers
 
-Before starting Phase 1, ask the user (or commit to a choice
-in writing):
+These were settled in conversation 2026-05-18. Don't relitigate.
 
-1. **StyledDom return buffer**: (A) Bump-alloc fresh per layout
-   call, leak it. (B) Pass dest buffer as wrapper arg. **Default
-   answer: A** — re-layout is rare, leak is bounded by # layouts
-   per session, simpler diff.
+### 1. StyledDom return: caller-allocated destination buffer
 
-2. **LayoutCallback cb-ptr → table-idx**: (A) Keep `cb` as fn-ptr,
-   wasm-only trampoline. (B) Refactor `LayoutCallback` enum
-   cfg-gated. **Default answer: A** — minimal upstream change.
+The wrapper takes an extra `out_styled_dom_ptr: u32` arg
+(wasm-offset of a 120-byte slot the caller owns). The wrapper
+writes that pointer into State.X8 before invoking the lifted
+body. The body's `str xN, [x8, #M]` instructions land in the
+caller's slot directly. The wrapper returns a status code
+(`u32`, e.g. `0 = ok`).
 
-3. **Diff algorithm**: use existing `azul_core::diff::reconcile_dom`?
-   Or write a simpler StyledDom-aware diff? Check what's there at
-   `azul-core/src/diff.rs` BEFORE starting Phase 5.
+**Why a destination buffer exists at all** (the load-bearing
+ARM64 PCS fact):
+
+  - Native `AzStyledDom` is ~120 bytes (`NodeDataVec` +
+    `NodeHierarchyItemVec` + `StyledNodeVec` + `CssPropertyCache`
+    box pointer + a few more vecs — see
+    `azul-core/src/styled_dom.rs`).
+  - AAPCS64 (Apple's variant) returns structs > 16 bytes via the
+    *Indirect Result Location Register* X8. The caller allocates
+    the destination, passes its address in X8, the callee writes
+    through that pointer and returns void.
+  - The lifted body contains literal `str x0, [x8, #0]; str x1,
+    [x8, #8]; ...` instructions. They will write to wherever X8
+    points. If X8 is garbage, the stores hit garbage addresses →
+    wasm OOB trap.
+  - WASM functions can return at most ONE scalar value. There is
+    no "return a 120-byte struct" instruction. So even ignoring
+    PCS, we need EITHER to return a pointer (option A — somebody
+    allocates) OR to write through a caller-allocated pointer
+    (option B). Both options require a destination buffer
+    somewhere. Option B just makes the ownership explicit.
+
+**Why option B beats option A**:
+
+  - **Zero leak**. Re-layout happens on every `Update::RefreshDom`
+    — could fire dozens of times per second under animation. The
+    bump heap fills up; we'd need a real allocator (M9.5 work)
+    just to make option A safe.
+  - **`EventloopState.current_dom` IS the buffer**. We pass
+    `&mut state.current_dom as u32` to the wrapper. The wrapper
+    writes directly into the EventloopState slot. No alloc, no
+    memcpy, no copy. The "buffer" is just an existing field.
+  - **Re-layout is in-place**. The wrapper writes into the SAME
+    slot every time; the diff step compares to a saved-aside
+    copy (one extra slot, not N).
+  - **Mirrors the C ABI exactly**. C consumers calling the same
+    cb natively also pass a destination — wasm dispatch matches.
+
+### 2. LayoutCallback cb-ptr → table-idx: wasm-only trampoline
+
+Keep `LayoutCallback.cb: extern "C" fn(...)` as a native fn-ptr
+in the source. In wasm, the lifted layout cb's `extern "C"` body
+is unreachable as a fn-ptr (no native code to point AT). Add a
+wasm-only `extern "C" fn invoke_layout_cb_trampoline(refany,
+info, out_ptr)` that calls `__az_call_indirect` against
+`EventloopState.layout_cb_table_idx`. The HeadlessApp's invoke
+path uses the trampoline when `cfg(target_arch = "wasm32")`.
+
+Minimal upstream change (no enum refactor of `LayoutCallback`).
+
+### 3. Diff algorithm: investigate FIRST, then decide
+
+Before Phase 5, read `azul-core/src/diff.rs`. If
+`reconcile_dom` (or whatever's there) produces a `DiffResult`
+shape that maps cleanly to the TLV ops in Phase 5, use it.
+Otherwise write a small StyledDom-aware diff in `eventloop.rs`
+that emits TLV directly without an intermediate type. **Don't
+adapt a fancy general-purpose diff** — we control both ends, so
+the simplest thing that handles our ops (SetText, SetAttr,
+SetInlineStyle, RemoveNode, InsertNode, MoveNode,
+ReplaceSubtree) is enough.
 
 ## Glossary of files
 
