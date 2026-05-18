@@ -1242,9 +1242,9 @@ impl RemillTranspiler {
     /// surface is the lifted body `sub_<addr_hex>` which other
     /// lifted code calls by name.
     ///
-    /// **Depth limit**: hard-capped at `MAX_RECURSIVE_DEPTH`
-    /// functions. If hit, returns an error so a runaway chain
-    /// doesn't lock up the server forever.
+    /// **Depth limit**: hard-capped at `opts.max_recursive_depth`
+    /// (default `LiftOpts::default()` = 256). If hit, returns an
+    /// error so a runaway chain doesn't lock up the server forever.
     ///
     /// **Skipped externs**: dladdr fallbacks (`cb_<hex>` names),
     /// known-leaf classifications (RustAlloc, AzCallIndirect, etc.)
@@ -1254,6 +1254,20 @@ impl RemillTranspiler {
         &self,
         roots: Vec<TransitiveLiftRoot>,
     ) -> Result<WasmModule, TranspileError> {
+        self.lift_with_transitive_deps_ex(roots, LiftOpts::default())
+    }
+
+    /// Like [`Self::lift_with_transitive_deps`] but exposes per-call
+    /// link options (extra prelinked objects, memory mode, output
+    /// stem, recursion cap). M11 Sprint 1 added this so the
+    /// eventloop pipeline can route through the transitive lifter
+    /// while still bundling `bump_helpers.o` + owning its own wasm
+    /// memory.
+    pub fn lift_with_transitive_deps_ex(
+        &self,
+        roots: Vec<TransitiveLiftRoot>,
+        opts: LiftOpts,
+    ) -> Result<WasmModule, TranspileError> {
         // M8.9 Phase 3b: in the native pipeline, pre-walk the dep
         // graph via ARM64 bytes-scan to discover the full set
         // upfront, then batch-lift everything in one call. Saves
@@ -1262,14 +1276,15 @@ impl RemillTranspiler {
         // off the first request.
         if self.use_native_remill() {
             #[cfg(feature = "web-transpiler-static")]
-            return self.lift_with_transitive_deps_batched(roots);
+            return self.lift_with_transitive_deps_batched(roots, &opts);
         }
-        self.lift_with_transitive_deps_sequential(roots)
+        self.lift_with_transitive_deps_sequential(roots, &opts)
     }
 
     fn lift_with_transitive_deps_sequential(
         &self,
         roots: Vec<TransitiveLiftRoot>,
+        opts: &LiftOpts,
     ) -> Result<WasmModule, TranspileError> {
         // Hard cap on the number of functions a single root's
         // transitive closure can pull in. Bumped from 64 → 256 in
@@ -1279,7 +1294,10 @@ impl RemillTranspiler {
         // per-canonical-addr `object_cache` below, repeat lifts of
         // the same dep across multiple callbacks are O(1), so the
         // cap is about call-graph fan-out, not throughput.
-        const MAX_RECURSIVE_DEPTH: usize = 256;
+        //
+        // M11 Sprint 1: caller-tunable via `LiftOpts::max_recursive_depth`
+        // — eventloop bumps this to absorb cascade + layout deps.
+        let max_recursive_depth = opts.max_recursive_depth;
 
         let mut visited: HashSet<usize> = HashSet::new();
         let mut queue: VecDeque<TransitiveLiftTarget> = VecDeque::new();
@@ -1331,12 +1349,12 @@ impl RemillTranspiler {
                 continue;
             }
             lifted_count += 1;
-            if lifted_count > MAX_RECURSIVE_DEPTH {
+            if lifted_count > max_recursive_depth {
                 return Err(TranspileError {
                     fn_name: name,
                     reason: format!(
                         "transitive lift exceeded {} functions — runaway recursion?",
-                        MAX_RECURSIVE_DEPTH
+                        max_recursive_depth
                     ),
                 });
             }
@@ -1500,6 +1518,18 @@ impl RemillTranspiler {
                 exports.push(extra.clone());
             }
         }
+        // M11 Sprint 1: append caller-supplied passthrough exports
+        // (e.g. eventloop's bump_helper exports defined in extra_objects).
+        for extra in &opts.extra_exports_passthrough {
+            if !exports.iter().any(|e| e == extra) {
+                exports.push(extra.clone());
+            }
+        }
+        // M11 Sprint 1: append caller-supplied prelinked objects
+        // (e.g. eventloop's bump_helpers.o).
+        for obj in &opts.extra_objects {
+            object_paths.push(obj.clone());
+        }
 
         eprintln!(
             "[azul-web] transitive lift complete: {} functions lifted, {} unique exports",
@@ -1510,8 +1540,8 @@ impl RemillTranspiler {
         let bytes = self.link_objects_to_wasm(
             &object_paths,
             &exports,
-            "transitive-lift",
-            MemoryMode::ImportMemory,
+            &opts.output_stem,
+            opts.memory_mode,
             &accessed_pages,
             &accessed_ranges,
         )?;
@@ -1542,8 +1572,11 @@ impl RemillTranspiler {
     fn lift_with_transitive_deps_batched(
         &self,
         roots: Vec<TransitiveLiftRoot>,
+        opts: &LiftOpts,
     ) -> Result<WasmModule, TranspileError> {
-        const MAX_RECURSIVE_DEPTH: usize = 256;
+        // M11 Sprint 1: caller-tunable via `LiftOpts::max_recursive_depth`
+        // — eventloop bumps this to absorb cascade + layout deps.
+        let max_recursive_depth = opts.max_recursive_depth;
         // Per-target metadata for the lift + post-process pipeline.
         struct Target {
             name: String,
@@ -1599,12 +1632,12 @@ impl RemillTranspiler {
             if !visited.insert(addr) {
                 continue;
             }
-            if targets.len() >= MAX_RECURSIVE_DEPTH {
+            if targets.len() >= max_recursive_depth {
                 return Err(TranspileError {
                     fn_name: name,
                     reason: format!(
                         "transitive lift exceeded {} functions — runaway recursion?",
-                        MAX_RECURSIVE_DEPTH
+                        max_recursive_depth
                     ),
                 });
             }
@@ -1877,6 +1910,18 @@ impl RemillTranspiler {
                 exports.push(extra.clone());
             }
         }
+        // M11 Sprint 1: append caller-supplied passthrough exports
+        // (e.g. eventloop's bump_helper exports defined in extra_objects).
+        for extra in &opts.extra_exports_passthrough {
+            if !exports.iter().any(|e| e == extra) {
+                exports.push(extra.clone());
+            }
+        }
+        // M11 Sprint 1: append caller-supplied prelinked objects
+        // (e.g. eventloop's bump_helpers.o).
+        for obj in &opts.extra_objects {
+            object_paths.push(obj.clone());
+        }
 
         eprintln!(
             "[azul-web] transitive lift complete (batched): {} functions, {} unique exports",
@@ -1903,8 +1948,8 @@ impl RemillTranspiler {
         let bytes = self.link_objects_to_wasm(
             &object_paths,
             &exports,
-            "transitive-lift",
-            MemoryMode::ImportMemory,
+            &opts.output_stem,
+            opts.memory_mode,
             &accessed_pages,
             &accessed_ranges,
         )?;
@@ -2819,7 +2864,7 @@ fn encode_sleb128(mut value: i64) -> Vec<u8> {
 /// with the mini wasm; the mini wasm itself ships an exported
 /// `memory` that the JS bootstrap routes to all other wasms.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MemoryMode {
+pub enum MemoryMode {
     /// `--initial-memory=N` — wasm-ld declares + exports its own
     /// `memory`. Used by the mini wasm (the source of truth for
     /// shared memory).
@@ -2861,6 +2906,45 @@ pub struct BoundaryShard {
     /// surfaced as a transitive dep. The orchestrator follows the
     /// chain to ensure every downstream shard gets lifted too.
     pub transitive_boundaries: Vec<usize>,
+}
+
+/// Per-call options for [`RemillTranspiler::lift_with_transitive_deps_ex`].
+///
+/// M11 Sprint 1 added this so the eventloop pipeline can route
+/// through the transitive lifter while still bundling hand-written
+/// `bump_helpers.o`, owning its own wasm memory, and raising the
+/// recursion cap above the per-cb default.
+#[derive(Debug, Clone)]
+pub struct LiftOpts {
+    /// Pre-linked object files to add to the wasm-ld input set
+    /// alongside the lifted .o's. Used to bundle hand-written
+    /// helpers (e.g. `bump_helpers.o`) into the final wasm.
+    pub extra_objects: Vec<PathBuf>,
+    /// Extra export names to pass to wasm-ld's `--export=` list.
+    /// Used for symbols defined in `extra_objects` that wouldn't
+    /// otherwise survive `--gc-sections`.
+    pub extra_exports_passthrough: Vec<String>,
+    /// Whether the produced wasm owns its memory (mini.wasm) or
+    /// imports `env.memory` from another wasm (per-cb / per-layout).
+    pub memory_mode: MemoryMode,
+    /// Hard cap on the number of fns the BFS can pull into the
+    /// lift set. Per-cb lifts default to 256; the eventloop bumps
+    /// this to absorb cascade + layout transitive deps.
+    pub max_recursive_depth: usize,
+    /// Output stem for wasm-ld + diagnostic logs (`<stem>.wasm`).
+    pub output_stem: String,
+}
+
+impl Default for LiftOpts {
+    fn default() -> Self {
+        Self {
+            extra_objects: Vec::new(),
+            extra_exports_passthrough: Vec::new(),
+            memory_mode: MemoryMode::ImportMemory,
+            max_recursive_depth: 256,
+            output_stem: "transitive-lift".to_string(),
+        }
+    }
 }
 
 /// Specifies a root function for [`RemillTranspiler::lift_with_transitive_deps`].
@@ -3049,8 +3133,17 @@ impl Transpiler for RemillTranspiler {
         // expensive lift work. This fails fast on a typo in
         // EVENTLOOP_SYMBOLS that doesn't have a matching entry in
         // signature_for_eventloop_fn.
-        let mut sigs: Vec<CallbackSignature> = Vec::with_capacity(symbols.len());
-        for (name, _, _) in symbols {
+        //
+        // M11 Sprint 1: each eventloop fn becomes a TransitiveLiftRoot
+        // so its transitive Rust deps (e.g. cascade machinery called
+        // from `AzStartup_hydrateStyledDom`) get lifted too. The old
+        // per-fn-only path stubbed every non-eventloop call to noop
+        // via the JS Proxy, which made the marker-field hydrate a
+        // dead-end. The transitive lifter walks the dep graph via
+        // ARM64 bytes-scan and pulls every Recursable callee into
+        // the same wasm.
+        let mut roots: Vec<TransitiveLiftRoot> = Vec::with_capacity(symbols.len());
+        for (name, addr, size) in symbols {
             let sig = signature_for_eventloop_fn(name).ok_or_else(|| TranspileError {
                 fn_name: name.clone(),
                 reason: format!(
@@ -3059,152 +3152,70 @@ impl Transpiler for RemillTranspiler {
                     name
                 ),
             })?;
-            sigs.push(sig);
+            roots.push(TransitiveLiftRoot {
+                fn_name: name.clone(),
+                fn_addr: *addr,
+                fn_size: *size,
+                sig,
+                export_as: name.clone(),
+                extra_exports: Vec::new(),
+            });
         }
 
-        let mut object_paths: Vec<PathBuf> = Vec::with_capacity(symbols.len());
-        let mut exports: Vec<String> = Vec::with_capacity(symbols.len());
-
-        // M8.9 Phase 3a: in the native pipeline, batch-lift every
-        // eventloop fn in ONE az_remill_lift_batch call. Shares
-        // LoadArchSemantics (~30 ms) across all items — per-fn lift
-        // cost drops from ~50 ms to ~5 ms. The TraceManager spans
-        // the union of all byte ranges so inter-eventloop `bl`
-        // (AzStartup_hydrate → AzStartup_alloc) resolves to the
-        // lifted body in the same batched manager rather than as an
-        // out-of-range extern. The per-fn IR strings returned by the
-        // batch then feed produce_object_from_lifted_ir for the
-        // post-lift compile.
-        //
-        // Subprocess path keeps the per-fn loop — each subprocess
-        // spawn pays the LoadArchSemantics cost regardless, and
-        // there's no batched API in remill-lift-17.
-        if self.use_native_remill() {
-            #[cfg(feature = "web-transpiler-static")]
-            {
-                let arch_tag = host_arch_tag().ok_or_else(|| TranspileError {
-                    fn_name: "azul-mini".into(),
-                    reason: "unsupported host architecture".into(),
-                })?;
-                let bytes_vec: Vec<Vec<u8>> = symbols
-                    .iter()
-                    .map(|(_, addr, size)| unsafe {
-                        std::slice::from_raw_parts(*addr as *const u8, *size).to_vec()
-                    })
-                    .collect();
-                // M9-review: lift with synthetic addresses; bl targets
-                // between mini's eventloop fns resolve via the synth
-                // chain in the same image (libazul), so distances are
-                // preserved.
-                let synth_of = |native_addr: usize| -> u64 {
-                    symbol_table::get()
-                        .and_then(|t| t.lookup(native_addr))
-                        .map(|e| e.synthetic_addr as u64)
-                        .unwrap_or(native_addr as u64)
-                };
-                let items: Vec<(u64, &[u8])> = symbols
-                    .iter()
-                    .zip(bytes_vec.iter())
-                    .map(|((_, addr, _), b)| (synth_of(*addr), b.as_slice()))
-                    .collect();
-                let t0 = std::time::Instant::now();
-                let per_fn_irs = super::native_remill::lift_batch(
-                    arch_tag,
-                    host_os_tag(),
-                    &items,
-                )
-                .map_err(|e| TranspileError {
-                    fn_name: "azul-mini".into(),
-                    reason: format!("native batched lift: {}", e),
-                })?;
-                eprintln!(
-                    "[azul-web]   eventloop: batched lift of {} items in {:?}",
-                    items.len(),
-                    t0.elapsed(),
-                );
-                for (((name, addr, size), sig), lifted_ir) in
-                    symbols.iter().zip(sigs.iter()).zip(per_fn_irs.iter())
-                {
-                    let lift_addr = synth_of(*addr);
-                    eprintln!(
-                        "[azul-web]   eventloop: post-lift {} addr=0x{:016x} synth=0x{:x} size={}",
-                        name, addr, lift_addr, size,
-                    );
-                    let obj = self.produce_object_from_lifted_ir(
-                        name, *addr, lift_addr, sig, name, lifted_ir,
-                    )?;
-                    object_paths.push(obj);
-                    exports.push(name.clone());
-                }
-            }
-        } else {
-            for (i, ((name, addr, size), sig)) in symbols.iter().zip(sigs.iter()).enumerate() {
-                // M9-review: pass synthetic_addr as lift_addr. Intra-
-                // image bl targets resolve via the synth chain so
-                // distances are preserved.
-                let lift_addr = symbol_table::get()
-                    .and_then(|t| t.lookup(*addr))
-                    .map(|e| e.synthetic_addr as u64)
-                    .unwrap_or(*addr as u64);
-                eprintln!(
-                    "[azul-web]   eventloop[{i}]: lifting {} addr=0x{:016x} synth=0x{:x} size={}",
-                    name, addr, lift_addr, size,
-                );
-                let obj = self.produce_object_for(name, *addr, *size, sig, name, lift_addr)?;
-                object_paths.push(obj);
-                exports.push(name.clone());
-            }
-        }
-
-        // M9-after-review: scan every eventloop fn's bytes for ARM64
-        // `adrp` page targets so the mini.wasm data mirror only
-        // ships pages this set actually reads.
-        let mut accessed_pages: HashSet<usize> = HashSet::new();
-        // M10-E1: precise (addr, len) tuples for adrp+ldr pairs.
-        let mut accessed_ranges: HashSet<(usize, usize)> = HashSet::new();
-        for (_, addr, size) in symbols {
-            let bytes_slice = unsafe {
-                std::slice::from_raw_parts(*addr as *const u8, *size)
-            };
-            for page in scan_arm64_adrp_pages(bytes_slice, *addr) {
-                accessed_pages.insert(page);
-            }
-            for r in scan_arm64_adrp_accesses(bytes_slice, *addr) {
-                accessed_ranges.insert(r);
-            }
-        }
-
-        // M10-C1: add a hand-written `bump_helpers.o` exposing
+        // M10-C1: hand-written bump-helpers exposing
         // AzStartup_snapshotBumpHeap + AzStartup_resetBumpHeap so JS
         // can clamp the wasm bump heap between cycles. These bypass
         // the lift pipeline (no native code to lift — they're
-        // structurally a single load/store on @__az_bump_ptr).
+        // structurally a single load/store on @__az_bump_ptr). The
+        // transitive lifter takes them as `extra_objects` and adds
+        // their exports to the wasm-ld `--export` list via
+        // `extra_exports_passthrough`.
+        //
+        // M11 Sprint 1: scratch dir creation moved here because the
+        // old per-fn lift path created it inside `produce_object_for`
+        // before `emit_bump_helpers_object` ran. The new transitive
+        // path runs the lifter AFTER bump_helpers, so we ensure the
+        // dir exists upfront.
+        std::fs::create_dir_all(&self.scratch_dir).map_err(|e| TranspileError {
+            fn_name: "azul-mini".into(),
+            reason: format!("scratch dir: {e}"),
+        })?;
         let bump_obj_path = self.emit_bump_helpers_object()?;
-        object_paths.push(bump_obj_path);
-        exports.push("AzStartup_snapshotBumpHeap".to_string());
-        exports.push("AzStartup_resetBumpHeap".to_string());
 
-        let bytes = self.link_objects_to_wasm(
-            &object_paths,
-            &exports,
-            "azul-mini",
-            MemoryMode::OwnMemory,
-            &accessed_pages,
-            &accessed_ranges,
-        )?;
-        Ok(WasmModule {
-            content_hash: super::fnv1a64_hex(&bytes),
-            bytes,
-            exports,
-            imports_from_mini: Vec::new(),
-            // M10-D: mini's per-symbol lifts don't transitively walk
-            // deps today (each AzStartup_* lifts as a single fn; deps
-            // become undefined → env-imports). So `used_boundaries`
-            // here would always be empty. Populated correctly once
-            // mini's pipeline shifts to per-shard transitive lift in
-            // Step 3.
-            used_boundaries: Vec::new(),
-        })
+        // M11 Sprint 1: 4096-fn recursion cap. The per-cb default of
+        // 256 is enough for the layout cb's ~141-fn dep set, but
+        // cascade (`StyledDom::create` →
+        // `restyle/apply_ua_css/compute_inherited_values/...`) plus
+        // layout solver are estimated at 500-2000 fns each. 4096
+        // gives plenty of headroom; runaway recursion still trips
+        // the cap.
+        let opts = LiftOpts {
+            extra_objects: vec![bump_obj_path],
+            extra_exports_passthrough: vec![
+                "AzStartup_snapshotBumpHeap".to_string(),
+                "AzStartup_resetBumpHeap".to_string(),
+            ],
+            memory_mode: MemoryMode::OwnMemory,
+            max_recursive_depth: 4096,
+            output_stem: "azul-mini".to_string(),
+        };
+
+        let mut module = self.lift_with_transitive_deps_ex(roots, opts)?;
+        // The transitive lifter populates `used_boundaries`
+        // correctly; eventloop deps that hit a BoundaryImport
+        // classification now properly route through the boundary
+        // shard wiring. Pre-refactor this was always `vec![]`
+        // because the per-fn lift didn't walk deps.
+        if !module.used_boundaries.is_empty() {
+            eprintln!(
+                "[azul-web]   eventloop: discovered {} boundary imports via transitive lift",
+                module.used_boundaries.len(),
+            );
+        }
+        // Preserve the original `imports_from_mini: Vec::new()`
+        // shape — mini doesn't import from itself.
+        module.imports_from_mini = Vec::new();
+        Ok(module)
     }
 
     fn is_available(&self) -> bool {
