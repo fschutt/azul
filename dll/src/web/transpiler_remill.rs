@@ -778,12 +778,16 @@ impl RemillTranspiler {
             None => raw_lifted_ir.to_string(),
         };
 
-        // The entry's defn after rewrite uses fn_addr as its hex
-        // (since the dispatcher pre-chases the chain, fn_addr IS the
-        // canonical address). Pass fn_addr to inject_alwaysinline so
-        // it finds the right `define` line.
+        // M9-review: after `rewrite_sub_names_to_canonical`, every
+        // `sub_<hex>` reference in the IR uses the CANONICAL SYNTH
+        // address as its hex. To find the entry's `define` line for
+        // `inject_alwaysinline`, look up fn_addr's synthetic_addr +
+        // chase the synth chain to its canonical synth target.
         let canonical_entry_addr = symbol_table::get()
-            .and_then(|t| t.canonical_addr_for(fn_addr))
+            .and_then(|t| {
+                t.lookup(fn_addr)
+                    .map(|e| t.resolve_synth(e.synthetic_addr).unwrap_or(e.synthetic_addr))
+            })
             .unwrap_or(fn_addr) as u64;
 
         // For AzStartup_* eventloop functions we deliberately do NOT
@@ -834,17 +838,21 @@ impl RemillTranspiler {
         // BumpAlloc bumps, CallIndirect bridges, ResolveCallback
         // bridges to JS, Leaf noops, Recursable gets no body (the
         // recursive walker provides it from a sibling .o).
+        // M9-review: post-rewrite IR uses SYNTHETIC addresses in
+        // `sub_<hex>` tokens. Look up classifications by synth
+        // (slow O(n) linear scan; acceptable since this runs once
+        // per lifted function and the branch list is small).
         let branch_sym_names = parse_extern_sub_declares(&lifted_ir);
         let mut resolved_branches: Vec<ResolvedBranchExtern> =
             Vec::with_capacity(branch_sym_names.len());
         for sym_name in &branch_sym_names {
-            let addr = parse_sub_hex_as_addr(sym_name).unwrap_or(0);
+            let synth_addr = parse_sub_hex_as_addr(sym_name).unwrap_or(0);
             let classification = symbol_table::get()
-                .and_then(|t| t.lookup(addr))
+                .and_then(|t| t.lookup_by_synth(synth_addr))
                 .map(|e| e.classification);
             eprintln!(
-                "[azul-web]   intercept: {} → addr=0x{:016x} class={:?}",
-                sym_name, addr, classification,
+                "[azul-web]   intercept: {} → synth=0x{:x} class={:?}",
+                sym_name, synth_addr, classification,
             );
             resolved_branches.push(ResolvedBranchExtern {
                 sym_name: sym_name.clone(),
@@ -1032,25 +1040,30 @@ impl RemillTranspiler {
         // here it's the same input/output shape as the subprocess
         // path — bytes in, bytes out.
         //
-        // Initial memory: 16 MiB. Sized for the user-facing flow,
-        // not for hosting lifted-ARM64 code's post-ASLR runtime
-        // addresses. The bump allocator base in helper IR is 1 MiB.
+        // Initial memory: 128 MiB. Sized to absorb the
+        // synthetic-address bands assigned by
+        // `SymbolTable::assign_synthetic_addresses`:
         //
-        // NOTE: lifted code's `adrp + ldr` reads bake the
-        // post-ASLR runtime address as a constant. For loads
-        // into libazul's `__const` (truncated to ~200+ MiB on
-        // typical macOS slides) the result is OOB and the cb
-        // traps. Earlier M9-3b iterations bumped this to 1 GiB
-        // to absorb those loads but the underlying issue is the
-        // lift, not the memory size. The proper fix is either
-        // (a) pass a small synthetic `--address` to remill-lift
-        // so the lifted IR uses wasm-friendly offsets, or
-        // (b) post-IR rewrite of `i64.const <high>` constants
-        // that feed `inttoptr` to use a known low offset. Both
-        // are in the next-session work list; 16 MiB keeps the
-        // working flows (on_click counter + minimal layout)
-        // sane while that lands.
-        let initial_memory_bytes: u32 = 16 * 1024 * 1024;
+        //     [0          .. 64 KiB)   wasm stack zone (per-wasm
+        //                              slot via `relocate_stack_*`)
+        //     [64 KiB     .. ~1 MiB)   user-binary image band
+        //     [~1 MiB     .. ~81 MiB)  libazul.dylib image band
+        //                              (its __TEXT + __DATA span)
+        //     [96 MiB     .. 128 MiB)  bump-heap zone (~32 MiB)
+        //
+        // libazul spans ~80 MiB at the synth level (text + cstring
+        // + const + DATA combined). 128 MiB fits everything with
+        // a 32 MiB heap headroom. JS can grow further at runtime
+        // via `memory.grow` if a cb's bump-alloc demand exceeds
+        // that.
+        //
+        // Earlier 1 GiB / 3 GiB experiments were workarounds for
+        // the pre-synth lift baking 200+ MiB runtime addresses as
+        // constants — see `M9_REVIEW_AND_OPTION_A.md`. The synth
+        // scheme makes those addresses predictably small so
+        // memory can shrink back to the order-of-magnitude that
+        // actually reflects the image sizes involved.
+        let initial_memory_bytes: u32 = 128 * 1024 * 1024;
         let import_memory = matches!(memory_mode, MemoryMode::ImportMemory);
         // import_table mirrors the subprocess `--import-table` flag —
         // funcref table is JS-owned (sized + populated with per-cb
@@ -1248,9 +1261,15 @@ impl RemillTranspiler {
                 });
             }
 
-            // lift_addr = native addr so caller/callee sub_<hex>
-            // symbols align without rewriting.
-            let lift_addr = addr as u64;
+            // M9-review: pass the per-image synthetic address as
+            // `--address=` so the lifted IR's `adrp+ldr` page targets
+            // land in wasm-friendly low offsets. Symbol resolution
+            // continues to work because per-image distances are
+            // preserved in synthetic space.
+            let lift_addr = symbol_table::get()
+                .and_then(|t| t.lookup(addr))
+                .map(|e| e.synthetic_addr as u64)
+                .unwrap_or(addr as u64);
 
             // M8.8 perf: check the per-(addr, export_as) cache before
             // running the (expensive) remill+opt+llc+llvm-link
@@ -1320,16 +1339,21 @@ impl RemillTranspiler {
                 None => lifted_ir.clone(),
             };
             for sym in parse_extern_sub_declares(&rewritten_for_walk) {
-                let Some(canonical_addr) = parse_sub_hex_as_addr(&sym) else {
+                let Some(canonical_synth) = parse_sub_hex_as_addr(&sym) else {
                     eprintln!("[azul-web]     dep: {} (canonical hex parse failed)", sym);
                     continue;
                 };
-                let entry = match symbol_table::get().and_then(|t| t.lookup(canonical_addr)) {
+                // M9-review: post-rewrite IR uses synth addrs. Look up
+                // by synth, then queue the dep's NATIVE canonical_addr
+                // for the lift loop (the lift itself rebases).
+                let entry = match symbol_table::get()
+                    .and_then(|t| t.lookup_by_synth(canonical_synth))
+                {
                     Some(e) => e.clone(),
                     None => {
                         eprintln!(
-                            "[azul-web]     dep: {} addr=0x{:016x} not in SymbolTable — skipping",
-                            sym, canonical_addr,
+                            "[azul-web]     dep: {} synth=0x{:x} not in SymbolTable — skipping",
+                            sym, canonical_synth,
                         );
                         continue;
                     }
@@ -1541,10 +1565,20 @@ impl RemillTranspiler {
                     }
                 })
                 .collect();
+            // M9-review: lift with synthetic addresses so the IR's
+            // `adrp+ldr` page targets land in wasm-friendly low
+            // offsets. Native `t.addr` is now used only as the
+            // identity key for caching + symbol resolution.
+            let synth_of = |native_addr: usize| -> u64 {
+                symbol_table::get()
+                    .and_then(|t| t.lookup(native_addr))
+                    .map(|e| e.synthetic_addr as u64)
+                    .unwrap_or(native_addr as u64)
+            };
             let items: Vec<(u64, &[u8])> = to_lift_idx
                 .iter()
                 .zip(bytes_vec.iter())
-                .map(|(&i, b)| (targets[i].addr as u64, b.as_slice()))
+                .map(|(&i, b)| (synth_of(targets[i].addr), b.as_slice()))
                 .collect();
             let t0 = std::time::Instant::now();
             let per_fn_irs = super::native_remill::lift_batch(
@@ -1563,7 +1597,7 @@ impl RemillTranspiler {
             );
             for (&i, lifted_ir) in to_lift_idx.iter().zip(per_fn_irs.iter()) {
                 let t = &targets[i];
-                let lift_addr = t.addr as u64;
+                let lift_addr = synth_of(t.addr);
                 let obj = self.produce_object_from_lifted_ir(
                     &t.name, t.addr, lift_addr, &t.sig, &t.export_as, lifted_ir,
                 )?;
@@ -1712,16 +1746,17 @@ fn relocate_stack_if_non_mini(wasm: &mut Vec<u8>, memory_mode: MemoryMode, outpu
 /// will see zero bytes (the wasm linear memory's default).
 #[cfg(feature = "web-transpiler")]
 fn inject_user_binary_data_segments(wasm: &mut Vec<u8>) {
-    // Bound: limit at ~900 KiB (just below the 1 MiB bump-heap
-    // base in `emit_helper_ir`). Only sections whose truncated
-    // runtime address falls below the bump heap get mirrored;
-    // anything past 1 MiB would collide with the heap. For
-    // typical macOS ASLR slides this means: zero matches in
-    // most runs (user-binary slide is multi-MiB), and that's
-    // OK — the data-segment-mirror is a partial workaround,
-    // not the primary fix.
-    let limit: u32 = 900 * 1024;
-    let segments = super::symbol_table::SymbolTable::enumerate_low32_data_for_wasm(limit);
+    // M9-review: with the synthetic-addr lift scheme, every image's
+    // data sections live at predictable synthetic offsets. Walk the
+    // SymbolTable's per-image rebase records + mirror each image's
+    // data segments at the corresponding synth offsets. The lifted
+    // adrp+ldr targets in cb/layout wasms read from these offsets
+    // directly.
+    let table = match super::symbol_table::get() {
+        Some(t) => t,
+        None => return,
+    };
+    let segments = collect_synth_data_segments(table);
     if segments.is_empty() {
         return;
     }
@@ -1730,19 +1765,134 @@ fn inject_user_binary_data_segments(wasm: &mut Vec<u8>) {
     match patch_wasm_add_data_segments(wasm, &segments) {
         Ok(added) => {
             eprintln!(
-                "[azul-web] M9-3b: injected {} user-binary data segments \
-                 ({} bytes total) into mini.wasm ({} → {} bytes)",
+                "[azul-web] M9-review: injected {} data segments \
+                 ({} bytes total) at synth offsets into mini.wasm \
+                 ({} → {} bytes)",
                 added, total_bytes, pre_len, wasm.len(),
             );
         }
         Err(e) => {
             eprintln!(
-                "[azul-web] M9-3b: failed to inject data segments ({} bytes): {} — \
-                 lifted const-string reads will see zero bytes",
+                "[azul-web] M9-review: failed to inject data segments \
+                 ({} bytes): {} — lifted const reads will see zero bytes",
                 total_bytes, e,
             );
         }
     }
+}
+
+/// M9-review: walk per-image rebases + collect mirrored data
+/// sections at their SYNTHETIC offsets (synth_base + section
+/// file-vmaddr offset within the image).
+#[cfg(feature = "web-transpiler")]
+fn collect_synth_data_segments(
+    table: &super::symbol_table::SymbolTable,
+) -> Vec<(u32, Vec<u8>)> {
+    let mut out: Vec<(u32, Vec<u8>)> = Vec::new();
+    // Per-section size cap (skip pathologically large sections;
+    // mini.wasm bloat scales linearly with mirrored bytes).
+    const PER_SECTION_LIMIT: usize = 32 * 1024 * 1024;
+    // Synth-offset upper bound: just below the bump-heap base in
+    // `emit_helper_ir`'s @__az_bump_ptr init (96 MiB). Sections
+    // landing past this would overlap with the heap.
+    const SYNTH_OFFSET_LIMIT: u64 = 96 * 1024 * 1024;
+    for rebase in table.image_rebases() {
+        // Re-derive each image's data sections by re-parsing its
+        // bytes. The on-disk Vec<u8> stays alive in SymbolTable's
+        // `image_bytes` for this purpose.
+        let path = std::path::Path::new(&rebase.path);
+        let bytes = match std::fs::read(path) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+        let parsed = match goblin::Object::parse(&bytes) {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        // Section enumeration delegated to the helper that already
+        // knows the per-format quirks; just IGNORE its truncated-
+        // offset filter (we use our own synth-aware filter below).
+        let sections: Vec<(u64, u64)> = match parsed {
+            goblin::Object::Mach(goblin::mach::Mach::Binary(macho)) => {
+                super::symbol_table::collect_macho_low32_sections(
+                    &macho, &bytes, /*slide=*/ 0, u32::MAX,
+                )
+            }
+            goblin::Object::Mach(goblin::mach::Mach::Fat(fat)) => {
+                match super::symbol_table::pick_fat_slice(&fat, &bytes) {
+                    Ok(Some(macho)) => super::symbol_table::collect_macho_low32_sections(
+                        &macho, &bytes, 0, u32::MAX,
+                    ),
+                    _ => Vec::new(),
+                }
+            }
+            goblin::Object::Elf(elf) => super::symbol_table::collect_elf_low32_sections(
+                &elf, &bytes, 0, u32::MAX,
+            ),
+            _ => Vec::new(),
+        };
+        // Map file_vmaddr → synth offset.
+        // image_native_text_base = rebase.native_base (the lowest non-PAGEZERO
+        // segment's vmaddr+slide). For Mach-O executables that's typically
+        // 0x100000000+slide; for dylibs typically slide.
+        // The image's file_vmaddr is `section_addr` (as collect_* returns).
+        // file_offset_within_image = section_addr - (native_base - slide)
+        // synth_offset = rebase.synth_base + file_offset_within_image
+        //
+        // We don't have the slide here, but rebase.native_base = file_native_min + slide.
+        // file_native_min was computed in `assign_synthetic_addresses` from the
+        // image's non-PAGEZERO segments.
+        for (section_file_vmaddr, section_size) in sections {
+            if section_size == 0 || section_size as usize > PER_SECTION_LIMIT {
+                continue;
+            }
+            // section's live address = file_vmaddr + slide
+            //                       = file_vmaddr + (native_base - file_native_min)
+            // But we don't store file_native_min. Workaround: assume the
+            // rebase's native_base IS the runtime address corresponding to
+            // file_vmaddr 0 (for dylibs) or the first non-PAGEZERO segment
+            // (for execs). For Mach-O execs the first non-PAGEZERO segment
+            // starts at file_vmaddr 0x100000000; for dylibs it's 0.
+            // Determine by checking if any rebase has a section starting
+            // close to 0 (dylib) vs 0x100000000 (exec).
+            //
+            // Pragmatic fix: just use file_vmaddr directly modulo the image's
+            // address-of-text. Since `assign_synthetic_addresses` set
+            // rebase.synth_base such that `synth_addr = synth_base + (canonical_addr - native_base)`,
+            // and `canonical_addr = file_vmaddr + slide`, we have
+            // `synth_offset = synth_base + (file_vmaddr + slide - native_base)`.
+            // `slide - native_base = -file_native_min`, so
+            // `synth_offset = synth_base + (file_vmaddr - file_native_min)`.
+            //
+            // We don't directly track file_native_min on the rebase, but
+            // it's `image_native_base - slide`. Without the slide, fall
+            // back to using `section_file_vmaddr` modulo a heuristic
+            // image-base detection: for Mach-O execs, mask away the
+            // 0x100000000 PAGEZERO offset.
+            let file_offset_within_image = if section_file_vmaddr >= 0x1_0000_0000 {
+                // Mach-O exec: __TEXT starts at 0x100000000
+                section_file_vmaddr - 0x1_0000_0000
+            } else {
+                section_file_vmaddr
+            };
+            let synth_offset = (rebase.synth_base as u64)
+                .wrapping_add(file_offset_within_image);
+            if synth_offset == 0 || synth_offset + section_size > SYNTH_OFFSET_LIMIT {
+                continue;
+            }
+            // The bytes live at `native_base + file_offset_within_image`
+            // (= file_vmaddr + slide once slide-correction is folded in).
+            // Equivalently: rebase.native_base + file_offset_within_image.
+            let live_addr = rebase.native_base.wrapping_add(file_offset_within_image as usize);
+            let mirrored = unsafe {
+                core::slice::from_raw_parts(live_addr as *const u8, section_size as usize).to_vec()
+            };
+            out.push((synth_offset as u32, mirrored));
+        }
+    }
+    out.sort_by_key(|(off, _)| *off);
+    out.dedup_by(|a, b| a.0 == b.0 && a.1 == b.1);
+    out
 }
 
 /// Append the given `(wasm_offset, bytes)` pairs as new active Data
@@ -2295,10 +2445,20 @@ impl Transpiler for RemillTranspiler {
                         std::slice::from_raw_parts(*addr as *const u8, *size).to_vec()
                     })
                     .collect();
+                // M9-review: lift with synthetic addresses; bl targets
+                // between mini's eventloop fns resolve via the synth
+                // chain in the same image (libazul), so distances are
+                // preserved.
+                let synth_of = |native_addr: usize| -> u64 {
+                    symbol_table::get()
+                        .and_then(|t| t.lookup(native_addr))
+                        .map(|e| e.synthetic_addr as u64)
+                        .unwrap_or(native_addr as u64)
+                };
                 let items: Vec<(u64, &[u8])> = symbols
                     .iter()
                     .zip(bytes_vec.iter())
-                    .map(|((_, addr, _), b)| (*addr as u64, b.as_slice()))
+                    .map(|((_, addr, _), b)| (synth_of(*addr), b.as_slice()))
                     .collect();
                 let t0 = std::time::Instant::now();
                 let per_fn_irs = super::native_remill::lift_batch(
@@ -2318,10 +2478,10 @@ impl Transpiler for RemillTranspiler {
                 for (((name, addr, size), sig), lifted_ir) in
                     symbols.iter().zip(sigs.iter()).zip(per_fn_irs.iter())
                 {
-                    let lift_addr = *addr as u64;
+                    let lift_addr = synth_of(*addr);
                     eprintln!(
-                        "[azul-web]   eventloop: post-lift {} addr=0x{:016x} size={}",
-                        name, addr, size,
+                        "[azul-web]   eventloop: post-lift {} addr=0x{:016x} synth=0x{:x} size={}",
+                        name, addr, lift_addr, size,
                     );
                     let obj = self.produce_object_from_lifted_ir(
                         name, *addr, lift_addr, sig, name, lifted_ir,
@@ -2332,22 +2492,16 @@ impl Transpiler for RemillTranspiler {
             }
         } else {
             for (i, ((name, addr, size), sig)) in symbols.iter().zip(sigs.iter()).enumerate() {
-                // CRITICAL: lift_addr MUST equal the native addr so
-                // inter-fn `bl` targets align. AzStartup_hydrate doing
-                // `bl AzStartup_alloc` lifts to `call sub_<native_addr_of_alloc>`;
-                // if alloc's body is at `sub_<some_synthetic>` the linker
-                // can't connect them — the helper IR emits a noop stub
-                // and the cross-fn call silently does nothing. Aligning
-                // lift_addr with native_addr means alloc's body is
-                // emitted as `sub_<native_addr_of_alloc>`, matching
-                // every bl target from any other lifted eventloop fn.
-                //
-                // (Same mechanism as `lift_with_transitive_deps` for
-                // per-cb / per-layout wasms.)
-                let lift_addr = *addr as u64;
+                // M9-review: pass synthetic_addr as lift_addr. Intra-
+                // image bl targets resolve via the synth chain so
+                // distances are preserved.
+                let lift_addr = symbol_table::get()
+                    .and_then(|t| t.lookup(*addr))
+                    .map(|e| e.synthetic_addr as u64)
+                    .unwrap_or(*addr as u64);
                 eprintln!(
-                    "[azul-web]   eventloop[{i}]: lifting {} addr=0x{:016x} size={} lift_addr=0x{:x}",
-                    name, addr, size, lift_addr,
+                    "[azul-web]   eventloop[{i}]: lifting {} addr=0x{:016x} synth=0x{:x} size={}",
+                    name, addr, lift_addr, size,
                 );
                 let obj = self.produce_object_for(name, *addr, *size, sig, name, lift_addr)?;
                 object_paths.push(obj);
@@ -3053,12 +3207,13 @@ fn emit_helper_ir(
     // module declares initial memory ≥16 pages (1 MiB) via the
     // `--initial-memory=1048576` flag in link_objects_to_wasm so the
     // first AzStartup_alloc call is in-bounds without a manual grow.
-    // Bump base: 1 MiB. Heap starts above the stack relocator
-    // zone (max ~512 KiB) but below the bulk of wasm memory.
-    // For lifted-ARM64 paths the heap can hit OOB on the first
-    // big alloc; see the parallel comment in link_objects_to_wasm
-    // for the lift-time fix this needs.
-    let bump_global = "@__az_bump_ptr = linkonce_odr global i32 1048576, align 4\n\
+    // Bump base: 96 MiB. With the synth-addr scheme, every image's
+    // text+data sits below this in its assigned band (see
+    // `SymbolTable::assign_synthetic_addresses` + the comment in
+    // `link_objects_to_wasm`). The heap [96..128 MiB] absorbs
+    // ~32 MiB of bump-allocated short-lived data per request;
+    // memory.grow extends it at runtime if needed.
+    let bump_global = "@__az_bump_ptr = linkonce_odr global i32 100663296, align 4\n\
         @__az_call_observer = linkonce_odr global i32 0, align 4\n\
         declare i32 @__az_resolve_callback(i64) #1\n";
     let _ = export_as; // used inside the format string via the named arg below
@@ -3436,9 +3591,16 @@ fn parse_sub_hex_as_addr(sym_name: &str) -> Option<usize> {
 fn rewrite_sub_names_to_canonical(
     ir: &str,
     table: &symbol_table::SymbolTable,
-    fn_addr: usize,
-    lift_addr: u64,
+    _fn_addr: usize,
+    _lift_addr: u64,
 ) -> String {
+    // M9-review: `lift_addr` is now `entry.synthetic_addr` (passed
+    // to remill via `--address=`), so the IR's `sub_<hex>` values
+    // are already in synthetic-address space. No more lift→host
+    // arithmetic — just chase the synth chain to canonical synth
+    // and emit the canonical hex. The fn_addr / lift_addr params
+    // are kept in the signature for back-compat with call sites
+    // but no longer used.
     let mut out = String::with_capacity(ir.len() + 128);
     let bytes = ir.as_bytes();
     let mut cursor = 0;
@@ -3472,15 +3634,13 @@ fn rewrite_sub_names_to_canonical(
             }
         }
         let hex = &ir[hex_start..hex_end];
-        match u64::from_str_radix(hex, 16) {
-            Ok(raw) => {
-                // Map lift-space hex → host addr.
-                let offset = raw.wrapping_sub(lift_addr) as i64 as isize;
-                let host_addr = (fn_addr as isize).wrapping_add(offset) as usize;
-                let canonical_addr = table
-                    .canonical_addr_for(host_addr)
-                    .unwrap_or(host_addr);
-                out.push_str(&format!("@sub_{:x}", canonical_addr));
+        match usize::from_str_radix(hex, 16) {
+            Ok(raw_synth) => {
+                // Synth-space stub chain follow.
+                let canonical_synth = table
+                    .resolve_synth(raw_synth)
+                    .unwrap_or(raw_synth);
+                out.push_str(&format!("@sub_{:x}", canonical_synth));
             }
             Err(_) => {
                 // Hex didn't parse — leave the original token intact.

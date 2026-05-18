@@ -79,7 +79,19 @@ pub fn render_initial_page(
     // AZ_REFLECT_JSON macro hashed at compile time; `json` is the
     // user's toJson(refany) serialization (the same one validate()
     // checks at startup).
-    let hydrate_type_id = app_data.get_type_id();
+    //
+    // M9-review: convert `type_id` from native to synthetic space.
+    // The C-side `_MyDataModel_RttiTypeId = (uint64_t)&_RttiTypePtrId`
+    // captures the NATIVE address of `_RttiTypePtrId`. The cb's
+    // lifted `adrp + add` computes the SAME identifier via
+    // synth_base + file_offset → a SYNTH address. For `isType` to
+    // succeed, both sides need the same value; we translate the
+    // server's natively-captured type_id into synth space here.
+    let native_type_id = app_data.get_type_id();
+    let hydrate_type_id = super::symbol_table::get()
+        .and_then(|t| t.native_to_synth(native_type_id as usize))
+        .map(|s| s as u64)
+        .unwrap_or(native_type_id);
     let hydrate_json: String = match azul_layout::json::refany_serialize_to_json(app_data) {
         azul_core::json::OptionJson::Some(j) => format!("{}", j),
         azul_core::json::OptionJson::None => String::from("null"),

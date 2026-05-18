@@ -158,6 +158,28 @@ pub struct SymbolEntry {
     pub canonical_name: String,
     /// Real entry-point address in this process, post-PLT-chase.
     pub canonical_addr: usize,
+    /// Per-image-rebased address chosen so wasm `i32.const`
+    /// truncations of lifted `adrp+ldr` targets land inside a small,
+    /// predictable region of wasm linear memory.
+    ///
+    /// Computed as `image_synth_base + (canonical_addr - image_native_min)`.
+    /// PC-relative distances within an image are preserved (so intra-
+    /// image `bl`/`adrp` lifts at `--address=synthetic_addr` produce
+    /// correct cross-call / cross-page targets without IR rewriting).
+    ///
+    /// **Why it exists (M9-review fix, 2026-05-18)**: passing the
+    /// post-ASLR runtime `canonical_addr` to `remill-lift --address=…`
+    /// bakes that high value as the PC for every lifted instruction.
+    /// ARM64 `adrp x<n>, …` lifts to `(PC & ~0xFFF) | (imm << 12)`,
+    /// which truncates to ~200 MiB on typical macOS dyld slides —
+    /// past wasm's 16 MiB initial memory. Switching the lifter to
+    /// `--address=synthetic_addr` lands every `adrp` in a small,
+    /// pre-arranged band of wasm memory where the data mirror puts
+    /// the right bytes.
+    ///
+    /// Defaults to `canonical_addr` if [`SymbolTable::assign_synthetic_addresses`]
+    /// hasn't run; treat the two as equal in that case.
+    pub synthetic_addr: usize,
     /// Exact size in bytes from `(next_symbol_addr - this_symbol_addr)`
     /// within the same section. Conservative overshoot when this is
     /// the last symbol in its section (size goes up to section end).
@@ -185,6 +207,15 @@ pub struct SymbolTable {
     /// non-stub addresses, so `resolve(addr)` can chase
     /// unconditionally.
     chain: HashMap<usize, usize>,
+    /// Per-image rebasing record. One entry per loaded image that
+    /// contributed symbols. Drives [`assign_synthetic_addresses`]
+    /// + the `inject_user_binary_data_segments` pass in
+    /// `transpiler_remill.rs`.
+    image_rebases: Vec<ImageRebase>,
+    /// `stub_addr_synth → canonical_addr_synth`. Parallel to `chain`
+    /// but keyed by synthetic addresses. Populated by
+    /// [`assign_synthetic_addresses`].
+    synth_chain: HashMap<usize, usize>,
     /// Image bytes kept alive so the `&'static [u8]` slices inside
     /// `bytes` fields don't dangle. Each entry is the file-bytes
     /// `Vec<u8>` of one loaded image. We don't actually point into
@@ -193,6 +224,27 @@ pub struct SymbolTable {
     /// the table grows extension points.
     #[allow(dead_code)]
     image_bytes: Vec<Vec<u8>>,
+}
+
+/// Per-image rebasing record. Tracks the native↔synthetic mapping
+/// so the lifter can rebase `--address` + the data-section mirror
+/// can compute synthetic destination offsets.
+#[derive(Debug, Clone)]
+pub struct ImageRebase {
+    /// Image's runtime base (lowest live address across all
+    /// non-PAGEZERO segments — typically the __TEXT segment's
+    /// `vmaddr + slide`).
+    pub native_base: usize,
+    /// One past the image's highest live address. Used to bound
+    /// the rebased synthetic range.
+    pub native_end: usize,
+    /// Per-image synthetic base; `synthetic_addr = synth_base +
+    /// (canonical_addr - native_base)`. Chosen by
+    /// [`SymbolTable::assign_synthetic_addresses`] in monotonic
+    /// order so images don't collide.
+    pub synth_base: usize,
+    /// Display path of the image (for diagnostics).
+    pub path: String,
 }
 
 /// Error type for `SymbolTable::build_from_loaded_image`. The `stage`
@@ -448,12 +500,215 @@ impl SymbolTable {
             chain.entry(addr).or_insert(addr);
         }
 
-        Ok(SymbolTable {
+        let mut table = SymbolTable {
             by_addr,
             by_name,
             chain,
+            image_rebases: Vec::new(),
+            synth_chain: HashMap::new(),
             image_bytes,
-        })
+        };
+
+        // M9-review: assign per-image synthetic bases so lifted code
+        // uses wasm-friendly addresses for `adrp+ldr` page targets.
+        // See `M9_REVIEW_AND_OPTION_A.md` for the rationale.
+        table.assign_synthetic_addresses();
+
+        Ok(table)
+    }
+
+    /// M9-review (2026-05-18): walk every loaded image, group
+    /// `SymbolEntry`s by their `canonical_addr`'s containing image,
+    /// assign each image a unique `synth_base` in monotonically
+    /// increasing order, then fill in `entry.synthetic_addr` =
+    /// `synth_base + (canonical_addr - image_native_min)`.
+    ///
+    /// **Layout** (current scheme; subject to tuning):
+    ///
+    /// ```text
+    /// synth offset │ what lives here
+    /// ─────────────┼─────────────────────────────────────────
+    /// 0x0    .. 0x10000  reserved (cb wrapper stacks land here via
+    ///                    `relocate_stack_if_non_mini` post-link patch)
+    /// 0x10000+          image 0 (typically user binary, ~64 KiB)
+    /// 0x100000+         image 1 (libazul.dylib, ~80 MiB)
+    /// (further bases assigned as 1 MiB above the previous image's end)
+    /// ```
+    ///
+    /// PC-relative distances within an image are preserved
+    /// (`synth_B - synth_A == canonical_B - canonical_A` for any
+    /// two symbols in the same image), so intra-image `bl` and
+    /// `adrp` lifts at `--address=synthetic_addr` produce correct
+    /// cross-call / cross-page targets without IR rewriting.
+    fn assign_synthetic_addresses(&mut self) {
+        // Pass 1: derive per-image native min/max by re-parsing the
+        // image bytes via goblin.
+        let mut rebases: Vec<ImageRebase> = Vec::new();
+        let images = enumerate_loaded_images().unwrap_or_default();
+        for img in &images {
+            if img.bytes.is_empty() {
+                continue;
+            }
+            let parsed = match goblin::Object::parse(&img.bytes) {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+            let (native_min_off, native_max_off) = match parsed {
+                goblin::Object::Mach(goblin::mach::Mach::Binary(macho)) => {
+                    macho_image_text_data_range(&macho, &img.bytes)
+                }
+                goblin::Object::Mach(goblin::mach::Mach::Fat(fat)) => {
+                    match pick_fat_slice(&fat, &img.bytes) {
+                        Ok(Some(macho)) => macho_image_text_data_range(&macho, &img.bytes),
+                        _ => (0, 0),
+                    }
+                }
+                goblin::Object::Elf(elf) => {
+                    elf_image_text_data_range(&elf, &img.bytes)
+                }
+                _ => (0, 0),
+            };
+            if native_min_off == 0 && native_max_off == 0 {
+                continue;
+            }
+            let native_base = native_min_off.wrapping_add(img.slide);
+            let native_end = native_max_off.wrapping_add(img.slide);
+            rebases.push(ImageRebase {
+                native_base,
+                native_end,
+                synth_base: 0, // filled below
+                path: img.path.display().to_string(),
+            });
+        }
+
+        // Pass 2: sort by native_base + assign synthetic bases in
+        // ascending order with 1 MiB rounding so different images
+        // sit in separate megabyte-aligned bands.
+        rebases.sort_by_key(|r| r.native_base);
+        const FIRST_SYNTH_BASE: usize = 0x10000;   // 64 KiB
+        const SYNTH_ALIGN: usize = 0x10_0000;       // 1 MiB
+        let mut next_synth = FIRST_SYNTH_BASE;
+        for r in &mut rebases {
+            r.synth_base = next_synth;
+            let span = r.native_end.saturating_sub(r.native_base);
+            // Round up to next 1 MiB boundary so the NEXT image's
+            // base aligns cleanly.
+            let aligned_span = (span + (SYNTH_ALIGN - 1)) & !(SYNTH_ALIGN - 1);
+            next_synth = next_synth.saturating_add(aligned_span.max(SYNTH_ALIGN));
+        }
+
+        // Pass 3: walk all entries and assign each its synthetic_addr
+        // based on which image's native range contains the entry's
+        // BY_ADDR KEY (= the entry's actual location in memory),
+        // NOT its `canonical_addr`. PLT stubs live in the calling
+        // image with `canonical_addr` pointing at the chase target
+        // in a different image — using `canonical_addr` would assign
+        // them the chase-target's synth, which mismatches what the
+        // calling image's lifted `bl` produces.
+        //
+        // Symbols not falling in any tracked image (e.g. dynamically
+        // resolved addresses) keep synthetic_addr = canonical_addr.
+        for (native_loc, entry) in self.by_addr.iter_mut() {
+            for r in &rebases {
+                if *native_loc >= r.native_base && *native_loc < r.native_end {
+                    entry.synthetic_addr =
+                        r.synth_base.wrapping_add(*native_loc - r.native_base);
+                    break;
+                }
+            }
+        }
+
+        // Pass 4: build the synth-keyed chain mirroring `chain`.
+        let synth_of = |addr: usize| -> usize {
+            self.by_addr
+                .get(&addr)
+                .map(|e| e.synthetic_addr)
+                .unwrap_or(addr)
+        };
+        let synth_chain: HashMap<usize, usize> = self
+            .chain
+            .iter()
+            .map(|(stub_native, canon_native)| {
+                (synth_of(*stub_native), synth_of(*canon_native))
+            })
+            .collect();
+
+        eprintln!(
+            "[symbol_table] M9-review: assigned synthetic addresses for {} images, \
+             {} symbols rebased (total span {} MiB)",
+            rebases.len(),
+            self.by_addr.len(),
+            next_synth / (1024 * 1024),
+        );
+        for r in &rebases {
+            let span_mib = (r.native_end - r.native_base) / (1024 * 1024);
+            eprintln!(
+                "[symbol_table]   {} → synth_base=0x{:x}, native=[0x{:x}..0x{:x}] (~{} MiB)",
+                r.path, r.synth_base, r.native_base, r.native_end, span_mib,
+            );
+        }
+
+        self.image_rebases = rebases;
+        self.synth_chain = synth_chain;
+    }
+
+    /// M9-review: read accessor for the per-image rebase records.
+    /// Used by `transpiler_remill::inject_user_binary_data_segments`
+    /// to compute synthetic offsets for mirrored data segments.
+    pub fn image_rebases(&self) -> &[ImageRebase] {
+        &self.image_rebases
+    }
+
+    /// M9-review: synthetic-space stub-chain follow. Mirrors
+    /// [`resolve`] but operates on synthetic addresses. Used when
+    /// rewriting `sub_<synth_hex>` symbols in lifted IR.
+    pub fn resolve_synth(&self, synth_addr: usize) -> Option<usize> {
+        let mut cur = synth_addr;
+        for _ in 0..4 {
+            let next = *self.synth_chain.get(&cur).unwrap_or(&cur);
+            if next == cur {
+                break;
+            }
+            cur = next;
+        }
+        Some(cur)
+    }
+
+    /// M9-review: look up an entry by its `synthetic_addr` (since
+    /// `by_addr` is keyed by `canonical_addr`). Linear scan; O(n)
+    /// but only called by helper-IR emission per branch extern, not
+    /// on a hot path.
+    pub fn lookup_by_synth(&self, synth_addr: usize) -> Option<&SymbolEntry> {
+        self.by_addr
+            .values()
+            .find(|e| e.synthetic_addr == synth_addr)
+    }
+
+    /// M9-review: generic native-address → synthetic-offset
+    /// translation for ANY address, not just symbol entries. Walks
+    /// [`image_rebases`] and applies the per-image formula
+    /// `synth = synth_base + (native - native_base)` when `native`
+    /// falls inside a tracked image's `[native_base..native_end)`
+    /// range.
+    ///
+    /// Returns `None` for addresses outside every tracked image;
+    /// the caller decides whether to fall back to the input
+    /// address or treat as an error.
+    ///
+    /// Used SERVER-SIDE to translate data-symbol values that get
+    /// captured natively (e.g. `_MyDataModel_RttiTypeId` which
+    /// contains the native pointer of `_MyDataModel_RttiTypePtrId`)
+    /// into the synth space lifted callbacks operate in. The cb's
+    /// lifted `adrp + add x1, x1, #offset` produces a synth
+    /// address; the JS-supplied identifier (captured natively)
+    /// must be the SAME synth address for `isType` to succeed.
+    pub fn native_to_synth(&self, native_addr: usize) -> Option<usize> {
+        for r in &self.image_rebases {
+            if native_addr >= r.native_base && native_addr < r.native_end {
+                return Some(r.synth_base.wrapping_add(native_addr - r.native_base));
+            }
+        }
+        None
     }
 }
 
@@ -609,7 +864,7 @@ fn is_system_image(path: &std::path::Path) -> bool {
 
 // ── Mach-O ingestion ────────────────────────────────────────────────
 
-fn pick_fat_slice<'a>(
+pub(crate) fn pick_fat_slice<'a>(
     fat: &goblin::mach::MultiArch<'a>,
     _all_bytes: &[u8],
 ) -> Result<Option<goblin::mach::MachO<'a>>, BuildError> {
@@ -772,6 +1027,7 @@ fn ingest_macho(
         let entry = SymbolEntry {
             canonical_name: canonical_name.clone(),
             canonical_addr: live_addr,
+            synthetic_addr: live_addr,  // assigned in pass 2
             size,
             bytes,
             kind: SymKind::Function,
@@ -1026,6 +1282,11 @@ fn ingest_macho_stubs(
                 } else {
                     stub_live_addr
                 },
+                synthetic_addr: if target_addr != 0 {
+                    target_addr
+                } else {
+                    stub_live_addr
+                },  // assigned in pass 2
                 size: stub_size,
                 bytes: stub_bytes,
                 kind: SymKind::Stub {
@@ -1045,6 +1306,7 @@ fn ingest_macho_stubs(
             let placeholder = SymbolEntry {
                 canonical_name: canonical_name.clone(),
                 canonical_addr: target_addr,
+                synthetic_addr: target_addr,  // assigned in pass 2
                 size: 0,
                 bytes: None,
                 kind: SymKind::Function,
@@ -1225,6 +1487,7 @@ fn ingest_elf(
         by_addr.entry(live_addr).or_insert(SymbolEntry {
             canonical_name: name.clone(),
             canonical_addr: live_addr,
+            synthetic_addr: live_addr,  // assigned in pass 2
             size,
             bytes,
             kind: SymKind::Function,
@@ -1415,6 +1678,64 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     FnClass::Recursable
 }
 
+/// M9-review helper: derive a Mach-O image's contributing-segment
+/// `(native_min, native_max)` file-vmaddr range. Used by
+/// [`SymbolTable::assign_synthetic_addresses`] to bound each image's
+/// rebasing band. Skips `__PAGEZERO` (which is the 4 GiB null-deref
+/// hole at the start of executables).
+fn macho_image_text_data_range(
+    macho: &goblin::mach::MachO<'_>,
+    _file_bytes: &[u8],
+) -> (usize, usize) {
+    use goblin::mach::load_command::CommandVariant;
+    let mut min: u64 = u64::MAX;
+    let mut max: u64 = 0;
+    for lc in &macho.load_commands {
+        if let CommandVariant::Segment64(seg64) = &lc.command {
+            let segname = trim_macho_name(&seg64.segname);
+            if segname == "__PAGEZERO" {
+                continue;
+            }
+            let start = seg64.vmaddr;
+            let end = start.saturating_add(seg64.vmsize);
+            if end > start {
+                if start < min { min = start; }
+                if end > max { max = end; }
+            }
+        }
+    }
+    if min == u64::MAX {
+        (0, 0)
+    } else {
+        (min as usize, max as usize)
+    }
+}
+
+/// M9-review helper: ELF sibling of [`macho_image_text_data_range`].
+/// Walks PT_LOAD program headers + reports the union of their virtual
+/// address ranges.
+fn elf_image_text_data_range(
+    elf: &goblin::elf::Elf<'_>,
+    _file_bytes: &[u8],
+) -> (usize, usize) {
+    let mut min: u64 = u64::MAX;
+    let mut max: u64 = 0;
+    for ph in &elf.program_headers {
+        if ph.p_type != goblin::elf::program_header::PT_LOAD || ph.p_memsz == 0 {
+            continue;
+        }
+        let start = ph.p_vaddr;
+        let end = start.saturating_add(ph.p_memsz);
+        if start < min { min = start; }
+        if end > max { max = end; }
+    }
+    if min == u64::MAX {
+        (0, 0)
+    } else {
+        (min as usize, max as usize)
+    }
+}
+
 /// M9-3b helper: enumerate Mach-O sections whose file-vmaddr + slide
 /// + size falls within `wasm_offset_limit` once truncated to 32 bits.
 /// Returns `(file_vmaddr, size)` pairs — the caller adds `slide` and
@@ -1424,7 +1745,7 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
 /// `__DATA.__const`. Each is data the user-binary's lifted code may
 /// read via `adrp + ldr/add` (string literals, const tables, fixed
 /// initializers).
-fn collect_macho_low32_sections(
+pub(crate) fn collect_macho_low32_sections(
     macho: &goblin::mach::MachO<'_>,
     file_bytes: &[u8],
     slide: usize,
@@ -1475,7 +1796,7 @@ fn collect_macho_low32_sections(
 /// Targets `.rodata`, `.data`, `.data.rel.ro`. Same filter rule:
 /// only sections whose runtime address truncated to 32 bits fits in
 /// `wasm_offset_limit`.
-fn collect_elf_low32_sections(
+pub(crate) fn collect_elf_low32_sections(
     elf: &goblin::elf::Elf<'_>,
     file_bytes: &[u8],
     slide: usize,
