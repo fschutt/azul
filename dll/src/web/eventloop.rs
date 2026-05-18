@@ -381,6 +381,53 @@ pub unsafe extern "C" fn AzStartup_registerStateDeserializer(
 }
 
 // =====================================================================
+// M9-2 Layout-callback support
+// =====================================================================
+
+/// Build a wasm-side `LayoutCallbackInfo` blob suitable for passing to
+/// a lifted layout callback's wrapper.
+///
+/// Returns the wasm linear-memory offset of the blob, or `0` on alloc
+/// failure. The returned pointer is the 3rd argument to the layout cb
+/// (the `*const LayoutCallbackInfo` placed in X2 by the wrapper); the
+/// 4th argument is a separate caller-allocated destination buffer for
+/// the returned `AzDom` (see M9-1 wrapper, `Pcs::HiddenPtrReturn`).
+///
+/// **Phase 2 scope**: returns a 512-byte bump-allocated blob that's
+/// zero-initialised by the bump allocator (the helper IR's `BumpAlloc`
+/// body emits fresh, never-reused regions inside wasm linear memory).
+/// Hello-world's layout cb doesn't read any LayoutCallbackInfo fields
+/// — it just builds a Dom tree from the user data — so the cb sees a
+/// by-value copy of an all-zero LayoutCallbackInfo and never derefs
+/// the resulting `ref_data: NULL` / `callable_ptr: NULL`.
+///
+/// **Future work** (M9-3+): cbs that DO read `info.window_size`,
+/// `info.theme`, `info.system_fonts`, etc. need real stubs written
+/// into the blob: bump-allocated empty `ImageCache` / `FcFontCache`,
+/// `Arc::new(SystemStyle::default())`, viewport size encoded into the
+/// `WindowSize` slot. The field-store approach (the same one
+/// [`AzStartup_hydrate`] uses for `RefCountInner`) avoids the lift
+/// constraint that struct-literal `sizeof::<T>()` const-pool loads
+/// don't survive transpilation.
+///
+/// `viewport_w` / `viewport_h` / `theme` are accepted in the JS-side
+/// signature so callers can already pass them and Phase 3 can fill
+/// them in without an ABI bump.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_buildLayoutInfo(
+    viewport_w: u32,
+    viewport_h: u32,
+    theme: u32,
+) -> u32 {
+    let _ = (viewport_w, viewport_h, theme);
+    // 512 bytes covers native AArch64 `sizeof(LayoutCallbackInfo)`
+    // (~64) + `sizeof(LayoutCallbackInfoRefData)` (~40) with comfortable
+    // slack — the cb's by-value struct copy at function entry reads
+    // sizeof bytes from this pointer and can't over-read the buffer.
+    AzStartup_alloc(512)
+}
+
+// =====================================================================
 // Event dispatch
 // =====================================================================
 

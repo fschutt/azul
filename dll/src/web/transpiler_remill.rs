@@ -193,6 +193,16 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
             ],
             ret: None,
         }),
+        "AzStartup_buildLayoutInfo" => Some(CallbackSignature {
+            kind: "AzStartup_buildLayoutInfo".to_string(),
+            // (viewport_w: u32, viewport_h: u32, theme: u32) -> info_ptr: u32
+            args: vec![
+                Pcs::Wreg { state_byte_offset: X0 },
+                Pcs::Wreg { state_byte_offset: X1 },
+                Pcs::Wreg { state_byte_offset: X2 },
+            ],
+            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+        }),
         _ => None,
     }
 }
@@ -2386,16 +2396,36 @@ fn emit_helper_ir(
             // runtime). Emit a noop body so the symbol resolves at
             // link time — avoids `env.sub_<hex>` imports that would
             // otherwise require JS-side Proxy noops. The body
-            // returns memory unchanged + leaves State.X0 untouched
-            // (the lift's call site reads back whatever was there
-            // before, typically junk; safe for void/error returns).
+            // returns memory unchanged + zeroes State.X0 so the
+            // caller reads back 0 as the return value.
+            //
+            // Why zero X0: leaving X0 untouched returned whatever
+            // arg the caller staged into X0 before the bl — typically
+            // a buffer pointer for libc helpers like snprintf /
+            // memmove / strlen. Downstream code interpreting that
+            // as `bytes_written` (snprintf) or `length` would memcpy
+            // a multi-megabyte garbage range → OOB trap. Zeroing X0
+            // makes the caller see "0 bytes / null result" which
+            // downstream code typically short-circuits cleanly
+            // (AzString with len=0 → empty, ptr==null → skip).
+            //
+            // Tradeoff: real Leaf functions that actually return
+            // a meaningful value get 0 instead. Callers that
+            // depend on a specific non-zero return (e.g. strlen of
+            // a literal) will misbehave but won't trap. The fix is
+            // to either classify the symbol differently (BumpAlloc /
+            // CallIndirect / etc.) or to add a dedicated stub kind.
             Some(SymFnClass::Leaf) => {
                 branch_stubs.push_str(&format!(
-                    "; Leaf body for {sym} — noop, returns memory unchanged\n\
+                    "; Leaf body for {sym} — noop with X0 zeroed (avoids garbage-return traps)\n\
                      define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) alwaysinline {{\n  \
+                       %leaf_x0_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x0_off}\n  \
+                       store i64 0, ptr %leaf_x0_p_{n}, align 8\n  \
                        ret ptr %memory\n\
                      }}\n",
                     sym = ext.sym_name,
+                    n = n_suffix,
+                    x0_off = x0_off,
                 ));
             }
             // NeverLift: AzApp_run + other server-entry-points. Should

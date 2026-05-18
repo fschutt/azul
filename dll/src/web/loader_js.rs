@@ -175,6 +175,16 @@ var azModelPtr  = 0;    // wasm offset of the user-data struct
 // these up + calls them with (azRefAnyPtr, 0, info_ptr).
 var azNodeCbFns = new Map();
 
+// M9-2: Layout-cb instance + reserved table slot. The layout cb's
+// `callback` export has the M9-1 wrapper shape
+// `(refany_lo: i64, refany_hi: i64, info_ptr: i32, out_ptr: i32) -> i32`
+// — last arg is the caller-allocated destination buffer for the
+// returned AzDom (X8 hidden-ptr return). M9-3 wires the actual
+// invocation via __az_call_indirect inside AzStartup_initLayoutCache;
+// for M9-2 we just instantiate + reserve the table slot.
+var azLayoutCb = null;
+var azLayoutCbTableIdx = -1;
+
 // =====================================================================
 // Bootstrap.
 // =====================================================================
@@ -247,6 +257,51 @@ async function azBootstrap() {
         } catch (e) {
             console.warn('[azul-web] failed to instantiate ' + url + ':', e);
         }
+    }
+
+    // 4.5. M9-2: instantiate the layout wasm. html_render.rs emits
+    //      a `<link rel="preload" href="/az/layout/<name>.<hash>.wasm">`
+    //      hint per route; we discover it the same way we found the
+    //      mini wasm. The module shares memory + table with mini via
+    //      the standard azCallbackImports() wiring. Reserve a single
+    //      table slot so M9-3 can invoke the cb via
+    //      __az_call_indirect from inside AzStartup_initLayoutCache.
+    var layoutLink = document.querySelector('link[rel="preload"][href*="/az/layout/"]');
+    if (layoutLink) {
+        var layoutUrl = layoutLink.getAttribute('href');
+        try {
+            var layoutMod = await WebAssembly.instantiateStreaming(fetch(layoutUrl), azCallbackImports());
+            var cbFn = layoutMod.instance.exports.callback;
+            if (typeof cbFn !== 'function') {
+                console.warn('[azul-web] layout wasm has no `callback` export');
+            } else {
+                azLayoutCbTableIdx = azTable.length;
+                azTable.grow(1);
+                azTable.set(azLayoutCbTableIdx, cbFn);
+                azLayoutCb = cbFn;
+                console.info('[azul-web] layout cb loaded from ' + layoutUrl +
+                             ' → table[' + azLayoutCbTableIdx + ']');
+            }
+        } catch (e) {
+            console.warn('[azul-web] failed to instantiate ' + layoutUrl + ':', e);
+        }
+    }
+
+    // M9-2 probe hook: expose the layout cb + buildLayoutInfo on the
+    // window so /tmp/layout-probe.js can drive an end-to-end test
+    // from a Node fetch without bootstrapping the full DOM. Harmless
+    // in production (no JS reads `window.__azProbe`).
+    if (typeof window !== 'undefined') {
+        window.__azProbe = {
+            mini: azMini,
+            layoutCb: azLayoutCb,
+            layoutCbTableIdx: azLayoutCbTableIdx,
+            refAnyPtr: azRefAnyPtr,
+            modelPtr: azModelPtr,
+            state: azState,
+            table: azTable,
+            memory: azMemory,
+        };
     }
 
     // 5. Wire native event listeners.

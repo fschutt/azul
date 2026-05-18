@@ -49,6 +49,8 @@ pub const EVENTLOOP_SYMBOLS: &[&str] = &[
     "AzStartup_hydrate",
     "AzStartup_dispatchEvent",
     "AzStartup_registerStateDeserializer",
+    // M9-2: Layout-cb wasm-side LayoutCallbackInfo builder.
+    "AzStartup_buildLayoutInfo",
 ];
 
 use std::collections::{BTreeMap, HashMap};
