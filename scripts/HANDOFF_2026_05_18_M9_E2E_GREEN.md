@@ -1,9 +1,36 @@
 # Azul Web Backend — Handoff 2026-05-18 (M9 5-step e2e green)
 
 **Branch:** `layout-debug-clean`
-**Last commit:** `39536136a` (M9 mirror trace + optimized-e2e roadmap).
-**Loop state:** PAUSED — full 5-step pipeline green for `v5` shape;
-M10 plan written, ready for user-driven execution.
+**Last commit:** `0fe055b4a` (M10-C1 bump-heap snapshot/reset).
+**Loop state:** PAUSED — M10 A1+B1.a+C1 landed; D + B1.b/B2 deferred.
+
+## M10 progress (2026-05-18 continuation)
+
+| Workstream | Status | Result |
+|------------|--------|--------|
+| **A1** libsystem classifier override by address | ✅ landed `9f852fb6e` | full-cycle.js GREEN on `hello-world.bin`; layout.wasm 388→353 KB (-9%) |
+| **B1.a** alias-scope metadata on guest/host mem ops | ✅ landed `c600271d9` | layout.wasm 353→294 KB (-17%); 50% target unmet — escalation to B1.b possible |
+| **C1** bump-heap snapshot/reset helpers | ✅ landed `0fe055b4a` | new `bump-reset-loop.js` gate: 100 cycles, drift=0, counter 5→105 |
+| **B1.b** real LLVM pass for provenance tracking | not started | needed if more SROA wins required beyond B1.a's 17% |
+| **B2** stack_buf in linear memory | not started | follow-up to B1.x; eliminates last ptrtoint in wrapper |
+| **D** per-fn wasm sharding | not started | needs accurate per-fn size measurement first |
+
+### Current acceptance-gate status (all GREEN)
+
+```
+scripts/m9_e2e/full-cycle.js   on hello-world-v5.bin   PASS
+scripts/m9_e2e/click-only.js   on hello-world.bin      PASS
+scripts/m9_e2e/full-cycle.js   on hello-world.bin      PASS  ← M10-A1
+scripts/m9_e2e/bump-reset-loop.js on hello-world-v5.bin PASS  ← M10-C1 (100 cycles)
+```
+
+Layout.wasm sizes after M10 A+B+C:
+- v5: 27 KB (was 30 KB pre-M10)
+- full hello-world.c: 294 KB (was 388 KB pre-M10, -24% total)
+
+---
+
+## Original M9 close-out (kept for context)
 
 ---
 
