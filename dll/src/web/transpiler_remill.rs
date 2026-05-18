@@ -400,6 +400,18 @@ impl RemillTranspiler {
         }
     }
 
+    /// Whether the in-process remill+LLVM+LLD pipeline should be used
+    /// in place of the subprocess `remill-lift-17` + `opt` + `llc` +
+    /// `wasm-ld` chain. Requires BOTH the build-time feature
+    /// (`web-transpiler-static` statically links the library bodies
+    /// into libazul.dylib) AND the runtime opt-in (`AZ_NATIVE_REMILL=1`).
+    /// The cfg-gate keeps the env-var check from accidentally enabling
+    /// a path that wouldn't link.
+    fn use_native_remill(&self) -> bool {
+        cfg!(feature = "web-transpiler-static")
+            && std::env::var_os("AZ_NATIVE_REMILL").is_some()
+    }
+
     /// Return the full toolchain or a structured TranspileError naming
     /// the first missing binary.
     fn tools(&self, fn_name: &str) -> Result<Tools<'_>, TranspileError> {
@@ -444,7 +456,16 @@ impl RemillTranspiler {
         export_as: &str,
         lift_addr: u64,
     ) -> Result<PathBuf, TranspileError> {
-        let tools = self.tools(fn_name)?;
+        let use_native = self.use_native_remill();
+        // Tools resolved only when the subprocess pipeline is active.
+        // In native mode we skip the discovery + missing-binary errors
+        // so the user doesn't need remill-lift-17 / llc / wasm-ld
+        // installed (the bodies are linked into libazul.dylib).
+        let tools = if use_native {
+            None
+        } else {
+            Some(self.tools(fn_name)?)
+        };
         std::fs::create_dir_all(&self.scratch_dir).map_err(|e| TranspileError {
             fn_name: fn_name.to_string(),
             reason: format!("scratch dir: {e}"),
@@ -487,9 +508,6 @@ impl RemillTranspiler {
         let stem = sanitize_filename(fn_name);
         let lifted_ir_path = self.scratch_dir.join(format!("{}.lifted.ll", stem));
 
-        let use_native = cfg!(feature = "web-transpiler-static")
-            && std::env::var_os("AZ_NATIVE_REMILL").is_some();
-
         if use_native {
             #[cfg(feature = "web-transpiler-static")]
             {
@@ -506,6 +524,7 @@ impl RemillTranspiler {
                 })?;
             }
         } else {
+            let tools = tools.as_ref().expect("tools required for subprocess lift");
             let hex = bytes_to_hex(&bytes);
             run_tool(
                 tools.remill_lift,
@@ -663,54 +682,90 @@ impl RemillTranspiler {
             reason: format!("write helper IR: {e}"),
         })?;
 
-        let linked_ir_path = self.scratch_dir.join(format!("{}.linked.ll", stem));
-        let llvm_link = self.llvm_link.as_deref().ok_or_else(|| TranspileError {
-            fn_name: fn_name.to_string(),
-            reason: "llvm-link not found — set $LLVM_LINK or install LLVM 21".into(),
-        })?;
-        run_tool(
-            llvm_link,
-            &[
-                "-S",
-                patched_ir_path.to_str().expect("scratch path is utf-8"),
-                helper_ir_path.to_str().expect("scratch path is utf-8"),
-                "-o",
-                linked_ir_path.to_str().expect("scratch path is utf-8"),
-            ],
-            fn_name,
-        )?;
-
-        let opt_ir_path = self.scratch_dir.join(format!("{}.opt.ll", stem));
-        let opt = self.opt.as_deref().ok_or_else(|| TranspileError {
-            fn_name: fn_name.to_string(),
-            reason: "opt not found — set $LLVM_OPT or install LLVM 21".into(),
-        })?;
-        run_tool(
-            opt,
-            &[
-                "-O2",
-                "-S",
-                linked_ir_path.to_str().expect("scratch path is utf-8"),
-                "-o",
-                opt_ir_path.to_str().expect("scratch path is utf-8"),
-            ],
-            fn_name,
-        )?;
-
-        // llc → wasm32 object on the cleaned IR
+        // Compile to wasm32 object.
+        //
+        // Native path (M8.9 Phase 2a, gated on AZ_NATIVE_REMILL=1):
+        // concatenate patched_ir + helper_ir text-side (stripping
+        // helper's `target datalayout` / `target triple` headers so
+        // LLVM's parseIR doesn't see duplicates), then call
+        // `az_remill_compile_to_wasm32_obj` which runs opt -O2 + llc
+        // -mtriple=wasm32 in-process.
+        //
+        // Subprocess path: `llvm-link` merges patched_ir + helper_ir,
+        // `opt -O2` cleans + inlines, `llc -mtriple=wasm32` emits the
+        // .o. Three process spawns + intermediate file I/O.
         let obj_path = self.scratch_dir.join(format!("{}.o", stem));
-        run_tool(
-            tools.llc,
-            &[
-                "-mtriple=wasm32-unknown-unknown",
-                "-filetype=obj",
-                "-O2",
-                "-o",
-                obj_path.to_str().expect("scratch path is utf-8"),
-                opt_ir_path.to_str().expect("scratch path is utf-8"),
-            ],
-            fn_name,
-        )?;
+        if use_native {
+            #[cfg(feature = "web-transpiler-static")]
+            {
+                // Pass patched_ir + helper_ir as separate modules —
+                // the C++ side runs llvm::Linker::linkInModule to
+                // merge them, then opt -O2 + llc -mtriple=wasm32.
+                // This matches `llvm-link` semantics; text concat
+                // can't handle cross-module declare/define attribute
+                // mismatches on `__remill_*`.
+                let obj_bytes = super::native_remill::compile_to_wasm32_obj(&[
+                    patched_ir.as_str(),
+                    helper_ir.as_str(),
+                ])
+                .map_err(|e| TranspileError {
+                    fn_name: fn_name.to_string(),
+                    reason: format!("native compile: {}", e),
+                })?;
+                std::fs::write(&obj_path, &obj_bytes).map_err(|e| TranspileError {
+                    fn_name: fn_name.to_string(),
+                    reason: format!("write obj: {e}"),
+                })?;
+            }
+        } else {
+            let tools = tools.as_ref().expect("tools required for subprocess compile");
+            let linked_ir_path = self.scratch_dir.join(format!("{}.linked.ll", stem));
+            let llvm_link = self.llvm_link.as_deref().ok_or_else(|| TranspileError {
+                fn_name: fn_name.to_string(),
+                reason: "llvm-link not found — set $LLVM_LINK or install LLVM 21".into(),
+            })?;
+            run_tool(
+                llvm_link,
+                &[
+                    "-S",
+                    patched_ir_path.to_str().expect("scratch path is utf-8"),
+                    helper_ir_path.to_str().expect("scratch path is utf-8"),
+                    "-o",
+                    linked_ir_path.to_str().expect("scratch path is utf-8"),
+                ],
+                fn_name,
+            )?;
+
+            let opt_ir_path = self.scratch_dir.join(format!("{}.opt.ll", stem));
+            let opt = self.opt.as_deref().ok_or_else(|| TranspileError {
+                fn_name: fn_name.to_string(),
+                reason: "opt not found — set $LLVM_OPT or install LLVM 21".into(),
+            })?;
+            run_tool(
+                opt,
+                &[
+                    "-O2",
+                    "-S",
+                    linked_ir_path.to_str().expect("scratch path is utf-8"),
+                    "-o",
+                    opt_ir_path.to_str().expect("scratch path is utf-8"),
+                ],
+                fn_name,
+            )?;
+
+            run_tool(
+                tools.llc,
+                &[
+                    "-mtriple=wasm32-unknown-unknown",
+                    "-filetype=obj",
+                    "-O2",
+                    "-o",
+                    obj_path.to_str().expect("scratch path is utf-8"),
+                    opt_ir_path.to_str().expect("scratch path is utf-8"),
+                ],
+                fn_name,
+            )?;
+        }
 
         // produce_object_for stops here — caller decides whether to
         // wasm-ld this object alone or link several together.
@@ -784,41 +839,70 @@ impl RemillTranspiler {
         output_stem: &str,
         memory_mode: MemoryMode,
     ) -> Result<Vec<u8>, TranspileError> {
+        // M8.9 Phase 2b: native lld::wasm path when AZ_NATIVE_REMILL=1.
+        // The C++ wrapper writes each obj to a per-call temp dir
+        // internally (lld's API takes file paths, not memory buffers),
+        // then reads the output wasm back into a heap buffer. From
+        // here it's the same input/output shape as the subprocess
+        // path — bytes in, bytes out.
+        let initial_memory_bytes: u32 = 2 * 1024 * 1024;
+        let import_memory = matches!(memory_mode, MemoryMode::ImportMemory);
+        // import_table mirrors the subprocess `--import-table` flag —
+        // funcref table is JS-owned (sized + populated with per-cb
+        // wasm `callback` exports at instantiate-time). Both per-cb /
+        // per-layout (ImportMemory) and azul-mini.wasm (OwnMemory)
+        // need this for __az_call_indirect to work.
+        let import_table = true;
+        if self.use_native_remill() {
+            #[cfg(feature = "web-transpiler-static")]
+            {
+                let mut obj_bytes: Vec<Vec<u8>> = Vec::with_capacity(objects.len());
+                for p in objects {
+                    let bytes = std::fs::read(p).map_err(|e| TranspileError {
+                        fn_name: output_stem.to_string(),
+                        reason: format!("read {}: {e}", p.display()),
+                    })?;
+                    obj_bytes.push(bytes);
+                }
+                return super::native_remill::wasm_link(
+                    &obj_bytes,
+                    exports,
+                    import_memory,
+                    import_table,
+                    initial_memory_bytes,
+                )
+                .map_err(|e| TranspileError {
+                    fn_name: output_stem.to_string(),
+                    reason: format!("native wasm_link: {}", e),
+                });
+            }
+        }
         let tools = self.tools(output_stem)?;
         let wasm_path = self.scratch_dir.join(format!("{}.wasm", output_stem));
         let mut args: Vec<String> = vec![
             "--no-entry".to_string(),
             "--allow-undefined".to_string(),
-            "--import-table".to_string(),
-            "-o".to_string(),
-            wasm_path.to_string_lossy().into_owned(),
         ];
-        match memory_mode {
-            MemoryMode::OwnMemory => {
-                // Initial memory: 2 MiB = 32 pages. Stack lives in
-                // low addresses (~64 KiB), bump heap starts at 1 MiB
-                // (per @__az_bump_ptr's initial value) and grows up.
-                // 2 MiB gives us ~1 MiB of heap before exhaustion —
-                // enough for hello-world's stateful demo. JS can grow
-                // via memory.grow if needed later.
-                args.push("--initial-memory=2097152".to_string());
-            }
-            MemoryMode::ImportMemory => {
-                // Per-cb / per-layout wasms import `env.memory` so
-                // they share linear address space with the mini wasm
-                // (which exports `memory`). JS wires
-                // `env.memory = mini.exports.memory` at instantiate
-                // time. Without this each wasm has its own
-                // unconnected memory and any pointer the caller
-                // passes in references the wrong heap.
-                args.push("--import-memory".to_string());
-                // wasm-ld needs to know the minimum/maximum to declare
-                // the memory import. The actual size is set by JS when
-                // it creates the WebAssembly.Memory; these are just
-                // the import descriptor.
-                args.push("--initial-memory=2097152".to_string());
-            }
+        if import_table {
+            args.push("--import-table".to_string());
         }
+        args.push("-o".to_string());
+        args.push(wasm_path.to_string_lossy().into_owned());
+        if import_memory {
+            // Per-cb / per-layout wasms import `env.memory` so they
+            // share linear address space with the mini wasm (which
+            // exports `memory`). JS wires
+            // `env.memory = mini.exports.memory` at instantiate time.
+            // Without this each wasm has its own unconnected memory
+            // and any pointer the caller passes in references the
+            // wrong heap.
+            args.push("--import-memory".to_string());
+        }
+        // Initial memory: 2 MiB = 32 pages. For OwnMemory this is the
+        // initial of the exported memory (stack lives ~0..64KiB, bump
+        // heap starts at 1 MiB per @__az_bump_ptr); for ImportMemory
+        // it's just the import descriptor's minimum.
+        args.push(format!("--initial-memory={}", initial_memory_bytes));
         for e in exports {
             args.push(format!("--export={}", e));
         }
@@ -1759,6 +1843,12 @@ fn emit_helper_ir(
     //      (pure), which lets opt DCE the call along with everything
     //      that depends on it. We were losing the entire dispatch
     //      chain to this in M8.5a until we added the memory clause.
+    //
+    // The #1 group number is local to this module; both `llvm-link`
+    // (subprocess) and `llvm::Linker::linkInModule` (native compile
+    // path) auto-renumber attribute groups when merging modules so
+    // local-#1 collisions across helper + patched IR can't occur at
+    // link time.
     let import_attrs = "attributes #1 = { nounwind \
         memory(readwrite, inaccessiblemem: readwrite) \
         \"wasm-import-module\"=\"env\" \

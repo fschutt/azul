@@ -37,14 +37,22 @@ int az_remill_lift(const char *arch_name,
                    char **err_out);
 
 /* ── az_remill_compile_to_wasm32_obj ─────────────────────────────
- * Parse LLVM IR text, run opt -O2, then llc -mtriple=wasm32 -O2
- * -filetype=obj. Output is a wasm32 ELF-shaped object (the
- * intermediate `.o` that wasm-ld consumes).
+ * Parse one or more LLVM IR text inputs into separate Modules, link
+ * them together via llvm::Linker (handles cross-module type / global
+ * / linkonce_odr conflicts properly — text concatenation can't),
+ * then run opt -O2 followed by llc -mtriple=wasm32 -O2 -filetype=obj.
+ * Output is a wasm32 ELF-shaped object (the intermediate `.o` that
+ * wasm-ld consumes).
  *
- * `ir_str` is NOT freed; copy if you need a long-lived reference.
+ * `ir_strs[i]` of length `ir_lens[i]` for `i in [0, ir_count)`. The
+ * first module is the "destination" and subsequent modules are
+ * linked into it; this matches the semantics of `llvm-link a.ll b.ll`.
+ *
+ * `ir_strs` is NOT freed; copy if you need long-lived references.
  */
-int az_remill_compile_to_wasm32_obj(const char *ir_str,
-                                    size_t ir_len,
+int az_remill_compile_to_wasm32_obj(const char *const *ir_strs,
+                                    const size_t *ir_lens,
+                                    size_t ir_count,
                                     uint8_t **obj_out,
                                     size_t *obj_len_out,
                                     char **err_out);

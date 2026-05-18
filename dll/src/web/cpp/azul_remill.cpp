@@ -14,6 +14,7 @@
 #include <llvm/IR/Verifier.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IRReader/IRReader.h>
+#include <llvm/Linker/Linker.h>
 #include <llvm/MC/TargetRegistry.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/CodeGen.h>
@@ -320,20 +321,59 @@ std::string lift_inner(const std::string &arch_name,
     return {};
 }
 
-/* Compile an LLVM IR text string into a wasm32 .o object via opt +
- * llc equivalents (LegacyPassManager + TargetMachine::addPassesToEmitFile). */
-std::string compile_inner(const char *ir_str, size_t ir_len,
+/* Compile one or more LLVM IR text strings into a wasm32 .o object.
+ *
+ * Each input is parsed into its own Module, then merged via
+ * `llvm::Linker::linkInModule` into the destination (the first input).
+ * This is what `llvm-link a.ll b.ll` does — text concatenation would
+ * fail on cross-module type / global / linkonce_odr conflicts
+ * (multiple definitions of `__remill_function_return`, multiple
+ * `%struct.State` declarations, attribute group collisions). The
+ * Linker handles all of that per LLVM's standard linker semantics.
+ *
+ * After link: opt -O2 via PassBuilder + llc via the legacy PM.
+ */
+std::string compile_inner(const char *const *ir_strs,
+                          const size_t *ir_lens,
+                          size_t ir_count,
                           std::vector<uint8_t> &obj_out) {
     initialize_llvm_targets();
+    if (ir_count == 0 || !ir_strs || !ir_lens) {
+        return "compile_inner: empty ir input";
+    }
     llvm::LLVMContext context;
     llvm::SMDiagnostic err;
-    auto buf = llvm::MemoryBuffer::getMemBuffer(
-        llvm::StringRef(ir_str, ir_len), "input", false);
-    auto module = llvm::parseIR(*buf, err, context);
+    auto first_buf = llvm::MemoryBuffer::getMemBuffer(
+        llvm::StringRef(ir_strs[0], ir_lens[0]), "input_0", false);
+    auto module = llvm::parseIR(*first_buf, err, context);
     if (!module) {
         std::ostringstream oss;
-        oss << "parseIR failed: " << err.getMessage().str();
+        oss << "parseIR[0] failed: " << err.getMessage().str();
         return oss.str();
+    }
+    // Link remaining modules into the first via llvm::Linker.
+    // OverrideFromSrc on the second module makes its linkonce_odr
+    // bodies (the __remill_* implementations in the helper IR)
+    // resolve the first module's extern declarations of the same
+    // names. Without override, the linker would treat the helper's
+    // linkonce_odr as discardable and might drop them when the
+    // declaration appears first.
+    llvm::Linker linker(*module);
+    for (size_t i = 1; i < ir_count; i++) {
+        std::string buf_name = "input_" + std::to_string(i);
+        auto next_buf = llvm::MemoryBuffer::getMemBuffer(
+            llvm::StringRef(ir_strs[i], ir_lens[i]), buf_name, false);
+        auto next_mod = llvm::parseIR(*next_buf, err, context);
+        if (!next_mod) {
+            std::ostringstream oss;
+            oss << "parseIR[" << i << "] failed: " << err.getMessage().str();
+            return oss.str();
+        }
+        if (linker.linkInModule(std::move(next_mod))) {
+            std::ostringstream oss;
+            oss << "linkInModule[" << i << "] failed";
+            return oss.str();
+        }
     }
 
     std::string triple = "wasm32-unknown-unknown";
@@ -518,22 +558,23 @@ extern "C" int az_remill_lift(const char *arch_name,
     return 0;
 }
 
-extern "C" int az_remill_compile_to_wasm32_obj(const char *ir_str,
-                                               size_t ir_len,
+extern "C" int az_remill_compile_to_wasm32_obj(const char *const *ir_strs,
+                                               const size_t *ir_lens,
+                                               size_t ir_count,
                                                uint8_t **obj_out,
                                                size_t *obj_len_out,
                                                char **err_out) {
     if (obj_out) *obj_out = nullptr;
     if (obj_len_out) *obj_len_out = 0;
     if (err_out) *err_out = nullptr;
-    if (!ir_str || !obj_out) {
-        if (err_out) set_string(err_out, "null argument");
+    if (!ir_strs || !ir_lens || ir_count == 0 || !obj_out) {
+        if (err_out) set_string(err_out, "null/empty argument");
         return 1;
     }
     std::vector<uint8_t> obj;
     std::string err;
     try {
-        err = compile_inner(ir_str, ir_len, obj);
+        err = compile_inner(ir_strs, ir_lens, ir_count, obj);
     } catch (const std::exception &e) {
         err = std::string("exception: ") + e.what();
     } catch (...) {

@@ -27,8 +27,9 @@ extern "C" {
     ) -> c_int;
 
     fn az_remill_compile_to_wasm32_obj(
-        ir_str: *const c_char,
-        ir_len: usize,
+        ir_strs: *const *const c_char,
+        ir_lens: *const usize,
+        ir_count: usize,
         obj_out: *mut *mut u8,
         obj_len_out: *mut usize,
         err_out: *mut *mut c_char,
@@ -69,7 +70,8 @@ static ANCHOR_LIFT: unsafe extern "C" fn(
 ) -> c_int = az_remill_lift;
 #[used]
 static ANCHOR_COMPILE: unsafe extern "C" fn(
-    *const c_char,
+    *const *const c_char,
+    *const usize,
     usize,
     *mut *mut u8,
     *mut usize,
@@ -162,21 +164,45 @@ pub fn lift(
     Ok(ir)
 }
 
-/// Compile LLVM IR text to a wasm32 .o object via in-process opt + llc.
-pub fn compile_to_wasm32_obj(ir_text: &str) -> Result<Vec<u8>, NativeRemillError> {
+/// Link multiple LLVM IR text inputs into one module via llvm::Linker,
+/// then compile to a wasm32 .o object via in-process opt -O2 + llc.
+///
+/// Use multi-IR form for `[patched_ir, helper_ir]` etc. — text
+/// concatenation can't handle cross-module type / linkonce_odr /
+/// attribute-group conflicts that occur when patched_ir declares
+/// `__remill_function_return` and helper_ir defines it (different
+/// param attributes between the two cause parseIR to reject as a
+/// redefinition). The Linker handles this per LLVM's standard
+/// linkage semantics — same as `llvm-link a.ll b.ll`.
+pub fn compile_to_wasm32_obj(ir_texts: &[&str]) -> Result<Vec<u8>, NativeRemillError> {
     let _guard = FFI_LOCK.lock().unwrap();
-    let ir_c = CString::new(ir_text).map_err(|_| NativeRemillError {
-        stage: "compile",
-        code: -1,
-        message: "IR text contains NUL byte".into(),
-    })?;
+    if ir_texts.is_empty() {
+        return Err(NativeRemillError {
+            stage: "compile",
+            code: -1,
+            message: "empty ir_texts".into(),
+        });
+    }
+    let ir_cs: Vec<CString> = ir_texts
+        .iter()
+        .map(|s| {
+            CString::new(*s).map_err(|_| NativeRemillError {
+                stage: "compile",
+                code: -1,
+                message: "IR text contains NUL byte".into(),
+            })
+        })
+        .collect::<Result<_, _>>()?;
+    let ir_ptrs: Vec<*const c_char> = ir_cs.iter().map(|c| c.as_ptr()).collect();
+    let ir_lens: Vec<usize> = ir_texts.iter().map(|s| s.len()).collect();
     let mut obj_ptr: *mut u8 = std::ptr::null_mut();
     let mut obj_len: usize = 0;
     let mut err_ptr: *mut c_char = std::ptr::null_mut();
     let rc = unsafe {
         az_remill_compile_to_wasm32_obj(
-            ir_c.as_ptr(),
-            ir_text.len(),
+            ir_ptrs.as_ptr(),
+            ir_lens.as_ptr(),
+            ir_texts.len(),
             &mut obj_ptr,
             &mut obj_len,
             &mut err_ptr,
