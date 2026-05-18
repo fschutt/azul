@@ -1034,16 +1034,15 @@ impl RemillTranspiler {
         //
         // Initial memory raised to 1 GiB (was 16 MiB) — covers the
         // truncated low-32-bit address range libazul's lifted code
-        // loads from after ASLR. macOS dyld typically slides libazul
-        // by 0x108xxxxxx (placing __const around wasm offset
-        // ~207 MiB); deeper libsystem dispatch occasionally lands
-        // higher, up to 500 MiB+. 1 GiB initial absorbs both.
+        // loads from after ASLR for most macOS slides. The bump
+        // allocator base was bumped to 512 MiB so per-request
+        // allocs start above the mirror zone in [0..512 MiB].
         //
-        // The bump allocator base in helper IR was bumped to 512 MiB
-        // so per-request allocs start above the mirror zone.
-        //
-        // JS can still grow past 1 GiB at runtime via memory.grow();
-        // wasm32 max is just under 4 GiB so there's still headroom.
+        // 3+ GiB was tested and broke JS DataView usage (allocations
+        // above 2 GiB landed at offsets where DataView's
+        // byteOffset arg gets interpreted as a signed integer in
+        // some V8 paths). 1 GiB stays comfortably within DataView's
+        // safe-integer range.
         let initial_memory_bytes: u32 = 1024 * 1024 * 1024;
         let import_memory = matches!(memory_mode, MemoryMode::ImportMemory);
         // import_table mirrors the subprocess `--import-table` flag —
@@ -1710,10 +1709,6 @@ fn inject_user_binary_data_segments(wasm: &mut Vec<u8>) {
     // `emit_helper_ir`. Sections whose truncated address + size
     // falls in [0..512 MiB] get mirrored as wasm Data segments;
     // the heap [512 MiB..1 GiB] absorbs runtime allocations.
-    //
-    // Wide enough to cover libazul's __const (~18 MiB,
-    // typically lands around 207 MiB truncated) and most
-    // libsystem const tables the lifted layout cb chains into.
     let limit: u32 = 512 * 1024 * 1024;
     let segments = super::symbol_table::SymbolTable::enumerate_low32_data_for_wasm(limit);
     if segments.is_empty() {
