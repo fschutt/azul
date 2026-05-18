@@ -4,6 +4,17 @@
 **Branch:** `layout-debug-clean`
 **Pipeline state:** in-process remill+LLVM+LLD lift, batched, with CSS cascade output. Layout-cb lifts end-to-end but is not yet dispatched at runtime.
 
+> **ℹ Outdated (2026-05-18).** This snapshot is from the M8.9
+> close-out before M9 work began. M9 phases 1-6 shipped on the
+> same day; see
+> [STATUS_REPORT_M9_2026_05_18.md](STATUS_REPORT_M9_2026_05_18.md)
+> for the post-M9 status and
+> [M9_REVIEW_AND_OPTION_A.md](M9_REVIEW_AND_OPTION_A.md) for the
+> architectural retro that supersedes the deferred-work list at
+> the bottom of this report.
+
+
+
 ## TL;DR
 
 Hello-world's on_click counter increments through the WASM lift path. The

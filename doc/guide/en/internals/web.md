@@ -38,6 +38,16 @@ default-search-keys:
 
 # Web Backend Internals
 
+> **📋 Architectural retrospective:** see
+> [`scripts/M9_REVIEW_AND_OPTION_A.md`](../../../../scripts/M9_REVIEW_AND_OPTION_A.md)
+> for the post-M9 review that identifies the **synthetic-address
+> lift fix** as the single ~50 LOC change that retires most of
+> the M9 scaffolding (data section mirror filter heuristic,
+> wasm memory inflation experiments, the persistent OOB on full
+> hello-world.c). The "user intent vs implementation" gap
+> documented below collapses to "one parameter changed at the
+> three lift call sites" under that fix.
+
 ## Status (as of M9 close-out, 2026-05-18)
 
 **What works end-to-end (hello-world on_click counter):**

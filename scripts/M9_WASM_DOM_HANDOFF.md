@@ -1,3 +1,15 @@
+> **⚠ SUPERSEDED 2026-05-18 (post-M9 review).** This document
+> records the plan that WAS executed in M9 (phases 1-6, commits
+> `7a9250fde` through `b1470628a`), but the user's post-review
+> identified the plan as over-architected. The actual root cause
+> is much smaller — see [M9_REVIEW_AND_OPTION_A.md](M9_REVIEW_AND_OPTION_A.md)
+> for the architectural audit + the 1-line fix that eliminates
+> most of the M9 scaffolding (stack relocator, data section
+> mirror, wasm memory inflation). Read that BEFORE following
+> any of the plans below.
+
+---
+
 # M9 — Move the DOM into WASM, kill the JS-side hit-test
 
 > **For the next Claude session.** Read this whole document first.

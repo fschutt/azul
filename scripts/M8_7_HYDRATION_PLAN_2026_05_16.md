@@ -1,3 +1,12 @@
+> **ℹ M8.7 hydration: the hand-rolled path described here is
+> still what ships (see `AzStartup_hydrate` in eventloop.rs).
+> The "lifted user `_fromJson`" alternative is gated on the
+> [post-M9 review](M9_REVIEW_AND_OPTION_A.md)'s synthetic-address
+> fix landing (user binary const strings need to be reachable
+> for the deserializer body to lift cleanly).**
+
+---
+
 # M8.7 — HeadlessApp hydration plan (2026-05-16)
 
 **Drafted in response to user direction** (verbatim quote):

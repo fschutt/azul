@@ -3,6 +3,16 @@
 **Date:** 2026-05-18
 **Branch:** `layout-debug-clean`
 **Pipeline state:** WASM-resident DOM architecture landed. Layout cb
+
+> **📋 Architectural retrospective**: see
+> [M9_REVIEW_AND_OPTION_A.md](M9_REVIEW_AND_OPTION_A.md) for the
+> post-M9 review that identifies the synthetic-address lift fix
+> as the single 50-line change that retires most of the M9
+> scaffolding. The "what's deferred" list at the bottom of this
+> status report is reframed there as "what gets cheap under the
+> fix" — much shorter list.
+
+
 runs in wasm (minimal cb verified end-to-end); dispatch + hit-test +
 patch emission now happen wasm-side for the on_click flow.
 
