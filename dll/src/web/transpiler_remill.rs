@@ -2692,6 +2692,16 @@ impl Transpiler for RemillTranspiler {
             }
         }
 
+        // M10-C1: add a hand-written `bump_helpers.o` exposing
+        // AzStartup_snapshotBumpHeap + AzStartup_resetBumpHeap so JS
+        // can clamp the wasm bump heap between cycles. These bypass
+        // the lift pipeline (no native code to lift — they're
+        // structurally a single load/store on @__az_bump_ptr).
+        let bump_obj_path = self.emit_bump_helpers_object()?;
+        object_paths.push(bump_obj_path);
+        exports.push("AzStartup_snapshotBumpHeap".to_string());
+        exports.push("AzStartup_resetBumpHeap".to_string());
+
         let bytes = self.link_objects_to_wasm(
             &object_paths,
             &exports,
@@ -2717,6 +2727,106 @@ impl Transpiler for RemillTranspiler {
 
     fn name(&self) -> &str {
         "RemillTranspiler (remill-lift-17 + llc + wasm-ld subprocess)"
+    }
+}
+
+// M10-C1 inherent impl. Carries the hand-written bump-helper IR
+// → .o pipeline. Kept separate from the `impl Transpiler` block
+// because it's not part of the public Transpiler trait surface.
+impl RemillTranspiler {
+    /// M10-C1 — hand-written IR for the bump-heap snapshot/reset
+    /// helpers. Two functions sit alongside the lifted AzStartup_* in
+    /// azul-mini.wasm and expose direct load/store on the
+    /// `@__az_bump_ptr` global to JS:
+    ///
+    ///   `AzStartup_snapshotBumpHeap() -> u32`
+    ///   `AzStartup_resetBumpHeap(u32 snapshot) -> ()`
+    ///
+    /// The bump pointer is a `linkonce_odr` global initialized to
+    /// 96 MiB in the per-fn helper IR (see [`emit_helper_ir`]'s
+    /// `bump_global`). wasm-ld dedupes the linkonce_odr definitions
+    /// across every object file in the link set so the `external`
+    /// declaration here resolves to that single instance.
+    ///
+    /// JS usage:
+    /// ```js
+    /// // After init + hydrate + (any persistent setup):
+    /// const snap = mini.AzStartup_snapshotBumpHeap();
+    /// // Per cycle (after reading the cycle's return values):
+    /// mini.AzStartup_resetBumpHeap(snap);
+    /// ```
+    fn emit_bump_helpers_object(&self) -> Result<PathBuf, TranspileError> {
+        let ir = r#"; M10-C1 — bump-heap snapshot / reset helpers.
+target datalayout = "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20"
+target triple = "wasm32-unknown-unknown"
+
+@__az_bump_ptr = external global i32, align 4
+
+define i32 @AzStartup_snapshotBumpHeap() {
+  %v = load i32, ptr @__az_bump_ptr, align 4
+  ret i32 %v
+}
+
+define void @AzStartup_resetBumpHeap(i32 %snapshot) {
+  store i32 %snapshot, ptr @__az_bump_ptr, align 4
+  ret void
+}
+"#;
+        let obj_path = self.scratch_dir.join("bump_helpers.o");
+        if self.use_native_remill() {
+            #[cfg(feature = "web-transpiler-static")]
+            {
+                let obj_bytes = super::native_remill::compile_to_wasm32_obj(&[ir])
+                    .map_err(|e| TranspileError {
+                        fn_name: "bump_helpers".into(),
+                        reason: format!("native compile: {}", e),
+                    })?;
+                std::fs::write(&obj_path, &obj_bytes).map_err(|e| TranspileError {
+                    fn_name: "bump_helpers".into(),
+                    reason: format!("write {}: {e}", obj_path.display()),
+                })?;
+                return Ok(obj_path);
+            }
+        }
+        // Subprocess path: write .ll, opt + llc → .o.
+        let ll_path = self.scratch_dir.join("bump_helpers.ll");
+        std::fs::write(&ll_path, ir).map_err(|e| TranspileError {
+            fn_name: "bump_helpers".into(),
+            reason: format!("write {}: {e}", ll_path.display()),
+        })?;
+        let opt_path = self.scratch_dir.join("bump_helpers.opt.ll");
+        let opt = self.opt.as_deref().ok_or_else(|| TranspileError {
+            fn_name: "bump_helpers".into(),
+            reason: "opt not found — set $LLVM_OPT or install LLVM 21".into(),
+        })?;
+        run_tool(
+            opt,
+            &[
+                "-O2",
+                "-S",
+                ll_path.to_str().expect("scratch path is utf-8"),
+                "-o",
+                opt_path.to_str().expect("scratch path is utf-8"),
+            ],
+            "bump_helpers",
+        )?;
+        let llc = self.llc.as_deref().ok_or_else(|| TranspileError {
+            fn_name: "bump_helpers".into(),
+            reason: "llc not found — set $LLC or install LLVM 21".into(),
+        })?;
+        run_tool(
+            llc,
+            &[
+                "-mtriple=wasm32-unknown-unknown",
+                "-filetype=obj",
+                "-O2",
+                "-o",
+                obj_path.to_str().expect("scratch path is utf-8"),
+                opt_path.to_str().expect("scratch path is utf-8"),
+            ],
+            "bump_helpers",
+        )?;
+        Ok(obj_path)
     }
 }
 
