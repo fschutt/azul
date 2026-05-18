@@ -60,6 +60,8 @@ pub const EVENTLOOP_SYMBOLS: &[&str] = &[
     // M9-4: WASM-side hit-test (stub, returns last registered cb node).
     "AzStartup_registerCbNode",
     "AzStartup_hitTest",
+    // M9-5: TLV patch emission.
+    "AzStartup_buildCounterPatch",
 ];
 
 use std::collections::{BTreeMap, HashMap};

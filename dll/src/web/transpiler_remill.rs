@@ -258,6 +258,18 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
             ],
             ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
         }),
+        "AzStartup_buildCounterPatch" => Some(CallbackSignature {
+            kind: "AzStartup_buildCounterPatch".to_string(),
+            // (out_buf: u32, out_buf_cap: u32, node_idx: u32,
+            //  counter_value: u32) -> used_bytes: u32
+            args: vec![
+                Pcs::Wreg { state_byte_offset: X0 },
+                Pcs::Wreg { state_byte_offset: X1 },
+                Pcs::Wreg { state_byte_offset: X2 },
+                Pcs::Wreg { state_byte_offset: X3 },
+            ],
+            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+        }),
         _ => None,
     }
 }

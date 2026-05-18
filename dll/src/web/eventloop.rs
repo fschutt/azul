@@ -651,6 +651,108 @@ pub unsafe extern "C" fn AzStartup_hitTest(
 }
 
 // =====================================================================
+// M9-5 TLV patch emission
+// =====================================================================
+//
+// Patch format (wire-compatible with azApplyPatches in loader_js.rs):
+//
+//   kind   : u8   = 1 (SetText), 2 (SetAttr), 3 (SetInlineStyle),
+//                   4 (RemoveNode), 5 (InsertNode), 6 (MoveNode),
+//                   7 (ReplaceSubtree)
+//   node_idx: u32 LE
+//   payload_len: u32 LE
+//   payload: [u8; payload_len]
+//
+// Per-kind payload layout matches the spec at
+// scripts/M9_WASM_DOM_HANDOFF.md § "TLV schema".
+
+const TLV_HEADER_BYTES: u32 = 1 + 4 + 4;
+pub const PATCH_KIND_SET_TEXT: u8 = 1;
+
+/// Write a u32 in little-endian into `out` starting at `offset`.
+/// Returns the byte count written (always 4). The store is a single
+/// `i32.store` after lift — no const-pool loads, so it survives
+/// transpilation cleanly.
+unsafe fn write_u32_le(out: *mut u8, offset: u32, value: u32) {
+    let p = (out as usize + offset as usize) as *mut u32;
+    core::ptr::write_unaligned(p, value);
+}
+
+/// Convert a u32 to its decimal ASCII representation, written into
+/// `out[0..]`. Returns the number of bytes written (1..=10).
+///
+/// Wasm-friendly: only word-sized arithmetic + per-byte stores.
+/// No libc calls (which would noop via the Leaf body and return
+/// zero bytes), no const-pool loads.
+unsafe fn write_u32_decimal(out: *mut u8, mut n: u32) -> u32 {
+    if n == 0 {
+        *out = b'0';
+        return 1;
+    }
+    let mut buf = [0u8; 10];
+    let mut i = 0usize;
+    while n > 0 && i < 10 {
+        buf[i] = b'0' + (n % 10) as u8;
+        n /= 10;
+        i += 1;
+    }
+    // Reverse into output.
+    let len = i;
+    let mut j = 0usize;
+    while j < len {
+        *out.add(j) = buf[len - 1 - j];
+        j += 1;
+    }
+    len as u32
+}
+
+/// Encode a `SetText` TLV patch for `node_idx` with the decimal
+/// representation of `counter_value`. Writes the encoded bytes into
+/// `out_buf` (caller-owned; recommended `>= 32 bytes`) and returns
+/// the total number of bytes written, or `0` if `out_buf` is null
+/// or too small.
+///
+/// Hello-world's RefreshDom path: cb increments a u32 counter, JS
+/// reads it back from the wasm-resident model pointer, calls this
+/// to encode a SetText patch for the counter node (`az_1`), then
+/// hands the buffer to `azApplyPatches`. Replaces the hardcoded
+/// `el.textContent = newCounter.toString()` in loader.js.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_buildCounterPatch(
+    out_buf: u32,
+    out_buf_cap: u32,
+    node_idx: u32,
+    counter_value: u32,
+) -> u32 {
+    if out_buf == 0 || out_buf_cap < TLV_HEADER_BYTES + 10 {
+        return 0;
+    }
+    let out = out_buf as usize as *mut u8;
+    // Encode the decimal text into a scratch region at the tail of
+    // the buffer, then memcpy into the payload position once we know
+    // the length. Avoids needing two passes over the buffer.
+    let max_text = (out_buf_cap - TLV_HEADER_BYTES) as usize;
+    let mut scratch = [0u8; 10];
+    let scratch_ptr = scratch.as_mut_ptr();
+    let text_len = write_u32_decimal(scratch_ptr, counter_value);
+    if text_len as usize > max_text {
+        return 0;
+    }
+    // Header: kind(1) | node_idx(4) | payload_len(4)
+    *out = PATCH_KIND_SET_TEXT;
+    write_u32_le(out, 1, node_idx);
+    write_u32_le(out, 5, text_len);
+    // Payload: text bytes.
+    let payload_dst = out.add(TLV_HEADER_BYTES as usize);
+    let mut k = 0u32;
+    while k < text_len {
+        *payload_dst.add(k as usize) = scratch[k as usize];
+        k += 1;
+    }
+    TLV_HEADER_BYTES + text_len
+}
+
+// =====================================================================
 // Event dispatch
 // =====================================================================
 

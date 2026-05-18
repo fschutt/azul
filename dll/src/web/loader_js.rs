@@ -428,15 +428,33 @@ function azInvokeCbDirect(nodeIdx, domEvent) {
         azMini.AzStartup_free(infoPtr, EVENT_BUFFER_SIZE);
     }
     // Update enum: 0 = DoNothing, 1 = RefreshDom (… see eventloop.rs).
-    // For RefreshDom, read the counter back from wasm memory + apply
-    // a SetText patch to the matching DOM node. The counter node id
-    // is currently hardcoded to az_1 (the only text-containing node
-    // in hello-world); a proper diff loop is M8.5d.
+    // M9-5: on RefreshDom, ask wasm to encode a SetText TLV patch
+    // with the new counter value, then apply it via the existing
+    // azApplyPatches decoder. Replaces the previous hardcoded
+    // `el.textContent = newCounter.toString()` path.
     if (update >= 1 && azModelPtr) {
         var view = new DataView(azMemory.buffer);
         var newCounter = view.getUint32(azModelPtr, true);
-        var el = document.getElementById('az_1');
-        if (el) el.textContent = newCounter.toString();
+        if (typeof azMini.AzStartup_buildCounterPatch === 'function') {
+            var patchCap = 32;
+            var patchBuf = azMini.AzStartup_alloc(patchCap);
+            // node_idx 1 = the counter text node (id="az_1"); the
+            // server-side discovery layer assigns it. M9-3b's
+            // wasm-resident StyledDom will walk + locate this for
+            // arbitrary DOMs.
+            var used = azMini.AzStartup_buildCounterPatch(
+                patchBuf, patchCap, 1, newCounter,
+            );
+            if (used > 0) {
+                azApplyPatches(patchBuf, used);
+            }
+            azMini.AzStartup_free(patchBuf, patchCap);
+        } else {
+            // Legacy fallback (M9-5 drops this once mini.wasm always
+            // exports buildCounterPatch).
+            var el = document.getElementById('az_1');
+            if (el) el.textContent = newCounter.toString();
+        }
         console.info('[azul-web] cb node=' + nodeIdx +
                      ' → Update=' + update + ' counter=' + newCounter);
     } else {
