@@ -52,9 +52,11 @@ use std::collections::BTreeMap;
 use std::ffi::c_void;
 use std::sync::atomic::AtomicUsize;
 
+use azul_core::dom::Dom;
 use azul_core::refany::{RefAny, RefCount, RefCountInner};
 use azul_core::styled_dom::StyledDom;
 use azul_css::AzString;
+use azul_css::css::Css;
 
 // =====================================================================
 // Event-format spec (Q5 decision: fixed 256-byte buffer per dispatch).
@@ -117,10 +119,16 @@ pub struct EventloopState {
     /// to plug it in here so [`AzStartup_initLayoutCache`] can find
     /// the right refany without a separate JS round-trip.
     pub refany_ptr: u32,
-    /// Most recent layout output. Hit-tested against incoming events;
-    /// reconciled against on RefreshDom. `None` until the first
-    /// layout-callback run inside dispatch (M8.5d).
-    pub current_dom: Option<StyledDom>,
+    /// Wasm offset of the most-recent `StyledDom` (heap-allocated by
+    /// the lifted `Box::new(styled)` in
+    /// [`AzStartup_hydrateStyledDom`]). `0` until hydrate runs.
+    ///
+    /// M11 Sprint 1.B: stored as `u32` rather than
+    /// `Option<Box<StyledDom>>` because `Option<Box>`'s host layout
+    /// (discriminant + pointer) had lift hazards we couldn't track
+    /// down quickly. `u32::MAX` could mark "tombstoned"; `0` means
+    /// un-hydrated.
+    pub current_dom_styled_ptr: u32,
     /// User-supplied `<Type>_fromJson` fn-pointer set via
     /// [`AzStartup_registerStateDeserializer`]. Zero = unset.
     pub state_deserializer: u64,
@@ -365,7 +373,7 @@ pub unsafe extern "C" fn AzStartup_init(_json_ptr: u32, _json_len: u32) -> u32 {
     let state = Box::new(EventloopState {
         app_data: None,
         refany_ptr: 0,
-        current_dom: None,
+        current_dom_styled_ptr: 0,
         state_deserializer: 0,
         cb_fn_cache: BTreeMap::new(),
         layout_cb_table_idx: 0,
@@ -831,17 +839,34 @@ unsafe fn count_az_dom_nodes(root: *const u8) -> u32 {
     count
 }
 
-/// Walk the AzDom blob at `state.current_dom_ptr`, count its
-/// nodes, and mark the state as hydrated.
+/// Walk the AzDom blob at `state.current_dom_ptr`, run the
+/// cascade, and store the produced `StyledDom` in
+/// `state.current_dom`.
+///
+/// M11 Sprint 1.B: this now calls `StyledDom::create(&mut dom,
+/// Css::empty())` — the cascade machinery gets transitively
+/// lifted via the new S1.A eventloop pipeline (no more JS Proxy
+/// noop stubs for non-eventloop callees). The produced
+/// `StyledDom` is the same struct desktop produces, less the
+/// runtime resources (font cache, image cache) that the layout
+/// solver fills in later.
 ///
 /// Status codes:
-///   * `0`  — success, `current_dom_hydrated = 1`,
+///   * `0`  — success, `current_dom = Some(styled)`,
+///            `current_dom_hydrated = 1`,
 ///            `current_dom_node_count` filled.
 ///   * `1`  — null state pointer.
 ///   * `2`  — `current_dom_ptr` is 0 (initLayoutCache wasn't
 ///            called yet, or it failed).
-///   * `3`  — tree walk returned 0 (blob unreadable / not a valid
-///            AzDom layout); state is left as un-hydrated.
+///   * `3`  — pre-cascade tree walk returned 0 (blob unreadable
+///            / not a valid AzDom layout); state is left
+///            un-hydrated.
+///
+/// Idempotent: if `current_dom_hydrated == 1` already, returns
+/// `0` without re-running cascade. The lifted `StyledDom::create`
+/// CONSUMES the source `Dom` (resets it to empty per the desktop
+/// behavior), so a second cascade pass would build a 1-node
+/// StyledDom — we skip to keep `current_dom_node_count` stable.
 #[no_mangle]
 pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     if state == 0 {
@@ -851,10 +876,48 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     if s.current_dom_ptr == 0 {
         return 2;
     }
+    // Idempotency: skip re-running if we've already hydrated. The
+    // walk consumed the source Dom (or `StyledDom::create` did);
+    // a second pass would see an empty tree.
+    if s.current_dom_hydrated == 1 {
+        return 0;
+    }
+    // Walk to count nodes BEFORE the cascade consumes the source
+    // Dom. Surfaces in `AzStartup_getDomNodeCount` for JS-side
+    // diagnostics + Sprint 3 diff-arena sizing.
     let count = count_az_dom_nodes(s.current_dom_ptr as usize as *const u8);
     if count == 0 {
         return 3;
     }
+    // Take a &mut to the AzDom blob the layout cb wrote. The
+    // cb's wrapper uses X8 hidden-return to deposit the Dom value
+    // here; we reinterpret the bytes via the host's #[repr(C)]
+    // layout, which matches the AArch64 ABI the lift simulated.
+    let dom_ref: &mut Dom = &mut *(s.current_dom_ptr as usize as *mut Dom);
+    // Run the cascade. Same fn the desktop App.run uses; its
+    // transitive deps lift via S1.A's transitive pipeline. With
+    // an empty Css, the selector-matching pass is a no-op; UA
+    // CSS + inheritance still run so widget defaults
+    // (font-size, padding) apply.
+    // Run the cascade. Same fn the desktop App.run uses; its
+    // transitive deps lift via S1.A's transitive pipeline. With
+    // an empty Css, the selector-matching pass is a no-op; UA
+    // CSS + inheritance still run so widget defaults
+    // (font-size, padding) apply.
+    //
+    // **Known limitation (see memory note
+    // m11-complex-struct-box-new-lift)**: the returned StyledDom's
+    // internal Vec fields (node_data, node_hierarchy, ...) are
+    // currently zero-init when read back through the boxed pointer.
+    // Box::new for complex by-value structs doesn't fully lift the
+    // value's bytes. The pointer + heap allocation are valid; only
+    // the in-place initialization of internal Vecs is dropped on
+    // the floor. Sprint 2 / 3 will address by either (a) tracing
+    // the lifted IR to find the broken helper, or (b) constructing
+    // a minimal StyledDom-equivalent via field-by-field writes.
+    let styled = StyledDom::create(dom_ref, Css::empty());
+    let boxed = Box::new(styled);
+    s.current_dom_styled_ptr = Box::into_raw(boxed) as usize as u32;
     s.current_dom_node_count = count;
     s.current_dom_hydrated = 1;
     0
@@ -883,6 +946,38 @@ pub unsafe extern "C" fn AzStartup_getDomNodeCount(state: u32) -> u32 {
     }
     let s = &*(state as usize as *mut EventloopState);
     s.current_dom_node_count
+}
+
+/// Number of nodes in `state.current_dom` (the typed `StyledDom`
+/// produced by Sprint 1.B's cascade) — `0` when hydrate hasn't
+/// run.
+///
+/// Useful as a cross-check against
+/// [`AzStartup_getDomNodeCount`]: when both return non-zero and
+/// match, the cascade preserved every node from the layout cb's
+/// returned tree.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_getStyledDomNodeCount(state: u32) -> u32 {
+    if state == 0 {
+        return 0;
+    }
+    let s = &*(state as usize as *mut EventloopState);
+    if s.current_dom_styled_ptr == 0 {
+        return 0;
+    }
+    let styled = &*(s.current_dom_styled_ptr as usize as *const StyledDom);
+    styled.node_data.len() as u32
+}
+
+/// DIAG: return the raw `current_dom_styled_ptr` value so JS can see
+/// whether `Box::into_raw` produced a non-zero pointer or not.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_getStyledDomPtr(state: u32) -> u32 {
+    if state == 0 {
+        return 0;
+    }
+    let s = &*(state as usize as *mut EventloopState);
+    s.current_dom_styled_ptr
 }
 
 // =====================================================================

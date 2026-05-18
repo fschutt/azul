@@ -65,12 +65,16 @@ pub const EVENTLOOP_SYMBOLS: &[&str] = &[
     // M9-6: wasm-resident dispatch state setters.
     "AzStartup_setModelPtr",
     "AzStartup_setDisplayNode",
-    // M11 Sprint 1: StyledDom hydrate (marker-field flavor — the
-    // walker confirms the AzDom blob is reachable + caches node
-    // count for Sprint 3's diff arena sizing).
+    // M11 Sprint 1: StyledDom hydrate — runs the cascade
+    // (`StyledDom::create(&mut dom, Css::empty())`) wasm-side via
+    // the S1.A transitive lift pipeline. `getStyledDomNodeCount`
+    // returns the StyledDom's node count for cross-checking
+    // against `getDomNodeCount` (the raw AzDom walker).
     "AzStartup_hydrateStyledDom",
     "AzStartup_isStyledDomHydrated",
     "AzStartup_getDomNodeCount",
+    "AzStartup_getStyledDomNodeCount",
+    "AzStartup_getStyledDomPtr",
 ];
 
 use std::collections::{BTreeMap, HashMap};

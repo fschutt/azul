@@ -279,10 +279,12 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
             ],
             ret: None,
         }),
-        // M11 Sprint 1 — hydrate marker + getters.
+        // M11 Sprint 1 — hydrate + getters (cascade + diff cross-check).
         "AzStartup_hydrateStyledDom"
         | "AzStartup_isStyledDomHydrated"
-        | "AzStartup_getDomNodeCount" => Some(CallbackSignature {
+        | "AzStartup_getDomNodeCount"
+        | "AzStartup_getStyledDomNodeCount"
+        | "AzStartup_getStyledDomPtr" => Some(CallbackSignature {
             kind: name.to_string(),
             // (state: u32) -> u32
             args: vec![Pcs::Wreg { state_byte_offset: X0 }],
