@@ -40,15 +40,148 @@ default-search-keys:
 
 > **📋 Architectural retrospective:** see
 > [`scripts/M9_REVIEW_AND_OPTION_A.md`](../../../../scripts/M9_REVIEW_AND_OPTION_A.md)
-> for the post-M9 review that identifies the **synthetic-address
-> lift fix** as the single ~50 LOC change that retires most of
-> the M9 scaffolding (data section mirror filter heuristic,
-> wasm memory inflation experiments, the persistent OOB on full
-> hello-world.c). The "user intent vs implementation" gap
-> documented below collapses to "one parameter changed at the
-> three lift call sites" under that fix.
+> for the post-M9 review that drove the synthetic-address lift
+> fix described under "Synthetic-address lift" below.
 
-## Status (as of M9 close-out, 2026-05-18)
+## Status (as of M9-after-review, 2026-05-18)
+
+**Synthetic-address lift scheme shipped** (`23d7174d5`). The
+previous `lift_addr = native_runtime_addr` convention is gone;
+remill now sees a small per-image synthetic address at
+`--address=`, which means the lifted `adrp+ldr` page targets
+land in a predictable wasm-friendly band of linear memory
+instead of at ~200 MiB truncated runtime addresses. Three
+direct improvements:
+
+  - **Wasm memory dropped 1 GiB → 128 MiB.** The previous
+    bloat absorbed the high adrp targets; with synth
+    addresses they never exceed 128 MiB and the bump heap
+    sits at 96 MiB.
+  - **On_click counter e2e (5→12) passes** in BOTH subprocess
+    and `AZ_NATIVE_REMILL=1` modes through the FULL dispatch
+    path. The cb's lifted `adrp+add` for `_MyDataModel_RttiTypeId`
+    produces a synth address; `html_render.rs` translates the
+    server-captured native type_id through
+    `SymbolTable::native_to_synth` so the JS-supplied hydrate
+    value matches what the cb computes. Without that
+    translation `MyDataModel_downcastMut` would fail and the
+    cb would return DoNothing.
+  - **Minimal layout probe passes** end-to-end (`hello-world-minimal.bin`
+    → `initLayoutCache rc=0`, current_dom populated).
+
+What's still NOT working — full `examples/c/hello-world.c`
+layout probe traps deeper in libazul's lifted code (now at
+`wasm-function[103]:0x25b3c` instead of the pre-synth
+`wasm-function[19]:0x57c8`). The trap moved from "no memory to
+deref" to "some libazul-side `adrp+ldr` landing in an
+unmirrored data section." Solvable by extending the mirror
+filter (currently `__TEXT.__cstring`, `__TEXT.__const`,
+`__DATA.__data`, `__DATA.__const`, `__DATA_CONST.__const`) to
+include `__DATA_CONST.__got` and friends, or by per-symbol
+SymbolTable classification of the specific reads.
+
+**Trade-off**: mini.wasm grew from ~9 KiB to ~27 MiB to carry
+the libazul data mirror. Compresses well on the wire (a few
+MiB after gzip) and is a one-time download per session; the
+alternative is per-cb data-segment partition which is more
+complex to implement.
+
+## Synthetic-address lift
+
+ARM64 `adrp x<n>, IMM` lifts to:
+
+```llvm
+%pc = load i64, ptr %PC, align 8
+%target_page = and i64 %pc, -4096   ; (PC & ~0xFFF) + imm<<12, simplified
+                                    ; when imm = 0 (same-page target)
+store i64 %target_page, ptr %X<n>, align 8
+```
+
+`%pc` comes from `--address=…` at lift time. With the previous
+`lift_addr = post_ASLR_runtime_addr` convention, `%pc` was a
+runtime address like `0x10cf12345`; truncated to 32 bits for
+wasm32, the lifted code's `inttoptr i32 %addr to ptr; load`
+hit ~200 MiB OOB. The synthetic scheme replaces this with a
+small per-image base such that all post-lift addresses fit
+inside the wasm `initial-memory` cap.
+
+### Per-image rebasing
+
+`SymbolTable::assign_synthetic_addresses` walks the loaded
+images (filtered by `is_system_image`), records each one's
+runtime span as an `ImageRebase`, and assigns a unique
+synth base in monotonically increasing order:
+
+```
+synth offset │ what lives here
+─────────────┼─────────────────────────────────────────
+0x0    .. 0x10000    wasm runtime stack (per-wasm via the
+                     post-link `relocate_stack_*` patch)
+0x10000+            image 0 (typically user binary, ~64 KiB)
+0x100000+           image 1 (libazul.dylib, ~80 MiB span)
+…                   subsequent images, 1 MiB-aligned bases
+~96 MiB             bump-allocator heap base (@__az_bump_ptr)
+~128 MiB            end of initial wasm memory
+```
+
+For every entry: `synth = synth_base + (canonical_addr - native_base)`.
+
+### Symbol-name flow through the pipeline
+
+```
+bytes-scan in BFS pre-walk:
+    finds `bl 0x100013e7c`   (native target)
+    table.resolve(0x100013e7c) → libazul canonical entry
+    queue canonical_native for lift
+
+lift queue iteration:
+    addr = canonical_native
+    lift_addr = symbol_table::get().lookup(addr).synthetic_addr
+               = libazul_synth
+    remill emits `define ptr @sub_<libazul_synth>`
+    bl targets in this fn lift as
+        `call sub_<lift_pc_synth + (native_target - lift_pc_native)>`
+        = synth_of_native_target
+
+post-lift rewrite_sub_names_to_canonical:
+    Reads `sub_<HEX>` tokens, HEX is in synth space.
+    For each: resolve_synth(HEX) chases the synth chain
+    (mirroring the native `chain` map but populated with
+    each pair's synth addrs). Emits `sub_<canonical_synth>`.
+
+data-section mirror:
+    Per `image_rebases`, walks each image's data sections.
+    Writes a wasm Data segment at synth_base + file_offset.
+    The cb's lifted `adrp+add+ldr` lands in this region.
+```
+
+### Why `_MyDataModel_RttiTypeId` needed special handling
+
+The C macro:
+
+```c
+static uint64_t const structName##_RttiTypePtrId = 0;
+static uint64_t const structName##_RttiTypeId =
+    (uint64_t)(&structName##_RttiTypePtrId);
+```
+
+stores `_RttiTypeId = native_address_of_RttiTypePtrId` in
+`__DATA_CONST.__const`. The user's data upcast captures
+this NATIVE address into `RefAny.type_id`. Server emits
+the value into the hydrate JSON.
+
+The cb's lifted `MyDataModel_downcastMut` does
+`adrp x1, _RttiTypeId@PAGE; add x1, x1, _RttiTypeId@PAGEOFF`
+to compute the SAME address — but in SYNTH space because of
+the synth lift. The two values mismatch → `isType` returns
+false → cb returns DoNothing.
+
+`html_render.rs` translates the captured native value to
+synth via `SymbolTable::native_to_synth` BEFORE emitting the
+hydrate JSON. Both sides then see the SAME synth value and
+the comparison succeeds.
+
+## Old status (M9-3b experiments, deleted)
 
 **What works end-to-end (hello-world on_click counter):**
 

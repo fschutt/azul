@@ -1,15 +1,61 @@
 # M9 review + Option A done properly (no hacks)
 
 **Date:** 2026-05-18
-**Authors:** post-M9 retro
-**Branch state:** `layout-debug-clean` tip `16b07847a`
+**Authors:** post-M9 retro + implementation
+**Branch state:** `layout-debug-clean` tip `23d7174d5` — synthetic-
+address lift shipped.
 
 This document supersedes [M9_WASM_DOM_HANDOFF.md](M9_WASM_DOM_HANDOFF.md)
 and [M9_NEW_SESSION_PROMPT.md](M9_NEW_SESSION_PROMPT.md) — the plan
 those described was executed (M9 phases 1-6), but the user's post-
-review identified the plan as over-architected. The actual root
-cause is much smaller; this doc explains it and lays out the
-hack-free Option A path forward.
+review identified the plan as over-architected. The synthetic-
+address lift scheme described in §3 LANDED in commit `23d7174d5`;
+on_click counter e2e now passes through the full dispatch path
+with 128 MiB wasm (was 1 GiB).
+
+## Implementation notes (post-landing)
+
+Three things ended up being slightly more involved than the
+plan estimated:
+
+  1. **Stub entries need synth based on their NATIVE LOCATION,
+     not their canonical (chase-target) address.** A PLT stub
+     in user binary `__stubs` lives at `native_loc`; its
+     `canonical_addr` points at the libazul target. If we
+     assign synth from `canonical_addr` the stub gets libazul's
+     synth, but the lifted caller's `bl` produces user-binary
+     synth → mismatch. Fixed by using `by_addr`'s KEY (= the
+     entry's native location) instead of `canonical_addr` in
+     `assign_synthetic_addresses`.
+
+  2. **The `type_id` mechanism in `AZ_REFLECT_FULL` captures a
+     NATIVE address server-side that needs translation.** See
+     web.md's "Why `_MyDataModel_RttiTypeId` needed special
+     handling" section. `html_render.rs` calls
+     `SymbolTable::native_to_synth` on the captured type_id
+     before emitting the hydrate JSON.
+
+  3. **The data-segment mirror DOES need to ship**, not just
+     re-arrange addresses. Lifted libazul code reads from
+     `__cstring`/`__const`/etc.; if the mirror has zeros at
+     those offsets, the cb runs to completion but returns
+     wrong values. The mirror file size is ~27 MiB for
+     hello-world's libazul cover (most of which is the 19 MiB
+     `__const`); compresses well on the wire.
+
+What still doesn't work after this lands:
+
+  - **Full `hello-world.c` layout probe** still traps deeper
+    in (`wasm-function[103]:0x25b3c`). Same diagnosis as
+    before: some libazul function reads from an unmirrored
+    section. The fix is incremental — extend the section
+    filter in `collect_macho_low32_sections` to include the
+    extra sections, or per-symbol classification.
+  - **Mini.wasm is 27 MiB.** Reducing this requires either
+    splitting the mirror across multiple wasms (one shared
+    `/az/data.bin` blob that JS writes once into shared
+    memory; smaller mini.wasm) or only mirroring the sections
+    actually accessed by lifted code.
 
 ## 1. The actual root cause (in one paragraph)
 
