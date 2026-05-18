@@ -1072,6 +1072,7 @@ impl RemillTranspiler {
         // per-layout (ImportMemory) and azul-mini.wasm (OwnMemory)
         // need this for __az_call_indirect to work.
         let import_table = true;
+        let debug_link = std::env::var_os("AZ_WASM_DEBUG").is_some();
         if self.use_native_remill() {
             #[cfg(feature = "web-transpiler-static")]
             {
@@ -1094,12 +1095,16 @@ impl RemillTranspiler {
                     fn_name: output_stem.to_string(),
                     reason: format!("native wasm_link: {}", e),
                 })?;
-                // Run wasm-opt -Oz on the linked output for the same
-                // size win the subprocess path gets below.
-                let pre_opt_path = self.scratch_dir.join(format!("{}.pre-opt.wasm", output_stem));
-                let _ = std::fs::write(&pre_opt_path, &linked);
-                let mut final_wasm = postprocess_wasm_opt(&pre_opt_path, output_stem)
-                    .unwrap_or(linked);
+                let mut final_wasm = if debug_link {
+                    linked
+                } else {
+                    // Run wasm-opt -Oz on the linked output for the same
+                    // size win the subprocess path gets below.
+                    let pre_opt_path = self.scratch_dir
+                        .join(format!("{}.pre-opt.wasm", output_stem));
+                    let _ = std::fs::write(&pre_opt_path, &linked);
+                    postprocess_wasm_opt(&pre_opt_path, output_stem).unwrap_or(linked)
+                };
                 relocate_stack_if_non_mini(&mut final_wasm, memory_mode, output_stem);
                 inject_user_binary_data_segments(&mut final_wasm, accessed_pages, output_stem);
                 return Ok(final_wasm);
@@ -1107,6 +1112,9 @@ impl RemillTranspiler {
         }
         let tools = self.tools(output_stem)?;
         let wasm_path = self.scratch_dir.join(format!("{}.wasm", output_stem));
+        // Set `AZ_WASM_DEBUG=1` to keep the names section + dwarf and
+        // skip wasm-opt — lets `wasm-objdump` and stack traces show
+        // the lifted-symbol names (`sub_<canonical_addr>`).
         let mut args: Vec<String> = vec![
             "--no-entry".to_string(),
             "--allow-undefined".to_string(),
@@ -1116,9 +1124,16 @@ impl RemillTranspiler {
             // --lto-O2 enables cross-object LTO so dead code that
             // crosses .o boundaries also gets DCE'd.
             "--gc-sections".to_string(),
-            "--strip-all".to_string(),
-            "--lto-O2".to_string(),
         ];
+        if !debug_link {
+            args.push("--strip-all".to_string());
+            args.push("--lto-O2".to_string());
+        } else {
+            // --keep-section preserves the function-names custom
+            // section so wasm-objdump can map indices → `sub_<addr>`.
+            args.push("--lto-O0".to_string());
+            args.push("--keep-section=name".to_string());
+        }
         if import_table {
             args.push("--import-table".to_string());
         }
@@ -1149,7 +1164,11 @@ impl RemillTranspiler {
         // locals, merge-blocks, ...) shave another 10-20% on lifted
         // wasm. Best-effort: if wasm-opt isn't installed or fails,
         // serve the un-opt'd wasm.
-        let opt_bytes = postprocess_wasm_opt(&wasm_path, output_stem);
+        let opt_bytes = if debug_link {
+            None
+        } else {
+            postprocess_wasm_opt(&wasm_path, output_stem)
+        };
         let mut final_wasm = match opt_bytes {
             Some(b) => b,
             None => std::fs::read(&wasm_path).map_err(|e| TranspileError {
@@ -1840,6 +1859,7 @@ fn collect_synth_data_pages(
 ) -> Vec<(u32, Vec<u8>)> {
     const PAGE_SIZE: usize = 4096;
     let mut out: Vec<(u32, Vec<u8>)> = Vec::new();
+    let mut translated_total = 0usize;
     for native_page in accessed_pages {
         let native_page = *native_page;
         // Find which image this page belongs to.
@@ -1851,13 +1871,49 @@ fn collect_synth_data_pages(
         // and they stay mapped for the process lifetime. Reading
         // 4 KiB is safe; reads past the segment end are zero-filled
         // by the loader.
-        let bytes = unsafe {
+        let mut bytes = unsafe {
             core::slice::from_raw_parts(native_page as *const u8, PAGE_SIZE).to_vec()
         };
+        // M9-after-review v3: pointer translation in mirrored data.
+        // Sections like `__DATA_CONST.__got` contain native runtime
+        // addresses (function pointers to libsystem stubs, type-id
+        // pointer values, etc.). When lifted code loads one of these
+        // and derefs it, the address truncates to a wasm offset past
+        // the 128 MiB initial memory → OOB trap. Translate every
+        // 8-byte aligned value that falls in a tracked image's
+        // runtime range to the corresponding synth address.
+        let mut translated_in_page = 0usize;
+        for chunk_start in (0..PAGE_SIZE).step_by(8) {
+            if chunk_start + 8 > PAGE_SIZE {
+                break;
+            }
+            let value = u64::from_le_bytes([
+                bytes[chunk_start],
+                bytes[chunk_start + 1],
+                bytes[chunk_start + 2],
+                bytes[chunk_start + 3],
+                bytes[chunk_start + 4],
+                bytes[chunk_start + 5],
+                bytes[chunk_start + 6],
+                bytes[chunk_start + 7],
+            ]);
+            if let Some(synth) = table.native_to_synth(value as usize) {
+                let synth_bytes = (synth as u64).to_le_bytes();
+                bytes[chunk_start..chunk_start + 8].copy_from_slice(&synth_bytes);
+                translated_in_page += 1;
+            }
+        }
+        translated_total += translated_in_page;
         out.push((synth_page as u32, bytes));
     }
     out.sort_by_key(|(off, _)| *off);
     out.dedup_by(|a, b| a.0 == b.0);
+    if translated_total > 0 {
+        eprintln!(
+            "[azul-web] M9-after-review v3: pointer-translated {} native→synth values in mirrored pages",
+            translated_total,
+        );
+    }
     out
 }
 
@@ -2964,13 +3020,16 @@ fn emit_helper_ir(
     // offset ~1080. Rounded up to a multiple of 16 for alignment.
     let state_size: u64 = 1088;
     // Separate stack-scratch buffer for the lifted body's
-    // SP-relative spills. The body's prologue decrements SP by ~96
-    // and stores X29/X30 at SP-relative addresses; a 4 KiB buffer
-    // leaves headroom for deeper call trees. The SP register holds
-    // the address of the *top* of this buffer (i64 of a wasm32
-    // pointer); SP arithmetic decrements toward lower addresses
-    // within the buffer.
-    let stack_size: u64 = 4096;
+    // SP-relative spills. The body's prologue decrements SP and
+    // stores callee-saves at SP-relative addresses. Each lifted
+    // function adds ~96-256 bytes of spill area. Deep libazul call
+    // chains (layout cb's pipeline crosses ~50+ frames) need real
+    // headroom — 4 KiB underflows SP, wraps to a huge u64, and the
+    // first SP-relative load traps OOB. wasm-ld's default global
+    // $stack_pointer reserves 64 KiB; making `%stack_buf` larger
+    // than that would itself overflow the wasm stack as soon as
+    // the wrapper enters. Stay under the budget at 32 KiB.
+    let stack_size: u64 = 32 * 1024;
     let (params, prologue) = emit_wrapper_args_and_prologue(sig);
     let (ret_ty, ret_code) = emit_wrapper_return(sig);
     // M7: emit a body for every branch-destination extern the lift
@@ -3628,23 +3687,42 @@ fn scan_arm64_adrp_pages(fn_bytes: &[u8], fn_addr: usize) -> Vec<usize> {
             fn_bytes[offset + 2],
             fn_bytes[offset + 3],
         ]);
-        // ADRP encoding: bit 31 = 1, bits 28..24 = 10000.
-        // → top byte mask `0x9F & 0x9F == 0x90` after masking bit 30 (immlo).
-        // Pattern: (instr >> 31) == 1 && (instr >> 24) & 0x1F == 0x10
-        if (instr >> 31) == 1 && ((instr >> 24) & 0x1F) == 0x10 {
-            let immlo = (instr >> 29) & 0x3;     // bits 30..29
-            let immhi = (instr >> 5) & 0x7FFFF;  // bits 23..5
+        let pc = fn_addr.wrapping_add(offset);
+        // ADR / ADRP family: bits 28..24 = 10000. Bit 31 = 0 → ADR
+        // (byte-offset, ±1 MiB), 1 → ADRP (page-offset, ±4 GiB shifted).
+        if ((instr >> 24) & 0x1F) == 0x10 {
+            let immlo = (instr >> 29) & 0x3;
+            let immhi = (instr >> 5) & 0x7FFFF;
             let imm21 = (immhi << 2) | immlo;
-            // Sign-extend 21 → 33 bits, then shift << 12.
             let signed_imm: i64 = if imm21 & (1 << 20) != 0 {
-                ((imm21 as i64) | !0x1F_FFFF_i64) << 12
+                (imm21 as i64) | !0x1F_FFFF_i64
             } else {
-                (imm21 as i64) << 12
+                imm21 as i64
             };
-            let pc = fn_addr.wrapping_add(offset);
-            let pc_page = pc & !0xFFF;
-            let target_page = (pc_page as i64).wrapping_add(signed_imm) as usize;
-            out.push(target_page);
+            let target = if (instr >> 31) == 1 {
+                // ADRP: shift << 12, target is page-aligned
+                let pc_page = pc & !0xFFF;
+                (pc_page as i64).wrapping_add(signed_imm << 12) as usize
+            } else {
+                // ADR: byte offset from current PC
+                (pc as i64).wrapping_add(signed_imm) as usize
+            };
+            // Round to page boundary for the mirror.
+            out.push(target & !0xFFF);
+        }
+        // LDR (literal): pc-relative load with embedded immediate.
+        // Encoding bits 31..30 + 29..27 = `00/01_011_<v=0>_00`
+        // For 32-bit/64-bit non-vector LDR-literal: top 8 bits == 0x18 (i32)
+        // or 0x58 (i64). immediate19 at bits 23..5, shifted << 2.
+        else if (instr >> 24) == 0x18 || (instr >> 24) == 0x58 {
+            let imm19 = (instr >> 5) & 0x7FFFF;
+            let signed_imm: i64 = if imm19 & (1 << 18) != 0 {
+                ((imm19 as i64) | !0x7FFFF_i64) << 2
+            } else {
+                (imm19 as i64) << 2
+            };
+            let target = (pc as i64).wrapping_add(signed_imm) as usize;
+            out.push(target & !0xFFF);
         }
         offset += 4;
     }
