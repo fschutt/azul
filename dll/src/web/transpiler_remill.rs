@@ -1706,23 +1706,24 @@ fn inject_user_binary_data_segments(wasm: &mut Vec<u8>) {
     // multi-MB const sections (which would inflate mini.wasm and
     // overlap with the bump heap). 8 MiB comfortably covers a
     // typical macOS user-binary slide (single-digit MiB) plus
-    // section size.
+    // section size; ASLR runs with larger slides will get 0 segments
+    // back and the injector returns silently (see follow-up task
+    // "user-binary data section mirror" for the broader fix that
+    // grows wasm memory + relocates the bump heap to encompass
+    // arbitrary slide values).
     let limit: u32 = 8 * 1024 * 1024;
     let segments = super::symbol_table::SymbolTable::enumerate_low32_data_for_wasm(limit);
-    eprintln!(
-        "[azul-web] M9-3b: enumerate_low32_data_for_wasm(limit=0x{:x}) → {} segments",
-        limit, segments.len(),
-    );
     if segments.is_empty() {
         return;
     }
     let total_bytes: usize = segments.iter().map(|(_, b)| b.len()).sum();
+    let pre_len = wasm.len();
     match patch_wasm_add_data_segments(wasm, &segments) {
         Ok(added) => {
             eprintln!(
                 "[azul-web] M9-3b: injected {} user-binary data segments \
-                 ({} bytes total) into mini.wasm",
-                added, total_bytes,
+                 ({} bytes total) into mini.wasm ({} → {} bytes)",
+                added, total_bytes, pre_len, wasm.len(),
             );
         }
         Err(e) => {
