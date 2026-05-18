@@ -1649,18 +1649,82 @@ impl RemillTranspiler {
                 to_lift_idx.len(),
                 t0.elapsed(),
             );
-            for (&i, lifted_ir) in to_lift_idx.iter().zip(per_fn_irs.iter()) {
-                let t = &targets[i];
-                let lift_addr = synth_of(t.addr);
-                let obj = self.produce_object_from_lifted_ir(
-                    &t.name, t.addr, lift_addr, &t.sig, &t.export_as, lifted_ir,
-                )?;
-                self.object_cache
-                    .lock()
-                    .unwrap()
-                    .insert((t.addr, t.export_as.clone()), obj.clone());
-                object_paths.push(obj);
-                exports.push(t.export_as.clone());
+
+            // M10-B1.b: opt-in merged compile. Set
+            // AZ_REMILL_MERGED_COMPILE=1 to run all per-fn IRs through
+            // a single linkInModule + opt -O2 pass with alwaysinline
+            // on every sub_<hex> define. Lets opt inline the entire
+            // dep call graph into the entry wrapper → State alloca
+            // SROA fires → layout.wasm shrinks dramatically.
+            //
+            // Default path (per-fn .o + wasm-ld) is unchanged so this
+            // ships dormant and the cache stays usable for previous
+            // session runs.
+            let merged_mode = self.use_native_remill()
+                && std::env::var_os("AZ_REMILL_MERGED_COMPILE").is_some();
+            if merged_mode {
+                let merge_t0 = std::time::Instant::now();
+                let mut ir_pairs: Vec<(String, String)> =
+                    Vec::with_capacity(to_lift_idx.len());
+                // tag_with_alwaysinline_all=true crashes on dep graphs
+                // with recursion cycles (alwaysinline + cycle is a hard
+                // LLVM assert). Default false — opt -O2's own inliner
+                // heuristic still inlines small funcs across the
+                // merged module + skips cycles. Set
+                // AZ_REMILL_MERGED_ALWAYSINLINE=1 to force; useful
+                // when the call graph is known DAG-shaped.
+                let alwaysinline_all =
+                    std::env::var_os("AZ_REMILL_MERGED_ALWAYSINLINE").is_some();
+                for (&i, lifted_ir) in to_lift_idx.iter().zip(per_fn_irs.iter()) {
+                    let t = &targets[i];
+                    let lift_addr = synth_of(t.addr);
+                    let (patched, helper) = self.prepare_per_fn_irs(
+                        &t.name,
+                        t.addr,
+                        lift_addr,
+                        &t.sig,
+                        &t.export_as,
+                        lifted_ir,
+                        alwaysinline_all,
+                    )?;
+                    ir_pairs.push((patched, helper));
+                }
+                let merged_obj = self.compile_merged_transitive_object(&ir_pairs)?;
+                eprintln!(
+                    "[azul-web]   transitive (merged): compiled {} fns into one .o in {:?}",
+                    to_lift_idx.len(),
+                    merge_t0.elapsed(),
+                );
+                object_paths.push(merged_obj);
+                // Only export the root entry (first target). Dep
+                // wrappers exist in the merged .o but stay internal —
+                // wasm-ld's `--gc-sections` strips them if not exported.
+                // The roots come from `roots` which was canonicalized
+                // into `targets[0..roots.len()]` order above.
+                for &i in &to_lift_idx {
+                    let t = &targets[i];
+                    // Only export functions whose export_as does NOT
+                    // start with `__az_dep_` (those are transitive
+                    // deps the lift discovered, not user-callable
+                    // entries).
+                    if !t.export_as.starts_with("__az_dep_") {
+                        exports.push(t.export_as.clone());
+                    }
+                }
+            } else {
+                for (&i, lifted_ir) in to_lift_idx.iter().zip(per_fn_irs.iter()) {
+                    let t = &targets[i];
+                    let lift_addr = synth_of(t.addr);
+                    let obj = self.produce_object_from_lifted_ir(
+                        &t.name, t.addr, lift_addr, &t.sig, &t.export_as, lifted_ir,
+                    )?;
+                    self.object_cache
+                        .lock()
+                        .unwrap()
+                        .insert((t.addr, t.export_as.clone()), obj.clone());
+                    object_paths.push(obj);
+                    exports.push(t.export_as.clone());
+                }
             }
         }
 
@@ -2730,10 +2794,157 @@ impl Transpiler for RemillTranspiler {
     }
 }
 
-// M10-C1 inherent impl. Carries the hand-written bump-helper IR
-// → .o pipeline. Kept separate from the `impl Transpiler` block
-// because it's not part of the public Transpiler trait surface.
+// M10 inherent impl. Carries the hand-written bump-helper IR + the
+// merged-compile transitive-lift path. Kept separate from the
+// `impl Transpiler` block because these aren't part of the public
+// Transpiler trait surface.
 impl RemillTranspiler {
+    /// M10-B1.b — prepare (patched_ir, helper_ir) strings for one
+    /// lifted function WITHOUT compiling or writing .o files. Used by
+    /// the merged-compile path
+    /// ([`compile_merged_transitive_object`]) which feeds multiple
+    /// per-fn IRs to a single `compile_to_wasm32_obj` so opt -O2 can
+    /// inline + SROA across the whole dep graph.
+    ///
+    /// `tag_with_alwaysinline_all`: when true, inject `alwaysinline`
+    /// on EVERY `define ptr @sub_<hex>(...) {` in the patched IR
+    /// (not just the entry). For merged compile this is the lever
+    /// that unblocks State-alloca SROA.
+    fn prepare_per_fn_irs(
+        &self,
+        fn_name: &str,
+        fn_addr: usize,
+        lift_addr: u64,
+        sig: &CallbackSignature,
+        export_as: &str,
+        raw_lifted_ir: &str,
+        tag_with_alwaysinline_all: bool,
+    ) -> Result<(String, String), TranspileError> {
+        std::fs::create_dir_all(&self.scratch_dir).map_err(|e| TranspileError {
+            fn_name: fn_name.to_string(),
+            reason: format!("scratch dir: {e}"),
+        })?;
+        let stem = sanitize_filename(export_as);
+        let _ = std::fs::write(
+            self.scratch_dir.join(format!("{}_{:x}.lifted.ll", sanitize_filename(fn_name), fn_addr)),
+            raw_lifted_ir,
+        );
+
+        let lifted_ir = match symbol_table::get() {
+            Some(table) => {
+                let rewritten =
+                    rewrite_sub_names_to_canonical(raw_lifted_ir, table, fn_addr, lift_addr);
+                dedup_sub_declares(&rewritten)
+            }
+            None => raw_lifted_ir.to_string(),
+        };
+        let lifted_ir = tag_state_accesses(&lifted_ir);
+
+        let canonical_entry_addr = symbol_table::get()
+            .and_then(|t| {
+                t.lookup(fn_addr)
+                    .map(|e| t.resolve_synth(e.synthetic_addr).unwrap_or(e.synthetic_addr))
+            })
+            .unwrap_or(fn_addr) as u64;
+
+        let patched_ir = if export_as.starts_with("AzStartup_") {
+            // Same rationale as produce_object_from_lifted_ir: AzStartup_*
+            // can't tolerate alwaysinline (call observer gets DCE'd).
+            lifted_ir.clone()
+        } else if tag_with_alwaysinline_all {
+            inject_alwaysinline_all_subs(&lifted_ir)
+        } else {
+            inject_alwaysinline(&lifted_ir, canonical_entry_addr)
+        };
+        let patched_ir_path = self.scratch_dir.join(format!("{}.patched.ll", stem));
+        std::fs::write(&patched_ir_path, &patched_ir).map_err(|e| TranspileError {
+            fn_name: fn_name.to_string(),
+            reason: format!("write patched IR: {e}"),
+        })?;
+
+        let branch_sym_names = parse_extern_sub_declares(&lifted_ir);
+        let mut resolved_branches: Vec<ResolvedBranchExtern> =
+            Vec::with_capacity(branch_sym_names.len());
+        for sym_name in &branch_sym_names {
+            let synth_addr = parse_sub_hex_as_addr(sym_name).unwrap_or(0);
+            let classification = symbol_table::get()
+                .and_then(|t| t.lookup_by_synth(synth_addr))
+                .map(|e| e.classification);
+            resolved_branches.push(ResolvedBranchExtern {
+                sym_name: sym_name.clone(),
+                classification,
+            });
+        }
+        let helper_ir = emit_helper_ir(
+            canonical_entry_addr,
+            sig,
+            &resolved_branches,
+            export_as,
+        );
+        let helper_ir = tag_state_accesses(&helper_ir);
+        let helper_ir_path = self.scratch_dir.join(format!("{}.helper.ll", stem));
+        std::fs::write(&helper_ir_path, &helper_ir).map_err(|e| TranspileError {
+            fn_name: fn_name.to_string(),
+            reason: format!("write helper IR: {e}"),
+        })?;
+
+        Ok((patched_ir, helper_ir))
+    }
+
+    /// M10-B1.b — compile a batch of (patched_ir, helper_ir) pairs
+    /// into ONE wasm32 object via merged linkInModule + opt -O2.
+    /// All per-fn IRs become a single module before opt runs, so
+    /// alwaysinline-marked functions get inlined into their callers
+    /// across what used to be `.o` boundaries.
+    ///
+    /// Returns the path of the resulting `.o` file.
+    ///
+    /// Only available with the native compile path. Returns an error
+    /// otherwise (the subprocess path would need a multi-input
+    /// llvm-link invocation which doesn't help latency anyway).
+    fn compile_merged_transitive_object(
+        &self,
+        ir_pairs: &[(String, String)],
+    ) -> Result<PathBuf, TranspileError> {
+        if !self.use_native_remill() {
+            return Err(TranspileError {
+                fn_name: "transitive-merged".into(),
+                reason: "merged compile requires AZ_NATIVE_REMILL=1".into(),
+            });
+        }
+        // Flatten (patched, helper) pairs into a single &[&str] for
+        // compile_to_wasm32_obj. parseIR runs once per input, then
+        // linkInModule merges them all into the first.
+        let mut all_irs: Vec<&str> = Vec::with_capacity(ir_pairs.len() * 2);
+        for (patched, helper) in ir_pairs {
+            all_irs.push(patched.as_str());
+            all_irs.push(helper.as_str());
+        }
+        #[cfg(feature = "web-transpiler-static")]
+        {
+            let obj_bytes = super::native_remill::compile_to_wasm32_obj(&all_irs)
+                .map_err(|e| TranspileError {
+                    fn_name: "transitive-merged".into(),
+                    reason: format!("native compile: {}", e),
+                })?;
+            let obj_path = self.scratch_dir.join("transitive_merged.o");
+            std::fs::write(&obj_path, &obj_bytes).map_err(|e| TranspileError {
+                fn_name: "transitive-merged".into(),
+                reason: format!("write {}: {e}", obj_path.display()),
+            })?;
+            Ok(obj_path)
+        }
+        #[cfg(not(feature = "web-transpiler-static"))]
+        {
+            let _ = all_irs;
+            Err(TranspileError {
+                fn_name: "transitive-merged".into(),
+                reason: "web-transpiler-static feature required for merged compile"
+                    .into(),
+            })
+        }
+    }
+
     /// M10-C1 — hand-written IR for the bump-heap snapshot/reset
     /// helpers. Two functions sit alongside the lifted AzStartup_* in
     /// azul-mini.wasm and expose direct load/store on the
@@ -3101,6 +3312,45 @@ fn inject_alwaysinline(ir: &str, lift_addr: u64) -> String {
         } else {
             out.push_str(line);
         }
+        out.push('\n');
+    }
+    out
+}
+
+/// M10-B1.b variant — inject `alwaysinline` on EVERY
+/// `define ptr @sub_<hex>(...) {` line, not just the entry. Used by
+/// the merged-compile transitive-lift path so opt -O2 can inline the
+/// entire dep call graph into the entry wrapper. State alloca then
+/// has no escape via call → SROA promotes it to registers.
+///
+/// Recursion check: the lift's BFS dep enumeration assumes the call
+/// graph is a DAG (cycles cause MAX_RECURSIVE_DEPTH exhaustion).
+/// Any actual recursive cycle in the user binary's lifted code would
+/// reach this function and cause an LLVM error at inline time. The
+/// caller is responsible for not landing here with a cyclic graph.
+fn inject_alwaysinline_all_subs(ir: &str) -> String {
+    let mut out = String::with_capacity(ir.len() + 4 * 1024);
+    for line in ir.lines() {
+        // Match `define ptr @sub_<hex>(... ) {` with no existing
+        // attribute keywords between `)` and `{` (a defensive check
+        // for already-tagged lines from re-running the pass).
+        if let Some(after_sig) = line.find(") {") {
+            let prefix = &line[..after_sig];
+            let suffix = &line[after_sig..]; // ") {"
+            let trimmed = prefix.trim_start();
+            if trimmed.starts_with("define ptr @sub_")
+                && !prefix.contains(" alwaysinline")
+            {
+                out.push_str(prefix);
+                out.push_str(") alwaysinline {");
+                // Skip the original `) {` since we just wrote
+                // `) alwaysinline {`.
+                let _ = suffix;
+                out.push('\n');
+                continue;
+            }
+        }
+        out.push_str(line);
         out.push('\n');
     }
     out
