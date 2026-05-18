@@ -36,6 +36,39 @@ int az_remill_lift(const char *arch_name,
                    size_t *ir_len_out,
                    char **err_out);
 
+/* ── az_remill_lift_batch ────────────────────────────────────────
+ * Lift N functions in one call, sharing one `LoadArchSemantics`
+ * (~30 ms) and one `TraceLifter` across every item. Output is N
+ * separate IR strings — one per item — each with the lifted body
+ * for that item's entry in its own fresh `lifted_<i>` module.
+ * Cross-item bl targets become extern declarations resolved at
+ * wasm-ld time; intra-item references stay as direct calls.
+ *
+ * Per-fn cost drops from ~50 ms (single-shot via `az_remill_lift`)
+ * to ~5 ms once `LoadArchSemantics` is amortized over the batch.
+ *
+ * Output `ir_outs[i]` (length `ir_lens_out[i]`) for `i in [0,
+ * item_count)`. The caller must free each `ir_outs[i]` via
+ * `az_remill_free` and `ir_outs` itself via `az_remill_free_buf`
+ * (cast as `uint8_t *`).
+ *
+ * Each item's `bytes` is its function body; `addresses[i]` is the
+ * canonical virtual address where the entry is assumed to live.
+ * The manager's `LiftMemory` spans every item's byte range so the
+ * lifter can find executable bytes when one item's `bl` lands on
+ * another item's entry; bl targets that fall in the GAPS between
+ * items still resolve as extern declarations.
+ */
+int az_remill_lift_batch(const char *arch_name,
+                         const char *os_name,
+                         const uint64_t *addresses,
+                         const uint8_t *const *bytes_ptrs,
+                         const size_t *bytes_lens,
+                         size_t item_count,
+                         char ***ir_outs,
+                         size_t **ir_lens_out,
+                         char **err_out);
+
 /* ── az_remill_compile_to_wasm32_obj ─────────────────────────────
  * Parse one or more LLVM IR text inputs into separate Modules, link
  * them together via llvm::Linker (handles cross-module type / global

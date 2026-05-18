@@ -456,58 +456,41 @@ impl RemillTranspiler {
         export_as: &str,
         lift_addr: u64,
     ) -> Result<PathBuf, TranspileError> {
+        let raw_lifted_ir = self.lift_fn(fn_name, fn_addr, fn_size, lift_addr)?;
+        self.produce_object_from_lifted_ir(
+            fn_name, fn_addr, lift_addr, sig, export_as, &raw_lifted_ir,
+        )
+    }
+
+    /// Lift a single function to its raw remill IR (one `define ptr
+    /// @sub_<lift_addr_hex>(...)` plus extern declarations for bl
+    /// targets). Used by `produce_object_for` for the per-fn path;
+    /// batched-lift call sites bypass this and use
+    /// `native_remill::lift_batch` directly to share LoadArchSemantics.
+    fn lift_fn(
+        &self,
+        fn_name: &str,
+        fn_addr: usize,
+        fn_size: usize,
+        lift_addr: u64,
+    ) -> Result<String, TranspileError> {
         let use_native = self.use_native_remill();
-        // Tools resolved only when the subprocess pipeline is active.
-        // In native mode we skip the discovery + missing-binary errors
-        // so the user doesn't need remill-lift-17 / llc / wasm-ld
-        // installed (the bodies are linked into libazul.dylib).
-        let tools = if use_native {
-            None
-        } else {
-            Some(self.tools(fn_name)?)
-        };
         std::fs::create_dir_all(&self.scratch_dir).map_err(|e| TranspileError {
             fn_name: fn_name.to_string(),
             reason: format!("scratch dir: {e}"),
         })?;
-
-        // SAFETY: caller asserts `fn_addr` + `fn_size` cover a live
-        // function in this process's .text. Reading is read-only and
-        // bounded by `fn_size`; the slice is consumed before any other
-        // operation that could remap memory.
-        //
-        // M8.8 Stage 1: the SymbolTable's `bytes` field is the exact
-        // slice for this entry — derived from
-        // `next_symbol_addr - this_addr` at table-build, not the
-        // pre-M8.8 flat 4 KiB window. When the table isn't installed
-        // (early-boot, build error), `fn_size` is the legacy flat
-        // window per `LIFT_READ_WINDOW`.
+        // SAFETY: caller asserts (fn_addr, fn_size) cover live .text
+        // bytes (typically derived from the SymbolTable's exact
+        // `next_symbol_addr - this_addr` slice).
         let bytes: Vec<u8> = unsafe {
             std::slice::from_raw_parts(fn_addr as *const u8, fn_size).to_vec()
         };
-        // `rewrite_tailcall_wrapper` deleted in M8.8 Stage 1. Bare-`b`
-        // tail-call shims are now classified as `SymKind::Stub` at
-        // table-build time and chained through to the real callee, so
-        // `fn_addr` here points at the target's body, not the shim.
-
         let arch_tag = host_arch_tag().ok_or_else(|| TranspileError {
             fn_name: fn_name.to_string(),
             reason: "unsupported host architecture for remill (need aarch64 or x86_64)".into(),
         })?;
-
-        // M8.9: in-process lift via the statically-linked wrapper.
-        // Default path is the subprocess; the in-process path is
-        // opt-in via `AZ_NATIVE_REMILL=1` env var until Phases 2-3
-        // wire compile/link/batched-lift through. The Phase 1 trace
-        // divergence (in-process lifter producing 3 traces vs
-        // subprocess's 1 for 48-byte AzStartup_alloc) is closed —
-        // `SimpleTraceManager::GetLiftedTraceDefinition` now mirrors
-        // Lift.cpp's: returns an extern declaration for non-entry
-        // addresses, which makes TraceLifter skip recursive lift of
-        // bl targets that fall outside the LiftMemory range.
         let stem = sanitize_filename(fn_name);
         let lifted_ir_path = self.scratch_dir.join(format!("{}.lifted.ll", stem));
-
         if use_native {
             #[cfg(feature = "web-transpiler-static")]
             {
@@ -522,23 +505,61 @@ impl RemillTranspiler {
                     fn_name: fn_name.to_string(),
                     reason: format!("write lifted IR: {e}"),
                 })?;
+                return Ok(ir);
             }
-        } else {
-            let tools = tools.as_ref().expect("tools required for subprocess lift");
-            let hex = bytes_to_hex(&bytes);
-            run_tool(
-                tools.remill_lift,
-                &[
-                    "--arch", arch_tag,
-                    "--os", host_os_tag(),
-                    "--address", &format!("0x{:x}", lift_addr),
-                    "--entry_address", &format!("0x{:x}", lift_addr),
-                    "--bytes", &hex,
-                    "--ir_out", lifted_ir_path.to_str().expect("scratch path is utf-8"),
-                ],
-                fn_name,
-            )?;
+            #[cfg(not(feature = "web-transpiler-static"))]
+            unreachable!("use_native_remill() returns false without the feature");
         }
+        let tools = self.tools(fn_name)?;
+        let hex = bytes_to_hex(&bytes);
+        run_tool(
+            tools.remill_lift,
+            &[
+                "--arch", arch_tag,
+                "--os", host_os_tag(),
+                "--address", &format!("0x{:x}", lift_addr),
+                "--entry_address", &format!("0x{:x}", lift_addr),
+                "--bytes", &hex,
+                "--ir_out", lifted_ir_path.to_str().expect("scratch path is utf-8"),
+            ],
+            fn_name,
+        )?;
+        std::fs::read_to_string(&lifted_ir_path).map_err(|e| TranspileError {
+            fn_name: fn_name.to_string(),
+            reason: format!("read lifted IR: {e}"),
+        })
+    }
+
+    /// Post-lift pipeline: takes a `raw_lifted_ir` (from `lift_fn` for
+    /// single lifts or from `native_remill::lift_batch` for batched
+    /// lifts), applies SymbolTable name rewriting, emits the per-fn
+    /// helper IR with the wrapper + branch-extern bodies, then
+    /// compiles to a wasm32 .o object. Returns the path to the .o.
+    fn produce_object_from_lifted_ir(
+        &self,
+        fn_name: &str,
+        fn_addr: usize,
+        lift_addr: u64,
+        sig: &CallbackSignature,
+        export_as: &str,
+        raw_lifted_ir: &str,
+    ) -> Result<PathBuf, TranspileError> {
+        let use_native = self.use_native_remill();
+        let tools = if use_native {
+            None
+        } else {
+            Some(self.tools(fn_name)?)
+        };
+        std::fs::create_dir_all(&self.scratch_dir).map_err(|e| TranspileError {
+            fn_name: fn_name.to_string(),
+            reason: format!("scratch dir: {e}"),
+        })?;
+        let stem = sanitize_filename(fn_name);
+        // Stash the raw lifted IR for debugging.
+        let _ = std::fs::write(
+            self.scratch_dir.join(format!("{}.lifted.ll", stem)),
+            raw_lifted_ir,
+        );
 
         // M6 — IR cleanup phase.
         //
@@ -562,12 +583,6 @@ impl RemillTranspiler {
         //    size reduction: 50-80%.
         //
         // 5. `llc -mtriple=wasm32` on the cleaned IR.
-        let raw_lifted_ir = std::fs::read_to_string(&lifted_ir_path).map_err(|e| {
-            TranspileError {
-                fn_name: fn_name.to_string(),
-                reason: format!("read lifted IR: {e}"),
-            }
-        })?;
 
         // M8.8 Stage 1: rewrite every `@sub_<hex>[.N]` token to use
         // the symbol's canonical post-PLT-chase address as its hex.
@@ -586,10 +601,10 @@ impl RemillTranspiler {
         let lifted_ir = match symbol_table::get() {
             Some(table) => {
                 let rewritten =
-                    rewrite_sub_names_to_canonical(&raw_lifted_ir, table, fn_addr, lift_addr);
+                    rewrite_sub_names_to_canonical(raw_lifted_ir, table, fn_addr, lift_addr);
                 dedup_sub_declares(&rewritten)
             }
-            None => raw_lifted_ir,
+            None => raw_lifted_ir.to_string(),
         };
 
         // The entry's defn after rewrite uses fn_addr as its hex
@@ -1336,27 +1351,92 @@ impl Transpiler for RemillTranspiler {
 
         let mut object_paths: Vec<PathBuf> = Vec::with_capacity(symbols.len());
         let mut exports: Vec<String> = Vec::with_capacity(symbols.len());
-        for (i, ((name, addr, size), sig)) in symbols.iter().zip(sigs.iter()).enumerate() {
-            // CRITICAL: lift_addr MUST equal the native addr so
-            // inter-fn `bl` targets align. AzStartup_hydrate doing
-            // `bl AzStartup_alloc` lifts to `call sub_<native_addr_of_alloc>`;
-            // if alloc's body is at `sub_<some_synthetic>` the linker
-            // can't connect them — the helper IR emits a noop stub
-            // and the cross-fn call silently does nothing. Aligning
-            // lift_addr with native_addr means alloc's body is
-            // emitted as `sub_<native_addr_of_alloc>`, matching
-            // every bl target from any other lifted eventloop fn.
-            //
-            // (Same mechanism as `lift_with_transitive_deps` for
-            // per-cb / per-layout wasms.)
-            let lift_addr = *addr as u64;
-            eprintln!(
-                "[azul-web]   eventloop[{i}]: lifting {} addr=0x{:016x} size={} lift_addr=0x{:x}",
-                name, addr, size, lift_addr,
-            );
-            let obj = self.produce_object_for(name, *addr, *size, sig, name, lift_addr)?;
-            object_paths.push(obj);
-            exports.push(name.clone());
+
+        // M8.9 Phase 3a: in the native pipeline, batch-lift every
+        // eventloop fn in ONE az_remill_lift_batch call. Shares
+        // LoadArchSemantics (~30 ms) across all items — per-fn lift
+        // cost drops from ~50 ms to ~5 ms. The TraceManager spans
+        // the union of all byte ranges so inter-eventloop `bl`
+        // (AzStartup_hydrate → AzStartup_alloc) resolves to the
+        // lifted body in the same batched manager rather than as an
+        // out-of-range extern. The per-fn IR strings returned by the
+        // batch then feed produce_object_from_lifted_ir for the
+        // post-lift compile.
+        //
+        // Subprocess path keeps the per-fn loop — each subprocess
+        // spawn pays the LoadArchSemantics cost regardless, and
+        // there's no batched API in remill-lift-17.
+        if self.use_native_remill() {
+            #[cfg(feature = "web-transpiler-static")]
+            {
+                let arch_tag = host_arch_tag().ok_or_else(|| TranspileError {
+                    fn_name: "azul-mini".into(),
+                    reason: "unsupported host architecture".into(),
+                })?;
+                let bytes_vec: Vec<Vec<u8>> = symbols
+                    .iter()
+                    .map(|(_, addr, size)| unsafe {
+                        std::slice::from_raw_parts(*addr as *const u8, *size).to_vec()
+                    })
+                    .collect();
+                let items: Vec<(u64, &[u8])> = symbols
+                    .iter()
+                    .zip(bytes_vec.iter())
+                    .map(|((_, addr, _), b)| (*addr as u64, b.as_slice()))
+                    .collect();
+                let t0 = std::time::Instant::now();
+                let per_fn_irs = super::native_remill::lift_batch(
+                    arch_tag,
+                    host_os_tag(),
+                    &items,
+                )
+                .map_err(|e| TranspileError {
+                    fn_name: "azul-mini".into(),
+                    reason: format!("native batched lift: {}", e),
+                })?;
+                eprintln!(
+                    "[azul-web]   eventloop: batched lift of {} items in {:?}",
+                    items.len(),
+                    t0.elapsed(),
+                );
+                for (((name, addr, size), sig), lifted_ir) in
+                    symbols.iter().zip(sigs.iter()).zip(per_fn_irs.iter())
+                {
+                    let lift_addr = *addr as u64;
+                    eprintln!(
+                        "[azul-web]   eventloop: post-lift {} addr=0x{:016x} size={}",
+                        name, addr, size,
+                    );
+                    let obj = self.produce_object_from_lifted_ir(
+                        name, *addr, lift_addr, sig, name, lifted_ir,
+                    )?;
+                    object_paths.push(obj);
+                    exports.push(name.clone());
+                }
+            }
+        } else {
+            for (i, ((name, addr, size), sig)) in symbols.iter().zip(sigs.iter()).enumerate() {
+                // CRITICAL: lift_addr MUST equal the native addr so
+                // inter-fn `bl` targets align. AzStartup_hydrate doing
+                // `bl AzStartup_alloc` lifts to `call sub_<native_addr_of_alloc>`;
+                // if alloc's body is at `sub_<some_synthetic>` the linker
+                // can't connect them — the helper IR emits a noop stub
+                // and the cross-fn call silently does nothing. Aligning
+                // lift_addr with native_addr means alloc's body is
+                // emitted as `sub_<native_addr_of_alloc>`, matching
+                // every bl target from any other lifted eventloop fn.
+                //
+                // (Same mechanism as `lift_with_transitive_deps` for
+                // per-cb / per-layout wasms.)
+                let lift_addr = *addr as u64;
+                eprintln!(
+                    "[azul-web]   eventloop[{i}]: lifting {} addr=0x{:016x} size={} lift_addr=0x{:x}",
+                    name, addr, size, lift_addr,
+                );
+                let obj = self.produce_object_for(name, *addr, *size, sig, name, lift_addr)?;
+                object_paths.push(obj);
+                exports.push(name.clone());
+            }
         }
 
         let bytes = self.link_objects_to_wasm(

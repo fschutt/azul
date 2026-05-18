@@ -26,6 +26,18 @@ extern "C" {
         err_out: *mut *mut c_char,
     ) -> c_int;
 
+    fn az_remill_lift_batch(
+        arch_name: *const c_char,
+        os_name: *const c_char,
+        addresses: *const u64,
+        bytes_ptrs: *const *const u8,
+        bytes_lens: *const usize,
+        item_count: usize,
+        ir_outs: *mut *mut *mut c_char,
+        ir_lens_out: *mut *mut usize,
+        err_out: *mut *mut c_char,
+    ) -> c_int;
+
     fn az_remill_compile_to_wasm32_obj(
         ir_strs: *const *const c_char,
         ir_lens: *const usize,
@@ -68,6 +80,18 @@ static ANCHOR_LIFT: unsafe extern "C" fn(
     *mut usize,
     *mut *mut c_char,
 ) -> c_int = az_remill_lift;
+#[used]
+static ANCHOR_LIFT_BATCH: unsafe extern "C" fn(
+    *const c_char,
+    *const c_char,
+    *const u64,
+    *const *const u8,
+    *const usize,
+    usize,
+    *mut *mut *mut c_char,
+    *mut *mut usize,
+    *mut *mut c_char,
+) -> c_int = az_remill_lift_batch;
 #[used]
 static ANCHOR_COMPILE: unsafe extern "C" fn(
     *const *const c_char,
@@ -162,6 +186,79 @@ pub fn lift(
     }
     let ir = unsafe { take_c_string_with_len(ir_ptr, ir_len) };
     Ok(ir)
+}
+
+/// Lift a batch of (address, bytes) items in one in-process call,
+/// sharing `LoadArchSemantics` (~30 ms) and one TraceLifter across
+/// every item. Output IR contains N top-level `define ptr @sub_<hex>(`
+/// entries — one per item — plus extern declarations for every
+/// out-of-batch bl target.
+///
+/// Per-fn cost drops from ~50 ms (single-shot via [`lift`]) to ~5 ms
+/// once `LoadArchSemantics` is amortized over the batch.
+pub fn lift_batch(
+    arch_name: &str,
+    os_name: &str,
+    items: &[(u64, &[u8])],
+) -> Result<Vec<String>, NativeRemillError> {
+    let _guard = FFI_LOCK.lock().unwrap();
+    if items.is_empty() {
+        return Err(NativeRemillError {
+            stage: "lift_batch",
+            code: -1,
+            message: "empty items".into(),
+        });
+    }
+    let arch_c = CString::new(arch_name).map_err(|_| NativeRemillError {
+        stage: "lift_batch",
+        code: -1,
+        message: "arch_name contains NUL byte".into(),
+    })?;
+    let os_c = CString::new(os_name).map_err(|_| NativeRemillError {
+        stage: "lift_batch",
+        code: -1,
+        message: "os_name contains NUL byte".into(),
+    })?;
+    let addresses: Vec<u64> = items.iter().map(|(addr, _)| *addr).collect();
+    let bytes_ptrs: Vec<*const u8> = items.iter().map(|(_, b)| b.as_ptr()).collect();
+    let bytes_lens: Vec<usize> = items.iter().map(|(_, b)| b.len()).collect();
+    let mut ir_arr: *mut *mut c_char = std::ptr::null_mut();
+    let mut len_arr: *mut usize = std::ptr::null_mut();
+    let mut err_ptr: *mut c_char = std::ptr::null_mut();
+    let rc = unsafe {
+        az_remill_lift_batch(
+            arch_c.as_ptr(),
+            os_c.as_ptr(),
+            addresses.as_ptr(),
+            bytes_ptrs.as_ptr(),
+            bytes_lens.as_ptr(),
+            items.len(),
+            &mut ir_arr,
+            &mut len_arr,
+            &mut err_ptr,
+        )
+    };
+    if rc != 0 {
+        let message = unsafe { take_c_string(err_ptr) };
+        return Err(NativeRemillError {
+            stage: "lift_batch",
+            code: rc as i32,
+            message,
+        });
+    }
+    // Take ownership of the per-item IR strings + their length array,
+    // then release the outer pointer arrays.
+    let mut out: Vec<String> = Vec::with_capacity(items.len());
+    for i in 0..items.len() {
+        let ptr = unsafe { *ir_arr.add(i) };
+        let len = unsafe { *len_arr.add(i) };
+        out.push(unsafe { take_c_string_with_len(ptr, len) });
+    }
+    unsafe {
+        az_remill_free_buf(ir_arr as *mut u8);
+        az_remill_free_buf(len_arr as *mut u8);
+    }
+    Ok(out)
 }
 
 /// Link multiple LLVM IR text inputs into one module via llvm::Linker,
