@@ -1037,6 +1037,9 @@ impl RemillTranspiler {
                 let mut final_wasm = postprocess_wasm_opt(&pre_opt_path, output_stem)
                     .unwrap_or(linked);
                 relocate_stack_if_non_mini(&mut final_wasm, memory_mode, output_stem);
+                if matches!(memory_mode, MemoryMode::OwnMemory) {
+                    inject_user_binary_data_segments(&mut final_wasm);
+                }
                 return Ok(final_wasm);
             }
         }
@@ -1093,6 +1096,9 @@ impl RemillTranspiler {
             })?,
         };
         relocate_stack_if_non_mini(&mut final_wasm, memory_mode, output_stem);
+        if matches!(memory_mode, MemoryMode::OwnMemory) {
+            inject_user_binary_data_segments(&mut final_wasm);
+        }
         Ok(final_wasm)
     }
 
@@ -1605,18 +1611,27 @@ static NEXT_NON_MINI_STACK_SLOT: std::sync::atomic::AtomicU32 =
 const STACK_BASE_FIRST: u32 = 192 * 1024;   // 192 KiB
 const STACK_BASE_STRIDE: u32 = 128 * 1024;  // 128 KiB / wasm
 
-/// Patch the stack-pointer global (global[0]) of `wasm` to point at a
-/// unique-per-wasm offset when `memory_mode == ImportMemory`. Mini
-/// (OwnMemory) keeps wasm-ld's default placement.
+/// Patch the stack-pointer global (global[0]) of every wasm (both
+/// mini and per-cb / per-layout) so each gets a distinct
+/// non-overlapping stack region. Mini owns slot 0, every subsequent
+/// link bumps the counter.
+///
+/// **Why mini moves too (M9-3)**: the M9-side fix for user-binary
+/// const-string loads (a follow-up; see TaskList) mirrors the user
+/// binary's __cstring / __DATA into wasm memory at the *truncated
+/// low-32 native addresses* — typically `[0..64 KiB]`. wasm-ld's
+/// default stack placement collides with that region (stack ends
+/// at ~64 KiB). Moving every stack above 192 KiB clears the path
+/// for the data mirror without breaking anything that needs the
+/// stack to be in a specific place (nothing does — wasm stack
+/// placement is determined entirely by global[0]'s init).
 ///
 /// Returns silently on any wasm-format mismatch — best-effort. If
-/// patching fails the wasm still loads + works for non-cross-module
-/// scenarios; only nested calls into the affected module hit the
-/// stack-overlap trap.
+/// patching fails the wasm still loads + works for self-contained
+/// scenarios; cross-module calls into the affected module will hit
+/// the stack-overlap trap.
 fn relocate_stack_if_non_mini(wasm: &mut Vec<u8>, memory_mode: MemoryMode, output_stem: &str) {
-    if !matches!(memory_mode, MemoryMode::ImportMemory) {
-        return;
-    }
+    let _ = memory_mode;
     let slot = NEXT_NON_MINI_STACK_SLOT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let new_sp = STACK_BASE_FIRST + slot * STACK_BASE_STRIDE;
     match patch_wasm_sp_init(wasm, new_sp) {
@@ -1634,6 +1649,213 @@ fn relocate_stack_if_non_mini(wasm: &mut Vec<u8>, memory_mode: MemoryMode, outpu
             );
         }
     }
+}
+
+/// M9-3b: inject user-binary data sections as new wasm Data segments
+/// in mini.wasm. Called once per mini-wasm link. The segments mirror
+/// the user binary's __cstring / __const / __data into wasm memory
+/// at the low-32-bit-truncated offsets — what lifted user-binary code
+/// expects to find via `adrp + ldr/add`.
+///
+/// Best-effort: any wasm-format mismatch logs and returns silently;
+/// the wasm still loads but lifted user code reading const strings
+/// will see zero bytes (the wasm linear memory's default).
+#[cfg(feature = "web-transpiler")]
+fn inject_user_binary_data_segments(wasm: &mut Vec<u8>) {
+    // Bound: limit at 8 MiB so we don't try to mirror libazul's
+    // multi-MB const sections (which would inflate mini.wasm and
+    // overlap with the bump heap). 8 MiB comfortably covers a
+    // typical macOS user-binary slide (single-digit MiB) plus
+    // section size.
+    let limit: u32 = 8 * 1024 * 1024;
+    let segments = super::symbol_table::SymbolTable::enumerate_low32_data_for_wasm(limit);
+    eprintln!(
+        "[azul-web] M9-3b: enumerate_low32_data_for_wasm(limit=0x{:x}) → {} segments",
+        limit, segments.len(),
+    );
+    if segments.is_empty() {
+        return;
+    }
+    let total_bytes: usize = segments.iter().map(|(_, b)| b.len()).sum();
+    match patch_wasm_add_data_segments(wasm, &segments) {
+        Ok(added) => {
+            eprintln!(
+                "[azul-web] M9-3b: injected {} user-binary data segments \
+                 ({} bytes total) into mini.wasm",
+                added, total_bytes,
+            );
+        }
+        Err(e) => {
+            eprintln!(
+                "[azul-web] M9-3b: failed to inject data segments ({} bytes): {} — \
+                 lifted const-string reads will see zero bytes",
+                total_bytes, e,
+            );
+        }
+    }
+}
+
+/// Append the given `(wasm_offset, bytes)` pairs as new active Data
+/// segments to `wasm`'s Data section. Creates a Data section if one
+/// doesn't exist. Also updates the `DataCount` section (id 12) when
+/// present (used by reference-typed wasm modules).
+fn patch_wasm_add_data_segments(
+    wasm: &mut Vec<u8>,
+    segments: &[(u32, Vec<u8>)],
+) -> Result<usize, String> {
+    if segments.is_empty() {
+        return Ok(0);
+    }
+    if wasm.len() < 8 || &wasm[..8] != b"\x00asm\x01\x00\x00\x00" {
+        return Err("not a wasm module".into());
+    }
+
+    // Encode each new segment: [mem_kind=0x00, offset_expr, data_size, data_bytes]
+    // offset_expr = i32.const N end = 0x41 <sleb128> 0x0B.
+    fn encode_segment(offset: u32, data: &[u8]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(8 + data.len());
+        out.push(0x00); // mem_kind: active, memidx=0 implicit
+        out.push(0x41); // i32.const
+        out.extend(encode_sleb128(offset as i64));
+        out.push(0x0B); // end
+        out.extend(encode_uleb128(data.len() as u64));
+        out.extend_from_slice(data);
+        out
+    }
+    let new_segment_blobs: Vec<Vec<u8>> = segments
+        .iter()
+        .map(|(off, data)| encode_segment(*off, data))
+        .collect();
+    let added_count = new_segment_blobs.len();
+    let new_segments_concat: Vec<u8> = new_segment_blobs.into_iter().flatten().collect();
+
+    // Scan for Data section (id 11). If found, append; if not, create.
+    let mut i = 8;
+    let mut data_section: Option<(usize, usize, usize)> = None; // (size_offset, payload_start, payload_end)
+    let mut data_count_section_size_offset: Option<usize> = None;
+    let mut insert_pos: usize = wasm.len();  // for new Data section if none exists
+
+    while i < wasm.len() {
+        let section_id = wasm[i];
+        i += 1;
+        let (section_size, leb_bytes) = decode_uleb128(&wasm[i..])
+            .ok_or_else(|| "bad section-size uleb128".to_string())?;
+        let size_offset = i;
+        i += leb_bytes;
+        let payload_start = i;
+        let payload_end = i + section_size as usize;
+        if payload_end > wasm.len() {
+            return Err(format!("section {} overruns wasm", section_id));
+        }
+        if section_id == 11 {
+            data_section = Some((size_offset, payload_start, payload_end));
+        }
+        if section_id == 12 {
+            data_count_section_size_offset = Some(size_offset);
+        }
+        // Custom sections (id 0) and the Data section can be at the end;
+        // anywhere after Function-Section (id 10) is fine to insert a
+        // new Data section. We pick after section 10 (Code) if Data
+        // doesn't exist yet.
+        if section_id == 10 {
+            insert_pos = payload_end;
+        }
+        i = payload_end;
+    }
+
+    if let Some((size_offset, payload_start, payload_end)) = data_section {
+        // Modify existing Data section: increment count, append segments.
+        let (count, count_lb) = decode_uleb128(&wasm[payload_start..payload_end])
+            .ok_or_else(|| "bad Data count uleb128".to_string())?;
+        let new_count = count + added_count as u64;
+        let new_count_bytes = encode_uleb128(new_count);
+
+        let old_count_len = count_lb;
+        let count_delta = new_count_bytes.len() as i64 - old_count_len as i64;
+
+        // Update section size: old + (count_delta + new_segments_size)
+        let new_section_size =
+            (payload_end - payload_start) as i64 + count_delta + new_segments_concat.len() as i64;
+        if new_section_size < 0 {
+            return Err("negative section size".into());
+        }
+        let new_size_bytes = encode_uleb128(new_section_size as u64);
+
+        // Splice in the new bytes. Order matters since we're modifying
+        // ranges in the original buffer.
+        // 1. Replace count uleb128.
+        wasm.splice(payload_start..payload_start + count_lb, new_count_bytes);
+        // The new payload_end shifts by count_delta. The append position
+        // is at the (shifted) old payload_end.
+        let new_payload_end_pos = (payload_end as i64 + count_delta) as usize;
+        wasm.splice(new_payload_end_pos..new_payload_end_pos, new_segments_concat);
+        // 2. Update section size uleb128 at size_offset (which is BEFORE
+        // any changes we just made, so it's still valid).
+        let old_size_len = leb_count_at(wasm, size_offset);
+        wasm.splice(size_offset..size_offset + old_size_len, new_size_bytes);
+    } else {
+        // Create a new Data section.
+        let mut payload: Vec<u8> = Vec::new();
+        payload.extend(encode_uleb128(added_count as u64));
+        payload.extend(new_segments_concat);
+
+        let mut new_section: Vec<u8> = Vec::new();
+        new_section.push(11);
+        new_section.extend(encode_uleb128(payload.len() as u64));
+        new_section.extend(payload);
+
+        wasm.splice(insert_pos..insert_pos, new_section);
+    }
+
+    // Update DataCount section (id 12) if present — its single uleb
+    // payload must equal the number of data segments.
+    if let Some(size_offset) = data_count_section_size_offset {
+        // Re-locate after our modifications: rescan for section 12.
+        let mut i = 8;
+        let mut found_dc: Option<(usize, usize, usize)> = None;
+        while i < wasm.len() {
+            let section_id = wasm[i];
+            i += 1;
+            let (section_size, leb_bytes) = decode_uleb128(&wasm[i..])
+                .ok_or_else(|| "rescan: bad section-size uleb128".to_string())?;
+            let new_size_offset = i;
+            i += leb_bytes;
+            let payload_start = i;
+            let payload_end = i + section_size as usize;
+            if section_id == 12 {
+                found_dc = Some((new_size_offset, payload_start, payload_end));
+                break;
+            }
+            i = payload_end;
+        }
+        let _ = size_offset;
+        if let Some((dc_size_offset, payload_start, payload_end)) = found_dc {
+            let (old_count, _) = decode_uleb128(&wasm[payload_start..payload_end])
+                .ok_or_else(|| "bad DataCount uleb128".to_string())?;
+            let new_count = old_count + added_count as u64;
+            let new_count_bytes = encode_uleb128(new_count);
+            let new_payload_len = new_count_bytes.len();
+            let new_section_size_bytes = encode_uleb128(new_payload_len as u64);
+            let old_size_len = leb_count_at(wasm, dc_size_offset);
+            // Replace section payload + size.
+            wasm.splice(payload_start..payload_end, new_count_bytes);
+            wasm.splice(dc_size_offset..dc_size_offset + old_size_len, new_section_size_bytes);
+        }
+    }
+
+    Ok(added_count)
+}
+
+/// Count the number of bytes in the ULEB128 starting at `wasm[pos]`.
+fn leb_count_at(wasm: &[u8], pos: usize) -> usize {
+    let mut n = 0;
+    for &b in &wasm[pos..] {
+        n += 1;
+        if (b & 0x80) == 0 {
+            break;
+        }
+    }
+    n
 }
 
 /// Replace global[0]'s init expression with `i32.const new_sp; end`.

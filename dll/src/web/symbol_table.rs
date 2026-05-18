@@ -267,6 +267,86 @@ impl SymbolTable {
         self.by_addr.iter()
     }
 
+    /// M9-3b: enumerate every loaded image's `__TEXT.__cstring`,
+    /// `__TEXT.__const`, `__DATA.__data`, and `__DATA.__const`
+    /// segments and return the subset whose runtime address truncated
+    /// to 32 bits fits inside a wasm linear memory region (currently
+    /// `[0 .. 192 KiB]`, the band below the relocated wasm stacks set
+    /// up by [`crate::web::transpiler_remill::relocate_stack_if_non_mini`]).
+    ///
+    /// The returned `(wasm_offset, bytes)` pairs are intended for
+    /// injection as wasm Data segments in the mini wasm. Bytes from
+    /// the user binary's `__cstring` / `__const` / `__data` are
+    /// addressed by the lifted code via `adrp + ldr/add` to native
+    /// addresses; on wasm32 those addresses get truncated to the low
+    /// 32 bits when used as memory pointers. Pre-populating wasm
+    /// memory at the truncated offsets lets a string-literal read
+    /// like `snprintf(buf, 20, "%d", n)` find the `"%d"` format
+    /// where the cb expects it.
+    ///
+    /// Each entry is returned at most once — duplicate ranges across
+    /// images (very common since libdyld is shared) get deduped on
+    /// `(wasm_offset, bytes_hash)`.
+    #[allow(dead_code)]
+    pub fn enumerate_low32_data_for_wasm(wasm_offset_limit: u32) -> Vec<(u32, Vec<u8>)> {
+        let mut out: Vec<(u32, Vec<u8>)> = Vec::new();
+        let images = match enumerate_loaded_images() {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("[symbol_table] enumerate_low32 failed: {}", e);
+                return out;
+            }
+        };
+        // Largest single segment we'll mirror. Keeps a malformed image
+        // from blowing up the data-segment count.
+        const PER_SECTION_LIMIT: usize = 64 * 1024;
+        for img in &images {
+            let parsed = match goblin::Object::parse(&img.bytes) {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+            let sections = match parsed {
+                goblin::Object::Mach(goblin::mach::Mach::Binary(macho)) => {
+                    collect_macho_low32_sections(&macho, &img.bytes, img.slide, wasm_offset_limit)
+                }
+                goblin::Object::Mach(goblin::mach::Mach::Fat(fat)) => {
+                    match pick_fat_slice(&fat, &img.bytes) {
+                        Ok(Some(macho)) => collect_macho_low32_sections(
+                            &macho, &img.bytes, img.slide, wasm_offset_limit,
+                        ),
+                        _ => Vec::new(),
+                    }
+                }
+                goblin::Object::Elf(elf) => {
+                    collect_elf_low32_sections(&elf, &img.bytes, img.slide, wasm_offset_limit)
+                }
+                _ => Vec::new(),
+            };
+            for (off, sz) in sections {
+                if sz == 0 || sz > PER_SECTION_LIMIT as u64 {
+                    continue;
+                }
+                let live_addr = (off as usize).wrapping_add(img.slide);
+                let truncated = (live_addr as u64) & 0xFFFF_FFFF;
+                if truncated == 0 || truncated.saturating_add(sz) > wasm_offset_limit as u64 {
+                    continue;
+                }
+                // Read the live bytes at runtime. SAFETY: the loader
+                // mapped these segments and they stay mapped for the
+                // process lifetime.
+                let bytes = unsafe {
+                    core::slice::from_raw_parts(live_addr as *const u8, sz as usize).to_vec()
+                };
+                out.push((truncated as u32, bytes));
+            }
+        }
+        // Dedup by exact (offset, content) so identical sections from
+        // multiple images don't bloat mini.wasm.
+        out.sort_by_key(|(off, _)| *off);
+        out.dedup_by(|a, b| a.0 == b.0 && a.1 == b.1);
+        out
+    }
+
     /// Build the SymbolTable by walking every loaded image of the
     /// current process.
     ///
@@ -1333,6 +1413,89 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     // Az-prefixed but not in api.json — bare extern. Treat as
     // Recursable so the transitive walker can pick up cb-on-cb chains.
     FnClass::Recursable
+}
+
+/// M9-3b helper: enumerate Mach-O sections whose file-vmaddr + slide
+/// + size falls within `wasm_offset_limit` once truncated to 32 bits.
+/// Returns `(file_vmaddr, size)` pairs — the caller adds `slide` and
+/// the truncation.
+///
+/// Targets: `__TEXT.__cstring`, `__TEXT.__const`, `__DATA.__data`,
+/// `__DATA.__const`. Each is data the user-binary's lifted code may
+/// read via `adrp + ldr/add` (string literals, const tables, fixed
+/// initializers).
+fn collect_macho_low32_sections(
+    macho: &goblin::mach::MachO<'_>,
+    file_bytes: &[u8],
+    slide: usize,
+    wasm_offset_limit: u32,
+) -> Vec<(u64, u64)> {
+    use goblin::mach::load_command::{
+        CommandVariant, SIZEOF_SECTION_64, SIZEOF_SEGMENT_COMMAND_64,
+    };
+    let mut out = Vec::new();
+    let want = |segname: &str, sectname: &str| -> bool {
+        matches!(
+            (segname, sectname),
+            ("__TEXT", "__cstring")
+                | ("__TEXT", "__const")
+                | ("__DATA", "__data")
+                | ("__DATA", "__const")
+                | ("__DATA_CONST", "__const")
+        )
+    };
+    for lc in &macho.load_commands {
+        let CommandVariant::Segment64(seg64) = &lc.command else { continue };
+        let segname = trim_macho_name(&seg64.segname);
+        let sections_off = lc.offset + SIZEOF_SEGMENT_COMMAND_64;
+        for i in 0..seg64.nsects as usize {
+            let off = sections_off + i * SIZEOF_SECTION_64;
+            if off + SIZEOF_SECTION_64 > file_bytes.len() {
+                break;
+            }
+            let Some(s) = parse_section64(&file_bytes[off..off + SIZEOF_SECTION_64]) else {
+                continue;
+            };
+            let sectname = trim_macho_name(&s.sectname);
+            if !want(segname, sectname) {
+                continue;
+            }
+            let live = (s.addr as usize).wrapping_add(slide);
+            let truncated = (live as u64) & 0xFFFF_FFFF;
+            if truncated == 0 || truncated.saturating_add(s.size) > wasm_offset_limit as u64 {
+                continue;
+            }
+            out.push((s.addr, s.size));
+        }
+    }
+    out
+}
+
+/// M9-3b helper: ELF sibling of [`collect_macho_low32_sections`].
+/// Targets `.rodata`, `.data`, `.data.rel.ro`. Same filter rule:
+/// only sections whose runtime address truncated to 32 bits fits in
+/// `wasm_offset_limit`.
+fn collect_elf_low32_sections(
+    elf: &goblin::elf::Elf<'_>,
+    file_bytes: &[u8],
+    slide: usize,
+    wasm_offset_limit: u32,
+) -> Vec<(u64, u64)> {
+    let _ = file_bytes;
+    let mut out = Vec::new();
+    for sh in &elf.section_headers {
+        let Some(name) = elf.shdr_strtab.get_at(sh.sh_name) else { continue };
+        if !matches!(name, ".rodata" | ".data" | ".data.rel.ro") {
+            continue;
+        }
+        let live = (sh.sh_addr as usize).wrapping_add(slide);
+        let truncated = (live as u64) & 0xFFFF_FFFF;
+        if truncated == 0 || truncated.saturating_add(sh.sh_size) > wasm_offset_limit as u64 {
+            continue;
+        }
+        out.push((sh.sh_addr, sh.sh_size));
+    }
+    out
 }
 
 #[cfg(test)]
