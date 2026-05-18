@@ -51,6 +51,12 @@ pub const EVENTLOOP_SYMBOLS: &[&str] = &[
     "AzStartup_registerStateDeserializer",
     // M9-2: Layout-cb wasm-side LayoutCallbackInfo builder.
     "AzStartup_buildLayoutInfo",
+    // M9-3: Layout-cb dispatch infrastructure.
+    "AzStartup_setLayoutCbTableIdx",
+    "AzStartup_setRefAny",
+    "AzStartup_initLayoutCache",
+    "AzStartup_getCurrentDomPtr",
+    "AzStartup_getLastLayoutStatus",
 ];
 
 use std::collections::{BTreeMap, HashMap};

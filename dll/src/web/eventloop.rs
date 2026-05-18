@@ -112,6 +112,11 @@ pub struct EventloopState {
     /// deserializer was registered + the raw-RefAny-bytes fallback
     /// also failed.
     pub app_data: Option<RefAny>,
+    /// Wasm offset of the hydrated AzRefAny aggregate (M8.7c-3 /
+    /// M9-3). JS calls [`AzStartup_setRefAny`] after `AzStartup_hydrate`
+    /// to plug it in here so [`AzStartup_initLayoutCache`] can find
+    /// the right refany without a separate JS round-trip.
+    pub refany_ptr: u32,
     /// Most recent layout output. Hit-tested against incoming events;
     /// reconciled against on RefreshDom. `None` until the first
     /// layout-callback run inside dispatch (M8.5d).
@@ -123,6 +128,28 @@ pub struct EventloopState {
     /// associations harvested from the StyledDom on first
     /// hit-test. Populated lazily; cleared on RefreshDom (M8.5c).
     pub cb_fn_cache: BTreeMap<u32, u64>,
+
+    // M9-3 fields ─────────────────────────────────────────────────
+
+    /// WebAssembly.Table index of the lifted layout cb's wrapper
+    /// `callback` export. JS sets this once via
+    /// [`AzStartup_setLayoutCbTableIdx`] after instantiating
+    /// `/az/layout/*.wasm`. [`AzStartup_initLayoutCache`] uses it
+    /// to dispatch via `__az_call_indirect_layout4`.
+    pub layout_cb_table_idx: u32,
+    /// Wasm offset of the destination buffer holding the most-recent
+    /// AzDom returned by the layout cb. The X8-hidden-return wrapper
+    /// (M9-1) writes the returned struct here. `0` until init.
+    ///
+    /// Phase 3a uses a single bump-allocated 256-byte slot; Phase 5
+    /// will add a second slot for diff-against-previous to support
+    /// re-layout-on-RefreshDom.
+    pub current_dom_ptr: u32,
+    /// Status code returned by the most recent layout-cb invocation
+    /// (the wrapper's `i32` return — `0 = ok`). Surfaced for JS
+    /// debugging so probe scripts can distinguish "cb returned
+    /// non-zero status" from "init didn't run yet".
+    pub last_layout_status: u32,
 }
 
 // =====================================================================
@@ -190,6 +217,32 @@ pub unsafe extern "C" fn __az_call_indirect(
     core::hint::black_box(0)
 }
 
+/// M9-3: 4-arg `call_indirect` bridge for the layout cb wrapper
+/// (whose M9-1 `Pcs::HiddenPtrReturn` signature is
+/// `(refany_lo: i64, refany_hi: i64, info_ptr: i32, out_ptr: i32)
+/// -> i32`). Kept separate from [`__az_call_indirect`] so the 3-arg
+/// widget-cb dispatch stays untouched.
+///
+/// Native body never runs; helper IR replaces the call site with a
+/// wasm `call_indirect` whose function signature is `(i64, i64, i32,
+/// i32) -> i32` (matching layout.wasm's `callback` export).
+#[no_mangle]
+#[inline(never)]
+pub unsafe extern "C" fn __az_call_indirect_layout4(
+    table_idx: u32,
+    refany_lo: u64,
+    refany_hi: u64,
+    info_ptr: u32,
+    out_ptr: u32,
+) -> u32 {
+    let _ = core::hint::black_box(table_idx);
+    let _ = core::hint::black_box(refany_lo);
+    let _ = core::hint::black_box(refany_hi);
+    let _ = core::hint::black_box(info_ptr);
+    let _ = core::hint::black_box(out_ptr);
+    core::hint::black_box(0)
+}
+
 // =====================================================================
 // Allocator surface — bump allocator backed by __rust_alloc, which
 // M8.4c provides as a hand-written bump-impl body in helper IR.
@@ -248,9 +301,13 @@ pub extern "C" fn AzStartup_free(ptr: u32, size: u32) {
 pub unsafe extern "C" fn AzStartup_init(_json_ptr: u32, _json_len: u32) -> u32 {
     let state = Box::new(EventloopState {
         app_data: None,
+        refany_ptr: 0,
         current_dom: None,
         state_deserializer: 0,
         cb_fn_cache: BTreeMap::new(),
+        layout_cb_table_idx: 0,
+        current_dom_ptr: 0,
+        last_layout_status: 0,
     });
     Box::into_raw(state) as usize as u32
 }
@@ -425,6 +482,109 @@ pub unsafe extern "C" fn AzStartup_buildLayoutInfo(
     // slack — the cb's by-value struct copy at function entry reads
     // sizeof bytes from this pointer and can't over-read the buffer.
     AzStartup_alloc(512)
+}
+
+/// Record the WebAssembly.Table index of the layout cb's wrapper
+/// `callback` export. JS calls this once at bootstrap after
+/// instantiating `/az/layout/*.wasm` and grabbing the table slot
+/// it placed the export in. [`AzStartup_initLayoutCache`] reads
+/// this to dispatch via `__az_call_indirect_layout4`.
+///
+/// `state` is the eventloop-state pointer returned by
+/// [`AzStartup_init`]. A `0` state is treated as no-op.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_setLayoutCbTableIdx(state: u32, idx: u32) {
+    if state == 0 {
+        return;
+    }
+    let s = &mut *(state as usize as *mut EventloopState);
+    s.layout_cb_table_idx = idx;
+}
+
+/// Record the wasm offset of the hydrated AzRefAny. JS calls this
+/// once after [`AzStartup_hydrate`] returns the refany pointer.
+/// [`AzStartup_initLayoutCache`] reads it to pass to the layout cb.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_setRefAny(state: u32, refany_ptr: u32) {
+    if state == 0 {
+        return;
+    }
+    let s = &mut *(state as usize as *mut EventloopState);
+    s.refany_ptr = refany_ptr;
+}
+
+/// Run the layout callback in wasm, populating
+/// [`EventloopState::current_dom_ptr`] with the wasm offset of the
+/// returned AzDom.
+///
+/// Status codes:
+///   * `0`   — success
+///   * `1`   — null state pointer
+///   * `2`   — `layout_cb_table_idx` is 0 (JS didn't call setter)
+///   * `3`   — `refany_ptr` is 0 (JS didn't hydrate or didn't call setter)
+///   * `4`   — `AzStartup_buildLayoutInfo` returned 0 (bump alloc failure)
+///   * `5`   — destination buffer alloc failure
+///   * `100..=199` — layout cb itself returned non-zero status; the
+///     low byte is the cb's status code (cb status 1 → 101, etc.)
+///
+/// Phase 3a stores the raw AzDom blob and stops there — Phase 3b
+/// extends this with the `Dom → StyledDom` cascade + the embedded
+/// `LayoutWindow` for hit-testing.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_initLayoutCache(
+    state: u32,
+    viewport_w: u32,
+    viewport_h: u32,
+    theme: u32,
+) -> u32 {
+    let _ = (viewport_w, viewport_h, theme);
+    if state == 0 {
+        return 1;
+    }
+    let s = &mut *(state as usize as *mut EventloopState);
+    let table_idx = s.layout_cb_table_idx;
+    let refany_ptr = s.refany_ptr;
+    if table_idx == 0 {
+        return 2;
+    }
+    let info_ptr = AzStartup_alloc(512);
+    let out_ptr = AzStartup_alloc(256);
+    let cb_status = __az_call_indirect_layout4(
+        table_idx,
+        refany_ptr as u64,
+        0,
+        info_ptr,
+        out_ptr,
+    );
+    s.last_layout_status = cb_status;
+    if cb_status != 0 {
+        return 100 + cb_status;
+    }
+    s.current_dom_ptr = out_ptr;
+    0
+}
+
+/// Read [`EventloopState::current_dom_ptr`] without dereferencing the
+/// state pointer in JS (avoids JS having to know the EventloopState
+/// layout). Returns `0` if the state pointer is null OR the layout
+/// cache hasn't been initialised yet.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_getCurrentDomPtr(state: u32) -> u32 {
+    if state == 0 {
+        return 0;
+    }
+    let s = &*(state as usize as *mut EventloopState);
+    s.current_dom_ptr
+}
+
+/// Read [`EventloopState::last_layout_status`] for JS-side debugging.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_getLastLayoutStatus(state: u32) -> u32 {
+    if state == 0 {
+        return 0;
+    }
+    let s = &*(state as usize as *mut EventloopState);
+    s.last_layout_status
 }
 
 // =====================================================================

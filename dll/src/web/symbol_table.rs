@@ -118,6 +118,15 @@ pub enum FnClass {
     /// Helper IR lowers to wasm `call_indirect` via the imported
     /// `__indirect_function_table`.
     CallIndirect,
+    /// `__az_call_indirect_layout4(tidx, refany_lo, refany_hi,
+    /// info_ptr, out_ptr)`. M9-3 4-arg call_indirect shape for the
+    /// layout-cb wrapper which uses [`Pcs::HiddenPtrReturn`] (an
+    /// extra `out_ptr` arg seeds State.X8 for the AAPCS64 indirect
+    /// return). Wraps a fn whose signature is
+    /// `(i64, i64, i32, i32) -> i32`. Kept separate from
+    /// [`CallIndirect`] so the existing 3-arg widget-cb dispatch
+    /// path is untouched.
+    CallIndirectLayout4,
     /// `__az_resolve_callback(fn_addr)`. Helper IR emits a JS-import
     /// bridge that returns a table index.
     ResolveCallback,
@@ -1230,6 +1239,14 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
         if stripped == variant || stripped.ends_with(variant) {
             return FnClass::BumpAlloc;
         }
+    }
+    // M9-3: check the more specific layout4 variant FIRST — its name
+    // is a superstring of `az_call_indirect`, so a naive ends_with
+    // match would mis-classify it as the 3-arg variant.
+    if stripped == "az_call_indirect_layout4"
+        || stripped.ends_with("az_call_indirect_layout4")
+    {
+        return FnClass::CallIndirectLayout4;
     }
     if stripped == "az_call_indirect" || stripped.ends_with("az_call_indirect") {
         return FnClass::CallIndirect;

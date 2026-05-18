@@ -259,13 +259,15 @@ async function azBootstrap() {
         }
     }
 
-    // 4.5. M9-2: instantiate the layout wasm. html_render.rs emits
-    //      a `<link rel="preload" href="/az/layout/<name>.<hash>.wasm">`
-    //      hint per route; we discover it the same way we found the
-    //      mini wasm. The module shares memory + table with mini via
-    //      the standard azCallbackImports() wiring. Reserve a single
-    //      table slot so M9-3 can invoke the cb via
-    //      __az_call_indirect from inside AzStartup_initLayoutCache.
+    // 4.5. M9-2/M9-3: instantiate the layout wasm + run initLayoutCache.
+    //      html_render.rs emits `<link rel="preload" href="/az/layout/...">`
+    //      per route; we discover it the same way we found the mini
+    //      wasm. The module shares memory + table with mini via the
+    //      standard azCallbackImports() wiring. Reserve a table slot,
+    //      tell mini about it via AzStartup_setLayoutCbTableIdx, then
+    //      drive the first layout pass via AzStartup_initLayoutCache —
+    //      from there everything lives in the WASM-resident DOM (M9-4+
+    //      hit-tests and diff-patches against it).
     var layoutLink = document.querySelector('link[rel="preload"][href*="/az/layout/"]');
     if (layoutLink) {
         var layoutUrl = layoutLink.getAttribute('href');
@@ -281,6 +283,26 @@ async function azBootstrap() {
                 azLayoutCb = cbFn;
                 console.info('[azul-web] layout cb loaded from ' + layoutUrl +
                              ' → table[' + azLayoutCbTableIdx + ']');
+
+                // M9-3: hand the table_idx + refany off to mini, then
+                // drive the first layout pass. The viewport size is
+                // window.innerWidth/Height for now; M9-5 will reflow
+                // on resize events.
+                if (typeof azMini.AzStartup_setLayoutCbTableIdx === 'function') {
+                    azMini.AzStartup_setLayoutCbTableIdx(azState, azLayoutCbTableIdx);
+                }
+                if (typeof azMini.AzStartup_setRefAny === 'function' && azRefAnyPtr) {
+                    azMini.AzStartup_setRefAny(azState, azRefAnyPtr);
+                }
+                if (typeof azMini.AzStartup_initLayoutCache === 'function') {
+                    var viewportW = (typeof window !== 'undefined' && window.innerWidth) || 800;
+                    var viewportH = (typeof window !== 'undefined' && window.innerHeight) || 600;
+                    var initRc = azMini.AzStartup_initLayoutCache(azState, viewportW, viewportH, 0);
+                    var domPtr = (typeof azMini.AzStartup_getCurrentDomPtr === 'function')
+                        ? azMini.AzStartup_getCurrentDomPtr(azState) : 0;
+                    console.info('[azul-web] initLayoutCache rc=' + initRc +
+                                 ' current_dom_ptr=' + domPtr);
+                }
             }
         } catch (e) {
             console.warn('[azul-web] failed to instantiate ' + layoutUrl + ':', e);

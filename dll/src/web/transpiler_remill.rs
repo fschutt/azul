@@ -203,6 +203,42 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
             ],
             ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
         }),
+        "AzStartup_setLayoutCbTableIdx" => Some(CallbackSignature {
+            kind: "AzStartup_setLayoutCbTableIdx".to_string(),
+            // (state: u32, idx: u32) -> ()
+            args: vec![
+                Pcs::Wreg { state_byte_offset: X0 },
+                Pcs::Wreg { state_byte_offset: X1 },
+            ],
+            ret: None,
+        }),
+        "AzStartup_setRefAny" => Some(CallbackSignature {
+            kind: "AzStartup_setRefAny".to_string(),
+            // (state: u32, refany_ptr: u32) -> ()
+            args: vec![
+                Pcs::Wreg { state_byte_offset: X0 },
+                Pcs::Wreg { state_byte_offset: X1 },
+            ],
+            ret: None,
+        }),
+        "AzStartup_initLayoutCache" => Some(CallbackSignature {
+            kind: "AzStartup_initLayoutCache".to_string(),
+            // (state: u32, viewport_w: u32, viewport_h: u32, theme: u32)
+            // -> status: u32
+            args: vec![
+                Pcs::Wreg { state_byte_offset: X0 },
+                Pcs::Wreg { state_byte_offset: X1 },
+                Pcs::Wreg { state_byte_offset: X2 },
+                Pcs::Wreg { state_byte_offset: X3 },
+            ],
+            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+        }),
+        "AzStartup_getCurrentDomPtr" | "AzStartup_getLastLayoutStatus" => Some(CallbackSignature {
+            kind: name.to_string(),
+            // (state: u32) -> u32
+            args: vec![Pcs::Wreg { state_byte_offset: X0 }],
+            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+        }),
         _ => None,
     }
 }
@@ -998,10 +1034,10 @@ impl RemillTranspiler {
                 // size win the subprocess path gets below.
                 let pre_opt_path = self.scratch_dir.join(format!("{}.pre-opt.wasm", output_stem));
                 let _ = std::fs::write(&pre_opt_path, &linked);
-                if let Some(opt) = postprocess_wasm_opt(&pre_opt_path, output_stem) {
-                    return Ok(opt);
-                }
-                return Ok(linked);
+                let mut final_wasm = postprocess_wasm_opt(&pre_opt_path, output_stem)
+                    .unwrap_or(linked);
+                relocate_stack_if_non_mini(&mut final_wasm, memory_mode, output_stem);
+                return Ok(final_wasm);
             }
         }
         let tools = self.tools(output_stem)?;
@@ -1048,14 +1084,16 @@ impl RemillTranspiler {
         // locals, merge-blocks, ...) shave another 10-20% on lifted
         // wasm. Best-effort: if wasm-opt isn't installed or fails,
         // serve the un-opt'd wasm.
-        let final_bytes = postprocess_wasm_opt(&wasm_path, output_stem);
-        if let Some(b) = final_bytes {
-            return Ok(b);
-        }
-        std::fs::read(&wasm_path).map_err(|e| TranspileError {
-            fn_name: output_stem.to_string(),
-            reason: format!("read {}: {e}", wasm_path.display()),
-        })
+        let opt_bytes = postprocess_wasm_opt(&wasm_path, output_stem);
+        let mut final_wasm = match opt_bytes {
+            Some(b) => b,
+            None => std::fs::read(&wasm_path).map_err(|e| TranspileError {
+                fn_name: output_stem.to_string(),
+                reason: format!("read {}: {e}", wasm_path.display()),
+            })?,
+        };
+        relocate_stack_if_non_mini(&mut final_wasm, memory_mode, output_stem);
+        Ok(final_wasm)
     }
 
     /// Recursively lift a set of root functions + every dependency
@@ -1540,6 +1578,210 @@ impl Drop for RemillTranspiler {
                     e,
                 );
             }
+        }
+    }
+}
+
+/// Counter handing out unique stack-base offsets to each non-mini wasm.
+/// Each call to [`relocate_stack_if_non_mini`] bumps it; the new SP =
+/// `STACK_BASE_OFFSET + slot * STACK_BASE_STRIDE`.
+///
+/// **Why this exists (M9-3)**: wasm-ld places each module's stack at
+/// the very bottom of linear memory by default (stack-pointer global
+/// initialised just above `__data_end`, typically ~64 KiB). All
+/// per-cb / per-layout wasms share the *same* linear memory as mini,
+/// so their stacks collide — when mini's lifted code calls into the
+/// layout cb via `__az_call_indirect_layout4`, the layout cb's
+/// wrapper writes a fresh 1088-byte `%state_buf` over what mini left
+/// on the stack. Mini reads the (now zeroed) state on return and
+/// traps on a deref.
+///
+/// Each non-mini wasm gets a unique stack region above mini's stack
+/// but below the bump heap (which starts at 1 MiB). 128 KiB per slot
+/// covers the 64 KiB stack + slack.
+static NEXT_NON_MINI_STACK_SLOT: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0);
+
+const STACK_BASE_FIRST: u32 = 192 * 1024;   // 192 KiB
+const STACK_BASE_STRIDE: u32 = 128 * 1024;  // 128 KiB / wasm
+
+/// Patch the stack-pointer global (global[0]) of `wasm` to point at a
+/// unique-per-wasm offset when `memory_mode == ImportMemory`. Mini
+/// (OwnMemory) keeps wasm-ld's default placement.
+///
+/// Returns silently on any wasm-format mismatch — best-effort. If
+/// patching fails the wasm still loads + works for non-cross-module
+/// scenarios; only nested calls into the affected module hit the
+/// stack-overlap trap.
+fn relocate_stack_if_non_mini(wasm: &mut Vec<u8>, memory_mode: MemoryMode, output_stem: &str) {
+    if !matches!(memory_mode, MemoryMode::ImportMemory) {
+        return;
+    }
+    let slot = NEXT_NON_MINI_STACK_SLOT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let new_sp = STACK_BASE_FIRST + slot * STACK_BASE_STRIDE;
+    match patch_wasm_sp_init(wasm, new_sp) {
+        Ok(old_sp) => {
+            eprintln!(
+                "[azul-web] M9-3: relocated stack for {} (slot {}): SP {} → {}",
+                output_stem, slot, old_sp, new_sp,
+            );
+        }
+        Err(e) => {
+            eprintln!(
+                "[azul-web] M9-3: failed to patch SP for {} (slot {}): {} — cross-module \
+                 calls into this wasm may corrupt mini's stack",
+                output_stem, slot, e,
+            );
+        }
+    }
+}
+
+/// Replace global[0]'s init expression with `i32.const new_sp; end`.
+/// Returns the previous SP value on success. Assumes global[0] is the
+/// stack pointer (the wasm-ld convention).
+fn patch_wasm_sp_init(wasm: &mut Vec<u8>, new_sp: u32) -> Result<i64, String> {
+    if wasm.len() < 8 || &wasm[..8] != b"\x00asm\x01\x00\x00\x00" {
+        return Err("not a wasm module".into());
+    }
+    let mut i = 8;
+    while i < wasm.len() {
+        let section_id = wasm[i];
+        i += 1;
+        let (section_size, leb_bytes) = decode_uleb128(&wasm[i..])
+            .ok_or_else(|| "bad section-size uleb128".to_string())?;
+        let size_offset = i;  // byte offset of section size's first byte
+        i += leb_bytes;
+        let payload_start = i;
+        let payload_end = i + section_size as usize;
+        if payload_end > wasm.len() {
+            return Err(format!("section {} overruns wasm", section_id));
+        }
+        if section_id != 6 {
+            // not Global; skip
+            i = payload_end;
+            continue;
+        }
+        // Global section payload: [count uleb, [global_type, init_expr]+]
+        let (count, count_lb) = decode_uleb128(&wasm[payload_start..payload_end])
+            .ok_or_else(|| "bad global count uleb128".to_string())?;
+        if count == 0 {
+            return Err("no globals".into());
+        }
+        let mut p = payload_start + count_lb;
+        // global[0] type: 1 byte value_type (i32 = 0x7F), 1 byte mut flag.
+        if wasm[p] != 0x7F {
+            return Err(format!("global[0] is not i32 (type = 0x{:02x})", wasm[p]));
+        }
+        p += 2;  // skip value_type + mut
+        // init_expr starts with an opcode.
+        if wasm[p] != 0x41 {
+            return Err(format!("global[0] init not i32.const (opcode = 0x{:02x})", wasm[p]));
+        }
+        let init_start = p;
+        p += 1;
+        // Decode the existing sleb128 value (for logging) and skip to end-marker.
+        let (old_value, val_bytes) = decode_sleb128(&wasm[p..])
+            .ok_or_else(|| "bad init sleb128".to_string())?;
+        p += val_bytes;
+        if wasm[p] != 0x0B {
+            return Err(format!("expected init end marker (0x0B), got 0x{:02x}", wasm[p]));
+        }
+        let init_end = p + 1;  // exclusive
+
+        // Build the replacement bytes: i32.const NEW_SP, end.
+        let mut new_init: Vec<u8> = vec![0x41];
+        new_init.extend(encode_sleb128(new_sp as i64));
+        new_init.push(0x0B);
+
+        let old_init_len = init_end - init_start;
+        let new_init_len = new_init.len();
+        let size_delta = new_init_len as i64 - old_init_len as i64;
+
+        // Splice the init expression.
+        wasm.splice(init_start..init_end, new_init);
+
+        // Update the section size uleb128. New section size = old + delta.
+        let new_section_size = (section_size as i64) + size_delta;
+        if new_section_size < 0 {
+            return Err("negative section size after patch".into());
+        }
+        let new_size_bytes = encode_uleb128(new_section_size as u64);
+        wasm.splice(size_offset..size_offset + leb_bytes, new_size_bytes);
+
+        return Ok(old_value);
+    }
+    Err("no Global section found".into())
+}
+
+/// Decode an unsigned LEB128 from the start of `bytes`. Returns
+/// `(value, n_bytes_consumed)` or `None` on overflow / truncation.
+fn decode_uleb128(bytes: &[u8]) -> Option<(u64, usize)> {
+    let mut value: u64 = 0;
+    let mut shift: u32 = 0;
+    for (i, &b) in bytes.iter().enumerate() {
+        if shift >= 64 {
+            return None;
+        }
+        value |= ((b & 0x7F) as u64) << shift;
+        if (b & 0x80) == 0 {
+            return Some((value, i + 1));
+        }
+        shift += 7;
+    }
+    None
+}
+
+/// Decode a signed LEB128 from the start of `bytes`. Returns
+/// `(value, n_bytes_consumed)` or `None` on overflow / truncation.
+fn decode_sleb128(bytes: &[u8]) -> Option<(i64, usize)> {
+    let mut value: i64 = 0;
+    let mut shift: u32 = 0;
+    for (i, &b) in bytes.iter().enumerate() {
+        if shift >= 64 {
+            return None;
+        }
+        value |= ((b & 0x7F) as i64) << shift;
+        shift += 7;
+        if (b & 0x80) == 0 {
+            // Sign-extend if the value bit at position `shift-1` is set.
+            if shift < 64 && (b & 0x40) != 0 {
+                value |= -1i64 << shift;
+            }
+            return Some((value, i + 1));
+        }
+    }
+    None
+}
+
+/// Encode `value` as unsigned LEB128.
+fn encode_uleb128(mut value: u64) -> Vec<u8> {
+    let mut out = Vec::with_capacity(5);
+    loop {
+        let mut byte = (value & 0x7F) as u8;
+        value >>= 7;
+        if value != 0 {
+            byte |= 0x80;
+        }
+        out.push(byte);
+        if value == 0 {
+            return out;
+        }
+    }
+}
+
+/// Encode `value` as signed LEB128.
+fn encode_sleb128(mut value: i64) -> Vec<u8> {
+    let mut out = Vec::with_capacity(5);
+    loop {
+        let byte = (value & 0x7F) as u8;
+        let sign_bit_set = (byte & 0x40) != 0;
+        // Arithmetic right-shift by 7.
+        value >>= 7;
+        let done = (value == 0 && !sign_bit_set) || (value == -1 && sign_bit_set);
+        let with_continuation = if done { byte } else { byte | 0x80 };
+        out.push(with_continuation);
+        if done {
+            return out;
         }
     }
 }
@@ -2356,6 +2598,50 @@ fn emit_helper_ir(
                     x1_off = x0_off + 16,
                     x2_off = x0_off + 32,
                     x3_off = x0_off + 48,
+                ));
+            }
+            Some(SymFnClass::CallIndirectLayout4) => {
+                // M9-3: 4-arg layout dispatch shape.
+                //   table_idx=X0(u32), refany_lo=X1(u64), refany_hi=X2(u64),
+                //   info_ptr=X3(u32), out_ptr=X4(u32). Returns i32 in X0.
+                //
+                // The called function (the layout cb wrapper) has the
+                // M9-1 signature `(i64, i64, i32, i32) -> i32` (the
+                // extra i32 is `out_ptr`, the caller-allocated AzDom
+                // destination buffer).
+                //
+                // Mechanically identical to `CallIndirect` plus one
+                // extra X4 load + the call sig gains one i32 arg.
+                branch_stubs.push_str(&format!(
+                    "; __az_call_indirect_layout4 bridge — wasm call_indirect for layout cb (M9-3)\n\
+                     define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) alwaysinline {{\n  \
+                       %tidx_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x0_off}\n  \
+                       %tidx_64_{n} = load i64, ptr %tidx_p_{n}, align 8\n  \
+                       %tidx_{n} = trunc i64 %tidx_64_{n} to i32\n  \
+                       %lo_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x1_off}\n  \
+                       %lo_{n} = load i64, ptr %lo_p_{n}, align 8\n  \
+                       %hi_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x2_off}\n  \
+                       %hi_{n} = load i64, ptr %hi_p_{n}, align 8\n  \
+                       %info_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x3_off}\n  \
+                       %info_64_{n} = load i64, ptr %info_p_{n}, align 8\n  \
+                       %info_{n} = trunc i64 %info_64_{n} to i32\n  \
+                       %out_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x4_off}\n  \
+                       %out_64_{n} = load i64, ptr %out_p_{n}, align 8\n  \
+                       %out_{n} = trunc i64 %out_64_{n} to i32\n  \
+                       %fn_{n} = inttoptr i32 %tidx_{n} to ptr\n  \
+                       %r_{n} = call i32 %fn_{n}(i64 %lo_{n}, i64 %hi_{n}, i32 %info_{n}, i32 %out_{n})\n  \
+                       store volatile i32 %r_{n}, ptr @__az_call_observer, align 4\n  \
+                       %r_64_{n} = zext i32 %r_{n} to i64\n  \
+                       store i64 %r_64_{n}, ptr %tidx_p_{n}, align 8\n  \
+                       ret ptr %memory\n\
+                     }}\n",
+                    sym = ext.sym_name,
+                    n = n_suffix,
+                    x0_off = x0_off,
+                    x1_off = x0_off + 16,
+                    x2_off = x0_off + 32,
+                    x3_off = x0_off + 48,
+                    x4_off = x0_off + 64,
                 ));
             }
             Some(SymFnClass::ResolveCallback) => {
