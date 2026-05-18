@@ -252,6 +252,12 @@ async function azBootstrap() {
             azTable.set(nodeIdx, cbFn);
             azFnAddrToTableIdx.set(nodeIdx, nodeIdx);
             azNodeCbFns.set(nodeIdx, cbFn);
+            // M9-4: tell mini about this cb-bearing node so the
+            // wasm-side AzStartup_hitTest can return it without a
+            // JS-side DOM-id-regex round-trip.
+            if (typeof azMini.AzStartup_registerCbNode === 'function') {
+                azMini.AzStartup_registerCbNode(azState, nodeIdx);
+            }
             console.debug('[azul-web] cb node=' + nodeIdx + ' loaded from ' + url +
                           ' → table[' + nodeIdx + ']');
         } catch (e) {
@@ -438,7 +444,28 @@ function azInvokeCbDirect(nodeIdx, domEvent) {
     }
 }
 
+// M9-4: prefer the wasm-side AzStartup_hitTest when available; fall
+// back to the legacy DOM-id-regex walk only when mini's hitTest
+// export isn't present (e.g. older mini.wasm without the M9-4 lift).
+// The fallback path will be dropped entirely in M9-6 once the wasm
+// side is the source of truth.
 function azNodeIdxFromEvent(domEvent) {
+    if (azMini && typeof azMini.AzStartup_hitTest === 'function' && azState) {
+        var x = domEvent.clientX || 0;
+        var y = domEvent.clientY || 0;
+        // Pass coordinates as f32 bits so the JS-side u32 signature
+        // stays clean. Float32Array helps us reinterpret the float
+        // as its bit pattern.
+        var f32 = new Float32Array(2);
+        var u32 = new Uint32Array(f32.buffer);
+        f32[0] = x;
+        f32[1] = y;
+        var nodeIdx = azMini.AzStartup_hitTest(azState, u32[0], u32[1]);
+        if (nodeIdx !== 0xFFFFFFFF) {
+            return nodeIdx;
+        }
+    }
+    // Legacy fallback (M9-6 deletes this).
     var target = domEvent.target;
     while (target && target !== document.body) {
         if (target.id) {

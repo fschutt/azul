@@ -239,6 +239,25 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
             args: vec![Pcs::Wreg { state_byte_offset: X0 }],
             ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
         }),
+        "AzStartup_registerCbNode" => Some(CallbackSignature {
+            kind: "AzStartup_registerCbNode".to_string(),
+            // (state: u32, node_idx: u32) -> ()
+            args: vec![
+                Pcs::Wreg { state_byte_offset: X0 },
+                Pcs::Wreg { state_byte_offset: X1 },
+            ],
+            ret: None,
+        }),
+        "AzStartup_hitTest" => Some(CallbackSignature {
+            kind: "AzStartup_hitTest".to_string(),
+            // (state: u32, x_bits: u32, y_bits: u32) -> node_idx: u32
+            args: vec![
+                Pcs::Wreg { state_byte_offset: X0 },
+                Pcs::Wreg { state_byte_offset: X1 },
+                Pcs::Wreg { state_byte_offset: X2 },
+            ],
+            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+        }),
         _ => None,
     }
 }

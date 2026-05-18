@@ -150,6 +150,17 @@ pub struct EventloopState {
     /// debugging so probe scripts can distinguish "cb returned
     /// non-zero status" from "init didn't run yet".
     pub last_layout_status: u32,
+
+    // M9-4 fields ─────────────────────────────────────────────────
+
+    /// Most recently registered cb node_idx — the stub
+    /// [`AzStartup_hitTest`] returns this for any (x, y) input.
+    /// JS calls [`AzStartup_registerCbNode`] for each per-cb wasm
+    /// it instantiates, which keeps this field pointing at the
+    /// "last wired" cb. For hello-world's single button that's
+    /// `3` (the `data-az-cb="3"` value). Real bbox-based hit-test
+    /// arrives with M9-3b's LayoutWindow embed.
+    pub last_registered_cb_node_idx: u32,
 }
 
 // =====================================================================
@@ -308,6 +319,7 @@ pub unsafe extern "C" fn AzStartup_init(_json_ptr: u32, _json_len: u32) -> u32 {
         layout_cb_table_idx: 0,
         current_dom_ptr: 0,
         last_layout_status: 0,
+        last_registered_cb_node_idx: u32::MAX,
     });
     Box::into_raw(state) as usize as u32
 }
@@ -585,6 +597,57 @@ pub unsafe extern "C" fn AzStartup_getLastLayoutStatus(state: u32) -> u32 {
     }
     let s = &*(state as usize as *mut EventloopState);
     s.last_layout_status
+}
+
+// =====================================================================
+// M9-4 Hit-test
+// =====================================================================
+
+/// Record a callback-bearing node_idx (the `data-az-cb` value the
+/// server emitted) on the eventloop state. JS calls this once per
+/// per-cb wasm instantiation. Drives the M9-4 stub [`AzStartup_hitTest`]
+/// which returns the most-recent registered node for every (x, y).
+///
+/// **Why the stub is OK for now**: hello-world has a single cb-bearing
+/// node (the button at `data-az-cb="3"`), so "any click → that node"
+/// matches the actual user-facing flow. Real bbox-based hit-test
+/// arrives with M9-3b (LayoutWindow embed); until then this keeps
+/// the demo running while phases 5 / 6 take JS-side cb-fn-cache,
+/// `azNodeIdxFromEvent` regex, and `id="az_*"` lookups offline.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_registerCbNode(state: u32, node_idx: u32) {
+    if state == 0 {
+        return;
+    }
+    let s = &mut *(state as usize as *mut EventloopState);
+    s.last_registered_cb_node_idx = node_idx;
+    s.cb_fn_cache.insert(node_idx, node_idx as u64);
+}
+
+/// Hit-test the wasm-resident DOM at (`x_f32_bits`, `y_f32_bits`) and
+/// return the node_idx that should receive the click, or `u32::MAX`
+/// if no cb-bearing node is registered.
+///
+/// `x_f32_bits` / `y_f32_bits` are `f32::to_bits()` values so the
+/// JS-side i32 signature stays clean. (The wasm `f32.reinterpret`
+/// instruction makes the cast free.)
+///
+/// **Phase 4 stub**: returns [`EventloopState::last_registered_cb_node_idx`].
+/// Hello-world has one cb (the button at `data-az-cb="3"`) so this
+/// is exact for the demo's hit-test semantics. Phase 4 will swap
+/// to bbox walking against the LayoutWindow once M9-3b lands.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_hitTest(
+    state: u32,
+    x_f32_bits: u32,
+    y_f32_bits: u32,
+) -> u32 {
+    let _ = (x_f32_bits, y_f32_bits);
+    if state == 0 {
+        return u32::MAX;
+    }
+    let s = &*(state as usize as *mut EventloopState);
+    s.last_registered_cb_node_idx
 }
 
 // =====================================================================
