@@ -777,6 +777,12 @@ impl RemillTranspiler {
             }
             None => raw_lifted_ir.to_string(),
         };
+        // M10-B1.a: tag every load/store in the lifted IR with the
+        // host alias-scope so LLVM's ScopedAA can prove the lifted
+        // body's State / local-alloca accesses don't alias the
+        // helper IR's guest inttoptr accesses. SROA on the State
+        // alloca becomes viable post-link → layout cb size drops.
+        let lifted_ir = tag_state_accesses(&lifted_ir);
 
         // M9-review: after `rewrite_sub_names_to_canonical`, every
         // `sub_<hex>` reference in the IR uses the CANONICAL SYNTH
@@ -870,6 +876,11 @@ impl RemillTranspiler {
             &resolved_branches,
             export_as,
         );
+        // M10-B1.a: tag the wrapper IR's prologue/return loads/stores
+        // and the BumpAlloc/Realloc/Dealloc stub bodies' host accesses
+        // with host metadata too. The memory intrinsics already carry
+        // guest metadata from emission and are skipped by the tagger.
+        let helper_ir = tag_state_accesses(&helper_ir);
         let helper_ir_path = self.scratch_dir.join(format!("{}.helper.ll", stem));
         std::fs::write(&helper_ir_path, &helper_ir).map_err(|e| TranspileError {
             fn_name: fn_name.to_string(),
@@ -3026,6 +3037,19 @@ fn inject_alwaysinline(ir: &str, lift_addr: u64) -> String {
 /// call sites should trap the WASM (M7+ would route a typed
 /// `__az_panic` import to `() => throw new Error(...)` in JS); for
 /// the demo path the noop fallback is acceptable.
+// M10-B1.a metadata-ID slots. Numbers are arbitrary within each
+// module — they MUST NOT collide with metadata IDs the lifted IR or
+// llvm-link's own emission uses, so pick high IDs unlikely to clash.
+// llvm-link uniques metadata nodes by structural content, so the
+// identical `!{!"az_alias_domain"}` etc. emitted by the helper IR
+// (here) and by `tag_state_accesses` in the lifted IR collapse to
+// one set of nodes after link.
+const AZ_DOMAIN_MD_ID: u32 = 90001;
+const AZ_GUEST_SCOPE_MD_ID: u32 = 90002;
+const AZ_HOST_SCOPE_MD_ID: u32 = 90003;
+const AZ_GUEST_LIST_MD_ID: u32 = 90004;
+const AZ_HOST_LIST_MD_ID: u32 = 90005;
+
 fn emit_helper_ir(
     lift_addr: u64,
     sig: &CallbackSignature,
@@ -3415,44 +3439,63 @@ define linkonce_odr ptr @__remill_missing_block(ptr %state, i64 %pc, ptr %memory
 define linkonce_odr ptr @__remill_error(ptr %state, i64 %pc, ptr %memory) alwaysinline {{
   ret ptr %memory
 }}
+; M10-B1.a alias-scope metadata for guest memory ops.
+;
+; Every `__remill_*memory_*` load/store goes through `inttoptr i64
+; %addr to ptr`, which defeats LLVM's standard alias analysis — the
+; resulting pointer's provenance is unknown, so AA conservatively
+; assumes it might alias the wrapper's State alloca. That defeats
+; SROA on the State alloca and keeps a 1088-byte stack buffer alive
+; per call (plus all the GEPs into it).
+;
+; Tagging the inttoptr loads/stores with `!alias.scope !az_guest_list`
+; + `!noalias !az_host_list`, combined with a parallel pass on the
+; lifted IR that tags every State / local-alloca access with the
+; mirror metadata, lets AA prove guest ≠ host. SROA promotes the
+; State alloca to register-resident scalars.
+;
+; Scope identity across helper + lifted IR uses STRING-NAMED scopes
+; — llvm-link merges metadata nodes by content, so two structurally
+; identical scope/domain nodes from helper and lifted IR collapse to
+; one set after link. See `tag_state_accesses` for the mirror side.
 define linkonce_odr i8 @__remill_read_memory_8(ptr %memory, i64 %addr) alwaysinline {{
   %p = inttoptr i64 %addr to ptr
-  %v = load i8, ptr %p, align 1
+  %v = load i8, ptr %p, align 1, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
   ret i8 %v
 }}
 define linkonce_odr i16 @__remill_read_memory_16(ptr %memory, i64 %addr) alwaysinline {{
   %p = inttoptr i64 %addr to ptr
-  %v = load i16, ptr %p, align 2
+  %v = load i16, ptr %p, align 2, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
   ret i16 %v
 }}
 define linkonce_odr i32 @__remill_read_memory_32(ptr %memory, i64 %addr) alwaysinline {{
   %p = inttoptr i64 %addr to ptr
-  %v = load i32, ptr %p, align 4
+  %v = load i32, ptr %p, align 4, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
   ret i32 %v
 }}
 define linkonce_odr i64 @__remill_read_memory_64(ptr %memory, i64 %addr) alwaysinline {{
   %p = inttoptr i64 %addr to ptr
-  %v = load i64, ptr %p, align 8
+  %v = load i64, ptr %p, align 8, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
   ret i64 %v
 }}
 define linkonce_odr ptr @__remill_write_memory_8(ptr %memory, i64 %addr, i8 %val) alwaysinline {{
   %p = inttoptr i64 %addr to ptr
-  store i8 %val, ptr %p, align 1
+  store i8 %val, ptr %p, align 1, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
   ret ptr %memory
 }}
 define linkonce_odr ptr @__remill_write_memory_16(ptr %memory, i64 %addr, i16 %val) alwaysinline {{
   %p = inttoptr i64 %addr to ptr
-  store i16 %val, ptr %p, align 2
+  store i16 %val, ptr %p, align 2, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
   ret ptr %memory
 }}
 define linkonce_odr ptr @__remill_write_memory_32(ptr %memory, i64 %addr, i32 %val) alwaysinline {{
   %p = inttoptr i64 %addr to ptr
-  store i32 %val, ptr %p, align 4
+  store i32 %val, ptr %p, align 4, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
   ret ptr %memory
 }}
 define linkonce_odr ptr @__remill_write_memory_64(ptr %memory, i64 %addr, i64 %val) alwaysinline {{
   %p = inttoptr i64 %addr to ptr
-  store i64 %val, ptr %p, align 8
+  store i64 %val, ptr %p, align 8, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
   ret ptr %memory
 }}
 define linkonce_odr ptr @__remill_barrier_load_load(ptr %memory) alwaysinline {{ ret ptr %memory }}
@@ -3542,6 +3585,19 @@ define {ret_ty} @{export_as}({params}) {{
   %_ret_mem = call ptr @sub_{lift_addr_hex}(ptr %state_buf, i64 {lift_addr_dec}, ptr null)
 
 {ret_code}}}
+
+; M10-B1.a alias-scope graph. Two disjoint scopes in one domain:
+; "guest" wraps inttoptr-loaded linear-memory pointers,
+; "host" wraps the wrapper's State alloca + lifted-IR local
+; allocas. Cross-module identity by content: llvm-link uniques
+; metadata nodes by structural hash, so the equivalent definitions
+; emitted by `tag_state_accesses` in the lifted IR merge into the
+; same scope nodes after link.
+!{az_domain_id} = !{{!"az_alias_domain"}}
+!{az_guest_scope_id} = !{{!"az_guest_scope", !{az_domain_id}}}
+!{az_host_scope_id} = !{{!"az_host_scope", !{az_domain_id}}}
+!{az_guest_list} = !{{!{az_guest_scope_id}}}
+!{az_host_list} = !{{!{az_host_scope_id}}}
 "#,
         kind = sig.kind,
         ret_ty = ret_ty,
@@ -3557,6 +3613,11 @@ define {ret_ty} @{export_as}({params}) {{
         bump_global = bump_global.trim_end(),
         import_attrs = import_attrs.trim_end(),
         export_as = export_as,
+        az_domain_id = AZ_DOMAIN_MD_ID,
+        az_guest_scope_id = AZ_GUEST_SCOPE_MD_ID,
+        az_host_scope_id = AZ_HOST_SCOPE_MD_ID,
+        az_guest_list = AZ_GUEST_LIST_MD_ID,
+        az_host_list = AZ_HOST_LIST_MD_ID,
     )
 }
 
@@ -3661,6 +3722,111 @@ fn dedup_sub_declares(ir: &str) -> String {
         out.push_str(line);
         out.push('\n');
     }
+    out
+}
+
+/// M10-B1.a — post-process the lifted IR (or wrapper helper IR) to
+/// tag every `load` / `store` with `!alias.scope !host_list` +
+/// `!noalias !guest_list` metadata. Combined with the helper IR's
+/// guest-tagged `__remill_*memory_*` bodies, this lets LLVM's scoped
+/// alias analysis prove that the wrapper's State alloca (host) and
+/// the lifted body's inttoptr loads (guest) don't alias — SROA then
+/// promotes State to scalar registers, layout.wasm shrinks
+/// significantly.
+///
+/// The metadata definitions are appended at the bottom of every IR
+/// the lift pipeline produces. llvm-link uniques metadata nodes by
+/// structural content, so the identical `!{!"az_alias_domain"}`,
+/// `!{!"az_guest_scope", !{!"az_alias_domain"}}`, etc. emitted by
+/// every module collapse to one set of nodes after link.
+///
+/// Skips lines that already carry `!alias.scope` / `!noalias`
+/// metadata (the helper IR's memory intrinsics are tagged at
+/// emission with the guest scope and must keep that classification).
+///
+/// Atomic loads/stores (`load atomic`, `store atomic`) and volatile
+/// variants are detected via the keyword and treated identically.
+/// Lines whose tail is a `; preds = …` comment get metadata inserted
+/// BEFORE the comment.
+fn tag_state_accesses(ir: &str) -> String {
+    let mut out = String::with_capacity(ir.len() + 4 * 1024);
+    let host_tail = format!(
+        ", !alias.scope !{}, !noalias !{}",
+        AZ_HOST_LIST_MD_ID, AZ_GUEST_LIST_MD_ID,
+    );
+
+    for line in ir.lines() {
+        let trimmed = line.trim_start();
+        let is_load = trimmed.starts_with("load ")
+            || (trimmed.starts_with('%')
+                && trimmed.contains(" = load ")
+                && !trimmed.contains(" = load atomic ")  // load atomic handled below by keyword
+                || trimmed.contains(" = load atomic "));
+        let is_store = trimmed.starts_with("store ");
+
+        if !(is_load || is_store) {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+
+        // Lift-emitted `call ptr @__remill_*memory_*(...)` lines start
+        // with `%X = call ...` and aren't load/store — already filtered
+        // above.
+
+        // Skip if metadata is already present (helper IR's memory ops
+        // are pre-tagged with the guest scope).
+        if line.contains("!alias.scope") || line.contains("!noalias") {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+
+        // Locate the position to insert metadata. If a trailing
+        // `; preds = ...` (or any other comment) exists, insert
+        // BEFORE the semicolon; otherwise append to end of line.
+        let comment_idx = line.find(';');
+        if let Some(idx) = comment_idx {
+            let before = line[..idx].trim_end();
+            let after = &line[idx..];
+            out.push_str(before);
+            out.push_str(&host_tail);
+            out.push_str("  ");
+            out.push_str(after);
+        } else {
+            out.push_str(line.trim_end());
+            out.push_str(&host_tail);
+        }
+        out.push('\n');
+    }
+
+    // Append metadata definitions. Use string-named nodes so
+    // llvm-link merges identical definitions from helper / patched /
+    // lifted IRs into one scope graph.
+    //
+    // Skip appending if the IR already contains the domain def — the
+    // helper IR template emits its own copy at format time, and we're
+    // also invoked on the post-format helper IR (to tag the wrapper
+    // prologue/return + bump-alloc bodies' host accesses). Without
+    // this guard the same `!{az_domain_id}` would be defined twice,
+    // and LLVM's parser errors with "Metadata id is already used".
+    let domain_def_marker = format!("!{} = !", AZ_DOMAIN_MD_ID);
+    if !out.contains(&domain_def_marker) {
+        out.push_str(&format!(
+            "\n; M10-B1.a alias-scope metadata (mirror of helper IR).\n\
+             !{az_domain_id} = !{{!\"az_alias_domain\"}}\n\
+             !{az_guest_scope_id} = !{{!\"az_guest_scope\", !{az_domain_id}}}\n\
+             !{az_host_scope_id} = !{{!\"az_host_scope\", !{az_domain_id}}}\n\
+             !{az_guest_list} = !{{!{az_guest_scope_id}}}\n\
+             !{az_host_list} = !{{!{az_host_scope_id}}}\n",
+            az_domain_id = AZ_DOMAIN_MD_ID,
+            az_guest_scope_id = AZ_GUEST_SCOPE_MD_ID,
+            az_host_scope_id = AZ_HOST_SCOPE_MD_ID,
+            az_guest_list = AZ_GUEST_LIST_MD_ID,
+            az_host_list = AZ_HOST_LIST_MD_ID,
+        ));
+    }
+
     out
 }
 
