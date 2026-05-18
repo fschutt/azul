@@ -1032,6 +1032,7 @@ impl RemillTranspiler {
         exports: &[String],
         output_stem: &str,
         memory_mode: MemoryMode,
+        accessed_pages: &std::collections::HashSet<usize>,
     ) -> Result<Vec<u8>, TranspileError> {
         // M8.9 Phase 2b: native lld::wasm path when AZ_NATIVE_REMILL=1.
         // The C++ wrapper writes each obj to a per-call temp dir
@@ -1100,9 +1101,7 @@ impl RemillTranspiler {
                 let mut final_wasm = postprocess_wasm_opt(&pre_opt_path, output_stem)
                     .unwrap_or(linked);
                 relocate_stack_if_non_mini(&mut final_wasm, memory_mode, output_stem);
-                if matches!(memory_mode, MemoryMode::OwnMemory) {
-                    inject_user_binary_data_segments(&mut final_wasm);
-                }
+                inject_user_binary_data_segments(&mut final_wasm, accessed_pages, output_stem);
                 return Ok(final_wasm);
             }
         }
@@ -1159,9 +1158,7 @@ impl RemillTranspiler {
             })?,
         };
         relocate_stack_if_non_mini(&mut final_wasm, memory_mode, output_stem);
-        if matches!(memory_mode, MemoryMode::OwnMemory) {
-            inject_user_binary_data_segments(&mut final_wasm);
-        }
+        inject_user_binary_data_segments(&mut final_wasm, accessed_pages, output_stem);
         Ok(final_wasm)
     }
 
@@ -1225,6 +1222,11 @@ impl RemillTranspiler {
         let mut queue: VecDeque<TransitiveLiftTarget> = VecDeque::new();
         let mut object_paths: Vec<PathBuf> = Vec::new();
         let mut exports: Vec<String> = Vec::new();
+        // M9-after-review: collect ARM64 `adrp` page targets across
+        // every lifted function so the data mirror only ships the
+        // pages this wasm actually reads — not the entire 19 MiB
+        // libazul `__const` blob.
+        let mut accessed_pages: HashSet<usize> = HashSet::new();
 
         for root in roots {
             queue.push_back(TransitiveLiftTarget::Root(root));
@@ -1259,6 +1261,14 @@ impl RemillTranspiler {
                         MAX_RECURSIVE_DEPTH
                     ),
                 });
+            }
+
+            // Harvest adrp pages from this fn's bytes before lift.
+            let fn_bytes_slice = unsafe {
+                std::slice::from_raw_parts(addr as *const u8, size)
+            };
+            for page in scan_arm64_adrp_pages(fn_bytes_slice, addr) {
+                accessed_pages.insert(page);
             }
 
             // M9-review: pass the per-image synthetic address as
@@ -1400,6 +1410,7 @@ impl RemillTranspiler {
             &exports,
             "transitive-lift",
             MemoryMode::ImportMemory,
+            &accessed_pages,
         )?;
         Ok(WasmModule {
             content_hash: super::fnv1a64_hex(&bytes),
@@ -1529,6 +1540,19 @@ impl RemillTranspiler {
             }
         }
 
+        // M9-after-review: collect ARM64 `adrp` page targets across
+        // every target's bytes — even for cached objects we still
+        // need their accessed pages in the mirror set.
+        let mut accessed_pages: HashSet<usize> = HashSet::new();
+        for t in &targets {
+            let bytes_slice = unsafe {
+                std::slice::from_raw_parts(t.addr as *const u8, t.size)
+            };
+            for page in scan_arm64_adrp_pages(bytes_slice, t.addr) {
+                accessed_pages.insert(page);
+            }
+        }
+
         // Cache check: split into (cached, to_lift) per target.
         let mut object_paths: Vec<PathBuf> = Vec::with_capacity(targets.len());
         let mut exports: Vec<String> = Vec::with_capacity(targets.len());
@@ -1637,6 +1661,7 @@ impl RemillTranspiler {
             &exports,
             "transitive-lift",
             MemoryMode::ImportMemory,
+            &accessed_pages,
         )?;
         Ok(WasmModule {
             content_hash: super::fnv1a64_hex(&bytes),
@@ -1745,19 +1770,33 @@ fn relocate_stack_if_non_mini(wasm: &mut Vec<u8>, memory_mode: MemoryMode, outpu
 /// the wasm still loads but lifted user code reading const strings
 /// will see zero bytes (the wasm linear memory's default).
 #[cfg(feature = "web-transpiler")]
-fn inject_user_binary_data_segments(wasm: &mut Vec<u8>) {
-    // M9-review: with the synthetic-addr lift scheme, every image's
-    // data sections live at predictable synthetic offsets. Walk the
-    // SymbolTable's per-image rebase records + mirror each image's
-    // data segments at the corresponding synth offsets. The lifted
-    // adrp+ldr targets in cb/layout wasms read from these offsets
-    // directly.
+fn inject_user_binary_data_segments(
+    wasm: &mut Vec<u8>,
+    accessed_pages: &std::collections::HashSet<usize>,
+    output_stem: &str,
+) {
+    // M9-review + per-page (post-review): the synth-addr lift means
+    // every native page has a predictable wasm offset. Combined with
+    // the set of pages we KNOW the lifted code reads (computed by
+    // scanning each function's bytes for `adrp`), we only need to
+    // mirror those specific 4 KiB pages — not entire `__const`
+    // sections.
+    //
+    // Without the per-page filter we'd ship ~27 MiB of libazul data
+    // per wasm (mostly LLVM/LLD/remill string tables that the user's
+    // cb never touches). With it: a few hundred KiB for typical
+    // callbacks.
     let table = match super::symbol_table::get() {
         Some(t) => t,
         None => return,
     };
-    let segments = collect_synth_data_segments(table);
+    let segments = collect_synth_data_pages(table, accessed_pages);
     if segments.is_empty() {
+        eprintln!(
+            "[azul-web] M9-after-review: 0 data pages to mirror in {} \
+             (accessed_pages set is empty or no pages fall in tracked images)",
+            output_stem,
+        );
         return;
     }
     let total_bytes: usize = segments.iter().map(|(_, b)| b.len()).sum();
@@ -1765,27 +1804,71 @@ fn inject_user_binary_data_segments(wasm: &mut Vec<u8>) {
     match patch_wasm_add_data_segments(wasm, &segments) {
         Ok(added) => {
             eprintln!(
-                "[azul-web] M9-review: injected {} data segments \
-                 ({} bytes total) at synth offsets into mini.wasm \
-                 ({} → {} bytes)",
-                added, total_bytes, pre_len, wasm.len(),
+                "[azul-web] M9-after-review: {} mirrored {} data pages \
+                 ({} bytes total, {:.2} MiB) → wasm {} → {} bytes",
+                output_stem, added, total_bytes,
+                total_bytes as f64 / 1024.0 / 1024.0,
+                pre_len, wasm.len(),
             );
         }
         Err(e) => {
             eprintln!(
-                "[azul-web] M9-review: failed to inject data segments \
-                 ({} bytes): {} — lifted const reads will see zero bytes",
-                total_bytes, e,
+                "[azul-web] M9-after-review: failed to inject data segments \
+                 into {} ({} bytes): {} — lifted const reads will see zero bytes",
+                output_stem, total_bytes, e,
             );
         }
     }
 }
 
-/// M9-review: walk per-image rebases + collect mirrored data
-/// sections at their SYNTHETIC offsets (synth_base + section
-/// file-vmaddr offset within the image).
+/// M9-after-review: collect mirrored data for ONLY the specific
+/// 4 KiB pages the lifted code reads. `accessed_pages` is the set
+/// of NATIVE page addresses harvested by [`scan_arm64_adrp_pages`]
+/// across every function whose lift contributed to the wasm being
+/// linked. For each page in the set that falls inside a tracked
+/// image's text+data range, mirror the page's 4 KiB at the
+/// corresponding SYNTH offset.
+///
+/// Replaces the previous "mirror entire sections" approach that
+/// caused mini.wasm to balloon to 27 MiB even for hello-world.
+/// Per-page is bounded by what the cb actually touches — typically
+/// a few dozen pages = a few hundred KiB.
 #[cfg(feature = "web-transpiler")]
-fn collect_synth_data_segments(
+fn collect_synth_data_pages(
+    table: &super::symbol_table::SymbolTable,
+    accessed_pages: &std::collections::HashSet<usize>,
+) -> Vec<(u32, Vec<u8>)> {
+    const PAGE_SIZE: usize = 4096;
+    let mut out: Vec<(u32, Vec<u8>)> = Vec::new();
+    for native_page in accessed_pages {
+        let native_page = *native_page;
+        // Find which image this page belongs to.
+        let Some(synth_page) = table.native_to_synth(native_page) else {
+            continue;
+        };
+        // SAFETY: pages reachable from `adrp` targets in lifted code
+        // are in mapped image segments — the loader put them there
+        // and they stay mapped for the process lifetime. Reading
+        // 4 KiB is safe; reads past the segment end are zero-filled
+        // by the loader.
+        let bytes = unsafe {
+            core::slice::from_raw_parts(native_page as *const u8, PAGE_SIZE).to_vec()
+        };
+        out.push((synth_page as u32, bytes));
+    }
+    out.sort_by_key(|(off, _)| *off);
+    out.dedup_by(|a, b| a.0 == b.0);
+    out
+}
+
+/// M9-review (UNUSED now — kept temporarily for git history;
+/// remove after the per-page mirror lands stable). Walked per-image
+/// rebases + mirrored entire data sections, producing mini.wasm
+/// payloads of ~27 MiB for hello-world due to libazul's LLVM/LLD/
+/// remill string tables.
+#[allow(dead_code)]
+#[cfg(feature = "web-transpiler")]
+fn collect_synth_data_segments_legacy(
     table: &super::symbol_table::SymbolTable,
 ) -> Vec<(u32, Vec<u8>)> {
     let mut out: Vec<(u32, Vec<u8>)> = Vec::new();
@@ -2509,11 +2592,25 @@ impl Transpiler for RemillTranspiler {
             }
         }
 
+        // M9-after-review: scan every eventloop fn's bytes for ARM64
+        // `adrp` page targets so the mini.wasm data mirror only
+        // ships pages this set actually reads.
+        let mut accessed_pages: HashSet<usize> = HashSet::new();
+        for (_, addr, size) in symbols {
+            let bytes_slice = unsafe {
+                std::slice::from_raw_parts(*addr as *const u8, *size)
+            };
+            for page in scan_arm64_adrp_pages(bytes_slice, *addr) {
+                accessed_pages.insert(page);
+            }
+        }
+
         let bytes = self.link_objects_to_wasm(
             &object_paths,
             &exports,
             "azul-mini",
             MemoryMode::OwnMemory,
+            &accessed_pages,
         )?;
         Ok(WasmModule {
             content_hash: super::fnv1a64_hex(&bytes),
@@ -3506,6 +3603,54 @@ fn dedup_sub_declares(ir: &str) -> String {
 /// BLR / BR (indirect call / jump) cannot be statically resolved
 /// from bytes — they route through __az_call_indirect machinery
 /// and are bridged in helper IR, not via direct dep traversal.
+/// M9-after-review: scan ARM64 bytes for `adrp` instructions and
+/// return their target PAGE addresses (page-aligned native addrs).
+/// Used by `link_objects_to_wasm` to compute the precise set of
+/// 4 KiB pages each wasm needs mirrored, instead of indiscriminately
+/// shipping every byte of `libazul`'s `__const` / `__cstring` (~27 MiB
+/// for the lifter-static build, mostly LLVM string tables that the
+/// user's cb never touches).
+///
+/// ARM64 `adrp x<n>, imm21`:
+///   - opcode bits 31, 28..24 = `1xx10000` (top byte is `0x90` or `0x91`)
+///   - bit 31 selects ADR (0) vs ADRP (1) — we only care about ADRP
+///   - immediate is 21 bits split as `immlo[1:0]` (bits 30..29) +
+///     `immhi[20:2]` (bits 23..5), shifted left by 12 → page offset
+///
+/// Target page = `(pc & ~0xFFF) + sign_extend(imm21, 33) << 12`.
+fn scan_arm64_adrp_pages(fn_bytes: &[u8], fn_addr: usize) -> Vec<usize> {
+    let mut out = Vec::new();
+    let mut offset = 0;
+    while offset + 4 <= fn_bytes.len() {
+        let instr = u32::from_le_bytes([
+            fn_bytes[offset],
+            fn_bytes[offset + 1],
+            fn_bytes[offset + 2],
+            fn_bytes[offset + 3],
+        ]);
+        // ADRP encoding: bit 31 = 1, bits 28..24 = 10000.
+        // → top byte mask `0x9F & 0x9F == 0x90` after masking bit 30 (immlo).
+        // Pattern: (instr >> 31) == 1 && (instr >> 24) & 0x1F == 0x10
+        if (instr >> 31) == 1 && ((instr >> 24) & 0x1F) == 0x10 {
+            let immlo = (instr >> 29) & 0x3;     // bits 30..29
+            let immhi = (instr >> 5) & 0x7FFFF;  // bits 23..5
+            let imm21 = (immhi << 2) | immlo;
+            // Sign-extend 21 → 33 bits, then shift << 12.
+            let signed_imm: i64 = if imm21 & (1 << 20) != 0 {
+                ((imm21 as i64) | !0x1F_FFFF_i64) << 12
+            } else {
+                (imm21 as i64) << 12
+            };
+            let pc = fn_addr.wrapping_add(offset);
+            let pc_page = pc & !0xFFF;
+            let target_page = (pc_page as i64).wrapping_add(signed_imm) as usize;
+            out.push(target_page);
+        }
+        offset += 4;
+    }
+    out
+}
+
 fn scan_arm64_bl_b_targets(fn_bytes: &[u8], fn_addr: usize) -> Vec<usize> {
     let mut out = Vec::new();
     let mut offset = 0;
