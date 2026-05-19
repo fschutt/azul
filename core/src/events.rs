@@ -1582,6 +1582,13 @@ pub enum HoverEventFilter {
     /// `PointerEvent('pointermove')` with `buttons: 0` and
     /// `pointerType: 'pen'`.
     PenHover,
+    /// New GPS / network location fix arrived for a `GeolocationProbe`
+    /// in this node's subtree. Payload accessor:
+    /// `CallbackInfo::get_geolocation_fix()`.
+    GeolocationFix,
+    /// Native geolocation subscription errored / was revoked /
+    /// timed out.
+    GeolocationError,
     /// Drag started on the hovered element
     DragStart,
     /// Drag in progress on the hovered element
@@ -1692,6 +1699,8 @@ impl HoverEventFilter {
             HoverEventFilter::PenSqueeze => None,
             HoverEventFilter::PenDoubleTap => None,
             HoverEventFilter::PenHover => None,
+            HoverEventFilter::GeolocationFix => None,
+            HoverEventFilter::GeolocationError => None,
             HoverEventFilter::DragStart => Some(FocusEventFilter::DragStart),
             HoverEventFilter::Drag => Some(FocusEventFilter::Drag),
             HoverEventFilter::DragEnd => Some(FocusEventFilter::DragEnd),
@@ -1914,6 +1923,17 @@ pub enum WindowEventFilter {
     /// Pen hover in the window (in proximity, not in contact). See
     /// [`HoverEventFilter::PenHover`].
     PenHover,
+    /// New GPS / network location fix arrived. Payload accessor:
+    /// `CallbackInfo::get_geolocation_fix()`. Window-level rather
+    /// than per-node because the user's location isn't bound to any
+    /// particular DOM node — but a node-level mirror
+    /// (`HoverEventFilter::GeolocationFix`) fires on every
+    /// `GeolocationProbe` in the tree as well, for the common
+    /// "redraw this node when the location changes" pattern.
+    GeolocationFix,
+    /// Native geolocation subscription dropped or errored (signal
+    /// lost, no provider, permission revoked mid-session).
+    GeolocationError,
     /// Drag started anywhere in window
     DragStart,
     /// Drag in progress anywhere in window
@@ -2001,6 +2021,8 @@ impl WindowEventFilter {
             WindowEventFilter::PenSqueeze => Some(HoverEventFilter::PenSqueeze),
             WindowEventFilter::PenDoubleTap => Some(HoverEventFilter::PenDoubleTap),
             WindowEventFilter::PenHover => Some(HoverEventFilter::PenHover),
+            WindowEventFilter::GeolocationFix => Some(HoverEventFilter::GeolocationFix),
+            WindowEventFilter::GeolocationError => Some(HoverEventFilter::GeolocationError),
             WindowEventFilter::DragStart => Some(HoverEventFilter::DragStart),
             WindowEventFilter::Drag => Some(HoverEventFilter::Drag),
             WindowEventFilter::DragEnd => Some(HoverEventFilter::DragEnd),

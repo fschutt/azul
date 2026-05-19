@@ -418,3 +418,23 @@ Wire-in queue:
 `cargo check -p azul-paint` clean. `bash scripts/mobile-check-all.sh` GREEN on all 5 mobile targets (0/1/0/0/1 s — only azul-paint rebuilt).
 
 P2 follow-ups queued: (a) Save-as-SVG / Save-as-PNG via the P1.3 `FilePickerHandle` poll pattern — needs a Timer callback that polls the handle each frame; (b) brush palette UI (colour picker + size slider); (c) once the framework gains a `<canvas>` NodeType, swap the per-point div soup for a single canvas blit. AzulPaint becomes "playable" today on desktop; iOS/Android runtime needs Xcode SDK + an APK build respectively.
+
+### Tick — P3.1a GeolocationManager + dispatcher (AzulMaps runway)
+
+Opens P3 — the AzulMaps tier. Lands the cross-platform geolocation state + 5-platform stub dispatcher. NodeType::GeolocationProbe is the next tick (it touches NodeType / Hash / Ord / Display + the renderer's "skip invisible" code path + 35-language codegen).
+
+- `layout/src/managers/geolocation.rs` (~350 LOC incl. tests):
+  - `LocationFix` (`#[repr(C)]`) mirrors W3C `GeolocationPosition` — lat/lon/accuracy + optional altitude/altitudeAccuracy/heading/speed encoded as `f32::NAN` when not reported. `altitude()` / `heading()` / `speed()` decode the sentinel to `Option<f32>`.
+  - `GeolocationProbeConfig` (`#[repr(C)]`) — `high_accuracy`, `background`, `max_accuracy_m`, `min_interval_ms`. Maps to W3C `PositionOptions`.
+  - `GeolocationDiffEvent` (`#[repr(C, u8)]`) — `Subscribe { config }`, `Release`, `Reconfigure { config }`.
+  - `GeolocationManager` — `latest_fix` + `active_config` + pending-event queue + refcount. `diff_layout(closure)` matches the symmetric API on `PermissionManager`: closure feeds each `GeolocationProbeConfig` it finds in the styled DOM; manager emits Subscribe (0→1), Release (n→0), or Reconfigure (config drift). `set_latest_fix` compares via `to_bits()` so NaN-encoded missing fields don't make every sample look "changed".
+  - 6 unit tests cover the full state machine: first-probe Subscribe, last-drop Release+clear-fix, config drift Reconfigure, stable config no-op, change-flag semantics on set_latest_fix, NaN→None decode.
+- `layout/src/window.rs::LayoutWindow` gains `geolocation_manager` field initialized at all three constructor sites.
+- `dll/src/desktop/shell2/common/layout.rs::regenerate_layout` runs the geolocation diff pass + `take_pending_events` + dispatches via `crate::desktop::extra::geolocation::apply_diff_events`. Same shape as the permission diff already wired in P1.2.
+- `dll/src/desktop/extra/geolocation/{mod,ios,android,macos,linux,windows}.rs` — 5 platform stubs documenting the per-platform native API they'll call once `NodeType::GeolocationProbe` lands: iOS → `CLLocationManager + AzulLocationDelegate`, Android → JNI to `AzulGeolocation.java + FusedLocationProviderClient`, macOS → shares iOS objc bindings via `cfg(any(ios, macos))`, Linux → `zbus → org.freedesktop.GeoClue2.Manager` (Flatpak portal fallback), Windows → `Windows.Devices.Geolocation.Geolocator.PositionChanged`.
+- `core/src/events.rs::{HoverEventFilter, WindowEventFilter}` each gain `GeolocationFix` + `GeolocationError`. `to_hover_event_filter` + `to_focus_event_filter` updated with paired arms (both new variants return None for focus — location is window-global, not per-focus).
+- `api.json` updated with both new variants; `cd doc && cargo run -p azul-doc -- codegen all` regenerated all 35 language bindings + `dll_api_internal.rs` cleanly.
+
+`cargo test -p azul-layout --lib geolocation::` — 6/6 GREEN. `cargo test -p azul-layout --lib permission::` — 7/7 still pass. `bash scripts/mobile-check-all.sh` GREEN across all 5 mobile targets (7/6/6/7/7 s — full rebuild after the codegen refresh).
+
+Next tick (P3.1b): add `NodeType::GeolocationProbe(GeolocationProbeConfig)` variant — closes the loop so `diff_layout`'s closure actually enumerates probes from the styled DOM. Then P3.1c — real iOS/Android `CLLocationManager` / `FusedLocationProviderClient` wiring.

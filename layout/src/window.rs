@@ -414,6 +414,13 @@ pub struct LayoutWindow {
     /// `Subscribe` / `Release` through `dll::desktop::extra::permission::apply_diff_events`.
     /// See `SUPER_PLAN_2.md` §1.5 + research/08 for the architecture.
     pub permission_manager: crate::managers::permission::PermissionManager,
+    /// Geolocation manager — `LocationFix` storage + per-frame diff
+    /// against the `NodeType::GeolocationProbe`s in the styled DOM.
+    /// The platform backend (`dll::desktop::extra::geolocation`)
+    /// drains diff events and starts / stops native
+    /// `CLLocationManager` / `LocationManager` / `geoclue`
+    /// subscriptions.
+    pub geolocation_manager: crate::managers::geolocation::GeolocationManager,
     /// Timers associated with this window
     pub timers: BTreeMap<TimerId, Timer>,
     /// Threads running in the background for this window
@@ -579,6 +586,7 @@ impl LayoutWindow {
             ),
             a11y_manager: crate::managers::a11y::A11yManager::new(),
             permission_manager: crate::managers::permission::PermissionManager::new(),
+            geolocation_manager: crate::managers::geolocation::GeolocationManager::new(),
             timers: BTreeMap::new(),
             threads: BTreeMap::new(),
             renderer_resources: RendererResources::default(),
@@ -664,6 +672,7 @@ impl LayoutWindow {
             ),
             a11y_manager: crate::managers::a11y::A11yManager::new(),
             permission_manager: crate::managers::permission::PermissionManager::new(),
+            geolocation_manager: crate::managers::geolocation::GeolocationManager::new(),
             timers: BTreeMap::new(),
             threads: BTreeMap::new(),
             renderer_resources: RendererResources::default(),
@@ -748,6 +757,7 @@ impl LayoutWindow {
             ),
             a11y_manager: crate::managers::a11y::A11yManager::new(),
             permission_manager: crate::managers::permission::PermissionManager::new(),
+            geolocation_manager: crate::managers::geolocation::GeolocationManager::new(),
             timers: BTreeMap::new(),
             threads: BTreeMap::new(),
             renderer_resources: RendererResources::default(),

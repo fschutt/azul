@@ -11,4 +11,5 @@
 //! flat namespace, e.g. `azul_dll::desktop::extra::permission::apply_diff_events`.
 
 pub mod file_picker;
+pub mod geolocation;
 pub mod permission;

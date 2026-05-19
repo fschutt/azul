@@ -630,6 +630,20 @@ pub fn regenerate_layout(
         crate::desktop::extra::permission::apply_diff_events(&permission_events);
     }
 
+    // 7b. Geolocation diff — symmetric to the permission pass. Walks
+    // the styled DOM for GeolocationProbe NodeTypes (none today; lands
+    // in the next P3 tick) and the platform backend translates the
+    // Subscribe / Release / Reconfigure events into native
+    // CLLocationManager / LocationManager / geoclue calls.
+    layout_window.geolocation_manager.diff_layout(|_emit| {
+        // TODO: enumerate GeolocationProbeConfigs once
+        // NodeType::GeolocationProbe lands.
+    });
+    let geolocation_events = layout_window.geolocation_manager.take_pending_events();
+    if !geolocation_events.is_empty() {
+        crate::desktop::extra::geolocation::apply_diff_events(&geolocation_events);
+    }
+
     log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE");
     azul_layout::probe::emit_phase_heap("end");
 
