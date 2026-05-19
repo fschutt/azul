@@ -1055,37 +1055,52 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     // BEFORE the cascade and the ptr AFTER, so JS can distinguish
     // "cascade never returned" (marker only) from "cascade
     // returned, drop bailed" (marker + ptr).
-    // Stepped probes via last_layout_status. Use a fresh state
-    // dereference for each probe write so LLVM can't hoist the
-    // pointer into a register that the cascade's bl boundary
-    // might force a reload of via state.GPR.X<n>.
-    use core::ptr;
+    // Stepped probes via last_layout_status. To force a fresh register
+    // allocation per write (so each probe goes through its own state
+    // pointer load — not a cached reg shared with the cascade), each
+    // write is in a SEPARATE #[inline(never)] helper function.
     let state_u32 = state;
-    // Pre-cascade
-    {
-        let s = &mut *(state_u32 as usize as *mut EventloopState);
-        ptr::write_volatile(&mut s.last_layout_status as *mut u32, 0x1001);
-    }
+    probe_set(state_u32, 0x1001);  // pre-cascade
     let styled = StyledDom::create(dom_ref, Css::empty());
-    // Post-cascade — re-derive state pointer from input u32 (forces
-    // a fresh memory access to state arg, bypassing any cached reg).
-    {
-        let s = &mut *(state_u32 as usize as *mut EventloopState);
-        ptr::write_volatile(&mut s.last_layout_status as *mut u32, 0x1002);
-    }
+    probe_set(state_u32, 0x1002);  // cascade returned
     let boxed = Box::new(styled);
-    {
-        let s = &mut *(state_u32 as usize as *mut EventloopState);
-        ptr::write_volatile(&mut s.last_layout_status as *mut u32, 0x1003);
-    }
+    probe_set(state_u32, 0x1003);  // Box::new returned
     let ptr_val = Box::into_raw(boxed) as usize as u32;
     {
         let s = &mut *(state_u32 as usize as *mut EventloopState);
         s.current_dom_styled_ptr = ptr_val;
-        ptr::write_volatile(&mut s.last_layout_status as *mut u32, 0x1004);
         s.display_text_node_idx = 0xBABE_u32;
     }
+    probe_set(state_u32, 0x1004);  // final
     0
+}
+
+/// M12 cascade probe helper — never inlined so each call site
+/// gets its own register-allocation scope. Writes to BOTH:
+///   - state.last_layout_status (state-relative write)
+///   - a fixed wasm linear memory address `0x40000` (state-FREE write)
+/// This lets JS distinguish: if BOTH writes work, the cascade is fine.
+/// If only the fixed-address write works, state pointer was corrupted.
+/// If neither works, probe_set itself isn't being called.
+#[inline(never)]
+#[no_mangle]
+pub unsafe extern "C" fn probe_set(state_u32: u32, value: u32) {
+    // State-FREE write: direct to a fixed wasm linear memory address.
+    // JS reads via getProbeRaw().
+    let raw_p = 0x40000_usize as *mut u32;
+    core::ptr::write_volatile(raw_p, value);
+    if state_u32 == 0 {
+        return;
+    }
+    let s = &mut *(state_u32 as usize as *mut EventloopState);
+    core::ptr::write_volatile(&mut s.last_layout_status as *mut u32, value);
+}
+
+/// Reads the raw probe value at fixed wasm memory address 0x40000.
+/// JS-callable: confirms whether `probe_set` was called at all.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_getProbeRaw() -> u32 {
+    core::ptr::read_volatile(0x40000_usize as *const u32)
 }
 
 /// Read [`EventloopState::current_dom_hydrated`] without

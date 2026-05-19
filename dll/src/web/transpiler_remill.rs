@@ -310,6 +310,12 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
             args: vec![Pcs::Wreg { state_byte_offset: X0 }],
             ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
         }),
+        // No-arg getter — returns a u32.
+        "AzStartup_getProbeRaw" => Some(CallbackSignature {
+            kind: name.to_string(),
+            args: vec![],
+            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+        }),
         // M11 Sprint 5 — VirtualView setters (state, u32) -> ().
         "AzStartup_setAutoVirtualizeThreshold"
         | "AzStartup_setVirtualViewProvider"
