@@ -973,15 +973,14 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     // the floor. Sprint 2 / 3 will address by either (a) tracing
     // the lifted IR to find the broken helper, or (b) constructing
     // a minimal StyledDom-equivalent via field-by-field writes.
-    // M12.8 — temporarily skip StyledDom::create. With remill fork
-    // adding FCVTZS_64S_FLOAT2INT + STP_Q + Lift fix, most of the
-    // cascade lifts cleanly. However a wasm OOB trap inside hydrate's
-    // 20 KB body remains (at func[22]:0x73ec, an i64.store via a
-    // bump-allocator that returns an out-of-range address).
-    // Likely root cause: one of the 210 transitive helpers writes
-    // through a pointer it never initialised. Keeping the stub
-    // path until we can isolate the offending helper via lift-IR
-    // dump (AZ_DUMP_IR + subprocess lift one fn at a time).
+    // M12.8 — StyledDom::create un-stub still traps even with the
+    // 128 MiB → 512 MiB heap expansion. The trap is at
+    // `i64.load 3 0` via `wrap_i64(loaded_field) + 56` where
+    // `loaded_field` is read from a struct allocated by the bump
+    // allocator that has uninitialised pointer-typed fields.
+    // Looks like the [[m11-complex-struct-box-new-lift]] gap —
+    // Box::new of a struct whose fields hold *mut T values reads
+    // back uninitialised. Deferring un-stub until that's resolved.
     let _ = dom_ref;
     let _ = StyledDom::create;
     let _ = Css::empty;
