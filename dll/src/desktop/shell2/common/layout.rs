@@ -611,6 +611,25 @@ pub fn regenerate_layout(
         );
     }
 
+    // 7. Permission diff — scan the styled DOM for permission-bearing
+    // NodeTypes (GeolocationProbe / CameraPreview / SensorProbe / …) and
+    // refresh the refcount on PermissionManager. Subscribe / Release diff
+    // events accumulate in the manager's queue; the platform shell drains
+    // and dispatches them via `crate::desktop::extra::permission::apply_diff_events`.
+    //
+    // The closure body is currently a no-op — the bearing NodeTypes don't
+    // exist yet (queued for the P3 / P6 sprints). The seam is in place so
+    // future ticks only have to fill in the closure to walk
+    // `layout_window.layout_results[*].styled_dom.node_data`.
+    layout_window.permission_manager.diff_layout(|_emit| {
+        // TODO: enumerate (Capability, DomNodeId) pairs once
+        // NodeType::GeolocationProbe / CameraPreview / SensorProbe land.
+    });
+    let permission_events = layout_window.permission_manager.take_pending_events();
+    if !permission_events.is_empty() {
+        crate::desktop::extra::permission::apply_diff_events(&permission_events);
+    }
+
     log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE");
     azul_layout::probe::emit_phase_heap("end");
 

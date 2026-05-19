@@ -407,6 +407,13 @@ pub struct LayoutWindow {
     pub gpu_state_manager: GpuStateManager,
     /// Accessibility manager for screen reader support
     pub a11y_manager: crate::managers::a11y::A11yManager,
+    /// Permission manager — cross-platform capability state for camera /
+    /// microphone / geolocation / biometric / sensors / photo-library /
+    /// notifications / etc. The platform backend drains
+    /// `take_pending_permission_events` once per frame and routes each
+    /// `Subscribe` / `Release` through `dll::desktop::extra::permission::apply_diff_events`.
+    /// See `SUPER_PLAN_2.md` §1.5 + research/08 for the architecture.
+    pub permission_manager: crate::managers::permission::PermissionManager,
     /// Timers associated with this window
     pub timers: BTreeMap<TimerId, Timer>,
     /// Threads running in the background for this window
@@ -571,6 +578,7 @@ impl LayoutWindow {
                 default_duration_200ms(),
             ),
             a11y_manager: crate::managers::a11y::A11yManager::new(),
+            permission_manager: crate::managers::permission::PermissionManager::new(),
             timers: BTreeMap::new(),
             threads: BTreeMap::new(),
             renderer_resources: RendererResources::default(),
@@ -655,6 +663,7 @@ impl LayoutWindow {
                 default_duration_200ms(),
             ),
             a11y_manager: crate::managers::a11y::A11yManager::new(),
+            permission_manager: crate::managers::permission::PermissionManager::new(),
             timers: BTreeMap::new(),
             threads: BTreeMap::new(),
             renderer_resources: RendererResources::default(),
@@ -738,6 +747,7 @@ impl LayoutWindow {
                 default_duration_200ms(),
             ),
             a11y_manager: crate::managers::a11y::A11yManager::new(),
+            permission_manager: crate::managers::permission::PermissionManager::new(),
             timers: BTreeMap::new(),
             threads: BTreeMap::new(),
             renderer_resources: RendererResources::default(),

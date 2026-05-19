@@ -299,3 +299,12 @@ Lands the second half of the §0.5 split: cross-platform state lives in `azul-la
 - `dll/src/desktop/mod.rs` registers `pub mod extra;` between `display` and `file`.
 
 `bash scripts/mobile-check-all.sh` GREEN across all 5 targets (6/5/6/4/4 s). No new deps; the stubs only import `azul_layout::managers::permission::*`. Next tick will land the `LayoutWindow → take_pending_events() → extra::permission::apply_diff_events` wire-up in the layout pass.
+
+### Tick — P1.2 layout-pass wire-up
+
+Closes the cross-platform side of P1.2 by plumbing the manager into the shared layout pipeline. Three edits:
+
+- `layout/src/window.rs::LayoutWindow` — new field `permission_manager: crate::managers::permission::PermissionManager`, initialized at all three `LayoutWindow::new*` constructor sites (`new`, the second copy at ~line 645, and `new_paged`). Doc comment points at SUPER_PLAN_2 §1.5 + research/08 for context.
+- `dll/src/desktop/shell2/common/layout.rs::regenerate_layout` (step 7, after scrollbar opacity sync) now calls `layout_window.permission_manager.diff_layout(|_emit| {})` followed by `take_pending_events()`. Emitted events are routed through `crate::desktop::extra::permission::apply_diff_events`, which cfg-routes to the right platform stub. The closure body is intentionally empty for now — the bearing NodeTypes (`GeolocationProbe`, `CameraPreview`, `SensorProbe`) don't exist yet; the seam is in place so a future tick can fill in the DOM walk without touching layout-pass plumbing again.
+
+`cargo test -p azul-layout --lib permission::` still 7/7 GREEN. `bash scripts/mobile-check-all.sh` GREEN on all 5 mobile targets (20/8/7/8/7 s — slower first-pass because azul-dll rebuilt with the new field). The whole P1.2 chain (manager core → platform stubs → layout-pass drain) is now wired end-to-end; activation only blocks on (a) the probe NodeTypes (P3-P6) and (b) replacing the per-platform stub bodies with real native calls (later P1+ ticks).
