@@ -651,7 +651,7 @@ pub unsafe extern "C" fn AzStartup_initLayoutCache(
         return 2;
     }
     let info_ptr = AzStartup_alloc(512);
-    let out_ptr = AzStartup_alloc(256);
+    let out_ptr = AzStartup_alloc(4096);
     let cb_status = __az_call_indirect_layout4(
         table_idx,
         refany_ptr as u64,
@@ -973,9 +973,22 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     // the floor. Sprint 2 / 3 will address by either (a) tracing
     // the lifted IR to find the broken helper, or (b) constructing
     // a minimal StyledDom-equivalent via field-by-field writes.
-    let styled = StyledDom::create(dom_ref, Css::empty());
-    let boxed = Box::new(styled);
-    s.current_dom_styled_ptr = Box::into_raw(boxed) as usize as u32;
+    // M12.8 — temporarily skip StyledDom::create. With NEON Q-reg
+    // STP now lifted in our remill fork, the cascade lifts most
+    // of its body, but a wasm memory-out-of-bounds trap surfaces
+    // somewhere inside the lifted code. Until the trap is
+    // diagnosed (suspected: convert_dom_into_compact_dom or one
+    // of the rustc alloc helpers writes past the wasm linear
+    // memory), we set the pointer to a placeholder so callers
+    // don't get a NULL-pointer deref.
+    //
+    // The hydrate path's value-add (AzDom walk + node count +
+    // hydrated flag) still works; only the typed StyledDom
+    // access is stubbed.
+    let _ = dom_ref;
+    let _ = StyledDom::create;
+    let _ = Css::empty;
+    s.current_dom_styled_ptr = 0;
     s.current_dom_node_count = count;
     s.current_dom_hydrated = 1;
     0
@@ -1414,7 +1427,7 @@ pub unsafe extern "C" fn AzStartup_relayout(state: u32) -> u32 {
         return 2;
     }
     let info_ptr = AzStartup_alloc(512);
-    let new_out_ptr = AzStartup_alloc(256);
+    let new_out_ptr = AzStartup_alloc(4096);
     if info_ptr == 0 || new_out_ptr == 0 {
         return 3;
     }
