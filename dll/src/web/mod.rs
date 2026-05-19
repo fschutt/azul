@@ -57,6 +57,7 @@ pub const EVENTLOOP_SYMBOLS: &[&str] = &[
     "AzStartup_initLayoutCache",
     "AzStartup_getCurrentDomPtr",
     "AzStartup_getLastLayoutStatus",
+    "AzStartup_getCascadeProbe",
     // M9-4: WASM-side hit-test (stub, returns last registered cb node).
     "AzStartup_registerCbNode",
     "AzStartup_hitTest",

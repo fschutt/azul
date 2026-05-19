@@ -304,7 +304,8 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
             ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
         }),
         // M11 Sprint 3 — relayout (state-only) + buildPatch (6 args).
-        "AzStartup_relayout" | "AzStartup_getAutoVirtualizeThreshold" => Some(CallbackSignature {
+        "AzStartup_relayout" | "AzStartup_getAutoVirtualizeThreshold"
+        | "AzStartup_getCascadeProbe" => Some(CallbackSignature {
             kind: name.to_string(),
             args: vec![Pcs::Wreg { state_byte_offset: X0 }],
             ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
@@ -697,9 +698,11 @@ impl RemillTranspiler {
         // SAFETY: caller asserts (fn_addr, fn_size) cover live .text
         // bytes (typically derived from the SymbolTable's exact
         // `next_symbol_addr - this_addr` slice).
-        let bytes: Vec<u8> = unsafe {
+        let mut bytes: Vec<u8> = unsafe {
             std::slice::from_raw_parts(fn_addr as *const u8, fn_size).to_vec()
         };
+        rewrite_ldapr_to_ldar(&mut bytes);
+        rewrite_recursive_bl(&mut bytes);
         let arch_tag = host_arch_tag().ok_or_else(|| TranspileError {
             fn_name: fn_name.to_string(),
             reason: "unsupported host architecture for remill (need aarch64 or x86_64)".into(),
@@ -1803,9 +1806,12 @@ impl RemillTranspiler {
                 .iter()
                 .map(|&i| {
                     let t = &targets[i];
-                    unsafe {
+                    let mut v = unsafe {
                         std::slice::from_raw_parts(t.addr as *const u8, t.size).to_vec()
-                    }
+                    };
+                    rewrite_ldapr_to_ldar(&mut v);
+                    rewrite_recursive_bl(&mut v);
+                    v
                 })
                 .collect();
             // M9-review: lift with synthetic addresses so the IR's
@@ -2951,6 +2957,130 @@ pub struct BoundaryShard {
     /// surfaced as a transitive dep. The orchestrator follows the
     /// chain to ensure every downstream shard gets lifted too.
     pub transitive_boundaries: Vec<usize>,
+}
+
+/// Neutralize **recursive** `bl` instructions inside the input
+/// buffer before passing it to remill's TraceLifter.
+///
+/// remill's TraceLifter eagerly follows every `bl` target. When
+/// the target lies inside the buffer (a tail-recursive Rust fn,
+/// e.g. `Dom::fixup_children_estimated`), it adds the same
+/// trace_addr to the work list, then re-enters the outer loop —
+/// but the per-trace state isn't reset between iterations. The
+/// observable result is unbounded module growth (15+ GiB peak,
+/// SIGKILL'd by macOS memorystatus on 32 GiB hosts).
+///
+/// Our pipeline lifts ONE function per remill invocation, so the
+/// "follow bl into a separate trace" behavior is undesirable
+/// anyway. We rewrite a recursive `bl <target-inside-buffer>` to
+/// a `bl <huge-positive-offset>` — same Cond=DirectFunctionCall
+/// category, but the target lies outside the readable buffer, so
+/// remill emits `__remill_function_call(missing_block)` and
+/// continues. At wasm-link time the boundary stub resolves the
+/// recursion via the imported function name.
+///
+/// Encoding:
+///   bl: `100101 imm26`  -> top 6 bits 0x94/0x97 depending on sign
+///   imm26 is sign-extended <<2 to get the byte offset.
+///   For a 116-byte fn, all valid recursive targets fit in
+///   [-29, +28] words ≈ ±116 bytes. Anything else escapes.
+///
+/// Rewrite strategy: any `bl <imm26>` where the resulting target
+/// (current_pc + imm26<<2) is within [0, buffer.len()) gets
+/// rewritten so the offset is biased by 0x1000000 words (16 MiB).
+/// That puts the target far outside the buffer, triggering the
+/// "missing bytes" path in remill cleanly.
+#[cfg(feature = "web-transpiler")]
+fn rewrite_recursive_bl(bytes: &mut [u8]) {
+    if bytes.len() < 4 { return; }
+    let buf_len = bytes.len() as i64;
+    let chunk_count = bytes.len() / 4;
+    for i in 0..chunk_count {
+        let off = i * 4;
+        let insn = u32::from_le_bytes([
+            bytes[off], bytes[off+1], bytes[off+2], bytes[off+3],
+        ]);
+        // bl: bits 31:26 = 100101 (0x25). High byte starts with
+        // 0x94 (imm26 sign bit = 0, positive) or 0x97 (sign bit = 1, negative).
+        // Mask 0xFC000000 isolates the opcode.
+        if (insn & 0xFC00_0000) != 0x9400_0000 {
+            continue;
+        }
+        // Sign-extend imm26 (bits 25:0) to i32.
+        let mut imm26 = (insn & 0x03FF_FFFF) as i32;
+        if imm26 & 0x0200_0000 != 0 {
+            imm26 |= 0xFC00_0000_u32 as i32; // sign-extend
+        }
+        let byte_offset = (imm26 as i64) << 2;
+        let target = (off as i64) + byte_offset;
+        // Only rewrite if target lands inside the buffer.
+        if target < 0 || target >= buf_len {
+            continue;
+        }
+        // Rewrite to a bl with imm26 = +0x1000000 (16 MiB forward).
+        // New offset = 0x4000000 bytes (within imm26 range since
+        // imm26 max = 2^25-1 = 0x1FFFFFF and we use 0x1000000).
+        let new_insn = 0x9400_0000 | 0x0100_0000_u32;
+        let le = new_insn.to_le_bytes();
+        bytes[off]   = le[0];
+        bytes[off+1] = le[1];
+        bytes[off+2] = le[2];
+        bytes[off+3] = le[3];
+    }
+}
+
+/// Rewrite ARMv8.3 LDAPR/LDAPRB/LDAPRH instructions to the
+/// pre-ARMv8.3 LDAR/LDARB/LDARH equivalents so remill's decoder
+/// (which doesn't know LDAPR) lifts them cleanly. For wasm
+/// single-threaded execution the RCpc-vs-acquire relaxation
+/// difference doesn't matter — both compile to a plain
+/// `__remill_read_memory_*` plus a `__remill_barrier_load_store`.
+///
+/// LDAPR  (32-bit): `1011 1000 1011 1111 1100 00|Rn|Rt`  0xB8BFC000
+/// LDAR   (32-bit): `1000 1000 1101 1111 1111 11|Rn|Rt`  0x88DFFC00
+/// LDAPRB (8-bit):  `0011 1000 1011 1111 1100 00|Rn|Rt`  0x38BFC000
+/// LDARB  (8-bit):  `0000 1000 1101 1111 1111 11|Rn|Rt`  0x08DFFC00
+/// LDAPRH (16-bit): `0111 1000 1011 1111 1100 00|Rn|Rt`  0x78BFC000
+/// LDARH  (16-bit): `0100 1000 1101 1111 1111 11|Rn|Rt`  0x48DFFC00
+/// LDAPR  (64-bit): `1111 1000 1011 1111 1100 00|Rn|Rt`  0xF8BFC000
+/// LDAR   (64-bit): `1100 1000 1101 1111 1111 11|Rn|Rt`  0xC8DFFC00
+///
+/// Mask 0xFFFFFC00 isolates the upper bits (size, opc, R, A,
+/// fixed-1s) and zeros the Rn/Rt fields. So a candidate LDAPR
+/// has `bytes & 0xFFFFFC00 == 0xB8BFC000 | (size << 30)` and the
+/// rewrite is `bytes |= 0x10001C00 ^ 0x10001C00 = ...`. Simpler
+/// to do per width:
+#[cfg(feature = "web-transpiler")]
+fn rewrite_ldapr_to_ldar(bytes: &mut [u8]) {
+    // AArch64 instructions are 4-byte aligned (little-endian on Apple).
+    if bytes.len() < 4 { return; }
+    let chunk_count = bytes.len() / 4;
+    for i in 0..chunk_count {
+        let off = i * 4;
+        let insn = u32::from_le_bytes([
+            bytes[off], bytes[off+1], bytes[off+2], bytes[off+3],
+        ]);
+        // LDAPR* form: bits 23..21 = 101, bits 15..10 = 110000.
+        // Top byte / size: B=0x38, H=0x78, W=0xB8, X=0xF8.
+        // LDAR* form:     bits 23..21 = 110, bits 15..10 = 111111.
+        // Mask isolates: 0xFFFF_FC00 covers the opcode bits.
+        let masked = insn & 0xFFFF_FC00;
+        let new = match masked {
+            0x38BF_C000 => Some(0x08DF_FC00),  // LDAPRB → LDARB
+            0x78BF_C000 => Some(0x48DF_FC00),  // LDAPRH → LDARH
+            0xB8BF_C000 => Some(0x88DF_FC00),  // LDAPR_32 → LDAR_32
+            0xF8BF_C000 => Some(0xC8DF_FC00),  // LDAPR_64 → LDAR_64
+            _ => None,
+        };
+        if let Some(new_top) = new {
+            let rewritten = new_top | (insn & 0x0000_03FF);
+            let le = rewritten.to_le_bytes();
+            bytes[off]   = le[0];
+            bytes[off+1] = le[1];
+            bytes[off+2] = le[2];
+            bytes[off+3] = le[3];
+        }
+    }
 }
 
 /// Per-call options for [`RemillTranspiler::lift_with_transitive_deps_ex`].
