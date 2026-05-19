@@ -172,6 +172,17 @@ cargo check --target aarch64-linux-android still GREEN (17.28s).
 
 `IOSWindow` gains `pub fn regenerate_layout()` — exact port of `AndroidWindow::regenerate_layout()`. Calls `common::layout::regenerate_layout` with all eleven args (layout_window, app_data, current_window_state, &mut renderer_resources, image_cache, gl_context_ptr, fc_cache, font_registry, system_style, icon_provider, next_relayout_reason); rebuilds `cpu_backend.hit_tester`; CPU-renders into `cpu_backend.last_frame`; resets `next_relayout_reason` to RefreshDom and clears `frame_needs_regeneration`. The actual `drawRect:` blit (CGImage from AzulPixmap → CALayer.contents) lives in Sprint C-iOS; this tick lands the prerequisite layout pump. cargo check aarch64-apple-ios GREEN (12.23s); aarch64-linux-android still GREEN (0.54s no-op).
 
+### Tick — iOS drawRect → CGImage → CALayer.contents blit (#8)
+
+`extern "C" fn draw_rect` is no longer empty. Flow:
+1. Read the AZUL_IOS_WINDOW singleton.
+2. If `frame_needs_regeneration`, call `window.regenerate_layout()` (populates `cpu_backend.last_frame`).
+3. Wrap the `AzulPixmap` RGBA8 bytes in a `CGDataProvider` and pass to `CGImageCreate(width, height, 8 bpc, 32 bpp, width*4 bpr, deviceRGB, kCGImageAlphaPremultipliedLast | kCGBitmapByteOrderDefault, provider, NULL, false, kCGRenderingIntentDefault)`.
+4. `[[this layer] setContents: cgimage]`.
+5. Release CGImage, CGDataProvider, CGColorSpace.
+
+New `#[link(name = "CoreGraphics", kind = "framework")]` block declares the six CG functions needed. Constants for the bitmap-info flags (`PremultipliedLast | ByteOrderDefault` and `RenderingIntentDefault`) live at module scope. cargo check aarch64-apple-ios GREEN (35.86s); aarch64-linux-android still GREEN (0.58s no-op). Sprint C-iOS pixmap blit closes; iOS Phase 2 is now structurally complete — once Xcode installs and a binary actually links, drawRect will produce real pixels.
+
 ### Tick — Sprint M Android JNI bridge for GestureDetector (#17)
 
 Two artifacts land:

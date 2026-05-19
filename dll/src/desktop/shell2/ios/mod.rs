@@ -114,6 +114,37 @@ extern "C" {
     ) -> i32;
 }
 
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGColorSpaceCreateDeviceRGB() -> *mut c_void;
+    fn CGColorSpaceRelease(cs: *mut c_void);
+    fn CGDataProviderCreateWithData(
+        info: *mut c_void,
+        data: *const u8,
+        size: usize,
+        release: Option<extern "C" fn(*mut c_void, *const u8, usize)>,
+    ) -> *mut c_void;
+    fn CGDataProviderRelease(p: *mut c_void);
+    fn CGImageCreate(
+        width: usize,
+        height: usize,
+        bits_per_component: usize,
+        bits_per_pixel: usize,
+        bytes_per_row: usize,
+        space: *mut c_void,
+        bitmap_info: u32,
+        provider: *mut c_void,
+        decode: *const f64,
+        should_interpolate: bool,
+        intent: u32,
+    ) -> *mut c_void;
+    fn CGImageRelease(img: *mut c_void);
+}
+
+const K_CG_IMAGE_ALPHA_PREMULTIPLIED_LAST: u32 = 1;
+const K_CG_BITMAP_BYTE_ORDER_DEFAULT: u32 = 0;
+const K_CG_RENDERING_INTENT_DEFAULT: u32 = 0;
+
 // ─── Global window pointer ────────────────────────────────────────────
 //
 // `extern "C"` Objective-C callbacks are static functions, so they reach
@@ -131,10 +162,60 @@ unsafe fn azul_ios_window<'a>() -> Option<&'a mut IOSWindow> {
 
 // ─── AzulView (UIView subclass) ───────────────────────────────────────
 
-extern "C" fn draw_rect(_this: &Object, _cmd: Sel, _rect: CGRect) {
-    // Sprint C wires the actual blit: regenerate_layout → cpu_backend
-    // .render_frame → CGImage from AzulPixmap → CALayer.contents.
-    // Until then, the view just clears to the system background.
+extern "C" fn draw_rect(this: &Object, _cmd: Sel, _rect: CGRect) {
+    // Sprint C iOS blit. Mirrors the Android render_frame() path:
+    // regenerate layout if needed -> read cpu_backend.last_frame -> wrap
+    // the AzulPixmap bytes in a CGImage -> assign to `view.layer.contents`.
+    let window = match unsafe { azul_ios_window() } {
+        Some(w) => w,
+        None => return,
+    };
+
+    if window.common.frame_needs_regeneration {
+        if let Err(e) = window.regenerate_layout() {
+            log_error!(LogCategory::Layout, "[iOS] regenerate_layout: {}", e);
+        }
+    }
+
+    #[cfg(feature = "cpurender")]
+    {
+        let pixmap = match window.cpu_backend.last_frame.as_ref() {
+            Some(p) => p,
+            None => return,
+        };
+        let (pw, ph) = (pixmap.width() as usize, pixmap.height() as usize);
+        if pw == 0 || ph == 0 {
+            return;
+        }
+        let bytes = pixmap.data();
+        unsafe {
+            let cs = CGColorSpaceCreateDeviceRGB();
+            let provider = CGDataProviderCreateWithData(
+                core::ptr::null_mut(),
+                bytes.as_ptr(),
+                bytes.len(),
+                None, // pixmap outlives this draw_rect call
+            );
+            let image = CGImageCreate(
+                pw,
+                ph,
+                8,
+                32,
+                pw * 4,
+                cs,
+                K_CG_IMAGE_ALPHA_PREMULTIPLIED_LAST | K_CG_BITMAP_BYTE_ORDER_DEFAULT,
+                provider,
+                core::ptr::null(),
+                false,
+                K_CG_RENDERING_INTENT_DEFAULT,
+            );
+            let layer: *mut Object = msg_send![this, layer];
+            let _: () = msg_send![layer, setContents: image];
+            CGImageRelease(image);
+            CGDataProviderRelease(provider);
+            CGColorSpaceRelease(cs);
+        }
+    }
 }
 
 extern "C" fn touches_began(
