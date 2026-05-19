@@ -1035,11 +1035,20 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     // BEFORE the cascade and the ptr AFTER, so JS can distinguish
     // "cascade never returned" (marker only) from "cascade
     // returned, drop bailed" (marker + ptr).
-    s.display_text_node_idx = 0xCAFE_u32;
+    // Stepped probes via last_layout_status (NOT overwritten by
+    // other writes in this fn, so each stage is observable via JS
+    // `AzStartup_getLastLayoutStatus`). Use volatile writes so LLVM
+    // can't DCE intermediate values it knows are overwritten.
+    use core::ptr;
+    let probe_p = &mut s.last_layout_status as *mut u32;
+    ptr::write_volatile(probe_p, 0x1001);  // pre-cascade
     let styled = StyledDom::create(dom_ref, Css::empty());
+    ptr::write_volatile(probe_p, 0x1002);  // cascade returned
     let boxed = Box::new(styled);
-    let ptr = Box::into_raw(boxed) as usize as u32;
-    s.current_dom_styled_ptr = ptr;
+    ptr::write_volatile(probe_p, 0x1003);  // Box::new returned
+    let ptr_val = Box::into_raw(boxed) as usize as u32;
+    s.current_dom_styled_ptr = ptr_val;
+    ptr::write_volatile(probe_p, 0x1004);  // final
     s.display_text_node_idx = 0xBABE_u32;
     0
 }

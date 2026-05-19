@@ -4454,11 +4454,50 @@ fn emit_helper_ir(
             // dynamically-resolved address. Leave as extern so
             // wasm-ld emits an `env.sub_<hex>` import; the M8.8
             // verification flags this as a coverage gap.
+            //
+            // EXCEPTION — recursive-bl rewrite marker: when
+            // `rewrite_recursive_bl` rewrites a bl-target-inside-buffer
+            // to `bl <pc + 0x4000000>`, the resulting synth addr
+            // appears here as an unclassified extern. Detect it
+            // (addr near `lift_addr + 0x4000000`) and emit a
+            // forwarding stub back to `sub_<lift_addr>` so the
+            // recursive call dispatches to the same function being
+            // lifted.
             None => {
-                eprintln!(
-                    "[azul-web]   unclassified extern: {} — emitting env import",
-                    ext.sym_name
-                );
+                // ext.sym_name is `sub_<hex>`. Parse the address.
+                let parsed_addr = ext.sym_name
+                    .strip_prefix("sub_")
+                    .and_then(|h| u64::from_str_radix(h, 16).ok());
+                let is_recursive_marker = parsed_addr.map_or(false, |a| {
+                    // The rewriter shifts the target +0x4000000 bytes
+                    // from the bl's own PC. The bl's PC is somewhere
+                    // in [lift_addr, lift_addr + fn_size). We don't
+                    // have fn_size here but functions are < 16 MiB —
+                    // so target - 0x4000000 should be near lift_addr.
+                    let delta = a.wrapping_sub(0x0400_0000);
+                    delta >= lift_addr && delta < lift_addr.saturating_add(0x0100_0000)
+                });
+                if is_recursive_marker {
+                    branch_stubs.push_str(&format!(
+                        "; recursive-bl forwarder for {sym} (rewriter sentinel +0x4000000)\n\
+                         define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) alwaysinline {{\n  \
+                           %r_{n} = tail call ptr @sub_{lift_hex}(ptr %state, i64 %pc, ptr %memory)\n  \
+                           ret ptr %r_{n}\n\
+                         }}\n",
+                        sym = ext.sym_name,
+                        n = n_suffix,
+                        lift_hex = format!("{:x}", lift_addr),
+                    ));
+                    eprintln!(
+                        "[azul-web]   recursive-bl forwarder: {} → sub_{:x}",
+                        ext.sym_name, lift_addr,
+                    );
+                } else {
+                    eprintln!(
+                        "[azul-web]   unclassified extern: {} — emitting env import",
+                        ext.sym_name
+                    );
+                }
             }
         }
     }
