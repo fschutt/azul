@@ -780,7 +780,7 @@ impl IOSWindow {
         app_data: RefAny,
         font_registry: Option<Arc<FcFontRegistry>>,
     ) -> Result<Self, WindowError> {
-        let full_window_state = options.window_state;
+        let mut full_window_state = options.window_state;
 
         let icon_provider_handle = core::mem::take(&mut config.icon_provider);
         let icon_provider = SharedIconProvider::from_handle(icon_provider_handle);
@@ -794,6 +794,21 @@ impl IOSWindow {
         let (ui_window, ui_view_controller, ui_view) = unsafe {
             let screen: *mut Object = msg_send![class!(UIScreen), mainScreen];
             let bounds: CGRect = msg_send![screen, bounds];
+            // `[screen scale]` is 1 / 2 / 3 (pixels per point). azul-layout
+            // uses 96 dpi as its 1× baseline, so dpi = scale × 96 maps
+            // 2× retina → 192, 3× retina → 288, both yielding the right
+            // `regenerate_layout` dpi_factor. bounds.size is already in
+            // points (logical units), so we feed it straight in.
+            let scale: f64 = msg_send![screen, scale];
+            let dpi = (scale * 96.0).round() as u32;
+            full_window_state.size.dpi = dpi.max(1);
+            full_window_state.size.dimensions.width = bounds.size.width as f32;
+            full_window_state.size.dimensions.height = bounds.size.height as f32;
+            log_info!(
+                LogCategory::Window,
+                "[iOS] screen scale={} -> dpi={} bounds={}x{}",
+                scale, dpi, bounds.size.width, bounds.size.height,
+            );
 
             let window_alloc: *mut Object = msg_send![class!(UIWindow), alloc];
             let window: *mut Object = msg_send![window_alloc, initWithFrame: bounds];

@@ -185,6 +185,15 @@ cargo check --target aarch64-linux-android still GREEN (17.28s).
 
 iOS Phase 3 is now structurally complete: tap on a button → touch event → state diff → callback fires → drawRect re-renders. Linker still gated on Xcode.
 
+### Tick — iOS [UIScreen scale] + Android density math both → ws.size.dpi (96 baseline)
+
+azul-layout treats 96 dpi as its 1× baseline (`dpi_factor = ws.size.dpi / 96.0`). The previous tick wrote Android's raw `density()` (mdpi 160 baseline) straight in, which would have given a 5× too-big factor on xxhdpi (480/96 = 5 vs the correct 3). Both platforms now normalize to the framework's 96-baseline:
+
+- **Android `InitWindow`**: `dpi = round(density × 96 / 160)`. mdpi 160 → 96 (1×), xhdpi 320 → 192 (2×), xxhdpi 480 → 288 (3×). The motion-event scale in `drain_input` still uses raw `density / 160` (Android-native semantics, distinct from the framework's dpi_factor).
+- **iOS `IOSWindow::new`**: `[UIScreen mainScreen].scale` is 1 / 2 / 3 (points per pixel). `dpi = round(scale × 96)`. 2× retina → 192, 3× retina → 288. `bounds.size` from `[screen bounds]` is already in points (logical units) so it goes straight into `dimensions.width/height`. `full_window_state` is now `let mut` so we can write to it before the `Self` struct literal.
+
+All 5 mobile cargo-check targets still GREEN (24/6/10/4/4 s).
+
 ### Tick — Android InitWindow / WindowResized propagate dpi + logical dims to current_window_state
 
 `handle_poll_event` now writes `current_window_state.size.{dpi, dimensions}` from `app.config().density()` + the `NativeWindow`'s physical dimensions. Without this, `regenerate_layout` was computing `dpi_factor = ws.size.dpi / 96.0` against the default `dpi = 96` and shrinking layout 3× on a 480-dpi screen. `MainEvent::WindowResized` reuses the same dpi to recompute logical dimensions from the new physical size. All 5 mobile cargo-check targets stay GREEN (15/0/1/4/5 s).

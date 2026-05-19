@@ -410,22 +410,29 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
         PollEvent::Main(main_event) => match main_event {
             MainEvent::InitWindow { .. } => {
                 // Sync the framework's window state to the native
-                // surface: physical dimensions + DPI. `regenerate_layout`
-                // multiplies by `ws.size.dpi / 96.0` to derive its
-                // `dpi_factor`, so a stale 96 here would yield a
-                // 5x-too-small layout on a 480-dpi screen.
-                let dpi = app.config().density().filter(|&d| d > 0).unwrap_or(160);
-                window.common.current_window_state.size.dpi = dpi;
+                // surface: physical dimensions + DPI. azul-layout uses
+                // 96 as the "1x" baseline (CSS pixel = 1/96 inch), so
+                // Android's density-dpi (160 = mdpi = 1x) must be
+                // scaled by 96/160 = 0.6 before we hand it over:
+                //   mdpi 160 -> 96, xhdpi 320 -> 192, xxhdpi 480 -> 288.
+                // The drain_input physical-to-logical scale below
+                // separately uses density / 160 directly (which is the
+                // Android-native scale factor, not the framework's).
+                let density = app.config().density().filter(|&d| d > 0).unwrap_or(160);
+                let dpi = ((density as f32) * 96.0 / 160.0).round() as u32;
+                window.common.current_window_state.size.dpi = dpi.max(1);
                 #[cfg(feature = "ndk")]
                 {
                     if let Some(nw) = app.native_window() {
-                        let scale = dpi as f32 / 160.0;
-                        let logical_w = (nw.width() as f32) / scale;
-                        let logical_h = (nw.height() as f32) / scale;
+                        // Logical = physical / android-scale, where
+                        // android-scale = density / 160 (NOT dpi/96).
+                        let android_scale = (density as f32) / 160.0;
+                        let logical_w = (nw.width() as f32) / android_scale;
+                        let logical_h = (nw.height() as f32) / android_scale;
                         log_debug!(
                             LogCategory::Window,
-                            "[Android] InitWindow physical={}x{} dpi={} logical={}x{}",
-                            nw.width(), nw.height(), dpi, logical_w, logical_h,
+                            "[Android] InitWindow physical={}x{} density={} (azul dpi={}) logical={}x{}",
+                            nw.width(), nw.height(), density, dpi, logical_w, logical_h,
                         );
                         window.common.current_window_state.size.dimensions.width = logical_w;
                         window.common.current_window_state.size.dimensions.height = logical_h;
@@ -443,12 +450,12 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 #[cfg(feature = "ndk")]
                 {
                     if let Some(nw) = window.native_window.as_ref() {
-                        let dpi = window.common.current_window_state.size.dpi.max(1);
-                        let scale = dpi as f32 / 160.0;
+                        let density = app.config().density().filter(|&d| d > 0).unwrap_or(160);
+                        let android_scale = (density as f32) / 160.0;
                         window.common.current_window_state.size.dimensions.width =
-                            (nw.width() as f32) / scale;
+                            (nw.width() as f32) / android_scale;
                         window.common.current_window_state.size.dimensions.height =
-                            (nw.height() as f32) / scale;
+                            (nw.height() as f32) / android_scale;
                     }
                 }
                 window.common.frame_needs_regeneration = true;
