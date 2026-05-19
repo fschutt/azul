@@ -304,10 +304,20 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
             ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
         }),
         // M11 Sprint 3 — relayout (state-only) + buildPatch (6 args).
-        "AzStartup_relayout" => Some(CallbackSignature {
+        "AzStartup_relayout" | "AzStartup_getAutoVirtualizeThreshold" => Some(CallbackSignature {
             kind: name.to_string(),
             args: vec![Pcs::Wreg { state_byte_offset: X0 }],
             ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+        }),
+        // M11 Sprint 5 — VirtualView setters (state, u32) -> ().
+        "AzStartup_setAutoVirtualizeThreshold"
+        | "AzStartup_setVirtualViewProvider" => Some(CallbackSignature {
+            kind: name.to_string(),
+            args: vec![
+                Pcs::Wreg { state_byte_offset: X0 },
+                Pcs::Wreg { state_byte_offset: X1 },
+            ],
+            ret: None,
         }),
         "AzStartup_buildPatch" => Some(CallbackSignature {
             kind: name.to_string(),

@@ -230,6 +230,17 @@ pub struct EventloopState {
     /// [`Self::positioned_rects_ptr`]. Equals the AzDom node count
     /// after the most recent layout pass.
     pub positioned_rects_len: u32,
+
+    // M11 Sprint 5 fields ──────────────────────────────────────────
+
+    /// Per-state auto-virtualize threshold (Default
+    /// [`AZ_AUTO_VIRTUALIZE_THRESHOLD`]). `0` disables. JS can
+    /// override via `AzStartup_setAutoVirtualizeThreshold`.
+    pub auto_virtualize_threshold: u32,
+    /// WebAssembly.Table slot of the registered
+    /// `VirtualViewCallback` wasm, or `0` if none. Sprint 5+ uses
+    /// this to invoke the cb on layout + scroll-edge events.
+    pub virtual_view_provider_table_idx: u32,
 }
 
 // =====================================================================
@@ -398,6 +409,8 @@ pub unsafe extern "C" fn AzStartup_init(_json_ptr: u32, _json_len: u32) -> u32 {
         layout_solved: 0,
         positioned_rects_ptr: 0,
         positioned_rects_len: 0,
+        auto_virtualize_threshold: AZ_AUTO_VIRTUALIZE_THRESHOLD,
+        virtual_view_provider_table_idx: 0,
     });
     Box::into_raw(state) as usize as u32
 }
@@ -1023,6 +1036,75 @@ pub unsafe extern "C" fn AzStartup_getStyledDomPtr(state: u32) -> u32 {
     }
     let s = &*(state as usize as *mut EventloopState);
     s.current_dom_styled_ptr
+}
+
+// =====================================================================
+// M11 Sprint 5 — VirtualView infrastructure (minimal)
+// =====================================================================
+//
+// The full virtualization story (auto-wrap large subtrees in
+// `VirtualView`, lift `VirtualViewCallback`, scroll-driven slice
+// recomputation) lives behind two pieces of infrastructure we
+// stage here so the bench (Sprint 6) + future work can extend:
+//
+//   1. `AzStartup_setAutoVirtualizeThreshold(state, n)` — JS hook
+//      to tune the heuristic. `0` disables auto-virtualization.
+//      Default = 500 (per the user's M11 directive).
+//   2. `AzStartup_setVirtualViewProvider(state, table_idx)` —
+//      records the table slot of a per-VirtualView callback wasm.
+//      Sprint 5+ will use this when the layout pass encounters a
+//      `NodeType::VirtualView` (today: a no-op recording).
+//
+// **Note**: actual VirtualView wiring requires the cascade +
+// layout pipeline to populate node_type info correctly. That's
+// blocked by the complex-struct Box::new lift gap (memory note
+// m11-complex-struct-box-new-lift). Sprint 5 ships the
+// infrastructure so the gate matrix grows; full virtualization
+// follows once that gap is closed.
+
+/// Default auto-virtualize threshold: subtrees with more than this
+/// many direct children get auto-wrapped as `VirtualView`. Per the
+/// M11 plan's hard direction #4.
+pub const AZ_AUTO_VIRTUALIZE_THRESHOLD: u32 = 500;
+
+/// Set the auto-virtualize threshold. `0` disables. Defaults to
+/// [`AZ_AUTO_VIRTUALIZE_THRESHOLD`].
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_setAutoVirtualizeThreshold(
+    state: u32,
+    threshold: u32,
+) {
+    if state == 0 {
+        return;
+    }
+    let s = &mut *(state as usize as *mut EventloopState);
+    s.auto_virtualize_threshold = threshold;
+}
+
+/// Read the current auto-virtualize threshold.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_getAutoVirtualizeThreshold(state: u32) -> u32 {
+    if state == 0 {
+        return 0;
+    }
+    let s = &*(state as usize as *mut EventloopState);
+    s.auto_virtualize_threshold
+}
+
+/// Record the WebAssembly.Table index of a registered
+/// `VirtualViewCallback` wasm. Sprint 5+ will invoke this when the
+/// layout pass encounters a `VirtualView` node + when scroll
+/// events cross an edge threshold.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_setVirtualViewProvider(
+    state: u32,
+    table_idx: u32,
+) {
+    if state == 0 {
+        return;
+    }
+    let s = &mut *(state as usize as *mut EventloopState);
+    s.virtual_view_provider_table_idx = table_idx;
 }
 
 // =====================================================================

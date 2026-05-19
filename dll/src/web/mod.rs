@@ -87,6 +87,11 @@ pub const EVENTLOOP_SYMBOLS: &[&str] = &[
     // The JS decoder switches on kind.
     "AzStartup_relayout",
     "AzStartup_buildPatch",
+    // M11 Sprint 5: VirtualView infrastructure (threshold + provider
+    // table-idx). Full auto-virtualization pending Box::new init gap.
+    "AzStartup_setAutoVirtualizeThreshold",
+    "AzStartup_getAutoVirtualizeThreshold",
+    "AzStartup_setVirtualViewProvider",
 ];
 
 use std::collections::{BTreeMap, HashMap};
