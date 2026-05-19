@@ -4049,6 +4049,27 @@ fn emit_helper_ir(
             // per server start and produces one wasm per boundary.
             Some(SymFnClass::BoundaryImport) => {}
             // BumpAlloc: __rust_alloc / __rust_alloc_zeroed body.
+            // The lifted Rust code expects `__rust_alloc_zeroed` to
+            // return zero-init memory. wasm linear memory is
+            // zero-init at startup, so a *fresh* alloc returns 0.
+            // But the bump_ptr only moves forward, so a "fresh"
+            // alloc is always at memory the bump never touched —
+            // also zero. So in principle the `zeroed` semantics are
+            // satisfied for free.
+            //
+            // ...except a previous call to `__rust_alloc` (non-zero)
+            // also moves the bump_ptr forward, and the lifted code
+            // for THAT call writes into the allocation. If the same
+            // bump_ptr range is later seen by a future alloc, it
+            // contains the old writes, not zero. Bump-only never
+            // reuses regions, so this can't happen in steady state.
+            //
+            // HOWEVER, before the cascade's first alloc, the bump_ptr
+            // is at @__az_bump_ptr's init value (96 MiB). Earlier
+            // wasm Data segments OR wasm instructions may have
+            // populated bytes in that region. To make this fully
+            // correct we memset(0) the freshly allocated region.
+            // Negligible cost (memset is intrinsic-fast on wasm).
             Some(SymFnClass::BumpAlloc) => {
                 branch_stubs.push_str(&format!(
                     "; bump-allocator body for {sym}\n\
@@ -4063,6 +4084,8 @@ fn emit_helper_ir(
                        %new_{n} = trunc i64 %new_i64_{n} to i32\n  \
                        store i32 %new_{n}, ptr @__az_bump_ptr, align 4\n  \
                        store i64 %old_i64_{n}, ptr %x0_p_{n}, align 8\n  \
+                       %dest_p_{n} = inttoptr i32 %old_{n} to ptr\n  \
+                       call void @llvm.memset.p0.i64(ptr %dest_p_{n}, i8 0, i64 %size_aligned_{n}, i1 false)\n  \
                        ret ptr %memory\n\
                      }}\n",
                     sym = ext.sym_name,
