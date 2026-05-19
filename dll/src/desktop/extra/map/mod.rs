@@ -78,3 +78,87 @@ pub fn decode_mvt_tile(
         "azul-dll built without `map-tiles` feature — MVT decode unavailable",
     ))
 }
+
+/// The tile-fetch worker thread. Hand this to
+/// `MapWidget::dom_with_fetch(tile_fetch_worker)` and the widget will
+/// spawn one framework `Thread` running it per visible tile.
+///
+/// Flow (all on the background thread, blocking is fine):
+/// 1. Read `TileFetchInit { tile, url }` from the init `RefAny`.
+/// 2. `azul_layout::http::http_get(url)` → PBF bytes.
+/// 3. `decode_mvt_tile(bytes, tile)` → GeoJSON features.
+/// 4. `features_to_svg(&features, tile)` → SVG string.
+/// 5. `sender.send(ThreadReceiveMsg::WriteBack(...))` a `TileReadyMsg`
+///    pointed at `azul_layout::widgets::map::map_tile_writeback`,
+///    which stamps the cache `Ready` and triggers a relayout.
+///
+/// Cancellation: between the fetch and the decode we poll
+/// `recv.recv()` for `ThreadSendMsg::TerminateThread` so a tile that
+/// scrolled off-screen mid-download doesn't waste a decode.
+#[cfg(feature = "map-tiles")]
+pub extern "C" fn tile_fetch_worker(
+    mut init: azul_core::refany::RefAny,
+    mut sender: azul_layout::thread::ThreadSender,
+    mut recv: azul_core::task::ThreadReceiver,
+) {
+    use azul_core::refany::{OptionRefAny, RefAny};
+    use azul_css::AzString;
+    use azul_layout::thread::{
+        ThreadReceiveMsg, ThreadWriteBackMsg, WriteBackCallback,
+    };
+    use azul_layout::widgets::map::{
+        map_tile_writeback, TileFetchInit, TileReadyMsg,
+    };
+
+    let (tile, url) = match init.downcast_ref::<TileFetchInit>() {
+        Some(i) => (i.tile, i.url.as_str().to_string()),
+        None => return,
+    };
+
+    let send_back = |svg: AzString, error: AzString| -> ThreadWriteBackMsg {
+        ThreadWriteBackMsg::new(
+            WriteBackCallback {
+                cb: map_tile_writeback,
+                ctx: OptionRefAny::None,
+            },
+            RefAny::new(TileReadyMsg { tile, svg, error }),
+        )
+    };
+
+    // 1-2. Fetch.
+    let bytes = match azul_layout::http::http_get(&url) {
+        Ok(resp) => resp.body.as_ref().to_vec(),
+        Err(e) => {
+            sender.send(ThreadReceiveMsg::WriteBack(send_back(
+                AzString::from(""),
+                AzString::from(alloc::format!("fetch failed: {e:?}")),
+            )));
+            return;
+        }
+    };
+
+    // Cancellation check between fetch and decode.
+    if matches!(
+        recv.recv().into_option(),
+        Some(azul_core::task::ThreadSendMsg::TerminateThread)
+    ) {
+        return;
+    }
+
+    // 3-4. Decode + emit SVG.
+    match decode_mvt_tile(bytes, tile) {
+        Ok(features) => {
+            let svg = features_to_svg(&features, tile);
+            sender.send(ThreadReceiveMsg::WriteBack(send_back(
+                AzString::from(svg),
+                AzString::from(""),
+            )));
+        }
+        Err(e) => {
+            sender.send(ThreadReceiveMsg::WriteBack(send_back(
+                AzString::from(""),
+                AzString::from(alloc::format!("decode failed: {e}")),
+            )));
+        }
+    }
+}

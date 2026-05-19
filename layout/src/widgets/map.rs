@@ -122,6 +122,11 @@ impl Default for MapViewport {
 
 // ────────── MapWidget builder ──────────────────────────────────────────
 
+// NOTE: `MapWidget` mirrors the api.json struct exactly (3 fields) so
+// the codegen FFI transmute stays sound — do NOT add a function-pointer
+// field here. The tile-fetch worker is supplied through the Rust-only
+// `dom_with_fetch` method and stored in the (FFI-opaque) `MapTileCache`
+// dataset instead.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct MapWidget {
@@ -160,11 +165,30 @@ impl MapWidget {
     ///   viewport while a drag is active (the widget owns the
     ///   pan state via `MapTileCache::drag_anchor`, so user code
     ///   doesn't have to wire anything).
-    /// - A scroll callback that zooms in / out on wheel / pinch.
+    /// - Pinch callbacks that zoom in / out.
+    ///
+    /// No tile-fetch worker is wired — tiles render as placeholders.
+    /// Use [`dom_with_fetch`](Self::dom_with_fetch) to supply one.
     pub fn dom(self) -> Dom {
+        self.build_dom(None)
+    }
+
+    /// Like [`dom`](Self::dom), but wires a tile-fetch worker thread.
+    /// Rust-only (the fn-pointer arg doesn't round-trip through the
+    /// FFI codegen). `cb` runs on a framework `Thread` per visible
+    /// tile — read the `TileFetchInit`, fetch + decode, then
+    /// `sender.send(ThreadReceiveMsg::WriteBack(...))` a `TileReadyMsg`
+    /// targeting [`map_tile_writeback`]. See the recipe in
+    /// `MOBILE_SESSION_LOG.md`.
+    pub fn dom_with_fetch(self, cb: crate::thread::ThreadCallbackType) -> Dom {
+        self.build_dom(Some(cb))
+    }
+
+    fn build_dom(self, fetch_cb: Option<crate::thread::ThreadCallbackType>) -> Dom {
         use azul_core::dom::{EventFilter, HoverEventFilter};
 
-        let cache = MapTileCache::new(self.layer.clone(), self.viewport);
+        let mut cache = MapTileCache::new(self.layer.clone(), self.viewport);
+        cache.fetch_callback = fetch_cb;
         let dataset = RefAny::new(cache);
         let virtual_view_data = dataset.clone();
 
@@ -239,10 +263,18 @@ pub struct MapTileCache {
     pub layer: MapTileLayer,
     pub viewport: MapViewport,
     /// `Ready(svg)` once the tile has been fetched + decoded;
-    /// `Pending` while the fetch / decode is in flight; absent
-    /// otherwise. `BTreeMap` for deterministic iteration so the
-    /// debug log + e2e snapshots are stable.
+    /// `Pending` while queued, `Fetching` while a worker thread is
+    /// in flight; absent otherwise. `BTreeMap` for deterministic
+    /// iteration so the debug log + e2e snapshots are stable.
     pub tiles: BTreeMap<MapTileId, TileEntry>,
+    /// Worker thread entry point that fetches + decodes one tile.
+    /// Supplied by `MapWidget::with_tile_fetch_callback` (the caller —
+    /// usually `azul_dll`'s map-tiles glue — provides this because the
+    /// MVT decoder lives in `azul-dll`, which `azul-layout` can't
+    /// depend on). `None` means "no fetch wired" — tiles stay
+    /// `Pending` forever and the placeholder grid renders. The
+    /// merge callback carries this across relayout.
+    pub fetch_callback: Option<crate::thread::ThreadCallbackType>,
     /// Pixel coordinates of the cursor at the last mouse-down /
     /// touch-down on the widget. `Some` while a drag is in flight,
     /// `None` between drags. The framework consults this on every
@@ -265,17 +297,32 @@ impl MapTileCache {
             layer,
             viewport,
             tiles: BTreeMap::new(),
+            fetch_callback: None,
             drag_anchor: None,
             pinch_anchor: None,
         }
+    }
+
+    /// Worker-thread → main-thread write path. Set the decoded SVG for
+    /// a tile (called from `map_tile_writeback`). Stamps `Ready`.
+    pub fn mark_tile_ready(&mut self, tile: MapTileId, svg: AzString) {
+        self.tiles.insert(tile, TileEntry::Ready { svg });
+    }
+
+    /// Mark a tile's fetch as failed so the grid doesn't re-spawn it
+    /// every frame.
+    pub fn mark_tile_failed(&mut self, tile: MapTileId, error: AzString) {
+        self.tiles.insert(tile, TileEntry::Failed { error });
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum TileEntry {
-    /// Fetch / decode is in flight. The next tick may patch this
-    /// in place to `Ready` or `Failed`.
+    /// Needed by the viewport, fetch not yet spawned.
     Pending,
+    /// A worker thread is fetching / decoding this tile right now.
+    /// Distinct from `Pending` so the spawn pass doesn't double-fire.
+    Fetching,
     /// Tile decoded into an SVG document. Held as the raw SVG
     /// string for now; the VirtualView callback will feed it
     /// through the framework's svg-to-dom pipeline on the next
@@ -285,6 +332,27 @@ pub enum TileEntry {
     /// re-try the same URL — caller can choose to clear failed
     /// entries on retry.
     Failed { error: AzString },
+}
+
+/// Worker-thread input: which tile to fetch and the resolved URL.
+/// Boxed into the `Thread::create` init `RefAny`.
+#[derive(Debug, Clone)]
+pub struct TileFetchInit {
+    pub tile: MapTileId,
+    pub url: AzString,
+}
+
+/// Worker-thread output, sent back via `ThreadWriteBackMsg`. The
+/// `map_tile_writeback` callback downcasts to this and stamps the
+/// cache.
+#[derive(Debug, Clone)]
+pub struct TileReadyMsg {
+    pub tile: MapTileId,
+    /// Decoded SVG document for the tile, or empty on failure (with
+    /// `error` set).
+    pub svg: AzString,
+    /// Empty on success; an error message on failure.
+    pub error: AzString,
 }
 
 // ────────── Merge callback — cache survives relayout ─────────────────
@@ -300,8 +368,14 @@ extern "C" fn merge_map_tile_cache(mut new_data: RefAny, mut old_data: RefAny) -
             for (id, entry) in old_g.tiles.iter() {
                 new_g.tiles.entry(*id).or_insert_with(|| entry.clone());
             }
+            // Inherit the worker callback the builder stored last
+            // frame (the freshly-built cache from `dom()` has it too,
+            // but be defensive in case a future caller drops it).
+            if new_g.fetch_callback.is_none() {
+                new_g.fetch_callback = old_g.fetch_callback;
+            }
             // Keep the freshest viewport (the one the layout pass
-            // just attached) — only inherit tile bytes.
+            // just attached) — only inherit tile bytes + worker.
         }
     }
     new_data
@@ -408,16 +482,122 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, info: CallbackInfo) -> Updat
 /// Pointer up / pointer leave → end the drag *and* the pinch. Either
 /// can be in flight (and pinch supersedes pan in the move handler);
 /// clear both anchors on release.
-extern "C" fn map_on_pointer_up(mut data: RefAny, _info: CallbackInfo) -> Update {
+extern "C" fn map_on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
     if let Some(mut cache) = data.downcast_mut::<MapTileCache>() {
         cache.drag_anchor = None;
         cache.pinch_anchor = None;
     }
-    Update::DoNothing
+    // After a pan / pinch settles, kick off fetches for any tiles the
+    // new viewport needs. (The VirtualView marked them `Pending` but
+    // can't spawn threads itself — only a `CallbackInfo`-bearing
+    // callback can.)
+    spawn_pending_tile_fetches(&mut data, &mut info);
+    Update::RefreshDom
 }
 
 fn wrap_lon(lon: f64) -> f64 {
     ((lon + 540.0) % 360.0) - 180.0
+}
+
+/// Scan the cache for `Pending` tiles and spawn one framework `Thread`
+/// per tile (capped per call so a big viewport jump doesn't spawn
+/// hundreds at once). Each thread gets:
+/// - init `RefAny` = `TileFetchInit { tile, url }`
+/// - writeback `RefAny` = a clone of the cache dataset, so
+///   `map_tile_writeback` mutates the same cache the VirtualView reads.
+///
+/// Tiles transition `Pending → Fetching` here so they aren't
+/// re-spawned next frame. No-op when the cache has no `fetch_callback`.
+fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
+    use crate::thread::Thread;
+    use azul_core::task::ThreadId;
+
+    // Per-call spawn cap — bounds the burst on a big viewport jump.
+    const MAX_SPAWN_PER_CALL: usize = 16;
+
+    // Collect the work first (URL build + state flip) under one borrow,
+    // then spawn outside it so we don't hold the cache lock across
+    // `info.add_thread`.
+    let mut to_spawn: Vec<TileFetchInit> = Vec::new();
+    {
+        let mut cache = match data.downcast_mut::<MapTileCache>() {
+            Some(c) => c,
+            None => return,
+        };
+        if cache.fetch_callback.is_none() {
+            return; // no worker wired — leave tiles Pending (placeholder grid)
+        }
+        let template = cache.layer.url_template.as_str().to_string();
+        let pending: Vec<MapTileId> = cache
+            .tiles
+            .iter()
+            .filter(|(_, e)| matches!(e, TileEntry::Pending))
+            .map(|(id, _)| *id)
+            .take(MAX_SPAWN_PER_CALL)
+            .collect();
+        for tile in pending {
+            let url = build_tile_url(&template, tile);
+            cache.tiles.insert(tile, TileEntry::Fetching);
+            to_spawn.push(TileFetchInit {
+                tile,
+                url: AzString::from(url),
+            });
+        }
+    }
+
+    let cb = {
+        let cache = match data.downcast_ref::<MapTileCache>() {
+            Some(c) => c,
+            None => return,
+        };
+        match cache.fetch_callback {
+            Some(cb) => cb,
+            None => return,
+        }
+    };
+
+    for init in to_spawn {
+        let init_data = RefAny::new(init);
+        let writeback_data = data.clone(); // same cache dataset
+        let thread = Thread::create(init_data, writeback_data, cb);
+        info.add_thread(ThreadId::unique(), thread);
+    }
+}
+
+/// `{z}/{x}/{y}` substitution. Mirrors `azul_dll`'s `build_tile_url`
+/// (the widget can't reach the dll, so it's duplicated here — trivial).
+fn build_tile_url(template: &str, tile: MapTileId) -> alloc::string::String {
+    use alloc::string::ToString;
+    template
+        .replace("{z}", &tile.z.to_string())
+        .replace("{x}", &tile.x.to_string())
+        .replace("{y}", &tile.y.to_string())
+}
+
+/// Worker-thread → main-thread writeback. `cache_dataset` is the
+/// `writeback_data` handed to `Thread::create` (the same
+/// `MapTileCache` the widget reads); `incoming` is the `TileReadyMsg`
+/// the worker sent. Stamps the tile `Ready` (or `Failed`) and asks for
+/// a relayout so the VirtualView renders the new content.
+pub extern "C" fn map_tile_writeback(
+    mut cache_dataset: RefAny,
+    mut incoming: RefAny,
+    _info: CallbackInfo,
+) -> Update {
+    let msg = match incoming.downcast_ref::<TileReadyMsg>() {
+        Some(m) => (m.tile, m.svg.clone(), m.error.clone()),
+        None => return Update::DoNothing,
+    };
+    let mut cache = match cache_dataset.downcast_mut::<MapTileCache>() {
+        Some(c) => c,
+        None => return Update::DoNothing,
+    };
+    if msg.2.as_str().is_empty() {
+        cache.mark_tile_ready(msg.0, msg.1);
+    } else {
+        cache.mark_tile_failed(msg.0, msg.2);
+    }
+    Update::RefreshDom
 }
 
 // ────────── VirtualView callback — visible-tile rendering ─────────────
@@ -493,6 +673,27 @@ extern "C" fn map_widget_render(
         }
     }
 
+    // Snapshot the per-tile state so the placeholder label can show
+    // whether a tile is Pending / Fetching / Ready / Failed — makes the
+    // fetch + writeback path observable before the SVG-to-DOM render
+    // lands. (Read under a short borrow, then drop before building DOM.)
+    let states: BTreeMap<MapTileId, &'static str> = match data.downcast_ref::<MapTileCache>() {
+        Some(c) => c
+            .tiles
+            .iter()
+            .map(|(id, e)| {
+                let tag = match e {
+                    TileEntry::Pending => "…",
+                    TileEntry::Fetching => "⟳",
+                    TileEntry::Ready { .. } => "✓",
+                    TileEntry::Failed { .. } => "✗",
+                };
+                (*id, tag)
+            })
+            .collect(),
+        None => BTreeMap::new(),
+    };
+
     // Build the visible-tile grid. Each tile div is GPU-translated
     // into its screen position; the (CSS-driven) `transform` keeps
     // pan / zoom O(1) — no relayout per frame.
@@ -502,6 +703,11 @@ extern "C" fn map_widget_render(
 
     for x in x_min..=x_max {
         for y in y_min..=y_max {
+            let id = MapTileId {
+                z: z_int,
+                x: x as u32,
+                y: y as u32,
+            };
             let screen_x =
                 ((x as f32 - centre_x) * tile_px + width_px * 0.5).round() as i32;
             let screen_y =
@@ -517,11 +723,13 @@ extern "C" fn map_widget_render(
 
             let mut tile_div = Dom::create_div().with_css(style.as_str());
 
-            // Stamp the tile id as a child text so users can confirm
-            // the grid math without a real renderer. Replaced with
-            // the decoded SVG DOM in the follow-up tick.
+            // Stamp the tile id + cache-state glyph as a child text so
+            // users can confirm the grid math + fetch state without a
+            // real renderer. Replaced with the decoded SVG DOM once the
+            // svg-to-dom step lands.
+            let state_tag = states.get(&id).copied().unwrap_or("");
             tile_div = tile_div.with_child(
-                Dom::create_text(alloc::format!("z{}/{}/{}", z_int, x, y))
+                Dom::create_text(alloc::format!("{} z{}/{}/{}", state_tag, z_int, x, y))
                     .with_css("position: absolute; left: 4px; top: 4px; font-size: 11px; color: #888;"),
             );
 

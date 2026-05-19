@@ -580,6 +580,54 @@ Process notes:
 
 Remaining for P3.2: the async fetch + thread + cache mutation that ties `decode_mvt_tile` → `features_to_svg` → `TileEntry::Ready{svg}` → SVG-as-DOM child, plus the MapCSS styling layer. Those are the next ticks.
 
+### Design directive — tile fetch MUST use azul's `Thread` API (not std::thread / tokio)
+
+User directive (2026-05-20): the async tile download goes through the framework's own thread/task manager, not a raw `std::thread::spawn` or a tokio runtime. The exact pattern, lifted from `examples/rust/src/async.rs`:
+
+1. **Spawn** from inside a callback (the `MapWidget`'s virtual-view refresh, or a dedicated timer callback that polls the cache for `TileEntry::Pending`):
+   ```rust
+   let thread = Thread::create(init_data, writeback_data, fetch_tile_thread);
+   let thread_id = ThreadId::unique();
+   info.add_thread(thread_id, thread);   // info: CallbackInfo
+   ```
+   - `init_data: RefAny` — the per-tile input (tile id + resolved URL). Read-only on the worker.
+   - **`writeback_data: RefAny` — pass the `MapTileCache` *dataset clone* here.** This is the key wiring: the cache lives in the widget node's dataset RefAny (cheap, ref-counted), so the writeback callback receives a handle to *the same* cache the widget's VirtualView reads next frame. No need to push map internals into the user's app state.
+
+2. **Worker** `extern "C" fn fetch_tile_thread(init: RefAny, sender: ThreadSender, recv: ThreadReceiver)`:
+   - HTTP GET the tile URL via `ureq` (already a dep) — blocking is fine, it's a background thread.
+   - `decode_mvt_tile(bytes, tile)` → `Vec<geojson::Feature>` (P3.2e).
+   - `features_to_svg(&features, tile)` → SVG `String` (P3.2f).
+   - Check `recv.recv()` for `ThreadSendMsg::TerminateThread` between the fetch and decode so panning away cancels in-flight tiles.
+   - `sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg { refany: RefAny::new(TileReady { tile, svg }), callback: WriteBackCallback { cb: tile_writeback, ctx: OptionRefAny::None } }))`.
+
+3. **Writeback** `extern "C" fn tile_writeback(cache_dataset: RefAny, result: RefAny, info: CallbackInfo) -> Update`:
+   - `cache_dataset` is the `writeback_data` from step 1 → `downcast_mut::<MapTileCache>()`.
+   - `result` → `downcast_ref::<TileReady>()` → set `cache.tiles[tile] = TileEntry::Ready { svg }`.
+   - Return `Update::RefreshDom` so the VirtualView re-runs and renders the now-`Ready` tile's SVG as a child (via the framework's existing `Svg::parse` → DOM path).
+
+Notes: the merge-callback (`merge_map_tile_cache`) already preserves `Ready` / `Pending` entries across relayout, so a tile fetched on frame N survives the relayout on frame N+1 without re-downloading. `ThreadId::unique()` per tile; the widget should track in-flight ids in the cache to avoid double-spawning the same tile (add a `TileEntry::Pending` marker the instant the thread is spawned — already the shape we have). All of `Thread` / `ThreadId` / `ThreadSender` / `ThreadReceiver` / `WriteBackCallback` / `ThreadReceiveMsg` / `ThreadWriteBackMsg` live in `azul_core::task` and are already exposed via `azul::prelude`.
+
+### Tick — P3.2g tile fetch via azul `Thread` + writeback (2026-05-20)
+
+User directive: the async fetch must use azul's own `CallbackInfo::add_thread` + `WriteBackCallback` machinery (not `std::thread` / tokio), so the worker can "write back into the cache and trigger a RefreshLayout once new tiles arrive." User also flagged: "not sure if the entire threading system and timers actually work, but at least wire it all up." Done — the full path compiles end-to-end; runtime is untested (the threading system itself is unverified, as the user noted).
+
+The chain, layered correctly across the crate boundary:
+
+- **azul-layout** (`layout/src/widgets/map.rs`) — the spawn + writeback half (no decoder, no HTTP; those live in dll which azul-layout can't depend on):
+  - `MapTileCache` gains `fetch_callback: Option<crate::thread::ThreadCallbackType>` (the worker fn ptr, supplied by the caller). The merge-callback carries it across relayout. `TileEntry` gains a `Fetching` state distinct from `Pending` so the spawn pass doesn't double-fire.
+  - `TileFetchInit { tile, url }` (worker input) + `TileReadyMsg { tile, svg, error }` (worker output) POD types.
+  - `spawn_pending_tile_fetches(data, info)` — scans the cache for `Pending` tiles (capped at 16/call), builds each URL via `{z}/{x}/{y}` substitution, flips them to `Fetching`, and spawns one `Thread::create(RefAny::new(TileFetchInit), cache_dataset.clone(), fetch_callback)` per tile via `info.add_thread(ThreadId::unique(), thread)`. **The writeback target is a clone of the cache dataset RefAny** — so the worker writes into the same `MapTileCache` the VirtualView reads. Called from `map_on_pointer_up` (covers post-pan / post-pinch / tap).
+  - `map_tile_writeback(cache_dataset, incoming, info) -> Update` — downcasts `incoming` to `TileReadyMsg`, stamps `cache.tiles[tile] = Ready{svg}` (or `Failed{error}`), returns `RefreshDom`.
+  - `MapWidget::dom_with_fetch(cb)` — Rust-only variant of `dom()` that wires the worker. `MapWidget` keeps its exact 3-field api.json layout (the fn ptr lives only in the FFI-opaque cache, never in the transmuted struct). The VirtualView render now shows a per-tile state glyph (`…` Pending / `⟳` Fetching / `✓` Ready / `✗` Failed) so the fetch path is observable before the SVG-to-DOM render lands.
+- **azul-dll** (`dll/src/desktop/extra/map/mod.rs`) — the worker itself, gated on `feature = "map-tiles"` (which now also pulls `http`):
+  - `tile_fetch_worker(init, sender, recv)` — reads `TileFetchInit`, `azul_layout::http::http_get(url)` → bytes, polls `recv` for `TerminateThread` (cancels off-screen tiles), `decode_mvt_tile(bytes, tile)` → features, `features_to_svg(&features, tile)` → SVG, then `sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(WriteBackCallback { cb: map_tile_writeback }, RefAny::new(TileReadyMsg { … }))))`. Errors at any stage send a `TileReadyMsg` with `error` set.
+
+Caller wiring: `MapWidget::create(layer).with_viewport(vp).dom_with_fetch(azul_dll::desktop::extra::map::tile_fetch_worker)`. (The AzulMaps demo can't call this yet — it depends on `azul-dll` without `map-tiles`; enabling the feature on the example is a follow-up once we confirm the threading runtime.)
+
+`cargo check -p azul-dll --features '…,map-tiles'` GREEN (host). `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (4/4/4/4/4 s warm). The non-map-tiles mobile build leaves `fetch_callback = None` → `spawn_pending_tile_fetches` early-returns → placeholder grid, no thread/HTTP/decode deps pulled.
+
+**Known caveats** (flagged for follow-up): (a) fetch only triggers on pointer-up — the first frame needs one tap/drag to kick loads; a timer or mount-lifecycle trigger would make it automatic, but the user noted timers may not work either, so deferred. (b) `Ready` tiles still render the placeholder glyph, not the actual SVG — the `Svg::parse` → DOM child step is the next tick. (c) The whole path is compile-verified only; the threading runtime is untested per the user's caveat. (d) The pre-existing `dll_api_internal.rs:62092` `SvgMultiPolygon` codegen bug still blocks `cargo test -p azul-dll --lib`.
+
 The widget callback chain uses `crate::callbacks::Callback::from(fn as CallbackType)` rather than passing the bare fn pointer, because `Dom::with_callback` in `azul-core` takes `Into<CoreCallback>` (the FFI `usize` form) — `Callback` has the requisite `From<CallbackType>` impl from the framework's macro; the bare fn ptr does not.
 
 `bash scripts/mobile-check-all.sh` GREEN across all 5 mobile targets (9/7/6/6/6 s). No regressions; AzulPaint + AzulMaps still build cleanly. Codegen unchanged (the new pan callbacks are private widget internals, not part of the public api.json surface).

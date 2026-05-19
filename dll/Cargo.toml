@@ -472,7 +472,7 @@ json = ["azul-layout", "azul-layout/json"]
 # `geo-types`, `geojson` which would inflate the mobile cargo-check.
 # Desktop builds that actually fetch and decode tiles enable this via
 # `--features map-tiles`.
-map-tiles = ["dep:td", "dep:geojson"]
+map-tiles = ["dep:td", "dep:geojson", "http"]
 
 # JSON serialization for RefAny (enables RefAny::new_serde<T>)
 # Requires T: serde::Serialize + serde::de::DeserializeOwned
