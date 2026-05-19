@@ -185,6 +185,10 @@ cargo check --target aarch64-linux-android still GREEN (17.28s).
 
 iOS Phase 3 is now structurally complete: tap on a button → touch event → state diff → callback fires → drawRect re-renders. Linker still gated on Xcode.
 
+### Tick — scripts/mobile-check-all.sh: cargo check across all 5 mobile targets
+
+`scripts/mobile-check-all.sh` runs `cargo check --target $T -p azul-dll --no-default-features --features 'std,logging,link-static,a11y'` across **aarch64-apple-ios / aarch64-apple-ios-sim / x86_64-apple-ios / aarch64-linux-android / x86_64-linux-android** and emits a PASS/FAIL summary. Source-level only (cargo check doesn't link, so iOS targets succeed even without the iOS SDK installed). macOS-bash-3.2 compatible (no `declare -A`). Current state: **all 5 targets PASS**, total ~9 s on a warm cache. CI-friendly: exit 0 iff every target checks clean.
+
 ### Tick — Android KeyEvent → VirtualKeyCode (#12 follow-up)
 
 `drain_input` now collects `KeyEvent` alongside `MotionEvent`. New `map_keycode(Keycode) -> Option<VirtualKeyCode>` translates the 16 most common navigation/editing keycodes (Enter, NumpadEnter, Space, Tab, Escape, Del→Back, ForwardDel→Delete, Dpad{Left,Right,Up,Down}, Shift/Ctrl/Alt left+right). For each key event we snapshot `previous_window_state`, update `keyboard_state.current_virtual_keycode` + `pressed_virtual_keycodes`, then `process_window_events(0)`. State-diff fires `HoverEventFilter::VirtualKeyDown` / `VirtualKeyUp` from the diff. Letter keys still arrive via the soft keyboard's text-input path (KeyCharacterMap → unicode follow-up). cargo check Android GREEN (11.43s).
