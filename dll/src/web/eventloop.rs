@@ -690,6 +690,26 @@ pub unsafe extern "C" fn AzStartup_getLastLayoutStatus(state: u32) -> u32 {
     s.last_layout_status
 }
 
+/// M12 debug: poke a value into last_layout_status via the same
+/// Rust pattern hydrate uses post-cascade. Lets JS verify that the
+/// write path actually works when invoked from a fresh function frame.
+/// If JS gets back `value` via `AzStartup_getLastLayoutStatus` after
+/// calling this, the write-and-readback round-trip works — which
+/// pinpoints the cascade-post-call write issue to something
+/// specific about that code path (lifted bl boundary, register
+/// preservation, etc.).
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_pokeLastLayout(state: u32, value: u32) -> u32 {
+    if state == 0 {
+        return 0;
+    }
+    let s = &mut *(state as usize as *mut EventloopState);
+    use core::ptr;
+    let p = &mut s.last_layout_status as *mut u32;
+    ptr::write_volatile(p, value);
+    1
+}
+
 /// M12 cascade probe: reads back display_text_node_idx, which
 /// hydrate writes 0xCAFE before StyledDom::create + 0xBABE after.
 /// Lets JS distinguish:
