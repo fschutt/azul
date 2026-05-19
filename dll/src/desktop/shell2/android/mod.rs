@@ -327,11 +327,70 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
     }
 }
 
-#[cfg(all(target_os = "android", feature = "android-activity"))]
+#[cfg(all(target_os = "android", feature = "android-activity", feature = "ndk", feature = "cpurender"))]
+fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
+    // Sprint G: pixmap → ANativeWindow_lock → memcpy → unlockAndPost.
+    //
+    // Caller must arrange for `window.cpu_backend.last_frame` to be populated
+    // (typically by a regenerate_layout() invocation). Until that wiring is
+    // in place we present whatever pixmap is present, or no-op.
+    let nw = match window.native_window.as_ref() {
+        Some(nw) => nw,
+        None => return Ok(()), // background — surface released
+    };
+
+    let pixmap = match window.cpu_backend.last_frame.as_ref() {
+        Some(p) => p,
+        None => return Ok(()), // nothing to present yet
+    };
+
+    let pw = pixmap.width() as i32;
+    let ph = pixmap.height() as i32;
+    if pw <= 0 || ph <= 0 { return Ok(()); }
+
+    // Tell the surface we want RGBA8 of this exact size. Returns an
+    // io::Error if Android can't satisfy — surface is gone or surfaceflinger
+    // rejected the format; we just skip the frame.
+    let _ = nw.set_buffers_geometry(
+        pw, ph,
+        Some(ndk::hardware_buffer_format::HardwareBufferFormat::R8G8B8A8_UNORM),
+    );
+
+    let mut guard = match nw.lock(None) {
+        Ok(g) => g,
+        Err(e) => {
+            log_debug!(LogCategory::Rendering, "[Android] ANativeWindow_lock failed: {}", e);
+            return Ok(());
+        }
+    };
+
+    // Per-line blit. `lines()` returns one mutable slice per scanline,
+    // trimmed to the visible width — exactly what we need for an RGBA→RGBA
+    // copy where stride may exceed width.
+    let src = pixmap.data();
+    let src_stride = (pw as usize) * 4;
+    if let Some(lines) = guard.lines() {
+        for (y, line) in lines.enumerate() {
+            if y >= ph as usize { break; }
+            let src_off = y * src_stride;
+            let end = (src_off + src_stride).min(src.len());
+            let src_row = &src[src_off..end];
+            let n = src_row.len().min(line.len());
+            // SAFETY: line is &mut [MaybeUninit<u8>]; writing initialised
+            // bytes is sound. We never read line before writing it.
+            unsafe {
+                let dst_ptr = line.as_mut_ptr().cast::<u8>();
+                core::ptr::copy_nonoverlapping(src_row.as_ptr(), dst_ptr, n);
+            }
+        }
+    }
+    // guard.drop() calls ANativeWindow_unlockAndPost
+    Ok(())
+}
+
+/// Fallback stub for non-android-activity / non-ndk / non-cpurender builds.
+#[cfg(not(all(target_os = "android", feature = "android-activity", feature = "ndk", feature = "cpurender")))]
 fn render_frame(_window: &mut AndroidWindow) -> Result<(), WindowError> {
-    // Sprint G fills this in: cpu_backend.render_frame → ANativeWindow_lock →
-    // memcpy → unlockAndPost. For now we just yield, so the event loop is
-    // non-busy and the skeleton compiles cleanly.
     Ok(())
 }
 

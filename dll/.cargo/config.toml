@@ -1,0 +1,2 @@
+[target.aarch64-apple-ios]
+runner = "scripts/ios-runner.sh"
