@@ -1,11 +1,26 @@
 # Cross-compilation config for Azul
 #
-# Linux: cargo zigbuild --release --target x86_64-unknown-linux-gnu
+# Linux:   cargo zigbuild --release --target x86_64-unknown-linux-gnu
 # Windows: brew install mingw-w64 && cargo build --release --target x86_64-pc-windows-gnu
+# iOS:     cargo build --target aarch64-apple-ios-sim    (requires full Xcode + iOS SDK)
+# Android: cargo ndk -t arm64-v8a build                  (requires ANDROID_NDK_HOME)
+#
+# The Android linker paths below assume Homebrew layout from
+# `brew install --cask android-commandlinetools` plus
+# `sdkmanager 'ndk;27.0.12077973'`. If your NDK lives elsewhere,
+# override via environment: CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=...
 
 [target.x86_64-pc-windows-gnu]
 linker = "x86_64-w64-mingw32-gcc"
 ar = "x86_64-w64-mingw32-ar"
+
+[target.aarch64-linux-android]
+linker = "/opt/homebrew/share/android-commandlinetools/ndk/27.0.12077973/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android24-clang"
+ar     = "/opt/homebrew/share/android-commandlinetools/ndk/27.0.12077973/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar"
+
+[target.x86_64-linux-android]
+linker = "/opt/homebrew/share/android-commandlinetools/ndk/27.0.12077973/toolchains/llvm/prebuilt/darwin-x86_64/bin/x86_64-linux-android24-clang"
+ar     = "/opt/homebrew/share/android-commandlinetools/ndk/27.0.12077973/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar"
 
 [profile.release]
 lto = "thin"
