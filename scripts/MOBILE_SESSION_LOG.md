@@ -643,6 +643,19 @@ Feature interplay: the SVG-parse path is live whenever `xml` is enabled. The mob
 
 The map content pipeline is now wired end to end at the source level: visible-tile grid → Pending → spawn `Thread` (P3.2g) → `http_get` + `decode_mvt_tile` + `features_to_svg` → writeback `Ready{svg}` → **parse SVG → DOM child (this tick)**. Remaining: (1) confirm the threading runtime actually delivers (user-flagged uncertainty); (2) the MapCSS styling layer (currently `features_to_svg` uses a hardcoded per-layer palette); (3) auto-trigger the first fetch without requiring a tap (timer/mount); (4) enable `map-tiles` on the AzulMaps example + wire `dom_with_fetch(tile_fetch_worker)` so the demo shows real tiles.
 
+### Tick — P3.2i auto-trigger initial fetch on mount (2026-05-20)
+
+Closes caveat (3). The widget no longer needs a tap to start loading: an `EventFilter::Component(ComponentEventFilter::AfterMount)` callback on the `MapWidget` root fires once when the widget first appears and calls `spawn_pending_tile_fetches`. AfterMount is the earliest point that hands a real `CallbackInfo` (the widget builder itself has none), and the VirtualView marks the viewport's tiles `Pending` during the layout pass that precedes mount-event dispatch, so by the time `map_on_after_mount` runs the `Pending` set is populated and the workers spawn immediately.
+
+- `layout/src/widgets/map.rs`:
+  - `build_dom` attaches `map_on_after_mount` via `EventFilter::Component(ComponentEventFilter::AfterMount)` (import widened to include `ComponentEventFilter`).
+  - `map_on_after_mount(data, info)` → `spawn_pending_tile_fetches(&mut data, &mut info)` → `RefreshDom`.
+  - The pointer-up trigger stays for post-pan / post-pinch tiles; AfterMount covers the initial load + any DOM-structure re-mount.
+
+`cargo check -p azul-layout` GREEN; `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (6/6/5/6/6 s). Disk at 93% (16 GiB free); `cargo check` only.
+
+Two of the four P3.2 caveats are now closed (SVG→DOM render in P3.2h, auto-trigger here). Remaining: (1) threading-runtime confirmation — still untested, needs a running app + network; (2) MapCSS styling — `features_to_svg`'s hardcoded palette is the placeholder; (4) the AzulMaps demo still calls plain `dom()` (the codegen `azul::widgets::MapWidget` doesn't expose `dom_with_fetch`, which takes a fn-ptr arg — wiring the demo to real tiles needs an api.json-declared dll helper that bundles `dom_with_fetch(tile_fetch_worker)`, a heavier follow-up).
+
 The widget callback chain uses `crate::callbacks::Callback::from(fn as CallbackType)` rather than passing the bare fn pointer, because `Dom::with_callback` in `azul-core` takes `Into<CoreCallback>` (the FFI `usize` form) — `Callback` has the requisite `From<CallbackType>` impl from the framework's macro; the bare fn ptr does not.
 
 `bash scripts/mobile-check-all.sh` GREEN across all 5 mobile targets (9/7/6/6/6 s). No regressions; AzulPaint + AzulMaps still build cleanly. Codegen unchanged (the new pan callbacks are private widget internals, not part of the public api.json surface).

@@ -185,7 +185,7 @@ impl MapWidget {
     }
 
     fn build_dom(self, fetch_cb: Option<crate::thread::ThreadCallbackType>) -> Dom {
-        use azul_core::dom::{EventFilter, HoverEventFilter};
+        use azul_core::dom::{ComponentEventFilter, EventFilter, HoverEventFilter};
 
         let mut cache = MapTileCache::new(self.layer.clone(), self.viewport);
         cache.fetch_callback = fetch_cb;
@@ -195,6 +195,16 @@ impl MapWidget {
         Dom::create_div()
             .with_dataset(OptionRefAny::Some(dataset.clone()))
             .with_merge_callback(merge_map_tile_cache as DatasetMergeCallbackType)
+            // AfterMount fires once when the widget first appears (and
+            // again after a DOM-structure change re-mounts it). It's the
+            // earliest point with a `CallbackInfo`, so we kick the
+            // initial tile fetches here — without it the first frame's
+            // tiles would stay `Pending` until the user panned/tapped.
+            .with_callback(
+                EventFilter::Component(ComponentEventFilter::AfterMount),
+                dataset.clone(),
+                crate::callbacks::Callback::from(map_on_after_mount as crate::callbacks::CallbackType),
+            )
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::MouseDown),
                 dataset.clone(),
@@ -518,6 +528,17 @@ fn svg_string_to_dom(svg: &str) -> Option<Dom> {
 #[cfg(not(feature = "xml"))]
 fn svg_string_to_dom(_svg: &str) -> Option<Dom> {
     None
+}
+
+/// Fires once when the widget first mounts. Kicks the initial tile
+/// fetches so the map populates without waiting for a user gesture.
+/// (The VirtualView marks the viewport's tiles `Pending` during the
+/// layout pass that precedes mount-event dispatch; this handler then
+/// spawns the workers for them.) Returns `RefreshDom` so the
+/// `Fetching` state shows immediately.
+extern "C" fn map_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    spawn_pending_tile_fetches(&mut data, &mut info);
+    Update::RefreshDom
 }
 
 /// Scan the cache for `Pending` tiles and spawn one framework `Thread`
