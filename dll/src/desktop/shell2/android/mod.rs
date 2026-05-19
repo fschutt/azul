@@ -23,6 +23,7 @@ use azul_core::{
     callbacks::RelayoutReason,
     gl::OptionGlContextPtr,
     hit_test::DocumentId,
+    icon::SharedIconProvider,
     refany::RefAny,
     resources::{AppConfig, IdNamespace, ImageCache, RendererResources},
     window::{AndroidHandle, RawWindowHandle},
@@ -31,7 +32,7 @@ use azul_layout::{
     window::{LayoutWindow, ScrollbarDragState},
     window_state::{FullWindowState, WindowCreateOptions},
 };
-use rust_fontconfig::FcFontCache;
+use rust_fontconfig::{registry::FcFontRegistry, FcFontCache};
 
 use crate::desktop::shell2::common::{
     event::{self, CommonWindowState, HitTestNode, PlatformWindow},
@@ -76,6 +77,12 @@ pub struct AndroidWindow {
     pub backend: RenderBackend,
     /// `false` once `MainEvent::Destroy` arrives; breaks the outer loop.
     pub is_open: bool,
+    /// Shared icon provider — needed by `regenerate_layout()` so widgets
+    /// (notably button/icon containers) can resolve `IconReference`s.
+    pub icon_provider: SharedIconProvider,
+    /// Shared font registry for async font discovery / loading.
+    /// `None` means the registry was never installed; defaults to disabled.
+    pub font_registry: Option<Arc<FcFontRegistry>>,
 }
 
 impl AndroidWindow {
@@ -84,12 +91,18 @@ impl AndroidWindow {
     pub fn new(
         options: WindowCreateOptions,
         fc_cache: Arc<FcFontCache>,
-        config: AppConfig,
+        mut config: AppConfig,
         app_data: RefAny,
+        font_registry: Option<Arc<FcFontRegistry>>,
     ) -> Result<Self, WindowError> {
         // `WindowCreateOptions::window_state` is already a `FullWindowState`,
         // mirroring how `HeadlessWindow::new` consumes it. No constructor call.
         let full_window_state = options.window_state;
+
+        // Extract the SharedIconProvider out of the config (same pattern
+        // as run_headless) so we can pass it to regenerate_layout later.
+        let icon_provider_handle = core::mem::take(&mut config.icon_provider);
+        let icon_provider = SharedIconProvider::from_handle(icon_provider_handle);
 
         let mut layout_window = LayoutWindow::new(fc_cache.as_ref().clone())
             .map_err(|e| WindowError::PlatformError(format!("Layout init failed: {:?}", e)))?;
@@ -126,6 +139,8 @@ impl AndroidWindow {
             native_window: None,
             backend: RenderBackend::Cpu,
             is_open: true,
+            icon_provider,
+            font_registry,
         })
     }
 
@@ -243,7 +258,7 @@ pub fn android_main(app: AndroidApp) {
     log_info!(LogCategory::EventLoop, "[Android] android_main entered");
 
     // Retrieve initial options stashed by `run()`
-    let (app_data, config, fc_cache, _font_registry, root_window) = unsafe {
+    let (app_data, config, fc_cache, font_registry, root_window) = unsafe {
         match crate::desktop::shell2::run::ANDROID_INITIAL_OPTIONS.take() {
             Some(opts) => opts,
             None => {
@@ -257,13 +272,18 @@ pub fn android_main(app: AndroidApp) {
         }
     };
 
-    let mut window = match AndroidWindow::new(root_window, fc_cache, config, app_data) {
-        Ok(w) => w,
-        Err(e) => {
-            log_error!(LogCategory::EventLoop, "[Android] AndroidWindow::new failed: {:?}", e);
-            return;
-        }
-    };
+    let mut window =
+        match AndroidWindow::new(root_window, fc_cache, config, app_data, font_registry) {
+            Ok(w) => w,
+            Err(e) => {
+                log_error!(
+                    LogCategory::EventLoop,
+                    "[Android] AndroidWindow::new failed: {:?}",
+                    e
+                );
+                return;
+            }
+        };
 
     // Outer driver loop — exits when MainEvent::Destroy clears window.is_open.
     while window.is_open() {

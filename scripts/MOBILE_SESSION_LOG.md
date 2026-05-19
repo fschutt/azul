@@ -56,3 +56,7 @@ Three new files, no Rust changes:
 - `scripts/build-ios.sh` — Xcode-CLT-free pipeline: validates `xcrun --sdk $iphone{os,simulator} --show-sdk-path` is available (errors out clearly if not), `cargo build --release` for the target, copies the artifact into `target/ios-bundle/<APP_NAME>-<TARGET>.app/`, renders the Info.plist via sed, converts to binary plist via `plutil`, then on simulator → `xcrun simctl install + launch booted`, on device → optional `codesign` if `IOS_SIGNING_IDENTITY` set + `ios-deploy --bundle … --justlaunch` if installed. `AZ_IOS_DRYRUN=1` stops after bundle. Bash syntax-checked clean.
 
 Pipeline is testable end-to-end the moment full Xcode is installed; until then the script gates cleanly with an actionable error.
+
+### Tick — Android prerequisites for regenerate_layout (#11)
+
+`AndroidWindow` now stores `icon_provider: SharedIconProvider` and `font_registry: Option<Arc<FcFontRegistry>>` (matching `HeadlessWindow`); `new()` takes a `mut config` and `mem::take`s the icon_provider handle. `android_main` passes the `font_registry` previously stashed in `ANDROID_INITIAL_OPTIONS`. cargo check still GREEN (~13 s incremental). Next tick: write `AndroidWindow::regenerate_layout()` mirroring `HeadlessWindow::regenerate_layout()` so cpu_backend.last_frame populates, then have `render_frame()` call it ahead of the blit.
