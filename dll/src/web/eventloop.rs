@@ -973,14 +973,19 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     // the floor. Sprint 2 / 3 will address by either (a) tracing
     // the lifted IR to find the broken helper, or (b) constructing
     // a minimal StyledDom-equivalent via field-by-field writes.
-    // M12.8 fix: remill fork now lifts FCVTZS_64S_FLOAT2INT and
-    // STP_Q, which were the two missing pieces. resolve_font_size_to_px
-    // bailed on `fcvtzs x8, s0` before; that bail short-circuited the
-    // cascade and produced zero-byte StyledDoms. With both fixed, run
-    // the real cascade.
-    let styled = StyledDom::create(dom_ref, Css::empty());
-    let boxed = Box::new(styled);
-    s.current_dom_styled_ptr = Box::into_raw(boxed) as u32;
+    // M12.8 — temporarily skip StyledDom::create. With remill fork
+    // adding FCVTZS_64S_FLOAT2INT + STP_Q + Lift fix, most of the
+    // cascade lifts cleanly. However a wasm OOB trap inside hydrate's
+    // 20 KB body remains (at func[22]:0x73ec, an i64.store via a
+    // bump-allocator that returns an out-of-range address).
+    // Likely root cause: one of the 210 transitive helpers writes
+    // through a pointer it never initialised. Keeping the stub
+    // path until we can isolate the offending helper via lift-IR
+    // dump (AZ_DUMP_IR + subprocess lift one fn at a time).
+    let _ = dom_ref;
+    let _ = StyledDom::create;
+    let _ = Css::empty;
+    s.current_dom_styled_ptr = 0;
     s.current_dom_node_count = count;
     s.current_dom_hydrated = 1;
     0
