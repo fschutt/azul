@@ -308,3 +308,22 @@ Closes the cross-platform side of P1.2 by plumbing the manager into the shared l
 - `dll/src/desktop/shell2/common/layout.rs::regenerate_layout` (step 7, after scrollbar opacity sync) now calls `layout_window.permission_manager.diff_layout(|_emit| {})` followed by `take_pending_events()`. Emitted events are routed through `crate::desktop::extra::permission::apply_diff_events`, which cfg-routes to the right platform stub. The closure body is intentionally empty for now — the bearing NodeTypes (`GeolocationProbe`, `CameraPreview`, `SensorProbe`) don't exist yet; the seam is in place so a future tick can fill in the DOM walk without touching layout-pass plumbing again.
 
 `cargo test -p azul-layout --lib permission::` still 7/7 GREEN. `bash scripts/mobile-check-all.sh` GREEN on all 5 mobile targets (20/8/7/8/7 s — slower first-pass because azul-dll rebuilt with the new field). The whole P1.2 chain (manager core → platform stubs → layout-pass drain) is now wired end-to-end; activation only blocks on (a) the probe NodeTypes (P3-P6) and (b) replacing the per-platform stub bodies with real native calls (later P1+ ticks).
+
+### Tick — P1.3 iOS file picker (real UIDocumentPickerViewController wiring)
+
+Loop-prompt updated: dropped the "smallest forward diff" framing; the goal is to *finish* SUPER_PLAN_2, not land scaffolds forever. Cap kept at ~10 files / ~600 added lines per tick.
+
+Lands the real iOS file picker (no more stubs). Three artifacts:
+
+- `dll/src/desktop/extra/file_picker/mod.rs` — cross-platform handle + async dispatcher matching research/04 §1.7 Option B:
+  - `FilePickerHandle` — `Arc<Mutex<FilePickerInner>>` behind a `#[repr(C)]` shim. Cheap to clone (the platform backend retains one clone while the user polls a sibling clone each frame).
+  - `FilePickerStatus { Pending, Cancelled, Selected{path}, SelectedMultiple{paths}, Error{message} }` — `#[repr(C, u8)]`, mirrors the W3C `showOpenFilePicker` promise shape so the future web backend lands without API churn.
+  - `apply_{open_file, save_file, open_directory}` dispatchers cfg-route to the right OS arm; non-mobile arms set the handle to `Cancelled` synchronously so polling never spins.
+- `dll/src/desktop/extra/file_picker/ios.rs` — real UIKit implementation:
+  - `PENDING_PICKERS: Mutex<BTreeMap<u64, FilePickerHandle>>` global registry keyed by a fresh `request_id` per dispatch. Avoids the boxed-pointer + `objc_setAssociatedObject(handle)` dance.
+  - `AzulDocumentPickerDelegate` NSObject subclass (registered via `objc::declare::ClassDecl` like the existing `AzulGestureTarget`) with one `u64` ivar (`requestID`) and the two protocol selectors `documentPicker:didPickDocumentsAtURLs:` + `documentPickerWasCancelled:`.
+  - `dispatch_open_file` walks `UIApplication.connectedScenes` to find the key window (iOS 13+ multi-scene safe; falls back to deprecated `keyWindow`), gets the rootViewController, builds a `[UTType]` filter array from `OptionStringVec` (known extensions → class methods `UTType.png` / `.jpeg` / `.pdf` / …; unknown → `[UTType typeWithFilenameExtension:]`; empty → `UTType.data`), allocs the picker via `initForOpeningContentTypes:asCopy:YES` (so the user gets a regular `file://` URL, no security-scoped bookmarking required), sets `allowsMultipleSelection`, attaches the delegate via `objc_setAssociatedObject` policy 1 (UIKit doesn't retain delegates), then presents.
+  - `save_file` + `open_directory` left as `Cancelled` stubs — AzulPaint (P2) only needs open_file; save + dir come back when AzulDoc (P5) and AzulVault (P4) need them.
+- `dll/src/desktop/extra/mod.rs` registers `pub mod file_picker;`.
+
+`bash scripts/mobile-check-all.sh` GREEN on all 5 targets (15/5/6/5/5 s — the iOS targets rebuilt with the new picker). Source compile is the only check available without Xcode; runtime verification needs an iOS sim. The Android arm is queued for the next tick (#8 — JNI bridge to `Intent.ACTION_OPEN_DOCUMENT`).

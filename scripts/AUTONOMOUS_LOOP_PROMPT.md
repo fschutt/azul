@@ -35,7 +35,11 @@ Lowest-numbered open task wins. Current open list (update this as you close item
 
 After P1 closes, switch to P2 (AzulPaint goal app). After P2, P3 (AzulMaps). Etc.
 
-## Step 3 — make the smallest forward diff
+## Step 3 — make real forward progress
+
+Make a substantive change per tick. The point of this loop is to *finish* SUPER_PLAN_2, not to land scaffolds forever. Land a real implementation each tick (real Objective-C / JNI / native call / wiring), not a stub-with-TODOs. Scaffolding is only acceptable when (a) it unblocks a real implementation in the *same* tick or (b) the real implementation needs a multi-file refactor that genuinely doesn't fit in one tick.
+
+Cap on size: if a single diff would touch more than ~10 files or ~600 added lines, split it. Otherwise, go big.
 
 Hard rules carried from `NEXT_SESSION_PROMPT.md`:
 

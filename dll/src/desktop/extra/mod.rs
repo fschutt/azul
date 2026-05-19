@@ -10,4 +10,5 @@
 //! Each submodule re-exports the public surface so callers reach into a
 //! flat namespace, e.g. `azul_dll::desktop::extra::permission::apply_diff_events`.
 
+pub mod file_picker;
 pub mod permission;
