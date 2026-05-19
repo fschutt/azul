@@ -1055,26 +1055,51 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     // BEFORE the cascade and the ptr AFTER, so JS can distinguish
     // "cascade never returned" (marker only) from "cascade
     // returned, drop bailed" (marker + ptr).
-    // Stash state in a static mut + DUMP THE ADDRESS to a known
-    // wasm location so we can compute where the wild write hits.
-    static mut SAVED_STATE: u32 = 0;
+    // M12 WORKAROUND: cascade-callee X-reg clobber means LLVM's
+    // cached registers across the StyledDom::create bl can't be
+    // trusted. Stash state in a fixed wasm linear memory address
+    // via an #[inline(never)] helper (forcing fresh register
+    // allocation per call), and recover via the same helper.
     let state_u32 = state;
-    SAVED_STATE = state_u32;
-    // Dump SAVED_STATE's wasm address at 0x40008
-    let saved_addr = &SAVED_STATE as *const u32 as usize as u32;
-    core::ptr::write_volatile(0x40008_usize as *mut u32, saved_addr);
-    probe_set(state_u32, 0x1001);  // pre-cascade
-    let _styled = StyledDom::create(dom_ref, Css::empty());
-    let recovered = core::ptr::read_volatile(&SAVED_STATE as *const u32);
-    probe_set(recovered, 0x1004);
-    core::ptr::write_volatile(0x40004_usize as *mut u32, recovered);
+    fixed_store(state_u32);
+    let styled = StyledDom::create(dom_ref, Css::empty());
+    // Box the cascade output (forces it to escape the stack).
+    let boxed = Box::new(styled);
+    let ptr_val = Box::into_raw(boxed) as usize as u32;
+    // Recover state pointer via the fresh helper, then store the
+    // StyledDom heap ptr into the EventloopState.
+    let recovered = fixed_load();
+    finalize_hydrate(recovered, ptr_val);
     0
+}
+
+/// Finalize hydrate via fresh function frame (X-regs reset).
+#[inline(never)]
+#[no_mangle]
+unsafe extern "C" fn finalize_hydrate(state_u32: u32, styled_ptr: u32) {
+    if state_u32 == 0 {
+        return;
+    }
+    let s = &mut *(state_u32 as usize as *mut EventloopState);
+    s.current_dom_styled_ptr = styled_ptr;
 }
 
 #[inline(never)]
 #[no_mangle]
 extern "C" fn noop_for_probe() -> u32 {
     42
+}
+
+#[inline(never)]
+#[no_mangle]
+unsafe extern "C" fn fixed_store(v: u32) {
+    core::ptr::write_volatile(0x40020_usize as *mut u32, v);
+}
+
+#[inline(never)]
+#[no_mangle]
+unsafe extern "C" fn fixed_load() -> u32 {
+    core::ptr::read_volatile(0x40020_usize as *const u32)
 }
 
 /// M12 cascade probe helper — never inlined so each call site
