@@ -420,6 +420,48 @@ pub struct GestureAndDragManager {
     long_press_callbacks_invoked: Vec<u64>,
     /// Counter for generating unique session IDs
     next_session_id: u64,
+    /// Native-platform gesture override slot.
+    ///
+    /// Platforms with first-class gesture recognizers (iOS UIKit,
+    /// Android `GestureDetector` + `ScaleGestureDetector`, macOS
+    /// `NSGestureRecognizer`) inject pre-detected gestures here via
+    /// [`GestureAndDragManager::inject_native_gesture`]. The
+    /// `detect_*` methods consult this slot before running their
+    /// in-process heuristics, so callbacks observe consistent results
+    /// regardless of the detection source.
+    ///
+    /// Cleared automatically at the start of every new input recording
+    /// cycle so a single OS event doesn't keep firing.
+    pub native_gesture: Option<NativeGestureEvent>,
+}
+
+/// Gesture detected by a platform-native recognizer.
+///
+/// Platform backends construct one of these in their gesture-recognizer
+/// callbacks (iOS UIKit, Android `GestureDetector`, macOS
+/// `NSGestureRecognizer`) and hand it to
+/// [`GestureAndDragManager::inject_native_gesture`]. The in-process
+/// `detect_*` methods then return the native result, sidestepping their
+/// fallback heuristics. On platforms with poor native gesture support
+/// (X11 / Wayland touch, headless), backends never inject and the
+/// in-process detector remains authoritative.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C, u8)]
+pub enum NativeGestureEvent {
+    /// Single tap / double-click detected natively.
+    DoubleClick,
+    /// Long-press detected natively (iOS `UILongPressGestureRecognizer`,
+    /// Android `GestureDetector.OnGestureListener::onLongPress`).
+    LongPress(DetectedLongPress),
+    /// Swipe detected natively (iOS `UISwipeGestureRecognizer`,
+    /// Android `GestureDetector.OnGestureListener::onFling`).
+    Swipe(GestureDirection),
+    /// Pinch detected natively (iOS `UIPinchGestureRecognizer`,
+    /// Android `ScaleGestureDetector`, macOS magnification gesture).
+    Pinch(DetectedPinch),
+    /// Rotation detected natively (iOS `UIRotationGestureRecognizer`,
+    /// macOS rotation gesture).
+    Rotation(DetectedRotation),
 }
 
 /// Type alias for backwards compatibility
@@ -447,7 +489,24 @@ impl GestureAndDragManager {
             active_drag: None,
             pen_state: None,
             long_press_callbacks_invoked: Vec::new(),
+            native_gesture: None,
         }
+    }
+
+    /// Inject a native gesture-recognizer result, overriding the
+    /// in-process detector for the current event frame. Called by the
+    /// iOS / Android / macOS platform backend from their gesture
+    /// recognizer callbacks. The override is read once by the next
+    /// `detect_*` call.
+    pub fn inject_native_gesture(&mut self, gesture: NativeGestureEvent) {
+        self.native_gesture = Some(gesture);
+    }
+
+    /// Clear any pending native-gesture override. Called by the event
+    /// loop after each frame's detections have been consumed so a
+    /// stale OS gesture doesn't keep firing.
+    pub fn clear_native_gesture(&mut self) {
+        self.native_gesture = None;
     }
 
     /// Create with custom configuration
@@ -716,6 +775,9 @@ impl GestureAndDragManager {
     /// Returns Some(DetectedLongPress) if button has been held long enough
     /// without moving much.
     pub fn detect_long_press(&self) -> Option<DetectedLongPress> {
+        if let Some(NativeGestureEvent::LongPress(lp)) = self.native_gesture {
+            return Some(lp);
+        }
         let session = self.get_current_session()?;
 
         if session.ended {
@@ -761,6 +823,9 @@ impl GestureAndDragManager {
     ///
     /// Returns true if timing and distance match double-click criteria.
     pub fn detect_double_click(&self) -> bool {
+        if matches!(self.native_gesture, Some(NativeGestureEvent::DoubleClick)) {
+            return true;
+        }
         let sessions = &self.input_sessions;
         if sessions.len() < 2 {
             return false;
@@ -914,6 +979,9 @@ impl GestureAndDragManager {
     ///
     /// Returns Some(dir) if gesture is a fast swipe in a clear direction
     pub fn detect_swipe_direction(&self) -> Option<GestureDirection> {
+        if let Some(NativeGestureEvent::Swipe(d)) = self.native_gesture {
+            return Some(d);
+        }
         // Must be a fast swipe first
         if !self.is_swipe() {
             return None;
@@ -928,6 +996,9 @@ impl GestureAndDragManager {
     /// Returns Some if two touch points are active and distance is changing
     /// significantly. Scale < 1.0 = pinch in, scale > 1.0 = pinch out.
     pub fn detect_pinch(&self) -> Option<DetectedPinch> {
+        if let Some(NativeGestureEvent::Pinch(p)) = self.native_gesture {
+            return Some(p);
+        }
         // Need at least two active sessions for pinch
         if self.input_sessions.len() < 2 {
             return None;
@@ -991,6 +1062,9 @@ impl GestureAndDragManager {
     /// Returns Some if two touch points are rotating around center.
     /// Positive angle = clockwise, negative = counterclockwise.
     pub fn detect_rotation(&self) -> Option<DetectedRotation> {
+        if let Some(NativeGestureEvent::Rotation(r)) = self.native_gesture {
+            return Some(r);
+        }
         // Need at least two active sessions
         if self.input_sessions.len() < 2 {
             return None;
