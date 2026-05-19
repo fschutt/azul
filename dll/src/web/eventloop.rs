@@ -1055,11 +1055,20 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     // BEFORE the cascade and the ptr AFTER, so JS can distinguish
     // "cascade never returned" (marker only) from "cascade
     // returned, drop bailed" (marker + ptr).
-    // Stepped probes via last_layout_status.
+    // Stash state in a static mut before the cascade so we can
+    // recover it after, bypassing any X-reg clobbering.
+    static mut SAVED_STATE: u32 = 0;
     let state_u32 = state;
+    SAVED_STATE = state_u32;
     probe_set(state_u32, 0x1001);  // pre-cascade
     let _styled = StyledDom::create(dom_ref, Css::empty());
-    probe_set(state_u32, 0x1004);  // post-cascade
+    // Recover state from static (cannot be clobbered by cascade).
+    // Use volatile read so LLVM doesn't optimize away.
+    let recovered = core::ptr::read_volatile(&SAVED_STATE as *const u32);
+    probe_set(recovered, 0x1004);  // post-cascade via recovered ptr
+    // Also probe with the recovered value as the FREE marker
+    let raw_p2 = 0x40004_usize as *mut u32;
+    core::ptr::write_volatile(raw_p2, recovered);
     0
 }
 
