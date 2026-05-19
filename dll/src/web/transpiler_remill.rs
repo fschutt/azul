@@ -2246,6 +2246,13 @@ fn collect_synth_data_pages(
     let mut precise_pages = 0usize;
     let mut precise_bytes_kept = 0usize;
     let mut fallback_pages = 0usize;
+    // M12.5d diagnostic: when set, ignore precise ranges and mirror
+    // every accessed page in full (4 KiB, zero-trimmed). Tests the
+    // hypothesis that the cascade reads const-pool data via patterns
+    // `scan_arm64_adrp_accesses` doesn't recognize — those addresses
+    // read back zero under precise-only mirroring (0 whole-page
+    // fallbacks observed in the cascade build).
+    let force_whole_page = std::env::var_os("AZ_FORCE_WHOLE_PAGE").is_some();
     for native_page in accessed_pages {
         let native_page = *native_page;
         // Find which image this page belongs to.
@@ -2262,7 +2269,7 @@ fn collect_synth_data_pages(
         // M10-E1: if we have precise ranges for this page, mirror
         // just those byte windows instead of the whole 4 KiB. The
         // ranges' bytes get pointer-translated below.
-        if let Some(ranges) = ranges_by_page.get(&native_page) {
+        if let Some(ranges) = ranges_by_page.get(&native_page).filter(|_| !force_whole_page) {
             // Build a bitmap of which bytes are needed within the page
             // (handles overlapping / adjacent ranges naturally).
             let mut needed = [false; PAGE_SIZE];

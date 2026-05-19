@@ -1067,6 +1067,15 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     // KNOWN-issue annotation.
     let state_u32 = state;
     fixed_store(state_u32);
+    // M12.5e isolation: run the simple Vec reproducer BEFORE the cascade
+    // so a cascade trap doesn't mask whether the now-lifted grow_one
+    // works for a plain Vec<u32>. If vs_ptr (0x40028) is set + correct
+    // and the cascade still traps, the bug is cascade-specific (bigger
+    // alloc / other collection). If vs_ptr stays 0, grow_one's lift is
+    // itself broken at runtime.
+    let vs_boxed_early = Box::new(make_test_vec_struct());
+    let vs_ptr_early = Box::into_raw(vs_boxed_early) as usize as u32;
+    core::ptr::write_volatile(0x40028_usize as *mut u32, vs_ptr_early);
     let styled = StyledDom::create(dom_ref, Css::empty());
     let boxed = Box::new(styled);
     let ptr_val = Box::into_raw(boxed) as usize as u32;
@@ -1080,6 +1089,15 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     let test_boxed = Box::new(make_test_struct());
     let test_ptr = Box::into_raw(test_boxed) as usize as u32;
     core::ptr::write_volatile(0x40018_usize as *mut u32, test_ptr);
+    // M12.5d-A: sret-across-subcalls reproducer. Same expected pattern
+    // as make_test_struct (0xA0000000|i). If this reads zero while
+    // make_test_struct reads 64/64, the sret destination is lost
+    // across lifted sub-call boundaries — the cascade bug minimally
+    // reproduced. Single extra Box::new (3 total) to avoid the
+    // cumulative-alloc hydrate trap seen in prior sessions.
+    let sc_boxed = Box::new(make_test_struct_subcall());
+    let sc_ptr = Box::into_raw(sc_boxed) as usize as u32;
+    core::ptr::write_volatile(0x4001C_usize as *mut u32, sc_ptr);
     // M12.5c: dump first 80 bytes of the cascade-output styled struct
     // to known wasm addresses 0x40100..0x4014F so JS can read via
     // getProbeRaw-style fixed-addr peeks. This lets us see exactly
@@ -1158,6 +1176,75 @@ pub extern "C" fn make_test_struct() -> TestStruct256 {
         i += 1;
     }
     s
+}
+
+/// M12.5d-A leaf for the sret-across-subcalls reproducer. Identity
+/// via black_box so the compiler can't fold the chain away.
+#[inline(never)]
+#[no_mangle]
+pub extern "C" fn sret_leaf(x: u32) -> u32 {
+    core::hint::black_box(x)
+}
+
+/// M12.5d-A intermediate: keeps `i` live ACROSS the call to
+/// `sret_leaf`, forcing `i` into a callee-saved register that the
+/// native epilogue saves/restores via stp/ldp. Returns 0xA0000000|i
+/// for i<64 (same pattern as make_test_struct), so the same JS check
+/// applies. If the lift mishandles callee-saved preservation across
+/// the call boundary, this returns garbage.
+#[inline(never)]
+#[no_mangle]
+pub extern "C" fn sret_helper(i: u32) -> u32 {
+    let _ = sret_leaf(i);
+    0xA0000000_u32 | (i & 0x3F)
+}
+
+/// M12.5d-A: identical to make_test_struct EXCEPT each sret-slot
+/// write happens AFTER a sub-call returns. This is the minimal delta
+/// that mimics the cascade: the sret destination (X8) must be saved
+/// into a callee-saved register and survive ~64 sub-calls. If
+/// Box::new(make_test_struct_subcall()) reads back zero while
+/// make_test_struct reads 64/64, then sret-dest is lost across the
+/// lifted call boundary — THE cascade bug, minimally reproduced.
+#[inline(never)]
+#[no_mangle]
+pub extern "C" fn make_test_struct_subcall() -> TestStruct256 {
+    let mut s = TestStruct256 { data: [0; 64] };
+    let mut i = 0u32;
+    while i < 64 {
+        s.data[i as usize] = sret_helper(i);
+        i += 1;
+    }
+    s
+}
+
+/// M12.5d-B: minimal step toward StyledDom — a DROPPABLE struct with
+/// a heap-allocating `Vec` field, returned by value (sret). Sentinels
+/// `marker`/`tail` bracket the Vec so a JS probe can tell apart:
+///   - all zero            → whole sret write lost (like the cascade)
+///   - marker+tail ok, Vec zero → Vec construction in sret lost
+///   - all correct         → alloc+Vec+drop via sret works
+/// make_test_struct (Copy, no Vec, no alloc) works; StyledDom::default()
+/// (multiple Vecs, derive(Default)) is all-zero. This probes between.
+#[repr(C)]
+pub struct TestVecStruct {
+    pub marker: u32,
+    pub v: Vec<u32>,
+    pub tail: u32,
+}
+
+#[inline(never)]
+#[no_mangle]
+pub fn make_test_vec_struct() -> TestVecStruct {
+    let mut v: Vec<u32> = Vec::new();
+    v.push(0xBBBB_0001_u32);
+    v.push(0xBBBB_0002_u32);
+    v.push(0xBBBB_0003_u32);
+    TestVecStruct {
+        marker: 0xAAAA_AAAA,
+        v,
+        tail: 0xCCCC_CCCC,
+    }
 }
 
 
