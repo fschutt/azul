@@ -95,3 +95,7 @@ SUPER_PLAN.md gets a new Sprint M ("Native gesture recognizers") documenting the
 - The five `detect_*` methods (long_press, double_click, swipe_direction, pinch, rotation) consult `self.native_gesture` before running their heuristic detectors. Linux/Windows/headless never inject, so heuristics remain authoritative there.
 
 cargo check still GREEN (1m19s incremental — rebuild touched many crates). Two new follow-up tasks tracked: #16 iOS UIKit gesture-recognizer wire-up, #17 Android `GestureDetector` JNI bridge.
+
+### Tick — Android drain_input clears native_gesture per frame
+
+`dll/src/desktop/shell2/android/mod.rs::drain_input()` now calls `layout_window.gesture_drag_manager.clear_native_gesture()` after the final `process_window_events(0)` so any injected `NativeGestureEvent` is single-shot. No-op until #17 wires real injection through the JNI bridge, but the seam is in place — once `GestureDetector` callbacks fire, gestures will reach `CallbackInfo::get_*()` and then clear cleanly. cargo check still GREEN (17.65 s).

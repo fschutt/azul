@@ -498,6 +498,14 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
             window.common.frame_needs_regeneration = true;
         }
     }
+
+    // After callbacks have observed any native-gesture override the
+    // Android `GestureDetector` JNI bridge injected this frame, clear
+    // the slot so a stale OS gesture doesn't keep firing. No-op until
+    // #17 wires real injection.
+    if let Some(lw) = window.common.layout_window.as_mut() {
+        lw.gesture_drag_manager.clear_native_gesture();
+    }
 }
 
 #[cfg(all(target_os = "android", feature = "android-activity", feature = "ndk", feature = "cpurender"))]
