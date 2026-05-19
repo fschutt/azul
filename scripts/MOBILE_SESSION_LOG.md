@@ -185,6 +185,10 @@ cargo check --target aarch64-linux-android still GREEN (17.28s).
 
 iOS Phase 3 is now structurally complete: tap on a button → touch event → state diff → callback fires → drawRect re-renders. Linker still gated on Xcode.
 
+### Tick — Android InitWindow / WindowResized propagate dpi + logical dims to current_window_state
+
+`handle_poll_event` now writes `current_window_state.size.{dpi, dimensions}` from `app.config().density()` + the `NativeWindow`'s physical dimensions. Without this, `regenerate_layout` was computing `dpi_factor = ws.size.dpi / 96.0` against the default `dpi = 96` and shrinking layout 3× on a 480-dpi screen. `MainEvent::WindowResized` reuses the same dpi to recompute logical dimensions from the new physical size. All 5 mobile cargo-check targets stay GREEN (15/0/1/4/5 s).
+
 ### Tick — Android real DPI scale from AConfiguration.density
 
 `drain_input` no longer hardcodes `dpi = 1.0`. It now reads `app.config().density()` (returned in DPI; Android's baseline is 160 = mdpi) and divides each raw pointer x/y by `density / 160.0` to convert to logical pixels. Falls back to `1.0` if the config returns `None` (rare devices) or 0 (defensive). A 480-dpi xxhdpi phone now gives logical positions equal to physical_px / 3 — matching Compose / web `1dp = 1/160 inch` semantics. cargo check all 5 mobile targets still GREEN (~13 s total warm-cache).

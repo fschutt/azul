@@ -409,11 +409,26 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
     match event {
         PollEvent::Main(main_event) => match main_event {
             MainEvent::InitWindow { .. } => {
+                // Sync the framework's window state to the native
+                // surface: physical dimensions + DPI. `regenerate_layout`
+                // multiplies by `ws.size.dpi / 96.0` to derive its
+                // `dpi_factor`, so a stale 96 here would yield a
+                // 5x-too-small layout on a 480-dpi screen.
+                let dpi = app.config().density().filter(|&d| d > 0).unwrap_or(160);
+                window.common.current_window_state.size.dpi = dpi;
                 #[cfg(feature = "ndk")]
                 {
                     if let Some(nw) = app.native_window() {
-                        log_debug!(LogCategory::Window, "[Android] InitWindow {}x{}",
-                            nw.width(), nw.height());
+                        let scale = dpi as f32 / 160.0;
+                        let logical_w = (nw.width() as f32) / scale;
+                        let logical_h = (nw.height() as f32) / scale;
+                        log_debug!(
+                            LogCategory::Window,
+                            "[Android] InitWindow physical={}x{} dpi={} logical={}x{}",
+                            nw.width(), nw.height(), dpi, logical_w, logical_h,
+                        );
+                        window.common.current_window_state.size.dimensions.width = logical_w;
+                        window.common.current_window_state.size.dimensions.height = logical_h;
                         window.native_window = Some(nw);
                         window.common.frame_needs_regeneration = true;
                     }
@@ -425,6 +440,17 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 { window.native_window = None; }
             }
             MainEvent::WindowResized { .. } => {
+                #[cfg(feature = "ndk")]
+                {
+                    if let Some(nw) = window.native_window.as_ref() {
+                        let dpi = window.common.current_window_state.size.dpi.max(1);
+                        let scale = dpi as f32 / 160.0;
+                        window.common.current_window_state.size.dimensions.width =
+                            (nw.width() as f32) / scale;
+                        window.common.current_window_state.size.dimensions.height =
+                            (nw.height() as f32) / scale;
+                    }
+                }
                 window.common.frame_needs_regeneration = true;
             }
             MainEvent::InputAvailable => {
