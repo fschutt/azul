@@ -372,6 +372,23 @@ pub struct PenState {
     pub barrel_button_pressed: bool,
     /// Unique identifier for this pen device
     pub device_id: u64,
+    /// Tangential / cylinder pressure (0.0 to 1.0). Wacom Air Brush wheel,
+    /// Surface Slim Pen 2 secondary axis. `0.0` means "not reported".
+    /// Maps to W3C `PointerEvent.tangentialPressure`.
+    pub tangential_pressure: f32,
+    /// Barrel roll angle in radians (–π to π). Wacom Art Pen rotation,
+    /// Surface Pen barrel-roll axis. `0.0` means "not reported" (devices
+    /// that do report it sweep through the full range as the user rolls
+    /// the pen — the resting state isn't necessarily zero, so callers
+    /// should compare deltas, not absolute values).
+    /// Maps to W3C `PointerEvent.twist` (in radians, not degrees).
+    pub barrel_roll_rad: f32,
+    /// Per-tool identity for hand-held pens that report it (Wintab GUID,
+    /// Apple Pencil session id, S-Pen serial). `0` means "not reported".
+    /// Distinct from `device_id` so callers can both identify the
+    /// hardware (device_id) *and* which tip / lead / button cluster is
+    /// in use (tool_id).
+    pub tool_id: u32,
 }
 
 impl_option!(PenState, OptionPenState, [Debug, Clone, Copy, PartialEq]);
@@ -389,6 +406,9 @@ impl Default for PenState {
             is_eraser: false,
             barrel_button_pressed: false,
             device_id: 0,
+            tangential_pressure: 0.0,
+            barrel_roll_rad: 0.0,
+            tool_id: 0,
         }
     }
 }
@@ -703,7 +723,10 @@ impl GestureAndDragManager {
 
     /// Update pen/stylus state
     ///
-    /// Call this when receiving pen events from the platform.
+    /// Call this when receiving pen events from the platform. The
+    /// extended fields (`tangential_pressure`, `barrel_roll_rad`,
+    /// `tool_id`) default to `0` — pass [`update_pen_state_full`] when
+    /// the platform reports them.
     pub fn update_pen_state(
         &mut self,
         position: LogicalPosition,
@@ -713,6 +736,35 @@ impl GestureAndDragManager {
         is_eraser: bool,
         barrel_button_pressed: bool,
         device_id: u64,
+    ) {
+        self.update_pen_state_full(
+            position,
+            pressure,
+            tilt,
+            in_contact,
+            is_eraser,
+            barrel_button_pressed,
+            device_id,
+            0.0,
+            0.0,
+            0,
+        );
+    }
+
+    /// Update pen/stylus state including the extended axes (W3C
+    /// `PointerEvent.tangentialPressure` + `twist`) and per-tool id.
+    pub fn update_pen_state_full(
+        &mut self,
+        position: LogicalPosition,
+        pressure: f32,
+        tilt: (f32, f32),
+        in_contact: bool,
+        is_eraser: bool,
+        barrel_button_pressed: bool,
+        device_id: u64,
+        tangential_pressure: f32,
+        barrel_roll_rad: f32,
+        tool_id: u32,
     ) {
         self.pen_state = Some(PenState {
             position,
@@ -725,6 +777,9 @@ impl GestureAndDragManager {
             is_eraser,
             barrel_button_pressed,
             device_id,
+            tangential_pressure,
+            barrel_roll_rad,
+            tool_id,
         });
     }
 

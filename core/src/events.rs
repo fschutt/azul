@@ -1568,6 +1568,20 @@ pub enum HoverEventFilter {
     PenEnter,
     /// Pen/stylus left proximity of the hovered element
     PenLeave,
+    /// Apple Pencil 2 / Surface Slim Pen 2 barrel squeeze on the hovered
+    /// element. Fires once per squeeze. The matching W3C primitive is the
+    /// `PointerEvent` with `pointerType: "pen"` and a transient
+    /// `tangentialPressure` spike — most apps tie a tool-switch to it.
+    PenSqueeze,
+    /// Apple Pencil 2 side double-tap on the hovered element. Fires once
+    /// per gesture. Usually mapped to "undo" or "switch eraser".
+    PenDoubleTap,
+    /// Pen/stylus is hovering above the hovered element (in proximity,
+    /// not in contact). Continuous: fires per pen-axis update while the
+    /// stylus is held above the surface. Maps to W3C
+    /// `PointerEvent('pointermove')` with `buttons: 0` and
+    /// `pointerType: 'pen'`.
+    PenHover,
     /// Drag started on the hovered element
     DragStart,
     /// Drag in progress on the hovered element
@@ -1675,6 +1689,9 @@ impl HoverEventFilter {
             HoverEventFilter::PenUp => Some(FocusEventFilter::PenUp),
             HoverEventFilter::PenEnter => None,
             HoverEventFilter::PenLeave => None,
+            HoverEventFilter::PenSqueeze => None,
+            HoverEventFilter::PenDoubleTap => None,
+            HoverEventFilter::PenHover => None,
             HoverEventFilter::DragStart => Some(FocusEventFilter::DragStart),
             HoverEventFilter::Drag => Some(FocusEventFilter::Drag),
             HoverEventFilter::DragEnd => Some(FocusEventFilter::DragEnd),
@@ -1888,6 +1905,15 @@ pub enum WindowEventFilter {
     PenEnter,
     /// Pen/stylus left window proximity
     PenLeave,
+    /// Pen barrel-squeeze gesture fired in the window. See
+    /// [`HoverEventFilter::PenSqueeze`].
+    PenSqueeze,
+    /// Pen side double-tap gesture fired in the window. See
+    /// [`HoverEventFilter::PenDoubleTap`].
+    PenDoubleTap,
+    /// Pen hover in the window (in proximity, not in contact). See
+    /// [`HoverEventFilter::PenHover`].
+    PenHover,
     /// Drag started anywhere in window
     DragStart,
     /// Drag in progress anywhere in window
@@ -1972,6 +1998,9 @@ impl WindowEventFilter {
             WindowEventFilter::PenUp => Some(HoverEventFilter::PenUp),
             WindowEventFilter::PenEnter => Some(HoverEventFilter::PenEnter),
             WindowEventFilter::PenLeave => Some(HoverEventFilter::PenLeave),
+            WindowEventFilter::PenSqueeze => Some(HoverEventFilter::PenSqueeze),
+            WindowEventFilter::PenDoubleTap => Some(HoverEventFilter::PenDoubleTap),
+            WindowEventFilter::PenHover => Some(HoverEventFilter::PenHover),
             WindowEventFilter::DragStart => Some(HoverEventFilter::DragStart),
             WindowEventFilter::Drag => Some(HoverEventFilter::Drag),
             WindowEventFilter::DragEnd => Some(HoverEventFilter::DragEnd),

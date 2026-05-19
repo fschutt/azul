@@ -2804,6 +2804,9 @@
                                 "PenUp": {},
                                 "PenEnter": {},
                                 "PenLeave": {},
+                                "PenSqueeze": {},
+                                "PenDoubleTap": {},
+                                "PenHover": {},
                                 "DragStart": {},
                                 "Drag": {},
                                 "DragEnd": {},
@@ -10493,6 +10496,15 @@
                                 },
                                 "device_id": {
                                     "type": "u64"
+                                },
+                                "tangential_pressure": {
+                                    "type": "f32"
+                                },
+                                "barrel_roll_rad": {
+                                    "type": "f32"
+                                },
+                                "tool_id": {
+                                    "type": "u32"
                                 }
                             }
                         ],
@@ -30931,6 +30943,9 @@
                                 "PenUp": {},
                                 "PenEnter": {},
                                 "PenLeave": {},
+                                "PenSqueeze": {},
+                                "PenDoubleTap": {},
+                                "PenHover": {},
                                 "DragStart": {},
                                 "Drag": {},
                                 "DragEnd": {},

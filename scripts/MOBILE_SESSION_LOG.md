@@ -377,3 +377,27 @@ Closes P2.2. Both backends now populate `FullWindowState.touch_state.touch_point
 - Imports widened: `use azul_core::window::{CursorPosition, TouchPoint, TouchPointVec}` on iOS.
 
 `bash scripts/mobile-check-all.sh` GREEN across all 5 mobile targets (18/5/5/4/5 s). Source-only — runtime verification needs a multi-touch device. With this tick, AzulPaint can implement two-finger zoom / three-finger undo by reading `CallbackInfo::get_window_state().touch_state.touch_points`.
+
+### Tick — P2.3 PenState extended fields + new HoverEventFilter variants
+
+Closes P2.3. Three Apple-Pencil-2 / Surface-Pen / Wacom-class capabilities now have a typed home in the framework — populating them is a per-backend follow-up, but the schema is settled across api.json + the 35 binding languages.
+
+- `layout/src/managers/gesture.rs::PenState` extended with three new `#[repr(C)]` fields:
+  - `tangential_pressure: f32` — W3C `PointerEvent.tangentialPressure` shape. Wacom Air Brush wheel, Surface Slim Pen 2 secondary axis. `0.0` means "not reported".
+  - `barrel_roll_rad: f32` — W3C `PointerEvent.twist` shape, in radians (–π to π). Wacom Art Pen rotation, Surface Pen barrel roll. `0.0` means "not reported" — devices that do report it sweep the full range so callers compare deltas, not absolute values.
+  - `tool_id: u32` — per-tool identity (Wintab GUID, Apple Pencil session id, S-Pen serial). Distinct from `device_id` so callers can identify both the hardware AND which tip / lead / button cluster is in use.
+- `update_pen_state(...)` keeps its 7-arg signature (defaults the three new fields to `0`); new `update_pen_state_full(...)` takes all 10 inputs. Mobile backends still call the 7-arg form — they have no path to source the extended axes today.
+- `core/src/events.rs::HoverEventFilter` + `WindowEventFilter` each gain three new variants:
+  - `PenSqueeze` — Apple Pencil 2 / Surface Slim Pen 2 barrel-squeeze, fires once per gesture. Most apps tie a tool-switch to it.
+  - `PenDoubleTap` — Apple Pencil 2 side double-tap, fires once. Usually "undo" or "toggle eraser".
+  - `PenHover` — pen-in-proximity-but-not-in-contact, continuous. Maps to W3C `pointermove` with `buttons: 0` + `pointerType: 'pen'`.
+  - `WindowEventFilter::to_hover_event_filter` and `HoverEventFilter::to_focus_event_filter` extended with paired arms (squeeze / double-tap / hover all return `None` for focus equivalents — these are short verbs / proximity signals, not focus transitions).
+- `api.json` updated in both HoverEventFilter and WindowEventFilter variant lists, plus PenState struct field list. `cd doc && cargo run --release -p azul-doc -- codegen all` regenerated all 35 language bindings + `dll_api_internal.rs` cleanly.
+
+Wire-in queue:
+- iOS `UIPencilInteraction` delegate (squeeze + double-tap) — separate from UIView touch handling. Lives on the AppDelegate.
+- iOS `UITouch.hover` (iPadOS 12.1+) — once Pencil is in proximity, UIKit fires `touchesEstimatedPropertiesUpdated` plus regular touch events with `phase == .hover`. The handle_touch helper would have to learn phase 4.
+- Android `MotionAction::HoverEnter / HoverMove / HoverExit` already arrive in drain_input; just need to translate them into a `PenHover` synthesised event when `tool_type == Stylus`.
+- Wacom Wintab desktop axes (tangential pressure, barrel rotation) — desktop backend wiring, separate sprint.
+
+`bash scripts/mobile-check-all.sh` GREEN across all 5 mobile targets (13/11/11/11/11 s — full rebuild after the codegen refresh). 7/7 permission tests still pass.
