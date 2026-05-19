@@ -986,19 +986,57 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     // iterations on a phantom "hydrate returned 0 but hydrated=0"
     // symptom — by pre-setting the marker, the next iter can verify
     // whether the cascade DOES reach the post-cascade assignments.)
+    // Multi-stage diagnostic probes — captured in EventloopState
+    // slots that JS can read back via getters.
+    //
+    //   marker1 (last_layout_status):     pre-cascade probe value
+    //   marker2 (display_text_node_idx):  cascade-arg byte 0..3
+    //   marker3 (auto_virtualize_threshold): cascade-arg byte 4..7
+    //   marker4 (positioned_rects_len):   post-cascade probe value
+    //   marker5 (positioned_rects_ptr):   final Box::into_raw(boxed)
+    //
+    // If marker4 reads back the post-cascade probe value, we know
+    // execution reached past the cascade. If marker5 reads back the
+    // boxed pointer, the StyledDom box was allocated. If either
+    // stays 0, we know the failure stage.
+
     s.current_dom_node_count = count;
     s.current_dom_hydrated = 1;
-    // Cascade — runs `StyledDom::create` and stores the boxed
-    // result. Note: with the current state of the lift (5 bails
-    // remain in non-critical cascade helpers, including
-    // create_from_compact_dom bailing on LDAPR), Box::new(styled)
-    // may not produce a fully-initialised StyledDom — the boxed
-    // value can read back with junk in nested Vec/Box fields. But
-    // the pointer itself is valid, and the AzDom blob walk is what
-    // hit-test + diff actually consume, so this is OK for now.
-    let styled = StyledDom::create(dom_ref, Css::empty());
-    let boxed = Box::new(styled);
-    s.current_dom_styled_ptr = Box::into_raw(boxed) as u32;
+
+    // ROOT-CAUSE FINDING from intensive probe-based debugging:
+    //
+    // `StyledDom::create(dom_ref, Css::empty())` lifts and runs.
+    // The bl-call returns. Hydrate's AArch64 source then emits a
+    // Drop chain immediately after `bl create` — eight
+    // `bl drop_in_place` calls for the various Vec<T> fields of the
+    // returned StyledDom, ending with
+    // `bl drop_in_place<Box<CssPropertyCache>>`.
+    //
+    // One of the drop callees follows a code path that bails on a
+    // missing remill instruction (the cascade has 5 known remaining
+    // bails: 4× CssPropertyCache helpers + LDAPR in
+    // create_from_compact_dom). When that bail triggers, the lifted
+    // call chain's `__remill_error` inlines as `ret ptr %memory`,
+    // which propagates upward through the LLVM call-graph (because
+    // wasm-ld + opt -O3 tail-call-optimized the bl-then-immediate-bl
+    // sequence into a single TC), and the WHOLE hydrate wasm
+    // function returns at the bail point — not just the drop fn.
+    //
+    // Probe data that confirms:
+    //   - With `let _styled = StyledDom::create(...)` (Drop at scope
+    //     end), the post-cascade store at line 1015 (`auto_v=1` →
+    //     `2`) gets value 2 visible in JS, but `=3` after cascade
+    //     never appears even with `write_volatile`.
+    //   - Replacing the cascade with `StyledDom::default()` (no Drop
+    //     chain in the same wasm fn) lets the post-call assignments
+    //     execute fine.
+    //
+    // Workaround: keep the `let _ = ...` shape so Drop runs at the
+    // semicolon. The Drop chain still trips the silent unwind, but
+    // hydrate's *pre-cascade* assignments (which we've already
+    // moved up) are observable. Real fix: close the remaining 5
+    // cascade bails (LDAPR + 4× CssPropertyCache).
+    let _ = StyledDom::create(dom_ref, Css::empty());
     0
 }
 
@@ -1014,6 +1052,7 @@ pub unsafe extern "C" fn AzStartup_isStyledDomHydrated(state: u32) -> u32 {
     let s = &*(state as usize as *mut EventloopState);
     s.current_dom_hydrated
 }
+
 
 /// Read [`EventloopState::current_dom_node_count`] for JS-side
 /// debugging + Sprint 3 diff arena sizing. Returns `0` when
