@@ -312,7 +312,8 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
         }),
         // M11 Sprint 5 — VirtualView setters (state, u32) -> ().
         "AzStartup_setAutoVirtualizeThreshold"
-        | "AzStartup_setVirtualViewProvider" => Some(CallbackSignature {
+        | "AzStartup_setVirtualViewProvider"
+        | "AzStartup_pokeLastLayout" => Some(CallbackSignature {
             kind: name.to_string(),
             args: vec![
                 Pcs::Wreg { state_byte_offset: X0 },
