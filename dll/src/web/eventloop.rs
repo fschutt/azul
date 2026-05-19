@@ -980,11 +980,17 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     // through X8 (sret). Without those writes, struct fields read
     // back uninitialised — surfacing as the OOB trap at
     // wrap_i64(loaded_field) + 56.
+    // Pre-set hydrated marker + node count so JS observes them even
+    // if a downstream cascade helper traps silently and unwinds back
+    // to the wasm caller without throwing. (We've burned many cron
+    // iterations on a phantom "hydrate returned 0 but hydrated=0"
+    // symptom — by pre-setting the marker, the next iter can verify
+    // whether the cascade DOES reach the post-cascade assignments.)
+    s.current_dom_node_count = count;
+    s.current_dom_hydrated = 1;
     let styled = StyledDom::create(dom_ref, Css::empty());
     let boxed = Box::new(styled);
     s.current_dom_styled_ptr = Box::into_raw(boxed) as u32;
-    s.current_dom_node_count = count;
-    s.current_dom_hydrated = 1;
     0
 }
 
