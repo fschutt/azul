@@ -185,6 +185,10 @@ cargo check --target aarch64-linux-android still GREEN (17.28s).
 
 iOS Phase 3 is now structurally complete: tap on a button → touch event → state diff → callback fires → drawRect re-renders. Linker still gated on Xcode.
 
+### Tick — Sprint J PNG-diff wrapper script
+
+`scripts/mobile-snapshot.sh <example> [<golden>]` lands the third leg of Sprint J: build + run the example with `AZ_BACKEND=headless AZ_HEADLESS_SNAPSHOT_PATH=actual.png`, then diff against `scripts/mobile/golden/<name>.png`. Diff tooling priority: `compare -metric AE -fuzz 1%` (imagemagick) → `cmp -s` (POSIX byte-equal) → final-message hint to install imagemagick. `AZ_SNAPSHOT_UPDATE=1` re-baselines the golden. `scripts/mobile/golden/.gitkeep` so the directory exists in-repo even before any golden lands. Bash syntax-checked clean. No example wired yet — the script is parametric; supplying `bash scripts/mobile-snapshot.sh azul-example-headless` once such a crate exists will run end-to-end.
+
 ### Tick — iOS layoutSubviews handles orientation / split-view resize
 
 AzulView gets a `layoutSubviews` selector. UIKit fires it whenever the view's bounds change (device rotation, split-view drag on iPad, safe-area-insets shift after status-bar hide/show). The handler reads `[this bounds]`, updates `current_window_state.size.dimensions` if it changed by more than 0.5 pt, and flips `frame_needs_regeneration` so the next CADisplayLink tick triggers a relayout + redraw. Plus `[this setNeedsDisplay]` so the layer redraws even when the size delta is below threshold (e.g. safe-area shift inside the same orientation).
