@@ -80,6 +80,9 @@ pub mod diff;
 pub mod animation;
 /// Event filtering: mouse, keyboard, window, and synthetic events.
 pub mod events;
+/// Geolocation POD types — `LocationFix` + `GeolocationProbeConfig`.
+/// Stateful manager lives in `azul_layout::managers::geolocation`.
+pub mod geolocation;
 /// Logical and physical coordinate types (`LogicalSize`, `PhysicalPosition`, etc.).
 pub mod geom;
 /// OpenGL context wrappers, shader compilation, and texture cache.

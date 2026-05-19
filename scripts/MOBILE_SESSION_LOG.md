@@ -438,3 +438,29 @@ Opens P3 — the AzulMaps tier. Lands the cross-platform geolocation state + 5-p
 `cargo test -p azul-layout --lib geolocation::` — 6/6 GREEN. `cargo test -p azul-layout --lib permission::` — 7/7 still pass. `bash scripts/mobile-check-all.sh` GREEN across all 5 mobile targets (7/6/6/7/7 s — full rebuild after the codegen refresh).
 
 Next tick (P3.1b): add `NodeType::GeolocationProbe(GeolocationProbeConfig)` variant — closes the loop so `diff_layout`'s closure actually enumerates probes from the styled DOM. Then P3.1c — real iOS/Android `CLLocationManager` / `FusedLocationProviderClient` wiring.
+
+### Tick — P3.1b NodeType::GeolocationProbe + layout-pass enumeration
+
+Closes the loop on P3.1: the geolocation diff pass now actually walks the styled DOM. User-side API: `Dom::create_geolocation_probe(GeolocationProbeConfig { high_accuracy: true, .. })`.
+
+- `core/src/geolocation.rs` (new) — `LocationFix` + `GeolocationProbeConfig` POD types moved here so `NodeType` can carry the config without a cyclic dep from `azul-core` → `azul-layout`. `GeolocationProbeConfig` gets manual `Eq + Hash + Ord` impls (compares `max_accuracy_m: f32` via `to_bits()` so NaN doesn't poison the total order — `NodeType` derives Hash/Ord, so every variant payload must support it).
+- `layout/src/managers/geolocation.rs` — `pub use azul_core::geolocation::{GeolocationProbeConfig, LocationFix}` so the existing `azul_layout::managers::geolocation::*` import paths keep working. `GeolocationManager` + `GeolocationDiffEvent` stay layout-side.
+- `core/src/dom.rs::NodeType` gains `GeolocationProbe(GeolocationProbeConfig)`. Three exhaustive matches updated: `into_library_owned_nodetype` (deep-clone path), `format` (debug print: `"geolocation-probe(hi=true, bg=false, max=0m, every=1000ms)"`), `get_path` → new `NodeTypeTag::GeolocationProbe`.
+- `core/src/dom.rs` gains `Dom::create_geolocation_probe(config)` (and `NodeData::create_geolocation_probe(config)` could land next as a follow-up — the Dom constructor is what user code wants).
+- `css/src/css.rs::NodeTypeTag` gains `GeolocationProbe`. CSS tag string: `"geolocation-probe"` (both directions: from-str + Display). `css/src/codegen/rust.rs::format_node_type` updated.
+- `api.json` adds the `GeolocationProbe` variant to both `NodeType` and `NodeTypeTag`, plus full `GeolocationProbeConfig` + `LocationFix` struct definitions. `cd doc && cargo run -p azul-doc -- codegen all` regenerated all 35 language bindings + `dll_api_internal.rs` cleanly.
+- `dll/src/desktop/shell2/common/layout.rs::regenerate_layout` step 7b — instead of an empty diff closure, snapshots every `NodeType::GeolocationProbe` config from every `layout_result.styled_dom.node_data`, then feeds the list to `geolocation_manager.diff_layout(...)`. Subscribe / Release / Reconfigure events drain through `dll::extra::geolocation::apply_diff_events` to the platform stubs.
+
+All 5 mobile targets GREEN (12/12/16/12/11 s). 6/6 geolocation tests + 7/7 permission tests still pass. AzulMaps now has a working "this app needs the user's location" surface — a single `Dom::create_geolocation_probe(cfg)` in the layout tree triggers the platform prompt + subscription. Real per-platform native calls remain queued (the stubs log but don't issue them yet).
+
+### Architecture note — AzulMaps tile pipeline (P3.2 design)
+
+User clarified the map-tile design while this tick was running. Captured here for the P3.2 implementation:
+
+- **Data path**: MVT (Mapbox Vector Tile) protobuf bytes → CSS-style stylesheet → SVG → DOM. Each tile is decoded on the fly into a tree of `<svg>` `<path>` / `<polygon>` / `<text>` nodes carrying the styling rules from the user's stylesheet.
+- **Renderer**: one `<div>` per map tile, with the tile's SVG DOM as the child. Tiles position via GPU-accelerated `transform: translate(x, y) scale(z)` CSS so pan + zoom is a single matrix update per frame, not a re-layout. Effectively turning the map into "DOM you can compose into".
+- **Infinite scroll**: `VirtualView` handles the unbounded tile grid — the existing infinite-list virtualization (`layout/src/managers/virtual_view.rs`) gets each tile lazy-loaded as the viewport enters its bounding rect, dropped when it leaves. Tile cache uses the `DatasetMergeCallback` ("merge callback") pattern from `core/src/dom.rs:1798` for transactional in-place updates — fits the ephemeral "this tile is now decoded" / "this tile evicted" diff cleanly.
+- **External crates**: `fschutt/tile-downloader` for the HTTP/CDN fetch path (presumably handles OpenFreeMap-style PMTiles + raster fallbacks); `proj4-rs` for the projection math (Web Mercator ↔ WGS-84 ↔ user-defined CRS).
+- **API target**: Leaflet-shape — `Map::new().add_tile_layer(url_template).set_view(lat, lon, zoom)`. User code never touches MVT bytes directly.
+
+These notes inform P3.2 — `MapTile` / `MapWidget` NodeType + the tile decoder + the viewport state. P3.1 (geolocation surface) is fully closed at the source level; remaining work is per-platform native subscription wiring (queued for follow-up ticks once iOS Xcode SDK + Android emulator are in the loop).

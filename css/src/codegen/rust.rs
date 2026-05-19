@@ -307,6 +307,7 @@ pub fn format_node_type(n: &NodeTypeTag) -> &'static str {
         NodeTypeTag::Img => "NodeTypeTag::Img",
         NodeTypeTag::VirtualView => "NodeTypeTag::VirtualView",
         NodeTypeTag::Icon => "NodeTypeTag::Icon",
+        NodeTypeTag::GeolocationProbe => "NodeTypeTag::GeolocationProbe",
 
         // Pseudo-elements
         NodeTypeTag::Before => "NodeTypeTag::Before",

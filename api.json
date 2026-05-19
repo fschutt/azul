@@ -14993,6 +14993,9 @@
                                 "VirtualView": {},
                                 "Icon": {
                                     "type": "BoxOrStaticString"
+                                },
+                                "GeolocationProbe": {
+                                    "type": "GeolocationProbeConfig"
                                 }
                             }
                         ],
@@ -16683,6 +16686,7 @@
                                 "Img": {},
                                 "VirtualView": {},
                                 "Icon": {},
+                                "GeolocationProbe": {},
                                 "Before": {},
                                 "After": {},
                                 "Marker": {},
@@ -16975,6 +16979,93 @@
                             {
                                 "touch_points": {
                                     "type": "TouchPointVec"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "GeolocationProbeConfig": {
+                        "external": "azul_core::geolocation::GeolocationProbeConfig",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "high_accuracy": {
+                                    "type": "bool"
+                                }
+                            },
+                            {
+                                "background": {
+                                    "type": "bool"
+                                }
+                            },
+                            {
+                                "max_accuracy_m": {
+                                    "type": "f32"
+                                }
+                            },
+                            {
+                                "min_interval_ms": {
+                                    "type": "u32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "LocationFix": {
+                        "external": "azul_core::geolocation::LocationFix",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "latitude_deg": {
+                                    "type": "f64"
+                                }
+                            },
+                            {
+                                "longitude_deg": {
+                                    "type": "f64"
+                                }
+                            },
+                            {
+                                "accuracy_m": {
+                                    "type": "f32"
+                                }
+                            },
+                            {
+                                "altitude_m": {
+                                    "type": "f32"
+                                }
+                            },
+                            {
+                                "altitude_accuracy_m": {
+                                    "type": "f32"
+                                }
+                            },
+                            {
+                                "heading_deg": {
+                                    "type": "f32"
+                                }
+                            },
+                            {
+                                "speed_mps": {
+                                    "type": "f32"
+                                }
+                            },
+                            {
+                                "timestamp_ms": {
+                                    "type": "u64"
                                 }
                             }
                         ],

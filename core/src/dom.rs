@@ -633,6 +633,12 @@ pub enum NodeType {
     /// The string is the icon name (e.g., "home", "settings", "search").
     /// Uses BoxOrStatic to keep NodeType small.
     Icon(BoxOrStatic<AzString>),
+    /// Invisible probe node that signals "this subtree needs the user's
+    /// GPS / network location". Zero-size in layout, skipped in the
+    /// display list. The `GeolocationManager` walks the styled DOM for
+    /// these at end-of-layout and starts / stops the matching native
+    /// subscription. See `SUPER_PLAN_2.md` §1.5 + research/08.
+    GeolocationProbe(crate::geolocation::GeolocationProbeConfig),
 }
 
 /// Type alias: `BoxOrStatic<ImageRef>` — used by NodeType::Image for FFI monomorphization.
@@ -809,6 +815,7 @@ impl NodeType {
             Image(i) => Image(i.clone()),
             VirtualView => VirtualView,
             Icon(s) => Icon(BoxOrStatic::heap(s.clone_self())),
+            GeolocationProbe(cfg) => GeolocationProbe(*cfg),
         }
     }
 
@@ -819,6 +826,10 @@ impl NodeType {
             Image(id) => Some(format!("image({:?})", id)),
             VirtualView => Some("virtualized-view".to_string()),
             Icon(s) => Some(format!("icon({})", s)),
+            GeolocationProbe(cfg) => Some(format!(
+                "geolocation-probe(hi={}, bg={}, max={}m, every={}ms)",
+                cfg.high_accuracy, cfg.background, cfg.max_accuracy_m, cfg.min_interval_ms
+            )),
             _ => None,
         }
     }
@@ -1005,6 +1016,7 @@ impl NodeType {
             Self::Image(_) => NodeTypeTag::Img,
             Self::VirtualView => NodeTypeTag::VirtualView,
             Self::Icon(_) => NodeTypeTag::Icon,
+            Self::GeolocationProbe(_) => NodeTypeTag::GeolocationProbe,
             Self::Before => NodeTypeTag::Before,
             Self::After => NodeTypeTag::After,
             Self::Marker => NodeTypeTag::Marker,
@@ -3715,6 +3727,17 @@ impl Dom {
     #[inline(always)]
     pub fn create_virtual_view(data: RefAny, callback: impl Into<VirtualViewCallback>) -> Self {
         Self::create_from_data(NodeData::create_virtual_view(data, callback))
+    }
+
+    /// Creates an invisible `NodeType::GeolocationProbe` node that
+    /// signals "this subtree needs the user's location". Lays out as
+    /// zero-size and is skipped in the display list — the framework
+    /// scans for it at end-of-layout and starts / stops the native
+    /// `CLLocationManager` / `LocationManager` / `geoclue`
+    /// subscription. See `SUPER_PLAN_2.md` §1.5.
+    #[inline(always)]
+    pub fn create_geolocation_probe(config: crate::geolocation::GeolocationProbeConfig) -> Self {
+        Self::create_node(NodeType::GeolocationProbe(config))
     }
 
     // Semantic HTML Elements with Accessibility Guidance

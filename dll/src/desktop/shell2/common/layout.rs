@@ -631,14 +631,30 @@ pub fn regenerate_layout(
     }
 
     // 7b. Geolocation diff — symmetric to the permission pass. Walks
-    // the styled DOM for GeolocationProbe NodeTypes (none today; lands
-    // in the next P3 tick) and the platform backend translates the
-    // Subscribe / Release / Reconfigure events into native
-    // CLLocationManager / LocationManager / geoclue calls.
-    layout_window.geolocation_manager.diff_layout(|_emit| {
-        // TODO: enumerate GeolocationProbeConfigs once
-        // NodeType::GeolocationProbe lands.
-    });
+    // every DOM in this window for `NodeType::GeolocationProbe` nodes
+    // and feeds their configs to the manager. Subscribe / Release /
+    // Reconfigure events emitted by the manager route through the
+    // platform backend, which starts or stops the native
+    // CLLocationManager / FusedLocationProviderClient / geoclue
+    // subscription.
+    {
+        // Snapshot the configs first so we don't hold a borrow on
+        // `layout_window.layout_results` while mutating
+        // `layout_window.geolocation_manager`.
+        let mut probe_configs: Vec<azul_core::geolocation::GeolocationProbeConfig> = Vec::new();
+        for layout_result in layout_window.layout_results.values() {
+            for nd in layout_result.styled_dom.node_data.as_ref().iter() {
+                if let azul_core::dom::NodeType::GeolocationProbe(cfg) = nd.get_node_type() {
+                    probe_configs.push(*cfg);
+                }
+            }
+        }
+        layout_window.geolocation_manager.diff_layout(|emit| {
+            for cfg in &probe_configs {
+                emit(*cfg);
+            }
+        });
+    }
     let geolocation_events = layout_window.geolocation_manager.take_pending_events();
     if !geolocation_events.is_empty() {
         crate::desktop::extra::geolocation::apply_diff_events(&geolocation_events);

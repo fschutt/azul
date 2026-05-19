@@ -953,6 +953,9 @@ pub enum NodeTypeTag {
     VirtualView,
     /// Icon element - resolved to actual content by IconProvider
     Icon,
+    /// Invisible probe — `NodeType::GeolocationProbe`. Zero-size in
+    /// layout, skipped in the display list. CSS tag: `geolocation-probe`.
+    GeolocationProbe,
 
     // Pseudo-elements
     Before,
@@ -1217,6 +1220,7 @@ impl NodeTypeTag {
             "img" => Ok(NodeTypeTag::Img),
             "virtual-view" | "iframe" => Ok(NodeTypeTag::VirtualView),
             "icon" => Ok(NodeTypeTag::Icon),
+            "geolocation-probe" => Ok(NodeTypeTag::GeolocationProbe),
 
             // Pseudo-elements (usually prefixed with ::)
             "before" | "::before" => Ok(NodeTypeTag::Before),
@@ -1446,6 +1450,7 @@ impl fmt::Display for NodeTypeTag {
             NodeTypeTag::Img => write!(f, "img"),
             NodeTypeTag::VirtualView => write!(f, "virtual-view"),
             NodeTypeTag::Icon => write!(f, "icon"),
+            NodeTypeTag::GeolocationProbe => write!(f, "geolocation-probe"),
 
             // Pseudo-elements
             NodeTypeTag::Before => write!(f, "::before"),
