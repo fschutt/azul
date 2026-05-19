@@ -75,6 +75,13 @@ pub const EVENTLOOP_SYMBOLS: &[&str] = &[
     "AzStartup_getDomNodeCount",
     "AzStartup_getStyledDomNodeCount",
     "AzStartup_getStyledDomPtr",
+    // M11 Sprint 1.C / Sprint 2: layout solver + positioned-rect
+    // cache. AzStartup_hitTest now consumes the cache for real
+    // bbox-walk dispatch.
+    "AzStartup_solveLayout",
+    "AzStartup_isLayoutSolved",
+    "AzStartup_getPositionedRectsLen",
+    "AzStartup_getPositionedRectsPtr",
 ];
 
 use std::collections::{BTreeMap, HashMap};

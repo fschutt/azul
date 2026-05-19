@@ -284,10 +284,23 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
         | "AzStartup_isStyledDomHydrated"
         | "AzStartup_getDomNodeCount"
         | "AzStartup_getStyledDomNodeCount"
-        | "AzStartup_getStyledDomPtr" => Some(CallbackSignature {
+        | "AzStartup_getStyledDomPtr"
+        | "AzStartup_isLayoutSolved"
+        | "AzStartup_getPositionedRectsLen"
+        | "AzStartup_getPositionedRectsPtr" => Some(CallbackSignature {
             kind: name.to_string(),
             // (state: u32) -> u32
             args: vec![Pcs::Wreg { state_byte_offset: X0 }],
+            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+        }),
+        "AzStartup_solveLayout" => Some(CallbackSignature {
+            kind: name.to_string(),
+            // (state: u32, viewport_w: u32, viewport_h: u32) -> u32
+            args: vec![
+                Pcs::Wreg { state_byte_offset: X0 },
+                Pcs::Wreg { state_byte_offset: X1 },
+                Pcs::Wreg { state_byte_offset: X2 },
+            ],
             ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
         }),
         _ => None,

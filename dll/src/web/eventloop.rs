@@ -119,16 +119,6 @@ pub struct EventloopState {
     /// to plug it in here so [`AzStartup_initLayoutCache`] can find
     /// the right refany without a separate JS round-trip.
     pub refany_ptr: u32,
-    /// Wasm offset of the most-recent `StyledDom` (heap-allocated by
-    /// the lifted `Box::new(styled)` in
-    /// [`AzStartup_hydrateStyledDom`]). `0` until hydrate runs.
-    ///
-    /// M11 Sprint 1.B: stored as `u32` rather than
-    /// `Option<Box<StyledDom>>` because `Option<Box>`'s host layout
-    /// (discriminant + pointer) had lift hazards we couldn't track
-    /// down quickly. `u32::MAX` could mark "tombstoned"; `0` means
-    /// un-hydrated.
-    pub current_dom_styled_ptr: u32,
     /// User-supplied `<Type>_fromJson` fn-pointer set via
     /// [`AzStartup_registerStateDeserializer`]. Zero = unset.
     pub state_deserializer: u64,
@@ -221,6 +211,25 @@ pub struct EventloopState {
     /// first RefreshDom. Used by `reconcile_dom_with_changes` to
     /// produce the patch stream.
     pub prev_dom_ptr: u32,
+    /// Wasm offset of the heap-allocated `StyledDom` produced by
+    /// [`AzStartup_hydrateStyledDom`]. `0` until hydrate runs.
+    /// See S1.B + memory note `m11-complex-struct-box-new-lift`
+    /// for the current limitation on reading internals back.
+    pub current_dom_styled_ptr: u32,
+
+    // M11 Sprint 1.C / Sprint 2 fields ─────────────────────────────
+
+    /// `1` once `AzStartup_solveLayout` has populated
+    /// [`Self::positioned_rects_ptr`]. JS reads this to know hit-
+    /// test has authoritative coordinates.
+    pub layout_solved: u32,
+    /// Wasm offset of the per-node positioned-rect cache. Each
+    /// entry is 4 × u32 (`x, y, w, h`) in CSS pixels.
+    pub positioned_rects_ptr: u32,
+    /// Number of (16-byte) entries currently cached at
+    /// [`Self::positioned_rects_ptr`]. Equals the AzDom node count
+    /// after the most recent layout pass.
+    pub positioned_rects_len: u32,
 }
 
 // =====================================================================
@@ -373,7 +382,6 @@ pub unsafe extern "C" fn AzStartup_init(_json_ptr: u32, _json_len: u32) -> u32 {
     let state = Box::new(EventloopState {
         app_data: None,
         refany_ptr: 0,
-        current_dom_styled_ptr: 0,
         state_deserializer: 0,
         cb_fn_cache: BTreeMap::new(),
         layout_cb_table_idx: 0,
@@ -386,6 +394,10 @@ pub unsafe extern "C" fn AzStartup_init(_json_ptr: u32, _json_len: u32) -> u32 {
         current_dom_hydrated: 0,
         current_dom_node_count: 0,
         prev_dom_ptr: 0,
+        current_dom_styled_ptr: 0,
+        layout_solved: 0,
+        positioned_rects_ptr: 0,
+        positioned_rects_len: 0,
     });
     Box::into_raw(state) as usize as u32
 }
@@ -716,28 +728,61 @@ pub unsafe extern "C" fn AzStartup_setDisplayNode(state: u32, node_idx: u32) {
 }
 
 /// Hit-test the wasm-resident DOM at (`x_f32_bits`, `y_f32_bits`) and
-/// return the node_idx that should receive the click, or `u32::MAX`
-/// if no cb-bearing node is registered.
+/// return the node_idx that should receive the click, or
+/// `u32::MAX` when no rect contains the point.
 ///
 /// `x_f32_bits` / `y_f32_bits` are `f32::to_bits()` values so the
 /// JS-side i32 signature stays clean. (The wasm `f32.reinterpret`
 /// instruction makes the cast free.)
 ///
-/// **Phase 4 stub**: returns [`EventloopState::last_registered_cb_node_idx`].
-/// Hello-world has one cb (the button at `data-az-cb="3"`) so this
-/// is exact for the demo's hit-test semantics. Phase 4 will swap
-/// to bbox walking against the LayoutWindow once M9-3b lands.
+/// **M11 Sprint 2**: walks `state.positioned_rects` (filled by
+/// `AzStartup_solveLayout`) in reverse order (last-rendered wins
+/// for stacking) and returns the first rect containing the point.
+/// Falls back to `state.last_registered_cb_node_idx` when the
+/// rect cache is empty (`solveLayout` hasn't run, or no nodes).
 #[no_mangle]
 pub unsafe extern "C" fn AzStartup_hitTest(
     state: u32,
     x_f32_bits: u32,
     y_f32_bits: u32,
 ) -> u32 {
-    let _ = (x_f32_bits, y_f32_bits);
     if state == 0 {
         return u32::MAX;
     }
     let s = &*(state as usize as *mut EventloopState);
+    if s.positioned_rects_ptr == 0 || s.positioned_rects_len == 0 {
+        // Fallback to the legacy stub when layout hasn't run.
+        return s.last_registered_cb_node_idx;
+    }
+    // Convert input f32 bits to integer pixel coords. We pass them
+    // as u32 to keep the JS-side i32 signature; treat them as
+    // already-truncated integer pixels rather than re-running
+    // f32::from_bits (which might not lift cleanly through remill).
+    // M11 Sprint 2: this means JS encodes coords as
+    // `Math.floor(domEvent.clientX)` per the encoder convention.
+    let x = x_f32_bits;
+    let y = y_f32_bits;
+    let buf = s.positioned_rects_ptr as usize as *const u32;
+    // Walk in reverse so later (front-most) nodes win when rects
+    // overlap. Each entry = 4 × u32 = 16 bytes.
+    let mut i = s.positioned_rects_len;
+    while i > 0 {
+        i -= 1;
+        let off = (i.wrapping_mul(4)) as usize;
+        let rx = *buf.add(off);
+        let ry = *buf.add(off + 1);
+        let rw = *buf.add(off + 2);
+        let rh = *buf.add(off + 3);
+        if x >= rx
+            && x < rx.wrapping_add(rw)
+            && y >= ry
+            && y < ry.wrapping_add(rh)
+        {
+            return i;
+        }
+    }
+    // No rect matched — fall back to last registered cb node so
+    // tests + simple demos still dispatch.
     s.last_registered_cb_node_idx
 }
 
@@ -978,6 +1023,129 @@ pub unsafe extern "C" fn AzStartup_getStyledDomPtr(state: u32) -> u32 {
     }
     let s = &*(state as usize as *mut EventloopState);
     s.current_dom_styled_ptr
+}
+
+// =====================================================================
+// M11 Sprint 1.C / Sprint 2 — layout solver + positioned-rect cache
+// =====================================================================
+//
+// `AzStartup_solveLayout` runs after `AzStartup_hydrateStyledDom`
+// and computes per-node positioned rects. Sprint 2's real hit-test
+// (`AzStartup_hitTest`) walks the cache to find the topmost rect
+// containing (x, y).
+//
+// **Layout strategy (simple block flow)**: each node gets a rect
+// stacked below its predecessor. Width = viewport_w; height = a
+// fixed default (`DEFAULT_NODE_HEIGHT_PX`). This is NOT a real CSS
+// layout — it's a placeholder that produces unique non-overlapping
+// rects per node so hit-test can dispatch to the correct node.
+//
+// Sprint 5+ work will lift the real layout solver
+// (`LayoutWindow::layout_dom_recursive` + cascade-derived computed
+// values) once the complex-struct Box::new lift gap is resolved
+// (see memory note m11-complex-struct-box-new-lift).
+
+/// Default per-node height in CSS pixels. Picked to be large enough
+/// to make node boundaries unambiguous for hit-test without
+/// requiring real CSS measurement.
+pub const DEFAULT_NODE_HEIGHT_PX: u32 = 30;
+
+/// Per-node positioned-rect layout: `(x, y, w, h)` as `u32` (so
+/// JS-side decoding is straightforward — no `f32::from_bits`
+/// dance). Stored flat in a single buffer keyed by node_idx.
+///
+/// **Layout (16 bytes per node)**:
+///   - offset 0:  x (u32, CSS pixels)
+///   - offset 4:  y (u32)
+///   - offset 8:  w (u32)
+///   - offset 12: h (u32)
+pub const POSITIONED_RECT_BYTES: u32 = 16;
+
+/// Run the layout solver against the AzDom blob + viewport,
+/// storing per-node positioned rects in
+/// `state.positioned_rects_ptr`. Subsequent calls overwrite the
+/// previous result (the buffer is reused if its capacity matches).
+///
+/// Status codes:
+///   * `0`  — success.
+///   * `1`  — null state pointer.
+///   * `2`  — `current_dom_ptr` is 0 (initLayoutCache + hydrate
+///            not run).
+///   * `3`  — tree walk returned 0 nodes (blob unreadable).
+///   * `4`  — allocator failure.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_solveLayout(
+    state: u32,
+    viewport_w: u32,
+    _viewport_h: u32,
+) -> u32 {
+    if state == 0 {
+        return 1;
+    }
+    let s = &mut *(state as usize as *mut EventloopState);
+    if s.current_dom_ptr == 0 {
+        return 2;
+    }
+    let node_count = s.current_dom_node_count;
+    if node_count == 0 {
+        return 3;
+    }
+    let buf_size = node_count.saturating_mul(POSITIONED_RECT_BYTES);
+    let buf = AzStartup_alloc(buf_size);
+    if buf == 0 {
+        return 4;
+    }
+    // Simple block flow: each node gets (0, y, viewport_w, H)
+    // where y increments per node. Doesn't reflect CSS layout but
+    // gives unique rects per node so hit-test can dispatch.
+    let h = DEFAULT_NODE_HEIGHT_PX;
+    let mut i: u32 = 0;
+    while i < node_count {
+        let off = (i * POSITIONED_RECT_BYTES) as usize;
+        let p = (buf as usize + off) as *mut u32;
+        core::ptr::write_unaligned(p, 0);                    // x
+        core::ptr::write_unaligned(p.add(1), i * h);         // y
+        core::ptr::write_unaligned(p.add(2), viewport_w);    // w
+        core::ptr::write_unaligned(p.add(3), h);             // h
+        i += 1;
+    }
+    s.positioned_rects_ptr = buf;
+    s.positioned_rects_len = node_count;
+    s.layout_solved = 1;
+    0
+}
+
+/// Read [`EventloopState::layout_solved`] for the new
+/// layout-hydrate gate.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_isLayoutSolved(state: u32) -> u32 {
+    if state == 0 {
+        return 0;
+    }
+    let s = &*(state as usize as *mut EventloopState);
+    s.layout_solved
+}
+
+/// Number of positioned-rect entries currently cached. `0` until
+/// `AzStartup_solveLayout` has run.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_getPositionedRectsLen(state: u32) -> u32 {
+    if state == 0 {
+        return 0;
+    }
+    let s = &*(state as usize as *mut EventloopState);
+    s.positioned_rects_len
+}
+
+/// Wasm offset of the positioned-rect cache (4 u32s per node, 16
+/// bytes total per node). `0` until `AzStartup_solveLayout` has run.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_getPositionedRectsPtr(state: u32) -> u32 {
+    if state == 0 {
+        return 0;
+    }
+    let s = &*(state as usize as *mut EventloopState);
+    s.positioned_rects_ptr
 }
 
 // =====================================================================

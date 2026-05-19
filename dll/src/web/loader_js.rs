@@ -387,11 +387,12 @@ async function azBootstrap() {
                     console.info('[azul-web] initLayoutCache rc=' + initRc +
                                  ' current_dom_ptr=' + domPtr);
 
-                    // M11 Sprint 1: hydrate the wasm-side StyledDom
-                    // marker so Sprint 2 (hit-test) + Sprint 3 (diff)
-                    // can treat the AzDom blob as authoritative.
-                    // Failures log but don't abort — the legacy
-                    // dispatch path keeps working.
+                    // M11 Sprint 1: hydrate the wasm-side StyledDom +
+                    // run layout solver. Sprint 2's hit-test consumes
+                    // the positioned-rects cache. Failures log but
+                    // don't abort — the legacy dispatch path keeps
+                    // working (hit-test falls back to last registered
+                    // cb node when the cache is empty).
                     if (initRc === 0 && domPtr &&
                         typeof azMini.AzStartup_hydrateStyledDom === 'function') {
                         var hydrateRc = azMini.AzStartup_hydrateStyledDom(azState);
@@ -402,6 +403,19 @@ async function azBootstrap() {
                         console.info('[azul-web] hydrateStyledDom rc=' + hydrateRc +
                                      ' hydrated=' + hydrated +
                                      ' node_count=' + nodeCount);
+                        if (hydrateRc === 0 &&
+                            typeof azMini.AzStartup_solveLayout === 'function') {
+                            var solveRc = azMini.AzStartup_solveLayout(
+                                azState, viewportW, viewportH,
+                            );
+                            var solved = (typeof azMini.AzStartup_isLayoutSolved === 'function')
+                                ? azMini.AzStartup_isLayoutSolved(azState) : 0;
+                            var rectsLen = (typeof azMini.AzStartup_getPositionedRectsLen === 'function')
+                                ? azMini.AzStartup_getPositionedRectsLen(azState) : 0;
+                            console.info('[azul-web] solveLayout rc=' + solveRc +
+                                         ' solved=' + solved +
+                                         ' rects_len=' + rectsLen);
+                        }
                     }
                 }
             }
@@ -534,9 +548,14 @@ function azDispatch(kind, domEvent) {
     // Layout matches event_offset in dll/src/web/eventloop.rs.
     // M9-6: encode SENTINEL_NO_NODE so the wasm-side hit-test runs
     // (no more JS-side `id="az_N"` regex walk).
+    // M11 Sprint 2: x/y now encoded as integer pixels (Math.floor)
+    // so the wasm-side hitTest can compare directly against the
+    // positioned-rect cache (also stored as u32 pixels).
+    // f32::from_bits proved unreliable through the remill lift —
+    // integer coords sidestep that conversion entirely.
     view.setUint32(evtPtr + 0,  SENTINEL_NO_NODE, true);
-    view.setFloat32(evtPtr + 4, domEvent.clientX || 0, true);
-    view.setFloat32(evtPtr + 8, domEvent.clientY || 0, true);
+    view.setUint32(evtPtr + 4, Math.max(0, Math.floor(domEvent.clientX || 0)), true);
+    view.setUint32(evtPtr + 8, Math.max(0, Math.floor(domEvent.clientY || 0)), true);
     view.setUint32(evtPtr + 12, domEvent.button || domEvent.keyCode || 0, true);
     view.setUint32(evtPtr + 16, azModifierBits(domEvent), true);
 
