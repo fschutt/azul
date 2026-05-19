@@ -1080,6 +1080,17 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     let test_boxed = Box::new(make_test_struct());
     let test_ptr = Box::into_raw(test_boxed) as usize as u32;
     core::ptr::write_volatile(0x40018_usize as *mut u32, test_ptr);
+    // M12.5d iter ~28 BISECT: conditionally call mut-arg fn. The
+    // condition is always false at runtime, but the lifter's
+    // bytes-scan will see the `bl` and lift the fn transitively.
+    // Result: the function is in the wasm but not invoked at
+    // runtime.
+    if core::hint::black_box(state) == 0xDEAD_BEEF {
+        let mut iso_arg: u32 = 0;
+        let iso_boxed = Box::new(make_test_struct_mut_arg_isobisect(&mut iso_arg));
+        core::hint::black_box(iso_boxed);
+        core::hint::black_box(iso_arg);
+    }
     // M12.5c: dump first 80 bytes of the cascade-output styled struct
     // to known wasm addresses 0x40100..0x4014F so JS can read via
     // getProbeRaw-style fixed-addr peeks. This lets us see exactly
@@ -1155,6 +1166,24 @@ pub extern "C" fn make_test_struct() -> TestStruct256 {
     let mut i = 0;
     while i < 64 {
         s.data[i] = 0xA0000000_u32 | (i as u32);
+        i += 1;
+    }
+    s
+}
+
+/// M12.5d iter ~28 BISECT: declare-but-don't-call mut-arg test.
+/// If hydrate's existing make_test_struct still works (64/64),
+/// the iso bug is at the CALL SITE (hydrate calls iso). If it
+/// also breaks (6/64), the bug is at the LIFT stage — adding any
+/// fn with this signature changes the wasm build for OTHER fns.
+#[inline(never)]
+#[no_mangle]
+pub extern "C" fn make_test_struct_mut_arg_isobisect(extra: &mut u32) -> TestStruct256 {
+    *extra = 0xCAFEBABE_u32;
+    let mut s = make_test_struct();
+    let mut i = 0;
+    while i < 64 {
+        s.data[i] ^= 0x01000000;
         i += 1;
     }
     s
