@@ -58,6 +58,11 @@ pub mod dialogs {
 }
 /// Display/Monitor management for menu positioning
 pub mod display;
+/// Platform-specific integrations for features outside the layout core
+/// (camera, screen-share, biometric, sensors, permission prompts, etc.).
+/// See `SUPER_PLAN_2.md` §0.5 — these live behind `extra/` rather than in
+/// `azul-core` / `azul-layout` so the layout closure stays dep-light.
+pub mod extra;
 /// Extra functions for file IO (for C / C++ developers)
 pub mod file {
     pub use azul_layout::desktop::file::*;

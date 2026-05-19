@@ -288,3 +288,14 @@ User-owned `/Users/fschutt/Development/rust-fontconfig` gains the two missing mo
 `cargo test -p azul-layout --lib permission::` — 7/7 pass. `bash scripts/mobile-check-all.sh` GREEN across all 5 targets (12/12/11/11/11 s).
 
 Open follow-ups: (a) the platform-stub layer at `dll/src/desktop/extra/permission/{ios,android,macos,linux,windows}.rs` consumes `PermissionDiffEvent::Subscribe / Release` and issues the matching native call; (b) the `NodeType::GeolocationProbe` / `CameraPreview` / `SensorProbe` variants will close the loop — `diff_layout`'s closure will then enumerate them from the styled DOM. Both follow-ups are queued.
+
+### Tick — P1.2 platform-stub scaffold (dll/desktop/extra/permission/)
+
+Lands the second half of the §0.5 split: cross-platform state lives in `azul-layout`, all platform-specific code lives in `dll/src/desktop/extra/<feature>/`. New tree:
+
+- `dll/src/desktop/extra/mod.rs` — top-level `pub mod permission;` (more features to follow: camera, geo, biometric, sensors, …).
+- `dll/src/desktop/extra/permission/mod.rs` — `apply_diff_events(events: &[PermissionDiffEvent])` dispatcher cfg-routed to the right OS arm; `probe_status(Capability) -> PermissionState` sync read used by `CallbackInfo::get_permission_status`.
+- Five platform stubs (`ios.rs`, `android.rs`, `macos.rs`, `linux.rs`, `windows.rs`), each carrying a `handle_event` no-op + `probe_status` returning `NotDetermined`, plus a header comment summarizing the native API that should land in the follow-up tick (e.g. iOS → `AVCaptureDevice.requestAccess`, Android → `ActivityCompat.requestPermissions` via JNI, macOS → reuse-iOS-via-cfg(any), Linux → xdg-portal/ashpd, Windows → `AppCapabilityAccess.CheckAccessAsync`).
+- `dll/src/desktop/mod.rs` registers `pub mod extra;` between `display` and `file`.
+
+`bash scripts/mobile-check-all.sh` GREEN across all 5 targets (6/5/6/4/4 s). No new deps; the stubs only import `azul_layout::managers::permission::*`. Next tick will land the `LayoutWindow → take_pending_events() → extra::permission::apply_diff_events` wire-up in the layout pass.
