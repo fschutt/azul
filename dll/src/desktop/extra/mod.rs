@@ -12,4 +12,9 @@
 
 pub mod file_picker;
 pub mod geolocation;
+/// MVT tile decode + projection math for the `MapWidget` content
+/// pipeline. Opt-in via the `map-tiles` Cargo feature; with the
+/// feature off, the entry points return an error rather than dragging
+/// in the `td` / `mvt-reader` / `proj4rs` dep tree.
+pub mod map;
 pub mod permission;

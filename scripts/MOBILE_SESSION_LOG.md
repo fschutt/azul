@@ -541,6 +541,26 @@ Each pinch event returns `Update::RefreshDom`, so the inner `VirtualView` callba
 
 The MapWidget interaction surface is now feature-complete for touch + mouse: drag pans, two-finger-pinch zooms, the toolbar buttons in the AzulMaps demo still work. What's left for P3.2 proper is the *content* — MVT bytes → MapCSS-styled SVG → DOM tree as the per-tile child, replacing the current placeholder `"zN/X/Y"` label. That's the heavyweight item, queued for the next handful of ticks.
 
+### Tick — P3.2e MVT decode entry point + `map-tiles` feature flag
+
+First step toward the MVT content pipeline. Lands the **integration point** the per-tile decode pipeline will plug into, plus the `td` (tile-downloader) crate's dep wiring, without inflating the default mobile build.
+
+- `dll/Cargo.toml` — two new optional deps in the unconditional `[dependencies]` block:
+  - `td = { path = "/Users/fschutt/Development/tile-downloader", optional = true }` — the user-owned crate that wraps `mvt-reader` + `proj4rs` for MVT decode + projection math.
+  - `geojson = { version = "0.24", optional = true }` — for naming `geojson::Feature` in the public return type without going through `td`'s private graph.
+  - New feature `map-tiles = ["dep:td", "dep:geojson"]`. The `dep:` syntax is required so optional-dep activation actually fires (without it Cargo's legacy auto-feature mode silently no-op's). Not wired into `_internal_deps` — desktop builds explicitly opt in via `--features map-tiles`.
+- `dll/src/desktop/extra/map/mod.rs` (new submodule, registered in `extra/mod.rs`):
+  - `build_tile_url(url_template, MapTileId) -> String` — Leaflet-style `{z}/{x}/{y}` substitution; always available (no feature gate, no dep chain).
+  - `decode_mvt_tile(bytes, MapTileId) -> Result<Vec<geojson::Feature>, String>` (gated on `map-tiles`) — calls `td::parse_mvt_tile(bytes, &TileCoord)` and surfaces errors as strings. Returns Web-Mercator-tile-local features projected to WGS-84.
+  - `decode_mvt_tile` stub (gated on `not(map-tiles)`) — returns `Err("azul-dll built without `map-tiles` feature — MVT decode unavailable")` so callers can detect at runtime without crashing.
+- `dll/src/desktop/extra/mod.rs` registers `pub mod map;`.
+
+Two gate configurations now exercised:
+- `cargo check --target {ios,android} -p azul-dll --features 'std,logging,link-static,a11y'` — the mobile gate without `map-tiles`. All 5 targets GREEN (10/7/7/7/7 s). The decoder is stubbed out; no `td` / `mvt-reader` / `proj4rs` in the dep tree.
+- `cargo check -p azul-dll --features 'std,logging,link-static,a11y,map-tiles'` on the host — full `td` + `mvt-reader` + `proj4rs` + `geojson` dep tree compiles cleanly (~40 s cold). The decoder is live.
+
+Next ticks queue the actual integration: spawn a `Thread` per visible tile that fetches via `ureq` (already in the deps), feeds bytes into `decode_mvt_tile`, mutates `MapTileCache.tiles` with `TileEntry::Ready { svg }` once the GeoJSON-to-SVG conversion lands, and the existing merge-callback keeps it across relayout. The SVG→DOM step reuses the framework's existing `Svg::parse` path; the MapCSS styling layer plugs into the existing CSS parser (MapCSS is a CSS dialect with extended selectors).
+
 The widget callback chain uses `crate::callbacks::Callback::from(fn as CallbackType)` rather than passing the bare fn pointer, because `Dom::with_callback` in `azul-core` takes `Into<CoreCallback>` (the FFI `usize` form) — `Callback` has the requisite `From<CallbackType>` impl from the framework's macro; the bare fn ptr does not.
 
 `bash scripts/mobile-check-all.sh` GREEN across all 5 mobile targets (9/7/6/6/6 s). No regressions; AzulPaint + AzulMaps still build cleanly. Codegen unchanged (the new pan callbacks are private widget internals, not part of the public api.json surface).
