@@ -1070,15 +1070,16 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     let styled = StyledDom::create(dom_ref, Css::empty());
     let boxed = Box::new(styled);
     let ptr_val = Box::into_raw(boxed) as usize as u32;
-    // M12.5b: AFTER Box::new, write a sentinel u32 to the heap region
-    // at a specific offset (8 bytes into StyledDom — past `root` field).
-    // If this write LANDS but the cascade's writes didn't, the bug is
-    // confirmed to be specifically about the bl-sret pattern, NOT
-    // about wasm memory writes in general.
     let direct_target = (ptr_val as usize + 8) as *mut u32;
     core::ptr::write_volatile(direct_target, 0xCAFEBABE_u32);
-    // Dump the target address so JS can read what's actually there.
     core::ptr::write_volatile(0x40014_usize as *mut u32, ptr_val + 8);
+    // M12.5b probe: trivial sret test. If Box::new(make_test_struct())
+    // produces a heap with pattern 0xA0000000..0xA000003F, sret works
+    // for trivial 256-byte structs. If zeros, sret is broken at the
+    // lift level for ANY sret-returning function.
+    let test_boxed = Box::new(make_test_struct());
+    let test_ptr = Box::into_raw(test_boxed) as usize as u32;
+    core::ptr::write_volatile(0x40018_usize as *mut u32, test_ptr);
     let recovered = fixed_load();
     finalize_hydrate(recovered, ptr_val);
     0
@@ -1099,6 +1100,28 @@ unsafe extern "C" fn finalize_hydrate(state_u32: u32, styled_ptr: u32) {
 #[no_mangle]
 extern "C" fn noop_for_probe() -> u32 {
     42
+}
+
+/// M12.5b: a trivial sret-returning fn. Returns a 256-byte struct
+/// filled with a recognizable pattern. If `Box::new(make_test_struct())`
+/// produces a heap with the pattern, sret works for trivial cases.
+/// If it produces zeros, sret is fundamentally broken in the lift.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct TestStruct256 {
+    pub data: [u32; 64],
+}
+
+#[inline(never)]
+#[no_mangle]
+pub extern "C" fn make_test_struct() -> TestStruct256 {
+    let mut s = TestStruct256 { data: [0; 64] };
+    let mut i = 0;
+    while i < 64 {
+        s.data[i] = 0xA0000000_u32 | (i as u32);
+        i += 1;
+    }
+    s
 }
 
 #[inline(never)]
