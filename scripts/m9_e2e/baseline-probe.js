@@ -23,6 +23,54 @@ function fetch_(p) {
 }
 function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
 
+// Parse a wasm module's custom "name" section -> {funcIndex: name}.
+function parseWasmFnNames(buf) {
+    const names = {};
+    let p = 8; // skip magic + version
+    function uleb() { let r = 0, s = 0, b; do { b = buf[p++]; r |= (b & 0x7f) << s; s += 7; } while (b & 0x80); return r >>> 0; }
+    try {
+        while (p < buf.length) {
+            const id = buf[p++];
+            const size = uleb();
+            const end = p + size;
+            if (id === 0) { // custom section
+                const nlen = uleb();
+                const sname = buf.slice(p, p + nlen).toString();
+                p += nlen;
+                if (sname === 'name') {
+                    while (p < end) {
+                        const sub = buf[p++];
+                        const subsize = uleb();
+                        const subend = p + subsize;
+                        if (sub === 1) { // function names
+                            const cnt = uleb();
+                            for (let i = 0; i < cnt; i++) {
+                                const idx = uleb();
+                                const l = uleb();
+                                names[idx] = buf.slice(p, p + l).toString();
+                                p += l;
+                            }
+                        }
+                        p = subend;
+                    }
+                }
+            } else if (id === 7) { // export section (name section is often stripped)
+                const cnt = uleb();
+                for (let i = 0; i < cnt; i++) {
+                    const l = uleb();
+                    const nm = buf.slice(p, p + l).toString();
+                    p += l;
+                    const kind = buf[p++];
+                    const idx = uleb();
+                    if (kind === 0 && !names[idx]) names[idx] = 'export:' + nm; // func export
+                }
+            }
+            p = end;
+        }
+    } catch (e) { /* best-effort */ }
+    return names;
+}
+
 (async () => {
     const html = (await fetch_('/')).toString();
     const initialCounter = parseInt((html.match(/<div id="az_1">(\d+)<\/div>/) || ['', '5'])[1]);
@@ -92,6 +140,15 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
         trapErr = e;
     }
     console.log('hydrateRc =', hydrateRc, trapErr ? ('(TRAP: ' + (trapErr.message || trapErr) + ')') : '');
+    if (trapErr && trapErr.stack) {
+        const fnNames = parseWasmFnNames(miniBytes);
+        const frames = [...trapErr.stack.matchAll(/wasm-function\[(\d+)\]/g)].map(m => parseInt(m[1]));
+        console.log('--- trap call stack (innermost first) ---');
+        for (const idx of frames) {
+            const nm = fnNames[idx] || '(no name)';
+            console.log('  func[' + idx + '] = ' + nm);
+        }
+    }
 
     // ===== Diagnostic dumps =====
     const dv = new DataView(memory.buffer);
@@ -121,6 +178,12 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
         console.log('  bump_ptr   = 0x' + bp.toString(16) + ' (' + (bp / (1024 * 1024)).toFixed(1) +
             ' MiB; heap base 96 MiB, mem ' + (memory.buffer.byteLength / (1024 * 1024)).toFixed(0) + ' MiB)');
     }
+    // M12.5f alloc instrumentation (BumpAlloc/Realloc write these):
+    //   0x40030 = last requested size (i64 lo), 0x40038 = total alloc count
+    const lastSize = rd(0x40030) + rd(0x40034) * 4294967296;
+    const allocCount = rd(0x40038) + rd(0x4003C) * 4294967296;
+    console.log('  last_alloc_size = ' + lastSize + ' (' + (lastSize / (1024 * 1024)).toFixed(2) + ' MiB)');
+    console.log('  alloc_count     = ' + allocCount + '  -> huge last_size = single bad alloc; huge count = runaway loop');
 
     const test_ptr = rd(0x40018);
     let mtsNonzero = 0, mtsCorrect = 0;

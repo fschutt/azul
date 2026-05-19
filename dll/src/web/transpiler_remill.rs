@@ -4257,6 +4257,10 @@ fn emit_helper_ir(
                      define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) alwaysinline {{\n  \
                        %x0_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x0_off}\n  \
                        %size_{n} = load i64, ptr %x0_p_{n}, align 8\n  \
+                       store volatile i64 %size_{n}, ptr inttoptr (i64 262192 to ptr), align 8\n  \
+                       %dbgc_{n} = load volatile i64, ptr inttoptr (i64 262200 to ptr), align 8\n  \
+                       %dbgcp_{n} = add i64 %dbgc_{n}, 1\n  \
+                       store volatile i64 %dbgcp_{n}, ptr inttoptr (i64 262200 to ptr), align 8\n  \
                        %size_a_{n} = add i64 %size_{n}, 7\n  \
                        %size_aligned_{n} = and i64 %size_a_{n}, -8\n  \
                        %old_{n} = load i32, ptr @__az_bump_ptr, align 4\n  \
@@ -4294,6 +4298,10 @@ fn emit_helper_ir(
                        %old_size_{n} = load i64, ptr %x1_p_{n}, align 8\n  \
                        %x3_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x3_off}\n  \
                        %new_size_{n} = load i64, ptr %x3_p_{n}, align 8\n  \
+                       store volatile i64 %new_size_{n}, ptr inttoptr (i64 262192 to ptr), align 8\n  \
+                       %dbgcr_{n} = load volatile i64, ptr inttoptr (i64 262200 to ptr), align 8\n  \
+                       %dbgcrp_{n} = add i64 %dbgcr_{n}, 1\n  \
+                       store volatile i64 %dbgcrp_{n}, ptr inttoptr (i64 262200 to ptr), align 8\n  \
                        %new_size_a_{n} = add i64 %new_size_{n}, 7\n  \
                        %new_size_aligned_{n} = and i64 %new_size_a_{n}, -8\n  \
                        %old_bump_{n} = load i32, ptr @__az_bump_ptr, align 4\n  \
