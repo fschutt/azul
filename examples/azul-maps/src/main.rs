@@ -18,6 +18,7 @@
 //! routes the prompt automatically (per P3.1).
 
 use azul::prelude::*;
+use azul::dom::GeolocationProbeConfig;
 use azul::widgets::{MapTileLayer, MapViewport, MapWidget};
 
 struct MapState {
@@ -26,6 +27,12 @@ struct MapState {
     /// kept in state so the layout callback can rebuild the widget
     /// each frame with the same parameters.
     layer: MapTileLayer,
+    /// When `true`, the layout composes an invisible
+    /// `Dom::create_geolocation_probe(...)` into the map subtree. The
+    /// framework's permission-as-DOM diff then requests location and
+    /// (once a platform backend delivers a fix) the "you are here" dot
+    /// can be placed. Toggled by the "Locate" button.
+    locating: bool,
 }
 
 impl MapState {
@@ -41,6 +48,7 @@ impl MapState {
                 pitch_deg: 0.0,
             },
             layer: MapTileLayer::default(),
+            locating: false,
         }
     }
 
@@ -59,6 +67,10 @@ impl MapState {
         self.viewport.centre_lat_deg = 37.7749;
         self.viewport.centre_lon_deg = -122.4194;
         self.viewport.zoom = 11.0;
+    }
+
+    fn toggle_locate(&mut self) {
+        self.locating = !self.locating;
     }
 
     /// Nudge the viewport ~half a tile in tile-space at the current
@@ -94,20 +106,29 @@ const HEADER: &str = "background: #2b2b2b; color: white; \
 const BTN: &str = "background: #4a90e2; color: white; \
     padding: 6px 12px; border-radius: 4px; cursor: pointer; \
     margin-left: 6px; font-size: 13px;";
+const BTN_ON: &str = "background: #d0021b; color: white; \
+    padding: 6px 12px; border-radius: 4px; cursor: pointer; \
+    margin-left: 6px; font-size: 13px;";
 const MAP_CONTAINER: &str = "flex-grow: 1; position: relative; \
     background: #cbd2d8; overflow: hidden;";
 const ATTRIB: &str = "position: absolute; right: 6px; bottom: 6px; \
     background: rgba(255,255,255,0.85); padding: 3px 6px; \
     font-size: 10px; color: #444; border-radius: 3px;";
+// Placeholder "you are here" marker, centred over the map. A real app
+// would position this from the LocationFix the probe delivers.
+const LOCATION_DOT: &str = "position: absolute; left: 50%; top: 50%; \
+    width: 16px; height: 16px; margin-left: -8px; margin-top: -8px; \
+    background: #4285f4; border-radius: 8px; \
+    box-shadow: 0px 0px 0px 3px rgba(66,133,244,0.35);";
 
 // ───────── Layout ─────────────────────────────────────────────────────
 
 extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-    let snapshot: Option<(MapViewport, MapTileLayer)> = data
+    let snapshot: Option<(MapViewport, MapTileLayer, bool)> = data
         .downcast_ref::<MapState>()
-        .map(|s| (s.viewport, s.layer.clone()));
+        .map(|s| (s.viewport, s.layer.clone(), s.locating));
 
-    let Some((viewport, layer)) = snapshot else {
+    let Some((viewport, layer, locating)) = snapshot else {
         return Dom::create_body();
     };
 
@@ -189,8 +210,22 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                         .with_child(Dom::create_text("Recentre"))
                         .with_callback(
                             EventFilter::Hover(HoverEventFilter::MouseUp),
-                            data,
+                            data.clone(),
                             on_recentre,
+                        ),
+                )
+                .with_child(
+                    Dom::create_div()
+                        .with_css(if locating { BTN_ON } else { BTN })
+                        .with_child(Dom::create_text(if locating {
+                            "Locating…"
+                        } else {
+                            "Locate"
+                        }))
+                        .with_callback(
+                            EventFilter::Hover(HoverEventFilter::MouseUp),
+                            data,
+                            on_locate,
                         ),
                 ),
         );
@@ -199,14 +234,31 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         .with_viewport(viewport)
         .dom();
 
-    let map_container = Dom::create_div()
+    let mut map_container = Dom::create_div()
         .with_css(MAP_CONTAINER)
-        .with_child(map)
-        .with_child(
-            Dom::create_div()
-                .with_css(ATTRIB)
-                .with_child(Dom::create_text(attribution_text.as_str())),
-        );
+        .with_child(map);
+
+    // When "Locate" is on, drop an invisible geolocation probe into the
+    // map subtree. The framework treats the probe as a permission-as-DOM
+    // request: mounting it asks the platform for a location fix. Until a
+    // backend delivers one we just draw a placeholder dot at centre so
+    // the composition is visible in the demo.
+    if locating {
+        map_container = map_container
+            .with_child(Dom::create_geolocation_probe(GeolocationProbeConfig {
+                high_accuracy: true,
+                background: false,
+                max_accuracy_m: 0.0,
+                min_interval_ms: 0,
+            }))
+            .with_child(Dom::create_div().with_css(LOCATION_DOT));
+    }
+
+    let map_container = map_container.with_child(
+        Dom::create_div()
+            .with_css(ATTRIB)
+            .with_child(Dom::create_text(attribution_text.as_str())),
+    );
 
     Dom::create_body()
         .with_css(ROOT)
@@ -233,6 +285,13 @@ extern "C" fn on_zoom_out(mut data: RefAny, _info: CallbackInfo) -> Update {
 extern "C" fn on_recentre(mut data: RefAny, _info: CallbackInfo) -> Update {
     if let Some(mut s) = data.downcast_mut::<MapState>() {
         s.recentre();
+    }
+    Update::RefreshDom
+}
+
+extern "C" fn on_locate(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(mut s) = data.downcast_mut::<MapState>() {
+        s.toggle_locate();
     }
     Update::RefreshDom
 }

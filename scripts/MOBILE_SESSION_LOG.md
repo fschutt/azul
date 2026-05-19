@@ -741,3 +741,15 @@ P3.2 remaining: (1) live threading-runtime confirmation; (4) the real-tile demo 
 The widget callback chain uses `crate::callbacks::Callback::from(fn as CallbackType)` rather than passing the bare fn pointer, because `Dom::with_callback` in `azul-core` takes `Into<CoreCallback>` (the FFI `usize` form) — `Callback` has the requisite `From<CallbackType>` impl from the framework's macro; the bare fn ptr does not.
 
 `bash scripts/mobile-check-all.sh` GREEN across all 5 mobile targets (9/7/6/6/6 s). No regressions; AzulPaint + AzulMaps still build cleanly. Codegen unchanged (the new pan callbacks are private widget internals, not part of the public api.json surface).
+
+### Tick — P3.2o compose the geolocation dot into the AzulMaps demo (2026-05-20)
+
+Used the now-public `Dom::create_geolocation_probe` (P3.2n) from the AzulMaps example so the demo shows the user's stated "users can put the geolocation dot on top of the map" pattern — entirely through the public API, nothing internal.
+
+- `MapState` gained a `locating: bool` + `toggle_locate()`; the toolbar gained a "Locate" toggle button (turns red / "Locating…" when on).
+- When `locating`, the map container composes two children over the `MapWidget`: an invisible `Dom::create_geolocation_probe(GeolocationProbeConfig { high_accuracy: true, background: false, max_accuracy_m: 0.0, min_interval_ms: 0 })` (drives the permission-as-DOM request on mount) and a placeholder `LOCATION_DOT` div centred over the map (a real app would position it from the delivered `LocationFix`).
+- Imported `GeolocationProbeConfig` from `azul::dom` (its api.json module), not `azul::widgets` — confirmed via `target/codegen/reexports.rs:1749`.
+
+`cargo check -p azul-maps` clean (only pre-existing generated-code warnings). `bash scripts/mobile-check-all.sh` GREEN on all 5 mobile targets (1/0/1/0/0 s). Cleared `target/debug/incremental` (disk 94%→93%). No codegen change — the example only consumes already-public API.
+
+Still open for the user: the real-tile demo call (caveat 4) remains gated on the worker-exposure design choice (no-arg `dom_with_default_tiles()` vs a `tile_fetch_thread_callback() -> ThreadCallback` helper); I lean toward the no-arg form. Live threading-runtime confirmation still deferred (user: "just compiles + works in theory").
