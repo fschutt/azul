@@ -3241,7 +3241,14 @@ impl Transpiler for RemillTranspiler {
                 "AzStartup_resetBumpHeap".to_string(),
             ],
             memory_mode: MemoryMode::OwnMemory,
-            max_recursive_depth: 4096,
+            // M12.9: AZ_MINI_MAX_DEPTH=<N> caps cascade transitive
+            // lift at N functions. Used to bisect which deep helper
+            // introduces the hydrate trap; default 4096 absorbs the
+            // full cascade tree.
+            max_recursive_depth: std::env::var("AZ_MINI_MAX_DEPTH")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(4096),
             output_stem: "azul-mini".to_string(),
         };
 
