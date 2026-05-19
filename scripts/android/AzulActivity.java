@@ -22,10 +22,12 @@
 package com.azul.app;
 
 import android.app.NativeActivity;
+import android.content.Intent;
 import android.os.Bundle;
 import android.view.View;
 
 import com.azul.gesture.NativeGestureBridge;
+import com.azul.picker.AzulFilePicker;
 
 public class AzulActivity extends NativeActivity {
 
@@ -57,6 +59,20 @@ public class AzulActivity extends NativeActivity {
         gestureBridge = new NativeGestureBridge(nativePtr);
         View decor = getWindow().getDecorView();
         gestureBridge.attach(this, decor);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        // Route file-picker (and any other dispatched-by-azul) results
+        // through AzulFilePicker first. If it claims the request code,
+        // we suppress the NativeActivity fall-through (it would be a
+        // no-op anyway since NativeActivity doesn't process activity
+        // results).
+        boolean handled =
+                AzulFilePicker.onActivityResultProxy(this, requestCode, resultCode, data);
+        if (!handled) {
+            super.onActivityResult(requestCode, resultCode, data);
+        }
     }
 
     /** Implemented in Rust (dll/src/desktop/shell2/android/mod.rs). */

@@ -370,6 +370,11 @@ pub fn android_main(app: AndroidApp) {
     ANDROID_WINDOW_PTR
         .store(&mut window as *mut AndroidWindow as i64, core::sync::atomic::Ordering::SeqCst);
 
+    // Publish the JavaVM + Activity pointers so dll::extra::file_picker
+    // (and future native-call paths — permission, soft keyboard) can
+    // reach into Java without re-receiving them per call.
+    publish_jni_context(&app);
+
     // Outer driver loop — exits when MainEvent::Destroy clears window.is_open.
     while window.is_open() {
         // Block forever when we have no native surface (background); poll
@@ -723,6 +728,58 @@ pub unsafe extern "system" fn Java_com_azul_app_AzulActivity_nativeGetWindowPoin
     _class: *mut core::ffi::c_void,
 ) -> i64 {
     ANDROID_WINDOW_PTR.load(core::sync::atomic::Ordering::SeqCst)
+}
+
+// JavaVM* + Activity-instance pointers, published by `android_main`. The
+// dll/extra/file_picker/android.rs path needs both: attach the current
+// thread to the VM (so we get a JNIEnv*), find the AzulFilePicker class,
+// and call its static dispatch method with the activity reference.
+//
+// Stored as `AtomicPtr<c_void>` so dispatch_open_file can read them
+// without locking. The values come from `AndroidApp::vm_as_ptr()` /
+// `AndroidApp::activity_as_ptr()`, both of which are stable for the
+// lifetime of the activity (android-activity 0.6 holds them in a
+// `&'static`-equivalent slot).
+
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+static ANDROID_JAVA_VM: core::sync::atomic::AtomicPtr<core::ffi::c_void> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+static ANDROID_ACTIVITY: core::sync::atomic::AtomicPtr<core::ffi::c_void> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+
+/// Read the JavaVM* the activity published on startup. `null` until
+/// `android_main` has run far enough to call `publish_jni_context`.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+pub fn java_vm_ptr() -> *mut core::ffi::c_void {
+    ANDROID_JAVA_VM.load(core::sync::atomic::Ordering::SeqCst)
+}
+
+/// Read the Java Activity instance pointer (a `jobject` global ref the
+/// activity layer keeps alive for us).
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+pub fn activity_ptr() -> *mut core::ffi::c_void {
+    ANDROID_ACTIVITY.load(core::sync::atomic::Ordering::SeqCst)
+}
+
+/// Cross-target stubs so dll/extra/file_picker/android.rs can call these
+/// regardless of whether the android-activity feature is on (it isn't on
+/// non-Android targets, but the file_picker submodule is cfg-gated on
+/// `target_os = "android"` anyway — defensive double-gate).
+#[cfg(not(all(target_os = "android", feature = "android-activity")))]
+pub fn java_vm_ptr() -> *mut core::ffi::c_void {
+    core::ptr::null_mut()
+}
+#[cfg(not(all(target_os = "android", feature = "android-activity")))]
+pub fn activity_ptr() -> *mut core::ffi::c_void {
+    core::ptr::null_mut()
+}
+
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn publish_jni_context(app: &AndroidApp) {
+    ANDROID_JAVA_VM.store(app.vm_as_ptr(), core::sync::atomic::Ordering::SeqCst);
+    ANDROID_ACTIVITY.store(app.activity_as_ptr(), core::sync::atomic::Ordering::SeqCst);
 }
 
 // ---------------------------------------------------------------------------

@@ -323,6 +323,10 @@ _internal_deps = [
     # target.'cfg' gate above).
     "android-activity",
     "ndk",
+    # JNI for Rust → Java calls (file picker, soft keyboard, permission
+    # prompts). The receiving direction (Java → Rust) is via raw `extern
+    # "system"` symbols and doesn't need this dep.
+    "jni",
     "objc2-core-foundation",
     "objc2-foundation",
     "objc2-app-kit",
