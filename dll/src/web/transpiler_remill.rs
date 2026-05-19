@@ -854,6 +854,20 @@ impl RemillTranspiler {
         // alloca becomes viable post-link → layout cb size drops.
         let lifted_ir = tag_state_accesses(&lifted_ir);
 
+        // M12.5d: retarget the AArch64 IR header to wasm32 BEFORE
+        // opt/llc. Without this, LLVM uses AArch64 datalayout (i64
+        // pointers) for SROA/InstCombine, then llc retargets at
+        // emission. The mismatch causes SROA to split the State
+        // struct using i64-pointer arithmetic, and the resulting
+        // wasm function signatures have i64 state args (e.g.
+        // create_from_compact_dom shows `(i64, i64, i32) -> i32`
+        // when it should be `(i32, i64, i32) -> i32`). Pointer math
+        // happens in i64 with i32.wrap_i64 at memory ops — this
+        // breaks cross-function state-ptr propagation and is the
+        // root cause of cascade-output sret writes going to wrong
+        // wasm addresses.
+        let lifted_ir = retarget_to_wasm32(&lifted_ir);
+
         // M9-review: after `rewrite_sub_names_to_canonical`, every
         // `sub_<hex>` reference in the IR uses the CANONICAL SYNTH
         // address as its hex. To find the entry's `define` line for
@@ -3544,6 +3558,9 @@ impl RemillTranspiler {
             None => raw_lifted_ir.to_string(),
         };
         let lifted_ir = tag_state_accesses(&lifted_ir);
+        // M12.5d: see notes at the other call site — retarget the
+        // AArch64 IR header to wasm32 before opt/llc runs.
+        let lifted_ir = retarget_to_wasm32(&lifted_ir);
 
         let canonical_entry_addr = symbol_table::get()
             .and_then(|t| {
@@ -4905,6 +4922,45 @@ fn dedup_sub_declares(ir: &str) -> String {
 /// variants are detected via the keyword and treated identically.
 /// Lines whose tail is a `; preds = …` comment get metadata inserted
 /// BEFORE the comment.
+/// M12.5d — replace AArch64 target triple / datalayout in remill's
+/// lifted IR with wasm32 equivalents. Without this, opt + InstCombine
+/// + SROA run with i64 pointers (per AArch64 datalayout `n32:64`),
+/// then llc retargets at emission. The mismatch causes pointer
+/// arithmetic on the State struct to use i64 ops, and SROA splits
+/// State fields with i64-aligned slots. The wasm output then has
+/// function signatures like `(i64, i64, i32) -> i32` for state-ptr
+/// args, and cross-function state propagation breaks because callees
+/// see the state ptr's low-32 truncated address but write/read at
+/// i64-offset boundaries.
+///
+/// Rewriting the header to wasm32-unknown-unknown lets opt run with
+/// 32-bit pointers from the start, so SROA splits State on i32
+/// boundaries and the wasm output uses `(i32, i64, i32) -> i32`
+/// signatures consistently.
+fn retarget_to_wasm32(ir: &str) -> String {
+    let mut out = String::with_capacity(ir.len());
+    let mut saw_datalayout = false;
+    let mut saw_triple = false;
+    for line in ir.lines() {
+        let trimmed = line.trim_start();
+        if !saw_datalayout && trimmed.starts_with("target datalayout = ") {
+            out.push_str(
+                "target datalayout = \"e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20\"\n",
+            );
+            saw_datalayout = true;
+            continue;
+        }
+        if !saw_triple && trimmed.starts_with("target triple = ") {
+            out.push_str("target triple = \"wasm32-unknown-unknown\"\n");
+            saw_triple = true;
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
 fn tag_state_accesses(ir: &str) -> String {
     let mut out = String::with_capacity(ir.len() + 4 * 1024);
     let host_tail = format!(
