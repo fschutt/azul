@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Stub entitlements for ad-hoc / development signing of a sideloaded
+  Azul app. For App Store distribution, regenerate from your provisioning
+  profile via:
+    security cms -D -i embedded.mobileprovision \
+      | /usr/libexec/PlistBuddy -x -c "Print :Entitlements" /dev/stdin \
+      > scripts/ios/entitlements.xcent
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>application-identifier</key>
+    <string>TEAMID.com.example.azulapp</string>
+    <key>com.apple.developer.team-identifier</key>
+    <string>TEAMID</string>
+    <key>get-task-allow</key>
+    <true/>
+</dict>
+</plist>

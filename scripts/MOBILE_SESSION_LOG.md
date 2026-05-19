@@ -47,3 +47,12 @@ Next cron tick: Android Phase 2 (CPU render via `ANativeWindow_lock`) — wire `
 Two new files, no Rust changes (compile gate untouched):
 - `scripts/android/AndroidManifest.xml` — minimal NativeActivity template with `@PACKAGE@`/`@LABEL@`/`@LIB_NAME@`/`@VERSION_*` placeholders. `android:hasCode="false"` so we ship zero Java/Kotlin; `android:configChanges` traps rotation/keyboard/density natively.
 - `scripts/build-android.sh` — `cargo build --release` for any android target → copy `libazul.so` into `lib/$ABI/` → `aapt2 link` manifest → `zip` the lib into the apk → `zipalign 4` → `apksigner sign` with `scripts/android/debug.keystore` (auto-created on first run with `keytool -genkeypair`) → optional `adb install -r` + `am start`. `AZ_ANDROID_NO_DEPLOY=1` skips the device step. Bash syntax-checked clean.
+
+### Tick — Sprint E (iOS build pipeline, no Xcode project)
+
+Three new files, no Rust changes:
+- `scripts/ios/Info.plist` — minimal app plist template with `@EXECUTABLE@`/`@BUNDLE_ID@`/`@DISPLAY_NAME@`/`@VERSION@`/`@BUILD@`/`@MIN_OS@` placeholders. `LSRequiresIPhoneOS = true`, `UILaunchStoryboardName` empty (no storyboard), portrait + landscape orientations declared.
+- `scripts/ios/entitlements.xcent` — placeholder entitlements (TEAMID + `get-task-allow`) suitable for ad-hoc / development signing. For App Store, regenerate from the provisioning profile.
+- `scripts/build-ios.sh` — Xcode-CLT-free pipeline: validates `xcrun --sdk $iphone{os,simulator} --show-sdk-path` is available (errors out clearly if not), `cargo build --release` for the target, copies the artifact into `target/ios-bundle/<APP_NAME>-<TARGET>.app/`, renders the Info.plist via sed, converts to binary plist via `plutil`, then on simulator → `xcrun simctl install + launch booted`, on device → optional `codesign` if `IOS_SIGNING_IDENTITY` set + `ios-deploy --bundle … --justlaunch` if installed. `AZ_IOS_DRYRUN=1` stops after bundle. Bash syntax-checked clean.
+
+Pipeline is testable end-to-end the moment full Xcode is installed; until then the script gates cleanly with an actionable error.
