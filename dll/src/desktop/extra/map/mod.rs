@@ -110,8 +110,12 @@ pub extern "C" fn tile_fetch_worker(
         map_tile_writeback, TileFetchInit, TileReadyMsg,
     };
 
-    let (tile, url) = match init.downcast_ref::<TileFetchInit>() {
-        Some(i) => (i.tile, i.url.as_str().to_string()),
+    let (tile, url, mapcss) = match init.downcast_ref::<TileFetchInit>() {
+        Some(i) => (
+            i.tile,
+            i.url.as_str().to_string(),
+            i.style_css.as_str().to_string(),
+        ),
         None => return,
     };
 
@@ -148,7 +152,7 @@ pub extern "C" fn tile_fetch_worker(
     // 3-4. Decode + emit SVG.
     match decode_mvt_tile(bytes, tile) {
         Ok(features) => {
-            let svg = features_to_svg(&features, tile);
+            let svg = features_to_svg(&features, tile, &mapcss);
             sender.send(ThreadReceiveMsg::WriteBack(send_back(
                 AzString::from(svg),
                 AzString::from(""),

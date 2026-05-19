@@ -39202,6 +39202,11 @@
                                 "attribution": {
                                     "type": "String"
                                 }
+                            },
+                            {
+                                "style_css": {
+                                    "type": "String"
+                                }
                             }
                         ],
                         "repr": "C"

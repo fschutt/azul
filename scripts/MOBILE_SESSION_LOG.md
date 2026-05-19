@@ -656,6 +656,24 @@ Closes caveat (3). The widget no longer needs a tap to start loading: an `EventF
 
 Two of the four P3.2 caveats are now closed (SVG→DOM render in P3.2h, auto-trigger here). Remaining: (1) threading-runtime confirmation — still untested, needs a running app + network; (2) MapCSS styling — `features_to_svg`'s hardcoded palette is the placeholder; (4) the AzulMaps demo still calls plain `dom()` (the codegen `azul::widgets::MapWidget` doesn't expose `dom_with_fetch`, which takes a fn-ptr arg — wiring the demo to real tiles needs an api.json-declared dll helper that bundles `dom_with_fetch(tile_fetch_worker)`, a heavier follow-up).
 
+### Tick — P3.2j MapCSS styling layer (2026-05-20)
+
+Closes caveat (2). Per-MVT-layer fill / stroke / stroke-width is now driven by a user-supplied MapCSS stylesheet instead of the hardcoded palette (which becomes the fallback for unstyled layers).
+
+- `layout/src/widgets/map.rs`:
+  - `MapTileLayer` gains `style_css: AzString` (empty = built-in palette). Plain `String` field → codegen-safe, no fn-ptr friction.
+  - `TileFetchInit` gains `style_css: AzString`; `spawn_pending_tile_fetches` copies `cache.layer.style_css` into each spawn so the worker has it.
+- `dll/src/desktop/extra/map/svg.rs`:
+  - `LayerStyle` is now owned (`String` fill/stroke) so it holds either a default or a parsed value.
+  - New `MapCss` subset parser: splits the sheet on `}` into `selector { decls }` blocks, takes the selector's trailing token (leading `.`/`#` stripped, lowered) as the layer key, reads `fill` / `fill-color`, `stroke` / `color` / `casing-color`, `stroke-width` / `width` / `casing-width` declarations. `resolve(layer)` does exact-then-substring match against the keys, falling back to `default_style` (the old OpenMapTiles palette).
+  - Note on "reuse the existing CSS parser": MapCSS is its own dialect (`way`/`area`/`node` selectors, `fill-color`/`casing-width` properties) that doesn't map onto azul's `CssProperty` enum, so a focused subset parser is the right tool rather than `Css::from_string`. Documented inline.
+  - `features_to_svg(features, tile, mapcss)` gains the `mapcss` param; the worker passes `init.style_css`.
+- `api.json` `MapTileLayer` gains the `style_css` String field; `cd doc && cargo run -p azul-doc -- codegen all` regenerated all 35 bindings + `dll_api_internal.rs`.
+
+`cargo check -p azul-dll --features '…,map-tiles'` GREEN (host); `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (10/10/9/9/9 s). The `MapCss::parse` unit logic isn't runnable through `cargo test -p azul-dll --lib` (still blocked by the pre-existing `dll_api_internal.rs:62092` `SvgMultiPolygon` codegen bug) — verified by `cargo check` only.
+
+P3.2 remaining: (1) threading-runtime confirmation (needs a live app); (4) wiring the AzulMaps demo to real tiles via an api.json dll helper. Three of the original four caveats now closed.
+
 The widget callback chain uses `crate::callbacks::Callback::from(fn as CallbackType)` rather than passing the bare fn pointer, because `Dom::with_callback` in `azul-core` takes `Into<CoreCallback>` (the FFI `usize` form) — `Callback` has the requisite `From<CallbackType>` impl from the framework's macro; the bare fn ptr does not.
 
 `bash scripts/mobile-check-all.sh` GREEN across all 5 mobile targets (9/7/6/6/6 s). No regressions; AzulPaint + AzulMaps still build cleanly. Codegen unchanged (the new pan callbacks are private widget internals, not part of the public api.json surface).

@@ -78,6 +78,13 @@ pub struct MapTileLayer {
     /// Attribution string the user MUST display (ODbL "© OpenStreetMap
     /// contributors" or similar). Most providers require it.
     pub attribution: AzString,
+    /// MapCSS-style stylesheet driving per-layer fill / stroke /
+    /// stroke-width. Empty = use the built-in default palette. Each
+    /// rule is `selector { fill: …; stroke: …; stroke-width: …; }`
+    /// where the selector's trailing token is matched against the MVT
+    /// layer name (e.g. `water { fill: #9ecae1; }`, `.buildings { … }`).
+    /// Parsed by `azul_dll::desktop::extra::map`'s tile decoder.
+    pub style_css: AzString,
 }
 
 impl Default for MapTileLayer {
@@ -89,6 +96,7 @@ impl Default for MapTileLayer {
             min_zoom: 0,
             max_zoom: 14,
             attribution: AzString::from("© OpenStreetMap contributors, ODbL"),
+            style_css: AzString::from(""),
         }
     }
 }
@@ -344,12 +352,15 @@ pub enum TileEntry {
     Failed { error: AzString },
 }
 
-/// Worker-thread input: which tile to fetch and the resolved URL.
-/// Boxed into the `Thread::create` init `RefAny`.
+/// Worker-thread input: which tile to fetch, the resolved URL, and the
+/// MapCSS stylesheet to apply when converting features to SVG. Boxed
+/// into the `Thread::create` init `RefAny`.
 #[derive(Debug, Clone)]
 pub struct TileFetchInit {
     pub tile: MapTileId,
     pub url: AzString,
+    /// Copy of `MapTileLayer::style_css` (empty = default palette).
+    pub style_css: AzString,
 }
 
 /// Worker-thread output, sent back via `ThreadWriteBackMsg`. The
@@ -570,6 +581,7 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
             return; // no worker wired — leave tiles Pending (placeholder grid)
         }
         let template = cache.layer.url_template.as_str().to_string();
+        let style_css = cache.layer.style_css.clone();
         let pending: Vec<MapTileId> = cache
             .tiles
             .iter()
@@ -583,6 +595,7 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
             to_spawn.push(TileFetchInit {
                 tile,
                 url: AzString::from(url),
+                style_css: style_css.clone(),
             });
         }
     }
