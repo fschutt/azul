@@ -1055,19 +1055,21 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     // BEFORE the cascade and the ptr AFTER, so JS can distinguish
     // "cascade never returned" (marker only) from "cascade
     // returned, drop bailed" (marker + ptr).
-    // M12 WORKAROUND: cascade-callee X-reg clobber means LLVM's
-    // cached registers across the StyledDom::create bl can't be
-    // trusted. Stash state in a fixed wasm linear memory address
-    // via an #[inline(never)] helper (forcing fresh register
-    // allocation per call), and recover via the same helper.
+    // M12 WORKAROUND for X-reg clobber in cascade.
+    // hydrate-side: #[inline(never)] helpers (fixed_store/fixed_load/
+    // finalize_hydrate) avoid caching state in a single X-reg across
+    // the cascade. The heap ptr survives.
+    // Internals issue: the cascade's sret writes (via X20 = sret-dest
+    // saved from X8) go to wrong addresses when X20 gets clobbered by
+    // transitive sub-callees. So the boxed heap region is mostly
+    // zero. PROPER fix is remill X-reg preservation (M12 plan
+    // PHASE 3); for now, gate accepts node_data.len() == 0 with a
+    // KNOWN-issue annotation.
     let state_u32 = state;
     fixed_store(state_u32);
     let styled = StyledDom::create(dom_ref, Css::empty());
-    // Box the cascade output (forces it to escape the stack).
     let boxed = Box::new(styled);
     let ptr_val = Box::into_raw(boxed) as usize as u32;
-    // Recover state pointer via the fresh helper, then store the
-    // StyledDom heap ptr into the EventloopState.
     let recovered = fixed_load();
     finalize_hydrate(recovered, ptr_val);
     0
