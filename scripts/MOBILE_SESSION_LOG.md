@@ -401,3 +401,20 @@ Wire-in queue:
 - Wacom Wintab desktop axes (tangential pressure, barrel rotation) — desktop backend wiring, separate sprint.
 
 `bash scripts/mobile-check-all.sh` GREEN across all 5 mobile targets (13/11/11/11/11 s — full rebuild after the codegen refresh). 7/7 permission tests still pass.
+
+### Tick — P2.4 AzulPaint demo crate (the P2 goal app lands)
+
+`examples/azul-paint/` joins the workspace. Working finger + stylus paint canvas with pressure-modulated stroke radius and eraser-tip detection — exercises the P2.1 (PenState) + P2.2 (multi-touch TouchPointVec) wiring landed in earlier ticks. Three files:
+
+- `Cargo.toml` — `bin = azul-paint`, depends on `azul-dll` with `link-static` (matches the existing `examples/rust` layout).
+- `src/main.rs` (~320 LOC):
+  - `PaintState { strokes: Vec<Stroke>, current: Option<Stroke> }`. Each `Stroke = (Vec<StrokePoint>, is_eraser)`. `StrokePoint = (x, y, pressure)`. `begin_stroke` / `extend_stroke` / `end_stroke` / `clear_all` mirror the W3C `<canvas>` pointer-down/move/up state machine.
+  - Header bar (`Clear` button + live stroke/point counter) + canvas div with the seven event callbacks: `MouseDown / MouseOver / MouseUp` for desktop, `TouchStart / TouchMove / TouchEnd / TouchCancel` for mobile.
+  - `extract_point(info)` prefers `CallbackInfo::get_pen_state()` over cursor-relative-to-node when a stylus is in contact — the same accessor populated by P2.1's iOS UITouch.Pencil + Android `ToolType::Stylus` paths. Pen pressure (clamped to `0.05..=1.0`) drives the stroke radius; touch falls back to the `0.5` sentinel for a uniform medium-weight line. `is_eraser` flips the stroke colour to the canvas background so eraser tip strokes paint over earlier marks.
+  - Stroke rendering: each point becomes a small absolutely-positioned circle div (radius = `2.0 + pressure * 10.0`). Slow with many strokes; lands what's possible with the existing widget set. A real `<canvas>` primitive is a follow-up sprint.
+  - `layout(...)` snapshots the visible state into owned locals before building the DOM so the borrow on `data` releases cleanly before each `with_callback` clone — no E0502 with the current `downcast_ref` API.
+- Root `Cargo.toml` workspace gains `"examples/azul-paint"`.
+
+`cargo check -p azul-paint` clean. `bash scripts/mobile-check-all.sh` GREEN on all 5 mobile targets (0/1/0/0/1 s — only azul-paint rebuilt).
+
+P2 follow-ups queued: (a) Save-as-SVG / Save-as-PNG via the P1.3 `FilePickerHandle` poll pattern — needs a Timer callback that polls the handle each frame; (b) brush palette UI (colour picker + size slider); (c) once the framework gains a `<canvas>` NodeType, swap the per-point div soup for a single canvas blit. AzulPaint becomes "playable" today on desktop; iOS/Android runtime needs Xcode SDK + an APK build respectively.
