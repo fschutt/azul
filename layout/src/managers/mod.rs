@@ -14,6 +14,7 @@ pub mod focus_cursor;
 pub mod gesture;
 pub mod gpu_state;
 pub mod hover;
+pub mod permission;
 pub mod virtual_view;
 pub mod scroll_into_view;
 pub mod scroll_state;

@@ -273,3 +273,18 @@ User-owned `/Users/fschutt/Development/rust-fontconfig` gains the two missing mo
 - `config.rs::{system_font_dirs, font_directories, common_font_families}` exhaustive on the two new variants. iOS `common_font_families` covers SFNS/SFNSDisplay/SFUI variants (the actual filename prefixes Apple ships) + Helvetica Neue / Avenir / Menlo / SF Mono. Android covers Roboto / Roboto Flex / Noto Sans / Droid Sans + the Mono variants.
 
 `bash scripts/mobile-check-all.sh` GREEN across all 5 targets (13/8/8/8/8 s; previously 1/0/1/0/0 s warm-cache — the new rust-fontconfig source actually rebuilds this run). No regressions in azul-dll. Runtime verification (≥ 200 families on iOS sim, ≥ 30 on Android emulator) deferred until iOS Xcode + Android emulator land — `cargo check` only confirms the compile gate.
+
+### P1.2 — PermissionManager core landed 2026-05-19
+
+`layout/src/managers/permission.rs` (~400 LOC including tests) lands the cross-platform half of the "permission-as-DOM" architecture (SUPER_PLAN_2 §1.5 + research/08). Pure-rust, no platform deps — lives in `azul-layout` not `dll/extra/` per the §0.5 carve-out for state-only managers. `pub mod permission;` added to `managers/mod.rs`.
+
+- `Capability` (field-less, `#[repr(C)]`) — 18 variants covering camera / mic / screen capture / geo / biometric / motion / photos / contacts / calendar / reminders / notifications / bluetooth / nearby-wifi / local-network / ATT. Parameters like `facing` / `accuracy` / `mode` move onto the bearing `NodeType` (so changes don't force a re-prompt).
+- `PermissionQuality` (`#[repr(C)]`) — `Full | Reduced` (precise location vs approximate; full library vs "Selected Photos").
+- `PermissionState` (`#[repr(C, u8)]`) — `NotDetermined | Requested | Granted{quality} | Denied | Restricted | EphemeralGranted{until_app_close}`. `is_granted()` accessor covers both granted variants.
+- `PermissionDiffEvent` (`#[repr(C, u8)]`) — `Subscribe{cap, node_id} | Release{cap} | Reconfigure{cap}`. `Reconfigure` is reserved for future `CameraPreview` facing-change semantics; currently never emitted.
+- `PermissionManager` — `BTreeMap<Capability, CapabilityEntry>` + pending-event queue. Refcount-based: first subscriber (0 → 1) emits `Subscribe`; last release (1 → 0) emits `Release`. `force_release` exists for OS-level revocation paths. `diff_layout(closure)` is the entry point the layout pass will call once `NodeType::GeolocationProbe` etc. land — closure-shaped to avoid pulling `StyledDom` into this manager and re-creating the dep cycle.
+- 7 unit tests cover: subscribe/release round-trip; refcount math under multiple subscribers; `force_release` for OS revocation; `set_status` returning a change flag; full diff_layout pass with a probe appearing then disappearing across two frames; re-subscribe after a Release cycle re-emits a Subscribe (so the platform layer re-issues the native prompt).
+
+`cargo test -p azul-layout --lib permission::` — 7/7 pass. `bash scripts/mobile-check-all.sh` GREEN across all 5 targets (12/12/11/11/11 s).
+
+Open follow-ups: (a) the platform-stub layer at `dll/src/desktop/extra/permission/{ios,android,macos,linux,windows}.rs` consumes `PermissionDiffEvent::Subscribe / Release` and issues the matching native call; (b) the `NodeType::GeolocationProbe` / `CameraPreview` / `SensorProbe` variants will close the loop — `diff_layout`'s closure will then enumerate them from the styled DOM. Both follow-ups are queued.
