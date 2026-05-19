@@ -90,7 +90,7 @@ function fetch_(p) {
     };
     const stubFor = n => /write_memory|barrier|exception_clear/.test(n)
         ? wrap(n, () => {})
-        : (/(?:_64|_f64)\b/.test(n) ? wrap(n, () => 0n) : wrap(n, () => 0));
+        : (/_f64\b/.test(n) ? wrap(n, () => 0) : (/_64\b/.test(n) ? wrap(n, () => 0n) : wrap(n, () => 0)));
     const h = env => ({
         get: (_, p) => {
             if (typeof p !== 'string') return undefined;

@@ -17,7 +17,7 @@ async function fetch_(p) { return new Promise((res, rej) => {
     const cbBytes = await fetch_(cbUrl);
     const table = new WebAssembly.Table({ initial: 64, element: "anyfunc" });
     const realEnv = { __indirect_function_table: table, __az_resolve_callback: () => 0xFFFFFFFF };
-    const stubFor = n => /write_memory|barrier|exception_clear/.test(n) ? (() => {}) : (/(?:_64|_f64)\b/.test(n) ? (() => 0n) : (() => 0));
+    const stubFor = n => /write_memory|barrier|exception_clear/.test(n) ? (() => {}) : (/_f64\b/.test(n) ? (() => 0) : (/_64\b/.test(n) ? (() => 0n) : (() => 0)));
     const h = env => ({ get: (_, p) => typeof p === "string" ? (Object.prototype.hasOwnProperty.call(env, p) ? env[p] : stubFor(p)) : undefined, has: () => true });
     const { instance: miniI } = await WebAssembly.instantiate(miniBytes, { env: new Proxy({}, h(realEnv)) });
     const mini = miniI.exports;

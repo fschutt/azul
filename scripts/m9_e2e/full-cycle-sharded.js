@@ -70,7 +70,7 @@ function failSync(msg) { console.error('FAIL:', msg); process.exit(1); }
     };
     const stubFor = n => /write_memory|barrier|exception_clear/.test(n)
         ? () => {}
-        : (/(?:_64|_f64)\b/.test(n) ? () => 0n : () => 0);
+        : (/_f64\b/.test(n) ? () => 0 : (/_64\b/.test(n) ? () => 0n : () => 0));
     const envHandler = {
         get: (_, p) => {
             if (typeof p !== 'string') return undefined;
