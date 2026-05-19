@@ -1057,16 +1057,23 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     // returned, drop bailed" (marker + ptr).
     // Stepped probes via last_layout_status.
     let state_u32 = state;
-    probe_set(state_u32, 0x1001);  // pre-cascade
-    // M12 diagnostic: replace the cascade with a TRIVIAL no-op
-    // (an extern function call that's classified as Leaf, so X-regs
-    // are preserved by definition). If the post-probe lands here,
-    // the issue is specifically the cascade's transitive call chain,
-    // NOT the hydrate-side state pointer.
-    let _styled = noop_for_probe();
-    probe_set(state_u32, 0x1002);  // post-noop
-    probe_set(state_u32, 0x1004);  // final
-    let _ = dom_ref;
+    probe_set(state_u32, 0x1001);  // pre-bisect
+    // M12 bisect: prefix of StyledDom::create (private function called
+    // internally is the suspect; do everything up to that line).
+    use core::mem;
+    use azul_core::styled_dom::{CompactDom, NodeHierarchyItem, NodeHierarchyItemVec};
+    let mut swap_dom = azul_core::dom::Dom::create_body();
+    mem::swap(dom_ref, &mut swap_dom);
+    let compact_dom: CompactDom = swap_dom.into();
+    let _node_hierarchy: NodeHierarchyItemVec = compact_dom
+        .node_hierarchy
+        .as_ref()
+        .internal
+        .iter()
+        .map(|i| (*i).into())
+        .collect::<Vec<NodeHierarchyItem>>()
+        .into();
+    probe_set(state_u32, 0x1004);  // post-bisect (no create_from_compact_dom yet)
     0
 }
 
