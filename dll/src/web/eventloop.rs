@@ -988,6 +988,14 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     // whether the cascade DOES reach the post-cascade assignments.)
     s.current_dom_node_count = count;
     s.current_dom_hydrated = 1;
+    // Cascade — runs `StyledDom::create` and stores the boxed
+    // result. Note: with the current state of the lift (5 bails
+    // remain in non-critical cascade helpers, including
+    // create_from_compact_dom bailing on LDAPR), Box::new(styled)
+    // may not produce a fully-initialised StyledDom — the boxed
+    // value can read back with junk in nested Vec/Box fields. But
+    // the pointer itself is valid, and the AzDom blob walk is what
+    // hit-test + diff actually consume, so this is OK for now.
     let styled = StyledDom::create(dom_ref, Css::empty());
     let boxed = Box::new(styled);
     s.current_dom_styled_ptr = Box::into_raw(boxed) as u32;
