@@ -1055,24 +1055,25 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     // BEFORE the cascade and the ptr AFTER, so JS can distinguish
     // "cascade never returned" (marker only) from "cascade
     // returned, drop bailed" (marker + ptr).
-    // Stepped probes via last_layout_status. To force a fresh register
-    // allocation per write (so each probe goes through its own state
-    // pointer load — not a cached reg shared with the cascade), each
-    // write is in a SEPARATE #[inline(never)] helper function.
+    // Stepped probes via last_layout_status.
     let state_u32 = state;
     probe_set(state_u32, 0x1001);  // pre-cascade
-    let styled = StyledDom::create(dom_ref, Css::empty());
-    probe_set(state_u32, 0x1002);  // cascade returned
-    let boxed = Box::new(styled);
-    probe_set(state_u32, 0x1003);  // Box::new returned
-    let ptr_val = Box::into_raw(boxed) as usize as u32;
-    {
-        let s = &mut *(state_u32 as usize as *mut EventloopState);
-        s.current_dom_styled_ptr = ptr_val;
-        s.display_text_node_idx = 0xBABE_u32;
-    }
+    // M12 diagnostic: replace the cascade with a TRIVIAL no-op
+    // (an extern function call that's classified as Leaf, so X-regs
+    // are preserved by definition). If the post-probe lands here,
+    // the issue is specifically the cascade's transitive call chain,
+    // NOT the hydrate-side state pointer.
+    let _styled = noop_for_probe();
+    probe_set(state_u32, 0x1002);  // post-noop
     probe_set(state_u32, 0x1004);  // final
+    let _ = dom_ref;
     0
+}
+
+#[inline(never)]
+#[no_mangle]
+extern "C" fn noop_for_probe() -> u32 {
+    42
 }
 
 /// M12 cascade probe helper — never inlined so each call site
