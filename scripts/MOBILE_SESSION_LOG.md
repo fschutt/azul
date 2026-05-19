@@ -628,6 +628,21 @@ Caller wiring: `MapWidget::create(layer).with_viewport(vp).dom_with_fetch(azul_d
 
 **Known caveats** (flagged for follow-up): (a) fetch only triggers on pointer-up — the first frame needs one tap/drag to kick loads; a timer or mount-lifecycle trigger would make it automatic, but the user noted timers may not work either, so deferred. (b) `Ready` tiles still render the placeholder glyph, not the actual SVG — the `Svg::parse` → DOM child step is the next tick. (c) The whole path is compile-verified only; the threading runtime is untested per the user's caveat. (d) The pre-existing `dll_api_internal.rs:62092` `SvgMultiPolygon` codegen bug still blocks `cargo test -p azul-dll --lib`.
 
+### Tick — P3.2h render Ready tiles' SVG as DOM child (2026-05-20)
+
+Closes caveat (b) above. The decoded SVG for a `Ready` tile now becomes a real DOM subtree (the tile div's child) via the framework's existing XML→DOM pipeline, instead of the `✓` placeholder glyph.
+
+- `layout/src/widgets/map.rs`:
+  - New `svg_string_to_dom(svg) -> Option<Dom>` helper, `#[cfg(feature = "xml")]`. Wraps the standalone `<svg>…</svg>` in a minimal `<html><body>…</body></html>` envelope (because `str_to_dom_unstyled` expects a document root; the wrappers are zero-impact in layout), then `crate::xml::parse_xml_string(wrapped)` → `azul_core::xml::str_to_dom_unstyled(nodes, &ComponentMap::default())` → `Dom`. The `#[cfg(not(feature = "xml"))]` stub returns `None`.
+  - `map_widget_render`'s per-tile state snapshot changed from a glyph-only `&str` map to a `TileDisplay { Glyph(&str) | Svg(AzString) }` map — `Ready` tiles carry their decoded SVG, the rest carry the state glyph (`…`/`⟳`/`✗`).
+  - The render loop: a `Ready` tile tries `svg_string_to_dom(svg)`; on `Some(dom)` the parsed SVG tree becomes the tile child; on `None` (xml off / parse failure) it falls back to a `✓?` label. Pending / Fetching / Failed tiles keep the glyph + `zN/X/Y` label.
+
+Feature interplay: the SVG-parse path is live whenever `xml` is enabled. The mobile gate builds `azul-dll` with `link-static` → `_internal_deps` pulls `azul-layout/xml`, so the `#[cfg(feature = "xml")]` branch is exercised by the gate. Standalone `cargo check -p azul-layout` (no `xml`) compiles the stub. Both verified.
+
+`cargo check -p azul-layout` GREEN; `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (6/6/6/6/6 s). Disk was at 95% pre-tick — `rm -rf target/debug/incremental` freed it to 93% (16 GiB), enough for `cargo check` (only `cargo test` balloons target/).
+
+The map content pipeline is now wired end to end at the source level: visible-tile grid → Pending → spawn `Thread` (P3.2g) → `http_get` + `decode_mvt_tile` + `features_to_svg` → writeback `Ready{svg}` → **parse SVG → DOM child (this tick)**. Remaining: (1) confirm the threading runtime actually delivers (user-flagged uncertainty); (2) the MapCSS styling layer (currently `features_to_svg` uses a hardcoded per-layer palette); (3) auto-trigger the first fetch without requiring a tap (timer/mount); (4) enable `map-tiles` on the AzulMaps example + wire `dom_with_fetch(tile_fetch_worker)` so the demo shows real tiles.
+
 The widget callback chain uses `crate::callbacks::Callback::from(fn as CallbackType)` rather than passing the bare fn pointer, because `Dom::with_callback` in `azul-core` takes `Into<CoreCallback>` (the FFI `usize` form) — `Callback` has the requisite `From<CallbackType>` impl from the framework's macro; the bare fn ptr does not.
 
 `bash scripts/mobile-check-all.sh` GREEN across all 5 mobile targets (9/7/6/6/6 s). No regressions; AzulPaint + AzulMaps still build cleanly. Codegen unchanged (the new pan callbacks are private widget internals, not part of the public api.json surface).

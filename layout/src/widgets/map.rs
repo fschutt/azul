@@ -499,6 +499,27 @@ fn wrap_lon(lon: f64) -> f64 {
     ((lon + 540.0) % 360.0) - 180.0
 }
 
+/// Parse a standalone `<svg>…</svg>` string into a `Dom` subtree via
+/// the framework's existing XML→DOM path. The SVG is wrapped in a
+/// minimal `<html><body>` envelope because `str_to_dom_unstyled`
+/// expects a document root; the wrapper divs are zero-impact in
+/// layout. Returns `None` if the `xml` feature is off or parsing
+/// fails — the caller then falls back to the placeholder glyph.
+#[cfg(feature = "xml")]
+fn svg_string_to_dom(svg: &str) -> Option<Dom> {
+    use azul_core::xml::{str_to_dom_unstyled, ComponentMap};
+
+    let wrapped = alloc::format!("<html><body>{}</body></html>", svg);
+    let nodes = crate::xml::parse_xml_string(&wrapped).ok()?;
+    let component_map = ComponentMap::default();
+    str_to_dom_unstyled(nodes.as_ref(), &component_map).ok()
+}
+
+#[cfg(not(feature = "xml"))]
+fn svg_string_to_dom(_svg: &str) -> Option<Dom> {
+    None
+}
+
 /// Scan the cache for `Pending` tiles and spawn one framework `Thread`
 /// per tile (capped per call so a big viewport jump doesn't spawn
 /// hundreds at once). Each thread gets:
@@ -673,22 +694,27 @@ extern "C" fn map_widget_render(
         }
     }
 
-    // Snapshot the per-tile state so the placeholder label can show
-    // whether a tile is Pending / Fetching / Ready / Failed — makes the
-    // fetch + writeback path observable before the SVG-to-DOM render
-    // lands. (Read under a short borrow, then drop before building DOM.)
-    let states: BTreeMap<MapTileId, &'static str> = match data.downcast_ref::<MapTileCache>() {
+    // Snapshot the per-tile state under a short borrow, then drop it
+    // before building DOM. `Ready` tiles carry their decoded SVG so the
+    // render loop can parse it into a DOM child; the rest carry a glyph
+    // (`…` Pending / `⟳` Fetching / `✗` Failed) so the fetch path stays
+    // observable.
+    enum TileDisplay {
+        Glyph(&'static str),
+        Svg(AzString),
+    }
+    let states: BTreeMap<MapTileId, TileDisplay> = match data.downcast_ref::<MapTileCache>() {
         Some(c) => c
             .tiles
             .iter()
             .map(|(id, e)| {
-                let tag = match e {
-                    TileEntry::Pending => "…",
-                    TileEntry::Fetching => "⟳",
-                    TileEntry::Ready { .. } => "✓",
-                    TileEntry::Failed { .. } => "✗",
+                let disp = match e {
+                    TileEntry::Pending => TileDisplay::Glyph("…"),
+                    TileEntry::Fetching => TileDisplay::Glyph("⟳"),
+                    TileEntry::Ready { svg } => TileDisplay::Svg(svg.clone()),
+                    TileEntry::Failed { .. } => TileDisplay::Glyph("✗"),
                 };
-                (*id, tag)
+                (*id, disp)
             })
             .collect(),
         None => BTreeMap::new(),
@@ -723,15 +749,33 @@ extern "C" fn map_widget_render(
 
             let mut tile_div = Dom::create_div().with_css(style.as_str());
 
-            // Stamp the tile id + cache-state glyph as a child text so
-            // users can confirm the grid math + fetch state without a
-            // real renderer. Replaced with the decoded SVG DOM once the
-            // svg-to-dom step lands.
-            let state_tag = states.get(&id).copied().unwrap_or("");
-            tile_div = tile_div.with_child(
-                Dom::create_text(alloc::format!("{} z{}/{}/{}", state_tag, z_int, x, y))
-                    .with_css("position: absolute; left: 4px; top: 4px; font-size: 11px; color: #888;"),
-            );
+            // `Ready` tiles render their decoded SVG as a child DOM
+            // tree (parsed via the framework's existing XML→DOM path);
+            // everything else shows a state glyph + tile id so the grid
+            // math + fetch state stay observable.
+            match states.get(&id) {
+                Some(TileDisplay::Svg(svg)) => match svg_string_to_dom(svg.as_str()) {
+                    Some(svg_dom) => {
+                        tile_div = tile_div.with_child(svg_dom);
+                    }
+                    None => {
+                        tile_div = tile_div.with_child(
+                            Dom::create_text(alloc::format!("✓? z{}/{}/{}", z_int, x, y))
+                                .with_css("position: absolute; left: 4px; top: 4px; font-size: 11px; color: #888;"),
+                        );
+                    }
+                },
+                other => {
+                    let state_tag = match other {
+                        Some(TileDisplay::Glyph(g)) => *g,
+                        _ => "",
+                    };
+                    tile_div = tile_div.with_child(
+                        Dom::create_text(alloc::format!("{} z{}/{}/{}", state_tag, z_int, x, y))
+                            .with_css("position: absolute; left: 4px; top: 4px; font-size: 11px; color: #888;"),
+                    );
+                }
+            }
 
             grid = grid.with_child(tile_div);
         }
