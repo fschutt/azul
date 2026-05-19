@@ -1165,7 +1165,18 @@ pub unsafe extern "C" fn AzStartup_getPositionedRectsPtr(state: u32) -> u32 {
 // scripts/M9_WASM_DOM_HANDOFF.md § "TLV schema".
 
 const TLV_HEADER_BYTES: u32 = 1 + 4 + 4;
-pub const PATCH_KIND_SET_TEXT: u8 = 1;
+pub const PATCH_KIND_SET_TEXT:         u8 = 1;
+pub const PATCH_KIND_SET_ATTR:         u8 = 2;
+pub const PATCH_KIND_REMOVE_ATTR:      u8 = 3;
+pub const PATCH_KIND_SET_INLINE_STYLE: u8 = 4;
+pub const PATCH_KIND_REMOVE_NODE:      u8 = 5;
+pub const PATCH_KIND_INSERT_NODE:      u8 = 6;
+pub const PATCH_KIND_MOVE_NODE:        u8 = 7;
+pub const PATCH_KIND_REPLACE_SUBTREE:  u8 = 8;
+pub const PATCH_KIND_FOCUS:            u8 = 9;
+pub const PATCH_KIND_SCROLL_TO:        u8 = 10;
+pub const PATCH_KIND_ADD_CLASS:        u8 = 11;
+pub const PATCH_KIND_REMOVE_CLASS:     u8 = 12;
 
 /// Write a u32 in little-endian into `out` starting at `offset`.
 /// Returns the byte count written (always 4). The store is a single
@@ -1248,6 +1259,105 @@ pub unsafe extern "C" fn AzStartup_buildCounterPatch(
         k += 1;
     }
     TLV_HEADER_BYTES + text_len
+}
+
+/// Encode a TLV patch with arbitrary payload bytes. Used by Sprint 3
+/// patch emission paths that have the payload already laid out in
+/// memory (text strings, attribute values, inline-style CSS bytes).
+///
+/// Layout:
+///   kind(1) | node_idx(4) | payload_len(4) | payload[payload_len]
+///
+/// Returns total bytes written, or 0 if `out_buf` is null / too
+/// small / `payload_ptr` is null while `payload_len > 0`.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_buildPatch(
+    out_buf: u32,
+    out_buf_cap: u32,
+    kind: u32,
+    node_idx: u32,
+    payload_ptr: u32,
+    payload_len: u32,
+) -> u32 {
+    if out_buf == 0 {
+        return 0;
+    }
+    let total = TLV_HEADER_BYTES.wrapping_add(payload_len);
+    if out_buf_cap < total {
+        return 0;
+    }
+    if payload_len > 0 && payload_ptr == 0 {
+        return 0;
+    }
+    // Direct address arithmetic on u32 — no helper calls, no
+    // intermediate usize.
+    let out0 = out_buf as usize as *mut u8;
+    *out0 = kind as u8;
+    let out1 = out_buf.wrapping_add(1) as usize as *mut u32;
+    core::ptr::write_unaligned(out1, node_idx);
+    let out5 = out_buf.wrapping_add(5) as usize as *mut u32;
+    core::ptr::write_unaligned(out5, payload_len);
+    // Byte copy via plain u32 indexes.
+    let mut k: u32 = 0;
+    while k < payload_len {
+        let src_addr = payload_ptr.wrapping_add(k) as usize as *const u8;
+        let dst_addr = out_buf.wrapping_add(TLV_HEADER_BYTES).wrapping_add(k) as usize as *mut u8;
+        *dst_addr = *src_addr;
+        k = k.wrapping_add(1);
+    }
+    total
+}
+
+/// Re-run the layout callback against the current refany, writing
+/// the new AzDom blob into a fresh wasm-allocated buffer. The old
+/// buffer's wasm offset moves to `state.prev_dom_ptr`; the new
+/// offset replaces `state.current_dom_ptr`. Resets
+/// `current_dom_hydrated` + `layout_solved` so the next dispatch
+/// re-hydrates.
+///
+/// Status codes:
+///   * `0`  — success, current_dom_ptr swapped.
+///   * `1`  — null state.
+///   * `2`  — `layout_cb_table_idx` or `refany_ptr` not set.
+///   * `3`  — buildLayoutInfo / alloc failure.
+///   * `100..=199` — layout cb returned non-zero status (low byte
+///                   is the cb's status).
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_relayout(state: u32) -> u32 {
+    if state == 0 {
+        return 1;
+    }
+    let s = &mut *(state as usize as *mut EventloopState);
+    if s.layout_cb_table_idx == 0 || s.refany_ptr == 0 {
+        return 2;
+    }
+    let info_ptr = AzStartup_alloc(512);
+    let new_out_ptr = AzStartup_alloc(256);
+    if info_ptr == 0 || new_out_ptr == 0 {
+        return 3;
+    }
+    let cb_status = __az_call_indirect_layout4(
+        s.layout_cb_table_idx,
+        s.refany_ptr as u64,
+        0,
+        info_ptr,
+        new_out_ptr,
+    );
+    s.last_layout_status = cb_status;
+    if cb_status != 0 {
+        return 100 + cb_status;
+    }
+    // Move the prior tree to prev_dom_ptr; new tree owns
+    // current_dom_ptr. JS hit-test consumers continue to use the
+    // cached positioned_rects until the next solveLayout runs.
+    s.prev_dom_ptr = s.current_dom_ptr;
+    s.current_dom_ptr = new_out_ptr;
+    s.current_dom_hydrated = 0;
+    s.layout_solved = 0;
+    // Recount the new tree's nodes for diff arena sizing.
+    s.current_dom_node_count =
+        count_az_dom_nodes(new_out_ptr as usize as *const u8);
+    0
 }
 
 // =====================================================================

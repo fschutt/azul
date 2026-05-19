@@ -303,6 +303,26 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
             ],
             ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
         }),
+        // M11 Sprint 3 — relayout (state-only) + buildPatch (6 args).
+        "AzStartup_relayout" => Some(CallbackSignature {
+            kind: name.to_string(),
+            args: vec![Pcs::Wreg { state_byte_offset: X0 }],
+            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+        }),
+        "AzStartup_buildPatch" => Some(CallbackSignature {
+            kind: name.to_string(),
+            // (out_buf, out_buf_cap, kind, node_idx, payload_ptr,
+            //  payload_len) -> total_bytes
+            args: vec![
+                Pcs::Wreg { state_byte_offset: X0 },
+                Pcs::Wreg { state_byte_offset: X1 },
+                Pcs::Wreg { state_byte_offset: X2 },
+                Pcs::Wreg { state_byte_offset: X3 },
+                Pcs::Wreg { state_byte_offset: X4 },
+                Pcs::Wreg { state_byte_offset: 624 }, // X5
+            ],
+            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+        }),
         _ => None,
     }
 }

@@ -82,6 +82,11 @@ pub const EVENTLOOP_SYMBOLS: &[&str] = &[
     "AzStartup_isLayoutSolved",
     "AzStartup_getPositionedRectsLen",
     "AzStartup_getPositionedRectsPtr",
+    // M11 Sprint 3: relayout + generalized patch builder for
+    // SetText / SetAttr / SetInlineStyle / RemoveNode / InsertNode.
+    // The JS decoder switches on kind.
+    "AzStartup_relayout",
+    "AzStartup_buildPatch",
 ];
 
 use std::collections::{BTreeMap, HashMap};

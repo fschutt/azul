@@ -574,12 +574,33 @@ function azDispatch(kind, domEvent) {
     azMini.AzStartup_free(outLenPtr, OUT_LEN_SIZE);
 }
 
-// TLV patch-stream decoder. Layout per dll/src/web/eventloop.rs
-// AzStartup_getPatches doc (M8.5d will populate this):
-//   kind:u8 | node_idx:u32 | payload_len:u32 | payload:[u8; payload_len]
+// TLV patch-stream decoder. M11 Sprint 3 schema:
+//   kind:u8 | node_idx:u32 LE | payload_len:u32 LE | payload[payload_len]
 //
-// M8.6 stub: dispatchEvent currently returns 0 (no patches). Once
-// M8.5d wires real patches, this decoder applies them to the DOM.
+// Kinds — keep in sync with eventloop.rs PATCH_KIND_* constants:
+//   1  SetText           — payload = UTF-8 text bytes
+//   2  SetAttr           — payload = name:cstr | value:cstr
+//   3  RemoveAttr        — payload = name:cstr
+//   4  SetInlineStyle    — payload = css_text bytes
+//   5  RemoveNode        — payload empty
+//   6  InsertNode        — payload = parent_node_idx:u32 | html_or_blob bytes
+//   7  MoveNode          — payload = new_parent_idx:u32 | new_sibling_idx:u32
+//   8  ReplaceSubtree    — payload = new_subtree_html bytes
+//   9  Focus             — payload empty
+//   10 ScrollTo          — payload = x:i32 | y:i32
+//   11 AddClass          — payload = class name bytes
+//   12 RemoveClass       — payload = class name bytes
+function azDecodeCstr(view, payloadOff, payloadEnd) {
+    // Read NUL-terminated bytes starting at payloadOff; returns
+    // (string, bytes_consumed_incl_NUL). If no NUL found before
+    // payloadEnd, returns the rest of the slice.
+    var end = payloadOff;
+    while (end < payloadEnd && view.getUint8(end) !== 0) end++;
+    var bytes = new Uint8Array(azMemory.buffer, payloadOff, end - payloadOff);
+    var s = new TextDecoder().decode(bytes);
+    return [s, (end < payloadEnd ? (end - payloadOff + 1) : (end - payloadOff))];
+}
+
 function azApplyPatches(ptr, len) {
     var view = new DataView(azMemory.buffer);
     var off = 0;
@@ -588,12 +609,82 @@ function azApplyPatches(ptr, len) {
         var nodeIdx     = view.getUint32(ptr + off + 1, true);
         var payloadLen  = view.getUint32(ptr + off + 5, true);
         var payloadOff  = ptr + off + 9;
+        var payloadEnd  = payloadOff + payloadLen;
         switch (kind) {
             case 1: { // SetText
                 var bytes = new Uint8Array(azMemory.buffer, payloadOff, payloadLen);
                 var text = new TextDecoder().decode(bytes);
                 var el = document.getElementById('az_' + nodeIdx);
                 if (el) el.textContent = text;
+                break;
+            }
+            case 2: { // SetAttr — name\0value\0
+                var pair = azDecodeCstr(view, payloadOff, payloadEnd);
+                var name = pair[0];
+                var valuePair = azDecodeCstr(view, payloadOff + pair[1], payloadEnd);
+                var value = valuePair[0];
+                var el2 = document.getElementById('az_' + nodeIdx);
+                if (el2) el2.setAttribute(name, value);
+                break;
+            }
+            case 3: { // RemoveAttr — name\0
+                var name3 = azDecodeCstr(view, payloadOff, payloadEnd)[0];
+                var el3 = document.getElementById('az_' + nodeIdx);
+                if (el3) el3.removeAttribute(name3);
+                break;
+            }
+            case 4: { // SetInlineStyle — css_text
+                var css = new TextDecoder().decode(
+                    new Uint8Array(azMemory.buffer, payloadOff, payloadLen));
+                var el4 = document.getElementById('az_' + nodeIdx);
+                if (el4) el4.setAttribute('style', css);
+                break;
+            }
+            case 5: { // RemoveNode — payload empty
+                var el5 = document.getElementById('az_' + nodeIdx);
+                if (el5 && el5.parentNode) el5.parentNode.removeChild(el5);
+                break;
+            }
+            case 6: { // InsertNode — parent_idx:u32 | html bytes
+                if (payloadLen < 4) break;
+                var parentIdx = view.getUint32(payloadOff, true);
+                var htmlBytes = new Uint8Array(azMemory.buffer, payloadOff + 4, payloadLen - 4);
+                var html = new TextDecoder().decode(htmlBytes);
+                var parent = document.getElementById('az_' + parentIdx);
+                if (parent) {
+                    var tmpl = document.createElement('template');
+                    tmpl.innerHTML = html;
+                    if (tmpl.content.firstElementChild) {
+                        parent.appendChild(tmpl.content.firstElementChild);
+                    }
+                }
+                break;
+            }
+            case 9: { // Focus
+                var el9 = document.getElementById('az_' + nodeIdx);
+                if (el9 && typeof el9.focus === 'function') el9.focus();
+                break;
+            }
+            case 10: { // ScrollTo — x:i32 | y:i32
+                if (payloadLen < 8) break;
+                var sx = view.getInt32(payloadOff, true);
+                var sy = view.getInt32(payloadOff + 4, true);
+                var el10 = document.getElementById('az_' + nodeIdx);
+                if (el10) el10.scrollTo(sx, sy);
+                break;
+            }
+            case 11: { // AddClass
+                var cn = new TextDecoder().decode(
+                    new Uint8Array(azMemory.buffer, payloadOff, payloadLen));
+                var el11 = document.getElementById('az_' + nodeIdx);
+                if (el11) el11.classList.add(cn);
+                break;
+            }
+            case 12: { // RemoveClass
+                var cn12 = new TextDecoder().decode(
+                    new Uint8Array(azMemory.buffer, payloadOff, payloadLen));
+                var el12 = document.getElementById('az_' + nodeIdx);
+                if (el12) el12.classList.remove(cn12);
                 break;
             }
             default:
