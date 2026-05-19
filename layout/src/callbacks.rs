@@ -3144,6 +3144,46 @@ impl CallbackInfo {
         self.get_last_input_sample().map(|sample| sample.event_id)
     }
 
+    // Gesture Query Methods
+    //
+    // These read whatever the in-process `GestureAndDragManager` has detected
+    // from the touch / mouse stream. On platforms with native gesture
+    // recognizers (iOS UIKit, Android `GestureDetector`), the platform
+    // backend may inject pre-detected gestures via
+    // `GestureAndDragManager::inject_native_gesture(...)` — accessors below
+    // see the same data regardless of source, fulfilling Azul's
+    // "superset of every platform" guarantee for gesture handlers.
+
+    /// Returns the dominant direction of the current swipe gesture, if any.
+    /// Detection uses the touch / pointer trajectory and a velocity
+    /// threshold; on iOS / Android the platform backend may override the
+    /// in-process detector with a native gesture-recognizer result.
+    pub fn get_swipe_direction(&self) -> crate::managers::gesture::OptionGestureDirection {
+        self.get_gesture_drag_manager().detect_swipe_direction().into()
+    }
+
+    /// Returns the active pinch gesture (scale + center + distances), if any.
+    pub fn get_pinch(&self) -> crate::managers::gesture::OptionDetectedPinch {
+        self.get_gesture_drag_manager().detect_pinch().into()
+    }
+
+    /// Returns the active rotation gesture (radians + center), if any.
+    pub fn get_rotation(&self) -> crate::managers::gesture::OptionDetectedRotation {
+        self.get_gesture_drag_manager().detect_rotation().into()
+    }
+
+    /// Returns the active long-press, if the user is currently holding a
+    /// pointer in place beyond the configured threshold.
+    pub fn get_long_press(&self) -> crate::managers::gesture::OptionDetectedLongPress {
+        self.get_gesture_drag_manager().detect_long_press().into()
+    }
+
+    /// True iff the gesture manager classified the current event sequence
+    /// as a double-click / double-tap.
+    pub fn was_double_clicked(&self) -> bool {
+        self.get_gesture_drag_manager().detect_double_click()
+    }
+
     // Focus Management Methods
 
     /// Set focus to a specific DOM node by ID

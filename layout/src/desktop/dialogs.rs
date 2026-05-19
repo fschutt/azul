@@ -1,5 +1,11 @@
-//! Native OS dialog wrappers (message boxes, file open/save, color picker)
-//! built on top of the `tfd` (tiny-file-dialogs) crate.
+//! Native OS dialog wrappers (message boxes, file open/save, color picker).
+//!
+//! Desktop targets back this with the `tfd` (tiny-file-dialogs) crate; on
+//! Android / iOS every method is a no-op that returns the "cancelled / safe
+//! default" answer (there is no equivalent of `tfd` on those platforms from
+//! a pure-Rust crate, and `tfd 0.1.0` does not cross-compile for them
+//! anyway). The public type surface is identical on every target so
+//! consumer code keeps compiling.
 
 use azul_css::{
     corety::OptionString,
@@ -7,6 +13,8 @@ use azul_css::{
     props::basic::color::{ColorU, OptionColorU},
     AzString, OptionStringVec, StringVec,
 };
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use tfd::{DefaultColorValue, MessageBoxIcon};
 
 /// Static-method namespace for `tfd`-backed message-box dialogs.
@@ -37,6 +45,7 @@ pub enum OkCancel {
     Cancel,
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 impl From<tfd::OkCancel> for OkCancel {
     #[inline]
     fn from(e: tfd::OkCancel) -> Self {
@@ -47,6 +56,7 @@ impl From<tfd::OkCancel> for OkCancel {
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 impl From<OkCancel> for tfd::OkCancel {
     #[inline]
     fn from(e: OkCancel) -> Self {
@@ -64,6 +74,7 @@ pub enum YesNo {
     No,
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 impl From<YesNo> for tfd::YesNo {
     #[inline]
     fn from(e: YesNo) -> Self {
@@ -74,6 +85,7 @@ impl From<YesNo> for tfd::YesNo {
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 impl From<tfd::YesNo> for YesNo {
     #[inline]
     fn from(e: tfd::YesNo) -> Self {
@@ -93,6 +105,7 @@ pub enum MsgBoxIcon {
     Question,
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 impl From<MsgBoxIcon> for MessageBoxIcon {
     #[inline]
     fn from(e: MsgBoxIcon) -> Self {
@@ -117,13 +130,19 @@ impl MsgBox {
     /// message to work around `tfd` misinterpreting them as shell metacharacters
     /// on some platforms.
     pub fn ok(title: AzString, message: AzString, icon: MsgBoxIcon) {
-        let mut msg = message.as_str().to_string();
-        msg = msg.replace('\"', "");
-        msg = msg.replace('\'', "");
-
-        tfd::MessageBox::new(title.as_str(), &msg)
-            .with_icon(icon.into())
-            .run_modal();
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        {
+            let mut msg = message.as_str().to_string();
+            msg = msg.replace('\"', "");
+            msg = msg.replace('\'', "");
+            tfd::MessageBox::new(title.as_str(), &msg)
+                .with_icon(icon.into())
+                .run_modal();
+        }
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        {
+            let _ = (title, message, icon);
+        }
     }
 
     /// "Ok / Cancel" message box — title, message, icon, default button.
@@ -133,10 +152,18 @@ impl MsgBox {
         icon: MsgBoxIcon,
         default: OkCancel,
     ) -> OkCancel {
-        tfd::MessageBox::new(title.as_str(), message.as_str())
-            .with_icon(icon.into())
-            .run_modal_ok_cancel(default.into())
-            .into()
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        {
+            tfd::MessageBox::new(title.as_str(), message.as_str())
+                .with_icon(icon.into())
+                .run_modal_ok_cancel(default.into())
+                .into()
+        }
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        {
+            let _ = (title, message, icon);
+            default
+        }
     }
 
     /// "Yes / No" message box — title, message, icon, default button.
@@ -146,10 +173,18 @@ impl MsgBox {
         icon: MsgBoxIcon,
         default: YesNo,
     ) -> YesNo {
-        tfd::MessageBox::new(title.as_str(), message.as_str())
-            .with_icon(icon.into())
-            .run_modal_yes_no(default.into())
-            .into()
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        {
+            tfd::MessageBox::new(title.as_str(), message.as_str())
+                .with_icon(icon.into())
+                .run_modal_yes_no(default.into())
+                .into()
+        }
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        {
+            let _ = (title, message, icon);
+            default
+        }
     }
 
     /// Convenience: "Ok" message box with the title "Info" and an info icon.
@@ -167,23 +202,29 @@ impl ColorPickerDialog {
 
     /// Opens the default color picker dialog. Returns `None` if cancelled.
     pub fn open(title: AzString, default_value: OptionColorU) -> OptionColorU {
-        let rgb = default_value
-            .into_option()
-            .map_or([0, 0, 0], |c| [c.r, c.g, c.b]);
-
-        let default_color = DefaultColorValue::RGB(rgb);
-        let result = tfd::ColorChooser::new(title.as_str())
-            .with_default_color(default_color)
-            .run_modal();
-
-        match result {
-            Some(r) => OptionColorU::Some(ColorU {
-                r: r.1[0],
-                g: r.1[1],
-                b: r.1[2],
-                a: ColorU::ALPHA_OPAQUE,
-            }),
-            None => OptionColorU::None,
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        {
+            let rgb = default_value
+                .into_option()
+                .map_or([0, 0, 0], |c| [c.r, c.g, c.b]);
+            let default_color = DefaultColorValue::RGB(rgb);
+            let result = tfd::ColorChooser::new(title.as_str())
+                .with_default_color(default_color)
+                .run_modal();
+            match result {
+                Some(r) => OptionColorU::Some(ColorU {
+                    r: r.1[0],
+                    g: r.1[1],
+                    b: r.1[2],
+                    a: ColorU::ALPHA_OPAQUE,
+                }),
+                None => OptionColorU::None,
+            }
+        }
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        {
+            let _ = title;
+            default_value
         }
     }
 }
@@ -203,6 +244,7 @@ impl_option!(
 );
 
 /// Apply a [`FileTypeList`] filter to a `tfd::FileDialog`.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn apply_filter(mut dialog: tfd::FileDialog, filter: FileTypeList) -> tfd::FileDialog {
     let v = filter.document_types.clone().into_library_owned_vec();
     let patterns: Vec<&str> = v.iter().map(|s| s.as_str()).collect();
@@ -218,67 +260,86 @@ impl FileDialog {
     }
 
     /// Open a single file. Returns `None` if the user cancelled.
-    ///
-    /// `filter_list` filters by extension, e.g. `["doc", "docx"]`.
     pub fn open_file(
         title: AzString,
         default_path: OptionString,
         filter_list: OptionFileTypeList,
     ) -> OptionString {
-        let mut dialog = tfd::FileDialog::new(title.as_str());
-
-        if let Some(path) = default_path.as_option() {
-            dialog = dialog.with_path(path.as_str());
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        {
+            let mut dialog = tfd::FileDialog::new(title.as_str());
+            if let Some(path) = default_path.as_option() {
+                dialog = dialog.with_path(path.as_str());
+            }
+            if let Some(filter) = filter_list.into_option() {
+                dialog = apply_filter(dialog, filter);
+            }
+            dialog.open_file().map(AzString::from).into()
         }
-
-        if let Some(filter) = filter_list.into_option() {
-            dialog = apply_filter(dialog, filter);
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        {
+            let _ = (title, default_path, filter_list);
+            OptionString::None
         }
-
-        dialog.open_file().map(AzString::from).into()
     }
 
     /// Open a directory. Returns `None` if the user cancelled.
     pub fn open_directory(title: AzString, default_path: OptionString) -> OptionString {
-        let mut dialog = tfd::FileDialog::new(title.as_str());
-
-        if let Some(path) = default_path.as_option() {
-            dialog = dialog.with_path(path.as_str());
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        {
+            let mut dialog = tfd::FileDialog::new(title.as_str());
+            if let Some(path) = default_path.as_option() {
+                dialog = dialog.with_path(path.as_str());
+            }
+            dialog.select_folder().map(AzString::from).into()
         }
-
-        dialog.select_folder().map(AzString::from).into()
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        {
+            let _ = (title, default_path);
+            OptionString::None
+        }
     }
 
     /// Open multiple files. Returns `None` if the user cancelled.
-    ///
-    /// `filter_list` filters by extension, e.g. `["doc", "docx"]`.
     pub fn open_multiple_files(
         title: AzString,
         default_path: OptionString,
         filter_list: OptionFileTypeList,
     ) -> OptionStringVec {
-        let mut dialog = tfd::FileDialog::new(title.as_str()).with_multiple_selection(true);
-
-        if let Some(path) = default_path.as_option() {
-            dialog = dialog.with_path(path.as_str());
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        {
+            let mut dialog =
+                tfd::FileDialog::new(title.as_str()).with_multiple_selection(true);
+            if let Some(path) = default_path.as_option() {
+                dialog = dialog.with_path(path.as_str());
+            }
+            if let Some(filter) = filter_list.into_option() {
+                dialog = apply_filter(dialog, filter);
+            }
+            dialog.open_files().map(StringVec::from).into()
         }
-
-        if let Some(filter) = filter_list.into_option() {
-            dialog = apply_filter(dialog, filter);
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        {
+            let _ = (title, default_path, filter_list);
+            OptionStringVec::None
         }
-
-        dialog.open_files().map(StringVec::from).into()
     }
 
     /// Save file dialog. Returns `None` if the user cancelled.
     pub fn save_file(title: AzString, default_path: OptionString) -> OptionString {
-        let mut dialog = tfd::FileDialog::new(title.as_str());
-
-        if let Some(path) = default_path.as_option() {
-            dialog = dialog.with_path(path.as_str());
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        {
+            let mut dialog = tfd::FileDialog::new(title.as_str());
+            if let Some(path) = default_path.as_option() {
+                dialog = dialog.with_path(path.as_str());
+            }
+            dialog.save_file().map(AzString::from).into()
         }
-
-        dialog.save_file().map(AzString::from).into()
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        {
+            let _ = (title, default_path);
+            OptionString::None
+        }
     }
 }
 

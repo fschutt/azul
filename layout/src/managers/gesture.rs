@@ -267,6 +267,7 @@ pub struct DetectedDrag {
 
 /// Result of long-press detection
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
 pub struct DetectedLongPress {
     /// Position where long press is happening
     pub position: LogicalPosition,
@@ -280,6 +281,7 @@ pub struct DetectedLongPress {
 
 /// Primary direction of a gesture
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
 pub enum GestureDirection {
     Up,
     Down,
@@ -287,8 +289,30 @@ pub enum GestureDirection {
     Right,
 }
 
+impl_option!(
+    GestureDirection,
+    OptionGestureDirection,
+    [Debug, Clone, Copy, PartialEq, Eq]
+);
+impl_option!(
+    DetectedPinch,
+    OptionDetectedPinch,
+    [Debug, Clone, Copy, PartialEq]
+);
+impl_option!(
+    DetectedRotation,
+    OptionDetectedRotation,
+    [Debug, Clone, Copy, PartialEq]
+);
+impl_option!(
+    DetectedLongPress,
+    OptionDetectedLongPress,
+    [Debug, Clone, Copy, PartialEq]
+);
+
 /// Result of pinch gesture detection
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
 pub struct DetectedPinch {
     /// Scale factor (< 1.0 for pinch in, > 1.0 for pinch out)
     pub scale: f32,
@@ -304,6 +328,7 @@ pub struct DetectedPinch {
 
 /// Result of rotation gesture detection
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
 pub struct DetectedRotation {
     /// Rotation angle in radians (positive = clockwise)
     pub angle_radians: f32,

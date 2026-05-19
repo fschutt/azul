@@ -165,6 +165,16 @@ Each sprint has: **GOAL**, **FILES**, **GATE** (verifiable check), **REFERENCE**
 * GPU on iOS via EAGLContext + CAEAGLLayer (optional).
 * Vulkan / OpenGL ES on Android (optional, only if profiling shows blit cost matters).
 
+### Sprint M — Native gesture recognizers ("superset of every platform")
+
+* **Goal:** Azul's gesture surface (`HoverEventFilter::{DoubleClick, LongPress, SwipeLeft/Right/Up/Down, PinchIn/Out, RotateClockwise, RotateCounterClockwise}` plus the `CallbackInfo::{get_swipe_direction, get_pinch, get_rotation, get_long_press, was_double_clicked}` accessors) fires identically on every platform, but the *source* of detection is the highest-quality available:
+  * **iOS** — wire `UITapGestureRecognizer` (double-tap), `UILongPressGestureRecognizer`, `UISwipeGestureRecognizer`, `UIPinchGestureRecognizer`, `UIRotationGestureRecognizer` onto `AzulView`; their `target:selector:` callbacks call into Rust and inject `NativeGestureEvent::{DoubleClick, LongPress, Swipe(dir), Pinch(scale), Rotation(angle)}` into the `GestureAndDragManager`.
+  * **Android** — wire `GestureDetector.OnGestureListener` + `ScaleGestureDetector` via a small JNI bridge (similar in spirit to `NativeInputConnection`); inject the same events.
+  * **macOS** — `NSGestureRecognizer` subclasses (pinch/rotate are first-class on the trackpad).
+  * **Linux / Windows** — fall back to the in-process `GestureAndDragManager::detect_*` heuristics; these already work today.
+* **Architectural hook:** `GestureAndDragManager::inject_native_gesture(NativeGestureEvent)` overrides the in-process detector for the current event frame. Accessors on `CallbackInfo` check the override slot before running detection, so callbacks observe consistent results regardless of source.
+* **Acceptance:** `cargo check --target aarch64-linux-android -p azul-dll` stays green; manually exercise on a real device that `get_swipe_direction()` returns the swipe direction the OS recognizer reported.
+
 ---
 
 ## 4. Architectural decisions

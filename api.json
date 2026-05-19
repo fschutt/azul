@@ -9245,6 +9245,81 @@
                                     }
                                 ],
                                 "fn_body": "object.set_drop_effect(effect)"
+                            },
+                            "was_double_clicked": {
+                                "doc": [
+                                    "True iff the gesture manager classified the current event sequence",
+                                    "as a double-click / double-tap."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.was_double_clicked()"
+                            },
+                            "get_swipe_direction": {
+                                "doc": [
+                                    "Returns the dominant direction of the current swipe gesture, if any.",
+                                    "Detection uses the touch / pointer trajectory and a velocity",
+                                    "threshold; on iOS / Android the platform backend may override the",
+                                    "in-process detector with a native gesture-recognizer result."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionGestureDirection"
+                                },
+                                "fn_body": "object.get_swipe_direction().into()"
+                            },
+                            "get_pinch": {
+                                "doc": [
+                                    "Returns the active pinch gesture (scale + center + distances), if any."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionDetectedPinch"
+                                },
+                                "fn_body": "object.get_pinch().into()"
+                            },
+                            "get_rotation": {
+                                "doc": [
+                                    "Returns the active rotation gesture (radians + center), if any."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionDetectedRotation"
+                                },
+                                "fn_body": "object.get_rotation().into()"
+                            },
+                            "get_long_press": {
+                                "doc": [
+                                    "Returns the active long-press, if the user is currently holding a",
+                                    "pointer in place beyond the configured threshold."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionDetectedLongPress"
+                                },
+                                "fn_body": "object.get_long_press().into()"
                             }
                         },
                         "repr": "C"
@@ -10491,6 +10566,151 @@
                                 },
                                 "y_tilt": {
                                     "type": "f32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "GestureDirection": {
+                        "doc": [
+                            "Dominant direction of a swipe gesture, used by `CallbackInfo::get_swipe_direction()`."
+                        ],
+                        "external": "azul_layout::managers::gesture::GestureDirection",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Up": {},
+                                "Down": {},
+                                "Left": {},
+                                "Right": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DetectedPinch": {
+                        "doc": [
+                            "Result of pinch gesture detection (scale + center + travel distances + duration)."
+                        ],
+                        "external": "azul_layout::managers::gesture::DetectedPinch",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "scale": {
+                                    "type": "f32",
+                                    "doc": [
+                                        "Scale factor (< 1.0 for pinch in, > 1.0 for pinch out)"
+                                    ]
+                                },
+                                "center": {
+                                    "type": "LogicalPosition",
+                                    "doc": [
+                                        "Center point of the pinch gesture"
+                                    ]
+                                },
+                                "initial_distance": {
+                                    "type": "f32",
+                                    "doc": [
+                                        "Distance between touch points when the pinch started, in logical px"
+                                    ]
+                                },
+                                "current_distance": {
+                                    "type": "f32",
+                                    "doc": [
+                                        "Current distance between touch points, in logical px"
+                                    ]
+                                },
+                                "duration_ms": {
+                                    "type": "u64",
+                                    "doc": [
+                                        "Duration of the pinch so far, in milliseconds"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DetectedRotation": {
+                        "doc": [
+                            "Result of rotation gesture detection (angle + center + duration)."
+                        ],
+                        "external": "azul_layout::managers::gesture::DetectedRotation",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "angle_radians": {
+                                    "type": "f32",
+                                    "doc": [
+                                        "Rotation angle in radians (positive = clockwise)"
+                                    ]
+                                },
+                                "center": {
+                                    "type": "LogicalPosition",
+                                    "doc": [
+                                        "Center point of rotation"
+                                    ]
+                                },
+                                "duration_ms": {
+                                    "type": "u64",
+                                    "doc": [
+                                        "Duration of rotation so far, in milliseconds"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DetectedLongPress": {
+                        "doc": [
+                            "Result of long-press detection (position + hold duration)."
+                        ],
+                        "external": "azul_layout::managers::gesture::DetectedLongPress",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "position": {
+                                    "type": "LogicalPosition",
+                                    "doc": [
+                                        "Position where the long press is happening"
+                                    ]
+                                },
+                                "duration_ms": {
+                                    "type": "u64",
+                                    "doc": [
+                                        "How long the pointer has been held in place (milliseconds)"
+                                    ]
+                                },
+                                "callback_invoked": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "Whether the callback has already been invoked for this long press"
+                                    ]
+                                },
+                                "session_id": {
+                                    "type": "u64",
+                                    "doc": [
+                                        "Session ID this long press belongs to"
+                                    ]
                                 }
                             }
                         ],
@@ -80088,6 +80308,87 @@
                             {
                                 "Some": {
                                     "type": "PenTilt"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionGestureDirection": {
+                        "external": "azul_layout::managers::gesture::OptionGestureDirection",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {}
+                            },
+                            {
+                                "Some": {
+                                    "type": "GestureDirection"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionDetectedPinch": {
+                        "external": "azul_layout::managers::gesture::OptionDetectedPinch",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {}
+                            },
+                            {
+                                "Some": {
+                                    "type": "DetectedPinch"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionDetectedRotation": {
+                        "external": "azul_layout::managers::gesture::OptionDetectedRotation",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {}
+                            },
+                            {
+                                "Some": {
+                                    "type": "DetectedRotation"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionDetectedLongPress": {
+                        "external": "azul_layout::managers::gesture::OptionDetectedLongPress",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {}
+                            },
+                            {
+                                "Some": {
+                                    "type": "DetectedLongPress"
                                 }
                             }
                         ],
