@@ -464,3 +464,27 @@ User clarified the map-tile design while this tick was running. Captured here fo
 - **API target**: Leaflet-shape — `Map::new().add_tile_layer(url_template).set_view(lat, lon, zoom)`. User code never touches MVT bytes directly.
 
 These notes inform P3.2 — `MapTile` / `MapWidget` NodeType + the tile decoder + the viewport state. P3.1 (geolocation surface) is fully closed at the source level; remaining work is per-platform native subscription wiring (queued for follow-up ticks once iOS Xcode SDK + Android emulator are in the loop).
+
+### Tick — P3.2a MapWidget skeleton (widget, not NodeType — user pivot)
+
+User clarified the design mid-tick: **map is a widget, not a NodeType**. The previous tick's `NodeType::MapTile` + `NodeTypeTag::MapTile` + the `core/src/map.rs` POD module were uncommitted — reverted them. (The `NodeType::GeolocationProbe` from the earlier P3.1b tick stays — that's separate and the user is OK with that one.)
+
+The revised design (Leaflet-shape API the user spelled out):
+
+- `MapWidget` is a regular widget (like `Button`, `TextInput`). Built via `MapWidget::create(layer).with_viewport(...).dom()`.
+- Tile cache lives in a `RefAny` dataset attached to the widget's root `<div>`. A `DatasetMergeCallback` transfers every entry from the old frame's cache into the new frame's cache on relayout, so in-flight HTTP fetches and decoded SVG bytes survive layout churn.
+- `VirtualView` callback computes the visible-tile grid each frame: Web Mercator math (lat/lon → XYZ) projects the current viewport into tile space, the integer zoom level is clamped to the layer's `[min_zoom, max_zoom]`, fractional zoom drives a CSS scale on the integer-z tile divs (no re-fetch on small zoom deltas).
+- Each visible tile is one absolutely-positioned `<div>` GPU-translated via `transform: translate(x, y)`. The inner content (the decoded SVG DOM) is patched in by the follow-up MVT decoder; this tick lands the grid math + placeholder content (`"zN/X/Y"` text label per tile).
+- User stacks a `GeolocationProbe` (from P3.1) anywhere in the subtree to opt into "this app needs GPS" — the widget doesn't bake in any location feature itself, the framework's permission-as-DOM model composes naturally.
+
+Files:
+- `layout/src/widgets/map.rs` (~370 LOC) — POD types `MapTileId`, `MapTileLayer`, `MapViewport` + the `MapWidget` builder + `MapTileCache` payload + the `TileEntry { Pending | Ready{svg} | Failed{error} }` state machine + `merge_map_tile_cache` callback + `map_widget_render` virtual-view callback with the Web Mercator math + the placeholder-tile-grid Dom build.
+- `layout/src/widgets/mod.rs` registers `pub mod map;` between `list_view` and `node_graph`.
+
+Compile-only verification: `bash scripts/mobile-check-all.sh` GREEN on all 5 mobile targets (14/16/11/11/12 s). Pre-tick gate showed RED because the codegen output (target/codegen/dll_api_internal.rs) was stale from the reverted MapTile NodeType — a fresh `cargo run -p azul-doc -- codegen all` restored it to match the source.
+
+Open follow-ups (queued):
+- **MVT decoder + MapCSS parser → SVG → DOM** pipeline. Reuses the framework's existing CSS parser (MapCSS is a CSS dialect) + the svg-to-dom path the framework already ships. `fschutt/tile-downloader` likely provides the HTTP/PMTiles client.
+- **Pan / zoom gesture wiring** — connect the existing `GestureAndDragManager` pinch+drag detection to the `MapWidget.viewport` state via a small callback that translates pixel deltas → lat/lon deltas via `proj4-rs` (or hand-rolled Web Mercator inverse).
+- **api.json + codegen** for the new types (`MapWidget`, `MapTileLayer`, `MapViewport`, `MapTileId`) so binding languages (Python, Java, etc.) see the widget. Held back from this tick because the widget API will probably get one more iteration once the gesture / pan plumbing lands.
+- **`examples/azul-maps/` demo crate** — the P3 goal app proper. Will exercise the widget + the geolocation dot composition.

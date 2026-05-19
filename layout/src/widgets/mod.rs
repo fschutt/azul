@@ -143,6 +143,10 @@ pub mod drop_down;
 pub mod frame;
 /// List view widget
 pub mod list_view;
+/// Map widget — MVT tile + MapCSS → SVG → DOM (AzulMaps goal app, P3).
+/// Cache lives in a dataset RefAny owned by a merge callback so it
+/// survives relayout. See `layout/src/widgets/map.rs` for the design.
+pub mod map;
 /// Node graph widget
 pub mod node_graph;
 /// Same as text input, but only allows numeric input
