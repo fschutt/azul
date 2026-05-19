@@ -690,6 +690,23 @@ pub unsafe extern "C" fn AzStartup_getLastLayoutStatus(state: u32) -> u32 {
     s.last_layout_status
 }
 
+/// M12 cascade probe: reads back display_text_node_idx, which
+/// hydrate writes 0xCAFE before StyledDom::create + 0xBABE after.
+/// Lets JS distinguish:
+///   0xCAFE      — cascade started, never returned (drop bail mid-call)
+///   0xBABE      — cascade ran fully, post-call writes visible
+///   u32::MAX    — hydrate hasn't been called
+///   anything else — some app code wrote here (display_text_node_idx
+///                   is also used by the display-node UI hook)
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_getCascadeProbe(state: u32) -> u32 {
+    if state == 0 {
+        return 0;
+    }
+    let s = &*(state as usize as *mut EventloopState);
+    s.display_text_node_idx
+}
+
 // =====================================================================
 // M9-4 Hit-test
 // =====================================================================
@@ -1003,40 +1020,27 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     s.current_dom_node_count = count;
     s.current_dom_hydrated = 1;
 
-    // ROOT-CAUSE FINDING from intensive probe-based debugging:
+    // M12 milestone: remill SIGKILL on recursive bl was the
+    // blocking lifting bug — without it, mini.wasm fell to an
+    // 8-byte fallback and any cascade post-call code was dead.
+    // The Rust-side `rewrite_recursive_bl` byte rewriter neutralizes
+    // bl-targets-inside-buffer before TraceLifter unbounded-grows.
     //
-    // `StyledDom::create(dom_ref, Css::empty())` lifts and runs.
-    // The bl-call returns. Hydrate's AArch64 source then emits a
-    // Drop chain immediately after `bl create` — eight
-    // `bl drop_in_place` calls for the various Vec<T> fields of the
-    // returned StyledDom, ending with
-    // `bl drop_in_place<Box<CssPropertyCache>>`.
+    // With that closed, `StyledDom::create(dom_ref, Css::empty())`
+    // actually runs and returns a value. Capture the heap pointer
+    // so JS can observe + read the internal Vec lengths.
     //
-    // One of the drop callees follows a code path that bails on a
-    // missing remill instruction (the cascade has 5 known remaining
-    // bails: 4× CssPropertyCache helpers + LDAPR in
-    // create_from_compact_dom). When that bail triggers, the lifted
-    // call chain's `__remill_error` inlines as `ret ptr %memory`,
-    // which propagates upward through the LLVM call-graph (because
-    // wasm-ld + opt -O3 tail-call-optimized the bl-then-immediate-bl
-    // sequence into a single TC), and the WHOLE hydrate wasm
-    // function returns at the bail point — not just the drop fn.
-    //
-    // Probe data that confirms:
-    //   - With `let _styled = StyledDom::create(...)` (Drop at scope
-    //     end), the post-cascade store at line 1015 (`auto_v=1` →
-    //     `2`) gets value 2 visible in JS, but `=3` after cascade
-    //     never appears even with `write_volatile`.
-    //   - Replacing the cascade with `StyledDom::default()` (no Drop
-    //     chain in the same wasm fn) lets the post-call assignments
-    //     execute fine.
-    //
-    // Workaround: keep the `let _ = ...` shape so Drop runs at the
-    // semicolon. The Drop chain still trips the silent unwind, but
-    // hydrate's *pre-cascade* assignments (which we've already
-    // moved up) are observable. Real fix: close the remaining 5
-    // cascade bails (LDAPR + 4× CssPropertyCache).
-    let _ = StyledDom::create(dom_ref, Css::empty());
+    // Drop semantics: if a downstream drop_in_place bails, the
+    // Box::into_raw assignment may still race. We store the marker
+    // BEFORE the cascade and the ptr AFTER, so JS can distinguish
+    // "cascade never returned" (marker only) from "cascade
+    // returned, drop bailed" (marker + ptr).
+    s.display_text_node_idx = 0xCAFE_u32;
+    let styled = StyledDom::create(dom_ref, Css::empty());
+    let boxed = Box::new(styled);
+    let ptr = Box::into_raw(boxed) as usize as u32;
+    s.current_dom_styled_ptr = ptr;
+    s.display_text_node_idx = 0xBABE_u32;
     0
 }
 
