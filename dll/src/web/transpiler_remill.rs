@@ -867,6 +867,11 @@ impl RemillTranspiler {
         // root cause of cascade-output sret writes going to wrong
         // wasm addresses.
         let lifted_ir = retarget_to_wasm32(&lifted_ir);
+        // M12.5d-fix: strip `noalias` from sub_* fn args (see fn
+        // docs above). Without this, LLVM's cross-fn AA corrupts
+        // const-pool reads in unrelated lifted bodies whenever
+        // ANY lifted fn has a `(&mut T) -> _` signature.
+        let lifted_ir = strip_noalias_from_sub_args(&lifted_ir);
 
         // M9-review: after `rewrite_sub_names_to_canonical`, every
         // `sub_<hex>` reference in the IR uses the CANONICAL SYNTH
@@ -3561,6 +3566,8 @@ impl RemillTranspiler {
         // M12.5d: see notes at the other call site — retarget the
         // AArch64 IR header to wasm32 before opt/llc runs.
         let lifted_ir = retarget_to_wasm32(&lifted_ir);
+        // M12.5d-fix: strip noalias from sub_* args (see fn docs).
+        let lifted_ir = strip_noalias_from_sub_args(&lifted_ir);
 
         let canonical_entry_addr = symbol_table::get()
             .and_then(|t| {
@@ -4957,6 +4964,50 @@ fn retarget_to_wasm32(ir: &str) -> String {
         }
         out.push_str(line);
         out.push('\n');
+    }
+    out
+}
+
+/// M12.5d-fix — strip `noalias` attribute from lifted sub_* function
+/// args. Remill emits `define ptr @sub_<addr>(ptr noalias %state,
+/// i64 %pc, ptr noalias %memory)`. The `noalias` on %state and
+/// %memory enables LLVM's cross-function alias analysis to make
+/// aggressive assumptions about which addresses different
+/// functions can access. With many lifted functions in one
+/// translation unit, this causes optimization passes to
+/// incorrectly conclude that other functions' const-pool reads
+/// don't alias the current function's accesses, leading to
+/// dropped/reordered loads in the wasm output.
+///
+/// Bisect verified (commit 62a4ada71): adding a single function
+/// with `(&mut T) -> Struct` signature corrupts UNRELATED lifted
+/// functions' const-pool reads. By-value args don't trigger it.
+/// The Rust `&mut` lowers to LLVM `ptr noalias`.
+///
+/// This pass removes `noalias` from sub_* function definitions
+/// and declarations so the optimizer treats lifted args
+/// conservatively (may-alias). Performance cost is minimal —
+/// lifted bodies don't aggressively share memory across calls
+/// anyway.
+fn strip_noalias_from_sub_args(ir: &str) -> String {
+    let mut out = String::with_capacity(ir.len());
+    for line in ir.lines() {
+        let trimmed = line.trim_start();
+        // Match define/declare lines for sub_<hex> functions and
+        // remove `noalias` from their arg types.
+        if (trimmed.starts_with("define ") || trimmed.starts_with("declare "))
+            && trimmed.contains("@sub_")
+        {
+            // Strip ` noalias` (with leading space) — only in arg
+            // type lists (parens). Simple text replacement is safe
+            // because `noalias` only appears in attribute positions.
+            let stripped = line.replace(" noalias", "");
+            out.push_str(&stripped);
+            out.push('\n');
+        } else {
+            out.push_str(line);
+            out.push('\n');
+        }
     }
     out
 }
