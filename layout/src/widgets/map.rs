@@ -182,17 +182,18 @@ impl MapWidget {
     }
 
     /// Like [`dom`](Self::dom), but wires a tile-fetch worker thread.
-    /// Rust-only (the fn-pointer arg doesn't round-trip through the
-    /// FFI codegen). `cb` runs on a framework `Thread` per visible
-    /// tile — read the `TileFetchInit`, fetch + decode, then
+    /// `cb` runs on a framework `Thread` per visible tile: it reads the
+    /// `TileFetchInit`, fetches + decodes, then
     /// `sender.send(ThreadReceiveMsg::WriteBack(...))` a `TileReadyMsg`
-    /// targeting [`map_tile_writeback`]. See the recipe in
+    /// targeting `map_tile_writeback`. The standard worker is
+    /// `azul_dll::desktop::extra::map::tile_fetch_worker`; wrap it in a
+    /// `ThreadCallback` to pass it here. See the recipe in
     /// `MOBILE_SESSION_LOG.md`.
-    pub fn dom_with_fetch(self, cb: crate::thread::ThreadCallbackType) -> Dom {
+    pub fn dom_with_fetch(self, cb: crate::thread::ThreadCallback) -> Dom {
         self.build_dom(Some(cb))
     }
 
-    fn build_dom(self, fetch_cb: Option<crate::thread::ThreadCallbackType>) -> Dom {
+    fn build_dom(self, fetch_cb: Option<crate::thread::ThreadCallback>) -> Dom {
         use azul_core::dom::{ComponentEventFilter, EventFilter, HoverEventFilter};
 
         let mut cache = MapTileCache::new(self.layer.clone(), self.viewport);
@@ -286,13 +287,14 @@ pub struct MapTileCache {
     /// iteration so the debug log + e2e snapshots are stable.
     pub tiles: BTreeMap<MapTileId, TileEntry>,
     /// Worker thread entry point that fetches + decodes one tile.
-    /// Supplied by `MapWidget::with_tile_fetch_callback` (the caller —
-    /// usually `azul_dll`'s map-tiles glue — provides this because the
-    /// MVT decoder lives in `azul-dll`, which `azul-layout` can't
-    /// depend on). `None` means "no fetch wired" — tiles stay
-    /// `Pending` forever and the placeholder grid renders. The
-    /// merge callback carries this across relayout.
-    pub fetch_callback: Option<crate::thread::ThreadCallbackType>,
+    /// Supplied by `MapWidget::dom_with_fetch` (the caller, usually
+    /// `azul_dll`'s map-tiles glue, provides this because the MVT
+    /// decoder lives in `azul-dll`, which `azul-layout` can't depend
+    /// on). `None` means "no fetch wired": tiles stay `Pending` and
+    /// the placeholder grid renders. The merge callback carries this
+    /// across relayout. Held as the `ThreadCallback` wrapper (not the
+    /// raw fn pointer) so it round-trips through the FFI codegen.
+    pub fetch_callback: Option<crate::thread::ThreadCallback>,
     /// Pixel coordinates of the cursor at the last mouse-down /
     /// touch-down on the widget. `Some` while a drag is in flight,
     /// `None` between drags. The framework consults this on every
@@ -393,7 +395,7 @@ extern "C" fn merge_map_tile_cache(mut new_data: RefAny, mut old_data: RefAny) -
             // frame (the freshly-built cache from `dom()` has it too,
             // but be defensive in case a future caller drops it).
             if new_g.fetch_callback.is_none() {
-                new_g.fetch_callback = old_g.fetch_callback;
+                new_g.fetch_callback = old_g.fetch_callback.clone();
             }
             // Keep the freshest viewport (the one the layout pass
             // just attached) — only inherit tile bytes + worker.
@@ -605,8 +607,8 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
             Some(c) => c,
             None => return,
         };
-        match cache.fetch_callback {
-            Some(cb) => cb,
+        match cache.fetch_callback.as_ref() {
+            Some(cb) => cb.clone(),
             None => return,
         }
     };
@@ -614,7 +616,7 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
     for init in to_spawn {
         let init_data = RefAny::new(init);
         let writeback_data = data.clone(); // same cache dataset
-        let thread = Thread::create(init_data, writeback_data, cb);
+        let thread = Thread::create(init_data, writeback_data, cb.clone());
         info.add_thread(ThreadId::unique(), thread);
     }
 }

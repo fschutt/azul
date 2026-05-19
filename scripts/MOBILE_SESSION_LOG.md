@@ -704,6 +704,20 @@ Verification: re-ran `azul-doc autofix`. Before the fix the move-list had MapWid
 
 With the heuristic fixed, the map widget types are now correctly tool-managed: a future `autofix add MapWidget.dom_with_tiles` would place the method in `widgets`, unblocking the real-tile demo wiring (caveat 4) as a tool-generated change rather than a hand-edit.
 
+### Tick — P3.2m expose MapWidget.dom_with_fetch via the autofix workflow (2026-05-20)
+
+Made the fetch-enabled constructor part of the public api.json surface, using the autofix tooling end-to-end (the workflow the user asked for) — and confirming last tick's module-heuristic fix works in practice.
+
+First attempt: `autofix add MapWidget.dom_with_fetch` with the existing signature `dom_with_fetch(self, cb: ThreadCallbackType)` (raw fn pointer). The generated patch kept the raw `ThreadCallbackType` arg, which codegen can't transmute cleanly (`AzThreadCallbackType` vs `ThreadCallbackType` are layout-compatible but distinct fn types), and the doc carried a non-ASCII em-dash. So I refactored first:
+
+- `layout/src/widgets/map.rs`: `dom_with_fetch` now takes the **`ThreadCallback` wrapper** (`#[repr(C)]`, Clone, Debug) instead of the raw fn pointer. `MapTileCache::fetch_callback` is now `Option<ThreadCallback>`; the merge callback clones it across relayout; `spawn_pending_tile_fetches` clones it per spawned tile (`Thread::create(init, writeback, cb.clone())` — `ThreadCallback: Into<ThreadCallback>`). Doc comment de-em-dashed.
+- `azul-doc autofix add MapWidget.dom_with_fetch` → clean patch: `cb: ThreadCallback`, ASCII doc, placed in the **`widgets`** module (the nested-submodule fix from P3.2l doing its job). Applied via `azul-doc autofix apply`; `azul-doc codegen all` regenerated all 35 bindings.
+- The generated `AzMapWidget::dom_with_fetch(self, cb: AzThreadCallback)` splits the wrapper into fn-ptr + `ctx` and dispatches through `AzMapWidget_domWithFetchWithCtx` — the same managed-FFI path `Callback` args use. So the method works for both native Rust callers and FFI bindings that attach a host-handle ctx.
+
+`cargo check -p azul-dll --features '…,map-tiles'` GREEN (host); `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (16/17/10/15/12 s).
+
+The real-tile demo wiring (caveat 4) is now fully unblocked through the public API: `examples/azul-maps` can enable the `map-tiles` feature and call `MapWidget::create(layer).with_viewport(vp).dom_with_fetch(ThreadCallback::new(azul::desktop::extra::map::tile_fetch_worker))` — all public surface. That's the next tick (kept separate per the one-step-per-tick rule). Remaining P3.2: just (1) live threading-runtime confirmation (not unit-testable here) + (4) the demo call.
+
 The widget callback chain uses `crate::callbacks::Callback::from(fn as CallbackType)` rather than passing the bare fn pointer, because `Dom::with_callback` in `azul-core` takes `Into<CoreCallback>` (the FFI `usize` form) — `Callback` has the requisite `From<CallbackType>` impl from the framework's macro; the bare fn ptr does not.
 
 `bash scripts/mobile-check-all.sh` GREEN across all 5 mobile targets (9/7/6/6/6 s). No regressions; AzulPaint + AzulMaps still build cleanly. Codegen unchanged (the new pan callbacks are private widget internals, not part of the public api.json surface).

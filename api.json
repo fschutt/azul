@@ -39363,6 +39363,30 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "mapwidget.dom()"
+                            },
+                            "dom_with_fetch": {
+                                "doc": [
+                                    "Like [`dom`](Self::dom), but wires a tile-fetch worker thread.",
+                                    "`cb` runs on a framework `Thread` per visible tile: it reads the",
+                                    "`TileFetchInit`, fetches + decodes, then",
+                                    "`sender.send(ThreadReceiveMsg::WriteBack(...))` a `TileReadyMsg`",
+                                    "targeting `map_tile_writeback`. The standard worker is",
+                                    "`azul_dll::desktop::extra::map::tile_fetch_worker`; wrap it in a",
+                                    "`ThreadCallback` to pass it here. See the recipe in",
+                                    "`MOBILE_SESSION_LOG.md`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "cb": "ThreadCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom_with_fetch(cb)"
                             }
                         },
                         "repr": "C"
