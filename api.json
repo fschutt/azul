@@ -39141,6 +39141,223 @@
                         },
                         "repr": "C"
                     },
+                    "MapTileId": {
+                        "external": "azul_layout::widgets::map::MapTileId",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "z": {
+                                    "type": "u8"
+                                }
+                            },
+                            {
+                                "x": {
+                                    "type": "u32"
+                                }
+                            },
+                            {
+                                "y": {
+                                    "type": "u32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "MapTileLayer": {
+                        "external": "azul_layout::widgets::map::MapTileLayer",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "url_template": {
+                                    "type": "String"
+                                }
+                            },
+                            {
+                                "min_zoom": {
+                                    "type": "u8"
+                                }
+                            },
+                            {
+                                "max_zoom": {
+                                    "type": "u8"
+                                }
+                            },
+                            {
+                                "attribution": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "MapViewport": {
+                        "external": "azul_layout::widgets::map::MapViewport",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "centre_lat_deg": {
+                                    "type": "f64"
+                                }
+                            },
+                            {
+                                "centre_lon_deg": {
+                                    "type": "f64"
+                                }
+                            },
+                            {
+                                "zoom": {
+                                    "type": "f32"
+                                }
+                            },
+                            {
+                                "bearing_deg": {
+                                    "type": "f32"
+                                }
+                            },
+                            {
+                                "pitch_deg": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "MapWidget": {
+                        "external": "azul_layout::widgets::map::MapWidget",
+                        "doc": [
+                            "Map widget — MVT tile + MapCSS → SVG → DOM (AzulMaps goal app,",
+                            "SUPER_PLAN_2 P3). Tile cache lives in a `RefAny` dataset owned",
+                            "by a `DatasetMergeCallback` so in-flight fetches and decoded SVG",
+                            "bytes survive relayout. Visible-tile grid is computed by an",
+                            "inner `VirtualView` callback running Web Mercator math."
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "layer": {
+                                    "type": "MapTileLayer"
+                                }
+                            },
+                            {
+                                "viewport": {
+                                    "type": "MapViewport"
+                                }
+                            },
+                            {
+                                "container_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "Build a fresh `MapWidget` from a `MapTileLayer`. The viewport",
+                                    "defaults to `MapViewport::default()` (lat 0, lon 0, zoom 2).",
+                                    "Chain `with_viewport(...)` to relocate."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "layer": "MapTileLayer"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::map::MapWidget::create(layer)"
+                            }
+                        },
+                        "functions": {
+                            "with_viewport": {
+                                "doc": [
+                                    "Builder: set the centre + zoom + bearing + pitch."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "viewport": "MapViewport"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapWidget"
+                                },
+                                "fn_body": "mapwidget.with_viewport(viewport)"
+                            },
+                            "set_viewport": {
+                                "doc": [
+                                    "Mutator: replace the viewport in place."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "viewport": "MapViewport"
+                                    }
+                                ],
+                                "fn_body": "mapwidget.viewport = viewport;"
+                            },
+                            "with_container_style": {
+                                "doc": [
+                                    "Builder: replace the container CSS."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "css": "CssPropertyWithConditionsVec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapWidget"
+                                },
+                                "fn_body": "mapwidget.with_container_style(css)"
+                            },
+                            "dom": {
+                                "doc": [
+                                    "Consume the widget and produce its rendered `Dom`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "mapwidget.dom()"
+                            }
+                        },
+                        "repr": "C"
+                    },
                     "ButtonOnClick": {
                         "external": "azul_layout::widgets::button::ButtonOnClick",
                         "custom_impls": [

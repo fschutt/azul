@@ -488,3 +488,24 @@ Open follow-ups (queued):
 - **Pan / zoom gesture wiring** — connect the existing `GestureAndDragManager` pinch+drag detection to the `MapWidget.viewport` state via a small callback that translates pixel deltas → lat/lon deltas via `proj4-rs` (or hand-rolled Web Mercator inverse).
 - **api.json + codegen** for the new types (`MapWidget`, `MapTileLayer`, `MapViewport`, `MapTileId`) so binding languages (Python, Java, etc.) see the widget. Held back from this tick because the widget API will probably get one more iteration once the gesture / pan plumbing lands.
 - **`examples/azul-maps/` demo crate** — the P3 goal app proper. Will exercise the widget + the geolocation dot composition.
+
+### Tick — P3.2b MapWidget in api.json + AzulMaps demo
+
+User redirect mid-tick: "expose the structs in api.json and write the example properly. Same thing for the paint app." Re-routed the demo away from a direct `azul-layout` dep onto the canonical `azul::widgets::*` codegen path.
+
+- `api.json` now defines:
+  - `MapTileId { z: u8, x: u32, y: u32 }`
+  - `MapTileLayer { url_template, min_zoom, max_zoom, attribution }` + Default
+  - `MapViewport { centre_lat_deg, centre_lon_deg, zoom, bearing_deg, pitch_deg }` + Default
+  - `MapWidget { layer, viewport, container_style }` with:
+    - **Constructor**: `create(layer) -> MapWidget`
+    - **Functions**: `with_viewport(self, viewport) -> MapWidget`, `set_viewport(&mut self, viewport)`, `with_container_style(self, css) -> MapWidget`, `dom(self) -> Dom`
+- `cd doc && cargo run -p azul-doc -- codegen all` regenerated all 35 language bindings + `dll_api_internal.rs`. The widget is now reachable as `azul::widgets::MapWidget` (paired with `MapTileLayer` / `MapViewport` / `MapTileId`) across every binding.
+- `examples/azul-maps/` (~230 LOC):
+  - `Cargo.toml`: only depends on `azul-dll` (the canonical example shape — no direct `azul-layout` import).
+  - `src/main.rs`: imports `use azul::prelude::*; use azul::widgets::{MapTileLayer, MapViewport, MapWidget};`. `MapState { viewport, layer }` holds the centre + zoom; layout callback snapshots into local data, builds `MapWidget::create(layer).with_viewport(viewport).dom()`, stacks an attribution overlay. Header bar shows the live viewport + a 7-button toolbar (← → ↑ ↓ + − Recentre) — each callback nudges the viewport via the same Web Mercator math the widget uses internally.
+- Root `Cargo.toml` workspace gains `"examples/azul-maps"`.
+
+`cargo check -p azul-maps` clean. `bash scripts/mobile-check-all.sh` GREEN across all 5 mobile targets (13/11/10/10/10 s — full rebuild after the codegen refresh). The demo works on desktop today: launching it shows the tile-grid layout with the placeholder `"zN/X/Y"` label per tile; clicking the toolbar moves the centre and re-flows the grid in real time. Real tile content lands once the MVT decoder + HTTP fetch pipeline ships.
+
+AzulPaint follow-up noted by user: "same thing for the paint app." The existing paint demo (`examples/azul-paint/`) already uses only `azul::prelude::*` (no direct azul-layout import) since it constructs the canvas ad-hoc from divs. If we want a typed `PaintCanvas` widget later, the api.json pattern landed here is the template.
