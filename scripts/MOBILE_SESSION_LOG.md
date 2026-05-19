@@ -261,3 +261,15 @@ Two artifacts land:
 - `dll/src/desktop/shell2/android/mod.rs::jni_bridge` — five `#[no_mangle] extern "system"` symbols matching the Java JNI lookup names: `Java_com_azul_gesture_NativeGestureBridge_nativeOn{DoubleTap,LongPress,Swipe,Pinch,Rotation}`. Each cast `native_ptr: i64` back to `&mut AndroidWindow` and `inject_native_gesture(NativeGestureEvent::*)`. Direction constants in the Java side mirror `GestureDirection`'s `#[repr(C)]` 0-3 ordering.
 
 cargo check --target aarch64-linux-android still GREEN (13.38 s). The wire is complete from `setOnTouchListener` → `onDoubleTap`/`onFling`/`onScale`/2-finger rotation → JNI → `inject_native_gesture` → `clear_native_gesture` at end-of-frame. Activation requires the Java side to actually be loaded by `NativeActivity` (current AndroidManifest.xml uses pure NativeActivity with `android:hasCode="false"`, so the .dex isn't shipped). Wire-up in build-android.sh is a follow-up tick.
+
+### P1.1 — rust-fontconfig iOS + Android arms landed 2026-05-19
+
+User-owned `/Users/fschutt/Development/rust-fontconfig` gains the two missing mobile arms (commit `ea0107a` on master). SUPER_PLAN_2 §0 + research/05 §1.5 punch list is now closed at the *source* level — full runtime verification still needs Xcode/emulator.
+
+- `lib.rs::OperatingSystem` adds `IOS` + `Android` variants; `current()` resolves `target_os = "ios"` → `IOS` and `target_os = "android"` → `Android` (previously both fell through to `Linux`, which explains why `FcFontCache` was empty on every mobile build).
+- `lib.rs::FcFontCache::build_inner` gains an iOS arm calling `mobile_ios::copy_available_font_urls()` and an Android arm calling `FcScanDirectoriesInner` with `["/system/fonts", "/product/fonts", "/system_ext/fonts", "/data/fonts"]`. Vendor partitions cover Samsung One UI / MIUI / EMUI OEM-specific families.
+- New `src/mobile_ios.rs` — `extern "C"` wrappers around `CTFontManagerCopyAvailableFontURLs` + `CFArrayGetCount/ValueAtIndex` + `CFURLGetFileSystemRepresentation`. Gated on `(target_os = "ios", feature = "std", feature = "parsing")`. Direct CoreFoundation FFI, no `core-foundation` / `core-text` crate dep — keeps the rust-fontconfig dep tree tight.
+- `multithread.rs::scout_thread` branches to CoreText on iOS (the async-registry path); the per-directory walk continues to drive desktop + Android. iOS scout publishes paths via new `publish_ios_font_urls` helper that mirrors the desktop per-directory merge.
+- `config.rs::{system_font_dirs, font_directories, common_font_families}` exhaustive on the two new variants. iOS `common_font_families` covers SFNS/SFNSDisplay/SFUI variants (the actual filename prefixes Apple ships) + Helvetica Neue / Avenir / Menlo / SF Mono. Android covers Roboto / Roboto Flex / Noto Sans / Droid Sans + the Mono variants.
+
+`bash scripts/mobile-check-all.sh` GREEN across all 5 targets (13/8/8/8/8 s; previously 1/0/1/0/0 s warm-cache — the new rust-fontconfig source actually rebuilds this run). No regressions in azul-dll. Runtime verification (≥ 200 families on iOS sim, ≥ 30 on Android emulator) deferred until iOS Xcode + Android emulator land — `cargo check` only confirms the compile gate.
