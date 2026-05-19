@@ -26,6 +26,8 @@
 pub mod common;
 
 // Platform-specific modules
+#[cfg(target_os = "android")]
+pub mod android;
 #[cfg(target_os = "linux")]
 pub mod linux;
 #[cfg(target_os = "ios")]
@@ -56,6 +58,9 @@ cfg_if::cfg_if! {
     } else if #[cfg(target_os = "ios")] {
         pub use ios::IOSWindow as Window;
         pub use ios::IOSEvent as WindowEvent;
+    } else if #[cfg(target_os = "android")] {
+        pub use android::AndroidWindow as Window;
+        pub use android::AndroidEvent as WindowEvent;
     } else if #[cfg(target_os = "windows")] {
         pub use windows::Win32Window as Window;
         pub use windows::Win32Event as WindowEvent;

@@ -2100,6 +2100,15 @@ pub struct FontInstancePlatformOptions {
     pub hinting: FontHinting,
 }
 
+// Mobile targets — empty platform-options struct keeps the
+// `FontInstanceOptions { platform_options: Option<...>, .. }` field
+// well-typed without inheriting Linux's freetype-specific tunables.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+pub struct FontInstancePlatformOptions {
+    pub unused: u32,
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub enum FontHinting {
     None,
@@ -2703,6 +2712,9 @@ pub fn build_add_font_resource_updates(
                     let platform_options = FontInstancePlatformOptions::default();
 
                     #[cfg(target_arch = "wasm32")]
+                    let platform_options = FontInstancePlatformOptions::default();
+
+                    #[cfg(any(target_os = "android", target_os = "ios"))]
                     let platform_options = FontInstancePlatformOptions::default();
 
                     let options = FontInstanceOptions {

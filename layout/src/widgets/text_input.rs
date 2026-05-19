@@ -329,7 +329,9 @@ static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     )),
 ];
 
-#[cfg(target_os = "macos")]
+// Mobile (Android / iOS) inherit the macOS-style container — same flex
+// box-sizing and background; touch-target padding is the user's concern.
+#[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
 static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Text)),
@@ -470,7 +472,7 @@ static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
 ];
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
 static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineBlock)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
@@ -514,7 +516,7 @@ static TEXT_INPUT_PLACEHOLDER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_opacity(StyleOpacity::const_new(100))),
 ];
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
 static TEXT_INPUT_PLACEHOLDER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),

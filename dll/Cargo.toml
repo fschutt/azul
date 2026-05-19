@@ -38,7 +38,10 @@ pyo3-log = { version = "0.13.2", default-features = false, optional = true }
 ext-php-rs = { version = "0.15", default-features = false, optional = true }
 
 # Desktop windowing dependencies
-tfd = { version = "0.1.0", default-features = false, optional = true }
+# tfd (tinyfiledialogs) is for modal panic dialogs on the desktop;
+# it has no equivalent on Android/iOS (no native modal API from a Rust
+# crate) and its 0.1.0 release uses an older `jni` API that doesn't
+# cross-compile for android targets. Declared per-target below.
 rust-fontconfig = { version = "4.2.1", default-features = false, features = ["std", "parsing", "async-registry", "cache"], optional = true }
 gl-context-loader = { version ="0.1.8", default-features = false, optional = true }
 webrender = { path = "../webrender/core", default-features = false, optional = true }
@@ -88,6 +91,9 @@ goblin = { version = "0.10", optional = true }
 mimalloc = { version = "0.1", default-features = false, optional = true }
 tikv-jemallocator = { version = "0.6", default-features = false, optional = true }
 
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tfd = { version = "0.1.0", default-features = false, optional = true }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = { version = "0.2", optional = true }
 x11-clipboard = { version = "0.9.3", optional = true }
@@ -97,6 +103,19 @@ accesskit_unix = { version = "0.21", optional = true }
 objc = { version = "0.2", optional = true }
 objc-foundation = { version = "0.1", optional = true }
 objc_id = { version = "0.1", optional = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+# NativeActivity bootstrap, event polling, soft-keyboard control, and
+# the input-event enum. `native-activity` feature gives us the C shim
+# that calls `android_main` so no Java is needed for Phase 1-4.
+android-activity = { version = "0.6", default-features = false, features = ["native-activity"], optional = true }
+# `ANativeWindow_lock` / `unlockAndPost` and other NDK primitives.
+ndk = { version = "0.9", default-features = false, optional = true }
+# Optional bridge to logcat for `log` macros — feature-gated.
+android_logger = { version = "0.14", optional = true }
+# Soft-keyboard / IME bridge (Phase 5) — speaks to the Java
+# `NativeInputConnection` shim via JNI.
+jni = { version = "0.21", optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = { version = "0.3.9", optional = true, default-features = false, features = [
@@ -300,6 +319,10 @@ _internal_deps = [
     "objc_id",
     "block2",
     "libloading",
+    # Android NDK + NativeActivity glue (no-op on non-Android targets via
+    # target.'cfg' gate above).
+    "android-activity",
+    "ndk",
     "objc2-core-foundation",
     "objc2-foundation",
     "objc2-app-kit",

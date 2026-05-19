@@ -24,6 +24,25 @@ fn main() {
     if target.contains("ios") {
         configure_ios();
     }
+    if target.contains("android") {
+        configure_android();
+    }
+}
+
+// ── Android setup ─────────────────────────────────────────────────────
+
+fn configure_android() {
+    // Link the two system libraries every Android cdylib needs.
+    println!("cargo:rustc-link-lib=android");
+    println!("cargo:rustc-link-lib=log");
+
+    if env::var("ANDROID_NDK_HOME").is_err() && env::var("ANDROID_HOME").is_err() {
+        println!(
+            "cargo:warning=ANDROID_NDK_HOME / ANDROID_HOME not set. Install with: \
+             brew install --cask android-commandlinetools && \
+             sdkmanager 'ndk;27.0.12077973'"
+        );
+    }
 }
 
 // ── M8.9 in-process remill + LLVM + LLD ────────────────────────────────
@@ -570,8 +589,17 @@ fn configure_ios() {
         return;
     }
 
+    // xcode-select is required (provides the iOS SDK linker).
     check_tool("xcode-select", &["-p"], "Run 'xcode-select --install'");
-    check_tool("ios-deploy", &["--version"], "Run 'brew install ios-deploy'");
+    // ios-deploy is only needed for *device* deploy. Simulator deploy uses
+    // `xcrun simctl install/launch` which is part of the Xcode CLT. Warn,
+    // do not panic — many devs only target the simulator.
+    warn_if_tool_missing(
+        "ios-deploy",
+        &["--version"],
+        "Run 'brew install ios-deploy' to deploy to a physical iPhone. \
+         Simulator deploys via 'xcrun simctl' do not need it.",
+    );
 
     let project_root = env::var("CARGO_MANIFEST_DIR").unwrap();
 
@@ -602,6 +630,13 @@ fn check_tool(name: &str, args: &[&str], install_hint: &str) {
     match Command::new(name).args(args).status() {
         Ok(s) if s.success() => {}
         _ => panic!("'{}' not found. {}", name, install_hint),
+    }
+}
+
+fn warn_if_tool_missing(name: &str, args: &[&str], install_hint: &str) {
+    match Command::new(name).args(args).status() {
+        Ok(s) if s.success() => {}
+        _ => println!("cargo:warning='{}' not found — {}", name, install_hint),
     }
 }
 

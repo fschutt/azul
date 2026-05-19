@@ -651,6 +651,42 @@ pub fn run(
     }
 }
 
+// ── Android ──────────────────────────────────────────────────────────
+//
+// On Android, the event loop is driven by the `android-activity` crate's
+// `ANativeActivity_onCreate` shim, which spawns a UI thread and calls our
+// `pub fn android_main(app: AndroidApp)` (defined in `shell2/android/mod.rs`).
+// Our `run()` therefore just stashes the user's app data + config into a
+// global static and returns; `android_main` retrieves them and drives the
+// loop from there.
+
+#[cfg(target_os = "android")]
+pub(super) static mut ANDROID_INITIAL_OPTIONS:
+    Option<(RefAny, AppConfig, Arc<FcFontCache>, Option<Arc<FcFontRegistry>>, WindowCreateOptions)> =
+    None;
+
+#[cfg(target_os = "android")]
+pub fn run(
+    app_data: RefAny,
+    config: AppConfig,
+    fc_cache: Arc<FcFontCache>,
+    font_registry: Option<Arc<FcFontRegistry>>,
+    root_window: WindowCreateOptions,
+) -> Result<(), WindowError> {
+    let (_debug_request_rx, _component_map) = setup_debug_and_e2e(&config);
+    if resolve_backend(&root_window) == super::AzBackend::Headless {
+        return run_headless(
+            app_data, config, fc_cache, font_registry, root_window,
+            _debug_request_rx, _component_map,
+        );
+    }
+    unsafe {
+        ANDROID_INITIAL_OPTIONS =
+            Some((app_data, config, fc_cache, font_registry, root_window));
+    }
+    Ok(())
+}
+
 #[cfg(target_os = "windows")]
 pub fn run(
     app_data: RefAny,

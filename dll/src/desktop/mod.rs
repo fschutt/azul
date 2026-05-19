@@ -49,7 +49,10 @@ pub(crate) mod css {
     }
     pub use azul_css::css::Css;
 }
-/// Bindings to the native file-chooser, color picker, etc. dialogs
+/// Bindings to the native file-chooser, color picker, etc. dialogs.
+/// Desktop-only; Android/iOS have no equivalent from a Rust crate, and tfd
+/// does not cross-compile for those targets.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub mod dialogs {
     pub use azul_layout::desktop::dialogs::*;
 }

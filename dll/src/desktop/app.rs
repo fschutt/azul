@@ -89,7 +89,10 @@ impl App {
         let err = crate::desktop::shell2::run(data, config, fc_cache, font_registry, root_window);
 
         if let Err(e) = err {
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
             crate::desktop::dialogs::msg_box(&format!("Error: {:?}", e));
+            #[cfg(any(target_os = "android", target_os = "ios"))]
+            eprintln!("Application error: {:?}", e);
             debug_server::log(
                 debug_server::LogLevel::Error,
                 debug_server::LogCategory::EventLoop,

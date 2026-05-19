@@ -52,7 +52,10 @@ lru = { version = "0.16.1", default-features = false }
 taffy = { version = "0.10", default-features = false, features = ["std", "flexbox", "grid", "alloc", "taffy_tree", "block_layout", "calc", "content_size", "detailed_layout_info"] }
 base64 = "0.22.1"
 strfmt = { version = "0.2", optional = true }
-tfd = { version = "0.1", optional = true }
+# tfd is desktop-only — its 0.1.0 release uses an outdated JNI API that
+# doesn't cross-compile for Android, and there is no native modal dialog
+# equivalent on iOS. Declared per-target below; the `extra` feature does
+# nothing on mobile.
 
 # ICU4X dependencies for internationalization
 # compiled_data is enabled by default to include all locale data
@@ -90,6 +93,9 @@ serde_json = { version = "1.0", default-features = false, features = ["std"], op
 
 # Platform-specific user directories (home, config, cache, etc.)
 dirs = { version = "6.0", default-features = false, optional = true }
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tfd = { version = "0.1", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # macOS Foundation ICU backend — enabled via the `icu_macos` feature

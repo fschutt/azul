@@ -103,15 +103,25 @@ pub fn set_up_panic_hooks() {
         log::error!("{}", error_str);
 
         if SHOULD_ENABLE_PANIC_HOOK.load(Ordering::SeqCst) {
-            #[cfg(not(target_os = "linux"))]
-            let dialog_str = &error_str;
+            // tfd (tinyfiledialogs) is desktop-only; Android/iOS have no
+            // equivalent modal API from a Rust dep. Log to stderr instead;
+            // logcat/console will pick it up.
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            {
+                #[cfg(not(target_os = "linux"))]
+                let dialog_str = &error_str;
 
-            #[cfg(target_os = "linux")]
-            let dialog_str = escape_dialog_html(&error_str);
+                #[cfg(target_os = "linux")]
+                let dialog_str = escape_dialog_html(&error_str);
 
-            tfd::MessageBox::new("Unexpected fatal error", &dialog_str)
-                .with_icon(tfd::MessageBoxIcon::Info)
-                .run_modal();
+                tfd::MessageBox::new("Unexpected fatal error", &dialog_str)
+                    .with_icon(tfd::MessageBoxIcon::Info)
+                    .run_modal();
+            }
+            #[cfg(any(target_os = "android", target_os = "ios"))]
+            {
+                eprintln!("[FATAL] {}", error_str);
+            }
         }
     }
 
