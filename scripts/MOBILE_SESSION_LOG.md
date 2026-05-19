@@ -185,6 +185,17 @@ cargo check --target aarch64-linux-android still GREEN (17.28s).
 
 iOS Phase 3 is now structurally complete: tap on a button → touch event → state diff → callback fires → drawRect re-renders. Linker still gated on Xcode.
 
+### Tick — iOS AppDelegate lifecycle selectors
+
+Five new `extern "C"` selectors registered on `AppDelegate`:
+- `applicationDidBecomeActive:` — force `frame_needs_regeneration = true` + `present()` so the layer is fresh after returning from background.
+- `applicationWillResignActive:` — log stub. (CADisplayLink stops firing automatically while inactive, so render work pauses naturally.)
+- `applicationDidEnterBackground:` — log stub. Sprint M-iOS-life will use the ~5 s background window for checkpointing.
+- `applicationWillEnterForeground:` — log stub.
+- `applicationWillTerminate:` — drops the boxed `AZUL_IOS_WINDOW` so `CommonWindowState` (RefAny, LayoutWindow) gets released in a controlled scope before process exit.
+
+All 5 mobile cargo-check targets still GREEN (~25 s warm-cache).
+
 ### Tick — AZ_HEADLESS_SNAPSHOT_PATH for golden-PNG snapshotting (#13)
 
 `HeadlessWindow::run` now honors `AZ_HEADLESS_SNAPSHOT_PATH=/path/to/out.png`. After the initial layout fires, if the env var is set, the backend calls `AzulPixmap::encode_png()` on `cpu_backend.last_frame` and writes the bytes to the given path, then calls `self.close()` so the event loop exits and the process returns 0. Gated on `feature = "cpurender"` (no-op otherwise). Logs a warning if `last_frame` is still `None` (empty DOM), an error if encoding / IO fails. Unlocks golden-image CI testing: `AZ_BACKEND=headless AZ_HEADLESS_SNAPSHOT_PATH=actual.png ./my_app && diff actual.png reference.png` — no JSON harness, no full E2E pipeline.

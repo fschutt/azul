@@ -590,6 +590,54 @@ extern "C" fn did_finish_launching(
     true
 }
 
+// ─── Lifecycle selectors ──────────────────────────────────────────────
+//
+// UIApplicationDelegate's four foreground/background hooks. They give
+// Azul a chance to pause timers / save state when the app heads to the
+// background, and to resume / refresh when it returns. For now each is
+// a logged stub; concrete pause/resume goes into Sprint M-iOS-life. The
+// existence of the methods means the AppDelegate conforms to the full
+// protocol — the runtime won't post warnings about missing optional
+// methods.
+
+extern "C" fn app_did_become_active(_this: &Object, _cmd: Sel, _app: *mut Object) {
+    log_info!(LogCategory::EventLoop, "[iOS] applicationDidBecomeActive:");
+    if let Some(window) = unsafe { azul_ios_window() } {
+        // Force a redraw so the layer contents are fresh after
+        // returning from background.
+        window.common.frame_needs_regeneration = true;
+        let _ = window.present();
+    }
+}
+
+extern "C" fn app_will_resign_active(_this: &Object, _cmd: Sel, _app: *mut Object) {
+    log_info!(LogCategory::EventLoop, "[iOS] applicationWillResignActive:");
+    // Could pause timers here; CADisplayLink already stops firing
+    // when the app is inactive so render-driven work pauses naturally.
+}
+
+extern "C" fn app_did_enter_background(_this: &Object, _cmd: Sel, _app: *mut Object) {
+    log_info!(LogCategory::EventLoop, "[iOS] applicationDidEnterBackground:");
+    // iOS gives ~5 s of background time. Sprint M-iOS-life will use it
+    // to checkpoint app_data / hand off to BGTaskScheduler.
+}
+
+extern "C" fn app_will_enter_foreground(_this: &Object, _cmd: Sel, _app: *mut Object) {
+    log_info!(LogCategory::EventLoop, "[iOS] applicationWillEnterForeground:");
+}
+
+extern "C" fn app_will_terminate(_this: &Object, _cmd: Sel, _app: *mut Object) {
+    log_info!(LogCategory::EventLoop, "[iOS] applicationWillTerminate:");
+    unsafe {
+        if !AZUL_IOS_WINDOW.is_null() {
+            // Drop the window in a controlled scope so its CommonWindowState
+            // releases the RefAny + LayoutWindow before the process dies.
+            let _ = Box::from_raw(AZUL_IOS_WINDOW);
+            AZUL_IOS_WINDOW = core::ptr::null_mut();
+        }
+    }
+}
+
 fn get_or_create_app_delegate_class() -> &'static Class {
     static ONCE: Once = Once::new();
     static mut APP_DELEGATE_CLASS: *const Class = ptr::null();
@@ -603,6 +651,28 @@ fn get_or_create_app_delegate_class() -> &'static Class {
             sel!(application:didFinishLaunchingWithOptions:),
             did_finish_launching
                 as extern "C" fn(&Object, Sel, *mut Object, *mut Object) -> bool,
+        );
+
+        // Lifecycle hooks — see comments on each function.
+        decl.add_method(
+            sel!(applicationDidBecomeActive:),
+            app_did_become_active as extern "C" fn(&Object, Sel, *mut Object),
+        );
+        decl.add_method(
+            sel!(applicationWillResignActive:),
+            app_will_resign_active as extern "C" fn(&Object, Sel, *mut Object),
+        );
+        decl.add_method(
+            sel!(applicationDidEnterBackground:),
+            app_did_enter_background as extern "C" fn(&Object, Sel, *mut Object),
+        );
+        decl.add_method(
+            sel!(applicationWillEnterForeground:),
+            app_will_enter_foreground as extern "C" fn(&Object, Sel, *mut Object),
+        );
+        decl.add_method(
+            sel!(applicationWillTerminate:),
+            app_will_terminate as extern "C" fn(&Object, Sel, *mut Object),
         );
 
         APP_DELEGATE_CLASS = decl.register();
