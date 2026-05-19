@@ -59,6 +59,7 @@ pub const EVENTLOOP_SYMBOLS: &[&str] = &[
     "AzStartup_getLastLayoutStatus",
     "AzStartup_getCascadeProbe",
     "AzStartup_pokeLastLayout",
+    "AzStartup_getProbeRaw",
     // M9-4: WASM-side hit-test (stub, returns last registered cb node).
     "AzStartup_registerCbNode",
     "AzStartup_hitTest",
