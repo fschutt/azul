@@ -674,6 +674,22 @@ Closes caveat (2). Per-MVT-layer fill / stroke / stroke-width is now driven by a
 
 P3.2 remaining: (1) threading-runtime confirmation (needs a live app); (4) wiring the AzulMaps demo to real tiles via an api.json dll helper. Three of the original four caveats now closed.
 
+### Tick — P3.2k adopt the autofix workflow + fix api.json drift (2026-05-20)
+
+User directives this tick: (a) prefer `azul-doc autofix add` + `azul-doc codegen all` + applying the generated patches over hand-editing api.json; (b) item-(1) threading just needs to compile + work in theory; (c) the widget POD structs must be in api.json so examples use the public surface, nothing internal.
+
+Ran `cargo run -p azul-doc -- autofix` (the diff/report mode). It surfaced one **critical** FFI issue + structural drift from my earlier hand-edits:
+
+- **Critical (fixed):** the `MapWidget` doc string I hand-wrote in api.json used non-ASCII `—` (U+2014) and `→` (U+2192). Autofix's FFI-safety check rejects non-ASCII in docs (some bindings emit docs into source comments with strict encoders). Replaced with ASCII `-` / `->`. Codegen itself had tolerated them, but the autofix gate is stricter — good hygiene.
+- **Applied:** patch `0000_modify_GeolocationProbeConfig` → adds `custom_impls: [Eq, Hash, Ord, PartialOrd]` so api.json reflects the manual impls I wrote in `core/src/geolocation.rs` (they were derived-vs-manual drift). Applied in isolation via `azul-doc patch`.
+- **NOT applied (autofix heuristic bug):** patches `0003`–`0012` are all `move_<Type>` operations relocating `MapWidget` / `MapTileLayer` / `MapViewport` / `MapTileId` / `GeolocationProbeConfig` / the gesture `Detected*` types from their current modules to `misc`. Verified this is **wrong**: `Button` (and every other widget) lives in api.json's `widgets` module, so moving `MapWidget` to `misc` would make it inconsistent with its siblings. The autofix module-placement heuristic doesn't recognize the `azul_layout::widgets::map` *submodule* and defaults such types to `misc`. The `remove_LocationFix` / `remove_MapTileId` patches (orphaned types — not yet referenced by any exposed fn/field) were also skipped; harmless to keep, and they'll be referenced once `CallbackInfo::get_geolocation_fix` etc. land.
+
+**Autofix bug to flag for the user:** `autofix` mis-categorizes types whose `external` path has a nested module (e.g. `azul_layout::widgets::map::MapWidget`) into `misc` rather than the parent api.json module (`widgets`). Until that's fixed, `autofix add` for nested-module widget types will place them wrong, so those specific entries still need manual module placement. The non-nested cases (`azul_layout::widgets::button::Button`) work fine.
+
+`cargo run -p azul-doc -- codegen all` GREEN; `cargo check -p azul-maps` (public-API demo) GREEN; `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (9/9/8/9/9 s). The AzulMaps example continues to use only `azul::widgets::MapWidget` + public methods.
+
+Net: api.json drift from my hand-edits is reconciled (em-dash + custom_impls); the demo stays on the public API. The real-tile demo wiring (caveat 4) still needs a no-arg public method that bundles the dll worker — deferred until the autofix nested-module bug is sorted (so the new method lands tool-generated + correctly placed).
+
 The widget callback chain uses `crate::callbacks::Callback::from(fn as CallbackType)` rather than passing the bare fn pointer, because `Dom::with_callback` in `azul-core` takes `Into<CoreCallback>` (the FFI `usize` form) — `Callback` has the requisite `From<CallbackType>` impl from the framework's macro; the bare fn ptr does not.
 
 `bash scripts/mobile-check-all.sh` GREEN across all 5 mobile targets (9/7/6/6/6 s). No regressions; AzulPaint + AzulMaps still build cleanly. Codegen unchanged (the new pan callbacks are private widget internals, not part of the public api.json surface).

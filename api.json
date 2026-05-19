@@ -16987,7 +16987,11 @@
                     "GeolocationProbeConfig": {
                         "external": "azul_core::geolocation::GeolocationProbeConfig",
                         "custom_impls": [
-                            "Default"
+                            "Default",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialOrd"
                         ],
                         "derive": [
                             "Debug",
@@ -39252,14 +39256,14 @@
                         "repr": "C"
                     },
                     "MapWidget": {
-                        "external": "azul_layout::widgets::map::MapWidget",
                         "doc": [
-                            "Map widget — MVT tile + MapCSS → SVG → DOM (AzulMaps goal app,",
+                            "Map widget - MVT tile + MapCSS -> SVG -> DOM (AzulMaps goal app,",
                             "SUPER_PLAN_2 P3). Tile cache lives in a `RefAny` dataset owned",
                             "by a `DatasetMergeCallback` so in-flight fetches and decoded SVG",
                             "bytes survive relayout. Visible-tile grid is computed by an",
                             "inner `VirtualView` callback running Web Mercator math."
                         ],
+                        "external": "azul_layout::widgets::map::MapWidget",
                         "derive": [
                             "Debug",
                             "Clone",
