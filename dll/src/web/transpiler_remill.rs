@@ -4629,22 +4629,22 @@ define linkonce_odr i64 @__remill_read_memory_64(ptr %memory, i64 %addr) alwaysi
 }}
 define linkonce_odr ptr @__remill_write_memory_8(ptr %memory, i64 %addr, i8 %val) alwaysinline {{
   %p = inttoptr i64 %addr to ptr
-  store i8 %val, ptr %p, align 1, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
+  store volatile i8 %val, ptr %p, align 1, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
   ret ptr %memory
 }}
 define linkonce_odr ptr @__remill_write_memory_16(ptr %memory, i64 %addr, i16 %val) alwaysinline {{
   %p = inttoptr i64 %addr to ptr
-  store i16 %val, ptr %p, align 2, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
+  store volatile i16 %val, ptr %p, align 2, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
   ret ptr %memory
 }}
 define linkonce_odr ptr @__remill_write_memory_32(ptr %memory, i64 %addr, i32 %val) alwaysinline {{
   %p = inttoptr i64 %addr to ptr
-  store i32 %val, ptr %p, align 4, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
+  store volatile i32 %val, ptr %p, align 4, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
   ret ptr %memory
 }}
 define linkonce_odr ptr @__remill_write_memory_64(ptr %memory, i64 %addr, i64 %val) alwaysinline {{
   %p = inttoptr i64 %addr to ptr
-  store i64 %val, ptr %p, align 8, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
+  store volatile i64 %val, ptr %p, align 8, !alias.scope !{az_guest_list}, !noalias !{az_host_list}
   ret ptr %memory
 }}
 define linkonce_odr ptr @__remill_barrier_load_load(ptr %memory) alwaysinline {{ ret ptr %memory }}
