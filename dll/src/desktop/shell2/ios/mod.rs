@@ -312,6 +312,44 @@ extern "C" fn touches_cancelled(
     handle_touch(this, touches, 3);
 }
 
+/// UIKit calls `layoutSubviews` whenever the view's bounds change —
+/// orientation rotation, split-view resize on iPad, `safeAreaInsets`
+/// shift, etc. We re-read `[this bounds]`, refresh
+/// `current_window_state.size.dimensions`, and flag a relayout. The
+/// CADisplayLink will pick up `frame_needs_regeneration` on its next
+/// tick and call `present()` → `drawRect:` → `regenerate_layout`.
+extern "C" fn layout_subviews(this: &Object, _cmd: Sel) {
+    use objc::sel;
+    // Call super so UIView's own layout (autoresizing masks, constraints)
+    // still runs. `objc_msgSendSuper` is fiddly via the objc 0.2 macro,
+    // so we rely on the fact that `super.layoutSubviews` for `UIView` is
+    // a no-op once we own the geometry — which we do.
+    let _: () = unsafe {
+        msg_send![this as *const Object as *mut Object, setNeedsDisplay]
+    };
+    if let Some(window) = unsafe { azul_ios_window() } {
+        let bounds: CGRect = unsafe {
+            msg_send![this as *const Object as *mut Object, bounds]
+        };
+        let w = bounds.size.width as f32;
+        let h = bounds.size.height as f32;
+        if w > 0.0 && h > 0.0 {
+            let dims = &mut window.common.current_window_state.size.dimensions;
+            if (dims.width - w).abs() > 0.5 || (dims.height - h).abs() > 0.5 {
+                log_info!(
+                    LogCategory::Window,
+                    "[iOS] layoutSubviews: bounds {}x{} -> {}x{}",
+                    dims.width, dims.height, w, h,
+                );
+                dims.width = w;
+                dims.height = h;
+                window.common.frame_needs_regeneration = true;
+            }
+        }
+    }
+    let _ = sel!(layoutSubviews);
+}
+
 // ─── UIKit gesture-recognizer handlers (Sprint M iOS side) ───────────
 //
 // Each handler is attached as the `action:` selector of a
@@ -586,6 +624,10 @@ fn get_or_create_view_class() -> &'static Class {
         decl.add_method(
             sel!(touchesCancelled:withEvent:),
             touches_cancelled as extern "C" fn(&Object, Sel, *mut Object, *mut Object),
+        );
+        decl.add_method(
+            sel!(layoutSubviews),
+            layout_subviews as extern "C" fn(&Object, Sel),
         );
 
         AZUL_VIEW_CLASS = decl.register();

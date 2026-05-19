@@ -185,6 +185,12 @@ cargo check --target aarch64-linux-android still GREEN (17.28s).
 
 iOS Phase 3 is now structurally complete: tap on a button → touch event → state diff → callback fires → drawRect re-renders. Linker still gated on Xcode.
 
+### Tick — iOS layoutSubviews handles orientation / split-view resize
+
+AzulView gets a `layoutSubviews` selector. UIKit fires it whenever the view's bounds change (device rotation, split-view drag on iPad, safe-area-insets shift after status-bar hide/show). The handler reads `[this bounds]`, updates `current_window_state.size.dimensions` if it changed by more than 0.5 pt, and flips `frame_needs_regeneration` so the next CADisplayLink tick triggers a relayout + redraw. Plus `[this setNeedsDisplay]` so the layer redraws even when the size delta is below threshold (e.g. safe-area shift inside the same orientation).
+
+All 5 mobile cargo-check targets still GREEN (17/5/3/1/0 s).
+
 ### Tick — iOS [UIScreen scale] + Android density math both → ws.size.dpi (96 baseline)
 
 azul-layout treats 96 dpi as its 1× baseline (`dpi_factor = ws.size.dpi / 96.0`). The previous tick wrote Android's raw `density()` (mdpi 160 baseline) straight in, which would have given a 5× too-big factor on xxhdpi (480/96 = 5 vs the correct 3). Both platforms now normalize to the framework's 96-baseline:
