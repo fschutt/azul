@@ -49,7 +49,7 @@ const CYCLES = parseInt(process.env.AZ_CYCLES || '100', 10);
     };
     const stubFor = n => /write_memory|barrier|exception_clear/.test(n)
         ? () => {}
-        : (/(?:_64|_f64)\b/.test(n) ? () => 0n : () => 0);
+        : (/_f64\b/.test(n) ? () => 0 : (/_64\b/.test(n) ? () => 0n : () => 0));
     const h = env => ({
         get: (_, p) => typeof p === 'string'
             ? (Object.prototype.hasOwnProperty.call(env, p) ? env[p] : stubFor(p))
