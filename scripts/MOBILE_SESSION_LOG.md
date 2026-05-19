@@ -523,6 +523,24 @@ Each move event returns `Update::RefreshDom`, so the inner `VirtualView` callbac
 
 Wheel-based zoom was scoped out of this tick — the framework's `MouseState` doesn't expose wheel delta on the existing API surface, so users keep zooming via the demo's `+ / −` toolbar buttons (which call `MapState::zoom_in/out` from the example). Touch-pinch zoom comes when `GestureAndDragManager::inject_native_gesture(NativeGestureEvent::Pinch(...))` lands on the widget — a follow-up tick.
 
+### Tick — P3.2d MapWidget pinch-zoom
+
+Touch-pinch now drives `viewport.zoom` continuously across multi-frame gestures. The widget reuses the framework's existing pinch detection (native iOS `UIPinchGestureRecognizer` → injected via `GestureAndDragManager::inject_native_gesture`; same on Android `ScaleGestureDetector` per the P2 Sprint M plumbing). No new platform code needed — only the widget consumes the existing accessor.
+
+- `MapTileCache` gains `pinch_anchor: Option<f32>` (the two-finger pixel distance at the start of the gesture; `None` between gestures).
+- `map_on_pointer_move` checks `info.get_pinch()` *first* — an active pinch supersedes single-finger pan:
+  - First pinch sample: store `pinch.current_distance` as the anchor; emit no zoom delta yet.
+  - Subsequent samples: `dz = log2(current_distance / pinch_anchor)`, applied to `viewport.zoom` clamped to `[layer.min_zoom, layer.max_zoom]`; anchor advances to current distance for the next frame.
+  - Pan's `drag_anchor` cleared as a side-effect so pinch-end doesn't accidentally roll into a single-finger pan.
+- `map_on_pointer_up` clears both anchors.
+- Widget root now also subscribes to `HoverEventFilter::PinchIn` + `HoverEventFilter::PinchOut` (in addition to TouchMove / MouseOver). Both route through the same `map_on_pointer_move` handler so the pinch start fires before the first TouchMove and the user feels immediate response. (PinchIn / PinchOut have no FocusEventFilter equivalent — they return None from `to_focus_event_filter`, matching the gesture-style events landed in P2.3.)
+
+Each pinch event returns `Update::RefreshDom`, so the inner `VirtualView` callback recomputes the visible-tile grid at the new zoom on every frame the user is squeezing / spreading. Tested via the standard mobile cargo-check gate — runtime verification needs an iOS sim or Android emulator with two-finger input.
+
+`bash scripts/mobile-check-all.sh` GREEN across all 5 mobile targets (16/9/7/7/7 s).
+
+The MapWidget interaction surface is now feature-complete for touch + mouse: drag pans, two-finger-pinch zooms, the toolbar buttons in the AzulMaps demo still work. What's left for P3.2 proper is the *content* — MVT bytes → MapCSS-styled SVG → DOM tree as the per-tile child, replacing the current placeholder `"zN/X/Y"` label. That's the heavyweight item, queued for the next handful of ticks.
+
 The widget callback chain uses `crate::callbacks::Callback::from(fn as CallbackType)` rather than passing the bare fn pointer, because `Dom::with_callback` in `azul-core` takes `Into<CoreCallback>` (the FFI `usize` form) — `Callback` has the requisite `From<CallbackType>` impl from the framework's macro; the bare fn ptr does not.
 
 `bash scripts/mobile-check-all.sh` GREEN across all 5 mobile targets (9/7/6/6/6 s). No regressions; AzulPaint + AzulMaps still build cleanly. Codegen unchanged (the new pan callbacks are private widget internals, not part of the public api.json surface).

@@ -208,8 +208,22 @@ impl MapWidget {
             )
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::TouchCancel),
-                dataset,
+                dataset.clone(),
                 crate::callbacks::Callback::from(map_on_pointer_up as crate::callbacks::CallbackType),
+            )
+            // Native gesture events (UIPinchGestureRecognizer on iOS,
+            // ScaleGestureDetector on Android, NSMagnificationGestureRecognizer
+            // on macOS) — fire through the same map_on_pointer_move handler
+            // which reads `info.get_pinch()` and applies the zoom delta.
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::PinchIn),
+                dataset.clone(),
+                crate::callbacks::Callback::from(map_on_pointer_move as crate::callbacks::CallbackType),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::PinchOut),
+                dataset,
+                crate::callbacks::Callback::from(map_on_pointer_move as crate::callbacks::CallbackType),
             )
             .with_child(Dom::create_virtual_view(
                 virtual_view_data,
@@ -235,6 +249,14 @@ pub struct MapTileCache {
     /// mouse-move to derive the pixel delta, which then converts to a
     /// lat/lon delta via the Web Mercator inverse.
     pub drag_anchor: Option<azul_core::geom::LogicalPosition>,
+    /// Pinch reference distance (pixels) — the two-finger separation
+    /// the last time a pinch event was observed for this widget.
+    /// `Some` while a pinch is in flight, `None` between gestures.
+    /// On each subsequent pinch update we compute
+    /// `dz = log2(current_distance / pinch_anchor)` and add it to
+    /// `viewport.zoom`, then reset the anchor to the current
+    /// distance — so the gesture stays continuous across many frames.
+    pub pinch_anchor: Option<f32>,
 }
 
 impl MapTileCache {
@@ -244,6 +266,7 @@ impl MapTileCache {
             viewport,
             tiles: BTreeMap::new(),
             drag_anchor: None,
+            pinch_anchor: None,
         }
     }
 }
@@ -307,7 +330,33 @@ extern "C" fn map_on_pointer_down(mut data: RefAny, info: CallbackInfo) -> Updat
 /// into a lat/lon delta via the Web Mercator inverse and update
 /// `viewport.centre_lat_deg / centre_lon_deg`. Updates the anchor so
 /// the next move computes a fresh delta.
+///
+/// If a pinch gesture is in flight (two fingers on the widget), the
+/// pan branch is skipped and the move event drives zoom instead —
+/// `dz = log2(current_distance / pinch_anchor)`. The next move resets
+/// the anchor to the current distance so the gesture stays
+/// continuous across many frames.
 extern "C" fn map_on_pointer_move(mut data: RefAny, info: CallbackInfo) -> Update {
+    // Active pinch wins over single-finger pan.
+    if let Some(pinch) = info.get_pinch().into_option() {
+        let mut cache = match data.downcast_mut::<MapTileCache>() {
+            Some(c) => c,
+            None => return Update::DoNothing,
+        };
+        let anchor = *cache.pinch_anchor.get_or_insert(pinch.current_distance);
+        if anchor > 1.0 && pinch.current_distance > 1.0 {
+            let dz = (pinch.current_distance / anchor).log2();
+            let min = cache.layer.min_zoom as f32;
+            let max = cache.layer.max_zoom as f32;
+            cache.viewport.zoom = (cache.viewport.zoom + dz).clamp(min, max);
+        }
+        cache.pinch_anchor = Some(pinch.current_distance);
+        // Pinch is exclusive with pan — clear the drag anchor so the
+        // pinch end doesn't accidentally drop into a pan.
+        cache.drag_anchor = None;
+        return Update::RefreshDom;
+    }
+
     let pos = match info.get_cursor_relative_to_node().into_option() {
         Some(p) => azul_core::geom::LogicalPosition::new(p.x, p.y),
         None => return Update::DoNothing,
@@ -356,10 +405,13 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, info: CallbackInfo) -> Updat
     Update::RefreshDom
 }
 
-/// Pointer up / pointer leave → end the drag.
+/// Pointer up / pointer leave → end the drag *and* the pinch. Either
+/// can be in flight (and pinch supersedes pan in the move handler);
+/// clear both anchors on release.
 extern "C" fn map_on_pointer_up(mut data: RefAny, _info: CallbackInfo) -> Update {
     if let Some(mut cache) = data.downcast_mut::<MapTileCache>() {
         cache.drag_anchor = None;
+        cache.pinch_anchor = None;
     }
     Update::DoNothing
 }
