@@ -718,6 +718,26 @@ First attempt: `autofix add MapWidget.dom_with_fetch` with the existing signatur
 
 The real-tile demo wiring (caveat 4) is now fully unblocked through the public API: `examples/azul-maps` can enable the `map-tiles` feature and call `MapWidget::create(layer).with_viewport(vp).dom_with_fetch(ThreadCallback::new(azul::desktop::extra::map::tile_fetch_worker))` — all public surface. That's the next tick (kept separate per the one-step-per-tick rule). Remaining P3.2: just (1) live threading-runtime confirmation (not unit-testable here) + (4) the demo call.
 
+### Tick — P3.2n expose Dom.create_geolocation_probe + demo-wiring type-impedance found (2026-05-20)
+
+Set out to wire the AzulMaps demo to real tiles via `dom_with_fetch`, but hit a genuine **type-impedance** that makes that a design fork, not a drive-by:
+
+- `dom_with_fetch(cb: ThreadCallback)` (codegen `AzThreadCallback { cb: AzThreadCallbackType, ctx }`) wants a fn of type `AzThreadCallbackType = extern "C" fn(AzRefAny, AzThreadSender, AzThreadReceiver)`.
+- The dll worker `tile_fetch_worker` is `extern "C" fn(azul_core::refany::RefAny, azul_layout::thread::ThreadSender, azul_core::task::ThreadReceiver)`.
+- `AzRefAny` etc. are transmute-compatible with the `azul_core` types but **distinct fn types** at the Rust level, so the example can't assign `tile_fetch_worker` into an `AzThreadCallback` without an `unsafe` fn-pointer transmute — which is exactly the "nothing internal / unsafe in examples" the user wants to avoid.
+
+The clean fix is a dll-side convenience that returns a ready-built `AzThreadCallback` for the worker (the transmute lives in the dll, gated on `cabi_internal + map-tiles`), or a no-arg `dom_with_default_tiles()`. Both need a small hand-curated dll shim referencing codegen types — a design choice worth the user's call rather than forcing it autonomously. **Logged + deferred.**
+
+Pivoted to a clean, tool-driven, finishable step the user explicitly wanted ("users can put the geolocation dot on top of the map"): expose the `GeolocationProbe` DOM factory publicly.
+
+- `Dom::create_geolocation_probe(config)` existed as a Rust method (P3.1b) but was never in api.json, so the public codegen API couldn't compose a probe.
+- `azul-doc autofix add Dom.create_geolocation_probe` → clean patch (constructor taking `GeolocationProbeConfig`, which is already in api.json's `dom` module). Fixed the source doc comment's non-ASCII (em-dash, §) first so the FFI-safety check passed, then `autofix apply` + `codegen all`.
+- Generated `Dom::create_geolocation_probe<I0: Into<AzGeolocationProbeConfig>>(config) -> AzDom` (+ the `AzDom_createGeolocationProbe` extern that transmutes the config and calls the real method). No type-impedance — `GeolocationProbeConfig` is a plain POD, not a fn pointer.
+
+`azul-doc codegen all` GREEN; `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (15/17/13/12/13 s). Users / examples can now compose `Dom::create_geolocation_probe(GeolocationProbeConfig { high_accuracy: true, .. })` over any subtree (e.g. stacked on the `MapWidget`) entirely through the public API — the permission-as-DOM "geolocation dot" pattern.
+
+P3.2 remaining: (1) live threading-runtime confirmation; (4) the real-tile demo call — now gated on the user's design preference for the worker-exposure shim (no-arg `dom_with_default_tiles` vs a `tile_fetch_thread_callback()` helper). Flagged for the user.
+
 The widget callback chain uses `crate::callbacks::Callback::from(fn as CallbackType)` rather than passing the bare fn pointer, because `Dom::with_callback` in `azul-core` takes `Into<CoreCallback>` (the FFI `usize` form) — `Callback` has the requisite `From<CallbackType>` impl from the framework's macro; the bare fn ptr does not.
 
 `bash scripts/mobile-check-all.sh` GREEN across all 5 mobile targets (9/7/6/6/6 s). No regressions; AzulPaint + AzulMaps still build cleanly. Codegen unchanged (the new pan callbacks are private widget internals, not part of the public api.json surface).

@@ -3731,10 +3731,10 @@ impl Dom {
 
     /// Creates an invisible `NodeType::GeolocationProbe` node that
     /// signals "this subtree needs the user's location". Lays out as
-    /// zero-size and is skipped in the display list — the framework
+    /// zero-size and is skipped in the display list - the framework
     /// scans for it at end-of-layout and starts / stops the native
     /// `CLLocationManager` / `LocationManager` / `geoclue`
-    /// subscription. See `SUPER_PLAN_2.md` §1.5.
+    /// subscription. See `SUPER_PLAN_2.md` section 1.5.
     #[inline(always)]
     pub fn create_geolocation_probe(config: crate::geolocation::GeolocationProbeConfig) -> Self {
         Self::create_node(NodeType::GeolocationProbe(config))
