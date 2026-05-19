@@ -1,13 +1,17 @@
 # Azul Web Backend — Handoff 2026-05-18 (M9 5-step e2e green)
 
-> **SUPERSEDED 2026-05-19** — see [`STATUS_REPORT_M10_F_2026_05_19.md`](STATUS_REPORT_M10_F_2026_05_19.md)
-> for the M10-E/F size-optimization landing (cb wasms 696-3,482 B,
-> hello-world.bin 96 KB legacy / 147 KB sharded — sharded now BEATS
-> legacy by 31% vs original baseline). [`STATUS_REPORT_M10_2026_05_19.md`](STATUS_REPORT_M10_2026_05_19.md)
-> still describes the M10-D boundary-shard architecture. The table
-> below is updated through `179a7d717`; everything below the
-> "Original M9 close-out" divider is the original M9 handoff kept for
-> context.
+> **SUPERSEDED 2026-05-19** — see
+> [`STATUS_REPORT_M11_2026_05_19.md`](STATUS_REPORT_M11_2026_05_19.md)
+> for the M11 production web backend (cascade transitive lift,
+> real bbox hit-test, 12-kind TLV decoder, event wiring, flat
+> bench at 94k ops/sec). Earlier handoffs:
+> [`STATUS_REPORT_M10_F_2026_05_19.md`](STATUS_REPORT_M10_F_2026_05_19.md)
+> for M10-E/F size optimization (cb wasms 696-3,482 B);
+> [`STATUS_REPORT_M10_2026_05_19.md`](STATUS_REPORT_M10_2026_05_19.md)
+> for the M10-D boundary-shard architecture. The table below is
+> updated through M10-F (`179a7d717`); everything below the
+> "Original M9 close-out" divider is the original M9 handoff kept
+> for context.
 
 **Branch:** `layout-debug-clean`
 **Last commit:** `f30d0ec02` (M10-D sharded mode).
@@ -27,6 +31,7 @@
 | **E2** auto-merge for small cbs | ✅ landed `53c77c2f9` | cbs ≤30 fns inline transitively, SROA evaporates State; v5 on_click 14743 → 696 B |
 | **F1** ADR + register-indexed LDRB | ✅ landed `b317b3fd3` | closed 10 fallback pages (jump-table dispatch); layout 124KB → 86KB |
 | **F2** -Oz LLVM pipeline | ✅ landed `b317b3fd3` | PassBuilder Oz + CodeGenOpt::Default + --lto-O3; cross-cutting size compression |
+| **M11 S1.A-C / Sprint 2-8** | ✅ landed `d0199e571..3d770e464` (9 commits) | Eventloop transitive lift + cascade call + bbox hit-test + 12-kind TLV decoder + event wiring + flat bench (94k ops/sec). See [`STATUS_REPORT_M11_2026_05_19.md`](STATUS_REPORT_M11_2026_05_19.md) |
 | **D-Step3** mini.wasm split | not started | partition `EVENTLOOP_SYMBOLS` into MINI_SHARDS (deferred follow-up) |
 | **E3** shared helper-IR runtime wasm | proposed | each boundary shard re-ships ~6 KB of `__remill_*` helpers; one shared runtime would close the size gap |
 | **F3** smart selective inlining for large cbs | proposed | merged + alwaysinline-only-small-deps would close the 86 KB layout gap |

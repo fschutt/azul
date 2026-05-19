@@ -5,7 +5,13 @@ side-effect (patches, focus, scroll, timers) propagates back to the DOM
 — same surface as a desktop window. Plus a TodoMVC-flavored
 `azul-bench.bin` to publish numbers against React/Preact/Svelte.
 
-**Status:** PLAN. Sequel to M10-E/F (size optimization).
+**Status:** LANDED 2026-05-19 (commits `d0199e571..3d770e464`).
+See [`STATUS_REPORT_M11_2026_05_19.md`](STATUS_REPORT_M11_2026_05_19.md)
+for full per-sprint status. Sprints 1-8 all landed as infrastructure +
+working code; the cascade Box::new init gap (memory note
+`m11-complex-struct-box-new-lift`) limits internal-fields read-back
+on StyledDom + blocks the real layout solver wiring + full
+VirtualView auto-wrap. Bench harness ships at 94k dispatches/sec.
 
 ---
 

@@ -1,5 +1,14 @@
 # M11 — Next-session prompt: make the web backend production-usable
 
+> **SUPERSEDED 2026-05-19** — see
+> [`STATUS_REPORT_M11_2026_05_19.md`](STATUS_REPORT_M11_2026_05_19.md)
+> for what landed. Sprints 1-8 all shipped as
+> infrastructure + working code. The cascade Box::new init gap is
+> the next blocking issue (see memory note
+> `m11-complex-struct-box-new-lift`); resolving it unblocks the
+> real layout solver + full VirtualView wiring + real diff loop.
+> Everything below is the original prompt kept for context.
+
 You're continuing work on Azul's web backend. Size optimization (M10-E/F)
 is **closed** — per-cb wasms are 700-3500 B, hello-world.bin is 96 KB
 legacy / 147 KB sharded (-31% vs original). The pipeline is solid;
