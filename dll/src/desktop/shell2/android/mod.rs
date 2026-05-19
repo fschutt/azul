@@ -45,7 +45,7 @@ use crate::{impl_platform_window_getters, log_debug, log_error, log_info};
 
 #[cfg(feature = "android-activity")]
 use android_activity::{
-    input::{InputEvent, KeyAction, Keycode, MotionAction},
+    input::{Axis, InputEvent, KeyAction, Keycode, MotionAction, ToolType},
     AndroidApp, InputStatus, MainEvent, PollEvent,
 };
 #[cfg(feature = "ndk")]
@@ -512,6 +512,21 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
     // (KeyAction, Option<VirtualKeyCode>) — None for unmapped keycodes.
     let mut key_updates: Vec<(KeyAction, Option<azul_core::window::VirtualKeyCode>)> =
         Vec::new();
+    // Pen / stylus samples — populated when the active pointer reports
+    // `ToolType::Stylus` or `ToolType::Eraser`. tilt is decomposed into
+    // (x_tilt_deg, y_tilt_deg) so it matches the W3C
+    // `PointerEvent.tiltX/tiltY` shape that the desktop pen-tablet path
+    // uses too.
+    struct PenSample {
+        action: MotionAction,
+        pos: LogicalPosition,
+        pressure: f32,
+        x_tilt_deg: f32,
+        y_tilt_deg: f32,
+        is_eraser: bool,
+        barrel_button_pressed: bool,
+    }
+    let mut pen_updates: Vec<PenSample> = Vec::new();
 
     while iter.next(|event| {
         match event {
@@ -519,6 +534,26 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                 if let Some(p) = m.pointers().next() {
                     let pos = LogicalPosition::new(p.raw_x() / dpi, p.raw_y() / dpi);
                     motion_updates.push((m.action(), pos));
+
+                    let tool = p.tool_type();
+                    if matches!(tool, ToolType::Stylus | ToolType::Eraser) {
+                        let pressure = p.pressure().clamp(0.0, 1.0);
+                        let tilt_rad = p.axis_value(Axis::Tilt);
+                        let orientation = p.axis_value(Axis::Orientation);
+                        let (sin_o, cos_o) = orientation.sin_cos();
+                        let tan_tilt = tilt_rad.tan();
+                        let x_tilt_deg = (sin_o * tan_tilt).atan().to_degrees();
+                        let y_tilt_deg = (-cos_o * tan_tilt).atan().to_degrees();
+                        pen_updates.push(PenSample {
+                            action: m.action(),
+                            pos,
+                            pressure,
+                            x_tilt_deg,
+                            y_tilt_deg,
+                            is_eraser: matches!(tool, ToolType::Eraser),
+                            barrel_button_pressed: m.button_state().stylus_primary(),
+                        });
+                    }
                 }
             }
             InputEvent::KeyEvent(k) => {
@@ -560,6 +595,30 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
         window.update_hit_test_at(pos);
         let r = window.process_window_events(0);
         if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+            window.common.frame_needs_regeneration = true;
+        }
+    }
+
+    // Apply pen samples. Run *after* the motion-state diff so the
+    // mouse-pipe view of the world (left_down, cursor_position) is
+    // already up-to-date by the time gesture-detection in the callback
+    // reads it.
+    for sample in pen_updates {
+        let in_contact = matches!(sample.action, MotionAction::Down | MotionAction::Move);
+        if let Some(lw) = window.common.layout_window.as_mut() {
+            if in_contact {
+                lw.gesture_drag_manager.update_pen_state(
+                    sample.pos,
+                    sample.pressure,
+                    (sample.x_tilt_deg, sample.y_tilt_deg),
+                    true,
+                    sample.is_eraser,
+                    sample.barrel_button_pressed,
+                    0, // device_id — Android has no stable per-device cookie at this layer
+                );
+            } else {
+                lw.gesture_drag_manager.clear_pen_state();
+            }
             window.common.frame_needs_regeneration = true;
         }
     }

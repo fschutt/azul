@@ -236,16 +236,55 @@ fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
 
     // Read the first UITouch's location-in-view. Empty set means no
     // touches (theoretically can't happen for these selectors).
-    let pos: Option<LogicalPosition> = unsafe {
+    // While we hold the touch we also extract Apple Pencil state — `type`
+    // distinguishes finger vs stylus, `force` / `maximumPossibleForce` give
+    // normalized pressure, and `altitudeAngle` + `azimuthAngleInView:` give
+    // tilt in W3C-shape (tiltX / tiltY in degrees).
+    struct PencilSample {
+        pressure: f32,
+        x_tilt_deg: f32,
+        y_tilt_deg: f32,
+    }
+    let mut pos: Option<LogicalPosition> = None;
+    let mut pencil: Option<PencilSample> = None;
+    unsafe {
         let any: *mut Object = msg_send![touches, anyObject];
-        if any.is_null() {
-            None
-        } else {
+        if !any.is_null() {
             let this_ptr = this as *const Object as *mut Object;
             let p: CGPoint = msg_send![any, locationInView: this_ptr];
-            Some(LogicalPosition::new(p.x as f32, p.y as f32))
+            pos = Some(LogicalPosition::new(p.x as f32, p.y as f32));
+
+            // UITouchType: 0 = direct, 1 = indirect, 2 = pencil,
+            // 3 = indirectPointer. NSInteger is i64 on every iOS device.
+            let touch_type: i64 = msg_send![any, type];
+            if touch_type == 2 {
+                let force: f64 = msg_send![any, force];
+                let max_force: f64 = msg_send![any, maximumPossibleForce];
+                let pressure = if max_force > 0.0 {
+                    (force / max_force).clamp(0.0, 1.0) as f32
+                } else {
+                    0.0
+                };
+
+                // altitudeAngle: π/2 = perpendicular to surface,
+                // 0 = parallel. Tilt away from perpendicular:
+                let altitude: f64 = msg_send![any, altitudeAngle];
+                let azimuth: f64 = msg_send![any, azimuthAngleInView: this_ptr];
+                let tilt_rad = (core::f64::consts::FRAC_PI_2 - altitude) as f32;
+                let orientation = azimuth as f32;
+                // W3C `PointerEvent.tiltX/tiltY` decomposition.
+                let (sin_o, cos_o) = orientation.sin_cos();
+                let tan_tilt = tilt_rad.tan();
+                let x_tilt_deg = (sin_o * tan_tilt).atan().to_degrees();
+                let y_tilt_deg = (-cos_o * tan_tilt).atan().to_degrees();
+                pencil = Some(PencilSample {
+                    pressure,
+                    x_tilt_deg,
+                    y_tilt_deg,
+                });
+            }
         }
-    };
+    }
 
     // Snapshot previous state for the diff pipeline; mirrors Android.
     window.common.previous_window_state =
@@ -272,6 +311,29 @@ fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
     }
     if let Some(lw) = window.common.layout_window.as_mut() {
         lw.gesture_drag_manager.clear_native_gesture();
+
+        // Pencil events route through the same gesture manager that pen
+        // tablets do on desktop. Apple Pencil has no eraser tip and no
+        // barrel button at the UITouch level (Pencil 2 squeeze fires
+        // `UIPencilInteraction` instead, a P2.3 follow-up), so both flags
+        // stay `false` here; pressure + tilt are populated.
+        if let (Some(p), Some(sample)) = (pos, pencil.as_ref()) {
+            let in_contact = matches!(phase, 0 | 1);
+            if in_contact {
+                lw.gesture_drag_manager.update_pen_state(
+                    p,
+                    sample.pressure,
+                    (sample.x_tilt_deg, sample.y_tilt_deg),
+                    true,
+                    false, // is_eraser
+                    false, // barrel_button_pressed
+                    0,     // device_id (Apple Pencil has no public ID at this layer)
+                );
+            } else {
+                lw.gesture_drag_manager.clear_pen_state();
+            }
+            window.common.frame_needs_regeneration = true;
+        }
     }
 
     // Ask the view to redraw — drawRect: will pick up the new layout.

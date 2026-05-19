@@ -341,3 +341,27 @@ Closes P1.3: both mobile arms now drive their native pickers, not stubs. Five fi
 Borrow-checker note: jni 0.21's `JNIEnv::get_string` returns a `JavaStr` whose lifetime is tied to both the `&JNIEnv` and the source `JString`. The if-let pattern would have held the `Result` temporary alive past the `JString` drop point, so each string-extract path is rewritten as `env.get_string(&jstr).ok().map(|s| s.into())` — the `String` materializes inside the closure, drop order becomes deterministic.
 
 `cargo test -p azul-layout --lib permission::` still 7/7 GREEN; `bash scripts/mobile-check-all.sh` GREEN on all 5 mobile targets (18/1/1/8/6 s). With this tick **all three P1 sub-tasks are closed**: rust-fontconfig mobile arms (P1.1), PermissionManager + dispatcher + layout wire-up (P1.2), and file pickers on both mobile platforms (P1.3). The compile-only gate hides runtime activation — iOS still needs Xcode SDK, Android still needs the dex to ship in the APK (build-android.sh already detects `scripts/android/AzulFilePicker.java` and pulls it in automatically). Next cron tick can start P2 — AzulPaint's `PenState` wiring (research/03).
+
+### Tick — P2.1 PenState populated on iOS + Android backends (AzulPaint runway)
+
+First step toward AzulPaint (the P2 goal app). The `PenState` struct already existed in `layout/src/managers/gesture.rs:360` with the right shape (`position`, `pressure`, `tilt`, `in_contact`, `is_eraser`, `barrel_button_pressed`, `device_id`), but neither mobile backend had ever called `update_pen_state` — so any pen-aware widget got nothing.
+
+- `dll/src/desktop/shell2/ios/mod.rs::handle_touch` now extracts Apple Pencil data from each UITouch:
+  - `[touch type]` → `UITouchTypePencil = 2` is the gate.
+  - `[touch force]` / `[touch maximumPossibleForce]` → normalized 0..1 pressure (`maximumPossibleForce == 0` falls back to 0).
+  - `[touch altitudeAngle]` (π/2 = perpendicular) + `[touch azimuthAngleInView: view]` decomposed into W3C-shape `tiltX` / `tiltY` degrees using `atan(sin(orientation) * tan(tilt))` for x and `atan(-cos(orientation) * tan(tilt))` for y. Matches `PointerEvent` semantics the desktop pen-tablet path already uses.
+  - `is_eraser` + `barrel_button_pressed` stay `false` — Apple Pencil 1/2 don't expose those at the UITouch layer (Pencil 2 squeeze fires `UIPencilInteraction` instead, a P2.3 follow-up).
+  - In-contact (`phase ∈ {began, moved}`) → `update_pen_state(...)`; otherwise → `clear_pen_state()`.
+- `dll/src/desktop/shell2/android/mod.rs::drain_input` adds a `PenSample` collection pass alongside the existing motion + key updates:
+  - `Pointer::tool_type() ∈ {Stylus, Eraser}` is the gate.
+  - `Pointer::pressure()` clamped to 0..1.
+  - `Pointer::axis_value(Axis::Tilt)` (radians from perpendicular) + `Axis::Orientation` decomposed into the same W3C tiltX/tiltY shape.
+  - `is_eraser = tool_type == Eraser`; `barrel_button_pressed = MotionEvent::button_state().stylus_primary()` (Surface Pen / S-Pen barrel).
+  - Same in-contact gating as iOS.
+- `use android_activity::input::{Axis, ToolType}` added.
+
+Both backends call into the *existing* `GestureAndDragManager::update_pen_state` — no API changes. Cross-platform `CallbackInfo::get_pen_state()` already exposes the populated state to user callbacks. With this tick, a widget that wants stylus-only behavior (paint canvas, signature pad, handwriting input) can finally tell finger from pen and read pressure + tilt.
+
+`bash scripts/mobile-check-all.sh` GREEN across all 5 mobile targets (19/5/5/4/5 s). Runtime verification needs an iOS Pencil or Android stylus device — compile-only is the available check.
+
+Open AzulPaint follow-ups: P2.2 multi-touch `TouchPointVec` (iOS currently reads only `anyObject`, drops fingers 2+); P2.3 `PenState` extensions (`tangential_pressure`, `barrel_roll_rad`, `tool_id`) + new `HoverEventFilter::PenSqueeze` / `PenDoubleTap` / `PenHover` event filters (the iOS `UIPencilInteraction` squeeze + the W3C `pointerleave` / hover surface).
