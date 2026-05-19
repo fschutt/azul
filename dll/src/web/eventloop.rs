@@ -1057,23 +1057,9 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     // returned, drop bailed" (marker + ptr).
     // Stepped probes via last_layout_status.
     let state_u32 = state;
-    probe_set(state_u32, 0x1001);  // pre-bisect
-    // M12 bisect: prefix of StyledDom::create (private function called
-    // internally is the suspect; do everything up to that line).
-    use core::mem;
-    use azul_core::styled_dom::{CompactDom, NodeHierarchyItem, NodeHierarchyItemVec};
-    let mut swap_dom = azul_core::dom::Dom::create_body();
-    mem::swap(dom_ref, &mut swap_dom);
-    let compact_dom: CompactDom = swap_dom.into();
-    let _node_hierarchy: NodeHierarchyItemVec = compact_dom
-        .node_hierarchy
-        .as_ref()
-        .internal
-        .iter()
-        .map(|i| (*i).into())
-        .collect::<Vec<NodeHierarchyItem>>()
-        .into();
-    probe_set(state_u32, 0x1004);  // post-bisect (no create_from_compact_dom yet)
+    probe_set(state_u32, 0x1001);  // pre-cascade
+    let _styled = StyledDom::create(dom_ref, Css::empty());
+    probe_set(state_u32, 0x1004);  // post-cascade
     0
 }
 
