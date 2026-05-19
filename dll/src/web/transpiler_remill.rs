@@ -5289,11 +5289,15 @@ fn scan_arm64_adrp_accesses(
             0xF9 | 0xFD => (8, 8),
             0xB9 | 0xBD => (4, 4),
             0x79 | 0x7D => (2, 2),
-            0x39 | 0x3D => (1, 1),
-            // SIMD LDR Qt 128-bit: top byte 0x3D / 0x7D handled above
-            // (but width=2/1 is wrong for SIMD). Catch the 128-bit case
-            // explicitly: top 8 bits = 0x3D with bit 23 set.
+            // SIMD LDR Qt 128-bit must precede the 0x3D 8-bit case —
+            // both ldr Bt and ldr Qt have top8 = 0x3D, distinguished by
+            // bit 23 of opc (opc[1] = 1 means 128-bit Q).
+            // BUG FIX (M12.5b): previously this arm was unreachable
+            // because `0x39 | 0x3D => (1, 1)` matched first, so all
+            // ldr q?, [xn, #imm] loads only mirrored 1 byte → const pool
+            // reads returned zero → all sret writes stored zeros.
             0x3D if (instr >> 23) & 1 == 1 => (16, 16),
+            0x39 | 0x3D => (1, 1),
             _ => {
                 offset += 4;
                 continue;
