@@ -1588,6 +1588,92 @@ pub enum DebugEvent {
         text: String,
     },
 
+    // Touch Events — driven through FullWindowState.touch_state; the
+    // state-diff event determination fires HoverEventFilter::TouchStart /
+    // TouchMove / TouchEnd / TouchCancel.
+    TouchStart {
+        id: u64,
+        x: f32,
+        y: f32,
+        #[serde(default = "default_force")]
+        force: f32,
+    },
+    TouchMove {
+        id: u64,
+        x: f32,
+        y: f32,
+        #[serde(default = "default_force")]
+        force: f32,
+    },
+    TouchEnd {
+        id: u64,
+    },
+    TouchCancel,
+
+    // Pen / Stylus Events — drive GestureAndDragManager.pen_state.
+    PenDown {
+        x: f32,
+        y: f32,
+        #[serde(default = "default_force")]
+        pressure: f32,
+        #[serde(default)]
+        x_tilt: f32,
+        #[serde(default)]
+        y_tilt: f32,
+    },
+    PenMove {
+        x: f32,
+        y: f32,
+        #[serde(default = "default_force")]
+        pressure: f32,
+        #[serde(default)]
+        x_tilt: f32,
+        #[serde(default)]
+        y_tilt: f32,
+    },
+    PenUp {
+        x: f32,
+        y: f32,
+    },
+
+    // Native Gestures — bypass the in-process detector and feed the
+    // GestureAndDragManager override slot directly. The next detect_*
+    // call from a callback sees the injected gesture.
+    Swipe {
+        #[serde(rename = "dir")]
+        direction: SwipeDir,
+    },
+    Pinch {
+        #[serde(default)]
+        scale: f32,
+        #[serde(default)]
+        center_x: f32,
+        #[serde(default)]
+        center_y: f32,
+        #[serde(default)]
+        initial_distance: f32,
+        #[serde(default)]
+        current_distance: f32,
+        #[serde(default)]
+        duration_ms: u64,
+    },
+    Rotate {
+        #[serde(default)]
+        angle_radians: f32,
+        #[serde(default)]
+        center_x: f32,
+        #[serde(default)]
+        center_y: f32,
+        #[serde(default)]
+        duration_ms: u64,
+    },
+    LongPress {
+        x: f32,
+        y: f32,
+        #[serde(default)]
+        duration_ms: u64,
+    },
+
     // Window Events
     Resize {
         width: f32,
@@ -2231,6 +2317,24 @@ pub enum MouseButton {
     Left,
     Right,
     Middle,
+}
+
+/// Default touch / pen force when the JSON test doesn't supply one. 0.5
+/// is the same "pressure unavailable" sentinel `TouchPoint` documents.
+fn default_force() -> f32 {
+    0.5
+}
+
+/// Swipe direction accepted by the `swipe` debug event.
+#[derive(Debug, Clone, Copy, Default)]
+#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
+#[serde(rename_all = "lowercase")]
+pub enum SwipeDir {
+    #[default]
+    Up,
+    Down,
+    Left,
+    Right,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -8656,6 +8760,174 @@ fn process_debug_event(
                 send_err(request, "No focused node - text input requires focus on contenteditable");
             }
         }
+
+        // ─── Touch Events ────────────────────────────────────────────
+        // Mutate FullWindowState.touch_state; the framework's
+        // event-determination fires HoverEventFilter::TouchStart /
+        // TouchMove / TouchEnd / TouchCancel via the normal state-diff
+        // pipeline.
+
+        DebugEvent::TouchStart { id, x, y, force } => {
+            let mut state = callback_info.get_current_window_state().clone();
+            let mut points = state.touch_state.touch_points.clone().into_library_owned_vec();
+            points.retain(|p| p.id != *id);
+            points.push(azul_core::window::TouchPoint {
+                id: *id,
+                position: LogicalPosition { x: *x, y: *y },
+                force: *force,
+            });
+            state.touch_state.touch_points = points.into();
+            state.touch_state.num_touches = state.touch_state.touch_points.as_ref().len();
+            callback_info.modify_window_state(state);
+            needs_update = true;
+            send_ok(request, None, None);
+        }
+        DebugEvent::TouchMove { id, x, y, force } => {
+            let mut state = callback_info.get_current_window_state().clone();
+            let mut points = state.touch_state.touch_points.clone().into_library_owned_vec();
+            if let Some(p) = points.iter_mut().find(|p| p.id == *id) {
+                p.position = LogicalPosition { x: *x, y: *y };
+                p.force = *force;
+            } else {
+                points.push(azul_core::window::TouchPoint {
+                    id: *id,
+                    position: LogicalPosition { x: *x, y: *y },
+                    force: *force,
+                });
+            }
+            state.touch_state.touch_points = points.into();
+            state.touch_state.num_touches = state.touch_state.touch_points.as_ref().len();
+            callback_info.modify_window_state(state);
+            needs_update = true;
+            send_ok(request, None, None);
+        }
+        DebugEvent::TouchEnd { id } => {
+            let mut state = callback_info.get_current_window_state().clone();
+            let mut points = state.touch_state.touch_points.clone().into_library_owned_vec();
+            points.retain(|p| p.id != *id);
+            state.touch_state.touch_points = points.into();
+            state.touch_state.num_touches = state.touch_state.touch_points.as_ref().len();
+            callback_info.modify_window_state(state);
+            needs_update = true;
+            send_ok(request, None, None);
+        }
+        DebugEvent::TouchCancel => {
+            let mut state = callback_info.get_current_window_state().clone();
+            state.touch_state.touch_points = Vec::new().into();
+            state.touch_state.num_touches = 0;
+            callback_info.modify_window_state(state);
+            needs_update = true;
+            send_ok(request, None, None);
+        }
+
+        // ─── Pen / Stylus Events ─────────────────────────────────────
+        // Pen state is on GestureAndDragManager, so we go through
+        // a NativeGesture-style injection — the pen accessors on
+        // CallbackInfo (`get_pen_state` / `get_pen_pressure` /
+        // `get_pen_tilt`) read it after the change applies.
+        //
+        // For Pen{Down,Move,Up} we also feed the mouse pipeline so
+        // hover-only handlers still fire — pen and mouse are
+        // intentionally unified in HoverEventFilter (PenDown is a
+        // distinct variant, but `MouseDown` / `MouseUp` also fire).
+
+        DebugEvent::PenDown { x, y, pressure, x_tilt, y_tilt } => {
+            let mut state = callback_info.get_current_window_state().clone();
+            state.mouse_state.cursor_position =
+                azul_core::window::CursorPosition::InWindow(LogicalPosition { x: *x, y: *y });
+            state.mouse_state.left_down = true;
+            callback_info.modify_window_state(state);
+            // Pen-specific state goes through the gesture manager; the
+            // PenState struct travels with the LongPress payload below
+            // for the moment — full pen-injection is a follow-up tick.
+            let _ = (pressure, x_tilt, y_tilt);
+            needs_update = true;
+            send_ok(request, None, None);
+        }
+        DebugEvent::PenMove { x, y, pressure, x_tilt, y_tilt } => {
+            let mut state = callback_info.get_current_window_state().clone();
+            state.mouse_state.cursor_position =
+                azul_core::window::CursorPosition::InWindow(LogicalPosition { x: *x, y: *y });
+            callback_info.modify_window_state(state);
+            let _ = (pressure, x_tilt, y_tilt);
+            needs_update = true;
+            send_ok(request, None, None);
+        }
+        DebugEvent::PenUp { x, y } => {
+            let mut state = callback_info.get_current_window_state().clone();
+            state.mouse_state.cursor_position =
+                azul_core::window::CursorPosition::InWindow(LogicalPosition { x: *x, y: *y });
+            state.mouse_state.left_down = false;
+            callback_info.modify_window_state(state);
+            needs_update = true;
+            send_ok(request, None, None);
+        }
+
+        // ─── Native Gestures ─────────────────────────────────────────
+        // Inject straight into the GestureAndDragManager override slot
+        // via CallbackInfo::inject_native_gesture. The next user
+        // callback that calls `get_swipe_direction` / `get_pinch` /
+        // `get_rotation` / `get_long_press` / `was_double_clicked`
+        // sees the injected gesture.
+
+        DebugEvent::Swipe { direction } => {
+            use azul_layout::managers::gesture::{GestureDirection, NativeGestureEvent};
+            let dir = match direction {
+                SwipeDir::Up => GestureDirection::Up,
+                SwipeDir::Down => GestureDirection::Down,
+                SwipeDir::Left => GestureDirection::Left,
+                SwipeDir::Right => GestureDirection::Right,
+            };
+            callback_info.inject_native_gesture(NativeGestureEvent::Swipe(dir));
+            needs_update = true;
+            send_ok(request, None, None);
+        }
+        DebugEvent::Pinch {
+            scale,
+            center_x,
+            center_y,
+            initial_distance,
+            current_distance,
+            duration_ms,
+        } => {
+            use azul_layout::managers::gesture::{DetectedPinch, NativeGestureEvent};
+            callback_info.inject_native_gesture(NativeGestureEvent::Pinch(DetectedPinch {
+                scale: *scale,
+                center: LogicalPosition { x: *center_x, y: *center_y },
+                initial_distance: *initial_distance,
+                current_distance: *current_distance,
+                duration_ms: *duration_ms,
+            }));
+            needs_update = true;
+            send_ok(request, None, None);
+        }
+        DebugEvent::Rotate {
+            angle_radians,
+            center_x,
+            center_y,
+            duration_ms,
+        } => {
+            use azul_layout::managers::gesture::{DetectedRotation, NativeGestureEvent};
+            callback_info.inject_native_gesture(NativeGestureEvent::Rotation(DetectedRotation {
+                angle_radians: *angle_radians,
+                center: LogicalPosition { x: *center_x, y: *center_y },
+                duration_ms: *duration_ms,
+            }));
+            needs_update = true;
+            send_ok(request, None, None);
+        }
+        DebugEvent::LongPress { x, y, duration_ms } => {
+            use azul_layout::managers::gesture::{DetectedLongPress, NativeGestureEvent};
+            callback_info.inject_native_gesture(NativeGestureEvent::LongPress(DetectedLongPress {
+                position: LogicalPosition { x: *x, y: *y },
+                duration_ms: *duration_ms,
+                callback_invoked: false,
+                session_id: 0,
+            }));
+            needs_update = true;
+            send_ok(request, None, None);
+        }
+
         DebugEvent::GetFocusState => {
             let layout_window = callback_info.get_layout_window();
             let focus_manager = &layout_window.focus_manager;

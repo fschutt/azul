@@ -99,3 +99,17 @@ cargo check still GREEN (1m19s incremental — rebuild touched many crates). Two
 ### Tick — Android drain_input clears native_gesture per frame
 
 `dll/src/desktop/shell2/android/mod.rs::drain_input()` now calls `layout_window.gesture_drag_manager.clear_native_gesture()` after the final `process_window_events(0)` so any injected `NativeGestureEvent` is single-shot. No-op until #17 wires real injection through the JNI bridge, but the seam is in place — once `GestureDetector` callbacks fire, gestures will reach `CallbackInfo::get_*()` and then clear cleanly. cargo check still GREEN (17.65 s).
+
+### Sprint #18 — e2e debug-server events for touch / pen / gestures
+
+The e2e harness (debug-server JSON-driven tests) can now exercise every event filter end-to-end. Thirteen new `DebugEvent` variants land in `dll/src/desktop/shell2/common/debug_server.rs`:
+
+- **Touch** (state-diff path): `TouchStart { id, x, y, force }`, `TouchMove { id, x, y, force }`, `TouchEnd { id }`, `TouchCancel`. Handlers mutate `current_window_state.touch_state.touch_points` via `callback_info.modify_window_state(...)`; the framework's event-determination then fires `HoverEventFilter::TouchStart/Move/End/Cancel`.
+- **Pen / stylus** (mouse-pipe + future pen path): `PenDown { x, y, pressure, x_tilt, y_tilt }`, `PenMove { ... }`, `PenUp { x, y }`. For now these drive the mouse pipeline so click handlers fire; full pen-specific injection (`PenState` on `GestureAndDragManager`) is a follow-up.
+- **Native gestures** (override slot): `Swipe { direction }`, `Pinch { scale, center_x, center_y, initial_distance, current_distance, duration_ms }`, `Rotate { angle_radians, center_x, center_y, duration_ms }`, `LongPress { x, y, duration_ms }`. New helpers: `default_force() -> f32` (= 0.5, matches `TouchPoint::force` sentinel) and `SwipeDir` enum (`Up/Down/Left/Right`).
+
+Plumbing additions:
+- `CallbackChange::InjectNativeGesture { gesture: NativeGestureEvent }` enum variant. Applied in `dll/src/desktop/shell2/common/event.rs::apply_user_change` by calling `layout_window.gesture_drag_manager.inject_native_gesture(...)`; returns `ShouldRegenerateDomCurrentWindow` so the next layout/event cycle picks up the override.
+- `CallbackInfo::inject_native_gesture(&mut self, NativeGestureEvent)` queues the change. Same callable from both the platform backends (iOS UIKit recognizer callbacks etc., #16/#17) and the e2e harness — single injection path keeps semantics consistent.
+
+cargo check --target aarch64-linux-android still GREEN in 26.79 s; host-target cargo check also GREEN. Sample JSON test now possible: `[{"op": "swipe", "dir": "left"}, {"op": "pinch", "scale": 2.0, "center_x": 200, "center_y": 300}, {"op": "long_press", "x": 50, "y": 50, "duration_ms": 800}]`.

@@ -2100,6 +2100,15 @@ pub trait PlatformWindow {
                     ProcessEventResult::DoNothing
                 }
             }
+
+            // === Native Gesture Injection ===
+
+            CallbackChange::InjectNativeGesture { gesture } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.gesture_drag_manager.inject_native_gesture(*gesture);
+                }
+                ProcessEventResult::ShouldRegenerateDomCurrentWindow
+            }
         }
     }
 

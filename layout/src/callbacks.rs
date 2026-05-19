@@ -168,6 +168,13 @@ pub enum CallbackChange {
     // Window State Changes
     /// Modify the window state (size, position, title, etc.)
     ModifyWindowState { state: FullWindowState },
+    /// Inject a platform-native gesture-recognizer result into the
+    /// in-process `GestureAndDragManager`. Read by the next
+    /// `detect_long_press` / `detect_swipe_direction` / `detect_pinch` /
+    /// `detect_rotation` / `detect_double_click` call, then cleared.
+    InjectNativeGesture {
+        gesture: crate::managers::gesture::NativeGestureEvent,
+    },
     /// Queue multiple window state changes to be applied in sequence across frames.
     /// This is needed for simulating clicks (mouse down → wait → mouse up) where each
     /// state change needs to trigger separate event processing.
@@ -3036,6 +3043,20 @@ impl CallbackInfo {
     /// to callbacks for gesture-aware UI behavior.
     pub fn get_gesture_drag_manager(&self) -> &GestureAndDragManager {
         unsafe { &(*self.ref_data).layout_window.gesture_drag_manager }
+    }
+
+    /// Queue a platform-native gesture-recognizer result. Applied by
+    /// the event-loop after the callback returns, via
+    /// `CallbackChange::InjectNativeGesture` → `GestureAndDragManager::
+    /// inject_native_gesture`. Used by the iOS / Android / macOS
+    /// platform backends from their gesture-recognizer callbacks and by
+    /// the e2e debug-server harness so JSON tests can drive every event
+    /// filter end-to-end.
+    pub fn inject_native_gesture(
+        &mut self,
+        gesture: crate::managers::gesture::NativeGestureEvent,
+    ) {
+        self.push_change(CallbackChange::InjectNativeGesture { gesture });
     }
 
     /// Get immutable reference to the focus manager
