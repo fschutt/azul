@@ -458,9 +458,14 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
         }
     };
 
-    // dpi factor: device pixels per logical px. Default to 1.0 until
-    // sprint H wires the real Configuration.density_dpi lookup.
-    let dpi = 1.0_f32;
+    // dpi factor: device pixels per logical px. Android's baseline
+    // density is 160 dpi (mdpi); a 480-dpi xxhdpi screen returns 480,
+    // so logical = physical * (160/480) = physical * 0.333. Fall back
+    // to 1.0 on the rare device that returns no density.
+    let dpi = match app.config().density() {
+        Some(d) if d > 0 => (d as f32) / 160.0_f32,
+        _ => 1.0_f32,
+    };
 
     // Collect state-update tuples first; do the actual state diff +
     // process_window_events outside the iterator's closure because the
