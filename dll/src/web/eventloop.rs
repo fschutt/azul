@@ -1070,12 +1070,15 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     let styled = StyledDom::create(dom_ref, Css::empty());
     let boxed = Box::new(styled);
     let ptr_val = Box::into_raw(boxed) as usize as u32;
-    // M12.5b probe: test if Box::new of a trivial u32 works.
-    // If `box_u32_test` writes 0xDEADBEEF correctly, Box::new path
-    // is fine and the issue is specifically the StyledDom sret.
-    let trivial = Box::new(0xDEADBEEF_u32);
-    let trivial_ptr = Box::into_raw(trivial) as usize as u32;
-    core::ptr::write_volatile(0x40010_usize as *mut u32, trivial_ptr);
+    // M12.5b: AFTER Box::new, write a sentinel u32 to the heap region
+    // at a specific offset (8 bytes into StyledDom — past `root` field).
+    // If this write LANDS but the cascade's writes didn't, the bug is
+    // confirmed to be specifically about the bl-sret pattern, NOT
+    // about wasm memory writes in general.
+    let direct_target = (ptr_val as usize + 8) as *mut u32;
+    core::ptr::write_volatile(direct_target, 0xCAFEBABE_u32);
+    // Dump the target address so JS can read what's actually there.
+    core::ptr::write_volatile(0x40014_usize as *mut u32, ptr_val + 8);
     let recovered = fixed_load();
     finalize_hydrate(recovered, ptr_val);
     0
