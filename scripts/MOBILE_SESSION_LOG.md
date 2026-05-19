@@ -86,3 +86,12 @@ Changes:
 `cargo run --release -p azul-doc -- codegen all` regenerated all 35 language bindings (C/C++/Python/Java/Kotlin/Go/Rust/Node/etc.) plus `dll_api_internal.rs`. `cargo check --target aarch64-linux-android -p azul-dll --no-default-features --features 'std,logging,link-static,a11y'` GREEN in 12.5 s — confirming the new types reach the cross-compile gate cleanly.
 
 SUPER_PLAN.md gets a new Sprint M ("Native gesture recognizers") documenting the architecture for native iOS UIKit / Android `GestureDetector` / macOS `NSGestureRecognizer` hooks. Pattern: platform backend calls `GestureAndDragManager::inject_native_gesture(NativeGestureEvent::*)` before the per-frame tick; accessors observe the override before falling back to in-process detection. Linux + Windows keep using only the in-process detector (Azul's "superset of every platform" guarantee — same surface, best available implementation).
+
+### Tick — Sprint M architecture seam (NativeGestureEvent + injection slot)
+
+`layout/src/managers/gesture.rs` gains the architectural hook for native gesture recognizers:
+- New `NativeGestureEvent` enum (`#[repr(C, u8)]`) carrying the same payloads the in-process detector produces: `DoubleClick`, `LongPress(DetectedLongPress)`, `Swipe(GestureDirection)`, `Pinch(DetectedPinch)`, `Rotation(DetectedRotation)`.
+- `GestureAndDragManager.native_gesture: Option<NativeGestureEvent>` slot + `inject_native_gesture()` + `clear_native_gesture()` helpers.
+- The five `detect_*` methods (long_press, double_click, swipe_direction, pinch, rotation) consult `self.native_gesture` before running their heuristic detectors. Linux/Windows/headless never inject, so heuristics remain authoritative there.
+
+cargo check still GREEN (1m19s incremental — rebuild touched many crates). Two new follow-up tasks tracked: #16 iOS UIKit gesture-recognizer wire-up, #17 Android `GestureDetector` JNI bridge.
