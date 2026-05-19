@@ -1080,6 +1080,22 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     let test_boxed = Box::new(make_test_struct());
     let test_ptr = Box::into_raw(test_boxed) as usize as u32;
     core::ptr::write_volatile(0x40018_usize as *mut u32, test_ptr);
+    // M12.5c: dump first 80 bytes of the cascade-output styled struct
+    // to known wasm addresses 0x40100..0x4014F so JS can read via
+    // getProbeRaw-style fixed-addr peeks. This lets us see exactly
+    // what offsets the cascade wrote vs what's zero.
+    // Marker at 0x40104 confirms the loop ran.
+    core::ptr::write_volatile(0x40104_usize as *mut u32, 0xDEAD_DEAD_u32);
+    core::ptr::write_volatile(0x4010C_usize as *mut u32, ptr_val);
+    core::ptr::write_volatile(0x40110_usize as *mut u32, test_ptr);
+    let styled_view = ptr_val as usize as *const u32;
+    let mut probe_off = 0usize;
+    while probe_off < 80 {
+        let v = core::ptr::read_volatile(styled_view.add(probe_off / 4));
+        core::ptr::write_volatile(
+            (0x40200_usize + probe_off) as *mut u32, v);
+        probe_off += 4;
+    }
     let recovered = fixed_load();
     finalize_hydrate(recovered, ptr_val);
     0
@@ -1094,6 +1110,26 @@ unsafe extern "C" fn finalize_hydrate(state_u32: u32, styled_ptr: u32) {
     }
     let s = &mut *(state_u32 as usize as *mut EventloopState);
     s.current_dom_styled_ptr = styled_ptr;
+    // M12.5c: dump first 80 bytes of cascade-output struct into a
+    // fixed wasm region (0x40300..0x40350) that JS can peek. The
+    // dump runs in finalize_hydrate's fresh frame (x-regs reset)
+    // to avoid any register-clobber issues from the cascade path.
+    // First also write known sentinel constants to 0x40400 to verify
+    // the wasm store path itself works.
+    core::ptr::write_volatile(0x40400_usize as *mut u32, 0x11111111_u32);
+    core::ptr::write_volatile(0x40404_usize as *mut u32, 0x22222222_u32);
+    core::ptr::write_volatile(0x40408_usize as *mut u32, styled_ptr);
+    core::ptr::write_volatile(0x4040C_usize as *mut u32, state_u32);
+    if styled_ptr != 0 {
+        let mut off = 0usize;
+        let p_src = styled_ptr as usize as *const u32;
+        while off < 80 {
+            let v = core::ptr::read_volatile(p_src.add(off / 4));
+            core::ptr::write_volatile(
+                (0x40300_usize + off) as *mut u32, v);
+            off += 4;
+        }
+    }
 }
 
 #[inline(never)]
@@ -1220,6 +1256,16 @@ pub unsafe extern "C" fn AzStartup_getStyledDomPtr(state: u32) -> u32 {
     }
     let s = &*(state as usize as *mut EventloopState);
     s.current_dom_styled_ptr
+}
+
+/// M12.5c DIAG: peek a u32 at any wasm-linear-memory address.
+/// JS-callable so we can inspect what the cascade actually wrote.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_peekU32(addr: u32) -> u32 {
+    if addr == 0 {
+        return 0;
+    }
+    core::ptr::read_volatile(addr as usize as *const u32)
 }
 
 // =====================================================================

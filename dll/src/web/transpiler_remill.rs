@@ -316,6 +316,12 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
             args: vec![],
             ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
         }),
+        // M12.5c probe: (addr: u32) -> u32 — peek a u32 from wasm memory.
+        "AzStartup_peekU32" => Some(CallbackSignature {
+            kind: name.to_string(),
+            args: vec![Pcs::Wreg { state_byte_offset: X0 }],
+            ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
+        }),
         // M11 Sprint 5 — VirtualView setters (state, u32) -> ().
         "AzStartup_setAutoVirtualizeThreshold"
         | "AzStartup_setVirtualViewProvider"
@@ -5202,12 +5208,22 @@ fn scan_arm64_adrp_accesses(
         //   Top 8 bits: 0xF8 (X), 0xB8 (W), 0x78 (H), 0x38 (B), 0xFC/0xBC (FP).
         //   Distinguished from regular LDR by bits 11..10 = 00 and bit 21 = 0.
         //   imm9 at bits 20..12, sign-extended.
-        let unscaled_w_for_top8: Option<usize> = match instr >> 24 {
-            0xF8 | 0xFC => Some(8),
-            0xB8 | 0xBC => Some(4),
-            0x78 | 0x7C => Some(2),
-            0x38 | 0x3C => Some(1),
-            _ => None,
+        // M12.5c: LDUR Qt also has top8 = 0x3C but bit 23 = 1 — must
+        // be checked BEFORE the byte-width arm below.
+        let top8_unscaled = instr >> 24;
+        let unscaled_w_for_top8: Option<usize> = if (top8_unscaled == 0x3C
+            || top8_unscaled == 0x3D)
+            && ((instr >> 23) & 1) == 1
+        {
+            Some(16)
+        } else {
+            match top8_unscaled {
+                0xF8 | 0xFC => Some(8),
+                0xB8 | 0xBC => Some(4),
+                0x78 | 0x7C => Some(2),
+                0x38 | 0x3C => Some(1),
+                _ => None,
+            }
         };
         if let Some(w) = unscaled_w_for_top8 {
             if ((instr >> 21) & 0x1) == 0 && ((instr >> 10) & 0x3) == 0 {
@@ -5229,27 +5245,78 @@ fn scan_arm64_adrp_accesses(
             }
         }
 
-        // LDP/STP (signed offset): X variant top 7 bits = 1010100,
-        // top 8 = 0xA8 (STP) / 0xA9 (LDP) but bit 22 distinguishes.
-        //   Mask 0xFFC0_0000 == 0xA940_0000 → LDP X signed offset
-        //   Mask 0xFFC0_0000 == 0xA900_0000 → STP X signed offset
-        //   Mask 0xFFC0_0000 == 0x2940_0000 → LDP W signed offset
-        //   Mask 0xFFC0_0000 == 0x2900_0000 → STP W signed offset
+        // LDP/STP (GPR and SIMD&FP): family of pair-load/store ops.
         //
-        // Width is 16 bytes (two Xs) or 8 bytes (two Ws). The imm7
-        // at bits 21..15 is signed, scaled by 8 (X) or 4 (W).
-        let ldp_x = (instr & 0xFFC0_0000) == 0xA940_0000
-            || (instr & 0xFFC0_0000) == 0xA900_0000;
-        let ldp_w = (instr & 0xFFC0_0000) == 0x2940_0000
-            || (instr & 0xFFC0_0000) == 0x2900_0000;
-        // Also support pre-/post-index forms (bit 24 differs); for
-        // mirror purposes the base+imm read still happens.
-        let ldp_x_idx = (instr & 0xFFC0_0000) == 0xA9C0_0000
-            || (instr & 0xFFC0_0000) == 0xA980_0000
-            || (instr & 0xFFC0_0000) == 0xA8C0_0000
-            || (instr & 0xFFC0_0000) == 0xA880_0000;
-        if ldp_x || ldp_w || ldp_x_idx {
-            let (width, scale) = if ldp_w { (8usize, 4usize) } else { (16usize, 8usize) };
+        // GPR variants (V=0):
+        //   X signed offset:  0xA940_0000 (LDP) / 0xA900_0000 (STP)  width=16 scale=8
+        //   X pre-index:      0xA9C0_0000 (LDP) / 0xA8C0_0000 (STP)
+        //   X post-index:     0xA980_0000 (LDP) / 0xA880_0000 (STP)
+        //   W signed offset:  0x2940_0000 (LDP) / 0x2900_0000 (STP)  width=8  scale=4
+        //
+        // SIMD&FP variants (V=1) — same layout, bit 26 set:
+        //   Q signed offset:  0xAD40_0000 (LDP) / 0xAD00_0000 (STP)  width=32 scale=16
+        //   Q pre-index:      0xADC0_0000 (LDP) / 0xAC80_0000 (STP)   <-- per ARM ARM
+        //   Q post-index:     0xACC0_0000 (LDP) / 0xAC80_0000 (STP)
+        //   D signed offset:  0x6D40_0000 (LDP) / 0x6D00_0000 (STP)  width=16 scale=8
+        //   D pre-index:      0x6DC0_0000 (LDP) / 0x6C80_0000 (STP)
+        //   D post-index:     0x6CC0_0000 (LDP) / 0x6C80_0000 (STP)
+        //   S signed offset:  0x2D40_0000 (LDP) / 0x2D00_0000 (STP)  width=8  scale=4
+        //   S pre-index:      0x2DC0_0000 (LDP) / 0x2C80_0000 (STP)
+        //   S post-index:     0x2CC0_0000 (LDP) / 0x2C80_0000 (STP)
+        //
+        // For mirror purposes we only need: (base, byte_imm, total_width).
+        // Determine width/scale from the top 2 bits (opc[1:0]) and bit 26 (V).
+        let masked = instr & 0xFFC0_0000;
+        let is_ldp_stp_family = {
+            // top10 must be `XX_0_011_010_X` (signed-offset)
+            // or `XX_0_011_011_X` (pre/post-index) for GPR (V=0)
+            // or `XX_1_011_010_X` / `XX_1_011_011_X` for SIMD (V=1).
+            let top10 = (instr >> 22) & 0x3FF;
+            // top10 bits 9..7 = opc[1:0]V, bits 6..1 = 10110 + (signed or indexed bit), bit 0 = L
+            // We accept any of:
+            //   00 010110 1 X (W signed/STP+LDP)
+            //   01 010110 1 X (S signed STP/LDP — V=1)
+            //   10 010110 1 X (X signed)
+            //   10 010111 1 X (X pre-idx)
+            //   10 010110 0 X (X post-idx)   ← (bit 23 differentiates)
+            // Simpler: bits 28..25 must be `1011`, bit 27..25 = 011, bit 24 part of index mode.
+            //
+            // Cleaner check: bits 28..25 = 0b1011 and bit 24 distinguishes indexed (=0) vs
+            // signed/no-allocate (=1) — except this isn't quite right either.
+            //
+            // Easiest: enumerate the 24 valid masks. (Cheap, exhaustive.)
+            const LDP_STP_MASKS: &[u32] = &[
+                // GPR X
+                0xA940_0000, 0xA900_0000, 0xA9C0_0000, 0xA980_0000,
+                0xA8C0_0000, 0xA880_0000,
+                // GPR W
+                0x2940_0000, 0x2900_0000, 0x29C0_0000, 0x2980_0000,
+                0x28C0_0000, 0x2880_0000,
+                // SIMD Q
+                0xAD40_0000, 0xAD00_0000, 0xADC0_0000, 0xAD80_0000,
+                0xACC0_0000, 0xAC80_0000,
+                // SIMD D
+                0x6D40_0000, 0x6D00_0000, 0x6DC0_0000, 0x6D80_0000,
+                0x6CC0_0000, 0x6C80_0000,
+                // SIMD S
+                0x2D40_0000, 0x2D00_0000, 0x2DC0_0000, 0x2D80_0000,
+                0x2CC0_0000, 0x2C80_0000,
+            ];
+            let _ = top10;
+            LDP_STP_MASKS.iter().any(|m| masked == *m)
+        };
+        if is_ldp_stp_family {
+            // opc[1:0] at bits 31..30 selects size; V at bit 26 selects GPR vs SIMD.
+            let opc = (instr >> 30) & 0x3;
+            let v = (instr >> 26) & 0x1;
+            let (width, scale): (usize, usize) = match (v, opc) {
+                (0, 0) => (8, 4),    // LDP/STP W
+                (0, 2) => (16, 8),   // LDP/STP X
+                (1, 0) => (8, 4),    // LDP/STP S
+                (1, 1) => (16, 8),   // LDP/STP D
+                (1, 2) => (32, 16),  // LDP/STP Q
+                _ => { offset += 4; continue; }
+            };
             // imm7 at bits 21..15, sign-extended.
             let imm7_raw = ((instr >> 15) & 0x7F) as i32;
             let imm7: i32 = if imm7_raw & 0x40 != 0 {
@@ -5264,10 +5331,14 @@ fn scan_arm64_adrp_accesses(
                 out.push((target, width));
             }
             // LDP loads into two regs — both become "unknown" addresses.
-            let rt = (instr & 0x1F) as usize;
-            let rt2 = ((instr >> 10) & 0x1F) as usize;
-            adrp_targets[rt] = None;
-            adrp_targets[rt2] = None;
+            // For GPR variants this is meaningful; for SIMD it has no
+            // effect because adrp_targets indexes GPRs only.
+            if v == 0 {
+                let rt = (instr & 0x1F) as usize;
+                let rt2 = ((instr >> 10) & 0x1F) as usize;
+                adrp_targets[rt] = None;
+                adrp_targets[rt2] = None;
+            }
             offset += 4;
             continue;
         }
