@@ -1203,6 +1203,9 @@ pub fn collect_font_resource_updates(
                     hinting: azul_core::resources::FontHinting::Normal,
                 };
 
+                #[cfg(any(target_os = "android", target_os = "ios"))]
+                let platform_options = FontInstancePlatformOptions::default();
+
                 let options = FontInstanceOptions {
                     render_mode: FontRenderMode::Subpixel,
                     flags: FONT_INSTANCE_FLAG_NO_AUTOHINT,

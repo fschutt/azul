@@ -21,22 +21,25 @@ use std::{
 
 use azul_core::{
     callbacks::RelayoutReason,
+    gl::OptionGlContextPtr,
+    hit_test::DocumentId,
     refany::RefAny,
-    resources::{AppConfig, ImageCache, RendererResources},
+    resources::{AppConfig, IdNamespace, ImageCache, RendererResources},
     window::{AndroidHandle, RawWindowHandle},
 };
 use azul_layout::{
-    window::LayoutWindow,
+    window::{LayoutWindow, ScrollbarDragState},
     window_state::{FullWindowState, WindowCreateOptions},
 };
 use rust_fontconfig::FcFontCache;
 
 use crate::desktop::shell2::common::{
-    event::{self, CommonWindowState, PlatformWindow},
+    event::{self, CommonWindowState, HitTestNode, PlatformWindow},
     debug_server::LogCategory,
     WindowError,
 };
 use crate::desktop::shell2::headless::CpuBackend;
+use crate::desktop::wr_translate2::{AsyncHitTester, WrRenderApi};
 use crate::{impl_platform_window_getters, log_debug, log_error, log_info};
 
 #[cfg(feature = "android-activity")]
@@ -143,6 +146,83 @@ impl PlatformWindow for AndroidWindow {
 
         RawWindowHandle::Android(AndroidHandle { a_native_window: ptr })
     }
+
+    fn prepare_callback_invocation(&mut self) -> event::InvokeSingleCallbackBorrows<'_> {
+        let layout_window = self
+            .common
+            .layout_window
+            .as_mut()
+            .expect("Layout window must exist for callback invocation");
+        event::InvokeSingleCallbackBorrows {
+            layout_window,
+            window_handle: RawWindowHandle::Android(AndroidHandle {
+                a_native_window: std::ptr::null_mut(),
+            }),
+            gl_context_ptr: &self.common.gl_context_ptr,
+            image_cache: &mut self.common.image_cache,
+            fc_cache_clone: (*self.common.fc_cache).clone(),
+            system_style: self.common.system_style.clone(),
+            previous_window_state: &self.common.previous_window_state,
+            current_window_state: &self.common.current_window_state,
+            renderer_resources: &mut self.common.renderer_resources,
+        }
+    }
+
+    fn start_timer(&mut self, timer_id: usize, timer: azul_layout::timer::Timer) {
+        if let Some(lw) = self.common.layout_window.as_mut() {
+            lw.timers.insert(azul_core::task::TimerId { id: timer_id }, timer);
+        }
+    }
+    fn stop_timer(&mut self, timer_id: usize) {
+        if let Some(lw) = self.common.layout_window.as_mut() {
+            lw.timers.remove(&azul_core::task::TimerId { id: timer_id });
+        }
+    }
+    fn start_thread_poll_timer(&mut self) {}
+    fn stop_thread_poll_timer(&mut self) {}
+
+    fn add_threads(
+        &mut self,
+        threads: std::collections::BTreeMap<
+            azul_core::task::ThreadId,
+            azul_layout::thread::Thread,
+        >,
+    ) {
+        if let Some(lw) = self.common.layout_window.as_mut() {
+            for (id, thread) in threads {
+                lw.threads.insert(id, thread);
+            }
+        }
+    }
+    fn remove_threads(
+        &mut self,
+        thread_ids: &std::collections::BTreeSet<azul_core::task::ThreadId>,
+    ) {
+        if let Some(lw) = self.common.layout_window.as_mut() {
+            for id in thread_ids {
+                lw.threads.remove(id);
+            }
+        }
+    }
+
+    fn queue_window_create(&mut self, _options: WindowCreateOptions) {
+        // No popup windows on Android; ignored. Sub-activities are a future
+        // enhancement and would require launching new Intents from Java.
+    }
+
+    fn show_menu_from_callback(
+        &mut self,
+        _menu: &azul_core::menu::Menu,
+        _position: azul_core::geom::LogicalPosition,
+    ) {}
+
+    fn show_tooltip_from_callback(
+        &mut self,
+        _text: &str,
+        _position: azul_core::geom::LogicalPosition,
+    ) {}
+
+    fn hide_tooltip_from_callback(&mut self) {}
 
     fn sync_window_state(&mut self) {}
 }

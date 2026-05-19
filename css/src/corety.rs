@@ -231,12 +231,20 @@ impl AzString {
     /// # Safety
     /// - `ptr` must be a valid pointer to a null-terminated UTF-8 string
     /// - The string must remain valid for the duration of this call
+    ///
+    /// Note: `ptr` is `*const i8` rather than `*const core::ffi::c_char`
+    /// so the auto-generated FFI signature in `dll_api_internal.rs`
+    /// (which uses a literal `i8`) matches on every target —
+    /// `c_char` is `i8` on x86/ARM Apple/Windows/Linux but `u8` on
+    /// Android, which would otherwise produce a `*const u8 vs *const i8`
+    /// mismatch at codegen-call sites. We cast internally before
+    /// handing the pointer to `CStr::from_ptr`.
     #[inline]
-    pub unsafe fn from_c_str(ptr: *const core::ffi::c_char) -> Self {
+    pub unsafe fn from_c_str(ptr: *const i8) -> Self {
         if ptr.is_null() {
             return Self::default();
         }
-        let c_str = core::ffi::CStr::from_ptr(ptr);
+        let c_str = core::ffi::CStr::from_ptr(ptr as *const core::ffi::c_char);
         let bytes = c_str.to_bytes();
         Self::copy_from_bytes(bytes.as_ptr(), 0, bytes.len())
     }

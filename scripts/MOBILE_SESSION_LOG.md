@@ -1,0 +1,39 @@
+# Mobile Cross-Compile Session Log
+
+Append-only log of autonomous progress on `mobile-ios-android` branch.
+Each cron-fired tick adds one entry below. Tip: search for `## 2026-` to
+jump between days.
+
+---
+
+## 2026-05-19 (initial bring-up)
+
+- Sprint A: foundation committed (`c6aee0e26`). SUPER_PLAN.md + .cargo/config.toml + scripts/check-prereqs-mobile.sh.
+- Installed Android cmdline-tools + platform-tools (Homebrew), NDK 27.0.12077973 + build-tools;34.0.0 + platforms;android-34 (sdkmanager). `check-prereqs-mobile.sh` reports `Android: ready`.
+- iOS prereqs: only CommandLineTools, **no full Xcode** → `xcrun --sdk iphonesimulator` fails. Documented in plan; iOS sprints gated until user installs Xcode.
+- Sprint F partial (commit `c83ebbb67`): Android skeleton landed.
+  - `dll/src/desktop/shell2/android/mod.rs` (~200 lines): AndroidWindow with CommonWindowState + CpuBackend, android_main entry, PollEvent dispatch placeholders.
+  - shell2/mod.rs: pub mod android + cfg_if branch.
+  - run.rs: #[cfg(target_os="android")] run() stashes ANDROID_INITIAL_OPTIONS.
+  - build.rs: configure_android() links -landroid -llog; ios-deploy panic→warning.
+- Cross-compile gap fixes (pre-existing breakage discovered during Android `cargo check`):
+  - `tfd` desktop-only — target-conditional in dll/Cargo.toml + layout/Cargo.toml; cfg-gate dialogs module + msg_box panic call.
+  - `FontInstancePlatformOptions` stub for android/ios in core/src/resources.rs.
+  - `TEXT_INPUT_*_PROPS` static defs extended to android/ios (mirror macOS) in layout/src/widgets/text_input.rs.
+- Codegen step (`cargo run --release -p azul-doc -- codegen all`) ran successfully.
+- **Status:** `cargo check --target aarch64-linux-android -p azul-dll --no-default-features --features 'std,logging,link-static,a11y'` still fails with ~119 pre-existing errors. Top categories:
+  - codegen `*const i8` vs `*const u8` (auto-generated dll_api_internal.rs uses literal i8, not `c_char`).
+  - `debug_server.rs:9806` match-on-`()` because the macos/linux/windows-only open-default-app block has no Android arm.
+  - More to enumerate.
+
+### Sprint F GATE PASSES (Android compile)
+
+After Sprint F partial commit `c83ebbb67`, kept chipping at the remaining errors:
+- 119 → 15: tfd was still being pulled by webrender → azul-layout default features. Replaced the cfg-gated `pub mod dialogs;` with a permanent stub at `layout/src/desktop/dialogs_stub.rs` so consumers (`azul-dll::desktop::dialogs::*`) keep resolving.
+- 15 → 2: added missing imports (`OptionGlContextPtr`, `ScrollbarDragState`, `AsyncHitTester`, `HitTestNode`, `DocumentId`, `IdNamespace`, `WrRenderApi`) to `dll/src/desktop/shell2/android/mod.rs`; added `#[cfg(any(target_os = "android", target_os = "ios"))] let platform_options = FontInstancePlatformOptions::default();` to `dll/src/desktop/wr_translate2.rs:1206`; added Android arm to `debug_server.rs` OpenFile dispatch (synthesised `Err` so the `match result` keeps type-checking).
+- 2 → 1: implemented the full `PlatformWindow` trait body for `AndroidWindow` (the `impl_platform_window_getters!` macro only emits getters; the timer/thread/queue_window_create/show_menu/tooltip methods are platform-supplied). Mirrored headless backend's no-op implementations.
+- 1 → 0: `css/src/corety.rs::from_c_str` accepted `*const core::ffi::c_char`, which is `*const u8` on Android but `*const i8` on Apple / Linux / Windows — the codegen (api.json declares `*const i8` literally) couldn't match on Android. Changed signature to `*const i8` and cast internally before `CStr::from_ptr`.
+
+**Result:** `cargo check --target aarch64-linux-android -p azul-dll --no-default-features --features 'std,logging,link-static,a11y'` **PASSES** in 11.71 s. Full `cargo build` produces `target/aarch64-linux-android/debug/libazul.so` (447 MB unstripped debug cdylib), `libazul.a` (1.2 GB static), `libazul.rlib` (224 MB). Sprint F GATE green.
+
+Next cron tick: Android Phase 2 (CPU render via `ANativeWindow_lock`) — wire `CpuBackend::render_frame` to `render_frame()` in `android/mod.rs`. Or Sprint I (build-android.sh APK pipeline). Or pick up iOS Phase 1 if Xcode appears.

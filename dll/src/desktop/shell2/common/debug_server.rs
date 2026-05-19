@@ -9802,6 +9802,16 @@ fn process_debug_event(
                 {
                     std::process::Command::new("cmd").args(&["/C", "start", "", file.as_str()]).spawn()
                 }
+                // Mobile targets have no "open in default editor" — debug
+                // server is desktop-only anyway. Return a synthesized Err so
+                // the match arms below still type-check.
+                #[cfg(any(target_os = "android", target_os = "ios"))]
+                {
+                    Err::<std::process::Child, std::io::Error>(std::io::Error::new(
+                        std::io::ErrorKind::Unsupported,
+                        "OpenFile not supported on mobile",
+                    ))
+                }
             };
             match result {
                 Ok(_) => send_ok(request, None, None),
