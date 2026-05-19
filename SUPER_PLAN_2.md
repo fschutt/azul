@@ -8,6 +8,73 @@
 
 ---
 
+## 0. Crates the user owns (free to patch upstream)
+
+- **`rust-fontconfig`** — local path override at `/Users/fschutt/Development/rust-fontconfig/`. The mobile font-discovery gap (`research/05` — *zero system fonts found on iOS/Android today*) gets fixed here, not by swapping to `fontique`. Add `OperatingSystem::IOS` + `Android` variants; iOS arm = `core-text::CTFontManagerCopyAvailableFontURLs`, Android arm = walk `/system/fonts/` + parse `/system/etc/fonts.xml`.
+- **`printpdf`** — the user's own crate. Already does `azul-layout` → `displaylist` → PDF on the *emission* side. For the *render* side, **`printpdf` can parse a PDF file and emit SVG-as-string** — we then feed that SVG through the existing `azul_layout::svg` renderer per page. **No `pdfium-render` / `mupdf` / external rasteriser needed** (overrides `research/06`'s Direction A choice).
+
+Both crates ship as-is from the user's source-of-truth; no upstream PRs blocking us.
+
+---
+
+## 0.5. Dependency-isolation rule for new features
+
+**Hard rule:** `azul-css`, `azul-core`, and `azul-layout` accept **no new dependencies** for any feature in this plan. Every camera / screen-capture / biometric / sensor / map / PDF / SQLite / location integration lives as a submodule inside `dll/` — concretely `dll/src/desktop/extra/<feature>/`. The reason: those three crates are the "pure" layout core that web-backend (wasm32), wasm-only consumers, and embedded users depend on; adding tokio / objc / WinRT / pipewire / libsql there would balloon the closure for every consumer.
+
+The user-facing API for each feature is **re-exported** from `dll`:
+
+```text
+azul_dll::extra::camera::CameraPreview / CameraManager / ...
+azul_dll::extra::screencap::ScreenCapture / ...
+azul_dll::extra::biometric::request_biometric_auth / ...
+azul_dll::extra::geolocation::GeolocationProbe / ...
+azul_dll::extra::map::MapTile / ...
+azul_dll::extra::pdf::Pdf / App::export_pdf / ...
+azul_dll::extra::sqlite::Database / ...
+azul_dll::extra::sensors::SensorProbe / ...
+```
+
+Codegen / api.json picks them up the same way it picks up `azul_dll::desktop::dialogs::*` today.
+
+Where this conflicts with the research briefs (which placed `CameraManager` etc. under `layout/src/managers/`), **the dll-submodule placement wins**. Only the truly cross-platform-state-only `PermissionManager` stays in `layout/src/managers/` because it has no platform deps and the layout pass needs to walk it.
+
+---
+
+## 0.6. PDF render path — printpdf → SVG → existing SVG renderer
+
+`research/06_mvt_pdf.md` recommended `pdfium-render` for inline PDF display. Override: **use printpdf's "PDF parse → SVG-per-page" path.** The flow becomes:
+
+```text
+PdfRef::from_bytes(pdf_bytes)
+   ↓ printpdf::parse_pdf(pdf_bytes)
+   ↓ for each page: printpdf::page_to_svg() -> String
+   ↓ feed SVG string into azul_layout::svg::Svg::parse(...)
+   ↓ render via existing CPU + GPU SVG renderer (already in azul-layout)
+   ↓ caches per (page, dpi, viewport) into ImageRef
+NodeType::Pdf(PdfRef { page: u32, scale: f32, ... })
+```
+
+Wins: zero new C / C++ / wasm-incompatible code; uses the SVG primitives the framework already ships; the `printpdf` upgrade also benefits everyone exporting PDFs the other direction.
+
+---
+
+## 0.7. Goal apps — keep the agent focused on real users
+
+Every priority tier in §4 is anchored to a **hypothetical "goal app"** the agent can keep in mind. The features must serve the goal app, not "what's interesting to build." If a sub-feature doesn't unblock the goal app, defer it to a follow-up sprint.
+
+| Tier | Goal app | Why this app drives the features |
+|---|---|---|
+| P1 — **Foundation** | (no goal app; enables P2+) | Without system-font discovery + permission plumbing, *every* mobile screen looks broken or blocked at first prompt. |
+| P2 — **AzulPaint** | A finger-paint / stylus drawing canvas. Save as PNG/SVG. Eraser tip works. | Forces real `TouchEvent` + `PenState` (tilt + force + barrel button + eraser) end-to-end. Forces the "permission-as-DOM" model for `Photos` (save dialog). |
+| P3 — **AzulMaps** | Pan/zoom map widget centered on user's location, tap a pin → callout. | Forces `GeolocationProbe` + `MapTile(MVT)` + a touch-driven viewport state — the exact loop a Google Maps clone uses. |
+| P4 — **AzulVault** | A 30-entry password manager. Unlock via biometric. Sync entries via libsql remote. | Forces biometric + system-keyring + libsql remote auth-token handling. Permissions / fallbacks tested under realistic conditions. |
+| P5 — **AzulDoc** | A markdown editor that exports a styled PDF. Inline-renders a reference PDF for diff view. | Forces both directions of PDF — display-list → PDF emit (printpdf direct), and PDF → SVG → render (printpdf+svg). Tests text shaping fidelity. |
+| P6 — stretch | Camera / screen-share / sensors / gamepad / Wacom-pad — these are demo features that don't yet anchor a single goal app. Add them as horizontal expansions once P1-P5 ship. |
+
+Carrying the goal app prevents the implementation agent from sprawling into "let's also do video filters" / "let's also do AR overlays." If a feature isn't in the goal-app punch list, it doesn't land in this sprint.
+
+---
+
 ## 0. Architecture seams already in place
 
 These existed before SUPER_PLAN_2 and unblock most of the integrations below:
@@ -183,23 +250,84 @@ Each output should contain, for each platform:
 
 ---
 
-## 4. Implementation ordering (sketch — for the next session)
+## 4. Implementation ordering — priorities + goal apps
 
-1. **Asset foundation** (#1) — without correct font/image loading on mobile, every visual feature looks broken. Cheap, no permission UX.
-2. **Text input on mobile** (#9) — finishes the IME / `UITextInput` work the gesture sprint started. Highest user-facing value.
-3. **File pickers on mobile** (#8) — desktop API parity; matches the user's existing `tfd` muscle memory.
-4. **Geolocation + MVT** (#10 + #11) — together they unlock the user's "Google Maps clone" example. Most demo-worthy combination.
-5. **Camera** (#2) — `<video>`-shaped node; reuses the ImageRef + texture-update path.
-6. **Biometric** (#4) — small surface, big credibility.
-7. **Sensors + gamepad + stylus extension** (#5 + #6 + #7) — orthogonal input expansion.
-8. **Screen sharing** (#3) — most platform-specific, lowest demand from typical apps.
-9. **PDF** (#12) — two flavors (render + export), both standalone.
-10. **SQLite / libsql** (#13) — orthogonal to the visual stack; can land any time it's needed. Doubles the "real-app" credibility once it's there.
+Concrete ordering for the next implementation sprint, anchored by §0.7's goal apps. Each tier is one or more sprints; tier N strictly blocks tier N+1 only where noted.
 
-The "permission-aware DOM" architecture (§1.5) is a *cross-cutting* refactor of features #2, #3, #4, #5, #10 — not a separate sprint. Implementation lands as part of whichever permission-bearing feature is built first (likely geolocation, since the map widget #11 depends on it).
+### Priority 1 — Foundation (no goal app, enables P2+)
+
+1.1. **`rust-fontconfig` mobile arms** (research/05) — patch the user-owned crate. iOS via `core-text::CTFontManagerCopyAvailableFontURLs`, Android via `/system/fonts/` walk + `/system/etc/fonts.xml`. **Without this, all mobile text is invisible.** ~3 days.
+
+1.2. **`PermissionManager`** + Info.plist / AndroidManifest declaration scaffolding + the permission-diff pass after every layout (research/08). Lands as part of P2 if blocked, but the manager itself is the cross-cutting prerequisite. **Lives in `dll/src/desktop/extra/permission/` per §0.5.** ~2 days.
+
+1.3. **File pickers on mobile** (research/04) — fills in the no-op stubs in `layout/src/desktop/dialogs.rs`. `UIDocumentPickerViewController` + Android Storage Access Framework. **The dll-side wiring lives in `dll/src/desktop/extra/file_picker/`; the trait shape stays in `azul-layout::desktop::dialogs` since the user-facing API is already there.** ~2 days.
+
+### Priority 2 — Pen + touch (goal app: **AzulPaint**)
+
+2.1. **Populate existing `PenState` fields on every backend** (`is_eraser`, `barrel_button_pressed` — declared but never set today, per research/03). ~1 day.
+
+2.2. **Wire iOS UIKit `touchesBegan/Moved/Ended/Cancelled` to multi-touch `TouchPointVec`** (one entry per finger) — currently `handle_touch` only reads the first. ~1 day.
+
+2.3. **Extend `PenState`** with `tangential_pressure`, `barrel_roll_rad`, `tool_id` (for Apple Pencil 2 / Surface Pen) + new `HoverEventFilter::PenSqueeze` / `PenDoubleTap` / `PenHover`. ~2 days.
+
+2.4. **AzulPaint demo crate** at `examples/azul-paint/` — finger-paint + stylus support + PNG/SVG save via file picker. Lives in `examples/` not `dll/`. ~3 days.
+
+### Priority 3 — Maps (goal app: **AzulMaps**)
+
+3.1. **`GeolocationProbe` invisible NodeType + `GeolocationManager` + per-platform inject** (research/04 + research/08). Lives in `dll/src/desktop/extra/geolocation/`. ~3 days.
+
+3.2. **`MapTile` NodeType + `MapTileManager`** — MVT decode via `mvt` crate + `agg-rust` line/polygon primitives (already present per research/06) + style-spec subset (10-15% of MapLibre). Lives in `dll/src/desktop/extra/map/`. **OpenFreeMap base URL pinned (current `20260513_001001_pt` snapshot), ODbL attribution string baked in.** ~6 days.
+
+3.3. **AzulMaps demo crate** — viewport state, pan/zoom touch handlers, tap-to-pin-callout. ~2 days.
+
+### Priority 4 — Auth (goal app: **AzulVault**)
+
+4.1. **Biometric auth** (research/02): one Azul API `request_biometric_auth(prompt) -> Future<BiometricResult>`. iOS / macOS `LAContext`, Android `BiometricPrompt`, Windows `UserConsentVerifier`, Linux fallback. Lives in `dll/src/desktop/extra/biometric/`. ~4 days.
+
+4.2. **System-keyring / passkey integration on non-Apple platforms** — this is the new bit the user called out. iOS / macOS use `Keychain` (already secure-enclave bound when `kSecAttrAccessControl=biometryCurrentSet`). For Linux: `libsecret` D-Bus → `gnome-keyring` / `kwallet`. Windows: `CredentialLocker` (`Windows.Security.Credentials.PasswordVault`). Android: `KeyStore` with `setUserAuthenticationRequired(true)`. The Web equivalent is `navigator.credentials` (WebAuthn). New `dll/src/desktop/extra/keyring/`. ~5 days.
+
+4.3. **libsql remote auth-token handling** (research/07) — `DbHandle::url` redacts the token in `Debug`; the Cargo-feature `db-libsql-remote` gates the tokio dep. Lives in `dll/src/desktop/extra/sqlite/`. ~4 days for the basic three modes; the remote + encryption sprint is a follow-up.
+
+4.4. **AzulVault demo crate** — 30-entry password manager, biometric unlock, libsql remote sync. ~4 days.
+
+### Priority 5 — Documents (goal app: **AzulDoc**)
+
+5.1. **PDF export** via `printpdf` — walk the display list, dispatch each `DisplayListItem` to printpdf `Op`s using the 18-row table from research/06. `App::export_pdf(path)`. Already half-wired via `DisplayListItem::TextLayout` (research/06's discovery). Lives in `dll/src/desktop/extra/pdf/`. ~4 days.
+
+5.2. **PDF render** via `printpdf::page_to_svg()` → `azul_layout::svg::Svg::parse(...)` → existing SVG render (CPU + GPU). Per §0.6 — **no `pdfium-render` dependency**. The `NodeType::Pdf(PdfRef { page, scale, ... })` opens the doc once, caches each rendered page into an `ImageRef`. ~3 days.
+
+5.3. **Watch for recursive dep risk**: `printpdf` already pulls `azul-layout` (the experimental integration on its import side). When `dll/extra/pdf/` adds `printpdf` as a dep, cargo resolves the cycle via the path-override. Document the manifest dance in the sprint plan to avoid a surprise. ~half-day investigation up front.
+
+5.4. **AzulDoc demo crate** — markdown editor, real-time preview, export-to-PDF button, inline-render of a reference PDF for diff. ~4 days.
+
+### Priority 6 — Horizontal expansions (no single goal app)
+
+These don't anchor a goal app and can land any time after P5:
+
+- **Camera** (research/01) — `<video>`-shaped node; needs `RawImageFormat::Nv12` to land zero-copy. Lives in `dll/src/desktop/extra/camera/`.
+- **Screen sharing** (research/01) — most platform-specific. `dll/src/desktop/extra/screencap/`.
+- **Accelerometer / gyro / magnetometer** (research/03). `dll/src/desktop/extra/sensors/`.
+- **Gamepad** (research/03) — note `gilrs` covers desktop, mobile needs custom backend glue. `dll/src/desktop/extra/gamepad/`.
+- **Wacom pad extensions** (research/03) — ExpressKeys + touch-rings. `dll/src/desktop/extra/wacom_pad/`.
+
+---
+
+### Notes on cross-cutting refactors
+
+- The "permission-aware DOM" architecture (§1.5 + research/08) is a *cross-cutting* refactor of features #2, #3, #4, #5, #10 — not a separate sprint. The `PermissionManager` lands in P1.2; each subsequent feature plugs into it.
+- The IME / `UITextInput` work the gesture sprint started (research/04) — Wayland `zwp_text_input_v3`'s six empty handlers, Android `InputConnection` JNI, iOS `UITextInput` — is shared infrastructure. Lands either in P1 or as a P2 sub-feature (text-input for the AzulPaint Save Dialog).
+- The `RawImageFormat::Nv12` variant (research/01's prerequisite) lands in P6 with Camera; it can wait.
+
+---
+
+### Aggregate effort estimate
+
+P1: ~7 days. P2: ~7 days. P3: ~11 days. P4: ~17 days. P5: ~12 days. P6: ~20 days.
+
+Total to ship five goal apps: **~54 days** at one engineer; substantially faster in parallel since P2/P3/P4/P5 are largely independent after P1.
 
 ---
 
 ## 5. Tracker
 
-The autonomous cron loop is **stopped** as of this document. Implementation starts in the next session, fed by `scripts/research/*.md`.
+The autonomous cron loop is **stopped** as of this document. Implementation starts in the next session, fed by `scripts/research/*.md`. The next session's bootstrap prompt is at `scripts/NEXT_SESSION_PROMPT.md`.
