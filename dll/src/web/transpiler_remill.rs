@@ -5266,9 +5266,17 @@ fn scan_arm64_adrp_accesses(
         //   imm9 at bits 20..12, sign-extended.
         // M12.5c: LDUR Qt also has top8 = 0x3C but bit 23 = 1 — must
         // be checked BEFORE the byte-width arm below.
+        // M12.5d-fix: DO NOT include top8 = 0x3D in the Q-LDUR
+        // detection. 0x3D is LDR-scaled (unsigned offset), NOT LDUR.
+        // Previously this clause incorrectly matched LDR Q whose
+        // imm12 % 4 == 0 (every other one in make_test_struct's
+        // const-pool reads), causing the scanner to record bogus
+        // 16-byte ranges at imm9 instead of the real imm12*16
+        // targets. Result: every other q0 LDR target was missed,
+        // leaving the mirror with zero bytes at those addresses
+        // and the sret heap with corresponding 16-byte gaps.
         let top8_unscaled = instr >> 24;
-        let unscaled_w_for_top8: Option<usize> = if (top8_unscaled == 0x3C
-            || top8_unscaled == 0x3D)
+        let unscaled_w_for_top8: Option<usize> = if top8_unscaled == 0x3C
             && ((instr >> 23) & 1) == 1
         {
             Some(16)
