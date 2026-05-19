@@ -1070,6 +1070,12 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     let styled = StyledDom::create(dom_ref, Css::empty());
     let boxed = Box::new(styled);
     let ptr_val = Box::into_raw(boxed) as usize as u32;
+    // M12.5b probe: test if Box::new of a trivial u32 works.
+    // If `box_u32_test` writes 0xDEADBEEF correctly, Box::new path
+    // is fine and the issue is specifically the StyledDom sret.
+    let trivial = Box::new(0xDEADBEEF_u32);
+    let trivial_ptr = Box::into_raw(trivial) as usize as u32;
+    core::ptr::write_volatile(0x40010_usize as *mut u32, trivial_ptr);
     let recovered = fixed_load();
     finalize_hydrate(recovered, ptr_val);
     0
