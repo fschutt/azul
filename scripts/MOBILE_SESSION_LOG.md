@@ -185,6 +185,12 @@ cargo check --target aarch64-linux-android still GREEN (17.28s).
 
 iOS Phase 3 is now structurally complete: tap on a button → touch event → state diff → callback fires → drawRect re-renders. Linker still gated on Xcode.
 
+### Tick — iOS CADisplayLink → display_tick: present-on-refresh
+
+`install_display_link(view)` constructs a `CADisplayLink` via `displayLinkWithTarget:selector:`, points it at the shared `AzulGestureTarget` NSObject (now carries a `displayTick:` method alongside the gesture selectors), and adds it to `[NSRunLoop mainRunLoop]` with `kCFRunLoopDefaultMode`. The `extern "C" fn display_tick` reads the singleton `AZUL_IOS_WINDOW` and calls `window.present()` (which kicks `[view setNeedsDisplay]`) whenever `frame_needs_regeneration` is true — gating means we don't redraw 60×/s when nothing changed. `IOSWindow::new` calls `install_display_link(view)` right after `install_gesture_recognizers(view)`. All 5 mobile cargo-check targets stay GREEN (15/4/3/1/0 s).
+
+Without this hook, frames only ticked on touch / timer events — animations would have been stuck. Now any layout change pumps a redraw at the screen's native refresh.
+
 ### Tick — iOS AppDelegate lifecycle selectors
 
 Five new `extern "C"` selectors registered on `AppDelegate`:

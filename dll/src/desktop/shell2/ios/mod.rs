@@ -476,9 +476,48 @@ fn get_or_create_gesture_target_class() -> &'static Class {
             sel!(onRotation:),
             on_rotation as extern "C" fn(&Object, Sel, *mut Object),
         );
+        decl.add_method(
+            sel!(displayTick:),
+            display_tick as extern "C" fn(&Object, Sel, *mut Object),
+        );
         CLS = decl.register();
     });
     unsafe { &*CLS }
+}
+
+extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
+    // Cheap rate limit: only ask for a redraw when the layout has
+    // changed since the last frame. The framework's
+    // `frame_needs_regeneration` flag is the authoritative answer —
+    // touch / timer / async-thread results all flip it.
+    if let Some(window) = unsafe { azul_ios_window() } {
+        if window.common.frame_needs_regeneration {
+            let _ = window.present();
+        }
+    }
+}
+
+/// Construct a `CADisplayLink` that fires `display_tick:` on the shared
+/// AzulGestureTarget every screen refresh and add it to the main run loop.
+unsafe fn install_display_link(_view: *mut Object) {
+    use objc::sel;
+    // The gesture target class also carries the display tick selector —
+    // one extra method, same shared NSObject instance (constructed in
+    // install_gesture_recognizers ahead of this call).
+    let target_class = get_or_create_gesture_target_class();
+    let target_alloc: *mut Object = msg_send![target_class, alloc];
+    let target: *mut Object = msg_send![target_alloc, init];
+
+    let link: *mut Object = msg_send![
+        class!(CADisplayLink),
+        displayLinkWithTarget: target
+                      selector: sel!(displayTick:)
+    ];
+    let main_loop: *mut Object = msg_send![class!(NSRunLoop), mainRunLoop];
+    let default_mode_cstr = b"kCFRunLoopDefaultMode\0".as_ptr() as *const i8;
+    let mode: *mut Object =
+        msg_send![class!(NSString), stringWithUTF8String: default_mode_cstr];
+    let _: () = msg_send![link, addToRunLoop: main_loop forMode: mode];
 }
 
 /// Attach UITap / UILongPress / UISwipe(×4) / UIPinch / UIRotation
@@ -775,6 +814,13 @@ impl IOSWindow {
             //  .layout_window.gesture_drag_manager.inject_native_gesture
             // so CallbackInfo::get_swipe_direction etc. observe a result.
             install_gesture_recognizers(view);
+
+            // Install a CADisplayLink so the view redraws at the screen
+            // refresh rate (60 / 120 Hz). Without this, frames only tick
+            // on touch / timer events — fine for forms, wrong for any
+            // animation. The display link target is the same shared
+            // AzulGestureTarget NSObject; selector goes to `display_tick:`.
+            install_display_link(view);
 
             // `Id::from_ptr` retains the object; balanced by Drop.
             (
