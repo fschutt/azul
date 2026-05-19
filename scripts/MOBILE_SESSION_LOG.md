@@ -133,6 +133,16 @@ Verified GREEN:
 
 Sprint B (iOS Phase 1: compile) is now **GREEN at the source level on every iOS target**. The linker step still needs the iOS SDK (`xcrun --sdk iphonesimulator` currently errors with "SDK cannot be located" on this box); once Xcode finishes installing, `cargo build` should complete without further code changes.
 
+### Tick — Sprint M iOS UIKit gesture recognizers (#16)
+
+`dll/src/desktop/shell2/ios/mod.rs` now wires the iOS half of the native-gesture path. Same shape as the Android JNI bridge:
+- 8 new `extern "C" fn(_this: &Object, _cmd: Sel, sender: *mut Object)` action selectors: `on_double_tap`, `on_long_press`, `on_swipe_{left,right,up,down}`, `on_pinch`, `on_rotation`. Each reads `[sender state]` (gates to `Recognized` / `Began` / `Changed` as appropriate) and `[sender locationInView:nil]` / `[sender scale]` / `[sender rotation]` as needed, then calls `inject(window, NativeGestureEvent::*)`. The same `GestureAndDragManager::inject_native_gesture` hook the e2e harness and the Android JNI bridge use.
+- New `AzulGestureTarget` NSObject subclass (registered via `objc::declare::ClassDecl`) with the eight action methods. One instance is leaked once at app startup and shared by every recognizer.
+- `install_gesture_recognizers(view)` builds + attaches `UITapGestureRecognizer(numberOfTapsRequired=2)`, `UILongPressGestureRecognizer`, `UIPinchGestureRecognizer`, `UIRotationGestureRecognizer`, and four `UISwipeGestureRecognizer`s (one per direction, since UIKit fires the action once per direction). Direction bitmask values mirror UIKit's `UISwipeGestureRecognizerDirection` enum: Right=1, Left=2, Up=4, Down=8.
+- Called from `IOSWindow::new` after `[window makeKeyAndVisible]`.
+
+cargo check --target aarch64-apple-ios still GREEN (15.07s). The wire is complete from UIKit recognizer → action selector → `inject_native_gesture` → `CallbackInfo::get_*` accessors. Activation requires the iOS SDK to actually link, which `xcrun --sdk iphonesimulator` will surface once Xcode finishes installing.
+
 ### Tick — Sprint M Android JNI bridge for GestureDetector (#17)
 
 Two artifacts land:

@@ -181,6 +181,215 @@ extern "C" fn touches_cancelled(
     }
 }
 
+// ─── UIKit gesture-recognizer handlers (Sprint M iOS side) ───────────
+//
+// Each handler is attached as the `action:` selector of a
+// `UI*GestureRecognizer` instance constructed in `IOSWindow::new`. UIKit
+// fires the action with `(sender: UIGestureRecognizer*)`; we read the
+// recognizer's `state` to decide whether to inject. For tap/long-press
+// we only inject on `UIGestureRecognizerStateRecognized` (== 3) /
+// `Began` (== 1); for continuous recognizers (pinch / rotation) we'd
+// inject on `Changed` (== 2). Action-selector signatures: the Rust
+// function takes `(target: &Object, _cmd: Sel, sender: *mut Object)`.
+
+const UI_GESTURE_RECOGNIZER_STATE_RECOGNIZED: i64 = 3;
+const UI_GESTURE_RECOGNIZER_STATE_BEGAN: i64 = 1;
+const UI_GESTURE_RECOGNIZER_STATE_CHANGED: i64 = 2;
+
+fn inject(window: &mut IOSWindow, gesture: azul_layout::managers::gesture::NativeGestureEvent) {
+    if let Some(lw) = window.common.layout_window.as_mut() {
+        lw.gesture_drag_manager.inject_native_gesture(gesture);
+        window.common.frame_needs_regeneration = true;
+    }
+}
+
+extern "C" fn on_double_tap(_this: &Object, _cmd: Sel, sender: *mut Object) {
+    use azul_layout::managers::gesture::NativeGestureEvent;
+    let state: i64 = unsafe { msg_send![sender, state] };
+    if state != UI_GESTURE_RECOGNIZER_STATE_RECOGNIZED {
+        return;
+    }
+    if let Some(w) = unsafe { azul_ios_window() } {
+        inject(w, NativeGestureEvent::DoubleClick);
+    }
+}
+
+extern "C" fn on_long_press(_this: &Object, _cmd: Sel, sender: *mut Object) {
+    use azul_core::geom::LogicalPosition;
+    use azul_layout::managers::gesture::{DetectedLongPress, NativeGestureEvent};
+    let state: i64 = unsafe { msg_send![sender, state] };
+    if state != UI_GESTURE_RECOGNIZER_STATE_BEGAN {
+        return;
+    }
+    let p: CGPoint = unsafe { msg_send![sender, locationInView: ptr::null_mut::<Object>()] };
+    if let Some(w) = unsafe { azul_ios_window() } {
+        inject(
+            w,
+            NativeGestureEvent::LongPress(DetectedLongPress {
+                position: LogicalPosition { x: p.x as f32, y: p.y as f32 },
+                duration_ms: 0,
+                callback_invoked: false,
+                session_id: 0,
+            }),
+        );
+    }
+}
+
+extern "C" fn on_swipe_left(_t: &Object, _c: Sel, _s: *mut Object) {
+    use azul_layout::managers::gesture::{GestureDirection, NativeGestureEvent};
+    if let Some(w) = unsafe { azul_ios_window() } {
+        inject(w, NativeGestureEvent::Swipe(GestureDirection::Left));
+    }
+}
+extern "C" fn on_swipe_right(_t: &Object, _c: Sel, _s: *mut Object) {
+    use azul_layout::managers::gesture::{GestureDirection, NativeGestureEvent};
+    if let Some(w) = unsafe { azul_ios_window() } {
+        inject(w, NativeGestureEvent::Swipe(GestureDirection::Right));
+    }
+}
+extern "C" fn on_swipe_up(_t: &Object, _c: Sel, _s: *mut Object) {
+    use azul_layout::managers::gesture::{GestureDirection, NativeGestureEvent};
+    if let Some(w) = unsafe { azul_ios_window() } {
+        inject(w, NativeGestureEvent::Swipe(GestureDirection::Up));
+    }
+}
+extern "C" fn on_swipe_down(_t: &Object, _c: Sel, _s: *mut Object) {
+    use azul_layout::managers::gesture::{GestureDirection, NativeGestureEvent};
+    if let Some(w) = unsafe { azul_ios_window() } {
+        inject(w, NativeGestureEvent::Swipe(GestureDirection::Down));
+    }
+}
+
+extern "C" fn on_pinch(_this: &Object, _cmd: Sel, sender: *mut Object) {
+    use azul_core::geom::LogicalPosition;
+    use azul_layout::managers::gesture::{DetectedPinch, NativeGestureEvent};
+    let state: i64 = unsafe { msg_send![sender, state] };
+    if state != UI_GESTURE_RECOGNIZER_STATE_CHANGED {
+        return;
+    }
+    let scale: f64 = unsafe { msg_send![sender, scale] };
+    let p: CGPoint = unsafe { msg_send![sender, locationInView: ptr::null_mut::<Object>()] };
+    if let Some(w) = unsafe { azul_ios_window() } {
+        inject(
+            w,
+            NativeGestureEvent::Pinch(DetectedPinch {
+                scale: scale as f32,
+                center: LogicalPosition { x: p.x as f32, y: p.y as f32 },
+                initial_distance: 0.0,
+                current_distance: 0.0,
+                duration_ms: 0,
+            }),
+        );
+    }
+}
+
+extern "C" fn on_rotation(_this: &Object, _cmd: Sel, sender: *mut Object) {
+    use azul_core::geom::LogicalPosition;
+    use azul_layout::managers::gesture::{DetectedRotation, NativeGestureEvent};
+    let state: i64 = unsafe { msg_send![sender, state] };
+    if state != UI_GESTURE_RECOGNIZER_STATE_CHANGED {
+        return;
+    }
+    let rotation: f64 = unsafe { msg_send![sender, rotation] };
+    let p: CGPoint = unsafe { msg_send![sender, locationInView: ptr::null_mut::<Object>()] };
+    if let Some(w) = unsafe { azul_ios_window() } {
+        inject(
+            w,
+            NativeGestureEvent::Rotation(DetectedRotation {
+                angle_radians: rotation as f32,
+                center: LogicalPosition { x: p.x as f32, y: p.y as f32 },
+                duration_ms: 0,
+            }),
+        );
+    }
+}
+
+/// Dynamically register an empty NSObject subclass whose only purpose
+/// is to be the `target:` of every gesture recognizer. UIKit expects an
+/// Objective-C object; an empty subclass is the cheapest legal one.
+fn get_or_create_gesture_target_class() -> &'static Class {
+    static ONCE: Once = Once::new();
+    static mut CLS: *const Class = ptr::null();
+    ONCE.call_once(|| unsafe {
+        let superclass = class!(NSObject);
+        let mut decl = ClassDecl::new("AzulGestureTarget", superclass).unwrap();
+        decl.add_method(
+            sel!(onDoubleTap:),
+            on_double_tap as extern "C" fn(&Object, Sel, *mut Object),
+        );
+        decl.add_method(
+            sel!(onLongPress:),
+            on_long_press as extern "C" fn(&Object, Sel, *mut Object),
+        );
+        decl.add_method(
+            sel!(onSwipeLeft:),
+            on_swipe_left as extern "C" fn(&Object, Sel, *mut Object),
+        );
+        decl.add_method(
+            sel!(onSwipeRight:),
+            on_swipe_right as extern "C" fn(&Object, Sel, *mut Object),
+        );
+        decl.add_method(
+            sel!(onSwipeUp:),
+            on_swipe_up as extern "C" fn(&Object, Sel, *mut Object),
+        );
+        decl.add_method(
+            sel!(onSwipeDown:),
+            on_swipe_down as extern "C" fn(&Object, Sel, *mut Object),
+        );
+        decl.add_method(
+            sel!(onPinch:),
+            on_pinch as extern "C" fn(&Object, Sel, *mut Object),
+        );
+        decl.add_method(
+            sel!(onRotation:),
+            on_rotation as extern "C" fn(&Object, Sel, *mut Object),
+        );
+        CLS = decl.register();
+    });
+    unsafe { &*CLS }
+}
+
+/// Attach UITap / UILongPress / UISwipe(×4) / UIPinch / UIRotation
+/// recognizers to `view`. The shared `target` object is leaked — its
+/// lifetime is tied to the application.
+unsafe fn install_gesture_recognizers(view: *mut Object) {
+    use objc::sel;
+    let target_class = get_or_create_gesture_target_class();
+    let target_alloc: *mut Object = msg_send![target_class, alloc];
+    let target: *mut Object = msg_send![target_alloc, init];
+
+    // Helper closure to alloc + init + addGestureRecognizer:
+    let attach_basic = |class_name: &Class, action: Sel| {
+        let r_alloc: *mut Object = msg_send![class_name, alloc];
+        let r: *mut Object = msg_send![r_alloc, initWithTarget: target action: action];
+        let _: () = msg_send![view, addGestureRecognizer: r];
+        r
+    };
+
+    // Double-tap (UITapGestureRecognizer with numberOfTapsRequired = 2)
+    let tap = attach_basic(class!(UITapGestureRecognizer), sel!(onDoubleTap:));
+    let _: () = msg_send![tap, setNumberOfTapsRequired: 2i64];
+
+    let _ = attach_basic(class!(UILongPressGestureRecognizer), sel!(onLongPress:));
+    let _ = attach_basic(class!(UIPinchGestureRecognizer), sel!(onPinch:));
+    let _ = attach_basic(class!(UIRotationGestureRecognizer), sel!(onRotation:));
+
+    // Swipe recognizers need one instance per direction (UISwipeGestureRecognizer's
+    // `direction` is a bitmask but UIKit fires the action once per direction).
+    // direction enum values: Right=1, Left=2, Up=4, Down=8.
+    let attach_swipe = |dir: u64, action: Sel| {
+        let r_alloc: *mut Object = msg_send![class!(UISwipeGestureRecognizer), alloc];
+        let r: *mut Object = msg_send![r_alloc, initWithTarget: target action: action];
+        let _: () = msg_send![r, setDirection: dir];
+        let _: () = msg_send![view, addGestureRecognizer: r];
+    };
+    attach_swipe(1, sel!(onSwipeRight:));
+    attach_swipe(2, sel!(onSwipeLeft:));
+    attach_swipe(4, sel!(onSwipeUp:));
+    attach_swipe(8, sel!(onSwipeDown:));
+}
+
 fn get_or_create_view_class() -> &'static Class {
     static ONCE: Once = Once::new();
     static mut AZUL_VIEW_CLASS: *const Class = ptr::null();
@@ -359,6 +568,12 @@ impl IOSWindow {
             let _: () = msg_send![vc, setView: view];
             let _: () = msg_send![window, setRootViewController: vc];
             let _: () = msg_send![window, makeKeyAndVisible];
+
+            // Attach UIKit gesture recognizers (Sprint M iOS side).
+            // Each recognizer forwards to AZUL_IOS_WINDOW.common
+            //  .layout_window.gesture_drag_manager.inject_native_gesture
+            // so CallbackInfo::get_swipe_direction etc. observe a result.
+            install_gesture_recognizers(view);
 
             // `Id::from_ptr` retains the object; balanced by Drop.
             (
