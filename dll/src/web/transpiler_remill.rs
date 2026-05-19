@@ -1147,7 +1147,7 @@ impl RemillTranspiler {
         // scheme makes those addresses predictably small so
         // memory can shrink back to the order-of-magnitude that
         // actually reflects the image sizes involved.
-        let initial_memory_bytes: u32 = 128 * 1024 * 1024;
+        let initial_memory_bytes: u32 = 512 * 1024 * 1024;
         let import_memory = matches!(memory_mode, MemoryMode::ImportMemory);
         // import_table mirrors the subprocess `--import-table` flag —
         // funcref table is JS-owned (sized + populated with per-cb
