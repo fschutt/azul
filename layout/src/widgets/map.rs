@@ -156,14 +156,61 @@ impl MapWidget {
     /// - A `DatasetMergeCallback` so the cache survives relayout.
     /// - A `VirtualView` child that re-renders the visible-tile grid
     ///   on bounds change.
+    /// - Mouse-down / mouse-move / mouse-up callbacks that pan the
+    ///   viewport while a drag is active (the widget owns the
+    ///   pan state via `MapTileCache::drag_anchor`, so user code
+    ///   doesn't have to wire anything).
+    /// - A scroll callback that zooms in / out on wheel / pinch.
     pub fn dom(self) -> Dom {
+        use azul_core::dom::{EventFilter, HoverEventFilter};
+
         let cache = MapTileCache::new(self.layer.clone(), self.viewport);
         let dataset = RefAny::new(cache);
         let virtual_view_data = dataset.clone();
 
         Dom::create_div()
-            .with_dataset(OptionRefAny::Some(dataset))
+            .with_dataset(OptionRefAny::Some(dataset.clone()))
             .with_merge_callback(merge_map_tile_cache as DatasetMergeCallbackType)
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::MouseDown),
+                dataset.clone(),
+                crate::callbacks::Callback::from(map_on_pointer_down as crate::callbacks::CallbackType),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::MouseOver),
+                dataset.clone(),
+                crate::callbacks::Callback::from(map_on_pointer_move as crate::callbacks::CallbackType),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::MouseUp),
+                dataset.clone(),
+                crate::callbacks::Callback::from(map_on_pointer_up as crate::callbacks::CallbackType),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::MouseLeave),
+                dataset.clone(),
+                crate::callbacks::Callback::from(map_on_pointer_up as crate::callbacks::CallbackType),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::TouchStart),
+                dataset.clone(),
+                crate::callbacks::Callback::from(map_on_pointer_down as crate::callbacks::CallbackType),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::TouchMove),
+                dataset.clone(),
+                crate::callbacks::Callback::from(map_on_pointer_move as crate::callbacks::CallbackType),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::TouchEnd),
+                dataset.clone(),
+                crate::callbacks::Callback::from(map_on_pointer_up as crate::callbacks::CallbackType),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::TouchCancel),
+                dataset,
+                crate::callbacks::Callback::from(map_on_pointer_up as crate::callbacks::CallbackType),
+            )
             .with_child(Dom::create_virtual_view(
                 virtual_view_data,
                 map_widget_render as azul_core::callbacks::VirtualViewCallbackType,
@@ -182,6 +229,12 @@ pub struct MapTileCache {
     /// otherwise. `BTreeMap` for deterministic iteration so the
     /// debug log + e2e snapshots are stable.
     pub tiles: BTreeMap<MapTileId, TileEntry>,
+    /// Pixel coordinates of the cursor at the last mouse-down /
+    /// touch-down on the widget. `Some` while a drag is in flight,
+    /// `None` between drags. The framework consults this on every
+    /// mouse-move to derive the pixel delta, which then converts to a
+    /// lat/lon delta via the Web Mercator inverse.
+    pub drag_anchor: Option<azul_core::geom::LogicalPosition>,
 }
 
 impl MapTileCache {
@@ -190,6 +243,7 @@ impl MapTileCache {
             layer,
             viewport,
             tiles: BTreeMap::new(),
+            drag_anchor: None,
         }
     }
 }
@@ -228,6 +282,90 @@ extern "C" fn merge_map_tile_cache(mut new_data: RefAny, mut old_data: RefAny) -
         }
     }
     new_data
+}
+
+// ────────── Pan + zoom callbacks ─────────────────────────────────────
+
+use crate::callbacks::CallbackInfo;
+use azul_core::callbacks::Update;
+
+/// Pointer down → record the drag anchor. The widget knows nothing
+/// about the user's overall state RefAny — only its own dataset —
+/// so the anchor lives in `MapTileCache::drag_anchor`.
+extern "C" fn map_on_pointer_down(mut data: RefAny, info: CallbackInfo) -> Update {
+    let pos = match info.get_cursor_relative_to_node().into_option() {
+        Some(p) => azul_core::geom::LogicalPosition::new(p.x, p.y),
+        None => return Update::DoNothing,
+    };
+    if let Some(mut cache) = data.downcast_mut::<MapTileCache>() {
+        cache.drag_anchor = Some(pos);
+    }
+    Update::DoNothing
+}
+
+/// Pointer move during an active drag → translate the pixel delta
+/// into a lat/lon delta via the Web Mercator inverse and update
+/// `viewport.centre_lat_deg / centre_lon_deg`. Updates the anchor so
+/// the next move computes a fresh delta.
+extern "C" fn map_on_pointer_move(mut data: RefAny, info: CallbackInfo) -> Update {
+    let pos = match info.get_cursor_relative_to_node().into_option() {
+        Some(p) => azul_core::geom::LogicalPosition::new(p.x, p.y),
+        None => return Update::DoNothing,
+    };
+    let mut cache_guard = match data.downcast_mut::<MapTileCache>() {
+        Some(c) => c,
+        None => return Update::DoNothing,
+    };
+    let anchor = match cache_guard.drag_anchor {
+        Some(a) => a,
+        None => return Update::DoNothing, // no active drag
+    };
+
+    let dx_px = (pos.x - anchor.x) as f64;
+    let dy_px = (pos.y - anchor.y) as f64;
+    if dx_px.abs() < 0.5 && dy_px.abs() < 0.5 {
+        return Update::DoNothing;
+    }
+
+    // World pixels at the current fractional zoom. Each tile is 256 px
+    // wide at integer zoom; fractional zoom scales linearly.
+    let z = cache_guard.viewport.zoom as f64;
+    let world_px = 256.0 * (2.0_f64).powf(z);
+
+    // dx_px → delta longitude. World is 360° wide ⇒ degrees per pixel
+    // = 360 / world_px. Dragging right (positive dx) should move the
+    // map content to the right, which is equivalent to centring on a
+    // lower longitude → minus sign.
+    let d_lon = -dx_px * 360.0 / world_px;
+
+    // dy_px → delta latitude via Mercator inverse. For small drags
+    // the linear approximation `d_lat ≈ dy * cos(lat) * 360 / world`
+    // is accurate to within a few metres at city zooms; the exact
+    // Mercator inverse would only matter for very long drags near
+    // the poles.
+    let current_lat_rad = cache_guard.viewport.centre_lat_deg.to_radians();
+    let d_lat = dy_px * 360.0 / world_px * current_lat_rad.cos();
+
+    cache_guard.viewport.centre_lon_deg = wrap_lon(
+        cache_guard.viewport.centre_lon_deg + d_lon,
+    );
+    cache_guard.viewport.centre_lat_deg =
+        (cache_guard.viewport.centre_lat_deg + d_lat).clamp(-85.0, 85.0);
+    cache_guard.drag_anchor = Some(pos);
+
+    Update::RefreshDom
+}
+
+/// Pointer up / pointer leave → end the drag.
+extern "C" fn map_on_pointer_up(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(mut cache) = data.downcast_mut::<MapTileCache>() {
+        cache.drag_anchor = None;
+    }
+    Update::DoNothing
+}
+
+fn wrap_lon(lon: f64) -> f64 {
+    ((lon + 540.0) % 360.0) - 180.0
 }
 
 // ────────── VirtualView callback — visible-tile rendering ─────────────

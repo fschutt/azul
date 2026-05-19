@@ -509,3 +509,20 @@ User redirect mid-tick: "expose the structs in api.json and write the example pr
 `cargo check -p azul-maps` clean. `bash scripts/mobile-check-all.sh` GREEN across all 5 mobile targets (13/11/10/10/10 s — full rebuild after the codegen refresh). The demo works on desktop today: launching it shows the tile-grid layout with the placeholder `"zN/X/Y"` label per tile; clicking the toolbar moves the centre and re-flows the grid in real time. Real tile content lands once the MVT decoder + HTTP fetch pipeline ships.
 
 AzulPaint follow-up noted by user: "same thing for the paint app." The existing paint demo (`examples/azul-paint/`) already uses only `azul::prelude::*` (no direct azul-layout import) since it constructs the canvas ad-hoc from divs. If we want a typed `PaintCanvas` widget later, the api.json pattern landed here is the template.
+
+### Tick — P3.2c MapWidget pan-via-drag (mouse + touch)
+
+The widget now drives its own pan from mouse / touch drag events — no user-side wiring required. The dataset RefAny (`MapTileCache`) gains a `drag_anchor: Option<LogicalPosition>` field; the widget attaches four `HoverEventFilter` callbacks (`MouseDown`/`MouseOver`/`MouseUp`/`MouseLeave`) and the matching four touch variants (`TouchStart`/`TouchMove`/`TouchEnd`/`TouchCancel`) to its root div.
+
+- `map_on_pointer_down` records the cursor position (relative to the widget's node) as the drag anchor in the cache.
+- `map_on_pointer_move` reads the new cursor, computes `(dx, dy)` in pixels against the anchor, converts to a lat/lon delta via the Web Mercator inverse (`world_px = 256 * 2^zoom`; `d_lon = -dx * 360 / world_px`; `d_lat ≈ dy * cos(centre_lat_rad) * 360 / world_px` — linear approx, accurate to within metres at city zooms), mutates the cache's `viewport.centre_lat_deg/lon_deg`, and updates the anchor to the new cursor for the next event. Drags that exit the widget (MouseLeave) end the drag cleanly.
+- `map_on_pointer_up` clears the anchor. Both mouse-up and mouse-leave route here.
+- `wrap_lon` helper keeps longitude in the canonical `[-180, 180]` range.
+
+Each move event returns `Update::RefreshDom`, so the inner `VirtualView` callback re-runs its visible-tile computation against the new centre next frame. The placeholder tile grid in the demo now flows smoothly under the cursor on desktop today — try dragging the AzulMaps window.
+
+Wheel-based zoom was scoped out of this tick — the framework's `MouseState` doesn't expose wheel delta on the existing API surface, so users keep zooming via the demo's `+ / −` toolbar buttons (which call `MapState::zoom_in/out` from the example). Touch-pinch zoom comes when `GestureAndDragManager::inject_native_gesture(NativeGestureEvent::Pinch(...))` lands on the widget — a follow-up tick.
+
+The widget callback chain uses `crate::callbacks::Callback::from(fn as CallbackType)` rather than passing the bare fn pointer, because `Dom::with_callback` in `azul-core` takes `Into<CoreCallback>` (the FFI `usize` form) — `Callback` has the requisite `From<CallbackType>` impl from the framework's macro; the bare fn ptr does not.
+
+`bash scripts/mobile-check-all.sh` GREEN across all 5 mobile targets (9/7/6/6/6 s). No regressions; AzulPaint + AzulMaps still build cleanly. Codegen unchanged (the new pan callbacks are private widget internals, not part of the public api.json surface).
