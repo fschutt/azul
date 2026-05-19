@@ -114,6 +114,25 @@ Plumbing additions:
 
 cargo check --target aarch64-linux-android still GREEN in 26.79 s; host-target cargo check also GREEN. Sample JSON test now possible: `[{"op": "swipe", "dir": "left"}, {"op": "pinch", "scale": 2.0, "center_x": 200, "center_y": 300}, {"op": "long_press", "x": 50, "y": 50, "duration_ms": 800}]`.
 
+### Sprint B GATE GREEN — iOS source compiles for every iOS target
+
+`dll/src/desktop/shell2/ios/mod.rs` rewritten to mirror Android's clean skeleton, fixing the 18 stale errors from the original WIP:
+- Imports: dropped `WindowState` / `WrTransaction` / `ShareId` / `INSObject` / `NSObject`; added `HitTestNode`, `IdNamespace`, `ScrollbarDragState`, `CpuBackend`, `SharedIconProvider`, `FcFontRegistry`, `AsyncHitTester`, `WrRenderApi`, `RelayoutReason`.
+- `unsafe impl Encode for CGPoint/CGSize/CGRect` using objc 0.2's `fn encode() -> Encoding` API (string-based: `{CGPoint=dd}` etc.) — not the objc2 `const ENCODING` surface.
+- `extern "C" fn(self: &Object, ...)` → `extern "C" fn(_this: &Object, ...)` (`self` is reserved). Four touch handlers (`began`/`moved`/`ended`/`cancelled`) all stubbed but registered.
+- `FullWindowState::new(options.state)` → `options.window_state` (consistent with Android).
+- Native UI build uses raw `*mut Object` pointers through `msg_send!` chain, then wraps in `Id::from_ptr(...)` once at the end; no more `id.clone()` / `Id::as_ptr(&id)` (neither exists on `Id<Object>` in objc_id 0.1). Raw-pointer extraction for `IOSHandle` is `(&*self.ui_window as *const Object) as *mut c_void`.
+- Full `PlatformWindow` trait impl mirroring Android (prepare_callback_invocation, timer/thread/queue/menu/tooltip stubs).
+- `IOSWindow::new` takes the same 5-arg signature as `AndroidWindow::new`; `did_finish_launching` retrieves all five from `INITIAL_OPTIONS`.
+
+Verified GREEN:
+- `cargo check --target aarch64-apple-ios -p azul-dll …`        (0.37s)
+- `cargo check --target aarch64-apple-ios-sim -p azul-dll …`    (25.49s)
+- `cargo check --target x86_64-apple-ios -p azul-dll …`         (26.22s)
+- `cargo check --target aarch64-linux-android -p azul-dll …`    (0.38s — no regression)
+
+Sprint B (iOS Phase 1: compile) is now **GREEN at the source level on every iOS target**. The linker step still needs the iOS SDK (`xcrun --sdk iphonesimulator` currently errors with "SDK cannot be located" on this box); once Xcode finishes installing, `cargo build` should complete without further code changes.
+
 ### Tick — Sprint M Android JNI bridge for GestureDetector (#17)
 
 Two artifacts land:

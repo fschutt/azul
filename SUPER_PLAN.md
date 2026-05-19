@@ -165,6 +165,25 @@ Each sprint has: **GOAL**, **FILES**, **GATE** (verifiable check), **REFERENCE**
 * GPU on iOS via EAGLContext + CAEAGLLayer (optional).
 * Vulkan / OpenGL ES on Android (optional, only if profiling shows blit cost matters).
 
+### Sprint N — Linux-host iOS cross-compile (no Xcode on the build machine)
+
+User goal: build iOS .app bundles from a Linux CI box without needing a Mac. Signing is out of scope (only simulator / sideload to a developer-mode device); the deliverable is an unsigned `.ipa` / `.app` that runs in the iOS Simulator or with a dev-signed re-sign step done elsewhere.
+
+* **What works out of the box:** the Rust `aarch64-apple-ios` / `aarch64-apple-ios-sim` / `x86_64-apple-ios` toolchains are LLVM-based and don't need a Mac host — `rustup target add aarch64-apple-ios` works on Linux and `cargo check` for those targets compiles every source file (verified in this branch).
+* **What's needed at link time on a Linux host:**
+  1. **iOS SDK** — extract `iPhoneOS.sdk` / `iPhoneSimulator.sdk` from `Xcode.xip` once on a Mac (or use the trimmed copies in https://github.com/xybp888/iOS-SDKs / similar mirrors). Place at `$IOS_SDK_PATH/iPhoneOS18.x.sdk` etc.
+  2. **`clang` with iOS-tuned targets** — modern upstream LLVM already speaks `aarch64-apple-darwin`/`aarch64-apple-ios`; `-isysroot $IOS_SDK_PATH/iPhoneOS18.x.sdk` plus `-target arm64-apple-ios18.0` is the linker invocation.
+  3. **`ld64` or `lld -flavor darwin`** — `lld` ships Mach-O support today; `cctools-port` (https://github.com/tpoechtrager/cctools-port) provides a Mac-compatible `ld64` that runs on Linux.
+  4. **`xcrun` shim** — a 20-line bash script that intercepts `xcrun --sdk iphoneos --show-sdk-path` and returns `$IOS_SDK_PATH/iPhoneOS18.x.sdk`. `build-ios.sh` already routes through `xcrun`, so swapping out for the shim is the only consumer-side change.
+  5. **`ldid -S`** — fake-sign the resulting Mach-O so the simulator's CodeDirectory check passes. No real provisioning profile.
+* **Pipeline on a Linux box:**
+  1. `cargo build --target aarch64-apple-ios-sim --release -p azul-dll`
+  2. `clang -isysroot $IOS_SDK -target arm64-apple-ios-simulator -fuse-ld=lld -o MyApp -L... -lazul` (a tiny `main.c` shim)
+  3. Bundle into `MyApp.app/` via `scripts/build-ios.sh` (already SDK-agnostic; just needs the xcrun shim on `PATH`).
+  4. `ldid -S MyApp.app/MyApp` (fake-sign).
+  5. Push to a Mac with `scp` for Simulator launch, OR resign with a real cert on a Mac for device deploy. No debugger.
+* **Acceptance:** `bash scripts/build-ios.sh aarch64-apple-ios-sim` works inside a Docker container with `clang` + `lld` + extracted iOS SDK mounted at `/sdks/iphonesimulator.sdk`. Tracked as a stretch goal — not blocking the Mac-host iOS flow.
+
 ### Sprint M — Native gesture recognizers ("superset of every platform")
 
 * **Goal:** Azul's gesture surface (`HoverEventFilter::{DoubleClick, LongPress, SwipeLeft/Right/Up/Down, PinchIn/Out, RotateClockwise, RotateCounterClockwise}` plus the `CallbackInfo::{get_swipe_direction, get_pinch, get_rotation, get_long_press, was_double_clicked}` accessors) fires identically on every platform, but the *source* of detection is the highest-quality available:
