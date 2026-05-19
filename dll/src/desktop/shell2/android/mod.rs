@@ -44,7 +44,10 @@ use crate::desktop::wr_translate2::{AsyncHitTester, WrRenderApi};
 use crate::{impl_platform_window_getters, log_debug, log_error, log_info};
 
 #[cfg(feature = "android-activity")]
-use android_activity::{AndroidApp, MainEvent, PollEvent};
+use android_activity::{
+    input::{InputEvent, KeyAction, MotionAction},
+    AndroidApp, InputStatus, MainEvent, PollEvent,
+};
 #[cfg(feature = "ndk")]
 use ndk::native_window::NativeWindow;
 
@@ -416,9 +419,7 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 window.common.frame_needs_regeneration = true;
             }
             MainEvent::InputAvailable => {
-                // Drained inside `render_frame`'s pre-pass — see input_events()
-                // calls there. Keeping the marker fires a redraw soon.
-                window.common.frame_needs_regeneration = true;
+                drain_input(app, window);
             }
             MainEvent::Destroy => {
                 window.close();
@@ -430,6 +431,64 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
         },
         _ => {}
     }
+}
+
+/// Drain the input queue once. Maps the first pointer of every motion event
+/// to the mouse left button — enough for hover/click in the existing event
+/// system; multi-touch (`TouchStart`/`TouchMove`/`TouchEnd`) is deferred.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
+    use azul_core::geom::LogicalPosition;
+    use azul_core::window::CursorPosition;
+
+    let mut iter = match app.input_events_iter() {
+        Ok(it) => it,
+        Err(e) => {
+            log_debug!(LogCategory::Input, "[Android] input_events_iter: {:?}", e);
+            return;
+        }
+    };
+
+    // dpi factor: device pixels per logical px. Default to 1.0 until
+    // sprint H wires the real Configuration.density_dpi lookup.
+    let dpi = 1.0_f32;
+
+    while iter.next(|event| {
+        match event {
+            InputEvent::MotionEvent(m) => {
+                let action = m.action();
+                let p = match m.pointers().next() {
+                    Some(p) => p,
+                    None => return InputStatus::Unhandled,
+                };
+                let x = p.raw_x() / dpi;
+                let y = p.raw_y() / dpi;
+                let pos = LogicalPosition::new(x, y);
+                let ms = &mut window.common.current_window_state.mouse_state;
+                match action {
+                    MotionAction::Down => {
+                        ms.cursor_position = CursorPosition::InWindow(pos);
+                        ms.left_down = true;
+                    }
+                    MotionAction::Move | MotionAction::HoverMove => {
+                        ms.cursor_position = CursorPosition::InWindow(pos);
+                    }
+                    MotionAction::Up | MotionAction::Cancel => {
+                        ms.left_down = false;
+                    }
+                    _ => {}
+                }
+                window.common.frame_needs_regeneration = true;
+                InputStatus::Unhandled
+            }
+            InputEvent::KeyEvent(_k) => {
+                // Sprint H follow-up: map Keycode → VirtualKeyCode +
+                // unicode_char → handle_text_input. Skip for this tick.
+                InputStatus::Unhandled
+            }
+            _ => InputStatus::Unhandled,
+        }
+    }) {}
 }
 
 #[cfg(all(target_os = "android", feature = "android-activity", feature = "ndk", feature = "cpurender"))]
