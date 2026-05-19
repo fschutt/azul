@@ -1055,21 +1055,36 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     // BEFORE the cascade and the ptr AFTER, so JS can distinguish
     // "cascade never returned" (marker only) from "cascade
     // returned, drop bailed" (marker + ptr).
-    // Stepped probes via last_layout_status (NOT overwritten by
-    // other writes in this fn, so each stage is observable via JS
-    // `AzStartup_getLastLayoutStatus`). Use volatile writes so LLVM
-    // can't DCE intermediate values it knows are overwritten.
+    // Stepped probes via last_layout_status. Use a fresh state
+    // dereference for each probe write so LLVM can't hoist the
+    // pointer into a register that the cascade's bl boundary
+    // might force a reload of via state.GPR.X<n>.
     use core::ptr;
-    let probe_p = &mut s.last_layout_status as *mut u32;
-    ptr::write_volatile(probe_p, 0x1001);  // pre-cascade
+    let state_u32 = state;
+    // Pre-cascade
+    {
+        let s = &mut *(state_u32 as usize as *mut EventloopState);
+        ptr::write_volatile(&mut s.last_layout_status as *mut u32, 0x1001);
+    }
     let styled = StyledDom::create(dom_ref, Css::empty());
-    ptr::write_volatile(probe_p, 0x1002);  // cascade returned
+    // Post-cascade — re-derive state pointer from input u32 (forces
+    // a fresh memory access to state arg, bypassing any cached reg).
+    {
+        let s = &mut *(state_u32 as usize as *mut EventloopState);
+        ptr::write_volatile(&mut s.last_layout_status as *mut u32, 0x1002);
+    }
     let boxed = Box::new(styled);
-    ptr::write_volatile(probe_p, 0x1003);  // Box::new returned
+    {
+        let s = &mut *(state_u32 as usize as *mut EventloopState);
+        ptr::write_volatile(&mut s.last_layout_status as *mut u32, 0x1003);
+    }
     let ptr_val = Box::into_raw(boxed) as usize as u32;
-    s.current_dom_styled_ptr = ptr_val;
-    ptr::write_volatile(probe_p, 0x1004);  // final
-    s.display_text_node_idx = 0xBABE_u32;
+    {
+        let s = &mut *(state_u32 as usize as *mut EventloopState);
+        s.current_dom_styled_ptr = ptr_val;
+        ptr::write_volatile(&mut s.last_layout_status as *mut u32, 0x1004);
+        s.display_text_node_idx = 0xBABE_u32;
+    }
     0
 }
 
