@@ -548,7 +548,17 @@ std::string compile_inner(const char *const *ir_strs,
     PB.registerFunctionAnalyses(FAM);
     PB.registerLoopAnalyses(LAM);
     PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
-    auto MPM = PB.buildPerModuleDefaultPipeline(llvm::OptimizationLevel::Oz);
+    // M12.5d experiment: try O1 instead of Oz. Oz's aggressive
+    // inlining + SROA promotes the State struct alloca per
+    // sub-function, breaking state propagation between caller and
+    // callee. O1 is less aggressive and may preserve state-via-
+    // ptr semantics. Trade-off: ~30-50% larger wasm.
+    auto level = std::getenv("AZ_OPT_LEVEL");
+    auto opt_level = llvm::OptimizationLevel::Oz;
+    if (level && std::string(level) == "O1") opt_level = llvm::OptimizationLevel::O1;
+    if (level && std::string(level) == "O0") opt_level = llvm::OptimizationLevel::O0;
+    if (level && std::string(level) == "O2") opt_level = llvm::OptimizationLevel::O2;
+    auto MPM = PB.buildPerModuleDefaultPipeline(opt_level);
     MPM.run(*module, MAM);
 
     // Emit wasm object via the legacy pass manager (TargetMachine's
