@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Minimal NativeActivity manifest for an Azul app on Android.
+  No Java/Kotlin source code is required for Phase 1-4 — the entire
+  application is the Rust cdylib placed under lib/<abi>/lib${APP_NAME}.so.
+
+  Substitute via sed in build-android.sh:
+    @PACKAGE@   — reverse-DNS bundle id (e.g. com.azul.example)
+    @LABEL@     — user-visible app name
+    @LIB_NAME@  — the .so basename minus "lib" prefix and ".so" suffix
+                  (e.g. for libazul.so the lib_name is "azul")
+    @VERSION_CODE@ / @VERSION_NAME@
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="@PACKAGE@"
+    android:versionCode="@VERSION_CODE@"
+    android:versionName="@VERSION_NAME@">
+
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
+
+    <application
+        android:label="@LABEL@"
+        android:hasCode="false">
+
+        <activity
+            android:name="android.app.NativeActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|density|uiMode"
+            android:exported="true">
+
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="@LIB_NAME@" />
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

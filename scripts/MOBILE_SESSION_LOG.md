@@ -41,3 +41,9 @@ Next cron tick: Android Phase 2 (CPU render via `ANativeWindow_lock`) — wire `
 ### Tick — Android pixmap→ANativeWindow blit (#11)
 
 `android/mod.rs::render_frame()` is no longer a stub: if a native window + a `cpu_backend.last_frame` AzulPixmap are present, it calls `set_buffers_geometry(w, h, R8G8B8A8_UNORM)`, then `lock(None)`, then iterates `NativeWindowBufferLockGuard::lines()` and copies one scanline at a time (handles stride > width). Guard drop posts the frame via `ANativeWindow_unlockAndPost`. Feature-gated on `(android-activity, ndk, cpurender)` with a fallback stub. `cargo check --target aarch64-linux-android` still GREEN (~29 s incremental). Layout regeneration not yet hooked, so the path is exercise-only until the next tick wires `regenerate_layout()` → populates `last_frame`.
+
+### Tick — Sprint I (Android APK build pipeline)
+
+Two new files, no Rust changes (compile gate untouched):
+- `scripts/android/AndroidManifest.xml` — minimal NativeActivity template with `@PACKAGE@`/`@LABEL@`/`@LIB_NAME@`/`@VERSION_*` placeholders. `android:hasCode="false"` so we ship zero Java/Kotlin; `android:configChanges` traps rotation/keyboard/density natively.
+- `scripts/build-android.sh` — `cargo build --release` for any android target → copy `libazul.so` into `lib/$ABI/` → `aapt2 link` manifest → `zip` the lib into the apk → `zipalign 4` → `apksigner sign` with `scripts/android/debug.keystore` (auto-created on first run with `keytool -genkeypair`) → optional `adb install -r` + `am start`. `AZ_ANDROID_NO_DEPLOY=1` skips the device step. Bash syntax-checked clean.
