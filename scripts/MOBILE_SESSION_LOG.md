@@ -168,6 +168,10 @@ The NativeActivity glue still won't *load* the bridge class on its own; #17 is o
 
 cargo check --target aarch64-linux-android still GREEN (17.28s).
 
+### Tick — IOSWindow::regenerate_layout (#8 iOS Phase 2 prep)
+
+`IOSWindow` gains `pub fn regenerate_layout()` — exact port of `AndroidWindow::regenerate_layout()`. Calls `common::layout::regenerate_layout` with all eleven args (layout_window, app_data, current_window_state, &mut renderer_resources, image_cache, gl_context_ptr, fc_cache, font_registry, system_style, icon_provider, next_relayout_reason); rebuilds `cpu_backend.hit_tester`; CPU-renders into `cpu_backend.last_frame`; resets `next_relayout_reason` to RefreshDom and clears `frame_needs_regeneration`. The actual `drawRect:` blit (CGImage from AzulPixmap → CALayer.contents) lives in Sprint C-iOS; this tick lands the prerequisite layout pump. cargo check aarch64-apple-ios GREEN (12.23s); aarch64-linux-android still GREEN (0.54s no-op).
+
 ### Tick — Sprint M Android JNI bridge for GestureDetector (#17)
 
 Two artifacts land:

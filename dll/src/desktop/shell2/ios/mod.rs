@@ -640,6 +640,78 @@ impl IOSWindow {
     pub fn request_redraw(&mut self) {
         let _ = self.present();
     }
+
+    /// Run a full layout regeneration pass and CPU-render the resulting
+    /// display list. Mirrors `AndroidWindow::regenerate_layout()`. Called
+    /// from the `drawRect:` handler when `frame_needs_regeneration` is
+    /// true (Sprint C-iOS wires that).
+    pub fn regenerate_layout(
+        &mut self,
+    ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
+        let layout_window = self
+            .common
+            .layout_window
+            .as_mut()
+            .ok_or("No layout window")?;
+
+        let debug_enabled =
+            crate::desktop::shell2::common::debug_server::is_debug_enabled();
+        let mut debug_messages = if debug_enabled { Some(Vec::new()) } else { None };
+
+        let result = crate::desktop::shell2::common::layout::regenerate_layout(
+            layout_window,
+            &self.common.app_data,
+            &self.common.current_window_state,
+            &mut self.common.renderer_resources,
+            &self.common.image_cache,
+            &self.common.gl_context_ptr,
+            &self.common.fc_cache,
+            &self.font_registry,
+            &self.common.system_style,
+            &self.icon_provider,
+            &mut debug_messages,
+            self.common.next_relayout_reason,
+        )?;
+        self.common.next_relayout_reason =
+            azul_core::callbacks::RelayoutReason::RefreshDom;
+
+        if let Some(msgs) = debug_messages {
+            for msg in msgs {
+                crate::desktop::shell2::common::debug_server::log(
+                    crate::desktop::shell2::common::debug_server::LogLevel::Debug,
+                    crate::desktop::shell2::common::debug_server::LogCategory::Layout,
+                    msg.message.as_str().to_string(),
+                    None,
+                );
+            }
+        }
+
+        if let Some(lw) = self.common.layout_window.as_ref() {
+            self.cpu_backend.hit_tester.rebuild_from_layout(&lw.layout_results);
+        }
+
+        // CPU-render the frame — populates `self.cpu_backend.last_frame`,
+        // ready for `drawRect:` to blit into the layer (Sprint C-iOS).
+        #[cfg(feature = "cpurender")]
+        {
+            let ws = &self.common.current_window_state;
+            let width = ws.size.dimensions.width;
+            let height = ws.size.dimensions.height;
+            let dpi = ws.size.dpi as f32 / 96.0;
+            if let Some(lw) = self.common.layout_window.as_ref() {
+                self.cpu_backend.render_frame(
+                    lw,
+                    &self.common.renderer_resources,
+                    width,
+                    height,
+                    dpi,
+                );
+            }
+        }
+
+        self.common.frame_needs_regeneration = false;
+        Ok(result)
+    }
 }
 
 impl PlatformWindow for IOSWindow {
