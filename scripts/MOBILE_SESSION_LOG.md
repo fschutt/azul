@@ -561,6 +561,25 @@ Two gate configurations now exercised:
 
 Next ticks queue the actual integration: spawn a `Thread` per visible tile that fetches via `ureq` (already in the deps), feeds bytes into `decode_mvt_tile`, mutates `MapTileCache.tiles` with `TileEntry::Ready { svg }` once the GeoJSON-to-SVG conversion lands, and the existing merge-callback keeps it across relayout. The SVG→DOM step reuses the framework's existing `Svg::parse` path; the MapCSS styling layer plugs into the existing CSS parser (MapCSS is a CSS dialect with extended selectors).
 
+### Tick — P3.2f GeoJSON → SVG converter (2026-05-20, after disk-space recovery)
+
+Lands the pure-data half of MVT pipeline step 4. `dll/src/desktop/extra/map/svg.rs` (~280 LOC) takes `&[geojson::Feature]` + `MapTileId` and emits a self-contained `<svg viewBox="0 0 256 256">` string with one primitive per feature:
+- Point / MultiPoint → `<circle r="1.2">`
+- LineString / MultiLineString → `<polyline … stroke-linecap=round>`
+- Polygon / MultiPolygon → `<path d="M…L…Z" fill-rule="evenodd">` (inner rings stack into the same `d` so holes render via even-odd)
+
+WGS-84 → tile-local pixel projection is inline Web Mercator forward (~10 lines; no `proj4rs` call — same Mercator family on both sides, matches the formula `MapWidget::map_widget_render` already uses for the grid). Per-layer default styling looked up by the GeoJSON `"layer"` property: `water` / `buildings` / `transportation[_name]` / `parks|landcover` / `boundary|admin` each get a `LayerStyle { fill, stroke, stroke_width }`; everything else falls back to a neutral grey. Placeholder for the MapCSS layer (next tick).
+
+`dll/src/desktop/extra/map/mod.rs` registers `mod svg;` + re-exports `features_to_svg`, both gated on `feature = "map-tiles"`. Two unit tests (empty input → bare `<svg>`; single point → contains `<circle>`).
+
+Process notes:
+- This tick was originally written 2026-05-19 but the `cargo test` build filled the boot volume (target/ hit 19 GB on a volume already near 100 %), so the commit + gate couldn't complete and the cron loop was stopped. User freed ~29 GiB; resuming 2026-05-20.
+- `cargo check -p azul-dll --features '…,map-tiles'` GREEN (host, ~15 s after a `codegen all` re-gen — the cleanup had removed `target/codegen/dll_api_internal.rs`).
+- `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (31/25/26/30/27 s — cold rebuild after the cleanup).
+- **Known pre-existing issue (NOT from this tick):** `cargo test -p azul-dll --lib` fails to compile at `target/codegen/dll_api_internal.rs:62092` — a generated `SvgMultiPolygon::tessellate_stroke` vs `tessellate_fill` mismatch in the codegen surface. It only affects the test build (not `cargo check`, not the mobile gate). The `features_to_svg` unit tests therefore can't run through the full dll test build until that codegen bug is fixed; the converter itself compiles clean under `cargo check --features map-tiles`. Flagged for a future tick — likely an api.json `SvgMultiPolygon` method-name typo.
+
+Remaining for P3.2: the async fetch + thread + cache mutation that ties `decode_mvt_tile` → `features_to_svg` → `TileEntry::Ready{svg}` → SVG-as-DOM child, plus the MapCSS styling layer. Those are the next ticks.
+
 The widget callback chain uses `crate::callbacks::Callback::from(fn as CallbackType)` rather than passing the bare fn pointer, because `Dom::with_callback` in `azul-core` takes `Into<CoreCallback>` (the FFI `usize` form) — `Callback` has the requisite `From<CallbackType>` impl from the framework's macro; the bare fn ptr does not.
 
 `bash scripts/mobile-check-all.sh` GREEN across all 5 mobile targets (9/7/6/6/6 s). No regressions; AzulPaint + AzulMaps still build cleanly. Codegen unchanged (the new pan callbacks are private widget internals, not part of the public api.json surface).

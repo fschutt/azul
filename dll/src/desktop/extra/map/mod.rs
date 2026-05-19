@@ -24,6 +24,11 @@
 #[cfg(feature = "map-tiles")]
 pub use td::{parse_mvt_tile, TileCoord};
 
+#[cfg(feature = "map-tiles")]
+mod svg;
+#[cfg(feature = "map-tiles")]
+pub use svg::features_to_svg;
+
 /// Decode the PBF bytes of a single MVT tile into a `Vec` of GeoJSON
 /// `Feature`s. Wraps `td::parse_mvt_tile` with the tile-coord
 /// conversion from `azul_layout::widgets::map::MapTileId`.
