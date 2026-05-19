@@ -155,6 +155,19 @@ Escape hatch: `AZ_ANDROID_NO_JAVA=1` skips the dex pass entirely (manifest stays
 
 The NativeActivity glue still won't *load* the bridge class on its own; #17 is one step closer but the runtime instantiation (`NewGlobalRef` via JNI from `android_main` or a thin `Activity` subclass) is the next tick.
 
+### Tick — AzulActivity + window-pointer publication (#17 runtime hookup)
+
+`scripts/android/AzulActivity.java` — 50-line `NativeActivity` subclass whose `onWindowFocusChanged` does the one-shot `new NativeGestureBridge(nativePtr).attach(this, decor)` call. Uses `nativeGetWindowPointer()` (JNI) to fetch the address `android_main` published. Lazy-instantiates on first focus so race-conditions with `android_main` startup are bounded; idempotent (gestureBridge != null guard).
+
+`dll/src/desktop/shell2/android/mod.rs`:
+- New `ANDROID_WINDOW_PTR: AtomicI64` (cfg'd to the android-activity feature). Initialized to 0.
+- `android_main` stores `&mut window as *mut AndroidWindow as i64` into the slot right after `AndroidWindow::new` succeeds.
+- New `#[no_mangle] extern "system" fn Java_com_azul_app_AzulActivity_nativeGetWindowPointer` reads the slot.
+
+`scripts/android/AndroidManifest.xml` — `android:name="android.app.NativeActivity"` → `"com.azul.app.AzulActivity"`. Combined with the previous tick's `hasCode="true"` flip and `classes.dex` ship, the activity stack is now: Android OS → AzulActivity (Java, in dex) → super.onCreate loads libazul.so → android_main runs → publishes window ptr → AzulActivity.onWindowFocusChanged constructs NativeGestureBridge → bridge attaches OnTouchListener that fans into GestureDetector / ScaleGestureDetector / 2-finger rotation → JNI back into Rust → `GestureAndDragManager::inject_native_gesture`.
+
+cargo check --target aarch64-linux-android still GREEN (17.28s).
+
 ### Tick — Sprint M Android JNI bridge for GestureDetector (#17)
 
 Two artifacts land:

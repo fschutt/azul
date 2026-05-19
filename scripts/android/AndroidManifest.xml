@@ -23,7 +23,7 @@
         android:hasCode="false">
 
         <activity
-            android:name="android.app.NativeActivity"
+            android:name="com.azul.app.AzulActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|density|uiMode"
             android:exported="true">
 

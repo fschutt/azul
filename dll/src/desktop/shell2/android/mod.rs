@@ -361,6 +361,15 @@ pub fn android_main(app: AndroidApp) {
             }
         };
 
+    // Publish the window address so AzulActivity.onWindowFocusChanged can
+    // hand it to NativeGestureBridge. `&mut window` is stable for the
+    // duration of this function (window stays on the stack frame). Once
+    // AzulActivity has constructed the bridge, the Java side never
+    // dereferences the pointer except from JNI callbacks that this same
+    // thread eventually processes via MainEvent::InputAvailable.
+    ANDROID_WINDOW_PTR
+        .store(&mut window as *mut AndroidWindow as i64, core::sync::atomic::Ordering::SeqCst);
+
     // Outer driver loop — exits when MainEvent::Destroy clears window.is_open.
     while window.is_open() {
         // Block forever when we have no native surface (background); poll
@@ -579,6 +588,28 @@ fn render_frame(_window: &mut AndroidWindow) -> Result<(), WindowError> {
 /// a no-op so other platforms can keep referencing it from feature-gated code.
 #[cfg(not(all(target_os = "android", feature = "android-activity")))]
 pub fn android_main_stub() {}
+
+// ---------------------------------------------------------------------------
+// Static window-pointer slot.
+//
+// Published by `android_main` once `AndroidWindow::new` returns, read by the
+// Java `AzulActivity.nativeGetWindowPointer()` (via the `extern "system"` fn
+// below) so the activity can construct `NativeGestureBridge` with a valid
+// `nativePtr`. `i64` so it survives the `jni::sys::jlong` round-trip.
+// ---------------------------------------------------------------------------
+
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+static ANDROID_WINDOW_PTR: core::sync::atomic::AtomicI64 =
+    core::sync::atomic::AtomicI64::new(0);
+
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_azul_app_AzulActivity_nativeGetWindowPointer(
+    _env: *mut core::ffi::c_void,
+    _class: *mut core::ffi::c_void,
+) -> i64 {
+    ANDROID_WINDOW_PTR.load(core::sync::atomic::Ordering::SeqCst)
+}
 
 // ---------------------------------------------------------------------------
 // JNI bridge — surfaces NativeGestureBridge.java callbacks to Rust.
