@@ -4495,14 +4495,22 @@ declare void @llvm.memcpy.p0.p0.i64(ptr nocapture writeonly, ptr nocapture reado
 ; `transpiler_remill.rs`. Exports as `{export_as}` so wasm-ld can
 ; surface it to the loader / JS.
 define {ret_ty} @{export_as}({params}) {{
-  ; State: register-file storage. Strictly aliased (no `ptrtoint`
-  ; ever taken of `%state_buf`), so opt -O2's SROA can promote it
-  ; into individual scalar slots after the lifted body inlines.
-  %state_buf = alloca [{state_size} x i8], align 16
+  ; M12.8: stack_buf MUST come first (higher addr) so that lifted
+  ; AArch64 `stp/str ..., [sp, #+N]` writes (positive offsets)
+  ; land in the caller's wasm-stack space — not in %state_buf.
+  ; Wasm-stack grows down, so the SECOND alloca is at a LOWER
+  ; address. If state_buf were first, writes at SP+N (N<1088)
+  ; would land in state_buf and corrupt State.SP at offset 1040,
+  ; triggering downstream traps when later code re-reads SP.
+  ;
   ; Stack scratch: SP-relative spills land here. Its address IS
   ; ptrtoint'd (for the initial SP value), so SROA can't promote
   ; this one — but it's small and self-contained.
   %stack_buf = alloca [{stack_size} x i8], align 16
+  ; State: register-file storage. Strictly aliased (no `ptrtoint`
+  ; ever taken of `%state_buf`), so opt -O2's SROA can promote it
+  ; into individual scalar slots after the lifted body inlines.
+  %state_buf = alloca [{state_size} x i8], align 16
 
   call void @llvm.memset.p0.i64(ptr %state_buf, i8 0, i64 {state_size}, i1 false)
 
