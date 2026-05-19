@@ -113,3 +113,11 @@ Plumbing additions:
 - `CallbackInfo::inject_native_gesture(&mut self, NativeGestureEvent)` queues the change. Same callable from both the platform backends (iOS UIKit recognizer callbacks etc., #16/#17) and the e2e harness — single injection path keeps semantics consistent.
 
 cargo check --target aarch64-linux-android still GREEN in 26.79 s; host-target cargo check also GREEN. Sample JSON test now possible: `[{"op": "swipe", "dir": "left"}, {"op": "pinch", "scale": 2.0, "center_x": 200, "center_y": 300}, {"op": "long_press", "x": 50, "y": 50, "duration_ms": 800}]`.
+
+### Tick — Sprint M Android JNI bridge for GestureDetector (#17)
+
+Two artifacts land:
+- `scripts/android/NativeGestureBridge.java` — `GestureDetector.SimpleOnGestureListener` + `ScaleGestureDetector.OnScaleGestureListener` + a custom two-finger rotation detector. Each callback dispatches to a `private static native nativeOn<Verb>(long nativePtr, ...)` JNI method. The `nativePtr` is the AndroidWindow address passed in at construction. Compiles outside Gradle with `javac -source 11 -target 11 -classpath $ANDROID_HOME/platforms/android-34/android.jar` and packs into `classes.dex` via `d8`. The Java side never holds static state — `nativePtr` is the only cookie.
+- `dll/src/desktop/shell2/android/mod.rs::jni_bridge` — five `#[no_mangle] extern "system"` symbols matching the Java JNI lookup names: `Java_com_azul_gesture_NativeGestureBridge_nativeOn{DoubleTap,LongPress,Swipe,Pinch,Rotation}`. Each cast `native_ptr: i64` back to `&mut AndroidWindow` and `inject_native_gesture(NativeGestureEvent::*)`. Direction constants in the Java side mirror `GestureDirection`'s `#[repr(C)]` 0-3 ordering.
+
+cargo check --target aarch64-linux-android still GREEN (13.38 s). The wire is complete from `setOnTouchListener` → `onDoubleTap`/`onFling`/`onScale`/2-finger rotation → JNI → `inject_native_gesture` → `clear_native_gesture` at end-of-frame. Activation requires the Java side to actually be loaded by `NativeActivity` (current AndroidManifest.xml uses pure NativeActivity with `android:hasCode="false"`, so the .dex isn't shipped). Wire-up in build-android.sh is a follow-up tick.

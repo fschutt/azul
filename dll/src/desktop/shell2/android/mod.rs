@@ -579,3 +579,137 @@ fn render_frame(_window: &mut AndroidWindow) -> Result<(), WindowError> {
 /// a no-op so other platforms can keep referencing it from feature-gated code.
 #[cfg(not(all(target_os = "android", feature = "android-activity")))]
 pub fn android_main_stub() {}
+
+// ---------------------------------------------------------------------------
+// JNI bridge — surfaces NativeGestureBridge.java callbacks to Rust.
+//
+// The Java side (scripts/android/NativeGestureBridge.java) attaches to the
+// activity's content view, then dispatches each detected gesture into one
+// of these `extern "C"` symbols, passing the AndroidWindow address as a
+// `jlong`. We turn that back into `&mut AndroidWindow` and forward to
+// `GestureAndDragManager::inject_native_gesture`.
+//
+// Java declares the methods `private static native ...`, so the JNI lookup
+// name is `Java_com_azul_gesture_NativeGestureBridge_nativeOn<Verb>`.
+// `extern "system"` is the cross-platform JNI calling convention (== "C" on
+// most Unixes, `__stdcall` on Win32).
+// ---------------------------------------------------------------------------
+
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+mod jni_bridge {
+    use azul_layout::managers::gesture::{
+        DetectedLongPress, DetectedPinch, DetectedRotation, GestureDirection,
+        NativeGestureEvent,
+    };
+    use azul_core::geom::LogicalPosition;
+
+    /// SAFETY: `native_ptr` is the AndroidWindow address handed to the
+    /// Java side by `android_main`. We are the only Rust thread mutating
+    /// the window in response to UI events, so the brief mutable
+    /// reference is sound.
+    unsafe fn with_window<F>(native_ptr: i64, f: F)
+    where
+        F: FnOnce(&mut super::AndroidWindow),
+    {
+        if native_ptr == 0 {
+            return;
+        }
+        let window = &mut *(native_ptr as *mut super::AndroidWindow);
+        f(window);
+    }
+
+    fn inject(window: &mut super::AndroidWindow, gesture: NativeGestureEvent) {
+        if let Some(lw) = window.common.layout_window.as_mut() {
+            lw.gesture_drag_manager.inject_native_gesture(gesture);
+            window.common.frame_needs_regeneration = true;
+        }
+    }
+
+    #[no_mangle]
+    pub unsafe extern "system" fn Java_com_azul_gesture_NativeGestureBridge_nativeOnDoubleTap(
+        _env: *mut core::ffi::c_void,
+        _class: *mut core::ffi::c_void,
+        native_ptr: i64,
+    ) {
+        with_window(native_ptr, |w| inject(w, NativeGestureEvent::DoubleClick));
+    }
+
+    #[no_mangle]
+    pub unsafe extern "system" fn Java_com_azul_gesture_NativeGestureBridge_nativeOnLongPress(
+        _env: *mut core::ffi::c_void,
+        _class: *mut core::ffi::c_void,
+        native_ptr: i64,
+        x: f32,
+        y: f32,
+        duration_ms: i64,
+    ) {
+        with_window(native_ptr, |w| {
+            inject(w, NativeGestureEvent::LongPress(DetectedLongPress {
+                position: LogicalPosition { x, y },
+                duration_ms: duration_ms as u64,
+                callback_invoked: false,
+                session_id: 0,
+            }));
+        });
+    }
+
+    #[no_mangle]
+    pub unsafe extern "system" fn Java_com_azul_gesture_NativeGestureBridge_nativeOnSwipe(
+        _env: *mut core::ffi::c_void,
+        _class: *mut core::ffi::c_void,
+        native_ptr: i64,
+        direction: i32,
+    ) {
+        // Must match DIR_UP/DOWN/LEFT/RIGHT in NativeGestureBridge.java
+        let dir = match direction {
+            0 => GestureDirection::Up,
+            1 => GestureDirection::Down,
+            2 => GestureDirection::Left,
+            3 => GestureDirection::Right,
+            _ => return,
+        };
+        with_window(native_ptr, |w| inject(w, NativeGestureEvent::Swipe(dir)));
+    }
+
+    #[no_mangle]
+    pub unsafe extern "system" fn Java_com_azul_gesture_NativeGestureBridge_nativeOnPinch(
+        _env: *mut core::ffi::c_void,
+        _class: *mut core::ffi::c_void,
+        native_ptr: i64,
+        scale: f32,
+        center_x: f32,
+        center_y: f32,
+        initial_distance: f32,
+        current_distance: f32,
+        duration_ms: i64,
+    ) {
+        with_window(native_ptr, |w| {
+            inject(w, NativeGestureEvent::Pinch(DetectedPinch {
+                scale,
+                center: LogicalPosition { x: center_x, y: center_y },
+                initial_distance,
+                current_distance,
+                duration_ms: duration_ms as u64,
+            }));
+        });
+    }
+
+    #[no_mangle]
+    pub unsafe extern "system" fn Java_com_azul_gesture_NativeGestureBridge_nativeOnRotation(
+        _env: *mut core::ffi::c_void,
+        _class: *mut core::ffi::c_void,
+        native_ptr: i64,
+        angle_radians: f32,
+        center_x: f32,
+        center_y: f32,
+        duration_ms: i64,
+    ) {
+        with_window(native_ptr, |w| {
+            inject(w, NativeGestureEvent::Rotation(DetectedRotation {
+                angle_radians,
+                center: LogicalPosition { x: center_x, y: center_y },
+                duration_ms: duration_ms as u64,
+            }));
+        });
+    }
+}
