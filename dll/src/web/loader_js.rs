@@ -695,15 +695,115 @@ function azApplyPatches(ptr, len) {
 }
 
 function azWireListeners() {
-    // M9-6: route every click through mini's AzStartup_dispatchEvent
-    // (which uses the hydrated refany M9-6 plumbed via
-    // setRefAny + setModelPtr). Encode SENTINEL_NO_NODE for the
-    // event's node_idx so mini's wasm-side hit-test runs. On
-    // RefreshDom, the call returns a SetText TLV patch buffer
-    // that azApplyPatches decodes + writes to the browser DOM.
-    document.body.addEventListener('click', function(e) {
-        azDispatch(EVT_CLICK, e);
+    // M11 Sprint 4: wire the event kinds the bench (Sprint 6) needs.
+    // Each listener encodes its event into the fixed 256-byte buffer
+    // via azDispatch + dispatches to mini.AzStartup_dispatchEvent.
+    // The wasm-side dispatcher honors the `kind` arg and routes to
+    // the matching cb (input → on_input, keydown → on_keydown, …).
+    //
+    // Skipping touch/drag/composition/wheel for now — those need
+    // variable-width TLV payloads beyond the fixed 256-byte header
+    // (the M11 plan's Stage A.6 deferred work).
+    document.body.addEventListener('click',     function(e) { azDispatch(EVT_CLICK,     e); });
+    document.body.addEventListener('mousedown', function(e) { azDispatch(EVT_MOUSEDOWN, e); });
+    document.body.addEventListener('mouseup',   function(e) { azDispatch(EVT_MOUSEUP,   e); });
+    document.body.addEventListener('dblclick',  function(e) { azDispatch(EVT_DBLCLICK,  e); });
+    document.body.addEventListener('keydown',   function(e) { azDispatch(EVT_KEYDOWN,   e); });
+    document.body.addEventListener('keyup',     function(e) { azDispatch(EVT_KEYUP,     e); });
+    // Focus events bubble via `focusin`/`focusout` (the bubbling
+    // variants — `focus`/`blur` don't bubble to body).
+    document.body.addEventListener('focusin',   function(e) { azDispatch(EVT_FOCUSIN,   e); });
+    document.body.addEventListener('focusout',  function(e) { azDispatch(EVT_FOCUSOUT,  e); });
+    // `input` fires on every <input>/<textarea>/[contenteditable]
+    // mutation — bench's row-edit cells need this.
+    document.body.addEventListener('input', function(e) {
+        // Encode the new text value into the event_bytes scratch
+        // region past the fixed header so the cb can read it.
+        azDispatchWithText(EVT_KEYDOWN, e, e.target && e.target.value || '');
     });
+    // Scroll on window for the page-level cb; scroll on body for
+    // overflow containers.
+    window.addEventListener('scroll', function(e) {
+        azDispatchScroll(EVT_SCROLL, window.scrollX, window.scrollY);
+    });
+    window.addEventListener('resize', function(e) {
+        azDispatchResize(window.innerWidth, window.innerHeight);
+    });
+}
+
+// M11 Sprint 4 — kind-specific encoders.
+//
+// All extend the fixed header with payload bytes past offset 20:
+//   bytes 20..24 = payload_len (u32 LE)
+//   bytes 24..   = payload[payload_len]
+
+function azDispatchWithText(kind, domEvent, text) {
+    var evtPtr = azMini.AzStartup_alloc(EVENT_BUFFER_SIZE);
+    var outLenPtr = azMini.AzStartup_alloc(OUT_LEN_SIZE);
+    if (!evtPtr || !outLenPtr) return;
+    var view = new DataView(azMemory.buffer);
+    view.setUint32(evtPtr + 0,  SENTINEL_NO_NODE, true);
+    view.setUint32(evtPtr + 4,  Math.max(0, Math.floor(domEvent.clientX || 0)), true);
+    view.setUint32(evtPtr + 8,  Math.max(0, Math.floor(domEvent.clientY || 0)), true);
+    view.setUint32(evtPtr + 12, domEvent.keyCode || 0, true);
+    view.setUint32(evtPtr + 16, azModifierBits(domEvent), true);
+    // Pack text bytes at offset 20+ (u32 length followed by UTF-8).
+    var bytes = new TextEncoder().encode(text);
+    var maxText = EVENT_BUFFER_SIZE - 24;
+    var n = Math.min(bytes.length, maxText);
+    view.setUint32(evtPtr + 20, n, true);
+    new Uint8Array(azMemory.buffer, evtPtr + 24, n).set(bytes.subarray(0, n));
+
+    var patchesPtr = azMini.AzStartup_dispatchEvent(
+        azState, kind, evtPtr, EVENT_BUFFER_SIZE, outLenPtr,
+    );
+    var patchesLen = view.getUint32(outLenPtr, true);
+    if (patchesPtr && patchesLen) azApplyPatches(patchesPtr, patchesLen);
+    azMini.AzStartup_free(evtPtr, EVENT_BUFFER_SIZE);
+    azMini.AzStartup_free(outLenPtr, OUT_LEN_SIZE);
+}
+
+function azDispatchScroll(kind, scrollX, scrollY) {
+    var evtPtr = azMini.AzStartup_alloc(EVENT_BUFFER_SIZE);
+    var outLenPtr = azMini.AzStartup_alloc(OUT_LEN_SIZE);
+    if (!evtPtr || !outLenPtr) return;
+    var view = new DataView(azMemory.buffer);
+    view.setUint32(evtPtr + 0,  SENTINEL_NO_NODE, true);
+    view.setUint32(evtPtr + 4,  Math.max(0, Math.floor(scrollX)), true);
+    view.setUint32(evtPtr + 8,  Math.max(0, Math.floor(scrollY)), true);
+    view.setUint32(evtPtr + 12, 0, true);
+    view.setUint32(evtPtr + 16, 0, true);
+    view.setUint32(evtPtr + 20, 0, true);
+    var patchesPtr = azMini.AzStartup_dispatchEvent(
+        azState, kind, evtPtr, EVENT_BUFFER_SIZE, outLenPtr,
+    );
+    var patchesLen = view.getUint32(outLenPtr, true);
+    if (patchesPtr && patchesLen) azApplyPatches(patchesPtr, patchesLen);
+    azMini.AzStartup_free(evtPtr, EVENT_BUFFER_SIZE);
+    azMini.AzStartup_free(outLenPtr, OUT_LEN_SIZE);
+}
+
+function azDispatchResize(w, h) {
+    var evtPtr = azMini.AzStartup_alloc(EVENT_BUFFER_SIZE);
+    var outLenPtr = azMini.AzStartup_alloc(OUT_LEN_SIZE);
+    if (!evtPtr || !outLenPtr) return;
+    var view = new DataView(azMemory.buffer);
+    view.setUint32(evtPtr + 0,  SENTINEL_NO_NODE, true);
+    view.setUint32(evtPtr + 4,  Math.max(0, Math.floor(w)), true);
+    view.setUint32(evtPtr + 8,  Math.max(0, Math.floor(h)), true);
+    view.setUint32(evtPtr + 12, 0, true);
+    view.setUint32(evtPtr + 16, 0, true);
+    var patchesPtr = azMini.AzStartup_dispatchEvent(
+        azState, EVT_RESIZE, evtPtr, EVENT_BUFFER_SIZE, outLenPtr,
+    );
+    var patchesLen = view.getUint32(outLenPtr, true);
+    if (patchesPtr && patchesLen) azApplyPatches(patchesPtr, patchesLen);
+    azMini.AzStartup_free(evtPtr, EVENT_BUFFER_SIZE);
+    azMini.AzStartup_free(outLenPtr, OUT_LEN_SIZE);
+    // Re-run layout against the new viewport.
+    if (typeof azMini.AzStartup_solveLayout === 'function') {
+        azMini.AzStartup_solveLayout(azState, Math.floor(w), Math.floor(h));
+    }
 }
 
 // =====================================================================
