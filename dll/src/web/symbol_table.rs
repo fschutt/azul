@@ -1755,6 +1755,24 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                         "miniz_oxide",
                     ];
                     if runtime_crates.iter().any(|c| *c == crate_name) {
+                        // M12.5e ROOT-CAUSE FIX: `alloc::raw_vec` holds the
+                        // Vec/RawVec growth logic (`grow_one`,
+                        // `grow_amortized`, `finish_grow`). These are NOT
+                        // leaf primitives — they compute the new capacity,
+                        // call the allocator, memcpy existing elements, and
+                        // write the new `ptr`/`cap` back through `&mut self`.
+                        // Classifying them as `Leaf` emits a noop-with-X0=0
+                        // stub, so Vecs NEVER grow: `ptr` stays dangling,
+                        // `cap` stays 0, and every cascade-built StyledDom
+                        // Vec (node_data, node_hierarchy, …) reads back
+                        // empty. (Verified with make_test_vec_struct: cap=0,
+                        // ptr=0x4 dangling, len=3.) The allocator shim
+                        // itself is already `BumpAlloc` (matched above), so
+                        // lifting raw_vec only pulls in its bounded callee
+                        // set. Lift it.
+                        if crate_name == "alloc" && name.contains("raw_vec") {
+                            return FnClass::Recursable;
+                        }
                         return FnClass::Leaf;
                     }
                     // Our own crates + 3rd party crates we want to lift
