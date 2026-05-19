@@ -3992,8 +3992,16 @@ fn emit_helper_ir(
     // first SP-relative load traps OOB. wasm-ld's default global
     // $stack_pointer reserves 64 KiB; making `%stack_buf` larger
     // than that would itself overflow the wasm stack as soon as
-    // the wrapper enters. Stay under the budget at 32 KiB.
-    let stack_size: u64 = 32 * 1024;
+    // the wrapper enters.
+    //
+    // M12.8 update: with NEON Q-reg STP now lifted in our remill
+    // fork, hello-world.bin's layout cb traverses a deeper dep
+    // chain (StyledDom::create-style helpers, etc.). 32 KiB
+    // underflows. Bump to 128 KiB — wasm-ld's stack ceiling for
+    // a fresh wasm instance is well above this, and `%stack_buf`
+    // lives in linear memory not the wasm function-call stack, so
+    // the wasm instance's own stack budget isn't affected.
+    let stack_size: u64 = 128 * 1024;
     let (params, prologue) = emit_wrapper_args_and_prologue(sig);
     let (ret_ty, ret_code) = emit_wrapper_return(sig);
     // M7: emit a body for every branch-destination extern the lift
