@@ -973,18 +973,16 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     // the floor. Sprint 2 / 3 will address by either (a) tracing
     // the lifted IR to find the broken helper, or (b) constructing
     // a minimal StyledDom-equivalent via field-by-field writes.
-    // M12.8 — StyledDom::create un-stub still traps even with the
-    // 128 MiB → 512 MiB heap expansion. The trap is at
-    // `i64.load 3 0` via `wrap_i64(loaded_field) + 56` where
-    // `loaded_field` is read from a struct allocated by the bump
-    // allocator that has uninitialised pointer-typed fields.
-    // Looks like the [[m11-complex-struct-box-new-lift]] gap —
-    // Box::new of a struct whose fields hold *mut T values reads
-    // back uninitialised. Deferring un-stub until that's resolved.
-    let _ = dom_ref;
-    let _ = StyledDom::create;
-    let _ = Css::empty;
-    s.current_dom_styled_ptr = 0;
+    // M12.8 fix: remill fork now has STP_Q PRE/POST in addition to
+    // OFF, plus FCVTZS_64S and the Lift use-after-free fix. The
+    // missing PRE/POST variants were silently dropping Q-reg pair
+    // stores used by Rust struct constructors to write fields
+    // through X8 (sret). Without those writes, struct fields read
+    // back uninitialised — surfacing as the OOB trap at
+    // wrap_i64(loaded_field) + 56.
+    let styled = StyledDom::create(dom_ref, Css::empty());
+    let boxed = Box::new(styled);
+    s.current_dom_styled_ptr = Box::into_raw(boxed) as u32;
     s.current_dom_node_count = count;
     s.current_dom_hydrated = 1;
     0
