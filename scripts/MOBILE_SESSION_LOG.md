@@ -185,6 +185,12 @@ cargo check --target aarch64-linux-android still GREEN (17.28s).
 
 iOS Phase 3 is now structurally complete: tap on a button → touch event → state diff → callback fires → drawRect re-renders. Linker still gated on Xcode.
 
+### Tick — AZ_HEADLESS_SNAPSHOT_PATH for golden-PNG snapshotting (#13)
+
+`HeadlessWindow::run` now honors `AZ_HEADLESS_SNAPSHOT_PATH=/path/to/out.png`. After the initial layout fires, if the env var is set, the backend calls `AzulPixmap::encode_png()` on `cpu_backend.last_frame` and writes the bytes to the given path, then calls `self.close()` so the event loop exits and the process returns 0. Gated on `feature = "cpurender"` (no-op otherwise). Logs a warning if `last_frame` is still `None` (empty DOM), an error if encoding / IO fails. Unlocks golden-image CI testing: `AZ_BACKEND=headless AZ_HEADLESS_SNAPSHOT_PATH=actual.png ./my_app && diff actual.png reference.png` — no JSON harness, no full E2E pipeline.
+
+mobile-check-all.sh still ALL 5 GREEN (~24s total).
+
 ### Tick — scripts/mobile-check-all.sh: cargo check across all 5 mobile targets
 
 `scripts/mobile-check-all.sh` runs `cargo check --target $T -p azul-dll --no-default-features --features 'std,logging,link-static,a11y'` across **aarch64-apple-ios / aarch64-apple-ios-sim / x86_64-apple-ios / aarch64-linux-android / x86_64-linux-android** and emits a PASS/FAIL summary. Source-level only (cargo check doesn't link, so iOS targets succeed even without the iOS SDK installed). macOS-bash-3.2 compatible (no `declare -A`). Current state: **all 5 targets PASS**, total ~9 s on a warm cache. CI-friendly: exit 0 iff every target checks clean.

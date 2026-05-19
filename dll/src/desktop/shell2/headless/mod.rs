@@ -692,6 +692,48 @@ impl HeadlessWindow {
             );
         }
 
+        // -- Optional one-shot PNG snapshot --
+        // `AZ_HEADLESS_SNAPSHOT_PATH=/tmp/out.png` writes the very
+        // first rendered frame as PNG, then closes the window so the
+        // process exits with code 0. Enables CI golden-image testing
+        // without a full E2E harness: build the app, run with the env
+        // var set, diff against a checked-in reference.
+        #[cfg(feature = "cpurender")]
+        if let Ok(path) = std::env::var("AZ_HEADLESS_SNAPSHOT_PATH") {
+            if let Some(ref pixmap) = self.cpu_backend.last_frame {
+                match pixmap.encode_png() {
+                    Ok(bytes) => match std::fs::write(&path, &bytes) {
+                        Ok(()) => log_info!(
+                            LogCategory::Rendering,
+                            "[Headless] AZ_HEADLESS_SNAPSHOT_PATH: wrote {} bytes to {}",
+                            bytes.len(),
+                            path,
+                        ),
+                        Err(e) => log_error!(
+                            LogCategory::Rendering,
+                            "[Headless] write({}): {}",
+                            path,
+                            e
+                        ),
+                    },
+                    Err(e) => log_error!(
+                        LogCategory::Rendering,
+                        "[Headless] encode_png: {}",
+                        e
+                    ),
+                }
+            } else {
+                log_warn!(
+                    LogCategory::Rendering,
+                    "[Headless] AZ_HEADLESS_SNAPSHOT_PATH set but no last_frame after initial layout — \
+                     ensure the app's layout callback returns a non-empty DOM",
+                );
+            }
+            // Exit cleanly so CI/test scripts get a deterministic
+            // process termination after the snapshot is written.
+            self.close();
+        }
+
         // -- child windows (sub-HeadlessWindows for menus, dialogs) --
         let mut children: Vec<HeadlessWindow> = Vec::new();
         let mut warned_no_wake_sources = false;
