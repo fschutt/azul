@@ -453,42 +453,51 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
     // sprint H wires the real Configuration.density_dpi lookup.
     let dpi = 1.0_f32;
 
+    // Collect state-update tuples first; do the actual state diff +
+    // process_window_events outside the iterator's closure because the
+    // closure borrows `app` for the input queue and we need &mut window.
+    let mut updates: Vec<(MotionAction, LogicalPosition)> = Vec::new();
     while iter.next(|event| {
-        match event {
-            InputEvent::MotionEvent(m) => {
-                let action = m.action();
-                let p = match m.pointers().next() {
-                    Some(p) => p,
-                    None => return InputStatus::Unhandled,
-                };
-                let x = p.raw_x() / dpi;
-                let y = p.raw_y() / dpi;
-                let pos = LogicalPosition::new(x, y);
-                let ms = &mut window.common.current_window_state.mouse_state;
-                match action {
-                    MotionAction::Down => {
-                        ms.cursor_position = CursorPosition::InWindow(pos);
-                        ms.left_down = true;
-                    }
-                    MotionAction::Move | MotionAction::HoverMove => {
-                        ms.cursor_position = CursorPosition::InWindow(pos);
-                    }
-                    MotionAction::Up | MotionAction::Cancel => {
-                        ms.left_down = false;
-                    }
-                    _ => {}
-                }
-                window.common.frame_needs_regeneration = true;
-                InputStatus::Unhandled
+        if let InputEvent::MotionEvent(m) = event {
+            if let Some(p) = m.pointers().next() {
+                let pos = LogicalPosition::new(p.raw_x() / dpi, p.raw_y() / dpi);
+                updates.push((m.action(), pos));
             }
-            InputEvent::KeyEvent(_k) => {
-                // Sprint H follow-up: map Keycode → VirtualKeyCode +
-                // unicode_char → handle_text_input. Skip for this tick.
-                InputStatus::Unhandled
-            }
-            _ => InputStatus::Unhandled,
         }
+        // KeyEvent handling deferred (Keycode → VirtualKeyCode +
+        // KeyCharacterMap unicode lookup is its own non-trivial step).
+        InputStatus::Unhandled
     }) {}
+
+    for (action, pos) in updates {
+        // Snapshot previous state — required by the state-diffing event system.
+        window.common.previous_window_state =
+            Some(window.common.current_window_state.clone());
+
+        {
+            let ms = &mut window.common.current_window_state.mouse_state;
+            match action {
+                MotionAction::Down => {
+                    ms.cursor_position = CursorPosition::InWindow(pos);
+                    ms.left_down = true;
+                }
+                MotionAction::Move | MotionAction::HoverMove => {
+                    ms.cursor_position = CursorPosition::InWindow(pos);
+                }
+                MotionAction::Up | MotionAction::Cancel => {
+                    ms.left_down = false;
+                }
+                _ => {}
+            }
+        }
+
+        // Update CPU hit-tester at the new cursor; dispatch callbacks.
+        window.update_hit_test_at(pos);
+        let r = window.process_window_events(0);
+        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+            window.common.frame_needs_regeneration = true;
+        }
+    }
 }
 
 #[cfg(all(target_os = "android", feature = "android-activity", feature = "ndk", feature = "cpurender"))]
