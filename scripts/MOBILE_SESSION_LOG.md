@@ -172,6 +172,19 @@ cargo check --target aarch64-linux-android still GREEN (17.28s).
 
 `IOSWindow` gains `pub fn regenerate_layout()` — exact port of `AndroidWindow::regenerate_layout()`. Calls `common::layout::regenerate_layout` with all eleven args (layout_window, app_data, current_window_state, &mut renderer_resources, image_cache, gl_context_ptr, fc_cache, font_registry, system_style, icon_provider, next_relayout_reason); rebuilds `cpu_backend.hit_tester`; CPU-renders into `cpu_backend.last_frame`; resets `next_relayout_reason` to RefreshDom and clears `frame_needs_regeneration`. The actual `drawRect:` blit (CGImage from AzulPixmap → CALayer.contents) lives in Sprint C-iOS; this tick lands the prerequisite layout pump. cargo check aarch64-apple-ios GREEN (12.23s); aarch64-linux-android still GREEN (0.54s no-op).
 
+### Tick — iOS touch events drive process_window_events (#9)
+
+`extern "C" fn touches_began/moved/ended/cancelled` all delegate to a single shared `handle_touch(this, touches, phase)` helper. Phase encoding: 0=began, 1=moved, 2=ended, 3=cancelled. The helper mirrors Android's `drain_input` three-step pattern:
+1. Snapshot `previous_window_state = current_window_state.clone()`.
+2. Update `current_window_state.mouse_state`: cursor_position from `[anyTouch locationInView: this_view]`; `left_down` set on began, cleared on ended/cancelled.
+3. `update_hit_test_at(pos)` then `process_window_events(0)`. If result != DoNothing, set `frame_needs_regeneration`.
+4. `clear_native_gesture()` so an injected OS gesture from Sprint M doesn't double-fire.
+5. `[view setNeedsDisplay]` so drawRect: picks up the new layout.
+
+`anyObject` selector pulls one UITouch from the NSSet (sufficient for hover/click; multi-touch is a Sprint M follow-up). cargo check aarch64-apple-ios GREEN (13.81s); aarch64-linux-android still GREEN (0.56s).
+
+iOS Phase 3 is now structurally complete: tap on a button → touch event → state diff → callback fires → drawRect re-renders. Linker still gated on Xcode.
+
 ### Tick — iOS drawRect → CGImage → CALayer.contents blit (#8)
 
 `extern "C" fn draw_rect` is no longer empty. Flow:

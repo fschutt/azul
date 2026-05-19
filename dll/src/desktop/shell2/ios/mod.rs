@@ -218,48 +218,98 @@ extern "C" fn draw_rect(this: &Object, _cmd: Sel, _rect: CGRect) {
     }
 }
 
+/// Shared body for the four UITouch responder selectors. `phase`
+/// follows UIKit semantics:
+///   0 = began    (left_down=true, update cursor)
+///   1 = moved    (update cursor only)
+///   2 = ended    (left_down=false)
+///   3 = cancelled
+fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
+    use azul_core::events::ProcessEventResult;
+    use azul_core::geom::LogicalPosition;
+    use azul_core::window::CursorPosition;
+
+    let window = match unsafe { azul_ios_window() } {
+        Some(w) => w,
+        None => return,
+    };
+
+    // Read the first UITouch's location-in-view. Empty set means no
+    // touches (theoretically can't happen for these selectors).
+    let pos: Option<LogicalPosition> = unsafe {
+        let any: *mut Object = msg_send![touches, anyObject];
+        if any.is_null() {
+            None
+        } else {
+            let this_ptr = this as *const Object as *mut Object;
+            let p: CGPoint = msg_send![any, locationInView: this_ptr];
+            Some(LogicalPosition::new(p.x as f32, p.y as f32))
+        }
+    };
+
+    // Snapshot previous state for the diff pipeline; mirrors Android.
+    window.common.previous_window_state =
+        Some(window.common.current_window_state.clone());
+
+    {
+        let ms = &mut window.common.current_window_state.mouse_state;
+        if let Some(p) = pos {
+            ms.cursor_position = CursorPosition::InWindow(p);
+        }
+        match phase {
+            0 => ms.left_down = true,
+            2 | 3 => ms.left_down = false,
+            _ => {}
+        }
+    }
+
+    if let Some(p) = pos {
+        window.update_hit_test_at(p);
+    }
+    let r = window.process_window_events(0);
+    if !matches!(r, ProcessEventResult::DoNothing) {
+        window.common.frame_needs_regeneration = true;
+    }
+    if let Some(lw) = window.common.layout_window.as_mut() {
+        lw.gesture_drag_manager.clear_native_gesture();
+    }
+
+    // Ask the view to redraw — drawRect: will pick up the new layout.
+    let view = this as *const Object as *mut Object;
+    let _: () = unsafe { msg_send![view, setNeedsDisplay] };
+}
+
 extern "C" fn touches_began(
-    _this: &Object,
+    this: &Object,
     _cmd: Sel,
-    _touches: *mut Object,
+    touches: *mut Object,
     _event: *mut Object,
 ) {
-    if let Some(_window) = unsafe { azul_ios_window() } {
-        log_debug!(LogCategory::Input, "[AzulView] touchesBegan:");
-    }
+    handle_touch(this, touches, 0);
 }
-
 extern "C" fn touches_moved(
-    _this: &Object,
+    this: &Object,
     _cmd: Sel,
-    _touches: *mut Object,
+    touches: *mut Object,
     _event: *mut Object,
 ) {
-    if let Some(_window) = unsafe { azul_ios_window() } {
-        log_debug!(LogCategory::Input, "[AzulView] touchesMoved:");
-    }
+    handle_touch(this, touches, 1);
 }
-
 extern "C" fn touches_ended(
-    _this: &Object,
+    this: &Object,
     _cmd: Sel,
-    _touches: *mut Object,
+    touches: *mut Object,
     _event: *mut Object,
 ) {
-    if let Some(_window) = unsafe { azul_ios_window() } {
-        log_debug!(LogCategory::Input, "[AzulView] touchesEnded:");
-    }
+    handle_touch(this, touches, 2);
 }
-
 extern "C" fn touches_cancelled(
-    _this: &Object,
+    this: &Object,
     _cmd: Sel,
-    _touches: *mut Object,
+    touches: *mut Object,
     _event: *mut Object,
 ) {
-    if let Some(_window) = unsafe { azul_ios_window() } {
-        log_debug!(LogCategory::Input, "[AzulView] touchesCancelled:");
-    }
+    handle_touch(this, touches, 3);
 }
 
 // ─── UIKit gesture-recognizer handlers (Sprint M iOS side) ───────────
