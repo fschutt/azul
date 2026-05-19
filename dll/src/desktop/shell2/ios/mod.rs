@@ -227,61 +227,101 @@ extern "C" fn draw_rect(this: &Object, _cmd: Sel, _rect: CGRect) {
 fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
     use azul_core::events::ProcessEventResult;
     use azul_core::geom::LogicalPosition;
-    use azul_core::window::CursorPosition;
+    use azul_core::window::{CursorPosition, TouchPoint, TouchPointVec};
 
     let window = match unsafe { azul_ios_window() } {
         Some(w) => w,
         None => return,
     };
 
-    // Read the first UITouch's location-in-view. Empty set means no
-    // touches (theoretically can't happen for these selectors).
-    // While we hold the touch we also extract Apple Pencil state — `type`
-    // distinguishes finger vs stylus, `force` / `maximumPossibleForce` give
-    // normalized pressure, and `altitudeAngle` + `azimuthAngleInView:` give
-    // tilt in W3C-shape (tiltX / tiltY in degrees).
+    // Walk every UITouch in the NSSet. iOS sends multi-finger / Pencil
+    // events bundled together; the previous implementation called
+    // `[touches anyObject]` and dropped fingers 2+ — multi-touch widgets
+    // (paint canvases, pinch-to-zoom, two-finger rotations) saw only the
+    // first finger. While walking we also extract Apple Pencil state on
+    // any touch whose `type == .pencil` (UITouchTypePencil = 2).
     struct PencilSample {
+        position: LogicalPosition,
         pressure: f32,
         x_tilt_deg: f32,
         y_tilt_deg: f32,
     }
+    let mut points: Vec<TouchPoint> = Vec::new();
     let mut pos: Option<LogicalPosition> = None;
     let mut pencil: Option<PencilSample> = None;
-    unsafe {
-        let any: *mut Object = msg_send![touches, anyObject];
-        if !any.is_null() {
-            let this_ptr = this as *const Object as *mut Object;
-            let p: CGPoint = msg_send![any, locationInView: this_ptr];
-            pos = Some(LogicalPosition::new(p.x as f32, p.y as f32));
+    let this_ptr = this as *const Object as *mut Object;
 
-            // UITouchType: 0 = direct, 1 = indirect, 2 = pencil,
-            // 3 = indirectPointer. NSInteger is i64 on every iOS device.
-            let touch_type: i64 = msg_send![any, type];
-            if touch_type == 2 {
-                let force: f64 = msg_send![any, force];
-                let max_force: f64 = msg_send![any, maximumPossibleForce];
-                let pressure = if max_force > 0.0 {
+    unsafe {
+        // [touches allObjects] → NSArray; iterate by index. NSSet has no
+        // stable ordering but the order is deterministic *within* a
+        // single call, which is what the consumer expects.
+        let arr: *mut Object = msg_send![touches, allObjects];
+        if !arr.is_null() {
+            let count: usize = msg_send![arr, count];
+            points.reserve(count);
+            for i in 0..count {
+                let touch: *mut Object = msg_send![arr, objectAtIndex: i];
+                if touch.is_null() {
+                    continue;
+                }
+
+                let p: CGPoint = msg_send![touch, locationInView: this_ptr];
+                let touch_pos = LogicalPosition::new(p.x as f32, p.y as f32);
+
+                // Apple guarantees the UITouch pointer identity is stable
+                // for the lifetime of a single touch sequence (began →
+                // moved* → ended/cancelled). Cast to u64 for the
+                // TouchPoint.id slot.
+                let id_u64 = touch as usize as u64;
+
+                // Pressure: `force` is 0 on devices without 3D Touch /
+                // Pencil. `maximumPossibleForce` returns 0 on those
+                // devices, so the divisor guard falls back to the
+                // TouchPoint sentinel (0.5) — matches the existing
+                // android/headless behaviour.
+                let force: f64 = msg_send![touch, force];
+                let max_force: f64 = msg_send![touch, maximumPossibleForce];
+                let normalized = if max_force > 0.0 {
                     (force / max_force).clamp(0.0, 1.0) as f32
                 } else {
-                    0.0
+                    0.5
                 };
 
-                // altitudeAngle: π/2 = perpendicular to surface,
-                // 0 = parallel. Tilt away from perpendicular:
-                let altitude: f64 = msg_send![any, altitudeAngle];
-                let azimuth: f64 = msg_send![any, azimuthAngleInView: this_ptr];
-                let tilt_rad = (core::f64::consts::FRAC_PI_2 - altitude) as f32;
-                let orientation = azimuth as f32;
-                // W3C `PointerEvent.tiltX/tiltY` decomposition.
-                let (sin_o, cos_o) = orientation.sin_cos();
-                let tan_tilt = tilt_rad.tan();
-                let x_tilt_deg = (sin_o * tan_tilt).atan().to_degrees();
-                let y_tilt_deg = (-cos_o * tan_tilt).atan().to_degrees();
-                pencil = Some(PencilSample {
-                    pressure,
-                    x_tilt_deg,
-                    y_tilt_deg,
+                points.push(TouchPoint {
+                    id: id_u64,
+                    position: touch_pos,
+                    force: normalized,
                 });
+
+                if pos.is_none() {
+                    pos = Some(touch_pos);
+                }
+
+                // Pencil sample — first stylus wins (Apple Pencil is
+                // single-instance; you can't pair two of them).
+                if pencil.is_none() {
+                    let touch_type: i64 = msg_send![touch, type];
+                    if touch_type == 2 {
+                        let altitude: f64 = msg_send![touch, altitudeAngle];
+                        let azimuth: f64 =
+                            msg_send![touch, azimuthAngleInView: this_ptr];
+                        let tilt_rad =
+                            (core::f64::consts::FRAC_PI_2 - altitude) as f32;
+                        let orientation = azimuth as f32;
+                        let (sin_o, cos_o) = orientation.sin_cos();
+                        let tan_tilt = tilt_rad.tan();
+                        let x_tilt_deg =
+                            (sin_o * tan_tilt).atan().to_degrees();
+                        let y_tilt_deg =
+                            (-cos_o * tan_tilt).atan().to_degrees();
+                        pencil = Some(PencilSample {
+                            position: touch_pos,
+                            pressure: normalized,
+                            x_tilt_deg,
+                            y_tilt_deg,
+                        });
+                    }
+                }
             }
         }
     }
@@ -300,6 +340,41 @@ fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
             2 | 3 => ms.left_down = false,
             _ => {}
         }
+
+        // Refresh TouchState. On ended / cancelled UIKit hands us only
+        // the touches that ended in this phase — the rest are still
+        // active. Filter the existing list against the IDs UIKit just
+        // reported as ended, rather than clobbering it.
+        let ts = &mut window.common.current_window_state.touch_state;
+        match phase {
+            0 | 1 => {
+                // Began / moved → merge by ID. Replace existing entries
+                // with the new sample; append new IDs.
+                let mut existing: Vec<TouchPoint> =
+                    ts.touch_points.clone().into_library_owned_vec();
+                for new_point in &points {
+                    if let Some(slot) =
+                        existing.iter_mut().find(|p| p.id == new_point.id)
+                    {
+                        *slot = *new_point;
+                    } else {
+                        existing.push(*new_point);
+                    }
+                }
+                ts.touch_points = TouchPointVec::from_vec(existing);
+            }
+            2 | 3 => {
+                // Ended / cancelled → drop the reported IDs.
+                let drop_ids: Vec<u64> =
+                    points.iter().map(|p| p.id).collect();
+                let mut existing: Vec<TouchPoint> =
+                    ts.touch_points.clone().into_library_owned_vec();
+                existing.retain(|p| !drop_ids.contains(&p.id));
+                ts.touch_points = TouchPointVec::from_vec(existing);
+            }
+            _ => {}
+        }
+        ts.num_touches = ts.touch_points.len();
     }
 
     if let Some(p) = pos {
@@ -317,11 +392,11 @@ fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
         // barrel button at the UITouch level (Pencil 2 squeeze fires
         // `UIPencilInteraction` instead, a P2.3 follow-up), so both flags
         // stay `false` here; pressure + tilt are populated.
-        if let (Some(p), Some(sample)) = (pos, pencil.as_ref()) {
+        if let Some(sample) = pencil.as_ref() {
             let in_contact = matches!(phase, 0 | 1);
             if in_contact {
                 lw.gesture_drag_manager.update_pen_state(
-                    p,
+                    sample.position,
                     sample.pressure,
                     (sample.x_tilt_deg, sample.y_tilt_deg),
                     true,

@@ -508,13 +508,22 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
     // Collect state-update tuples first; do the actual state diff +
     // process_window_events outside the iterator's closure because the
     // closure borrows `app` for the input queue and we need &mut window.
-    let mut motion_updates: Vec<(MotionAction, LogicalPosition)> = Vec::new();
+    //
+    // `mouse_pos` mirrors what the framework's mouse pipe sees: the
+    // primary (index 0) pointer position. Multi-finger state lives on
+    // `touch_points` below.
+    struct MotionUpdate {
+        action: MotionAction,
+        mouse_pos: LogicalPosition,
+        touch_points: Vec<azul_core::window::TouchPoint>,
+    }
+    let mut motion_updates: Vec<MotionUpdate> = Vec::new();
     // (KeyAction, Option<VirtualKeyCode>) — None for unmapped keycodes.
     let mut key_updates: Vec<(KeyAction, Option<azul_core::window::VirtualKeyCode>)> =
         Vec::new();
-    // Pen / stylus samples — populated when the active pointer reports
-    // `ToolType::Stylus` or `ToolType::Eraser`. tilt is decomposed into
-    // (x_tilt_deg, y_tilt_deg) so it matches the W3C
+    // Pen / stylus samples — populated when any pointer in a MotionEvent
+    // reports `ToolType::Stylus` or `ToolType::Eraser`. tilt is decomposed
+    // into (x_tilt_deg, y_tilt_deg) so it matches the W3C
     // `PointerEvent.tiltX/tiltY` shape that the desktop pen-tablet path
     // uses too.
     struct PenSample {
@@ -531,9 +540,28 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
     while iter.next(|event| {
         match event {
             InputEvent::MotionEvent(m) => {
-                if let Some(p) = m.pointers().next() {
+                let mut mouse_pos = LogicalPosition::new(0.0, 0.0);
+                let mut touch_points: Vec<azul_core::window::TouchPoint> = Vec::new();
+                let mut first_pointer = true;
+
+                for p in m.pointers() {
                     let pos = LogicalPosition::new(p.raw_x() / dpi, p.raw_y() / dpi);
-                    motion_updates.push((m.action(), pos));
+                    if first_pointer {
+                        mouse_pos = pos;
+                        first_pointer = false;
+                    }
+
+                    let pressure = p.pressure();
+                    let force = if pressure > 0.0 && pressure <= 1.0 {
+                        pressure
+                    } else {
+                        0.5 // TouchPoint sentinel for "pressure not available"
+                    };
+                    touch_points.push(azul_core::window::TouchPoint {
+                        id: p.pointer_id() as u64,
+                        position: pos,
+                        force,
+                    });
 
                     let tool = p.tool_type();
                     if matches!(tool, ToolType::Stylus | ToolType::Eraser) {
@@ -555,6 +583,14 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                         });
                     }
                 }
+
+                if !first_pointer {
+                    motion_updates.push(MotionUpdate {
+                        action: m.action(),
+                        mouse_pos,
+                        touch_points,
+                    });
+                }
             }
             InputEvent::KeyEvent(k) => {
                 key_updates.push((k.action(), map_keycode(k.key_code())));
@@ -569,30 +605,51 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
         InputStatus::Unhandled
     }) {}
 
-    for (action, pos) in motion_updates {
+    for update in motion_updates {
         // Snapshot previous state — required by the state-diffing event system.
         window.common.previous_window_state =
             Some(window.common.current_window_state.clone());
 
         {
             let ms = &mut window.common.current_window_state.mouse_state;
-            match action {
-                MotionAction::Down => {
-                    ms.cursor_position = CursorPosition::InWindow(pos);
+            match update.action {
+                MotionAction::Down | MotionAction::PointerDown => {
+                    ms.cursor_position = CursorPosition::InWindow(update.mouse_pos);
                     ms.left_down = true;
                 }
                 MotionAction::Move | MotionAction::HoverMove => {
-                    ms.cursor_position = CursorPosition::InWindow(pos);
+                    ms.cursor_position = CursorPosition::InWindow(update.mouse_pos);
                 }
                 MotionAction::Up | MotionAction::Cancel => {
                     ms.left_down = false;
                 }
+                MotionAction::PointerUp => {
+                    // A secondary finger lifted; primary is still down.
+                    // Leave left_down alone.
+                }
                 _ => {}
             }
+
+            // Refresh TouchState. Android delivers all currently-active
+            // pointers on every MotionEvent, so the rebuild is
+            // straightforward (no need for the per-ID merge iOS does).
+            let ts = &mut window.common.current_window_state.touch_state;
+            match update.action {
+                MotionAction::Up | MotionAction::Cancel => {
+                    // Last finger lifted — clear.
+                    ts.touch_points =
+                        azul_core::window::TouchPointVec::from_const_slice(&[]);
+                }
+                _ => {
+                    ts.touch_points =
+                        azul_core::window::TouchPointVec::from_vec(update.touch_points);
+                }
+            }
+            ts.num_touches = ts.touch_points.len();
         }
 
         // Update CPU hit-tester at the new cursor; dispatch callbacks.
-        window.update_hit_test_at(pos);
+        window.update_hit_test_at(update.mouse_pos);
         let r = window.process_window_events(0);
         if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
             window.common.frame_needs_regeneration = true;

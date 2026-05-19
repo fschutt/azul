@@ -365,3 +365,15 @@ Both backends call into the *existing* `GestureAndDragManager::update_pen_state`
 `bash scripts/mobile-check-all.sh` GREEN across all 5 mobile targets (19/5/5/4/5 s). Runtime verification needs an iOS Pencil or Android stylus device — compile-only is the available check.
 
 Open AzulPaint follow-ups: P2.2 multi-touch `TouchPointVec` (iOS currently reads only `anyObject`, drops fingers 2+); P2.3 `PenState` extensions (`tangential_pressure`, `barrel_roll_rad`, `tool_id`) + new `HoverEventFilter::PenSqueeze` / `PenDoubleTap` / `PenHover` event filters (the iOS `UIPencilInteraction` squeeze + the W3C `pointerleave` / hover surface).
+
+### Tick — P2.2 multi-touch TouchPointVec on iOS + Android
+
+Closes P2.2. Both backends now populate `FullWindowState.touch_state.touch_points` end-to-end so multi-finger widgets (paint canvases, custom pinch/rotate, two-finger gestures) see *all* active fingers, not just the first.
+
+- `dll/src/desktop/shell2/ios/mod.rs::handle_touch` no longer reads `[touches anyObject]`. Walks `[touches allObjects]` via `objectAtIndex:`, builds a `Vec<TouchPoint>` from each UITouch (id = `(touch as usize) as u64` — Apple guarantees stable pointer identity for the lifetime of a touch sequence; force = `touch.force / touch.maximumPossibleForce`, sentinel `0.5` for non-pressure devices). Phase-aware merge: `began/moved` → upsert each new sample into the existing touch_points by id; `ended/cancelled` → drop the reported ids and keep the rest active (UIKit only delivers the touches that changed, the rest persist).
+- `dll/src/desktop/shell2/android/mod.rs::drain_input` no longer takes `m.pointers().next()`. Iterates *all* pointers per MotionEvent, builds the `TouchPoint` list with `pointer_id()` as the id (stable across moves) + clamped pressure with the same `0.5` sentinel. Refresh policy: `Down/PointerDown/Move/HoverMove/PointerUp` → replace `touch_points` with the full freshly-computed list (Android always delivers every active pointer on every event); `Up/Cancel` → clear. `mouse_pos` is anchored to the primary (index-0) pointer so the existing mouse-pipe diff path keeps working.
+- iOS `pencil` extraction now reads from each touch inside the per-touch loop rather than only the first `anyObject`. The first stylus wins (Apple Pencil is single-instance hardware).
+- Android `pen_updates` collection now sees every stylus pointer per event; if a future device exposed multiple styluses simultaneously they'd all queue (currently only the first will register on the gesture manager since `update_pen_state` is single-slot — that's a P2.3 follow-up if it matters).
+- Imports widened: `use azul_core::window::{CursorPosition, TouchPoint, TouchPointVec}` on iOS.
+
+`bash scripts/mobile-check-all.sh` GREEN across all 5 mobile targets (18/5/5/4/5 s). Source-only — runtime verification needs a multi-touch device. With this tick, AzulPaint can implement two-finger zoom / three-finger undo by reading `CallbackInfo::get_window_state().touch_state.touch_points`.
