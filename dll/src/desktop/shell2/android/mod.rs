@@ -45,7 +45,7 @@ use crate::{impl_platform_window_getters, log_debug, log_error, log_info};
 
 #[cfg(feature = "android-activity")]
 use android_activity::{
-    input::{InputEvent, KeyAction, MotionAction},
+    input::{InputEvent, KeyAction, Keycode, MotionAction},
     AndroidApp, InputStatus, MainEvent, PollEvent,
 };
 #[cfg(feature = "ndk")]
@@ -465,20 +465,33 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
     // Collect state-update tuples first; do the actual state diff +
     // process_window_events outside the iterator's closure because the
     // closure borrows `app` for the input queue and we need &mut window.
-    let mut updates: Vec<(MotionAction, LogicalPosition)> = Vec::new();
+    let mut motion_updates: Vec<(MotionAction, LogicalPosition)> = Vec::new();
+    // (KeyAction, Option<VirtualKeyCode>) — None for unmapped keycodes.
+    let mut key_updates: Vec<(KeyAction, Option<azul_core::window::VirtualKeyCode>)> =
+        Vec::new();
+
     while iter.next(|event| {
-        if let InputEvent::MotionEvent(m) = event {
-            if let Some(p) = m.pointers().next() {
-                let pos = LogicalPosition::new(p.raw_x() / dpi, p.raw_y() / dpi);
-                updates.push((m.action(), pos));
+        match event {
+            InputEvent::MotionEvent(m) => {
+                if let Some(p) = m.pointers().next() {
+                    let pos = LogicalPosition::new(p.raw_x() / dpi, p.raw_y() / dpi);
+                    motion_updates.push((m.action(), pos));
+                }
             }
+            InputEvent::KeyEvent(k) => {
+                key_updates.push((k.action(), map_keycode(k.key_code())));
+            }
+            _ => {}
         }
-        // KeyEvent handling deferred (Keycode → VirtualKeyCode +
-        // KeyCharacterMap unicode lookup is its own non-trivial step).
+        // unicode_char mapping (KeyCharacterMap) still TODO — gets us
+        // text input from a hardware keyboard. State-diff already fires
+        // VirtualKeyDown / VirtualKeyUp HoverEventFilters from the
+        // current_virtual_keycode change below, which is enough for the
+        // most common test cases (Enter to submit, Tab to navigate).
         InputStatus::Unhandled
     }) {}
 
-    for (action, pos) in updates {
+    for (action, pos) in motion_updates {
         // Snapshot previous state — required by the state-diffing event system.
         window.common.previous_window_state =
             Some(window.common.current_window_state.clone());
@@ -508,6 +521,39 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
         }
     }
 
+    // Apply collected key updates.
+    for (action, vkc) in key_updates {
+        window.common.previous_window_state =
+            Some(window.common.current_window_state.clone());
+        {
+            let ks = &mut window.common.current_window_state.keyboard_state;
+            match (action, vkc) {
+                (KeyAction::Down, Some(code)) => {
+                    ks.current_virtual_keycode = Some(code).into();
+                    // Add to pressed set if not already present (no
+                    // VirtualKeyCodeVec dedup API exposed; rely on the
+                    // event-determination to dedupe).
+                    let mut v = ks.pressed_virtual_keycodes.clone().into_library_owned_vec();
+                    if !v.iter().any(|c| *c == code) {
+                        v.push(code);
+                    }
+                    ks.pressed_virtual_keycodes = v.into();
+                }
+                (KeyAction::Up, Some(code)) => {
+                    ks.current_virtual_keycode = None.into();
+                    let mut v = ks.pressed_virtual_keycodes.clone().into_library_owned_vec();
+                    v.retain(|c| *c != code);
+                    ks.pressed_virtual_keycodes = v.into();
+                }
+                _ => {}
+            }
+        }
+        let r = window.process_window_events(0);
+        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+            window.common.frame_needs_regeneration = true;
+        }
+    }
+
     // After callbacks have observed any native-gesture override the
     // Android `GestureDetector` JNI bridge injected this frame, clear
     // the slot so a stale OS gesture doesn't keep firing. No-op until
@@ -515,6 +561,36 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
     if let Some(lw) = window.common.layout_window.as_mut() {
         lw.gesture_drag_manager.clear_native_gesture();
     }
+}
+
+/// Map the Android `Keycode` enum to Azul's `VirtualKeyCode` for the
+/// most common navigation / editing keys. Letters and digits arrive via
+/// the soft keyboard's text-input path (Sprint H follow-up — wires
+/// `KeyCharacterMap.get` for unicode), so this map only handles the
+/// non-character keys that callbacks query through
+/// `KeyboardState::is_key_down` / `current_virtual_keycode`.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn map_keycode(k: Keycode) -> Option<azul_core::window::VirtualKeyCode> {
+    use azul_core::window::VirtualKeyCode as V;
+    Some(match k {
+        Keycode::Enter | Keycode::NumpadEnter => V::Return,
+        Keycode::Space => V::Space,
+        Keycode::Tab => V::Tab,
+        Keycode::Escape => V::Escape,
+        Keycode::Del => V::Back,
+        Keycode::ForwardDel => V::Delete,
+        Keycode::DpadLeft => V::Left,
+        Keycode::DpadRight => V::Right,
+        Keycode::DpadUp => V::Up,
+        Keycode::DpadDown => V::Down,
+        Keycode::ShiftLeft => V::LShift,
+        Keycode::ShiftRight => V::RShift,
+        Keycode::CtrlLeft => V::LControl,
+        Keycode::CtrlRight => V::RControl,
+        Keycode::AltLeft => V::LAlt,
+        Keycode::AltRight => V::RAlt,
+        _ => return None,
+    })
 }
 
 #[cfg(all(target_os = "android", feature = "android-activity", feature = "ndk", feature = "cpurender"))]

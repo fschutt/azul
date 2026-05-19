@@ -185,6 +185,10 @@ cargo check --target aarch64-linux-android still GREEN (17.28s).
 
 iOS Phase 3 is now structurally complete: tap on a button → touch event → state diff → callback fires → drawRect re-renders. Linker still gated on Xcode.
 
+### Tick — Android KeyEvent → VirtualKeyCode (#12 follow-up)
+
+`drain_input` now collects `KeyEvent` alongside `MotionEvent`. New `map_keycode(Keycode) -> Option<VirtualKeyCode>` translates the 16 most common navigation/editing keycodes (Enter, NumpadEnter, Space, Tab, Escape, Del→Back, ForwardDel→Delete, Dpad{Left,Right,Up,Down}, Shift/Ctrl/Alt left+right). For each key event we snapshot `previous_window_state`, update `keyboard_state.current_virtual_keycode` + `pressed_virtual_keycodes`, then `process_window_events(0)`. State-diff fires `HoverEventFilter::VirtualKeyDown` / `VirtualKeyUp` from the diff. Letter keys still arrive via the soft keyboard's text-input path (KeyCharacterMap → unicode follow-up). cargo check Android GREEN (11.43s).
+
 ### Tick — iOS drawRect → CGImage → CALayer.contents blit (#8)
 
 `extern "C" fn draw_rect` is no longer empty. Flow:
