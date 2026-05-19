@@ -62,15 +62,56 @@ SRC_SO="$WORKSPACE_ROOT/target/$TARGET/release/libazul.so"
 [[ -f "$SRC_SO" ]] || { echo "missing $SRC_SO — cargo build did not produce a cdylib" >&2; exit 4; }
 cp "$SRC_SO" "$BUILD_DIR/lib/$ABI/libazul.so"
 
-# Manifest: substitute placeholders into the template.
+# Java sources for the optional native-gesture bridge. If present, we
+# compile them with javac, dex with d8, and ship classes.dex inside the
+# APK (which forces android:hasCode="true" in the manifest below).
+# AZ_ANDROID_NO_JAVA=1 skips the dex even when sources exist.
+JAVA_SRC_DIR="$WORKSPACE_ROOT/scripts/android"
+JAVA_SOURCES=()
+HAS_JAVA=0
+if [[ "${AZ_ANDROID_NO_JAVA:-}" != "1" ]]; then
+    while IFS= read -r f; do
+        JAVA_SOURCES+=("$f")
+        HAS_JAVA=1
+    done < <(find "$JAVA_SRC_DIR" -maxdepth 2 -name '*.java' -print 2>/dev/null)
+fi
+
+DEX_FILE=""
+if (( HAS_JAVA == 1 )); then
+    : "${JAVA_HOME:=$(brew --prefix openjdk@17 2>/dev/null)/libexec/openjdk.jdk/Contents/Home}"
+    export JAVA_HOME
+    [[ -x "$JAVA_HOME/bin/javac" ]] \
+        || { echo "javac not found at $JAVA_HOME/bin — AZ_ANDROID_NO_JAVA=1 to skip" >&2; exit 5; }
+    echo "==> javac ${#JAVA_SOURCES[@]} Java source(s)"
+    rm -rf "$BUILD_DIR/classes" "$BUILD_DIR/dex"
+    mkdir -p "$BUILD_DIR/classes" "$BUILD_DIR/dex"
+    "$JAVA_HOME/bin/javac" -source 11 -target 11 \
+        -classpath "$PLATFORM/android.jar" \
+        -d "$BUILD_DIR/classes" \
+        "${JAVA_SOURCES[@]}"
+    echo "==> d8 classes -> classes.dex"
+    "$BT/d8" \
+        --output "$BUILD_DIR/dex" \
+        $(find "$BUILD_DIR/classes" -name '*.class')
+    DEX_FILE="$BUILD_DIR/dex/classes.dex"
+    [[ -f "$DEX_FILE" ]] || { echo "d8 did not produce classes.dex" >&2; exit 6; }
+fi
+
+# Manifest: substitute placeholders into the template, and flip
+# android:hasCode="true" when we're shipping a .dex.
 MANIFEST_TEMPLATE="$WORKSPACE_ROOT/scripts/android/AndroidManifest.xml"
 MANIFEST_OUT="$BUILD_DIR/AndroidManifest.xml"
+HAS_CODE_VALUE="false"
+if (( HAS_JAVA == 1 )); then
+    HAS_CODE_VALUE="true"
+fi
 sed \
     -e "s|@PACKAGE@|$PACKAGE|g" \
     -e "s|@LABEL@|$LABEL|g" \
     -e "s|@LIB_NAME@|azul|g" \
     -e "s|@VERSION_CODE@|$VERSION_CODE|g" \
     -e "s|@VERSION_NAME@|$VERSION_NAME|g" \
+    -e "s|android:hasCode=\"false\"|android:hasCode=\"$HAS_CODE_VALUE\"|g" \
     "$MANIFEST_TEMPLATE" > "$MANIFEST_OUT"
 
 cd "$BUILD_DIR"
@@ -83,6 +124,12 @@ echo "==> aapt2 link (compile manifest)"
 
 echo "==> add lib/$ABI/libazul.so to APK"
 ( cd lib && zip -r ../base.apk "$ABI/" >/dev/null )
+
+# Ship classes.dex inside the APK (at the root, where Android expects it).
+if [[ -n "$DEX_FILE" ]]; then
+    echo "==> add classes.dex to APK"
+    ( cd dex && zip -r ../base.apk classes.dex >/dev/null )
+fi
 
 echo "==> zipalign"
 "$BT/zipalign" -f 4 base.apk aligned.apk

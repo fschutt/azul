@@ -143,6 +143,18 @@ Sprint B (iOS Phase 1: compile) is now **GREEN at the source level on every iOS 
 
 cargo check --target aarch64-apple-ios still GREEN (15.07s). The wire is complete from UIKit recognizer → action selector → `inject_native_gesture` → `CallbackInfo::get_*` accessors. Activation requires the iOS SDK to actually link, which `xcrun --sdk iphonesimulator` will surface once Xcode finishes installing.
 
+### Tick — build-android.sh ships classes.dex (#17 activation)
+
+`scripts/build-android.sh` extended with an optional Java-compile pass that auto-activates whenever `scripts/android/*.java` exist (currently `NativeGestureBridge.java`). Pipeline order:
+1. `javac -source 11 -target 11 -classpath $ANDROID_HOME/platforms/android-34/android.jar -d $BUILD_DIR/classes …`
+2. `$BUILD_TOOLS/d8 --output $BUILD_DIR/dex $(find classes -name '*.class')`
+3. Sed in the manifest: `android:hasCode="false"` → `"true"` when shipping a .dex.
+4. After `aapt2 link` + lib zip, also `zip -r base.apk classes.dex`.
+
+Escape hatch: `AZ_ANDROID_NO_JAVA=1` skips the dex pass entirely (manifest stays `hasCode="false"`). Bash syntax-checked clean. No Rust changes — Android cargo check unaffected.
+
+The NativeActivity glue still won't *load* the bridge class on its own; #17 is one step closer but the runtime instantiation (`NewGlobalRef` via JNI from `android_main` or a thin `Activity` subclass) is the next tick.
+
 ### Tick — Sprint M Android JNI bridge for GestureDetector (#17)
 
 Two artifacts land:
