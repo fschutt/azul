@@ -623,9 +623,17 @@ fn module_from_external_path(path: &str) -> Option<String> {
     if path.starts_with("azul_core::styled_dom::") { return Some("dom".to_string()); }
     if path.starts_with("azul_core::diff::") { return Some("dom".to_string()); }
     if path.starts_with("azul_core::events::") { return Some("dom".to_string()); }
+    // Geolocation POD types (LocationFix, GeolocationProbeConfig) back the
+    // `NodeType::GeolocationProbe` dom node, so they belong in the dom module.
+    if path.starts_with("azul_core::geolocation::") { return Some("dom".to_string()); }
     // azul_layout submodules
     if path.starts_with("azul_layout::icu::") { return Some("icu".to_string()); }
     if path.starts_with("azul_layout::xml::") { return Some("dom".to_string()); }
+    // Widget types (Button, TextInput, MapWidget, …) live in the `widgets`
+    // module regardless of their Rust submodule (e.g. `widgets::map::MapWidget`).
+    // Without this arm, types in a nested widget submodule fell through to the
+    // `misc` fallback, producing spurious "move to misc" patches.
+    if path.starts_with("azul_layout::widgets::") { return Some("widgets".to_string()); }
     None
 }
 

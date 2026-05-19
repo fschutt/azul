@@ -690,6 +690,20 @@ Ran `cargo run -p azul-doc -- autofix` (the diff/report mode). It surfaced one *
 
 Net: api.json drift from my hand-edits is reconciled (em-dash + custom_impls); the demo stays on the public API. The real-tile demo wiring (caveat 4) still needs a no-arg public method that bundles the dll worker — deferred until the autofix nested-module bug is sorted (so the new method lands tool-generated + correctly placed).
 
+### Tick — P3.2l fix the autofix nested-module heuristic (2026-05-20)
+
+Fixes the bug flagged last tick. `doc/src/autofix/module_map.rs::module_from_external_path` is the fallback the autofix module-resolver uses when keyword matching is inconclusive. It had arms for `azul_layout::icu::` and `azul_layout::xml::` but **none for `azul_layout::widgets::`**, so any widget type in a nested submodule (`azul_layout::widgets::map::MapWidget`, etc.) fell through to the `misc` default — producing the spurious "move MapWidget → misc" patches that were inconsistent with where `Button` (and every other widget) actually lives.
+
+Two arms added:
+- `azul_layout::widgets::` → `"widgets"` — covers MapWidget / MapTileLayer / MapViewport / MapTileId and any future nested-submodule widget. Note `Button` (`azul_layout::widgets::button::Button`) was already classified correctly by the *keyword* matcher (`determine_module`), which is why only the `map`-submodule types tripped the fallback.
+- `azul_core::geolocation::` → `"dom"` — `LocationFix` / `GeolocationProbeConfig` back the `NodeType::GeolocationProbe` dom node, so `dom` is the right module.
+
+Verification: re-ran `azul-doc autofix`. Before the fix the move-list had MapWidget / MapTileLayer / MapViewport / GeolocationProbeConfig heading to `misc`; after, they're gone. The fix *also surfaced a genuine pre-existing mis-placement* — `Titlebar` (`azul_layout::widgets::titlebar::Titlebar`) was sitting in `misc` and the new arm correctly flagged `Titlebar : misc → widgets`. Applied that one patch via `azul-doc patch` (verified nothing imports `azul::misc::Titlebar` first). Skipped the remaining `move_*` patches for the gesture `Detected*` / `GestureDirection` types (`azul_layout::managers::gesture::*`) — their correct module is genuinely unclear (autofix variously suggests window / css / misc) and they're pre-existing, so they want a dedicated decision rather than a drive-by move. Skipped the orphan removals (`LocationFix` / `MapTileId`) — harmless and soon-to-be-referenced.
+
+`azul-doc codegen all` GREEN; `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (8/9/7/8/8 s); `cargo check -p azul-examples -p azul-maps -p azul-paint` GREEN (Titlebar move didn't break any consumer). The `module_map.rs` change is autofix-only — it doesn't touch codegen output or the dll, so the mobile gate was structurally unaffected.
+
+With the heuristic fixed, the map widget types are now correctly tool-managed: a future `autofix add MapWidget.dom_with_tiles` would place the method in `widgets`, unblocking the real-tile demo wiring (caveat 4) as a tool-generated change rather than a hand-edit.
+
 The widget callback chain uses `crate::callbacks::Callback::from(fn as CallbackType)` rather than passing the bare fn pointer, because `Dom::with_callback` in `azul-core` takes `Into<CoreCallback>` (the FFI `usize` form) — `Callback` has the requisite `From<CallbackType>` impl from the framework's macro; the bare fn ptr does not.
 
 `bash scripts/mobile-check-all.sh` GREEN across all 5 mobile targets (9/7/6/6/6 s). No regressions; AzulPaint + AzulMaps still build cleanly. Codegen unchanged (the new pan callbacks are private widget internals, not part of the public api.json surface).
