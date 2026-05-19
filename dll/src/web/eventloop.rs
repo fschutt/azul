@@ -1087,8 +1087,7 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     // runtime.
     if core::hint::black_box(state) == 0xDEAD_BEEF {
         let mut iso_arg: u32 = 0;
-        let iso_boxed = Box::new(make_test_struct_mut_arg_isobisect(&mut iso_arg));
-        core::hint::black_box(iso_boxed);
+        make_test_struct_mutref_void_isobisect(&mut iso_arg);
         core::hint::black_box(iso_arg);
     }
     // M12.5c: dump first 80 bytes of the cascade-output styled struct
@@ -1171,22 +1170,15 @@ pub extern "C" fn make_test_struct() -> TestStruct256 {
     s
 }
 
-/// M12.5d iter ~28 BISECT: declare-but-don't-call mut-arg test.
-/// If hydrate's existing make_test_struct still works (64/64),
-/// the iso bug is at the CALL SITE (hydrate calls iso). If it
-/// also breaks (6/64), the bug is at the LIFT stage — adding any
-/// fn with this signature changes the wasm build for OTHER fns.
+/// M12.5d iter ~31 BISECT v4: &mut arg + VOID return (no sret).
+/// If THIS works, the trigger is &mut+sret combo, not &mut alone.
+/// If it breaks, the trigger is &mut arg alone.
 #[inline(never)]
 #[no_mangle]
-pub extern "C" fn make_test_struct_mut_arg_isobisect(extra: &mut u32) -> TestStruct256 {
-    *extra = 0xCAFEBABE_u32;
-    let mut s = make_test_struct();
-    let mut i = 0;
-    while i < 64 {
-        s.data[i] ^= 0x01000000;
-        i += 1;
-    }
-    s
+pub extern "C" fn make_test_struct_mutref_void_isobisect(extra: &mut u32) {
+    let _ = core::hint::black_box(extra);
+    // do some work; no sret return
+    core::hint::black_box(make_test_struct());
 }
 
 #[inline(never)]
