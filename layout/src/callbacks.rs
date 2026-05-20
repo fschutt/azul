@@ -3119,6 +3119,15 @@ impl CallbackInfo {
         self.get_gesture_drag_manager().get_pen_state()
     }
 
+    /// Get the current Wacom tablet-**pad** state (ExpressKeys + touch-ring),
+    /// or `None` if no pad backend has delivered one. (The pen's own wacom
+    /// features — eraser / barrel button / barrel roll / tilt / pressure —
+    /// are in [`CallbackInfo::get_pen_state`].) Kept live by the platform pad
+    /// backend (Wintab / libwacom+libinput / macOS tablet `NSEvent`s).
+    pub fn get_wacom_pad(&self) -> Option<crate::managers::gesture::WacomPadState> {
+        self.get_gesture_drag_manager().get_pad_state().copied()
+    }
+
     /// Get the most recent geolocation fix, or `None` if no `GeolocationProbe`
     /// is mounted or no platform backend has delivered a fix yet. The fix is
     /// kept live by the platform backends (Android `FusedLocationProvider`,

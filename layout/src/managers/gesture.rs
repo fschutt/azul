@@ -413,6 +413,50 @@ impl Default for PenState {
     }
 }
 
+/// State of a Wacom-style tablet **pad** — the tablet body's own hardware
+/// controls, distinct from the pen ([`PenState`] already covers eraser /
+/// barrel button / barrel roll / tilt / pressure). Populated by the platform
+/// backend (`dll/src/desktop/extra/wacom_pad/`: Wintab on Windows,
+/// libwacom+libinput on Linux, the driver's `NSEvent` tablet events on macOS).
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
+pub struct WacomPadState {
+    /// ExpressKey bitset — bit `n` set ⇔ hardware button `n` is held (up to
+    /// 32). Read via [`WacomPadState::express_key`].
+    pub express_keys: u32,
+    /// Touch-ring / touch-strip absolute position, `0.0`–`1.0`. Only
+    /// meaningful while [`WacomPadState::touch_ring_active`] is `true`.
+    pub touch_ring: f32,
+    /// Whether a finger is currently on the touch-ring / touch-strip.
+    pub touch_ring_active: bool,
+    /// Tablet device id (to distinguish pads on multi-tablet setups).
+    pub device_id: u64,
+}
+
+impl_option!(
+    WacomPadState,
+    OptionWacomPadState,
+    [Debug, Clone, Copy, PartialEq]
+);
+
+impl Default for WacomPadState {
+    fn default() -> Self {
+        Self {
+            express_keys: 0,
+            touch_ring: 0.0,
+            touch_ring_active: false,
+            device_id: 0,
+        }
+    }
+}
+
+impl WacomPadState {
+    /// Whether ExpressKey `index` (0-based, < 32) is currently held.
+    pub fn express_key(&self, index: u32) -> bool {
+        index < 32 && (self.express_keys & (1u32 << index)) != 0
+    }
+}
+
 /// Manager for multi-frame gestures and drag operations
 ///
 /// This collects raw input samples and analyzes them to detect gestures.
@@ -436,6 +480,9 @@ pub struct GestureAndDragManager {
     pub active_drag: Option<DragContext>,
     /// Current pen/stylus state
     pub pen_state: Option<PenState>,
+    /// Latest Wacom tablet-pad state (ExpressKeys + touch-ring), or `None`
+    /// until a pad backend delivers one.
+    pub pad_state: Option<WacomPadState>,
     /// Session IDs where long press callback has been invoked
     long_press_callbacks_invoked: Vec<u64>,
     /// Counter for generating unique session IDs
@@ -508,6 +555,7 @@ impl GestureAndDragManager {
             next_session_id: 1,
             active_drag: None,
             pen_state: None,
+            pad_state: None,
             long_press_callbacks_invoked: Vec::new(),
             native_gesture: None,
         }
@@ -791,6 +839,21 @@ impl GestureAndDragManager {
     /// Get current pen state (read-only)
     pub fn get_pen_state(&self) -> Option<&PenState> {
         self.pen_state.as_ref()
+    }
+
+    /// Set the latest Wacom tablet-pad state (called by the pad backend).
+    pub fn update_pad_state(&mut self, pad: WacomPadState) {
+        self.pad_state = Some(pad);
+    }
+
+    /// The latest tablet-pad state, or `None` if no pad backend delivered one.
+    pub fn get_pad_state(&self) -> Option<&WacomPadState> {
+        self.pad_state.as_ref()
+    }
+
+    /// Clear the tablet-pad state (pad disconnected / proximity left).
+    pub fn clear_pad_state(&mut self) {
+        self.pad_state = None;
     }
 
     // Gesture Detection Methods (query state without mutation)

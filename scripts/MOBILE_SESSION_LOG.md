@@ -1888,3 +1888,14 @@ Public API (create/dom) unchanged → no codegen/demo changes; existing target/c
 Verify: `mobile-check-all.sh` GREEN on all 5. Disk 6.8 GiB.
 
 **🎯 video-ish stack DONE + DRY**: 3 thin widgets (camera/screencap/video) over one shared `capture_common` core (VideoFrame + present_frame + upload_rgba) — the single seam for GL fixes + the real platform workers. Next: **wacom** (extends PenState — ExpressKeys/touch-ring/barrel/eraser). Then audio → enc/dec → UDP → azul-meet. (Real AVFoundation/ScreenCaptureKit/vk-video workers = on-machine batch.)
+
+### Tick — P6.wacom.a — WacomPadState (tablet pad surface) (2026-05-20)
+
+Wacom = extend the existing pen infra. Survey finding: **the pen-side wacom features ALREADY exist** in `PenState` (gesture.rs): `is_eraser`, `barrel_button_pressed`, `barrel_roll_rad`, `tangential_pressure`, `tool_id`, tilt, pressure — exposed via `get_pen_state`/`get_pen_pressure`/`get_pen_tilt`. So the only missing wacom piece is the **tablet PAD** (ExpressKeys + touch-ring), distinct from the stylus.
+
+- `layout/managers/gesture.rs`: `WacomPadState { express_keys: u32 bitset, touch_ring: f32, touch_ring_active: bool, device_id: u64 }` (repr C) + `express_key(index)` helper + `impl_option!` → OptionWacomPadState. `GestureAndDragManager` gains `pad_state: Option<WacomPadState>` + `update_pad_state`/`get_pad_state`/`clear_pad_state` (mirror pen).
+- `callbacks.rs`: `CallbackInfo::get_wacom_pad() -> Option<WacomPadState>` (owned, like get_pen_tilt).
+
+Verify: `mobile-check-all.sh` GREEN on all 5. Disk 6.8 GiB.
+
+Next P6.wacom.b: codegen-expose `get_wacom_pad` + `WacomPadState`. Then the pad backend (`dll/extra/wacom_pad/`: Wintab / libwacom+libinput / macOS tablet NSEvents → `update_pad_state`) = on-machine batch. Then audio → enc/dec → UDP → azul-meet.
