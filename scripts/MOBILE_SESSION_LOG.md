@@ -1007,3 +1007,15 @@ What's left all needs the user: (a) free disk, then do the get_location_fix code
 Disk still ~97% (6.6 GiB) — not freed, so no code change again (a core/dll cascade or `codegen all` risks ENOSPC; the get_location_fix FFI exposure stays blocked). Took the one genuinely-useful zero-rebuild step: replaced the stale §5 tracker ("cron loop stopped, implementation starts next session") with an accurate DONE/GATED/BLOCKED snapshot of P1.1–P3.3, so the plan doc no longer misleads. Markdown-only; baseline gate GREEN (warm, ~0 disk).
 
 No new implementation. The two binding constraints are unchanged and both need the user: (1) free non-azul disk space to unblock the codegen exposure; (2) pick a decision-gated item (iOS/macOS permission request blocks; tap-to-pin worker exposure; P2.3 HoverEventFilter). Continuing to invoke without either yields only doc/no-op ticks at this point.
+
+### Tick — gate RED, reverted (get_location_fix exposure, 2nd attempt — repr blocker) (2026-05-20)
+
+Retried the FFI exposure with the corrected 2-pass autofix workflow; got further but hit a second distinct blocker, so reverted (tree GREEN again).
+
+Progress this attempt (the recipe works up to here): `autofix add CallbackInfo.get_location_fix` → apply → re-run bare `autofix` now reports `OptionLocationFix` as a needed ADDITION (referenced by the new fn) and the earlier "remove LocationFix" prune DISAPPEARS (it's now reachable). Curated the patch set to apply ONLY `0000_add_OptionLocationFix` (excluded `remove_MapTileId` + 4 gesture-move patches — pre-existing drift / footguns). OptionLocationFix registered as `option.OptionLocationFix` in api.json.
+
+New blocker: `codegen all` validation fails — "Invalid repr for tagged enum OptionLocationFix: got repr(C), expected repr(C, u8). Enums with variant data must use #[repr(C, u8)]." The autofix-added `OptionLocationFix` entry got `"repr": "C"`, but a data-carrying Option enum must be `repr(C, u8)` (the working `OptionPenState` entry is correct). So the autofix repr-derivation for a freshly-added Option type is wrong here.
+
+Reverted `git checkout api.json` + `codegen all` (getLocationFix/AzOptionLocationFix gone); gate GREEN (14/13/13/13/13 s). NEXT attempt: after applying the OptionLocationFix add, the entry's `repr` must be `C, u8` — investigate why autofix emitted `C` (vs OptionPenState); likely a one-field correction or an impl_option!/autofix repr-detection fix. impl_option!(LocationFix) prereq stays committed.
+
+**DISK NOW 98% / 5.1 GiB before this purge** — the exposure's codegen+revert+2 gates burned ~4 GiB. This is the tightest yet and these codegen ticks are the cause. Strongly recommend freeing non-azul disk before any further codegen attempt; committing only the log (no rebuild).
