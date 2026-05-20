@@ -1191,3 +1191,15 @@ The reverse direction of P4.1b's read path — a callback can now *request* auth
 Verify: `managers::biometric::` 7/7 tests pass; `bash scripts/mobile-check-all.sh` GREEN on all 5 targets. No codegen → disk stayed ~95% / 11 GiB.
 
 Next P4.1e: codegen-expose `CallbackInfo.request_biometric_auth` + the `BiometricPrompt` type (autofix add + 2-pass for BiometricPrompt's AzString fields; codegen all; gate). Then P4.1f: objc2 LAContext backend (iOS/macOS) replacing the stub; P4.1g: Android BiometricPrompt JNI.
+
+### Tick — P4.1e — biometric request API exposed (request_biometric_auth + BiometricPrompt codegen) (2026-05-20)
+
+Completes the biometric *public API* — both read (P4.1c) and request directions now flow through api.json to all 35 bindings.
+
+- `autofix add CallbackInfo.request_biometric_auth` → apply (fn_args: refmut self + `prompt: BiometricPrompt`, void return).
+- Bare `autofix` 2-pass surfaced `add_BiometricPrompt` (struct: reason/cancel_label `String`, allow_device_credential `bool`, repr `C`) AND `modify_BiometricKind: +custom_impl(Default)` — the latter aligns api.json with the hand-written `impl Default` (P4.1c added the type without it; mirrors GeolocationProbeConfig's custom_impls). Kept both; curated out the 5 pre-existing-drift patches.
+- `codegen all` regenerated `target/codegen/*`.
+
+Verify: `bash scripts/mobile-check-all.sh` GREEN on all 5 targets. Only `api.json` tracked. Purged host incremental pre-build; disk ~96% / 8.8 GiB → purging again post-commit.
+
+Biometric API is now feature-complete behind the public surface (request → channel → dll dispatch stub → Unavailable → result channel → manager → get_biometric_result; + get_biometric_kind probe). Next P4.1f: replace the dll stub with the real **objc2 LAContext** backend (iOS/macOS) — `dll/extra/biometric/{ios,macos}.rs`, evaluatePolicy reply block → push_biometric_result; canEvaluatePolicy/biometryType → set_availability. Then P4.1g: Android BiometricPrompt JNI.

@@ -9380,6 +9380,29 @@
                                     "type": "BiometricKind"
                                 },
                                 "fn_body": "object.get_biometric_kind()"
+                            },
+                            "request_biometric_auth": {
+                                "doc": [
+                                    "Request a biometric-auth prompt (Face ID / Touch ID / Android",
+                                    "`BiometricPrompt` / Windows Hello). Returns immediately — the OS",
+                                    "draws its own modal asynchronously; the outcome arrives on a later",
+                                    "frame and is read via [`CallbackInfo::get_biometric_result`]. Call",
+                                    "this from, e.g., an unlock button's `on_click`. The `prompt`",
+                                    "configures the reason text, cancel label, and whether the OS",
+                                    "passcode fallback is allowed. (No platform backend reports a real",
+                                    "outcome yet — the request currently resolves to",
+                                    "`BiometricResult::Unavailable`; the iOS/macOS/Android backends land",
+                                    "in a later tick.)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "prompt": "BiometricPrompt"
+                                    }
+                                ],
+                                "fn_body": "object.request_biometric_auth(prompt)"
                             }
                         },
                         "repr": "C"
@@ -87444,6 +87467,9 @@
                     },
                     "BiometricKind": {
                         "external": "azul_core::biometric::BiometricKind",
+                        "custom_impls": [
+                            "Default"
+                        ],
                         "derive": [
                             "Debug",
                             "Clone",
@@ -87460,6 +87486,29 @@
                                 "Fingerprint": {},
                                 "Face": {},
                                 "Iris": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "BiometricPrompt": {
+                        "external": "azul_core::biometric::BiometricPrompt",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "reason": {
+                                    "type": "String"
+                                },
+                                "cancel_label": {
+                                    "type": "String"
+                                },
+                                "allow_device_credential": {
+                                    "type": "bool"
+                                }
                             }
                         ],
                         "repr": "C"
