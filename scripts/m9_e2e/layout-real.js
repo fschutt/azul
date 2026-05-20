@@ -121,6 +121,12 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
         if (typeof mini.AzStartup_snapshotBumpHeap === 'function') {
             console.error('POST-TRAP: bump_ptr=0x' + mini.AzStartup_snapshotBumpHeap().toString(16));
         }
+        // 0x40040 = last BumpAlloc returned ptr; 0x40048 = NeverLift sym addr reached (0=none).
+        const retLo = mini.AzStartup_peekU32(0x40040), retHi = mini.AzStartup_peekU32(0x40044);
+        const nlLo = mini.AzStartup_peekU32(0x40048), nlHi = mini.AzStartup_peekU32(0x4004C);
+        console.error('POST-TRAP: last_alloc_ret=0x' + retHi.toString(16) + retLo.toString(16).padStart(8,'0') +
+                      '  NeverLift_reached=0x' + nlHi.toString(16) + nlLo.toString(16).padStart(8,'0') +
+                      ' (0x37993a0=handle_alloc_error)');
         process.exit(1);
     }
     if (rc !== 0) fail('solveLayoutReal rc=' + rc + ' (see status codes in eventloop.rs)');
