@@ -20,16 +20,27 @@
 //! later ticks; a biometry-bound `Get` parks its outcome back through
 //! `push_keyring_result` asynchronously from the OS prompt's reply.
 
-use azul_core::keyring::{KeyringRequest, KeyringResult};
-use azul_layout::managers::keyring::push_keyring_result;
+use azul_core::keyring::KeyringRequest;
+
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+pub mod apple;
 
 /// Dispatch one keyring op to the native keyring. Called from
 /// `regenerate_layout` for each request the layout pass drained.
 ///
-/// Stub for now: no backend, so the op resolves to `Unavailable` (parked
-/// in the result channel so `CallbackInfo::get_keyring_result()` reads it
-/// next frame).
+/// iOS/macOS route to the real Keychain backend (generic passwords, with
+/// `kSecAttrAccessControl = biometryCurrentSet` for biometry-bound items).
+/// Platforms without a backend yet (Android / Windows / Linux) resolve to
+/// `Unavailable` so the request → result round-trip stays observable —
+/// `CallbackInfo::get_keyring_result()` reads it next frame.
 pub fn request(req: &KeyringRequest) {
-    let _ = req;
-    push_keyring_result(KeyringResult::Unavailable);
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    apple::request(req);
+    #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+    {
+        let _ = req;
+        azul_layout::managers::keyring::push_keyring_result(
+            azul_core::keyring::KeyringResult::Unavailable,
+        );
+    }
 }

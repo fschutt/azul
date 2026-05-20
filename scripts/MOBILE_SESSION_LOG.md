@@ -1287,3 +1287,15 @@ Exposed the keyring read+request surface through api.json (35-lang codegen). Cle
 Verify: `bash scripts/mobile-check-all.sh` GREEN on all 5. Only `api.json` tracked. Disk 96% → purging.
 
 Keyring is now feature-complete behind the public API (request → channel → dll stub → Unavailable → result → manager → get_keyring_result). Next P4.2d: real **Keychain** backend (objc2 Security.framework `SecItemAdd`/`SecItemCopyMatching`/`SecItemDelete`) for iOS/macOS in `dll/extra/keyring/apple.rs`, with `kSecAttrAccessControl=biometryCurrentSet` for biometry-bound items. Then KeyStore (JNI) / libsecret / CredentialLocker.
+
+### Tick — P4.2d — Keychain keyring backend (iOS/macOS, security-framework) (2026-05-20)
+
+First real keyring backend. Used `security-framework`'s clean generic-password API (already in the lock as a transitive dep) instead of hand-marshalling `SecItem*` CFDictionaries — read the crate source to confirm the API.
+
+- `dll/Cargo.toml`: `security-framework = "3"` added to the iOS + macOS deps sections + `_internal_deps`.
+- `dll/extra/keyring/apple.rs` (new): `request()` spawns a worker thread (a biometry-bound `Get`'s `SecItemCopyMatching` blocks on the OS prompt — must not freeze the layout thread) → `handle()`: Store via `set_generic_password[_options]` (`AccessControlOptions::BIOMETRY_CURRENT_SET` when `require_biometry`), Get via `get_generic_password`→UTF-8→`Retrieved`, Delete via `delete_generic_password` (idempotent on NotFound). `map_err` by OSStatus: -25300→NotFound, -128/-25293→Denied, else Error. Service-scoped to `com.azul.keyring`.
+- `mod.rs`: dispatch `any(ios,macos)`→apple; others→Unavailable.
+
+Verify: `bash scripts/mobile-check-all.sh` GREEN on all 5 (iOS compiles security-framework); macOS host check CLEAN. Disk 96% → purging.
+
+Next P4.2e: Android **KeyStore** Rust JNI side (mirror biometric P4.1h: `com.azul.keyring.AzulKeyring` shim calls; gate-verifiable Rust, Java shim deferred). Linux libsecret + Windows CredentialLocker backends are NOT verifiable on this darwin host (no Linux/Windows target in the gate) → deferred with the Java shims. After P4.2e, advance to **P4.3 db-sqlite** (the AzulVault goal app's actual storage; explicit "approach A" design in the prompt).

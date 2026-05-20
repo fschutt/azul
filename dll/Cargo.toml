@@ -130,6 +130,9 @@ objc2-local-authentication = { version = "0.3.2", default-features = true, optio
     "LABiometryType",
     "block2",
 ] }
+# Keychain (generic-password) for the keyring backend (P4.2). Already in
+# the lock as a transitive dep; declared direct + optional here.
+security-framework = { version = "3", optional = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 # NativeActivity bootstrap, event polling, soft-keyboard control, and
@@ -203,6 +206,8 @@ objc2-local-authentication = { version = "0.3.2", default-features = true, optio
     "LABiometryType",
     "block2",
 ] }
+# Keychain (generic-password) for the keyring backend (P4.2).
+security-framework = { version = "3", optional = true }
 
 [build-dependencies]
 brotli = "8"
@@ -378,6 +383,7 @@ _internal_deps = [
     "objc2-foundation",
     "objc2-app-kit",
     "objc2-local-authentication",
+    "security-framework",
     "libc",
     "winapi",
 ]
