@@ -241,6 +241,17 @@ build-dll = [
     "_internal_deps",
     "font_loading_multithreaded",
     "font_async_registry",
+    # Full functional surface for a complete libazul dylib — P4-P8 demos
+    # consume these through api.json. New feature-gated subsystems
+    # (db-sqlite, biometric, …) MUST be added here as they land.
+    "a11y",
+    "icons",
+    "svg",
+    "xml",
+    "icu",
+    "fluent",
+    "http",
+    "map-tiles",
 ]
 
 # -----------------------------------------------------------------------------
@@ -374,7 +385,7 @@ web = [
     "serde_json",
     "postcard",
     "base64",
-    "brotli-decompressor",
+    "dep:brotli-decompressor",
 ]
 
 # x86-64 → WASM transpiler backend for the web feature.
@@ -455,8 +466,11 @@ icu_windows = ["azul-layout", "azul-layout/icu_windows"]
 # Project Fluent localization support (FTL files, language packs)
 fluent = ["azul-layout", "azul-layout/fluent"]
 
-# Icon provider support (material icons, icon packs)
-icons = ["azul-layout", "azul-layout/icons"]
+# Icon provider support (material icons, icon packs). The dll owns the
+# `include!` of the codegen-generated material_icons.ttf.br (moved out of
+# azul-layout to break the azul-doc→azul-layout build cycle), so enabling
+# icons must also pull the brotli decompressor here.
+icons = ["azul-layout", "azul-layout/icons", "dep:brotli-decompressor"]
 
 # HTTP client support for downloading resources
 http = ["azul-layout", "azul-layout/http"]

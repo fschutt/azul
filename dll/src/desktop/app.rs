@@ -53,8 +53,15 @@ impl App {
         // Set the icon resolver from the layout crate (the default resolver in core is a no-op)
         app_config.icon_provider.set_resolver(azul_layout::icon::default_icon_resolver);
 
-        // Register embedded Material Icons if the feature is enabled
-        azul_layout::icon::register_embedded_material_icons(&mut app_config.icon_provider);
+        // Register embedded Material Icons if the feature is enabled. The
+        // font bytes are embedded in the dll (downstream of codegen), not
+        // in azul-layout, so we pass them in.
+        if let Some(font_bytes) = crate::desktop::material_icons::get_material_icons_font_bytes() {
+            azul_layout::icon::register_embedded_material_icons(
+                &mut app_config.icon_provider,
+                font_bytes,
+            );
+        }
 
         let app_internal = AppInternal::create(initial_data, app_config);
         let boxed = Box::new(app_internal);

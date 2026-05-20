@@ -73,6 +73,9 @@ pub mod gl_texture_cache;
 pub mod gl_texture_integration;
 #[cfg(feature = "logging")]
 mod logging;
+/// Embedded Material Icons font (the codegen-generated brotli asset lives
+/// here, not in azul-layout — see the module docs).
+pub mod material_icons;
 /// Unified menu system using window-based approach
 pub mod menu;
 /// Menu rendering - Converts Menu structures to StyledDom

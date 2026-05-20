@@ -2871,7 +2871,7 @@ fn handle_http_connection(stream: &mut std::net::TcpStream, request_tx: &Arc<Mut
 
     // ── Route: GET /material-icons.ttf → serve embedded Material Icons font ──
     if method == "GET" && path == "/material-icons.ttf" {
-        if let Some(font_bytes) = azul_layout::icon::get_material_icons_font_bytes() {
+        if let Some(font_bytes) = crate::desktop::material_icons::get_material_icons_font_bytes() {
             let header = format!(
                 "HTTP/1.0 200 OK\r\nContent-Type: font/ttf\r\nCache-Control: public, max-age=31536000\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                 font_bytes.len()
