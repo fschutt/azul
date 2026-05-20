@@ -209,6 +209,10 @@ function parseWasmFnNames(buf) {
         console.log('  M12.5y DROP-ISOLATION: after drop(css) node_count=' + dbg(46) +
             ' &node_count=0x' + (dbg(47) >>> 0).toString(16) +
             '  (=1 & 0x2ef98 => drop innocent, apply_ua_css corrupts; else drop corrupts)');
+        console.log('  M12.5y STYLEDDOM: .into() INPUT compact_dom.node_data.internal len=' + dbg(50) +
+            ' ptr=0x' + (dbg(51) >>> 0).toString(16) + '  ||  OUTPUT styled_dom.node_data len=' + dbg(48) +
+            ' ptr=0x' + (dbg(49) >>> 0).toString(16) +
+            '  (in=1,out=0 => .into() lost it; in=0 => emptied before)');
         const lo = k => mini.AzStartup_getDbgNc(k * 2) >>> 0;
         const cap = k => (dbg(k) >= 0x100000000 ? String(lo(k)) : '(not captured)');
         const self15 = dbg(15), sp13 = dbg(13);

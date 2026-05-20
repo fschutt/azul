@@ -1198,6 +1198,14 @@ impl StyledDom {
         } else {
             (Vec::new(), Vec::new())
         };
+        // M12.5y — capture the .into() INPUT (compact_dom.node_data.internal) right
+        // before the StyledDom assembly. [50]=len, [51]=ptr. If [50]=1 but [48]=0
+        // (post-assembly), the Vec->NodeDataVec `.into()` lost it; if [50]=0, it was
+        // emptied between build_compact_cache and here.
+        unsafe {
+            crate::compact_cache_builder::AZ_DBG_NC[50] = compact_dom.node_data.internal.len() as u64;
+            crate::compact_cache_builder::AZ_DBG_NC[51] = compact_dom.node_data.internal.as_ptr() as u64;
+        }
 
         let mut styled_dom = StyledDom {
             root: NodeHierarchyItemId::from_crate_internal(Some(compact_dom.root)),
@@ -1212,6 +1220,14 @@ impl StyledDom {
             css_property_cache: CssPropertyCachePtr::new(css_property_cache),
             dom_id: DomId::ROOT_ID,
         };
+        // M12.5y — capture the assembled StyledDom's node_data BEFORE return/box.
+        // [48]=node_data.len, [49]=node_data.as_ptr. If len=1 here but
+        // getStyledDomNodeCount=0, the loss is in the sret-return / Box::new of
+        // StyledDom; if len=0 here, the `.into()` conversion (line 1215) lost it.
+        unsafe {
+            crate::compact_cache_builder::AZ_DBG_NC[48] = styled_dom.node_data.len() as u64;
+            crate::compact_cache_builder::AZ_DBG_NC[49] = styled_dom.node_data.as_ref().as_ptr() as u64;
+        }
 
         #[cfg(feature = "table_layout")]
         if let Err(_e) = crate::dom_table::generate_anonymous_table_elements(&mut styled_dom) {
