@@ -519,7 +519,46 @@ extern "C" fn map_on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Upd
 }
 
 fn wrap_lon(lon: f64) -> f64 {
-    ((lon + 540.0) % 360.0) - 180.0
+    // `rem_euclid` (not `%`) so even large negative deltas normalise:
+    // `%` follows the dividend's sign and would leak values < -180.
+    (lon + 180.0).rem_euclid(360.0) - 180.0
+}
+
+// ────────── Web-Mercator (WGS-84 ↔ XYZ tile space) ───────────────────
+//
+// `tile_count` is `2^zoom`. Tile-space x grows east (0 at lon -180,
+// `tile_count` at lon +180); y grows south (0 at the north edge
+// ~85.05°, `tile_count` at the south edge). These four functions are
+// exact inverses of each other and are the single source of truth for
+// the widget's projection — `map_widget_render` forward-projects the
+// viewport centre through them; tap-to-pin will inverse-project taps.
+
+/// Longitude (deg) → fractional tile-x at the given `tile_count`.
+fn lon_to_tile_x(lon_deg: f64, tile_count: f64) -> f64 {
+    (lon_deg + 180.0) / 360.0 * tile_count
+}
+
+/// Latitude (deg) → fractional tile-y at the given `tile_count`.
+fn lat_to_tile_y(lat_deg: f64, tile_count: f64) -> f64 {
+    let lat_rad = lat_deg.to_radians();
+    let mercator =
+        (1.0 - (lat_rad.tan() + 1.0 / lat_rad.cos()).ln() / core::f64::consts::PI) / 2.0;
+    mercator * tile_count
+}
+
+/// Fractional tile-x → longitude (deg). Inverse of [`lon_to_tile_x`].
+/// Verified against the forward direction in the tests below; the
+/// upcoming tap-to-pin handler reuses it to turn a tap into a lat/lon.
+#[allow(dead_code)]
+fn tile_x_to_lon(x: f64, tile_count: f64) -> f64 {
+    x / tile_count * 360.0 - 180.0
+}
+
+/// Fractional tile-y → latitude (deg). Inverse of [`lat_to_tile_y`].
+#[allow(dead_code)]
+fn tile_y_to_lat(y: f64, tile_count: f64) -> f64 {
+    let n = core::f64::consts::PI * (1.0 - 2.0 * y / tile_count);
+    n.sinh().atan().to_degrees()
 }
 
 /// Parse a standalone `<svg>…</svg>` string into a `Dom` subtree via
@@ -691,17 +730,10 @@ extern "C" fn map_widget_render(
     let frac_zoom = viewport.zoom - z_int as f32;
     let zoom_scale = 2.0_f32.powf(frac_zoom);
 
-    // Convert WGS-84 → Web-Mercator-XYZ tile-space. The standard
-    // formula (Bing tile system):
-    //     x = (lon + 180) / 360
-    //     y = (1 - ln(tan(lat) + sec(lat)) / pi) / 2
-    let centre_x = ((viewport.centre_lon_deg + 180.0) / 360.0) as f32 * tile_count as f32;
-    let centre_y = {
-        let lat_rad = viewport.centre_lat_deg.to_radians();
-        let mercator =
-            (1.0 - (lat_rad.tan() + 1.0 / lat_rad.cos()).ln() / core::f64::consts::PI) / 2.0;
-        mercator as f32 * tile_count as f32
-    };
+    // Convert WGS-84 → Web-Mercator-XYZ tile-space via the shared
+    // projection helpers (the single source of truth, unit-tested below).
+    let centre_x = lon_to_tile_x(viewport.centre_lon_deg, tile_count as f64) as f32;
+    let centre_y = lat_to_tile_y(viewport.centre_lat_deg, tile_count as f64) as f32;
 
     // How many tiles fit on each side of centre, at fractional zoom.
     // 256 is the Mercator tile pixel size at integer zoom.
@@ -823,5 +855,87 @@ extern "C" fn map_widget_render(
         scroll_offset: azul_core::geom::LogicalPosition::zero(),
         virtual_scroll_size: bounds_logical,
         virtual_scroll_offset: azul_core::geom::LogicalPosition::zero(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn approx(a: f64, b: f64, eps: f64) {
+        assert!((a - b).abs() < eps, "expected {a} ≈ {b} (within {eps})");
+    }
+
+    #[test]
+    fn wrap_lon_keeps_in_range() {
+        approx(wrap_lon(0.0), 0.0, 1e-9);
+        approx(wrap_lon(179.0), 179.0, 1e-9);
+        approx(wrap_lon(-179.0), -179.0, 1e-9);
+        // Past the antimeridian wraps to the other side.
+        approx(wrap_lon(181.0), -179.0, 1e-9);
+        approx(wrap_lon(-181.0), 179.0, 1e-9);
+        // 540° ≡ 180° ≡ -180° — the antimeridian normalises to -180.
+        approx(wrap_lon(540.0), -180.0, 1e-9);
+        // Anything fed in must come out within [-180, 180].
+        for raw in [-1234.5, -360.0, 360.0, 999.9] {
+            let w = wrap_lon(raw);
+            assert!((-180.0..=180.0).contains(&w), "{raw} → {w} out of range");
+        }
+    }
+
+    #[test]
+    fn build_tile_url_substitutes_zxy() {
+        let tile = MapTileId { z: 11, x: 327, y: 791 };
+        assert_eq!(
+            build_tile_url("https://t.example/{z}/{x}/{y}.pbf", tile),
+            "https://t.example/11/327/791.pbf"
+        );
+        // Repeated and out-of-order placeholders both resolve.
+        assert_eq!(
+            build_tile_url("{y}-{x}-{z}-{z}", MapTileId { z: 3, x: 4, y: 5 }),
+            "5-4-3-3"
+        );
+    }
+
+    #[test]
+    fn lon_tile_endpoints() {
+        // At zoom 0 the world is one tile: -180° → 0, +180° → 1.
+        approx(lon_to_tile_x(-180.0, 1.0), 0.0, 1e-9);
+        approx(lon_to_tile_x(180.0, 1.0), 1.0, 1e-9);
+        approx(lon_to_tile_x(0.0, 1.0), 0.5, 1e-9);
+        // Greenwich at zoom 1 (2 tiles wide) sits on the seam.
+        approx(lon_to_tile_x(0.0, 2.0), 1.0, 1e-9);
+    }
+
+    #[test]
+    fn lat_tile_equator_and_symmetry() {
+        // Equator maps to the vertical centre of the map.
+        approx(lat_to_tile_y(0.0, 1.0), 0.5, 1e-9);
+        // North is above (smaller y) and is mirror-symmetric to south.
+        let north = lat_to_tile_y(45.0, 1.0);
+        let south = lat_to_tile_y(-45.0, 1.0);
+        assert!(north < 0.5 && south > 0.5);
+        approx(north + south, 1.0, 1e-9);
+    }
+
+    #[test]
+    fn projection_round_trips() {
+        // Forward then inverse must return the original coordinate, for
+        // a handful of real-world points across several zooms.
+        let points = [
+            (37.7749, -122.4194), // San Francisco
+            (51.5074, -0.1278),   // London
+            (-33.8688, 151.2093), // Sydney
+            (0.0, 0.0),           // null island
+        ];
+        for z in [0u32, 5, 11, 18] {
+            let tc = (1u64 << z) as f64;
+            for (lat, lon) in points {
+                let x = lon_to_tile_x(lon, tc);
+                let y = lat_to_tile_y(lat, tc);
+                approx(tile_x_to_lon(x, tc), lon, 1e-6);
+                approx(tile_y_to_lat(y, tc), lat, 1e-6);
+            }
+        }
     }
 }

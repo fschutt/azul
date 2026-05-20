@@ -753,3 +753,15 @@ Used the now-public `Dom::create_geolocation_probe` (P3.2n) from the AzulMaps ex
 `cargo check -p azul-maps` clean (only pre-existing generated-code warnings). `bash scripts/mobile-check-all.sh` GREEN on all 5 mobile targets (1/0/1/0/0 s). Cleared `target/debug/incremental` (disk 94%→93%). No codegen change — the example only consumes already-public API.
 
 Still open for the user: the real-tile demo call (caveat 4) remains gated on the worker-exposure design choice (no-arg `dom_with_default_tiles()` vs a `tile_fetch_thread_callback() -> ThreadCallback` helper); I lean toward the no-arg form. Live threading-runtime confirmation still deferred (user: "just compiles + works in theory").
+
+### Tick — P3.3a unit-test + harden the MapWidget projection math (2026-05-20)
+
+Locked down the Web-Mercator/tile math the whole map rests on — it had zero tests and was duplicated inline. Verifiable in-loop (`cargo test -p azul-layout --lib widgets::map::`), unlike anything needing a sim; and it's the exact inverse-projection tap-to-pin (P3.3b) will reuse, so this de-risks that tick.
+
+- Extracted four pure helpers in `layout/src/widgets/map.rs`: `lon_to_tile_x` / `lat_to_tile_y` (forward) + `tile_x_to_lon` / `tile_y_to_lat` (inverse). `map_widget_render` now routes its centre projection through the forward pair (removed the duplicated inline formula).
+- Added `#[cfg(test)] mod tests`: 5 tests (wrap_lon range, build_tile_url {z}/{x}/{y} substitution, lon/lat tile endpoints + equator symmetry, forward∘inverse round-trip across SF/London/Sydney/null-island at zooms 0/5/11/18).
+- Fixed a latent bug the round-trip surfaced: `wrap_lon` used `%` (follows dividend sign) so large negative pan deltas leaked below -180; switched to `rem_euclid`.
+
+5/5 tests pass. `bash scripts/mobile-check-all.sh` GREEN on all 5 mobile targets (6s each). Cleared `target/debug/incremental` (disk 94%). No codegen / api.json change — helpers are private widget internals.
+
+Still open for the user (unchanged): the real-tile demo call gated on the worker-exposure choice (`dom_with_default_tiles()` vs `tile_fetch_thread_callback()`); I lean no-arg. Next tick: P3.3b tap-to-pin-callout on this tested projection.
