@@ -1050,6 +1050,15 @@ impl StyledDom {
         // M12.5n TEMP DIAGNOSTIC — bracket css_property_cache.node_count to
         // find which op scrambles it 1→ptr. [7]=after empty.
         unsafe { crate::compact_cache_builder::AZ_DBG_NC[7] = css_property_cache.node_count as u64; }
+        // M12.5y — capture the EXACT wasm address of node_count + the cache base,
+        // so the store tracer can be filtered to the node_count slot (the struct
+        // is not repr(C), so node_count is not at offset 0).
+        unsafe {
+            crate::compact_cache_builder::AZ_DBG_NC[41] =
+                (&css_property_cache.node_count as *const usize as usize) as u64;
+            crate::compact_cache_builder::AZ_DBG_NC[42] =
+                (&css_property_cache as *const CssPropertyCache as usize) as u64;
+        }
 
         let html_tree = construct_html_cascade_tree(
             &compact_dom.node_hierarchy.as_ref(),
@@ -1091,12 +1100,20 @@ impl StyledDom {
         // (`emit_css_from_cache`) walks per node.
         css_property_cache.apply_ua_css(compact_dom.node_data.as_ref().internal);
         unsafe { crate::compact_cache_builder::AZ_DBG_NC[9] = css_property_cache.node_count as u64; } // [9]=after apply_ua_css
+        // M12.5y — &node_count address at [9]/[11]/dump time. If these DIFFER from
+        // [41] (captured right after empty, =0x2ef98), the lift computes the local
+        // cache's stack address inconsistently → the reads, not a store, are wrong.
+        unsafe {
+            crate::compact_cache_builder::AZ_DBG_NC[43] =
+                (&css_property_cache.node_count as *const usize as usize) as u64;
+        }
         // M12.5v: NON-PERTURBING dump of the cache's first 160 bytes (done in create_from,
         // NOT apply_ua_css, so it cannot perturb the buggy lifted apply_ua_css). Reveals the
         // corruption pattern: if self+0x88 holds a CssPropertyType disc → the 144B StatefulCssProperty
         // slot-copy hit self; if only node_count(self+0) changed → a targeted write.
         unsafe {
             let p = &css_property_cache as *const _ as *const u64;
+            crate::compact_cache_builder::AZ_DBG_NC[44] = p as usize as u64; // dump-time &cache
             for k in 0..20usize {
                 crate::compact_cache_builder::AZ_DBG_NC[16 + k] = core::ptr::read_volatile(p.add(k));
             }
@@ -1112,6 +1129,10 @@ impl StyledDom {
             .map(|c| c.prev_font_hashes.clone())
             .unwrap_or_default();
         unsafe { crate::compact_cache_builder::AZ_DBG_NC[11] = css_property_cache.node_count as u64; } // [11]=before build_compact_cache
+        unsafe {
+            crate::compact_cache_builder::AZ_DBG_NC[45] =
+                (&css_property_cache.node_count as *const usize as usize) as u64;
+        }
         let compact = css_property_cache.build_compact_cache_with_inheritance(
             compact_dom.node_data.as_ref().internal,
             node_hierarchy.as_container().internal,

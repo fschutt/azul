@@ -202,6 +202,10 @@ function parseWasmFnNames(buf) {
         console.log('  [9] after apply_ua_css()        = ' + dbg(9));
         console.log('  [10] after compute_inherited()  = ' + dbg(10));
         console.log('  [11] before build_compact_cache = ' + dbg(11));
+        console.log('  M12.5y &node_count ADDR: [7t]=0x' + (dbg(41) >>> 0).toString(16) +
+            ' [9t]=0x' + (dbg(43) >>> 0).toString(16) + ' [11t]=0x' + (dbg(45) >>> 0).toString(16) +
+            '  &cache[dumpt]=0x' + (dbg(44) >>> 0).toString(16) +
+            '  (DIFFER => lift computes the local cache addr inconsistently)');
         const lo = k => mini.AzStartup_getDbgNc(k * 2) >>> 0;
         const cap = k => (dbg(k) >= 0x100000000 ? String(lo(k)) : '(not captured)');
         const self15 = dbg(15), sp13 = dbg(13);
@@ -224,6 +228,58 @@ function parseWasmFnNames(buf) {
             else if (j === 4) tag = '  <- cascaded_props FlatVecVec.build (Vec cap)';
             else if (j === 17) tag = '  <- self+0x88 = StatefulCssProperty.prop_type if slot-copy hit self';
             console.log('  cache[+0x' + (j * 8).toString(16).padStart(2, '0') + '] = 0x' + v.toString(16) + tag);
+        }
+    }
+
+    // ===== M12.5y store-address tracer ring buffer @0x41000 =====
+    // (populated only when the server lifted with AZ_LOG_STORES=<dep-stem>)
+    {
+        const logCount = rd(0x41000);
+        if (logCount > 0) {
+            const g = (typeof mini.AzStartup_getDbgNc === 'function') ? (k => mini.AzStartup_getDbgNc(k) >>> 0) : (() => 0);
+            const selfAddr = g(30);          // dbg(15) lo = cache base (apply_ua_css view)
+            const ncAddr = g(82);            // dbg(41) lo = &node_count
+            const cacheBase = g(84);         // dbg(42) lo = &cache
+            const ncOff = (ncAddr && cacheBase) ? (ncAddr - cacheBase) : -1;
+            console.log('--- M12.5y store tracer (count=' + logCount +
+                ', cache=0x' + cacheBase.toString(16) + ', &node_count=0x' + ncAddr.toString(16) +
+                ' (offset ' + ncOff + '=0x' + (ncOff >>> 0).toString(16) + ')) ---');
+            const shown = Math.min(logCount, 3500);
+            const ncWrites = [];   // exact &node_count writes (with value)
+            const spanWrites = []; // writes whose [addr, addr+val) spans node_count (memset/memcpy len)
+            for (let i = 0; i < shown; i++) {
+                const a = rd((0x41010 + i * 16) >>> 0);
+                const id = rd((0x41010 + i * 16 + 4) >>> 0);
+                const dt = rd((0x41010 + i * 16 + 8) >>> 0);
+                const val = rd((0x41010 + i * 16 + 12) >>> 0);
+                if (ncAddr && a === ncAddr) ncWrites.push({ i, id, dt, val });
+                // spanning: addr <= ncAddr < addr+val, and val is a plausible length (< 0x10000, > 8)
+                if (ncAddr && a <= ncAddr && (a + val) > ncAddr && val > 8 && val < 0x10000) spanWrites.push({ i, id, dt, val, a });
+            }
+            console.log('  >>> EXACT WRITES TO &node_count (0x' + ncAddr.toString(16) + ') [value shown]:');
+            if (ncWrites.length === 0) console.log('     (none)');
+            for (const w of ncWrites) console.log('     [' + w.i + '] dep=0x' + w.dt.toString(16) + ' id=' + w.id + ' val=0x' + w.val.toString(16));
+            console.log('  >>> SPANNING WRITES (memset/memcpy [addr,addr+len) covers node_count) — likely the bulk-zero corruptor:');
+            if (spanWrites.length === 0) console.log('     (none)');
+            for (const w of spanWrites) console.log('     [' + w.i + '] dep=0x' + w.dt.toString(16) + ' id=' + w.id +
+                ' addr=0x' + w.a.toString(16) + ' len=0x' + w.val.toString(16) + ' (-> 0x' + (w.a + w.val).toString(16) + ')');
+        }
+        // Also: dump every write whose addr is inside the cache struct, with value,
+        // for manual inspection of the zeroing sequence.
+        if (logCount > 0) {
+            const cacheBase2 = (typeof mini.AzStartup_getDbgNc === 'function') ? (mini.AzStartup_getDbgNc(84) >>> 0) : 0;
+            const shown = Math.min(logCount, 3500);
+            const inCache = [];
+            for (let i = 0; i < shown; i++) {
+                const a = rd((0x41010 + i * 16) >>> 0);
+                if (cacheBase2 && a >= cacheBase2 && a < cacheBase2 + 0x198) {
+                    inCache.push({ i, off: a - cacheBase2, id: rd((0x41010 + i * 16 + 4) >>> 0), dt: rd((0x41010 + i * 16 + 8) >>> 0), val: rd((0x41010 + i * 16 + 12) >>> 0) });
+                }
+            }
+            console.log('  >>> ALL writes inside the cache struct [cacheBase+off], execution order:');
+            for (const w of inCache) console.log('     [' + w.i + '] +0x' + w.off.toString(16) + ' dep=0x' + w.dt.toString(16) + ' id=' + w.id + ' val=0x' + w.val.toString(16));
+        } else {
+            console.log('--- M12.5y store tracer: count=0 ---');
         }
     }
 

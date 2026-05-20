@@ -1064,6 +1064,44 @@ impl RemillTranspiler {
                 fn_name,
             )?;
 
+            // M12.5y store-address tracer: when AZ_LOG_STORES contains a
+            // comma-separated substring matching this dep's stem, instrument
+            // the post-opt IR in place (then llc compiles the instrumented
+            // version). See `inject_store_logging`.
+            if let Ok(target) = std::env::var("AZ_LOG_STORES") {
+                let is_wrapper =
+                    export_as.starts_with("AzStartup_") || export_as.contains("AzBoundary_");
+                let matched = if target == "ALL" {
+                    !is_wrapper
+                } else {
+                    target
+                        .split(',')
+                        .any(|s| !s.is_empty() && (fn_name.contains(s) || stem.contains(s)))
+                };
+                if matched {
+                    // deptag = low 32 bits of the dep's runtime addr (the hex
+                    // suffix of `__az_dep_<hex>`); 0 for non-dep export names.
+                    let deptag = export_as
+                        .rsplit('_')
+                        .next()
+                        .and_then(|h| u64::from_str_radix(h, 16).ok())
+                        .map(|v| v as u32)
+                        .unwrap_or(0);
+                    if let Ok(opt_ir) = std::fs::read_to_string(&opt_ir_path) {
+                        let (instrumented, n) = inject_store_logging(&opt_ir, deptag);
+                        let _ = std::fs::write(&opt_ir_path, &instrumented);
+                        let _ = std::fs::write(
+                            self.scratch_dir.join(format!("{}.instr.ll", stem)),
+                            &instrumented,
+                        );
+                        eprintln!(
+                            "[azul-web] M12.5y: instrumented {} stores in {} (deptag=0x{:x})",
+                            n, stem, deptag
+                        );
+                    }
+                }
+            }
+
             run_tool(
                 tools.llc,
                 &[
@@ -4028,6 +4066,202 @@ fn sanitize_filename(name: &str) -> String {
     name.chars()
         .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
         .collect()
+}
+
+/// M12.5y — Heisenbug-proof store-address tracer.
+///
+/// Injects, before every `store <ty> <val>, ptr %X, ...` in the POST-OPT IR
+/// of a target dep, a `ptrtoint`+`call @__az_logst(addr, id)` that records the
+/// runtime store address + a per-store id into a ring buffer at wasm linear
+/// address 0x41000 when the address is in the guest-stack window
+/// [0x20000, 0x40000) (excludes the heap 0x6000000+ and the ~4 MiB mirror
+/// pages).
+///
+/// Why this beats every runtime probe we tried: the corrupting `push_to`
+/// element-copy slot store SHOULD target the heap (excluded by the window) but
+/// at runtime lands on `self`(~0x2ee10, in-window). It therefore shows up in
+/// the log *because* it is corrupt. The store addresses are fixed SSA values
+/// after `opt`; only `llc` register allocation runs afterwards, and that cannot
+/// change a computed address — so this observes the real (corrupting) store
+/// without perturbing the AArch64 lift (the source of the Heisenbug in every
+/// Rust-source-level probe). The emitted id maps each in-window store back to
+/// its exact `.opt.ll` line (saved as `<stem>.instr.ll`), which traces through
+/// SSA to the offending register (`%X27`/`%X8`/...).
+fn inject_store_logging(opt_ir: &str, deptag: u32) -> (String, u32) {
+    let mut out = String::with_capacity(opt_ir.len() + (1 << 17));
+    let mut id: u32 = 0;
+    for line in opt_ir.lines() {
+        // Log the destination + value of a `store`, OR the dest pointer + LENGTH
+        // of a memset/memcpy/memmove (a bulk zero/copy can clobber many cache
+        // bytes via one call whose start address is logged elsewhere — the
+        // length lets the reader detect a write that *spans* node_count).
+        if let Some((dest, valdef, valop)) = parse_logged_write(line, id) {
+            let indent: String = line.chars().take_while(|c| *c == ' ').collect();
+            out.push_str(&format!("{indent}%azp_{id} = ptrtoint ptr {dest} to i32\n"));
+            if let Some(def) = valdef {
+                out.push_str(&format!("{indent}{def}\n"));
+            }
+            out.push_str(&format!(
+                "{indent}call void @__az_logst(i32 %azp_{id}, i32 {id}, i32 {valop})\n"
+            ));
+            id += 1;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    // Ring buffer layout (wasm linear memory):
+    //   0x41000         : u32 count (total in-window writes; may exceed cap)
+    //   0x41010 + k*16  : (u32 addr, u32 id, u32 deptag, u32 val) for k in 0..3500
+    // val = stored value (int stores) / length (mem intrinsics) / 0xDEADBEEF
+    // (non-int store) / 0xBEEF0000 (mem, no parseable len). Window
+    // [0x2e000, 0x2f000) = the self/cache page (self ~0x2ee10).
+    // cap*16 = 56 KiB fits 0x41010..0x4EAD0 (< on_click stack base 0x50000).
+    out.push_str(&format!(
+        "\ndefine internal void @__az_logst(i32 %addr, i32 %id, i32 %val) {{\n\
+         azentry:\n\
+         \x20 %azlo = icmp uge i32 %addr, 188416\n\
+         \x20 %azhi = icmp ult i32 %addr, 192512\n\
+         \x20 %azin = and i1 %azlo, %azhi\n\
+         \x20 br i1 %azin, label %azdo, label %azout\n\
+         azdo:\n\
+         \x20 %azcntp = inttoptr i32 266240 to ptr\n\
+         \x20 %azcnt = load volatile i32, ptr %azcntp, align 4\n\
+         \x20 %azcnt1 = add i32 %azcnt, 1\n\
+         \x20 store volatile i32 %azcnt1, ptr %azcntp, align 4\n\
+         \x20 %azfull = icmp uge i32 %azcnt, 3500\n\
+         \x20 br i1 %azfull, label %azout, label %azwr\n\
+         azwr:\n\
+         \x20 %azoff = mul i32 %azcnt, 16\n\
+         \x20 %azea = add i32 %azoff, 266256\n\
+         \x20 %azep = inttoptr i32 %azea to ptr\n\
+         \x20 store volatile i32 %addr, ptr %azep, align 4\n\
+         \x20 %azida = add i32 %azea, 4\n\
+         \x20 %azidp = inttoptr i32 %azida to ptr\n\
+         \x20 store volatile i32 %id, ptr %azidp, align 4\n\
+         \x20 %azdta = add i32 %azea, 8\n\
+         \x20 %azdtp = inttoptr i32 %azdta to ptr\n\
+         \x20 store volatile i32 {deptag}, ptr %azdtp, align 4\n\
+         \x20 %azva = add i32 %azea, 12\n\
+         \x20 %azvp = inttoptr i32 %azva to ptr\n\
+         \x20 store volatile i32 %val, ptr %azvp, align 4\n\
+         \x20 br label %azout\n\
+         azout:\n\
+         \x20 ret void\n\
+         }}\n"
+    ));
+    (out, id)
+}
+
+/// Decide whether `line` is a tracked write and, if so, return
+/// `(dest_ptr_name, optional i32-value-materialization line, i32-value-operand)`.
+/// Tracks `store iN`/`store <other>` and `memset/memcpy/memmove`.
+fn parse_logged_write(line: &str, id: u32) -> Option<(String, Option<String>, String)> {
+    let t = line.trim_start();
+    if t.starts_with("store ") {
+        let dest = parse_store_dest(line)?;
+        let body = t.strip_prefix("store ").unwrap_or(t);
+        let body = body.strip_prefix("volatile ").unwrap_or(body);
+        for (ty, kind) in [("i64", 'T'), ("i32", 'O'), ("i16", 'Z'), ("i8", 'Z')] {
+            if let Some(rest) = body.strip_prefix(&format!("{ty} ")) {
+                if let Some(end) = rest.find(", ptr ") {
+                    let v = rest[..end].trim();
+                    let def = match kind {
+                        'T' => format!("%azv_{id} = trunc i64 {v} to i32"),
+                        'O' => format!("%azv_{id} = or i32 {v}, 0"),
+                        _ => format!("%azv_{id} = zext {ty} {v} to i32"),
+                    };
+                    return Some((dest, Some(def), format!("%azv_{id}")));
+                }
+            }
+        }
+        // non-int store (vector / ptr / float): log addr but a sentinel value.
+        return Some((dest, None, "3735928559".to_string())); // 0xDEADBEEF
+    }
+    if let Some(dest) = parse_memintrinsic_dest(line) {
+        if let Some(len) = parse_memintrinsic_len(line) {
+            return Some((
+                dest,
+                Some(format!("%azv_{id} = trunc i64 {len} to i32")),
+                format!("%azv_{id}"),
+            ));
+        }
+        return Some((dest, None, "3203399168".to_string())); // 0xBEEF0000
+    }
+    None
+}
+
+/// Extract the destination pointer `%name` of an `@llvm.memset/memcpy/memmove`
+/// (or bare host `@memset/@memcpy/@memmove`) call — the first `%`-operand after
+/// `(` (the dest is always the first pointer arg).
+fn parse_memintrinsic_dest(line: &str) -> Option<String> {
+    let t = line.trim_start();
+    let is_mem = t.contains("@llvm.memset")
+        || t.contains("@llvm.memcpy")
+        || t.contains("@llvm.memmove")
+        || t.contains("@memcpy(")
+        || t.contains("@memset(")
+        || t.contains("@memmove(");
+    if !is_mem {
+        return None;
+    }
+    let open = line.find('(')?;
+    let rest = &line[open + 1..];
+    let pct = rest.find('%')?;
+    let name: String = rest[pct..]
+        .chars()
+        .take_while(|c| {
+            *c == '%' || c.is_ascii_alphanumeric() || matches!(*c, '.' | '_' | '-' | '$')
+        })
+        .collect();
+    if name.len() > 1 {
+        Some(name)
+    } else {
+        None
+    }
+}
+
+/// Extract the byte-length operand (`i64 <len>`) of a memset/memcpy/memmove —
+/// the first `i64` argument (dest/src are `ptr`).
+fn parse_memintrinsic_len(line: &str) -> Option<String> {
+    let open = line.find('(')?;
+    let args = &line[open + 1..];
+    let pos = args.find(" i64 ")?;
+    let rest = &args[pos + 5..];
+    let len: String = rest
+        .chars()
+        .take_while(|c| *c == '%' || c.is_ascii_alphanumeric() || matches!(*c, '.' | '_' | '-' | '$'))
+        .collect();
+    if len.is_empty() {
+        None
+    } else {
+        Some(len)
+    }
+}
+
+/// Extract the destination `%name` of an LLVM `store` line, or `None` if the
+/// line is not a store-to-named-pointer. The destination is the operand after
+/// the first `, ptr %` (the value operand, if itself a pointer, is preceded by
+/// `store ` not `, `, so the first `, ptr %` is always the destination).
+fn parse_store_dest(line: &str) -> Option<String> {
+    if !line.trim_start().starts_with("store ") {
+        return None;
+    }
+    let pos = line.find(", ptr %")?;
+    let start = pos + ", ptr ".len(); // points at '%'
+    // LLVM unquoted local identifiers are [-a-zA-Z$._][-a-zA-Z$._0-9]* — note
+    // `-` (e.g. `%p.i972.pre-phi`) and `$` are valid and must be included or
+    // the name is silently truncated to a non-existent value.
+    let name: String = line[start..]
+        .chars()
+        .take_while(|c| {
+            *c == '%' || c.is_ascii_alphanumeric() || matches!(*c, '.' | '_' | '-' | '$')
+        })
+        .collect();
+    if name.len() > 1 {
+        Some(name)
+    } else {
+        None
+    }
 }
 
 /// Patch the lifted IR so the top-level `sub_<entry>` function carries
