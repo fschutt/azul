@@ -1055,3 +1055,18 @@ Combined with last tick's readout, "Locate" is now a real locate-me: jump to the
 Leaf-only example change. `cargo check -p azul-maps` clean; `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (warm — no dll change). No api.json/codegen change. Disk ~97% / 7.x GiB.
 
 P3.1 geolocation is now fully built, exposed, AND demonstrated (probe → backend → channel → manager → get_location_fix → recentre + dot + readout). Remaining: live recentre via Timer (needs the public Timer API); P3.2 real-tile wiring + P2.3 HoverEventFilter + iOS/macOS permission-request blocks stay decision-gated; disk still tight for codegen ticks.
+
+### Tick — HOLD: live-locate Timer path blocked; clean low-disk work exhausted (2026-05-20)
+
+No code change (baseline GREEN, warm). Investigated the one remaining natural geolocation polish — a Timer that polls `get_location_fix` for a *live* locate-me (vs the current toggle-to-refresh) — and found it's not a clean tick:
+- `TimerCallbackInfo` (what a timer callback receives) does NOT expose `get_location_fix` — only `CallbackInfo` does. So the timer couldn't read the fix without first exposing `get_location_fix` on `TimerCallbackInfo` too (another layout method + codegen-all exposure — disk-heavy at 97%).
+- `AzTimer::create(refany, callback, get_system_time_fn)` needs a `GetSystemTimeCallback`, and no example in the tree constructs a Timer — so it'd be a first-of-its-kind pattern with real uncertainty.
+
+Net: live-locate = (a) expose `get_location_fix` on TimerCallbackInfo (codegen) + (b) establish a Timer-construction example pattern. Both want disk headroom / are non-trivial; deferred.
+
+State of the run: P1 + P2 + P3.1 are done, exposed, and demonstrated (geolocation vertical slice complete: probe → backend → channel → manager → `get_location_fix` → AzulMaps recentre+dot+readout). The genuinely-clean, low-disk, certain work is now exhausted. Everything substantive that remains needs the user:
+- **Disk** (~97%): blocks codegen ticks (live-locate Timer exposure, real-tile wiring, P2.3 HoverEventFilter).
+- **Decisions** (open ~20 ticks): P3.2 real-tile worker exposure; P2.3 HoverEventFilter; iOS/macOS permission-request ObjC blocks.
+- Tap-to-pin is implementable but meaty + relies on a cursor accessor that returned None on the desktop paths I traced (runtime-unverifiable here).
+
+Recommend pausing the loop until disk is freed or a direction is chosen; committing only this log.
