@@ -154,6 +154,9 @@ pub struct MapWidget {
     /// Optional hook fired when the user pans / zooms (effects / persist
     /// the viewport). FFI-exposed; re-set on each fresh build.
     pub on_viewport_changed: OptionMapViewportChanged,
+    /// Optional hook fired when the user taps the map, with the tapped
+    /// lat/lon. FFI-exposed; re-set on each fresh build.
+    pub on_pin_tap: OptionMapPinTap,
 }
 
 impl MapWidget {
@@ -163,6 +166,7 @@ impl MapWidget {
             viewport: MapViewport::default(),
             container_style: CssPropertyWithConditionsVec::from_const_slice(&[]),
             on_viewport_changed: OptionMapViewportChanged::None,
+            on_pin_tap: OptionMapPinTap::None,
         }
     }
 
@@ -198,6 +202,27 @@ impl MapWidget {
         callback: C,
     ) -> Self {
         self.set_on_viewport_changed(data, callback);
+        self
+    }
+
+    /// Set a hook fired when the user taps the map (a press + release at ~the
+    /// same point, no drag), with the tapped lat/lon. The backreference DI
+    /// pattern (architecture.md).
+    pub fn set_on_pin_tap<C: Into<MapPinTapCallback>>(&mut self, data: RefAny, callback: C) {
+        self.on_pin_tap = Some(MapPinTap {
+            refany: data,
+            callback: callback.into(),
+        })
+        .into();
+    }
+
+    /// Builder form of [`set_on_pin_tap`](Self::set_on_pin_tap).
+    pub fn with_on_pin_tap<C: Into<MapPinTapCallback>>(
+        mut self,
+        data: RefAny,
+        callback: C,
+    ) -> Self {
+        self.set_on_pin_tap(data, callback);
         self
     }
 
@@ -276,6 +301,7 @@ impl MapWidget {
         let mut cache = MapTileCache::new(self.layer.clone(), self.viewport);
         cache.fetch_callback = fetch_cb;
         cache.on_viewport_changed = self.on_viewport_changed;
+        cache.on_pin_tap = self.on_pin_tap;
         let dataset = RefAny::new(cache);
         let virtual_view_data = dataset.clone();
 
@@ -390,6 +416,12 @@ pub struct MapTileCache {
     /// The user's `on_viewport_changed` hook, copied here from the builder
     /// so the pan / pinch callbacks can fire it. Carried across relayout.
     pub on_viewport_changed: OptionMapViewportChanged,
+    /// Pixel position of the last pointer-down (the original press point, not
+    /// overwritten by pan moves). Used to tell a tap from a drag in pointer-up.
+    pub press_origin: Option<azul_core::geom::LogicalPosition>,
+    /// The user's `on_pin_tap` hook, copied from the builder so pointer-up can
+    /// fire it. Carried across relayout.
+    pub on_pin_tap: OptionMapPinTap,
 }
 
 impl MapTileCache {
@@ -401,7 +433,9 @@ impl MapTileCache {
             fetch_callback: None,
             drag_anchor: None,
             pinch_anchor: None,
+            press_origin: None,
             on_viewport_changed: OptionMapViewportChanged::None,
+            on_pin_tap: OptionMapPinTap::None,
         }
     }
 
@@ -482,6 +516,9 @@ extern "C" fn merge_map_tile_cache(mut new_data: RefAny, mut old_data: RefAny) -
             if let OptionMapViewportChanged::None = new_g.on_viewport_changed {
                 new_g.on_viewport_changed = old_g.on_viewport_changed.clone();
             }
+            if let OptionMapPinTap::None = new_g.on_pin_tap {
+                new_g.on_pin_tap = old_g.on_pin_tap.clone();
+            }
             // Keep the freshest viewport (the one the layout pass
             // just attached) — only inherit tile bytes + worker.
         }
@@ -535,6 +572,40 @@ fn invoke_viewport_changed(
     }
 }
 
+// --- User hook: on_pin_tap (backreference DI, FFI-exposed) ---
+
+/// User hook fired when the user taps the map (a press + release at ~the same
+/// point, no pan/pinch). Receives the tapped [`MapLatLon`] (projected via
+/// [`MapWidget::latlon_at_px`]) so apps can drop a pin without wiring their own
+/// tap handling + projection. The backreference DI pattern (architecture.md).
+pub type MapPinTapCallbackType = extern "C" fn(RefAny, CallbackInfo, MapLatLon) -> Update;
+impl_widget_callback!(
+    MapPinTap,
+    OptionMapPinTap,
+    MapPinTapCallback,
+    MapPinTapCallbackType
+);
+azul_core::impl_managed_callback! {
+    wrapper:        MapPinTapCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: MAP_PIN_TAP_INVOKER,
+    invoker_ty:     AzMapPinTapCallbackInvoker,
+    thunk_fn:       az_map_pin_tap_callback_thunk,
+    setter_fn:      AzApp_setMapPinTapCallbackInvoker,
+    from_handle_fn: AzMapPinTapCallback_createFromHostHandle,
+    extra_args:     [ coord: MapLatLon ],
+}
+
+/// Invoke a map widget's optional `on_pin_tap` hook with the tapped coordinate.
+fn invoke_pin_tap(hook: &OptionMapPinTap, info: &CallbackInfo, coord: MapLatLon) -> Update {
+    match hook {
+        OptionMapPinTap::Some(h) => (h.callback.cb)(h.refany.clone(), info.clone(), coord),
+        OptionMapPinTap::None => Update::DoNothing,
+    }
+}
+
 /// Pointer down → record the drag anchor. The widget knows nothing
 /// about the user's overall state RefAny — only its own dataset —
 /// so the anchor lives in `MapTileCache::drag_anchor`.
@@ -545,6 +616,7 @@ extern "C" fn map_on_pointer_down(mut data: RefAny, info: CallbackInfo) -> Updat
     };
     if let Some(mut cache) = data.downcast_mut::<MapTileCache>() {
         cache.drag_anchor = Some(pos);
+        cache.press_origin = Some(pos);
     }
     Update::DoNothing
 }
@@ -625,14 +697,37 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, info: CallbackInfo) -> Updat
 /// can be in flight (and pinch supersedes pan in the move handler);
 /// clear both anchors on release.
 extern "C" fn map_on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    if let Some(mut cache) = data.downcast_mut::<MapTileCache>() {
-        cache.drag_anchor = None;
-        cache.pinch_anchor = None;
+    // Cursor + container size for tap projection (read before borrowing data).
+    let up_pos = info
+        .get_cursor_relative_to_node()
+        .into_option()
+        .map(|p| azul_core::geom::LogicalPosition::new(p.x, p.y));
+    let container = info
+        .get_hit_node_rect()
+        .map(|r| r.size)
+        .unwrap_or(azul_core::geom::LogicalSize::new(0.0, 0.0));
+    let (press, viewport, hook) = match data.downcast_mut::<MapTileCache>() {
+        Some(mut cache) => {
+            let out = (cache.press_origin, cache.viewport, cache.on_pin_tap.clone());
+            cache.drag_anchor = None;
+            cache.pinch_anchor = None;
+            cache.press_origin = None;
+            out
+        }
+        None => (None, MapViewport::default(), OptionMapPinTap::None),
+    };
+    // A press + release at ~the same point (no pan/pinch) is a tap: project it
+    // to lat/lon and fire the user's on_pin_tap hook.
+    if let (Some(origin), Some(up)) = (press, up_pos) {
+        let dx = (up.x - origin.x) as f64;
+        let dy = (up.y - origin.y) as f64;
+        if dx * dx + dy * dy < 36.0 {
+            let coord = MapWidget::latlon_at_px(viewport, up, container);
+            invoke_pin_tap(&hook, &info, coord);
+        }
     }
-    // After a pan / pinch settles, kick off fetches for any tiles the
-    // new viewport needs. (The VirtualView marked them `Pending` but
-    // can't spawn threads itself — only a `CallbackInfo`-bearing
-    // callback can.)
+    // After a pan / pinch settles, kick off fetches for any tiles the new
+    // viewport needs. (Only a `CallbackInfo`-bearing callback can spawn them.)
     spawn_pending_tile_fetches(&mut data, &mut info);
     Update::RefreshDom
 }

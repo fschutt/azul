@@ -11256,6 +11256,26 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "MapPinTapCallbackType": {
+                        "external": "azul_layout::widgets::map::MapPinTapCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "MapLatLon"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -19599,6 +19619,38 @@
                             {
                                 "cb": {
                                     "type": "OnVideoFrameCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "MapPinTapCallback": {
+                        "external": "azul_layout::widgets::map::MapPinTapCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "MapPinTapCallbackType"
                                 },
                                 "callable": {
                                     "type": "OptionRefAny"
@@ -39597,6 +39649,9 @@
                                 },
                                 "on_viewport_changed": {
                                     "type": "OptionMapViewportChanged"
+                                },
+                                "on_pin_tap": {
+                                    "type": "OptionMapPinTap"
                                 }
                             }
                         ],
@@ -39785,6 +39840,45 @@
                                     "type": "LogicalPosition"
                                 },
                                 "fn_body": "azul_layout::widgets::map::MapWidget::px_at_latlon(viewport, coord, container)"
+                            },
+                            "set_on_pin_tap": {
+                                "doc": [
+                                    "Set a hook fired when the user taps the map (a press + release at ~the",
+                                    "same point, no drag), with the tapped lat/lon. The backreference DI",
+                                    "pattern (architecture.md)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "MapPinTapCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_pin_tap(data, callback)"
+                            },
+                            "with_on_pin_tap": {
+                                "doc": [
+                                    "Builder form of [`set_on_pin_tap`](Self::set_on_pin_tap)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "MapPinTapCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapWidget"
+                                },
+                                "fn_body": "object.with_on_pin_tap(data, callback)"
                             }
                         },
                         "repr": "C"
@@ -84171,6 +84265,36 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionMapPinTap": {
+                        "external": "azul_layout::widgets::map::OptionMapPinTap",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "MapPinTap"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -86879,6 +87003,38 @@
                                 },
                                 "hw_accel": {
                                     "type": "HwAcceleration"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "MapPinTap": {
+                        "external": "azul_layout::widgets::map::MapPinTap",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "MapPinTapCallback"
                                 }
                             }
                         ],

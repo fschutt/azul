@@ -2048,3 +2048,14 @@ Exposed the map's screen<->geo projection so apps/demos stop duplicating it (age
 **WORKFLOW FIX — fast codegen under --release:** `cargo run --release -p azul-doc -- ...` **re-links the LTO'd binary every call (~2 min)**, so the iterative autofix dance crawled (one tick took ~15 min in background). Resolution (user-approved): **build `azul-doc` release once, then invoke `./target/release/azul-doc <cmd>` directly** — sub-second per call, still lean disk. USE THIS for all future autofix/codegen (build once with `cargo build --release -p azul-doc`, then the binary). The gate stays `cargo check --release` (deps cached -> ~14s/target). Disk 10 GiB.
 
 NEXT: MapWidget `on_pin_tap` (tap-detect in on_pointer_up -> `latlon_at_px` -> hook payload `MapLatLon`) + clean up the demo to use the exposed projection. Then input custom-events -> audio -> UDP -> P9 -> P10.
+
+### Tick — FIX-APIs.10 — MapWidget on_pin_tap hook (FFI) — MapWidget hooks complete (2026-05-21)
+
+Added the second MapWidget hook (camera/button pattern, FFI-exposed):
+- `MapPinTapCallbackType = extern "C" fn(RefAny, CallbackInfo, MapLatLon) -> Update` + impl_widget_callback! + impl_managed_callback!{extra_args:[coord: MapLatLon]} + `invoke_pin_tap`. `MapWidget.on_pin_tap` field + `MapTileCache.on_pin_tap` + `set_on_pin_tap`/`with_on_pin_tap` + build_dom copy + merge-carry.
+- **Tap detection**: new `MapTileCache.press_origin` (the pointer-down px, not overwritten by pan moves). `map_on_pointer_up` reads the release cursor (`get_cursor_relative_to_node`) + container size (`get_hit_node_rect().size`); if release is within ~6px of `press_origin` (a tap, not a drag), it projects via `MapWidget::latlon_at_px` and fires `on_pin_tap(MapLatLon)`.
+- Fast direct-binary workflow: `cargo check --release -p azul-layout` verify + `./target/release/azul-doc` for the autofix dance (converged in 3 passes, **seconds**) + codegen. Gate GREEN on all 5; disk 11 GiB.
+
+**MapWidget hooks COMPLETE** (on_viewport_changed + on_pin_tap + latlon_at_px/px_at_latlon projection) — apps no longer need an overlay + duplicated projection for tap-to-pin / viewport observation.
+
+NEXT: clean up examples/azul-maps to use `with_on_pin_tap` + the exposed projection (drop its overlay + duplicated tap_to_latlon/latlon_to_px) — small follow-up. Then input custom-events (SensorChanged/GamepadInput) -> audio widgets -> UDP/azul-meet -> P9 -> P10.
