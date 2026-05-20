@@ -1,5 +1,8 @@
-//! macOS biometric backend — Touch ID via `LAContext`
-//! (`LocalAuthentication.framework`, objc2).
+//! Apple (iOS + macOS) biometric backend — Face ID / Touch ID / Optic ID
+//! via `LAContext` (`LocalAuthentication.framework`, objc2).
+//!
+//! iOS and macOS expose an identical `LAContext` surface, so this single
+//! module backs both (dispatched from `mod.rs` for `any(ios, macos)`).
 //!
 //! `request` shows the OS-drawn modal (`evaluatePolicy:localizedReason:reply:`)
 //! and parks the outcome in the result channel from the reply block —
@@ -8,9 +11,10 @@
 //! state directly. `probe_availability` is the synchronous capability
 //! check (`canEvaluatePolicy:` + `biometryType`).
 //!
-//! macOS only has Touch ID today (no Face ID); `OpticID` is visionOS.
-//! Note: an unsigned / non-bundled binary may get `NotAvailable` because
-//! `LAContext` requires the app to be code-signed with the right entitlement.
+//! `biometryType` maps TouchID→Fingerprint, FaceID/OpticID→Face. iOS
+//! requires the `NSFaceIDUsageDescription` Info.plist key for Face ID;
+//! an unsigned / non-bundled macOS binary may get `NotAvailable` because
+//! `LAContext` needs the app code-signed with the right entitlement.
 
 use azul_core::biometric::{BiometricKind, BiometricPrompt, BiometricResult};
 use azul_layout::managers::biometric::push_biometric_result;

@@ -114,6 +114,22 @@ accesskit_unix = { version = "0.21", optional = true }
 objc = { version = "0.2", optional = true }
 objc-foundation = { version = "0.1", optional = true }
 objc_id = { version = "0.1", optional = true }
+# objc2 stack for the biometric backend (P4.1) — shared with macOS via
+# `extra/biometric/apple.rs`. New objc2-native backends (design decision
+# #2) use these rather than the objc 0.2 above.
+objc2 = { version = "0.6.0", optional = true }
+block2 = { version = "0.6.0", optional = true }
+objc2-foundation = { version = "0.3.0", default-features = true, optional = true, features = [
+    "std",
+    "NSString",
+    "NSError",
+] }
+objc2-local-authentication = { version = "0.3.2", default-features = true, optional = true, features = [
+    "std",
+    "LAContext",
+    "LABiometryType",
+    "block2",
+] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 # NativeActivity bootstrap, event polling, soft-keyboard control, and

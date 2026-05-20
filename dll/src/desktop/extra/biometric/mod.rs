@@ -26,22 +26,22 @@
 
 use azul_core::biometric::{BiometricKind, BiometricPrompt};
 
-#[cfg(target_os = "macos")]
-pub mod macos;
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+pub mod apple;
 
 /// Dispatch one biometric-auth request to the native prompt. Called from
 /// `regenerate_layout` for each prompt the layout pass drained from the
 /// request channel.
 ///
-/// macOS routes to the real `LAContext` backend (the reply block parks the
-/// outcome in the result channel asynchronously). Platforms without a
-/// backend yet (iOS / Android / Windows / Linux) resolve to `Unavailable`
+/// iOS/macOS route to the real `LAContext` backend (the reply block parks
+/// the outcome in the result channel asynchronously). Platforms without a
+/// backend yet (Android / Windows / Linux) resolve to `Unavailable`
 /// immediately so the request → result round-trip stays observable —
 /// `CallbackInfo::get_biometric_result()` reads it next frame.
 pub fn request(prompt: &BiometricPrompt) {
-    #[cfg(target_os = "macos")]
-    macos::request(prompt);
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    apple::request(prompt);
+    #[cfg(not(any(target_os = "ios", target_os = "macos")))]
     {
         let _ = prompt;
         azul_layout::managers::biometric::push_biometric_result(
@@ -51,16 +51,16 @@ pub fn request(prompt: &BiometricPrompt) {
 }
 
 /// Synchronous availability probe — what biometric hardware the device
-/// can use. macOS queries `canEvaluatePolicy` + `biometryType`; other
+/// can use. iOS/macOS query `canEvaluatePolicy` + `biometryType`; other
 /// platforms return `NotAvailable` until their backend lands. The result
 /// is written into `BiometricManager::set_availability` (a later wiring
 /// tick), which `CallbackInfo::get_biometric_kind()` then reads.
 pub fn probe_availability() -> BiometricKind {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
     {
-        macos::probe_availability()
+        apple::probe_availability()
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "ios", target_os = "macos")))]
     {
         BiometricKind::NotAvailable
     }

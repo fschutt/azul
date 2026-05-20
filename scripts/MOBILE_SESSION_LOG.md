@@ -1215,3 +1215,15 @@ First real biometric backend, replacing the stub on macOS. objc2-native per desi
 Verify: macOS host check `cargo check -p azul-dll --no-default-features --features "std,logging,link-static,a11y"` CLEAN; `bash scripts/mobile-check-all.sh` GREEN on all 5 (macOS code cfg'd out there). Cargo.lock gitignored. Disk 96% → purging.
 
 Next P4.1g: port the same LAContext logic to iOS — add objc2/block2/objc2-foundation/objc2-local-authentication to the iOS deps section (currently objc 0.2 only), share via an `apple.rs` cfg `any(ios,macos)`, gate. Then P4.1h: Android BiometricPrompt JNI. (Availability probe is implemented but not yet wired to `set_availability` — a small follow-up.)
+
+### Tick — P4.1g — iOS biometric backend (shared LAContext via apple.rs) (2026-05-20)
+
+Ported P4.1f's macOS LAContext backend to iOS — the primary mobile target now has real Face ID / Touch ID. Zero logic change: iOS and macOS share an identical `LAContext` surface.
+
+- `dll/Cargo.toml`: added the objc2 stack to the **iOS** deps section (was objc 0.2 only) — `objc2`, `block2`, `objc2-foundation` (NSString/NSError), `objc2-local-authentication` (LAContext/LABiometryType/block2). These feature-names are already in `_internal_deps`, so the gate's `link-static` pulls them for iOS now that they're declared.
+- `git mv macos.rs → apple.rs`; updated header (iOS+macOS; notes `NSFaceIDUsageDescription` for Face ID). No code change — `biometryType` already maps TouchID→Fingerprint, FaceID/OpticID→Face.
+- `mod.rs`: dispatch `any(ios, macos)` → `apple::{request,probe_availability}`; `not(any(ios,macos))` → Unavailable fallback (Android/Windows/Linux).
+
+Verify: `bash scripts/mobile-check-all.sh` GREEN on all 5 (iOS 22–30s — first compile of objc2 + objc2-local-authentication); macOS host check CLEAN. Disk 97% → purging.
+
+Apple biometric (iOS+macOS) is now feature-complete: request → evaluatePolicy block → result channel → get_biometric_result; canEvaluatePolicy/biometryType probe. Next P4.1h: **Android** `BiometricPrompt` via JNI (needs a Kotlin/Java shim + JNI bridge, mirroring the gesture/permission JNI). Then wire `probe_availability` → `set_availability` at startup so `get_biometric_kind` returns the real sensor.
