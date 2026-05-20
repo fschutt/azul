@@ -788,3 +788,15 @@ Symmetric follow-up to P1.2a: `permission/android.rs::probe_status` was a `NotDe
 - Any JNI failure (VM not yet published) degrades to `NotDetermined`. `handle_event` (async requestPermissions) stays a no-op for a later tick.
 
 `bash scripts/mobile-check-all.sh` GREEN on all 5 mobile targets (6/0/0/4/3 s). Internal dll platform code — no api.json/codegen change. Disk 94%, incremental cleared.
+
+### Tick — P1.3a real iOS directory picker (2026-05-20)
+
+Filled the `dispatch_open_directory` stub in `file_picker/ios.rs` with a real `UIDocumentPickerViewController initForOpeningContentTypes:[UTTypeFolder] asCopy:NO`, reusing the open-file path's existing delegate + `nativeOnResult` readback (so the inbound result plumbing was already done — this is a complete slice, not a half-feature).
+
+- Builds a single-element `[UTType folder]` array, allocs the picker, sets the shared delegate via `set_ivar("requestID")` + `associate_strong`, presents from the key window's root VC. Mirrors `dispatch_open_file` exactly (cfg(ios) real arm + cfg(not ios) Cancelled arm).
+- `asCopy:NO` documented: the returned folder URL is security-scoped; readers must bracket with start/stopAccessingSecurityScopedResource.
+- Improved the `dispatch_save_file` deferral note: iOS `initForExportingURLs:` only exports *existing* files, but the signature carries no source URL/bytes — so save needs an API decision (carry source, or write into a dir picked via the now-real directory picker), not mechanical wiring. Left Cancelled rather than export an empty placeholder.
+
+Chose this over the lower-numbered P1.2 async request path because the latter needs a cross-crate result-delivery channel (no way today for a native callback thread to reach the live PermissionManager) — a multi-tick design, deferred per the loop's "doesn't fit one tick" rule.
+
+`bash scripts/mobile-check-all.sh` GREEN on all 5 mobile targets (4/4/3/1/0 s). Internal dll platform code — no api.json/codegen change. Disk 94%, incremental cleared.

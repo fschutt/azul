@@ -414,16 +414,96 @@ pub fn dispatch_open_file(
 }
 
 pub fn dispatch_save_file(handle: FilePickerHandle, _title: AzString, _default_path: OptionString) {
-    // TODO(next tick): UIDocumentPickerViewController initForExportingURLs.
-    // AzulDoc (P5) needs this; AzulPaint (P2) can ship without it.
+    // Deferred — needs an API decision, not just mechanical wiring.
+    // iOS has no "choose a destination then hand me a path to write"
+    // dialog: `UIDocumentPickerViewController initForExportingURLs:` only
+    // *exports files that already exist*. This signature carries a
+    // suggested title but no source file/bytes, so a faithful iOS save
+    // needs either (a) the dialog API to carry the source URL/bytes, or
+    // (b) the caller to write into a directory chosen via the now-real
+    // `dispatch_open_directory` below. Until that's settled, resolve to
+    // Cancelled rather than ship an export of an empty placeholder.
     handle.set_status(FilePickerStatus::Cancelled);
 }
 
+/// Directory picker via `UIDocumentPickerViewController
+/// initForOpeningContentTypes:[UTTypeFolder] asCopy:NO`. Reuses the same
+/// delegate + `nativeOnResult` readback as the open-file path; the
+/// delegate reports the chosen folder's `url.path`.
+#[cfg(target_os = "ios")]
 pub fn dispatch_open_directory(
     handle: FilePickerHandle,
     _title: AzString,
     _default_path: OptionString,
 ) {
-    // TODO(next tick): UIDocumentPickerViewController initForOpeningContentTypes:[UTType.folder].
+    let request_id = register_handle(handle.clone());
+
+    unsafe {
+        let root = key_root_view_controller();
+        if root.is_null() {
+            let _ = pop_handle(request_id);
+            handle.set_status(FilePickerStatus::Error {
+                message: AzString::from("no key window — directory picker cannot present"),
+            });
+            return;
+        }
+
+        // Single-element `[UTType folder]` content-type array. `asCopy:NO`
+        // because a directory is opened in place — the returned URL is
+        // security-scoped, so callers that read its contents must bracket
+        // access with start/stopAccessingSecurityScopedResource.
+        let folder_t: *mut Object = msg_send![class!(UTType), folder];
+        let arr_cls = class!(NSArray);
+        let types_array: *mut Object = if folder_t.is_null() {
+            msg_send![arr_cls, array]
+        } else {
+            let objs = [folder_t];
+            msg_send![
+                arr_cls,
+                arrayWithObjects: objs.as_ptr()
+                           count: 1usize
+            ]
+        };
+
+        let picker_cls = class!(UIDocumentPickerViewController);
+        let picker_alloc: *mut Object = msg_send![picker_cls, alloc];
+        let picker: *mut Object = msg_send![
+            picker_alloc,
+            initForOpeningContentTypes: types_array
+                                asCopy: false
+        ];
+        if picker.is_null() {
+            let _ = pop_handle(request_id);
+            handle.set_status(FilePickerStatus::Error {
+                message: AzString::from("UIDocumentPickerViewController alloc failed"),
+            });
+            return;
+        }
+
+        let _: () = msg_send![picker, setAllowsMultipleSelection: false];
+
+        let delegate_cls = get_or_create_delegate_class();
+        let delegate_alloc: *mut Object = msg_send![delegate_cls, alloc];
+        let delegate: *mut Object = msg_send![delegate_alloc, init];
+        (*delegate).set_ivar::<u64>("requestID", request_id);
+
+        let _: () = msg_send![picker, setDelegate: delegate];
+        associate_strong(picker, delegate);
+
+        let _: () = msg_send![
+            root,
+            presentViewController: picker
+                          animated: true
+                        completion: ptr::null_mut::<Object>()
+        ];
+    }
+}
+
+#[cfg(not(target_os = "ios"))]
+pub fn dispatch_open_directory(
+    handle: FilePickerHandle,
+    _title: AzString,
+    _default_path: OptionString,
+) {
     handle.set_status(FilePickerStatus::Cancelled);
 }
