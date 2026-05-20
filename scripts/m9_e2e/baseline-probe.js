@@ -304,6 +304,19 @@ function parseWasmFnNames(buf) {
     if (rw[4] === 0 || rw[6] > 1000000) console.log('  >>> RECVEC SCRAMBLED — RECURSION+Vec-accum is root cause #2 CONFIRMED!');
     else if (rw[4] !== 0 && rw[6] === 5) console.log('  >>> RECVEC OK — recursion+Vec-accum also works; even more specific');
 
+    const u8_ptr = rd(0x4004C);
+    // TestU128 repr(C): m@0, a:[u128;2]@16 (a[0]@16, a[1]@32), t@48.
+    const uw = [];
+    for (let i = 0; i < 14; i++) uw.push(rd((u8_ptr + i * 4) >>> 0));
+    console.log('--- make_test_u128 (SMOKING-GUN: apply_ua_css 1u128<<d pattern) ---');
+    console.log('  u8_ptr  = 0x' + (u8_ptr >>> 0).toString(16));
+    console.log('  m[0]    = 0x' + uw[0].toString(16) + ' (expect aaaaaaaa)');
+    console.log('  a[0]@16 = 0x' + uw[4].toString(16) + ' ' + uw[5].toString(16) + ' ' + uw[6].toString(16) + ' ' + uw[7].toString(16) + ' (expect 20 0 0 0 = 1<<5)');
+    console.log('  a[1]@32 = 0x' + uw[8].toString(16) + ' ' + uw[9].toString(16) + ' ' + uw[10].toString(16) + ' ' + uw[11].toString(16) + ' (expect 400 0 0 0 = 1<<10)');
+    console.log('  t[12]   = 0x' + uw[12].toString(16) + ' (expect cccccccc)');
+    if (uw[4] === 0x20 && uw[8] === 0x400 && uw[12] === 0xcccccccc) console.log('  >>> U128 OK — inline u128 lift is FINE, look elsewhere in apply_ua_css');
+    else console.log('  >>> U128 SCRAMBLED — inline-u128 NEON-Q lift is root cause #2 CONFIRMED!');
+
     const ptr_val = rd(0x4010C);
     let casNonzero = 0;
     const casDump = [];

@@ -1092,6 +1092,10 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     let rv_boxed = Box::new(make_test_recvec());
     let rv_ptr = Box::into_raw(rv_boxed) as usize as u32;
     core::ptr::write_volatile(0x40048_usize as *mut u32, rv_ptr);
+    // M12.5o: SMOKING-GUN u128 test (mimics apply_ua_css `1u128 << d`).
+    let u8_boxed = Box::new(make_test_u128());
+    let u8_ptr = Box::into_raw(u8_boxed) as usize as u32;
+    core::ptr::write_volatile(0x4004C_usize as *mut u32, u8_ptr);
     // M12.5h ISOLATION: cascade a HAND-BUILT body Dom instead of the
     // layout-cb blob (dom_ref). If this clears the with_capacity OOB and
     // yields node_data.len()>=1, the cascade lift is FINE and the corrupt
@@ -1385,6 +1389,29 @@ pub fn make_test_recvec() -> TestRecVec {
     let mut v: Vec<u32> = Vec::new();
     rec_accum(&mut v, 5);
     TestRecVec { m: 0xAAAA_AAAA, v, t: 0xCCCC_CCCC }
+}
+
+/// M12.5o: SMOKING-GUN test for the apply_ua_css u128 bug. apply_ua_css uses
+/// `[u128;2]` + `1u128 << d` (variable 128-bit shift, d runtime) and corrupts
+/// the cache. This mimics that exact pattern. Expected a[0]=0x20 (1<<5),
+/// a[1]=0x400 (1<<10), m/t intact. If scrambled → inline-u128 NEON-Q lift is
+/// root cause #2 CONFIRMED.
+#[repr(C)]
+pub struct TestU128 {
+    pub m: u32,
+    pub a: [u128; 2],
+    pub t: u32,
+}
+
+#[inline(never)]
+#[no_mangle]
+pub fn make_test_u128() -> TestU128 {
+    let d0 = core::hint::black_box(5u32);
+    let d1 = core::hint::black_box(10u32);
+    let mut a: [u128; 2] = [0u128; 2];
+    a[0] |= 1u128 << d0;
+    a[1] |= 1u128 << d1;
+    TestU128 { m: 0xAAAA_AAAA, a, t: 0xCCCC_CCCC }
 }
 
 
