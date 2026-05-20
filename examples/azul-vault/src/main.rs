@@ -28,6 +28,9 @@ struct VaultState {
     status: String,
     /// Entries inserted this session (the file itself persists more).
     added_count: usize,
+    /// Cached `(key, value)` rows from the last `SELECT`, refreshed on
+    /// unlock + after each add and rendered by `layout`.
+    entries: Vec<(String, String)>,
 }
 
 impl VaultState {
@@ -38,7 +41,35 @@ impl VaultState {
             unlocked: false,
             status: String::new(),
             added_count: 0,
+            entries: Vec::new(),
         }
+    }
+}
+
+/// Open the vault db and read all `(key, value)` rows via the public `Db`
+/// API (`query` → `DbRows` fields → `DbValueVec::as_slice()`). No engine
+/// internals — just the api.json surface.
+fn refresh_entries(s: &mut VaultState) {
+    let db = Db::open(s.db_path.clone());
+    let rows = db.query("SELECT k, v FROM entries ORDER BY id", Vec::<DbValue>::new());
+    let ncols = rows.columns.as_slice().len();
+    let cells = rows.values.as_slice();
+    let mut out = Vec::new();
+    if ncols >= 2 {
+        for row in cells.chunks(ncols) {
+            out.push((cell_text(&row[0]), cell_text(&row[1])));
+        }
+    }
+    s.entries = out;
+}
+
+/// Render a result cell as a display string.
+fn cell_text(v: &DbValue) -> String {
+    match v {
+        DbValue::Text(t) => t.as_str().to_string(),
+        DbValue::Integer(i) => i.to_string(),
+        DbValue::Real(r) => r.to_string(),
+        _ => String::new(),
     }
 }
 
@@ -55,11 +86,16 @@ const BODY: &str = "flex-grow: 1; padding: 18px; color: #e6e6f0;";
 const BTN: &str = "background: #4a90e2; color: white; padding: 12px 22px; \
     margin: 6px; border-radius: 8px; font-size: 15px; cursor: pointer; \
     text-align: center;";
+const ENTRY_ROW: &str = "display: flex; flex-direction: row; \
+    padding: 8px 10px; margin: 4px 0px; background: #20202e; border-radius: 6px;";
+const ENTRY_K: &str = "width: 160px; color: #9aa0b4;";
+const ENTRY_V: &str = "flex-grow: 1; color: #e6e6f0;";
+const EMPTY: &str = "color: #9aa0b4; font-style: italic; margin: 8px 0px;";
 
 extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-    let (unlocked, status, count) = match data.downcast_ref::<VaultState>() {
-        Some(s) => (s.unlocked, s.status.clone(), s.added_count),
-        None => (false, String::new(), 0),
+    let (unlocked, status, count, entries) = match data.downcast_ref::<VaultState>() {
+        Some(s) => (s.unlocked, s.status.clone(), s.added_count, s.entries.clone()),
+        None => (false, String::new(), 0, Vec::new()),
     };
 
     if !unlocked {
@@ -81,26 +117,41 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         );
     }
 
-    let summary = format!("{} entr{} added this session", count, if count == 1 { "y" } else { "ies" });
+    let summary = format!(
+        "{} stored · {} added this session",
+        entries.len(),
+        count
+    );
+    let mut body = Dom::create_div()
+        .with_css(BODY)
+        .with_child(Dom::create_text(summary.as_str()));
+    if entries.is_empty() {
+        body = body.with_child(Dom::create_text("No entries yet — add one.").with_css(EMPTY));
+    } else {
+        for (k, v) in &entries {
+            body = body.with_child(
+                Dom::create_div()
+                    .with_css(ENTRY_ROW)
+                    .with_child(Dom::create_text(k.as_str()).with_css(ENTRY_K))
+                    .with_child(Dom::create_text(v.as_str()).with_css(ENTRY_V)),
+            );
+        }
+    }
+    body = body.with_child(
+        Dom::create_div()
+            .with_css(BTN)
+            .with_child(Dom::create_text("Add sample entry"))
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::MouseUp),
+                data.clone(),
+                on_add,
+            ),
+    );
     Dom::create_body().with_child(
         Dom::create_div()
             .with_css(ROOT)
             .with_child(Dom::create_text("🔓 AzulVault — unlocked").with_css(HEADER))
-            .with_child(
-                Dom::create_div()
-                    .with_css(BODY)
-                    .with_child(Dom::create_text(summary.as_str()))
-                    .with_child(
-                        Dom::create_div()
-                            .with_css(BTN)
-                            .with_child(Dom::create_text("Add sample entry"))
-                            .with_callback(
-                                EventFilter::Hover(HoverEventFilter::MouseUp),
-                                data.clone(),
-                                on_add,
-                            ),
-                    ),
-            ),
+            .with_child(body),
     )
 }
 
@@ -120,6 +171,7 @@ extern "C" fn on_unlock(mut data: RefAny, mut info: CallbackInfo) -> Update {
                          (id INTEGER PRIMARY KEY, k TEXT, v TEXT)",
                         Vec::<DbValue>::new(),
                     );
+                    refresh_entries(&mut *s);
                 }
                 return Update::RefreshDom;
             }
@@ -169,6 +221,7 @@ extern "C" fn on_add(mut data: RefAny, _info: CallbackInfo) -> Update {
         if affected > 0 {
             s.added_count = n;
         }
+        refresh_entries(&mut *s);
     }
     Update::RefreshDom
 }

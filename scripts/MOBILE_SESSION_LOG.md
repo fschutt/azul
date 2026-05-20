@@ -1396,3 +1396,14 @@ The P4 goal app — `examples/azul-vault`, built entirely on the public `azul::`
 Verify: `cargo check -p azul-vault` CLEAN; `mobile-check-all.sh` GREEN on all 5 (azul-dll unaffected). Disk 97% → purging.
 
 Next P4.4b: list/view entries — needs `DbRows`/`DbValue` accessor methods (num_rows/get/as_text) exposed via api.json (currently only the types + fields are). + optional custom key/value text input. Then **P5 AzulDoc** (PDF export via printpdf, research/06) + P6 expansions + demos. **P4 COMPLETE** (biometric ✅ keyring ✅ db-sqlite ✅ AzulVault ✅).
+
+### Tick — P4.4b — AzulVault list/view entries (completes the goal app) (2026-05-20)
+
+Added the read/list view — AzulVault now adds AND views entries. Pure demo update; the Db read path works via the already-exposed surface (no codegen).
+
+- `examples/azul-vault/src/main.rs`: `VaultState.entries: Vec<(String,String)>` cache. `refresh_entries()` opens the db and runs `SELECT k, v FROM entries ORDER BY id`, reading `DbRows` via its public fields + `DbValueVec::as_slice()` + matching `DbValue::Text/Integer/Real` (`cell_text`). Called on unlock (after CREATE) + after each add. layout renders the entry rows (key/value) + an empty-state hint + the Add button.
+- Confirmed the public Db **read** path is usable with no new accessors: `db.query(sql, params) -> DbRows`, `rows.columns/.values` (pub fields), `DbValueVec::as_slice() -> &[DbValue]`, `DbValue` variant matching, `AzString::as_str()`.
+
+Verify: `cargo check -p azul-vault` CLEAN; `mobile-check-all.sh` GREEN on all 5 (azul-dll unchanged — instant). Disk 96%.
+
+**P4 fully complete + demonstrated**: AzulVault does biometric unlock → SQLite persistence → add + list, on the public API only. Next: **P5 AzulDoc** — PDF export via printpdf (research/06: walk the display list → printpdf Ops; `DisplayListItem::TextLayout` is already half-wired). First P5 tick = risk-gate: add the `pdf` feature + printpdf dep (mind the printpdf↔azul-layout dep cycle, §5.3) + always-present stub `export_pdf` (cfg-split, like Db), verify host compile. Then P6 expansions.
