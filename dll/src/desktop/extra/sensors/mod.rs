@@ -18,11 +18,12 @@
 //! process-global channel; the layout pass drains them (`drain_sensor_readings`)
 //! into the manager, where `CallbackInfo::get_sensor_reading` reads them.
 //!
-//! This tick lands the dispatcher + the **Android** JNI backend; the Apple
-//! **CoreMotion** subscription is the next tick (`apple::start` is a no-op
-//! until then). As with `AzulBiometric`, the Android `AzulSensors.java`
-//! helper itself is a deferred (non-Rust) batch — until it ships,
-//! `find_class` fails and no samples flow, but the Rust path is complete.
+//! Apple delivers via a per-frame [`poll`] of CoreMotion's pull API; Android
+//! is push-driven (the JNI `onSensorChanged` callback parks samples directly),
+//! so `poll` is Apple-only. As with `AzulBiometric`, the Android
+//! `AzulSensors.java` helper itself is a deferred (non-Rust) batch — until it
+//! ships, `find_class` fails and no Android samples flow, but the Rust path
+//! is complete.
 
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 pub mod apple;
@@ -45,4 +46,13 @@ fn start() {
     android::start();
     // Other platforms (desktop Linux / Windows): no motion sensors wired —
     // `get_sensor_reading` stays `None`.
+}
+
+/// Pull the latest sample from each sensor into the async channel. Called
+/// once per layout pass (after [`ensure_started`]). Apple-only: CoreMotion's
+/// pull API needs a per-frame read, whereas Android pushes from its JNI
+/// callback. A no-op until [`ensure_started`] has run and on Android/desktop.
+pub fn poll() {
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    apple::poll();
 }

@@ -144,6 +144,17 @@ objc2-local-authentication = { version = "0.3.2", default-features = true, optio
 # Keychain (generic-password) for the keyring backend (P4.2). Already in
 # the lock as a transitive dep; declared direct + optional here.
 security-framework = { version = "3", optional = true }
+# Motion sensors (P6 feature 5) — CMMotionManager pull API, shared with
+# macOS via `extra/sensors/apple.rs`. CMLogItem gates the data accessors
+# (acceleration/rotationRate/magneticField) + provides the sample timestamp.
+objc2-core-motion = { version = "0.3.2", default-features = true, optional = true, features = [
+    "std",
+    "CMMotionManager",
+    "CMAccelerometer",
+    "CMGyro",
+    "CMMagnetometer",
+    "CMLogItem",
+] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 # NativeActivity bootstrap, event polling, soft-keyboard control, and
@@ -219,6 +230,15 @@ objc2-local-authentication = { version = "0.3.2", default-features = true, optio
 ] }
 # Keychain (generic-password) for the keyring backend (P4.2).
 security-framework = { version = "3", optional = true }
+# Motion sensors (P6 feature 5) — CMMotionManager, shared with iOS.
+objc2-core-motion = { version = "0.3.2", default-features = true, optional = true, features = [
+    "std",
+    "CMMotionManager",
+    "CMAccelerometer",
+    "CMGyro",
+    "CMMagnetometer",
+    "CMLogItem",
+] }
 
 [build-dependencies]
 brotli = "8"
@@ -408,6 +428,7 @@ _internal_deps = [
     "objc2-foundation",
     "objc2-app-kit",
     "objc2-local-authentication",
+    "objc2-core-motion",
     "security-framework",
     "libc",
     "winapi",

@@ -1550,3 +1550,17 @@ The native producer for the P6.sensors.b "7h" drain (which until now had no back
 Verify: `mobile-check-all.sh` GREEN on all 5 (Android compiles the JNI path; iOS/sim the apple stub). rust-analyzer flags android.rs unlinked / mod.rs cfg-inactive — host-view false-positives (host=macOS; the aarch64-linux-android target compiled them, ok 25s). Disk healthy (16 GiB).
 
 Deferred (non-Rust, batched with the other Java shims): `AzulSensors.java`. Next P6.sensors.e: iOS CoreMotion (`objc2-core-motion` dep + the real `apple::start`). Then camera/gamepad/wacom/screencap foundations.
+
+### Tick — P6.sensors.e — iOS/macOS CoreMotion backend (objc2-core-motion) (2026-05-20)
+
+Completes the sensor backends — the Apple producer for the 7h drain.
+
+- `dll/Cargo.toml`: `objc2-core-motion = "0.3.2"` (matches the objc2 0.6 gen / objc2-local-authentication 0.3.2) in **both** the iOS dep section and the macOS/desktop section (apple.rs is shared, mirroring biometric), features `[std, CMMotionManager, CMAccelerometer, CMGyro, CMMagnetometer, CMLogItem]` (CMLogItem gates the data accessors + provides the sample timestamp); added `objc2-core-motion` to the umbrella build-dll feature.
+- `dll/extra/sensors/apple.rs`: real CoreMotion **pull** API — `start()` creates a `CMMotionManager`, starts accel/gyro/mag updates (guarded by `isXAvailable`), and leaks a +1 retain into an `AtomicPtr` (process-lifetime singleton). `poll()` reads each `xData()` → `SensorReading` (accel ×9.80665 G→m/s²; gyro rad/s + mag µT pass through; `timestamp` from the `CMLogItem` superclass) → `push_sensor_reading`. Pull API chosen over handler-blocks: no `NSOperationQueue`/block2 plumbing, and the per-frame poll matches consumption.
+- `mod.rs`: added `poll()` (Apple-only — Android pushes from its JNI callback). `layout.rs`: `sensors::poll()` after `ensure_started()`, before the 7h drain.
+
+**De-risked the unsafe objc2 by reading the actual crate source** (~/.cargo/registry objc2-core-motion-0.3.2): confirmed every method name / struct field / the `super(CMLogItem,NSObject)` deref + `Retained::into_raw` (objc2 0.6.4) before writing — no API guessing.
+
+Verify: `mobile-check-all.sh` GREEN on all 5; `cargo tree -i objc2-core-motion` confirms the dep is enabled under the gate's exact features (so apple.rs WAS compiled — not a false green). Disk 15 GiB. macOS-host compile of apple.rs not separately checked (identical code+crate to the verified iOS path; cold host build deferred).
+
+**Sensors COMPLETE** (core ✅ · manager+plumbing ✅ · codegen ✅ · Android JNI ✅ · iOS CoreMotion ✅). Next P6: camera / gamepad / wacom / screencap foundations. `AzulSensors.java` shim in the deferred Java batch.

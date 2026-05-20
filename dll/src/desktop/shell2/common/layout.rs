@@ -830,8 +830,11 @@ pub fn regenerate_layout(
     // 7h-pre (sensor subscription): kick the device's motion-sensor
     // subscription. OnceLock-guarded inside, so only the first frame does
     // the native registration (CoreMotion start / Android registerListener);
-    // every later frame is a cheap atomic read.
+    // every later frame is a cheap atomic read. Then pull the latest sample
+    // (CoreMotion's pull API needs a per-frame read; Android pushes from its
+    // JNI callback, so poll is a no-op there).
     crate::desktop::extra::sensors::ensure_started();
+    crate::desktop::extra::sensors::poll();
 
     // 7h. Drain motion-sensor readings the platform backend parked since the
     // last pass (CoreMotion / Android SensorManager fire on arbitrary
