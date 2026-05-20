@@ -1042,6 +1042,9 @@ impl StyledDom {
         ];
 
         let mut css_property_cache = CssPropertyCache::empty(compact_dom.node_data.len());
+        // M12.5n TEMP DIAGNOSTIC — bracket css_property_cache.node_count to
+        // find which op scrambles it 1→ptr. [7]=after empty.
+        unsafe { crate::compact_cache_builder::AZ_DBG_NC[7] = css_property_cache.node_count as u64; }
 
         let html_tree = construct_html_cascade_tree(
             &compact_dom.node_hierarchy.as_ref(),
@@ -1066,6 +1069,8 @@ impl StyledDom {
             &non_leaf_nodes,
             &html_tree.as_ref(),
         );
+        let restyle_ms = t_restyle.elapsed().as_secs_f64() * 1000.0;
+        unsafe { crate::compact_cache_builder::AZ_DBG_NC[8] = css_property_cache.node_count as u64; } // [8]=after restyle
 
         // Drop the CSS object now — selectors/declarations are no longer needed
         // after restyle has populated css_props. This frees ~500 KiB of stylesheet
@@ -1080,15 +1085,18 @@ impl StyledDom {
         // is the "tall" form that the web renderer's CSS emitter
         // (`emit_css_from_cache`) walks per node.
         css_property_cache.apply_ua_css(compact_dom.node_data.as_ref().internal);
+        unsafe { crate::compact_cache_builder::AZ_DBG_NC[9] = css_property_cache.node_count as u64; } // [9]=after apply_ua_css
         css_property_cache.compute_inherited_values(
             node_hierarchy.as_container().internal,
             compact_dom.node_data.as_ref().internal,
         );
+        unsafe { crate::compact_cache_builder::AZ_DBG_NC[10] = css_property_cache.node_count as u64; } // [10]=after compute_inherited_values
 
         let prev_font_hashes: Vec<u64> = css_property_cache.compact_cache
             .as_ref()
             .map(|c| c.prev_font_hashes.clone())
             .unwrap_or_default();
+        unsafe { crate::compact_cache_builder::AZ_DBG_NC[11] = css_property_cache.node_count as u64; } // [11]=before build_compact_cache
         let compact = css_property_cache.build_compact_cache_with_inheritance(
             compact_dom.node_data.as_ref().internal,
             node_hierarchy.as_container().internal,
