@@ -1251,3 +1251,14 @@ Verify: `bash scripts/mobile-check-all.sh` GREEN on all 5; macOS host check CLEA
 **P4.1 (biometric) is functionally complete**: types/manager/channels → runtime plumbing → read+request API (api.json, 35 langs) → real backends (iOS/macOS LAContext, Android BiometricPrompt JNI Rust side) → availability wiring. Deferred (non-gate-testable on-device work, batched): the Android Java shims — `AzulBiometric.java` + `USE_BIOMETRIC` manifest (and the still-pending `AzulGeolocation.java`).
 
 Next: **P4.2 keyring** — `dll/extra/keyring/` (iOS/macOS Keychain, Android KeyStore, Linux libsecret, Windows CredentialLocker), biometry-bound secret storage. Per-feature pattern: core POD types (`KeyringEntry`?) → manager + channel → backends → api.json. Start with core types + manager + a `keyring`-style `store/get/delete` SQL-free key/value API design (mirror biometric P4.1a).
+
+### Tick — P4.2a — keyring foundation (core types + manager + channels) (2026-05-20)
+
+First P4.2 step — biometry-bound secret storage. Pure-Rust foundation mirroring biometric P4.1a/d (no codegen/backends yet; gate stays warm). API design (judgment call, prompt left it open): request-driven + channel-delivered like biometric, since a biometry-bound `Get` resolves async via the OS prompt — uniform engine-agnostic surface. One op in flight (request↔result id correlation deferred).
+
+- `core/src/keyring.rs`: `KeyringRequest {Store{key,secret,require_biometry}, Get{key}, Delete{key}}` + `KeyringResult {Stored, Retrieved(AzString), Deleted, NotFound, Denied, Unavailable, Error}` (+`secret()`/`is_ok()` helpers). Secrets are `AzString` (password-manager fit; binary → base64 by caller). `impl_option!(KeyringResult, OptionKeyringResult, copy=false, ...)` for the future `get_keyring_result()` accessor.
+- `layout/src/managers/keyring.rs`: `KeyringManager {last_result}` + request channel (`push/drain_keyring_request`) + result channel (`push/drain_keyring_result`), poison-recovering. Wired both modules in.
+
+Verify: `managers::keyring::` 5/5 tests pass; `bash scripts/mobile-check-all.sh` GREEN on all 5. Disk 97% → purging.
+
+Next P4.2b: runtime plumbing — embed `KeyringManager` in `LayoutWindow` + dll layout-pass drain (requests→dispatch, results→set_last_result) + `CallbackInfo::{keyring_store,keyring_get,keyring_delete,get_keyring_result}` accessors (internal Rust). Then P4.2c codegen, then backends (Keychain/KeyStore/libsecret/CredentialLocker). Keychain (macOS/iOS) via objc2 SecItem* is the natural first backend.

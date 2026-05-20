@@ -102,6 +102,9 @@ pub mod hit_test;
 pub mod hit_test_tag;
 /// Arena-based node tree storage and hierarchy management.
 pub mod id;
+/// System-keyring POD types — `KeyringRequest` + `KeyringResult`.
+/// Stateful manager lives in `azul_layout::managers::keyring`.
+pub mod keyring;
 /// Menu system: context menus, dropdown menus, and menu bars.
 pub mod menu;
 /// CSS property cache for efficient per-node style resolution.
