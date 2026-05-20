@@ -9553,6 +9553,24 @@
                                     "type": "OptionGamepadState"
                                 },
                                 "fn_body": "object.get_primary_gamepad().into()"
+                            },
+                            "get_wacom_pad": {
+                                "doc": [
+                                    "Get the current Wacom tablet-**pad** state (ExpressKeys + touch-ring),",
+                                    "or `None` if no pad backend has delivered one. (The pen's own wacom",
+                                    "features — eraser / barrel button / barrel roll / tilt / pressure —",
+                                    "are in [`CallbackInfo::get_pen_state`].) Kept live by the platform pad",
+                                    "backend (Wintab / libwacom+libinput / macOS tablet `NSEvent`s)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionWacomPadState"
+                                },
+                                "fn_body": "object.get_wacom_pad().into()"
                             }
                         },
                         "repr": "C"
@@ -83675,6 +83693,24 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionWacomPadState": {
+                        "external": "azul_layout::managers::gesture::OptionWacomPadState",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "WacomPadState"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -88614,6 +88650,32 @@
                                 },
                                 "output_format": {
                                     "type": "RawImageFormat"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "WacomPadState": {
+                        "external": "azul_layout::managers::gesture::WacomPadState",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "express_keys": {
+                                    "type": "u32"
+                                },
+                                "touch_ring": {
+                                    "type": "f32"
+                                },
+                                "touch_ring_active": {
+                                    "type": "bool"
+                                },
+                                "device_id": {
+                                    "type": "u64"
                                 }
                             }
                         ],

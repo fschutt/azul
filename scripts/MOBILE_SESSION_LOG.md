@@ -1899,3 +1899,13 @@ Wacom = extend the existing pen infra. Survey finding: **the pen-side wacom feat
 Verify: `mobile-check-all.sh` GREEN on all 5. Disk 6.8 GiB.
 
 Next P6.wacom.b: codegen-expose `get_wacom_pad` + `WacomPadState`. Then the pad backend (`dll/extra/wacom_pad/`: Wintab / libwacom+libinput / macOS tablet NSEvents → `update_pad_state`) = on-machine batch. Then audio → enc/dec → UDP → azul-meet.
+
+### Tick — P6.wacom.b — expose get_wacom_pad + WacomPadState (2026-05-20)
+
+`autofix add CallbackInfo.get_wacom_pad` → 2-pass added `WacomPadState` (struct C) + `OptionWacomPadState` (enum C,u8) from azul_layout::managers::gesture. Curated out the DbValueVec churn + 7 drift. `codegen all`.
+
+Verify: `mobile-check-all.sh` GREEN on all 5. Disk 6.4 GiB.
+
+**Wacom DONE on the public surface**: pen wacom features (eraser/barrel/roll/tangential/tool_id/tilt/pressure) via `get_pen_state`/`get_pen_pressure`/`get_pen_tilt` (pre-existing) + tablet pad (ExpressKeys/touch-ring) via `get_wacom_pad`/`WacomPadState`. Pad backend (Wintab/libwacom/macOS NSEvents) = on-machine batch.
+
+Next: **P7 — audio** (rodio: playback + mic recording). Then video enc/dec (vk-video) → UDP (AzUdp) → azul-meet. (Disk creeping; will cargo clean if a post-purge level dips below ~6.)
