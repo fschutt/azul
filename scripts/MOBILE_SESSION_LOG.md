@@ -1802,3 +1802,13 @@ Screenshare = the camera widget architecture with a different source. Step 1 (mi
 Verify: `mobile-check-all.sh` GREEN on all 5. Disk 9.4 GiB.
 
 Next P6.screencap.b: `ScreenCaptureWidget` (layout/src/widgets/screencap.rs) mirroring CameraWidget — RefAny dataset + AfterMount capture thread + writeback GL-texture upload + recomposite + test-pattern worker. Then codegen-expose, demo. Real ScreenCaptureKit/MediaProjection backend is on-machine.
+
+### Tick — P6.screencap.b — ScreenCaptureWidget (2026-05-20)
+
+`layout/src/widgets/screencap.rs` — identical architecture to CameraWidget (compiled first try). `ScreenCaptureWidget::create(config).dom()` → static Image node + `ScreenCaptureWidgetState` dataset + merge + AfterMount→`add_thread`; `screencap_test_worker` emits a moving-band test pattern ~30×/s; `screencap_writeback` does the GL-texture install-once + per-frame re-upload + recomposite (same no-relayout path as camera). Test-pattern size = a 1280×720 default (ScreenCaptureConfig has no width/height — the source dictates size). `widgets/mod.rs`: `pub mod screencap`.
+
+(Thread/writeback/GL duplicated from camera.rs for now; shared core extraction deferred until the video widget lands too — DRY across all 3.)
+
+Verify: `mobile-check-all.sh` GREEN on all 5. Disk 8.8 GiB.
+
+Next P6.screencap.c: codegen-expose `ScreenCaptureWidget` + `ScreenCaptureConfig`/`ScreenCaptureSource` → `azul::widgets::ScreenCaptureWidget`. Then a screenshare demo. Real ScreenCaptureKit/MediaProjection worker = on-machine batch.
