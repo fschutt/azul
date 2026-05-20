@@ -1373,3 +1373,15 @@ User redirect: skip the risky codegen feature-gating; make `Db` an always-presen
 Verify: `mobile-check-all.sh` GREEN on all 5 (Db stub compiles, no rusqlite); macOS host `+db-sqlite` CLEAN (real engine). Disk 96%.
 
 Next P4.3f: expose `Db`+`DbValue`+`DbRows`+`OptionDb` via api.json (autofix add `Db.open/execute/query/is_open`; Db modeled like `App` — `ptr` c_void/mutptr + run_destructor, custom_impls Clone/Default/Drop) + codegen + gate. Then **P4.4 AzulVault** (biometric-gated key/value store on the `Db` API). Then P5 (AzulDoc/PDF) + P6 expansions + their example apps, per research — cron (687d3d32, every minute) stays active.
+
+### Tick — P4.3f — Db exposed via api.json + codegen (completes P4.3) (2026-05-20)
+
+The stub-POD approach paid off: `Db` flows through normal codegen with NO feature-gating.
+
+- `autofix add Db.open` (added Db→misc, modeled like App: ptr c_void/mutptr + run_destructor) then `Db.is_open`/`execute`/`query` (add→apply each). execute/query captured `[self, sql: String, params: DbValueVec]` correctly.
+- Bare `autofix` 2-pass surfaced the core data types: `DbValue` (enum, repr C,u8), `DbRows` (struct), `DbValueVec` + its `DbValueVecDestructor`/`DestructorType` machinery — AND auto-healed `0000_modify_Db: +custom_impls(Clone,Default,Drop)` (detected my manual impls). Kept all 6; curated out the 5 drift patches.
+- `codegen all` regenerated bindings.
+
+Verify: `mobile-check-all.sh` GREEN on all 5 (generated Db stub bindings compile — no db-sqlite); macOS host `+db-sqlite` CLEAN (real engine + bindings). Only api.json tracked. Disk 97% → purging.
+
+**P4.3 (db-sqlite) complete**: core types → rusqlite engine (cross-compile needs cc env, documented) → always-present Db stub POD → public api.json surface. Next: **P4.4 AzulVault** — `examples/azul-vault`, biometric-gated (P4.1 `request_biometric_auth`/`get_biometric_result`) key/value store persisted via the `Db` API (open `:memory:` or a file, CREATE TABLE, add/list/view entries). Leaf example crate, low-disk. Then P5 AzulDoc + P6 expansions, per research.

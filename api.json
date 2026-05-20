@@ -79050,6 +79050,60 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "DbValueVecDestructorType": {
+                        "external": "azul_core::db::DbValueVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "DbValueVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "DbValueVecDestructor": {
+                        "external": "azul_core::db::DbValueVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "DbValueVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "DbValueVec": {
+                        "external": "azul_core::db::DbValueVec",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "DbValue",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "DbValueVecDestructor"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -87622,6 +87676,149 @@
                                 },
                                 "allow_device_credential": {
                                     "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "Db": {
+                        "external": "azul_dll::desktop::extra::sqlite::Db",
+                        "custom_impls": [
+                            "Clone",
+                            "Default",
+                            "Drop"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "open": {
+                                "doc": [
+                                    "Open (or create) a database at `path` (`\":memory:\"` for in-memory).",
+                                    "Returns an invalid handle (`is_open()` false) on failure or when the",
+                                    "`db-sqlite` feature is disabled."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "path": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_dll::desktop::extra::sqlite::Db::open(path)"
+                            }
+                        },
+                        "functions": {
+                            "is_open": {
+                                "doc": [
+                                    "`true` if the database is open (the `db-sqlite` engine is present",
+                                    "and `open` succeeded)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_open()"
+                            },
+                            "execute": {
+                                "doc": [
+                                    "Run a non-query statement (INSERT/UPDATE/DELETE/CREATE …) with",
+                                    "positional `params` (`?` placeholders). Returns rows affected (`0`",
+                                    "on error, a closed handle, or no engine)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "sql": "String"
+                                    },
+                                    {
+                                        "params": "DbValueVec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.execute(sql, params)"
+                            },
+                            "query": {
+                                "doc": [
+                                    "Run a query (SELECT) with positional `params`. Returns an empty",
+                                    "[`DbRows`] on error, a closed handle, or no engine."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "sql": "String"
+                                    },
+                                    {
+                                        "params": "DbValueVec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DbRows"
+                                },
+                                "fn_body": "object.query(sql, params)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "DbValue": {
+                        "external": "azul_core::db::DbValue",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Null": {},
+                                "Integer": {
+                                    "type": "i64"
+                                },
+                                "Real": {
+                                    "type": "f64"
+                                },
+                                "Text": {
+                                    "type": "String"
+                                },
+                                "Blob": {
+                                    "type": "U8Vec"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "DbRows": {
+                        "external": "azul_core::db::DbRows",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "columns": {
+                                    "type": "StringVec"
+                                },
+                                "values": {
+                                    "type": "DbValueVec"
                                 }
                             }
                         ],
