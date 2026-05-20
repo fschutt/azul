@@ -1,0 +1,28 @@
+[package]
+# NB: package name is `azul-doc-demo` because the codegen tool crate already
+# owns `azul-doc`. The app/binary is still AzulDoc.
+name = "azul-doc-demo"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzulDoc — the P5 goal app from SUPER_PLAN_2. A document view with an
+    "Export to PDF" button that drives `CallbackInfo::export_to_pdf` →
+    the dll's `printpdf` engine (walks the display list → PDF). Built on
+    the public `azul::` api.json surface. v1 exports the document's layout
+    (solid fills / section backgrounds); text-in-PDF + a markdown editor
+    are follow-ups (the on-screen view already shows text via the renderer).
+"""
+publish = false
+
+[dependencies]
+# `pdf` makes the export real (printpdf compiled on the desktop host);
+# without it `export_to_pdf` no-ops.
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "pdf"] }
+
+[[bin]]
+# Unique binary name too — `azul-doc` is the codegen tool's binary
+# (`cargo run --bin azul-doc -- codegen`), so the demo must not shadow it.
+name = "azul-doc-demo"
+path = "src/main.rs"

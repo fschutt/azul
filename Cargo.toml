@@ -5,6 +5,7 @@ members = [
     "examples/azul-paint", # AzulPaint demo (SUPER_PLAN_2 P2 goal app)
     "examples/azul-maps", # AzulMaps demo (SUPER_PLAN_2 P3 goal app)
     "examples/azul-vault", # AzulVault demo (SUPER_PLAN_2 P4 goal app)
+    "examples/azul-doc", # AzulDoc demo (SUPER_PLAN_2 P5 goal app)
     "dll", # dll module with auto-gen C functions (optional pyO3 support), depends on layout, core and css
     "doc", # doc / test generator, depends on layout, core and css
     "layout", # layout depends on core + css

@@ -1451,3 +1451,13 @@ The export now produces real content from the DOM (not a blank page).
 Verify: macOS host `+pdf` CLEAN (printpdf Op construction + the dispatch compile); `mobile-check-all.sh` GREEN on all 5 (no pdf → stub). Disk 97% → purging.
 
 PDF export is now end-to-end real for solid fills (backgrounds/boxes). Next P5.1e: Text dispatch — map `DisplayListItem::Text`/`TextLayout` (glyphs) → printpdf text Ops (font embedding via the ParsedFont; research/06 §2.1-2.3). Then P5.2 (PDF render: page_to_svg → Azul SVG) + P5.4 AzulDoc demo.
+
+### Tick — P5.4 — AzulDoc demo (document view + Export-to-PDF), text-in-PDF deferred (2026-05-20)
+
+The P5 goal app. Pivoted here from the deep text/font PDF dispatch (P5.1e): `UnifiedLayout` holds `Vec<PositionedItem>` (not a plain text string), so text-in-PDF needs walking positioned items + codepoint reconstruction + font handling + printpdf text Ops — all compile-only-unverifiable; deferred as focused follow-up. Per the user's "breadth + example apps" steer, shipped the demo on the working Rect-fill export.
+
+- `examples/azul-doc/{Cargo.toml,src/main.rs}`: package `azul-doc-demo` + bin `azul-doc-demo` (the codegen *tool* crate already owns `azul-doc`/`--bin azul-doc` — must not shadow it). `azul` dep with `link-static,pdf`. Document view (toolbar + a white "page" with a title + styled sections) + "Export to PDF" button → `on_export`: `info.export_to_pdf(temp/azul-doc-export.pdf)` + status line. The export walks the display list → section-background fills land in the PDF (text follows). Added to workspace members.
+
+Verify: `cargo check -p azul-doc-demo` CLEAN; `mobile-check-all.sh` GREEN (azul-dll unaffected); `--bin azul-doc` (codegen tool) still unambiguous. Disk 97% → purging.
+
+**P5 has its goal app + a working (partial) PDF export.** Deferred P5 polish: P5.1e text-in-PDF (the heart — focused/verifiable work), P5.2 PDF render (page_to_svg is behind printpdf's azul-layout-pulling `svg` feature → needs care re the cycle). Per the user's breadth steer, next: **P6 expansions** (camera / screen-share / sensors / gamepad / wacom, research/01+03) + their demos, same per-feature pattern.
