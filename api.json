@@ -9403,6 +9403,78 @@
                                     }
                                 ],
                                 "fn_body": "object.request_biometric_auth(prompt)"
+                            },
+                            "keyring_store": {
+                                "doc": [
+                                    "Store `secret` under `key` in the OS keyring (Keychain / KeyStore /",
+                                    "libsecret / CredentialLocker). When `require_biometry` is set, a",
+                                    "later `keyring_get` of this key triggers the OS biometric prompt.",
+                                    "Returns immediately; the outcome arrives via `get_keyring_result()`",
+                                    "on a later frame."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "key": "String"
+                                    },
+                                    {
+                                        "secret": "String"
+                                    },
+                                    {
+                                        "require_biometry": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.keyring_store(key, secret, require_biometry)"
+                            },
+                            "keyring_get": {
+                                "doc": [
+                                    "Read the secret stored under `key`. A biometry-bound item shows the",
+                                    "OS prompt first; the secret (or a denial) arrives via",
+                                    "`get_keyring_result()` on a later frame."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "key": "String"
+                                    }
+                                ],
+                                "fn_body": "object.keyring_get(key)"
+                            },
+                            "keyring_delete": {
+                                "doc": [
+                                    "Remove the item stored under `key` from the OS keyring (no-op if",
+                                    "absent). The outcome arrives via `get_keyring_result()`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "key": "String"
+                                    }
+                                ],
+                                "fn_body": "object.keyring_delete(key)"
+                            },
+                            "get_keyring_result": {
+                                "doc": [
+                                    "Get the most recent keyring outcome, or `None` until the first op",
+                                    "completes. Read after a `keyring_store/get/delete` to observe the",
+                                    "result — e.g. the revealed secret from a `keyring_get`",
+                                    "(`KeyringResult::Retrieved`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionKeyringResult"
+                                },
+                                "fn_body": "object.get_keyring_result().into()"
                             }
                         },
                         "repr": "C"
@@ -83107,6 +83179,23 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionKeyringResult": {
+                        "external": "azul_core::keyring::OptionKeyringResult",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "KeyringResult"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -85562,6 +85651,28 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "KeyringResult": {
+                        "external": "azul_core::keyring::KeyringResult",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Stored": {},
+                                "Retrieved": {
+                                    "type": "String"
+                                },
+                                "Deleted": {},
+                                "NotFound": {},
+                                "Denied": {},
+                                "Unavailable": {},
+                                "Error": {}
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -87492,6 +87603,9 @@
                     },
                     "BiometricPrompt": {
                         "external": "azul_core::biometric::BiometricPrompt",
+                        "custom_impls": [
+                            "Default"
+                        ],
                         "derive": [
                             "Debug",
                             "Clone",

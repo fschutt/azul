@@ -1275,3 +1275,15 @@ Combined the request + result plumbing in one tick (pattern proven by biometric 
 Verify: `cargo check -p azul-layout` CLEAN; `bash scripts/mobile-check-all.sh` GREEN on all 5. Disk 96% → purging.
 
 Keyring request→result loop now works in Rust (request → channel → dll dispatch stub → Unavailable → result channel → manager → get_keyring_result). Next P4.2c: codegen-expose the 4 accessors + types (KeyringRequest is an arg-only enum; KeyringResult + OptionKeyringResult are returns). Then backends — Keychain (objc2 Security.framework SecItem*) first.
+
+### Tick — P4.2c — keyring API exposed via api.json + codegen (2026-05-20)
+
+Exposed the keyring read+request surface through api.json (35-lang codegen). Clean autofix run.
+
+- `autofix add` × 4 accessors (`keyring_store`/`keyring_get`/`keyring_delete`/`get_keyring_result`), add→apply each (add clears the patch dir). `KeyringRequest` stays internal (accessors take individual args, not the enum).
+- Bare `autofix` 2-pass: `add_KeyringResult` (repr `C, u8` — data-carrying `Retrieved(String)`) + `add_OptionKeyringResult`, plus `modify_BiometricPrompt: +custom_impl(Default)` — the same alignment fix as P4.1e's BiometricKind (Default impl wasn't reflected). Kept all 3; curated out the 5 drift patches.
+- `codegen all` regenerated `target/codegen/*`.
+
+Verify: `bash scripts/mobile-check-all.sh` GREEN on all 5. Only `api.json` tracked. Disk 96% → purging.
+
+Keyring is now feature-complete behind the public API (request → channel → dll stub → Unavailable → result → manager → get_keyring_result). Next P4.2d: real **Keychain** backend (objc2 Security.framework `SecItemAdd`/`SecItemCopyMatching`/`SecItemDelete`) for iOS/macOS in `dll/extra/keyring/apple.rs`, with `kSecAttrAccessControl=biometryCurrentSet` for biometry-bound items. Then KeyStore (JNI) / libsecret / CredentialLocker.
