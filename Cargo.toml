@@ -25,6 +25,15 @@ gleam = "0.15.1"
 
 [patch.crates-io]
 rust-fontconfig = { path = "/Users/fschutt/Development/rust-fontconfig" }
+# To make printpdf share OUR azul-layout (single version in the dll), re-add:
+#   azul-css   = { path = "css" }
+#   azul-core  = { path = "core" }
+#   azul-layout = { path = "layout" }
+# and enable printpdf's `text_layout` feature. BLOCKED today: our azul-mobile
+# branch diverged `ParsedFont` (removed glyph_records_decoded; font bytes →
+# Option<Arc<FontBytes>>), so printpdf's font.rs (crates.io 0.9.1 + the local
+# /Users/fschutt/Development/printpdf, both on the old API) won't compile
+# against ours. Needs printpdf's font.rs updated to our ParsedFont API first.
 
 [profile.release]
 opt-level = 3

@@ -106,11 +106,16 @@ geojson = { version = "0.24", optional = true }
 # public surface stays a single dylib (approach A). Works on every platform;
 # the bundled C compile needs each target's cc toolchain (NDK / iOS SDK).
 rusqlite = { version = "0.37", features = ["bundled"], optional = true }
-# PDF export for AzulDoc (P5), gated by `pdf`. `default-features = false` is
-# REQUIRED: printpdf's default `html` feature pulls `azul-layout` (its own
-# layout integration) → a dep cycle with our local azul-layout. We only need
-# printpdf's core PdfDocument/Op API (we walk Azul's own display list), so the
-# integration features stay off. Pure Rust (lopdf) — cross-compiles cleanly.
+# PDF for AzulDoc (P5), gated by `pdf`. `default-features = false` →
+# printpdf's CORE PdfDocument/Op API only (lopdf + serde), pulling NO
+# azul-layout, so the dll links exactly one azul-layout (ours) — the
+# "no two versions" goal, achieved by printpdf using zero rather than ours.
+# (Enabling printpdf's `text_layout` to share OUR azul-layout is blocked:
+# our azul-mobile branch changed `ParsedFont` — removed glyph_records_decoded,
+# font bytes → Option<Arc<FontBytes>> — so printpdf 0.9.1 / the local
+# /Users/fschutt/Development/printpdf, both synced to the OLD API, fail to
+# compile against ours. The root [patch.crates-io] is ready for when
+# printpdf's font.rs is updated to our API.)
 printpdf = { version = "0.9.1", default-features = false, optional = true }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]

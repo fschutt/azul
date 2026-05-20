@@ -1484,3 +1484,15 @@ Runtime plumbing for P6.sensors.a, mirroring geolocation/biometric exactly.
 Verify: `managers::sensors::` 4/4 tests pass; `mobile-check-all.sh` GREEN on all 5 (E0063 "missing sensor_manager" diagnostics were stale rust-analyzer — counts matched, gate confirms). Disk spiked to 4.2 GiB during the gate → purged incremental → 7.4 GiB.
 
 Next was P6.sensors.c (codegen) — but the user redirected the PDF/printpdf approach (see next tick): patch printpdf to use OUR azul-layout (single version, no two-azul-layout link) + an AzJson-based read/write PDF C API (ABI-stable, like printpdf's wasm api). That reworks P5.1; doing it next.
+
+### Tick — P5.1/printpdf — "printpdf uses our azul-layout" BLOCKED by ParsedFont API drift (2026-05-20)
+
+User directive: patch printpdf to OUR azul-layout (single version, no two copies) + enable its integration. Investigated + hit a real blocker.
+
+- printpdf (crates.io 0.9.1 AND the local `/Users/fschutt/Development/printpdf`) pin azul-* = `0.0.7` (= our version) — so a `[patch.crates-io]` redirect resolves cleanly, and there's no dep cycle (azul-layout's `pdf` feature = `["text_layout"]`, no printpdf back-edge).
+- BUT enabling printpdf `text_layout` against our azul-layout **fails to compile**: our azul-mobile branch changed `ParsedFont` — removed `glyph_records_decoded` (printpdf font.rs:601 uses it) and font bytes are now `Option<Arc<FontBytes>>` not `&[u8]`/`Vec<u8>` (printpdf font.rs:532, serialize.rs:1263). The local printpdf is synced to `../azul/layout` (MAIN azul), not our mobile branch.
+- Net: printpdf's font.rs needs updating to our `ParsedFont` API to use our azul-layout. That's the user's external printpdf repo (risks breaking it for main azul) → surfaced for a decision.
+
+Restored green: kept printpdf at `default-features = false` (core PdfDocument/Op only, pulls ZERO azul-layout → the dll already links exactly one azul-layout = ours; the "no two versions" goal is met, just by printpdf using none). Patch lines documented (commented) in root Cargo.toml, ready to re-add once printpdf's font.rs is fixed.
+
+Verify: host `+pdf` CLEAN; `mobile-check-all.sh` GREEN. The 2nd directive (AzJson read/write PDF C API) works on core printpdf (serde) regardless — proceeding with that.
