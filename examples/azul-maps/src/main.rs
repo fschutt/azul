@@ -38,6 +38,13 @@ struct MapState {
     /// backend delivers one. (Refreshes on toggle; a live readout would
     /// poll via a Timer — out of scope for the demo.)
     last_fix: Option<(f64, f64)>,
+    /// Pins dropped by tapping the map, stored as `(lat, lon)` so they
+    /// track the viewport across pan/zoom (re-projected each layout).
+    pins: Vec<(f64, f64)>,
+    /// Map container pixel size, cached from the tap callback (layout()
+    /// can't measure it). Used to project pins lat/lon → screen px. `None`
+    /// until the first tap.
+    view_px: Option<(f32, f32)>,
 }
 
 impl MapState {
@@ -55,6 +62,8 @@ impl MapState {
             layer: MapTileLayer::default(),
             locating: false,
             last_fix: None,
+            pins: Vec::new(),
+            view_px: None,
         }
     }
 
@@ -132,15 +141,32 @@ const LOCATION_READOUT: &str = "position: absolute; left: 50%; top: 12px; \
     margin-left: -90px; width: 180px; text-align: center; \
     background: rgba(66,133,244,0.92); color: white; padding: 4px 8px; \
     border-radius: 4px; font-size: 12px; font-family: sans-serif;";
+// Transparent full-cover layer that captures map taps (drop-a-pin).
+const TAP_OVERLAY: &str = "position: absolute; left: 0px; top: 0px; \
+    width: 100%; height: 100%; background: transparent;";
 
 // ───────── Layout ─────────────────────────────────────────────────────
 
 extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-    let snapshot: Option<(MapViewport, MapTileLayer, bool, Option<(f64, f64)>)> = data
-        .downcast_ref::<MapState>()
-        .map(|s| (s.viewport, s.layer.clone(), s.locating, s.last_fix));
+    let snapshot: Option<(
+        MapViewport,
+        MapTileLayer,
+        bool,
+        Option<(f64, f64)>,
+        Vec<(f64, f64)>,
+        Option<(f32, f32)>,
+    )> = data.downcast_ref::<MapState>().map(|s| {
+        (
+            s.viewport,
+            s.layer.clone(),
+            s.locating,
+            s.last_fix,
+            s.pins.clone(),
+            s.view_px,
+        )
+    });
 
-    let Some((viewport, layer, locating, last_fix)) = snapshot else {
+    let Some((viewport, layer, locating, last_fix, pins, view_px)) = snapshot else {
         return Dom::create_body();
     };
 
@@ -236,7 +262,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                         }))
                         .with_callback(
                             EventFilter::Hover(HoverEventFilter::MouseUp),
-                            data,
+                            data.clone(),
                             on_locate,
                         ),
                 ),
@@ -277,11 +303,47 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
             );
     }
 
-    let map_container = map_container.with_child(
-        Dom::create_div()
-            .with_css(ATTRIB)
-            .with_child(Dom::create_text(attribution_text.as_str())),
-    );
+    // Tapped pins, projected lat/lon → screen px via the cached container
+    // size (set by the tap callback). They track the viewport: pan/zoom
+    // re-projects them each layout.
+    if let Some((w, h)) = view_px {
+        for (lat, lon) in &pins {
+            let (px, py) = latlon_to_px(viewport, *lat, *lon, w, h);
+            let style = format!(
+                "position: absolute; left: {:.1}px; top: {:.1}px; \
+                 width: 14px; height: 14px; margin-left: -7px; margin-top: -14px; \
+                 background: #d0021b; border-radius: 7px 7px 7px 0px; \
+                 transform: rotate(45deg); box-shadow: 0px 1px 2px rgba(0,0,0,0.4);",
+                px, py,
+            );
+            map_container =
+                map_container.with_child(Dom::create_div().with_css(style.as_str()));
+        }
+    }
+
+    map_container = map_container
+        .with_child(
+            Dom::create_div()
+                .with_css(ATTRIB)
+                .with_child(Dom::create_text(attribution_text.as_str())),
+        )
+        // Full-cover transparent layer that captures taps to drop a pin.
+        // Last child so it sits on top. The demo pans via the toolbar (not
+        // map-drag), so capturing pointer events here is fine.
+        .with_child(
+            Dom::create_div()
+                .with_css(TAP_OVERLAY)
+                .with_callback(
+                    EventFilter::Hover(HoverEventFilter::MouseUp),
+                    data.clone(),
+                    on_map_tap,
+                )
+                .with_callback(
+                    EventFilter::Hover(HoverEventFilter::TouchEnd),
+                    data,
+                    on_map_tap,
+                ),
+        );
 
     Dom::create_body()
         .with_css(ROOT)
@@ -365,6 +427,62 @@ extern "C" fn on_pan_down(mut data: RefAny, _info: CallbackInfo) -> Update {
         s.pan(0.0, 1.0);
     }
     Update::RefreshDom
+}
+
+extern "C" fn on_map_tap(mut data: RefAny, info: CallbackInfo) -> Update {
+    // The tap overlay fills the map container, so its hit rect gives the
+    // container pixel size; cursor-relative-to-node gives the tap point
+    // within it (falling back to viewport-minus-origin).
+    let rect = match info.get_hit_node_rect().into_option() {
+        Some(r) => r,
+        None => return Update::DoNothing,
+    };
+    let (w, h) = (rect.size.width, rect.size.height);
+    if w < 1.0 || h < 1.0 {
+        return Update::DoNothing;
+    }
+    let local = info
+        .get_cursor_relative_to_node()
+        .into_option()
+        .map(|c| (c.x, c.y))
+        .or_else(|| {
+            info.get_cursor_relative_to_viewport()
+                .into_option()
+                .map(|p| (p.x - rect.origin.x, p.y - rect.origin.y))
+        });
+    let (tx, ty) = match local {
+        Some(v) => v,
+        None => return Update::DoNothing,
+    };
+    if let Some(mut s) = data.downcast_mut::<MapState>() {
+        s.view_px = Some((w, h));
+        let (lat, lon) = tap_to_latlon(s.viewport, tx, ty, w, h);
+        s.pins.push((lat, lon));
+    }
+    Update::RefreshDom
+}
+
+/// Tap position (px within the container) → `(lat, lon)`. Linear
+/// small-angle Mercator — the same approximation the pan handler uses;
+/// accurate at city zooms, drifts only for taps far from centre near the
+/// poles. Exact inverse of [`latlon_to_px`].
+fn tap_to_latlon(vp: MapViewport, tx: f32, ty: f32, w: f32, h: f32) -> (f64, f64) {
+    let world = 256.0_f64 * 2.0_f64.powf(vp.zoom as f64);
+    let dx = (tx - w * 0.5) as f64;
+    let dy = (ty - h * 0.5) as f64;
+    let lon = (vp.centre_lon_deg + dx * 360.0 / world).clamp(-180.0, 180.0);
+    let cos_lat = vp.centre_lat_deg.to_radians().cos();
+    let lat = (vp.centre_lat_deg - dy * 360.0 / world * cos_lat).clamp(-85.0, 85.0);
+    (lat, lon)
+}
+
+/// `(lat, lon)` → px within the container. Inverse of [`tap_to_latlon`].
+fn latlon_to_px(vp: MapViewport, lat: f64, lon: f64, w: f32, h: f32) -> (f32, f32) {
+    let world = 256.0_f64 * 2.0_f64.powf(vp.zoom as f64);
+    let cos_lat = vp.centre_lat_deg.to_radians().cos();
+    let px = w as f64 * 0.5 + (lon - vp.centre_lon_deg) * world / 360.0;
+    let py = h as f64 * 0.5 - (lat - vp.centre_lat_deg) * world / (360.0 * cos_lat);
+    (px as f32, py as f32)
 }
 
 fn main() {

@@ -1070,3 +1070,15 @@ State of the run: P1 + P2 + P3.1 are done, exposed, and demonstrated (geolocatio
 - Tap-to-pin is implementable but meaty + relies on a cursor accessor that returned None on the desktop paths I traced (runtime-unverifiable here).
 
 Recommend pausing the loop until disk is freed or a direction is chosen; committing only this log.
+
+### Tick — P3.3d AzulMaps tap-to-pin (the named P3.3 deliverable) (2026-05-20)
+
+Implemented tap-to-drop-a-pin — the last named P3.3 item ("tap-to-pin-callout"). Leaf-only (azul-maps), low-disk.
+
+- Solved the container-pixel chicken-and-egg via the callback: a full-cover transparent `TAP_OVERLAY` (last child, on top) captures MouseUp/TouchEnd → `on_map_tap` reads `get_hit_node_rect()` (container size) + `get_cursor_relative_to_node()` (tap point; falls back to viewport-minus-origin), inverse-projects to `(lat, lon)`, pushes a pin, and caches the container size in `MapState.view_px`.
+- `MapState` gained `pins: Vec<(f64,f64)>` + `view_px`. layout() forward-projects each pin to screen px (using the cached size) and renders a teardrop marker; pins track the viewport (pan/zoom re-projects them).
+- Projection: `tap_to_latlon` / `latlon_to_px` are exact inverses (linear small-angle Mercator, same approximation as the pan handler — accurate at city zooms). Round-trip verified by construction (lon/lat offset ↔ px offset cancel).
+
+`cargo check -p azul-maps` clean; `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (warm — no dll/codegen change). Disk ~96% / 8.4 GiB.
+
+Runtime caveat (as for all mobile here): compiles + works in theory; the tap path depends on `get_cursor_relative_to_node`/`get_hit_node_rect` being populated at runtime (the fallback to viewport-relative covers the case I traced as None). P3.3 (AzulMaps) is now feature-complete bar real tiles (gated). Remaining: P3.2 real-tile worker exposure, P2.3 HoverEventFilter, iOS/macOS permission-request blocks (decision-gated); live-locate Timer (needs get_location_fix on TimerCallbackInfo); disk for codegen ticks.
