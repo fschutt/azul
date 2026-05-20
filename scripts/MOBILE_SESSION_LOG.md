@@ -1679,3 +1679,23 @@ User reconsidered the camera architecture: instead of a core `CameraPreview` Nod
 - **Goal: a dummy "camera app".**
 
 Next: investigate the thread+writeback API (`CallbackInfo::start_thread` / WriteBackCallback / how MapWidget updates images without relayout / AfterMount wiring), then build the camera widget (`layout/src/widgets/camera.rs`, mirroring `map.rs`) → screenshare → video → camera-app demo.
+
+### Tick — P6.camera widget: design fully settled (thread+writeback+update_image) (2026-05-20)
+
+Mapped the full widget spine + settled the render-update mechanism (4 user refinements this turn). No code yet — clean base at camera.a + this recipe.
+
+**Confirmed APIs:**
+- `CallbackInfo::add_thread(ThreadId, Thread::new(WriteBackCallback, RefAny))` starts a bg thread; `ThreadCallbackType = fn(RefAny, ThreadSender, ThreadReceiver)`; **`WriteBackCallbackType = fn(RefAny thread_data, RefAny writeback_data, CallbackInfo) -> Update`** — the writeback HAS CallbackInfo. (layout/timer.rs:345, thread.rs)
+- `Dom::create_image(ImageRef)` static image node; `ImageRef::callback(CoreRenderImageCallback, RefAny)` for the (rejected) RenderImageCallback path; `ImageRef::null_image(w,h,fmt,tag)`.
+- Widget pattern (MapWidget): `.with_dataset(Some(RefAny))` + `.with_merge_callback(DatasetMergeCallbackType = fn(RefAny new, RefAny old) -> RefAny)` (survives relayout) + `.with_callback(EventFilter::Component(ComponentEventFilter::AfterMount), data, cb)` to kick the thread (map_on_after_mount).
+- Update enum = DoNothing / RefreshDom / RefreshDomAllWindows (NO repaint-only). Image updates avoid relayout via the image path: `change_node_image` → ShouldUpdateDisplayListCurrentWindow (rebuilds DL); `update_all_image_callbacks` → ShouldReRenderCurrentWindow (recomposite only, but RenderImageCallback-only).
+
+**Settled design (per user):**
+1. **ADD `CallbackInfo::update_image(image: ImageRef, bytes/RawImage)`** → new `CallbackChange::UpdateImage` → dll issues WebRender `UpdateImage` on that image's key → `ShouldReRenderCurrentWindow` (recomposite only, no relayout, no DL rebuild). "Update one specific ImageRef", no RenderImageCallback.
+2. **CameraWidget** (layout/src/widgets/camera.rs, mirror map.rs): `create(config).dom()` → `create_image(texture)` [static, registered] + dataset `CameraWidgetState { config, texture: ImageRef, started }` + merge_camera_state + AfterMount → start capture thread.
+3. **Capture thread** (AfterMount → add_thread): capture → decode → (YUV→RGB on cpurender) → writeback → `info.update_image(texture, frame)`.
+4. **Control POD**: front/back, zoom, live filters (camera); screen/window (screenshare). Switching = mutate the POD, no re-permission (thread persists).
+5. Then **screenshare** widget (same), **video** widget (vk-video + http range), **camera-app demo**. Future: recording (dump packets).
+6. YUV: cpurender converts→RGB; GPU adds YUV ImageRef variant + wr AddImage/UpdateImage (deferred).
+
+Next: build P6.camera.widget.1 = `CallbackInfo::update_image` API (CallbackChange::UpdateImage + dll handler issuing wr UpdateImage → ShouldReRenderCurrentWindow). Then the CameraWidget scaffold.
