@@ -841,3 +841,14 @@ Connected the whole permission chain to real DOM nodes: the layout pass's permis
 Manager-side Subscribe/Release logic is already covered by the 8 azul-layout permission tests; this is the dll-side enumeration feeding it (mirrors the proven geolocation walk). `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (22/6/6/5/6 s). Internal layout-pass wiring — no api.json/codegen change. Disk 94%, incremental cleared.
 
 P1.2 is now wired end-to-end on Android (probe + request + diff-pass + channel). Still open for the user: iOS request producer (objc0.2/block2 approach call); P3.3 tap-to-pin worker exposure.
+
+### Tick — P1.2f real macOS permission probe (objc, mirrors iOS) (2026-05-20)
+
+Completed the synchronous probe path on the third platform: `permission/macos.rs::probe_status` was a `NotDetermined` stub; now it issues the real objc 0.2 status getters (block-free), mirroring the iOS backend the macos.rs TODO pointed at.
+
+- Camera/Mic → `[AVCaptureDevice authorizationStatusForMediaType:]` ("vide"/"soun"); Geolocation(+Background) → `CLLocationManager.authorizationStatus` + `accuracyAuthorization` (Full vs Reduced; background needs authorizedAlways); PhotoLibrary(/Write) → `[PHPhotoLibrary authorizationStatusForAccessLevel:]` (limited→Reduced). No ATTrackingManager (iOS-only); ScreenCapture's CGPreflight path noted for later.
+- `Class::get` (not `class!`) so a missing framework degrades to NotDetermined. `handle_event` (request prompts) stays a no-op — same ObjC-completion-block dependency as iOS.
+
+macOS isn't in the mobile gate (it's `cfg(target_os="macos")`), so verified two ways: host `cargo check -p azul-dll --no-default-features --features std,logging,link-static,a11y` compiles macos.rs clean (18.5s); `bash scripts/mobile-check-all.sh` GREEN on all 5 mobile targets (no regression). Internal dll platform code — no api.json/codegen change. Disk 94%, incremental cleared.
+
+Probe path now real on iOS + Android + macOS. Still open for the user (unchanged): iOS/macOS request producers (objc completion-block approach call); P3.3 tap-to-pin worker exposure.
