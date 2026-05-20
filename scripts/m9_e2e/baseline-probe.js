@@ -280,6 +280,19 @@ function parseWasmFnNames(buf) {
     if (bw[4] === 0 || bw[6] > 1000000) console.log('  >>> BigVec SCRAMBLED — complex-element Vec path CONFIRMED as root cause #2');
     else if (bw[4] !== 0 && bw[6] === 2) console.log('  >>> BigVec OK — complex-element Vec also works; bug is even more specific');
 
+    const rv_ptr = rd(0x40048);
+    // TestRecVec repr(C): m@0, v:Vec<u32>@8 {cap@8,ptr@16,len@24}, t@32.
+    const rw = [];
+    for (let i = 0; i < 10; i++) rw.push(rd((rv_ptr + i * 4) >>> 0));
+    console.log('--- make_test_recvec (RECURSIVE Vec accumulation) ---');
+    console.log('  rv_ptr  = 0x' + (rv_ptr >>> 0).toString(16));
+    console.log('  m[0]      = 0x' + rw[0].toString(16) + ' (expect aaaaaaaa)');
+    console.log('  v.cap[2]  = ' + rw[2] + '  v.ptr[4]= 0x' + rw[4].toString(16) + '  v.len[6]= ' + rw[6] + ' (expect cap>=5, ptr=heap, len=5)');
+    console.log('  t[8]      = 0x' + rw[8].toString(16) + ' (expect cccccccc)');
+    console.log('  raw10   = ' + rw.map(x => x.toString(16)).join(' '));
+    if (rw[4] === 0 || rw[6] > 1000000) console.log('  >>> RECVEC SCRAMBLED — RECURSION+Vec-accum is root cause #2 CONFIRMED!');
+    else if (rw[4] !== 0 && rw[6] === 5) console.log('  >>> RECVEC OK — recursion+Vec-accum also works; even more specific');
+
     const ptr_val = rd(0x4010C);
     let casNonzero = 0;
     const casDump = [];

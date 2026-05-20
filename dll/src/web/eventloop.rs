@@ -1088,6 +1088,10 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     let bv_boxed = Box::new(make_test_bigvec());
     let bv_ptr = Box::into_raw(bv_boxed) as usize as u32;
     core::ptr::write_volatile(0x40044_usize as *mut u32, bv_ptr);
+    // M12.5l: RECURSIVE Vec accumulation (mimics convert_dom_into_compact_dom).
+    let rv_boxed = Box::new(make_test_recvec());
+    let rv_ptr = Box::into_raw(rv_boxed) as usize as u32;
+    core::ptr::write_volatile(0x40048_usize as *mut u32, rv_ptr);
     // M12.5h ISOLATION: cascade a HAND-BUILT body Dom instead of the
     // layout-cb blob (dom_ref). If this clears the with_capacity OOB and
     // yields node_data.len()>=1, the cascade lift is FINE and the corrupt
@@ -1350,6 +1354,37 @@ pub fn make_test_bigvec() -> TestBigVecStruct {
     v.push(e1);
     v.push(e2);
     TestBigVecStruct { marker: 0xAAAA_AAAA, v, tail: 0xCCCC_CCCC }
+}
+
+/// M12.5l: RECURSIVE Vec accumulation — mimics convert_dom_into_compact_dom
+/// (a recursive tree-walk that accumulates node_data). ALL prior
+/// reproducers were NON-recursive and worked; the cascade builds node_data
+/// recursively, and recursion is specially lifted (recursive-bl forwarder
+/// passes a wrong pc). If make_test_recvec's v reads back scrambled
+/// (v.ptr=0 / v.len=huge) → recursion + Vec-accumulation is root cause #2.
+#[inline(never)]
+#[no_mangle]
+pub fn rec_accum(v: &mut Vec<u32>, n: u32) {
+    if n == 0 {
+        return;
+    }
+    v.push(0xB0000000_u32.wrapping_add(n));
+    rec_accum(v, n - 1);
+}
+
+#[repr(C)]
+pub struct TestRecVec {
+    pub m: u32,
+    pub v: Vec<u32>,
+    pub t: u32,
+}
+
+#[inline(never)]
+#[no_mangle]
+pub fn make_test_recvec() -> TestRecVec {
+    let mut v: Vec<u32> = Vec::new();
+    rec_accum(&mut v, 5);
+    TestRecVec { m: 0xAAAA_AAAA, v, t: 0xCCCC_CCCC }
 }
 
 
