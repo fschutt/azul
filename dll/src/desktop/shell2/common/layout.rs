@@ -801,6 +801,22 @@ pub fn regenerate_layout(
         }
     }
 
+    // 7g. Run any PDF exports a callback queued this frame
+    // (CallbackInfo::export_to_pdf). The display list is fresh here, so the
+    // printpdf engine (dll::desktop::extra::pdf) can walk it — currently a
+    // blank-page stub; the DisplayListItem → Op dispatch is a follow-up.
+    {
+        for path in azul_layout::managers::pdf_export::drain_pdf_export_requests() {
+            let ok = crate::desktop::extra::pdf::export_to_pdf(path.as_str());
+            log_debug!(
+                LogCategory::Layout,
+                "[regenerate_layout] PDF export to {} -> {}",
+                path.as_str(),
+                ok
+            );
+        }
+    }
+
     log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE");
     azul_layout::probe::emit_phase_heap("end");
 

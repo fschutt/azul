@@ -17,6 +17,7 @@ pub mod gesture;
 pub mod gpu_state;
 pub mod hover;
 pub mod keyring;
+pub mod pdf_export;
 pub mod permission;
 pub mod virtual_view;
 pub mod scroll_into_view;

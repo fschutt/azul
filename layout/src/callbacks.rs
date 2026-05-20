@@ -3201,6 +3201,16 @@ impl CallbackInfo {
         self.get_layout_window().keyring_manager.last_result().cloned()
     }
 
+    /// Export the current window's content to a PDF at `path`. Queues the
+    /// export; it runs on the next layout pass, where the dll's `printpdf`
+    /// engine walks the freshly-laid-out display list. Call from, e.g., an
+    /// "Export PDF" button's `on_click`. Requires the dll's `pdf` feature
+    /// for real output (the engine no-ops otherwise). (v1 emits a blank
+    /// page — the display-list → PDF dispatch is a follow-up.)
+    pub fn export_to_pdf(&mut self, path: AzString) {
+        crate::managers::pdf_export::push_pdf_export_request(path);
+    }
+
     /// Get current pen pressure (0.0 to 1.0)
     /// Returns None if no pen is active, Some(0.5) for mouse
     pub fn get_pen_pressure(&self) -> Option<f32> {

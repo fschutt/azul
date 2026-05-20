@@ -1418,3 +1418,15 @@ First P5 (AzulDoc) step. Resolved the §5.3 dep-cycle risk + landed the always-p
 Verify: host check `+pdf` CLEAN (printpdf resolves+compiles, no cycle, my API usage valid); `mobile-check-all.sh` GREEN on all 5 (no pdf → stub, printpdf not compiled). Disk 97% → purging.
 
 Next P5.1b: the real export — walk the display list → printpdf `Op`s (research/06 §2.3.2; `DisplayListItem::TextLayout` half-wired) + expose `App::export_pdf`/`CallbackInfo::export_to_pdf` via api.json (always-present, no gating). Then P5.2 render (printpdf::page_to_svg → azul SVG) + P5.4 AzulDoc demo.
+
+### Tick — P5.1b — PDF export trigger (channel + CallbackInfo::export_to_pdf + dll drain) (2026-05-20)
+
+Wired the callback-triggered export. `CallbackInfo` (layout) can't reach the dll's printpdf engine, so this uses the request-channel pattern (like biometric/keyring): callback → channel → dll layout-pass drain (which has the fresh display list).
+
+- `layout/src/managers/pdf_export.rs` (new): `push_pdf_export_request(path)` / `drain_pdf_export_requests()` — fire-and-forget channel (no manager struct; no result read back), poison-recovering. +1 round-trip test. Wired into managers/mod.rs.
+- `layout/src/callbacks.rs`: `CallbackInfo::export_to_pdf(&mut self, path: AzString)` → queues the path. Internal Rust; codegen exposure is P5.1c.
+- `dll/.../shell2/common/layout.rs`: "7g" block — drain export paths → `crate::desktop::extra::pdf::export_to_pdf(path)` (blank PDF for now; the display list is available here for the real dispatch).
+
+Verify: `managers::pdf_export::` 1/1 test passes; `mobile-check-all.sh` GREEN on all 5. Disk 98% → purging aggressively.
+
+Next P5.1c: codegen-expose `CallbackInfo.export_to_pdf` (always-present, no gating). P5.1d: the real dispatch — pass the display list to `export_to_pdf` + walk `DisplayListItem`s → printpdf `Op`s (Rect fills first, then Text via the half-wired TextLayout, research/06 §2.3.2). Then P5.2 render + P5.4 AzulDoc demo.
