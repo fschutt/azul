@@ -399,6 +399,32 @@ impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
 /// to `styled_dom.clone()` the DOM before calling. The clone was
 /// ~2 MiB per render on excel.html; kept at the borrow now.
 #[cfg(feature = "text_layout")]
+/// Web-backend opt-out for display-list generation.
+///
+/// When set, [`layout_document`] runs the full positioning pipeline
+/// (intrinsic sizing, taffy block/flex/grid, relative/sticky/absolute
+/// adjustment → `calculated_positions`) but **skips
+/// `generate_display_list`**, returning an empty [`DisplayList`]. The
+/// web backend emits TLV DOM patches, not a display list, so it needs
+/// the geometry in `calculated_positions` but nothing the painter
+/// produces. This also lets the AArch64→wasm lift drop the entire
+/// `display_list` painter surface (those symbols are classified `Leaf`
+/// in `dll/src/web/symbol_table.rs::classify_for_name`, so the
+/// transitive lifter never descends into them). Defaults `false` →
+/// desktop/native behaviour is unchanged.
+pub static SKIP_DISPLAY_LIST: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
+
+/// Set [`SKIP_DISPLAY_LIST`]. Provided as a function (rather than the
+/// caller touching the static directly) so the web backend's
+/// `dll`-crate caller reaches it through a normal `bl` into this
+/// `azul_layout` function — keeping the static's address computation
+/// intra-crate (direct `adrp+add`) instead of a cross-crate GOT load,
+/// which the AArch64→wasm lift mirrors more reliably.
+pub fn set_skip_display_list(skip: bool) {
+    SKIP_DISPLAY_LIST.store(skip, core::sync::atomic::Ordering::Relaxed);
+}
+
 pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     cache: &mut LayoutCache,
     text_cache: &mut TextLayoutCache,
@@ -671,6 +697,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             cache.scroll_ids.clone()
         };
 
+        if SKIP_DISPLAY_LIST.load(core::sync::atomic::Ordering::Relaxed) {
+            return Ok(DisplayList::default());
+        }
         return generate_display_list(
             &mut ctx,
             tree,
@@ -930,7 +959,10 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     crate::probe::sample_peak_rss("rss:before_display_list");
     crate::probe::reset_peak();
     // --- Step 4: Generate Display List & Update Cache ---
-    let display_list = {
+    let display_list = if SKIP_DISPLAY_LIST.load(core::sync::atomic::Ordering::Relaxed) {
+        // Web backend: positions are done; the painter is dead weight.
+        DisplayList::default()
+    } else {
         let _p = crate::probe::Probe::span("generate_display_list");
         generate_display_list(
             &mut ctx,

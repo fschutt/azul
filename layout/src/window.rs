@@ -782,7 +782,16 @@ impl LayoutWindow {
         result
     }
 
-    fn layout_dom_recursive(
+    /// Run the real layout solver for a single StyledDom + viewport
+    /// (taffy block/flex/grid → `layout_cache.calculated_positions`).
+    ///
+    /// Made `pub` for the web backend (`AzStartup_solveLayoutReal`),
+    /// which lifts this from ARM to wasm to position the headless
+    /// StyledDom. On web the display-list step inside `layout_document`
+    /// is hot-patched out at lift time (web emits TLV patches, not a
+    /// display list); positions are written to the cache *before* that
+    /// step, so the lifted path still produces correct geometry.
+    pub fn layout_dom_recursive(
         &mut self,
         styled_dom: StyledDom,
         window_state: &FullWindowState,

@@ -293,7 +293,7 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
             args: vec![Pcs::Wreg { state_byte_offset: X0 }],
             ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
         }),
-        "AzStartup_solveLayout" => Some(CallbackSignature {
+        "AzStartup_solveLayout" | "AzStartup_solveLayoutReal" => Some(CallbackSignature {
             kind: name.to_string(),
             // (state: u32, viewport_w: u32, viewport_h: u32) -> u32
             args: vec![
@@ -631,11 +631,26 @@ impl RemillTranspiler {
 
     /// Whether the in-process remill+LLVM+LLD pipeline should be used
     /// in place of the subprocess `remill-lift-17` + `opt` + `llc` +
-    /// `wasm-ld` chain. Requires BOTH the build-time feature
-    /// (`web-transpiler-static` statically links the library bodies
-    /// into libazul.dylib) AND the runtime opt-in (`AZ_NATIVE_REMILL=1`).
-    /// The cfg-gate keeps the env-var check from accidentally enabling
-    /// a path that wouldn't link.
+    /// `wasm-ld` chain.
+    ///
+    /// Opt-in via `AZ_NATIVE_REMILL=1` (requires the build-time
+    /// `web-transpiler-static` feature, which statically links
+    /// remill+LLVM+LLD into libazul.dylib).
+    ///
+    /// **NOT default**, despite sharing one `LoadArchSemantics`: the
+    /// in-process `compile_to_wasm32_obj` merges *every* lifted fn into
+    /// ONE module and runs `opt -O2` on it. For the ~1607-fn layout
+    /// graph that single giant-module optimization is both slow
+    /// (≈7 min, 1.35 GB peak) AND miscompiles — verified on the layout
+    /// lift it regresses the cascade to `getStyledDomNodeCount == 0`
+    /// (recvec/u128 scrambled, plus LLVM "Linking two modules of
+    /// different target triples/datalayouts" warnings: one input keeps
+    /// the host aarch64 datalayout instead of wasm32). The subprocess
+    /// chain lifts the same graph correctly in ≈2.4 min with bounded
+    /// per-fn memory. The right native path is the **sharded** design
+    /// (1 fn → 1 wasm with linker imports, opt per small module) — once
+    /// that lands + the triple/datalayout normalization is fixed, this
+    /// can flip back to default. Until then subprocess is the default.
     fn use_native_remill(&self) -> bool {
         cfg!(feature = "web-transpiler-static")
             && std::env::var_os("AZ_NATIVE_REMILL").is_some()
@@ -1606,12 +1621,13 @@ impl RemillTranspiler {
                 };
                 let already_visited = visited.contains(&entry.canonical_addr);
                 eprintln!(
-                    "[azul-web]     dep: {} → resolved={}@0x{:016x} class={:?} visited={}",
+                    "[azul-web]     dep: {} → resolved={}@0x{:016x} class={:?} visited={}  (pulled in by {})",
                     sym,
                     entry.canonical_name,
                     entry.canonical_addr,
                     entry.classification,
                     already_visited,
+                    name,
                 );
                 if already_visited {
                     continue;
@@ -4014,6 +4030,12 @@ fn postprocess_wasm_opt(input_path: &Path, fn_name: &str) -> Option<Vec<u8>> {
     let out_path_str = out_path.to_str()?;
     let in_path_str = input_path.to_str()?;
     let args: &[&str] = &[
+        // The lifted code emits `memory.copy`/`memory.fill` (from the
+        // LibcMemcpy `@llvm.memmove` body + memset lowering), which are
+        // bulk-memory ops. Without `--enable-bulk-memory` wasm-opt rejects
+        // the module ("requires bulk memory") and we fall back to un-opt'd
+        // wasm. Enable it (browsers have supported bulk-memory since 2020).
+        "--enable-bulk-memory",
         "-Oz",
         "--strip-debug",
         "--strip-producers",
@@ -4078,9 +4100,35 @@ fn remill_export_symbol(entry_addr: u64) -> String {
 }
 
 fn sanitize_filename(name: &str) -> String {
-    name.chars()
+    let s: String = name
+        .chars()
         .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
-        .collect()
+        .collect();
+    // Bound the length. Deeply-nested-generic Rust mangled names — e.g.
+    // `<impl From<&RawGlyph<()>> for RawGlyph<SyriacData>>::from` — sanitize
+    // to 190-240+ chars. With a `.lifted.ll` / `.patched.ll` / `.opt.ll`
+    // suffix this exceeds the 255-byte filesystem NAME_MAX, so remill-lift-17
+    // (and our own writes) hit ENAMETOOLONG; remill's `StoreModuleIRToFile`
+    // then `LOG(FATAL)`s ("File name too long") → SIGABRT → the whole
+    // azul-mini.wasm falls back to an 8-byte stub. Truncate to a safe prefix
+    // and append a stable 64-bit FNV-1a hash of the full sanitized name so
+    // two long names sharing a prefix still get distinct, deterministic stems
+    // (the stem is recomputed to read each lift artifact back, so it must be a
+    // pure function of `name`).
+    const MAX_STEM: usize = 160;
+    if s.len() <= MAX_STEM {
+        return s;
+    }
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in s.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    // Truncate on a char boundary (sanitized output is ASCII, so byte == char,
+    // but keep this correct regardless).
+    let mut prefix = s;
+    prefix.truncate(MAX_STEM);
+    format!("{}_{:016x}", prefix, h)
 }
 
 /// M12.5y — Heisenbug-proof store-address tracer.

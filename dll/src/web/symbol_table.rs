@@ -1699,6 +1699,21 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
             return FnClass::LibcMemcpy;
         }
     }
+    // Web backend: the display-list painter surface
+    // (`azul_layout::solver3::display_list` — `DisplayListGenerator` +
+    // all `paint_*` helpers) is never executed in wasm. `layout_document`
+    // gates its `generate_display_list` call behind `SKIP_DISPLAY_LIST`
+    // (set by `AzStartup_solveLayoutReal`) because the web backend emits
+    // TLV DOM patches, not a display list. Classify these symbols `Leaf`
+    // so the transitive lifter stops at the `generate_display_list` entry
+    // and never descends into the painters (~300+ fns: glyph emission,
+    // gradients, borders, tables, images, …) — a large lift-surface +
+    // lift-time reduction. The mangled Rust module path contains
+    // lowercase `display_list`; the `Az*` C API uses camelCase
+    // `DisplayList`, so framework symbols are unaffected.
+    if name.contains("display_list") {
+        return FnClass::Leaf;
+    }
     // M9-3: check the more specific layout4 variant FIRST — its name
     // is a superstring of `az_call_indirect`, so a naive ends_with
     // match would mis-classify it as the 3-arg variant.
