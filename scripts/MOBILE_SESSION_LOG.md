@@ -765,3 +765,15 @@ Locked down the Web-Mercator/tile math the whole map rests on — it had zero te
 5/5 tests pass. `bash scripts/mobile-check-all.sh` GREEN on all 5 mobile targets (6s each). Cleared `target/debug/incremental` (disk 94%). No codegen / api.json change — helpers are private widget internals.
 
 Still open for the user (unchanged): the real-tile demo call gated on the worker-exposure choice (`dom_with_default_tiles()` vs `tile_fetch_thread_callback()`); I lean no-arg. Next tick: P3.3b tap-to-pin-callout on this tested projection.
+
+### Tick — P1.2a real iOS permission probe via the objc runtime (2026-05-20)
+
+Backfilled the lowest-numbered open TODO (P1.2 < P3.3): `permission/ios.rs::probe_status` returned `NotDetermined` for every capability. Now it issues the real synchronous Objective-C status getters and maps each native enum onto `PermissionState` — real native wiring, not a stub.
+
+- Camera/Microphone → `[AVCaptureDevice authorizationStatusForMediaType:]` (AVMediaType FourCC "vide"/"soun").
+- Geolocation/GeolocationBackground → `CLLocationManager.authorizationStatus`; background is only satisfied by `authorizedAlways`, `authorizedWhenInUse` is foreground-only; `accuracyAuthorization` distinguishes `Granted{Full}` vs `Granted{Reduced}`.
+- PhotoLibrary/PhotoLibraryWrite → `[PHPhotoLibrary authorizationStatusForAccessLevel:]` (readWrite=2 / addOnly=1); `limited` → `Granted{Reduced}`.
+- AppTrackingTransparency → `[ATTrackingManager trackingAuthorizationStatus]`.
+- Classes resolved via `Class::get` (not `class!`), so a missing framework degrades to `NotDetermined` instead of aborting; iOS-14+ status APIs called directly (same baseline as the file picker). `handle_event` (async prompts) stays a no-op for a later tick.
+
+`bash scripts/mobile-check-all.sh` GREEN on all 5 mobile targets (4/3/3/1/0 s). Internal dll platform code — no api.json/codegen change. Disk 94%, incremental cleared.
