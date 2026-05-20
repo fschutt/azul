@@ -3141,6 +3141,26 @@ impl CallbackInfo {
         self.get_layout_window().sensor_manager.reading(kind)
     }
 
+    /// Get the latest state of the gamepad `id` (button bitset + analog
+    /// axes), or `None` if no pad with that id has connected. Kept live by
+    /// the controller backend (gilrs / iOS `GCController` / Android
+    /// `InputDevice`) via the async channel the layout pass folds into the
+    /// manager — so a callback can drive movement / menu UI. For the common
+    /// single-controller case, [`CallbackInfo::get_primary_gamepad`] skips
+    /// the id bookkeeping.
+    pub fn get_gamepad_state(
+        &self,
+        id: azul_core::gamepad::GamepadId,
+    ) -> Option<azul_core::gamepad::GamepadState> {
+        self.get_layout_window().gamepad_manager.state(id)
+    }
+
+    /// Get the first currently-connected gamepad, or `None` if none is
+    /// connected — the convenient single-controller accessor.
+    pub fn get_primary_gamepad(&self) -> Option<azul_core::gamepad::GamepadState> {
+        self.get_layout_window().gamepad_manager.primary()
+    }
+
     /// Get the most recent biometric-auth result, or `None` if no
     /// `request_biometric_auth` has completed yet. Kept live by the
     /// platform backends (iOS/macOS `LAContext`, Android `BiometricPrompt`,

@@ -1604,3 +1604,15 @@ Next P6 expansion feature (gilrs desktop / iOS GCController + Android InputDevic
 Verify: `mobile-check-all.sh` GREEN on all 5. Disk 14 GiB.
 
 Next P6.gamepad.b: `azul_layout::managers::gamepad::GamepadManager` + the async update channel (mirrors SensorManager). Then dll backend (gilrs desktop + iOS/Android glue), codegen (`get_gamepad_state`), demo.
+
+### Tick — P6.gamepad.b — GamepadManager + channel + consumer-side wiring (2026-05-20)
+
+Full consumer side (mirrors sensors.b), so only the native producer remains.
+
+- `layout/src/managers/gamepad.rs`: `GamepadManager` — dynamic `Vec<GamepadState>` (one slot per `GamepadId` seen, retained across frames so disconnect is observable) + `state(id)`/`primary()`/`gamepads()`/`set_state` (upsert by id, bitwise change-detect) + the process-global `push_gamepad_state`/`drain_gamepad_states` channel. 4 unit tests.
+- `managers/mod.rs`: `pub mod gamepad`. `window.rs`: `gamepad_manager` field + all 3 `LayoutWindow` inits. `callbacks.rs`: `CallbackInfo::get_gamepad_state(id)` + `get_primary_gamepad()`. `dll .../layout.rs`: "7i" drain block folding parked states into the manager.
+- (rust-analyzer threw stale E0063 "missing gamepad_manager" at window.rs:571/661 again — `cargo check -p azul-layout` clean + 3/3 inits matched, exactly the documented stale-RA behavior. Trusted cargo.)
+
+Verify: `mobile-check-all.sh` GREEN on all 5; `cargo test -p azul-layout gamepad::` 4/4 pass. Disk purged.
+
+Next P6.gamepad.c: codegen-expose `get_gamepad_state`/`get_primary_gamepad` + the gamepad types (GamepadId/Button/Axis/State/OptionGamepadState) via api.json. Then dll backend (gilrs desktop + GCController/InputDevice) + a demo.

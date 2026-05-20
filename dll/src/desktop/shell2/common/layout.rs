@@ -857,6 +857,26 @@ pub fn regenerate_layout(
         }
     }
 
+    // 7i. Drain gamepad states the controller backend parked since the last
+    // pass (gilrs / iOS GCController / Android InputDevice poll on their own
+    // thread with no handle to this LayoutWindow, so they park states in
+    // azul-layout's process-global channel) and fold the latest per id into
+    // the manager. (No producer fires yet — the native backend is a later
+    // tick — but the consumer is live and unit-tested in azul-layout.)
+    {
+        let states = azul_layout::managers::gamepad::drain_gamepad_states();
+        let mut changed = false;
+        for state in states {
+            changed |= layout_window.gamepad_manager.set_state(state);
+        }
+        if changed {
+            log_debug!(
+                LogCategory::Layout,
+                "[regenerate_layout] applied async gamepad state"
+            );
+        }
+    }
+
     log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE");
     azul_layout::probe::emit_phase_heap("end");
 
