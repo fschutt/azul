@@ -729,6 +729,15 @@ pub fn regenerate_layout(
         }
     }
 
+    // 7d-pre (biometric availability): fold the device capability into the
+    // manager so CallbackInfo::get_biometric_kind() reports the real sensor
+    // (Face / Fingerprint / Iris) instead of the NotAvailable default.
+    // Cached behind a OnceLock — the underlying probe is a native call, so
+    // this is a cheap atomic read after the first frame.
+    layout_window
+        .biometric_manager
+        .set_availability(crate::desktop::extra::biometric::availability_cached());
+
     // 7d. Dispatch biometric-auth requests a callback queued this frame.
     // CallbackInfo::request_biometric_auth parks the prompt in
     // azul-layout's process-global request channel; we drain it here and

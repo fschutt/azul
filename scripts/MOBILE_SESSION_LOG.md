@@ -1238,3 +1238,16 @@ Android Rust JNI backend, mirroring geolocation/android.rs exactly (Rust ships n
 Verify: `bash scripts/mobile-check-all.sh` GREEN on all 5 (both Android targets now compile the JNI backend; macOS path in mod.rs unchanged/cfg-inert). Disk 96%.
 
 Biometric now has real backends on all 3 runtime platforms' Rust sides (iOS/macOS LAContext; Android JNI). Next P4.1i: the **Java shim** `scripts/android/AzulBiometric.java` (AndroidX BiometricPrompt + canAuthenticate + PackageManager kind) + `USE_BIOMETRIC` manifest permission — non-Rust, not gate-tested. Then wire `probe_availability`→`set_availability` at startup. After that P4.1 is complete → P4.2 keyring.
+
+### Tick — P4.1i — wire biometric availability probe → manager (completes P4.1) (2026-05-20)
+
+`get_biometric_kind()` now returns the real sensor instead of the NotAvailable default.
+
+- `dll/extra/biometric/mod.rs`: `availability_cached()` — `OnceLock<BiometricKind>` over `probe_availability()` (a native LAContext/JNI call), so it's probed once per process and cheap thereafter.
+- `dll/.../shell2/common/layout.rs`: "7d-pre" block folds `availability_cached()` into `layout_window.biometric_manager.set_availability(...)` each layout pass (cheap cached read after frame 1).
+
+Verify: `bash scripts/mobile-check-all.sh` GREEN on all 5; macOS host check CLEAN. Disk 96%.
+
+**P4.1 (biometric) is functionally complete**: types/manager/channels → runtime plumbing → read+request API (api.json, 35 langs) → real backends (iOS/macOS LAContext, Android BiometricPrompt JNI Rust side) → availability wiring. Deferred (non-gate-testable on-device work, batched): the Android Java shims — `AzulBiometric.java` + `USE_BIOMETRIC` manifest (and the still-pending `AzulGeolocation.java`).
+
+Next: **P4.2 keyring** — `dll/extra/keyring/` (iOS/macOS Keychain, Android KeyStore, Linux libsecret, Windows CredentialLocker), biometry-bound secret storage. Per-feature pattern: core POD types (`KeyringEntry`?) → manager + channel → backends → api.json. Start with core types + manager + a `keyring`-style `store/get/delete` SQL-free key/value API design (mirror biometric P4.1a).

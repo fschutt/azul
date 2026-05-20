@@ -75,3 +75,15 @@ pub fn probe_availability() -> BiometricKind {
         BiometricKind::NotAvailable
     }
 }
+
+/// Device biometric capability, probed once and cached for the process.
+/// [`probe_availability`] is a native call (`LAContext` create +
+/// `canEvaluatePolicy`, or a JNI round-trip), so the layout pass folds
+/// *this* — a cheap cached read after the first probe — into the manager
+/// each frame rather than re-probing at frame rate. The device capability
+/// rarely changes at runtime; refresh-on-enrollment-change is a future
+/// refinement if needed.
+pub fn availability_cached() -> BiometricKind {
+    static CACHED: std::sync::OnceLock<BiometricKind> = std::sync::OnceLock::new();
+    *CACHED.get_or_init(probe_availability)
+}
