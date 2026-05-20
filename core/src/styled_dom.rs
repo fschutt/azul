@@ -1016,6 +1016,17 @@ impl StyledDom {
         static CASCADE_BREAKDOWN: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         let cascade_dbg = *CASCADE_BREAKDOWN.get_or_init(crate::profile::memory_enabled);
 
+        // M12.5m TEMP DIAGNOSTIC — REVERT after. compact_dom.node_data as it
+        // ARRIVES at create_from_compact_dom (after the CompactDom sret-return
+        // + by-value move). [4]=len, [5]=ptr, [6]=compact_dom.len(). If len is
+        // already a heap-ptr here → the CompactDom move/sret scrambled it; if
+        // len==1 → it scrambles later (inside this fn / the .len() read).
+        unsafe {
+            crate::compact_cache_builder::AZ_DBG_NC[4] = compact_dom.node_data.internal.len() as u64;
+            crate::compact_cache_builder::AZ_DBG_NC[5] = compact_dom.node_data.internal.as_ptr() as u64;
+            crate::compact_cache_builder::AZ_DBG_NC[6] = compact_dom.len() as u64;
+        }
+        let t0 = std::time::Instant::now();
         let node_count = compact_dom.len();
 
         let non_leaf_nodes = compact_dom
@@ -2064,6 +2075,14 @@ pub fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
 
     let mut node_hierarchy = vec![Node::ROOT; sum_nodes + 1];
     let mut node_data = vec![NodeData::create_div(); sum_nodes + 1];
+    // M12.5m TEMP DIAGNOSTIC (web lift) — REVERT after. Native-safe static.
+    // [4]=sum_nodes (from fixup_children_estimated), [5]=node_data.ptr,
+    // [6]=node_data.len right after `vec![NodeData; sum_nodes+1]`.
+    unsafe {
+        crate::compact_cache_builder::AZ_DBG_NC[4] = sum_nodes as u64;
+        crate::compact_cache_builder::AZ_DBG_NC[5] = node_data.as_ptr() as u64;
+        crate::compact_cache_builder::AZ_DBG_NC[6] = node_data.len() as u64;
+    }
     let mut cur_node_id = 0;
 
     let root_node_id = NodeId::ZERO;
