@@ -1944,3 +1944,18 @@ Moved `VideoFrame {width,height,bytes}` from layout's `capture_common` → `azul
 - **Headline = configurability** (every widget gets its control surface, not just the hook).
 
 NEXT: `OnVideoFrame`/`OnAudioFrame` backreference callback types (`impl_widget_callback!` + `impl_managed_callback!`, mirroring `NumberInput::on_value_change`) → wire `set_on_frame` + config controls into camera/screencap/video.
+
+### Tick — FIX-APIs.2 — camera `set_on_frame` backreference hook (+ codegen, non-ASCII doc cleanup) (2026-05-20)
+
+The #1 review gap: capture widgets were one-way (frame -> texture, never to user). Added the backreference DI hook (button/number_input idiom) to `capture_common` + wired it into `CameraWidget`:
+- `OnVideoFrameCallbackType = extern "C" fn(RefAny, CallbackInfo, VideoFrame) -> Update` + `impl_widget_callback!` (`OnVideoFrame`/`OptionOnVideoFrame`/`OnVideoFrameCallback`) + `impl_managed_callback!{extra_args:[frame: VideoFrame]}` + `invoke_on_frame()` helper.
+- `CameraWidget::set_on_frame(data, cb)` / `with_on_frame(...)`; `CameraWidgetState.on_frame`; `camera_writeback` invokes the hook with each frame (after present_frame), returning the user's `Update`. **This is the azul-meet send seam** (capture -> on_frame -> encode -> UDP) — all public, no globals.
+- Needed `use azul_css::impl_option_inner;` in capture_common (button gets it via `use azul_css::*`).
+
+**Lesson:** a callback field in a *transmuted* widget struct (CameraWidget, like Button) requires api.json to stay in sync — codegen is NOT deferrable; without it the dll's `AzCameraWidget`↔`CameraWidget` transmute fails E0512 (size mismatch). The autofix converged in 5 passes (methods -> callback type+VideoFrame -> field -> wrapper+option -> derive impls), curating out the recurring DbValueVec/WacomPadState/drift churn each pass.
+
+**Non-ASCII doc cleanup (blocking pre-existing debt):** the FFI-safety check rejects non-ASCII in api.json docs. Replaced em-dashes/arrows/ellipsis/× etc. (`—→…×–↔⇔−≈≤≥`) with ASCII in api.json + the synced source (callbacks.rs, capture_common, camera, core/{video,audio,camera}). 15 critical errors -> 0. (§/° remain only in module-level + unexposed docs, which don't sync.)
+
+Gate GREEN on all 5; codegen OK; disk 12 GiB.
+
+NEXT: mirror `set_on_frame` into screencap + video (mechanical — shared infra exists), then per-widget config/controls (camera switch/resolution/fps; video play/pause/seek), MapWidget hooks, PDF uncouple, audio widgets.

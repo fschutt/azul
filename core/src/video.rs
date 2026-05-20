@@ -3,7 +3,7 @@
 //!
 //! Same "dumb widget" architecture as camera/screencap
 //! (`azul_layout::widgets::video::VideoWidget`): a background thread decodes
-//! the source (vk-video — GPU decode + HTTP-range fetch) and its writeback
+//! the source (vk-video - GPU decode + HTTP-range fetch) and its writeback
 //! uploads each frame into the shared GL-texture `ImageRef` + recomposites.
 //! Defined here in `azul-core` so the config crosses the FFI without
 //! `azul-layout` (or vk-video) as a dependency.
@@ -50,7 +50,7 @@ impl VideoConfig {
     }
 }
 
-/// One captured or decoded frame — tightly-packed RGBA8 pixels
+/// One captured or decoded frame - tightly-packed RGBA8 pixels
 /// (`width * height * 4`). The unit a capture/decode worker produces, the
 /// `set_on_frame` hook hands to user code (effects / save / send), and (P8)
 /// azul-meet sends over UDP. Defined here (like [`crate::audio::AudioFrame`])

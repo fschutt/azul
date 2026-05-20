@@ -4,20 +4,20 @@
 //! Camera frames are GPU textures, not scalar samples, so the stateful side
 //! is heavier than the sensors': `azul_layout::managers::camera` owns a
 //! `CameraStream` per capture, each holding a shared `ImageRef` texture the
-//! capture thread writes into (zero-copy — clones see new bytes via the
+//! capture thread writes into (zero-copy - clones see new bytes via the
 //! `ImageRef` `Arc`). A `CameraPreview` node renders that texture and, by
 //! appearing in the DOM, declares "I need the camera" to the permission
 //! layer (research/01 §"permission-as-DOM").
 //!
 //! Defined here in `azul-core` so the config / id / status types cross the
-//! FFI without `azul-layout` (or AVFoundation / Camera2) as a dependency —
+//! FFI without `azul-layout` (or AVFoundation / Camera2) as a dependency -
 //! these are what an app passes to `start_camera` and reads back from a
 //! stream. The `Nv12` zero-copy output format is a `RawImageFormat` addition
 //! deferred to the backend tick; configs default to `BGRA8`.
 
 use crate::resources::RawImageFormat;
 
-/// Identifies one camera capture stream — assigned by `start_camera`, used
+/// Identifies one camera capture stream - assigned by `start_camera`, used
 /// to read the stream back (`get_camera_frame`) and to stop / pause / flip it.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -49,7 +49,7 @@ pub enum StreamState {
     Paused,
     /// Stopped by the app (`stop_camera`) or torn down.
     Stopped,
-    /// Failed — see the stream's [`CaptureErrorCode`].
+    /// Failed - see the stream's [`CaptureErrorCode`].
     Error,
 }
 
@@ -86,7 +86,7 @@ pub enum CaptureErrorCode {
     Internal,
 }
 
-/// Requested capture configuration — the input to `start_camera`. Zero
+/// Requested capture configuration - the input to `start_camera`. Zero
 /// `width`/`height`/`fps` mean "let the backend pick its default".
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -128,7 +128,7 @@ impl CameraConfig {
     }
 }
 
-/// Runtime stats for a capture stream — surfaced for HUD / debugging.
+/// Runtime stats for a capture stream - surfaced for HUD / debugging.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CaptureStats {

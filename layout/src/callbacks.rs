@@ -176,7 +176,7 @@ pub enum CallbackChange {
         gesture: crate::managers::gesture::NativeGestureEvent,
     },
     /// Queue multiple window state changes to be applied in sequence across frames.
-    /// This is needed for simulating clicks (mouse down → wait → mouse up) where each
+    /// This is needed for simulating clicks (mouse down -> wait -> mouse up) where each
     /// state change needs to trigger separate event processing.
     QueueWindowStateSequence { states: Vec<FullWindowState> },
     /// Create a new window
@@ -194,7 +194,7 @@ pub enum CallbackChange {
     /// on ancestor / descendant nodes in subsequent phases.
     StopPropagation,
     /// Stop event propagation immediately (W3C stopImmediatePropagation).
-    /// No further handlers fire — not even remaining handlers on the same node.
+    /// No further handlers fire - not even remaining handlers on the same node.
     StopImmediatePropagation,
     /// Prevent default browser behavior (e.g., block text input from being applied)
     PreventDefault,
@@ -249,7 +249,7 @@ pub enum CallbackChange {
     /// Override CSS properties on a node via the user-override channel
     /// (`CssPropertyCache::user_overridden_properties`). Unlike
     /// `ChangeNodeCssProperties`, this does not mutate the node's static
-    /// `css_props` — the override layer is read at higher priority by the
+    /// `css_props` - the override layer is read at higher priority by the
     /// property resolution pipeline, so animating a handful of properties
     /// per frame stays cheap. Passing `CssProperty::Initial` for a property
     /// removes any prior override for that type on the same node.
@@ -554,7 +554,7 @@ pub struct Callback {
 
 impl_callback!(Callback, CallbackType);
 
-// Host-invoker plumbing for managed-FFI bindings (Lua, Ruby, Perl, …).
+// Host-invoker plumbing for managed-FFI bindings (Lua, Ruby, Perl, ...).
 // See `azul_core::host_invoker` for the design. This expands to a static
 // `az_callback_thunk` that the framework dispatches by-value args to, an
 // `AzCallback_createFromHostHandle` C-ABI export the host calls per
@@ -584,7 +584,7 @@ impl Callback {
     /// (e.g. `Callback::create_from_host_handle`) keep their host-handle ctx
     /// across the dispatch cycle. Without this, `info.get_ctx()` inside the
     /// generated thunk would see `OptionRefAny::None` and bail out with the
-    /// kind's default value — which makes managed-FFI click handlers
+    /// kind's default value - which makes managed-FFI click handlers
     /// silently no-op.
     ///
     /// # Safety
@@ -714,7 +714,7 @@ pub struct CallbackInfoRefData<'a> {
     /// Platform-specific system style (colors, spacing, etc.)
     /// Arc allows safe cloning in callbacks without unsafe pointer manipulation
     pub system_style: Arc<SystemStyle>,
-    /// Shared monitor list — initialized once at app start, updated by the platform
+    /// Shared monitor list - initialized once at app start, updated by the platform
     /// layer on monitor topology changes (e.g. WM_DISPLAYCHANGE, NSScreenParametersChanged).
     /// Callbacks lock the mutex to read; platform locks to write.
     pub monitors: Arc<Mutex<MonitorVec>>,
@@ -773,7 +773,7 @@ impl CallbackInfo {
             // Read-only data (single reference to consolidated refs)
             // SAFETY: We cast away the lifetime 'a to 'static because CallbackInfo
             // only lives for the duration of the callback, which is shorter than 'a
-            // SAFETY: pointer cast only — erases lifetime 'a to 'static.
+            // SAFETY: pointer cast only - erases lifetime 'a to 'static.
             // CallbackInfo only lives for the duration of the callback, which is shorter than 'a.
             ref_data: ref_data as *const CallbackInfoRefData<'a> as *const CallbackInfoRefData<'static>,
 
@@ -796,7 +796,7 @@ impl CallbackInfo {
         cursor_in_viewport: OptionLogicalPosition,
     ) -> Self {
         Self {
-            // SAFETY: pointer cast only — erases lifetime 'a to 'static.
+            // SAFETY: pointer cast only - erases lifetime 'a to 'static.
             ref_data: ref_data as *const CallbackInfoRefData<'a> as *const CallbackInfoRefData<'static>,
             hit_dom_node,
             cursor_relative_to_item,
@@ -1796,7 +1796,7 @@ impl CallbackInfo {
     /// Internal helper: Get the inline text layout for a given node
     ///
     /// This efficiently looks up the text layout by following the chain:
-    /// LayoutWindow → layout_results → LayoutTree → dom_to_layout → LayoutNode →
+    /// LayoutWindow -> layout_results -> LayoutTree -> dom_to_layout -> LayoutNode ->
     /// inline_layout_result
     ///
     /// Returns None if:
@@ -2552,9 +2552,9 @@ impl CallbackInfo {
     ///
     /// # Example
     /// ```rust,ignore
-    /// info.format_integer("en-US", 1234567) // → "1,234,567"
-    /// info.format_integer("de-DE", 1234567) // → "1.234.567"
-    /// info.format_integer("fr-FR", 1234567) // → "1 234 567"
+    /// info.format_integer("en-US", 1234567) // -> "1,234,567"
+    /// info.format_integer("de-DE", 1234567) // -> "1.234.567"
+    /// info.format_integer("fr-FR", 1234567) // -> "1 234 567"
     /// ```
     #[cfg(feature = "icu")]
     pub fn format_integer(&self, locale: &str, value: i64) -> AzString {
@@ -2570,8 +2570,8 @@ impl CallbackInfo {
     ///
     /// # Example
     /// ```rust,ignore
-    /// info.format_decimal("en-US", 123456, 2) // → "1,234.56"
-    /// info.format_decimal("de-DE", 123456, 2) // → "1.234,56"
+    /// info.format_decimal("en-US", 123456, 2) // -> "1,234.56"
+    /// info.format_decimal("de-DE", 123456, 2) // -> "1.234,56"
     /// ```
     #[cfg(feature = "icu")]
     pub fn format_decimal(&self, locale: &str, integer_part: i64, decimal_places: i16) -> AzString {
@@ -2586,10 +2586,10 @@ impl CallbackInfo {
     ///
     /// # Example
     /// ```rust,ignore
-    /// info.get_plural_category("en", 1)  // → PluralCategory::One
-    /// info.get_plural_category("en", 2)  // → PluralCategory::Other
-    /// info.get_plural_category("pl", 2)  // → PluralCategory::Few
-    /// info.get_plural_category("pl", 5)  // → PluralCategory::Many
+    /// info.get_plural_category("en", 1)  // -> PluralCategory::One
+    /// info.get_plural_category("en", 2)  // -> PluralCategory::Other
+    /// info.get_plural_category("pl", 2)  // -> PluralCategory::Few
+    /// info.get_plural_category("pl", 5)  // -> PluralCategory::Many
     /// ```
     #[cfg(feature = "icu")]
     pub fn get_plural_category(&self, locale: &str, value: i64) -> PluralCategory {
@@ -2632,8 +2632,8 @@ impl CallbackInfo {
     ///
     /// # Example
     /// ```rust,ignore
-    /// info.format_list("en-US", &items, ListType::And) // → "A, B, and C"
-    /// info.format_list("es-ES", &items, ListType::And) // → "A, B y C"
+    /// info.format_list("en-US", &items, ListType::And) // -> "A, B, and C"
+    /// info.format_list("es-ES", &items, ListType::And) // -> "A, B y C"
     /// ```
     #[cfg(feature = "icu")]
     pub fn format_list(&self, locale: &str, items: &[AzString], list_type: ListType) -> AzString {
@@ -2650,8 +2650,8 @@ impl CallbackInfo {
     /// # Example
     /// ```rust,ignore
     /// let today = IcuDate::now();
-    /// info.format_date("en-US", today, FormatLength::Medium) // → "Jan 15, 2025"
-    /// info.format_date("de-DE", today, FormatLength::Medium) // → "15.01.2025"
+    /// info.format_date("en-US", today, FormatLength::Medium) // -> "Jan 15, 2025"
+    /// info.format_date("de-DE", today, FormatLength::Medium) // -> "15.01.2025"
     /// ```
     #[cfg(feature = "icu")]
     pub fn format_date(&self, locale: &str, date: IcuDate, length: FormatLength) -> IcuResult {
@@ -2668,8 +2668,8 @@ impl CallbackInfo {
     /// # Example
     /// ```rust,ignore
     /// let now = IcuTime::now();
-    /// info.format_time("en-US", now, false) // → "4:30 PM"
-    /// info.format_time("de-DE", now, false) // → "16:30"
+    /// info.format_time("en-US", now, false) // -> "4:30 PM"
+    /// info.format_time("de-DE", now, false) // -> "16:30"
     /// ```
     #[cfg(feature = "icu")]
     pub fn format_time(&self, locale: &str, time: IcuTime, include_seconds: bool) -> IcuResult {
@@ -2699,8 +2699,8 @@ impl CallbackInfo {
     ///
     /// # Example
     /// ```rust,ignore
-    /// info.compare_strings("de-DE", "Äpfel", "Banane") // → -1 (Ä sorts with A)
-    /// info.compare_strings("sv-SE", "Äpple", "Öl")     // → -1 (Swedish: Ä before Ö)
+    /// info.compare_strings("de-DE", "Äpfel", "Banane") // -> -1 (Ä sorts with A)
+    /// info.compare_strings("sv-SE", "Äpple", "Öl")     // -> -1 (Swedish: Ä before Ö)
     /// ```
     #[cfg(feature = "icu")]
     pub fn compare_strings(&self, locale: &str, a: &str, b: &str) -> i32 {
@@ -2892,7 +2892,7 @@ impl CallbackInfo {
         let scroll_offsets = layout_window.scroll_manager
             .build_scroll_offset_map(dom_id, &layout_result.scroll_ids);
 
-        // Build CPU render state from GpuValueCache — provides current
+        // Build CPU render state from GpuValueCache - provides current
         // transform values (scrollbar thumb positions) and opacity values
         // (scrollbar visibility fading) that the GPU path animates dynamically.
         let gpu_cache = layout_window.gpu_state_manager
@@ -3047,7 +3047,7 @@ impl CallbackInfo {
 
     /// Queue a platform-native gesture-recognizer result. Applied by
     /// the event-loop after the callback returns, via
-    /// `CallbackChange::InjectNativeGesture` → `GestureAndDragManager::
+    /// `CallbackChange::InjectNativeGesture` -> `GestureAndDragManager::
     /// inject_native_gesture`. Used by the iOS / Android / macOS
     /// platform backends from their gesture-recognizer callbacks and by
     /// the e2e debug-server harness so JSON tests can drive every event
@@ -3121,7 +3121,7 @@ impl CallbackInfo {
 
     /// Get the current Wacom tablet-**pad** state (ExpressKeys + touch-ring),
     /// or `None` if no pad backend has delivered one. (The pen's own wacom
-    /// features — eraser / barrel button / barrel roll / tilt / pressure —
+    /// features - eraser / barrel button / barrel roll / tilt / pressure -
     /// are in [`CallbackInfo::get_pen_state`].) Kept live by the platform pad
     /// backend (Wintab / libwacom+libinput / macOS tablet `NSEvent`s).
     pub fn get_wacom_pad(&self) -> Option<crate::managers::gesture::WacomPadState> {
@@ -3132,7 +3132,7 @@ impl CallbackInfo {
     /// is mounted or no platform backend has delivered a fix yet. The fix is
     /// kept live by the platform backends (Android `FusedLocationProvider`,
     /// iOS/macOS `CLLocationManager`) via the async fix channel that the
-    /// layout pass folds into the manager — so a callback can read the user's
+    /// layout pass folds into the manager - so a callback can read the user's
     /// position to, e.g., place a "you are here" marker on a map.
     pub fn get_location_fix(&self) -> Option<azul_core::geolocation::LocationFix> {
         self.get_layout_window().geolocation_manager.latest_fix()
@@ -3142,7 +3142,7 @@ impl CallbackInfo {
     /// Gyroscope / Magnetometer), or `None` if no platform backend has
     /// delivered one. Kept live by the sensor backends (iOS CoreMotion,
     /// Android `SensorManager`) via the async channel the layout pass folds
-    /// into the manager — so a callback can drive tilt / shake / compass UI.
+    /// into the manager - so a callback can drive tilt / shake / compass UI.
     pub fn get_sensor_reading(
         &self,
         kind: azul_core::sensors::SensorKind,
@@ -3154,7 +3154,7 @@ impl CallbackInfo {
     /// axes), or `None` if no pad with that id has connected. Kept live by
     /// the controller backend (gilrs / iOS `GCController` / Android
     /// `InputDevice`) via the async channel the layout pass folds into the
-    /// manager — so a callback can drive movement / menu UI. For the common
+    /// manager - so a callback can drive movement / menu UI. For the common
     /// single-controller case, [`CallbackInfo::get_primary_gamepad`] skips
     /// the id bookkeeping.
     pub fn get_gamepad_state(
@@ -3165,7 +3165,7 @@ impl CallbackInfo {
     }
 
     /// Get the first currently-connected gamepad, or `None` if none is
-    /// connected — the convenient single-controller accessor.
+    /// connected - the convenient single-controller accessor.
     pub fn get_primary_gamepad(&self) -> Option<azul_core::gamepad::GamepadState> {
         self.get_layout_window().gamepad_manager.primary()
     }
@@ -3174,7 +3174,7 @@ impl CallbackInfo {
     /// `request_biometric_auth` has completed yet. Kept live by the
     /// platform backends (iOS/macOS `LAContext`, Android `BiometricPrompt`,
     /// Windows `UserConsentVerifier`) via the async result channel the
-    /// layout pass folds into the manager — so a callback can unlock a
+    /// layout pass folds into the manager - so a callback can unlock a
     /// vault / settings panel once the user authenticates.
     pub fn get_biometric_result(&self) -> Option<azul_core::biometric::BiometricResult> {
         self.get_layout_window().biometric_manager.last_result()
@@ -3183,19 +3183,19 @@ impl CallbackInfo {
     /// Get the device's biometric capability (sync probe): `Face`,
     /// `Fingerprint`, `Iris`, or `NotAvailable`. Lets a callback decide
     /// whether to even offer a biometric unlock before requesting one
-    /// (no OS prompt is shown — this just reads the cached probe).
+    /// (no OS prompt is shown - this just reads the cached probe).
     pub fn get_biometric_kind(&self) -> azul_core::biometric::BiometricKind {
         self.get_layout_window().biometric_manager.availability()
     }
 
     /// Request a biometric-auth prompt (Face ID / Touch ID / Android
-    /// `BiometricPrompt` / Windows Hello). Returns immediately — the OS
+    /// `BiometricPrompt` / Windows Hello). Returns immediately - the OS
     /// draws its own modal asynchronously; the outcome arrives on a later
     /// frame and is read via [`CallbackInfo::get_biometric_result`]. Call
     /// this from, e.g., an unlock button's `on_click`. The `prompt`
     /// configures the reason text, cancel label, and whether the OS
     /// passcode fallback is allowed. (No platform backend reports a real
-    /// outcome yet — the request currently resolves to
+    /// outcome yet - the request currently resolves to
     /// `BiometricResult::Unavailable`; the iOS/macOS/Android backends land
     /// in a later tick.)
     pub fn request_biometric_auth(&mut self, prompt: azul_core::biometric::BiometricPrompt) {
@@ -3236,7 +3236,7 @@ impl CallbackInfo {
 
     /// Get the most recent keyring outcome, or `None` until the first op
     /// completes. Read after a `keyring_store/get/delete` to observe the
-    /// result — e.g. the revealed secret from a `keyring_get`
+    /// result - e.g. the revealed secret from a `keyring_get`
     /// (`KeyringResult::Retrieved`).
     pub fn get_keyring_result(&self) -> Option<azul_core::keyring::KeyringResult> {
         self.get_layout_window().keyring_manager.last_result().cloned()
@@ -3247,7 +3247,7 @@ impl CallbackInfo {
     /// engine walks the freshly-laid-out display list. Call from, e.g., an
     /// "Export PDF" button's `on_click`. Requires the dll's `pdf` feature
     /// for real output (the engine no-ops otherwise). (v1 emits a blank
-    /// page — the display-list → PDF dispatch is a follow-up.)
+    /// page - the display-list -> PDF dispatch is a follow-up.)
     pub fn export_to_pdf(&mut self, path: AzString) {
         crate::managers::pdf_export::push_pdf_export_request(path);
     }
@@ -3304,7 +3304,7 @@ impl CallbackInfo {
     // from the touch / mouse stream. On platforms with native gesture
     // recognizers (iOS UIKit, Android `GestureDetector`), the platform
     // backend may inject pre-detected gestures via
-    // `GestureAndDragManager::inject_native_gesture(...)` — accessors below
+    // `GestureAndDragManager::inject_native_gesture(...)` - accessors below
     // see the same data regardless of source, fulfilling Azul's
     // "superset of every platform" guarantee for gesture handlers.
 
@@ -4039,7 +4039,7 @@ impl CallbackInfo {
         let layout_window = self.get_layout_window();
         let cursor = layout_window.text_edit_manager.get_primary_cursor()?;
 
-        // Get the text layout directly via layout_results → LayoutTree → LayoutNode →
+        // Get the text layout directly via layout_results -> LayoutTree -> LayoutNode ->
         // inline_layout_result
         let layout = self.get_inline_layout_for_node(&target)?;
 
@@ -4062,7 +4062,7 @@ impl CallbackInfo {
         let layout_window = self.get_layout_window();
         let cursor = layout_window.text_edit_manager.get_primary_cursor()?;
 
-        // Get the text layout directly via layout_results → LayoutTree → LayoutNode →
+        // Get the text layout directly via layout_results -> LayoutTree -> LayoutNode ->
         // inline_layout_result
         let layout = self.get_inline_layout_for_node(&target)?;
 
@@ -4085,7 +4085,7 @@ impl CallbackInfo {
         let layout_window = self.get_layout_window();
         let cursor = layout_window.text_edit_manager.get_primary_cursor()?;
 
-        // Get the text layout directly via layout_results → LayoutTree → LayoutNode →
+        // Get the text layout directly via layout_results -> LayoutTree -> LayoutNode ->
         // inline_layout_result
         let layout = self.get_inline_layout_for_node(&target)?;
 
@@ -4109,7 +4109,7 @@ impl CallbackInfo {
         let layout_window = self.get_layout_window();
         let cursor = layout_window.text_edit_manager.get_primary_cursor()?;
 
-        // Get the text layout directly via layout_results → LayoutTree → LayoutNode →
+        // Get the text layout directly via layout_results -> LayoutTree -> LayoutNode ->
         // inline_layout_result
         let layout = self.get_inline_layout_for_node(&target)?;
 
@@ -4132,7 +4132,7 @@ impl CallbackInfo {
         let layout_window = self.get_layout_window();
         let cursor = layout_window.text_edit_manager.get_primary_cursor()?;
 
-        // Get the text layout directly via layout_results → LayoutTree → LayoutNode →
+        // Get the text layout directly via layout_results -> LayoutTree -> LayoutNode ->
         // inline_layout_result
         let layout = self.get_inline_layout_for_node(&target)?;
 
@@ -4150,7 +4150,7 @@ impl CallbackInfo {
         let layout_window = self.get_layout_window();
         let cursor = layout_window.text_edit_manager.get_primary_cursor()?;
 
-        // Get the text layout directly via layout_results → LayoutTree → LayoutNode →
+        // Get the text layout directly via layout_results -> LayoutTree -> LayoutNode ->
         // inline_layout_result
         let layout = self.get_inline_layout_for_node(&target)?;
 

@@ -1,13 +1,13 @@
-//! Camera-preview widget — a "dumb widget" (like [`MapWidget`](super::map))
+//! Camera-preview widget - a "dumb widget" (like [`MapWidget`](super::map))
 //! that owns a background capture thread + a GL-texture `ImageRef`, with **no**
 //! camera-specific logic in the core framework (SUPER_PLAN_2 §4 P6, widget
-//! pivot — see the MASTER PLAN in `MOBILE_SESSION_LOG.md`).
+//! pivot - see the MASTER PLAN in `MOBILE_SESSION_LOG.md`).
 //!
-//! `CameraWidget::create(config).dom()` → a static `<img>` whose pixels a
+//! `CameraWidget::create(config).dom()` -> a static `<img>` whose pixels a
 //! background thread keeps fed. On `AfterMount` the capture thread starts
 //! (`CallbackInfo::add_thread`); each frame goes through
 //! [`super::capture_common::present_frame`], which uploads it into a stable
-//! external GL texture + recomposites — no relayout, no display-list rebuild.
+//! external GL texture + recomposites - no relayout, no display-list rebuild.
 //! The shared thread/writeback/GL core lives in `capture_common`; this widget
 //! is just its config + worker.
 //!
@@ -26,7 +26,9 @@ use azul_core::task::{ThreadId, ThreadReceiver};
 
 use azul_core::video::VideoFrame;
 
-use super::capture_common::present_frame;
+use super::capture_common::{
+    invoke_on_frame, present_frame, OnVideoFrame, OnVideoFrameCallback, OptionOnVideoFrame,
+};
 use crate::callbacks::{Callback, CallbackInfo, CallbackType};
 use crate::thread::{
     Thread, ThreadCallback, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg, WriteBackCallback,
@@ -47,6 +49,9 @@ pub struct CameraWidgetState {
     pub started: bool,
     /// The stable external GL texture id once the first frame installed it.
     pub gl_texture_id: Option<u32>,
+    /// Optional user hook invoked with each captured frame (effects / save /
+    /// send). Re-set on every fresh build (see [`merge_camera_state`]).
+    pub on_frame: OptionOnVideoFrame,
 }
 
 /// A camera-preview widget. `create(config).dom()` yields an `<img>` the
@@ -55,12 +60,38 @@ pub struct CameraWidgetState {
 pub struct CameraWidget {
     /// Requested capture config (camera facing, resolution, fps, format).
     pub config: CameraConfig,
+    /// Optional per-frame user hook (effects / save / send - azul-meet).
+    pub on_frame: OptionOnVideoFrame,
 }
 
 impl CameraWidget {
     /// Create a camera widget for the given capture config.
     pub fn create(config: CameraConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            on_frame: OptionOnVideoFrame::None,
+        }
+    }
+
+    /// Set a hook invoked with every captured frame - for live effects, saving
+    /// frames into your data model, or sending them over the network
+    /// (azul-meet). The backreference DI pattern (see `architecture.md`).
+    pub fn set_on_frame<C: Into<OnVideoFrameCallback>>(&mut self, data: RefAny, on_frame: C) {
+        self.on_frame = Some(OnVideoFrame {
+            refany: data,
+            callback: on_frame.into(),
+        })
+        .into();
+    }
+
+    /// Builder form of [`set_on_frame`](Self::set_on_frame).
+    pub fn with_on_frame<C: Into<OnVideoFrameCallback>>(
+        mut self,
+        data: RefAny,
+        on_frame: C,
+    ) -> Self {
+        self.set_on_frame(data, on_frame);
+        self
     }
 
     /// Build the widget's DOM: a single `<img>` node, fed by a background
@@ -70,6 +101,7 @@ impl CameraWidget {
             config: self.config,
             started: false,
             gl_texture_id: None,
+            on_frame: self.on_frame,
         };
         let dataset = RefAny::new(state);
 
@@ -92,7 +124,7 @@ impl CameraWidget {
     }
 }
 
-/// Frame dimensions for a config (0 → a sane default).
+/// Frame dimensions for a config (0 -> a sane default).
 fn frame_dims(config: &CameraConfig) -> (u32, u32) {
     let w = if config.width > 0 { config.width } else { 640 };
     let h = if config.height > 0 { config.height } else { 480 };
@@ -127,7 +159,7 @@ extern "C" fn camera_on_after_mount(mut data: RefAny, mut info: CallbackInfo) ->
     Update::DoNothing
 }
 
-/// Background worker (test pattern): a colour-cycling solid frame ~30×/s until
+/// Background worker (test pattern): a colour-cycling solid frame ~30x/s until
 /// the widget unmounts. The real AVFoundation/Camera2 capture loop replaces it.
 extern "C" fn test_pattern_worker(mut init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
     let (w, h) = init
@@ -171,17 +203,23 @@ extern "C" fn camera_writeback(
     mut frame_data: RefAny,
     mut info: CallbackInfo,
 ) -> Update {
-    let current = writeback_data
-        .downcast_ref::<CameraWidgetState>()
-        .and_then(|s| s.gl_texture_id);
+    let (current, hook) = match writeback_data.downcast_ref::<CameraWidgetState>() {
+        Some(s) => (s.gl_texture_id, s.on_frame.clone()),
+        None => (None, OptionOnVideoFrame::None),
+    };
+    let mut user_update = Update::DoNothing;
     let new_id = match frame_data.downcast_ref::<VideoFrame>() {
-        Some(frame) => present_frame(&mut info, writeback_data.clone(), current, &frame),
+        Some(frame) => {
+            let id = present_frame(&mut info, writeback_data.clone(), current, &frame);
+            user_update = invoke_on_frame(&hook, &mut info, &frame);
+            id
+        }
         None => return Update::DoNothing,
     };
     if let Some(mut s) = writeback_data.downcast_mut::<CameraWidgetState>() {
         s.gl_texture_id = new_id;
     }
-    Update::DoNothing
+    user_update
 }
 
 /// Carry live state forward across relayout (config from the fresh build,

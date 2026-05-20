@@ -9,7 +9,7 @@
 //!
 //! Defined in `azul-core` so the config + frame types cross the FFI without
 //! `azul-layout` (or rodio / cpal) as a dependency. For azul-meet (P8),
-//! [`AudioFrame`] is the unit captured → sent over UDP → played back.
+//! [`AudioFrame`] is the unit captured -> sent over UDP -> played back.
 
 use azul_css::F32Vec;
 
@@ -42,8 +42,8 @@ impl AudioConfig {
     }
 }
 
-/// A chunk of audio — interleaved `f32` samples in `[-1.0, 1.0]`. For stereo
-/// the layout is `L, R, L, R, …`. This is the unit the mic backend delivers,
+/// A chunk of audio - interleaved `f32` samples in `[-1.0, 1.0]`. For stereo
+/// the layout is `L, R, L, R, ...`. This is the unit the mic backend delivers,
 /// playback consumes, and (P8) azul-meet sends over UDP.
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq)]

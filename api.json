@@ -2284,7 +2284,7 @@
                     "displayName": "Visual Basic 6",
                     "platforms": {
                         "windows": {
-                            "description": "Use the VB6 IDE or vbc.exe; requires 32-bit azul.dll. VB6 is Microsoft's discontinued 1998 RAD tool whose runtime (msvbvm60.dll) still ships with every Windows 10/11. There is no 64-bit VB6 compiler — the binding only loads against the i686-pc-windows-msvc azul build.",
+                            "description": "Use the VB6 IDE or vbc.exe; requires 32-bit azul.dll. VB6 is Microsoft's discontinued 1998 RAD tool whose runtime (msvbvm60.dll) still ships with every Windows 10/11. There is no 64-bit VB6 compiler - the binding only loads against the i686-pc-windows-msvc azul build.",
                             "steps": [
                                 {
                                     "type": "command",
@@ -9332,7 +9332,7 @@
                                     "is mounted or no platform backend has delivered a fix yet. The fix is",
                                     "kept live by the platform backends (Android `FusedLocationProvider`,",
                                     "iOS/macOS `CLLocationManager`) via the async fix channel that the",
-                                    "layout pass folds into the manager — so a callback can read the user's",
+                                    "layout pass folds into the manager - so a callback can read the user's",
                                     "position to, e.g., place a \"you are here\" marker on a map."
                                 ],
                                 "fn_args": [
@@ -9351,7 +9351,7 @@
                                     "`request_biometric_auth` has completed yet. Kept live by the",
                                     "platform backends (iOS/macOS `LAContext`, Android `BiometricPrompt`,",
                                     "Windows `UserConsentVerifier`) via the async result channel the",
-                                    "layout pass folds into the manager — so a callback can unlock a",
+                                    "layout pass folds into the manager - so a callback can unlock a",
                                     "vault / settings panel once the user authenticates."
                                 ],
                                 "fn_args": [
@@ -9369,7 +9369,7 @@
                                     "Get the device's biometric capability (sync probe): `Face`,",
                                     "`Fingerprint`, `Iris`, or `NotAvailable`. Lets a callback decide",
                                     "whether to even offer a biometric unlock before requesting one",
-                                    "(no OS prompt is shown — this just reads the cached probe)."
+                                    "(no OS prompt is shown - this just reads the cached probe)."
                                 ],
                                 "fn_args": [
                                     {
@@ -9384,13 +9384,13 @@
                             "request_biometric_auth": {
                                 "doc": [
                                     "Request a biometric-auth prompt (Face ID / Touch ID / Android",
-                                    "`BiometricPrompt` / Windows Hello). Returns immediately — the OS",
+                                    "`BiometricPrompt` / Windows Hello). Returns immediately - the OS",
                                     "draws its own modal asynchronously; the outcome arrives on a later",
                                     "frame and is read via [`CallbackInfo::get_biometric_result`]. Call",
                                     "this from, e.g., an unlock button's `on_click`. The `prompt`",
                                     "configures the reason text, cancel label, and whether the OS",
                                     "passcode fallback is allowed. (No platform backend reports a real",
-                                    "outcome yet — the request currently resolves to",
+                                    "outcome yet - the request currently resolves to",
                                     "`BiometricResult::Unavailable`; the iOS/macOS/Android backends land",
                                     "in a later tick.)"
                                 ],
@@ -9463,7 +9463,7 @@
                                 "doc": [
                                     "Get the most recent keyring outcome, or `None` until the first op",
                                     "completes. Read after a `keyring_store/get/delete` to observe the",
-                                    "result — e.g. the revealed secret from a `keyring_get`",
+                                    "result - e.g. the revealed secret from a `keyring_get`",
                                     "(`KeyringResult::Retrieved`)."
                                 ],
                                 "fn_args": [
@@ -9483,7 +9483,7 @@
                                     "engine walks the freshly-laid-out display list. Call from, e.g., an",
                                     "\"Export PDF\" button's `on_click`. Requires the dll's `pdf` feature",
                                     "for real output (the engine no-ops otherwise). (v1 emits a blank",
-                                    "page — the display-list → PDF dispatch is a follow-up.)"
+                                    "page - the display-list -> PDF dispatch is a follow-up.)"
                                 ],
                                 "fn_args": [
                                     {
@@ -9501,7 +9501,7 @@
                                     "Gyroscope / Magnetometer), or `None` if no platform backend has",
                                     "delivered one. Kept live by the sensor backends (iOS CoreMotion,",
                                     "Android `SensorManager`) via the async channel the layout pass folds",
-                                    "into the manager — so a callback can drive tilt / shake / compass UI."
+                                    "into the manager - so a callback can drive tilt / shake / compass UI."
                                 ],
                                 "fn_args": [
                                     {
@@ -9522,7 +9522,7 @@
                                     "axes), or `None` if no pad with that id has connected. Kept live by",
                                     "the controller backend (gilrs / iOS `GCController` / Android",
                                     "`InputDevice`) via the async channel the layout pass folds into the",
-                                    "manager — so a callback can drive movement / menu UI. For the common",
+                                    "manager - so a callback can drive movement / menu UI. For the common",
                                     "single-controller case, [`CallbackInfo::get_primary_gamepad`] skips",
                                     "the id bookkeeping."
                                 ],
@@ -9542,7 +9542,7 @@
                             "get_primary_gamepad": {
                                 "doc": [
                                     "Get the first currently-connected gamepad, or `None` if none is",
-                                    "connected — the convenient single-controller accessor."
+                                    "connected - the convenient single-controller accessor."
                                 ],
                                 "fn_args": [
                                     {
@@ -9558,7 +9558,7 @@
                                 "doc": [
                                     "Get the current Wacom tablet-**pad** state (ExpressKeys + touch-ring),",
                                     "or `None` if no pad backend has delivered one. (The pen's own wacom",
-                                    "features — eraser / barrel button / barrel roll / tilt / pressure —",
+                                    "features - eraser / barrel button / barrel roll / tilt / pressure -",
                                     "are in [`CallbackInfo::get_pen_state`].) Kept live by the platform pad",
                                     "backend (Wintab / libwacom+libinput / macOS tablet `NSEvent`s)."
                                 ],
@@ -11235,6 +11235,26 @@
                                 "type": "Update"
                             }
                         }
+                    },
+                    "OnVideoFrameCallbackType": {
+                        "external": "azul_layout::widgets::capture_common::OnVideoFrameCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "VideoFrame"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -19550,6 +19570,38 @@
                                 "Prefix": {},
                                 "Suffix": {},
                                 "Substring": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OnVideoFrameCallback": {
+                        "external": "azul_layout::widgets::capture_common::OnVideoFrameCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "OnVideoFrameCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
                             }
                         ],
                         "repr": "C"
@@ -42535,6 +42587,9 @@
                             {
                                 "config": {
                                     "type": "CameraConfig"
+                                },
+                                "on_frame": {
+                                    "type": "OptionOnVideoFrame"
                                 }
                             }
                         ],
@@ -42566,6 +42621,45 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "with_on_frame": {
+                                "doc": [
+                                    "Builder form of [`set_on_frame`](Self::set_on_frame)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_frame": "OnVideoFrameCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "CameraWidget"
+                                },
+                                "fn_body": "object.with_on_frame(data, on_frame)"
+                            },
+                            "set_on_frame": {
+                                "doc": [
+                                    "Set a hook invoked with every captured frame - for live effects, saving",
+                                    "frames into your data model, or sending them over the network",
+                                    "(azul-meet). The backreference DI pattern (see `architecture.md`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_frame": "OnVideoFrameCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_frame(data, on_frame)"
                             }
                         },
                         "repr": "C"
@@ -42650,6 +42744,60 @@
                                 "fn_body": "object.dom()"
                             }
                         },
+                        "repr": "C"
+                    },
+                    "VideoFrame": {
+                        "external": "azul_core::video::VideoFrame",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "width": {
+                                    "type": "u32"
+                                },
+                                "height": {
+                                    "type": "u32"
+                                },
+                                "bytes": {
+                                    "type": "U8Vec"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OnVideoFrame": {
+                        "external": "azul_layout::widgets::capture_common::OnVideoFrame",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "OnVideoFrameCallback"
+                                }
+                            }
+                        ],
                         "repr": "C"
                     }
                 }
@@ -83711,6 +83859,36 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionOnVideoFrame": {
+                        "external": "azul_layout::widgets::capture_common::OptionOnVideoFrame",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "OnVideoFrame"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -88196,7 +88374,7 @@
                             },
                             "execute": {
                                 "doc": [
-                                    "Run a non-query statement (INSERT/UPDATE/DELETE/CREATE …) with",
+                                    "Run a non-query statement (INSERT/UPDATE/DELETE/CREATE ...) with",
                                     "positional `params` (`?` placeholders). Returns rows affected (`0`",
                                     "on error, a closed handle, or no engine)."
                                 ],
@@ -88315,7 +88493,7 @@
                         "functions": {
                             "write_json": {
                                 "doc": [
-                                    "Write a PDF from a JSON document model → PDF bytes. Empty on a",
+                                    "Write a PDF from a JSON document model -> PDF bytes. Empty on a",
                                     "malformed model or without the `pdf` feature."
                                 ],
                                 "fn_args": [
