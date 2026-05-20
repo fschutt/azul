@@ -5064,7 +5064,6 @@ impl CssPropertyCache {
         ];
 
         // Apply UA CSS: only insert for property types not yet set (bitset check = O(1))
-        unsafe { crate::compact_cache_builder::AZ_DBG_NC[13] = self.node_count as u64; } // before push_to loop
         for (node_index, node) in node_data.iter().enumerate() {
             let node_type = &node.node_type;
 
@@ -5083,11 +5082,25 @@ impl CssPropertyCache {
 
                 // Check if UA CSS defines this property for this node type
                 if let Some(ua_prop) = crate::ua_css::get_ua_property(node_type, *prop_type) {
+                    // M12.5q: node_count AFTER get_ua_property returned Some, BEFORE push_to
+                    unsafe {
+                        if crate::compact_cache_builder::AZ_DBG_NC[14] == 0 {
+                            crate::compact_cache_builder::AZ_DBG_NC[13] =
+                                (core::ptr::read_volatile(&self.node_count) as u64) | 0x100000000;
+                        }
+                    }
                     self.cascaded_props.push_to(node_index, StatefulCssProperty {
                         state: PseudoStateType::Normal,
                         prop_type: *prop_type,
                         property: ua_prop.clone(),
                     });
+                    // M12.5q: node_count AFTER first push_to (locks both guards via [14] marker)
+                    unsafe {
+                        if crate::compact_cache_builder::AZ_DBG_NC[14] == 0 {
+                            crate::compact_cache_builder::AZ_DBG_NC[14] =
+                                (core::ptr::read_volatile(&self.node_count) as u64) | 0x100000000;
+                        }
+                    }
 
                     // Mark as set in the bitset (prevent duplicate insertion for same node)
                     if d < 128 {
@@ -5098,7 +5111,6 @@ impl CssPropertyCache {
                 }
             }
         }
-        unsafe { crate::compact_cache_builder::AZ_DBG_NC[14] = self.node_count as u64; } // after push_to loop
     }
 
     /// Sort cascaded_props by (state, prop_type) and flatten into contiguous memory.
