@@ -108,6 +108,10 @@ pub mod screencap;
 /// Same "dumb widget" architecture (`azul_layout::widgets::video`); decoded
 /// via vk-video into the shared GL texture.
 pub mod video;
+/// Audio POD types — `AudioConfig` (stream format) + `AudioFrame` (interleaved
+/// f32 samples). The unit captured from the mic, played back, and (P8) shared
+/// over UDP. Backend (rodio / cpal / AVAudioEngine / AAudio) lives dll-side.
+pub mod audio;
 /// Logical and physical coordinate types (`LogicalSize`, `PhysicalPosition`, etc.).
 pub mod geom;
 /// OpenGL context wrappers, shader compilation, and texture cache.

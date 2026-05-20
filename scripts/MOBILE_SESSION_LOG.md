@@ -1909,3 +1909,14 @@ Verify: `mobile-check-all.sh` GREEN on all 5. Disk 6.4 GiB.
 **Wacom DONE on the public surface**: pen wacom features (eraser/barrel/roll/tangential/tool_id/tilt/pressure) via `get_pen_state`/`get_pen_pressure`/`get_pen_tilt` (pre-existing) + tablet pad (ExpressKeys/touch-ring) via `get_wacom_pad`/`WacomPadState`. Pad backend (Wintab/libwacom/macOS NSEvents) = on-machine batch.
 
 Next: **P7 — audio** (rodio: playback + mic recording). Then video enc/dec (vk-video) → UDP (AzUdp) → azul-meet. (Disk creeping; will cargo clean if a post-purge level dips below ~6.)
+
+### Tick — P7.audio.a — core audio POD types + ARCHITECTURE PIVOT (no globals) (2026-05-20)
+
+`core/src/audio.rs`: `AudioConfig {sample_rate, channels}` (+Default 48k/mono) + `AudioFrame {sample_rate, channels, samples: F32Vec}` (the hook payload; `copy = false` impl_option per json.rs). `pub mod audio` in lib.rs. Gate GREEN on all 5; core builds clean. No codegen yet (types get exposed once the widget+hook design is settled).
+
+**PIVOT (user):** audio must NOT use a process-global channel/manager. The Azul way is **`f(State, &mut cache) -> UI` — NO globals** — with DI backreferences + user callback hooks (architecture.md). So:
+- Audio = WIDGETS: `MicrophoneWidget` (capture) + `AudioWidget` (playback), RefAny dataset + merge-callback (lifecycle = DOM mount/unmount), exactly the camera/screencap/video pattern.
+- User frame hooks via the backreference pattern. Real precedent: `NumberInput::on_value_change` — `OnAudioFrameCallbackType = extern "C" fn(RefAny, CallbackInfo, AudioFrame) -> Update`, `impl_widget_callback!` + `impl_managed_callback!{extra_args:[frame: AudioFrame]}`. `set_on_frame(data, cb)`; private writeback invokes user cb with the frame → effects / save / **send** (azul-meet seam).
+- Retrofit camera/screencap/video with the same `OnVideoFrame` hook (VideoFrame moves to core, FFI-ready).
+
+**NEXT (user directive): full P2-P7 API design review FIRST** — audit every added surface for globals + `f(State,&mut cache)->UI` fit + DI/hooks + ease of use; explore better designs; THEN continue audio → video → UDP/azul-meet.
