@@ -9494,6 +9494,27 @@
                                     }
                                 ],
                                 "fn_body": "object.export_to_pdf(path)"
+                            },
+                            "get_sensor_reading": {
+                                "doc": [
+                                    "Get the latest motion-sensor reading for `kind` (Accelerometer /",
+                                    "Gyroscope / Magnetometer), or `None` if no platform backend has",
+                                    "delivered one. Kept live by the sensor backends (iOS CoreMotion,",
+                                    "Android `SensorManager`) via the async channel the layout pass folds",
+                                    "into the manager — so a callback can drive tilt / shake / compass UI."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "kind": "SensorKind"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionSensorReading"
+                                },
+                                "fn_body": "object.get_sensor_reading(kind).into()"
                             }
                         },
                         "repr": "C"
@@ -83422,6 +83443,24 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionSensorReading": {
+                        "external": "azul_core::sensors::OptionSensorReading",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "SensorReading"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -88061,6 +88100,56 @@
                                 "fn_body": "object.read_json(bytes)"
                             }
                         },
+                        "repr": "C"
+                    },
+                    "SensorKind": {
+                        "external": "azul_core::sensors::SensorKind",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Accelerometer": {},
+                                "Gyroscope": {},
+                                "Magnetometer": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SensorReading": {
+                        "external": "azul_core::sensors::SensorReading",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "kind": {
+                                    "type": "SensorKind"
+                                },
+                                "x": {
+                                    "type": "f32"
+                                },
+                                "y": {
+                                    "type": "f32"
+                                },
+                                "z": {
+                                    "type": "f32"
+                                },
+                                "timestamp_ms": {
+                                    "type": "u64"
+                                }
+                            }
+                        ],
                         "repr": "C"
                     }
                 }

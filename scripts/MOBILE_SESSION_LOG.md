@@ -1529,3 +1529,11 @@ Exposed the ABI-stable JSON PDF api to the public surface (35 langs).
 Verify: `mobile-check-all.sh` GREEN on all 5; host `+pdf` CLEAN. **Disk hit 3.0 GiB/99% during the codegen+gate+host spike** → purged → 6.6 GiB. (Mitigation going forward: skip the host `+pdf`/`+db-sqlite` check on non-engine ticks to shrink the spike.)
 
 **Both PDF directives DONE**: (1) printpdf shares our azul-layout (branch + patch + text_layout); (2) AzJson read/write PDF api (engine + public `Pdf` type, ABI-stable). Next: back to **P6** — sensors codegen (`get_sensor_reading` + SensorKind/SensorReading) + backends (CoreMotion/Android), then camera/gamepad/wacom/screencap.
+
+### Tick — P6.sensors.c — expose get_sensor_reading + sensor types via api.json (2026-05-20)
+
+- `autofix add CallbackInfo.get_sensor_reading` (arg `kind: SensorKind`, returns `OptionSensorReading`) → apply; 2-pass added `SensorKind` (enum, C), `SensorReading` (struct, C), `OptionSensorReading` (enum, C,u8). Curated out the 5 drift patches + DbValueVec re-churn (autofix re-flags last tick's DbValueVec Vec-API additions as removable — cosmetic drift, last tick's gate passed, so left DbValueVec untouched). `codegen all`.
+
+Verify: `mobile-check-all.sh` GREEN on all 5 (skipped host check — sensors isn't engine-gated). Disk hit 3.0 GiB during the spike → purged → 5.8 GiB (recovery shrinking — base target/ growing; see next).
+
+Next P6.sensors.d: iOS CoreMotion + Android SensorManager backends (dll/extra/sensors/, push_sensor_reading from the native callbacks + a SensorProbe-style subscribe). Then camera/gamepad/wacom/screencap. (Disk: doing a deeper target/ assessment.)
