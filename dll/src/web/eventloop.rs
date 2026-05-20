@@ -1378,6 +1378,145 @@ pub unsafe extern "C" fn AzStartup_solveLayout(
     0
 }
 
+// =====================================================================
+// M12.7 — REAL layout solver (replaces the block-flow stub above)
+// =====================================================================
+//
+// `AzStartup_solveLayoutReal` is the lifted entry into the actual
+// `azul-layout` solver. It consumes the cascaded `StyledDom` produced
+// by `AzStartup_hydrateStyledDom` (`current_dom_styled_ptr`) + a
+// viewport, runs `LayoutWindow::layout_and_generate_display_list`
+// (→ `layout_dom_recursive` → `solver3::layout_document` → taffy
+// block/flex/grid), and writes the per-node positioned rects into
+// `state.positioned_rects_ptr` in the SAME 16-byte (x,y,w,h u32)
+// layout the hit-test reads. This mirrors the desktop core loop
+// (see `dll/src/web/server.rs::dispatch_callback` +
+// `layout/tests/flexbox_integration.rs`), minus the display-list
+// consumption and CPU renderer.
+//
+// The function is registered in `EVENTLOOP_SYMBOLS` (mod.rs) + given a
+// `CallbackSignature` (transpiler_remill.rs) so the transitive lift
+// pipeline pulls in the real solver's dependency graph. Whatever the
+// `bl`-walk reaches gets lifted; unreached paths (a11y is cfg'd out,
+// most GPU/webrender transaction code is off the box-solving path)
+// never enter the wasm.
+
+/// **M12.7 — REAL layout solve.** See the section comment above.
+///
+/// Consumes the cascaded `StyledDom` at `current_dom_styled_ptr`
+/// (zeroing the slot, since layout takes ownership) and fills
+/// `positioned_rects_ptr` with one `(x, y, w, h)` u32 quad per DOM
+/// node, indexed by node_idx — exactly what `AzStartup_hitTest`
+/// walks.
+///
+/// Status codes:
+///   * `0` — success.
+///   * `1` — null state pointer.
+///   * `2` — `current_dom_styled_ptr` is 0 (hydrate didn't run).
+///   * `3` — StyledDom has 0 nodes.
+///   * `4` — `LayoutWindow::new` failed.
+///   * `5` — `layout_and_generate_display_list` returned `Err`.
+///   * `6` — allocator failure.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_solveLayoutReal(
+    state: u32,
+    viewport_w: u32,
+    viewport_h: u32,
+) -> u32 {
+    use azul_core::dom::{DomId, DomNodeId};
+    use azul_core::geom::LogicalSize;
+    use azul_core::id::NodeId;
+    use azul_core::resources::RendererResources;
+    use azul_core::styled_dom::NodeHierarchyItemId;
+    use azul_layout::callbacks::ExternalSystemCallbacks;
+    use azul_layout::window::LayoutWindow;
+    use azul_layout::window_state::FullWindowState;
+    use rust_fontconfig::FcFontCache;
+
+    if state == 0 {
+        return 1;
+    }
+    let s = &mut *(state as usize as *mut EventloopState);
+    if s.current_dom_styled_ptr == 0 {
+        return 2;
+    }
+
+    // Take ownership of the boxed cascaded StyledDom (layout consumes
+    // `root_dom` by value). Zero the slot so the diagnostic getters
+    // don't read freed memory, and so a second solve is a clean no-op.
+    let styled: StyledDom = *Box::from_raw(s.current_dom_styled_ptr as usize as *mut StyledDom);
+    s.current_dom_styled_ptr = 0;
+    let node_count = styled.node_data.len() as u32;
+    if node_count == 0 {
+        return 3;
+    }
+
+    // Headless layout window: empty font cache (no filesystem in wasm;
+    // text measurement degrades to metrics-free, but block/flex box
+    // geometry with explicit CSS sizes is exact).
+    let mut lw = match LayoutWindow::new(FcFontCache::default()) {
+        Ok(lw) => lw,
+        Err(_) => return 4,
+    };
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(viewport_w as f32, viewport_h as f32);
+    let rr = RendererResources::default();
+    let sc = ExternalSystemCallbacks::rust_internal();
+    let mut dbg = None;
+
+    // Web backend: skip display-list generation. We emit TLV DOM
+    // patches, not a display list, so the painter output is dead weight
+    // — and skipping it lets the lift drop the entire `display_list`
+    // surface (those symbols are classified Leaf in symbol_table.rs, so
+    // the transitive walk never descends into the ~300+ painter fns).
+    // Positions are computed BEFORE the (now-skipped) display-list step.
+    azul_layout::solver3::set_skip_display_list(true);
+
+    // Call the positioning solver directly (not the public
+    // `layout_and_generate_display_list`, whose tail does virtual-view
+    // scanning + scrollbar GPU registration we don't need on web).
+    // Positions land in `layout_cache.calculated_positions`.
+    if lw
+        .layout_dom_recursive(styled, &ws, &rr, &sc, &mut dbg)
+        .is_err()
+    {
+        return 5;
+    }
+
+    // Extract per-DOM-node rects (x, y, w, h) into the positioned-rect
+    // cache, indexed by node_idx. `get_node_layout_rect` returns logical
+    // (CSS-pixel) coordinates already divided by the hidpi factor.
+    let buf_size = node_count.saturating_mul(POSITIONED_RECT_BYTES);
+    let buf = AzStartup_alloc(buf_size);
+    if buf == 0 {
+        return 6;
+    }
+    // `buf` is alloc-aligned and each node's quad is 4-byte aligned, so a
+    // plain `&mut [u32]` (4 lanes per node) is sound — no unaligned writes.
+    let rects = core::slice::from_raw_parts_mut(buf as usize as *mut u32, (node_count * 4) as usize);
+    for i in 0..node_count as usize {
+        let node_id = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(i))),
+        };
+        let lane = &mut rects[i * 4..i * 4 + 4];
+        match lw.get_node_layout_rect(node_id) {
+            Some(r) => {
+                lane[0] = r.origin.x.max(0.0).round() as u32;
+                lane[1] = r.origin.y.max(0.0).round() as u32;
+                lane[2] = r.size.width.max(0.0).round() as u32;
+                lane[3] = r.size.height.max(0.0).round() as u32;
+            }
+            None => lane.fill(0),
+        }
+    }
+
+    s.positioned_rects_ptr = buf;
+    s.positioned_rects_len = node_count;
+    s.layout_solved = 1;
+    0
+}
+
 /// Read [`EventloopState::layout_solved`] for the new
 /// layout-hydrate gate.
 #[no_mangle]

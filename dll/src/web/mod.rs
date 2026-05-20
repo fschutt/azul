@@ -83,6 +83,9 @@ pub const EVENTLOOP_SYMBOLS: &[&str] = &[
     // cache. AzStartup_hitTest now consumes the cache for real
     // bbox-walk dispatch.
     "AzStartup_solveLayout",
+    // M12.7: real layout solver (LayoutWindow::layout_and_generate_display_list
+    // → taffy block/flex/grid). Same signature as solveLayout.
+    "AzStartup_solveLayoutReal",
     "AzStartup_isLayoutSolved",
     "AzStartup_getPositionedRectsLen",
     "AzStartup_getPositionedRectsPtr",
