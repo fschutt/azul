@@ -1967,3 +1967,24 @@ Mirrored the camera frame hook into `ScreenCaptureWidget` + `VideoWidget` (share
 **All three capture widgets (camera/screencap/video) now deliver frames to user code** — the azul-meet send seam is complete for video. (Receive/frame-IN path still TBD.)
 
 NEXT (configurability — the headline gap): per-widget controls — camera front/back switch + resolution/fps; video play/pause/seek; screencap source pick. Then MapWidget hooks, PDF uncouple, input events, audio widgets.
+
+### Tick — FIX-APIs.4 — PDF-uncouple investigation + plan (2026-05-20)
+
+Investigated the PDF surface to plan the user-specified uncouple (standalone `dom -> PDF pages -> U8Vec`, no window, no file I/O). **Feasibility confirmed**; it's multi-tick.
+
+**What exists (reusable):**
+- `azul_layout::layout_document_paged(styled_dom, ..., page_config) -> Result<Vec<DisplayList>>` (solver3/paged_layout.rs; pub-exported lib.rs:252) — the **headless "dom -> pages" primitive** (one DisplayList per page). Also `..._with_config` for headers/footers (`FakePageConfig`).
+- `dll/extra/pdf/mod.rs::export_to_pdf(path, &[DisplayListItem]) -> bool` — the printpdf walk (currently only `DisplayListItem::Rect` fills; text/image/border are follow-ups) + `std::fs::write` (to remove).
+- `pdf_write_json`/`pdf_read_json` (U8Vec <-> printpdf JSON model) — already standalone, the printpdf-WASM round-trip; the `Pdf` handle wraps them.
+
+**The challenge:** `layout_document_paged` has a heavy context signature — `LayoutCache, TextLayoutCache, FragmentationContext, FontManager<T>, RendererResources, ImageCache, font_loader: F, GetSystemTimeCallback, IdNamespace, DomId, viewport`. A window provides all this; a headless caller must construct it (the main unknown — mirror `LayoutWindow::layout_and_generate_display_list`, window.rs:841, minus GL).
+
+**Plan (next ticks):**
+1. **Headless layout context** helper in the dll (or layout) — build the caches + FontManager + RendererResources + ImageCache + a disk font_loader, no GL/window. (Biggest piece.)
+2. **`dom_to_pdf_bytes(styled_dom, page_config) -> U8Vec`** (dll, `pdf` feature): headless ctx -> `layout_document_paged` -> per-page, refactor `export_to_pdf`'s body into `display_lists_to_pdf_bytes(pages) -> U8Vec` (printpdf `PdfDocument` + `PdfSaveOptions` -> bytes; **no fs::write**).
+3. **Codegen-expose** as `Pdf::from_dom(StyledDom, page_config) -> U8Vec` (extend the existing standalone `Pdf` handle — keeps PDF in one place).
+4. **Remove the window-coupled path**: `CallbackInfo::export_to_pdf`, `PENDING_EXPORTS` + `managers/pdf_export.rs`, the per-frame drain (shell2/common/layout.rs ~805-826).
+5. **Update `examples/azul-doc`**: `let bytes = Pdf::from_dom(dom, cfg); /* user writes bytes */`.
+- Note: verify via a host build with `--features pdf` (the mobile gate may not compile the `pdf` module).
+
+NEXT: implement step 1 (headless layout context) — the crux. Then 2-5.
