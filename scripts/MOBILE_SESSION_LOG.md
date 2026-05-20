@@ -1165,3 +1165,16 @@ Runtime plumbing for P4.1a's BiometricManager — mirrors the geolocation wiring
 Verify: `cargo check -p azul-layout` clean; `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (9–10s each — warm). Disk ~95% / 12 GiB.
 
 Next P4.1c: codegen exposure — `autofix add` BiometricKind/BiometricResult/BiometricPrompt + the 2 CallbackInfo accessors + OptionBiometricResult 2-pass; `codegen all`; gate. Then P4.1d: `App::request_biometric_auth(prompt)` stub returning Unavailable (push to channel) + its codegen. Then backends (objc2 LAContext / Android BiometricPrompt).
+
+### Tick — P4.1c — biometric read API exposed via api.json + codegen (2026-05-20)
+
+Exposed P4.1a/b's biometric read surface through the public api.json (35-language codegen). Clean run of the prescribed autofix workflow — repr fix held.
+
+- `autofix add CallbackInfo.get_biometric_result` → apply; `autofix add CallbackInfo.get_biometric_kind` → apply (each `add` clears the patch dir, so add→apply twice).
+- Bare `autofix` 2-pass surfaced the 3 referenced types as additions (+ the 4 known pre-existing-drift patches *_remove_MapTileId* / *_move_Detected* / *_move_Gesture*). Curated to keep only `0000_add_BiometricKind` / `0001_add_BiometricResult` / `0002_add_OptionBiometricResult`, applied.
+- Verified reprs in api.json: `BiometricKind`/`BiometricResult` = `"C"` (fieldless), `OptionBiometricResult` = `"C, u8"` (data-carrying) — repr derivation correct.
+- `codegen all` regenerated `target/codegen/*` (incl. the dll-included `api.json.br` + `material_icons.ttf.br`).
+
+Verify: `bash scripts/mobile-check-all.sh` GREEN on all 5 targets — dll compiles with the new generated bindings. Only `api.json` is tracked (codegen output is gitignored). Purged incremental dirs after (azul-doc build pushed disk to 98%); recovered headroom.
+
+Next P4.1d: `App`/`CallbackInfo::request_biometric_auth(prompt)` — the request trigger (CallbackChange + dll dispatch), stubbed to push `Unavailable` so the round-trip works with no backend; + its codegen (BiometricPrompt type). Then backends: objc2 LAContext (iOS/macOS), Android BiometricPrompt JNI.

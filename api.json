@@ -9344,6 +9344,42 @@
                                     "type": "OptionLocationFix"
                                 },
                                 "fn_body": "object.get_location_fix().into()"
+                            },
+                            "get_biometric_result": {
+                                "doc": [
+                                    "Get the most recent biometric-auth result, or `None` if no",
+                                    "`request_biometric_auth` has completed yet. Kept live by the",
+                                    "platform backends (iOS/macOS `LAContext`, Android `BiometricPrompt`,",
+                                    "Windows `UserConsentVerifier`) via the async result channel the",
+                                    "layout pass folds into the manager — so a callback can unlock a",
+                                    "vault / settings panel once the user authenticates."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionBiometricResult"
+                                },
+                                "fn_body": "object.get_biometric_result().into()"
+                            },
+                            "get_biometric_kind": {
+                                "doc": [
+                                    "Get the device's biometric capability (sync probe): `Face`,",
+                                    "`Fingerprint`, `Iris`, or `NotAvailable`. Lets a callback decide",
+                                    "whether to even offer a biometric unlock before requesting one",
+                                    "(no OS prompt is shown — this just reads the cached probe)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BiometricKind"
+                                },
+                                "fn_body": "object.get_biometric_kind()"
                             }
                         },
                         "repr": "C"
@@ -83026,6 +83062,28 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionBiometricResult": {
+                        "external": "azul_core::biometric::OptionBiometricResult",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "BiometricResult"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -85457,6 +85515,30 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "BiometricResult": {
+                        "external": "azul_core::biometric::BiometricResult",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Authenticated": {},
+                                "Failed": {},
+                                "Cancelled": {},
+                                "FellBackToPasscode": {},
+                                "Unavailable": {},
+                                "Error": {}
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -87356,6 +87438,28 @@
                             {
                                 "Ok": {},
                                 "Cancel": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "BiometricKind": {
+                        "external": "azul_core::biometric::BiometricKind",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "NotAvailable": {},
+                                "Fingerprint": {},
+                                "Face": {},
+                                "Iris": {}
                             }
                         ],
                         "repr": "C"
