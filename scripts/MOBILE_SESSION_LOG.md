@@ -1737,3 +1737,17 @@ First piece of the widget pivot (GL-texture recomposite path, per user). `layout
 Verify: `mobile-check-all.sh` GREEN on all 5. Disk 9.4 GiB.
 
 Next P6.camera.widget.2: AfterMount → `add_thread(Thread::new(camera_writeback, dataset))` + the ThreadCallback (stub capture → CPU frame via ThreadSender) + the writeback (receive frame → upload to GL texture + ShouldReRenderCurrentWindow). Then AVFoundation capture, control POD, expose CameraWidget via codegen, camera-app demo.
+
+### Tick — P6.camera.widget.2 — capture thread + writeback plumbing (2026-05-20)
+
+Wired the background-thread loop (test-pattern worker, no platform deps yet) into the CameraWidget.
+
+- `camera_on_after_mount` → `info.add_thread(ThreadId::unique(), Thread::create(init, dataset.clone(), ThreadCallback::new(test_pattern_worker)))` — started-once. writeback_data = the widget's own dataset.
+- `test_pattern_worker(init, sender, _recv)`: emits a colour-cycling BGRA frame ~30×/s via `sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(WriteBackCallback::new(camera_writeback), RefAny::new(CameraFrame))))`; stops cleanly when `send` returns false (receiver dropped on unmount).
+- `camera_writeback(writeback_data, frame_data, info)`: downcasts the `CameraFrame` + stores it in `CameraWidgetState::latest_frame`. (widget.3 swaps this store for a GL-texture upload + `ShouldReRenderCurrentWindow`.)
+- `merge_camera_state` now carries `latest_frame` + `started` across relayout.
+- Gotchas fixed via gate: `ThreadReceiver` is a private re-export in crate::thread → import from `azul_core::task`; `RefAny::downcast_ref` needs `mut` (so `mut init`).
+
+Verify: `mobile-check-all.sh` GREEN on all 5 (RA shows a stale E0596 — cargo is green). Disk 12 GiB.
+
+Next P6.camera.widget.3: GL-texture path — writeback creates (first frame, via `info.get_gl_context`) + uploads to a stable GL-texture `ImageRef`, installs it once via change_node_image, then per-frame uploads + recomposite (no DL rebuild). Then widget.4 real AVFoundation worker (dll-side, passed like map's dom_with_fetch), control POD, codegen-expose, camera-app demo.
