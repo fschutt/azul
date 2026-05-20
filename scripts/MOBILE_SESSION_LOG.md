@@ -1865,3 +1865,16 @@ Verify: `cargo check -p azul-video-app` clean (host, 22s). dll untouched → mob
 **🎯 VIDEO-ISH WIDGET TRIO COMPLETE**: camera / screenshare / video, each = core POD types + widget (RefAny dataset + AfterMount thread + writeback GL-texture install-once/re-upload + recomposite + test-pattern worker) + codegen-exposed (`azul::widgets::{CameraWidget, ScreenCaptureWidget, VideoWidget}`) + runnable demo. The "dumb widget" pivot delivered: zero camera/screencap/video logic in core; all on the public api.json surface.
 
 Next: the **DRY pass** — extract the now-thrice-duplicated thread+writeback+GL core (VideoFrame + upload_rgba + install-once writeback) into `layout/src/widgets/capture_common.rs`, collapsing the 3 widgets to thin config+worker wrappers. Then wacom → audio → enc/dec → UDP → azul-meet. (Real platform capture/decode workers: AVFoundation/ScreenCaptureKit/vk-video = on-machine batch.)
+
+### Tick — P6.video-ish DRY pass (1/2) — capture_common + camera refactor (2026-05-20)
+
+Extracted the thrice-duplicated capture core into `layout/src/widgets/capture_common.rs`:
+- `VideoFrame { width, height, bytes }` (replaces the per-widget CameraFrame/ScreenFrame/VideoFrame).
+- `upload_rgba(gl, texture_id, &VideoFrame)`.
+- `present_frame(info, dataset, current_id, &VideoFrame) -> Option<u32>` — the install-once / per-frame re-upload + recomposite writeback core (cpurender no-op fallback). The single place for GL fixes + where the real platform workers plug in.
+
+Refactored `camera.rs` to use it: dropped CameraFrame + upload_rgba + the unused `latest_frame` field; worker emits `VideoFrame`; `camera_writeback` is now ~6 lines (downcast frame → `present_frame` → store the returned texture id). Borrow-careful (downcast_ref needs `&mut`, so read `current_id` into a Copy before cloning the dataset).
+
+Verify: `mobile-check-all.sh` GREEN on all 5 (camera refactored; screencap/video still self-contained — DRY.2 next). Disk 7.5 GiB.
+
+Next: DRY pass (2/2) — refactor screencap.rs + video.rs onto capture_common (delete their duplicated frame types / upload_rgba / writeback bodies). Then wacom.

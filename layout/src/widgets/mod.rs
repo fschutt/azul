@@ -143,6 +143,10 @@ pub mod drop_down;
 pub mod frame;
 /// List view widget
 pub mod list_view;
+/// Shared core for the video-ish widgets (camera/screencap/video): the
+/// `VideoFrame` type + the GL-texture `present_frame` writeback. See
+/// `capture_common.rs`.
+pub mod capture_common;
 /// Camera-preview widget (P6) — a "dumb widget" owning a background capture
 /// thread + a GL-texture ImageRef; no camera logic in core. Same RefAny-
 /// dataset + merge-callback design as the map widget. See `camera.rs`.

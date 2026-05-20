@@ -3,57 +3,32 @@
 //! camera-specific logic in the core framework (SUPER_PLAN_2 §4 P6, widget
 //! pivot — see the MASTER PLAN in `MOBILE_SESSION_LOG.md`).
 //!
-//! Design:
-//! - `CameraWidget::create(config).dom()` → a static `<img>` (Image node)
-//!   holding a stable GL-texture `ImageRef`, plus a [`CameraWidgetState`]
-//!   `RefAny` dataset carried across relayout by [`merge_camera_state`].
-//! - On `AfterMount`, a background capture thread is started
-//!   (`CallbackInfo::add_thread`, like the map-tile fetch). It captures frames;
-//!   its writeback uploads each into the GL texture and triggers a recomposite
-//!   (`ShouldReRenderCurrentWindow`) — **no relayout, no display-list rebuild,
-//!   no RenderImageCallback**, because WebRender re-reads the external texture
-//!   each composite (wr ImageKey == ImageRef data pointer, so the key is stable).
-//! - The [`CameraConfig`] control POD (front/back, zoom, …) is mutated by user
-//!   callbacks to switch cameras without re-initialising permissions (the
-//!   thread persists via the merge callback).
+//! `CameraWidget::create(config).dom()` → a static `<img>` whose pixels a
+//! background thread keeps fed. On `AfterMount` the capture thread starts
+//! (`CallbackInfo::add_thread`); each frame goes through
+//! [`super::capture_common::present_frame`], which uploads it into a stable
+//! external GL texture + recomposites — no relayout, no display-list rebuild.
+//! The shared thread/writeback/GL core lives in `capture_common`; this widget
+//! is just its config + worker.
 //!
-//! This tick (widget.2) wires the **background thread + writeback plumbing**
-//! with a self-contained **test-pattern** worker (no platform deps): the
-//! worker emits a colour-cycling frame ~30×/s; the writeback stores the latest
-//! frame in the dataset. The GL-texture upload + recomposite is widget.3; the
-//! real AVFoundation/Camera2 worker (passed in dll-side, like map's
-//! `dom_with_fetch`) is widget.4.
+//! This tick uses a self-contained **test-pattern** worker (colour cycle, no
+//! platform deps); the real AVFoundation/Camera2 worker (dll-side) swaps in
+//! later.
 
 use alloc::vec::Vec;
 
-use azul_core::animation::UpdateImageType;
 use azul_core::callbacks::Update;
 use azul_core::camera::CameraConfig;
 use azul_core::dom::{ComponentEventFilter, DatasetMergeCallbackType, Dom, EventFilter};
-use azul_core::gl::gl::{RGBA, TEXTURE_2D, UNSIGNED_BYTE};
-use azul_core::gl::{GlContextPtr, OptionU8VecRef, Texture, U8VecRef};
-use azul_core::geom::PhysicalSizeU32;
 use azul_core::refany::{OptionRefAny, RefAny};
 use azul_core::resources::{ImageRef, RawImageFormat};
 use azul_core::task::{ThreadId, ThreadReceiver};
-use azul_css::props::basic::ColorU;
 
+use super::capture_common::{present_frame, VideoFrame};
 use crate::callbacks::{Callback, CallbackInfo, CallbackType};
 use crate::thread::{
     Thread, ThreadCallback, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg, WriteBackCallback,
 };
-
-/// One captured frame, sent from the worker thread to [`camera_writeback`].
-/// Tightly-packed pixels in the config's `output_format` (BGRA8 for now).
-#[derive(Clone)]
-pub struct CameraFrame {
-    /// Frame width in px.
-    pub width: u32,
-    /// Frame height in px.
-    pub height: u32,
-    /// Tightly-packed pixel bytes (`width * height * 4` for BGRA8).
-    pub bytes: Vec<u8>,
-}
 
 /// Init data handed to the capture worker thread.
 struct CameraThreadInit {
@@ -61,21 +36,14 @@ struct CameraThreadInit {
     height: u32,
 }
 
-/// Live state for one camera widget, owned by the node's dataset `RefAny` and
-/// carried across relayout by [`merge_camera_state`].
+/// Live state for one camera widget, carried across relayout by
+/// [`merge_camera_state`].
 pub struct CameraWidgetState {
     /// The requested capture configuration (the control POD).
     pub config: CameraConfig,
-    /// `true` once the capture thread has been started, so a relayout re-mount
-    /// doesn't spawn a second one. (Later: the GL-texture handle lives here.)
+    /// `true` once the capture thread has been started.
     pub started: bool,
-    /// Most recent frame (kept for the cpurender fallback / debugging; the GL
-    /// path uploads straight into the texture instead).
-    pub latest_frame: Option<CameraFrame>,
     /// The stable external GL texture id once the first frame installed it.
-    /// `None` until then; re-uploaded in place every frame afterwards so the
-    /// node's `ImageRef` (and its wr key) stays stable — recomposite, no DL
-    /// rebuild.
     pub gl_texture_id: Option<u32>,
 }
 
@@ -99,7 +67,6 @@ impl CameraWidget {
         let state = CameraWidgetState {
             config: self.config,
             started: false,
-            latest_frame: None,
             gl_texture_id: None,
         };
         let dataset = RefAny::new(state);
@@ -144,16 +111,13 @@ extern "C" fn camera_on_after_mount(mut data: RefAny, mut info: CallbackInfo) ->
         frame_dims(&s.config)
     };
 
-    let init = RefAny::new(CameraThreadInit {
-        width: dims.0,
-        height: dims.1,
-    });
-    // writeback_data = the same dataset the widget renders from, so the
-    // writeback's `latest_frame` write is seen by the (future) GL upload.
     info.add_thread(
         ThreadId::unique(),
         Thread::create(
-            init,
+            RefAny::new(CameraThreadInit {
+                width: dims.0,
+                height: dims.1,
+            }),
             data.clone(),
             ThreadCallback::new(test_pattern_worker),
         ),
@@ -161,10 +125,8 @@ extern "C" fn camera_on_after_mount(mut data: RefAny, mut info: CallbackInfo) ->
     Update::DoNothing
 }
 
-/// Background worker (test pattern): emits a colour-cycling solid frame
-/// ~30×/s until the widget unmounts (`sender.send` returns `false` once the
-/// receiver is dropped). The real AVFoundation/Camera2 capture loop replaces
-/// this in widget.4.
+/// Background worker (test pattern): a colour-cycling solid frame ~30×/s until
+/// the widget unmounts. The real AVFoundation/Camera2 capture loop replaces it.
 extern "C" fn test_pattern_worker(mut init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
     let (w, h) = init
         .downcast_ref::<CameraThreadInit>()
@@ -183,7 +145,7 @@ extern "C" fn test_pattern_worker(mut init: RefAny, mut sender: ThreadSender, _r
         for _ in 0..px {
             bytes.extend_from_slice(&color);
         }
-        let frame = CameraFrame {
+        let frame = VideoFrame {
             width: w,
             height: h,
             bytes,
@@ -193,118 +155,41 @@ extern "C" fn test_pattern_worker(mut init: RefAny, mut sender: ThreadSender, _r
             RefAny::new(frame),
         )));
         if !sent {
-            break; // window/widget gone — stop capturing.
+            break;
         }
         std::thread::sleep(std::time::Duration::from_millis(33));
         tick = tick.wrapping_add(8);
     }
 }
 
-/// Writeback (main thread, has `CallbackInfo` + GL context): upload the new
-/// frame into the widget's stable external GL texture and recomposite.
-///
-/// - First frame: allocate the GL texture, upload, and install it on the node
-///   once via `change_node_image` (the only display-list touch).
-/// - Every frame after: re-upload into the *same* texture id and call
-///   `update_all_image_callbacks` → `ShouldReRenderCurrentWindow` (recomposite
-///   only — WebRender re-reads the external texture; no relayout, no DL rebuild).
-/// - No GL context (cpurender): store the frame for the (follow-up) CPU path.
-///
-/// NOTE: GL code — compile-verified here; the actual texture rendering must be
-/// verified on a machine with a window + GPU.
+/// Writeback (main thread): hand the frame to the shared GL presenter and
+/// store the (stable) texture id back in the widget's state.
 extern "C" fn camera_writeback(
     mut writeback_data: RefAny,
     mut frame_data: RefAny,
     mut info: CallbackInfo,
 ) -> Update {
-    let frame = match frame_data.downcast_ref::<CameraFrame>() {
-        Some(f) => CameraFrame {
-            width: f.width,
-            height: f.height,
-            bytes: f.bytes.clone(),
-        },
-        None => return Update::DoNothing,
-    };
-
-    let gl = match info.get_gl_context().into_option() {
-        Some(g) => g,
-        None => {
-            // cpurender / no GL yet — keep the frame; the YUV→RGB CPU upload
-            // path is a follow-up.
-            if let Some(mut s) = writeback_data.downcast_mut::<CameraWidgetState>() {
-                s.latest_frame = Some(frame);
-            }
-            return Update::DoNothing;
-        }
-    };
-
-    let existing = writeback_data
+    let current = writeback_data
         .downcast_ref::<CameraWidgetState>()
         .and_then(|s| s.gl_texture_id);
-
-    match existing {
-        Some(id) => {
-            upload_rgba(&gl, id, &frame);
-            // Recomposite only — wr re-reads the external texture, no relayout.
-            info.update_all_image_callbacks();
-        }
-        None => {
-            let tex = Texture::allocate_rgba8(
-                gl.clone(),
-                PhysicalSizeU32 {
-                    width: frame.width,
-                    height: frame.height,
-                },
-                ColorU {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 0,
-                },
-            );
-            let id = tex.texture_id;
-            upload_rgba(&gl, id, &frame);
-            let image = ImageRef::new_gltexture(tex);
-            // Install the external-texture ImageRef on this widget's node once.
-            if let Some(node) = info.get_node_id_of_root_dataset(writeback_data.clone()) {
-                if let Some(nid) = node.node.into_crate_internal() {
-                    info.change_node_image(node.dom, nid, image, UpdateImageType::Content);
-                }
-            }
-            if let Some(mut s) = writeback_data.downcast_mut::<CameraWidgetState>() {
-                s.gl_texture_id = Some(id);
-            }
-        }
+    let new_id = match frame_data.downcast_ref::<VideoFrame>() {
+        Some(frame) => present_frame(&mut info, writeback_data.clone(), current, &frame),
+        None => return Update::DoNothing,
+    };
+    if let Some(mut s) = writeback_data.downcast_mut::<CameraWidgetState>() {
+        s.gl_texture_id = new_id;
     }
     Update::DoNothing
 }
 
-/// Upload tightly-packed RGBA8 pixels into the GL texture `texture_id`.
-fn upload_rgba(gl: &GlContextPtr, texture_id: u32, frame: &CameraFrame) {
-    gl.bind_texture(TEXTURE_2D, texture_id);
-    gl.tex_image_2d(
-        TEXTURE_2D,
-        0,
-        RGBA as i32,
-        frame.width as i32,
-        frame.height as i32,
-        0,
-        RGBA,
-        UNSIGNED_BYTE,
-        OptionU8VecRef::Some(U8VecRef::from(frame.bytes.as_slice())),
-    );
-}
-
-/// Carry the live state forward across relayout: the freshly-built state from
-/// `dom()` keeps its (possibly user-updated) config, but inherits the running
-/// thread / latest frame / `started` flag from the previous frame's state.
+/// Carry live state forward across relayout (config from the fresh build,
+/// thread / texture from the previous frame).
 extern "C" fn merge_camera_state(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
     {
         let new_guard = new_data.downcast_mut::<CameraWidgetState>();
         let old_guard = old_data.downcast_ref::<CameraWidgetState>();
         if let (Some(mut new_g), Some(old_g)) = (new_guard, old_guard) {
             new_g.started = old_g.started;
-            new_g.latest_frame = old_g.latest_frame.clone();
             new_g.gl_texture_id = old_g.gl_texture_id;
         }
     }
