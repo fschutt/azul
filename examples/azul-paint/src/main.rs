@@ -25,6 +25,10 @@ struct StrokePoint {
     /// `0.0..=1.0`, normalized. Finger touches default to `0.5`
     /// (the TouchPoint sentinel for "no pressure available").
     pressure: f32,
+    /// Barrel roll in radians (Apple Pencil Pro / Surface Pen). `0.0`
+    /// when not reported. Orients the chisel nib so rolling the pen
+    /// turns the brush, like a real calligraphy tip.
+    barrel_roll_rad: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -106,10 +110,15 @@ const ROOT: &str = "display: flex; flex-direction: column; height: 100%;";
 /// pen-pressure → fat line). Finger touches use the 0.5 sentinel which
 /// gives a uniform medium-weight stroke.
 fn render_point(p: StrokePoint, is_eraser: bool) -> Dom {
-    let radius = (2.0 + p.pressure * 10.0).max(2.0);
-    let diameter = radius * 2.0;
-    let left = p.x - radius;
-    let top = p.y - radius;
+    // The dab is a soft chisel nib: a rounded oval whose long axis scales
+    // with pressure and whose orientation follows the pen's barrel roll.
+    // With a finger / non-Pro stylus (roll = 0) it's a gentle horizontal
+    // oval; rolling an Apple Pencil Pro turns it like a calligraphy tip.
+    let major = (2.0 + p.pressure * 10.0).max(2.0) * 2.0;
+    let minor = (major * 0.7).max(2.0);
+    let left = p.x - major / 2.0;
+    let top = p.y - minor / 2.0;
+    let roll_deg = p.barrel_roll_rad.to_degrees();
 
     let color = if is_eraser {
         "rgba(250,250,246,0.95)" // eraser blends into canvas bg
@@ -120,8 +129,8 @@ fn render_point(p: StrokePoint, is_eraser: bool) -> Dom {
     let style = format!(
         "position: absolute; left: {:.1}px; top: {:.1}px; \
          width: {:.1}px; height: {:.1}px; border-radius: 50%; \
-         background: {};",
-        left, top, diameter, diameter, color,
+         background: {}; transform: rotate({:.1}deg);",
+        left, top, major, minor, color, roll_deg,
     );
     Dom::create_div().with_css(style.as_str())
 }
@@ -230,19 +239,21 @@ fn extract_point(info: &CallbackInfo) -> Option<(StrokePoint, bool)> {
                     x: pen.position.x,
                     y: pen.position.y,
                     pressure: pen.pressure.max(0.05).min(1.0),
+                    barrel_roll_rad: pen.barrel_roll_rad,
                 },
                 pen.is_eraser,
             ));
         }
     }
     // Fall back to cursor-relative-to-node (works for both mouse and
-    // touch on every backend).
+    // touch on every backend). No barrel roll off a stylus → 0.
     let pos = info.get_cursor_relative_to_node().into_option()?;
     Some((
         StrokePoint {
             x: pos.x,
             y: pos.y,
             pressure: 0.5,
+            barrel_roll_rad: 0.0,
         },
         false,
     ))

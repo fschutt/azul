@@ -872,3 +872,14 @@ Substantive P2.3 step (not another test): the `PenState.barrel_roll_rad` field a
 - Deferred (genuine multi-tick / core+codegen): the `HoverEventFilter::PenSqueeze/PenDoubleTap/PenHover` half of P2.3 (squeeze = `UIPencilInteraction`, new event-filter variants → codegen + dispatch).
 
 `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (11/3/3/0/1 s). No api.json/codegen change — `AzPenState` already carried the field; only the native populate path changed. Disk 93%, incremental cleared.
+
+### Tick — P2.3b AzulPaint consumes barrel_roll_rad (chisel nib) (2026-05-20)
+
+Closed the P2.3a pipeline end-to-end in the goal app: iOS `UITouch.rollAngle` → `PenState.barrel_roll_rad` → AzulPaint now *uses* it. A feature step, not a test.
+
+- `StrokePoint` gained `barrel_roll_rad`; `extract_point` reads `pen.barrel_roll_rad` (stylus path) / 0.0 (finger/cursor fallback).
+- `render_point` now draws each dab as a soft chisel oval (major axis from pressure, minor = 0.7×) `transform: rotate({roll}deg)` — a finger/non-Pro stylus (roll 0) gets a gentle horizontal oval; rolling an Apple Pencil Pro turns the nib like a calligraphy tip. Confirmed `StyleTransform::Rotate` + `transform: rotate()` are supported in azul-css.
+
+Verified `cargo check -p azul-paint` clean (only pre-existing generated-code warnings); `bash scripts/mobile-check-all.sh` GREEN on all 5 targets — example-only change, no dll touched, no api.json/codegen change. Disk 93%, incremental cleared.
+
+The clean autonomous backlog is now essentially exhausted; high-value remaining work needs a user decision (iOS/macOS request producers: objc2-vs-block-bridge; P3.3 tap-to-pin worker exposure) or a multi-tick greenlight (P2.3 HoverEventFilter variants: core enum + codegen + dispatch + UIPencilInteraction).
