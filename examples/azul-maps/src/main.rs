@@ -318,6 +318,23 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
             );
             map_container =
                 map_container.with_child(Dom::create_div().with_css(style.as_str()));
+            // Callout: the pinned point's coordinates, beside the marker.
+            let callout_style = format!(
+                "position: absolute; left: {:.1}px; top: {:.1}px; \
+                 background: rgba(255,255,255,0.95); color: #222; \
+                 padding: 2px 6px; border-radius: 4px; font-size: 11px; \
+                 font-family: sans-serif; white-space: nowrap; \
+                 box-shadow: 0px 1px 2px rgba(0,0,0,0.3);",
+                px + 10.0,
+                py - 30.0,
+            );
+            map_container = map_container.with_child(
+                Dom::create_div()
+                    .with_css(callout_style.as_str())
+                    .with_child(Dom::create_text(
+                        format!("{:.4}, {:.4}", lat, lon).as_str(),
+                    )),
+            );
         }
     }
 

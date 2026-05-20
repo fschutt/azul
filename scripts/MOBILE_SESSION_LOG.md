@@ -1082,3 +1082,13 @@ Implemented tap-to-drop-a-pin — the last named P3.3 item ("tap-to-pin-callout"
 `cargo check -p azul-maps` clean; `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (warm — no dll/codegen change). Disk ~96% / 8.4 GiB.
 
 Runtime caveat (as for all mobile here): compiles + works in theory; the tap path depends on `get_cursor_relative_to_node`/`get_hit_node_rect` being populated at runtime (the fallback to viewport-relative covers the case I traced as None). P3.3 (AzulMaps) is now feature-complete bar real tiles (gated). Remaining: P3.2 real-tile worker exposure, P2.3 HoverEventFilter, iOS/macOS permission-request blocks (decision-gated); live-locate Timer (needs get_location_fix on TimerCallbackInfo); disk for codegen ticks.
+
+### Tick — P3.3e tap-to-pin CALLOUT (completes the named deliverable) (2026-05-20)
+
+Added the coordinate callout beside each tapped pin — the "-callout" half of P3.3's "tap-to-pin-callout". Each pin now renders its marker plus a small white label showing "{lat:.4}, {lon:.4}", positioned via left/top math (no transform:translate dependency). Callouts re-project with the pins on pan/zoom.
+
+`cargo check -p azul-maps` clean; `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (warm — example-only, no dll/codegen). Disk ~97% / 8.x GiB.
+
+P3.3 (AzulMaps) is now fully feature-complete: viewport + pan/zoom toolbar, locate-me (probe + recentre + dot + readout), tap-to-pin-callout. Bar real tiles (gated on the worker-exposure decision). Could refine to tap-to-select (show callout only for the selected pin) vs the current all-pins labels — noted, not needed for the demo.
+
+Remaining work is unchanged and all gated/blocked: P3.2 real-tile worker exposure, P2.3 HoverEventFilter, iOS/macOS permission-request blocks (decisions); live-locate Timer (needs get_location_fix on TimerCallbackInfo, a codegen exposure); disk headroom for codegen.
