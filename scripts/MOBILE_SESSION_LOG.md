@@ -1777,3 +1777,15 @@ The demo prerequisite — `CameraWidget` is now on the public api.json surface (
 Verify: `mobile-check-all.sh` GREEN on all 5. Disk 12 GiB.
 
 Next P6.camera.widget.5: the **camera-app demo** (`examples/azul-camera-app`) — `CameraWidget::create(CameraConfig::new(Front)).dom()` in a layout; runnable on the dev host (the built-in test-pattern worker → colour-cycling box via the GL path, modulo on-machine GL verification). Then widget.6 real AVFoundation worker + control-POD methods, then screenshare → video.
+
+### Tick — P6.camera.widget.5 — azul-camera-app demo (2026-05-20)
+
+The dummy camera app — the whole widget pivot, end-to-end + runnable. `examples/azul-camera-app` (added to workspace).
+
+- `layout`: `CameraWidget::create(config).dom().with_css(PREVIEW)` in a column (title + a 480×360 preview box). `config = CameraConfig::default()` (BGRA8, backend-default size) with `facing` from state.
+- Pure public surface: `azul::widgets::CameraWidget` + `azul::misc::{CameraConfig, CameraFacing}`. `CameraConfig::default()` (exposed) + a public `facing` field — no RawImageFormat import needed.
+- With the built-in test-pattern worker this runs on any machine (no webcam): on mount the widget starts the capture thread → writeback uploads colour-cycling frames into a GL texture + recomposites. (GL rendering still needs on-machine verification.)
+
+Verify: `cargo check -p azul-camera-app` clean (host, 30s cold; warnings are azul-dll generated code). dll untouched → mobile gate stays GREEN (ce860764d). Disk 11 GiB.
+
+**Camera widget COMPLETE end-to-end (test-pattern): scaffold ✅ · thread+writeback ✅ · GL display ✅ · codegen-exposed ✅ · demo ✅.** The "dumb widget" architecture (zero camera logic in core) is proven. Next P6.camera.widget.6: real AVFoundation/Camera2 capture worker (dll-side, swaps test_pattern_worker) + front/back/zoom control-POD methods. Then **screenshare** widget (same architecture) → **video** widget (vk-video) per the master plan.

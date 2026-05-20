@@ -8,6 +8,7 @@ members = [
     "examples/azul-doc", # AzulDoc demo (SUPER_PLAN_2 P5 goal app)
     "examples/azul-spirit-level", # AzSpirit demo (P6 motion-sensor goal app)
     "examples/azul-gamepad", # AzGamepad demo (P6 gamepad goal app)
+    "examples/azul-camera-app", # AzCamera demo (P6 camera widget)
     "dll", # dll module with auto-gen C functions (optional pyO3 support), depends on layout, core and css
     "doc", # doc / test generator, depends on layout, core and css
     "layout", # layout depends on core + css
