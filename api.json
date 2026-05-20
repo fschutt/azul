@@ -9475,6 +9475,25 @@
                                     "type": "OptionKeyringResult"
                                 },
                                 "fn_body": "object.get_keyring_result().into()"
+                            },
+                            "export_to_pdf": {
+                                "doc": [
+                                    "Export the current window's content to a PDF at `path`. Queues the",
+                                    "export; it runs on the next layout pass, where the dll's `printpdf`",
+                                    "engine walks the freshly-laid-out display list. Call from, e.g., an",
+                                    "\"Export PDF\" button's `on_click`. Requires the dll's `pdf` feature",
+                                    "for real output (the engine no-ops otherwise). (v1 emits a blank",
+                                    "page — the display-list → PDF dispatch is a follow-up.)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "path": "String"
+                                    }
+                                ],
+                                "fn_body": "object.export_to_pdf(path)"
                             }
                         },
                         "repr": "C"

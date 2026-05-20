@@ -1430,3 +1430,13 @@ Wired the callback-triggered export. `CallbackInfo` (layout) can't reach the dll
 Verify: `managers::pdf_export::` 1/1 test passes; `mobile-check-all.sh` GREEN on all 5. Disk 98% → purging aggressively.
 
 Next P5.1c: codegen-expose `CallbackInfo.export_to_pdf` (always-present, no gating). P5.1d: the real dispatch — pass the display list to `export_to_pdf` + walk `DisplayListItem`s → printpdf `Op`s (Rect fills first, then Text via the half-wired TextLayout, research/06 §2.3.2). Then P5.2 render + P5.4 AzulDoc demo.
+
+### Tick — P5.1c — expose CallbackInfo.export_to_pdf via api.json + codegen (2026-05-20)
+
+Quick exposure — `export_to_pdf(path)` takes `String` (exists) + returns void, so no new types / no 2-pass.
+
+- `autofix add CallbackInfo.export_to_pdf` (fn_args [self: refmut, path: String], returns void, body `object.export_to_pdf(path)`) → apply; `codegen all`.
+
+Verify: `mobile-check-all.sh` GREEN on all 5. Only api.json tracked. Disk 97% → purging.
+
+PDF export is now callable from the public API (35 langs): a callback `info.export_to_pdf("out.pdf")` → channel → dll drain → printpdf (blank page until the dispatch lands). Next P5.1d: the real display-list → printpdf `Op` dispatch — thread the window's display list into `extra::pdf::export_to_pdf` at drain time + map `DisplayListItem::Rect` (fills) first, then `Text`/`TextLayout` (research/06 §2.3.2). Then P5.2 render + P5.4 AzulDoc demo.
