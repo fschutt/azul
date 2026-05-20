@@ -2068,3 +2068,18 @@ Cleaned up `examples/azul-maps` to use the just-added hooks/projection (validate
 - **Binding notes (for future demos):** the FFI takes the concrete callback wrapper, built as `MapPinTapCallback { cb: on_pin_tap, callable: OptionRefAny::None }` (field is `callable`, not `ctx`); callback wrappers reexport under **`azul::dom`** (not `azul::widgets`); `LogicalSize::create(w,h)` (not `::new`). Demo builds clean (`cargo build --release -p azul-maps`).
 
 **MapWidget fully done**: on_viewport_changed + on_pin_tap + projection, demo using all of it. NEXT: input custom-events (SensorChanged/GamepadInput) -> audio widgets -> UDP/azul-meet -> P9 -> P10. (Disk lower; will cargo clean if a post-purge level dips below ~4.)
+
+### Tick — input custom-events: investigation + plan (2026-05-21)
+
+Investigated the user-endorsed "custom Event + accessor" for sensors/gamepad. **Finding: there's no working data-arrival window-event to mirror** — `WindowEventFilter::GeolocationFix`/`GeolocationError` are DEFINED (events.rs:1933/1936) but **never fired** (grep finds zero dispatch); even geolocation uses the accessor + a Timer. So firing `SensorChanged`/`GamepadInput` is new event-system work, not a copy.
+
+**Mechanism:** the `EventProvider` trait (core/src/events.rs:2202, `get_pending_events(&self, ts) -> Vec<SyntheticEvent>`) — only `layout/src/managers/text_input.rs` impls it (for *node*-targeted text input). The dll collects providers at `event.rs:3532` and routes via `dispatch_events_propagated`.
+
+**Plan (when picked up):**
+1. `core/events.rs`: add `EventType::SensorChanged`/`GamepadInput`; `WindowEventFilter::SensorChanged`/`GamepadInput` (+ HoverEventFilter mapping ~2024 + `event_type_to_filters` ~2257).
+2. `SensorManager`/`GamepadManager` impl `EventProvider::get_pending_events` → yield a `SyntheticEvent` (target = root node) when the **`changed` bool** (already computed, currently discarded at layout.rs:852/879) is set; clear it after.
+3. dll: add sensor+gamepad managers to `event_providers` (event.rs:3532) so their events route.
+4. **Design Q:** window-level event target — root node so all `WindowEventFilter::SensorChanged` subscribers fire (mirror how resize/focus window events target). The accessor (`get_sensor_reading`) stays for reading detail inside the callback.
+5. Codegen the new variants.
+
+The accessor pattern is fine (user confirmed); this just adds the push so apps stop Timer-polling. Intricate — warrants a focused fresh-context tick.
