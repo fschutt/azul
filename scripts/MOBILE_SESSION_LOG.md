@@ -905,3 +905,15 @@ I was wrong last tick that the clean backlog was exhausted — the geolocation b
 `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (7/6/6/7/7 s). Internal dll-facing API — no api.json/codegen change. 
 
 DISK: holding at 95% used / 12 GiB free (crept 93→95% over recent ticks; `rm -rf target/debug/incremental` no longer drops it below 92%). Not yet a blocker but trending toward the earlier ENOSPC crisis — a `cargo clean` (full 5-target + host rebuild) or pruning stale per-target dirs may be needed soon; flagging for the user rather than nuking target/ mid-loop.
+
+### Tick — P3.1b Android geolocation request producer (channel producer) (2026-05-20)
+
+Wired the producer for last tick's location-fix channel — the geolocation analog of P1.2d, completing the Android location loop (Rust half).
+
+- `geolocation/android.rs::handle_event` now turns Subscribe/Reconfigure/Release into JNI `AzulGeolocation.subscribe(Activity, handle, highAccuracy, minIntervalMs)` / `release(handle)` calls (reuses the file-picker/permission JavaVM-attach pattern via a local `attach`). A nonzero per-subscription handle lets release target the right listener and lets late fixes be dropped.
+- Inbound `Java_com_azul_geolocation_AzulGeolocation_nativeOnLocationFix(handle, lat, lon, accuracy, altitude, …)` builds a `LocationFix` and calls `push_location_fix` → the layout pass (P3.1a step 7c) folds it into the manager.
+- Pending (non-Rust, documented): the `AzulGeolocation.java` helper + manifest location perms; until it ships, `find_class` fails and subscribe/release no-op gracefully.
+
+`bash scripts/mobile-check-all.sh` GREEN on all 5 targets (9/1/0/6/6 s). Internal dll platform code — no api.json/codegen change.
+
+DISK: purging *all* incremental dirs (host + 5 mobile targets, not just host) freed 2 GiB → 93%. `du` shows azul `target/` is only ~6.5 GiB total — the 95% volume pressure is the user's *other* disk usage (194/228 GiB), so `cargo clean` wouldn't meaningfully help. Will keep purging all incrementals each tick; real relief needs the user freeing non-azul space.
