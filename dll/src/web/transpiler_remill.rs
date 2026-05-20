@@ -1064,6 +1064,18 @@ impl RemillTranspiler {
                 fn_name,
             )?;
 
+            // M12.5y FIX: enforce SP preservation across lifted calls (env
+            // AZ_FIX_SP). Repairs callees (e.g. CssProperty::clone) whose lift
+            // drops the epilogue `add sp` and leak SP into the caller's frame.
+            if std::env::var_os("AZ_FIX_SP").is_some() {
+                if let Ok(opt_ir) = std::fs::read_to_string(&opt_ir_path) {
+                    let (fixed, n) = enforce_sp_preservation(&opt_ir);
+                    if n > 0 {
+                        let _ = std::fs::write(&opt_ir_path, &fixed);
+                    }
+                }
+            }
+
             // M12.5y store-address tracer: when AZ_LOG_STORES contains a
             // comma-separated substring matching this dep's stem, instrument
             // the post-opt IR in place (then llc compiles the instrumented
@@ -4250,6 +4262,84 @@ fn parse_memintrinsic_len(line: &str) -> Option<String> {
         None
     } else {
         Some(len)
+    }
+}
+
+/// M12.5y FIX — enforce the AArch64 ABI invariant that SP is **callee-preserved**
+/// across calls. Some lifted functions (notably `CssProperty::clone`, a large
+/// multi-exit `match`) execute their prologue `sub sp,#N` but the remill lift
+/// never emits the matching epilogue `add sp,#N` on the taken return path (its
+/// `.patched.ll` has only the prologue SP store). Each such call therefore LEAKS
+/// N bytes of guest SP; called in a loop (apply_ua_css clones ~24 properties),
+/// the caller's SP drifts steadily down, corrupting its SP-relative locals — the
+/// `create_from_compact_dom` cache-base = NULL / cascade-all-zero bug.
+///
+/// Fix: wrap every lifted `call ptr @sub_<hex>(ptr %state, ...)` so the caller
+/// reloads `State.SP` (byte offset 1040 in the remill AArch64 State) before the
+/// call and stores it back after — making SP preservation hold regardless of the
+/// callee's epilogue lift. This is the ABI-correct invariant (no callee may
+/// change its caller's SP), so it cannot mask a real bug; it only repairs leaks.
+fn enforce_sp_preservation(opt_ir: &str) -> (String, u32) {
+    // remill AArch64 State byte offsets of the callee-preserved registers:
+    // X19..X28 (848..992 step 16), X29/FP (1008), SP (1040). X30/LR (1024) is
+    // NOT preserved (link register). Saving/restoring these around a call is the
+    // ABI invariant; it repairs any callee whose lifted epilogue drops them.
+    const CS_OFFSETS: [u32; 12] = [848, 864, 880, 896, 912, 928, 944, 960, 976, 992, 1008, 1040];
+    let mut out = String::with_capacity(opt_ir.len() + (1 << 16));
+    let mut k: u32 = 0;
+    for line in opt_ir.lines() {
+        if let Some((_res, state_arg)) = parse_sub_call(line) {
+            let indent: String = line.chars().take_while(|c| *c == ' ').collect();
+            for (j, off) in CS_OFFSETS.iter().enumerate() {
+                out.push_str(&format!(
+                    "{indent}%azg_{k}_{j} = getelementptr inbounds i8, ptr {state_arg}, i32 {off}\n\
+                     {indent}%azv_{k}_{j} = load i64, ptr %azg_{k}_{j}, align 8\n"
+                ));
+            }
+            // Emit the call with `tail ` stripped (stores follow it now).
+            out.push_str(&line.replacen("tail call ptr @sub_", "call ptr @sub_", 1));
+            out.push('\n');
+            for j in 0..CS_OFFSETS.len() {
+                out.push_str(&format!(
+                    "{indent}store i64 %azv_{k}_{j}, ptr %azg_{k}_{j}, align 8\n"
+                ));
+            }
+            k += 1;
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    (out, k)
+}
+
+/// Parse a lifted call `%N = [tail ]call ptr @sub_<hex>(ptr [nonnull ]%S, ...`,
+/// returning `(result_ssa, state_arg_ssa)`. `None` for non-`@sub_` calls.
+fn parse_sub_call(line: &str) -> Option<(String, String)> {
+    let t = line.trim_start();
+    let res_end = t.find(" = ")?;
+    let res = &t[..res_end];
+    if !res.starts_with('%') {
+        return None;
+    }
+    let rest = &t[res_end + 3..];
+    let rest = rest.strip_prefix("tail ").unwrap_or(rest);
+    let rest = rest.strip_prefix("call ptr @sub_")?;
+    let paren = rest.find('(')?;
+    let args = &rest[paren + 1..];
+    let args = args.strip_prefix("ptr ").unwrap_or(args);
+    let args = args.strip_prefix("nonnull ").unwrap_or(args);
+    if !args.starts_with('%') {
+        return None;
+    }
+    let name: String = args
+        .chars()
+        .take_while(|c| *c == '%' || c.is_ascii_alphanumeric() || matches!(*c, '.' | '_' | '-' | '$'))
+        .collect();
+    if name.len() > 1 {
+        Some((res.to_string(), name))
+    } else {
+        None
     }
 }
 
