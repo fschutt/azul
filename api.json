@@ -88622,7 +88622,7 @@
                                         "self": "ref"
                                     },
                                     {
-                                        "dom": "StyledDom"
+                                        "dom": "Dom"
                                     },
                                     {
                                         "page_width_px": "f32"

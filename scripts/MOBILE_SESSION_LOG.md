@@ -1998,3 +1998,20 @@ Implemented the user-specified PDF uncouple core: a **standalone headless `dom -
 **The PDF API is now uncoupled from the window** (Pdf::from_dom needs no CallbackInfo/window) and returns bytes (no file I/O). Walk is still Rect-fills only (text/image/border = follow-ups, pre-existing).
 
 NEXT (PDF cleanup): remove the legacy window-coupled path — `CallbackInfo::export_to_pdf`, `PENDING_EXPORTS` + `managers/pdf_export.rs`, the per-frame drain (shell2/common/layout.rs ~805-826) — and update `examples/azul-doc` to `Pdf::from_dom` + write the bytes. Then MapWidget hooks, input events, audio. (Disk low at 3.6 GiB -> cargo clean to reset.)
+
+### Roadmap addition (user, 2026-05-20) — P9 + P10
+
+**P9 — E2E event testing (synthetic input).** Build an e2e harness that **synthetically generates all P2-P7 events** — wacom pad/pen (PenDown/Move/Up/Squeeze/DoubleTap/Hover, tilt/pressure/eraser/barrel, ExpressKeys/touch-ring), touch, sensors, gamepad, geolocation, capture frames — so every P2-P7 event path is testable without real hardware. The harness injects events + asserts the resulting callbacks/state. The e2e tests must be able to generate the wacom/pen/etc. events synthetically.
+
+**P10 — Guide/docs.** Write `doc/guide/` .md files for all the new systems (vault/db/pdf/sensors/gamepad/camera/screencap/video/wacom/audio/udp + the `set_on_frame` hooks), **including at least one section on "how to package, build, and deploy on various operating systems — especially mobile (iOS / Android)."**
+
+(Sequenced after the current FIX-APIs queue + audio/UDP/azul-meet.)
+
+### Tick — FIX-APIs.6 — Pdf::from_dom takes a Dom (usability fix) + demo on the new API (2026-05-20)
+
+Found that `Pdf::from_dom(StyledDom)` (FIX-APIs.5) was **unusable from bindings** — `StyledDom::create_from_dom` is `pub` but NOT codegen-exposed, so callers can't build a `StyledDom`. Fixed: **`Pdf::from_dom(dom: Dom, w_px, h_px) -> U8Vec`** — the dll does `StyledDom::create_from_dom(dom)` internally (the same Dom->StyledDom cascade the window runs each frame). Users pass a `Dom` (what they build).
+- api.json from_dom arg StyledDom->Dom; `codegen all` (also regenerated `target/codegen/*` that `cargo clean` had wiped — that was the build.rs:378 "Missing generated file" panic, not a real bug).
+- **`examples/azul-doc` rewritten**: `on_export` now builds the doc `Dom`, calls `Pdf::new().from_dom(doc, 794.0, 1123.0)` (A4 @ 96 DPI), and `std::fs::write`s the bytes itself — no `CallbackInfo::export_to_pdf`, no framework file I/O. Demo builds clean against the public `azul::misc::Pdf`.
+- Verified: demo `cargo build -p azul-doc-demo` clean; host `--features pdf` clean; mobile gate GREEN on all 5.
+
+The legacy window-coupled path (`CallbackInfo::export_to_pdf` + `PENDING_EXPORTS` + `managers/pdf_export.rs` + the shell2/common/layout.rs drain + dll `export_to_pdf`) is now **unused** — removal is the next tick. Also recorded user's **P9 (synthetic-event e2e)** + **P10 (guide/docs incl. mobile packaging/deploy)** roadmap additions.

@@ -1,15 +1,15 @@
 //! AzulDoc — P5 goal app (SUPER_PLAN_2 §4 P5.4).
 //!
 //! A simple document view with an "Export to PDF" button. The button's
-//! callback calls `CallbackInfo::export_to_pdf(path)`, which queues the
-//! export; the dll's `printpdf` engine then walks the window's display list
-//! → PDF. Built on the public `azul::` surface only.
+//! callback builds the document `Dom` and calls `Pdf::from_dom(dom, w, h)`
+//! (headless dom -> PDF pages, no window, no file I/O), then writes the
+//! returned bytes to a file itself. Built on the public `azul::` surface only.
 //!
-//! v1 exports the document's layout (solid fills / section backgrounds) —
-//! the on-screen view shows full text via the renderer; text-in-PDF (walk
-//! `TextLayout` → printpdf text Ops) and a markdown editor / live preview
-//! are follow-ups (research/06 §2.1, §5.4).
+//! v1 exports the document's layout (solid fills / section backgrounds);
+//! text-in-PDF (walk `TextLayout` -> printpdf text Ops) and a markdown
+//! editor / live preview are follow-ups.
 
+use azul::misc::Pdf;
 use azul::prelude::*;
 
 struct DocState {
@@ -51,12 +51,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         None => (String::new(), false),
     };
 
-    let mut page = Dom::create_div()
-        .with_css(PAGE)
-        .with_child(Dom::create_text("Project Brief").with_css(H1))
-        .with_child(section("Overview", "AzulDoc renders a styled document and exports it to PDF via the public API — the printpdf engine walks the window's display list."))
-        .with_child(section("Status", "P5: PDF export wired end-to-end. Solid fills export today; text and inline images follow."))
-        .with_child(section("Next", "Markdown editing, live preview, and a reference-PDF diff round out the AzulDoc demo."));
+    let mut page = doc_page();
 
     if exported {
         page = page.with_child(
@@ -93,11 +88,33 @@ fn section(heading: &str, body: &str) -> Dom {
         .with_child(Dom::create_text(body).with_css(BODY))
 }
 
-/// Export the current document to a PDF. Queues the export (runs on the next
-/// layout pass, where printpdf walks the display list).
-extern "C" fn on_export(mut data: RefAny, mut info: CallbackInfo) -> Update {
+/// The document content (shared by the on-screen view + the PDF export).
+fn doc_page() -> Dom {
+    Dom::create_div()
+        .with_css(PAGE)
+        .with_child(Dom::create_text("Project Brief").with_css(H1))
+        .with_child(section(
+            "Overview",
+            "AzulDoc renders a styled document and exports it to PDF via the public Pdf::from_dom API (headless dom -> PDF pages, no window).",
+        ))
+        .with_child(section(
+            "Status",
+            "P5: PDF export wired end-to-end. Solid fills export today; text and inline images follow.",
+        ))
+        .with_child(section(
+            "Next",
+            "Markdown editing, live preview, and a reference-PDF diff round out the AzulDoc demo.",
+        ))
+}
+
+/// Export the document to a PDF. Headless: build the document `Dom`, render it
+/// to PDF bytes via `Pdf::from_dom` (no window, no file I/O in the API), and
+/// write the bytes ourselves. A4 at 96 DPI = 794 x 1123 px.
+extern "C" fn on_export(mut data: RefAny, _info: CallbackInfo) -> Update {
     if let Some(mut s) = data.downcast_mut::<DocState>() {
-        info.export_to_pdf(s.export_path.clone());
+        let doc = Dom::create_body().with_child(doc_page());
+        let bytes = Pdf::new().from_dom(doc, 794.0, 1123.0);
+        let _ = std::fs::write(&s.export_path, bytes.as_slice());
         s.exported = true;
     }
     Update::RefreshDom

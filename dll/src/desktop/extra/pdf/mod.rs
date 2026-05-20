@@ -14,8 +14,8 @@
 //! `Op::DrawRectangle`. Text / Image / Border (research/06 §2.3.2's table;
 //! `TextLayout` is half-wired) land in follow-ups.
 
+use azul_core::dom::Dom;
 use azul_core::json::Json;
-use azul_core::styled_dom::StyledDom;
 use azul_css::U8Vec;
 use azul_layout::solver3::display_list::DisplayListItem;
 
@@ -71,18 +71,14 @@ pub fn pdf_read_json(bytes: &[u8]) -> Json {
 /// Headless: no window, no file I/O. Multi-page (Azul's paged layout fragments
 /// the DOM into one page per sheet). The caller saves the returned bytes.
 /// Empty without the `pdf` feature or on layout failure.
-pub fn dom_to_pdf(styled_dom: &StyledDom, page_width_px: f32, page_height_px: f32) -> U8Vec {
+pub fn dom_to_pdf(dom: Dom, page_width_px: f32, page_height_px: f32) -> U8Vec {
     #[cfg(feature = "pdf")]
     {
-        U8Vec::from_vec(engine::dom_to_bytes(
-            styled_dom,
-            page_width_px,
-            page_height_px,
-        ))
+        U8Vec::from_vec(engine::dom_to_bytes(dom, page_width_px, page_height_px))
     }
     #[cfg(not(feature = "pdf"))]
     {
-        let _ = (styled_dom, page_width_px, page_height_px);
+        let _ = (dom, page_width_px, page_height_px);
         U8Vec::from_vec(Vec::new())
     }
 }
@@ -126,14 +122,14 @@ impl Pdf {
     /// Render `dom` to PDF bytes at the given page size (logical px) - the
     /// "HTML/DOM -> PDF" path. Headless, multi-page, no file I/O; save the
     /// returned bytes yourself. Empty without the `pdf` feature or on failure.
-    pub fn from_dom(&self, dom: StyledDom, page_width_px: f32, page_height_px: f32) -> U8Vec {
-        dom_to_pdf(&dom, page_width_px, page_height_px)
+    pub fn from_dom(&self, dom: Dom, page_width_px: f32, page_height_px: f32) -> U8Vec {
+        dom_to_pdf(dom, page_width_px, page_height_px)
     }
 }
 
 #[cfg(feature = "pdf")]
 mod engine {
-    use super::{DisplayListItem, Json, StyledDom, U8Vec};
+    use super::{DisplayListItem, Dom, Json, U8Vec};
     use printpdf::{
         Color, Mm, Op, PaintMode, PdfDocument, PdfPage, PdfParseOptions, PdfSaveOptions,
         PdfWarnMsg, Pt, Rect, Rgb, WindingOrder,
@@ -224,7 +220,7 @@ mod engine {
     /// ops, and saves the multi-page document to bytes. No window, no file I/O.
     /// Empty on font-manager / layout failure. Headless layout context mirrors
     /// `layout/tests/*` (build_font_cache + FontManager + paged layout).
-    pub fn dom_to_bytes(styled_dom: &StyledDom, page_w_px: f32, page_h_px: f32) -> Vec<u8> {
+    pub fn dom_to_bytes(dom: Dom, page_w_px: f32, page_h_px: f32) -> Vec<u8> {
         use azul_core::dom::DomId;
         use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
         use azul_core::resources::{IdNamespace, ImageCache, RendererResources};
@@ -236,6 +232,10 @@ mod engine {
         use azul_layout::text3::default::PathLoader;
         use std::collections::BTreeMap;
 
+        // Dom -> StyledDom (CSS cascade), the same conversion the window does
+        // each frame. Done here so callers pass a Dom (what they build) rather
+        // than a StyledDom (which has no public constructor).
+        let styled_dom = azul_core::styled_dom::StyledDom::create_from_dom(dom);
         let content_size = LogicalSize::new(page_w_px, page_h_px);
         let fc_cache = build_font_cache();
         let mut font_manager = match FontManager::new(fc_cache) {
@@ -259,7 +259,7 @@ mod engine {
             &mut layout_cache,
             &mut text_cache,
             fragmentation_context,
-            styled_dom,
+            &styled_dom,
             viewport,
             &mut font_manager,
             &BTreeMap::new(),
