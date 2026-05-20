@@ -26,4 +26,8 @@ pub mod sqlite;
 /// feature off, the entry points return an error rather than dragging
 /// in the `td` / `mvt-reader` / `proj4rs` dep tree.
 pub mod map;
+/// PDF export (P5 AzulDoc). The export API is always present (so it codegen-
+/// exposes with no feature-gating); the `printpdf` engine behind it is opt-in
+/// via the `pdf` feature. Without it, `export_to_pdf` returns `false`.
+pub mod pdf;
 pub mod permission;

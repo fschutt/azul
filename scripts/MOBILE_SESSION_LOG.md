@@ -1407,3 +1407,14 @@ Added the read/list view — AzulVault now adds AND views entries. Pure demo upd
 Verify: `cargo check -p azul-vault` CLEAN; `mobile-check-all.sh` GREEN on all 5 (azul-dll unchanged — instant). Disk 96%.
 
 **P4 fully complete + demonstrated**: AzulVault does biometric unlock → SQLite persistence → add + list, on the public API only. Next: **P5 AzulDoc** — PDF export via printpdf (research/06: walk the display list → printpdf Ops; `DisplayListItem::TextLayout` is already half-wired). First P5 tick = risk-gate: add the `pdf` feature + printpdf dep (mind the printpdf↔azul-layout dep cycle, §5.3) + always-present stub `export_pdf` (cfg-split, like Db), verify host compile. Then P6 expansions.
+
+### Tick — P5.1a — PDF export risk-gate: printpdf integrated (no cycle) + stub export (2026-05-20)
+
+First P5 (AzulDoc) step. Resolved the §5.3 dep-cycle risk + landed the always-present export API (stub-POD pattern, like Db).
+
+- **Cycle avoided**: printpdf 0.9.1's `default = [html]` pulls `azul-layout` (its own layout integration) → would cycle with our local crate. Added `printpdf = { version = "0.9.1", default-features = false, optional = true }` — core `PdfDocument`/`Op` API only (we walk Azul's own display list). New `pdf = ["dep:printpdf"]` feature, added to `build-dll`, kept OUT of `link-static` (the gate), like db-sqlite.
+- `dll/extra/pdf/mod.rs` (new, always present): `export_to_pdf(path)->bool` — cfg-split: real `#[cfg(pdf)] mod engine` (PdfDocument::new + with_pages([blank A4 PdfPage]) + save(PdfSaveOptions::default) → fs::write), else `false`. v1 writes a blank page (proves the engine end-to-end); the DisplayListItem→Op dispatch is the follow-up. Wired `pub mod pdf;` into extra/mod.rs.
+
+Verify: host check `+pdf` CLEAN (printpdf resolves+compiles, no cycle, my API usage valid); `mobile-check-all.sh` GREEN on all 5 (no pdf → stub, printpdf not compiled). Disk 97% → purging.
+
+Next P5.1b: the real export — walk the display list → printpdf `Op`s (research/06 §2.3.2; `DisplayListItem::TextLayout` half-wired) + expose `App::export_pdf`/`CallbackInfo::export_to_pdf` via api.json (always-present, no gating). Then P5.2 render (printpdf::page_to_svg → azul SVG) + P5.4 AzulDoc demo.
