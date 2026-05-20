@@ -1830,6 +1830,28 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                             || name.contains("capacity_overflow")
                             || name.contains("begin_panic")
                             || name.contains("rust_begin_unwind")
+                            // M12.7: more `-> !` panic helpers that were
+                            // slipping through to `Leaf`. A Leaf stub RETURNS,
+                            // so a lifted caller that branches to one of these
+                            // (e.g. layout's RefCell borrow / thread-local /
+                            // slice-index checks) falls through into the dead
+                            // padding the compiler emits after a noreturn `bl`,
+                            // which remill can't decode → `__remill_missing_block`
+                            // → `unreachable` trap (the LayoutWindow::new trap).
+                            // These all diverge, so NeverLift is correct.
+                            || name.contains("panic_access_error")     // std::thread::local
+                            || name.contains("already_borrowed")       // core::cell RefCell
+                            || name.contains("unwrap_failed")          // Option/Result
+                            || name.contains("expect_failed")
+                            || name.contains("slice_index_fail")
+                            || name.contains("slice_error_fail")
+                            || name.contains("slice_start_index_len_fail")
+                            || name.contains("slice_end_index_len_fail")
+                            || name.contains("slice_index_order_fail")
+                            || name.contains("slice_index_overflow_fail")
+                            || name.contains("str_index_overflow_fail")
+                            || name.contains("panic_cannot_unwind")
+                            || name.contains("panic_nounwind")
                         {
                             return FnClass::NeverLift;
                         }
