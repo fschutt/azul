@@ -1440,3 +1440,14 @@ Quick exposure — `export_to_pdf(path)` takes `String` (exists) + returns void,
 Verify: `mobile-check-all.sh` GREEN on all 5. Only api.json tracked. Disk 97% → purging.
 
 PDF export is now callable from the public API (35 langs): a callback `info.export_to_pdf("out.pdf")` → channel → dll drain → printpdf (blank page until the dispatch lands). Next P5.1d: the real display-list → printpdf `Op` dispatch — thread the window's display list into `extra::pdf::export_to_pdf` at drain time + map `DisplayListItem::Rect` (fills) first, then `Text`/`TextLayout` (research/06 §2.3.2). Then P5.2 render + P5.4 AzulDoc demo.
+
+### Tick — P5.1d — PDF export: first real dispatch (Rect fills → printpdf Ops) (2026-05-20)
+
+The export now produces real content from the DOM (not a blank page).
+
+- `dll/extra/pdf/mod.rs`: `export_to_pdf(path, items: &[DisplayListItem])` — engine walks the display list, maps `DisplayListItem::Rect { bounds, color, .. }` → `Op::SetFillColor(Color::Rgb)` + `Op::DrawRectangle(Rect{Pt…, mode: Fill})`. Coordinate transform: px→pt (`72/96`), Azul top-left origin → PDF bottom-left (Y-flip against A4 page height). printpdf core API only (no azul-layout cycle).
+- `dll/.../layout.rs` "7g": passes the root DOM's `layout_results…display_list.items` (display list is built + cached in `LayoutResult.display_list`, accessible here post-layout) to `export_to_pdf`.
+
+Verify: macOS host `+pdf` CLEAN (printpdf Op construction + the dispatch compile); `mobile-check-all.sh` GREEN on all 5 (no pdf → stub). Disk 97% → purging.
+
+PDF export is now end-to-end real for solid fills (backgrounds/boxes). Next P5.1e: Text dispatch — map `DisplayListItem::Text`/`TextLayout` (glyphs) → printpdf text Ops (font embedding via the ParsedFont; research/06 §2.1-2.3). Then P5.2 (PDF render: page_to_svg → Azul SVG) + P5.4 AzulDoc demo.

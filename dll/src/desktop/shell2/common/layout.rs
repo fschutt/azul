@@ -806,14 +806,24 @@ pub fn regenerate_layout(
     // printpdf engine (dll::desktop::extra::pdf) can walk it — currently a
     // blank-page stub; the DisplayListItem → Op dispatch is a follow-up.
     {
-        for path in azul_layout::managers::pdf_export::drain_pdf_export_requests() {
-            let ok = crate::desktop::extra::pdf::export_to_pdf(path.as_str());
-            log_debug!(
-                LogCategory::Layout,
-                "[regenerate_layout] PDF export to {} -> {}",
-                path.as_str(),
-                ok
-            );
+        let pdf_paths = azul_layout::managers::pdf_export::drain_pdf_export_requests();
+        if !pdf_paths.is_empty() {
+            // Root DOM's display list (multi-iframe export is a follow-up).
+            let items = layout_window
+                .layout_results
+                .values()
+                .next()
+                .map(|r| r.display_list.items.as_slice())
+                .unwrap_or(&[]);
+            for path in pdf_paths {
+                let ok = crate::desktop::extra::pdf::export_to_pdf(path.as_str(), items);
+                log_debug!(
+                    LogCategory::Layout,
+                    "[regenerate_layout] PDF export to {} -> {}",
+                    path.as_str(),
+                    ok
+                );
+            }
         }
     }
 
