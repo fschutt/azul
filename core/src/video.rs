@@ -12,7 +12,7 @@
 //! it's `Clone` but not `Copy`.
 
 use crate::resources::RawImageFormat;
-use azul_css::AzString;
+use azul_css::{AzString, U8Vec};
 
 /// Requested video-playback configuration.
 #[repr(C)]
@@ -49,3 +49,33 @@ impl VideoConfig {
         }
     }
 }
+
+/// One captured or decoded frame — tightly-packed RGBA8 pixels
+/// (`width * height * 4`). The unit a capture/decode worker produces, the
+/// `set_on_frame` hook hands to user code (effects / save / send), and (P8)
+/// azul-meet sends over UDP. Defined here (like [`crate::audio::AudioFrame`])
+/// so it crosses the FFI without `azul-layout` as a dependency.
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct VideoFrame {
+    /// Frame width in px.
+    pub width: u32,
+    /// Frame height in px.
+    pub height: u32,
+    /// Tightly-packed RGBA8 pixel bytes (`width * height * 4`).
+    pub bytes: U8Vec,
+}
+
+impl VideoFrame {
+    /// A frame wrapping `bytes` (tightly-packed RGBA8, `width * height * 4`).
+    pub fn new(width: u32, height: u32, bytes: U8Vec) -> Self {
+        Self {
+            width,
+            height,
+            bytes,
+        }
+    }
+}
+
+// FFI Option wrapper for a frame-pull hook / accessor. `copy = false` (U8Vec).
+impl_option!(VideoFrame, OptionVideoFrame, copy = false, [Clone, Debug]);

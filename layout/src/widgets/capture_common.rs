@@ -12,29 +12,16 @@
 //! NOTE: GL code — compile-verified here; the actual texture rendering must be
 //! verified on a machine with a window + GPU.
 
-use alloc::vec::Vec;
-
 use azul_core::animation::UpdateImageType;
 use azul_core::gl::gl::{RGBA, TEXTURE_2D, UNSIGNED_BYTE};
 use azul_core::gl::{GlContextPtr, OptionU8VecRef, Texture, U8VecRef};
 use azul_core::geom::PhysicalSizeU32;
 use azul_core::refany::RefAny;
 use azul_core::resources::ImageRef;
+use azul_core::video::VideoFrame;
 use azul_css::props::basic::ColorU;
 
 use crate::callbacks::CallbackInfo;
-
-/// One captured/decoded frame, sent from a worker thread to a widget's
-/// writeback. Tightly-packed RGBA8 pixels.
-#[derive(Clone)]
-pub struct VideoFrame {
-    /// Frame width in px.
-    pub width: u32,
-    /// Frame height in px.
-    pub height: u32,
-    /// Tightly-packed RGBA8 pixel bytes (`width * height * 4`).
-    pub bytes: Vec<u8>,
-}
 
 /// Present `frame` for a video-ish widget and return the (stable) GL texture
 /// id to store back in the widget's state.
@@ -105,6 +92,6 @@ pub fn upload_rgba(gl: &GlContextPtr, texture_id: u32, frame: &VideoFrame) {
         0,
         RGBA,
         UNSIGNED_BYTE,
-        OptionU8VecRef::Some(U8VecRef::from(frame.bytes.as_slice())),
+        OptionU8VecRef::Some(U8VecRef::from(frame.bytes.as_ref())),
     );
 }

@@ -1932,3 +1932,15 @@ User directive: analyze the architecture + retroactively review all P2-P7 user-f
 - Plan tiered: **T1** azul-meet prereqs (VideoFrame→core FFI; `set_on_frame` hook on camera/screencap/video + Microphone; frame-IN path; audio widgets) — this IS "continue audio/video". **T2** ergonomic retrofit (input→events; MapWidget hooks; completion events for biometric/keyring/pdf-export). **T3** completeness (permission api.json + get_permission_status; Db accessors + async; dead-doc fixes; wacom pad backend).
 
 NEXT: confirm scope (T1-only forward vs +T2 retrofit vs full), then execute T1 starting with VideoFrame→core + the frame hook.
+
+### Tick — FIX-APIs.1 — VideoFrame → azul-core (FFI-ready frame-hook payload) (2026-05-20)
+
+Moved `VideoFrame {width,height,bytes}` from layout's `capture_common` → `azul_core::video`, now `#[repr(C)]` + `U8Vec` (was `Vec<u8>`) + `impl_option`, mirroring `AudioFrame`. capture_common keeps present_frame/upload_rgba (`frame.bytes.as_ref()`); camera/screencap/video import from core + construct via `bytes.into()`. Host build (core+layout) clean; mobile gate GREEN on all 5. Prereq for the typed `OnVideoFrame` hook payload.
+
+**User directives (locked in — see MOBILE_API_REVIEW.md "Update"):**
+- **FIX THE APIs FIRST** — audio/video/UDP wait until the gaps are closed.
+- **PDF: uncouple from the window** — printpdf-WASM-style standalone `dom → PDF pages → U8Vec`, **NO file I/O** (drop `CallbackInfo::export_to_pdf` + `PENDING_EXPORTS` + per-frame drain). User saves the bytes.
+- **Hooks everywhere** so apps save results into their own data model (the recurring finding).
+- **Headline = configurability** (every widget gets its control surface, not just the hook).
+
+NEXT: `OnVideoFrame`/`OnAudioFrame` backreference callback types (`impl_widget_callback!` + `impl_managed_callback!`, mirroring `NumberInput::on_value_change`) → wire `set_on_frame` + config controls into camera/screencap/video.

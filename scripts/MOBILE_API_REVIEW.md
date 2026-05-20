@@ -34,6 +34,33 @@ azul-meet enablers:
    hook for widget-level producers.
 2. **Backreference hooks wherever a widget produces data.**
 
+## Update — user clarifications (2026-05-20)
+
+Sharpens the verdict and re-prioritizes. **Fix the APIs before continuing to
+audio/video/UDP.**
+
+1. **Input via `info.get_X()` is correct, not a smell.** The right shape is a
+   *custom `EventFilter`* (the push, like Pen) that fires on device change, *plus*
+   the accessor to read detail inside it. Geolocation's separate NodeType is a
+   deliberate WebAuthn-permission-model exception, not a template — sensors/
+   gamepad/pad need the event, not a probe node.
+2. **PDF / SQLite / FaceID are STANDALONE** — no managers, no streams, no global
+   channels (async ones use `Thread`+writeback). Specifically for **PDF**:
+   uncouple from the window entirely — drop `CallbackInfo::export_to_pdf`, the
+   `PENDING_EXPORTS` global, the per-frame drain, **and all file I/O**. Make it
+   the printpdf-WASM shape: a standalone **`dom → PDF pages → U8Vec`** call for
+   HTML-to-PDF use cases; the user saves the bytes themselves.
+   (`Pdf::write_json`/`read_json` are already standalone — add the
+   `StyledDom → PDF bytes` entry point alongside them.)
+3. **Headline concern = configurability.** Apps lack knobs: camera
+   switch/resolution/fps, video play/pause/seek, sensor sampling rate, gamepad
+   deadzone/rumble. Every widget I touch gets its config/control surface, not
+   just the hook.
+
+Revised execution order: **T1** `set_on_frame` hooks + per-widget config →
+input `EventFilter`s (sensors/gamepad/pad) → **PDF uncouple** (dom→bytes,
+no I/O) → standalone-ify biometric/keyring → **then** audio/video/UDP.
+
 ## Reference patterns already in the tree (copy these)
 
 | Pattern | Where | What it nails |

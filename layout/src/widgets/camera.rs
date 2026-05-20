@@ -24,7 +24,9 @@ use azul_core::refany::{OptionRefAny, RefAny};
 use azul_core::resources::{ImageRef, RawImageFormat};
 use azul_core::task::{ThreadId, ThreadReceiver};
 
-use super::capture_common::{present_frame, VideoFrame};
+use azul_core::video::VideoFrame;
+
+use super::capture_common::present_frame;
 use crate::callbacks::{Callback, CallbackInfo, CallbackType};
 use crate::thread::{
     Thread, ThreadCallback, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg, WriteBackCallback,
@@ -148,7 +150,7 @@ extern "C" fn test_pattern_worker(mut init: RefAny, mut sender: ThreadSender, _r
         let frame = VideoFrame {
             width: w,
             height: h,
-            bytes,
+            bytes: bytes.into(),
         };
         let sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
             WriteBackCallback::new(camera_writeback),

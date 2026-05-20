@@ -16,9 +16,9 @@ use azul_core::dom::{ComponentEventFilter, DatasetMergeCallbackType, Dom, EventF
 use azul_core::refany::{OptionRefAny, RefAny};
 use azul_core::resources::{ImageRef, RawImageFormat};
 use azul_core::task::{ThreadId, ThreadReceiver};
-use azul_core::video::VideoConfig;
+use azul_core::video::{VideoConfig, VideoFrame};
 
-use super::capture_common::{present_frame, VideoFrame};
+use super::capture_common::present_frame;
 use crate::callbacks::{Callback, CallbackInfo, CallbackType};
 use crate::thread::{
     Thread, ThreadCallback, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg, WriteBackCallback,
@@ -131,7 +131,7 @@ extern "C" fn video_test_worker(_init: RefAny, mut sender: ThreadSender, _recv: 
         let frame = VideoFrame {
             width: w as u32,
             height: h as u32,
-            bytes,
+            bytes: bytes.into(),
         };
         let sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
             WriteBackCallback::new(video_writeback),
