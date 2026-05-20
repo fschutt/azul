@@ -184,6 +184,14 @@ function parseWasmFnNames(buf) {
     const allocCount = rd(0x40038) + rd(0x4003C) * 4294967296;
     console.log('  last_alloc_size = ' + lastSize + ' (' + (lastSize / (1024 * 1024)).toFixed(2) + ' MiB)');
     console.log('  alloc_count     = ' + allocCount + '  -> huge last_size = single bad alloc; huge count = runaway loop');
+    if (typeof mini.AzStartup_getDbgNc === 'function') {
+        const dbg = k => (mini.AzStartup_getDbgNc(k * 2) >>> 0) + (mini.AzStartup_getDbgNc(k * 2 + 1) >>> 0) * 4294967296;
+        console.log('--- build_compact_cache captured args (AZ_DBG_NC static) ---');
+        console.log('  self ptr        = 0x' + dbg(0).toString(16) + '   (valid cache addr ~heap, or garbage?)');
+        console.log('  self.node_count = ' + dbg(1) + '   (want 1; if huge → cache built with bad count)');
+        console.log('  node_data.ptr   = 0x' + dbg(2).toString(16));
+        console.log('  node_data.len   = ' + dbg(3) + '   (want 1)');
+    }
 
     const test_ptr = rd(0x40018);
     let mtsNonzero = 0, mtsCorrect = 0;
