@@ -26,12 +26,17 @@
 
 use alloc::vec::Vec;
 
+use azul_core::animation::UpdateImageType;
 use azul_core::callbacks::Update;
 use azul_core::camera::CameraConfig;
 use azul_core::dom::{ComponentEventFilter, DatasetMergeCallbackType, Dom, EventFilter};
+use azul_core::gl::gl::{RGBA, TEXTURE_2D, UNSIGNED_BYTE};
+use azul_core::gl::{GlContextPtr, OptionU8VecRef, Texture, U8VecRef};
+use azul_core::geom::PhysicalSizeU32;
 use azul_core::refany::{OptionRefAny, RefAny};
 use azul_core::resources::{ImageRef, RawImageFormat};
 use azul_core::task::{ThreadId, ThreadReceiver};
+use azul_css::props::basic::ColorU;
 
 use crate::callbacks::{Callback, CallbackInfo, CallbackType};
 use crate::thread::{
@@ -64,9 +69,14 @@ pub struct CameraWidgetState {
     /// `true` once the capture thread has been started, so a relayout re-mount
     /// doesn't spawn a second one. (Later: the GL-texture handle lives here.)
     pub started: bool,
-    /// Most recent frame the worker delivered (widget.3 uploads it to the GL
-    /// texture; for now it's just stored to prove the thread→writeback loop).
+    /// Most recent frame (kept for the cpurender fallback / debugging; the GL
+    /// path uploads straight into the texture instead).
     pub latest_frame: Option<CameraFrame>,
+    /// The stable external GL texture id once the first frame installed it.
+    /// `None` until then; re-uploaded in place every frame afterwards so the
+    /// node's `ImageRef` (and its wr key) stays stable — recomposite, no DL
+    /// rebuild.
+    pub gl_texture_id: Option<u32>,
 }
 
 /// A camera-preview widget. `create(config).dom()` yields an `<img>` the
@@ -90,6 +100,7 @@ impl CameraWidget {
             config: self.config,
             started: false,
             latest_frame: None,
+            gl_texture_id: None,
         };
         let dataset = RefAny::new(state);
 
@@ -189,20 +200,99 @@ extern "C" fn test_pattern_worker(mut init: RefAny, mut sender: ThreadSender, _r
     }
 }
 
-/// Writeback (main thread): store the latest frame in the widget's dataset.
-/// widget.3 swaps this for a GL-texture upload + `ShouldReRenderCurrentWindow`
-/// recomposite (the no-relayout path); for now it proves the loop.
+/// Writeback (main thread, has `CallbackInfo` + GL context): upload the new
+/// frame into the widget's stable external GL texture and recomposite.
+///
+/// - First frame: allocate the GL texture, upload, and install it on the node
+///   once via `change_node_image` (the only display-list touch).
+/// - Every frame after: re-upload into the *same* texture id and call
+///   `update_all_image_callbacks` → `ShouldReRenderCurrentWindow` (recomposite
+///   only — WebRender re-reads the external texture; no relayout, no DL rebuild).
+/// - No GL context (cpurender): store the frame for the (follow-up) CPU path.
+///
+/// NOTE: GL code — compile-verified here; the actual texture rendering must be
+/// verified on a machine with a window + GPU.
 extern "C" fn camera_writeback(
     mut writeback_data: RefAny,
     mut frame_data: RefAny,
-    _info: CallbackInfo,
+    mut info: CallbackInfo,
 ) -> Update {
-    if let Some(frame) = frame_data.downcast_ref::<CameraFrame>() {
-        if let Some(mut s) = writeback_data.downcast_mut::<CameraWidgetState>() {
-            s.latest_frame = Some(frame.clone());
+    let frame = match frame_data.downcast_ref::<CameraFrame>() {
+        Some(f) => CameraFrame {
+            width: f.width,
+            height: f.height,
+            bytes: f.bytes.clone(),
+        },
+        None => return Update::DoNothing,
+    };
+
+    let gl = match info.get_gl_context().into_option() {
+        Some(g) => g,
+        None => {
+            // cpurender / no GL yet — keep the frame; the YUV→RGB CPU upload
+            // path is a follow-up.
+            if let Some(mut s) = writeback_data.downcast_mut::<CameraWidgetState>() {
+                s.latest_frame = Some(frame);
+            }
+            return Update::DoNothing;
+        }
+    };
+
+    let existing = writeback_data
+        .downcast_ref::<CameraWidgetState>()
+        .and_then(|s| s.gl_texture_id);
+
+    match existing {
+        Some(id) => {
+            upload_rgba(&gl, id, &frame);
+            // Recomposite only — wr re-reads the external texture, no relayout.
+            info.update_all_image_callbacks();
+        }
+        None => {
+            let tex = Texture::allocate_rgba8(
+                gl.clone(),
+                PhysicalSizeU32 {
+                    width: frame.width,
+                    height: frame.height,
+                },
+                ColorU {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 0,
+                },
+            );
+            let id = tex.texture_id;
+            upload_rgba(&gl, id, &frame);
+            let image = ImageRef::new_gltexture(tex);
+            // Install the external-texture ImageRef on this widget's node once.
+            if let Some(node) = info.get_node_id_of_root_dataset(writeback_data.clone()) {
+                if let Some(nid) = node.node.into_crate_internal() {
+                    info.change_node_image(node.dom, nid, image, UpdateImageType::Content);
+                }
+            }
+            if let Some(mut s) = writeback_data.downcast_mut::<CameraWidgetState>() {
+                s.gl_texture_id = Some(id);
+            }
         }
     }
     Update::DoNothing
+}
+
+/// Upload tightly-packed RGBA8 pixels into the GL texture `texture_id`.
+fn upload_rgba(gl: &GlContextPtr, texture_id: u32, frame: &CameraFrame) {
+    gl.bind_texture(TEXTURE_2D, texture_id);
+    gl.tex_image_2d(
+        TEXTURE_2D,
+        0,
+        RGBA as i32,
+        frame.width as i32,
+        frame.height as i32,
+        0,
+        RGBA,
+        UNSIGNED_BYTE,
+        OptionU8VecRef::Some(U8VecRef::from(frame.bytes.as_slice())),
+    );
 }
 
 /// Carry the live state forward across relayout: the freshly-built state from
@@ -215,6 +305,7 @@ extern "C" fn merge_camera_state(mut new_data: RefAny, mut old_data: RefAny) -> 
         if let (Some(mut new_g), Some(old_g)) = (new_guard, old_guard) {
             new_g.started = old_g.started;
             new_g.latest_frame = old_g.latest_frame.clone();
+            new_g.gl_texture_id = old_g.gl_texture_id;
         }
     }
     new_data

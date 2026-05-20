@@ -1751,3 +1751,18 @@ Wired the background-thread loop (test-pattern worker, no platform deps yet) int
 Verify: `mobile-check-all.sh` GREEN on all 5 (RA shows a stale E0596 — cargo is green). Disk 12 GiB.
 
 Next P6.camera.widget.3: GL-texture path — writeback creates (first frame, via `info.get_gl_context`) + uploads to a stable GL-texture `ImageRef`, installs it once via change_node_image, then per-frame uploads + recomposite (no DL rebuild). Then widget.4 real AVFoundation worker (dll-side, passed like map's dom_with_fetch), control POD, codegen-expose, camera-app demo.
+
+### Tick — P6.camera.widget.3 — GL-texture display path (writeback) (2026-05-20)
+
+The no-relayout display, per the user's chosen GL-texture recomposite path. `camera_writeback` (main thread, has CallbackInfo + GL context):
+
+- **First frame**: `Texture::allocate_rgba8(gl, size, transparent)` → `upload_rgba` (bind + `tex_image_2d(TEXTURE_2D,0,RGBA,…,UNSIGNED_BYTE, U8VecRef)`) → `ImageRef::new_gltexture(tex)` → installed on the widget's node **once** via `change_node_image` (the only display-list touch; node found via `info.get_node_id_of_root_dataset(dataset)`, `NodeHierarchyItemId::into_crate_internal`). Stores `gl_texture_id`.
+- **Every frame after**: `upload_rgba` into the *same* texture id + `info.update_all_image_callbacks()` → `ShouldReRenderCurrentWindow` (recomposite only — wr re-reads the external texture; **no relayout, no DL rebuild**, since wr ImageKey == ImageRef data ptr stays stable).
+- **No GL context (cpurender)**: stores the frame; YUV→RGB CPU upload is a follow-up.
+- `CameraWidgetState` + `gl_texture_id`; merge carries it.
+
+Verify: `mobile-check-all.sh` GREEN on all 5 — **the entire GL path resolved** (gl enums via `azul_core::gl::gl::*`, Texture, tex_image_2d, U8VecRef, change_node_image, into_crate_internal); only `ColorU` needed `azul_css::props::basic`. Disk 12 GiB.
+
+⚠ **GL code is compile-verified only here (no window/GPU)** — the actual texture rendering + recomposite-re-reads-external-texture behavior must be verified on-machine.
+
+Next P6.camera.widget.4: the real AVFoundation/Camera2 capture worker (dll-side, passed like map's `dom_with_fetch`; replaces test_pattern_worker) + control POD methods (switch front/back, zoom) + codegen-expose `CameraWidget`/`CameraConfig` + the camera-app demo. Then screenshare → video.
