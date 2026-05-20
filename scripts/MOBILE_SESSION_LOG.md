@@ -830,3 +830,14 @@ Deliberately did NOT force the symmetric iOS permission request path this tick: 
 `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (7/7/6/6/7 s). Private widget internals — no api.json/codegen change. Disk 93%, incremental cleared.
 
 NOTE for the user: P1.2 has gone as far as is cleanly + verifiably autonomous (iOS+Android probe, async channel+consumer, Android request producer). The remaining iOS request producer hits the objc0.2/block2 fragility above — wants a human call on approach. Also still open: P3.3 tap-to-pin worker-exposure (`dom_with_default_tiles()` vs `tile_fetch_thread_callback()`).
+
+### Tick — P1.2e wire the permission-diff pass to GeolocationProbe nodes (2026-05-20)
+
+Connected the whole permission chain to real DOM nodes: the layout pass's permission-diff closure (`shell2/common/layout.rs` step 7) was a no-op TODO waiting for a bearing NodeType — but `NodeType::GeolocationProbe` has existed since P3.1, so it can drive subscription now.
+
+- Step 7 now snapshots `(Capability::Geolocation, DomNodeId)` for every `GeolocationProbe` node across all DOMs (mirroring the geolocation block's walk, with the node index → `NodeId::from_usize(i).into()`), then feeds them to `permission_manager.diff_layout`. A probe appearing → `Subscribe{Geolocation}` → `apply_diff_events` → `handle_event` → (Android) `requestPermissions`.
+- This closes the loop end-to-end *in theory*: AzulMaps composes `Dom::create_geolocation_probe` → permission-diff subscribes → Android prompt fires → result rides the P1.2c channel back into the manager. The GeolocationManager (step 7b) independently drives the location *session*; the two are complementary (permission vs subscription), both keyed off the same probe node.
+
+Manager-side Subscribe/Release logic is already covered by the 8 azul-layout permission tests; this is the dll-side enumeration feeding it (mirrors the proven geolocation walk). `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (22/6/6/5/6 s). Internal layout-pass wiring — no api.json/codegen change. Disk 94%, incremental cleared.
+
+P1.2 is now wired end-to-end on Android (probe + request + diff-pass + channel). Still open for the user: iOS request producer (objc0.2/block2 approach call); P3.3 tap-to-pin worker exposure.

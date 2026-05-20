@@ -617,13 +617,36 @@ pub fn regenerate_layout(
     // events accumulate in the manager's queue; the platform shell drains
     // and dispatches them via `crate::desktop::extra::permission::apply_diff_events`.
     //
-    // The closure body is currently a no-op — the bearing NodeTypes don't
-    // exist yet (queued for the P3 / P6 sprints). The seam is in place so
-    // future ticks only have to fill in the closure to walk
-    // `layout_window.layout_results[*].styled_dom.node_data`.
-    layout_window.permission_manager.diff_layout(|_emit| {
-        // TODO: enumerate (Capability, DomNodeId) pairs once
-        // NodeType::GeolocationProbe / CameraPreview / SensorProbe land.
+    // Today the only permission-bearing NodeType is GeolocationProbe (P3.1);
+    // CameraPreview / SensorProbe land in P6 and just add arms here. A probe
+    // in the tree subscribes Capability::Geolocation, so the platform backend
+    // turns it into the OS location prompt. Snapshot the (capability, node)
+    // pairs first so we don't hold a borrow on `layout_results` while the
+    // diff mutates `permission_manager`.
+    let permission_bearing: Vec<(
+        azul_layout::managers::permission::Capability,
+        azul_core::dom::DomNodeId,
+    )> = {
+        let mut pairs = Vec::new();
+        for (dom_id, layout_result) in layout_window.layout_results.iter() {
+            for (i, nd) in layout_result.styled_dom.node_data.as_ref().iter().enumerate() {
+                if let azul_core::dom::NodeType::GeolocationProbe(_) = nd.get_node_type() {
+                    pairs.push((
+                        azul_layout::managers::permission::Capability::Geolocation,
+                        azul_core::dom::DomNodeId {
+                            dom: *dom_id,
+                            node: azul_core::dom::NodeId::from_usize(i).into(),
+                        },
+                    ));
+                }
+            }
+        }
+        pairs
+    };
+    layout_window.permission_manager.diff_layout(|emit| {
+        for (capability, node_id) in &permission_bearing {
+            emit(*capability, *node_id);
+        }
     });
     let permission_events = layout_window.permission_manager.take_pending_events();
     if !permission_events.is_empty() {
