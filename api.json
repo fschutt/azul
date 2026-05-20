@@ -88610,6 +88610,31 @@
                                     "type": "Json"
                                 },
                                 "fn_body": "object.read_json(bytes)"
+                            },
+                            "from_dom": {
+                                "doc": [
+                                    "Render `dom` to PDF bytes at the given page size (logical px) - the",
+                                    "\"HTML/DOM -> PDF\" path. Headless, multi-page, no file I/O; save the",
+                                    "returned bytes yourself. Empty without the `pdf` feature or on failure."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "dom": "StyledDom"
+                                    },
+                                    {
+                                        "page_width_px": "f32"
+                                    },
+                                    {
+                                        "page_height_px": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "U8Vec"
+                                },
+                                "fn_body": "object.from_dom(dom, page_width_px, page_height_px)"
                             }
                         },
                         "repr": "C"

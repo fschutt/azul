@@ -1988,3 +1988,13 @@ Investigated the PDF surface to plan the user-specified uncouple (standalone `do
 - Note: verify via a host build with `--features pdf` (the mobile gate may not compile the `pdf` module).
 
 NEXT: implement step 1 (headless layout context) — the crux. Then 2-5.
+
+### Tick — FIX-APIs.5 — headless `Pdf::from_dom` (dom -> PDF bytes, no window, no file I/O) (2026-05-20)
+
+Implemented the user-specified PDF uncouple core: a **standalone headless `dom -> PDF pages -> U8Vec`** path (printpdf-WASM-style), no window, no file I/O.
+- `dll/extra/pdf/mod.rs`: new `engine::dom_to_bytes(styled_dom, page_w_px, page_h_px)` — builds the headless layout context (mirrors `layout/tests/*`: `build_font_cache` + `FontManager::new` + `Solver3LayoutCache::default()` [already derives Default!] + `TextLayoutCache` + `FragmentationContext::new_paged`), runs `layout_document_paged_with_config` -> one `DisplayList` per page, walks each into printpdf ops (extracted `rect_ops`, shared with the legacy `export`), saves the multi-page doc to **bytes**. Public `dom_to_pdf()` + **`Pdf::from_dom(dom, w_px, h_px) -> U8Vec`** (codegen-exposed — a method add, no transmute change).
+- Verified: host `cargo build -p azul-dll --features pdf` clean (compiles the headless recipe); `codegen all` OK; mobile gate GREEN on all 5. Cleared a fresh em-dash I'd put in the doc (api.json non-ASCII back to 0).
+
+**The PDF API is now uncoupled from the window** (Pdf::from_dom needs no CallbackInfo/window) and returns bytes (no file I/O). Walk is still Rect-fills only (text/image/border = follow-ups, pre-existing).
+
+NEXT (PDF cleanup): remove the legacy window-coupled path — `CallbackInfo::export_to_pdf`, `PENDING_EXPORTS` + `managers/pdf_export.rs`, the per-frame drain (shell2/common/layout.rs ~805-826) — and update `examples/azul-doc` to `Pdf::from_dom` + write the bytes. Then MapWidget hooks, input events, audio. (Disk low at 3.6 GiB -> cargo clean to reset.)
