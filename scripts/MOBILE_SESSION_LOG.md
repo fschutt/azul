@@ -883,3 +883,14 @@ Closed the P2.3a pipeline end-to-end in the goal app: iOS `UITouch.rollAngle` �
 Verified `cargo check -p azul-paint` clean (only pre-existing generated-code warnings); `bash scripts/mobile-check-all.sh` GREEN on all 5 targets — example-only change, no dll touched, no api.json/codegen change. Disk 93%, incremental cleared.
 
 The clean autonomous backlog is now essentially exhausted; high-value remaining work needs a user decision (iOS/macOS request producers: objc2-vs-block-bridge; P3.3 tap-to-pin worker exposure) or a multi-tick greenlight (P2.3 HoverEventFilter variants: core enum + codegen + dispatch + UIPencilInteraction).
+
+### Tick — P3.2q extract + test the visible-tile-range math (2026-05-20)
+
+Completed map-math unit coverage (projection ✓ pan ✓ merge ✓ → tile-range ✓), the most fetch-critical untested piece: `visible_tile_range` decides which tiles get downloaded each frame, so a bug here = a broken/incomplete map. As foretold last tick — taken because no steer arrived.
+
+- Extracted the `x_min/x_max/y_min/y_max` grid math out of `map_widget_render` into a pure `visible_tile_range(centre_x, centre_y, w_px, h_px, zoom_scale, tile_count)`; the render callback just calls it (kept `tile_px` for positioning). No behaviour change.
+- +4 tests: centre coverage with the +1 margin (5×5 at 512px/zoom-scale 1), zoom-0 single-tile world clamps to (0,0,0,0), wider viewport requests more columns, edges never go negative or past `tile_count-1`.
+
+16/16 map tests pass; `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (7/7/7/6/7 s). Private widget internals — no api.json/codegen change. Disk 93%, incremental cleared.
+
+The clean autonomous backlog is now genuinely exhausted (map math fully tested; permission probe done on 3 platforms; Android request producer + diff-pass + iOS Pencil-Pro roll into AzulPaint all landed). Every remaining high-value item is decision-gated — see the three flagged in prior entries (iOS/macOS request producers; tap-to-pin worker exposure; P2.3 HoverEventFilter variants). Recommend pausing the loop until one is chosen.

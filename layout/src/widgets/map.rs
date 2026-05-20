@@ -706,6 +706,32 @@ pub extern "C" fn map_tile_writeback(
     Update::RefreshDom
 }
 
+/// Inclusive `(x_min, x_max, y_min, y_max)` tile range covering a
+/// `width_px × height_px` viewport centred at tile-space `(centre_x,
+/// centre_y)`, at fractional `zoom_scale` and integer `tile_count` (2^z).
+/// A one-tile margin (`+ 1.0`) is added each side so a tile scrolling into
+/// view is already requested; the result is clamped to the valid
+/// `0..=tile_count-1` grid. The pure core of `map_widget_render`'s grid
+/// loop — what decides which tiles get fetched.
+fn visible_tile_range(
+    centre_x: f32,
+    centre_y: f32,
+    width_px: f32,
+    height_px: f32,
+    zoom_scale: f32,
+    tile_count: u32,
+) -> (i32, i32, i32, i32) {
+    let tile_px = 256.0 * zoom_scale;
+    let half_w = (width_px / tile_px).abs() * 0.5 + 1.0;
+    let half_h = (height_px / tile_px).abs() * 0.5 + 1.0;
+    let max_idx = tile_count as i32 - 1;
+    let x_min = ((centre_x - half_w).floor() as i32).max(0);
+    let x_max = ((centre_x + half_w).ceil() as i32).min(max_idx);
+    let y_min = ((centre_y - half_h).floor() as i32).max(0);
+    let y_max = ((centre_y + half_h).ceil() as i32).min(max_idx);
+    (x_min, x_max, y_min, y_max)
+}
+
 // ────────── VirtualView callback — visible-tile rendering ─────────────
 
 extern "C" fn map_widget_render(
@@ -745,16 +771,11 @@ extern "C" fn map_widget_render(
     let centre_x = lon_to_tile_x(viewport.centre_lon_deg, tile_count as f64) as f32;
     let centre_y = lat_to_tile_y(viewport.centre_lat_deg, tile_count as f64) as f32;
 
-    // How many tiles fit on each side of centre, at fractional zoom.
-    // 256 is the Mercator tile pixel size at integer zoom.
+    // 256 is the Mercator tile pixel size at integer zoom; tile_px is also
+    // used below to position each tile div.
     let tile_px = 256.0 * zoom_scale;
-    let half_w = (width_px / tile_px).abs() * 0.5 + 1.0;
-    let half_h = (height_px / tile_px).abs() * 0.5 + 1.0;
-
-    let x_min = ((centre_x - half_w).floor() as i32).max(0);
-    let x_max = ((centre_x + half_w).ceil() as i32).min(tile_count as i32 - 1);
-    let y_min = ((centre_y - half_h).floor() as i32).max(0);
-    let y_max = ((centre_y + half_h).ceil() as i32).min(tile_count as i32 - 1);
+    let (x_min, x_max, y_min, y_max) =
+        visible_tile_range(centre_x, centre_y, width_px, height_px, zoom_scale, tile_count);
 
     // Patch in any missing tiles as `Pending`. Real fetch dispatch
     // lands in the follow-up tick that adds the HTTP client; for now
@@ -1044,5 +1065,42 @@ mod tests {
             }
             other => panic!("expected Ready, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn tile_range_covers_centre_with_margin() {
+        // 512×512 viewport at zoom-scale 1 (256 px tiles) = 2 tiles across;
+        // half-extent 2 (incl. the +1 margin) → 5 tiles each axis, centred.
+        let (x0, x1, y0, y1) = visible_tile_range(8.0, 8.0, 512.0, 512.0, 1.0, 16);
+        assert_eq!((x0, x1), (6, 10));
+        assert_eq!((y0, y1), (6, 10));
+    }
+
+    #[test]
+    fn tile_range_clamps_to_single_tile_world_at_zoom0() {
+        // zoom 0 → tile_count 1, so the only valid index is 0 regardless of
+        // viewport size; the margin must not produce out-of-range indices.
+        let (x0, x1, y0, y1) = visible_tile_range(0.5, 0.5, 256.0, 256.0, 1.0, 1);
+        assert_eq!((x0, x1, y0, y1), (0, 0, 0, 0));
+    }
+
+    #[test]
+    fn tile_range_widens_with_viewport() {
+        let (nx0, nx1, ..) = visible_tile_range(8.0, 8.0, 512.0, 512.0, 1.0, 16);
+        let (wx0, wx1, ..) = visible_tile_range(8.0, 8.0, 1024.0, 512.0, 1.0, 16);
+        assert!(
+            (wx1 - wx0) > (nx1 - nx0),
+            "a wider viewport must request more columns"
+        );
+    }
+
+    #[test]
+    fn tile_range_clamps_at_grid_edges() {
+        // Centre at the left/top edge: no negative indices.
+        let (x0, _, y0, _) = visible_tile_range(0.0, 0.0, 512.0, 512.0, 1.0, 16);
+        assert!(x0 >= 0 && y0 >= 0);
+        // Centre at the right/bottom edge: never past tile_count-1.
+        let (_, x1, _, y1) = visible_tile_range(15.0, 15.0, 512.0, 512.0, 1.0, 16);
+        assert!(x1 <= 15 && y1 <= 15);
     }
 }
