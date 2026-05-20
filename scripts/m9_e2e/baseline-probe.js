@@ -196,6 +196,12 @@ function parseWasmFnNames(buf) {
         console.log('  node_data.ptr[5]   = 0x' + dbg(5).toString(16) + '   (want heap, NOT 0)');
         console.log('  compact_dom.len[6] = ' + dbg(6) + '   (want 1)');
         console.log('  (convert-build capture was: len=1, ptr=heap — CORRECT; so if scrambled here, transit is the bug)');
+        console.log('--- css_property_cache.node_count BRACKET (want 1 throughout; first non-1 = the scrambling op) ---');
+        console.log('  [7] after empty()               = ' + dbg(7));
+        console.log('  [8] after restyle()             = ' + dbg(8));
+        console.log('  [9] after apply_ua_css()        = ' + dbg(9));
+        console.log('  [10] after compute_inherited()  = ' + dbg(10));
+        console.log('  [11] before build_compact_cache = ' + dbg(11));
     }
 
     const test_ptr = rd(0x40018);
