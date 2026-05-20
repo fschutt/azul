@@ -1812,3 +1812,11 @@ Next P6.screencap.b: `ScreenCaptureWidget` (layout/src/widgets/screencap.rs) mir
 Verify: `mobile-check-all.sh` GREEN on all 5. Disk 8.8 GiB.
 
 Next P6.screencap.c: codegen-expose `ScreenCaptureWidget` + `ScreenCaptureConfig`/`ScreenCaptureSource` → `azul::widgets::ScreenCaptureWidget`. Then a screenshare demo. Real ScreenCaptureKit/MediaProjection worker = on-machine batch.
+
+### Tick — P6.screencap.c — codegen-expose ScreenCaptureWidget (2026-05-20)
+
+Mirror of camera.widget.4. `autofix add ScreenCaptureWidget.create/dom` → added ScreenCaptureWidget (external `azul_layout::widgets::screencap`, moved misc→**widgets**) + ScreenCaptureConfig (+Default) + ScreenCaptureSource (+Default). Curated out the recurring DbValueVec churn + 7 drift patches. `codegen all`.
+
+Verify: `mobile-check-all.sh` GREEN on all 5; `azul::widgets::ScreenCaptureWidget` confirmed in reexports.rs. Disk 8.4 GiB.
+
+Next P6.screencap.d: the screenshare demo (`examples/azul-screenshare-app`) — `ScreenCaptureWidget::create(ScreenCaptureConfig::default()).dom()`, runnable with the test pattern (moving band). Then the **video widget** (vk-video) → then the DRY pass (extract camera/screencap/video shared core).

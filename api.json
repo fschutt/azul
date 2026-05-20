@@ -42551,6 +42551,47 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "ScreenCaptureWidget": {
+                        "external": "azul_layout::widgets::screencap::ScreenCaptureWidget",
+                        "struct_fields": [
+                            {
+                                "config": {
+                                    "type": "ScreenCaptureConfig"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "Create a screencap widget for the given config."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "config": "ScreenCaptureConfig"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::screencap::ScreenCaptureWidget::create(config)"
+                            }
+                        },
+                        "functions": {
+                            "dom": {
+                                "doc": [
+                                    "Build the widget's DOM: a single `<img>` node, fed by a background",
+                                    "capture thread started on mount."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -88455,6 +88496,56 @@
                                 "Front": {},
                                 "Back": {},
                                 "External": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ScreenCaptureSource": {
+                        "external": "azul_core::screencap::ScreenCaptureSource",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "PrimaryDisplay": {},
+                                "Display": {
+                                    "type": "u32"
+                                },
+                                "Window": {
+                                    "type": "u64"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "ScreenCaptureConfig": {
+                        "external": "azul_core::screencap::ScreenCaptureConfig",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "source": {
+                                    "type": "ScreenCaptureSource"
+                                },
+                                "fps": {
+                                    "type": "u32"
+                                },
+                                "output_format": {
+                                    "type": "RawImageFormat"
+                                }
                             }
                         ],
                         "repr": "C"
