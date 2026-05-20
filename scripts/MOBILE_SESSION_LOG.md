@@ -938,3 +938,14 @@ Geolocation now has a real producer on all three platforms (Android P3.1b, iOS P
 macOS isn't in the mobile gate (`cfg(target_os="macos")`), so verified two ways: host `cargo check -p azul-dll --no-default-features --features std,logging,link-static,a11y` compiles macos.rs clean (20.5s); `bash scripts/mobile-check-all.sh` GREEN on all 5 mobile targets. Internal dll platform code — no api.json/codegen change. Disk 94%.
 
 Geolocation (P3.1) is now substantially complete: manager + probe-diff wiring + async channel + producers on Android/iOS/macOS. The thinning non-gated runway: `didChangeAuthorization`→PermissionManager routing, or Linux geoclue (unverifiable here). The three decision-gated items (permission request blocks; tap-to-pin worker exposure; P2.3 HoverEventFilter) still await a steer.
+
+### Tick — P3.1e route Apple location auth-changes into the permission channel (2026-05-20)
+
+Closed the location-permission feedback loop on Apple platforms — the symmetric of Android's `onRequestPermissionsResult` (P1.2d). When the user changes the location grant (in-app prompt or Settings), the `CLLocationManager` delegate now learns and updates the PermissionManager.
+
+- Added `locationManagerDidChangeAuthorization:` (iOS 14+/macOS 11+) to both the `AzulLocationDelegate` (ios.rs) and `AzulMacLocationDelegate` (macos.rs) `ClassDecl`s: reads `[manager authorizationStatus]`, maps CLAuthorizationStatus → PermissionState (notDetermined/restricted/denied; Always|WhenInUse → Granted{Full}), and calls `push_async_result(Capability::Geolocation, ...)` — the permission channel (P1.2c) the layout pass already drains into the manager.
+- Permission-import cfg-gated per platform, matching the objc-import style.
+
+Verified two ways (macOS not in the mobile gate): host `cargo check` clean (14.2s); `bash scripts/mobile-check-all.sh` GREEN on all 5 targets. Internal dll platform code — no api.json/codegen change. Disk 93%.
+
+P3.1 geolocation is now feature-complete on the Apple side (session producers + fix channel + permission feedback). Remaining non-gated: Android `didChangeAuthorization` equivalent already covered by P1.2d's onRequestPermissionsResult; Linux geoclue (unverifiable here). Decision-gated items unchanged (permission request blocks; tap-to-pin worker exposure; P2.3 HoverEventFilter).

@@ -23,6 +23,10 @@
 use azul_layout::managers::geolocation::{
     push_location_fix, GeolocationDiffEvent, LocationFix,
 };
+#[cfg(target_os = "macos")]
+use azul_layout::managers::permission::{
+    push_async_result, Capability, PermissionQuality, PermissionState,
+};
 
 #[cfg(target_os = "macos")]
 use objc::declare::ClassDecl;
@@ -153,6 +157,11 @@ fn get_or_create_delegate_class() -> &'static Class {
                 location_manager_did_update
                     as extern "C" fn(&Object, Sel, *mut Object, *mut Object),
             );
+            decl.add_method(
+                sel!(locationManagerDidChangeAuthorization:),
+                location_manager_did_change_auth
+                    as extern "C" fn(&Object, Sel, *mut Object),
+            );
             CLS = decl.register();
         });
         &*CLS
@@ -196,5 +205,39 @@ extern "C" fn location_manager_did_update(
             speed_mps: if speed >= 0.0 { speed as f32 } else { f32::NAN },
             timestamp_ms: 0,
         });
+    }
+}
+
+/// `locationManagerDidChangeAuthorization:` (macOS 11+) — the user changed
+/// the location grant. Route the new `CLAuthorizationStatus` into the
+/// permission channel so the `PermissionManager` stays live, mirroring
+/// Android's `onRequestPermissionsResult`.
+#[cfg(target_os = "macos")]
+extern "C" fn location_manager_did_change_auth(
+    _this: &Object,
+    _cmd: Sel,
+    manager: *mut Object,
+) {
+    unsafe {
+        if manager.is_null() {
+            return;
+        }
+        let status: isize = msg_send![manager, authorizationStatus];
+        push_async_result(Capability::Geolocation, auth_status_to_state(status));
+    }
+}
+
+/// CLAuthorizationStatus → PermissionState. Both `authorizedAlways` (3) and
+/// `authorizedWhenInUse` (4) are foreground-usable, so both map to Granted.
+#[cfg(target_os = "macos")]
+fn auth_status_to_state(status: isize) -> PermissionState {
+    match status {
+        0 => PermissionState::NotDetermined,
+        1 => PermissionState::Restricted,
+        2 => PermissionState::Denied,
+        3 | 4 => PermissionState::Granted {
+            quality: PermissionQuality::Full,
+        },
+        _ => PermissionState::NotDetermined,
     }
 }
