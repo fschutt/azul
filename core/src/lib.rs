@@ -92,6 +92,9 @@ pub mod biometric;
 /// Geolocation POD types — `LocationFix` + `GeolocationProbeConfig`.
 /// Stateful manager lives in `azul_layout::managers::geolocation`.
 pub mod geolocation;
+/// Gamepad POD types — `GamepadId` + `GamepadButton` + `GamepadAxis` +
+/// `GamepadState`. Stateful manager lives in `azul_layout::managers::gamepad`.
+pub mod gamepad;
 /// Logical and physical coordinate types (`LogicalSize`, `PhysicalPosition`, etc.).
 pub mod geom;
 /// OpenGL context wrappers, shader compilation, and texture cache.

@@ -1592,3 +1592,15 @@ MapState's own comments noted.
 Verify: `cargo check -p azul-maps` clean (host, warm; the unused-attribute warnings are azul-dll generated code). dll untouched → mobile gate stays GREEN. Disk 14 GiB.
 
 Both sensor demos now exist: azul-spirit-level (accelerometer) + AzulMaps compass (magnetometer) — the P6.sensors pipeline exercised through two of its three sensor kinds, on the public api.json surface.
+
+### Tick — P6.gamepad.a — core gamepad POD types (2026-05-20)
+
+Next P6 expansion feature (gilrs desktop / iOS GCController + Android InputDevice mobile). Per-feature pattern step 1: core POD types in `core/src/gamepad.rs` (mirrors sensors.rs).
+
+- `GamepadId { id: u32 }`; `GamepadButton` (17-variant fieldless enum, SDL/gilrs standard mapping — South/East/North/West = A/B/Y/X by position, bumpers/triggers/select/start/mode/thumbs/dpad); `GamepadAxis` (LeftStick X/Y, RightStick X/Y, LeftZ/RightZ triggers); `GamepadState { id, connected, buttons: u32 bitset, 6 axis f32s }` + `is_pressed`/`axis`/`empty` helpers + `GamepadButton::bit`. `impl_option!` → `OptionGamepadState`.
+- Poll model (like sensors): backend keeps a per-pad `GamepadState` snapshot current; a callback reads the latest via the planned `CallbackInfo::get_gamepad_state`. Button discriminant order == bitset bit position (ABI note).
+- `core/src/lib.rs`: `pub mod gamepad;`.
+
+Verify: `mobile-check-all.sh` GREEN on all 5. Disk 14 GiB.
+
+Next P6.gamepad.b: `azul_layout::managers::gamepad::GamepadManager` + the async update channel (mirrors SensorManager). Then dll backend (gilrs desktop + iOS/Android glue), codegen (`get_gamepad_state`), demo.
