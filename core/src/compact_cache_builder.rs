@@ -14,7 +14,7 @@ use crate::prop_cache::CssPropertyCache;
 /// the cascade doesn't crash. Layout: [0]=self ptr, [1]=self.node_count,
 /// [2]=node_data.as_ptr, [3]=node_data.len.
 #[no_mangle]
-pub static mut AZ_DBG_NC: [u64; 16] = [0; 16];
+pub static mut AZ_DBG_NC: [u64; 48] = [0; 48];
 use crate::styled_dom::StyledNodeState;
 use azul_css::compact_cache::*;
 use azul_css::css::CssPropertyValue;
