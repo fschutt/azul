@@ -42510,6 +42510,47 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "CameraWidget": {
+                        "external": "azul_layout::widgets::camera::CameraWidget",
+                        "struct_fields": [
+                            {
+                                "config": {
+                                    "type": "CameraConfig"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "Create a camera widget for the given capture config."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "config": "CameraConfig"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::camera::CameraWidget::create(config)"
+                            }
+                        },
+                        "functions": {
+                            "dom": {
+                                "doc": [
+                                    "Build the widget's DOM: a single `<img>` node, fed by a background",
+                                    "capture thread started on mount."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -88361,6 +88402,59 @@
                                 "RightStickY": {},
                                 "LeftZ": {},
                                 "RightZ": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "CameraConfig": {
+                        "external": "azul_core::camera::CameraConfig",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "facing": {
+                                    "type": "CameraFacing"
+                                },
+                                "width": {
+                                    "type": "u32"
+                                },
+                                "height": {
+                                    "type": "u32"
+                                },
+                                "fps": {
+                                    "type": "u32"
+                                },
+                                "output_format": {
+                                    "type": "RawImageFormat"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "CameraFacing": {
+                        "external": "azul_core::camera::CameraFacing",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Front": {},
+                                "Back": {},
+                                "External": {}
                             }
                         ],
                         "repr": "C"

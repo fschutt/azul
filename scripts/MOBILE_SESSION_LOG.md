@@ -1766,3 +1766,14 @@ Verify: `mobile-check-all.sh` GREEN on all 5 — **the entire GL path resolved**
 ⚠ **GL code is compile-verified only here (no window/GPU)** — the actual texture rendering + recomposite-re-reads-external-texture behavior must be verified on-machine.
 
 Next P6.camera.widget.4: the real AVFoundation/Camera2 capture worker (dll-side, passed like map's `dom_with_fetch`; replaces test_pattern_worker) + control POD methods (switch front/back, zoom) + codegen-expose `CameraWidget`/`CameraConfig` + the camera-app demo. Then screenshare → video.
+
+### Tick — P6.camera.widget.4 — codegen-expose CameraWidget + CameraConfig (2026-05-20)
+
+The demo prerequisite — `CameraWidget` is now on the public api.json surface (35 langs), so an example can `use azul::widgets::CameraWidget`.
+
+- `autofix add CameraWidget.create` (→ added CameraWidget + CameraConfig + CameraFacing, external `azul_layout::widgets::camera::CameraWidget`) + `CameraWidget.dom` (→ Dom). 2-pass: kept `modify_CameraConfig` (+Default impl) + `move_CameraWidget` misc→**widgets** (matches MapWidget — legit, not drift); curated out the recurring DbValueVec churn + 5 drift patches. `codegen all`.
+- Confirmed: `azul::widgets::CameraWidget`, `azul::misc::{CameraConfig, CameraFacing}` in reexports.rs.
+
+Verify: `mobile-check-all.sh` GREEN on all 5. Disk 12 GiB.
+
+Next P6.camera.widget.5: the **camera-app demo** (`examples/azul-camera-app`) — `CameraWidget::create(CameraConfig::new(Front)).dom()` in a layout; runnable on the dev host (the built-in test-pattern worker → colour-cycling box via the GL path, modulo on-machine GL verification). Then widget.6 real AVFoundation worker + control-POD methods, then screenshare → video.
