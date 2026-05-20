@@ -1400,6 +1400,23 @@ pub unsafe extern "C" fn AzStartup_peekU32(addr: u32) -> u32 {
     core::ptr::read_volatile(addr as usize as *const u32)
 }
 
+/// M12.5i TEMP DIAGNOSTIC — read azul_core's AZ_DBG_NC capture as u32
+/// halves. `i` even = low 32 of slot i/2, odd = high 32. Slots:
+/// 0=self ptr, 1=self.node_count, 2=node_data.ptr, 3=node_data.len.
+#[no_mangle]
+pub unsafe extern "C" fn AzStartup_getDbgNc(i: u32) -> u32 {
+    let idx = (i / 2) as usize;
+    if idx >= 8 {
+        return 0;
+    }
+    let v = azul_core::compact_cache_builder::AZ_DBG_NC[idx];
+    if i % 2 == 0 {
+        v as u32
+    } else {
+        (v >> 32) as u32
+    }
+}
+
 // =====================================================================
 // M11 Sprint 5 — VirtualView infrastructure (minimal)
 // =====================================================================
