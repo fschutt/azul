@@ -24,19 +24,24 @@ use azul_core::keyring::KeyringRequest;
 
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 pub mod apple;
+#[cfg(target_os = "android")]
+pub mod android;
 
 /// Dispatch one keyring op to the native keyring. Called from
 /// `regenerate_layout` for each request the layout pass drained.
 ///
 /// iOS/macOS route to the real Keychain backend (generic passwords, with
-/// `kSecAttrAccessControl = biometryCurrentSet` for biometry-bound items).
-/// Platforms without a backend yet (Android / Windows / Linux) resolve to
-/// `Unavailable` so the request → result round-trip stays observable —
-/// `CallbackInfo::get_keyring_result()` reads it next frame.
+/// `kSecAttrAccessControl = biometryCurrentSet` for biometry-bound items);
+/// Android to the KeyStore JNI backend. Platforms without a backend yet
+/// (Windows / Linux) resolve to `Unavailable` so the request → result
+/// round-trip stays observable — `CallbackInfo::get_keyring_result()`
+/// reads it next frame.
 pub fn request(req: &KeyringRequest) {
     #[cfg(any(target_os = "ios", target_os = "macos"))]
     apple::request(req);
-    #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+    #[cfg(target_os = "android")]
+    android::request(req);
+    #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "android")))]
     {
         let _ = req;
         azul_layout::managers::keyring::push_keyring_result(

@@ -1299,3 +1299,14 @@ First real keyring backend. Used `security-framework`'s clean generic-password A
 Verify: `bash scripts/mobile-check-all.sh` GREEN on all 5 (iOS compiles security-framework); macOS host check CLEAN. Disk 96% → purging.
 
 Next P4.2e: Android **KeyStore** Rust JNI side (mirror biometric P4.1h: `com.azul.keyring.AzulKeyring` shim calls; gate-verifiable Rust, Java shim deferred). Linux libsecret + Windows CredentialLocker backends are NOT verifiable on this darwin host (no Linux/Windows target in the gate) → deferred with the Java shims. After P4.2e, advance to **P4.3 db-sqlite** (the AzulVault goal app's actual storage; explicit "approach A" design in the prompt).
+
+### Tick — P4.2e — Android KeyStore keyring backend (JNI, Rust side) (2026-05-20)
+
+Android Rust JNI backend, mirroring biometric P4.1h + the keyring apple.rs contract.
+
+- `dll/extra/keyring/android.rs` (new): `request()` attaches the JavaVM (shared `attach` helper) and calls static `com.azul.keyring.AzulKeyring.{store(Activity,handle,key,secret,requireBiometry), get(Activity,handle,key), delete(Activity,handle,key)}`. Inbound `Java_..._nativeOnKeyringResult(handle, code, secret_or_null)` → `push_keyring_result`, with a handle guard. Code contract 0=Stored/1=Deleted/2=Retrieved(secret jstring)/3=NotFound/4=Denied/5=Unavailable/else Error; secret extracted via the file_picker jstring pattern. Degrades to Unavailable without the Java shim.
+- `mod.rs`: added `android` dispatch; fallback narrowed to Windows/Linux.
+
+Verify: `bash scripts/mobile-check-all.sh` GREEN on all 5 (both Android targets compile the backend; macOS cfg-inert). Disk 96%.
+
+Keyring backends done where compile-verifiable on this host: **Apple Keychain ✅, Android KeyStore Rust ✅**. Deferred (not verifiable on darwin — no Linux/Windows gate target; or non-Rust): Linux libsecret, Windows CredentialLocker, the Android `AzulKeyring.java` shim + `USE_BIOMETRIC` manifest. Next: **P4.3 db-sqlite** — `db-sqlite` feature + SQL-string `Db` API (rusqlite bundled, engine hidden), the AzulVault goal app's storage. Explicit "approach A" design in the prompt; start with the `Db`/`DbValue`/`DbRows` core types + api.json shape.
