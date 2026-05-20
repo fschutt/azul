@@ -800,3 +800,12 @@ Filled the `dispatch_open_directory` stub in `file_picker/ios.rs` with a real `U
 Chose this over the lower-numbered P1.2 async request path because the latter needs a cross-crate result-delivery channel (no way today for a native callback thread to reach the live PermissionManager) — a multi-tick design, deferred per the loop's "doesn't fit one tick" rule.
 
 `bash scripts/mobile-check-all.sh` GREEN on all 5 mobile targets (4/4/3/1/0 s). Internal dll platform code — no api.json/codegen change. Disk 94%, incremental cleared.
+
+### Tick — P1.2c async permission-result channel (unblocks the request path) (2026-05-20)
+
+Built the missing piece that's been deferring the P1.2 async request path for three ticks: a result-delivery channel so a native prompt's callback (arbitrary thread, no handle to the live LayoutWindow) can get its answer back into the PermissionManager.
+
+- `layout/src/managers/permission.rs`: process-global `static ASYNC_RESULTS: Mutex<Vec<(Capability, PermissionState)>>` + pub `push_async_result` (producer, called by the dll backend) / `drain_async_results` (consumer). Pure Rust, poison-recovering lock — satisfies §0.5 (no platform dep in azul-layout). +1 unit test covering push→drain (order preserved)→apply via set_status→get_status, plus drain-empties-the-queue. 8/8 manager tests pass.
+- `dll/src/desktop/shell2/common/layout.rs`: step "7a" drains the channel each layout pass and folds results into `layout_window.permission_manager.set_status`, logging when any flips. Live consumer — not dead code; only the native producer (handle_event firing the OS prompt + its result callback calling push_async_result) is pending, which is next tick.
+
+This is the unblocking infrastructure, complete + tested end-to-end in theory; the platform `handle_event` request calls now have a place to deliver to. `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (6/7/8/7/7 s); azul-layout tests 8/8. `push_async_result`/`drain_async_results` are internal dll-facing API, not api.json FFI surface — no codegen change. Disk 94%, incremental cleared.

@@ -349,6 +349,36 @@ impl PermissionManager {
     }
 }
 
+// ────────── Async result channel (platform backend → manager) ─────────
+//
+// When a `Subscribe` fires an OS prompt, the result arrives later on an
+// arbitrary thread (an iOS completion handler / Android
+// `onRequestPermissionsResult`) where there's no handle to the live
+// `PermissionManager` (it lives inside the window's `LayoutWindow`). The
+// platform backend parks the resolved state here; the layout pass drains
+// it once per frame via [`drain_async_results`] and applies each through
+// [`PermissionManager::set_status`]. Pure Rust — no platform dependency,
+// so it satisfies SUPER_PLAN_2 §0.5's "no platform deps in azul-layout".
+
+static ASYNC_RESULTS: std::sync::Mutex<Vec<(Capability, PermissionState)>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Park an async permission result. Called by a platform backend (in the
+/// dll) when an OS prompt resolves. Thread-safe; recovers from a poisoned
+/// lock so one panicking applier can't wedge delivery forever.
+pub fn push_async_result(capability: Capability, state: PermissionState) {
+    let mut q = ASYNC_RESULTS.lock().unwrap_or_else(|e| e.into_inner());
+    q.push((capability, state));
+}
+
+/// Drain everything parked by [`push_async_result`], in arrival order.
+/// Called once per layout pass; the caller applies each result through
+/// [`PermissionManager::set_status`] and relayouts if any changed.
+pub fn drain_async_results() -> Vec<(Capability, PermissionState)> {
+    let mut q = ASYNC_RESULTS.lock().unwrap_or_else(|e| e.into_inner());
+    core::mem::take(&mut *q)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -494,5 +524,38 @@ mod tests {
             events[0],
             PermissionDiffEvent::Subscribe { capability: Capability::Camera, .. }
         ));
+    }
+
+    #[test]
+    fn async_results_round_trip_through_manager() {
+        // The channel is a process-global; clear anything a prior test or
+        // ordering left behind so this test is self-contained.
+        let _ = drain_async_results();
+
+        push_async_result(
+            Capability::Camera,
+            PermissionState::Granted {
+                quality: PermissionQuality::Full,
+            },
+        );
+        push_async_result(Capability::Geolocation, PermissionState::Denied);
+
+        let drained = drain_async_results();
+        assert_eq!(drained.len(), 2, "both parked results drain in order");
+        // Arrival order preserved.
+        assert_eq!(drained[0].0, Capability::Camera);
+        assert_eq!(drained[1].0, Capability::Geolocation);
+
+        // Applying them through the manager reflects in get_status — this is
+        // exactly what the dll layout pass does each frame.
+        let mut mgr = PermissionManager::new();
+        for (cap, state) in drained {
+            mgr.set_status(cap, state);
+        }
+        assert!(mgr.get_status(Capability::Camera).is_granted());
+        assert_eq!(mgr.get_status(Capability::Geolocation), PermissionState::Denied);
+
+        // A second drain is empty — the queue was taken, not copied.
+        assert!(drain_async_results().is_empty());
     }
 }

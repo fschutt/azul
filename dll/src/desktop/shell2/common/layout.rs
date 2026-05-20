@@ -630,6 +630,31 @@ pub fn regenerate_layout(
         crate::desktop::extra::permission::apply_diff_events(&permission_events);
     }
 
+    // 7a. Drain async permission results parked by a platform backend (an
+    // OS prompt's completion handler / onRequestPermissionsResult) since
+    // the last pass, and fold them into the manager. The native callback
+    // runs on an arbitrary thread with no handle to this LayoutWindow, so
+    // it parks the result in azul-layout's process-global channel; here is
+    // where it lands in the live manager. (No producer fires yet — the
+    // async request path in `permission::handle_event` is a later tick —
+    // but the consumer is live and unit-tested in azul-layout.)
+    {
+        let async_results = azul_layout::managers::permission::drain_async_results();
+        let mut changed = false;
+        for (capability, state) in async_results {
+            changed |= layout_window.permission_manager.set_status(capability, state);
+        }
+        if changed {
+            // A permission flipped — permission-aware callbacks should get a
+            // chance to re-render. The next regenerate_layout picks up the
+            // new statuses; the relayout trigger lands with the producer.
+            log_debug!(
+                LogCategory::Layout,
+                "[regenerate_layout] applied async permission result(s)"
+            );
+        }
+    }
+
     // 7b. Geolocation diff — symmetric to the permission pass. Walks
     // every DOM in this window for `NodeType::GeolocationProbe` nodes
     // and feeds their configs to the manager. Subscribe / Release /
