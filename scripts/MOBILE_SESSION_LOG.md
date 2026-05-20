@@ -1227,3 +1227,14 @@ Ported P4.1f's macOS LAContext backend to iOS — the primary mobile target now 
 Verify: `bash scripts/mobile-check-all.sh` GREEN on all 5 (iOS 22–30s — first compile of objc2 + objc2-local-authentication); macOS host check CLEAN. Disk 97% → purging.
 
 Apple biometric (iOS+macOS) is now feature-complete: request → evaluatePolicy block → result channel → get_biometric_result; canEvaluatePolicy/biometryType probe. Next P4.1h: **Android** `BiometricPrompt` via JNI (needs a Kotlin/Java shim + JNI bridge, mirroring the gesture/permission JNI). Then wire `probe_availability` → `set_availability` at startup so `get_biometric_kind` returns the real sensor.
+
+### Tick — P4.1h — Android biometric backend (BiometricPrompt JNI, Rust side) (2026-05-20)
+
+Android Rust JNI backend, mirroring geolocation/android.rs exactly (Rust ships now; the Java shim follows, just as AzulGeolocation.java is still pending).
+
+- `dll/extra/biometric/android.rs` (new): `request()` attaches the JavaVM (shared `attach` helper: `shell2::android::{java_vm_ptr,activity_ptr}` → `attach_current_thread`) and calls static `com.azul.biometric.AzulBiometric.authenticate(Activity, long handle, String reason, String cancel, boolean allowDeviceCredential)`. `probe_availability()` calls `canAuthenticate(Activity)->int`. Inbound `Java_com_azul_biometric_AzulBiometric_nativeOnBiometricResult(handle, code)` → `push_biometric_result`, with a handle guard dropping stale results. Degrades to Unavailable/NotAvailable when the Java class is absent (find_class fails). Documented kind/result int contracts.
+- `mod.rs`: added `android` dispatch (request + probe); fallback narrowed to `not(any(ios,macos,android))` = Windows/Linux.
+
+Verify: `bash scripts/mobile-check-all.sh` GREEN on all 5 (both Android targets now compile the JNI backend; macOS path in mod.rs unchanged/cfg-inert). Disk 96%.
+
+Biometric now has real backends on all 3 runtime platforms' Rust sides (iOS/macOS LAContext; Android JNI). Next P4.1i: the **Java shim** `scripts/android/AzulBiometric.java` (AndroidX BiometricPrompt + canAuthenticate + PackageManager kind) + `USE_BIOMETRIC` manifest permission — non-Rust, not gate-tested. Then wire `probe_availability`→`set_availability` at startup. After that P4.1 is complete → P4.2 keyring.

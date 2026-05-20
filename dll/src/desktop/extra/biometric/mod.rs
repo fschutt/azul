@@ -28,20 +28,25 @@ use azul_core::biometric::{BiometricKind, BiometricPrompt};
 
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 pub mod apple;
+#[cfg(target_os = "android")]
+pub mod android;
 
 /// Dispatch one biometric-auth request to the native prompt. Called from
 /// `regenerate_layout` for each prompt the layout pass drained from the
 /// request channel.
 ///
-/// iOS/macOS route to the real `LAContext` backend (the reply block parks
-/// the outcome in the result channel asynchronously). Platforms without a
-/// backend yet (Android / Windows / Linux) resolve to `Unavailable`
-/// immediately so the request → result round-trip stays observable —
-/// `CallbackInfo::get_biometric_result()` reads it next frame.
+/// iOS/macOS route to the real `LAContext` backend; Android to the
+/// `BiometricPrompt` JNI backend (both park the outcome in the result
+/// channel asynchronously). Platforms without a backend yet (Windows /
+/// Linux) resolve to `Unavailable` immediately so the request → result
+/// round-trip stays observable — `CallbackInfo::get_biometric_result()`
+/// reads it next frame.
 pub fn request(prompt: &BiometricPrompt) {
     #[cfg(any(target_os = "ios", target_os = "macos"))]
     apple::request(prompt);
-    #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+    #[cfg(target_os = "android")]
+    android::request(prompt);
+    #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "android")))]
     {
         let _ = prompt;
         azul_layout::managers::biometric::push_biometric_result(
@@ -51,16 +56,21 @@ pub fn request(prompt: &BiometricPrompt) {
 }
 
 /// Synchronous availability probe — what biometric hardware the device
-/// can use. iOS/macOS query `canEvaluatePolicy` + `biometryType`; other
-/// platforms return `NotAvailable` until their backend lands. The result
-/// is written into `BiometricManager::set_availability` (a later wiring
-/// tick), which `CallbackInfo::get_biometric_kind()` then reads.
+/// can use. iOS/macOS query `canEvaluatePolicy` + `biometryType`; Android
+/// queries `BiometricManager.canAuthenticate` + `PackageManager` features;
+/// other platforms return `NotAvailable` until their backend lands. The
+/// result is written into `BiometricManager::set_availability` (a later
+/// wiring tick), which `CallbackInfo::get_biometric_kind()` then reads.
 pub fn probe_availability() -> BiometricKind {
     #[cfg(any(target_os = "ios", target_os = "macos"))]
     {
         apple::probe_availability()
     }
-    #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+    #[cfg(target_os = "android")]
+    {
+        android::probe_availability()
+    }
+    #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "android")))]
     {
         BiometricKind::NotAvailable
     }
