@@ -1109,3 +1109,26 @@ No code change (baseline GREEN, warm). AzulMaps is feature-complete (P3.3f), and
 - iOS/macOS permission-request ObjC blocks are unverifiable/fragile.
 
 Committing only this log (no rebuild). This is the Nth consecutive blocked tick; the loop has met its goals for the currently-reachable scope. Resume needs: free non-azul disk (then live-locate Timer + real tiles), or a one-word pick of a gated item.
+
+### Tick — FINAL: loop self-terminating (work exhausted; per loop's stop rule) (2026-05-20)
+
+Per AUTONOMOUS_LOOP_PROMPT.md's "when to stop the loop yourself" rule (30+ ticks committed, gate is cargo-check-only, no iOS sim/Xcode installed, clean autonomous work exhausted), this is the final tick: summarize follow-ups + `CronDelete` the loop job (f7137621). No code change; baseline GREEN. The last several ticks were forced HOLDs — firing more every 10 min only burns compute.
+
+DONE this campaign (all `cargo check`-verified across the 5 mobile targets; unit-tested where pure-Rust):
+- P1.1 fonts (rust-fontconfig iOS CoreText + Android arms).
+- P1.2 permissions: sync probe on iOS/Android/macOS; async result channel + layout-pass consumer (unit-tested); Android requestPermissions producer; permission-diff pass wired to NodeType::GeolocationProbe; Apple location auth-change → channel.
+- P1.3 file pickers: iOS open+directory, Android open/save/directory.
+- P2 pen/touch: PenState populated (is_eraser/barrel_button/multitouch + Apple Pencil Pro barrel_roll_rad); AzulPaint complete (pressure + chisel-nib brush, clear, counter).
+- P3.1 geolocation: manager + probe-diff + async fix channel + producers (Android/iOS/macOS) + CallbackInfo::get_location_fix exposed (incl. fixing the autofix repr-derivation bug in doc/src/autofix/patch_format.rs).
+- P3.2 MapWidget: MVT+MapCSS→SVG→DOM pipeline + VirtualView + merge-callback cache; full unit coverage (projection/pan/merge/tile-range).
+- P3.3 AzulMaps: pan/zoom toolbar, locate-me (probe+recentre+dot+readout), tap-to-pin-callout, clear pins.
+
+OUTSTANDING — needs the user (none safe to do autonomously now):
+1. DISK: volume ~97% (6–8 GiB free; ENOSPC crisis was 100%, non-azul data). Blocks codegen + core/layout cascade ticks. Free non-azul space for durable headroom.
+2. DECISIONS (open the whole campaign):
+   - P3.2 real tiles: `MapWidget::dom_with_default_tiles()` (recommended) vs a `tile_fetch_thread_callback()` helper — public-API choice + a dll worker→ThreadCallback shim + codegen.
+   - P2.3 `HoverEventFilter::PenSqueeze/PenDoubleTap/PenHover` + UIPencilInteraction — core enum + codegen + dispatch + native producers.
+   - iOS/macOS permission *request* path — ObjC completion blocks (objc2 migration vs objc-0.2 block bridge); unverifiable without a sim.
+3. CODEGEN-READY (after disk freed): live-locate Timer needs `get_location_fix` exposed on `TimerCallbackInfo` (mirror of the CallbackInfo exposure; tooling now fixed) + a Timer-construction example pattern.
+
+To resume: restart the cron (or invoke manually) after freeing disk and/or answering a decision above. The autofix workflow + repr fix are in place, so codegen exposures are now clean single-pass.
