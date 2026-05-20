@@ -129,6 +129,15 @@ impl Default for MapViewport {
     }
 }
 
+/// A geographic coordinate in degrees. Returned by
+/// [`MapWidget::latlon_at_px`] and (P3) the map's `on_pin_tap` hook.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
+pub struct MapLatLon {
+    pub lat_deg: f64,
+    pub lon_deg: f64,
+}
+
 // ────────── MapWidget builder ──────────────────────────────────────────
 
 // NOTE: `MapWidget` mirrors the api.json struct field-for-field so the
@@ -190,6 +199,44 @@ impl MapWidget {
     ) -> Self {
         self.set_on_viewport_changed(data, callback);
         self
+    }
+
+    /// Project a screen pixel `px` (relative to the map node's top-left, in a
+    /// node of size `container`) to a lat/lon on the map at `viewport`. Small-
+    /// angle Mercator (accurate at city zooms). Inverse of
+    /// [`px_at_latlon`](Self::px_at_latlon). Exposed so apps don't reimplement
+    /// the projection (e.g. to drop a pin where the user tapped).
+    pub fn latlon_at_px(
+        viewport: MapViewport,
+        px: azul_core::geom::LogicalPosition,
+        container: azul_core::geom::LogicalSize,
+    ) -> MapLatLon {
+        let world = 256.0_f64 * 2.0_f64.powf(viewport.zoom as f64);
+        let dx = (px.x - container.width * 0.5) as f64;
+        let dy = (px.y - container.height * 0.5) as f64;
+        let lon = (viewport.centre_lon_deg + dx * 360.0 / world).clamp(-180.0, 180.0);
+        let cos_lat = viewport.centre_lat_deg.to_radians().cos();
+        let lat = (viewport.centre_lat_deg - dy * 360.0 / world * cos_lat).clamp(-85.0, 85.0);
+        MapLatLon {
+            lat_deg: lat,
+            lon_deg: lon,
+        }
+    }
+
+    /// Inverse of [`latlon_at_px`](Self::latlon_at_px): where `coord` lands in
+    /// container pixels at `viewport`.
+    pub fn px_at_latlon(
+        viewport: MapViewport,
+        coord: MapLatLon,
+        container: azul_core::geom::LogicalSize,
+    ) -> azul_core::geom::LogicalPosition {
+        let world = 256.0_f64 * 2.0_f64.powf(viewport.zoom as f64);
+        let cos_lat = viewport.centre_lat_deg.to_radians().cos();
+        let px = container.width as f64 * 0.5
+            + (coord.lon_deg - viewport.centre_lon_deg) * world / 360.0;
+        let py = container.height as f64 * 0.5
+            - (coord.lat_deg - viewport.centre_lat_deg) * world / (360.0 * cos_lat);
+        azul_core::geom::LogicalPosition::new(px as f32, py as f32)
     }
 
     /// Construct the rendered `Dom`. The returned `Dom` is a single

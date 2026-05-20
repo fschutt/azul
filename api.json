@@ -39740,6 +39740,51 @@
                                     }
                                 ],
                                 "fn_body": "object.set_on_viewport_changed(data, callback)"
+                            },
+                            "latlon_at_px": {
+                                "doc": [
+                                    "Project a screen pixel `px` (relative to the map node's top-left, in a",
+                                    "node of size `container`) to a lat/lon on the map at `viewport`. Small-",
+                                    "angle Mercator (accurate at city zooms). Inverse of",
+                                    "[`px_at_latlon`](Self::px_at_latlon). Exposed so apps don't reimplement",
+                                    "the projection (e.g. to drop a pin where the user tapped)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "viewport": "MapViewport"
+                                    },
+                                    {
+                                        "px": "LogicalPosition"
+                                    },
+                                    {
+                                        "container": "LogicalSize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapLatLon"
+                                },
+                                "fn_body": "azul_layout::widgets::map::MapWidget::latlon_at_px(viewport, px, container)"
+                            },
+                            "px_at_latlon": {
+                                "doc": [
+                                    "Inverse of [`latlon_at_px`](Self::latlon_at_px): where `coord` lands in",
+                                    "container pixels at `viewport`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "viewport": "MapViewport"
+                                    },
+                                    {
+                                        "coord": "MapLatLon"
+                                    },
+                                    {
+                                        "container": "LogicalSize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "LogicalPosition"
+                                },
+                                "fn_body": "azul_layout::widgets::map::MapWidget::px_at_latlon(viewport, coord, container)"
                             }
                         },
                         "repr": "C"
@@ -42982,6 +43027,26 @@
                                 },
                                 "callback": {
                                     "type": "MapViewportChangedCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "MapLatLon": {
+                        "external": "azul_layout::widgets::map::MapLatLon",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "lat_deg": {
+                                    "type": "f64"
+                                },
+                                "lon_deg": {
+                                    "type": "f64"
                                 }
                             }
                         ],

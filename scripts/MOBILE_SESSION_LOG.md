@@ -2039,3 +2039,12 @@ Added the first MapWidget user hook via the camera/button struct-field + codegen
 **Disk + build infra:** the post-`cargo clean` full rebuilds had filled the volume (Bash blocked on ENOSPC writing its output file); user deleted target/debug + directed **"always use --release"**. Switched mobile-check-all.sh `FLAGS` to `--release` (also the build.rs-hinted codegen invocation) so all commands share one lean release dep cache instead of debug+release duplication. Disk 14 GiB free.
 
 NEXT: MapWidget `on_pin_tap` (needs a tap handler + the projection) + expose lat/lon<->pixel projection (the demo duplicates it). Then input custom-events (SensorChanged/GamepadInput) -> audio widgets -> UDP/azul-meet -> P9 -> P10.
+
+### Tick — FIX-APIs.9 — MapWidget projection exposure + fast --release codegen workflow (2026-05-21)
+
+Exposed the map's screen<->geo projection so apps/demos stop duplicating it (agent finding):
+- `MapWidget::latlon_at_px(viewport, px: LogicalPosition, container: LogicalSize) -> MapLatLon` + `px_at_latlon(viewport, MapLatLon, container) -> LogicalPosition` — static, FFI-exposed, the small-angle-Mercator math ported from the demo's `tap_to_latlon`/`latlon_to_px`. New `MapLatLon {lat_deg, lon_deg}` POD (also the future `on_pin_tap` payload). codegen converged; gate GREEN on all 5.
+
+**WORKFLOW FIX — fast codegen under --release:** `cargo run --release -p azul-doc -- ...` **re-links the LTO'd binary every call (~2 min)**, so the iterative autofix dance crawled (one tick took ~15 min in background). Resolution (user-approved): **build `azul-doc` release once, then invoke `./target/release/azul-doc <cmd>` directly** — sub-second per call, still lean disk. USE THIS for all future autofix/codegen (build once with `cargo build --release -p azul-doc`, then the binary). The gate stays `cargo check --release` (deps cached -> ~14s/target). Disk 10 GiB.
+
+NEXT: MapWidget `on_pin_tap` (tap-detect in on_pointer_up -> `latlon_at_px` -> hook payload `MapLatLon`) + clean up the demo to use the exposed projection. Then input custom-events -> audio -> UDP -> P9 -> P10.
