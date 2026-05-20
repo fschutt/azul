@@ -30,7 +30,7 @@ fi
 export PATH="$HOME/.cargo/bin:${ANDROID_HOME}/build-tools/34.0.0:${ANDROID_HOME}/platform-tools:${JAVA_HOME}/bin:$PATH"
 
 FEATURES='std,logging,link-static,a11y'
-FLAGS=(-p azul-dll --no-default-features --features "$FEATURES")
+FLAGS=(-p azul-dll --release --no-default-features --features "$FEATURES")
 
 red()   { printf '\033[31m%s\033[0m' "$*"; }
 green() { printf '\033[32m%s\033[0m' "$*"; }

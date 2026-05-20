@@ -11236,6 +11236,26 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "MapViewportChangedCallbackType": {
+                        "external": "azul_layout::widgets::map::MapViewportChangedCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "MapViewport"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -39568,16 +39588,15 @@
                             {
                                 "layer": {
                                     "type": "MapTileLayer"
-                                }
-                            },
-                            {
+                                },
                                 "viewport": {
                                     "type": "MapViewport"
-                                }
-                            },
-                            {
+                                },
                                 "container_style": {
                                     "type": "CssPropertyWithConditionsVec"
+                                },
+                                "on_viewport_changed": {
+                                    "type": "OptionMapViewportChanged"
                                 }
                             }
                         ],
@@ -39682,6 +39701,45 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom_with_fetch(cb)"
+                            },
+                            "with_on_viewport_changed": {
+                                "doc": [
+                                    "Builder form of [`set_on_viewport_changed`](Self::set_on_viewport_changed)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "MapViewportChangedCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapWidget"
+                                },
+                                "fn_body": "object.with_on_viewport_changed(data, callback)"
+                            },
+                            "set_on_viewport_changed": {
+                                "doc": [
+                                    "Set a hook fired when the user pans / zooms the map. The map owns its",
+                                    "own pan/pinch state; this lets your app observe or persist the",
+                                    "resulting `MapViewport`. The backreference DI pattern (architecture.md)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "MapViewportChangedCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_viewport_changed(data, callback)"
                             }
                         },
                         "repr": "C"
@@ -42860,6 +42918,70 @@
                                 },
                                 "callback": {
                                     "type": "OnVideoFrameCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "MapViewportChangedCallback": {
+                        "external": "azul_layout::widgets::map::MapViewportChangedCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "MapViewportChangedCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "MapViewportChanged": {
+                        "external": "azul_layout::widgets::map::MapViewportChanged",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "MapViewportChangedCallback"
                                 }
                             }
                         ],
@@ -83950,6 +84072,36 @@
                                 "None": {},
                                 "Some": {
                                     "type": "OnVideoFrame"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionMapViewportChanged": {
+                        "external": "azul_layout::widgets::map::OptionMapViewportChanged",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "MapViewportChanged"
                                 }
                             }
                         ],

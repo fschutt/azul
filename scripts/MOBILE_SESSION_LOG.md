@@ -2028,3 +2028,14 @@ The PDF uncouple is now complete. Removed the now-unused legacy export path:
 Verified: layout builds clean; codegen OK; mobile gate GREEN on all 5. The only PDF surface now is the standalone **`Pdf`** handle (`from_dom` headless dom->bytes, `write_json`/`read_json`) — no window coupling, no file I/O.
 
 NEXT: MapWidget hooks (`set_on_pin_tap`/`set_on_viewport_changed`) → input custom-events (SensorChanged/GamepadInput) → audio widgets → frame-IN → UDP/azul-meet → P9 (synthetic e2e) → P10 (docs).
+
+### Tick — FIX-APIs.8 — MapWidget on_viewport_changed hook (FFI-exposed) + gate --release (2026-05-21)
+
+Added the first MapWidget user hook via the camera/button struct-field + codegen pattern (user chose this over the Rust-only-dataset approach, overriding MapWidget's "3-field, no fn-ptr" rule — codegen keeps AzMapWidget in sync, like Button/Camera):
+- `MapViewportChangedCallbackType = extern "C" fn(RefAny, CallbackInfo, MapViewport) -> Update` + impl_widget_callback! (`MapViewportChanged`/`OptionMapViewportChanged`/`MapViewportChangedCallback`) + impl_managed_callback!{extra_args:[viewport: MapViewport]} + `invoke_viewport_changed`. (Needed `use azul_css::impl_option_inner;`.)
+- `MapWidget.on_viewport_changed` field + `MapTileCache.on_viewport_changed` (so the internal callbacks can fire it) + `set_on_viewport_changed`/`with_on_viewport_changed` + build_dom copy + merge-carry. Both pan + pinch handlers fire the hook with the new viewport after mutating it.
+- **Apps can now observe widget-driven pan/zoom** (previously locked in the opaque MapTileCache). codegen converged in 5 passes (methods -> callback type+typedef -> field -> wrapper+option -> impls). Gate GREEN on all 5.
+
+**Disk + build infra:** the post-`cargo clean` full rebuilds had filled the volume (Bash blocked on ENOSPC writing its output file); user deleted target/debug + directed **"always use --release"**. Switched mobile-check-all.sh `FLAGS` to `--release` (also the build.rs-hinted codegen invocation) so all commands share one lean release dep cache instead of debug+release duplication. Disk 14 GiB free.
+
+NEXT: MapWidget `on_pin_tap` (needs a tap handler + the projection) + expose lat/lon<->pixel projection (the demo duplicates it). Then input custom-events (SensorChanged/GamepadInput) -> audio widgets -> UDP/azul-meet -> P9 -> P10.

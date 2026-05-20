@@ -44,6 +44,7 @@ use azul_core::callbacks::{
 use azul_core::dom::{DatasetMergeCallbackType, Dom, OptionDom};
 use azul_core::refany::{OptionRefAny, RefAny};
 use azul_css::dynamic_selector::CssPropertyWithConditionsVec;
+use azul_css::impl_option_inner; // for impl_widget_callback!'s impl_option!
 use azul_css::AzString;
 
 // ────────── POD types (api.json + codegen surface) ─────────────────────
@@ -130,17 +131,20 @@ impl Default for MapViewport {
 
 // ────────── MapWidget builder ──────────────────────────────────────────
 
-// NOTE: `MapWidget` mirrors the api.json struct exactly (3 fields) so
-// the codegen FFI transmute stays sound — do NOT add a function-pointer
-// field here. The tile-fetch worker is supplied through the Rust-only
-// `dom_with_fetch` method and stored in the (FFI-opaque) `MapTileCache`
-// dataset instead.
+// NOTE: `MapWidget` mirrors the api.json struct field-for-field so the
+// codegen FFI transmute stays sound. Callback fields (e.g.
+// `on_viewport_changed`) ARE allowed: codegen keeps `AzMapWidget` in sync
+// (the Button / Camera pattern). The Rust-only tile-fetch worker stays in
+// the FFI-opaque `MapTileCache` dataset (supplied via `dom_with_fetch`).
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct MapWidget {
     pub layer: MapTileLayer,
     pub viewport: MapViewport,
     pub container_style: CssPropertyWithConditionsVec,
+    /// Optional hook fired when the user pans / zooms (effects / persist
+    /// the viewport). FFI-exposed; re-set on each fresh build.
+    pub on_viewport_changed: OptionMapViewportChanged,
 }
 
 impl MapWidget {
@@ -149,6 +153,7 @@ impl MapWidget {
             layer,
             viewport: MapViewport::default(),
             container_style: CssPropertyWithConditionsVec::from_const_slice(&[]),
+            on_viewport_changed: OptionMapViewportChanged::None,
         }
     }
 
@@ -159,6 +164,31 @@ impl MapWidget {
 
     pub fn with_container_style(mut self, css: CssPropertyWithConditionsVec) -> Self {
         self.container_style = css;
+        self
+    }
+
+    /// Set a hook fired when the user pans / zooms the map. The map owns its
+    /// own pan/pinch state; this lets your app observe or persist the
+    /// resulting `MapViewport`. The backreference DI pattern (architecture.md).
+    pub fn set_on_viewport_changed<C: Into<MapViewportChangedCallback>>(
+        &mut self,
+        data: RefAny,
+        callback: C,
+    ) {
+        self.on_viewport_changed = Some(MapViewportChanged {
+            refany: data,
+            callback: callback.into(),
+        })
+        .into();
+    }
+
+    /// Builder form of [`set_on_viewport_changed`](Self::set_on_viewport_changed).
+    pub fn with_on_viewport_changed<C: Into<MapViewportChangedCallback>>(
+        mut self,
+        data: RefAny,
+        callback: C,
+    ) -> Self {
+        self.set_on_viewport_changed(data, callback);
         self
     }
 
@@ -198,6 +228,7 @@ impl MapWidget {
 
         let mut cache = MapTileCache::new(self.layer.clone(), self.viewport);
         cache.fetch_callback = fetch_cb;
+        cache.on_viewport_changed = self.on_viewport_changed;
         let dataset = RefAny::new(cache);
         let virtual_view_data = dataset.clone();
 
@@ -309,6 +340,9 @@ pub struct MapTileCache {
     /// `viewport.zoom`, then reset the anchor to the current
     /// distance — so the gesture stays continuous across many frames.
     pub pinch_anchor: Option<f32>,
+    /// The user's `on_viewport_changed` hook, copied here from the builder
+    /// so the pan / pinch callbacks can fire it. Carried across relayout.
+    pub on_viewport_changed: OptionMapViewportChanged,
 }
 
 impl MapTileCache {
@@ -320,6 +354,7 @@ impl MapTileCache {
             fetch_callback: None,
             drag_anchor: None,
             pinch_anchor: None,
+            on_viewport_changed: OptionMapViewportChanged::None,
         }
     }
 
@@ -397,6 +432,9 @@ extern "C" fn merge_map_tile_cache(mut new_data: RefAny, mut old_data: RefAny) -
             if new_g.fetch_callback.is_none() {
                 new_g.fetch_callback = old_g.fetch_callback.clone();
             }
+            if let OptionMapViewportChanged::None = new_g.on_viewport_changed {
+                new_g.on_viewport_changed = old_g.on_viewport_changed.clone();
+            }
             // Keep the freshest viewport (the one the layout pass
             // just attached) — only inherit tile bytes + worker.
         }
@@ -408,6 +446,47 @@ extern "C" fn merge_map_tile_cache(mut new_data: RefAny, mut old_data: RefAny) -
 
 use crate::callbacks::CallbackInfo;
 use azul_core::callbacks::Update;
+
+// --- User hook: on_viewport_changed (backreference DI, FFI-exposed) ---
+
+/// User hook fired when the user pans or zooms the map. Lets app code observe
+/// or persist the widget-driven `MapViewport` (which otherwise lives only in
+/// the opaque `MapTileCache`). The backreference DI pattern (architecture.md).
+pub type MapViewportChangedCallbackType =
+    extern "C" fn(RefAny, CallbackInfo, MapViewport) -> Update;
+impl_widget_callback!(
+    MapViewportChanged,
+    OptionMapViewportChanged,
+    MapViewportChangedCallback,
+    MapViewportChangedCallbackType
+);
+azul_core::impl_managed_callback! {
+    wrapper:        MapViewportChangedCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: MAP_VIEWPORT_CHANGED_INVOKER,
+    invoker_ty:     AzMapViewportChangedCallbackInvoker,
+    thunk_fn:       az_map_viewport_changed_callback_thunk,
+    setter_fn:      AzApp_setMapViewportChangedCallbackInvoker,
+    from_handle_fn: AzMapViewportChangedCallback_createFromHostHandle,
+    extra_args:     [ viewport: MapViewport ],
+}
+
+/// Invoke a map widget's optional `on_viewport_changed` hook with the new
+/// viewport, returning the user's `Update` (`DoNothing` if no hook is set).
+fn invoke_viewport_changed(
+    hook: &OptionMapViewportChanged,
+    info: &CallbackInfo,
+    viewport: MapViewport,
+) -> Update {
+    match hook {
+        OptionMapViewportChanged::Some(h) => {
+            (h.callback.cb)(h.refany.clone(), info.clone(), viewport)
+        }
+        OptionMapViewportChanged::None => Update::DoNothing,
+    }
+}
 
 /// Pointer down → record the drag anchor. The widget knows nothing
 /// about the user's overall state RefAny — only its own dataset —
@@ -451,6 +530,10 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, info: CallbackInfo) -> Updat
         // Pinch is exclusive with pan — clear the drag anchor so the
         // pinch end doesn't accidentally drop into a pan.
         cache.drag_anchor = None;
+        let hook = cache.on_viewport_changed.clone();
+        let vp = cache.viewport;
+        drop(cache);
+        invoke_viewport_changed(&hook, &info, vp);
         return Update::RefreshDom;
     }
 
@@ -484,6 +567,10 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, info: CallbackInfo) -> Updat
     cache_guard.viewport.centre_lat_deg = new_lat;
     cache_guard.drag_anchor = Some(pos);
 
+    let hook = cache_guard.on_viewport_changed.clone();
+    let vp = cache_guard.viewport;
+    drop(cache_guard);
+    invoke_viewport_changed(&hook, &info, vp);
     Update::RefreshDom
 }
 
