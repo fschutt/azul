@@ -1076,6 +1076,10 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     let vs_boxed_early = Box::new(make_test_vec_struct());
     let vs_ptr_early = Box::into_raw(vs_boxed_early) as usize as u32;
     core::ptr::write_volatile(0x40028_usize as *mut u32, vs_ptr_early);
+    // M12.5h: multi-Vec struct via sret (mimics StyledDom's many Vecs).
+    let mv_boxed = Box::new(make_test_multivec());
+    let mv_ptr = Box::into_raw(mv_boxed) as usize as u32;
+    core::ptr::write_volatile(0x4002C_usize as *mut u32, mv_ptr);
     let styled = StyledDom::create(dom_ref, Css::empty());
     let boxed = Box::new(styled);
     let ptr_val = Box::into_raw(boxed) as usize as u32;
@@ -1245,6 +1249,38 @@ pub fn make_test_vec_struct() -> TestVecStruct {
         v,
         tail: 0xCCCC_CCCC,
     }
+}
+
+/// M12.5h: multi-Vec struct via sret — mimics StyledDom (which has ~8
+/// Vec fields). The cascade reads node_data.len() (a Vec.len) and gets a
+/// heap POINTER, not the count. make_test_vec_struct (ONE Vec) reads its
+/// len correctly, so the suspicion is that a struct with MULTIPLE
+/// adjacent Vec headers ({cap,ptr,len} ×N), moved via NEON Q-register
+/// pairs during the sret return, gets a len field swapped with an
+/// adjacent ptr. Expected lens: a=2, b=3, c=1. If any len reads as a
+/// large pointer-ish value → reproduced minimally.
+#[repr(C)]
+pub struct TestMultiVec {
+    pub m: u32,
+    pub a: Vec<u32>,
+    pub b: Vec<u32>,
+    pub c: Vec<u32>,
+    pub t: u32,
+}
+
+#[inline(never)]
+#[no_mangle]
+pub fn make_test_multivec() -> TestMultiVec {
+    let mut a: Vec<u32> = Vec::new();
+    a.push(0xA1);
+    a.push(0xA2);
+    let mut b: Vec<u32> = Vec::new();
+    b.push(0xB1);
+    b.push(0xB2);
+    b.push(0xB3);
+    let mut c: Vec<u32> = Vec::new();
+    c.push(0xC1);
+    TestMultiVec { m: 0xAAAA_AAAA, a, b, c, t: 0xCCCC_CCCC }
 }
 
 

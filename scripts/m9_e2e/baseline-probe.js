@@ -230,6 +230,20 @@ function parseWasmFnNames(buf) {
     console.log('  raw10      = ' + vw.map(x => '0x' + x.toString(16)).join(' '));
     console.log('  v.elems    = ' + velems.join(' ') + '   (expect 0xbbbb0001..3)');
 
+    const mv_ptr = rd(0x4002C);
+    // TestMultiVec repr(C): m@0, a:Vec@8{cap@8,ptr@16,len@24},
+    // b:Vec@32{len@48}, c:Vec@56{len@72}, t@80.
+    const mvWords = [];
+    for (let i = 0; i < 24; i++) mvWords.push(rd((mv_ptr + i * 4) >>> 0));
+    console.log('--- make_test_multivec (multi-Vec struct via sret) ---');
+    console.log('  mv_ptr  = 0x' + (mv_ptr >>> 0).toString(16));
+    console.log('  m[0]    = 0x' + mvWords[0].toString(16) + ' (expect aaaaaaaa)');
+    console.log('  a.len[6]  = ' + mvWords[6] + ' (expect 2)  a.ptr[4]=0x' + mvWords[4].toString(16));
+    console.log('  b.len[12] = ' + mvWords[12] + ' (expect 3)  b.ptr[10]=0x' + mvWords[10].toString(16));
+    console.log('  c.len[18] = ' + mvWords[18] + ' (expect 1)  c.ptr[16]=0x' + mvWords[16].toString(16));
+    console.log('  t[20]   = 0x' + mvWords[20].toString(16) + ' (expect cccccccc)');
+    console.log('  raw24   = ' + mvWords.map(x => x.toString(16)).join(' '));
+
     const ptr_val = rd(0x4010C);
     let casNonzero = 0;
     const casDump = [];
