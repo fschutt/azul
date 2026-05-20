@@ -1828,3 +1828,14 @@ Mirror of azul-camera-app. `examples/azul-screenshare-app` (added to workspace):
 Verify: `cargo check -p azul-screenshare-app` clean (host, 23s). dll untouched → mobile gate stays GREEN. Disk 10 GiB.
 
 **Screenshare widget COMPLETE: core ✅ · widget ✅ · codegen ✅ · demo ✅** (4 mirror ticks off camera). 2 of 3 video-ish widgets done. Next: the **video widget** (vk-video — decode + HTTP-range), then the DRY pass (extract camera/screencap/video shared thread+writeback+GL core into a common module).
+
+### Tick — P6.video.a — core video-playback POD types (2026-05-20)
+
+3rd video-ish widget (vk-video). Step 1 (mirror camera.a/screencap.a): `core/src/video.rs`.
+
+- `VideoConfig { source: AzString, autoplay: bool, looping: bool, output_format: RawImageFormat }` + Default ("",autoplay,no-loop,BGRA8) + `new(source)`. Carries the source URL → `Clone` but not `Copy` (unlike camera/screencap configs).
+- `core/src/lib.rs`: `pub mod video`.
+
+Verify: `mobile-check-all.sh` GREEN on all 5. Disk 7.6 GiB.
+
+Next P6.video.b: `VideoWidget` (layout/src/widgets/video.rs) mirroring camera/screencap — RefAny dataset + AfterMount thread + writeback GL upload + test-pattern worker (real vk-video decode + HTTP-range = on-machine batch). Then codegen-expose, demo, then the DRY pass (extract the shared core from all 3).

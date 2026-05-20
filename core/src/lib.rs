@@ -104,6 +104,10 @@ pub mod camera;
 /// Symmetric to the camera surface (a "dumb widget" in
 /// `azul_layout::widgets::screencap`); reuses `camera`'s capture status types.
 pub mod screencap;
+/// Video-playback POD types — `VideoConfig` (source URL + autoplay/loop).
+/// Same "dumb widget" architecture (`azul_layout::widgets::video`); decoded
+/// via vk-video into the shared GL texture.
+pub mod video;
 /// Logical and physical coordinate types (`LogicalSize`, `PhysicalPosition`, etc.).
 pub mod geom;
 /// OpenGL context wrappers, shader compilation, and texture cache.
