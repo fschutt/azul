@@ -961,3 +961,14 @@ FFI exposure (the part users actually call) is deliberately deferred to a carefu
 So the FFI exposure wants a deliberate tick: fix `determine_module` (add geolocation/map keyword routes), add `impl_option!`, then `autofix add CallbackInfo.get_location_fix` + `codegen all` with the drift reviewed. Flagging rather than risking a half-applied codegen autonomously.
 
 `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (14/13/13/14/13 s). azul-layout-internal method — no api.json/codegen change. Cleaned the stray `target/autofix/patches` from investigation. Disk 94%.
+
+### Tick — P3.1g fix autofix module heuristic for geolocation/map types (2026-05-20)
+
+Landed the safe prerequisite I flagged last tick for the `get_location_fix` FFI exposure: autofix's name-based `determine_module` couldn't place bare `LocationFix` or `MapTileId` (→ `misc` + warning), which would misplace them in any future `codegen all`. Added keyword routes (doc-tooling only, like P3.2l):
+
+- `dom` keywords += `geolocation` (GeolocationProbeConfig), `locationfix` (LocationFix) — matching the existing `azul_core::geolocation:: → dom` path arm.
+- `widgets` keywords += `maptile` (MapTileId/MapTileLayer), `mapviewport`, `mapwidget` — matching the `azul_layout::widgets:: → widgets` path arm.
+
+Verified: `cargo run -p azul-doc -- autofix explain` no longer emits "Could not determine module for 'LocationFix'/'MapTileId'". `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (structurally unaffected — `azul-doc` isn't in the dll graph). No api.json/codegen content change.
+
+Still NOT done autonomously (deliberately): the actual `get_location_fix` FFI exposure — needs `impl_option!(LocationFix)` in core + `autofix add` + `codegen all`, and a bare `autofix` run still shows 2 pre-existing module-move patches (DetectedLongPress/DetectedRotation) that an `autofix apply` would entangle. That review-and-codegen step wants a deliberate tick (ideally user-aware, since it applies pre-existing moves). The heuristic is now correct so that tick will be clean. Decision-gated items unchanged. Disk 94%.

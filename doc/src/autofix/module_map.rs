@@ -209,6 +209,8 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
             "bidi",       // BidiDirection, BidiLevel
             "idorclass",  // IdOrClass
             "aria",       // SmallAriaInfo
+            "geolocation", // GeolocationProbeConfig (backs NodeType::GeolocationProbe)
+            "locationfix", // LocationFix (delivered by the geolocation backends)
         ],
     );
 
@@ -432,6 +434,9 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
             "label",
             "frame",
             "nodegraph",
+            "maptile",     // MapTileId, MapTileLayer
+            "mapviewport", // MapViewport
+            "mapwidget",   // MapWidget
         ],
     );
 
