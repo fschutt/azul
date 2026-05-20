@@ -209,6 +209,9 @@ function parseWasmFnNames(buf) {
         console.log('  M12.5y DROP-ISOLATION: after drop(css) node_count=' + dbg(46) +
             ' &node_count=0x' + (dbg(47) >>> 0).toString(16) +
             '  (=1 & 0x2ef98 => drop innocent, apply_ua_css corrupts; else drop corrupts)');
+        console.log('  M12.5y BOX-ISOLATION: styled.node_data.len after create_from(sret)=' + dbg(52) +
+            ' || after Box::new=' + dbg(53) +
+            '  (52=1,53=0 => Box::new lost it; 52=0 => sret move lost it)');
         console.log('  M12.5y STYLEDDOM: .into() INPUT compact_dom.node_data.internal len=' + dbg(50) +
             ' ptr=0x' + (dbg(51) >>> 0).toString(16) + '  ||  OUTPUT styled_dom.node_data len=' + dbg(48) +
             ' ptr=0x' + (dbg(49) >>> 0).toString(16) +
