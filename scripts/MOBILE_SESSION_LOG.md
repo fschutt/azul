@@ -917,3 +917,13 @@ Wired the producer for last tick's location-fix channel — the geolocation anal
 `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (9/1/0/6/6 s). Internal dll platform code — no api.json/codegen change.
 
 DISK: purging *all* incremental dirs (host + 5 mobile targets, not just host) freed 2 GiB → 93%. `du` shows azul `target/` is only ~6.5 GiB total — the 95% volume pressure is the user's *other* disk usage (194/228 GiB), so `cargo clean` wouldn't meaningfully help. Will keep purging all incrementals each tick; real relief needs the user freeing non-azul space.
+
+### Tick — P3.1c iOS geolocation producer via CLLocationManager (2026-05-20)
+
+Geolocation now has a producer on *both* mobile platforms (Android P3.1b + iOS here), both feeding the P3.1a fix channel. iOS uses a delegate (no ObjC blocks), so it sidesteps the block2 issue that gates the permission *request* path.
+
+- `geolocation/ios.rs`: singleton retained `CLLocationManager` + an `AzulLocationDelegate` (registered via `ClassDecl`, same pattern as the file picker). Subscribe → `setDesiredAccuracy` (Best/-1 vs HundredMeters/100) + `requestWhenInUse`/`requestAlways` (background) + `startUpdatingLocation`; Reconfigure → adjust accuracy; Release → `stopUpdatingLocation` (manager kept retained).
+- Delegate `locationManager:didUpdateLocations:` reads the newest `CLLocation` — `coordinate` via a locally-defined `CLLocationCoordinate2D` struct-return (mirrors the iOS shell's `CGPoint` `Encode` trick) + horizontalAccuracy/altitude/verticalAccuracy/course/speed with iOS sentinel→NaN handling — and calls `push_location_fix`.
+- Manager+delegate stored as `AtomicUsize` (raw ptrs aren't Send/Sync); `Class::get` degrades to no-op if CoreLocation is absent. `didChangeAuthorization`→PermissionManager routing deferred (permission backend already probes location sync).
+
+`bash scripts/mobile-check-all.sh` GREEN on all 5 targets (29/9/10/0/1 s — iOS rebuilt the new objc). Internal dll platform code — no api.json/codegen change. Disk 94%.
