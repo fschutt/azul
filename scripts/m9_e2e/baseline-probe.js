@@ -191,6 +191,11 @@ function parseWasmFnNames(buf) {
         console.log('  self.node_count = ' + dbg(1) + '   (want 1; if huge → cache built with bad count)');
         console.log('  node_data.ptr   = 0x' + dbg(2).toString(16));
         console.log('  node_data.len   = ' + dbg(3) + '   (want 1)');
+        console.log('--- create_from_compact_dom TOP: compact_dom.node_data as it ARRIVES (4/5/6 overwritten here) ---');
+        console.log('  node_data.len[4]   = ' + dbg(4) + '   (want 1; if heap-ptr → scrambled IN TRANSIT: CompactDom sret/by-value move)');
+        console.log('  node_data.ptr[5]   = 0x' + dbg(5).toString(16) + '   (want heap, NOT 0)');
+        console.log('  compact_dom.len[6] = ' + dbg(6) + '   (want 1)');
+        console.log('  (convert-build capture was: len=1, ptr=heap — CORRECT; so if scrambled here, transit is the bug)');
     }
 
     const test_ptr = rd(0x40018);
