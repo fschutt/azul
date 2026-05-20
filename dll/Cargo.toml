@@ -307,7 +307,7 @@ db-sqlite = ["dep:rusqlite"]
 # integration features). Out of `link-static` (the mobile gate), like
 # db-sqlite; the export API is always present (stub when off), so it flows
 # through codegen with no feature-gating.
-pdf = ["dep:printpdf"]
+pdf = ["dep:printpdf", "serde_json"]
 
 # -----------------------------------------------------------------------------
 # Link Modes (for consumers of the library)

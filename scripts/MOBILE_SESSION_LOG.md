@@ -1507,3 +1507,14 @@ Per the user: updated printpdf to our `ParsedFont` API + wired it to share our a
 Verify: host `+pdf` (text_layout, fixed printpdf vs our azul-layout) CLEAN; `mobile-check-all.sh` GREEN on all 5 (no-pdf builds emit a harmless "unused patch" warning — patches only apply when printpdf is pulled); `azul-doc-demo` (pdf+text_layout) CLEAN. Disk 98%/6.2 GiB → purging.
 
 Now printpdf links exactly one azul-layout (ours) with full text_layout. Next: the AzJson read/write PDF C API (printpdf PdfDocument serde ↔ azul::Json), ABI-stable per the user — the 2nd directive.
+
+### Tick — P5.1/AzJson — JSON read/write PDF engine (ABI-stable, like printpdf wasm api) (2026-05-20)
+
+Directive 2: the AzJson-based PDF read/write API (dll engine side). ABI-stable — the document schema lives in the JSON, so it evolves without breaking the C ABI.
+
+- `dll/extra/pdf/mod.rs`: `pdf_write_json(&Json) -> U8Vec` (Json → `to_string_pretty` → `serde_json::from_str::<printpdf::PdfDocument>` → `doc.save()` → bytes) + `pdf_read_json(&[u8]) -> Json` (`PdfDocument::parse(bytes, PdfParseOptions, warnings)` → `serde_json::to_string(&doc)` → `Json::parse`). Bridges azul::Json ↔ serde_json ↔ printpdf's serde `PdfDocument` model (same schema as printpdf's wasm api). Always-present (cfg-split: real under `pdf`, else empty/`Json::null()`).
+- `dll/Cargo.toml`: `pdf = ["dep:printpdf", "serde_json"]` (implicit-feature form — `dep:serde_json` would suppress serde_json's implicit feature that `_internal_deps` references).
+
+Verify: host `+pdf` CLEAN; `mobile-check-all.sh` GREEN on all 5 (no-pdf → stubs). Disk 98%/5.7 GiB → purging.
+
+Next: expose `pdf_write_json`/`pdf_read_json` via api.json — a `Pdf` type with static methods `Pdf::write_json(Json) -> U8Vec` / `Pdf::read_json(U8Vec) -> Json` (always-present, no feature-gating — stub-POD pattern). Then back to P6 (sensors codegen/backends, camera, gamepad, wacom).

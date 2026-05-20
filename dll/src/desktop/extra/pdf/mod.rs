@@ -14,6 +14,8 @@
 //! `Op::DrawRectangle`. Text / Image / Border (research/06 §2.3.2's table;
 //! `TextLayout` is half-wired) land in follow-ups.
 
+use azul_core::json::Json;
+use azul_css::U8Vec;
 use azul_layout::solver3::display_list::DisplayListItem;
 
 /// Export the display-list `items` to a PDF at `path`. Returns `true` on
@@ -30,13 +32,70 @@ pub fn export_to_pdf(path: &str, items: &[DisplayListItem]) -> bool {
     }
 }
 
+/// Write a PDF from a JSON document model → PDF bytes. The JSON is
+/// printpdf's `PdfDocument` serde schema as an [`azul_core::json::Json`]
+/// (the same model printpdf's wasm api uses). Returns empty bytes on a
+/// malformed model or without the `pdf` feature.
+///
+/// ABI-stable read/write: the document schema lives in the JSON value, so
+/// the PDF model can evolve without changing the C ABI.
+pub fn pdf_write_json(json: &Json) -> U8Vec {
+    #[cfg(feature = "pdf")]
+    {
+        engine::write_json(json)
+    }
+    #[cfg(not(feature = "pdf"))]
+    {
+        let _ = json;
+        U8Vec::from_vec(Vec::new())
+    }
+}
+
+/// Read a PDF (`bytes`) into the JSON document model ([`Json`]). Returns
+/// JSON `null` on a parse error or without the `pdf` feature.
+pub fn pdf_read_json(bytes: &[u8]) -> Json {
+    #[cfg(feature = "pdf")]
+    {
+        engine::read_json(bytes)
+    }
+    #[cfg(not(feature = "pdf"))]
+    {
+        let _ = bytes;
+        Json::null()
+    }
+}
+
 #[cfg(feature = "pdf")]
 mod engine {
-    use super::DisplayListItem;
+    use super::{DisplayListItem, Json, U8Vec};
     use printpdf::{
-        Color, Mm, Op, PaintMode, PdfDocument, PdfPage, PdfSaveOptions, PdfWarnMsg, Pt, Rect,
-        Rgb, WindingOrder,
+        Color, Mm, Op, PaintMode, PdfDocument, PdfPage, PdfParseOptions, PdfSaveOptions,
+        PdfWarnMsg, Pt, Rect, Rgb, WindingOrder,
     };
+
+    /// JSON document model → PDF bytes (printpdf `PdfDocument` via serde).
+    pub fn write_json(json: &Json) -> U8Vec {
+        let json_str = json.to_string_pretty();
+        let doc: PdfDocument = match serde_json::from_str(json_str.as_str()) {
+            Ok(d) => d,
+            Err(_) => return U8Vec::from_vec(Vec::new()),
+        };
+        let mut warnings: Vec<PdfWarnMsg> = Vec::new();
+        U8Vec::from_vec(doc.save(&PdfSaveOptions::default(), &mut warnings))
+    }
+
+    /// PDF bytes → JSON document model (printpdf parse → serde → `Json`).
+    pub fn read_json(bytes: &[u8]) -> Json {
+        let mut warnings: Vec<PdfWarnMsg> = Vec::new();
+        let doc = match PdfDocument::parse(bytes, &PdfParseOptions::default(), &mut warnings) {
+            Ok(d) => d,
+            Err(_) => return Json::null(),
+        };
+        match serde_json::to_string(&doc) {
+            Ok(s) => Json::parse(&s).unwrap_or_else(|_| Json::null()),
+            Err(_) => Json::null(),
+        }
+    }
 
     // A4 portrait. Azul logical px are assumed at 96 DPI (CSS reference px).
     const PAGE_W_MM: f32 = 210.0;
