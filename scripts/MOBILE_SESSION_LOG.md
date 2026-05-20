@@ -777,3 +777,14 @@ Backfilled the lowest-numbered open TODO (P1.2 < P3.3): `permission/ios.rs::prob
 - Classes resolved via `Class::get` (not `class!`), so a missing framework degrades to `NotDetermined` instead of aborting; iOS-14+ status APIs called directly (same baseline as the file picker). `handle_event` (async prompts) stays a no-op for a later tick.
 
 `bash scripts/mobile-check-all.sh` GREEN on all 5 mobile targets (4/3/3/1/0 s). Internal dll platform code — no api.json/codegen change. Disk 94%, incremental cleared.
+
+### Tick — P1.2b real Android permission probe via JNI (2026-05-20)
+
+Symmetric follow-up to P1.2a: `permission/android.rs::probe_status` was a `NotDetermined` stub; now it issues the real JNI calls — lowest-numbered open task, gate-verifiable, real native wiring.
+
+- Reused the file picker's VM-attach sequence (`shell2::android::java_vm_ptr`/`activity_ptr` → `JavaVM::from_raw` → `attach_current_thread`) to call the framework `Context.checkSelfPermission(perm)I` (API 23+, no androidx); `0 == PERMISSION_GRANTED → Granted{Full}`.
+- On denial, `shouldShowRequestPermissionRationale(perm)Z` separates a fresh `NotDetermined` (never prompted) from a real `Denied`; documented the Android ambiguity (never-asked vs don't-ask-again both report false).
+- `capability_to_permission` maps the 11 gated capabilities to their `android.permission.*` strings (Camera/Mic/Geo/BgGeo/ReadMediaImages/Contacts/Calendar(+Reminders)/PostNotifications/BluetoothConnect/NearbyWifi/UseBiometric); the 6 ungated ones (scoped-storage write, raw motion, ScreenCapture, bg-bluetooth, LocalNetwork, ATT) return `NotDetermined`.
+- Any JNI failure (VM not yet published) degrades to `NotDetermined`. `handle_event` (async requestPermissions) stays a no-op for a later tick.
+
+`bash scripts/mobile-check-all.sh` GREEN on all 5 mobile targets (6/0/0/4/3 s). Internal dll platform code — no api.json/codegen change. Disk 94%, incremental cleared.
