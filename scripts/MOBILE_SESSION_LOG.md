@@ -862,3 +862,13 @@ Locked down the behaviour the user explicitly designed for — "the tile cache s
 Context for the reader: P1.2/P1.3 mobile + the iOS/Android/macOS probe path are done; the genuinely-remaining high-value work is either user-gated (iOS/macOS request producers = ObjC-completion-block approach call; P3.3 tap-to-pin worker exposure) or a multi-tick core+codegen lift (P2.3 PenState/HoverEventFilter extension). Linux/Windows probes aren't verifiable from this macOS host. So this tick hardened an existing user-critical invariant while those decisions are pending.
 
 `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (6/6/8/7/6 s). Private widget internals — no api.json/codegen change. Disk 93%, incremental cleared.
+
+### Tick — P2.3a populate barrel_roll_rad on iOS from Apple Pencil Pro (2026-05-20)
+
+Substantive P2.3 step (not another test): the `PenState.barrel_roll_rad` field already existed on both the internal `gesture::PenState` and the public `AzPenState` (codegen), but was always 0 — nothing populated it. Now iOS feeds it real data.
+
+- iOS pencil sampler (`ios/mod.rs`) now reads `UITouch.rollAngle` (Apple Pencil Pro barrel roll, iOS 17.5+), guarded by `respondsToSelector: sel!(rollAngle)` so older iOS can't hit an unrecognized-selector trap; threads it through `update_pen_state_full` (the call switched from the 8-arg `update_pen_state`). `tangential_pressure`/`tool_id` stay 0 (UITouch reports neither).
+- Investigated Android first: its `Axis::Orientation` is azimuth (already consumed for tiltX/Y), not barrel roll, and the NDK exposes no tangential/tool-id axis — so Android has no real source for these and was left as-is.
+- Deferred (genuine multi-tick / core+codegen): the `HoverEventFilter::PenSqueeze/PenDoubleTap/PenHover` half of P2.3 (squeeze = `UIPencilInteraction`, new event-filter variants → codegen + dispatch).
+
+`bash scripts/mobile-check-all.sh` GREEN on all 5 targets (11/3/3/0/1 s). No api.json/codegen change — `AzPenState` already carried the field; only the native populate path changed. Disk 93%, incremental cleared.

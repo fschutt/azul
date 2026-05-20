@@ -245,6 +245,9 @@ fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
         pressure: f32,
         x_tilt_deg: f32,
         y_tilt_deg: f32,
+        /// Apple Pencil Pro barrel roll (radians), from `UITouch.rollAngle`
+        /// (iOS 17.5+). `0.0` when the OS / pencil doesn't report it.
+        barrel_roll_rad: f32,
     }
     let mut points: Vec<TouchPoint> = Vec::new();
     let mut pos: Option<LogicalPosition> = None;
@@ -314,11 +317,25 @@ fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
                             (sin_o * tan_tilt).atan().to_degrees();
                         let y_tilt_deg =
                             (-cos_o * tan_tilt).atan().to_degrees();
+                        // Apple Pencil Pro barrel roll (iOS 17.5+). Guard
+                        // with respondsToSelector so older iOS doesn't hit
+                        // an unrecognized-selector trap.
+                        let barrel_roll_rad: f32 = {
+                            let responds: bool =
+                                msg_send![touch, respondsToSelector: sel!(rollAngle)];
+                            if responds {
+                                let r: f64 = msg_send![touch, rollAngle];
+                                r as f32
+                            } else {
+                                0.0
+                            }
+                        };
                         pencil = Some(PencilSample {
                             position: touch_pos,
                             pressure: normalized,
                             x_tilt_deg,
                             y_tilt_deg,
+                            barrel_roll_rad,
                         });
                     }
                 }
@@ -391,11 +408,12 @@ fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
         // tablets do on desktop. Apple Pencil has no eraser tip and no
         // barrel button at the UITouch level (Pencil 2 squeeze fires
         // `UIPencilInteraction` instead, a P2.3 follow-up), so both flags
-        // stay `false` here; pressure + tilt are populated.
+        // stay `false` here; pressure, tilt, and barrel roll (Pencil Pro,
+        // iOS 17.5+) are populated.
         if let Some(sample) = pencil.as_ref() {
             let in_contact = matches!(phase, 0 | 1);
             if in_contact {
-                lw.gesture_drag_manager.update_pen_state(
+                lw.gesture_drag_manager.update_pen_state_full(
                     sample.position,
                     sample.pressure,
                     (sample.x_tilt_deg, sample.y_tilt_deg),
@@ -403,6 +421,9 @@ fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
                     false, // is_eraser
                     false, // barrel_button_pressed
                     0,     // device_id (Apple Pencil has no public ID at this layer)
+                    0.0,   // tangential_pressure (not reported by UITouch)
+                    sample.barrel_roll_rad,
+                    0,     // tool_id (not reported by UITouch)
                 );
             } else {
                 lw.gesture_drag_manager.clear_pen_state();
