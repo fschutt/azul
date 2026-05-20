@@ -1,0 +1,25 @@
+[package]
+name = "azul-spirit-level"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzSpirit — a spirit level (Wasserwaage), like iOS's built-in Level. The
+    P6 demo for the motion-sensor feature (SUPER_PLAN_2 §1 feature 5): a
+    window-create callback installs a Timer that polls
+    `CallbackInfo::get_sensor_reading(Accelerometer)` (via the
+    TimerCallbackInfo's wrapped CallbackInfo), low-pass-smooths the gravity
+    vector, and re-lays-out a bullseye bubble level — the bubble offset by
+    the tilt and turning green when level. Built entirely on the public
+    `azul::` api.json surface; exercises the sensor pipeline (P6.sensors)
+    end-to-end (iOS CoreMotion / Android SensorManager backends).
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static"] }
+
+[[bin]]
+name = "azul-spirit-level"
+path = "src/main.rs"

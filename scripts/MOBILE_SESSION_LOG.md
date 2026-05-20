@@ -1564,3 +1564,17 @@ Completes the sensor backends — the Apple producer for the 7h drain.
 Verify: `mobile-check-all.sh` GREEN on all 5; `cargo tree -i objc2-core-motion` confirms the dep is enabled under the gate's exact features (so apple.rs WAS compiled — not a false green). Disk 15 GiB. macOS-host compile of apple.rs not separately checked (identical code+crate to the verified iOS path; cold host build deferred).
 
 **Sensors COMPLETE** (core ✅ · manager+plumbing ✅ · codegen ✅ · Android JNI ✅ · iOS CoreMotion ✅). Next P6: camera / gamepad / wacom / screencap foundations. `AzulSensors.java` shim in the deferred Java batch.
+
+### Tick — P6 demo app: azul-spirit-level (Wasserwaage) — exercises the sensor pipeline E2E (2026-05-20)
+
+User redirect: "the deliverable on this" = a spirit level like iOS's, the P6 example app for motion sensors (the per-feature pattern's demo step). Built `examples/azul-spirit-level` (added to workspace).
+
+- `create_callback` → `CallbackInfo::add_timer` installs a per-frame Timer at window create. The Timer reads `get_sensor_reading(Accelerometer)` via the **TimerCallbackInfo's wrapped `callback_info`** (user pointed this out — confirmed `pub callback_info: CallbackInfo` in timer.rs:279), low-pass-smooths the gravity vector (0.85/0.15), `RefreshDom`.
+- `layout` renders a bullseye: nested flex-centered circles (no `position: absolute` needed) + a bubble offset by `transform: translate({}px,{}px)` from the smoothed `(x,y)`, green when tilt `< 0.8°`. Degree readout = `atan2(|horiz|, |az|)`. Graceful "Waiting for accelerometer…" when no reading (e.g. desktop dev box / no hardware).
+- Pure public `azul::` api.json surface. Module paths resolved from reexports.rs: `azul::misc::SensorKind`, `azul::option::OptionRefAny`, `azul::task::{Timer,TimerId,TerminateTimer}`, rest in prelude.
+
+Gotcha resolved: `Timer::create` takes a concrete `AzTimerCallback` (a `{cb, ctx}` struct with **no `create` ctor**, unlike the regular `Callback`) → built via literal `TimerCallback { cb: tick, ctx: OptionRefAny::None }`.
+
+Verify: `cargo check -p azul-spirit-level` clean (host/macOS, 1.25s warm). dll untouched → mobile gate stays GREEN (c30d3bb56). Disk 14 GiB; host target/debug 4.7 GiB (no azul-doc tooling → far smaller than the 13 GiB codegen-tool footprint).
+
+**This proves the P6.sensors pipeline end-to-end**: api.json codegen → CallbackInfo accessor → manager → 7h drain → backend (CoreMotion/SensorManager). Next: compass (magnetometer→heading) integrated into AzulMaps (user's 2nd directive — fills the "live readout via Timer — out of scope" gap MapState already notes).
