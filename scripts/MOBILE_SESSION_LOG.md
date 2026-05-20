@@ -1001,3 +1001,9 @@ Deliberately took no code change this tick (per the loop's "when in doubt about 
 2. **Clean non-gated work is exhausted.** This run shipped, end-to-end (in theory): permission probe ×3 platforms + async channel + Android request producer + permission-diff wiring + Apple auth-feedback; geolocation manager + channel + producers on Android/iOS/macOS; full map-math unit coverage; AzulPaint pen-state + chisel nib (now complete: clear, counter, multi-touch). AzulMaps' next step needs `get_location_fix`, which is a `codegen all` job (RED-reverted once; recipe logged) — disk-blocked.
 
 What's left all needs the user: (a) free disk, then do the get_location_fix codegen (register OptionLocationFix api.json type first — impl_option! prereq already landed P3.1h — then the getter + codegen); (b) the three decision-gated items (iOS/macOS permission request ObjC-blocks: objc2-vs-bridge; P3.3 tap-to-pin worker exposure; P2.3 HoverEventFilter variants). Recommend pausing the loop until one is addressed; committing only this log entry (no rebuild) to keep disk safe.
+
+### Tick — refresh SUPER_PLAN_2 §5 tracker to actual status (2026-05-20)
+
+Disk still ~97% (6.6 GiB) — not freed, so no code change again (a core/dll cascade or `codegen all` risks ENOSPC; the get_location_fix FFI exposure stays blocked). Took the one genuinely-useful zero-rebuild step: replaced the stale §5 tracker ("cron loop stopped, implementation starts next session") with an accurate DONE/GATED/BLOCKED snapshot of P1.1–P3.3, so the plan doc no longer misleads. Markdown-only; baseline gate GREEN (warm, ~0 disk).
+
+No new implementation. The two binding constraints are unchanged and both need the user: (1) free non-azul disk space to unblock the codegen exposure; (2) pick a decision-gated item (iOS/macOS permission request blocks; tap-to-pin worker exposure; P2.3 HoverEventFilter). Continuing to invoke without either yields only doc/no-op ticks at this point.

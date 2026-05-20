@@ -330,4 +330,28 @@ Total to ship five goal apps: **~54 days** at one engineer; substantially faster
 
 ## 5. Tracker
 
-The autonomous cron loop is **stopped** as of this document. Implementation starts in the next session, fed by `scripts/research/*.md`. The next session's bootstrap prompt is at `scripts/NEXT_SESSION_PROMPT.md`.
+Status as of 2026-05-20 (branch `mobile-ios-android`). Tick-by-tick detail in `scripts/MOBILE_SESSION_LOG.md`. All mobile work is verified by `cargo check` only (no iOS sim / Android emulator), so "done" means *compiles + correct per platform docs / unit-tested where pure-Rust*, not runtime-verified.
+
+**P1.1 fonts** — DONE. `rust-fontconfig` iOS (CoreText) + Android (`/system/fonts` walk) arms.
+
+**P1.2 permissions** — core DONE; some platform tails open.
+- Sync probe: iOS + Android + macOS (real native status getters). Linux/Windows probe: not done (desktop, low-value / unverifiable here).
+- Async result channel (`push_async_result`/`drain_async_results` in `azul-layout`) + layout-pass consumer: DONE + unit-tested.
+- Request path: Android `requestPermissions` producer DONE (Rust side; `AzulPermissions.java` glue pending). Apple location auth-changes routed to the channel. **iOS/macOS generic request: GATED** — needs ObjC completion blocks (objc2-migration vs objc-0.2 block-bridge decision).
+- Permission-diff pass wired to `NodeType::GeolocationProbe`: DONE.
+
+**P1.3 file pickers** — iOS open + directory DONE; Android open/save/directory DONE. iOS save deferred (needs an API decision — `initForExportingURLs` has no source-file in the signature).
+
+**P2 pen/touch (AzulPaint)** — DONE. `PenState` populated (is_eraser, barrel_button, multi-touch `TouchPointVec`, + `barrel_roll_rad` from Apple Pencil Pro `rollAngle`). AzulPaint demo complete (clear, point counter, pressure + chisel-nib brush). **P2.3 `HoverEventFilter::PenSqueeze/PenDoubleTap/PenHover`: GATED** — core-enum + codegen + dispatch + `UIPencilInteraction`.
+
+**P3.1 geolocation** — DONE (Rust side). Manager + probe-diff + async fix channel + session producers on Android/iOS/macOS + Apple auth-feedback. `CallbackInfo::get_location_fix` layout accessor + `impl_option!(LocationFix)` landed; **FFI exposure BLOCKED on disk** (a `codegen all` job; recipe in the session log — register `OptionLocationFix` api.json type first).
+
+**P3.2 MapWidget** — DONE + fully unit-tested (Web-Mercator projection, pan-delta, merge-callback cache survival, visible-tile range). MVT+MapCSS→SVG→DOM pipeline + VirtualView + thread-based fetch wired at source level. **Real-tile demo wiring: GATED** — worker-exposure decision (`dom_with_default_tiles()` vs `tile_fetch_thread_callback()`).
+
+**P3.3 AzulMaps** — demo with viewport state, pan/zoom toolbar, composed geolocation probe + placeholder dot. **Tap-to-pin GATED** (worker exposure); real-position dot needs the P3.1 `get_location_fix` FFI exposure.
+
+**P4 (AzulVault) / P5 (AzulDoc) / P6 (camera/sensors/gamepad)** — not started.
+
+### Blocking on the user
+1. **Disk** — volume at ~97% (6–7 GiB free; prior ENOSPC crisis at 100%). `codegen all` and core-cascade rebuilds risk corruption; needs non-azul space freed for durable headroom.
+2. **Decisions** (open ~15 ticks): iOS/macOS permission-request ObjC blocks; P3.3 tap-to-pin worker exposure; P2.3 `HoverEventFilter` variants.
