@@ -1855,3 +1855,13 @@ Mirror of camera.widget.4 / screencap.c. `autofix add VideoWidget.create/dom` �
 Verify: `mobile-check-all.sh` GREEN on all 5; `azul::widgets::VideoWidget` confirmed. Disk 7.7 GiB.
 
 **All 3 video-ish widgets codegen-exposed** (azul::widgets::{CameraWidget, ScreenCaptureWidget, VideoWidget}). Next P6.video.d: video demo (`examples/azul-video-app`, VideoWidget with colour-bars test pattern). Then the **DRY pass** (extract the shared capture core).
+
+### Tick — P6.video.d — azul-video-app demo (video-ish widget trio COMPLETE) (2026-05-20)
+
+Mirror of the camera/screenshare demos. `examples/azul-video-app`: `VideoWidget::create(VideoConfig::default()).dom()` (640×360 preview); test-pattern worker shows scrolling colour bars on any machine. Pure public `azul::widgets::VideoWidget`.
+
+Verify: `cargo check -p azul-video-app` clean (host, 22s). dll untouched → mobile gate stays GREEN. Disk 9.4 GiB.
+
+**🎯 VIDEO-ISH WIDGET TRIO COMPLETE**: camera / screenshare / video, each = core POD types + widget (RefAny dataset + AfterMount thread + writeback GL-texture install-once/re-upload + recomposite + test-pattern worker) + codegen-exposed (`azul::widgets::{CameraWidget, ScreenCaptureWidget, VideoWidget}`) + runnable demo. The "dumb widget" pivot delivered: zero camera/screencap/video logic in core; all on the public api.json surface.
+
+Next: the **DRY pass** — extract the now-thrice-duplicated thread+writeback+GL core (VideoFrame + upload_rgba + install-once writeback) into `layout/src/widgets/capture_common.rs`, collapsing the 3 widgets to thin config+worker wrappers. Then wacom → audio → enc/dec → UDP → azul-meet. (Real platform capture/decode workers: AVFoundation/ScreenCaptureKit/vk-video = on-machine batch.)

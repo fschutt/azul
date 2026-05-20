@@ -1,0 +1,24 @@
+[package]
+name = "azul-video-app"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzVideo — a video-playback demo, the P6 demo for the video widget.
+    `VideoWidget::create(config).dom()` embeds a live `<img>` fed by a
+    background decode thread whose writeback uploads each frame into a GL
+    texture + recomposites — identical architecture to the camera/screencap
+    widgets, only the source differs (a video URL/file). With the built-in
+    test-pattern worker it shows scrolling colour bars on any machine; the
+    real vk-video decode + HTTP-range worker swaps in later. Pure public
+    `azul::` surface (azul::widgets::VideoWidget).
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static"] }
+
+[[bin]]
+name = "azul-video-app"
+path = "src/main.rs"
