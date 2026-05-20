@@ -1,0 +1,24 @@
+[package]
+name = "azul-screenshare-app"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzScreenShare — a screen-capture demo, the P6 demo for the screencap
+    widget. `ScreenCaptureWidget::create(config).dom()` embeds a live `<img>`
+    fed by a background capture thread whose writeback uploads each frame into
+    a GL texture + recomposites — identical architecture to the camera widget,
+    only the source differs (a display/window). With the built-in test-pattern
+    worker it shows a moving band on any machine; the real ScreenCaptureKit /
+    MediaProjection worker swaps in later. Pure public `azul::` surface
+    (azul::widgets::ScreenCaptureWidget).
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static"] }
+
+[[bin]]
+name = "azul-screenshare-app"
+path = "src/main.rs"

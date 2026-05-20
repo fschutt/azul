@@ -1820,3 +1820,11 @@ Mirror of camera.widget.4. `autofix add ScreenCaptureWidget.create/dom` → adde
 Verify: `mobile-check-all.sh` GREEN on all 5; `azul::widgets::ScreenCaptureWidget` confirmed in reexports.rs. Disk 8.4 GiB.
 
 Next P6.screencap.d: the screenshare demo (`examples/azul-screenshare-app`) — `ScreenCaptureWidget::create(ScreenCaptureConfig::default()).dom()`, runnable with the test pattern (moving band). Then the **video widget** (vk-video) → then the DRY pass (extract camera/screencap/video shared core).
+
+### Tick — P6.screencap.d — azul-screenshare-app demo (2026-05-20)
+
+Mirror of azul-camera-app. `examples/azul-screenshare-app` (added to workspace): `ScreenCaptureWidget::create(ScreenCaptureConfig::default()).dom()` in a layout (640×360 16:9 preview). Pure public `azul::widgets::ScreenCaptureWidget` + `azul::misc::{ScreenCaptureConfig, ScreenCaptureSource}`. Runs on any machine with the moving-band test pattern.
+
+Verify: `cargo check -p azul-screenshare-app` clean (host, 23s). dll untouched → mobile gate stays GREEN. Disk 10 GiB.
+
+**Screenshare widget COMPLETE: core ✅ · widget ✅ · codegen ✅ · demo ✅** (4 mirror ticks off camera). 2 of 3 video-ish widgets done. Next: the **video widget** (vk-video — decode + HTTP-range), then the DRY pass (extract camera/screencap/video shared thread+writeback+GL core into a common module).
