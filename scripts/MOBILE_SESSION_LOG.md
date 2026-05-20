@@ -984,3 +984,11 @@ Why it broke: codegen emitted `AzCallbackInfo_getLocationFix(...) -> AzOptionLoc
 Revert: `git checkout api.json core/src/geolocation.rs` + `codegen all` to regenerate consistent output; gate GREEN again (16/15/15/16/17 s). The committed P3.1f layout method is unaffected (returns std `Option`, compiles).
 
 NEXT attempt (clean recipe, de-risked): (1) keep `impl_option!(LocationFix)`; (2) FIRST register `OptionLocationFix` as an api.json type (try `autofix add OptionLocationFix`; if unsupported, mirror the `OptionPenState` entry); (3) THEN `autofix add CallbackInfo.get_location_fix`; (4) `codegen all`; (5) gate. The P3.1g heuristic fix already ensures correct module placement. Disk 94%.
+
+### Tick — P3.1h impl_option!(LocationFix) — exposure prereq (2026-05-20) + DISK CRITICAL
+
+Landed the one no-codegen step of the `get_location_fix` exposure recipe: `impl_option!(LocationFix, OptionLocationFix, [Debug,Clone,Copy,PartialEq])` in `azul-core` (mirrors OptionPenState). Adds the Rust `OptionLocationFix` type the FFI exposure needs; unused internally today. `bash scripts/mobile-check-all.sh` GREEN on all 5 targets.
+
+**DISK CRITICAL — recommend pausing heavy ticks.** This core change cascade-rebuilt all targets and pushed the volume 96% → **97% (6.5 GiB free)**; purging all incremental dirs did NOT recover it (the space is in needed build objects). azul `target/` is ~12 GiB but the volume is 200/228 GiB used — the bulk is non-azul. `cargo clean` only frees ~12 GiB transiently (the gate rebuilds it right back), so it's not durable relief. The earlier ENOSPC crisis was at 100%; we're close. The next codegen tick (the get_location_fix exposure, which already RED-reverted once and runs `codegen all` ×1-2) is the most disk-hungry remaining work and should NOT run until the volume has real headroom — the user freeing non-azul space is the only durable fix.
+
+Recommend: pause the loop, free disk, then resume with the get_location_fix codegen (recipe in the prior entry: register OptionLocationFix api.json type FIRST, then the getter, then codegen all). Three decision-gated items also still open.

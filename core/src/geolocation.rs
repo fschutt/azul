@@ -39,6 +39,13 @@ pub struct LocationFix {
     pub timestamp_ms: u64,
 }
 
+// FFI Option wrapper (mirrors OptionPenState). Lets `CallbackInfo::
+// get_location_fix() -> Option<LocationFix>` cross the C ABI once the
+// matching api.json type entry + getter are registered via the autofix
+// workflow. Unused internally today; this is the no-codegen prerequisite
+// for that exposure (see MOBILE_SESSION_LOG P3.1h).
+impl_option!(LocationFix, OptionLocationFix, [Debug, Clone, Copy, PartialEq]);
+
 impl LocationFix {
     pub fn altitude(&self) -> Option<f32> {
         if self.altitude_m.is_nan() {
