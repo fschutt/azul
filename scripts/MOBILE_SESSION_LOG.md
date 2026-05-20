@@ -1100,3 +1100,12 @@ Small UX completion for tap-to-pin (AzulPaint has Clear; the map now does too). 
 `cargo check -p azul-maps` clean; `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (warm). Disk ~97%.
 
 AzulMaps (P3.3) is now genuinely complete: pan/zoom toolbar, locate-me (probe + recentre + dot + readout), tap-to-pin-callout, clear pins. Bar real tiles (gated). This exhausts the clean leaf work I can see — the Maps + geolocation surface is done end-to-end through the public API. Remaining is all decision-gated or codegen/disk-blocked (P3.2 real-tile worker exposure; P2.3 HoverEventFilter; iOS/macOS permission-request blocks; live-locate Timer needs get_location_fix on TimerCallbackInfo + disk headroom).
+
+### Tick — HOLD: clean leaf work exhausted; awaiting disk/decision (2026-05-20)
+
+No code change (baseline GREEN, warm). AzulMaps is feature-complete (P3.3f), and with it the whole reachable Maps + geolocation surface (P3.1/P3.2/P3.3) plus P1/P2 — every clean, low-disk item is done. The remaining work is all blocked on the user, and I will not force it autonomously:
+- Real-tile wiring (P3.2) needs the worker-exposure API choice the user *explicitly deferred* (`dom_with_default_tiles()` vs `tile_fetch_thread_callback()`) — a public-API decision I don't have authorization to make.
+- P2.3 HoverEventFilter + live-locate Timer accessor are codegen/cascade work — risky at 97% disk (6–8 GiB; ENOSPC crisis was 100%).
+- iOS/macOS permission-request ObjC blocks are unverifiable/fragile.
+
+Committing only this log (no rebuild). This is the Nth consecutive blocked tick; the loop has met its goals for the currently-reachable scope. Resume needs: free non-azul disk (then live-locate Timer + real tiles), or a one-word pick of a gated item.
