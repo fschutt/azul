@@ -1337,3 +1337,13 @@ Verify (3 checks):
 So: db-sqlite is host-verified + builds in the shipped dll where cc is configured; the bundled-SQLite cross-compile env (CC_<target>) is a follow-up build-infra item (a `.cargo/config.toml` or gate env export). Disk 97% → purging.
 
 Next P4.3c: the `Db` handle in `dll/extra/sqlite/` (opaque `rusqlite::Connection`, lives in dll like `App`) + `open`/`execute`/`query` mapping `DbValue`↔rusqlite, verified via the host `+db-sqlite` check. Then P4.3d api.json/codegen.
+
+### Tick — P4.3c — Db engine handle (open/execute/query via rusqlite) (2026-05-20)
+
+The real SQLite engine, behind `db-sqlite`. `rusqlite::types::Value` is a 1:1 match for `DbValue`, so the marshalling is trivial.
+
+- `dll/extra/sqlite/mod.rs`: `Db { ptr: *mut c_void }` — opaque, repr(C), FFI-safe handle wrapping a boxed `rusqlite::Connection` (lives in dll like `App`; freed on `Drop`, which the api.json destructor will map to). `open(path)→Db` (null ptr = failed, `is_open()`), `execute(sql, params: DbValueVec)→usize` (rows affected; `params_from_iter`), `query(sql, params)→DbRows` (snapshots column names before the mut query borrow, collects cells row-major). `db_to_value`/`value_to_db` map `DbValue`↔`rusqlite::Value`. Degrades safely on a closed handle (execute→0, query→empty).
+
+Verify: macOS host check `+db-sqlite` CLEAN (Db + rusqlite compile); normal `mobile-check-all.sh` GREEN on all 5 (module cfg'd out — instant, fully isolated). Disk 96%.
+
+Next P4.3d: expose `Db` + methods via api.json/codegen. Challenge: `Db` is feature-gated (`db-sqlite`) and dll-resident — the generated C-API fns need `#[cfg(feature="db-sqlite")]`, and the gate (no db-sqlite) must still compile the generated bindings. Investigate how codegen handles feature-gated/dll types (App is the always-present precedent; Db is the gated case). If codegen can't gate cleanly, options: (a) always-compile Db with a runtime "unavailable" stub when the feature's off, or (b) add a codegen cfg annotation. Then P4.4 AzulVault.
