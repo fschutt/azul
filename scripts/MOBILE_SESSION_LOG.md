@@ -2094,3 +2094,14 @@ Part 1 of the user-endorsed input custom-events (so apps react to sensor/gamepad
 - codegen all; gate GREEN on all 5.
 
 The filters are now attachable + route. **Part 2 (firing): `EventProvider` impls on SensorManager/GamepadManager** (yield a `SyntheticEvent{SensorChanged}` for the root node when the already-computed `changed` bool flips; currently discarded at layout.rs:852/879) + add them to the dll's `event_providers` (event.rs:3532) + clear after dispatch. Like the GL/sensor-backend code, runtime firing is on-device (no sensor backend / event loop here); the EventProvider structure is compile-verified.
+
+### Tick — P6.input-events.2 — EventProvider firing (sensors + gamepad) — P6 COMPLETE (2026-05-21)
+
+Part 2: wired the actual firing. `SensorManager`/`GamepadManager` now impl `azul_core::events::EventProvider`:
+- A `pending_event` flag set by `set_reading`/`set_state` when the reading/state advances (reusing the `changed` bool that was discarded), read by `get_pending_events` → yields a window-level `SyntheticEvent{SensorChanged/GamepadInput, target=DomNodeId::ROOT, EventData::None}`, cleared by `clear_pending_event`.
+- dll (`event.rs` ~3530): added both managers to `event_providers` (alongside text_input) so `determine_all_events` collects their events; clears the flags after collection (one event per change, not per frame). Borrow ordering: immutable provider refs end before the `&mut` clear (NLL).
+- Gate GREEN on all 5. **Runtime firing is on-device** (no sensor/gamepad backend or event loop here — same as the camera/GL code); the EventProvider structure + routing are compile-verified.
+
+Apps can now `.with_callback(EventFilter::Window(WindowEventFilter::SensorChanged), data, cb)` and read the value via `get_sensor_reading` inside — no Timer poll-loop. **P6 COMPLETE** (sensors · gamepad · camera · screencap · video · wacom · all the API fixes: capture hooks · PDF uncouple · MapWidget hooks+projection · input events).
+
+NEXT: **P7** — audio (MicrophoneWidget capture + AudioWidget playback, reusing the set_on_frame hook pattern) + video enc/dec (vk-video). Then P8 (UDP/azul-meet) -> P9 (synthetic-event e2e) -> P10 (docs).

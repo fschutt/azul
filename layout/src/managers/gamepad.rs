@@ -20,6 +20,11 @@
 
 use alloc::vec::Vec;
 
+use azul_core::dom::DomNodeId;
+use azul_core::events::{
+    EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent,
+};
+use azul_core::task::Instant;
 pub use azul_core::gamepad::{GamepadAxis, GamepadButton, GamepadId, GamepadState};
 
 /// Cross-platform gamepad state. One per `App` — the OS exposes a single
@@ -29,6 +34,9 @@ pub struct GamepadManager {
     /// One slot per pad seen this session; `connected` flips to `false` on
     /// unplug (the slot is retained so a callback can observe it).
     pads: Vec<GamepadState>,
+    /// `true` when a pad's state advanced since the last event-pass drain.
+    /// Set by [`set_state`](Self::set_state); cleared by the dll after dispatch.
+    pending_event: bool,
 }
 
 impl GamepadManager {
@@ -56,13 +64,42 @@ impl GamepadManager {
     /// if it advanced (bit-pattern different from the previous slot), so an
     /// idle controller doesn't make every frame look "changed".
     pub fn set_state(&mut self, state: GamepadState) -> bool {
-        if let Some(slot) = self.pads.iter_mut().find(|p| p.id == state.id) {
+        let changed = if let Some(slot) = self.pads.iter_mut().find(|p| p.id == state.id) {
             let changed = !state_bitwise_eq(slot, &state);
             *slot = state;
             changed
         } else {
             self.pads.push(state);
             true
+        };
+        if changed {
+            self.pending_event = true;
+        }
+        changed
+    }
+
+    /// Clear the pending-event flag. The dll calls this after the event pass
+    /// has collected the `GamepadInput` event.
+    pub fn clear_pending_event(&mut self) {
+        self.pending_event = false;
+    }
+}
+
+impl EventProvider for GamepadManager {
+    /// Yield a window-level `GamepadInput` event when a pad's state advanced
+    /// since the last drain (target = root; read it via
+    /// `CallbackInfo::get_primary_gamepad` / `get_gamepad_state`).
+    fn get_pending_events(&self, timestamp: Instant) -> Vec<SyntheticEvent> {
+        if self.pending_event {
+            alloc::vec![SyntheticEvent::new(
+                EventType::GamepadInput,
+                CoreEventSource::User,
+                DomNodeId::ROOT,
+                timestamp,
+                EventData::None,
+            )]
+        } else {
+            Vec::new()
         }
     }
 }

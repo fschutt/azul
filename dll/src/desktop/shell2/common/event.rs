@@ -3523,13 +3523,17 @@ pub trait PlatformWindow {
         let file_drop_manager = self.get_layout_window().map(|w| &w.file_drop_manager);
         let hover_manager = self.get_layout_window().map(|w| &w.hover_manager);
 
-        // Get EventProvider managers (text input, etc.)
-        let text_manager_ref = self.get_layout_window().map(|w| &w.text_input_manager);
+        // Get EventProvider managers (text input, sensors, gamepad).
+        let providers_ref = self
+            .get_layout_window()
+            .map(|w| (&w.text_input_manager, &w.sensor_manager, &w.gamepad_manager));
 
         // Build list of EventProvider managers
         let mut event_providers: Vec<&dyn azul_core::events::EventProvider> = Vec::new();
-        if let Some(tm) = text_manager_ref.as_ref() {
-            event_providers.push(*tm as &dyn azul_core::events::EventProvider);
+        if let Some((tm, sm, gm)) = providers_ref {
+            event_providers.push(tm as &dyn azul_core::events::EventProvider);
+            event_providers.push(sm as &dyn azul_core::events::EventProvider);
+            event_providers.push(gm as &dyn azul_core::events::EventProvider);
         }
 
         // Get current timestamp
@@ -3556,6 +3560,14 @@ pub trait PlatformWindow {
             // Fallback: no events if managers not available
             Vec::new()
         };
+
+        // Clear the sensor/gamepad pending-event flags now that this pass has
+        // collected their events (the immutable event_providers borrow ended
+        // above). One SensorChanged/GamepadInput fires per change, not per frame.
+        if let Some(w) = self.get_layout_window_mut() {
+            w.sensor_manager.clear_pending_event();
+            w.gamepad_manager.clear_pending_event();
+        }
 
         if synthetic_events.is_empty() {
             return ProcessEventResult::DoNothing;

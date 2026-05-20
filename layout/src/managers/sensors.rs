@@ -17,6 +17,11 @@
 
 use alloc::vec::Vec;
 
+use azul_core::dom::DomNodeId;
+use azul_core::events::{
+    EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent,
+};
+use azul_core::task::Instant;
 pub use azul_core::sensors::{SensorKind, SensorReading};
 
 /// Cross-platform sensor state. One per `App` — the OS exposes a single
@@ -29,6 +34,10 @@ pub struct SensorManager {
     pub gyroscope: Option<SensorReading>,
     /// Latest magnetometer reading (µT).
     pub magnetometer: Option<SensorReading>,
+    /// `true` when a reading advanced since the last event-pass drain. Set by
+    /// [`set_reading`](Self::set_reading), read by the `EventProvider` impl,
+    /// cleared by [`clear_pending_event`](Self::clear_pending_event).
+    pub pending_event: bool,
 }
 
 impl SensorManager {
@@ -59,7 +68,35 @@ impl SensorManager {
             None => true,
         };
         *slot = Some(reading);
+        if changed {
+            self.pending_event = true;
+        }
         changed
+    }
+
+    /// Clear the pending-event flag. The dll calls this after the event pass
+    /// has collected the `SensorChanged` event (mirrors `clear_changeset`).
+    pub fn clear_pending_event(&mut self) {
+        self.pending_event = false;
+    }
+}
+
+impl EventProvider for SensorManager {
+    /// Yield a window-level `SensorChanged` event when a reading advanced
+    /// since the last drain (target = root; read the value via
+    /// `CallbackInfo::get_sensor_reading` inside the callback).
+    fn get_pending_events(&self, timestamp: Instant) -> Vec<SyntheticEvent> {
+        if self.pending_event {
+            alloc::vec![SyntheticEvent::new(
+                EventType::SensorChanged,
+                CoreEventSource::User,
+                DomNodeId::ROOT,
+                timestamp,
+                EventData::None,
+            )]
+        } else {
+            Vec::new()
+        }
     }
 }
 
