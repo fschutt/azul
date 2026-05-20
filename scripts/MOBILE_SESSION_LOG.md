@@ -852,3 +852,13 @@ Completed the synchronous probe path on the third platform: `permission/macos.rs
 macOS isn't in the mobile gate (it's `cfg(target_os="macos")`), so verified two ways: host `cargo check -p azul-dll --no-default-features --features std,logging,link-static,a11y` compiles macos.rs clean (18.5s); `bash scripts/mobile-check-all.sh` GREEN on all 5 mobile targets (no regression). Internal dll platform code — no api.json/codegen change. Disk 94%, incremental cleared.
 
 Probe path now real on iOS + Android + macOS. Still open for the user (unchanged): iOS/macOS request producers (objc completion-block approach call); P3.3 tap-to-pin worker exposure.
+
+### Tick — P3.2p test the merge-callback cache-survival invariant (2026-05-20)
+
+Locked down the behaviour the user explicitly designed for — "the tile cache survives relayout via a merge-callback RefAny dataset." `merge_map_tile_cache` had no tests; this validates the invariant rather than drifting into more pure-math.
+
+- +2 azul-layout tests: (1) a tile marked Ready in the old cache survives into the freshly-rebuilt cache while the *new* viewport (the one the layout pass just attached) wins; (2) when both frames hold the same tile id, the new frame's entry is not clobbered (`or_insert_with` semantics). Build real `MapTileCache`s, wrap in `RefAny`, call the actual callback, downcast + assert. 12/12 map tests pass.
+
+Context for the reader: P1.2/P1.3 mobile + the iOS/Android/macOS probe path are done; the genuinely-remaining high-value work is either user-gated (iOS/macOS request producers = ObjC-completion-block approach call; P3.3 tap-to-pin worker exposure) or a multi-tick core+codegen lift (P2.3 PenState/HoverEventFilter extension). Linux/Windows probes aren't verifiable from this macOS host. So this tick hardened an existing user-critical invariant while those decisions are pending.
+
+`bash scripts/mobile-check-all.sh` GREEN on all 5 targets (6/6/8/7/6 s). Private widget internals — no api.json/codegen change. Disk 93%, incremental cleared.

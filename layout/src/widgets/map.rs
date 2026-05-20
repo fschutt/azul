@@ -992,4 +992,57 @@ mod tests {
         let (lon, _) = pan_viewport(0.0, 179.0, 0.0, -100.0, 0.0);
         assert!((-180.0..180.0).contains(&lon), "lon {lon} out of range");
     }
+
+    fn viewport_at(zoom: f32) -> MapViewport {
+        MapViewport {
+            centre_lat_deg: 0.0,
+            centre_lon_deg: 0.0,
+            zoom,
+            bearing_deg: 0.0,
+            pitch_deg: 0.0,
+        }
+    }
+
+    #[test]
+    fn merge_preserves_old_tiles_and_keeps_new_viewport() {
+        // The merge callback is what lets the tile cache survive relayout:
+        // a tile downloaded last frame must still be present in the cache
+        // the layout pass rebuilds this frame, without re-fetching.
+        let tile = MapTileId { z: 5, x: 1, y: 2 };
+        let mut old_cache = MapTileCache::new(MapTileLayer::default(), viewport_at(5.0));
+        old_cache.mark_tile_ready(tile, AzString::from("<svg/>"));
+        // Fresh cache as rebuilt by dom() each relayout: new viewport, no tiles.
+        let new_cache = MapTileCache::new(MapTileLayer::default(), viewport_at(9.0));
+
+        let mut merged =
+            merge_map_tile_cache(RefAny::new(new_cache), RefAny::new(old_cache));
+        let g = merged.downcast_ref::<MapTileCache>().unwrap();
+
+        // Downloaded tile survived the relayout...
+        assert!(g.tiles.contains_key(&tile), "old tile must survive relayout");
+        // ...but the freshest viewport (just attached by the layout pass) wins.
+        approx(g.viewport.zoom as f64, 9.0, 1e-6);
+    }
+
+    #[test]
+    fn merge_keeps_new_tile_over_old() {
+        // When both frames have the same tile, the new frame's entry wins
+        // (or_insert_with must not clobber a freshly-stamped tile).
+        let tile = MapTileId { z: 5, x: 1, y: 2 };
+        let mut old_cache = MapTileCache::new(MapTileLayer::default(), viewport_at(5.0));
+        old_cache.mark_tile_ready(tile, AzString::from("OLD"));
+        let mut new_cache = MapTileCache::new(MapTileLayer::default(), viewport_at(5.0));
+        new_cache.mark_tile_ready(tile, AzString::from("NEW"));
+
+        let mut merged =
+            merge_map_tile_cache(RefAny::new(new_cache), RefAny::new(old_cache));
+        let g = merged.downcast_ref::<MapTileCache>().unwrap();
+
+        match g.tiles.get(&tile) {
+            Some(TileEntry::Ready { svg }) => {
+                assert_eq!(svg.as_str(), "NEW", "new frame's tile must not be clobbered");
+            }
+            other => panic!("expected Ready, got {other:?}"),
+        }
+    }
 }
