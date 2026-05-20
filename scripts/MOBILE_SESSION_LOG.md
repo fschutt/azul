@@ -1496,3 +1496,14 @@ User directive: patch printpdf to OUR azul-layout (single version, no two copies
 Restored green: kept printpdf at `default-features = false` (core PdfDocument/Op only, pulls ZERO azul-layout → the dll already links exactly one azul-layout = ours; the "no two versions" goal is met, just by printpdf using none). Patch lines documented (commented) in root Cargo.toml, ready to re-add once printpdf's font.rs is fixed.
 
 Verify: host `+pdf` CLEAN; `mobile-check-all.sh` GREEN. The 2nd directive (AzJson read/write PDF C API) works on core printpdf (serde) regardless — proceeding with that.
+
+### Tick — P5.1/printpdf — RESOLVED: printpdf shares OUR azul-layout (single version) (2026-05-20)
+
+Per the user: updated printpdf to our `ParsedFont` API + wired it to share our azul-layout. Single azul-layout in the dll, no conflict.
+
+- **printpdf** (separate repo, branch `azul-mobile-parsedfont-compat`, commit 09d15ee — for a PR): fixed `font.rs`/`serialize.rs` for our updated `ParsedFont`: `glyph_records_decoded` → `get_or_decode_glyph(gid)`; `original_bytes: Option<Arc<FontBytes>>` (FontBytes is an enum, `.as_slice() -> &[u8]`) in subset_font + serialize.
+- **azul-mobile** root `Cargo.toml` `[patch.crates-io]`: `azul-css`/`azul-core`/`azul-layout` → our local paths + `printpdf` → `/Users/fschutt/Development/printpdf` (the branch). `dll/Cargo.toml`: printpdf `features = ["text_layout"]` (shares our azul-layout; drops only heavy `html`/`kuchiki`).
+
+Verify: host `+pdf` (text_layout, fixed printpdf vs our azul-layout) CLEAN; `mobile-check-all.sh` GREEN on all 5 (no-pdf builds emit a harmless "unused patch" warning — patches only apply when printpdf is pulled); `azul-doc-demo` (pdf+text_layout) CLEAN. Disk 98%/6.2 GiB → purging.
+
+Now printpdf links exactly one azul-layout (ours) with full text_layout. Next: the AzJson read/write PDF C API (printpdf PdfDocument serde ↔ azul::Json), ABI-stable per the user — the 2nd directive.
