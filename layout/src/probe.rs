@@ -38,7 +38,11 @@ mod imp {
     impl Drop for Span {
         fn drop(&mut self) {
             let dur_ns = self.start.elapsed().as_nanos() as u64;
-            EVENTS.with(|cell| {
+            // try_with (not with): the lifted-to-wasm web backend has no real
+            // TLS, so `with` hits panic_access_error. These probe accesses are
+            // inlined into layout_dom_recursive/layout_document, so they can't
+            // be stubbed at the symbol level — use the non-panicking access.
+            let _ = EVENTS.try_with(|cell| {
                 cell.borrow_mut().push(super::Event {
                     name: self.name,
                     kind: super::EventKind::Span { dur_ns },
@@ -52,7 +56,8 @@ mod imp {
     }
 
     pub(super) fn sample_rss(label: &'static str, bytes: u64) {
-        EVENTS.with(|cell| {
+        // try_with: see Span::drop — no real TLS in the lifted wasm backend.
+        let _ = EVENTS.try_with(|cell| {
             cell.borrow_mut().push(super::Event {
                 name: label,
                 kind: super::EventKind::Rss { bytes },
@@ -61,15 +66,17 @@ mod imp {
     }
 
     pub(super) fn drain() -> Vec<super::Event> {
-        EVENTS.with(|cell| core::mem::take(&mut *cell.borrow_mut()))
+        EVENTS
+            .try_with(|cell| core::mem::take(&mut *cell.borrow_mut()))
+            .unwrap_or_default()
     }
 
     pub(super) fn drop_events() {
-        EVENTS.with(|cell| cell.borrow_mut().clear());
+        let _ = EVENTS.try_with(|cell| cell.borrow_mut().clear());
     }
 
     pub(super) fn peek_len() -> usize {
-        EVENTS.with(|cell| cell.borrow().len())
+        EVENTS.try_with(|cell| cell.borrow().len()).unwrap_or(0)
     }
 
     pub(super) fn enabled() -> bool {

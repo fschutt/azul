@@ -139,12 +139,16 @@ std::thread_local! {
 /// drove the most cascade walks.
 #[cfg(feature = "std")]
 pub fn drain_css_prop_counts() -> Vec<(&'static str, usize)> {
-    PROP_COUNTS.with(|c| {
-        let map = core::mem::take(&mut *c.borrow_mut());
-        let mut v: Vec<_> = map.into_iter().collect();
-        v.sort_by(|a, b| b.1.cmp(&a.1));
-        v
-    })
+    // try_with: no real TLS in the lifted-to-wasm web backend (see the
+    // get_property recording site) — return empty rather than panic.
+    PROP_COUNTS
+        .try_with(|c| {
+            let map = core::mem::take(&mut *c.borrow_mut());
+            let mut v: Vec<_> = map.into_iter().collect();
+            v.sort_by(|a, b| b.1.cmp(&a.1));
+            v
+        })
+        .unwrap_or_default()
 }
 
 // Unit conversion constants (CSS absolute units → pixels)
@@ -1877,7 +1881,13 @@ impl CssPropertyCache {
         static PROP_COUNT_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         let enabled = *PROP_COUNT_ENABLED.get_or_init(crate::profile::cascade_enabled);
         if enabled {
-            PROP_COUNTS.with(|c| {
+            // `try_with` (not `with`): the lifted-to-wasm web backend has no
+            // real TLS, so `with` would hit `panic_access_error` (the layout
+            // path reads CSS props via these getters → would trap). `try_with`
+            // returns Err and we skip the profiling-only increment (and its
+            // inner Mutex-guarded label table). Desktop behaviour unchanged —
+            // when the env var is unset the whole block is gated off anyway.
+            let _ = PROP_COUNTS.try_with(|c| {
                 *c.borrow_mut()
                     .entry(Self::css_prop_type_label(css_property_type))
                     .or_insert(0) += 1;
