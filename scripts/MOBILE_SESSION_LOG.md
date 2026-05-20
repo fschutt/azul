@@ -1472,3 +1472,15 @@ First P6 (horizontal expansions) step — sensors, the cleanest per-feature fit 
 Verify: `managers::sensors::` 4/4 tests pass; `mobile-check-all.sh` GREEN on all 5. **Disk hit 99%/2.9 GiB after the gate rebuild** — purged all incremental → 7.4 GiB. (Volume is mostly non-azul; the printpdf/rusqlite/objc2 deps grew target/. Watching the downtrend; will do a bigger clean if a purge leaves <4 GiB.)
 
 Next P6.sensors.b: embed `SensorManager` in `LayoutWindow` + dll drain (`drain_sensor_readings` → `set_reading`) + `CallbackInfo::get_sensor_reading(kind)` accessor. Then P6.sensors.c codegen + .d backends (iOS CoreMotion / Android SensorManager JNI). Then the other P6 features (camera/gamepad/wacom/screencap).
+
+### Tick — P6.sensors.b — sensor manager live in runtime (embed + drain + accessor) (2026-05-20)
+
+Runtime plumbing for P6.sensors.a, mirroring geolocation/biometric exactly.
+
+- `layout/src/window.rs`: `sensor_manager: SensorManager` field on `LayoutWindow` + 3 ctor inits (next to `keyring_manager`).
+- `dll/.../shell2/common/layout.rs`: "7h" drain block — `drain_sensor_readings()` → `set_reading()` each layout pass (folds latest per kind), marks dirty on change. Consumer live; native producer (CoreMotion/Android SensorManager) is a later tick.
+- `layout/src/callbacks.rs`: `CallbackInfo::get_sensor_reading(kind) -> Option<SensorReading>` (reads the manager), beside `get_location_fix`.
+
+Verify: `managers::sensors::` 4/4 tests pass; `mobile-check-all.sh` GREEN on all 5 (E0063 "missing sensor_manager" diagnostics were stale rust-analyzer — counts matched, gate confirms). Disk spiked to 4.2 GiB during the gate → purged incremental → 7.4 GiB.
+
+Next was P6.sensors.c (codegen) — but the user redirected the PDF/printpdf approach (see next tick): patch printpdf to use OUR azul-layout (single version, no two-azul-layout link) + an AzJson-based read/write PDF C API (ABI-stable, like printpdf's wasm api). That reworks P5.1; doing it next.

@@ -431,6 +431,11 @@ pub struct LayoutWindow {
     /// the OS keyring (Keychain / KeyStore / libsecret / CredentialLocker)
     /// and parks results in the async channel the layout pass folds in here.
     pub keyring_manager: crate::managers::keyring::KeyringManager,
+    /// Cross-platform motion-sensor state — latest accel / gyro / mag
+    /// reading. The platform backend (`dll::desktop::extra::sensors`)
+    /// subscribes to CoreMotion / Android `SensorManager` and parks
+    /// readings in the async channel the layout pass folds in here.
+    pub sensor_manager: crate::managers::sensors::SensorManager,
     /// Timers associated with this window
     pub timers: BTreeMap<TimerId, Timer>,
     /// Threads running in the background for this window
@@ -599,6 +604,7 @@ impl LayoutWindow {
             geolocation_manager: crate::managers::geolocation::GeolocationManager::new(),
             biometric_manager: crate::managers::biometric::BiometricManager::new(),
             keyring_manager: crate::managers::keyring::KeyringManager::new(),
+            sensor_manager: crate::managers::sensors::SensorManager::new(),
             timers: BTreeMap::new(),
             threads: BTreeMap::new(),
             renderer_resources: RendererResources::default(),
@@ -687,6 +693,7 @@ impl LayoutWindow {
             geolocation_manager: crate::managers::geolocation::GeolocationManager::new(),
             biometric_manager: crate::managers::biometric::BiometricManager::new(),
             keyring_manager: crate::managers::keyring::KeyringManager::new(),
+            sensor_manager: crate::managers::sensors::SensorManager::new(),
             timers: BTreeMap::new(),
             threads: BTreeMap::new(),
             renderer_resources: RendererResources::default(),
@@ -774,6 +781,7 @@ impl LayoutWindow {
             geolocation_manager: crate::managers::geolocation::GeolocationManager::new(),
             biometric_manager: crate::managers::biometric::BiometricManager::new(),
             keyring_manager: crate::managers::keyring::KeyringManager::new(),
+            sensor_manager: crate::managers::sensors::SensorManager::new(),
             timers: BTreeMap::new(),
             threads: BTreeMap::new(),
             renderer_resources: RendererResources::default(),

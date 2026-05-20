@@ -3129,6 +3129,18 @@ impl CallbackInfo {
         self.get_layout_window().geolocation_manager.latest_fix()
     }
 
+    /// Get the latest motion-sensor reading for `kind` (Accelerometer /
+    /// Gyroscope / Magnetometer), or `None` if no platform backend has
+    /// delivered one. Kept live by the sensor backends (iOS CoreMotion,
+    /// Android `SensorManager`) via the async channel the layout pass folds
+    /// into the manager — so a callback can drive tilt / shake / compass UI.
+    pub fn get_sensor_reading(
+        &self,
+        kind: azul_core::sensors::SensorKind,
+    ) -> Option<azul_core::sensors::SensorReading> {
+        self.get_layout_window().sensor_manager.reading(kind)
+    }
+
     /// Get the most recent biometric-auth result, or `None` if no
     /// `request_biometric_auth` has completed yet. Kept live by the
     /// platform backends (iOS/macOS `LAContext`, Android `BiometricPrompt`,

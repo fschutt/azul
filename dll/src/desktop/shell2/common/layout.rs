@@ -827,6 +827,26 @@ pub fn regenerate_layout(
         }
     }
 
+    // 7h. Drain motion-sensor readings a platform backend parked since the
+    // last pass (CoreMotion / Android SensorManager fire on arbitrary
+    // threads with no handle to this LayoutWindow, so they park readings in
+    // azul-layout's process-global channel) and fold the latest per kind
+    // into the manager. (No producer fires yet — the native backend is a
+    // later tick — but the consumer is live and unit-tested in azul-layout.)
+    {
+        let readings = azul_layout::managers::sensors::drain_sensor_readings();
+        let mut changed = false;
+        for reading in readings {
+            changed |= layout_window.sensor_manager.set_reading(reading);
+        }
+        if changed {
+            log_debug!(
+                LogCategory::Layout,
+                "[regenerate_layout] applied async sensor reading"
+            );
+        }
+    }
+
     log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE");
     azul_layout::probe::emit_phase_heap("end");
 
