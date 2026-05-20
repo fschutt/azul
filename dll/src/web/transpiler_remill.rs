@@ -1064,10 +1064,14 @@ impl RemillTranspiler {
                 fn_name,
             )?;
 
-            // M12.5y FIX: enforce SP preservation across lifted calls (env
-            // AZ_FIX_SP). Repairs callees (e.g. CssProperty::clone) whose lift
-            // drops the epilogue `add sp` and leak SP into the caller's frame.
-            if std::env::var_os("AZ_FIX_SP").is_some() {
+            // M12.6 FIX (now DEFAULT; set AZ_NO_FIX_SP=1 to disable): enforce
+            // SP + callee-saved (X19-X29) preservation across every lifted
+            // `call sub_<hex>`. Repairs callees (e.g. CssProperty::clone, and
+            // any `-> !`/early-exit path) whose lift drops the epilogue
+            // `add sp,#N` and leaks the guest SP into the caller's frame —
+            // which cumulatively drifts create_from's SP-relative cache base
+            // toward NULL (the M12 node_count-corruption / 768 MiB OOB).
+            if std::env::var_os("AZ_NO_FIX_SP").is_none() {
                 if let Ok(opt_ir) = std::fs::read_to_string(&opt_ir_path) {
                     let (fixed, n) = enforce_sp_preservation(&opt_ir);
                     if n > 0 {
