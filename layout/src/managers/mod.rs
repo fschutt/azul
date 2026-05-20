@@ -6,6 +6,7 @@
 //! primarily by `layout/src/window.rs` and `layout/src/event_determination.rs`.
 
 pub mod a11y;
+pub mod biometric;
 pub mod changeset;
 pub mod clipboard;
 pub mod drag_drop;

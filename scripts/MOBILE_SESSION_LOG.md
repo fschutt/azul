@@ -1141,3 +1141,15 @@ Resuming after disk freed (21 GiB). Three things this turn:
 3. **Handoff prompt**: `scripts/AUTONOMOUS_LOOP_PROMPT_P4_P8.md` — the new agent's loop brief, with all design decisions resolved (sequential; objc2 for Apple async/blocks; DB = rusqlite static + SQL-string `Db` api.json surface, engine hidden; AzulVault = local key/value password manager, biometric-gated; per-feature pattern = core types → manager+channel → dll/extra backend → autofix+codegen → demo). Includes the codegen/autofix recipe + the "never include! codegen assets from core/layout" rule + disk hygiene + gate commands.
 
 Baseline GREEN. Next: P4.1a (biometric core types + manager + result channel + tests). (I'd drafted `core/src/biometric.rs` then reverted it for a clean handoff; the prompt specifies the type design.)
+
+### Tick — P4.1a — biometric core types + manager + result channel (2026-05-20)
+
+First P4 (AzulVault/auth) step. Pure-Rust slice mirroring P3.1's geolocation kickoff — no dll/codegen yet, so the mobile gate stays warm.
+
+- `core/src/biometric.rs`: POD types `BiometricKind {NotAvailable,Fingerprint,Face,Iris}` (+`is_available`, Default=NotAvailable), `BiometricResult {Authenticated,Failed,Cancelled,FellBackToPasscode,Unavailable,Error}` (+`is_success` = Authenticated|FellBackToPasscode), `BiometricPrompt {reason,cancel_label: AzString, allow_device_credential}` (empty string = platform default; `new(reason)` ctor). `impl_option!(BiometricResult, OptionBiometricResult, ...)` as the no-codegen prereq for the future `get_biometric_result()` accessor. Both enums `#[repr(C)]` (fieldless).
+- `layout/src/managers/biometric.rs`: `BiometricManager {last_result, availability}` (set_*/is_available/last_was_success) + the async result channel `push_biometric_result`/`drain_biometric_results` (process-global `Mutex<Vec>`, poison-recovering) copied verbatim from geolocation. Request-driven (no probe NodeType/refcount — biometric is imperative, per research/02 §7.1).
+- Wired `pub mod biometric;` into core/lib.rs + layout managers/mod.rs.
+
+Verify: `cargo check -p azul-core` clean; `cargo test -p azul-layout --lib managers::biometric::` 6/6 pass (defaults, change-flags, passcode-fallback-is-success, channel round-trip last-wins, prompt ctor). `bash scripts/mobile-check-all.sh` GREEN on all 5 targets. Purged host `target/debug/incremental` (3.6G; gate cross-compiles per-triple so its incrementals stayed warm). Disk ~95% / 12 GiB.
+
+Next P4.1b: api.json exposure (`autofix add` BiometricKind/Result/Prompt + OptionBiometricResult 2-pass) + `CallbackInfo::get_biometric_result()` + sync availability accessor + `App::request_biometric_auth(prompt)` returning Unavailable on every platform (green-light codegen before backends, per research/02 §12 step 3). Then backends: objc2 LAContext (P4.1c), Android BiometricPrompt JNI (P4.1d).

@@ -80,6 +80,9 @@ pub mod diff;
 pub mod animation;
 /// Event filtering: mouse, keyboard, window, and synthetic events.
 pub mod events;
+/// Biometric-auth POD types — `BiometricKind` + `BiometricResult` + `BiometricPrompt`.
+/// Stateful manager lives in `azul_layout::managers::biometric`.
+pub mod biometric;
 /// Geolocation POD types — `LocationFix` + `GeolocationProbeConfig`.
 /// Stateful manager lives in `azul_layout::managers::geolocation`.
 pub mod geolocation;
