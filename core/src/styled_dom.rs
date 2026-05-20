@@ -1041,6 +1041,11 @@ impl StyledDom {
             node_count
         ];
 
+        // M12.5x DIAGNOSTIC: 8KB stack padding to shift css_property_cache's address.
+        // If [9] flips 0→1 → corruption is a fixed SP+offset store (position-dependent);
+        // if still 0 → store is self(X0)-relative. (reverted after test)
+        let m12_pad = core::hint::black_box([0xABu8; 8192]);
+        unsafe { crate::compact_cache_builder::AZ_DBG_NC[40] = m12_pad.as_ptr() as u64; }
         let mut css_property_cache = CssPropertyCache::empty(compact_dom.node_data.len());
         // M12.5n TEMP DIAGNOSTIC — bracket css_property_cache.node_count to
         // find which op scrambles it 1→ptr. [7]=after empty.
