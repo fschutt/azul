@@ -1084,6 +1084,10 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     let av_boxed = Box::new(make_test_azvec());
     let av_ptr = Box::into_raw(av_boxed) as usize as u32;
     core::ptr::write_volatile(0x40040_usize as *mut u32, av_ptr);
+    // M12.5k: Vec of large DROPPABLE elements (mimics Vec<NodeData>).
+    let bv_boxed = Box::new(make_test_bigvec());
+    let bv_ptr = Box::into_raw(bv_boxed) as usize as u32;
+    core::ptr::write_volatile(0x40044_usize as *mut u32, bv_ptr);
     // M12.5h ISOLATION: cascade a HAND-BUILT body Dom instead of the
     // layout-cb blob (dom_ref). If this clears the with_capacity OOB and
     // yields node_data.len()>=1, the cascade lift is FINE and the corrupt
@@ -1314,6 +1318,38 @@ pub struct TestAzVecStruct {
 pub fn make_test_azvec() -> TestAzVecStruct {
     let v: azul_css::U32Vec = vec![0xD1u32, 0xD2, 0xD3].into();
     TestAzVecStruct { m: 0xAAAA_AAAA, v, t: 0xCCCC_CCCC }
+}
+
+/// M12.5k: large DROPPABLE element type (~96 B, with an inner Vec) — mimics
+/// NodeData. node_data = Vec<NodeData> (large droppable) scrambles in the
+/// cascade; Vec<u32> (make_test_multivec) + U32Vec (make_test_azvec) work.
+/// So the suspect is building/moving a Vec of large droppable elements.
+#[derive(Clone)]
+pub struct BigElem {
+    pub a: u32,
+    pub inner: Vec<u32>,
+    pub pad: [u32; 16],
+    pub b: u32,
+}
+
+#[repr(C)]
+pub struct TestBigVecStruct {
+    pub marker: u32,
+    pub v: Vec<BigElem>,
+    pub tail: u32,
+}
+
+#[inline(never)]
+#[no_mangle]
+pub fn make_test_bigvec() -> TestBigVecStruct {
+    let mut e1 = BigElem { a: 0xE1, inner: Vec::new(), pad: [0; 16], b: 0xF1 };
+    e1.inner.push(0x11);
+    let mut e2 = BigElem { a: 0xE2, inner: Vec::new(), pad: [0; 16], b: 0xF2 };
+    e2.inner.push(0x22);
+    let mut v: Vec<BigElem> = Vec::new();
+    v.push(e1);
+    v.push(e2);
+    TestBigVecStruct { marker: 0xAAAA_AAAA, v, tail: 0xCCCC_CCCC }
 }
 
 

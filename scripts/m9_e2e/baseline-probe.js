@@ -267,6 +267,19 @@ function parseWasmFnNames(buf) {
     if (av[2] !== 0 && av[4] === 3) console.log('  >>> AzVec OK — suspect WRONG, look elsewhere');
     else if (av[2] === 0 || av[4] > 1000000) console.log('  >>> AzVec SCRAMBLED — root cause #2 CONFIRMED');
 
+    const bv_ptr = rd(0x40044);
+    // TestBigVecStruct repr(C): marker@0, v:Vec<BigElem>@8 {cap@8,ptr@16,len@24}, tail@32.
+    const bw = [];
+    for (let i = 0; i < 12; i++) bw.push(rd((bv_ptr + i * 4) >>> 0));
+    console.log('--- make_test_bigvec (Vec<large droppable elem>) ---');
+    console.log('  bv_ptr  = 0x' + (bv_ptr >>> 0).toString(16));
+    console.log('  marker[0] = 0x' + bw[0].toString(16) + ' (expect aaaaaaaa)');
+    console.log('  v.cap[2]  = ' + bw[2] + '  v.ptr[4]= 0x' + bw[4].toString(16) + '  v.len[6]= ' + bw[6] + ' (expect cap>=2, ptr=heap, len=2)');
+    console.log('  tail[8]   = 0x' + bw[8].toString(16) + ' (expect cccccccc)');
+    console.log('  raw12   = ' + bw.map(x => x.toString(16)).join(' '));
+    if (bw[4] === 0 || bw[6] > 1000000) console.log('  >>> BigVec SCRAMBLED — complex-element Vec path CONFIRMED as root cause #2');
+    else if (bw[4] !== 0 && bw[6] === 2) console.log('  >>> BigVec OK — complex-element Vec also works; bug is even more specific');
+
     const ptr_val = rd(0x4010C);
     let casNonzero = 0;
     const casDump = [];
