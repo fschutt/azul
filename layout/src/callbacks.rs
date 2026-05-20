@@ -3147,6 +3147,20 @@ impl CallbackInfo {
         self.get_layout_window().biometric_manager.availability()
     }
 
+    /// Request a biometric-auth prompt (Face ID / Touch ID / Android
+    /// `BiometricPrompt` / Windows Hello). Returns immediately — the OS
+    /// draws its own modal asynchronously; the outcome arrives on a later
+    /// frame and is read via [`CallbackInfo::get_biometric_result`]. Call
+    /// this from, e.g., an unlock button's `on_click`. The `prompt`
+    /// configures the reason text, cancel label, and whether the OS
+    /// passcode fallback is allowed. (No platform backend reports a real
+    /// outcome yet — the request currently resolves to
+    /// `BiometricResult::Unavailable`; the iOS/macOS/Android backends land
+    /// in a later tick.)
+    pub fn request_biometric_auth(&mut self, prompt: azul_core::biometric::BiometricPrompt) {
+        crate::managers::biometric::push_biometric_request(prompt);
+    }
+
     /// Get current pen pressure (0.0 to 1.0)
     /// Returns None if no pen is active, Some(0.5) for mouse
     pub fn get_pen_pressure(&self) -> Option<f32> {

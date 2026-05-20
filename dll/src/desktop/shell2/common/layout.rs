@@ -729,7 +729,21 @@ pub fn regenerate_layout(
         }
     }
 
-    // 7d. Drain biometric-auth results a platform backend parked since
+    // 7d. Dispatch biometric-auth requests a callback queued this frame.
+    // CallbackInfo::request_biometric_auth parks the prompt in
+    // azul-layout's process-global request channel; we drain it here and
+    // hand each to the native backend (dll::desktop::extra::biometric),
+    // which shows the OS prompt and asynchronously parks the outcome back
+    // through the result channel drained just below. The stub backend
+    // resolves every request to Unavailable for now.
+    {
+        let requests = azul_layout::managers::biometric::drain_biometric_requests();
+        for prompt in &requests {
+            crate::desktop::extra::biometric::request(prompt);
+        }
+    }
+
+    // 7e. Drain biometric-auth results a platform backend parked since
     // the last pass. The OS prompt's reply (iOS/macOS LAContext reply
     // block, Android BiometricPrompt.AuthenticationCallback, Windows
     // UserConsentVerifier) fires on an arbitrary thread with no handle to

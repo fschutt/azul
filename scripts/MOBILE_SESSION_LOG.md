@@ -1178,3 +1178,16 @@ Exposed P4.1a/b's biometric read surface through the public api.json (35-languag
 Verify: `bash scripts/mobile-check-all.sh` GREEN on all 5 targets — dll compiles with the new generated bindings. Only `api.json` is tracked (codegen output is gitignored). Purged incremental dirs after (azul-doc build pushed disk to 98%); recovered headroom.
 
 Next P4.1d: `App`/`CallbackInfo::request_biometric_auth(prompt)` — the request trigger (CallbackChange + dll dispatch), stubbed to push `Unavailable` so the round-trip works with no backend; + its codegen (BiometricPrompt type). Then backends: objc2 LAContext (iOS/macOS), Android BiometricPrompt JNI.
+
+### Tick — P4.1d — biometric request trigger (channel + CallbackInfo + dll dispatch stub) (2026-05-20)
+
+The reverse direction of P4.1b's read path — a callback can now *request* auth. Rust/dll plumbing only; codegen exposure of the request method + BiometricPrompt is P4.1e (kept separate, like the b→c split).
+
+- `layout/src/managers/biometric.rs`: request channel `push_biometric_request(BiometricPrompt)` / `drain_biometric_requests()` (process-global Mutex<Vec>, poison-recovering — the prescribed per-feature channel, reverse of the result channel). +1 unit test (round-trip, last-in-order).
+- `layout/src/callbacks.rs`: `CallbackInfo::request_biometric_auth(&mut self, prompt)` → parks the prompt in the channel (command-method `&mut self` like add_timer; no `CallbackChange` enum edit needed since the channel keeps it self-contained + azul-layout platform-free).
+- `dll/src/desktop/extra/biometric/mod.rs` (new): `request(prompt)` dispatcher — stub pushes `BiometricResult::Unavailable` so the request→result round-trip is observable with no backend (research/02 §12 step 3); `probe_availability()` stub returns `NotAvailable`. Mirrors `geolocation/mod.rs`. Wired `pub mod biometric;` into `extra/mod.rs`.
+- `dll/.../shell2/common/layout.rs`: new "7d" request-dispatch block (drain requests → `biometric::request`) before the "7e" (renamed) result-drain.
+
+Verify: `managers::biometric::` 7/7 tests pass; `bash scripts/mobile-check-all.sh` GREEN on all 5 targets. No codegen → disk stayed ~95% / 11 GiB.
+
+Next P4.1e: codegen-expose `CallbackInfo.request_biometric_auth` + the `BiometricPrompt` type (autofix add + 2-pass for BiometricPrompt's AzString fields; codegen all; gate). Then P4.1f: objc2 LAContext backend (iOS/macOS) replacing the stub; P4.1g: Android BiometricPrompt JNI.

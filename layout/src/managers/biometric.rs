@@ -134,6 +134,37 @@ pub fn drain_biometric_results() -> Vec<BiometricResult> {
     core::mem::take(&mut *q)
 }
 
+// ────────── Request channel (callback → platform backend) ─────────────
+//
+// The reverse direction: a callback (e.g. an unlock button's `on_click`)
+// calls `CallbackInfo::request_biometric_auth(prompt)`, which parks the
+// prompt here. The dll layout pass drains it via
+// [`drain_biometric_requests`] and dispatches each to the native backend
+// (`dll::desktop::extra::biometric::request`), which shows the OS prompt
+// and later parks the outcome back through [`push_biometric_result`].
+// Decoupling via a channel keeps the request callable from any callback
+// without threading the window's backend handle through `CallbackInfo`,
+// and keeps `azul-layout` platform-free (SUPER_PLAN_2 §0.5).
+
+static PENDING_REQUESTS: std::sync::Mutex<Vec<BiometricPrompt>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Queue a biometric-auth request from a callback. Picked up by the dll
+/// layout pass and dispatched to the native prompt. Thread-safe;
+/// poison-recovering.
+pub fn push_biometric_request(prompt: BiometricPrompt) {
+    let mut q = PENDING_REQUESTS.lock().unwrap_or_else(|e| e.into_inner());
+    q.push(prompt);
+}
+
+/// Drain every request queued by [`push_biometric_request`], in arrival
+/// order. Called once per layout pass; the dll dispatches each to the
+/// platform backend.
+pub fn drain_biometric_requests() -> Vec<BiometricPrompt> {
+    let mut q = PENDING_REQUESTS.lock().unwrap_or_else(|e| e.into_inner());
+    core::mem::take(&mut *q)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -215,6 +246,22 @@ mod tests {
 
         // A second drain is empty — the queue was taken, not copied.
         assert!(drain_biometric_results().is_empty());
+    }
+
+    #[test]
+    fn requests_round_trip_through_channel() {
+        // Process-global; clear residue first.
+        let _ = drain_biometric_requests();
+
+        push_biometric_request(BiometricPrompt::new("Unlock A".into()));
+        push_biometric_request(BiometricPrompt::new("Unlock B".into()));
+        let drained = drain_biometric_requests();
+        assert_eq!(drained.len(), 2, "both queued requests drain in order");
+        assert_eq!(drained[0].reason.as_str(), "Unlock A");
+        assert_eq!(drained[1].reason.as_str(), "Unlock B");
+
+        // A second drain is empty — the queue was taken, not copied.
+        assert!(drain_biometric_requests().is_empty());
     }
 
     #[test]
