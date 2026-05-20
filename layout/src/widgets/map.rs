@@ -473,30 +473,15 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, info: CallbackInfo) -> Updat
         return Update::DoNothing;
     }
 
-    // World pixels at the current fractional zoom. Each tile is 256 px
-    // wide at integer zoom; fractional zoom scales linearly.
-    let z = cache_guard.viewport.zoom as f64;
-    let world_px = 256.0 * (2.0_f64).powf(z);
-
-    // dx_px → delta longitude. World is 360° wide ⇒ degrees per pixel
-    // = 360 / world_px. Dragging right (positive dx) should move the
-    // map content to the right, which is equivalent to centring on a
-    // lower longitude → minus sign.
-    let d_lon = -dx_px * 360.0 / world_px;
-
-    // dy_px → delta latitude via Mercator inverse. For small drags
-    // the linear approximation `d_lat ≈ dy * cos(lat) * 360 / world`
-    // is accurate to within a few metres at city zooms; the exact
-    // Mercator inverse would only matter for very long drags near
-    // the poles.
-    let current_lat_rad = cache_guard.viewport.centre_lat_deg.to_radians();
-    let d_lat = dy_px * 360.0 / world_px * current_lat_rad.cos();
-
-    cache_guard.viewport.centre_lon_deg = wrap_lon(
-        cache_guard.viewport.centre_lon_deg + d_lon,
+    let (new_lon, new_lat) = pan_viewport(
+        cache_guard.viewport.centre_lat_deg,
+        cache_guard.viewport.centre_lon_deg,
+        cache_guard.viewport.zoom as f64,
+        dx_px,
+        dy_px,
     );
-    cache_guard.viewport.centre_lat_deg =
-        (cache_guard.viewport.centre_lat_deg + d_lat).clamp(-85.0, 85.0);
+    cache_guard.viewport.centre_lon_deg = new_lon;
+    cache_guard.viewport.centre_lat_deg = new_lat;
     cache_guard.drag_anchor = Some(pos);
 
     Update::RefreshDom
@@ -559,6 +544,31 @@ fn tile_x_to_lon(x: f64, tile_count: f64) -> f64 {
 fn tile_y_to_lat(y: f64, tile_count: f64) -> f64 {
     let n = core::f64::consts::PI * (1.0 - 2.0 * y / tile_count);
     n.sinh().atan().to_degrees()
+}
+
+/// Apply a drag of `(dx_px, dy_px)` screen pixels to a viewport centre,
+/// returning the new `(centre_lon_deg, centre_lat_deg)`. Dragging right
+/// (+dx) pans the map content right, i.e. recentres on a *lower* longitude
+/// (hence the minus). Latitude uses the small-angle Mercator approximation
+/// (`d_lat ≈ dy·cos(lat)·360/world`), accurate to a few metres at city
+/// zooms; the exact inverse only matters for very long drags near the
+/// poles. Longitude wraps to [-180, 180); latitude clamps to the
+/// Web-Mercator ±85.05° limit. The shared, unit-tested core of
+/// `map_on_pointer_move`.
+fn pan_viewport(
+    centre_lat_deg: f64,
+    centre_lon_deg: f64,
+    zoom: f64,
+    dx_px: f64,
+    dy_px: f64,
+) -> (f64, f64) {
+    // World pixels at the current fractional zoom (256 px / tile).
+    let world_px = 256.0 * (2.0_f64).powf(zoom);
+    let d_lon = -dx_px * 360.0 / world_px;
+    let d_lat = dy_px * 360.0 / world_px * centre_lat_deg.to_radians().cos();
+    let new_lon = wrap_lon(centre_lon_deg + d_lon);
+    let new_lat = (centre_lat_deg + d_lat).clamp(-85.0, 85.0);
+    (new_lon, new_lat)
 }
 
 /// Parse a standalone `<svg>…</svg>` string into a `Dom` subtree via
@@ -937,5 +947,49 @@ mod tests {
                 approx(tile_y_to_lat(y, tc), lat, 1e-6);
             }
         }
+    }
+
+    #[test]
+    fn pan_zero_drag_is_identity() {
+        // No movement → centre unchanged (lon/lat already in range).
+        let (lon, lat) = pan_viewport(37.0, -122.0, 11.0, 0.0, 0.0);
+        approx(lon, -122.0, 1e-9);
+        approx(lat, 37.0, 1e-9);
+    }
+
+    #[test]
+    fn pan_right_decreases_longitude() {
+        // Dragging content right (+dx) recentres on a lower longitude.
+        let (lon, _) = pan_viewport(0.0, 0.0, 0.0, 100.0, 0.0);
+        assert!(lon < 0.0, "drag right should lower longitude, got {lon}");
+        // Dragging left (-dx) is the mirror.
+        let (lon_left, _) = pan_viewport(0.0, 0.0, 0.0, -100.0, 0.0);
+        approx(lon_left, -lon, 1e-9);
+    }
+
+    #[test]
+    fn pan_step_scales_inversely_with_zoom() {
+        // Each extra zoom level doubles the world size, so the same pixel
+        // drag should move the centre half as far in degrees.
+        let (lon_z0, _) = pan_viewport(0.0, 0.0, 0.0, 50.0, 0.0);
+        let (lon_z1, _) = pan_viewport(0.0, 0.0, 1.0, 50.0, 0.0);
+        approx(lon_z1, lon_z0 / 2.0, 1e-9);
+    }
+
+    #[test]
+    fn pan_clamps_latitude_to_mercator_limit() {
+        // A huge vertical drag can't push the centre past ±85°.
+        let (_, lat_north) = pan_viewport(84.0, 0.0, 0.0, 0.0, 1.0e6);
+        assert!(lat_north <= 85.0 && lat_north >= -85.0);
+        let (_, lat_south) = pan_viewport(-84.0, 0.0, 0.0, 0.0, -1.0e6);
+        assert!(lat_south <= 85.0 && lat_south >= -85.0);
+    }
+
+    #[test]
+    fn pan_wraps_longitude_across_antimeridian() {
+        // Starting near +180 and panning further east wraps into negatives
+        // rather than producing an out-of-range longitude.
+        let (lon, _) = pan_viewport(0.0, 179.0, 0.0, -100.0, 0.0);
+        assert!((-180.0..180.0).contains(&lon), "lon {lon} out of range");
     }
 }

@@ -819,3 +819,14 @@ Wired the first producer for last tick's async-result channel: `permission/andro
 - Refactored the JNI attach into a shared `attach()` helper (probe + request both use it). Documented the two runtime-pending pieces: the `AzulActivity.onRequestPermissionsResult` Java forwarding glue (same Rust/Java split as the file picker) and the UI-thread/Looper hardening.
 
 End-to-end in theory: prompt → grant → channel → manager. `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (11/1/0/3/4 s). Internal dll platform code — no api.json/codegen change. Disk 93%, incremental cleared.
+
+### Tick — P3.3b extract + unit-test the MapWidget pan-delta math (2026-05-20)
+
+Deliberately did NOT force the symmetric iOS permission request path this tick: it needs ObjC completion blocks (block2), and the only block2 precedent in the tree is in an objc2 context while permission/ios.rs uses objc 0.2 — mixing them is fragile + unverifiable in a cargo-check-only loop, and the one delegate-based capability (location) really belongs in geolocation/ios.rs, not the permission backend. Flagged for the user (objc2 migration vs block-bridge spike). Took a clean, gate-verifiable P3 step instead, mirroring P3.3a.
+
+- Extracted the drag→viewport math from `map_on_pointer_move` into a pure `pan_viewport(lat, lon, zoom, dx_px, dy_px) -> (lon, lat)`; the handler now just calls it + updates the drag anchor. No behaviour change.
+- +5 unit tests: zero-drag identity, drag-right-lowers-longitude (+ left mirror), pixel step halves per zoom level, latitude clamps to ±85, longitude wraps across the antimeridian. 10/10 map tests pass.
+
+`bash scripts/mobile-check-all.sh` GREEN on all 5 targets (7/7/6/6/7 s). Private widget internals — no api.json/codegen change. Disk 93%, incremental cleared.
+
+NOTE for the user: P1.2 has gone as far as is cleanly + verifiably autonomous (iOS+Android probe, async channel+consumer, Android request producer). The remaining iOS request producer hits the objc0.2/block2 fragility above — wants a human call on approach. Also still open: P3.3 tap-to-pin worker-exposure (`dom_with_default_tiles()` vs `tile_fetch_thread_callback()`).
