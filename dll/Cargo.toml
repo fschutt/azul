@@ -101,6 +101,11 @@ td = { path = "/Users/fschutt/Development/tile-downloader", optional = true }
 # `decode_mvt_tile` return type without going through `td`'s private
 # graph. Same gate as `td`.
 geojson = { version = "0.24", optional = true }
+# SQLite engine for the `Db` API (P4.3), gated by `db-sqlite`. `bundled`
+# statically compiles SQLite from source (cc) — no system libsqlite, so the
+# public surface stays a single dylib (approach A). Works on every platform;
+# the bundled C compile needs each target's cc toolchain (NDK / iOS SDK).
+rusqlite = { version = "0.37", features = ["bundled"], optional = true }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tfd = { version = "0.1.0", default-features = false, optional = true }
@@ -282,7 +287,15 @@ build-dll = [
     "fluent",
     "http",
     "map-tiles",
+    "db-sqlite",
 ]
+
+# SQLite-backed `Db` API (P4.3). Pulls the bundled-SQLite `rusqlite`
+# engine; the public surface (SQL strings + DbValue/DbRows) hides it. Kept
+# OUT of `link-static` (the mobile gate) so the gate doesn't cross-compile
+# SQLite's C amalgamation for every target — verified instead via the host
+# check + a targeted per-target check (see MOBILE_SESSION_LOG P4.3b).
+db-sqlite = ["dep:rusqlite"]
 
 # -----------------------------------------------------------------------------
 # Link Modes (for consumers of the library)

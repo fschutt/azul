@@ -14,6 +14,11 @@ pub mod biometric;
 pub mod file_picker;
 pub mod geolocation;
 pub mod keyring;
+/// SQLite-backed `Db` engine (P4.3). Opt-in via the `db-sqlite` Cargo
+/// feature; with the feature off, the `Db` API isn't built (the bundled
+/// SQLite C amalgamation isn't compiled).
+#[cfg(feature = "db-sqlite")]
+pub mod sqlite;
 /// MVT tile decode + projection math for the `MapWidget` content
 /// pipeline. Opt-in via the `map-tiles` Cargo feature; with the
 /// feature off, the entry points return an error rather than dragging

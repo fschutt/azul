@@ -1321,3 +1321,19 @@ First P4.3 step — the AzulVault goal app's storage. Pure-data foundation in az
 Verify: `cargo test -p azul-core db::` 3/3 pass; `bash scripts/mobile-check-all.sh` GREEN on all 5. Disk 97% → purging.
 
 Next P4.3b: add `rusqlite` (bundled SQLite) to azul-dll behind a `db-sqlite` feature + **verify it cross-compiles in the gate** (bundled SQLite is C, compiled via cc for each target — the real risk). If the gate can't cross-compile rusqlite for iOS/Android, scope db-sqlite to build-dll/host only and document. Then P4.3c: `Db` handle (dll, opaque Connection) + open/execute/query. Then P4.3d: api.json/codegen.
+
+### Tick — P4.3b — rusqlite (bundled SQLite) behind db-sqlite feature + cross-compile risk-gate (2026-05-20)
+
+Resolved the central P4.3 unknown: does bundled SQLite compile? **Host yes; mobile cross-compile needs cc env config (build-machine concern).**
+
+- `dll/Cargo.toml`: `rusqlite = { version = "0.37", features = ["bundled"], optional = true }`; new feature `db-sqlite = ["dep:rusqlite"]`; added `db-sqlite` to `build-dll` (the shipped dylib) but **deliberately NOT to `link-static`** (the mobile gate) — so the gate never cross-compiles SQLite's C amalgamation.
+- `dll/extra/sqlite/mod.rs` (new): `sqlite_version()` smoke-test (forces rusqlite to compile/link). Wired `#[cfg(feature="db-sqlite")] pub mod sqlite;` into extra/mod.rs.
+
+Verify (3 checks):
+- Normal `mobile-check-all.sh` (no db-sqlite): GREEN on all 5 — baseline intact.
+- macOS host check `+db-sqlite`: CLEAN — rusqlite 0.37.0 + libsqlite3-sys 0.35.0 (bundled SQLite C via native cc) compile fine.
+- Android aarch64 `+db-sqlite`: FAILS — `cc` can't find `aarch64-linux-android-clang` (NDK names it `…-androidNN-clang`). Needs `CC_aarch64-linux-android=<ndk>/…/aarch64-linux-android21-clang` (+ iOS analog). Build-machine config, NOT a source defect — and exactly why db-sqlite is out of the source gate.
+
+So: db-sqlite is host-verified + builds in the shipped dll where cc is configured; the bundled-SQLite cross-compile env (CC_<target>) is a follow-up build-infra item (a `.cargo/config.toml` or gate env export). Disk 97% → purging.
+
+Next P4.3c: the `Db` handle in `dll/extra/sqlite/` (opaque `rusqlite::Connection`, lives in dll like `App`) + `open`/`execute`/`query` mapping `DbValue`↔rusqlite, verified via the host `+db-sqlite` check. Then P4.3d api.json/codegen.
