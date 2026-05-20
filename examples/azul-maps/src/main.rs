@@ -33,6 +33,11 @@ struct MapState {
     /// (once a platform backend delivers a fix) the "you are here" dot
     /// can be placed. Toggled by the "Locate" button.
     locating: bool,
+    /// Last geolocation fix `(lat, lon)` read from `CallbackInfo::
+    /// get_location_fix()`, captured on the Locate toggle. `None` until a
+    /// backend delivers one. (Refreshes on toggle; a live readout would
+    /// poll via a Timer — out of scope for the demo.)
+    last_fix: Option<(f64, f64)>,
 }
 
 impl MapState {
@@ -49,6 +54,7 @@ impl MapState {
             },
             layer: MapTileLayer::default(),
             locating: false,
+            last_fix: None,
         }
     }
 
@@ -120,15 +126,20 @@ const LOCATION_DOT: &str = "position: absolute; left: 50%; top: 50%; \
     width: 16px; height: 16px; margin-left: -8px; margin-top: -8px; \
     background: #4285f4; border-radius: 8px; \
     box-shadow: 0px 0px 0px 3px rgba(66,133,244,0.35);";
+// Coordinate read-out for the live fix, top-centre over the map.
+const LOCATION_READOUT: &str = "position: absolute; left: 50%; top: 12px; \
+    margin-left: -90px; width: 180px; text-align: center; \
+    background: rgba(66,133,244,0.92); color: white; padding: 4px 8px; \
+    border-radius: 4px; font-size: 12px; font-family: sans-serif;";
 
 // ───────── Layout ─────────────────────────────────────────────────────
 
 extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-    let snapshot: Option<(MapViewport, MapTileLayer, bool)> = data
+    let snapshot: Option<(MapViewport, MapTileLayer, bool, Option<(f64, f64)>)> = data
         .downcast_ref::<MapState>()
-        .map(|s| (s.viewport, s.layer.clone(), s.locating));
+        .map(|s| (s.viewport, s.layer.clone(), s.locating, s.last_fix));
 
-    let Some((viewport, layer, locating)) = snapshot else {
+    let Some((viewport, layer, locating, last_fix)) = snapshot else {
         return Dom::create_body();
     };
 
@@ -244,6 +255,12 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     // backend delivers one we just draw a placeholder dot at centre so
     // the composition is visible in the demo.
     if locating {
+        // Read-back of the live fix (P3.1 `get_location_fix`): show the
+        // coordinates once a backend has delivered one, else "acquiring".
+        let readout = match last_fix {
+            Some((lat, lon)) => format!("You are here: {:.4}, {:.4}", lat, lon),
+            None => "Acquiring location…".to_string(),
+        };
         map_container = map_container
             .with_child(Dom::create_geolocation_probe(GeolocationProbeConfig {
                 high_accuracy: true,
@@ -251,7 +268,12 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                 max_accuracy_m: 0.0,
                 min_interval_ms: 0,
             }))
-            .with_child(Dom::create_div().with_css(LOCATION_DOT));
+            .with_child(Dom::create_div().with_css(LOCATION_DOT))
+            .with_child(
+                Dom::create_div()
+                    .with_css(LOCATION_READOUT)
+                    .with_child(Dom::create_text(readout.as_str())),
+            );
     }
 
     let map_container = map_container.with_child(
@@ -289,9 +311,17 @@ extern "C" fn on_recentre(mut data: RefAny, _info: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-extern "C" fn on_locate(mut data: RefAny, _info: CallbackInfo) -> Update {
+extern "C" fn on_locate(mut data: RefAny, info: CallbackInfo) -> Update {
+    // Read the latest fix the geolocation backend delivered (via the
+    // public CallbackInfo accessor that P3.1 exposed). `None` until a
+    // backend has reported one.
+    let fix = info
+        .get_location_fix()
+        .into_option()
+        .map(|f| (f.latitude_deg, f.longitude_deg));
     if let Some(mut s) = data.downcast_mut::<MapState>() {
         s.toggle_locate();
+        s.last_fix = fix;
     }
     Update::RefreshDom
 }

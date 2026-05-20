@@ -1033,3 +1033,15 @@ Net: the whole permission/geolocation stack is now user-readable — a callback 
 Note: pre-existing azul-doc *test* code (`patch_format.rs` ~1396+) is missing `VariantDef.ref_kind` in literals — unrelated to this change, doesn't affect the binary or the mobile gate.
 
 DISK still critical (~98% / 5.9 GiB) — this codegen tick survived but with thin margin; freeing non-azul space remains needed before more codegen work. AzulMaps can now position its dot from a real fix (follow-up; needs the example to read get_location_fix). Decision-gated items unchanged.
+
+### Tick — P3.3b AzulMaps consumes get_location_fix (2026-05-20)
+
+Closed the geolocation pipeline end-to-end in the goal app, using the API landed last tick (P3.1i). Leaf-only example change (disk-safe).
+
+- `MapState` gained `last_fix: Option<(f64,f64)>`. `on_locate` now reads `info.get_location_fix().into_option().map(|f| (f.latitude_deg, f.longitude_deg))` and stores it.
+- When "Locate" is on, the map overlay shows a coordinate read-out ("You are here: {lat}, {lon}" once a backend delivers a fix, else "Acquiring location…"), alongside the existing centre dot + composed `GeolocationProbe`.
+- So the whole P3.1 chain is now demonstrated through the public API: probe (permission-as-DOM) → platform backend (Android/iOS/macOS) → async fix channel → GeolocationManager → `CallbackInfo::get_location_fix()` → AzulMaps read-out. Refreshes on the Locate toggle; a live-updating readout would poll via a Timer (noted as out of scope).
+
+`cargo check -p azul-maps` clean (only pre-existing generated-code warnings); `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (warm — no dll change). No api.json/codegen change. Disk ~97% / 6.9 GiB (leaf change added little).
+
+P3.1 geolocation is now complete *and* consumed by the goal app. Remaining: dot positioning from the fix needs container-px projection (chicken-and-egg with layout — a Timer/measured-size follow-up); P3.2 real-tile wiring + P2.3 HoverEventFilter + iOS/macOS permission-request blocks stay decision-gated.
