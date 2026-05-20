@@ -37,3 +37,9 @@ pub mod permission;
 /// each sample through `azul_layout::managers::sensors::push_sensor_reading`,
 /// which the layout pass folds into the per-`App` `SensorManager`.
 pub mod sensors;
+/// Gamepad / game-controller input (P6 feature 6). The dispatcher pulls each
+/// pad's state every frame via [`gamepad::poll`] (gilrs on desktop — pending
+/// `GCController`/`InputDevice` on mobile) and parks it through
+/// `azul_layout::managers::gamepad::push_gamepad_state`, which the layout
+/// pass folds into the per-`App` `GamepadManager`.
+pub mod gamepad;

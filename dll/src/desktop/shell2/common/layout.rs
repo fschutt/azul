@@ -857,12 +857,19 @@ pub fn regenerate_layout(
         }
     }
 
+    // 7i-pre (gamepad poll): one-time native subscription (OnceLock inside)
+    // + per-frame pull of each pad's current state. The desktop gilrs backend
+    // pumps its event queue and snapshots connected pads here; iOS GCController
+    // does likewise (pending); Android is push-based so poll is a no-op there.
+    crate::desktop::extra::gamepad::ensure_started();
+    crate::desktop::extra::gamepad::poll();
+
     // 7i. Drain gamepad states the controller backend parked since the last
-    // pass (gilrs / iOS GCController / Android InputDevice poll on their own
-    // thread with no handle to this LayoutWindow, so they park states in
+    // pass (gilrs / iOS GCController / Android InputDevice run on their own
+    // thread/queue with no handle to this LayoutWindow, so they park states in
     // azul-layout's process-global channel) and fold the latest per id into
-    // the manager. (No producer fires yet — the native backend is a later
-    // tick — but the consumer is live and unit-tested in azul-layout.)
+    // the manager. The desktop gilrs producer is live; the mobile backends are
+    // follow-ups. The consumer is unit-tested in azul-layout.
     {
         let states = azul_layout::managers::gamepad::drain_gamepad_states();
         let mut changed = false;

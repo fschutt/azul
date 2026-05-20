@@ -115,6 +115,9 @@ printpdf = { version = "0.9.1", default-features = false, features = ["text_layo
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tfd = { version = "0.1.0", default-features = false, optional = true }
+# Gamepad input (P6 feature 6) — desktop backend (Win/Linux/macOS). Mobile
+# uses GCController / InputDevice instead, so gilrs is desktop-only.
+gilrs = { version = "0.11", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = { version = "0.2", optional = true }
@@ -368,6 +371,7 @@ _internal_deps = [
     "azul-layout?/probe",
     "cpurender",
     "tfd",
+    "gilrs",
     "rust-fontconfig",
     "gl-context-loader",
     "webrender",

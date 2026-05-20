@@ -1626,3 +1626,15 @@ Next P6.gamepad.c: codegen-expose `get_gamepad_state`/`get_primary_gamepad` + th
 Verify: `mobile-check-all.sh` GREEN on all 5. Disk 12 GiB after purge.
 
 **Gamepad: core ✅ · manager+plumbing ✅ · codegen ✅.** Next P6.gamepad.d: dll backend — `dll/extra/gamepad/` dispatcher + `ensure_started`/`poll` (mirrors sensors.d/e): gilrs on desktop (poll → push_gamepad_state), iOS `GCController` / Android `InputDevice` glue. Then a small demo (button/stick readout).
+
+### Tick — P6.gamepad.d — dll gamepad backend (gilrs desktop, real + host-verified) (2026-05-20)
+
+The native producer for the P6.gamepad.b 7i drain. gilrs covers macOS, so the split is desktop(gilrs) / iOS(GCController) / Android(InputDevice) — Apple here is iOS-only (unlike the CoreMotion sensor backend).
+
+- `dll/extra/gamepad/mod.rs`: dispatcher — `ensure_started()` (OnceLock; desktop no-op since gilrs lazy-inits) + `poll()` (cfg-routes: desktop gilrs / iOS GCController / Android push-based no-op).
+- `dll/extra/gamepad/desktop.rs`: **real gilrs** — thread-local `Gilrs` (it's !Send/!Sync; lazy-init on first poll, same layout thread); `poll()` pumps the event queue (surfacing `Disconnected` → empty state) then snapshots each connected pad → `GamepadState` (BUTTON_MAP translates gilrs `LeftTrigger`/`RightTrigger`=L1/R1 shoulders → azul `LeftBumper`/`RightBumper`, gilrs `*Trigger2` → azul `*Trigger`) → `push_gamepad_state`. **API verified against the cached gilrs-0.11.1 source** (Gilrs::new/next_event/gamepads, GamepadId(usize)→u32, EventType::Disconnected) — no guessing.
+- `dll/extra/gamepad/{apple,android}.rs`: GCController / InputDevice backends documented, `start`/`poll` no-ops (follow-ups). `dll/Cargo.toml`: `gilrs = "0.11"` (desktop section, optional) + umbrella feature. `extra/mod.rs` + layout.rs "7i-pre" `ensure_started()`+`poll()`.
+
+Verify: `mobile-check-all.sh` GREEN on all 5 (stubs); **host `+link-static` CLEAN — desktop.rs + gilrs compiled** (gilrs-core 0.6.7). Disk purged.
+
+Unlike sensors (device-only), the gamepad backend works on the dev host — the upcoming demo is desktop-testable with a controller. Next P6.gamepad.e: a small demo (live button/stick readout via `get_primary_gamepad`). Then iOS GCController / Android InputDevice (incl. `AzulGamepad.java`, deferred Java batch).
