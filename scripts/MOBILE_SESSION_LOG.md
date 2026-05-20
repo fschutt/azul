@@ -972,3 +972,15 @@ Landed the safe prerequisite I flagged last tick for the `get_location_fix` FFI 
 Verified: `cargo run -p azul-doc -- autofix explain` no longer emits "Could not determine module for 'LocationFix'/'MapTileId'". `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (structurally unaffected — `azul-doc` isn't in the dll graph). No api.json/codegen content change.
 
 Still NOT done autonomously (deliberately): the actual `get_location_fix` FFI exposure — needs `impl_option!(LocationFix)` in core + `autofix add` + `codegen all`, and a bare `autofix` run still shows 2 pre-existing module-move patches (DetectedLongPress/DetectedRotation) that an `autofix apply` would entangle. That review-and-codegen step wants a deliberate tick (ideally user-aware, since it applies pre-existing moves). The heuristic is now correct so that tick will be clean. Decision-gated items unchanged. Disk 94%.
+
+### Tick — gate RED, reverted (P3.1h get_location_fix FFI exposure attempt) (2026-05-20)
+
+Attempted the `CallbackInfo::get_location_fix` FFI exposure end-to-end; the gate went RED, so reverted per protocol. Tree restored to GREEN.
+
+What I did: added `impl_option!(LocationFix, OptionLocationFix, [Debug,Clone,Copy,PartialEq])` to core; `azul-doc autofix add CallbackInfo.get_location_fix` → one clean targeted patch (just the method, no drift — confirming `autofix add` avoids the bare-`autofix` module-move drift); `autofix apply` (+19 lines to api.json); `azul-doc codegen all` succeeded (35/35 bindings).
+
+Why it broke: codegen emitted `AzCallbackInfo_getLocationFix(...) -> AzOptionLocationFix` and the wrapper `get_location_fix`, but did NOT emit the `pub struct AzOptionLocationFix` definition — so the dll failed with an undefined type on all 5 targets. Root cause: `OptionLocationFix` was only *referenced* (as the return type); it needs to exist as an explicit api.json **type entry** (like `OptionPenState` at api.json, a struct def wrapping PenState). The `impl_option!` Rust type + a referencing method aren't enough — the Option type must be registered in api.json so codegen generates its `Az*` struct.
+
+Revert: `git checkout api.json core/src/geolocation.rs` + `codegen all` to regenerate consistent output; gate GREEN again (16/15/15/16/17 s). The committed P3.1f layout method is unaffected (returns std `Option`, compiles).
+
+NEXT attempt (clean recipe, de-risked): (1) keep `impl_option!(LocationFix)`; (2) FIRST register `OptionLocationFix` as an api.json type (try `autofix add OptionLocationFix`; if unsupported, mirror the `OptionPenState` entry); (3) THEN `autofix add CallbackInfo.get_location_fix`; (4) `codegen all`; (5) gate. The P3.1g heuristic fix already ensures correct module placement. Disk 94%.
