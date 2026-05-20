@@ -252,6 +252,21 @@ function parseWasmFnNames(buf) {
     console.log('  t[20]   = 0x' + mvWords[20].toString(16) + ' (expect cccccccc)');
     console.log('  raw24   = ' + mvWords.map(x => x.toString(16)).join(' '));
 
+    const av_ptr = rd(0x40040);
+    // TestAzVecStruct repr(C): m@0, v:U32Vec@8 {ptr@8,len@16,cap@24,destr@32}, t@40.
+    const av = [];
+    for (let i = 0; i < 12; i++) av.push(rd((av_ptr + i * 4) >>> 0));
+    console.log('--- make_test_azvec (impl_vec! AzVec via from_vec/sret) ---');
+    console.log('  av_ptr  = 0x' + (av_ptr >>> 0).toString(16));
+    console.log('  m[0]      = 0x' + av[0].toString(16) + ' (expect aaaaaaaa)');
+    console.log('  v.ptr[2]  = 0x' + av[2].toString(16) + ' hi[3]=0x' + av[3].toString(16) + '  (expect heap ptr, NOT 0)');
+    console.log('  v.len[4]  = ' + av[4] + ' (expect 3; if huge/ptr → SCRAMBLED = AzVec mis-lift CONFIRMED)');
+    console.log('  v.cap[6]  = ' + av[6] + ' (expect >=3)');
+    console.log('  t[10]     = 0x' + av[10].toString(16) + ' (expect cccccccc)');
+    console.log('  raw12   = ' + av.map(x => x.toString(16)).join(' '));
+    if (av[2] !== 0 && av[4] === 3) console.log('  >>> AzVec OK — suspect WRONG, look elsewhere');
+    else if (av[2] === 0 || av[4] > 1000000) console.log('  >>> AzVec SCRAMBLED — root cause #2 CONFIRMED');
+
     const ptr_val = rd(0x4010C);
     let casNonzero = 0;
     const casDump = [];

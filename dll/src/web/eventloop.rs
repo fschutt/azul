@@ -1080,6 +1080,10 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     let mv_boxed = Box::new(make_test_multivec());
     let mv_ptr = Box::into_raw(mv_boxed) as usize as u32;
     core::ptr::write_volatile(0x4002C_usize as *mut u32, mv_ptr);
+    // M12.5j: AzVec (impl_vec!) reproducer — the suspected mis-lift path.
+    let av_boxed = Box::new(make_test_azvec());
+    let av_ptr = Box::into_raw(av_boxed) as usize as u32;
+    core::ptr::write_volatile(0x40040_usize as *mut u32, av_ptr);
     // M12.5h ISOLATION: cascade a HAND-BUILT body Dom instead of the
     // layout-cb blob (dom_ref). If this clears the with_capacity OOB and
     // yields node_data.len()>=1, the cascade lift is FINE and the corrupt
@@ -1289,6 +1293,27 @@ pub fn make_test_multivec() -> TestMultiVec {
     let mut c: Vec<u32> = Vec::new();
     c.push(0xC1);
     TestMultiVec { m: 0xAAAA_AAAA, a, b, c, t: 0xCCCC_CCCC }
+}
+
+/// M12.5j: AzVec (impl_vec!) reproducer. node_data (a NodeDataVec = AzVec)
+/// comes back ptr=0/len=ptr from the cascade, while std-Vec reproducers
+/// work. AzVec layout = {ptr@0,len@8,cap@16,destructor@24} (32B), built
+/// via from_vec which REORDERS std Vec {cap,ptr,len} + sret-returns 32B.
+/// U32Vec uses the SAME macro/from_vec. If make_test_azvec's v reads back
+/// scrambled (v.ptr=0 / v.len=ptr) → AzVec from_vec/sret mis-lift CONFIRMED
+/// minimally. Layout: m@0, v@8 (ptr@8,len@16,cap@24,destr@32), t@40.
+#[repr(C)]
+pub struct TestAzVecStruct {
+    pub m: u32,
+    pub v: azul_css::U32Vec,
+    pub t: u32,
+}
+
+#[inline(never)]
+#[no_mangle]
+pub fn make_test_azvec() -> TestAzVecStruct {
+    let v: azul_css::U32Vec = vec![0xD1u32, 0xD2, 0xD3].into();
+    TestAzVecStruct { m: 0xAAAA_AAAA, v, t: 0xCCCC_CCCC }
 }
 
 
