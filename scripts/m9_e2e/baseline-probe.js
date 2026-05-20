@@ -206,6 +206,9 @@ function parseWasmFnNames(buf) {
             ' [9t]=0x' + (dbg(43) >>> 0).toString(16) + ' [11t]=0x' + (dbg(45) >>> 0).toString(16) +
             '  &cache[dumpt]=0x' + (dbg(44) >>> 0).toString(16) +
             '  (DIFFER => lift computes the local cache addr inconsistently)');
+        console.log('  M12.5y DROP-ISOLATION: after drop(css) node_count=' + dbg(46) +
+            ' &node_count=0x' + (dbg(47) >>> 0).toString(16) +
+            '  (=1 & 0x2ef98 => drop innocent, apply_ua_css corrupts; else drop corrupts)');
         const lo = k => mini.AzStartup_getDbgNc(k * 2) >>> 0;
         const cap = k => (dbg(k) >= 0x100000000 ? String(lo(k)) : '(not captured)');
         const self15 = dbg(15), sp13 = dbg(13);
@@ -279,6 +282,18 @@ function parseWasmFnNames(buf) {
             }
             console.log('  >>> SP TRAJECTORY (every SP-slot store, execution order; watch for SP not restored across a call):');
             for (const w of spTraj) console.log('     [' + w.i + '] dep=0x' + w.dt.toString(16) + ' id=' + w.id + ' SP=0x' + w.val.toString(16));
+            // apply_ua_css frame dump: apply SP = cacheBase-8416, frame at cacheBase-0x2290..-0x20E0.
+            // The alloc-result check %60 is spilled at SP+16; if its value is 0, apply takes the
+            // alloc-error path. Dump writes in [cacheBase-0x2400, cacheBase-0x2080] with values.
+            const afLo = (cacheBase2 - 0x2400) >>> 0, afHi = (cacheBase2 - 0x2080) >>> 0;
+            console.log('  >>> apply_ua_css FRAME writes [0x' + afLo.toString(16) + '..0x' + afHi.toString(16) + '] (val=0 at an alloc-result spill => error path):');
+            for (let i = 0; i < shown; i++) {
+                const a = rd((0x41010 + i * 16) >>> 0);
+                if (a >= afLo && a < afHi) {
+                    const id = rd((0x41010 + i * 16 + 4) >>> 0), dt = rd((0x41010 + i * 16 + 8) >>> 0), val = rd((0x41010 + i * 16 + 12) >>> 0);
+                    console.log('     [' + i + '] 0x' + a.toString(16) + ' dep=0x' + dt.toString(16) + ' id=' + id + ' val=0x' + val.toString(16));
+                }
+            }
             console.log('  >>> ALL writes inside the cache struct [cacheBase+off], execution order:');
             for (const w of inCache) console.log('     [' + w.i + '] +0x' + w.off.toString(16) + ' dep=0x' + w.dt.toString(16) + ' id=' + w.id + ' val=0x' + w.val.toString(16));
             // apply_ua_css callee-saved SAVE AREA: apply SP = cacheBase-8416, frame SP -=0x1b0,
