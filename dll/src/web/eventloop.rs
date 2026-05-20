@@ -1067,14 +1067,12 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     // KNOWN-issue annotation.
     let state_u32 = state;
     fixed_store(state_u32);
-    // Run the cascade. `StyledDom::create` is the same entry the desktop
-    // App.run uses; with an empty Css the selector pass is a no-op, but UA
-    // CSS + inheritance still run so widget defaults (font-size, padding)
-    // apply. Cascading a minimal body Dom here; wiring the layout-cb's
-    // real `dom_ref` blob through the cascade is M12.7.
-    let _ = &dom_ref;
-    let mut test_dom = Dom::create_body();
-    let styled = StyledDom::create(&mut test_dom, Css::empty());
+    // Run the cascade on the layout-cb's real Dom (`dom_ref`, the AzDom
+    // the lifted layout fn deposited via X8 hidden-return). Same
+    // `StyledDom::create` the desktop App.run uses; with an empty Css the
+    // selector pass is a no-op, but UA CSS + inheritance still run so
+    // widget defaults (font-size, padding) apply.
+    let styled = StyledDom::create(dom_ref, Css::empty());
     // M12.5y — isolate sret-move vs Box::new for the StyledDom node_data loss.
     // [52]=styled.node_data.len() (after create_from sret return, before box).
     unsafe { azul_core::compact_cache_builder::AZ_DBG_NC[52] = styled.node_data.len() as u64; }
