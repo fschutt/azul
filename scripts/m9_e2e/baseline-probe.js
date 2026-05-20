@@ -204,11 +204,14 @@ function parseWasmFnNames(buf) {
         console.log('  [11] before build_compact_cache = ' + dbg(11));
         const lo = k => mini.AzStartup_getDbgNc(k * 2) >>> 0;
         const cap = k => (dbg(k) >= 0x100000000 ? String(lo(k)) : '(not captured)');
-        console.log('--- WITHIN push_to-loop: get_ua_property vs push_to (node_count; want 1) ---');
-        console.log('  [12] entry of apply_ua_css      = ' + dbg(12) + '   (baseline before any get_ua_property)');
-        console.log('  [13] after get_ua, pre-push_to  = ' + cap(13) + '   ([12]=1,[13]=0 -> get_ua_property/sret corrupts)');
-        console.log('  [14] after 1st push_to          = ' + cap(14) + '   ([13]=1,[14]=0 -> push_to corrupts)');
-        console.log('  [15] self addr at entry         = 0x' + dbg(15).toString(16));
+        const self15 = dbg(15), sp13 = dbg(13);
+        const delta = self15 - sp13;
+        console.log('--- M12.5u frame-overlap test (push count=' + dbg(6) + ') ---');
+        console.log('  [15] self (cache) addr          = 0x' + self15.toString(16));
+        console.log('  [13] ~apply_ua_css SP           = 0x' + sp13.toString(16));
+        console.log('  self - SP                       = ' + delta + ' (0x' + (delta>>>0).toString(16) + ')'
+            + (delta > 0 && delta < 512 ? '  <<< OVERLAP! self inside apply_ua_css frame' : (delta >= 512 ? '  (self above frame; no overlap)' : '  (self below SP)')));
+        console.log('  [12] node_count after push #1   = ' + cap(12) + '   (0 = corrupted)');
     }
 
     const test_ptr = rd(0x40018);

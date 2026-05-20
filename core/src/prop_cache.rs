@@ -4982,9 +4982,14 @@ impl CssPropertyCache {
         if node_count == 0 {
             return;
         }
+        let sp_probe = [0u64; 2];
         unsafe {
-            crate::compact_cache_builder::AZ_DBG_NC[12] = self.node_count as u64; // entry
             crate::compact_cache_builder::AZ_DBG_NC[15] = self as *const _ as u64; // self addr
+            crate::compact_cache_builder::AZ_DBG_NC[6] = 0; // push counter
+            // M12.5u: ~apply_ua_css SP (stack-local addr). If self-SP ∈ [0,~512] →
+            // apply_ua_css's frame OVERLAPS the caller's stack-resident cache.
+            crate::compact_cache_builder::AZ_DBG_NC[13] =
+                core::hint::black_box(sp_probe.as_ptr()) as u64;
         }
 
         // Build a bitset per node: which CssPropertyType values are already set (Normal state).
@@ -5082,24 +5087,19 @@ impl CssPropertyCache {
 
                 // Check if UA CSS defines this property for this node type
                 if let Some(ua_prop) = crate::ua_css::get_ua_property(node_type, *prop_type) {
-                    // M12.5q: node_count AFTER get_ua_property returned Some, BEFORE push_to
-                    unsafe {
-                        if crate::compact_cache_builder::AZ_DBG_NC[14] == 0 {
-                            crate::compact_cache_builder::AZ_DBG_NC[13] =
-                                (core::ptr::read_volatile(&self.node_count) as u64) | 0x100000000;
-                        }
-                    }
                     self.cascaded_props.push_to(node_index, StatefulCssProperty {
                         state: PseudoStateType::Normal,
                         prop_type: *prop_type,
                         property: ua_prop.clone(),
                     });
-                    // M12.5q: node_count AFTER first push_to (locks both guards via [14] marker)
+                    // M12.5t: node_count after EACH push (counter [6]); first slot=0 = corrupting push.
+                    // push1→[12], push2→[13], push3+→[14] (overwrites = last). [6]=total push count.
                     unsafe {
-                        if crate::compact_cache_builder::AZ_DBG_NC[14] == 0 {
-                            crate::compact_cache_builder::AZ_DBG_NC[14] =
-                                (core::ptr::read_volatile(&self.node_count) as u64) | 0x100000000;
-                        }
+                        let nc = core::ptr::read_volatile(&self.node_count) as u64;
+                        let c = crate::compact_cache_builder::AZ_DBG_NC[6];
+                        let slot = 12 + core::cmp::min(c, 2) as usize;
+                        crate::compact_cache_builder::AZ_DBG_NC[slot] = nc | 0x100000000;
+                        crate::compact_cache_builder::AZ_DBG_NC[6] = c + 1;
                     }
 
                     // Mark as set in the bitset (prevent duplicate insertion for same node)
