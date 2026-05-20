@@ -120,8 +120,9 @@ const MAP_CONTAINER: &str = "flex-grow: 1; position: relative; \
 const ATTRIB: &str = "position: absolute; right: 6px; bottom: 6px; \
     background: rgba(255,255,255,0.85); padding: 3px 6px; \
     font-size: 10px; color: #444; border-radius: 3px;";
-// Placeholder "you are here" marker, centred over the map. A real app
-// would position this from the LocationFix the probe delivers.
+// "You are here" marker at the map centre. `on_locate` recentres the
+// viewport on the fix, so the centre dot marks the user's position
+// without needing a per-pixel projection of lat/lon to the container.
 const LOCATION_DOT: &str = "position: absolute; left: 50%; top: 50%; \
     width: 16px; height: 16px; margin-left: -8px; margin-top: -8px; \
     background: #4285f4; border-radius: 8px; \
@@ -322,6 +323,18 @@ extern "C" fn on_locate(mut data: RefAny, info: CallbackInfo) -> Update {
     if let Some(mut s) = data.downcast_mut::<MapState>() {
         s.toggle_locate();
         s.last_fix = fix;
+        // Standard "locate me": when enabling Locate with a fix in hand,
+        // recentre the viewport on it so the centre dot marks the user's
+        // position (no per-pixel projection needed). The fix arrives async,
+        // so on a cold first toggle there's none yet — toggling again once
+        // a backend has reported recentres; a Timer-driven live recentre is
+        // the follow-up.
+        if s.locating {
+            if let Some((lat, lon)) = fix {
+                s.viewport.centre_lat_deg = lat;
+                s.viewport.centre_lon_deg = lon;
+            }
+        }
     }
     Update::RefreshDom
 }

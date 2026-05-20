@@ -1045,3 +1045,13 @@ Closed the geolocation pipeline end-to-end in the goal app, using the API landed
 `cargo check -p azul-maps` clean (only pre-existing generated-code warnings); `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (warm — no dll change). No api.json/codegen change. Disk ~97% / 6.9 GiB (leaf change added little).
 
 P3.1 geolocation is now complete *and* consumed by the goal app. Remaining: dot positioning from the fix needs container-px projection (chicken-and-egg with layout — a Timer/measured-size follow-up); P3.2 real-tile wiring + P2.3 HoverEventFilter + iOS/macOS permission-request blocks stay decision-gated.
+
+### Tick — P3.3c AzulMaps recentres on the fix (locate-me dot) (2026-05-20)
+
+Completed the "geolocation dot on the map" the user originally asked for. `on_locate` now, when enabling Locate with a fix available, recentres the viewport on the fix `(lat, lon)` — so the existing centre dot marks the user's position. This sidesteps the container-pixel projection chicken-and-egg (no need to map lat/lon → screen px in the layout pass; recentre + centre-dot is the standard locate-me move).
+
+Combined with last tick's readout, "Locate" is now a real locate-me: jump to the user + centre dot + coordinate text. Async caveat noted in-code: a cold first toggle has no fix yet (probe just mounted); toggling again once a backend reports recentres — a Timer-driven live recentre is the follow-up.
+
+Leaf-only example change. `cargo check -p azul-maps` clean; `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (warm — no dll change). No api.json/codegen change. Disk ~97% / 7.x GiB.
+
+P3.1 geolocation is now fully built, exposed, AND demonstrated (probe → backend → channel → manager → get_location_fix → recentre + dot + readout). Remaining: live recentre via Timer (needs the public Timer API); P3.2 real-tile wiring + P2.3 HoverEventFilter + iOS/macOS permission-request blocks stay decision-gated; disk still tight for codegen ticks.
