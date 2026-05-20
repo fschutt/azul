@@ -2059,3 +2059,12 @@ Added the second MapWidget hook (camera/button pattern, FFI-exposed):
 **MapWidget hooks COMPLETE** (on_viewport_changed + on_pin_tap + latlon_at_px/px_at_latlon projection) — apps no longer need an overlay + duplicated projection for tap-to-pin / viewport observation.
 
 NEXT: clean up examples/azul-maps to use `with_on_pin_tap` + the exposed projection (drop its overlay + duplicated tap_to_latlon/latlon_to_px) — small follow-up. Then input custom-events (SensorChanged/GamepadInput) -> audio widgets -> UDP/azul-meet -> P9 -> P10.
+
+### Tick — FIX-APIs.11 — azul-maps demo on the new MapWidget API (2026-05-21)
+
+Cleaned up `examples/azul-maps` to use the just-added hooks/projection (validates them end-to-end via a real app on the public surface):
+- `MapWidget::create(layer).with_viewport(v).with_on_pin_tap(data, on_pin_tap).dom()` — dropped the stacked `TAP_OVERLAY` div + its `on_map_tap`/`tap_to_latlon`. `on_pin_tap(data, info, coord: MapLatLon)` just records the lat/lon (widget did tap-detect + projection) + caches container size for pin rendering. The widget's own pointer handlers now also give drag-pan (the overlay used to intercept).
+- Pin rendering uses `MapWidget::px_at_latlon(...)` instead of the demo's duplicated `latlon_to_px`. Removed both duplicated projection fns + the dead const.
+- **Binding notes (for future demos):** the FFI takes the concrete callback wrapper, built as `MapPinTapCallback { cb: on_pin_tap, callable: OptionRefAny::None }` (field is `callable`, not `ctx`); callback wrappers reexport under **`azul::dom`** (not `azul::widgets`); `LogicalSize::create(w,h)` (not `::new`). Demo builds clean (`cargo build --release -p azul-maps`).
+
+**MapWidget fully done**: on_viewport_changed + on_pin_tap + projection, demo using all of it. NEXT: input custom-events (SensorChanged/GamepadInput) -> audio widgets -> UDP/azul-meet -> P9 -> P10. (Disk lower; will cargo clean if a post-purge level dips below ~4.)
