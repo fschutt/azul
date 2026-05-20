@@ -9515,6 +9515,44 @@
                                     "type": "OptionSensorReading"
                                 },
                                 "fn_body": "object.get_sensor_reading(kind).into()"
+                            },
+                            "get_gamepad_state": {
+                                "doc": [
+                                    "Get the latest state of the gamepad `id` (button bitset + analog",
+                                    "axes), or `None` if no pad with that id has connected. Kept live by",
+                                    "the controller backend (gilrs / iOS `GCController` / Android",
+                                    "`InputDevice`) via the async channel the layout pass folds into the",
+                                    "manager — so a callback can drive movement / menu UI. For the common",
+                                    "single-controller case, [`CallbackInfo::get_primary_gamepad`] skips",
+                                    "the id bookkeeping."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "id": "GamepadId"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionGamepadState"
+                                },
+                                "fn_body": "object.get_gamepad_state(id).into()"
+                            },
+                            "get_primary_gamepad": {
+                                "doc": [
+                                    "Get the first currently-connected gamepad, or `None` if none is",
+                                    "connected — the convenient single-controller accessor."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionGamepadState"
+                                },
+                                "fn_body": "object.get_primary_gamepad().into()"
                             }
                         },
                         "repr": "C"
@@ -42436,6 +42474,41 @@
                                 "fn_body": "object.dom_with_buttons(&buttons, button_side)"
                             }
                         },
+                        "repr": "C"
+                    },
+                    "GamepadButton": {
+                        "external": "azul_core::gamepad::GamepadButton",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "South": {},
+                                "East": {},
+                                "North": {},
+                                "West": {},
+                                "LeftBumper": {},
+                                "RightBumper": {},
+                                "LeftTrigger": {},
+                                "RightTrigger": {},
+                                "Select": {},
+                                "Start": {},
+                                "Mode": {},
+                                "LeftThumb": {},
+                                "RightThumb": {},
+                                "DPadUp": {},
+                                "DPadDown": {},
+                                "DPadLeft": {},
+                                "DPadRight": {}
+                            }
+                        ],
                         "repr": "C"
                     }
                 }
@@ -83461,6 +83534,24 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionGamepadState": {
+                        "external": "azul_core::gamepad::OptionGamepadState",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "GamepadState"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -88148,6 +88239,128 @@
                                 "timestamp_ms": {
                                     "type": "u64"
                                 }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "GamepadState": {
+                        "external": "azul_core::gamepad::GamepadState",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "id": {
+                                    "type": "GamepadId"
+                                },
+                                "connected": {
+                                    "type": "bool"
+                                },
+                                "buttons": {
+                                    "type": "u32"
+                                },
+                                "left_stick_x": {
+                                    "type": "f32"
+                                },
+                                "left_stick_y": {
+                                    "type": "f32"
+                                },
+                                "right_stick_x": {
+                                    "type": "f32"
+                                },
+                                "right_stick_y": {
+                                    "type": "f32"
+                                },
+                                "left_z": {
+                                    "type": "f32"
+                                },
+                                "right_z": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "is_pressed": {
+                                "doc": [
+                                    "Whether `button` is currently held."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "button": "GamepadButton"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_pressed(button)"
+                            },
+                            "axis": {
+                                "doc": [
+                                    "The current value of `axis` (sticks `[-1, 1]`, triggers `[0, 1]`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "axis": "GamepadAxis"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f32"
+                                },
+                                "fn_body": "object.axis(axis)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "GamepadId": {
+                        "external": "azul_core::gamepad::GamepadId",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "id": {
+                                    "type": "u32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "GamepadAxis": {
+                        "external": "azul_core::gamepad::GamepadAxis",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "LeftStickX": {},
+                                "LeftStickY": {},
+                                "RightStickX": {},
+                                "RightStickY": {},
+                                "LeftZ": {},
+                                "RightZ": {}
                             }
                         ],
                         "repr": "C"

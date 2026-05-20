@@ -1616,3 +1616,13 @@ Full consumer side (mirrors sensors.b), so only the native producer remains.
 Verify: `mobile-check-all.sh` GREEN on all 5; `cargo test -p azul-layout gamepad::` 4/4 pass. Disk purged.
 
 Next P6.gamepad.c: codegen-expose `get_gamepad_state`/`get_primary_gamepad` + the gamepad types (GamepadId/Button/Axis/State/OptionGamepadState) via api.json. Then dll backend (gilrs desktop + GCController/InputDevice) + a demo.
+
+### Tick — P6.gamepad.c — expose gamepad accessors + types via api.json (2026-05-20)
+
+- `autofix add` ×4: `CallbackInfo.get_gamepad_state` (arg GamepadId → OptionGamepadState), `CallbackInfo.get_primary_gamepad`, `GamepadState.is_pressed` (arg GamepadButton), `GamepadState.axis` (arg GamepadAxis) — the latter two pull in the `GamepadButton`/`GamepadAxis` enums that `GamepadState`'s u32-bitset + f32 fields don't reference. apply between each (add clears the patch dir).
+- 2-pass: additions `GamepadAxis` (enum C), `OptionGamepadState` (enum C,u8); `modify_GamepadButton` filled its 17 variants (the transitive add captured the type but not variants — kept). Curated out the recurring DbValueVec churn + 5 drift patches. `codegen all`.
+- (azul-doc rebuilt cold this tick — its target/debug was purged during the demo work; one-time cost, as planned.)
+
+Verify: `mobile-check-all.sh` GREEN on all 5. Disk 12 GiB after purge.
+
+**Gamepad: core ✅ · manager+plumbing ✅ · codegen ✅.** Next P6.gamepad.d: dll backend — `dll/extra/gamepad/` dispatcher + `ensure_started`/`poll` (mirrors sensors.d/e): gilrs on desktop (poll → push_gamepad_state), iOS `GCController` / Android `InputDevice` glue. Then a small demo (button/stick readout).
