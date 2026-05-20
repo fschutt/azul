@@ -1105,8 +1105,16 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     let _ = &dom_ref;
     let mut test_dom = Dom::create_body();
     let styled = StyledDom::create(&mut test_dom, Css::empty());
+    // M12.5y — isolate sret-move vs Box::new for the StyledDom node_data loss.
+    // [52]=styled.node_data.len() (after create_from sret return, before box).
+    unsafe { azul_core::compact_cache_builder::AZ_DBG_NC[52] = styled.node_data.len() as u64; }
     let boxed = Box::new(styled);
     let ptr_val = Box::into_raw(boxed) as usize as u32;
+    // [53]=node_data.len() read back through the boxed pointer (after Box::new).
+    unsafe {
+        azul_core::compact_cache_builder::AZ_DBG_NC[53] =
+            (*(ptr_val as usize as *const StyledDom)).node_data.len() as u64;
+    }
     let direct_target = (ptr_val as usize + 8) as *mut u32;
     core::ptr::write_volatile(direct_target, 0xCAFEBABE_u32);
     core::ptr::write_volatile(0x40014_usize as *mut u32, ptr_val + 8);
