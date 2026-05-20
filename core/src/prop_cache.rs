@@ -4982,6 +4982,10 @@ impl CssPropertyCache {
         if node_count == 0 {
             return;
         }
+        unsafe {
+            crate::compact_cache_builder::AZ_DBG_NC[12] = self.node_count as u64; // entry
+            crate::compact_cache_builder::AZ_DBG_NC[15] = self as *const _ as u64; // self addr
+        }
 
         // Build a bitset per node: which CssPropertyType values are already set (Normal state).
         // CssPropertyType has ~178 variants, so we need [u128; 2] per node (256 bits).
@@ -5060,6 +5064,7 @@ impl CssPropertyCache {
         ];
 
         // Apply UA CSS: only insert for property types not yet set (bitset check = O(1))
+        unsafe { crate::compact_cache_builder::AZ_DBG_NC[13] = self.node_count as u64; } // before push_to loop
         for (node_index, node) in node_data.iter().enumerate() {
             let node_type = &node.node_type;
 
@@ -5093,6 +5098,7 @@ impl CssPropertyCache {
                 }
             }
         }
+        unsafe { crate::compact_cache_builder::AZ_DBG_NC[14] = self.node_count as u64; } // after push_to loop
     }
 
     /// Sort cascaded_props by (state, prop_type) and flatten into contiguous memory.

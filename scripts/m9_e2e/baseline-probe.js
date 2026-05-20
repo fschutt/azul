@@ -202,6 +202,11 @@ function parseWasmFnNames(buf) {
         console.log('  [9] after apply_ua_css()        = ' + dbg(9));
         console.log('  [10] after compute_inherited()  = ' + dbg(10));
         console.log('  [11] before build_compact_cache = ' + dbg(11));
+        console.log('--- WITHIN apply_ua_css BRACKET (want 1 throughout; pins prop_set-build vs push_to loop) ---');
+        console.log('  [12] entry of apply_ua_css      = ' + dbg(12));
+        console.log('  [13] before push_to loop        = ' + dbg(13) + '   ([12]=1,[13]=0 -> prop_set build corrupts)');
+        console.log('  [14] after push_to loop (end)   = ' + dbg(14) + '   ([13]=1,[14]=0 -> push_to corrupts)');
+        console.log('  [15] self addr at entry         = 0x' + dbg(15).toString(16));
     }
 
     const test_ptr = rd(0x40018);
