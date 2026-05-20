@@ -2083,3 +2083,14 @@ Investigated the user-endorsed "custom Event + accessor" for sensors/gamepad. **
 5. Codegen the new variants.
 
 The accessor pattern is fine (user confirmed); this just adds the push so apps stop Timer-polling. Intricate — warrants a focused fresh-context tick.
+
+### Tick — P6.input-events.1 — SensorChanged/GamepadInput filter plumbing + routing (2026-05-21)
+
+Part 1 of the user-endorsed input custom-events (so apps react to sensor/gamepad changes without a Timer poll-loop; the `get_sensor_reading`/`get_primary_gamepad` accessors stay for reading detail inside the callback). Core event-system plumbing in `core/src/events.rs`:
+- `EventType::SensorChanged`/`GamepadInput` (internal, not codegen-exposed).
+- `HoverEventFilter` + `WindowEventFilter` `SensorChanged`/`GamepadInput` variants (codegen-exposed — users attach `EventFilter::Window(WindowEventFilter::SensorChanged)`).
+- `event_type_to_filters`: `SensorChanged -> [Hover, Window]`, `GamepadInput -> [Hover, Window]`.
+- `matches_hover_filter` + `matches_window_filter` arms; to_focus(None) + to_hover mappings. (Compiler-guided: `cargo check --release` exhaustive-matched the rest.)
+- codegen all; gate GREEN on all 5.
+
+The filters are now attachable + route. **Part 2 (firing): `EventProvider` impls on SensorManager/GamepadManager** (yield a `SyntheticEvent{SensorChanged}` for the root node when the already-computed `changed` bool flips; currently discarded at layout.rs:852/879) + add them to the dll's `event_providers` (event.rs:3532) + clear after dispatch. Like the GL/sensor-backend code, runtime firing is on-device (no sensor backend / event loop here); the EventProvider structure is compile-verified.

@@ -636,6 +636,14 @@ pub enum EventType {
     FileDrop,
     /// File hover cancelled
     FileHoverCancel,
+
+    // Hardware input-device Events (P6 sensors / gamepad)
+    /// A motion-sensor reading (accelerometer / gyroscope / magnetometer)
+    /// changed. Read the value with `CallbackInfo::get_sensor_reading`.
+    SensorChanged,
+    /// A gamepad's buttons / axes changed, or one was (dis)connected. Read it
+    /// with `CallbackInfo::get_primary_gamepad` / `get_gamepad_state`.
+    GamepadInput,
 }
 
 /// Unified event wrapper (similar to React's SyntheticEvent).
@@ -1163,6 +1171,8 @@ fn matches_hover_filter(
         (DragLeave, EventType::DragLeave) => true,
         (Drop, EventType::Drop) => true,
         (DoubleClick, EventType::DoubleClick) => true,
+        (SensorChanged, EventType::SensorChanged) => true,
+        (GamepadInput, EventType::GamepadInput) => true,
         _ => false,
     }
 }
@@ -1255,6 +1265,8 @@ fn matches_window_filter(
         (ThemeChanged, EventType::ThemeChange) => true,
         (WindowFocusReceived, EventType::WindowFocusIn) => true,
         (WindowFocusLost, EventType::WindowFocusOut) => true,
+        (SensorChanged, EventType::SensorChanged) => true,
+        (GamepadInput, EventType::GamepadInput) => true,
         (DragStart, EventType::DragStart) => true,
         (Drag, EventType::Drag) => true,
         (DragEnd, EventType::DragEnd) => true,
@@ -1589,6 +1601,12 @@ pub enum HoverEventFilter {
     /// Native geolocation subscription errored / was revoked /
     /// timed out.
     GeolocationError,
+    /// A motion-sensor reading changed (P6). Window-level mirror:
+    /// `WindowEventFilter::SensorChanged`. Read via `get_sensor_reading`.
+    SensorChanged,
+    /// A gamepad's state changed / it (dis)connected (P6). Read via
+    /// `get_primary_gamepad` / `get_gamepad_state`.
+    GamepadInput,
     /// Drag started on the hovered element
     DragStart,
     /// Drag in progress on the hovered element
@@ -1701,6 +1719,8 @@ impl HoverEventFilter {
             HoverEventFilter::PenHover => None,
             HoverEventFilter::GeolocationFix => None,
             HoverEventFilter::GeolocationError => None,
+            HoverEventFilter::SensorChanged => None,
+            HoverEventFilter::GamepadInput => None,
             HoverEventFilter::DragStart => Some(FocusEventFilter::DragStart),
             HoverEventFilter::Drag => Some(FocusEventFilter::Drag),
             HoverEventFilter::DragEnd => Some(FocusEventFilter::DragEnd),
@@ -1934,6 +1954,12 @@ pub enum WindowEventFilter {
     /// Native geolocation subscription dropped or errored (signal
     /// lost, no provider, permission revoked mid-session).
     GeolocationError,
+    /// A motion-sensor reading changed (P6). Fires window-level (the device
+    /// isn't bound to a node); read via `CallbackInfo::get_sensor_reading`.
+    SensorChanged,
+    /// A gamepad's buttons / axes changed or it (dis)connected (P6); read via
+    /// `get_primary_gamepad` / `get_gamepad_state`.
+    GamepadInput,
     /// Drag started anywhere in window
     DragStart,
     /// Drag in progress anywhere in window
@@ -2023,6 +2049,8 @@ impl WindowEventFilter {
             WindowEventFilter::PenHover => Some(HoverEventFilter::PenHover),
             WindowEventFilter::GeolocationFix => Some(HoverEventFilter::GeolocationFix),
             WindowEventFilter::GeolocationError => Some(HoverEventFilter::GeolocationError),
+            WindowEventFilter::SensorChanged => Some(HoverEventFilter::SensorChanged),
+            WindowEventFilter::GamepadInput => Some(HoverEventFilter::GamepadInput),
             WindowEventFilter::DragStart => Some(HoverEventFilter::DragStart),
             WindowEventFilter::Drag => Some(HoverEventFilter::Drag),
             WindowEventFilter::DragEnd => Some(HoverEventFilter::DragEnd),
@@ -2375,6 +2403,11 @@ pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> V
         E::Unmount => vec![EF::Component(ComponentEventFilter::BeforeUnmount)],
         E::Update => vec![EF::Component(ComponentEventFilter::Updated)],
         E::Resize => vec![EF::Component(ComponentEventFilter::NodeResized)],
+
+        // Hardware input-device events (P6) — node-level Hover mirror + the
+        // window-level filter (the device isn't bound to a node).
+        E::SensorChanged => vec![EF::Hover(H::SensorChanged), EF::Window(W::SensorChanged)],
+        E::GamepadInput => vec![EF::Hover(H::GamepadInput), EF::Window(W::GamepadInput)],
 
         // Unsupported events
         _ => vec![],
