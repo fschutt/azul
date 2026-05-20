@@ -1,31 +1,24 @@
 //! Screen-capture widget — a "dumb widget" identical in architecture to the
 //! [`CameraWidget`](super::camera), only the source differs (a display /
-//! window instead of a camera). SUPER_PLAN_2 §4 P6, widget pivot.
+//! window). SUPER_PLAN_2 §4 P6, widget pivot.
 //!
-//! On `AfterMount` a background capture thread starts; its writeback uploads
-//! each frame into a stable GL-texture `ImageRef` + recomposites
-//! (`ShouldReRenderCurrentWindow`) — no relayout, no display-list rebuild, no
-//! camera/screencap logic in core. This tick uses a self-contained
-//! **test-pattern** worker (a moving horizontal band, no platform deps); the
-//! real ScreenCaptureKit / MediaProjection / PipeWire worker swaps in later.
-//!
-//! (The thread→writeback→GL machinery is duplicated from `camera.rs` for now;
-//! once the video widget lands too, the shared core moves to a common module.)
+//! `ScreenCaptureWidget::create(config).dom()` → an `<img>` a background
+//! capture thread keeps fed; each frame goes through
+//! [`super::capture_common::present_frame`] (GL-texture install-once /
+//! re-upload + recomposite). The shared core lives in `capture_common`; this
+//! widget is its config + worker. Test-pattern worker (a moving band) stands
+//! in for the real ScreenCaptureKit / MediaProjection / PipeWire worker.
 
 use alloc::vec::Vec;
 
-use azul_core::animation::UpdateImageType;
 use azul_core::callbacks::Update;
 use azul_core::dom::{ComponentEventFilter, DatasetMergeCallbackType, Dom, EventFilter};
-use azul_core::gl::gl::{RGBA, TEXTURE_2D, UNSIGNED_BYTE};
-use azul_core::gl::{GlContextPtr, OptionU8VecRef, Texture, U8VecRef};
-use azul_core::geom::PhysicalSizeU32;
 use azul_core::refany::{OptionRefAny, RefAny};
 use azul_core::resources::{ImageRef, RawImageFormat};
 use azul_core::screencap::ScreenCaptureConfig;
 use azul_core::task::{ThreadId, ThreadReceiver};
-use azul_css::props::basic::ColorU;
 
+use super::capture_common::{present_frame, VideoFrame};
 use crate::callbacks::{Callback, CallbackInfo, CallbackType};
 use crate::thread::{
     Thread, ThreadCallback, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg, WriteBackCallback,
@@ -36,17 +29,6 @@ use crate::thread::{
 const DEFAULT_W: u32 = 1280;
 const DEFAULT_H: u32 = 720;
 
-/// One captured frame, sent from the worker thread to [`screencap_writeback`].
-#[derive(Clone)]
-pub struct ScreenFrame {
-    /// Frame width in px.
-    pub width: u32,
-    /// Frame height in px.
-    pub height: u32,
-    /// Tightly-packed RGBA8 pixel bytes (`width * height * 4`).
-    pub bytes: Vec<u8>,
-}
-
 /// Live state for one screencap widget, carried across relayout by
 /// [`merge_screencap_state`].
 pub struct ScreenCaptureWidgetState {
@@ -54,8 +36,6 @@ pub struct ScreenCaptureWidgetState {
     pub config: ScreenCaptureConfig,
     /// `true` once the capture thread has been started.
     pub started: bool,
-    /// Most recent frame (cpurender fallback / debugging).
-    pub latest_frame: Option<ScreenFrame>,
     /// The stable external GL texture id once installed.
     pub gl_texture_id: Option<u32>,
 }
@@ -80,7 +60,6 @@ impl ScreenCaptureWidget {
         let state = ScreenCaptureWidgetState {
             config: self.config,
             started: false,
-            latest_frame: None,
             gl_texture_id: None,
         };
         let dataset = RefAny::new(state);
@@ -127,8 +106,7 @@ extern "C" fn screencap_on_after_mount(mut data: RefAny, mut info: CallbackInfo)
 }
 
 /// Background worker (test pattern): a downward-moving white band on dark grey,
-/// ~30×/s, until the widget unmounts. Replaced by the real ScreenCaptureKit /
-/// MediaProjection worker later.
+/// ~30×/s. Replaced by the real ScreenCaptureKit / MediaProjection worker.
 extern "C" fn screencap_test_worker(_init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
     let (w, h) = (DEFAULT_W as usize, DEFAULT_H as usize);
     let mut tick: u32 = 0;
@@ -136,13 +114,12 @@ extern "C" fn screencap_test_worker(_init: RefAny, mut sender: ThreadSender, _re
         let band = (tick as usize) % h;
         let mut bytes = Vec::with_capacity(w * h * 4);
         for y in 0..h {
-            let on_band = y.abs_diff(band) < 8;
-            let v = if on_band { 235u8 } else { 28u8 };
+            let v = if y.abs_diff(band) < 8 { 235u8 } else { 28u8 };
             for _ in 0..w {
                 bytes.extend_from_slice(&[v, v, v, 255]);
             }
         }
-        let frame = ScreenFrame {
+        let frame = VideoFrame {
             width: w as u32,
             height: h as u32,
             bytes,
@@ -159,98 +136,33 @@ extern "C" fn screencap_test_worker(_init: RefAny, mut sender: ThreadSender, _re
     }
 }
 
-/// Writeback (main thread): upload the new frame into the stable external GL
-/// texture and recomposite — install once via `change_node_image`, re-upload
-/// in place every frame after (no relayout, no DL rebuild). cpurender (no GL)
-/// stores the frame. (GL is compile-verified only here.)
+/// Writeback (main thread): hand the frame to the shared GL presenter and
+/// store the (stable) texture id.
 extern "C" fn screencap_writeback(
     mut writeback_data: RefAny,
     mut frame_data: RefAny,
     mut info: CallbackInfo,
 ) -> Update {
-    let frame = match frame_data.downcast_ref::<ScreenFrame>() {
-        Some(f) => ScreenFrame {
-            width: f.width,
-            height: f.height,
-            bytes: f.bytes.clone(),
-        },
-        None => return Update::DoNothing,
-    };
-
-    let gl = match info.get_gl_context().into_option() {
-        Some(g) => g,
-        None => {
-            if let Some(mut s) = writeback_data.downcast_mut::<ScreenCaptureWidgetState>() {
-                s.latest_frame = Some(frame);
-            }
-            return Update::DoNothing;
-        }
-    };
-
-    let existing = writeback_data
+    let current = writeback_data
         .downcast_ref::<ScreenCaptureWidgetState>()
         .and_then(|s| s.gl_texture_id);
-
-    match existing {
-        Some(id) => {
-            upload_rgba(&gl, id, &frame);
-            info.update_all_image_callbacks();
-        }
-        None => {
-            let tex = Texture::allocate_rgba8(
-                gl.clone(),
-                PhysicalSizeU32 {
-                    width: frame.width,
-                    height: frame.height,
-                },
-                ColorU {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 0,
-                },
-            );
-            let id = tex.texture_id;
-            upload_rgba(&gl, id, &frame);
-            let image = ImageRef::new_gltexture(tex);
-            if let Some(node) = info.get_node_id_of_root_dataset(writeback_data.clone()) {
-                if let Some(nid) = node.node.into_crate_internal() {
-                    info.change_node_image(node.dom, nid, image, UpdateImageType::Content);
-                }
-            }
-            if let Some(mut s) = writeback_data.downcast_mut::<ScreenCaptureWidgetState>() {
-                s.gl_texture_id = Some(id);
-            }
-        }
+    let new_id = match frame_data.downcast_ref::<VideoFrame>() {
+        Some(frame) => present_frame(&mut info, writeback_data.clone(), current, &frame),
+        None => return Update::DoNothing,
+    };
+    if let Some(mut s) = writeback_data.downcast_mut::<ScreenCaptureWidgetState>() {
+        s.gl_texture_id = new_id;
     }
     Update::DoNothing
 }
 
-/// Upload tightly-packed RGBA8 pixels into the GL texture `texture_id`.
-fn upload_rgba(gl: &GlContextPtr, texture_id: u32, frame: &ScreenFrame) {
-    gl.bind_texture(TEXTURE_2D, texture_id);
-    gl.tex_image_2d(
-        TEXTURE_2D,
-        0,
-        RGBA as i32,
-        frame.width as i32,
-        frame.height as i32,
-        0,
-        RGBA,
-        UNSIGNED_BYTE,
-        OptionU8VecRef::Some(U8VecRef::from(frame.bytes.as_slice())),
-    );
-}
-
-/// Carry live state forward across relayout (config from the fresh build,
-/// thread / texture from the previous frame).
+/// Carry live state forward across relayout.
 extern "C" fn merge_screencap_state(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
     {
         let new_guard = new_data.downcast_mut::<ScreenCaptureWidgetState>();
         let old_guard = old_data.downcast_ref::<ScreenCaptureWidgetState>();
         if let (Some(mut new_g), Some(old_g)) = (new_guard, old_guard) {
             new_g.started = old_g.started;
-            new_g.latest_frame = old_g.latest_frame.clone();
             new_g.gl_texture_id = old_g.gl_texture_id;
         }
     }

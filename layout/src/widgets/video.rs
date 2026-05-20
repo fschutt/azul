@@ -3,29 +3,22 @@
 //! only the source differs (a video URL/file decoded via vk-video).
 //! SUPER_PLAN_2 §4 P6, widget pivot.
 //!
-//! On `AfterMount` a background decode thread starts; its writeback uploads
-//! each decoded frame into a stable GL-texture `ImageRef` + recomposites — no
-//! relayout, no display-list rebuild. This tick uses a self-contained
-//! **test-pattern** worker (shifting SMPTE-style colour bars, no platform
-//! deps); the real vk-video decode + HTTP-range fetch worker swaps in later.
-//!
-//! (Thread/writeback/GL machinery duplicated from camera/screencap for now;
-//! the shared core moves to a common module in the DRY pass.)
+//! `VideoWidget::create(config).dom()` → an `<img>` a background decode thread
+//! keeps fed; each frame goes through [`super::capture_common::present_frame`]
+//! (GL-texture install-once / re-upload + recomposite). Shared core in
+//! `capture_common`; this widget is its config + worker. Test-pattern worker
+//! (scrolling SMPTE colour bars) stands in for the real vk-video decode worker.
 
 use alloc::vec::Vec;
 
-use azul_core::animation::UpdateImageType;
 use azul_core::callbacks::Update;
 use azul_core::dom::{ComponentEventFilter, DatasetMergeCallbackType, Dom, EventFilter};
-use azul_core::gl::gl::{RGBA, TEXTURE_2D, UNSIGNED_BYTE};
-use azul_core::gl::{GlContextPtr, OptionU8VecRef, Texture, U8VecRef};
-use azul_core::geom::PhysicalSizeU32;
 use azul_core::refany::{OptionRefAny, RefAny};
 use azul_core::resources::{ImageRef, RawImageFormat};
 use azul_core::task::{ThreadId, ThreadReceiver};
 use azul_core::video::VideoConfig;
-use azul_css::props::basic::ColorU;
 
+use super::capture_common::{present_frame, VideoFrame};
 use crate::callbacks::{Callback, CallbackInfo, CallbackType};
 use crate::thread::{
     Thread, ThreadCallback, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg, WriteBackCallback,
@@ -36,17 +29,6 @@ use crate::thread::{
 const DEFAULT_W: u32 = 1280;
 const DEFAULT_H: u32 = 720;
 
-/// One decoded frame, sent from the worker thread to [`video_writeback`].
-#[derive(Clone)]
-pub struct VideoFrame {
-    /// Frame width in px.
-    pub width: u32,
-    /// Frame height in px.
-    pub height: u32,
-    /// Tightly-packed RGBA8 pixel bytes (`width * height * 4`).
-    pub bytes: Vec<u8>,
-}
-
 /// Live state for one video widget, carried across relayout by
 /// [`merge_video_state`].
 pub struct VideoWidgetState {
@@ -54,8 +36,6 @@ pub struct VideoWidgetState {
     pub config: VideoConfig,
     /// `true` once the decode thread has been started.
     pub started: bool,
-    /// Most recent frame (cpurender fallback / debugging).
-    pub latest_frame: Option<VideoFrame>,
     /// The stable external GL texture id once installed.
     pub gl_texture_id: Option<u32>,
 }
@@ -80,7 +60,6 @@ impl VideoWidget {
         let state = VideoWidgetState {
             config: self.config,
             started: false,
-            latest_frame: None,
             gl_texture_id: None,
         };
         let dataset = RefAny::new(state);
@@ -127,8 +106,7 @@ extern "C" fn video_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> 
 }
 
 /// Background worker (test pattern): SMPTE-style colour bars scrolling
-/// horizontally ~30×/s, until the widget unmounts. Replaced by the real
-/// vk-video decode worker later.
+/// horizontally ~30×/s. Replaced by the real vk-video decode worker later.
 extern "C" fn video_test_worker(_init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
     const BARS: [[u8; 3]; 7] = [
         [235, 235, 235],
@@ -167,87 +145,24 @@ extern "C" fn video_test_worker(_init: RefAny, mut sender: ThreadSender, _recv: 
     }
 }
 
-/// Writeback (main thread): upload the decoded frame into the stable external
-/// GL texture and recomposite — install once via `change_node_image`,
-/// re-upload in place every frame after (no relayout, no DL rebuild).
-/// cpurender (no GL) stores the frame. (GL is compile-verified only here.)
+/// Writeback (main thread): hand the decoded frame to the shared GL presenter
+/// and store the (stable) texture id.
 extern "C" fn video_writeback(
     mut writeback_data: RefAny,
     mut frame_data: RefAny,
     mut info: CallbackInfo,
 ) -> Update {
-    let frame = match frame_data.downcast_ref::<VideoFrame>() {
-        Some(f) => VideoFrame {
-            width: f.width,
-            height: f.height,
-            bytes: f.bytes.clone(),
-        },
-        None => return Update::DoNothing,
-    };
-
-    let gl = match info.get_gl_context().into_option() {
-        Some(g) => g,
-        None => {
-            if let Some(mut s) = writeback_data.downcast_mut::<VideoWidgetState>() {
-                s.latest_frame = Some(frame);
-            }
-            return Update::DoNothing;
-        }
-    };
-
-    let existing = writeback_data
+    let current = writeback_data
         .downcast_ref::<VideoWidgetState>()
         .and_then(|s| s.gl_texture_id);
-
-    match existing {
-        Some(id) => {
-            upload_rgba(&gl, id, &frame);
-            info.update_all_image_callbacks();
-        }
-        None => {
-            let tex = Texture::allocate_rgba8(
-                gl.clone(),
-                PhysicalSizeU32 {
-                    width: frame.width,
-                    height: frame.height,
-                },
-                ColorU {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 0,
-                },
-            );
-            let id = tex.texture_id;
-            upload_rgba(&gl, id, &frame);
-            let image = ImageRef::new_gltexture(tex);
-            if let Some(node) = info.get_node_id_of_root_dataset(writeback_data.clone()) {
-                if let Some(nid) = node.node.into_crate_internal() {
-                    info.change_node_image(node.dom, nid, image, UpdateImageType::Content);
-                }
-            }
-            if let Some(mut s) = writeback_data.downcast_mut::<VideoWidgetState>() {
-                s.gl_texture_id = Some(id);
-            }
-        }
+    let new_id = match frame_data.downcast_ref::<VideoFrame>() {
+        Some(frame) => present_frame(&mut info, writeback_data.clone(), current, &frame),
+        None => return Update::DoNothing,
+    };
+    if let Some(mut s) = writeback_data.downcast_mut::<VideoWidgetState>() {
+        s.gl_texture_id = new_id;
     }
     Update::DoNothing
-}
-
-/// Upload tightly-packed RGBA8 pixels into the GL texture `texture_id`.
-fn upload_rgba(gl: &GlContextPtr, texture_id: u32, frame: &VideoFrame) {
-    gl.bind_texture(TEXTURE_2D, texture_id);
-    gl.tex_image_2d(
-        TEXTURE_2D,
-        0,
-        RGBA as i32,
-        frame.width as i32,
-        frame.height as i32,
-        0,
-        RGBA,
-        UNSIGNED_BYTE,
-        OptionU8VecRef::Some(U8VecRef::from(frame.bytes.as_slice())),
-    );
 }
 
 /// Carry live state forward across relayout.
@@ -257,7 +172,6 @@ extern "C" fn merge_video_state(mut new_data: RefAny, mut old_data: RefAny) -> R
         let old_guard = old_data.downcast_ref::<VideoWidgetState>();
         if let (Some(mut new_g), Some(old_g)) = (new_guard, old_guard) {
             new_g.started = old_g.started;
-            new_g.latest_frame = old_g.latest_frame.clone();
             new_g.gl_texture_id = old_g.gl_texture_id;
         }
     }

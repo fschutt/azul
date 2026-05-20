@@ -1878,3 +1878,13 @@ Refactored `camera.rs` to use it: dropped CameraFrame + upload_rgba + the unused
 Verify: `mobile-check-all.sh` GREEN on all 5 (camera refactored; screencap/video still self-contained — DRY.2 next). Disk 7.5 GiB.
 
 Next: DRY pass (2/2) — refactor screencap.rs + video.rs onto capture_common (delete their duplicated frame types / upload_rgba / writeback bodies). Then wacom.
+
+### Tick — P6.video-ish DRY pass (2/2) — screencap + video on capture_common (2026-05-20)
+
+Refactored `screencap.rs` + `video.rs` onto `capture_common` (same as camera): deleted their local frame types + `upload_rgba` + writeback bodies + unused `latest_frame`; workers now emit `capture_common::VideoFrame`; writebacks are ~6 lines calling `present_frame`. Test patterns (moving band / scrolling colour bars) kept.
+
+Public API (create/dom) unchanged → no codegen/demo changes; existing target/codegen still valid.
+
+Verify: `mobile-check-all.sh` GREEN on all 5. Disk 6.8 GiB.
+
+**🎯 video-ish stack DONE + DRY**: 3 thin widgets (camera/screencap/video) over one shared `capture_common` core (VideoFrame + present_frame + upload_rgba) — the single seam for GL fixes + the real platform workers. Next: **wacom** (extends PenState — ExpressKeys/touch-ring/barrel/eraser). Then audio → enc/dec → UDP → azul-meet. (Real AVFoundation/ScreenCaptureKit/vk-video workers = on-machine batch.)
