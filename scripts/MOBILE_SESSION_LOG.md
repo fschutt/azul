@@ -927,3 +927,14 @@ Geolocation now has a producer on *both* mobile platforms (Android P3.1b + iOS h
 - Manager+delegate stored as `AtomicUsize` (raw ptrs aren't Send/Sync); `Class::get` degrades to no-op if CoreLocation is absent. `didChangeAuthorization`→PermissionManager routing deferred (permission backend already probes location sync).
 
 `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (29/9/10/0/1 s — iOS rebuilt the new objc). Internal dll platform code — no api.json/codegen change. Disk 94%.
+
+### Tick — P3.1d macOS geolocation producer via CLLocationManager (2026-05-20)
+
+Geolocation now has a real producer on all three platforms (Android P3.1b, iOS P3.1c, macOS here), all feeding the P3.1a fix channel.
+
+- `geolocation/macos.rs` mirrors the iOS arm (macOS shares the `CLLocationManager` API): singleton retained manager + `AzulMacLocationDelegate` (`ClassDecl`; distinct name from the iOS `AzulLocationDelegate`), subscribe/reconfigure/release, and `didUpdateLocations` → newest `CLLocation` (coordinate struct-return + sentinel→NaN fields) → `push_location_fix`.
+- Standalone (not the cfg(any(ios,macos)) share the stub suggested) — lowest-risk, leaves the gate-tested iOS arm untouched; dedup is a future refactor if desired.
+
+macOS isn't in the mobile gate (`cfg(target_os="macos")`), so verified two ways: host `cargo check -p azul-dll --no-default-features --features std,logging,link-static,a11y` compiles macos.rs clean (20.5s); `bash scripts/mobile-check-all.sh` GREEN on all 5 mobile targets. Internal dll platform code — no api.json/codegen change. Disk 94%.
+
+Geolocation (P3.1) is now substantially complete: manager + probe-diff wiring + async channel + producers on Android/iOS/macOS. The thinning non-gated runway: `didChangeAuthorization`→PermissionManager routing, or Linux geoclue (unverifiable here). The three decision-gated items (permission request blocks; tap-to-pin worker exposure; P2.3 HoverEventFilter) still await a steer.
