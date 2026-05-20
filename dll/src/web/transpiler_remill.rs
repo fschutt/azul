@@ -4663,6 +4663,46 @@ fn emit_helper_ir(
                     x3_off = x0_off + 48,
                 ));
             }
+            // LibcMemcpy: libc memcpy / memmove.
+            //   X0=dest, X1=src, X2=n. Returns dest in X0.
+            //
+            // The real symbol is an out-of-image libsystem address
+            // (PLT-chased), so it can't be lifted; the default `Leaf`
+            // stub RETURNS without copying. Rust emits an out-of-line
+            // `bl _memcpy` for large struct moves (`Box::new` of a
+            // Vec-containing struct, slice `.to_vec()`, …), so a
+            // no-op stub silently leaves the destination at its
+            // zero-init bump bytes — e.g. `Box::new(styled)` of a
+            // 352-byte StyledDom read back `node_data.len == 0`.
+            //
+            // Emit a real `@llvm.memmove` (overlap-safe superset of
+            // memcpy; correct for the `_platform_memmove` spelling
+            // too). X0 is left holding `dest`, which is exactly
+            // memcpy/memmove's return value.
+            Some(SymFnClass::LibcMemcpy) => {
+                branch_stubs.push_str(&format!(
+                    "; libc memcpy/memmove body for {sym} (X0=dst, X1=src, X2=n)\n\
+                     define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) alwaysinline {{\n  \
+                       %dst_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x0_off}\n  \
+                       %dst_i64_{n} = load i64, ptr %dst_p_{n}, align 8\n  \
+                       %dst_i32_{n} = trunc i64 %dst_i64_{n} to i32\n  \
+                       %dst_{n} = inttoptr i32 %dst_i32_{n} to ptr\n  \
+                       %src_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x1_off}\n  \
+                       %src_i64_{n} = load i64, ptr %src_p_{n}, align 8\n  \
+                       %src_i32_{n} = trunc i64 %src_i64_{n} to i32\n  \
+                       %src_{n} = inttoptr i32 %src_i32_{n} to ptr\n  \
+                       %nbytes_p_{n} = getelementptr inbounds i8, ptr %state, i64 {x2_off}\n  \
+                       %nbytes_{n} = load i64, ptr %nbytes_p_{n}, align 8\n  \
+                       call void @llvm.memmove.p0.p0.i64(ptr %dst_{n}, ptr %src_{n}, i64 %nbytes_{n}, i1 false)\n  \
+                       ret ptr %memory\n\
+                     }}\n",
+                    sym = ext.sym_name,
+                    n = n_suffix,
+                    x0_off = x0_off,
+                    x1_off = x0_off + 16,
+                    x2_off = x0_off + 32,
+                ));
+            }
             // BumpDealloc: __rust_dealloc(ptr, size, align). Bump-only
             // allocator doesn't free — body is a noop that returns
             // memory unchanged. X0 (ptr) is left alone (return type
@@ -5080,6 +5120,7 @@ define linkonce_odr i1 @__remill_compare_uge(i1 %r) alwaysinline {{ ret i1 %r }}
 declare ptr @sub_{lift_addr_hex}(ptr noalias, i64, ptr noalias)
 declare void @llvm.memset.p0.i64(ptr nocapture writeonly, i8, i64, i1 immarg)
 declare void @llvm.memcpy.p0.p0.i64(ptr nocapture writeonly, ptr nocapture readonly, i64, i1 immarg)
+declare void @llvm.memmove.p0.p0.i64(ptr nocapture writeonly, ptr nocapture readonly, i64, i1 immarg)
 
 ; Callback kind: {kind}. Wrapper synthesized from
 ; the matching `CallbackSignature`. PCS table at the top of

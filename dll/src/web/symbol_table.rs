@@ -159,6 +159,18 @@ pub enum FnClass {
     /// libpthread, mangled Rust runtime internals like
     /// `core::panicking`.)
     Leaf,
+    /// libc `memcpy` / `memmove` (X0=dest, X1=src, X2=n; returns
+    /// dest in X0). The real symbol is out-of-image (resolved via
+    /// PLT-chase to a libsystem address no rebase covers), so it
+    /// can't be lifted. The default `Leaf` stub RETURNS without
+    /// copying — which silently drops every large struct move: Rust
+    /// lowers `Box::new(big_struct)` and `<[T]>::to_vec` to an
+    /// out-of-line `bl _memcpy`, so the destination keeps its
+    /// (zero-init) bump-alloc bytes. (Verified: `Box::new(styled)`
+    /// of a 352-byte StyledDom left `node_data.len == 0`.) Helper
+    /// IR emits a real `@llvm.memmove` body instead — see
+    /// `emit_helper_ir` BranchExternKind::LibcMemcpy.
+    LibcMemcpy,
     /// Server-entry-point (e.g. `AzApp_run`). Should never appear in
     /// a lifted body; if it does, the helper IR should trap loudly.
     NeverLift,
@@ -689,6 +701,11 @@ impl SymbolTable {
                     | FnClass::CallIndirectLayout4
                     | FnClass::ResolveCallback
                     | FnClass::NeverLift
+                    // LibcMemcpy is *always* out-of-image (it IS a
+                    // libsystem symbol) — but it has a synthetic
+                    // `@llvm.memmove` body, so don't downgrade it to a
+                    // no-op Leaf here.
+                    | FnClass::LibcMemcpy
             ) {
                 continue;
             }
@@ -1666,6 +1683,20 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     for variant in ["rust_alloc", "rdl_alloc", "rg_alloc"] {
         if stripped == variant || stripped.ends_with(variant) {
             return FnClass::BumpAlloc;
+        }
+    }
+    // libc bulk-copy primitives: `memcpy` / `memmove` (and their
+    // `_chk` and `_platform_` spellings, however the PLT-chase names
+    // them — e.g. `memcpy`, `_platform_memmove`, `___memcpy_chk`).
+    // The bare `_`-stripped name is matched so all spellings collapse.
+    // These resolve to out-of-image libsystem addresses, so the
+    // address-based M10-A1 pass would otherwise force `Leaf` (a no-op
+    // stub) and drop every out-of-line struct copy. Classify as
+    // `LibcMemcpy` so the helper IR emits a real `@llvm.memmove` body.
+    {
+        let core = stripped.strip_prefix("platform_").unwrap_or(stripped);
+        if core.starts_with("memcpy") || core.starts_with("memmove") {
+            return FnClass::LibcMemcpy;
         }
     }
     // M9-3: check the more specific layout4 variant FIRST — its name
