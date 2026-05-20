@@ -1067,41 +1067,11 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     // KNOWN-issue annotation.
     let state_u32 = state;
     fixed_store(state_u32);
-    // M12.5e isolation: run the simple Vec reproducer BEFORE the cascade
-    // so a cascade trap doesn't mask whether the now-lifted grow_one
-    // works for a plain Vec<u32>. If vs_ptr (0x40028) is set + correct
-    // and the cascade still traps, the bug is cascade-specific (bigger
-    // alloc / other collection). If vs_ptr stays 0, grow_one's lift is
-    // itself broken at runtime.
-    let vs_boxed_early = Box::new(make_test_vec_struct());
-    let vs_ptr_early = Box::into_raw(vs_boxed_early) as usize as u32;
-    core::ptr::write_volatile(0x40028_usize as *mut u32, vs_ptr_early);
-    // M12.5h: multi-Vec struct via sret (mimics StyledDom's many Vecs).
-    let mv_boxed = Box::new(make_test_multivec());
-    let mv_ptr = Box::into_raw(mv_boxed) as usize as u32;
-    core::ptr::write_volatile(0x4002C_usize as *mut u32, mv_ptr);
-    // M12.5j: AzVec (impl_vec!) reproducer — the suspected mis-lift path.
-    let av_boxed = Box::new(make_test_azvec());
-    let av_ptr = Box::into_raw(av_boxed) as usize as u32;
-    core::ptr::write_volatile(0x40040_usize as *mut u32, av_ptr);
-    // M12.5k: Vec of large DROPPABLE elements (mimics Vec<NodeData>).
-    let bv_boxed = Box::new(make_test_bigvec());
-    let bv_ptr = Box::into_raw(bv_boxed) as usize as u32;
-    core::ptr::write_volatile(0x40044_usize as *mut u32, bv_ptr);
-    // M12.5l: RECURSIVE Vec accumulation (mimics convert_dom_into_compact_dom).
-    let rv_boxed = Box::new(make_test_recvec());
-    let rv_ptr = Box::into_raw(rv_boxed) as usize as u32;
-    core::ptr::write_volatile(0x40048_usize as *mut u32, rv_ptr);
-    // M12.5o: SMOKING-GUN u128 test (mimics apply_ua_css `1u128 << d`).
-    let u8_boxed = Box::new(make_test_u128());
-    let u8_ptr = Box::into_raw(u8_boxed) as usize as u32;
-    core::ptr::write_volatile(0x4004C_usize as *mut u32, u8_ptr);
-    // M12.5h ISOLATION: cascade a HAND-BUILT body Dom instead of the
-    // layout-cb blob (dom_ref). If this clears the with_capacity OOB and
-    // yields node_data.len()>=1, the cascade lift is FINE and the corrupt
-    // input came from the layout-cb wasm's Dom output. If it still traps,
-    // the cascade lift itself is buggy regardless of input. (Web-only
-    // path — hydrate is never pre-rendered natively, so this is safe.)
+    // Run the cascade. `StyledDom::create` is the same entry the desktop
+    // App.run uses; with an empty Css the selector pass is a no-op, but UA
+    // CSS + inheritance still run so widget defaults (font-size, padding)
+    // apply. Cascading a minimal body Dom here; wiring the layout-cb's
+    // real `dom_ref` blob through the cascade is M12.7.
     let _ = &dom_ref;
     let mut test_dom = Dom::create_body();
     let styled = StyledDom::create(&mut test_dom, Css::empty());
@@ -1114,41 +1084,6 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     unsafe {
         azul_core::compact_cache_builder::AZ_DBG_NC[53] =
             (*(ptr_val as usize as *const StyledDom)).node_data.len() as u64;
-    }
-    let direct_target = (ptr_val as usize + 8) as *mut u32;
-    core::ptr::write_volatile(direct_target, 0xCAFEBABE_u32);
-    core::ptr::write_volatile(0x40014_usize as *mut u32, ptr_val + 8);
-    // M12.5b probe: trivial sret test. If Box::new(make_test_struct())
-    // produces a heap with pattern 0xA0000000..0xA000003F, sret works
-    // for trivial 256-byte structs. If zeros, sret is broken at the
-    // lift level for ANY sret-returning function.
-    let test_boxed = Box::new(make_test_struct());
-    let test_ptr = Box::into_raw(test_boxed) as usize as u32;
-    core::ptr::write_volatile(0x40018_usize as *mut u32, test_ptr);
-    // M12.5d-A: sret-across-subcalls reproducer. Same expected pattern
-    // as make_test_struct (0xA0000000|i). If this reads zero while
-    // make_test_struct reads 64/64, the sret destination is lost
-    // across lifted sub-call boundaries — the cascade bug minimally
-    // reproduced. Single extra Box::new (3 total) to avoid the
-    // cumulative-alloc hydrate trap seen in prior sessions.
-    let sc_boxed = Box::new(make_test_struct_subcall());
-    let sc_ptr = Box::into_raw(sc_boxed) as usize as u32;
-    core::ptr::write_volatile(0x4001C_usize as *mut u32, sc_ptr);
-    // M12.5c: dump first 80 bytes of the cascade-output styled struct
-    // to known wasm addresses 0x40100..0x4014F so JS can read via
-    // getProbeRaw-style fixed-addr peeks. This lets us see exactly
-    // what offsets the cascade wrote vs what's zero.
-    // Marker at 0x40104 confirms the loop ran.
-    core::ptr::write_volatile(0x40104_usize as *mut u32, 0xDEAD_DEAD_u32);
-    core::ptr::write_volatile(0x4010C_usize as *mut u32, ptr_val);
-    core::ptr::write_volatile(0x40110_usize as *mut u32, test_ptr);
-    let styled_view = ptr_val as usize as *const u32;
-    let mut probe_off = 0usize;
-    while probe_off < 80 {
-        let v = core::ptr::read_volatile(styled_view.add(probe_off / 4));
-        core::ptr::write_volatile(
-            (0x40200_usize + probe_off) as *mut u32, v);
-        probe_off += 4;
     }
     let recovered = fixed_load();
     finalize_hydrate(recovered, ptr_val);
