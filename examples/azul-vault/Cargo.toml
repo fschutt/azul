@@ -1,0 +1,26 @@
+[package]
+name = "azul-vault"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzulVault — the P4 goal app from SUPER_PLAN_2. An Apple-Password-
+    Manager-style demo: a biometric-gated key/value store for sensitive
+    data, persisted to a local SQLite database via the public `Db` API.
+    On launch the vault is locked; `CallbackInfo::request_biometric_auth`
+    drives the OS Face ID / Touch ID prompt and `get_biometric_result`
+    unlocks it. Built entirely on the public `azul::` api.json surface
+    (no azul-core/layout/dll internals): biometric (P4.1) + db-sqlite
+    (P4.3) end-to-end.
+"""
+publish = false
+
+[dependencies]
+# `db-sqlite` makes the `Db` engine real (bundled SQLite via native cc on
+# the desktop host); without it `Db::open` returns an invalid handle.
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "db-sqlite"] }
+
+[[bin]]
+name = "azul-vault"
+path = "src/main.rs"

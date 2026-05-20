@@ -1385,3 +1385,14 @@ The stub-POD approach paid off: `Db` flows through normal codegen with NO featur
 Verify: `mobile-check-all.sh` GREEN on all 5 (generated Db stub bindings compile — no db-sqlite); macOS host `+db-sqlite` CLEAN (real engine + bindings). Only api.json tracked. Disk 97% → purging.
 
 **P4.3 (db-sqlite) complete**: core types → rusqlite engine (cross-compile needs cc env, documented) → always-present Db stub POD → public api.json surface. Next: **P4.4 AzulVault** — `examples/azul-vault`, biometric-gated (P4.1 `request_biometric_auth`/`get_biometric_result`) key/value store persisted via the `Db` API (open `:memory:` or a file, CREATE TABLE, add/list/view entries). Leaf example crate, low-disk. Then P5 AzulDoc + P6 expansions, per research.
+
+### Tick — P4.4a — AzulVault demo (biometric gate + Db persistence, public API) (2026-05-20)
+
+The P4 goal app — `examples/azul-vault`, built entirely on the public `azul::` surface (ties P4.1 biometric + P4.3 db-sqlite together). Added to workspace members.
+
+- `examples/azul-vault/{Cargo.toml,src/main.rs}`: `azul` dep with `link-static,db-sqlite` (real engine on the desktop host). Locked screen → "Unlock with biometrics" → `on_unlock`: polls `info.get_biometric_result().into_option()` (Authenticated/FellBackToPasscode → unlock + `CREATE TABLE IF NOT EXISTS`), else fires `info.request_biometric_auth(BiometricPrompt{...})` (poll-on-tap, like AzulMaps locate — async OS prompt). Unlocked: "Add sample entry" → `on_add` INSERTs via `Db::open(path).execute(sql, params)`. Persists to a temp-dir SQLite file.
+- API gotchas resolved: codegen methods take generic `Into<AzString>`/`Into<DbValueVec>` → pass raw `&str`/`Vec<DbValue>` (no `.into()` into the generic param); `.into()` only on concrete fields (`DbValue::Text`, `BiometricPrompt.reason`). `DbValueVec` built via `From<Vec<_>>`. `layout` needs `mut data` (downcast_ref is &mut self). `.into_option()` for FFI Options.
+
+Verify: `cargo check -p azul-vault` CLEAN; `mobile-check-all.sh` GREEN on all 5 (azul-dll unaffected). Disk 97% → purging.
+
+Next P4.4b: list/view entries — needs `DbRows`/`DbValue` accessor methods (num_rows/get/as_text) exposed via api.json (currently only the types + fields are). + optional custom key/value text input. Then **P5 AzulDoc** (PDF export via printpdf, research/06) + P6 expansions + demos. **P4 COMPLETE** (biometric ✅ keyring ✅ db-sqlite ✅ AzulVault ✅).
