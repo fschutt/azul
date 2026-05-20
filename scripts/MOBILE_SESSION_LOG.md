@@ -1347,3 +1347,18 @@ The real SQLite engine, behind `db-sqlite`. `rusqlite::types::Value` is a 1:1 ma
 Verify: macOS host check `+db-sqlite` CLEAN (Db + rusqlite compile); normal `mobile-check-all.sh` GREEN on all 5 (module cfg'd out — instant, fully isolated). Disk 96%.
 
 Next P4.3d: expose `Db` + methods via api.json/codegen. Challenge: `Db` is feature-gated (`db-sqlite`) and dll-resident — the generated C-API fns need `#[cfg(feature="db-sqlite")]`, and the gate (no db-sqlite) must still compile the generated bindings. Investigate how codegen handles feature-gated/dll types (App is the always-present precedent; Db is the gated case). If codegen can't gate cleanly, options: (a) always-compile Db with a runtime "unavailable" stub when the feature's off, or (b) add a codegen cfg annotation. Then P4.4 AzulVault.
+
+### Tick — P4.3d — DIAGNOSIS: codegen can't feature-gate engine types (cross-cutting blocker) (2026-05-20)
+
+Investigation tick (no code change; baseline GREEN). Exposing `Db` via the public api.json hit a real, **cross-cutting** wall that the resolved decisions didn't anticipate — it blocks db-sqlite AND P5 PDF AND P6 camera/sensors/screencap (all feature-gated dll engines).
+
+**Findings:**
+- The generated `dll_api_internal.rs` (always compiled under `link-static`=the mobile gate) would reference `Db` unconditionally → without `db-sqlite`, `Db` doesn't exist → gate RED. So `Db`'s bindings must be `#[cfg(feature="db-sqlite")]`.
+- api.json has **no** per-type feature key; codegen has no generic feature-gating (the one `#[cfg(feature="serde-json")]` is a hardcoded RefAny special-case in lang_rust.rs:763).
+- **Option B (make engines always-on so no gating is needed) is RULED OUT**: iOS SDK is ABSENT on this host, so the gate can't compile bundled SQLite's C for iOS even always-on → iOS gate would go RED. Keeping db-sqlite OUT of the gate (gated) is therefore forced.
+
+**Candidate fixes (next tick picks/implements):**
+1. **Localized codegen gating**: emit `#[cfg(feature="db-sqlite")]` for the `Db` class in lang_rust.rs (class loop @1650 / generate_struct @2126 / generate_capi_trait_impls @2720) + lang_reexports.rs (@166/@338), mirroring the serde-json special-case. Reusable later for PDF/camera. Risk: multi-function emitter edits; verify `codegen all` output is byte-identical until `Db` is added (Db not in api.json yet → zero trigger).
+2. **Core-`Db` opaque handle + dll free-fns with real/stub cfg variants**: `Db{ptr}` in azul-core (always present), dll `db_open/execute/query/close` (`#[cfg(db-sqlite)]` real, `#[cfg(not)]` stub). Caveat: api.json methods generate `impl AzDb` in the dll — if `Db` is a core type that's an **orphan-impl violation**; viable only if the C-API is free-fns (`AzDb_execute`) not inherent methods. MUST verify the codegen's method-emission model (free-fn vs impl) first.
+
+Recommendation: option 1 (localized gating) — Db stays a dll type (no orphan issue, no P4.3c rework), and it's the reusable mechanism P5/P6 need. Next tick: verify the lang_rust class-emission injection points, add the cfg, confirm identical codegen output + gate GREEN; then P4.3e adds `Db`+methods to api.json gated.
