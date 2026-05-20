@@ -949,3 +949,15 @@ Closed the location-permission feedback loop on Apple platforms — the symmetri
 Verified two ways (macOS not in the mobile gate): host `cargo check` clean (14.2s); `bash scripts/mobile-check-all.sh` GREEN on all 5 targets. Internal dll platform code — no api.json/codegen change. Disk 93%.
 
 P3.1 geolocation is now feature-complete on the Apple side (session producers + fix channel + permission feedback). Remaining non-gated: Android `didChangeAuthorization` equivalent already covered by P1.2d's onRequestPermissionsResult; Linux geoclue (unverifiable here). Decision-gated items unchanged (permission request blocks; tap-to-pin worker exposure; P2.3 HoverEventFilter).
+
+### Tick — P3.1f CallbackInfo::get_location_fix accessor (layout side) (2026-05-20)
+
+Started closing a real gap I surfaced this tick: the whole permission/geolocation stack had NO public read path — `CallbackInfo` exposes `get_pen_state` but nothing for the location fix or permission status, so users (and the AzulMaps demo) can't consume any of it. Added the layout-side accessor `CallbackInfo::get_location_fix() -> Option<LocationFix>` (mirrors `get_pen_state`; reads `geolocation_manager.latest_fix()`).
+
+FFI exposure (the part users actually call) is deliberately deferred to a careful codegen tick, NOT done here, because investigation surfaced two snags that make an autonomous `codegen all` risky right now:
+1. `OptionLocationFix` isn't an api.json type yet (needs `impl_option!(LocationFix, ...)` in core + the autofix add). `OptionLocationFix` itself routes fine (determine_module → "option"), but —
+2. autofix's name-based `determine_module` can't place bare `LocationFix` or `MapTileId` (→ "misc" + warning); the path-aware fallback exists (`module_from_external_path` has the `azul_core::geolocation::`/`azul_layout::widgets::` arms from P3.2l) but the warning call-site in `patch_format.rs` calls bare `determine_module` without the path. And a bare `autofix` run shows pre-existing drift (2 module-move patches for DetectedLongPress/DetectedRotation) that a codegen tick would entangle.
+
+So the FFI exposure wants a deliberate tick: fix `determine_module` (add geolocation/map keyword routes), add `impl_option!`, then `autofix add CallbackInfo.get_location_fix` + `codegen all` with the drift reviewed. Flagging rather than risking a half-applied codegen autonomously.
+
+`bash scripts/mobile-check-all.sh` GREEN on all 5 targets (14/13/13/14/13 s). azul-layout-internal method — no api.json/codegen change. Cleaned the stray `target/autofix/patches` from investigation. Disk 94%.

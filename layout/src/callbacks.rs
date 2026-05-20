@@ -3119,6 +3119,16 @@ impl CallbackInfo {
         self.get_gesture_drag_manager().get_pen_state()
     }
 
+    /// Get the most recent geolocation fix, or `None` if no `GeolocationProbe`
+    /// is mounted or no platform backend has delivered a fix yet. The fix is
+    /// kept live by the platform backends (Android `FusedLocationProvider`,
+    /// iOS/macOS `CLLocationManager`) via the async fix channel that the
+    /// layout pass folds into the manager — so a callback can read the user's
+    /// position to, e.g., place a "you are here" marker on a map.
+    pub fn get_location_fix(&self) -> Option<azul_core::geolocation::LocationFix> {
+        self.get_layout_window().geolocation_manager.latest_fix()
+    }
+
     /// Get current pen pressure (0.0 to 1.0)
     /// Returns None if no pen is active, Some(0.5) for mouse
     pub fn get_pen_pressure(&self) -> Option<f32> {
