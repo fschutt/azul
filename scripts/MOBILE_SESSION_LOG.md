@@ -1699,3 +1699,28 @@ Mapped the full widget spine + settled the render-update mechanism (4 user refin
 6. YUV: cpurender converts→RGB; GPU adds YUV ImageRef variant + wr AddImage/UpdateImage (deferred).
 
 Next: build P6.camera.widget.1 = `CallbackInfo::update_image` API (CallbackChange::UpdateImage + dll handler issuing wr UpdateImage → ShouldReRenderCurrentWindow). Then the CameraWidget scaffold.
+
+### MASTER PLAN (updated 2026-05-20) — render fix + full P6→P8 roadmap
+
+**Constraint (reaffirmed):** everything below uses the public `azul::` api.json surface, NOT azul-layout internals.
+
+#### change_node_image render fix (foundation for the video-ish widgets)
+- **Bug:** `change_node_image` always returns `ProcessEventResult::ShouldUpdateDisplayListCurrentWindow` → a **full display-list rebuild** even for a content-only image swap. Should not rebuild the DL.
+- **Key insight:** WebRender ImageKey **is the ImageRef's data pointer** (`image_ref_get_hash: inner = ir.data as usize`; `image_ref_hash_to_image_key`) — **identity-based, not content-based**. So a *stable* ImageRef has a *stable* key; updating its pixels in place + a wr `UpdateImage(key)` refreshes the texture under the same key the DL already references → recomposite only, no DL rebuild, no relayout.
+- **Fix:** `change_node_image` same-key fast path — if the new image's key == the node's current image key (content-only update, the camera case), queue a wr `UpdateImage` + return `ShouldReRenderCurrentWindow` (→ `RequestRedraw`, recomposite, reuse scene); only fall back to `ShouldUpdateDisplayListCurrentWindow` when the key actually differs.
+- **Render-loop map (macos/events.rs:85):** `ShouldReRenderCurrentWindow→RequestRedraw` (recomposite, reuse scene); `ShouldUpdateDisplayListCurrentWindow→UpdateDisplayList` (rebuild DL). Resource updates collected by `collect_image_resource_updates` (wr_translate2:1028, scans DL images→AddImage) + `translate_update_image` (UpdateImage exists). OPEN: wire a per-window pending `UpdateImage` queue the event handler pushes to (or force a targeted re-collect); `update_texture` (resources.rs:1439) is for external/GL textures (returns ExternalImageId) — CPU in-place update replaces DecodedImage bytes under the Arc + UpdateImage.
+
+#### Roadmap: video-ish → wacom → audio → video enc/dec → UDP → azul meet
+1. **Video-ish widgets** (current) — "dumb widgets" (MapWidget pattern: RefAny dataset + DatasetMergeCallback + AfterMount→`add_thread` capture thread + writeback→`change_node_image` no-relayout update). Control POD for live settings.
+   - **Camera** widget (front/back, zoom, live filters).
+   - **Screenshare** widget (screen/window selection) — identical architecture.
+   - **Video** widget — same pattern, **`vk-video`** crate (decode + HTTP-range fetch).
+2. **Wacom finalization** — last P6 expansion: ExpressKeys / touch-ring / barrel button / eraser tip (extends existing PenState/PenTilt).
+3. **P7 — Audio + recording/encoding:**
+   - Audio **playback + microphone recording** via **`rodio`**.
+   - **Video recording / on-the-fly encoding** via **`vk-video`** (GPU-driver encode; native APIs on macOS as the alternative). Saves decoded/encoded packets to disk (the thread+writeback design enables this).
+4. **P8 — AzUdp + azul meet:**
+   - **`AzUdp`** api — between two connected UDP sockets, share screen / video / text chat / audio packets on the fly, **fault-tolerant** (drops packets properly).
+   - **"azul meet"** — a Google-Meet-style video-chat app composed from all the above (camera + screenshare + audio + UDP), on the public api.json surface.
+
+Next: finish the change_node_image fix (resource-update queue) → build the CameraWidget → screenshare → video → … per the roadmap.
