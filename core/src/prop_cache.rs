@@ -4982,15 +4982,6 @@ impl CssPropertyCache {
         if node_count == 0 {
             return;
         }
-        let sp_probe = [0u64; 2];
-        unsafe {
-            crate::compact_cache_builder::AZ_DBG_NC[15] = self as *const _ as u64; // self addr
-            crate::compact_cache_builder::AZ_DBG_NC[6] = 0; // push counter
-            // M12.5u: ~apply_ua_css SP (stack-local addr). If self-SP ∈ [0,~512] →
-            // apply_ua_css's frame OVERLAPS the caller's stack-resident cache.
-            crate::compact_cache_builder::AZ_DBG_NC[13] =
-                core::hint::black_box(sp_probe.as_ptr()) as u64;
-        }
 
         // Build a bitset per node: which CssPropertyType values are already set (Normal state).
         // CssPropertyType has ~178 variants, so we need [u128; 2] per node (256 bits).
@@ -5092,15 +5083,6 @@ impl CssPropertyCache {
                         prop_type: *prop_type,
                         property: ua_prop.clone(),
                     });
-                    // M12.5t: node_count after EACH push (counter [6]); first slot=0 = corrupting push.
-                    // push1→[12], push2→[13], push3+→[14] (overwrites = last). [6]=total push count.
-                    unsafe {
-                        let nc = core::ptr::read_volatile(&self.node_count) as u64;
-                        let c = crate::compact_cache_builder::AZ_DBG_NC[6];
-                        let slot = 12 + core::cmp::min(c, 2) as usize;
-                        crate::compact_cache_builder::AZ_DBG_NC[slot] = nc | 0x100000000;
-                        crate::compact_cache_builder::AZ_DBG_NC[6] = c + 1;
-                    }
 
                     // Mark as set in the bitset (prevent duplicate insertion for same node)
                     if d < 128 {

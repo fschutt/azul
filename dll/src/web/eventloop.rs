@@ -1073,16 +1073,8 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     // selector pass is a no-op, but UA CSS + inheritance still run so
     // widget defaults (font-size, padding) apply.
     let styled = StyledDom::create(dom_ref, Css::empty());
-    // M12.5y — isolate sret-move vs Box::new for the StyledDom node_data loss.
-    // [52]=styled.node_data.len() (after create_from sret return, before box).
-    unsafe { azul_core::compact_cache_builder::AZ_DBG_NC[52] = styled.node_data.len() as u64; }
     let boxed = Box::new(styled);
     let ptr_val = Box::into_raw(boxed) as usize as u32;
-    // [53]=node_data.len() read back through the boxed pointer (after Box::new).
-    unsafe {
-        azul_core::compact_cache_builder::AZ_DBG_NC[53] =
-            (*(ptr_val as usize as *const StyledDom)).node_data.len() as u64;
-    }
     let recovered = fixed_load();
     finalize_hydrate(recovered, ptr_val);
     0
@@ -1117,12 +1109,6 @@ unsafe extern "C" fn finalize_hydrate(state_u32: u32, styled_ptr: u32) {
             off += 4;
         }
     }
-}
-
-#[inline(never)]
-#[no_mangle]
-extern "C" fn noop_for_probe() -> u32 {
-    42
 }
 
 #[inline(never)]
@@ -1231,23 +1217,6 @@ pub unsafe extern "C" fn AzStartup_peekU32(addr: u32) -> u32 {
         return 0;
     }
     core::ptr::read_volatile(addr as usize as *const u32)
-}
-
-/// M12.5i TEMP DIAGNOSTIC — read azul_core's AZ_DBG_NC capture as u32
-/// halves. `i` even = low 32 of slot i/2, odd = high 32. Slots:
-/// 0=self ptr, 1=self.node_count, 2=node_data.ptr, 3=node_data.len.
-#[no_mangle]
-pub unsafe extern "C" fn AzStartup_getDbgNc(i: u32) -> u32 {
-    let idx = (i / 2) as usize;
-    if idx >= 64 {
-        return 0;
-    }
-    let v = azul_core::compact_cache_builder::AZ_DBG_NC[idx];
-    if i % 2 == 0 {
-        v as u32
-    } else {
-        (v >> 32) as u32
-    }
 }
 
 // =====================================================================

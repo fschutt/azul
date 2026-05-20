@@ -79,7 +79,6 @@ pub const EVENTLOOP_SYMBOLS: &[&str] = &[
     "AzStartup_getStyledDomNodeCount",
     "AzStartup_getStyledDomPtr",
     "AzStartup_peekU32",
-    "AzStartup_getDbgNc",
     // M11 Sprint 1.C / Sprint 2: layout solver + positioned-rect
     // cache. AzStartup_hitTest now consumes the cache for real
     // bbox-walk dispatch.

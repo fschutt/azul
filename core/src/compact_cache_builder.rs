@@ -7,14 +7,6 @@
 use crate::dom::{NodeData, NodeId};
 use crate::prop_cache::CssPropertyCache;
 
-/// M12.5i TEMP DIAGNOSTIC (web AArch64→wasm lift) — REVERT after.
-/// build_compact_cache writes its incoming args here so a wasm getter
-/// can read them after the cascade traps. Native-SAFE (real static, not
-/// a raw fixed address), so the native server's startup pre-render of
-/// the cascade doesn't crash. Layout: [0]=self ptr, [1]=self.node_count,
-/// [2]=node_data.as_ptr, [3]=node_data.len.
-#[no_mangle]
-pub static mut AZ_DBG_NC: [u64; 64] = [0; 64];
 use crate::styled_dom::StyledNodeState;
 use azul_css::compact_cache::*;
 use azul_css::css::CssPropertyValue;
@@ -46,12 +38,6 @@ impl CssPropertyCache {
         node_data: &[NodeData],
         prev_font_hashes: &[u64],
     ) -> CompactLayoutCache {
-        unsafe {
-            AZ_DBG_NC[0] = self as *const _ as u64;
-            AZ_DBG_NC[1] = self.node_count as u64;
-            AZ_DBG_NC[2] = node_data.as_ptr() as u64;
-            AZ_DBG_NC[3] = node_data.len() as u64;
-        }
         let node_count = self.node_count;
         let default_state = StyledNodeState::default();
         let mut result = CompactLayoutCache::with_capacity(node_count);
@@ -462,12 +448,6 @@ impl CssPropertyCache {
         prev_font_hashes: &[u64],
         debug_messages: &mut Option<Vec<azul_css::LayoutDebugMessage>>,
     ) -> CompactLayoutCache {
-        unsafe {
-            AZ_DBG_NC[0] = self as *const _ as u64;
-            AZ_DBG_NC[1] = self.node_count as u64;
-            AZ_DBG_NC[2] = node_data.as_ptr() as u64;
-            AZ_DBG_NC[3] = node_data.len() as u64;
-        }
         let node_count = self.node_count;
         let default_state = StyledNodeState::default();
         let mut result = CompactLayoutCache::with_capacity(node_count);
