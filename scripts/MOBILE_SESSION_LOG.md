@@ -1789,3 +1789,16 @@ The dummy camera app — the whole widget pivot, end-to-end + runnable. `example
 Verify: `cargo check -p azul-camera-app` clean (host, 30s cold; warnings are azul-dll generated code). dll untouched → mobile gate stays GREEN (ce860764d). Disk 11 GiB.
 
 **Camera widget COMPLETE end-to-end (test-pattern): scaffold ✅ · thread+writeback ✅ · GL display ✅ · codegen-exposed ✅ · demo ✅.** The "dumb widget" architecture (zero camera logic in core) is proven. Next P6.camera.widget.6: real AVFoundation/Camera2 capture worker (dll-side, swaps test_pattern_worker) + front/back/zoom control-POD methods. Then **screenshare** widget (same architecture) → **video** widget (vk-video) per the master plan.
+
+### Tick — P6.screencap.a — core screen-capture POD types (2026-05-20)
+
+Screenshare = the camera widget architecture with a different source. Step 1 (mirror camera.a): `core/src/screencap.rs`.
+
+- `ScreenCaptureSource` (repr C,u8): `PrimaryDisplay` (default) / `Display(u32)` / `Window(u64)`.
+- `ScreenCaptureConfig { source, fps, output_format: RawImageFormat }` + Default (PrimaryDisplay/0/BGRA8) + `new(source)`.
+- Reuses camera's capture-agnostic status types (StreamState/CaptureStats/CaptureStreamId/CaptureErrorCode).
+- `core/src/lib.rs`: `pub mod screencap`.
+
+Verify: `mobile-check-all.sh` GREEN on all 5. Disk 9.4 GiB.
+
+Next P6.screencap.b: `ScreenCaptureWidget` (layout/src/widgets/screencap.rs) mirroring CameraWidget — RefAny dataset + AfterMount capture thread + writeback GL-texture upload + recomposite + test-pattern worker. Then codegen-expose, demo. Real ScreenCaptureKit/MediaProjection backend is on-machine.

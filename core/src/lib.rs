@@ -100,6 +100,10 @@ pub mod gamepad;
 /// `CameraManager` (which own the shared `ImageRef` texture) live in
 /// `azul_layout::managers::camera`.
 pub mod camera;
+/// Screen-capture POD types — `ScreenCaptureSource` + `ScreenCaptureConfig`.
+/// Symmetric to the camera surface (a "dumb widget" in
+/// `azul_layout::widgets::screencap`); reuses `camera`'s capture status types.
+pub mod screencap;
 /// Logical and physical coordinate types (`LogicalSize`, `PhysicalPosition`, etc.).
 pub mod geom;
 /// OpenGL context wrappers, shader compilation, and texture cache.
