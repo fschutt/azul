@@ -1724,3 +1724,16 @@ Next: build P6.camera.widget.1 = `CallbackInfo::update_image` API (CallbackChang
    - **"azul meet"** — a Google-Meet-style video-chat app composed from all the above (camera + screenshare + audio + UDP), on the public api.json surface.
 
 Next: finish the change_node_image fix (resource-update queue) → build the CameraWidget → screenshare → video → … per the roadmap.
+
+### Tick — P6.camera.widget.1 — CameraWidget scaffold (2026-05-20)
+
+First piece of the widget pivot (GL-texture recomposite path, per user). `layout/src/widgets/camera.rs` (mirrors map.rs).
+
+- `CameraWidget { config }` (repr C) + `create(config)` + `dom()` → `Dom::create_image(placeholder)` [static Image node] + `.with_dataset(CameraWidgetState{config,started})` + `.with_merge_callback(merge_camera_state)` (survives relayout, inherits `started`/[future texture+thread]) + `.with_callback(AfterMount, camera_on_after_mount)`.
+- `camera_on_after_mount`: started-once guard (TODO next tick: `info.add_thread` to start the capture thread). `merge_camera_state`: new config wins, old `started`/live-state inherited.
+- Placeholder = `ImageRef::null_image(w,h,BGRA8,...)` sized from config (0→640×480) until the thread installs the live GL texture.
+- `widgets/mod.rs`: `pub mod camera`.
+
+Verify: `mobile-check-all.sh` GREEN on all 5. Disk 9.4 GiB.
+
+Next P6.camera.widget.2: AfterMount → `add_thread(Thread::new(camera_writeback, dataset))` + the ThreadCallback (stub capture → CPU frame via ThreadSender) + the writeback (receive frame → upload to GL texture + ShouldReRenderCurrentWindow). Then AVFoundation capture, control POD, expose CameraWidget via codegen, camera-app demo.

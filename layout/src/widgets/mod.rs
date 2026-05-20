@@ -143,6 +143,10 @@ pub mod drop_down;
 pub mod frame;
 /// List view widget
 pub mod list_view;
+/// Camera-preview widget (P6) — a "dumb widget" owning a background capture
+/// thread + a GL-texture ImageRef; no camera logic in core. Same RefAny-
+/// dataset + merge-callback design as the map widget. See `camera.rs`.
+pub mod camera;
 /// Map widget — MVT tile + MapCSS → SVG → DOM (AzulMaps goal app, P3).
 /// Cache lives in a dataset RefAny owned by a merge callback so it
 /// survives relayout. See `layout/src/widgets/map.rs` for the design.
