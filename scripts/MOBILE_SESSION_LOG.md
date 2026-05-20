@@ -1847,3 +1847,11 @@ Next P6.video.b: `VideoWidget` (layout/src/widgets/video.rs) mirroring camera/sc
 Verify: `mobile-check-all.sh` GREEN on all 5. Disk 8.6 GiB.
 
 **All 3 video-ish widget structures now exist** (camera/screencap/video, near-identical). Next P6.video.c: codegen-expose `VideoWidget` + `VideoConfig`. Then a video demo. **Then the DRY pass**: extract the shared thread+writeback+GL `upload_rgba`+install-once core (duplicated 3× now) into `layout/src/widgets/capture_common.rs` (or similar), making the 3 widgets thin wrappers.
+
+### Tick — P6.video.c — codegen-expose VideoWidget (2026-05-20)
+
+Mirror of camera.widget.4 / screencap.c. `autofix add VideoWidget.create/dom` → VideoWidget (external `azul_layout::widgets::video`, moved misc→**widgets**) + VideoConfig (+Default; AzString source already exposed). Curated out the DbValueVec churn + 7 drift. `codegen all`.
+
+Verify: `mobile-check-all.sh` GREEN on all 5; `azul::widgets::VideoWidget` confirmed. Disk 7.7 GiB.
+
+**All 3 video-ish widgets codegen-exposed** (azul::widgets::{CameraWidget, ScreenCaptureWidget, VideoWidget}). Next P6.video.d: video demo (`examples/azul-video-app`, VideoWidget with colour-bars test pattern). Then the **DRY pass** (extract the shared capture core).

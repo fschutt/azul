@@ -42592,6 +42592,47 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "VideoWidget": {
+                        "external": "azul_layout::widgets::video::VideoWidget",
+                        "struct_fields": [
+                            {
+                                "config": {
+                                    "type": "VideoConfig"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "Create a video widget for the given config."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "config": "VideoConfig"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::video::VideoWidget::create(config)"
+                            }
+                        },
+                        "functions": {
+                            "dom": {
+                                "doc": [
+                                    "Build the widget's DOM: a single `<img>` node, fed by a background",
+                                    "decode thread started on mount."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -88542,6 +88583,34 @@
                                 },
                                 "fps": {
                                     "type": "u32"
+                                },
+                                "output_format": {
+                                    "type": "RawImageFormat"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "VideoConfig": {
+                        "external": "azul_core::video::VideoConfig",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "source": {
+                                    "type": "String"
+                                },
+                                "autoplay": {
+                                    "type": "bool"
+                                },
+                                "looping": {
+                                    "type": "bool"
                                 },
                                 "output_format": {
                                     "type": "RawImageFormat"
