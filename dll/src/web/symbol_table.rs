@@ -1770,6 +1770,23 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                         // itself is already `BumpAlloc` (matched above), so
                         // lifting raw_vec only pulls in its bounded callee
                         // set. Lift it.
+                        // M12.5y: noreturn handlers (panic / alloc-error /
+                        // capacity-overflow) are `-> !`. Native code that
+                        // branches to them NEVER restores SP/callee-saved (it
+                        // aborts). The default `Leaf` stub RETURNS (X0=0), so a
+                        // lifted caller that reaches its error exit RETURNS with
+                        // an unrestored frame, silently corrupting the caller's
+                        // SP-relative locals (the apply_ua_css → create_from
+                        // cache-base = NULL bug). Trap (NeverLift) so these abort
+                        // loudly instead of returning a corrupt frame.
+                        if name.contains("9panicking")
+                            || name.contains("handle_alloc_error")
+                            || name.contains("capacity_overflow")
+                            || name.contains("begin_panic")
+                            || name.contains("rust_begin_unwind")
+                        {
+                            return FnClass::NeverLift;
+                        }
                         if crate_name == "alloc" && name.contains("raw_vec") {
                             return FnClass::Recursable;
                         }

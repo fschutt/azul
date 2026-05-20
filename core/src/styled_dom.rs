@@ -1090,6 +1090,14 @@ impl StyledDom {
         // after restyle has populated css_props. This frees ~500 KiB of stylesheet
         // data structures (CssRuleBlock, CssPathSelector, CssDeclaration).
         drop(css);
+        // M12.5y — isolate drop(css) vs apply_ua_css as the cache-base corruptor.
+        // [46]=node_count value after drop, [47]=&node_count after drop. If [46]=1
+        // & [47]=0x2ef98 → drop is innocent, apply_ua_css corrupts; else drop does.
+        unsafe {
+            crate::compact_cache_builder::AZ_DBG_NC[46] = css_property_cache.node_count as u64;
+            crate::compact_cache_builder::AZ_DBG_NC[47] =
+                (&css_property_cache.node_count as *const usize as usize) as u64;
+        }
 
         // Apply UA defaults + compute inherited values so consumers that
         // read `css_property_cache.computed_values` (the web/HTML
