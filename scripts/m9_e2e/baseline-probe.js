@@ -212,6 +212,8 @@ function parseWasmFnNames(buf) {
         console.log('  self - SP                       = ' + delta + ' (0x' + (delta>>>0).toString(16) + ')'
             + (delta > 0 && delta < 512 ? '  <<< OVERLAP! self inside apply_ua_css frame' : (delta >= 512 ? '  (self above frame; no overlap)' : '  (self below SP)')));
         console.log('  [12] node_count after push #1   = ' + cap(12) + '   (0 = corrupted)');
+        console.log('  [13] node_count after push #2   = ' + cap(13));
+        console.log('  [14] node_count after push #3+  = ' + cap(14) + '   (last push; 0 = a realloc push corrupted)');
         console.log('--- M12.5v cache-byte dump (self+k*8, from create_from; non-perturbing) ---');
         let allzeroish = true;
         for (let j = 0; j < 20; j++) {
