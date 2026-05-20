@@ -1262,3 +1262,16 @@ First P4.2 step — biometry-bound secret storage. Pure-Rust foundation mirrorin
 Verify: `managers::keyring::` 5/5 tests pass; `bash scripts/mobile-check-all.sh` GREEN on all 5. Disk 97% → purging.
 
 Next P4.2b: runtime plumbing — embed `KeyringManager` in `LayoutWindow` + dll layout-pass drain (requests→dispatch, results→set_last_result) + `CallbackInfo::{keyring_store,keyring_get,keyring_delete,get_keyring_result}` accessors (internal Rust). Then P4.2c codegen, then backends (Keychain/KeyStore/libsecret/CredentialLocker). Keychain (macOS/iOS) via objc2 SecItem* is the natural first backend.
+
+### Tick — P4.2b — keyring runtime plumbing (embed + drain + accessors) (2026-05-20)
+
+Combined the request + result plumbing in one tick (pattern proven by biometric P4.1b/d):
+
+- `layout/src/window.rs`: `keyring_manager: KeyringManager` field on `LayoutWindow` + 3 ctor inits (next to `biometric_manager`).
+- `dll/extra/keyring/mod.rs` (new): `request(req)` dispatcher stub → `push_keyring_result(Unavailable)`; doc tabulates the per-platform backends (Keychain SecItem* / KeyStore / libsecret / CredentialLocker). Wired into `extra/mod.rs`.
+- `dll/.../shell2/common/layout.rs`: "7f" block — drain requests → `keyring::request`, drain results → `set_last_result`.
+- `layout/src/callbacks.rs`: `CallbackInfo::{keyring_store(key,secret,require_biometry), keyring_get(key), keyring_delete(key), get_keyring_result()->Option<KeyringResult>}` (internal Rust; codegen exposure is P4.2c).
+
+Verify: `cargo check -p azul-layout` CLEAN; `bash scripts/mobile-check-all.sh` GREEN on all 5. Disk 96% → purging.
+
+Keyring request→result loop now works in Rust (request → channel → dll dispatch stub → Unavailable → result channel → manager → get_keyring_result). Next P4.2c: codegen-expose the 4 accessors + types (KeyringRequest is an arg-only enum; KeyringResult + OptionKeyringResult are returns). Then backends — Keychain (objc2 Security.framework SecItem*) first.

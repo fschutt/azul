@@ -775,6 +775,32 @@ pub fn regenerate_layout(
         }
     }
 
+    // 7f. Dispatch keyring ops a callback queued this frame, then drain any
+    // results a backend parked. CallbackInfo::keyring_store/get/delete park
+    // a KeyringRequest in azul-layout's process-global channel; we hand each
+    // to the native keyring (Keychain / KeyStore / libsecret / locker), and
+    // a biometry-bound Get's outcome arrives asynchronously on the result
+    // channel. The stub backend resolves every op to Unavailable for now.
+    {
+        let requests = azul_layout::managers::keyring::drain_keyring_requests();
+        for req in &requests {
+            crate::desktop::extra::keyring::request(req);
+        }
+    }
+    {
+        let results = azul_layout::managers::keyring::drain_keyring_results();
+        let mut changed = false;
+        for result in results {
+            changed |= layout_window.keyring_manager.set_last_result(result);
+        }
+        if changed {
+            log_debug!(
+                LogCategory::Layout,
+                "[regenerate_layout] applied async keyring result"
+            );
+        }
+    }
+
     log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE");
     azul_layout::probe::emit_phase_heap("end");
 

@@ -3161,6 +3161,46 @@ impl CallbackInfo {
         crate::managers::biometric::push_biometric_request(prompt);
     }
 
+    /// Store `secret` under `key` in the OS keyring (Keychain / KeyStore /
+    /// libsecret / CredentialLocker). When `require_biometry` is set, a
+    /// later `keyring_get` of this key triggers the OS biometric prompt.
+    /// Returns immediately; the outcome arrives via `get_keyring_result()`
+    /// on a later frame.
+    pub fn keyring_store(&mut self, key: AzString, secret: AzString, require_biometry: bool) {
+        crate::managers::keyring::push_keyring_request(
+            azul_core::keyring::KeyringRequest::Store {
+                key,
+                secret,
+                require_biometry,
+            },
+        );
+    }
+
+    /// Read the secret stored under `key`. A biometry-bound item shows the
+    /// OS prompt first; the secret (or a denial) arrives via
+    /// `get_keyring_result()` on a later frame.
+    pub fn keyring_get(&mut self, key: AzString) {
+        crate::managers::keyring::push_keyring_request(azul_core::keyring::KeyringRequest::Get {
+            key,
+        });
+    }
+
+    /// Remove the item stored under `key` from the OS keyring (no-op if
+    /// absent). The outcome arrives via `get_keyring_result()`.
+    pub fn keyring_delete(&mut self, key: AzString) {
+        crate::managers::keyring::push_keyring_request(
+            azul_core::keyring::KeyringRequest::Delete { key },
+        );
+    }
+
+    /// Get the most recent keyring outcome, or `None` until the first op
+    /// completes. Read after a `keyring_store/get/delete` to observe the
+    /// result — e.g. the revealed secret from a `keyring_get`
+    /// (`KeyringResult::Retrieved`).
+    pub fn get_keyring_result(&self) -> Option<azul_core::keyring::KeyringResult> {
+        self.get_layout_window().keyring_manager.last_result().cloned()
+    }
+
     /// Get current pen pressure (0.0 to 1.0)
     /// Returns None if no pen is active, Some(0.5) for mouse
     pub fn get_pen_pressure(&self) -> Option<f32> {

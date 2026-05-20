@@ -426,6 +426,11 @@ pub struct LayoutWindow {
     /// shows the OS prompt and parks results in the async channel that the
     /// layout pass folds into this manager (request-driven; no probe node).
     pub biometric_manager: crate::managers::biometric::BiometricManager,
+    /// Cross-platform keyring state — outcome of the last secret-store op.
+    /// The platform backend (`dll::desktop::extra::keyring`) reads/writes
+    /// the OS keyring (Keychain / KeyStore / libsecret / CredentialLocker)
+    /// and parks results in the async channel the layout pass folds in here.
+    pub keyring_manager: crate::managers::keyring::KeyringManager,
     /// Timers associated with this window
     pub timers: BTreeMap<TimerId, Timer>,
     /// Threads running in the background for this window
@@ -593,6 +598,7 @@ impl LayoutWindow {
             permission_manager: crate::managers::permission::PermissionManager::new(),
             geolocation_manager: crate::managers::geolocation::GeolocationManager::new(),
             biometric_manager: crate::managers::biometric::BiometricManager::new(),
+            keyring_manager: crate::managers::keyring::KeyringManager::new(),
             timers: BTreeMap::new(),
             threads: BTreeMap::new(),
             renderer_resources: RendererResources::default(),
@@ -680,6 +686,7 @@ impl LayoutWindow {
             permission_manager: crate::managers::permission::PermissionManager::new(),
             geolocation_manager: crate::managers::geolocation::GeolocationManager::new(),
             biometric_manager: crate::managers::biometric::BiometricManager::new(),
+            keyring_manager: crate::managers::keyring::KeyringManager::new(),
             timers: BTreeMap::new(),
             threads: BTreeMap::new(),
             renderer_resources: RendererResources::default(),
@@ -766,6 +773,7 @@ impl LayoutWindow {
             permission_manager: crate::managers::permission::PermissionManager::new(),
             geolocation_manager: crate::managers::geolocation::GeolocationManager::new(),
             biometric_manager: crate::managers::biometric::BiometricManager::new(),
+            keyring_manager: crate::managers::keyring::KeyringManager::new(),
             timers: BTreeMap::new(),
             threads: BTreeMap::new(),
             renderer_resources: RendererResources::default(),
