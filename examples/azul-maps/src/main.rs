@@ -19,6 +19,9 @@
 
 use azul::prelude::*;
 use azul::dom::GeolocationProbeConfig;
+use azul::misc::SensorKind;
+use azul::option::OptionRefAny;
+use azul::task::TerminateTimer;
 use azul::widgets::{MapTileLayer, MapViewport, MapWidget};
 
 struct MapState {
@@ -45,6 +48,14 @@ struct MapState {
     /// can't measure it). Used to project pins lat/lon → screen px. `None`
     /// until the first tap.
     view_px: Option<(f32, f32)>,
+    /// Smoothed horizontal magnetometer vector (µT) for the compass rose,
+    /// kept live by a Timer reading `get_sensor_reading(Magnetometer)`. The
+    /// vector (not the angle) is low-pass-filtered so smoothing doesn't
+    /// break across the 0°/360° wrap. `has_mag` is `false` until the first
+    /// sample, which keeps the rose hidden where there's no magnetometer.
+    mag_x: f32,
+    mag_y: f32,
+    has_mag: bool,
 }
 
 impl MapState {
@@ -64,7 +75,22 @@ impl MapState {
             last_fix: None,
             pins: Vec::new(),
             view_px: None,
+            mag_x: 0.0,
+            mag_y: 0.0,
+            has_mag: false,
         }
+    }
+
+    /// Compass heading in degrees [0, 360), or `None` until a magnetometer
+    /// sample arrives. Simplified (assumes the device is held flat — no
+    /// tilt compensation, no declination correction), which is plenty to
+    /// demonstrate the live magnetometer; a true heading would fuse the
+    /// accelerometer + local declination.
+    fn heading(&self) -> Option<f32> {
+        if !self.has_mag {
+            return None;
+        }
+        Some((self.mag_y.atan2(self.mag_x).to_degrees() + 360.0) % 360.0)
     }
 
     fn zoom_in(&mut self) {
@@ -126,6 +152,16 @@ const BTN_ON: &str = "background: #d0021b; color: white; \
     margin-left: 6px; font-size: 13px;";
 const MAP_CONTAINER: &str = "flex-grow: 1; position: relative; \
     background: #cbd2d8; overflow: hidden;";
+// Compass rose badge (top-right) + its two-tone needle (red = north).
+const COMPASS_BADGE: &str = "position: absolute; right: 12px; top: 12px; \
+    width: 56px; height: 56px; border-radius: 28px; \
+    background: rgba(20,20,28,0.85); border: 2px solid #6a7080; \
+    display: flex; align-items: center; justify-content: center; \
+    box-shadow: 0px 1px 4px rgba(0,0,0,0.4);";
+const NEEDLE_N: &str = "flex-grow: 1; background: #e74c3c; \
+    border-radius: 4px 4px 0px 0px;";
+const NEEDLE_S: &str = "flex-grow: 1; background: #cfd2d8; \
+    border-radius: 0px 0px 4px 4px;";
 const ATTRIB: &str = "position: absolute; right: 6px; bottom: 6px; \
     background: rgba(255,255,255,0.85); padding: 3px 6px; \
     font-size: 10px; color: #444; border-radius: 3px;";
@@ -170,11 +206,19 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         return Dom::create_body();
     };
 
+    // Live compass heading (P6 magnetometer): `None` until a sample arrives,
+    // so the rose only appears where there's a magnetometer. Read separately
+    // (a second shared borrow) to keep the snapshot tuple untouched.
+    let heading = data.downcast_ref::<MapState>().and_then(|s| s.heading());
+
     let attribution_text = layer.attribution.as_str().to_owned();
-    let header_text = format!(
+    let mut header_text = format!(
         "AzulMaps — centre {:.4}°, {:.4}° · zoom {:.1}",
         viewport.centre_lat_deg, viewport.centre_lon_deg, viewport.zoom
     );
+    if let Some(h) = heading {
+        header_text.push_str(&format!(" · {} {:03.0}°", cardinal(h), h));
+    }
 
     let header = Dom::create_div()
         .with_css(HEADER)
@@ -348,6 +392,26 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         }
     }
 
+    // Compass rose (P6 magnetometer): a corner badge whose needle rotates by
+    // -heading, so the red north tip keeps pointing at magnetic north as the
+    // device turns. Added before the tap overlay so taps still drop pins
+    // through the (non-interactive) badge.
+    if let Some(h) = heading {
+        let needle = format!(
+            "width: 8px; height: 42px; display: flex; flex-direction: column; \
+             transform: rotate({:.1}deg);",
+            -h,
+        );
+        map_container = map_container.with_child(
+            Dom::create_div().with_css(COMPASS_BADGE).with_child(
+                Dom::create_div()
+                    .with_css(needle.as_str())
+                    .with_child(Dom::create_div().with_css(NEEDLE_N))
+                    .with_child(Dom::create_div().with_css(NEEDLE_S)),
+            ),
+        );
+    }
+
     map_container = map_container
         .with_child(
             Dom::create_div()
@@ -519,10 +583,66 @@ fn latlon_to_px(vp: MapViewport, lat: f64, lon: f64, w: f32, h: f32) -> (f32, f3
     (px as f32, py as f32)
 }
 
+/// Eight-point cardinal label for a heading in degrees.
+fn cardinal(deg: f32) -> &'static str {
+    const DIRS: [&str; 8] = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+    DIRS[((((deg + 22.5) % 360.0) / 45.0) as usize) % 8]
+}
+
+/// Timer tick: pull the latest magnetometer sample through the
+/// `TimerCallbackInfo`'s wrapped `CallbackInfo` and low-pass-filter the
+/// horizontal vector (the vector, not the angle, so smoothing survives the
+/// 0°/360° wrap), then relayout so the rose follows.
+extern "C" fn compass_tick(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
+    let should_update = match info
+        .callback_info
+        .get_sensor_reading(SensorKind::Magnetometer)
+        .into_option()
+    {
+        Some(r) => {
+            if let Some(mut s) = data.downcast_mut::<MapState>() {
+                if s.has_mag {
+                    s.mag_x = s.mag_x * 0.8 + r.x * 0.2;
+                    s.mag_y = s.mag_y * 0.8 + r.y * 0.2;
+                } else {
+                    s.mag_x = r.x;
+                    s.mag_y = r.y;
+                    s.has_mag = true;
+                }
+            }
+            Update::RefreshDom
+        }
+        None => Update::DoNothing,
+    };
+    TimerCallbackReturn {
+        should_terminate: TerminateTimer::Continue,
+        should_update,
+    }
+}
+
+/// Window-create callback: install the per-frame Timer that keeps the
+/// compass live. (The magnetometer is read from a `CallbackInfo`, not the
+/// layout callback, so the Timer is what makes the rose turn.)
+extern "C" fn startup(data: RefAny, mut info: CallbackInfo) -> Update {
+    info.add_timer(
+        TimerId::unique(),
+        Timer::create(
+            data.clone(),
+            TimerCallback {
+                cb: compass_tick,
+                ctx: OptionRefAny::None,
+            },
+            info.get_system_time_fn(),
+        ),
+    );
+    Update::DoNothing
+}
+
 fn main() {
     let data = RefAny::new(MapState::new());
     let config = AppConfig::create();
     let app = App::create(data, config);
-    let window = WindowCreateOptions::create(layout);
+    let mut window = WindowCreateOptions::create(layout);
+    window.create_callback = Some(Callback::create(startup)).into();
     app.run(window);
 }

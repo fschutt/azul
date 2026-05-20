@@ -1578,3 +1578,17 @@ Gotcha resolved: `Timer::create` takes a concrete `AzTimerCallback` (a `{cb, ctx
 Verify: `cargo check -p azul-spirit-level` clean (host/macOS, 1.25s warm). dll untouched → mobile gate stays GREEN (c30d3bb56). Disk 14 GiB; host target/debug 4.7 GiB (no azul-doc tooling → far smaller than the 13 GiB codegen-tool footprint).
 
 **This proves the P6.sensors pipeline end-to-end**: api.json codegen → CallbackInfo accessor → manager → 7h drain → backend (CoreMotion/SensorManager). Next: compass (magnetometer→heading) integrated into AzulMaps (user's 2nd directive — fills the "live readout via Timer — out of scope" gap MapState already notes).
+
+### Tick — P6: compass (magnetometer → heading) in AzulMaps (2026-05-20)
+
+User's 2nd directive — integrate a compass with the maps app. Fills the
+"a live readout would poll via a Timer — out of scope for the demo" gap that
+MapState's own comments noted.
+
+- `MapState`: smoothed horizontal magnetometer vector `mag_x/mag_y` + `has_mag`; `heading()` = `atan2(mag_y, mag_x)` normalised to [0,360) (simplified — flat-device assumption, no tilt-comp / declination; enough to show the live magnetometer). The **vector** is low-pass-filtered (not the angle) so smoothing survives the 0/360 wrap.
+- `create_callback` → a Timer (same pattern as azul-spirit-level) reads `get_sensor_reading(Magnetometer)` via the wrapped `callback_info`, smooths, `RefreshDom`.
+- `layout`: a corner **compass-rose badge** (absolute, top-right — same positioning the location dot/pins use) with a two-tone needle (red = north) rotated by `-heading`, so north stays pointing at magnetic north as the device turns. Header gains a `· NE 045°` readout. Rose hidden until a sample arrives (so desktop / no-magnetometer shows the normal map, no rose).
+
+Verify: `cargo check -p azul-maps` clean (host, warm; the unused-attribute warnings are azul-dll generated code). dll untouched → mobile gate stays GREEN. Disk 14 GiB.
+
+Both sensor demos now exist: azul-spirit-level (accelerometer) + AzulMaps compass (magnetometer) — the P6.sensors pipeline exercised through two of its three sensor kinds, on the public api.json surface.
