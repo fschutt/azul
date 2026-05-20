@@ -421,6 +421,11 @@ pub struct LayoutWindow {
     /// `CLLocationManager` / `LocationManager` / `geoclue`
     /// subscriptions.
     pub geolocation_manager: crate::managers::geolocation::GeolocationManager,
+    /// Cross-platform biometric-auth state — latest result + sync
+    /// availability. The platform backend (`dll::desktop::extra::biometric`)
+    /// shows the OS prompt and parks results in the async channel that the
+    /// layout pass folds into this manager (request-driven; no probe node).
+    pub biometric_manager: crate::managers::biometric::BiometricManager,
     /// Timers associated with this window
     pub timers: BTreeMap<TimerId, Timer>,
     /// Threads running in the background for this window
@@ -587,6 +592,7 @@ impl LayoutWindow {
             a11y_manager: crate::managers::a11y::A11yManager::new(),
             permission_manager: crate::managers::permission::PermissionManager::new(),
             geolocation_manager: crate::managers::geolocation::GeolocationManager::new(),
+            biometric_manager: crate::managers::biometric::BiometricManager::new(),
             timers: BTreeMap::new(),
             threads: BTreeMap::new(),
             renderer_resources: RendererResources::default(),
@@ -673,6 +679,7 @@ impl LayoutWindow {
             a11y_manager: crate::managers::a11y::A11yManager::new(),
             permission_manager: crate::managers::permission::PermissionManager::new(),
             geolocation_manager: crate::managers::geolocation::GeolocationManager::new(),
+            biometric_manager: crate::managers::biometric::BiometricManager::new(),
             timers: BTreeMap::new(),
             threads: BTreeMap::new(),
             renderer_resources: RendererResources::default(),
@@ -758,6 +765,7 @@ impl LayoutWindow {
             a11y_manager: crate::managers::a11y::A11yManager::new(),
             permission_manager: crate::managers::permission::PermissionManager::new(),
             geolocation_manager: crate::managers::geolocation::GeolocationManager::new(),
+            biometric_manager: crate::managers::biometric::BiometricManager::new(),
             timers: BTreeMap::new(),
             threads: BTreeMap::new(),
             renderer_resources: RendererResources::default(),

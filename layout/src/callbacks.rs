@@ -3129,6 +3129,24 @@ impl CallbackInfo {
         self.get_layout_window().geolocation_manager.latest_fix()
     }
 
+    /// Get the most recent biometric-auth result, or `None` if no
+    /// `request_biometric_auth` has completed yet. Kept live by the
+    /// platform backends (iOS/macOS `LAContext`, Android `BiometricPrompt`,
+    /// Windows `UserConsentVerifier`) via the async result channel the
+    /// layout pass folds into the manager — so a callback can unlock a
+    /// vault / settings panel once the user authenticates.
+    pub fn get_biometric_result(&self) -> Option<azul_core::biometric::BiometricResult> {
+        self.get_layout_window().biometric_manager.last_result()
+    }
+
+    /// Get the device's biometric capability (sync probe): `Face`,
+    /// `Fingerprint`, `Iris`, or `NotAvailable`. Lets a callback decide
+    /// whether to even offer a biometric unlock before requesting one
+    /// (no OS prompt is shown — this just reads the cached probe).
+    pub fn get_biometric_kind(&self) -> azul_core::biometric::BiometricKind {
+        self.get_layout_window().biometric_manager.availability()
+    }
+
     /// Get current pen pressure (0.0 to 1.0)
     /// Returns None if no pen is active, Some(0.5) for mouse
     pub fn get_pen_pressure(&self) -> Option<f32> {

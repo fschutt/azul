@@ -1153,3 +1153,15 @@ First P4 (AzulVault/auth) step. Pure-Rust slice mirroring P3.1's geolocation kic
 Verify: `cargo check -p azul-core` clean; `cargo test -p azul-layout --lib managers::biometric::` 6/6 pass (defaults, change-flags, passcode-fallback-is-success, channel round-trip last-wins, prompt ctor). `bash scripts/mobile-check-all.sh` GREEN on all 5 targets. Purged host `target/debug/incremental` (3.6G; gate cross-compiles per-triple so its incrementals stayed warm). Disk ~95% / 12 GiB.
 
 Next P4.1b: api.json exposure (`autofix add` BiometricKind/Result/Prompt + OptionBiometricResult 2-pass) + `CallbackInfo::get_biometric_result()` + sync availability accessor + `App::request_biometric_auth(prompt)` returning Unavailable on every platform (green-light codegen before backends, per research/02 §12 step 3). Then backends: objc2 LAContext (P4.1c), Android BiometricPrompt JNI (P4.1d).
+
+### Tick — P4.1b — biometric manager live in runtime (embed + drain + read accessors) (2026-05-20)
+
+Runtime plumbing for P4.1a's BiometricManager — mirrors the geolocation wiring exactly. Pure Rust/dll, no codegen yet (gate stays warm).
+
+- `layout/src/window.rs`: `biometric_manager: BiometricManager` field on `LayoutWindow` + init in all 3 constructors (next to `geolocation_manager`).
+- `dll/.../shell2/common/layout.rs`: new "7d" drain block after the geolocation "7c" — `drain_biometric_results()` → `set_last_result()` each layout pass, marks dirty on change. Consumer is live; no producer yet (native backend is a later tick), exactly as geolocation's drain shipped ahead of its producer.
+- `layout/src/callbacks.rs`: `CallbackInfo::get_biometric_result() -> Option<BiometricResult>` (reads `last_result`) + `get_biometric_kind() -> BiometricKind` (sync availability probe), placed beside `get_location_fix`. Internal Rust API for now; api.json/codegen exposure is P4.1c.
+
+Verify: `cargo check -p azul-layout` clean; `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (9–10s each — warm). Disk ~95% / 12 GiB.
+
+Next P4.1c: codegen exposure — `autofix add` BiometricKind/BiometricResult/BiometricPrompt + the 2 CallbackInfo accessors + OptionBiometricResult 2-pass; `codegen all`; gate. Then P4.1d: `App::request_biometric_auth(prompt)` stub returning Unavailable (push to channel) + its codegen. Then backends (objc2 LAContext / Android BiometricPrompt).

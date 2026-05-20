@@ -729,6 +729,29 @@ pub fn regenerate_layout(
         }
     }
 
+    // 7d. Drain biometric-auth results a platform backend parked since
+    // the last pass. The OS prompt's reply (iOS/macOS LAContext reply
+    // block, Android BiometricPrompt.AuthenticationCallback, Windows
+    // UserConsentVerifier) fires on an arbitrary thread with no handle to
+    // this LayoutWindow, so it parks the result in azul-layout's
+    // process-global channel; we fold the latest into the manager here so
+    // a callback can read it via CallbackInfo::get_biometric_result(). (No
+    // producer fires yet — the native backend is a later tick — but the
+    // consumer is live and unit-tested in azul-layout.)
+    {
+        let results = azul_layout::managers::biometric::drain_biometric_results();
+        let mut changed = false;
+        for result in results {
+            changed |= layout_window.biometric_manager.set_last_result(result);
+        }
+        if changed {
+            log_debug!(
+                LogCategory::Layout,
+                "[regenerate_layout] applied async biometric result"
+            );
+        }
+    }
+
     log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE");
     azul_layout::probe::emit_phase_heap("end");
 
