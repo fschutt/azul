@@ -1310,3 +1310,14 @@ Android Rust JNI backend, mirroring biometric P4.1h + the keyring apple.rs contr
 Verify: `bash scripts/mobile-check-all.sh` GREEN on all 5 (both Android targets compile the backend; macOS cfg-inert). Disk 96%.
 
 Keyring backends done where compile-verifiable on this host: **Apple Keychain ✅, Android KeyStore Rust ✅**. Deferred (not verifiable on darwin — no Linux/Windows gate target; or non-Rust): Linux libsecret, Windows CredentialLocker, the Android `AzulKeyring.java` shim + `USE_BIOMETRIC` manifest. Next: **P4.3 db-sqlite** — `db-sqlite` feature + SQL-string `Db` API (rusqlite bundled, engine hidden), the AzulVault goal app's storage. Explicit "approach A" design in the prompt; start with the `Db`/`DbValue`/`DbRows` core types + api.json shape.
+
+### Tick — P4.3a — db-sqlite core data types (DbValue + DbRows) (2026-05-20)
+
+First P4.3 step — the AzulVault goal app's storage. Pure-data foundation in azul-core (no engine dep; gate-safe). Architecture decided: the `Db` handle (wrapping a rusqlite Connection) will live in **azul-dll like `App`** (api.json already references `external: azul_dll::...` for App), since it carries an engine resource; these param/result data types live in core (always present, codegen-able).
+
+- `core/src/db.rs`: `DbValue {Null, Integer(i64), Real(f64), Text(AzString), Blob(U8Vec)}` (+is_null/as_integer/as_real/as_text) — maps SQLite's 5 storage classes, engine-agnostic. `impl_vec!`+helpers → `DbValueVec` (+OptionDbValue). `DbRows {columns: StringVec, values: DbValueVec}` flat row-major (num_columns/num_rows/get(row,col)) — no nested vecs for a simple FFI shape. Not Eq/Ord/Hash (f64 Real).
+- Wired `pub mod db;` into core/lib.rs.
+
+Verify: `cargo test -p azul-core db::` 3/3 pass; `bash scripts/mobile-check-all.sh` GREEN on all 5. Disk 97% → purging.
+
+Next P4.3b: add `rusqlite` (bundled SQLite) to azul-dll behind a `db-sqlite` feature + **verify it cross-compiles in the gate** (bundled SQLite is C, compiled via cc for each target — the real risk). If the gate can't cross-compile rusqlite for iOS/Android, scope db-sqlite to build-dll/host only and document. Then P4.3c: `Db` handle (dll, opaque Connection) + open/execute/query. Then P4.3d: api.json/codegen.

@@ -50,6 +50,9 @@ pub mod macros;
 /// Debug logging system with category filtering.
 #[macro_use]
 pub mod debug;
+/// SQL database POD types — `DbValue` + `DbRows` (engine-agnostic). The
+/// `Db` handle + SQLite engine live in `azul_dll` behind `db-sqlite`.
+pub mod db;
 /// Unified `AZ_PROFILE` gate for memory and CPU profiling instrumentation.
 pub mod profile;
 /// Callback types: layout, event, timer, thread, and focus handling.
