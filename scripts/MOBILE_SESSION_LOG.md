@@ -1649,3 +1649,15 @@ The P6 gamepad example app (added to workspace). Same shape as azul-spirit-level
 Verify: `cargo check -p azul-gamepad` clean (host, 12s; warnings are azul-dll generated code). dll untouched → mobile gate stays GREEN (ad252080e). Disk 11 GiB.
 
 **Unlike the sensor demos this is desktop-runnable** (gilrs on the host): `cargo run -p azul-gamepad`, plug in a controller, the panel goes live. **Gamepad: core ✅ · plumbing ✅ · codegen ✅ · desktop backend ✅ · demo ✅.** Remaining: iOS GCController / Android InputDevice backends (follow-ups; AzulGamepad.java in the deferred Java batch).
+
+### Tick — P6.camera.a — core camera-capture POD types (2026-05-20)
+
+User chose Camera (recommended) as the next P6 expansion. Per-feature step 1: core POD types in `core/src/camera.rs` (mirrors sensors/gamepad).
+
+- `CaptureStreamId { id: u64 }`; `CameraFacing` (Front/Back/External); `StreamState` (Starting/Running/Paused/Stopped/Error); `CaptureOrientation` (Up/Down/Left/Right/Mirror); `CaptureErrorCode` (PermissionDenied/DeviceUnavailable/DeviceLost/Unsupported/Internal); `CameraConfig { facing, width, height, fps, output_format: RawImageFormat }` (+ Default = Back/0/0/0/BGRA8, `new(facing)`); `CaptureStats { measured_fps, frames_delivered, frames_dropped }`.
+- Aligned with research/01's stream-based design. The stateful `CameraStream`/`CameraManager` (own the shared `ImageRef` texture the capture thread writes — zero-copy) are deferred to the manager tick. **`RawImageFormat::Nv12` deferred** to the backend tick (cross-cutting match cascade) — configs default to BGRA8.
+- `core/src/lib.rs`: `pub mod camera;`.
+
+Verify: `mobile-check-all.sh` GREEN on all 5. (RA flagged stale E0308 on azul-gamepad/main.rs — lost GamepadButton resolution mid-reindex after the core change → `{unknown}`; that demo is unchanged + compiled clean last tick + the gate is green, so it's noise.) Disk 7.5→purged.
+
+Next P6.camera.b: `CameraManager` (BTreeMap<CaptureStreamId, CameraStream> + permission_state + native-event injection slot, per research/01 §C.2) + `CameraStream` (ImageRef target) in azul-layout. Then the `CameraPreview` node + permission-as-DOM, AVFoundation/Camera2 backends (macOS webcam → desktop-testable demo), Nv12.

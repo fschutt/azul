@@ -95,6 +95,11 @@ pub mod geolocation;
 /// Gamepad POD types — `GamepadId` + `GamepadButton` + `GamepadAxis` +
 /// `GamepadState`. Stateful manager lives in `azul_layout::managers::gamepad`.
 pub mod gamepad;
+/// Camera-capture POD types — `CaptureStreamId` + `CameraConfig` +
+/// `CameraFacing` + `StreamState` + … . The stateful `CameraStream` /
+/// `CameraManager` (which own the shared `ImageRef` texture) live in
+/// `azul_layout::managers::camera`.
+pub mod camera;
 /// Logical and physical coordinate types (`LogicalSize`, `PhysicalPosition`, etc.).
 pub mod geom;
 /// OpenGL context wrappers, shader compilation, and texture cache.
