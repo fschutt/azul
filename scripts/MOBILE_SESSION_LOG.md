@@ -1661,3 +1661,21 @@ User chose Camera (recommended) as the next P6 expansion. Per-feature step 1: co
 Verify: `mobile-check-all.sh` GREEN on all 5. (RA flagged stale E0308 on azul-gamepad/main.rs — lost GamepadButton resolution mid-reindex after the core change → `{unknown}`; that demo is unchanged + compiled clean last tick + the gate is green, so it's noise.) Disk 7.5→purged.
 
 Next P6.camera.b: `CameraManager` (BTreeMap<CaptureStreamId, CameraStream> + permission_state + native-event injection slot, per research/01 §C.2) + `CameraStream` (ImageRef target) in azul-layout. Then the `CameraPreview` node + permission-as-DOM, AVFoundation/Camera2 backends (macOS webcam → desktop-testable demo), Nv12.
+
+### Tick — P6.camera: REVERT d-h → pivot to WIDGET architecture (per user) (2026-05-20)
+
+User reconsidered the camera architecture: instead of a core `CameraPreview` NodeType + `CameraManager` + permission-as-DOM diff (camera.b-h), make camera/screenshare/video **"dumb widgets"** (like `MapWidget`) so no camera-specific logic lives in the core framework. Investigation confirmed the machinery exists (LifecycleEvent AfterMount/BeforeUnmount, MapWidget's RefAny-dataset + DatasetMergeCallback + ThreadCallback). User chose "revert d-h first, then build".
+
+**Done:** `git reset --hard 48c8d5928` (camera.a) — discards b-g (manager/NodeType/diff/codegen/render; in reflog) + uncommitted h. `cargo clean` (16.4 GiB freed → 20 GiB) for the fresh widget phase + regenerated codegen. Gate GREEN on all 5. Clean base = camera.a core POD types only (CameraConfig/Facing/StreamState/CaptureStats/CaptureStreamId/CaptureOrientation/CaptureErrorCode), NOT exposed in api.json yet.
+
+**Widget architecture spec (user's full vision — the plan):**
+- DOM has an `<img type='camera'>` rendered by a **widget** + ONE background thread. No core manager/NodeType.
+- `OnComponentMount` (AfterMount) → handle permissions (main thread) + start a background thread via `CallbackInfo::start_thread` (like the map-tile-cache fetch).
+- Background thread: fetch → decode → convert to CPU image if needed; in the **writeback callback** → trigger an "image update" when new data arrives. **Updates without relayout** — auto-wired into the rendering pipeline (the `ImageRef` updates in place; renderer picks it up).
+- **Control POD** structs carry user-changeable settings: front/back camera, zoom, live filters (camera); screen/window (screenshare). Switching cameras/screens won't re-init permissions.
+- Same pattern for a **screenshare** widget, then a dummy **video** widget (vk-video enc/dec + http range fetch).
+- Keeps the display list dumb. Future: video recording (save decoded packets to disk).
+- YUV: cpurender converts YUV→RGB; GPU path adds a YUV `ImageRef` variant + WebRender `AddImage`/`UpdateImage` wiring (not currently wired in the dll).
+- **Goal: a dummy "camera app".**
+
+Next: investigate the thread+writeback API (`CallbackInfo::start_thread` / WriteBackCallback / how MapWidget updates images without relayout / AfterMount wiring), then build the camera widget (`layout/src/widgets/camera.rs`, mirroring `map.rs`) → screenshare → video → camera-app demo.
