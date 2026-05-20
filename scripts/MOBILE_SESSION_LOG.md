@@ -809,3 +809,13 @@ Built the missing piece that's been deferring the P1.2 async request path for th
 - `dll/src/desktop/shell2/common/layout.rs`: step "7a" drains the channel each layout pass and folds results into `layout_window.permission_manager.set_status`, logging when any flips. Live consumer — not dead code; only the native producer (handle_event firing the OS prompt + its result callback calling push_async_result) is pending, which is next tick.
 
 This is the unblocking infrastructure, complete + tested end-to-end in theory; the platform `handle_event` request calls now have a place to deliver to. `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (6/7/8/7/7 s); azul-layout tests 8/8. `push_async_result`/`drain_async_results` are internal dll-facing API, not api.json FFI surface — no codegen change. Disk 94%, incremental cleared.
+
+### Tick — P1.2d Android permission request path (producer for the async channel) (2026-05-20)
+
+Wired the first producer for last tick's async-result channel: `permission/android.rs::handle_event` now fires the real OS prompt and routes the result back into the PermissionManager — completing the request loop on the Android side (Rust half).
+
+- On `Subscribe{capability}`, maps to its `android.permission.*`, and *only if* `probe_permission` says `NotDetermined`, allocates a 15-bit request code, parks `requestCode→Capability` in a static map, and JNI-calls the framework `Activity.requestPermissions(String[]{perm}, code)` (API 23+, no androidx). Release/Reconfigure are no-ops (a permission can't be un-granted).
+- Inbound `Java_com_azul_permission_AzulPermissions_nativeOnPermissionResult(code, granted)` pops the capability and calls `azul_layout::managers::permission::push_async_result(cap, Granted{Full}|Denied)` — which the layout pass (P1.2c step 7a) folds into the manager.
+- Refactored the JNI attach into a shared `attach()` helper (probe + request both use it). Documented the two runtime-pending pieces: the `AzulActivity.onRequestPermissionsResult` Java forwarding glue (same Rust/Java split as the file picker) and the UI-thread/Looper hardening.
+
+End-to-end in theory: prompt → grant → channel → manager. `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (11/1/0/3/4 s). Internal dll platform code — no api.json/codegen change. Disk 93%, incremental cleared.
