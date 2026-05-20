@@ -1132,3 +1132,12 @@ OUTSTANDING — needs the user (none safe to do autonomously now):
 3. CODEGEN-READY (after disk freed): live-locate Timer needs `get_location_fix` exposed on `TimerCallbackInfo` (mirror of the CallbackInfo exposure; tooling now fixed) + a Timer-construction example pattern.
 
 To resume: restart the cron (or invoke manually) after freeing disk and/or answering a decision above. The autofix workflow + repr fix are in place, so codegen exposures are now clean single-pass.
+
+### Tick — P4–P8 era kickoff: handoff prompt + build-cycle fix (2026-05-20)
+
+Resuming after disk freed (21 GiB). Three things this turn:
+1. **Backup**: pushed `backup/mobile-ios-android-2026-05-20` to GitHub (origin = github.com/fschutt/azul).
+2. **Build-cycle fix** (commit e39582439): the user's `cargo clean` exposed that `azul-layout::icon` `include!`d the codegen-generated `target/codegen/material_icons.ttf.br` — but `azul-doc` builds `azul-layout` to *generate* it (cycle). Moved the `include!` + brotli decompression into a new `dll/src/desktop/material_icons.rs` (downstream of codegen); `register_embedded_material_icons` now takes the TTF bytes. `icons` feature pulls `dep:brotli-decompressor`; `build-dll` now enables the full functional surface (a11y/icons/svg/xml/icu/fluent/http/map-tiles). Gate GREEN on all 5 targets.
+3. **Handoff prompt**: `scripts/AUTONOMOUS_LOOP_PROMPT_P4_P8.md` — the new agent's loop brief, with all design decisions resolved (sequential; objc2 for Apple async/blocks; DB = rusqlite static + SQL-string `Db` api.json surface, engine hidden; AzulVault = local key/value password manager, biometric-gated; per-feature pattern = core types → manager+channel → dll/extra backend → autofix+codegen → demo). Includes the codegen/autofix recipe + the "never include! codegen assets from core/layout" rule + disk hygiene + gate commands.
+
+Baseline GREEN. Next: P4.1a (biometric core types + manager + result channel + tests). (I'd drafted `core/src/biometric.rs` then reverted it for a clean handoff; the prompt specifies the type design.)
