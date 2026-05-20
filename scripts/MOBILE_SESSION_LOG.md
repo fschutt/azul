@@ -1461,3 +1461,14 @@ The P5 goal app. Pivoted here from the deep text/font PDF dispatch (P5.1e): `Uni
 Verify: `cargo check -p azul-doc-demo` CLEAN; `mobile-check-all.sh` GREEN (azul-dll unaffected); `--bin azul-doc` (codegen tool) still unambiguous. Disk 97% → purging.
 
 **P5 has its goal app + a working (partial) PDF export.** Deferred P5 polish: P5.1e text-in-PDF (the heart — focused/verifiable work), P5.2 PDF render (page_to_svg is behind printpdf's azul-layout-pulling `svg` feature → needs care re the cycle). Per the user's breadth steer, next: **P6 expansions** (camera / screen-share / sensors / gamepad / wacom, research/01+03) + their demos, same per-feature pattern.
+
+### Tick — P6.sensors.a — motion-sensor foundation (core types + manager + channel) (2026-05-20)
+
+First P6 (horizontal expansions) step — sensors, the cleanest per-feature fit (numeric readings via manager+channel, like geolocation). Pure Rust, no codegen.
+
+- `core/src/sensors.rs`: `SensorKind {Accelerometer (m/s²), Gyroscope (rad/s), Magnetometer (µT)}` + `SensorReading {kind, x, y, z, timestamp_ms}` (+`magnitude()`); device-frame coords per research/03. `impl_option!(SensorReading, OptionSensorReading, ...)` for the future accessor.
+- `layout/src/managers/sensors.rs`: `SensorManager {accelerometer, gyroscope, magnetometer: Option<SensorReading>}` — `reading(kind)` / `set_reading` (routes by kind, bitwise-eq change detection for NaN-safety) + async `push/drain_sensor_reading` channel (copied from geolocation). Wired both modules in.
+
+Verify: `managers::sensors::` 4/4 tests pass; `mobile-check-all.sh` GREEN on all 5. **Disk hit 99%/2.9 GiB after the gate rebuild** — purged all incremental → 7.4 GiB. (Volume is mostly non-azul; the printpdf/rusqlite/objc2 deps grew target/. Watching the downtrend; will do a bigger clean if a purge leaves <4 GiB.)
+
+Next P6.sensors.b: embed `SensorManager` in `LayoutWindow` + dll drain (`drain_sensor_readings` → `set_reading`) + `CallbackInfo::get_sensor_reading(kind)` accessor. Then P6.sensors.c codegen + .d backends (iOS CoreMotion / Android SensorManager JNI). Then the other P6 features (camera/gamepad/wacom/screencap).

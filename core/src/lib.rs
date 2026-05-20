@@ -77,6 +77,9 @@ pub mod icon;
 pub mod resources;
 /// Text selection and cursor positioning for inline content.
 pub mod selection;
+/// Motion-sensor POD types — `SensorKind` + `SensorReading`.
+/// Stateful manager lives in `azul_layout::managers::sensors`.
+pub mod sensors;
 /// Linear-time DOM diffing for incremental updates.
 pub mod diff;
 /// CSS animation and transition configuration.

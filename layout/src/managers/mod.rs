@@ -23,6 +23,7 @@ pub mod virtual_view;
 pub mod scroll_into_view;
 pub mod scroll_state;
 pub mod selection;
+pub mod sensors;
 pub mod text_edit;
 pub mod text_input;
 pub mod undo_redo;
