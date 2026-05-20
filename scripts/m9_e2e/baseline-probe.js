@@ -202,10 +202,12 @@ function parseWasmFnNames(buf) {
         console.log('  [9] after apply_ua_css()        = ' + dbg(9));
         console.log('  [10] after compute_inherited()  = ' + dbg(10));
         console.log('  [11] before build_compact_cache = ' + dbg(11));
-        console.log('--- WITHIN apply_ua_css BRACKET (want 1 throughout; pins prop_set-build vs push_to loop) ---');
-        console.log('  [12] entry of apply_ua_css      = ' + dbg(12));
-        console.log('  [13] before push_to loop        = ' + dbg(13) + '   ([12]=1,[13]=0 -> prop_set build corrupts)');
-        console.log('  [14] after push_to loop (end)   = ' + dbg(14) + '   ([13]=1,[14]=0 -> push_to corrupts)');
+        const lo = k => mini.AzStartup_getDbgNc(k * 2) >>> 0;
+        const cap = k => (dbg(k) >= 0x100000000 ? String(lo(k)) : '(not captured)');
+        console.log('--- WITHIN push_to-loop: get_ua_property vs push_to (node_count; want 1) ---');
+        console.log('  [12] entry of apply_ua_css      = ' + dbg(12) + '   (baseline before any get_ua_property)');
+        console.log('  [13] after get_ua, pre-push_to  = ' + cap(13) + '   ([12]=1,[13]=0 -> get_ua_property/sret corrupts)');
+        console.log('  [14] after 1st push_to          = ' + cap(14) + '   ([13]=1,[14]=0 -> push_to corrupts)');
         console.log('  [15] self addr at entry         = 0x' + dbg(15).toString(16));
     }
 
