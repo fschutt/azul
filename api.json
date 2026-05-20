@@ -42670,6 +42670,9 @@
                             {
                                 "config": {
                                     "type": "ScreenCaptureConfig"
+                                },
+                                "on_frame": {
+                                    "type": "OptionOnVideoFrame"
                                 }
                             }
                         ],
@@ -42701,6 +42704,45 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "with_on_frame": {
+                                "doc": [
+                                    "Builder form of [`set_on_frame`](Self::set_on_frame)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_frame": "OnVideoFrameCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ScreenCaptureWidget"
+                                },
+                                "fn_body": "object.with_on_frame(data, on_frame)"
+                            },
+                            "set_on_frame": {
+                                "doc": [
+                                    "Set a hook invoked with every captured frame - for live effects, saving",
+                                    "frames into your data model, or sending them over the network",
+                                    "(azul-meet). The backreference DI pattern (see `architecture.md`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_frame": "OnVideoFrameCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_frame(data, on_frame)"
                             }
                         },
                         "repr": "C"
@@ -42711,6 +42753,9 @@
                             {
                                 "config": {
                                     "type": "VideoConfig"
+                                },
+                                "on_frame": {
+                                    "type": "OptionOnVideoFrame"
                                 }
                             }
                         ],
@@ -42742,6 +42787,45 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "with_on_frame": {
+                                "doc": [
+                                    "Builder form of [`set_on_frame`](Self::set_on_frame)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_frame": "OnVideoFrameCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "VideoWidget"
+                                },
+                                "fn_body": "object.with_on_frame(data, on_frame)"
+                            },
+                            "set_on_frame": {
+                                "doc": [
+                                    "Set a hook invoked with every decoded frame - for live effects, saving",
+                                    "frames into your data model, or sending them over the network",
+                                    "(azul-meet). The backreference DI pattern (see `architecture.md`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_frame": "OnVideoFrameCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_frame(data, on_frame)"
                             }
                         },
                         "repr": "C"

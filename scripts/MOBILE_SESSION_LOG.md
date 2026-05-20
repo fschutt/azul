@@ -1959,3 +1959,11 @@ The #1 review gap: capture widgets were one-way (frame -> texture, never to user
 Gate GREEN on all 5; codegen OK; disk 12 GiB.
 
 NEXT: mirror `set_on_frame` into screencap + video (mechanical — shared infra exists), then per-widget config/controls (camera switch/resolution/fps; video play/pause/seek), MapWidget hooks, PDF uncouple, audio widgets.
+
+### Tick — FIX-APIs.3 — screencap + video `set_on_frame` hooks (2026-05-20)
+
+Mirrored the camera frame hook into `ScreenCaptureWidget` + `VideoWidget` (shared `OnVideoFrame` infra in capture_common — no new types). Each gains `on_frame` field + `set_on_frame`/`with_on_frame`; the writeback invokes the user hook with each frame. Codegen: 4 method-adds + 2 field-modifies, converged in 1 pass (types already existed). Gate GREEN on all 5; disk 11 GiB.
+
+**All three capture widgets (camera/screencap/video) now deliver frames to user code** — the azul-meet send seam is complete for video. (Receive/frame-IN path still TBD.)
+
+NEXT (configurability — the headline gap): per-widget controls — camera front/back switch + resolution/fps; video play/pause/seek; screencap source pick. Then MapWidget hooks, PDF uncouple, input events, audio widgets.

@@ -18,7 +18,9 @@ use azul_core::resources::{ImageRef, RawImageFormat};
 use azul_core::task::{ThreadId, ThreadReceiver};
 use azul_core::video::{VideoConfig, VideoFrame};
 
-use super::capture_common::present_frame;
+use super::capture_common::{
+    invoke_on_frame, present_frame, OnVideoFrame, OnVideoFrameCallback, OptionOnVideoFrame,
+};
 use crate::callbacks::{Callback, CallbackInfo, CallbackType};
 use crate::thread::{
     Thread, ThreadCallback, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg, WriteBackCallback,
@@ -38,6 +40,9 @@ pub struct VideoWidgetState {
     pub started: bool,
     /// The stable external GL texture id once installed.
     pub gl_texture_id: Option<u32>,
+    /// Optional user hook invoked with each decoded frame (effects / save /
+    /// send). Re-set on every fresh build (see [`merge_video_state`]).
+    pub on_frame: OptionOnVideoFrame,
 }
 
 /// A video-playback widget. `create(config).dom()` yields an `<img>` the
@@ -46,12 +51,38 @@ pub struct VideoWidgetState {
 pub struct VideoWidget {
     /// Source URL + autoplay/loop + format.
     pub config: VideoConfig,
+    /// Optional per-frame user hook (effects / save / send - azul-meet).
+    pub on_frame: OptionOnVideoFrame,
 }
 
 impl VideoWidget {
     /// Create a video widget for the given config.
     pub fn create(config: VideoConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            on_frame: OptionOnVideoFrame::None,
+        }
+    }
+
+    /// Set a hook invoked with every decoded frame - for live effects, saving
+    /// frames into your data model, or sending them over the network
+    /// (azul-meet). The backreference DI pattern (see `architecture.md`).
+    pub fn set_on_frame<C: Into<OnVideoFrameCallback>>(&mut self, data: RefAny, on_frame: C) {
+        self.on_frame = Some(OnVideoFrame {
+            refany: data,
+            callback: on_frame.into(),
+        })
+        .into();
+    }
+
+    /// Builder form of [`set_on_frame`](Self::set_on_frame).
+    pub fn with_on_frame<C: Into<OnVideoFrameCallback>>(
+        mut self,
+        data: RefAny,
+        on_frame: C,
+    ) -> Self {
+        self.set_on_frame(data, on_frame);
+        self
     }
 
     /// Build the widget's DOM: a single `<img>` node, fed by a background
@@ -61,6 +92,7 @@ impl VideoWidget {
             config: self.config,
             started: false,
             gl_texture_id: None,
+            on_frame: self.on_frame,
         };
         let dataset = RefAny::new(state);
 
@@ -152,17 +184,23 @@ extern "C" fn video_writeback(
     mut frame_data: RefAny,
     mut info: CallbackInfo,
 ) -> Update {
-    let current = writeback_data
-        .downcast_ref::<VideoWidgetState>()
-        .and_then(|s| s.gl_texture_id);
+    let (current, hook) = match writeback_data.downcast_ref::<VideoWidgetState>() {
+        Some(s) => (s.gl_texture_id, s.on_frame.clone()),
+        None => (None, OptionOnVideoFrame::None),
+    };
+    let mut user_update = Update::DoNothing;
     let new_id = match frame_data.downcast_ref::<VideoFrame>() {
-        Some(frame) => present_frame(&mut info, writeback_data.clone(), current, &frame),
+        Some(frame) => {
+            let id = present_frame(&mut info, writeback_data.clone(), current, &frame);
+            user_update = invoke_on_frame(&hook, &mut info, &frame);
+            id
+        }
         None => return Update::DoNothing,
     };
     if let Some(mut s) = writeback_data.downcast_mut::<VideoWidgetState>() {
         s.gl_texture_id = new_id;
     }
-    Update::DoNothing
+    user_update
 }
 
 /// Carry live state forward across relayout.
