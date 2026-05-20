@@ -1714,6 +1714,16 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     if name.contains("display_list") {
         return FnClass::Leaf;
     }
+    // M12.7: azul_layout/azul_core `probe` is profiling instrumentation
+    // (timing `Span`s). `Span::drop` reads a THREAD-LOCAL event buffer; the
+    // lifted wasm has no real TLS, so that access mis-evaluates and calls
+    // `std::thread::local::panic_access_error` (-> trap). Profiling is
+    // non-essential for web layout, so stub the whole probe module to Leaf:
+    // `Span::drop` becomes a no-op and the `let _p = Probe::span(..)` guard
+    // (never read) is harmlessly null. Same idea as the display_list cut.
+    if (name.contains("azul_layout") || name.contains("azul_core")) && name.contains("probe") {
+        return FnClass::Leaf;
+    }
     // M9-3: check the more specific layout4 variant FIRST — its name
     // is a superstring of `az_call_indirect`, so a naive ends_with
     // match would mis-classify it as the 3-arg variant.
@@ -1856,6 +1866,23 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                             return FnClass::NeverLift;
                         }
                         if crate_name == "alloc" && name.contains("raw_vec") {
+                            return FnClass::Recursable;
+                        }
+                        // M12.7: closure-dispatch trampolines
+                        // (FnOnce::call_once / Fn::call / FnMut::call_mut) are
+                        // monomorphized to the ACTUAL closure body — they are
+                        // NOT runtime-internal noops. Stubbing them Leaf
+                        // (returns X0=0) means the closure NEVER RUNS, so
+                        // layout's get_or_init / unwrap_or_else / iterator
+                        // closures yield garbage that opt folds into the
+                        // `unreachable` trap in LayoutWindow::new. Lift them so
+                        // the recursive walk discovers + lifts the closure body
+                        // (same reasoning as the raw_vec exemption above).
+                        if crate_name == "core"
+                            && (name.contains("6FnOnce9call_once")
+                                || name.contains("5FnMut8call_mut")
+                                || name.contains("8function2Fn4call"))
+                        {
                             return FnClass::Recursable;
                         }
                         return FnClass::Leaf;

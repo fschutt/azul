@@ -1157,6 +1157,34 @@ impl RemillTranspiler {
                 }
             }
 
+            // M12.7 unreachable tagger: when AZ_TAG_UNREACHABLE matches this
+            // fn's stem, tag each `unreachable` in the post-opt IR with a
+            // unique id (a `store volatile 0x554e0000|id` to 0x40050) right
+            // before it, so a post-trap peek of 0x40050 reveals WHICH
+            // unreachable fired (the live opt-folded trap). Map id → the Nth
+            // `unreachable` in the saved `.untag.ll`. See
+            // `inject_unreachable_tagging`.
+            if let Ok(target) = std::env::var("AZ_TAG_UNREACHABLE") {
+                let matched = target == "ALL"
+                    || target
+                        .split(',')
+                        .any(|s| !s.is_empty() && (fn_name.contains(s) || stem.contains(s)));
+                if matched {
+                    if let Ok(opt_ir) = std::fs::read_to_string(&opt_ir_path) {
+                        let (tagged, n) = inject_unreachable_tagging(&opt_ir);
+                        let _ = std::fs::write(&opt_ir_path, &tagged);
+                        let _ = std::fs::write(
+                            self.scratch_dir.join(format!("{}.untag.ll", stem)),
+                            &tagged,
+                        );
+                        eprintln!(
+                            "[azul-web] M12.7: tagged {} unreachables in {}",
+                            n, stem
+                        );
+                    }
+                }
+            }
+
             run_tool(
                 tools.llc,
                 &[
@@ -4217,6 +4245,31 @@ fn sanitize_filename(name: &str) -> String {
 /// Rust-source-level probe). The emitted id maps each in-window store back to
 /// its exact `.opt.ll` line (saved as `<stem>.instr.ll`), which traces through
 /// SSA to the offending register (`%X27`/`%X8`/...).
+/// M12.7: tag each `unreachable` terminator in the post-opt IR with a
+/// unique id by inserting `store volatile i64 (0x554e0000|id), ptr
+/// inttoptr(0x40050)` immediately before it. `store volatile` survives
+/// llc (not DCE'd), and the store executes just before the trap — so a
+/// post-trap `AzStartup_peekU32(0x40050)` returns `0x554e0000|id` of the
+/// LIVE (taken) unreachable. Map `id = peek & 0xffff` to the Nth
+/// `unreachable` in the saved `.untag.ll` to locate the opt-folded trap.
+fn inject_unreachable_tagging(opt_ir: &str) -> (String, u32) {
+    let mut out = String::with_capacity(opt_ir.len() + 4096);
+    let mut id: u32 = 0;
+    for line in opt_ir.lines() {
+        if line.trim_start() == "unreachable" {
+            id += 1;
+            let marker = 0x554e_0000_u64 | (id as u64);
+            out.push_str(&format!(
+                "  store volatile i64 {}, ptr inttoptr (i64 262224 to ptr), align 8\n",
+                marker
+            ));
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    (out, id)
+}
+
 fn inject_store_logging(opt_ir: &str, deptag: u32) -> (String, u32) {
     let mut out = String::with_capacity(opt_ir.len() + (1 << 17));
     let mut id: u32 = 0;
