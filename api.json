@@ -9325,6 +9325,25 @@
                                     "type": "OptionDetectedLongPress"
                                 },
                                 "fn_body": "object.get_long_press().into()"
+                            },
+                            "get_location_fix": {
+                                "doc": [
+                                    "Get the most recent geolocation fix, or `None` if no `GeolocationProbe`",
+                                    "is mounted or no platform backend has delivered a fix yet. The fix is",
+                                    "kept live by the platform backends (Android `FusedLocationProvider`,",
+                                    "iOS/macOS `CLLocationManager`) via the async fix channel that the",
+                                    "layout pass folds into the manager — so a callback can read the user's",
+                                    "position to, e.g., place a \"you are here\" marker on a map."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionLocationFix"
+                                },
+                                "fn_body": "object.get_location_fix().into()"
                             }
                         },
                         "repr": "C"
@@ -82985,6 +83004,24 @@
                             {
                                 "Some": {
                                     "type": "FileTypeList"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionLocationFix": {
+                        "external": "azul_core::geolocation::OptionLocationFix",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "LocationFix"
                                 }
                             }
                         ],

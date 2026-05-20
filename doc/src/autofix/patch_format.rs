@@ -787,7 +787,23 @@ impl AutofixPatch {
                         derive: a.derives.clone(),
                         repr: a.repr_c.map(|b| {
                             if b {
-                                "C".to_string()
+                                // A data-carrying enum (some variant has a
+                                // payload type, e.g. an impl_option! Option<T>
+                                // wrapper) is #[repr(C, u8)]; field-less enums
+                                // and structs are plain #[repr(C)]. Without this
+                                // the codegen validator rejects the added type
+                                // ("expected repr(C, u8)").
+                                let has_data_variant = a
+                                    .enum_variants
+                                    .as_ref()
+                                    .map_or(false, |vs| {
+                                        vs.iter().any(|v| v.variant_type.is_some())
+                                    });
+                                if has_data_variant {
+                                    "C, u8".to_string()
+                                } else {
+                                    "C".to_string()
+                                }
                             } else {
                                 "Rust".to_string()
                             }

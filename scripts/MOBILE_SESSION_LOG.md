@@ -1019,3 +1019,17 @@ New blocker: `codegen all` validation fails — "Invalid repr for tagged enum Op
 Reverted `git checkout api.json` + `codegen all` (getLocationFix/AzOptionLocationFix gone); gate GREEN (14/13/13/13/13 s). NEXT attempt: after applying the OptionLocationFix add, the entry's `repr` must be `C, u8` — investigate why autofix emitted `C` (vs OptionPenState); likely a one-field correction or an impl_option!/autofix repr-detection fix. impl_option!(LocationFix) prereq stays committed.
 
 **DISK NOW 98% / 5.1 GiB before this purge** — the exposure's codegen+revert+2 gates burned ~4 GiB. This is the tightest yet and these codegen ticks are the cause. Strongly recommend freeing non-azul disk before any further codegen attempt; committing only the log (no rebuild).
+
+### Tick — P3.1i get_location_fix FFI exposure LANDED (+ autofix repr fix) (2026-05-20)
+
+Third attempt — SUCCESS. Fixed the last codegen-tooling blocker and landed the exposure end-to-end; gate GREEN on all 5 targets.
+
+Root-caused the repr blocker: `impl_option!` correctly emits `#[repr(C, u8)]` (css/src/macros.rs:943), so the bug was in autofix — `patch_format.rs` mapped an added type's `repr_c: bool` to only `"C"` or `"Rust"`, never `"C, u8"`. Fix: when an added enum has a data-carrying variant (`VariantDef.variant_type.is_some()`), emit `"C, u8"`. This fixes *any* future autofix-added Option/data-enum, not just this one.
+
+Then ran the full 2-pass workflow: `autofix add CallbackInfo.get_location_fix` → apply → re-`autofix` (now lists OptionLocationFix add, LocationFix prune gone) → curated to apply ONLY `add_OptionLocationFix` (skipped the MapTileId-prune + 4 gesture-moves) → `codegen all` PASSED validation (AzOptionLocationFix struct + AzCallbackInfo_getLocationFix now generated) → `bash scripts/mobile-check-all.sh` GREEN (15/12/14/12/13 s).
+
+Net: the whole permission/geolocation stack is now user-readable — a callback can call `info.get_location_fix() -> Option<LocationFix>` (public API). Committed: `doc/src/autofix/patch_format.rs` (tooling fix) + `api.json` (the fn + OptionLocationFix type). (impl_option! prereq P3.1h + layout accessor P3.1f already committed.)
+
+Note: pre-existing azul-doc *test* code (`patch_format.rs` ~1396+) is missing `VariantDef.ref_kind` in literals — unrelated to this change, doesn't affect the binary or the mobile gate.
+
+DISK still critical (~98% / 5.9 GiB) — this codegen tick survived but with thin margin; freeing non-azul space remains needed before more codegen work. AzulMaps can now position its dot from a real fix (follow-up; needs the example to read get_location_fix). Decision-gated items unchanged.
