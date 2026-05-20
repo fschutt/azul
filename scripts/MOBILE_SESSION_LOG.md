@@ -1362,3 +1362,14 @@ Investigation tick (no code change; baseline GREEN). Exposing `Db` via the publi
 2. **Core-`Db` opaque handle + dll free-fns with real/stub cfg variants**: `Db{ptr}` in azul-core (always present), dll `db_open/execute/query/close` (`#[cfg(db-sqlite)]` real, `#[cfg(not)]` stub). Caveat: api.json methods generate `impl AzDb` in the dll — if `Db` is a core type that's an **orphan-impl violation**; viable only if the C-API is free-fns (`AzDb_execute`) not inherent methods. MUST verify the codegen's method-emission model (free-fn vs impl) first.
 
 Recommendation: option 1 (localized gating) — Db stays a dll type (no orphan issue, no P4.3c rework), and it's the reusable mechanism P5/P6 need. Next tick: verify the lang_rust class-emission injection points, add the cfg, confirm identical codegen output + gate GREEN; then P4.3e adds `Db`+methods to api.json gated.
+
+### Tick — P4.3e — Db as always-present stub POD (engine cfg-isolated; per user) (2026-05-20)
+
+User redirect: skip the risky codegen feature-gating; make `Db` an always-present POD struct whose ops degrade to none/empty when the engine's off. This sidesteps the P4.3d blocker entirely — `Db` flows through normal api.json codegen (no per-type gating needed).
+
+- `dll/extra/sqlite/mod.rs`: `Db { ptr: *mut c_void, run_destructor: bool }` — always compiled (mirrors the `App` handle: repr(C), custom Clone(non-owning)/Default/Drop). `open(path)→Db` (invalid handle / `is_open()`=false when open fails OR `db-sqlite` off), `execute→usize`, `query→DbRows`. Method bodies cfg-split: real rusqlite in a `#[cfg(db-sqlite)] mod engine`, else `0`/empty stub. **rusqlite is referenced ONLY under `#[cfg(db-sqlite)]`** → not pulled without the feature.
+- `extra/mod.rs`: un-gated `pub mod sqlite;` (was `#[cfg(db-sqlite)]`) — Db is now always present.
+
+Verify: `mobile-check-all.sh` GREEN on all 5 (Db stub compiles, no rusqlite); macOS host `+db-sqlite` CLEAN (real engine). Disk 96%.
+
+Next P4.3f: expose `Db`+`DbValue`+`DbRows`+`OptionDb` via api.json (autofix add `Db.open/execute/query/is_open`; Db modeled like `App` — `ptr` c_void/mutptr + run_destructor, custom_impls Clone/Default/Drop) + codegen + gate. Then **P4.4 AzulVault** (biometric-gated key/value store on the `Db` API). Then P5 (AzulDoc/PDF) + P6 expansions + their example apps, per research — cron (687d3d32, every minute) stays active.

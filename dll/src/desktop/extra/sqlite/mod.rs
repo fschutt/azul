@@ -1,101 +1,179 @@
-//! SQLite engine backend for the `Db` API (SUPER_PLAN_2 §4 P4.3), behind
-//! the `db-sqlite` feature.
+//! SQLite engine for the `Db` API (SUPER_PLAN_2 §4 P4.3).
 //!
-//! Bundled SQLite via `rusqlite` (statically compiled from C source, no
-//! system libsqlite) — approach A. The public surface stays
-//! engine-agnostic: SQL strings + `azul_core::db::{DbValue, DbRows}`.
-//! [`Db`] is an opaque handle (a boxed `rusqlite::Connection`) that lives
-//! here in the dll — like `App` — because it carries an engine resource;
-//! the api.json layer (a later tick) exposes `open` / `execute` / `query`
-//! against it.
+//! [`Db`] is an **always-present** FFI handle (a POD `repr(C)` struct, like
+//! `App`); the bundled-SQLite `rusqlite` engine sits behind the `db-sqlite`
+//! feature. Without the feature the public API still compiles — `open`
+//! returns an invalid handle (`is_open()` false), and `execute`/`query`
+//! degrade to `0` / empty — so `Db` flows through the normal api.json
+//! codegen with **no feature-gating** (the engine, not the type, is gated).
+//! Engine-agnostic surface: SQL strings + `azul_core::db::{DbValue, DbRows}`.
 
 use core::ffi::c_void;
 
 use azul_core::db::{DbRows, DbValue, DbValueVec};
-use azul_css::{AzString, StringVec, U8Vec};
+use azul_css::{AzString, StringVec};
+
+#[cfg(feature = "db-sqlite")]
 use rusqlite::{types::Value, Connection};
 
-/// The bundled SQLite library version (e.g. `"3.50.0"`). Smoke-tests that
-/// `rusqlite`'s bundled engine linked; handy for diagnostics. Not part of
-/// the public api.json surface.
+/// The bundled SQLite library version (only with `db-sqlite`). Internal
+/// smoke-test / diagnostic; not part of the public api.json surface.
+#[cfg(feature = "db-sqlite")]
 pub fn sqlite_version() -> &'static str {
     rusqlite::version()
 }
 
-/// An open SQLite database — an opaque, FFI-safe handle (`repr(C)`, single
-/// pointer) wrapping a boxed [`rusqlite::Connection`]. `ptr` is null when
-/// [`Db::open`] failed; methods then degrade safely (`execute` → 0,
-/// `query` → empty). The boxed connection is freed on `Drop` (the api.json
-/// destructor maps to it).
+/// An (optionally) open SQLite database — an FFI-safe opaque handle.
+/// `ptr` is a boxed `rusqlite::Connection`, or null when closed / open
+/// failed / the `db-sqlite` feature is off. Mirrors the `App` handle
+/// pattern (`run_destructor` + custom `Drop` for C-ABI ownership).
 #[repr(C)]
+#[derive(Debug)]
 pub struct Db {
-    ptr: *mut c_void,
+    pub ptr: *mut c_void,
+    pub run_destructor: bool,
+}
+
+impl Clone for Db {
+    fn clone(&self) -> Self {
+        // Non-owning shallow handle copy — only the original frees the
+        // connection (the FFI handle convention; the demo never clones a Db).
+        Db {
+            ptr: self.ptr,
+            run_destructor: false,
+        }
+    }
+}
+
+impl Default for Db {
+    fn default() -> Self {
+        Db {
+            ptr: core::ptr::null_mut(),
+            run_destructor: false,
+        }
+    }
 }
 
 impl Db {
-    /// Open (or create) a database at `path`. Use `":memory:"` for an
-    /// in-memory database. On failure returns a handle whose `is_open()`
-    /// is false rather than erroring across the FFI.
+    /// Open (or create) a database at `path` (`":memory:"` for in-memory).
+    /// Returns an invalid handle (`is_open()` false) on failure or when the
+    /// `db-sqlite` feature is disabled.
     pub fn open(path: AzString) -> Db {
-        match Connection::open(path.as_str()) {
-            Ok(conn) => Db {
-                ptr: Box::into_raw(Box::new(conn)) as *mut c_void,
-            },
-            Err(_) => Db {
-                ptr: core::ptr::null_mut(),
-            },
+        #[cfg(feature = "db-sqlite")]
+        {
+            match Connection::open(path.as_str()) {
+                Ok(conn) => Db {
+                    ptr: Box::into_raw(Box::new(conn)) as *mut c_void,
+                    run_destructor: true,
+                },
+                Err(_) => Db::default(),
+            }
+        }
+        #[cfg(not(feature = "db-sqlite"))]
+        {
+            let _ = path;
+            Db::default()
         }
     }
 
-    /// `true` if the database opened successfully.
+    /// `true` if the database is open (the `db-sqlite` engine is present
+    /// and `open` succeeded).
     pub fn is_open(&self) -> bool {
         !self.ptr.is_null()
     }
 
-    fn conn(&self) -> Option<&Connection> {
-        if self.ptr.is_null() {
-            None
-        } else {
-            // Safe: `ptr` is a `Box<Connection>` we own for the lifetime of
-            // `self`; the returned ref is bounded by `&self`.
-            Some(unsafe { &*(self.ptr as *const Connection) })
+    /// Run a non-query statement (INSERT/UPDATE/DELETE/CREATE …) with
+    /// positional `params` (`?` placeholders). Returns rows affected (`0`
+    /// on error, a closed handle, or no engine).
+    pub fn execute(&self, sql: AzString, params: DbValueVec) -> usize {
+        #[cfg(feature = "db-sqlite")]
+        {
+            engine::execute(self, sql, params)
+        }
+        #[cfg(not(feature = "db-sqlite"))]
+        {
+            let _ = (sql, params);
+            0
         }
     }
 
-    /// Run a non-query statement (INSERT / UPDATE / DELETE / CREATE …) with
-    /// positional `params` (`?` placeholders). Returns the number of rows
-    /// affected (`0` on error or a closed handle).
-    pub fn execute(&self, sql: AzString, params: DbValueVec) -> usize {
-        let conn = match self.conn() {
+    /// Run a query (SELECT) with positional `params`. Returns an empty
+    /// [`DbRows`] on error, a closed handle, or no engine.
+    pub fn query(&self, sql: AzString, params: DbValueVec) -> DbRows {
+        #[cfg(feature = "db-sqlite")]
+        {
+            engine::query(self, sql, params)
+        }
+        #[cfg(not(feature = "db-sqlite"))]
+        {
+            let _ = (sql, params);
+            empty_rows()
+        }
+    }
+}
+
+impl Drop for Db {
+    fn drop(&mut self) {
+        #[cfg(feature = "db-sqlite")]
+        {
+            if self.run_destructor && !self.ptr.is_null() {
+                // Reclaim and drop the boxed Connection (closes the db).
+                drop(unsafe { Box::from_raw(self.ptr as *mut Connection) });
+            }
+        }
+        self.ptr = core::ptr::null_mut();
+        self.run_destructor = false;
+    }
+}
+
+fn empty_rows() -> DbRows {
+    DbRows {
+        columns: StringVec::from_vec(Vec::new()),
+        values: DbValueVec::from_vec(Vec::new()),
+    }
+}
+
+// ───────── rusqlite engine (only with `db-sqlite`) ─────────────────────
+#[cfg(feature = "db-sqlite")]
+mod engine {
+    use super::*;
+    use azul_css::U8Vec;
+
+    fn conn(db: &Db) -> Option<&Connection> {
+        if db.ptr.is_null() {
+            None
+        } else {
+            // Safe: `ptr` is a `Box<Connection>` owned for the lifetime of
+            // `db`; the ref is bounded by `&db`.
+            Some(unsafe { &*(db.ptr as *const Connection) })
+        }
+    }
+
+    pub fn execute(db: &Db, sql: AzString, params: DbValueVec) -> usize {
+        let conn = match conn(db) {
             Some(c) => c,
             None => return 0,
         };
-        let values = to_values(&params);
-        conn.execute(sql.as_str(), rusqlite::params_from_iter(values))
+        conn.execute(sql.as_str(), rusqlite::params_from_iter(to_values(&params)))
             .unwrap_or(0)
     }
 
-    /// Run a query (SELECT) with positional `params` and collect the result
-    /// grid. Returns an empty [`DbRows`] on error or a closed handle.
-    pub fn query(&self, sql: AzString, params: DbValueVec) -> DbRows {
-        let conn = match self.conn() {
+    pub fn query(db: &Db, sql: AzString, params: DbValueVec) -> DbRows {
+        let conn = match conn(db) {
             Some(c) => c,
             None => return empty_rows(),
         };
         let values = to_values(&params);
-
         let mut stmt = match conn.prepare(sql.as_str()) {
             Ok(s) => s,
             Err(_) => return empty_rows(),
         };
-        // Column names must be snapshotted before the mutable `query` borrow.
         let columns: Vec<AzString> = stmt
             .column_names()
             .iter()
             .map(|s| AzString::from(s.to_string()))
             .collect();
         let col_count = columns.len();
-
         let mut rows = match stmt.query(rusqlite::params_from_iter(values)) {
             Ok(r) => r,
             Err(_) => return empty_rows(),
@@ -112,48 +190,28 @@ impl Db {
             values: DbValueVec::from_vec(cells),
         }
     }
-}
 
-impl Drop for Db {
-    fn drop(&mut self) {
-        if !self.ptr.is_null() {
-            // Reclaim and drop the boxed Connection (closes the database).
-            drop(unsafe { Box::from_raw(self.ptr as *mut Connection) });
-            self.ptr = core::ptr::null_mut();
+    fn to_values(params: &DbValueVec) -> Vec<Value> {
+        params.as_ref().iter().map(db_to_value).collect()
+    }
+
+    fn db_to_value(v: &DbValue) -> Value {
+        match v {
+            DbValue::Null => Value::Null,
+            DbValue::Integer(i) => Value::Integer(*i),
+            DbValue::Real(r) => Value::Real(*r),
+            DbValue::Text(s) => Value::Text(s.as_str().to_string()),
+            DbValue::Blob(b) => Value::Blob(b.as_ref().to_vec()),
         }
     }
-}
 
-fn empty_rows() -> DbRows {
-    DbRows {
-        columns: StringVec::from_vec(Vec::new()),
-        values: DbValueVec::from_vec(Vec::new()),
-    }
-}
-
-/// `DbValue` → rusqlite (for binding params). `rusqlite::types::Value` is a
-/// 1:1 match for `DbValue`.
-fn to_values(params: &DbValueVec) -> Vec<Value> {
-    params.as_ref().iter().map(db_to_value).collect()
-}
-
-fn db_to_value(v: &DbValue) -> Value {
-    match v {
-        DbValue::Null => Value::Null,
-        DbValue::Integer(i) => Value::Integer(*i),
-        DbValue::Real(r) => Value::Real(*r),
-        DbValue::Text(s) => Value::Text(s.as_str().to_string()),
-        DbValue::Blob(b) => Value::Blob(b.as_ref().to_vec()),
-    }
-}
-
-/// rusqlite → `DbValue` (for result cells).
-fn value_to_db(v: Value) -> DbValue {
-    match v {
-        Value::Null => DbValue::Null,
-        Value::Integer(i) => DbValue::Integer(i),
-        Value::Real(r) => DbValue::Real(r),
-        Value::Text(s) => DbValue::Text(AzString::from(s)),
-        Value::Blob(b) => DbValue::Blob(U8Vec::from_vec(b)),
+    fn value_to_db(v: Value) -> DbValue {
+        match v {
+            Value::Null => DbValue::Null,
+            Value::Integer(i) => DbValue::Integer(i),
+            Value::Real(r) => DbValue::Real(r),
+            Value::Text(s) => DbValue::Text(AzString::from(s)),
+            Value::Blob(b) => DbValue::Blob(U8Vec::from_vec(b)),
+        }
     }
 }

@@ -14,10 +14,12 @@ pub mod biometric;
 pub mod file_picker;
 pub mod geolocation;
 pub mod keyring;
-/// SQLite-backed `Db` engine (P4.3). Opt-in via the `db-sqlite` Cargo
-/// feature; with the feature off, the `Db` API isn't built (the bundled
-/// SQLite C amalgamation isn't compiled).
-#[cfg(feature = "db-sqlite")]
+/// SQLite-backed `Db` engine (P4.3). The `Db` handle is always present
+/// (so it flows through the normal api.json codegen with no feature
+/// gating); the bundled-SQLite `rusqlite` engine behind it is opt-in via
+/// the `db-sqlite` feature. Without the feature, `Db::open` returns an
+/// invalid handle and `execute`/`query` no-op (the C amalgamation isn't
+/// compiled).
 pub mod sqlite;
 /// MVT tile decode + projection math for the `MapWidget` content
 /// pipeline. Opt-in via the `map-tiles` Cargo feature; with the
