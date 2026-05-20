@@ -317,8 +317,7 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
             ret: Some(Pcs::Wreg { state_byte_offset: X0 }),
         }),
         // M12.5c probe: (addr: u32) -> u32 — peek a u32 from wasm memory.
-        // M12.5i: AzStartup_getDbgNc(i: u32) -> u32 — read AZ_DBG_NC capture.
-        "AzStartup_peekU32" | "AzStartup_getDbgNc" => Some(CallbackSignature {
+        "AzStartup_peekU32" => Some(CallbackSignature {
             kind: name.to_string(),
             args: vec![Pcs::Wreg { state_byte_offset: X0 }],
             ret: Some(Pcs::Wreg { state_byte_offset: X0 }),

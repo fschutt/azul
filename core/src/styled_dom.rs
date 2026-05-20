@@ -1016,16 +1016,6 @@ impl StyledDom {
         static CASCADE_BREAKDOWN: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         let cascade_dbg = *CASCADE_BREAKDOWN.get_or_init(crate::profile::memory_enabled);
 
-        // M12.5m TEMP DIAGNOSTIC — REVERT after. compact_dom.node_data as it
-        // ARRIVES at create_from_compact_dom (after the CompactDom sret-return
-        // + by-value move). [4]=len, [5]=ptr, [6]=compact_dom.len(). If len is
-        // already a heap-ptr here → the CompactDom move/sret scrambled it; if
-        // len==1 → it scrambles later (inside this fn / the .len() read).
-        unsafe {
-            crate::compact_cache_builder::AZ_DBG_NC[4] = compact_dom.node_data.internal.len() as u64;
-            crate::compact_cache_builder::AZ_DBG_NC[5] = compact_dom.node_data.internal.as_ptr() as u64;
-            crate::compact_cache_builder::AZ_DBG_NC[6] = compact_dom.len() as u64;
-        }
         let t0 = std::time::Instant::now();
         let node_count = compact_dom.len();
 
@@ -1041,24 +1031,7 @@ impl StyledDom {
             node_count
         ];
 
-        // M12.5x DIAGNOSTIC: 8KB stack padding to shift css_property_cache's address.
-        // If [9] flips 0→1 → corruption is a fixed SP+offset store (position-dependent);
-        // if still 0 → store is self(X0)-relative. (reverted after test)
-        let m12_pad = core::hint::black_box([0xABu8; 8192]);
-        unsafe { crate::compact_cache_builder::AZ_DBG_NC[40] = m12_pad.as_ptr() as u64; }
         let mut css_property_cache = CssPropertyCache::empty(compact_dom.node_data.len());
-        // M12.5n TEMP DIAGNOSTIC — bracket css_property_cache.node_count to
-        // find which op scrambles it 1→ptr. [7]=after empty.
-        unsafe { crate::compact_cache_builder::AZ_DBG_NC[7] = css_property_cache.node_count as u64; }
-        // M12.5y — capture the EXACT wasm address of node_count + the cache base,
-        // so the store tracer can be filtered to the node_count slot (the struct
-        // is not repr(C), so node_count is not at offset 0).
-        unsafe {
-            crate::compact_cache_builder::AZ_DBG_NC[41] =
-                (&css_property_cache.node_count as *const usize as usize) as u64;
-            crate::compact_cache_builder::AZ_DBG_NC[42] =
-                (&css_property_cache as *const CssPropertyCache as usize) as u64;
-        }
 
         let html_tree = construct_html_cascade_tree(
             &compact_dom.node_hierarchy.as_ref(),
@@ -1084,20 +1057,11 @@ impl StyledDom {
             &html_tree.as_ref(),
         );
         let restyle_ms = t_restyle.elapsed().as_secs_f64() * 1000.0;
-        unsafe { crate::compact_cache_builder::AZ_DBG_NC[8] = css_property_cache.node_count as u64; } // [8]=after restyle
 
         // Drop the CSS object now — selectors/declarations are no longer needed
         // after restyle has populated css_props. This frees ~500 KiB of stylesheet
         // data structures (CssRuleBlock, CssPathSelector, CssDeclaration).
         drop(css);
-        // M12.5y — isolate drop(css) vs apply_ua_css as the cache-base corruptor.
-        // [46]=node_count value after drop, [47]=&node_count after drop. If [46]=1
-        // & [47]=0x2ef98 → drop is innocent, apply_ua_css corrupts; else drop does.
-        unsafe {
-            crate::compact_cache_builder::AZ_DBG_NC[46] = css_property_cache.node_count as u64;
-            crate::compact_cache_builder::AZ_DBG_NC[47] =
-                (&css_property_cache.node_count as *const usize as usize) as u64;
-        }
 
         // Apply UA defaults + compute inherited values so consumers that
         // read `css_property_cache.computed_values` (the web/HTML
@@ -1107,40 +1071,15 @@ impl StyledDom {
         // is the "tall" form that the web renderer's CSS emitter
         // (`emit_css_from_cache`) walks per node.
         css_property_cache.apply_ua_css(compact_dom.node_data.as_ref().internal);
-        unsafe { crate::compact_cache_builder::AZ_DBG_NC[9] = css_property_cache.node_count as u64; } // [9]=after apply_ua_css
-        // M12.5y — &node_count address at [9]/[11]/dump time. If these DIFFER from
-        // [41] (captured right after empty, =0x2ef98), the lift computes the local
-        // cache's stack address inconsistently → the reads, not a store, are wrong.
-        unsafe {
-            crate::compact_cache_builder::AZ_DBG_NC[43] =
-                (&css_property_cache.node_count as *const usize as usize) as u64;
-        }
-        // M12.5v: NON-PERTURBING dump of the cache's first 160 bytes (done in create_from,
-        // NOT apply_ua_css, so it cannot perturb the buggy lifted apply_ua_css). Reveals the
-        // corruption pattern: if self+0x88 holds a CssPropertyType disc → the 144B StatefulCssProperty
-        // slot-copy hit self; if only node_count(self+0) changed → a targeted write.
-        unsafe {
-            let p = &css_property_cache as *const _ as *const u64;
-            crate::compact_cache_builder::AZ_DBG_NC[44] = p as usize as u64; // dump-time &cache
-            for k in 0..20usize {
-                crate::compact_cache_builder::AZ_DBG_NC[16 + k] = core::ptr::read_volatile(p.add(k));
-            }
-        }
         css_property_cache.compute_inherited_values(
             node_hierarchy.as_container().internal,
             compact_dom.node_data.as_ref().internal,
         );
-        unsafe { crate::compact_cache_builder::AZ_DBG_NC[10] = css_property_cache.node_count as u64; } // [10]=after compute_inherited_values
 
         let prev_font_hashes: Vec<u64> = css_property_cache.compact_cache
             .as_ref()
             .map(|c| c.prev_font_hashes.clone())
             .unwrap_or_default();
-        unsafe { crate::compact_cache_builder::AZ_DBG_NC[11] = css_property_cache.node_count as u64; } // [11]=before build_compact_cache
-        unsafe {
-            crate::compact_cache_builder::AZ_DBG_NC[45] =
-                (&css_property_cache.node_count as *const usize as usize) as u64;
-        }
         let compact = css_property_cache.build_compact_cache_with_inheritance(
             compact_dom.node_data.as_ref().internal,
             node_hierarchy.as_container().internal,
@@ -1198,15 +1137,6 @@ impl StyledDom {
         } else {
             (Vec::new(), Vec::new())
         };
-        // M12.5y — capture the .into() INPUT (compact_dom.node_data.internal) right
-        // before the StyledDom assembly. [50]=len, [51]=ptr. If [50]=1 but [48]=0
-        // (post-assembly), the Vec->NodeDataVec `.into()` lost it; if [50]=0, it was
-        // emptied between build_compact_cache and here.
-        unsafe {
-            crate::compact_cache_builder::AZ_DBG_NC[50] = compact_dom.node_data.internal.len() as u64;
-            crate::compact_cache_builder::AZ_DBG_NC[51] = compact_dom.node_data.internal.as_ptr() as u64;
-        }
-
         let mut styled_dom = StyledDom {
             root: NodeHierarchyItemId::from_crate_internal(Some(compact_dom.root)),
             node_hierarchy,
@@ -1220,15 +1150,6 @@ impl StyledDom {
             css_property_cache: CssPropertyCachePtr::new(css_property_cache),
             dom_id: DomId::ROOT_ID,
         };
-        // M12.5y — capture the assembled StyledDom's node_data BEFORE return/box.
-        // [48]=node_data.len, [49]=node_data.as_ptr. If len=1 here but
-        // getStyledDomNodeCount=0, the loss is in the sret-return / Box::new of
-        // StyledDom; if len=0 here, the `.into()` conversion (line 1215) lost it.
-        unsafe {
-            crate::compact_cache_builder::AZ_DBG_NC[48] = styled_dom.node_data.len() as u64;
-            crate::compact_cache_builder::AZ_DBG_NC[49] = styled_dom.node_data.as_ref().as_ptr() as u64;
-        }
-
         #[cfg(feature = "table_layout")]
         if let Err(_e) = crate::dom_table::generate_anonymous_table_elements(&mut styled_dom) {
         }
@@ -2143,14 +2064,6 @@ pub fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
 
     let mut node_hierarchy = vec![Node::ROOT; sum_nodes + 1];
     let mut node_data = vec![NodeData::create_div(); sum_nodes + 1];
-    // M12.5m TEMP DIAGNOSTIC (web lift) — REVERT after. Native-safe static.
-    // [4]=sum_nodes (from fixup_children_estimated), [5]=node_data.ptr,
-    // [6]=node_data.len right after `vec![NodeData; sum_nodes+1]`.
-    unsafe {
-        crate::compact_cache_builder::AZ_DBG_NC[4] = sum_nodes as u64;
-        crate::compact_cache_builder::AZ_DBG_NC[5] = node_data.as_ptr() as u64;
-        crate::compact_cache_builder::AZ_DBG_NC[6] = node_data.len() as u64;
-    }
     let mut cur_node_id = 0;
 
     let root_node_id = NodeId::ZERO;
