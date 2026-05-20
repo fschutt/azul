@@ -1839,3 +1839,11 @@ Verify: `cargo check -p azul-screenshare-app` clean (host, 23s). dll untouched �
 Verify: `mobile-check-all.sh` GREEN on all 5. Disk 7.6 GiB.
 
 Next P6.video.b: `VideoWidget` (layout/src/widgets/video.rs) mirroring camera/screencap — RefAny dataset + AfterMount thread + writeback GL upload + test-pattern worker (real vk-video decode + HTTP-range = on-machine batch). Then codegen-expose, demo, then the DRY pass (extract the shared core from all 3).
+
+### Tick — P6.video.b — VideoWidget (2026-05-20)
+
+`layout/src/widgets/video.rs` — 3rd video-ish widget, identical architecture (compiled first try). `VideoWidget::create(config).dom()` → Image node + `VideoWidgetState` dataset + merge + AfterMount→`add_thread`; `video_test_worker` emits scrolling SMPTE colour bars ~30×/s; `video_writeback` does the same GL-texture install-once + per-frame re-upload + recomposite. `widgets/mod.rs`: `pub mod video`.
+
+Verify: `mobile-check-all.sh` GREEN on all 5. Disk 8.6 GiB.
+
+**All 3 video-ish widget structures now exist** (camera/screencap/video, near-identical). Next P6.video.c: codegen-expose `VideoWidget` + `VideoConfig`. Then a video demo. **Then the DRY pass**: extract the shared thread+writeback+GL `upload_rgba`+install-once core (duplicated 3× now) into `layout/src/widgets/capture_common.rs` (or similar), making the 3 widgets thin wrappers.
