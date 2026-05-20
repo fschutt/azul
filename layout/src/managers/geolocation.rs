@@ -164,6 +164,37 @@ impl GeolocationManager {
     }
 }
 
+// ────────── Async fix channel (platform backend → manager) ────────────
+//
+// A native location callback (Android `FusedLocationProvider`
+// `onLocationResult`, iOS `CLLocationManagerDelegate`) fires on an
+// arbitrary thread with no handle to the live `GeolocationManager` (it
+// lives inside the window's `LayoutWindow`). The backend parks each fix
+// here; the layout pass drains it once per frame via
+// [`drain_location_fixes`] and applies the latest through
+// [`GeolocationManager::set_latest_fix`]. Pure Rust — no platform
+// dependency (SUPER_PLAN_2 §0.5). Mirrors the permission manager's
+// async-result channel.
+
+static PENDING_FIXES: std::sync::Mutex<Vec<LocationFix>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Park a location fix delivered by a platform backend (in the dll).
+/// Thread-safe; recovers from a poisoned lock so one panicking applier
+/// can't wedge delivery forever.
+pub fn push_location_fix(fix: LocationFix) {
+    let mut q = PENDING_FIXES.lock().unwrap_or_else(|e| e.into_inner());
+    q.push(fix);
+}
+
+/// Drain every fix parked by [`push_location_fix`], in arrival order.
+/// Called once per layout pass; the caller applies them through
+/// [`GeolocationManager::set_latest_fix`] (the last one wins).
+pub fn drain_location_fixes() -> Vec<LocationFix> {
+    let mut q = PENDING_FIXES.lock().unwrap_or_else(|e| e.into_inner());
+    core::mem::take(&mut *q)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,5 +291,29 @@ mod tests {
         assert_eq!(f.altitude(), None);
         assert_eq!(f.heading(), None);
         assert_eq!(f.speed(), None);
+    }
+
+    #[test]
+    fn async_fixes_round_trip_through_manager() {
+        // The channel is process-global; clear any residue first.
+        let _ = drain_location_fixes();
+
+        push_location_fix(fix(37.0, -122.0));
+        push_location_fix(fix(48.8566, 2.3522)); // Paris — last wins
+        let drained = drain_location_fixes();
+        assert_eq!(drained.len(), 2, "both parked fixes drain in order");
+        assert_eq!(drained[0].latitude_deg, 37.0);
+        assert_eq!(drained[1].latitude_deg, 48.8566);
+
+        // Applying them reflects in latest_fix() — what the layout pass does.
+        let mut mgr = GeolocationManager::new();
+        for f in &drained {
+            mgr.set_latest_fix(*f);
+        }
+        let got = mgr.latest_fix().expect("a fix was applied");
+        assert_eq!(got.latitude_deg, 48.8566, "the last applied fix wins");
+
+        // A second drain is empty — the queue was taken, not copied.
+        assert!(drain_location_fixes().is_empty());
     }
 }

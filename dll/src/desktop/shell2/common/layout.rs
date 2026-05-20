@@ -708,6 +708,27 @@ pub fn regenerate_layout(
         crate::desktop::extra::geolocation::apply_diff_events(&geolocation_events);
     }
 
+    // 7c. Drain location fixes a platform backend parked since the last
+    // pass (Android FusedLocationProvider onLocationResult / iOS
+    // CLLocationManagerDelegate run on arbitrary threads with no handle to
+    // this LayoutWindow, so they park fixes in azul-layout's process-global
+    // channel) and fold the latest into the manager. (No producer fires yet
+    // — the backend `handle_event` location subscription is a later tick —
+    // but the consumer is live and unit-tested in azul-layout.)
+    {
+        let fixes = azul_layout::managers::geolocation::drain_location_fixes();
+        let mut changed = false;
+        for fix in fixes {
+            changed |= layout_window.geolocation_manager.set_latest_fix(fix);
+        }
+        if changed {
+            log_debug!(
+                LogCategory::Layout,
+                "[regenerate_layout] applied async location fix"
+            );
+        }
+    }
+
     log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE");
     azul_layout::probe::emit_phase_heap("end");
 

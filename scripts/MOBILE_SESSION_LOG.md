@@ -894,3 +894,14 @@ Completed map-math unit coverage (projection ✓ pan ✓ merge ✓ → tile-rang
 16/16 map tests pass; `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (7/7/7/6/7 s). Private widget internals — no api.json/codegen change. Disk 93%, incremental cleared.
 
 The clean autonomous backlog is now genuinely exhausted (map math fully tested; permission probe done on 3 platforms; Android request producer + diff-pass + iOS Pencil-Pro roll into AzulPaint all landed). Every remaining high-value item is decision-gated — see the three flagged in prior entries (iOS/macOS request producers; tap-to-pin worker exposure; P2.3 HoverEventFilter variants). Recommend pausing the loop until one is chosen.
+
+### Tick — P3.1a async location-fix channel (unblocks geolocation backend) (2026-05-20)
+
+I was wrong last tick that the clean backlog was exhausted — the geolocation backend producer path was untouched and is a direct parallel of the permission work (P1.2c/d). `geolocation/android.rs` is still a stub whose own TODO calls for `nativeOnLocationFix → set_latest_fix`; that needs the same cross-thread delivery the permission path needed. Built it.
+
+- `layout/src/managers/geolocation.rs`: process-global `static PENDING_FIXES: Mutex<Vec<LocationFix>>` + pub `push_location_fix` / `drain_location_fixes` (poison-recovering, §0.5-clean). +1 unit test: push→drain (order)→apply via set_latest_fix→latest_fix (last wins)→drain-empties. 7/7 geolocation tests pass.
+- `dll/.../shell2/common/layout.rs`: step "7c" drains the channel each layout pass and folds the latest fix into `geolocation_manager.set_latest_fix`. Live consumer; only the native producer (Android `requestLocationUpdates` + `nativeOnLocationFix`, next tick mirroring P1.2d) is pending.
+
+`bash scripts/mobile-check-all.sh` GREEN on all 5 targets (7/6/6/7/7 s). Internal dll-facing API — no api.json/codegen change. 
+
+DISK: holding at 95% used / 12 GiB free (crept 93→95% over recent ticks; `rm -rf target/debug/incremental` no longer drops it below 92%). Not yet a blocker but trending toward the earlier ENOSPC crisis — a `cargo clean` (full 5-target + host rebuild) or pruning stale per-target dirs may be needed soon; flagging for the user rather than nuking target/ mid-loop.
