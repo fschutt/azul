@@ -1920,3 +1920,15 @@ Next: **P7 — audio** (rodio: playback + mic recording). Then video enc/dec (vk
 - Retrofit camera/screencap/video with the same `OnVideoFrame` hook (VideoFrame moves to core, FFI-ready).
 
 **NEXT (user directive): full P2-P7 API design review FIRST** — audit every added surface for globals + `f(State,&mut cache)->UI` fit + DI/hooks + ease of use; explore better designs; THEN continue audio → video → UDP/azul-meet.
+
+### Tick — P2-P7 API DESIGN REVIEW (2026-05-20)
+
+User directive: analyze the architecture + retroactively review all P2-P7 user-facing APIs for ease-of-use + Azul-way fit (`f(State,&mut cache)->UI`, NO globals, DI backreferences, user hooks) BEFORE continuing audio/video/UDP. Fanned out 4 read-only inventory agents (streams / input / maps+paint / handles). Findings in **`scripts/MOBILE_API_REVIEW.md`**.
+
+**Verdict:** structurally sound (no user-facing globals; widget + per-window-manager patterns fit the model), but ONE systematic gap repeats: **data is poll-only + one-way; nothing pushes to user code, and the backreference `set_on_X` hook (button/number_input idiom) is absent from every P2-P7 feature.** This is both the ergonomic smell AND the azul-meet blocker.
+
+- The process-global static channels (PENDING_*) are *internal transport* (azul-layout can't link platform code), not user-facing globals — but have a per-process-vs-per-window-manager bleed bug; pen path shows the clean fix (mutate window mgr directly).
+- Reference patterns to copy: MapWidget (structure), Pen (input-as-events), Geolocation (probe+event+accessor), Button (DI hook).
+- Plan tiered: **T1** azul-meet prereqs (VideoFrame→core FFI; `set_on_frame` hook on camera/screencap/video + Microphone; frame-IN path; audio widgets) — this IS "continue audio/video". **T2** ergonomic retrofit (input→events; MapWidget hooks; completion events for biometric/keyring/pdf-export). **T3** completeness (permission api.json + get_permission_status; Db accessors + async; dead-doc fixes; wacom pad backend).
+
+NEXT: confirm scope (T1-only forward vs +T2 retrofit vs full), then execute T1 starting with VideoFrame→core + the frame hook.
