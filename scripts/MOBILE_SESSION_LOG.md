@@ -1638,3 +1638,14 @@ The native producer for the P6.gamepad.b 7i drain. gilrs covers macOS, so the sp
 Verify: `mobile-check-all.sh` GREEN on all 5 (stubs); **host `+link-static` CLEAN — desktop.rs + gilrs compiled** (gilrs-core 0.6.7). Disk purged.
 
 Unlike sensors (device-only), the gamepad backend works on the dev host — the upcoming demo is desktop-testable with a controller. Next P6.gamepad.e: a small demo (live button/stick readout via `get_primary_gamepad`). Then iOS GCController / Android InputDevice (incl. `AzulGamepad.java`, deferred Java batch).
+
+### Tick — P6.gamepad.e — azul-gamepad demo (live controller readout, desktop-testable) (2026-05-20)
+
+The P6 gamepad example app (added to workspace). Same shape as azul-spirit-level: `create_callback` → Timer → reads `get_primary_gamepad()` via the wrapped `callback_info` → stores snapshot → always `RefreshDom` (keeps the dll's per-frame `gamepad::poll` running, which refreshes state + catches hot-plug).
+
+- `layout`: button **chips** (grouped rows: face A/B/X/Y, shoulders L1/R1/L2/R2, dpad, center Sel/Start/Mode/L3/R3) lit green via `pad.is_pressed(GamepadButton::*)`; two **sticks** (bullseye + dot via `transform: translate`, Y negated so up-stick rises); two **trigger bars** (`left_z`/`right_z` → fill width). "No controller connected" prompt when `None`.
+- Module paths from reexports: `GamepadState`/`GamepadId` in `azul::misc`, `GamepadButton` in `azul::widgets`, `OptionGamepadState` in `azul::option`.
+
+Verify: `cargo check -p azul-gamepad` clean (host, 12s; warnings are azul-dll generated code). dll untouched → mobile gate stays GREEN (ad252080e). Disk 11 GiB.
+
+**Unlike the sensor demos this is desktop-runnable** (gilrs on the host): `cargo run -p azul-gamepad`, plug in a controller, the panel goes live. **Gamepad: core ✅ · plumbing ✅ · codegen ✅ · desktop backend ✅ · demo ✅.** Remaining: iOS GCController / Android InputDevice backends (follow-ups; AzulGamepad.java in the deferred Java batch).
