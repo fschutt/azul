@@ -827,12 +827,19 @@ pub fn regenerate_layout(
         }
     }
 
-    // 7h. Drain motion-sensor readings a platform backend parked since the
+    // 7h-pre (sensor subscription): kick the device's motion-sensor
+    // subscription. OnceLock-guarded inside, so only the first frame does
+    // the native registration (CoreMotion start / Android registerListener);
+    // every later frame is a cheap atomic read.
+    crate::desktop::extra::sensors::ensure_started();
+
+    // 7h. Drain motion-sensor readings the platform backend parked since the
     // last pass (CoreMotion / Android SensorManager fire on arbitrary
     // threads with no handle to this LayoutWindow, so they park readings in
     // azul-layout's process-global channel) and fold the latest per kind
-    // into the manager. (No producer fires yet — the native backend is a
-    // later tick — but the consumer is live and unit-tested in azul-layout.)
+    // into the manager. The Android JNI backend is live (samples flow once
+    // the AzulSensors.java shim ships); the Apple CoreMotion producer lands
+    // next tick. The consumer is unit-tested in azul-layout.
     {
         let readings = azul_layout::managers::sensors::drain_sensor_readings();
         let mut changed = false;

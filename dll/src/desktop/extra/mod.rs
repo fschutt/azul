@@ -31,3 +31,9 @@ pub mod map;
 /// via the `pdf` feature. Without it, `export_to_pdf` returns `false`.
 pub mod pdf;
 pub mod permission;
+/// Motion-sensor subscriptions (P6 feature 5). The dispatcher kicks the
+/// platform subscription once via [`sensors::ensure_started`] (CoreMotion on
+/// Apple — pending; `SensorManager` JNI on Android) and the backends park
+/// each sample through `azul_layout::managers::sensors::push_sensor_reading`,
+/// which the layout pass folds into the per-`App` `SensorManager`.
+pub mod sensors;

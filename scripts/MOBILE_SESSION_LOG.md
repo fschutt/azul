@@ -1537,3 +1537,16 @@ Verify: `mobile-check-all.sh` GREEN on all 5; host `+pdf` CLEAN. **Disk hit 3.0 
 Verify: `mobile-check-all.sh` GREEN on all 5 (skipped host check — sensors isn't engine-gated). Disk hit 3.0 GiB during the spike → purged → 5.8 GiB (recovery shrinking — base target/ growing; see next).
 
 Next P6.sensors.d: iOS CoreMotion + Android SensorManager backends (dll/extra/sensors/, push_sensor_reading from the native callbacks + a SensorProbe-style subscribe). Then camera/gamepad/wacom/screencap. (Disk: doing a deeper target/ assessment.)
+
+### Tick — P6.sensors.d — sensor backend dispatcher + Android SensorManager JNI (2026-05-20)
+
+The native producer for the P6.sensors.b "7h" drain (which until now had no backend).
+
+- `dll/extra/sensors/mod.rs` (new): dispatcher + `ensure_started()` (OnceLock — first frame does the native registration, later frames a cheap atomic read; cfg-routes to apple/android).
+- `dll/extra/sensors/android.rs` (new): **real JNI** — `start()` → `com.azul.sensors.AzulSensors.start(Activity)` (registers a `SensorEventListener` for accel/gyro/mag); `Java_com_azul_sensors_AzulSensors_nativeOnSensorReading(kind,x,y,z,tsMs)` maps the kind code → `SensorReading` → `push_sensor_reading`. Mirrors the biometric/geolocation Rust↔Java split (attach helper verbatim).
+- `dll/extra/sensors/apple.rs` (new): CoreMotion `CMMotionManager` backend — documented; `start()` no-op this tick (the objc2-core-motion subscription is P6.sensors.e).
+- `dll/extra/mod.rs`: `pub mod sensors;`. `layout.rs`: `ensure_started()` before the 7h drain + refreshed the 7h comment (Android backend now live).
+
+Verify: `mobile-check-all.sh` GREEN on all 5 (Android compiles the JNI path; iOS/sim the apple stub). rust-analyzer flags android.rs unlinked / mod.rs cfg-inactive — host-view false-positives (host=macOS; the aarch64-linux-android target compiled them, ok 25s). Disk healthy (16 GiB).
+
+Deferred (non-Rust, batched with the other Java shims): `AzulSensors.java`. Next P6.sensors.e: iOS CoreMotion (`objc2-core-motion` dep + the real `apple::start`). Then camera/gamepad/wacom/screencap foundations.
