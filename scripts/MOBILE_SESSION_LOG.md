@@ -1092,3 +1092,11 @@ Added the coordinate callout beside each tapped pin — the "-callout" half of P
 P3.3 (AzulMaps) is now fully feature-complete: viewport + pan/zoom toolbar, locate-me (probe + recentre + dot + readout), tap-to-pin-callout. Bar real tiles (gated on the worker-exposure decision). Could refine to tap-to-select (show callout only for the selected pin) vs the current all-pins labels — noted, not needed for the demo.
 
 Remaining work is unchanged and all gated/blocked: P3.2 real-tile worker exposure, P2.3 HoverEventFilter, iOS/macOS permission-request blocks (decisions); live-locate Timer (needs get_location_fix on TimerCallbackInfo, a codegen exposure); disk headroom for codegen.
+
+### Tick — P3.3f AzulMaps "Clear pins" button (2026-05-20)
+
+Small UX completion for tap-to-pin (AzulPaint has Clear; the map now does too). Added a "Clear pins" toolbar button → `on_clear_pins` clears `MapState.pins`. Leaf-only.
+
+`cargo check -p azul-maps` clean; `bash scripts/mobile-check-all.sh` GREEN on all 5 targets (warm). Disk ~97%.
+
+AzulMaps (P3.3) is now genuinely complete: pan/zoom toolbar, locate-me (probe + recentre + dot + readout), tap-to-pin-callout, clear pins. Bar real tiles (gated). This exhausts the clean leaf work I can see — the Maps + geolocation surface is done end-to-end through the public API. Remaining is all decision-gated or codegen/disk-blocked (P3.2 real-tile worker exposure; P2.3 HoverEventFilter; iOS/macOS permission-request blocks; live-locate Timer needs get_location_fix on TimerCallbackInfo + disk headroom).

@@ -265,6 +265,16 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                             data.clone(),
                             on_locate,
                         ),
+                )
+                .with_child(
+                    Dom::create_div()
+                        .with_css(BTN)
+                        .with_child(Dom::create_text("Clear pins"))
+                        .with_callback(
+                            EventFilter::Hover(HoverEventFilter::MouseUp),
+                            data.clone(),
+                            on_clear_pins,
+                        ),
                 ),
         );
 
@@ -414,6 +424,13 @@ extern "C" fn on_locate(mut data: RefAny, info: CallbackInfo) -> Update {
                 s.viewport.centre_lon_deg = lon;
             }
         }
+    }
+    Update::RefreshDom
+}
+
+extern "C" fn on_clear_pins(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(mut s) = data.downcast_mut::<MapState>() {
+        s.pins.clear();
     }
     Update::RefreshDom
 }
