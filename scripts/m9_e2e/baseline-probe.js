@@ -289,6 +289,18 @@ function parseWasmFnNames(buf) {
             }
             console.log('  >>> SP TRAJECTORY (every SP-slot store, execution order; watch for SP not restored across a call):');
             for (const w of spTraj) console.log('     [' + w.i + '] dep=0x' + w.dt.toString(16) + ' id=' + w.id + ' SP=0x' + w.val.toString(16));
+            // M12.5y6 heap trace: when the tracer window is the box heap, dump ALL
+            // logged stores (the StyledDom Box::new move). Find node_data's store
+            // (val should be the heap ptr / len=1) vs where it actually lands.
+            console.log('  >>> ALL logged stores (heap-window box trace), execution order:');
+            let shownCount = 0;
+            for (let i = 0; i < shown && shownCount < 400; i++) {
+                const a = rd((0x41010 + i * 16) >>> 0);
+                if (a === 0xF0000) continue;
+                const id = rd((0x41010 + i * 16 + 4) >>> 0), dt = rd((0x41010 + i * 16 + 8) >>> 0), val = rd((0x41010 + i * 16 + 12) >>> 0);
+                console.log('     [' + i + '] 0x' + a.toString(16) + ' dep=0x' + dt.toString(16) + ' id=' + id + ' val=0x' + val.toString(16));
+                shownCount++;
+            }
             // apply_ua_css frame dump: apply SP = cacheBase-8416, frame at cacheBase-0x2290..-0x20E0.
             // The alloc-result check %60 is spilled at SP+16; if its value is 0, apply takes the
             // alloc-error path. Dump writes in [cacheBase-0x2400, cacheBase-0x2080] with values.

@@ -4144,8 +4144,8 @@ fn inject_store_logging(opt_ir: &str, deptag: u32) -> (String, u32) {
     out.push_str(&format!(
         "\ndefine internal void @__az_logst(i32 %addr, i32 %id, i32 %val) {{\n\
          azentry:\n\
-         \x20 %azlo = icmp uge i32 %addr, 182528\n\
-         \x20 %azhi = icmp ult i32 %addr, 192512\n\
+         \x20 %azlo = icmp uge i32 %addr, 0\n\
+         \x20 %azhi = icmp ult i32 %addr, 196608\n\
          \x20 %azwin = and i1 %azlo, %azhi\n\
          \x20 %azsp = icmp eq i32 %addr, 983040\n\
          \x20 %azin = or i1 %azwin, %azsp\n\
