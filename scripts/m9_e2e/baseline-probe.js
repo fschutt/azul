@@ -270,14 +270,29 @@ function parseWasmFnNames(buf) {
             const cacheBase2 = (typeof mini.AzStartup_getDbgNc === 'function') ? (mini.AzStartup_getDbgNc(84) >>> 0) : 0;
             const shown = Math.min(logCount, 3500);
             const inCache = [];
+            const spTraj = [];   // addr==0xF0000 marker = an SP-slot store; val = the SP value
             for (let i = 0; i < shown; i++) {
                 const a = rd((0x41010 + i * 16) >>> 0);
-                if (cacheBase2 && a >= cacheBase2 && a < cacheBase2 + 0x198) {
-                    inCache.push({ i, off: a - cacheBase2, id: rd((0x41010 + i * 16 + 4) >>> 0), dt: rd((0x41010 + i * 16 + 8) >>> 0), val: rd((0x41010 + i * 16 + 12) >>> 0) });
-                }
+                const id = rd((0x41010 + i * 16 + 4) >>> 0), dt = rd((0x41010 + i * 16 + 8) >>> 0), val = rd((0x41010 + i * 16 + 12) >>> 0);
+                if (a === 0xF0000) spTraj.push({ i, id, dt, val });
+                else if (cacheBase2 && a >= cacheBase2 && a < cacheBase2 + 0x198) inCache.push({ i, off: a - cacheBase2, id, dt, val });
             }
+            console.log('  >>> SP TRAJECTORY (every SP-slot store, execution order; watch for SP not restored across a call):');
+            for (const w of spTraj) console.log('     [' + w.i + '] dep=0x' + w.dt.toString(16) + ' id=' + w.id + ' SP=0x' + w.val.toString(16));
             console.log('  >>> ALL writes inside the cache struct [cacheBase+off], execution order:');
             for (const w of inCache) console.log('     [' + w.i + '] +0x' + w.off.toString(16) + ' dep=0x' + w.dt.toString(16) + ' id=' + w.id + ' val=0x' + w.val.toString(16));
+            // apply_ua_css callee-saved SAVE AREA: apply SP = cacheBase-8416, frame SP -=0x1b0,
+            // x25 saved at frame SP+0x168 = cacheBase-0x2128. If this slot is written AFTER the
+            // prologue with a garbage value, the epilogue restores garbage → caller's X25 (cache base) corrupted.
+            const x25slot = (cacheBase2 - 0x2128) >>> 0;
+            const saveLo = (cacheBase2 - 0x2200) >>> 0, saveHi = (cacheBase2 - 0x2000) >>> 0;
+            const saveWrites = [];
+            for (let i = 0; i < shown; i++) {
+                const a = rd((0x41010 + i * 16) >>> 0);
+                if (a >= saveLo && a < saveHi) saveWrites.push({ i, a, id: rd((0x41010+i*16+4)>>>0), dt: rd((0x41010+i*16+8)>>>0), val: rd((0x41010+i*16+12)>>>0) });
+            }
+            console.log('  >>> apply_ua_css SAVE-AREA writes [' + saveLo.toString(16) + '..' + saveHi.toString(16) + '], x25slot=0x' + x25slot.toString(16) + ', execution order:');
+            for (const w of saveWrites) console.log('     [' + w.i + '] 0x' + w.a.toString(16) + (w.a===x25slot?' (X25 SLOT)':'') + ' dep=0x' + w.dt.toString(16) + ' id=' + w.id + ' val=0x' + w.val.toString(16));
         } else {
             console.log('--- M12.5y store tracer: count=0 ---');
         }

@@ -4097,13 +4097,26 @@ fn inject_store_logging(opt_ir: &str, deptag: u32) -> (String, u32) {
         // length lets the reader detect a write that *spans* node_count).
         if let Some((dest, valdef, valop)) = parse_logged_write(line, id) {
             let indent: String = line.chars().take_while(|c| *c == ' ').collect();
-            out.push_str(&format!("{indent}%azp_{id} = ptrtoint ptr {dest} to i32\n"));
-            if let Some(def) = valdef {
-                out.push_str(&format!("{indent}{def}\n"));
+            if dest == "%SP" {
+                // SP-trajectory: the SP-slot store. Log with marker addr 0xF0000
+                // (bypasses the window) and val = the stored SP value, so the
+                // reader sees SP across every lifted call and pinpoints where it
+                // is left unbalanced (the caller's SP-relative locals then break).
+                if let Some(def) = valdef {
+                    out.push_str(&format!("{indent}{def}\n"));
+                }
+                out.push_str(&format!(
+                    "{indent}call void @__az_logst(i32 983040, i32 {id}, i32 {valop})\n"
+                ));
+            } else {
+                out.push_str(&format!("{indent}%azp_{id} = ptrtoint ptr {dest} to i32\n"));
+                if let Some(def) = valdef {
+                    out.push_str(&format!("{indent}{def}\n"));
+                }
+                out.push_str(&format!(
+                    "{indent}call void @__az_logst(i32 %azp_{id}, i32 {id}, i32 {valop})\n"
+                ));
             }
-            out.push_str(&format!(
-                "{indent}call void @__az_logst(i32 %azp_{id}, i32 {id}, i32 {valop})\n"
-            ));
             id += 1;
         }
         out.push_str(line);
@@ -4119,9 +4132,11 @@ fn inject_store_logging(opt_ir: &str, deptag: u32) -> (String, u32) {
     out.push_str(&format!(
         "\ndefine internal void @__az_logst(i32 %addr, i32 %id, i32 %val) {{\n\
          azentry:\n\
-         \x20 %azlo = icmp uge i32 %addr, 188416\n\
+         \x20 %azlo = icmp uge i32 %addr, 183296\n\
          \x20 %azhi = icmp ult i32 %addr, 192512\n\
-         \x20 %azin = and i1 %azlo, %azhi\n\
+         \x20 %azwin = and i1 %azlo, %azhi\n\
+         \x20 %azsp = icmp eq i32 %addr, 983040\n\
+         \x20 %azin = or i1 %azwin, %azsp\n\
          \x20 br i1 %azin, label %azdo, label %azout\n\
          azdo:\n\
          \x20 %azcntp = inttoptr i32 266240 to ptr\n\
