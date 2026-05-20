@@ -163,6 +163,8 @@ objc2-foundation = { version = "0.3.0", default-features = true, optional = true
     "std",
     "NSArray",
     "NSThread",
+    "NSString",
+    "NSError",
 ] }
 objc2-app-kit = { version = "0.3.0", default-features = true, optional = true, features = [
     "std",
@@ -177,6 +179,13 @@ objc2-app-kit = { version = "0.3.0", default-features = true, optional = true, f
     "NSWindow",
     "NSOpenGL",
     "NSOpenGLView",
+] }
+# Biometric auth (P4.1) — LAContext / evaluatePolicy / biometryType.
+objc2-local-authentication = { version = "0.3.2", default-features = true, optional = true, features = [
+    "std",
+    "LAContext",
+    "LABiometryType",
+    "block2",
 ] }
 
 [build-dependencies]
@@ -352,6 +361,7 @@ _internal_deps = [
     "objc2-core-foundation",
     "objc2-foundation",
     "objc2-app-kit",
+    "objc2-local-authentication",
     "libc",
     "winapi",
 ]

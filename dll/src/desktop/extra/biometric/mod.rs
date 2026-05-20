@@ -24,32 +24,44 @@
 //! block / callback on a later frame — exactly mirroring how the
 //! geolocation dispatcher shipped ahead of its native subscriptions.
 
-use azul_core::biometric::{BiometricKind, BiometricPrompt, BiometricResult};
-use azul_layout::managers::biometric::push_biometric_result;
+use azul_core::biometric::{BiometricKind, BiometricPrompt};
+
+#[cfg(target_os = "macos")]
+pub mod macos;
 
 /// Dispatch one biometric-auth request to the native prompt. Called from
 /// `regenerate_layout` for each prompt the layout pass drained from the
 /// request channel.
 ///
-/// Stub for now: no native backend, so the request resolves to
-/// `Unavailable` immediately (parked in the manager's result channel so
-/// the request → result round-trip is observable —
-/// `CallbackInfo::get_biometric_result()` reads `Unavailable` next
-/// frame). The iOS/macOS `LAContext` and Android `BiometricPrompt`
-/// backends replace this body in a later tick; they will return without
-/// pushing here and instead push the true outcome from the OS reply
-/// asynchronously.
+/// macOS routes to the real `LAContext` backend (the reply block parks the
+/// outcome in the result channel asynchronously). Platforms without a
+/// backend yet (iOS / Android / Windows / Linux) resolve to `Unavailable`
+/// immediately so the request → result round-trip stays observable —
+/// `CallbackInfo::get_biometric_result()` reads it next frame.
 pub fn request(prompt: &BiometricPrompt) {
-    let _ = prompt;
-    push_biometric_result(BiometricResult::Unavailable);
+    #[cfg(target_os = "macos")]
+    macos::request(prompt);
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = prompt;
+        azul_layout::managers::biometric::push_biometric_result(
+            azul_core::biometric::BiometricResult::Unavailable,
+        );
+    }
 }
 
 /// Synchronous availability probe — what biometric hardware the device
-/// can use. Stub returns `NotAvailable`; the real backends query
-/// `LAContext.biometryType` / `BiometricManager.canAuthenticate` on
-/// startup and write it via `BiometricManager::set_availability`, which
-/// `CallbackInfo::get_biometric_kind()` then reads. This entry point
-/// exists so that probe lands here without re-plumbing.
+/// can use. macOS queries `canEvaluatePolicy` + `biometryType`; other
+/// platforms return `NotAvailable` until their backend lands. The result
+/// is written into `BiometricManager::set_availability` (a later wiring
+/// tick), which `CallbackInfo::get_biometric_kind()` then reads.
 pub fn probe_availability() -> BiometricKind {
-    BiometricKind::NotAvailable
+    #[cfg(target_os = "macos")]
+    {
+        macos::probe_availability()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        BiometricKind::NotAvailable
+    }
 }

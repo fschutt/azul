@@ -1203,3 +1203,15 @@ Completes the biometric *public API* — both read (P4.1c) and request direction
 Verify: `bash scripts/mobile-check-all.sh` GREEN on all 5 targets. Only `api.json` tracked. Purged host incremental pre-build; disk ~96% / 8.8 GiB → purging again post-commit.
 
 Biometric API is now feature-complete behind the public surface (request → channel → dll dispatch stub → Unavailable → result channel → manager → get_biometric_result; + get_biometric_kind probe). Next P4.1f: replace the dll stub with the real **objc2 LAContext** backend (iOS/macOS) — `dll/extra/biometric/{ios,macos}.rs`, evaluatePolicy reply block → push_biometric_result; canEvaluatePolicy/biometryType → set_availability. Then P4.1g: Android BiometricPrompt JNI.
+
+### Tick — P4.1f — macOS biometric backend (objc2 LAContext, real native call) (2026-05-20)
+
+First real biometric backend, replacing the stub on macOS. objc2-native per design-decision #2 (the existing objc 0.2 probes stay; new async backends start objc2). De-risked the unknown API by reading the fetched crate source for exact signatures.
+
+- `dll/Cargo.toml`: + `objc2-local-authentication = "0.3.2"` (macOS dep, features `std/LAContext/LABiometryType/block2`); extended `objc2-foundation` macOS features with `NSString`/`NSError`; added `objc2-local-authentication` to `_internal_deps` (so `link-static`+`build-dll` pull it; no-op on non-Apple, like `objc2-app-kit`).
+- `dll/extra/biometric/macos.rs` (new): `request()` = `LAContext.evaluatePolicy:localizedReason:reply:` with a `block2::RcBlock` reply (captures a ctx clone to survive the async eval) → maps `(Bool, *mut NSError)`→`BiometricResult` (LAError codes: -2/-4/-9→Cancelled, -5/-6/-7→Unavailable, else Failed) → `push_biometric_result`. `probe_availability()` = `canEvaluatePolicy` + `biometryType` (TouchID→Fingerprint, FaceID/OpticID→Face). Policy 1 (biometrics) / 2 (passcode fallback) from `allow_device_credential`.
+- `dll/extra/biometric/mod.rs`: per-platform dispatch (macos→macos.rs; iOS/Android/Win/Linux→Unavailable fallback).
+
+Verify: macOS host check `cargo check -p azul-dll --no-default-features --features "std,logging,link-static,a11y"` CLEAN; `bash scripts/mobile-check-all.sh` GREEN on all 5 (macOS code cfg'd out there). Cargo.lock gitignored. Disk 96% → purging.
+
+Next P4.1g: port the same LAContext logic to iOS — add objc2/block2/objc2-foundation/objc2-local-authentication to the iOS deps section (currently objc 0.2 only), share via an `apple.rs` cfg `any(ios,macos)`, gate. Then P4.1h: Android BiometricPrompt JNI. (Availability probe is implemented but not yet wired to `set_availability` — a small follow-up.)
