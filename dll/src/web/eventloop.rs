@@ -1080,7 +1080,15 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     let mv_boxed = Box::new(make_test_multivec());
     let mv_ptr = Box::into_raw(mv_boxed) as usize as u32;
     core::ptr::write_volatile(0x4002C_usize as *mut u32, mv_ptr);
-    let styled = StyledDom::create(dom_ref, Css::empty());
+    // M12.5h ISOLATION: cascade a HAND-BUILT body Dom instead of the
+    // layout-cb blob (dom_ref). If this clears the with_capacity OOB and
+    // yields node_data.len()>=1, the cascade lift is FINE and the corrupt
+    // input came from the layout-cb wasm's Dom output. If it still traps,
+    // the cascade lift itself is buggy regardless of input. (Web-only
+    // path — hydrate is never pre-rendered natively, so this is safe.)
+    let _ = &dom_ref;
+    let mut test_dom = Dom::create_body();
+    let styled = StyledDom::create(&mut test_dom, Css::empty());
     let boxed = Box::new(styled);
     let ptr_val = Box::into_raw(boxed) as usize as u32;
     let direct_target = (ptr_val as usize + 8) as *mut u32;
