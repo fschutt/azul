@@ -79102,6 +79102,11 @@
                     },
                     "DbValueVec": {
                         "external": "azul_core::db::DbValueVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
                         "derive": [
                             "Debug"
                         ],
@@ -79119,6 +79124,131 @@
                                 },
                                 "destructor": {
                                     "type": "DbValueVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `DbValueVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "DbValueVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `DbValueVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DbValueVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "db_value_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "db_value_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "db_value_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `DbValueVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "DbValue"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DbValueVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `DbValueVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const DbValue"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DbValueVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "DbValueVecSlice": {
+                        "external": "azul_core::db::DbValueVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "DbValue",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
                                 }
                             }
                         ],
@@ -83265,6 +83395,29 @@
                                 "None": {},
                                 "Some": {
                                     "type": "KeyringResult"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionDbValue": {
+                        "external": "azul_core::db::OptionDbValue",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "DbValue",
+                                    "doc": [
+                                        "Some value of type DbValue"
+                                    ]
                                 }
                             }
                         ],
@@ -87841,6 +87994,73 @@
                                 }
                             }
                         ],
+                        "repr": "C"
+                    },
+                    "Pdf": {
+                        "external": "azul_dll::desktop::extra::pdf::Pdf",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "_reserved": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "doc": [
+                                    "Construct the PDF API handle."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_dll::desktop::extra::pdf::Pdf::new()"
+                            }
+                        },
+                        "functions": {
+                            "write_json": {
+                                "doc": [
+                                    "Write a PDF from a JSON document model → PDF bytes. Empty on a",
+                                    "malformed model or without the `pdf` feature."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "json": "Json"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "U8Vec"
+                                },
+                                "fn_body": "object.write_json(json)"
+                            },
+                            "read_json": {
+                                "doc": [
+                                    "Read a PDF (`bytes`) into the JSON document model. JSON `null` on a",
+                                    "parse error or without the `pdf` feature."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "bytes": "U8Vec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Json"
+                                },
+                                "fn_body": "object.read_json(bytes)"
+                            }
+                        },
                         "repr": "C"
                     }
                 }

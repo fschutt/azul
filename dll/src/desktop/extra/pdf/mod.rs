@@ -65,6 +65,43 @@ pub fn pdf_read_json(bytes: &[u8]) -> Json {
     }
 }
 
+/// JSON-based PDF read/write handle — the public, ABI-stable surface for
+/// AzulDoc. `write_json`/`read_json` exchange printpdf's `PdfDocument` model
+/// as an [`azul_core::json::Json`] (the same schema printpdf's wasm api
+/// uses), so the document model can evolve without breaking the C ABI.
+/// Carries no state; construct with [`Pdf::new`] and call the methods.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Pdf {
+    /// Reserved namespace marker (`Pdf` is stateless).
+    pub _reserved: u8,
+}
+
+impl Default for Pdf {
+    fn default() -> Self {
+        Pdf::new()
+    }
+}
+
+impl Pdf {
+    /// Construct the PDF API handle.
+    pub fn new() -> Self {
+        Pdf { _reserved: 0 }
+    }
+
+    /// Write a PDF from a JSON document model → PDF bytes. Empty on a
+    /// malformed model or without the `pdf` feature.
+    pub fn write_json(&self, json: Json) -> U8Vec {
+        pdf_write_json(&json)
+    }
+
+    /// Read a PDF (`bytes`) into the JSON document model. JSON `null` on a
+    /// parse error or without the `pdf` feature.
+    pub fn read_json(&self, bytes: U8Vec) -> Json {
+        pdf_read_json(bytes.as_slice())
+    }
+}
+
 #[cfg(feature = "pdf")]
 mod engine {
     use super::{DisplayListItem, Json, U8Vec};

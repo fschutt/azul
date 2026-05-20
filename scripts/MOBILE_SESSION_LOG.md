@@ -1518,3 +1518,14 @@ Directive 2: the AzJson-based PDF read/write API (dll engine side). ABI-stable �
 Verify: host `+pdf` CLEAN; `mobile-check-all.sh` GREEN on all 5 (no-pdf → stubs). Disk 98%/5.7 GiB → purging.
 
 Next: expose `pdf_write_json`/`pdf_read_json` via api.json — a `Pdf` type with static methods `Pdf::write_json(Json) -> U8Vec` / `Pdf::read_json(U8Vec) -> Json` (always-present, no feature-gating — stub-POD pattern). Then back to P6 (sensors codegen/backends, camera, gamepad, wacom).
+
+### Tick — P5.1/AzJson — expose Pdf type (write_json/read_json) via api.json (completes directive 2) (2026-05-20)
+
+Exposed the ABI-stable JSON PDF api to the public surface (35 langs).
+
+- `dll/extra/pdf/mod.rs`: `Pdf` namespace type (repr(C), always-present, stateless `_reserved` marker) + `Pdf::new()` + `write_json(&self, Json) -> U8Vec` / `read_json(&self, U8Vec) -> Json` (wrap the cfg-split `pdf_write_json`/`pdf_read_json`).
+- `autofix add Pdf.{new,write_json,read_json}` → apply; 2-pass had 0 additions (Json/U8Vec already exposed) + 2 legit modifies: `+custom_impl(Default)` on Pdf, and DbValueVec's full Vec API (len/is_empty/from_item + OptionDbValue/Slice deps — P4.3f had added it incompletely). Curated out the 5 drift patches; `codegen all`.
+
+Verify: `mobile-check-all.sh` GREEN on all 5; host `+pdf` CLEAN. **Disk hit 3.0 GiB/99% during the codegen+gate+host spike** → purged → 6.6 GiB. (Mitigation going forward: skip the host `+pdf`/`+db-sqlite` check on non-engine ticks to shrink the spike.)
+
+**Both PDF directives DONE**: (1) printpdf shares our azul-layout (branch + patch + text_layout); (2) AzJson read/write PDF api (engine + public `Pdf` type, ABI-stable). Next: back to **P6** — sensors codegen (`get_sensor_reading` + SensorKind/SensorReading) + backends (CoreMotion/Android), then camera/gamepad/wacom/screencap.
