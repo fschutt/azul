@@ -2015,3 +2015,16 @@ Found that `Pdf::from_dom(StyledDom)` (FIX-APIs.5) was **unusable from bindings*
 - Verified: demo `cargo build -p azul-doc-demo` clean; host `--features pdf` clean; mobile gate GREEN on all 5.
 
 The legacy window-coupled path (`CallbackInfo::export_to_pdf` + `PENDING_EXPORTS` + `managers/pdf_export.rs` + the shell2/common/layout.rs drain + dll `export_to_pdf`) is now **unused** — removal is the next tick. Also recorded user's **P9 (synthetic-event e2e)** + **P10 (guide/docs incl. mobile packaging/deploy)** roadmap additions.
+
+### Tick — FIX-APIs.7 — remove the legacy window-coupled PDF path (2026-05-20)
+
+The PDF uncouple is now complete. Removed the now-unused legacy export path:
+- `CallbackInfo::export_to_pdf` (layout/src/callbacks.rs) — gone.
+- `layout/src/managers/pdf_export.rs` (PENDING_EXPORTS + push/drain) — **deleted**; decl removed from managers/mod.rs.
+- The per-frame export drain in `dll/.../shell2/common/layout.rs` (step 7g) — gone.
+- `dll/extra/pdf/mod.rs`: removed `export_to_pdf(path, items)` + `engine::export` + the A4 constants. **No `std::fs::write` anywhere in the PDF module now** — zero file I/O, per the directive. `rect_ops` (the shared walk) + `dom_to_bytes` (headless) remain.
+- api.json: removed `CallbackInfo.export_to_pdf` manually (autofix only does type-level removals, not method removals); `codegen all`.
+
+Verified: layout builds clean; codegen OK; mobile gate GREEN on all 5. The only PDF surface now is the standalone **`Pdf`** handle (`from_dom` headless dom->bytes, `write_json`/`read_json`) — no window coupling, no file I/O.
+
+NEXT: MapWidget hooks (`set_on_pin_tap`/`set_on_viewport_changed`) → input custom-events (SensorChanged/GamepadInput) → audio widgets → frame-IN → UDP/azul-meet → P9 (synthetic e2e) → P10 (docs).

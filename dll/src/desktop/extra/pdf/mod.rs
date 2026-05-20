@@ -1,9 +1,9 @@
-//! PDF export for AzulDoc (SUPER_PLAN_2 §4 P5.1), via `printpdf`.
+//! PDF for AzulDoc (SUPER_PLAN_2 §4 P5.1), via `printpdf`.
 //!
-//! Like `Db` (P4.3), the export API is **always present** and the engine
+//! Like `Db` (P4.3), the `Pdf` API is **always present** and the engine
 //! sits behind the `pdf` feature - so it flows through normal api.json
-//! codegen with no feature-gating. Without `pdf`, `export_to_pdf` returns
-//! `false` (printpdf isn't compiled).
+//! codegen with no feature-gating. Without `pdf`, `Pdf::from_dom` /
+//! `write_json` return empty bytes (printpdf isn't compiled).
 //!
 //! `printpdf` is pulled with `default-features = false`: its default `html`
 //! feature would drag in `azul-layout` (printpdf's own layout integration)
@@ -18,20 +18,6 @@ use azul_core::dom::Dom;
 use azul_core::json::Json;
 use azul_css::U8Vec;
 use azul_layout::solver3::display_list::DisplayListItem;
-
-/// Export the display-list `items` to a PDF at `path`. Returns `true` on
-/// success; `false` without the `pdf` feature or on a write error.
-pub fn export_to_pdf(path: &str, items: &[DisplayListItem]) -> bool {
-    #[cfg(feature = "pdf")]
-    {
-        engine::export(path, items)
-    }
-    #[cfg(not(feature = "pdf"))]
-    {
-        let _ = (path, items);
-        false
-    }
-}
 
 /// Write a PDF from a JSON document model -> PDF bytes. The JSON is
 /// printpdf's `PdfDocument` serde schema as an [`azul_core::json::Json`]
@@ -159,11 +145,8 @@ mod engine {
         }
     }
 
-    // A4 portrait. Azul logical px are assumed at 96 DPI (CSS reference px).
-    const PAGE_W_MM: f32 = 210.0;
-    const PAGE_H_MM: f32 = 297.0;
+    // Azul logical px are assumed at 96 DPI (CSS reference px).
     const PX_TO_PT: f32 = 72.0 / 96.0;
-    const MM_TO_PT: f32 = 72.0 / 25.4;
 
     /// Walk one page's display-list items into printpdf draw ops. v1: solid-fill
     /// rectangles (backgrounds / colored boxes); other variants are skipped
@@ -199,19 +182,6 @@ mod engine {
             }
         }
         ops
-    }
-
-    /// Build a single-A4-page PDF from `items` and write it to `path`.
-    /// (The legacy window-coupled export; the standalone `dom_to_bytes` below
-    /// is the no-file-I/O replacement.)
-    pub fn export(path: &str, items: &[DisplayListItem]) -> bool {
-        let ops = rect_ops(items, PAGE_H_MM * MM_TO_PT);
-        let mut doc = PdfDocument::new("AzulDoc export");
-        let page = PdfPage::new(Mm(PAGE_W_MM), Mm(PAGE_H_MM), ops);
-        doc.with_pages(vec![page]);
-        let mut warnings: Vec<PdfWarnMsg> = Vec::new();
-        let bytes = doc.save(&PdfSaveOptions::default(), &mut warnings);
-        std::fs::write(path, bytes).is_ok()
     }
 
     /// Headless `dom -> paged PDF bytes`. Lays out `styled_dom` at

@@ -801,31 +801,8 @@ pub fn regenerate_layout(
         }
     }
 
-    // 7g. Run any PDF exports a callback queued this frame
-    // (CallbackInfo::export_to_pdf). The display list is fresh here, so the
-    // printpdf engine (dll::desktop::extra::pdf) can walk it — currently a
-    // blank-page stub; the DisplayListItem → Op dispatch is a follow-up.
-    {
-        let pdf_paths = azul_layout::managers::pdf_export::drain_pdf_export_requests();
-        if !pdf_paths.is_empty() {
-            // Root DOM's display list (multi-iframe export is a follow-up).
-            let items = layout_window
-                .layout_results
-                .values()
-                .next()
-                .map(|r| r.display_list.items.as_slice())
-                .unwrap_or(&[]);
-            for path in pdf_paths {
-                let ok = crate::desktop::extra::pdf::export_to_pdf(path.as_str(), items);
-                log_debug!(
-                    LogCategory::Layout,
-                    "[regenerate_layout] PDF export to {} -> {}",
-                    path.as_str(),
-                    ok
-                );
-            }
-        }
-    }
+    // 7g. (PDF export is now the standalone headless `Pdf::from_dom` API in
+    // dll::desktop::extra::pdf — no window-coupled per-frame export drain.)
 
     // 7h-pre (sensor subscription): kick the device's motion-sensor
     // subscription. OnceLock-guarded inside, so only the first frame does
