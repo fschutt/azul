@@ -1529,7 +1529,7 @@ pub unsafe extern "C" fn AzStartup_peekU32(addr: u32) -> u32 {
 #[no_mangle]
 pub unsafe extern "C" fn AzStartup_getDbgNc(i: u32) -> u32 {
     let idx = (i / 2) as usize;
-    if idx >= 16 {
+    if idx >= 48 {
         return 0;
     }
     let v = azul_core::compact_cache_builder::AZ_DBG_NC[idx];

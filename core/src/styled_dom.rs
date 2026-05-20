@@ -1086,6 +1086,16 @@ impl StyledDom {
         // (`emit_css_from_cache`) walks per node.
         css_property_cache.apply_ua_css(compact_dom.node_data.as_ref().internal);
         unsafe { crate::compact_cache_builder::AZ_DBG_NC[9] = css_property_cache.node_count as u64; } // [9]=after apply_ua_css
+        // M12.5v: NON-PERTURBING dump of the cache's first 160 bytes (done in create_from,
+        // NOT apply_ua_css, so it cannot perturb the buggy lifted apply_ua_css). Reveals the
+        // corruption pattern: if self+0x88 holds a CssPropertyType disc → the 144B StatefulCssProperty
+        // slot-copy hit self; if only node_count(self+0) changed → a targeted write.
+        unsafe {
+            let p = &css_property_cache as *const _ as *const u64;
+            for k in 0..20usize {
+                crate::compact_cache_builder::AZ_DBG_NC[16 + k] = core::ptr::read_volatile(p.add(k));
+            }
+        }
         css_property_cache.compute_inherited_values(
             node_hierarchy.as_container().internal,
             compact_dom.node_data.as_ref().internal,

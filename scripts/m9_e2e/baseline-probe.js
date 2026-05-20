@@ -212,6 +212,17 @@ function parseWasmFnNames(buf) {
         console.log('  self - SP                       = ' + delta + ' (0x' + (delta>>>0).toString(16) + ')'
             + (delta > 0 && delta < 512 ? '  <<< OVERLAP! self inside apply_ua_css frame' : (delta >= 512 ? '  (self above frame; no overlap)' : '  (self below SP)')));
         console.log('  [12] node_count after push #1   = ' + cap(12) + '   (0 = corrupted)');
+        console.log('--- M12.5v cache-byte dump (self+k*8, from create_from; non-perturbing) ---');
+        let allzeroish = true;
+        for (let j = 0; j < 20; j++) {
+            const v = dbg(16 + j);
+            if (v !== 0) allzeroish = false;
+            let tag = '';
+            if (j === 0) tag = '  <- node_count (want 1)';
+            else if (j === 4) tag = '  <- cascaded_props FlatVecVec.build (Vec cap)';
+            else if (j === 17) tag = '  <- self+0x88 = StatefulCssProperty.prop_type if slot-copy hit self';
+            console.log('  cache[+0x' + (j * 8).toString(16).padStart(2, '0') + '] = 0x' + v.toString(16) + tag);
+        }
     }
 
     const test_ptr = rd(0x40018);
