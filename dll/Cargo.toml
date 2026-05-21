@@ -321,6 +321,12 @@ objc2-core-video = { version = "0.3.0", default-features = false, optional = tru
     "CVReturn",
 ] }
 
+# Cross-platform mic + AudioSink (CoreAudio on apple, WASAPI on windows) - one
+# cpal backend covers apple + windows audio. Linux uses dlopen ALSA (cpal's
+# ALSA backend build-time-links libasound); android uses AAudio.
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+cpal = "0.15"
+
 [build-dependencies]
 brotli = "8"
 # M8.9: in-process remill + LLVM + LLD wrapper. Compiles

@@ -22,6 +22,8 @@ use azul_core::audio::{AudioConfig, AudioFrame};
 
 #[cfg(target_os = "linux")]
 mod alsa;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+mod cpal_mic;
 
 /// Internal playback state behind the `AudioSink` handle. The stub tracks the
 /// config + how many frames were submitted; the real backend replaces it with
@@ -151,6 +153,19 @@ pub fn ensure_mic_backend() {
                     open: alsa::mic_open,
                     read: alsa::mic_read,
                     close: alsa::mic_close,
+                },
+            );
+        });
+    }
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        static DONE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        DONE.get_or_init(|| {
+            azul_layout::widgets::capture_common::register_mic_backend(
+                azul_layout::widgets::capture_common::AudioCaptureVTable {
+                    open: cpal_mic::mic_open,
+                    read: cpal_mic::mic_read,
+                    close: cpal_mic::mic_close,
                 },
             );
         });
