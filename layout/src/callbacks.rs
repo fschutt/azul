@@ -3155,7 +3155,7 @@ impl CallbackInfo {
     /// by a notch / rounded corners / status bar. Zero where the platform or
     /// window has no inset. Set by the platform shell (macOS `NSScreen` notch,
     /// iOS `UIView.safeAreaInsets`, Android `WindowInsets`).
-    pub fn get_safe_area_insets(&self) -> azul_core::window::SafeAreaInsets {
+    pub fn get_safe_area_insets(&self) -> azul_css::system::SafeAreaInsets {
         self.get_layout_window().safe_area_insets
     }
 

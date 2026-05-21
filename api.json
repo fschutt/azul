@@ -9695,6 +9695,24 @@
                                     "type": "OptionWacomPadState"
                                 },
                                 "fn_body": "object.get_wacom_pad().into()"
+                            },
+                            "get_safe_area_insets": {
+                                "doc": [
+                                    "The safe-area insets (notch / system-UI margins) for this window, in",
+                                    "logical px - lay out interactive content within them so it isn't hidden",
+                                    "by a notch / rounded corners / status bar. Zero where the platform or",
+                                    "window has no inset. Set by the platform shell (macOS `NSScreen` notch,",
+                                    "iOS `UIView.safeAreaInsets`, Android `WindowInsets`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SafeAreaInsets"
+                                },
+                                "fn_body": "object.get_safe_area_insets()"
                             }
                         },
                         "repr": "C"

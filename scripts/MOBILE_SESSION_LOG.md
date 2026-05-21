@@ -2343,3 +2343,7 @@ The cross-platform safe-area API (notches / system-UI margins), enabled by the L
 - `LayoutWindow.safe_area_insets` field (one site now, via `from_font_manager`).
 - `CallbackInfo::get_safe_area_insets() -> SafeAreaInsets` accessor.
 Cross-platform, 0 default everywhere; gate GREEN all 7. NEXT: codegen-expose the type + accessor (autofix), then populate per-platform (macOS `NSScreen.safeAreaInsets` notch + iOS `UIView.safeAreaInsets`; Android WindowInsets) - the platform shell writes `layout_window.safe_area_insets`.
+
+### Tick — safe-area: use existing css SafeAreaInsets + codegen-expose accessor (2026-05-21)
+
+autofix's duplicate-type detection caught that the previous tick added a DUPLICATE `SafeAreaInsets` (core/window.rs) colliding with the existing, used, already-exposed `azul_css::system::SafeAreaInsets` (`OptionPixelValue` fields, for CSS `env(safe-area-inset-*)`). Fixed: removed the duplicate; `LayoutWindow.safe_area_insets` + `CallbackInfo::get_safe_area_insets` now use the css type, so the runtime safe-area + CSS env() share one type. Codegen-exposed `get_safe_area_insets` (autofix add + converge to 0 patches/0 criticals). Gate GREEN all 7; `codegen all` clean. NEXT: per-platform population (macOS `NSScreen.safeAreaInsets` notch via objc2, iOS `UIView`, Android `WindowInsets`) - the shell writes `layout_window.safe_area_insets`.
