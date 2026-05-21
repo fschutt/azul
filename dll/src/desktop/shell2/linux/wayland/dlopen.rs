@@ -316,81 +316,67 @@ impl Wayland {
 
             wl_registry_bind: wl_registry_bind_impl,
             wl_compositor_create_surface: wl_compositor_create_surface_impl,
-            wl_subcompositor_get_subsurface: unsafe {
-                std::mem::transmute(wl_proxy_marshal_constructor_ptr)
-            },
-            wl_subsurface_set_position: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
-            wl_subsurface_set_desync: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
-            wl_subsurface_destroy: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
-            wl_surface_destroy: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+            wl_subcompositor_get_subsurface: wl_subcompositor_get_subsurface_impl,
+            wl_subsurface_set_position: wl_subsurface_set_position_impl,
+            wl_subsurface_set_desync: wl_subsurface_set_desync_impl,
+            wl_subsurface_destroy: wl_subsurface_destroy_impl,
+            wl_surface_destroy: wl_surface_destroy_impl,
             wl_surface_commit: wl_surface_commit_impl,
-            wl_surface_attach: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
-            wl_surface_damage: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
-            wl_surface_frame: unsafe { std::mem::transmute(wl_proxy_marshal_constructor_ptr) },
+            wl_surface_attach: wl_surface_attach_impl,
+            wl_surface_damage: wl_surface_damage_impl,
+            wl_surface_frame: wl_surface_frame_impl,
 
             wl_callback_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
 
-            xdg_wm_base_pong: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
-            xdg_wm_base_get_xdg_surface: unsafe {
-                std::mem::transmute(wl_proxy_marshal_constructor_ptr)
-            },
-            xdg_surface_get_toplevel: unsafe {
-                std::mem::transmute(wl_proxy_marshal_constructor_ptr)
-            },
-            xdg_surface_ack_configure: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
-            xdg_toplevel_set_title: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
-            xdg_toplevel_set_minimized: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
-            xdg_toplevel_set_maximized: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
-            xdg_toplevel_unset_maximized: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
-            xdg_toplevel_set_fullscreen: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
-            xdg_toplevel_unset_fullscreen: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
-            xdg_toplevel_set_min_size: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
-            xdg_toplevel_set_max_size: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
-            xdg_toplevel_move: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+            xdg_wm_base_pong: xdg_wm_base_pong_impl,
+            xdg_wm_base_get_xdg_surface: xdg_wm_base_get_xdg_surface_impl,
+            xdg_surface_get_toplevel: xdg_surface_get_toplevel_impl,
+            xdg_surface_ack_configure: xdg_surface_ack_configure_impl,
+            xdg_toplevel_set_title: xdg_toplevel_set_title_impl,
+            xdg_toplevel_set_minimized: xdg_toplevel_set_minimized_impl,
+            xdg_toplevel_set_maximized: xdg_toplevel_set_maximized_impl,
+            xdg_toplevel_unset_maximized: xdg_toplevel_unset_maximized_impl,
+            xdg_toplevel_set_fullscreen: xdg_toplevel_set_fullscreen_impl,
+            xdg_toplevel_unset_fullscreen: xdg_toplevel_unset_fullscreen_impl,
+            xdg_toplevel_set_min_size: xdg_toplevel_set_min_size_impl,
+            xdg_toplevel_set_max_size: xdg_toplevel_set_max_size_impl,
+            xdg_toplevel_move: xdg_toplevel_move_impl,
             xdg_wm_base_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
             xdg_surface_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
             xdg_toplevel_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
 
             // xdg_popup and xdg_positioner
-            xdg_wm_base_create_positioner: unsafe {
-                std::mem::transmute(wl_proxy_marshal_constructor_ptr)
-            },
-            xdg_positioner_set_size: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
-            xdg_positioner_set_anchor_rect: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
-            xdg_positioner_set_anchor: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
-            xdg_positioner_set_gravity: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
-            xdg_positioner_set_constraint_adjustment: unsafe {
-                std::mem::transmute(wl_proxy_marshal_ptr)
-            },
-            xdg_positioner_destroy: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
-            xdg_surface_get_popup: unsafe { std::mem::transmute(wl_proxy_marshal_constructor_ptr) },
+            xdg_wm_base_create_positioner: xdg_wm_base_create_positioner_impl,
+            xdg_positioner_set_size: xdg_positioner_set_size_impl,
+            xdg_positioner_set_anchor_rect: xdg_positioner_set_anchor_rect_impl,
+            xdg_positioner_set_anchor: xdg_positioner_set_anchor_impl,
+            xdg_positioner_set_gravity: xdg_positioner_set_gravity_impl,
+            xdg_positioner_set_constraint_adjustment: xdg_positioner_set_constraint_adjustment_impl,
+            xdg_positioner_destroy: xdg_positioner_destroy_impl,
+            xdg_surface_get_popup: xdg_surface_get_popup_impl,
             xdg_popup_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
-            xdg_popup_grab: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
-            xdg_popup_destroy: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+            xdg_popup_grab: xdg_popup_grab_impl,
+            xdg_popup_destroy: xdg_popup_destroy_impl,
 
             wl_seat_get_pointer: wl_seat_get_pointer_impl,
-            wl_seat_get_keyboard: unsafe { std::mem::transmute(wl_proxy_marshal_constructor_ptr) },
+            wl_seat_get_keyboard: wl_seat_get_keyboard_impl,
             wl_seat_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
             wl_pointer_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
             wl_keyboard_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
 
-            wl_shm_create_pool: unsafe { std::mem::transmute(wl_proxy_marshal_constructor_ptr) },
-            wl_shm_pool_create_buffer: unsafe {
-                std::mem::transmute(wl_proxy_marshal_constructor_ptr)
-            },
-            wl_buffer_destroy: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
-            wl_shm_pool_destroy: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+            wl_shm_create_pool: wl_shm_create_pool_impl,
+            wl_shm_pool_create_buffer: wl_shm_pool_create_buffer_impl,
+            wl_buffer_destroy: wl_buffer_destroy_impl,
+            wl_shm_pool_destroy: wl_shm_pool_destroy_impl,
 
             wl_output_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
             wl_surface_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
 
             // wl_region functions for transparency
-            wl_compositor_create_region: unsafe {
-                std::mem::transmute(wl_proxy_marshal_constructor_ptr)
-            },
-            wl_region_destroy: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
-            wl_region_add: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
-            wl_surface_set_opaque_region: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+            wl_compositor_create_region: wl_compositor_create_region_impl,
+            wl_region_destroy: wl_region_destroy_impl,
+            wl_region_add: wl_region_add_impl,
+            wl_surface_set_opaque_region: wl_surface_set_opaque_region_impl,
 
             wl_egl_window_create: load_symbol!(lib_egl, _, "wl_egl_window_create"),
             wl_egl_window_destroy: load_symbol!(lib_egl, _, "wl_egl_window_destroy"),
@@ -398,7 +384,7 @@ impl Wayland {
 
             // wl_pointer_set_cursor is a core Wayland protocol request (via wl_proxy_marshal),
             // not a cursor-library function
-            wl_pointer_set_cursor: Some(unsafe { std::mem::transmute(wl_proxy_marshal_ptr) }),
+            wl_pointer_set_cursor: Some(wl_pointer_set_cursor_impl),
 
             // Try to load wayland-cursor library once (optional)
             wl_cursor_theme_load: lib_cursor.as_ref().and_then(|lc| unsafe {
@@ -531,6 +517,218 @@ unsafe extern "C" fn wl_surface_commit_impl(surface: *mut wl_surface) {
     let c = ctx();
     let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(c.marshal);
     f(surface as *mut wl_proxy, 6);
+}
+
+// --- remaining constructor requests (marshal_constructor: op, ret-interface, NULL new_id, args) ---
+unsafe extern "C" fn wl_compositor_create_region_impl(comp: *mut wl_compositor) -> *mut wl_region {
+    let c = ctx();
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, *mut c_void) -> *mut wl_proxy =
+        std::mem::transmute(c.marshal_constructor);
+    f(comp as *mut wl_proxy, 1, c.wl_region, std::ptr::null_mut()) as *mut wl_region
+}
+unsafe extern "C" fn wl_subcompositor_get_subsurface_impl(
+    sc: *mut wl_subcompositor,
+    surface: *mut wl_surface,
+    parent: *mut wl_surface,
+) -> *mut wl_subsurface {
+    let c = ctx();
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, *mut c_void, *mut wl_surface, *mut wl_surface) -> *mut wl_proxy =
+        std::mem::transmute(c.marshal_constructor);
+    f(sc as *mut wl_proxy, 1, c.wl_subsurface, std::ptr::null_mut(), surface, parent) as *mut wl_subsurface
+}
+unsafe extern "C" fn wl_surface_frame_impl(s: *mut wl_surface) -> *mut wl_callback {
+    let c = ctx();
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, *mut c_void) -> *mut wl_proxy =
+        std::mem::transmute(c.marshal_constructor);
+    f(s as *mut wl_proxy, 3, c.wl_callback, std::ptr::null_mut()) as *mut wl_callback
+}
+unsafe extern "C" fn xdg_wm_base_get_xdg_surface_impl(
+    wm: *mut xdg_wm_base,
+    surface: *mut wl_surface,
+) -> *mut xdg_surface {
+    let c = ctx();
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, *mut c_void, *mut wl_surface) -> *mut wl_proxy =
+        std::mem::transmute(c.marshal_constructor);
+    f(wm as *mut wl_proxy, 2, c.xdg_surface, std::ptr::null_mut(), surface) as *mut xdg_surface
+}
+unsafe extern "C" fn xdg_wm_base_create_positioner_impl(wm: *mut xdg_wm_base) -> *mut xdg_positioner {
+    let c = ctx();
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, *mut c_void) -> *mut wl_proxy =
+        std::mem::transmute(c.marshal_constructor);
+    f(wm as *mut wl_proxy, 1, c.xdg_positioner, std::ptr::null_mut()) as *mut xdg_positioner
+}
+unsafe extern "C" fn xdg_surface_get_toplevel_impl(xs: *mut xdg_surface) -> *mut xdg_toplevel {
+    let c = ctx();
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, *mut c_void) -> *mut wl_proxy =
+        std::mem::transmute(c.marshal_constructor);
+    f(xs as *mut wl_proxy, 1, c.xdg_toplevel, std::ptr::null_mut()) as *mut xdg_toplevel
+}
+unsafe extern "C" fn xdg_surface_get_popup_impl(
+    xs: *mut xdg_surface,
+    parent: *mut xdg_surface,
+    positioner: *mut xdg_positioner,
+) -> *mut xdg_popup {
+    let c = ctx();
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, *mut c_void, *mut xdg_surface, *mut xdg_positioner) -> *mut wl_proxy =
+        std::mem::transmute(c.marshal_constructor);
+    f(xs as *mut wl_proxy, 3, c.xdg_popup, std::ptr::null_mut(), parent, positioner) as *mut xdg_popup
+}
+unsafe extern "C" fn wl_seat_get_keyboard_impl(seat: *mut wl_seat) -> *mut wl_keyboard {
+    let c = ctx();
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, *mut c_void) -> *mut wl_proxy =
+        std::mem::transmute(c.marshal_constructor);
+    f(seat as *mut wl_proxy, 1, c.wl_keyboard, std::ptr::null_mut()) as *mut wl_keyboard
+}
+unsafe extern "C" fn wl_shm_create_pool_impl(shm: *mut wl_shm, fd: i32, size: i32) -> *mut wl_shm_pool {
+    let c = ctx();
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, *mut c_void, i32, i32) -> *mut wl_proxy =
+        std::mem::transmute(c.marshal_constructor);
+    f(shm as *mut wl_proxy, 0, c.wl_shm_pool, std::ptr::null_mut(), fd, size) as *mut wl_shm_pool
+}
+unsafe extern "C" fn wl_shm_pool_create_buffer_impl(
+    pool: *mut wl_shm_pool,
+    offset: i32,
+    w: i32,
+    h: i32,
+    stride: i32,
+    format: u32,
+) -> *mut wl_buffer {
+    let c = ctx();
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, *mut c_void, i32, i32, i32, i32, u32) -> *mut wl_proxy =
+        std::mem::transmute(c.marshal_constructor);
+    f(pool as *mut wl_proxy, 0, c.wl_buffer, std::ptr::null_mut(), offset, w, h, stride, format) as *mut wl_buffer
+}
+
+// --- plain requests (marshal: op, args) ---
+unsafe extern "C" fn wl_subsurface_set_position_impl(p: *mut wl_subsurface, x: i32, y: i32) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, i32, i32) = std::mem::transmute(ctx().marshal);
+    f(p as *mut wl_proxy, 1, x, y);
+}
+unsafe extern "C" fn wl_subsurface_set_desync_impl(p: *mut wl_subsurface) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(ctx().marshal);
+    f(p as *mut wl_proxy, 5);
+}
+unsafe extern "C" fn wl_subsurface_destroy_impl(p: *mut wl_subsurface) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(ctx().marshal);
+    f(p as *mut wl_proxy, 0);
+}
+unsafe extern "C" fn wl_surface_destroy_impl(s: *mut wl_surface) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(ctx().marshal);
+    f(s as *mut wl_proxy, 0);
+}
+unsafe extern "C" fn wl_surface_attach_impl(s: *mut wl_surface, buffer: *mut wl_buffer, x: i32, y: i32) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *mut wl_buffer, i32, i32) = std::mem::transmute(ctx().marshal);
+    f(s as *mut wl_proxy, 1, buffer, x, y);
+}
+unsafe extern "C" fn wl_surface_damage_impl(s: *mut wl_surface, x: i32, y: i32, w: i32, h: i32) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, i32, i32, i32, i32) = std::mem::transmute(ctx().marshal);
+    f(s as *mut wl_proxy, 2, x, y, w, h);
+}
+unsafe extern "C" fn wl_surface_set_opaque_region_impl(s: *mut wl_surface, region: *mut wl_region) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *mut wl_region) = std::mem::transmute(ctx().marshal);
+    f(s as *mut wl_proxy, 4, region);
+}
+unsafe extern "C" fn xdg_wm_base_pong_impl(wm: *mut xdg_wm_base, serial: u32) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, u32) = std::mem::transmute(ctx().marshal);
+    f(wm as *mut wl_proxy, 3, serial);
+}
+unsafe extern "C" fn xdg_surface_ack_configure_impl(xs: *mut xdg_surface, serial: u32) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, u32) = std::mem::transmute(ctx().marshal);
+    f(xs as *mut wl_proxy, 4, serial);
+}
+unsafe extern "C" fn xdg_toplevel_set_title_impl(t: *mut xdg_toplevel, title: *const i8) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const i8) = std::mem::transmute(ctx().marshal);
+    f(t as *mut wl_proxy, 2, title);
+}
+unsafe extern "C" fn xdg_toplevel_set_minimized_impl(t: *mut xdg_toplevel) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(ctx().marshal);
+    f(t as *mut wl_proxy, 12);
+}
+unsafe extern "C" fn xdg_toplevel_set_maximized_impl(t: *mut xdg_toplevel) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(ctx().marshal);
+    f(t as *mut wl_proxy, 10);
+}
+unsafe extern "C" fn xdg_toplevel_unset_maximized_impl(t: *mut xdg_toplevel) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(ctx().marshal);
+    f(t as *mut wl_proxy, 11);
+}
+unsafe extern "C" fn xdg_toplevel_set_fullscreen_impl(t: *mut xdg_toplevel, output: *mut wl_output) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *mut wl_output) = std::mem::transmute(ctx().marshal);
+    f(t as *mut wl_proxy, 13, output);
+}
+unsafe extern "C" fn xdg_toplevel_unset_fullscreen_impl(t: *mut xdg_toplevel) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(ctx().marshal);
+    f(t as *mut wl_proxy, 14);
+}
+unsafe extern "C" fn xdg_toplevel_set_min_size_impl(t: *mut xdg_toplevel, w: i32, h: i32) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, i32, i32) = std::mem::transmute(ctx().marshal);
+    f(t as *mut wl_proxy, 8, w, h);
+}
+unsafe extern "C" fn xdg_toplevel_set_max_size_impl(t: *mut xdg_toplevel, w: i32, h: i32) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, i32, i32) = std::mem::transmute(ctx().marshal);
+    f(t as *mut wl_proxy, 7, w, h);
+}
+unsafe extern "C" fn xdg_toplevel_move_impl(t: *mut xdg_toplevel, seat: *mut wl_seat, serial: u32) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *mut wl_seat, u32) = std::mem::transmute(ctx().marshal);
+    f(t as *mut wl_proxy, 5, seat, serial);
+}
+unsafe extern "C" fn xdg_positioner_set_size_impl(p: *mut xdg_positioner, w: i32, h: i32) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, i32, i32) = std::mem::transmute(ctx().marshal);
+    f(p as *mut wl_proxy, 1, w, h);
+}
+unsafe extern "C" fn xdg_positioner_set_anchor_rect_impl(p: *mut xdg_positioner, x: i32, y: i32, w: i32, h: i32) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, i32, i32, i32, i32) = std::mem::transmute(ctx().marshal);
+    f(p as *mut wl_proxy, 2, x, y, w, h);
+}
+unsafe extern "C" fn xdg_positioner_set_anchor_impl(p: *mut xdg_positioner, anchor: u32) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, u32) = std::mem::transmute(ctx().marshal);
+    f(p as *mut wl_proxy, 4, anchor);
+}
+unsafe extern "C" fn xdg_positioner_set_gravity_impl(p: *mut xdg_positioner, gravity: u32) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, u32) = std::mem::transmute(ctx().marshal);
+    f(p as *mut wl_proxy, 5, gravity);
+}
+unsafe extern "C" fn xdg_positioner_set_constraint_adjustment_impl(p: *mut xdg_positioner, adj: u32) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, u32) = std::mem::transmute(ctx().marshal);
+    f(p as *mut wl_proxy, 6, adj);
+}
+unsafe extern "C" fn xdg_positioner_destroy_impl(p: *mut xdg_positioner) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(ctx().marshal);
+    f(p as *mut wl_proxy, 0);
+}
+unsafe extern "C" fn xdg_popup_grab_impl(popup: *mut xdg_popup, seat: *mut wl_seat, serial: u32) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *mut wl_seat, u32) = std::mem::transmute(ctx().marshal);
+    f(popup as *mut wl_proxy, 1, seat, serial);
+}
+unsafe extern "C" fn xdg_popup_destroy_impl(popup: *mut xdg_popup) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(ctx().marshal);
+    f(popup as *mut wl_proxy, 0);
+}
+unsafe extern "C" fn wl_buffer_destroy_impl(b: *mut wl_buffer) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(ctx().marshal);
+    f(b as *mut wl_proxy, 0);
+}
+unsafe extern "C" fn wl_shm_pool_destroy_impl(pool: *mut wl_shm_pool) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(ctx().marshal);
+    f(pool as *mut wl_proxy, 1);
+}
+unsafe extern "C" fn wl_region_destroy_impl(r: *mut wl_region) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(ctx().marshal);
+    f(r as *mut wl_proxy, 0);
+}
+unsafe extern "C" fn wl_region_add_impl(r: *mut wl_region, x: i32, y: i32, w: i32, h: i32) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, i32, i32, i32, i32) = std::mem::transmute(ctx().marshal);
+    f(r as *mut wl_proxy, 1, x, y, w, h);
+}
+unsafe extern "C" fn wl_pointer_set_cursor_impl(
+    pointer: *mut wl_pointer,
+    serial: u32,
+    surface: *mut wl_surface,
+    hx: i32,
+    hy: i32,
+) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, u32, *mut wl_surface, i32, i32) = std::mem::transmute(ctx().marshal);
+    f(pointer as *mut wl_proxy, 0, serial, surface, hx, hy);
 }
 
 // Re-export Xkb and GTK IM from X11's dlopen module
