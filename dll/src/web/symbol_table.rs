@@ -1865,7 +1865,20 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                         {
                             return FnClass::NeverLift;
                         }
-                        if crate_name == "alloc" && name.contains("raw_vec") {
+                        if crate_name == "alloc"
+                            && (name.contains("raw_vec") || name.contains("btree"))
+                        {
+                            // raw_vec: see above. btree (M12.7): BTreeMap's drop
+                            // drains the tree via `IntoIter::dying_next`, which
+                            // advances the iterator + frees each node THROUGH
+                            // `&mut self`. A Leaf stub is a no-op, so the drop
+                            // loop `LOOP: bl dying_next; ldr x8,[iter.cur]; cbnz
+                            // x8, LOOP` never advances `iter.cur` → infinite
+                            // (the layout_dom_recursive solver hang: a populated
+                            // BTreeMap local being dropped at the fn's return).
+                            // Like raw_vec, these are NOT leaf primitives — lift
+                            // the btree machinery so the recursive walk pulls in
+                            // the node-free + advance logic.
                             return FnClass::Recursable;
                         }
                         // M12.7: closure-dispatch trampolines
