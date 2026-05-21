@@ -1119,6 +1119,23 @@ impl RemillTranspiler {
                 }
             }
 
+            // M12.7 (DEFAULT; AZ_NO_TRAP_SELFLOOP=1 to disable): rewrite empty
+            // infinite self-loops (`LABEL:` then only `br label %LABEL`) into
+            // `unreachable`. remill lifts `b .` / abort-spin instructions (and
+            // opt can fold a loop's exit away) into a block that branches only
+            // to itself, which HANGS the wasm (a 120 s gate timeout) instead of
+            // trapping. In the lifted layout/cascade these are abort /
+            // should-not-reach paths, so a trap is both correct and far faster
+            // to debug than a hang. See `rewrite_empty_self_loops`.
+            if std::env::var_os("AZ_NO_TRAP_SELFLOOP").is_none() {
+                if let Ok(opt_ir) = std::fs::read_to_string(&opt_ir_path) {
+                    let (fixed, n) = rewrite_empty_self_loops(&opt_ir);
+                    if n > 0 {
+                        let _ = std::fs::write(&opt_ir_path, &fixed);
+                    }
+                }
+            }
+
             // M12.5y store-address tracer: when AZ_LOG_STORES contains a
             // comma-separated substring matching this dep's stem, instrument
             // the post-opt IR in place (then llc compiles the instrumented
@@ -4280,6 +4297,47 @@ fn sanitize_filename(name: &str) -> String {
 /// unboundedly → the tick overflows → trap; with AZ_WASM_DEBUG the trap's
 /// named stack pinpoints the looping fn. Inserted before (never after) a
 /// terminator and after any block-leading PHIs, so it is CFG/SSA-safe.
+/// Rewrite empty infinite self-loops (`LABEL:` immediately followed by only
+/// `br label %LABEL`) into `unreachable`. remill lifts `b .` / abort-spin
+/// instructions — and opt can fold a real loop's exit away — into a block that
+/// branches only to itself, which HANGS the wasm. In the lifted layout/cascade
+/// those are abort / unreachable paths, so trapping is correct and far faster to
+/// debug than a 120 s hang. Only empty self-loops are touched (a real loop has a
+/// body between its label and its back-edge). Returns (rewritten_ir, count).
+fn rewrite_empty_self_loops(opt_ir: &str) -> (String, u32) {
+    let lines: Vec<&str> = opt_ir.lines().collect();
+    let mut out = String::with_capacity(opt_ir.len());
+    let mut n = 0u32;
+    let mut i = 0usize;
+    while i < lines.len() {
+        let line = lines[i];
+        // Block label: a non-indented `LABEL:` (LLVM identifier), optionally
+        // followed by a `; preds = ...` comment.
+        let is_label = !line.starts_with(char::is_whitespace)
+            && line.split_once(':').is_some_and(|(lbl, _)| {
+                !lbl.is_empty()
+                    && lbl.bytes().all(|b| {
+                        b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'$' | b'-')
+                    })
+            });
+        if is_label {
+            let lbl = line.split_once(':').unwrap().0;
+            if i + 1 < lines.len() && lines[i + 1].trim() == format!("br label %{}", lbl) {
+                out.push_str(line);
+                out.push('\n');
+                out.push_str("  unreachable\n");
+                n += 1;
+                i += 2;
+                continue;
+            }
+        }
+        out.push_str(line);
+        out.push('\n');
+        i += 1;
+    }
+    (out, n)
+}
+
 fn inject_fuel(opt_ir: &str) -> (String, u32) {
     let limit: u64 = std::env::var("AZ_FUEL_LIMIT")
         .ok()
