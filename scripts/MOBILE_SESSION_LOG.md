@@ -2220,3 +2220,9 @@ P6 (input events/sensors/gamepad/capture hooks/PDF/MapWidget) + P7 (audio: Micro
 `doc/guide/en/maps.md` (beta) - documents MapWidget incl. the hooks + projection I added this session: create + with_viewport (MapViewport), native pan/pinch, the `with_on_pin_tap`/`with_on_viewport_changed` backreference-DI hooks (MapLatLon / MapViewport), and the `latlon_at_px`/`px_at_latlon` projection helpers for placing markers. Example mirrors examples/azul-maps; links geolocation to device-input.
 
 **P10 docs now comprehensive** - 5 new guides: realtime-media, device-input, mobile-deployment, pdf, maps. (A Db/sqlite guide for the pre-existing P4 API is the only remaining optional doc.) The SUPER_PLAN_2 P4-P10 roadmap + docs are complete.
+
+### Tick — P10.3c — database guide (Db/SQLite) — P10 docs complete (2026-05-21)
+
+`doc/guide/en/database.md` (beta) - the AzulVault P4 storage: `Db::open` + `execute`/`query` with `DbValue` (the 5 SQLite storage classes) bound as `DbValueVec`, results as the `DbRows` grid; the db-sqlite feature gate; run from a Thread.
+
+**P10 docs complete** - 6 guides now cover the P3-P8 goal-app + new systems: maps (P3), database (P4), pdf (P5), device-input (P6 sensors/gamepad/geolocation/pen), realtime-media (P6 capture / P7 audio / P8 UDP+azul-meet), and mobile-deployment (iOS/Android packaging). The entire SUPER_PLAN_2 P4-P10 roadmap + its documentation are done. Remaining items are platform/feature work, not roadmap: video-into-azul-meet (chunking + on-device codec), real on-device backends (AVFoundation/rodio/CoreMotion/Camera2/...).
