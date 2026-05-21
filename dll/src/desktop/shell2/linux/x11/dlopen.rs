@@ -142,6 +142,10 @@ pub struct Xlib {
     pub XCreateImage: XCreateImage,
     pub XPutImage: XPutImage,
     pub XDestroyImage: XDestroyImage,
+    // XI2 generic-event cookie data + extension query (libX11)
+    pub XGetEventData: XGetEventData,
+    pub XFreeEventData: XFreeEventData,
+    pub XQueryExtension: XQueryExtension,
 }
 
 impl Xlib {
@@ -214,6 +218,31 @@ impl Xlib {
             XCreateImage: load_symbol!(lib, _, "XCreateImage"),
             XPutImage: load_symbol!(lib, _, "XPutImage"),
             XDestroyImage: load_symbol!(lib, _, "XDestroyImage"),
+            XGetEventData: load_symbol!(lib, _, "XGetEventData"),
+            XFreeEventData: load_symbol!(lib, _, "XFreeEventData"),
+            XQueryExtension: load_symbol!(lib, _, "XQueryExtension"),
+            _lib: lib,
+        }))
+    }
+}
+
+/// Dynamically loaded XInput2 (libXi) functions — touch + pen/tablet feed.
+pub struct Xi {
+    _lib: Library,
+    pub XIQueryVersion: XIQueryVersion,
+    pub XISelectEvents: XISelectEvents,
+    pub XIQueryDevice: XIQueryDevice,
+    pub XIFreeDeviceInfo: XIFreeDeviceInfo,
+}
+
+impl Xi {
+    pub fn new() -> Result<Rc<Self>, DlError> {
+        let lib = load_first_available::<Library>(&["libXi.so.6", "libXi.so"])?;
+        Ok(Rc::new(Self {
+            XIQueryVersion: load_symbol!(lib, _, "XIQueryVersion"),
+            XISelectEvents: load_symbol!(lib, _, "XISelectEvents"),
+            XIQueryDevice: load_symbol!(lib, _, "XIQueryDevice"),
+            XIFreeDeviceInfo: load_symbol!(lib, _, "XIFreeDeviceInfo"),
             _lib: lib,
         }))
     }
