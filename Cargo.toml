@@ -23,6 +23,7 @@ exclude = [
     "tests",
     "experiments",
     "third_party",
+    "forks/libudev-sys",
 ]
 
 [workspace.dependencies]
@@ -30,6 +31,11 @@ glean = "60.5.0"
 gleam = "0.15.1"
 
 [patch.crates-io]
+# Fork of libudev-sys that dlopen's libudev at runtime (libloading) instead of
+# link-binding it at build time, so gilrs (-> gilrs-core -> libudev-sys)
+# cross-compiles to hosts without libudev (e.g. `--target x86_64-unknown-linux-gnu`
+# from macOS). gilrs itself is unmodified. See forks/libudev-sys/src/lib.rs.
+libudev-sys = { path = "forks/libudev-sys" }
 rust-fontconfig = { path = "/Users/fschutt/Development/rust-fontconfig" }
 # Single azul-layout in the dll: point printpdf's azul-* (= 0.0.7) at OUR
 # local crates, and use the local printpdf checkout (branch

@@ -2253,3 +2253,15 @@ Correcting an earlier claim: displaying received video frames is NOT blocked on 
 - A codegen-exposed `push_frame(info, dataset, VideoFrame)` (wrapping `present_frame`) the app calls from its recv Timer (which has `CallbackInfo`) to upload each `recv_chunked` -> deserialized frame.
 - Send side: a `CameraWidget` whose `on_frame` serializes the `VideoFrame` + `Udp::send_chunked`s it.
 The remaining work is the widget + the push-API shape (a design choice) + the camera-capture send side; the GL upload itself is on-device (like the camera preview). Substantial but ready to build on green-light - this is the natural azul-meet video completion (audio works today).
+
+### Tick — fork libudev-sys -> dlopen, so gilrs (and the dll) cross-compiles to linux (2026-05-21)
+
+User: "on desktop use dlopen with fn pointers so we can cross-compile + fail gracefully at startup if the lib isn't loadable... fork gilrs to use dlopen."
+
+Root cause: cross-compiling the dll to `x86_64-unknown-linux-gnu` failed at `libudev-sys v0.1.4`'s build script (`pkg_config::find_library("libudev").unwrap()`) - a build-time native link that a cross-host doesn't have. `libudev-sys <- gilrs-core <- gilrs <- azul-dll`.
+
+Fix (leanest read of "fork gilrs to use dlopen" - fork the leaf -sys crate, leave gilrs untouched): **`forks/libudev-sys/`** - a drop-in, API-identical fork of libudev-sys 0.1.4 whose 82 `udev_*` fns load `libudev.so.1` lazily at runtime via `libloading` and dispatch through fn pointers (a macro generates the loader + wrappers). No `build.rs`, no `links` - so no build-time native dep. If libudev isn't loadable, the fns return zeroed (null/0) and gilrs just sees "no devices" (graceful, the user's "fail at startup gracefully"). Wired via `[patch.crates-io] libudev-sys = { path = "forks/libudev-sys" }` + workspace `exclude`.
+
+Result: `cargo check --target x86_64-unknown-linux-gnu -p azul-dll` now **Finishes clean** (was a hard build-script error). Mobile gate (iOS/Android) stays GREEN - the patch is a no-op there (gilrs-core's libudev use is linux-cfg'd). The dlopen pattern is now the template for any other desktop system-lib dep.
+
+NEXT: check the windows cross-compile (x86_64-pc-windows-gnu) for its own blockers; extend the gate to linux/windows; then video native codec (VideoToolbox/MediaCodec) when vk-video is unavailable; then the iOS objc2 native-windowing port (per the research-agent findings).

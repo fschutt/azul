@@ -1,0 +1,13 @@
+[package]
+name = "libudev-sys"
+version = "0.1.4"
+edition = "2018"
+license = "MIT"
+description = "dlopen-based drop-in fork of libudev-sys: loads libudev at runtime via libloading, no build-time native link (so dependents cross-compile to hosts without libudev). Used via [patch.crates-io] in the azul workspace."
+# Deliberately NO `build = "build.rs"` and NO `links = "libudev"`: the upstream
+# crate's build.rs runs pkg-config + links libudev, which breaks cross-compiles.
+# This fork dlopen's libudev at runtime instead.
+
+[dependencies]
+libc = "0.2"
+libloading = "0.8"
