@@ -133,6 +133,9 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
         else console.error('POST-TRAP: unreachable_marker=0x' + u.toString(16) + ' (not set / not tagged)');
         // 0x40060 = AZ_FUEL tripped flag (1 = an instrumented loop exceeded AZ_FUEL_LIMIT → see STACK for the looping fn).
         if (mini.AzStartup_peekU32(0x40060) === 1) console.error('POST-TRAP: FUEL TRIPPED — infinite loop; the STACK above names the looping fn; looping_block_id=' + mini.AzStartup_peekU32(0x40070) + ' (map to Nth `call @__az_fuel(i32 N)` in <stem>.fuel.ll)');
+        // 0x40078 = AZ_LOG_SELFLOOP_VAL: the i64 `v` (icmp eq v,0 operand) that routed into the live opt-folded self-loop (should be 0).
+        const slvLo = mini.AzStartup_peekU32(0x40078), slvHi = mini.AzStartup_peekU32(0x4007C);
+        if (slvLo !== 0 || slvHi !== 0) console.error('POST-TRAP: selfloop_routing_v=0x' + slvHi.toString(16) + slvLo.toString(16).padStart(8,'0') + ' (the non-zero value opt folded the loop-exit on; should be 0)');
         process.exit(1);
     }
     if (rc !== 0) fail('solveLayoutReal rc=' + rc + ' (see status codes in eventloop.rs)');
