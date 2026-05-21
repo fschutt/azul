@@ -1202,7 +1202,7 @@ impl LayoutTreeBuilder {
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<usize> {
         let node_data = &styled_dom.node_data.as_container()[dom_id];
-        let node_idx = self.create_node_from_dom(styled_dom, dom_id, parent_idx, debug_messages)?;
+        let node_idx = self.create_node_from_dom(styled_dom, dom_id, parent_idx, debug_messages);
         let raw_display = get_display_type(styled_dom, dom_id);
 
         // +spec:display-property:042f56 - replaced elements with layout-internal display use inline
@@ -1927,13 +1927,18 @@ impl LayoutTreeBuilder {
         index
     }
 
+    // M12.7: returns `usize`, NOT `Result<usize>` — this fn has no error path
+    // (always `Ok(index)`). The `Result` forced callers to use `?`, whose lifted
+    // discriminant decode mis-reads the Ok as Err (the rc=5 root cause: reconcile
+    // reaches this fn but returns Err before its own Ok). Dropping the Result
+    // removes that mis-lifting `?`.
     pub fn create_node_from_dom(
         &mut self,
         styled_dom: &StyledDom,
         dom_id: NodeId,
         parent: Option<usize>,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
-    ) -> Result<usize> {
+    ) -> usize {
         let index = self.nodes.len();
         let parent_fc =
             parent.and_then(|p| self.nodes.get(p).map(|n| n.formatting_context.clone()));
@@ -1996,7 +2001,7 @@ impl LayoutTreeBuilder {
             self.nodes[p].children.push(index);
         }
         self.dom_to_layout.entry(dom_id).or_default().push(index);
-        Ok(index)
+        index
     }
 
     pub fn clone_node_from_old(&mut self, old_node: &LayoutNode, parent: Option<usize>) -> usize {
