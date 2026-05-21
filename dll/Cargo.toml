@@ -200,6 +200,22 @@ objc2-core-video = { version = "0.3.0", default-features = false, optional = tru
     "CVReturn",
 ] }
 dispatch2 = { version = "0.3.0", default-features = false, features = ["std", "objc2"], optional = true }
+# iOS audio playback (AVAudioEngine) for the AudioSink backend (cpal can't
+# cross-compile to iOS). Minimal class-features; refined after reading the API.
+objc2-avf-audio = { version = "0.3.0", default-features = false, optional = true, features = [
+    "std",
+    "AVAudioEngine",
+    "AVAudioNode",
+    "AVAudioIONode",
+    "AVAudioMixing",
+    "AVAudioMixerNode",
+    "AVAudioPlayerNode",
+    "AVAudioBuffer",
+    "AVAudioFormat",
+    "AVAudioTypes",
+    "AVAudioTime",
+    "block2",
+] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 # NativeActivity bootstrap, event polling, soft-keyboard control, and
@@ -523,6 +539,7 @@ _internal_deps = [
     "objc2-local-authentication",
     "objc2-core-motion",
     "objc2-av-foundation",
+    "objc2-avf-audio",
     "objc2-core-media",
     "objc2-core-video",
     "security-framework",

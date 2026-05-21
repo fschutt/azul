@@ -30,6 +30,8 @@ mod cpal_sink;
 mod aaudio;
 #[cfg(target_os = "ios")]
 mod avfoundation_mic;
+#[cfg(all(target_os = "ios", feature = "objc2-avf-audio"))]
+mod avfoundation_sink;
 
 /// Internal playback state behind the `AudioSink` handle. The stub tracks the
 /// config + how many frames were submitted; the real backend replaces it with
@@ -47,6 +49,9 @@ struct AudioSinkInner {
     /// The live AAudio output stream on Android (`None` if no device).
     #[cfg(target_os = "android")]
     android_sink: Option<aaudio::AAudioSink>,
+    /// The live AVAudioEngine playback graph on iOS (`None` if it failed).
+    #[cfg(all(target_os = "ios", feature = "objc2-avf-audio"))]
+    ios_sink: Option<avfoundation_sink::AvfSink>,
 }
 
 /// An audio output handle. Open one with [`AudioSink::open`], feed it
@@ -93,6 +98,8 @@ impl AudioSink {
         let sink = cpal_sink::CpalSink::open(config.sample_rate, config.channels);
         #[cfg(target_os = "android")]
         let android_sink = aaudio::AAudioSink::open(config.sample_rate, config.channels);
+        #[cfg(all(target_os = "ios", feature = "objc2-avf-audio"))]
+        let ios_sink = avfoundation_sink::AvfSink::open(config.sample_rate, config.channels);
         let inner = Box::new(AudioSinkInner {
             config,
             frames_played: 0,
@@ -102,6 +109,8 @@ impl AudioSink {
             sink,
             #[cfg(target_os = "android")]
             android_sink,
+            #[cfg(all(target_os = "ios", feature = "objc2-avf-audio"))]
+            ios_sink,
         });
         AudioSink {
             ptr: Box::into_raw(inner) as *mut c_void,
@@ -130,6 +139,10 @@ impl AudioSink {
             }
             #[cfg(target_os = "android")]
             if let Some(sink) = &inner.android_sink {
+                sink.play(frame.samples.as_ref());
+            }
+            #[cfg(all(target_os = "ios", feature = "objc2-avf-audio"))]
+            if let Some(sink) = &inner.ios_sink {
                 sink.play(frame.samples.as_ref());
             }
             let _ = frame;
