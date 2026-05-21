@@ -2426,6 +2426,7 @@ fn collect_box_props(
         bottom: to_unresolved_margin(&margin_bottom_mv),
         left: to_unresolved_margin(&margin_left_mv),
     };
+    unsafe { core::ptr::write_volatile(0x400D0 as *mut u32, 0xC0_000005u32); } // after margin block
 
     // Read padding values
     let padding_top_mv = get_css_padding_top(styled_dom, dom_id, &node_state);
@@ -2448,6 +2449,7 @@ fn collect_box_props(
         bottom: to_pixel_value(padding_bottom_mv),
         left: to_pixel_value(padding_left_mv),
     };
+    unsafe { core::ptr::write_volatile(0x400D0 as *mut u32, 0xC0_000056u32); } // after padding getters+values, before get_display_type
 
     // +spec:table-layout:038f9d - padding does not apply to table-row-group, table-header-group, table-footer-group, table-row, table-column-group, table-column
     // Non-cell internal table elements (rows, row groups, columns, column groups) do not have padding.
@@ -2465,6 +2467,7 @@ fn collect_box_props(
         },
         _ => unresolved_padding,
     };
+    unsafe { core::ptr::write_volatile(0x400D0 as *mut u32, 0xC0_000006u32); } // after padding block
 
     // Read border values
     let border_top_mv = get_css_border_top_width(styled_dom, dom_id, &node_state);
@@ -2522,6 +2525,7 @@ fn collect_box_props(
         bottom: if style_zeroes_width(bs_bottom) { PixelValue::const_px(0) } else { to_pixel_value(border_bottom_mv) },
         left: if style_zeroes_width(bs_left) { PixelValue::const_px(0) } else { to_pixel_value(border_left_mv) },
     };
+    unsafe { core::ptr::write_volatile(0x400D0 as *mut u32, 0xC0_000007u32); } // after border block (incl is_normal/compact_cache fast-path)
 
     // +spec:box-model:8538a9 - Internal table elements do not have margins (CSS 2.2 §17.5)
     // "These boxes have content and borders and cells have padding as well.
