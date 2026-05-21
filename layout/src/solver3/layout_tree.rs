@@ -1946,7 +1946,13 @@ impl LayoutTreeBuilder {
         unsafe { core::ptr::write_volatile(0x400B4 as *mut u32, 0xCE00_0000u32 | (index as u32 & 0xffff)); }
         let parent_fc =
             parent.and_then(|p| self.nodes.get(p).map(|n| n.formatting_context.clone()));
+        // M12.7 diag: 0x400CC = parent.and_then done (Option<usize> discriminant). If
+        // this is reached but step A is NOT, collect_box_props diverges; if this is
+        // NOT reached, the parent Option discriminant mis-lifts (None→Some garbage).
+        unsafe { core::ptr::write_volatile(0x400CC as *mut u32, 0xCD00_0001u32 | ((parent_fc.is_some() as u32) << 8)); }
         let collected = collect_box_props(styled_dom, dom_id, debug_messages, self.viewport_size);
+        // M12.7 diag: 0x400C0 = collect_box_props returned (step A).
+        unsafe { core::ptr::write_volatile(0x400C0 as *mut u32, 0xCA00_0001u32); }
         self.nodes.push(LayoutNode {
             // ── HOT ──
             box_props: collected.resolved,
@@ -2001,6 +2007,8 @@ impl LayoutTreeBuilder {
             unresolved_box_props: collected.unresolved,
             ifc_id: None,
         });
+        // M12.7 diag: 0x400C4 = LayoutNode literal + self.nodes.push done (step B).
+        unsafe { core::ptr::write_volatile(0x400C4 as *mut u32, 0xCB00_0001u32 | ((self.nodes.len() as u32 & 0xff) << 8)); }
         if let Some(p) = parent {
             self.nodes[p].children.push(index);
         }
@@ -2298,6 +2306,7 @@ fn compute_layout_style(styled_dom: &StyledDom, dom_id: NodeId) -> ComputedLayou
 
 /// Helper function to get element's computed font-size
 fn get_element_font_size(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
+    unsafe { core::ptr::write_volatile(0x400E0 as *mut u32, 0xC3_000001u32); } // 2-arg wrapper entered
     let node_state = styled_dom
         .styled_nodes
         .as_container()
@@ -2305,6 +2314,7 @@ fn get_element_font_size(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
         .map(|n| &n.styled_node_state)
         .cloned()
         .unwrap_or_default();
+    unsafe { core::ptr::write_volatile(0x400E0 as *mut u32, 0xC3_000002u32); } // after node_state (clone); next = 3-arg call
 
     crate::solver3::getters::get_element_font_size(styled_dom, dom_id, &node_state)
 }
@@ -2333,9 +2343,13 @@ fn create_resolution_context(
     containing_block_size: Option<azul_css::props::basic::PhysicalSize>,
     viewport_size: LogicalSize,
 ) -> azul_css::props::basic::ResolutionContext {
+    unsafe { core::ptr::write_volatile(0x400D8 as *mut u32, 0xC1_000001u32); } // create_resolution_context entered
     let element_font_size = get_element_font_size(styled_dom, dom_id);
+    unsafe { core::ptr::write_volatile(0x400D8 as *mut u32, 0xC1_000002u32); } // after get_element_font_size
     let parent_font_size = get_parent_font_size(styled_dom, dom_id);
+    unsafe { core::ptr::write_volatile(0x400D8 as *mut u32, 0xC1_000003u32); } // after get_parent_font_size
     let root_font_size = get_root_font_size(styled_dom);
+    unsafe { core::ptr::write_volatile(0x400D8 as *mut u32, 0xC1_000004u32); } // after get_root_font_size
 
     ResolutionContext {
         element_font_size,
@@ -2367,6 +2381,9 @@ fn collect_box_props(
 ) -> CollectedBoxProps {
     use crate::solver3::geometry::{UnresolvedBoxProps, UnresolvedEdge, UnresolvedMargin};
     use crate::solver3::getters::*;
+    // M12.7 diag: collect_box_props sub-step markers (0xC0_0N). The last one set
+    // before create_node step A is the diverging call.
+    unsafe { core::ptr::write_volatile(0x400D0 as *mut u32, 0xC0_000001u32); } // entered
 
     let node_data = &styled_dom.node_data.as_container()[dom_id];
 
@@ -2378,14 +2395,17 @@ fn collect_box_props(
         .map(|n| &n.styled_node_state)
         .cloned()
         .unwrap_or_default();
+    unsafe { core::ptr::write_volatile(0x400D0 as *mut u32, 0xC0_000002u32); } // after node_state (clone)
 
     // Create resolution context for this element
     // Note: containing_block_size is None here because we don't have it yet
     // This is fine for initial resolution - will be re-resolved during layout
     let context = create_resolution_context(styled_dom, dom_id, None, viewport_size);
+    unsafe { core::ptr::write_volatile(0x400D0 as *mut u32, 0xC0_000003u32); } // after create_resolution_context
 
     // Read margin values from styled_dom
     let margin_top_mv = get_css_margin_top(styled_dom, dom_id, &node_state);
+    unsafe { core::ptr::write_volatile(0x400D0 as *mut u32, 0xC0_000004u32); } // after get_css_margin_top
     let margin_right_mv = get_css_margin_right(styled_dom, dom_id, &node_state);
     let margin_bottom_mv = get_css_margin_bottom(styled_dom, dom_id, &node_state);
     let margin_left_mv = get_css_margin_left(styled_dom, dom_id, &node_state);

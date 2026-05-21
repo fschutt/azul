@@ -185,6 +185,19 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
         if ((cnpost>>>16)===0xcf00) console.error('POST-RC5: create_node_from_dom post-push nodes.len()=' + (cnpost&0xffff) + ' → if 1 here but build sees 0, the builder &mut is lost');
         const nni = mini.AzStartup_peekU32(0x400BC);
         if ((nni>>>16)===0xab00) console.error('POST-RC5: reconcile_recursive new_node_idx=' + (nni&0xffff) + ' (create_node return; 0=ok, 64=mis-read)');
+        const sA = mini.AzStartup_peekU32(0x400C0), sB = mini.AzStartup_peekU32(0x400C4), sP = mini.AzStartup_peekU32(0x400CC);
+        console.error('POST-RC5: create_node steps — parent_fc=' + (((sP>>>16)===0xcd00)?('reached is_some='+((sP>>8)&1)):'NO') + ' A(collect_box_props)=' + (((sA>>>16)===0xca00)?'reached':'NO') + ' B(node push)=' + (((sB>>>16)===0xcb00)?('reached len='+((sB>>8)&0xff)):'NO'));
+        const cbp = mini.AzStartup_peekU32(0x400D0);
+        if ((cbp>>>24)===0xc0) console.error('POST-RC5: collect_box_props last sub-step=' + (cbp&0xff) + ' (1=entered 2=after-node_state-clone 3=after-create_resolution_context 4=after-get_css_margin_top)');
+        else console.error('POST-RC5: collect_box_props NOT entered (0x400D0=0x' + cbp.toString(16) + ')');
+        const crc = mini.AzStartup_peekU32(0x400D8);
+        if ((crc>>>24)===0xc1) console.error('POST-RC5: create_resolution_context last sub-step=' + (crc&0xff) + ' (1=entered 2=after-get_element_font_size 3=after-get_parent_font_size 4=after-get_root_font_size)');
+        const gw = mini.AzStartup_peekU32(0x400E0);
+        if ((gw>>>24)===0xc3) console.error('POST-RC5: get_element_font_size 2-arg wrapper last sub-step=' + (gw&0xff) + ' (1=entered 2=after-node_state-clone → next is the 3-arg call)');
+        else console.error('POST-RC5: 2-arg get_element_font_size NOT entered (0x400E0=0x' + gw.toString(16) + ')');
+        const gef = mini.AzStartup_peekU32(0x400DC);
+        if ((gef>>>24)===0xc2) console.error('POST-RC5: 3-arg get_element_font_size last sub-step=' + (gef&0xff) + ' (1=entered 2=is_normal 3=after-get_or_init 4=return-cached 5=before-resolve_font_size_slow)');
+        else console.error('POST-RC5: 3-arg get_element_font_size NOT entered (0x400DC=0x' + gef.toString(16) + ')');
     }
     console.log('[2] solveLayoutReal rc=0 (real taffy positioning ran in wasm)');
 
