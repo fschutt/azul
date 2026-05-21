@@ -90,3 +90,15 @@ All 4 pen interfaces version 2. Build via the get_*_interface() Box::leak patter
 - **zwp_tablet_tool_v2** v2: req[0] set_cursor "u?oii", req[1] destroy "". ev: type "u"(0), hardware_serial "uu"(1), hardware_id_wacom "uu"(2), capability "u"(3), done(4), removed(5), proximity_in "uoo"(6), proximity_out(7), down "u"(8), up(9), motion "ff"(10), pressure "u"(11), distance "u"(12), tilt "ff"(13), rotation "f"(14), slider "i"(15), wheel "fi"(16), button "uuu"(17), frame "u"(18).
 
 Map (tool, per frame): pressure/65535 -> 0..1; tilt_x/y = wl_fixed/256 (degrees); rotation = wl_fixed/256 (deg); type==eraser(0x141) -> eraser; down/up = tip contact; motion x/y = wl_fixed/256 surface-local. Listeners only for seat/tablet/tool (the pen). **PAD:** pad_added's new_id needs zwp_tablet_pad_v2 (+ group/ring/strip/dial) descriptors too, else pad-equipped tablets crash (compositor sends pad events eagerly + pad.group is a new_id). Pad sub-objects = descriptors only, parse-and-drop (no listeners). Data being fetched.
+
+### Wayland tablet-v2 PAD sub-protocol descriptors (researched 2026-05-21)
+
+Needed so pad_added (eager on pad-equipped tablets) doesn't crash: descriptors only, NO listeners (parse-and-drop). All v2. new_id ('n') event types MUST be non-NULL (point at the builder fn); 'o'/primitive args -> NULL (tolerated, as the text-input builder does). Use a shared NULL_TYPES[8] for primitive/object messages; 1-elem arrays for 'n' messages.
+
+- **zwp_tablet_pad_ring_v2** v2: req set_feedback "su"(0), destroy(1). ev source "u"(0), angle "f"(1), stop ""(2), frame "u"(3). no new_id.
+- **zwp_tablet_pad_strip_v2** v2: req set_feedback "su"(0), destroy(1). ev source "u"(0), position "u"(1), stop ""(2), frame "u"(3). no new_id.
+- **zwp_tablet_pad_dial_v2** v2: req set_feedback "su"(0), destroy(1). ev delta "i"(0), frame "u"(1). no new_id.
+- **zwp_tablet_pad_group_v2** v2: req destroy ""(0). ev buttons "a"(0), ring "n"[&ring_v2](1), strip "n"[&strip_v2](2), modes "u"(3), done ""(4), mode_switch "uuu"(5), dial "2n"[&dial_v2](6).
+- **zwp_tablet_pad_v2** v2: req set_feedback "usu"(0), destroy(1). ev group "n"[&group_v2](0), path "s"(1), buttons "u"(2), done ""(3), button "uuu"(4), enter "uoo"(5), leave "uo"(6), removed ""(7).
+
+new_id graph: pad.group->group_v2; group.ring/strip/dial->ring/strip/dial_v2. Leaves have no new_ids. `dial` sig is "2n" (since-2 prefix). **BUILD PLAN:** 9 opaque structs + 9 get_*_interface() builders (leaves first, then group, pad; pen: manager/seat/tablet/tool — seat's pad_added refs pad). Listeners: seat (tablet_added->add tablet listener, tool_added->add tool listener, pad_added->create proxy, no listener), tablet (name/etc, mostly ignore), tool (the 19 events -> accumulate, frame -> update_pen_state_full). dlopen: bind zwp_tablet_manager_v2 (registry) + get_tablet_seat + the add_listener fns. events: registry global "zwp_tablet_manager_v2" -> bind -> get_tablet_seat(wl_seat) -> listeners -> pen feed.
