@@ -39,6 +39,11 @@ pub mod audio;
 /// feature gate - `std::net` is always present, real on every target). The
 /// fault-tolerant packet-sharing primitive for azul-meet. See `udp/mod.rs`.
 pub mod udp;
+/// Video encode/decode (P7/P8). `VideoEncoder` / `VideoDecoder` handles select
+/// the native codec per platform (gpu-video on desktop Linux/Windows,
+/// VideoToolbox on Apple, MediaCodec on Android); the codec FFI is on-device,
+/// this lands the API + selection + a stub engine. See `video_codec/mod.rs`.
+pub mod video_codec;
 pub mod permission;
 /// Motion-sensor subscriptions (P6 feature 5). The dispatcher kicks the
 /// platform subscription once via [`sensors::ensure_started`] (CoreMotion on
