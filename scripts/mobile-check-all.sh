@@ -66,13 +66,15 @@ check_target() {
     rm -f "$log"
 }
 
-printf '==> cargo check across mobile targets (features: %s)\n' "$FEATURES"
+printf '==> cargo check across mobile + desktop targets (features: %s)\n' "$FEATURES"
 for triple in \
     aarch64-apple-ios \
     aarch64-apple-ios-sim \
     x86_64-apple-ios \
     aarch64-linux-android \
-    x86_64-linux-android
+    x86_64-linux-android \
+    x86_64-unknown-linux-gnu \
+    x86_64-pc-windows-gnu
 do
     check_target "$triple"
 done

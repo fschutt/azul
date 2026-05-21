@@ -2265,3 +2265,9 @@ Fix (leanest read of "fork gilrs to use dlopen" - fork the leaf -sys crate, leav
 Result: `cargo check --target x86_64-unknown-linux-gnu -p azul-dll` now **Finishes clean** (was a hard build-script error). Mobile gate (iOS/Android) stays GREEN - the patch is a no-op there (gilrs-core's libudev use is linux-cfg'd). The dlopen pattern is now the template for any other desktop system-lib dep.
 
 NEXT: check the windows cross-compile (x86_64-pc-windows-gnu) for its own blockers; extend the gate to linux/windows; then video native codec (VideoToolbox/MediaCodec) when vk-video is unavailable; then the iOS objc2 native-windowing port (per the research-agent findings).
+
+### Tick — extend the cross-compile gate to desktop linux + windows (2026-05-21)
+
+`scripts/mobile-check-all.sh` now checks 7 targets (was 5 mobile): added `x86_64-unknown-linux-gnu` + `x86_64-pc-windows-gnu`. Both pass clean (linux via the libudev-sys dlopen fork; windows had no blocker). So the dll cross-compiles to all of: iOS (device + 2 sim), Android (arm64 + x86_64), desktop Linux, desktop Windows - and macOS is the host. The gate keeps it that way (the user's "make sure we can still cross compile with --target linux, etc."). All 7 GREEN.
+
+NEXT (user, "then video"): video enc/dec uses the platform-native codec when vk-video (gpu-video) isn't available - gpu-video on Linux/Windows desktop, VideoToolbox on Apple, MediaCodec on Android. Plus the iOS objc2 windowing port (research done).
