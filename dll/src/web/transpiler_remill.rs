@@ -1201,6 +1201,12 @@ impl RemillTranspiler {
                     if let Ok(opt_ir) = std::fs::read_to_string(&opt_ir_path) {
                         let (fueled, n) = inject_fuel(&opt_ir);
                         let _ = std::fs::write(&opt_ir_path, &fueled);
+                        // Save for id->block mapping: the trap's 0x40070 = the
+                        // Nth `call @__az_fuel(i32 N)` here = the looping block.
+                        let _ = std::fs::write(
+                            self.scratch_dir.join(format!("{}.fuel.ll", stem)),
+                            &fueled,
+                        );
                         eprintln!("[azul-web] M12.7: fueled {} terminators in {}", n, stem);
                     }
                 }
@@ -4290,15 +4296,19 @@ fn inject_fuel(opt_ir: &str) -> (String, u32) {
             || t == "unreachable"
             || t.starts_with("indirectbr ");
         if is_term {
-            out.push_str("  call void @__az_fuel()\n");
+            // Pass a per-terminator id so the trap records WHICH block looped.
+            out.push_str(&format!("  call void @__az_fuel(i32 {})\n", n));
             n += 1;
         }
         out.push_str(line);
         out.push('\n');
     }
-    // 0x40068 = tick counter; 0x40060 = "fuel tripped" flag (read post-trap).
+    // 0x40068 = tick counter; 0x40060 = "fuel tripped" flag; 0x40070 = id of
+    // the last block executed (= the looping block on trip). Map 0x40070 to the
+    // Nth `call @__az_fuel(i32 N)` in the saved `.fuel.ll`.
     out.push_str(&format!(
-        "\ndefine internal void @__az_fuel() {{\nentry:\n  \
+        "\ndefine internal void @__az_fuel(i32 %id) {{\nentry:\n  \
+         store volatile i32 %id, ptr inttoptr (i64 262256 to ptr), align 4\n  \
          %v = load i64, ptr inttoptr (i64 262248 to ptr), align 8\n  \
          %nn = add i64 %v, 1\n  \
          store i64 %nn, ptr inttoptr (i64 262248 to ptr), align 8\n  \
