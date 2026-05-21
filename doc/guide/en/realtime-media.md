@@ -27,6 +27,9 @@ default-search-keys:
   - AudioFrame
   - VideoFrame
   - CameraWidget
+  - VideoEncoder
+  - VideoDecoder
+  - backend_name
 ---
 
 # Realtime Media and Devices
@@ -162,11 +165,15 @@ actual hardware backends are platform-specific and only run on a real device:
   the API + plumbing are exercisable without hardware.
 - **Audio output** (`AudioSink`): rodio/cpal on desktop, AVAudioEngine / AAudio
   on mobile.
-- **Video encode/decode**: for compressing `VideoFrame`s before sending, use a
-  codec. Vulkan-Video (`gpu-video`) is an option on Linux/Windows desktop but
-  does **not** build on macOS/iOS (no MoltenVK video); for Apple targets use
-  openh264 (CPU, cross-platform) or VideoToolbox. The raw `azul-meet` loopback
-  sends uncompressed frames; add a codec at the serialize/deserialize seam.
+- **Video encode/decode** (`VideoEncoder` / `VideoDecoder`):
+  `VideoEncoder::open(w, h, h265, bitrate_kbps)` -> `encode(VideoFrame, force_keyframe)
+  -> bytes`; `VideoDecoder::open(h265)` -> `decode(bytes) -> Option<VideoFrame>`.
+  `VideoEncoder::backend_name()` reports the platform-native codec the build
+  selects: **gpu-video** (Vulkan Video) on Linux/Windows desktop, **VideoToolbox**
+  on Apple (Vulkan Video can't build there - no MoltenVK video), **MediaCodec**
+  on Android. The handles + the selection are exposed cross-platform; the codec
+  FFI itself is the on-device part. Use these at the `azul-meet`
+  serialize/deserialize seam (`send_chunked` carries the encoded bytes).
 
 ## Testing without hardware
 

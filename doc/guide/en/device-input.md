@@ -26,6 +26,8 @@ default-search-keys:
   - get_gamepad_state
   - get_location_fix
   - create_geolocation_probe
+  - get_safe_area_insets
+  - SafeAreaInsets
   - WindowEventFilter
 ---
 
@@ -137,6 +139,29 @@ extern "C" fn on_pointer_move(mut data: RefAny, info: CallbackInfo) -> Update {
 
 (The `PenDown`/`Move`/`Up` event *filters* exist but are not the path apps use -
 pointer-event + `get_pen_state` is.)
+
+## Safe-area insets (notches)
+
+On displays with a notch, rounded corners, or system bars (a MacBook notch, a
+phone, a tablet) part of the window is obscured. Read the insets - the margins
+to keep interactive content clear of - with `CallbackInfo::get_safe_area_insets`:
+
+```rust
+extern "C" fn on_event(data: RefAny, info: CallbackInfo) -> Update {
+    let safe = info.get_safe_area_insets();          // css SafeAreaInsets
+    if let Some(top) = safe.top.into_option() {
+        // ... pad the top bar by `top` so it clears the notch
+    }
+    Update::DoNothing
+}
+```
+
+`SafeAreaInsets` carries `top` / `right` / `bottom` / `left`, each an
+`OptionPixelValue` (`None` where there is no inset). It's the same
+`azul_css::SafeAreaInsets` the styling system holds, so the values are shared
+with layout. The platform shell populates them - macOS reads the notch via
+`NSView.safeAreaInsets`; iOS (`UIView.safeAreaInsets`) and Android
+(`WindowInsets`) are being wired. Zero on displays with no inset.
 
 ## Configurability
 

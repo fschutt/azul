@@ -2351,3 +2351,10 @@ autofix's duplicate-type detection caught that the previous tick added a DUPLICA
 ### Tick — macOS notch population (safe-area) (2026-05-21)
 
 `shell2/macos/mod.rs::regenerate_layout` now reads `contentView().safeAreaInsets()` (objc2, NSView is main-thread so the read is safe) and writes `layout_window.safe_area_insets` (the css `SafeAreaInsets`: `Some(PixelValue::px(v))` per edge, `None` if ~0). So on macOS `CallbackInfo::get_safe_area_insets` + CSS `env(safe-area-inset-*)` reflect the MacBook notch / rounded corners. Host-checked clean (lean features build shell2/macos on the host; the cross-gate has no macOS target, so macOS is host-verified + device-verified). Cross-gate still GREEN ×7. NEXT remaining: iOS `UIView.safeAreaInsets` + Android `WindowInsets` population (mobile), then desktop Wacom (linux XInput2) + multi-touch.
+
+### Tick — document the session's new user-facing APIs (2026-05-21)
+
+Holding on the device-tested features (Wacom/touch XInput2, mobile notch on unverified shells) per option (c) - but rather than burn loop ticks idle, documented the new codegen-exposed APIs this session landed (verifiable prose, not blind device code):
+- `device-input.md`: a "Safe-area insets (notches)" section - `CallbackInfo::get_safe_area_insets` -> css `SafeAreaInsets` (top/right/bottom/left OptionPixelValue), populated on macOS via `NSView.safeAreaInsets`.
+- `realtime-media.md`: the video encode/decode bullet now documents `VideoEncoder`/`VideoDecoder` (open/encode/decode + `backend_name()` native-per-platform selection: gpu-video / VideoToolbox / MediaCodec).
+Search keys added to both. Device-tested features still await a steer (a/b) or a device.
