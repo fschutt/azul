@@ -692,11 +692,12 @@ pub(super) extern "C" fn pointer_enter_handler(
     _pointer: *mut wl_pointer,
     serial: u32,
     _surface: *mut wl_surface,
-    surface_x: f64,
-    surface_y: f64,
+    surface_x: i32,
+    surface_y: i32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    window.handle_pointer_enter(serial, surface_x, surface_y);
+    // wl_fixed_t (24.8 fixed-point) -> logical f64.
+    window.handle_pointer_enter(serial, surface_x as f64 / 256.0, surface_y as f64 / 256.0);
 }
 
 pub(super) extern "C" fn pointer_leave_handler(
@@ -713,11 +714,11 @@ pub(super) extern "C" fn pointer_motion_handler(
     data: *mut c_void,
     _pointer: *mut wl_pointer,
     _time: u32,
-    surface_x: f64,
-    surface_y: f64,
+    surface_x: i32,
+    surface_y: i32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    window.handle_pointer_motion(surface_x, surface_y);
+    window.handle_pointer_motion(surface_x as f64 / 256.0, surface_y as f64 / 256.0);
 }
 
 pub(super) extern "C" fn pointer_button_handler(
@@ -737,10 +738,10 @@ pub(super) extern "C" fn pointer_axis_handler(
     _pointer: *mut wl_pointer,
     _time: u32,
     axis: u32,
-    value: f64,
+    value: i32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    window.handle_pointer_axis(axis, value);
+    window.handle_pointer_axis(axis, value as f64 / 256.0);
 }
 
 // Stub handlers for unused pointer events

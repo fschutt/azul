@@ -220,8 +220,8 @@ pub struct wl_pointer_listener {
         pointer: *mut wl_pointer,
         serial: u32,
         surface: *mut wl_surface,
-        surface_x: f64,
-        surface_y: f64,
+        surface_x: i32, // wl_fixed_t (24.8); convert /256.0 in the handler
+        surface_y: i32,
     ),
     pub leave: extern "C" fn(
         data: *mut c_void,
@@ -233,8 +233,8 @@ pub struct wl_pointer_listener {
         data: *mut c_void,
         pointer: *mut wl_pointer,
         time: u32,
-        surface_x: f64,
-        surface_y: f64,
+        surface_x: i32, // wl_fixed_t (24.8); convert /256.0 in the handler
+        surface_y: i32,
     ),
     pub button: extern "C" fn(
         data: *mut c_void,
@@ -249,7 +249,7 @@ pub struct wl_pointer_listener {
         pointer: *mut wl_pointer,
         time: u32,
         axis: u32,
-        value: f64,
+        value: i32, // wl_fixed_t
     ),
     pub frame: extern "C" fn(data: *mut c_void, pointer: *mut wl_pointer),
     pub axis_source: extern "C" fn(data: *mut c_void, pointer: *mut wl_pointer, axis_source: u32),
