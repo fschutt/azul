@@ -9,11 +9,16 @@
 //! to. Geolocation / capture-frame / wacom-pen generators extend this in
 //! follow-up ticks.
 
+use azul_core::audio::AudioFrame;
 use azul_core::events::{
     event_type_to_filters, EventData, EventFilter, EventProvider, EventType, HoverEventFilter,
     WindowEventFilter,
 };
+use azul_core::geolocation::LocationFix;
 use azul_core::task::Instant;
+use azul_core::video::VideoFrame;
+use azul_css::{F32Vec, U8Vec};
+use azul_layout::managers::geolocation::{drain_location_fixes, push_location_fix};
 use azul_layout::managers::gamepad::{
     drain_gamepad_states, push_gamepad_state, GamepadId, GamepadManager, GamepadState,
 };
@@ -123,4 +128,104 @@ fn input_events_route_to_node_and_window_filters() {
     let gamepad = event_type_to_filters(EventType::GamepadInput, &EventData::None);
     assert!(gamepad.contains(&EventFilter::Window(WindowEventFilter::GamepadInput)));
     assert!(gamepad.contains(&EventFilter::Hover(HoverEventFilter::GamepadInput)));
+}
+
+/// P3 geolocation: a synthetic fix injected via the backend channel drains back
+/// through the manager pipeline (`get_location_fix` reads it). Same path a real
+/// CoreLocation / Android fix takes.
+#[test]
+fn synthetic_location_fix_drains() {
+    let _ = drain_location_fixes();
+    push_location_fix(LocationFix {
+        latitude_deg: 37.7749,
+        longitude_deg: -122.4194,
+        accuracy_m: 5.0,
+        altitude_m: 12.0,
+        altitude_accuracy_m: 3.0,
+        heading_deg: 90.0,
+        speed_mps: 1.5,
+        timestamp_ms: 42,
+    });
+    let drained = drain_location_fixes();
+    assert_eq!(drained.len(), 1, "the synthetic fix parks + drains");
+    assert!((drained[0].latitude_deg - 37.7749).abs() < 1e-9);
+    assert!((drained[0].longitude_deg - (-122.4194)).abs() < 1e-9);
+}
+
+/// P7 audio: an `AudioFrame` survives the serialize/deserialize the azul-meet
+/// UDP path uses (capture -> bytes -> wire -> bytes -> playback).
+#[test]
+fn synthetic_audio_frame_roundtrips() {
+    let frame = AudioFrame {
+        sample_rate: 48_000,
+        channels: 1,
+        samples: F32Vec::from_vec(vec![0.0, 0.5, -0.5, 1.0]),
+    };
+    let bytes = audio_to_bytes(&frame);
+    let back = audio_from_bytes(&bytes).expect("deserializes");
+    assert_eq!(back.sample_rate, 48_000);
+    assert_eq!(back.channels, 1);
+    assert_eq!(back.samples.as_ref(), &[0.0_f32, 0.5, -0.5, 1.0]);
+}
+
+/// P6 capture: a `VideoFrame` carries its RGBA bytes + dimensions intact (the
+/// `on_frame` hook payload for the camera / screencap / video widgets).
+#[test]
+fn synthetic_video_frame_carries_pixels() {
+    let px: Vec<u8> = vec![255, 0, 0, 255, 0, 255, 0, 255]; // 2 RGBA pixels
+    let frame = VideoFrame {
+        width: 2,
+        height: 1,
+        bytes: U8Vec::from_vec(px.clone()),
+    };
+    assert_eq!(frame.width, 2);
+    assert_eq!(frame.height, 1);
+    assert_eq!(frame.bytes.as_ref(), px.as_slice());
+}
+
+/// P2/P3 touch routes to its Hover filter (the touch + gesture paths flow
+/// through `event_type_to_filters` too).
+#[test]
+fn synthetic_touch_routes_to_filter() {
+    let filters = event_type_to_filters(EventType::TouchStart, &EventData::None);
+    assert!(filters.contains(&EventFilter::Hover(HoverEventFilter::TouchStart)));
+}
+
+// NOTE (P9.3): wacom PEN events (PenDown/Move/Up) are currently FILTER-ONLY -
+// they exist on Hover/Window/Focus EventFilter but have NO `EventType`, so
+// `event_type_to_filters` does not route them and nothing dispatches them
+// (the same dead-filter state GeolocationFix had before). Synthetically
+// exercising pen needs the dispatch wired first - EventType::Pen* + the
+// event_type_to_filters/matcher arms + a wacom EventProvider - mirroring the
+// SensorChanged/GamepadInput wiring (P6.input-events). Tracked for a fix tick.
+
+// --- AudioFrame <-> bytes (mirrors the azul-meet UDP framing) ---
+
+fn audio_to_bytes(f: &AudioFrame) -> Vec<u8> {
+    let mut b: Vec<u8> = Vec::new();
+    b.extend_from_slice(&f.sample_rate.to_le_bytes());
+    b.extend_from_slice(&f.channels.to_le_bytes());
+    for s in f.samples.as_ref() {
+        b.extend_from_slice(&s.to_le_bytes());
+    }
+    b
+}
+
+fn audio_from_bytes(b: &[u8]) -> Option<AudioFrame> {
+    if b.len() < 6 {
+        return None;
+    }
+    let sample_rate = u32::from_le_bytes([b[0], b[1], b[2], b[3]]);
+    let channels = u16::from_le_bytes([b[4], b[5]]);
+    let mut samples: Vec<f32> = Vec::new();
+    let mut i = 6;
+    while i + 4 <= b.len() {
+        samples.push(f32::from_le_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]));
+        i += 4;
+    }
+    Some(AudioFrame {
+        sample_rate,
+        channels,
+        samples: F32Vec::from_vec(samples),
+    })
 }

@@ -2172,3 +2172,15 @@ NEXT: video into azul-meet (camera on_frame -> chunked send; openh264/VideoToolb
 - `input_events_route_to_node_and_window_filters` (Hover + Window filters)
 
 NEXT (P9.2+): extend the harness to geolocation (`push_location_fix`), capture/audio frames (AudioFrame/VideoFrame round-trip like azul-meet), and wacom-pen/touch (synthetic SyntheticEvent + the pen EventFilters). Then P10 (docs + mobile packaging).
+
+### Tick — P9.2 — synthetic-event harness extended (geo + frames + touch) + pen-gap finding (2026-05-21)
+
+Extended `layout/tests/synthetic_events.rs` to 8 tests (all green), covering more P2-P7 paths synthetically:
+- P3 geolocation: `push_location_fix` -> `drain_location_fixes` round-trip.
+- P7 audio: `AudioFrame` serialize/deserialize (the azul-meet UDP framing).
+- P6 capture: `VideoFrame` carries RGBA bytes + dims (the on_frame payload).
+- P2/P3 touch: `event_type_to_filters(TouchStart)` -> Hover(TouchStart).
+
+**FINDING (P9.3 todo):** wacom **PEN** events (PenDown/Move/Up) are FILTER-ONLY - they exist on Hover/Window/Focus `EventFilter` but have NO `EventType`, so `event_type_to_filters` doesn't route them and nothing dispatches them (the exact dead-filter state `GeolocationFix` had). Synthetically exercising pen needs the dispatch wired first (`EventType::Pen*` + routing/matcher arms + a wacom `EventProvider`), mirroring the SensorChanged/GamepadInput input-events wiring. Noted in the test + here.
+
+P9 now covers sensors/gamepad/geolocation/audio/video/touch synthetically (pen is the one unwired gap). NEXT: **P10** - guide docs for the new systems + the iOS/Android packaging+deploy section.
