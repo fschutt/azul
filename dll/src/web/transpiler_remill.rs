@@ -4502,6 +4502,10 @@ fn rewrite_empty_self_loops(opt_ir: &str) -> (String, u32) {
 }
 
 fn inject_fuel(opt_ir: &str) -> (String, u32) {
+    // GLOBAL terminator id, unique across ALL fueled fns (AZ_FUEL=ALL). The
+    // trap records this gid at 0x40070; grep the saved `*.fuel.ll` files for
+    // `@__az_fuel(i32 <gid>)` to find WHICH fn+block looped.
+    static FUEL_GID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
     let limit: u64 = std::env::var("AZ_FUEL_LIMIT")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -4517,8 +4521,8 @@ fn inject_fuel(opt_ir: &str) -> (String, u32) {
             || t == "unreachable"
             || t.starts_with("indirectbr ");
         if is_term {
-            // Pass a per-terminator id so the trap records WHICH block looped.
-            out.push_str(&format!("  call void @__az_fuel(i32 {})\n", n));
+            let gid = FUEL_GID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            out.push_str(&format!("  call void @__az_fuel(i32 {})\n", gid));
             n += 1;
         }
         out.push_str(line);
