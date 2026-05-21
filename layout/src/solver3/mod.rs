@@ -459,11 +459,6 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // in layout_document returns the rc=5 Err (the error enum can't be captured
     // reliably in the lift). The last value seen = the step that errored next.
     unsafe { core::ptr::write_volatile(0x400A4 as *mut u32, 0xDD00_0001u32); }
-    // M12.7 diag: reset the __remill_error PC capture (0x400B4/B8) at layout entry so it
-    // captures only the LAYOUT's faulting PC, not the cascade/font-setup path's (e.g.
-    // brotli decompression, which fires its own __remill_error before we get here).
-    unsafe { core::ptr::write_volatile(0x400B4 as *mut u32, 0u32); }
-    unsafe { core::ptr::write_volatile(0x400B8 as *mut u32, 0u32); }
 
     if let Some(msgs) = debug_messages.as_mut() {
         msgs.push(LayoutDebugMessage::info(format!(
