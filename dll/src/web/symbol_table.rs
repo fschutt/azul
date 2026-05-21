@@ -1918,6 +1918,25 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                         {
                             return FnClass::Recursable;
                         }
+                        // M12.7: OnceLock/OnceCell lazy-init + thread-local lazy
+                        // Storage. `get_or_init`'s slow path is `OnceLock::initialize`
+                        // / `Storage::get_or_init_slow`, which CALL the init closure
+                        // and store the value through `&self`. A Leaf stub no-ops, so
+                        // the cell stays uninitialized → `get_or_init` returns garbage.
+                        // THE M12.7 GEOMETRY BLOCKER: get_element_font_size does
+                        // `resolved_font_sizes_px.get_or_init(|| compute_all_font_sizes_px())`;
+                        // with initialize a no-op the cache is never populated → the
+                        // getter diverges → create_node_from_dom builds nothing → empty
+                        // LayoutTree → 0 positioned rects. Lift them (like the FnOnce
+                        // trampolines above) so the closure runs + the value is stored.
+                        if name.contains("OnceLock")
+                            || name.contains("OnceCell")
+                            || name.contains("once_lock")
+                            || name.contains("once_cell")
+                            || name.contains("get_or_init")
+                        {
+                            return FnClass::Recursable;
+                        }
                         return FnClass::Leaf;
                     }
                     // Our own crates + 3rd party crates we want to lift
