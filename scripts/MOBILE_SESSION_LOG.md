@@ -2143,3 +2143,12 @@ Also (user): spawned a background agent to git clone + inspect **vk-video** (Vul
 **vk-video research** (background agent): the `vk-video` crate was renamed to **`gpu-video`** (Software Mansion, in the smelter monorepo; old vk-video deprecated). ash-based Vulkan Video; bytes API is **NV12** (we'd convert to/from our RGBA VideoFrame, CPU for v1); decode = H.264 only, encode = H.264 + H.265; manages its own Vulkan device; needs a real VK-video GPU (not headless). **HARD BLOCKER: it cannot build on macOS/iOS** (no MoltenVK Vulkan-Video; the crate `compile_error!`s on Apple). So for azul-mobile's Apple targets, video enc/dec needs **openh264 (CPU, cross-platform incl. Apple) or VideoToolbox/MediaCodec**, NOT gpu-video. gpu-video could be a desktop-Linux/Windows (+ maybe Android) backend behind an opt-in `video` feature with a compile-time stub on Apple. Cloned to scratch `/Users/fschutt/Development/vk-video-ref`.
 
 NEXT: P8 (AzUdp + azul-meet — UDP can ride raw frames first; video codec is a per-platform on-device backend per above) -> P9 (e2e) -> P10 (docs).
+
+### Tick — P8.udp — Udp transport handle (azul-meet primitive) (2026-05-21)
+
+`Udp` (dll/src/desktop/extra/udp/mod.rs) - the fault-tolerant packet-sharing primitive for azul-meet. A non-blocking `std::net::UdpSocket` wrapper, C-ABI handle like `Db`/`AudioSink` (no feature gate - `std::net` is real on every target, no stub):
+- `Udp::bind(local_addr) -> Udp` (non-blocking); `send_to(remote_addr, U8Vec) -> usize`; `recv() -> OptionU8Vec` (None when no datagram); `is_open`; `local_addr() -> AzString` (learn the OS-assigned port); `close`.
+- Byte-level on purpose: the app serializes its own payload (an AudioFrame just captured -> send; recv -> AudioSink::play) and frames it. UDP's lossy/reordered nature IS the fault-tolerance model for realtime A/V. >MTU payloads (video keyframes) need app-side chunking+seq - a framing layer on top, later.
+- Codegen-exposed (Udp + OptionU8Vec). **Used the now-safe codegen workflow** (false-remove fix held: bare pass = 0 removals). Had to add `OptionU8Vec` explicitly (recv's return type not auto-traced - same gotcha as AudioFrame). Gate GREEN on all 5.
+
+NEXT: azul-meet app (mic capture -> Udp.send_to; Udp.recv -> AudioSink.play; + camera/video later) OR the chunking/seq framing layer. Then P9 (e2e) -> P10 (docs). (Deferred: apply the accumulated non-destructive drift now that apply <dir> is safe - moves/custom_impl modifies - as a separate verified cleanup.)

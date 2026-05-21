@@ -84572,6 +84572,27 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionU8Vec": {
+                        "external": "azul_css::corety::OptionU8Vec",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Ord",
+                            "PartialOrd",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "U8Vec"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -89619,6 +89640,124 @@
                                 }
                             }
                         ],
+                        "repr": "C"
+                    },
+                    "Udp": {
+                        "external": "azul_dll::desktop::extra::udp::Udp",
+                        "custom_impls": [
+                            "Clone",
+                            "Default",
+                            "Drop"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "bind": {
+                                "doc": [
+                                    "Bind a UDP socket to `local_addr` (e.g. \"0.0.0.0:0\" for any interface +",
+                                    "an OS-assigned port, or \"0.0.0.0:9000\" for a fixed port). The socket is",
+                                    "set non-blocking so [`recv`](Self::recv) never stalls the UI thread.",
+                                    "Returns an invalid handle (`is_open()` false) on failure."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "local_addr": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_dll::desktop::extra::udp::Udp::bind(local_addr)"
+                            }
+                        },
+                        "functions": {
+                            "close": {
+                                "doc": [
+                                    "Close the socket + release it. (Dropping the handle does this too;",
+                                    "`close` is for explicit / FFI control.)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.close()"
+                            },
+                            "send_to": {
+                                "doc": [
+                                    "Send one datagram to `remote_addr` (e.g. \"192.168.1.5:9000\"). Returns",
+                                    "the number of bytes sent (`0` on failure / not open). The payload is the",
+                                    "app's own framing."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "remote_addr": "String"
+                                    },
+                                    {
+                                        "data": "U8Vec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.send_to(remote_addr, data)"
+                            },
+                            "recv": {
+                                "doc": [
+                                    "Receive one pending datagram (non-blocking). Returns `Some(bytes)` if a",
+                                    "datagram was waiting, or `None` if the queue is empty / the socket isn't",
+                                    "open. Poll this from a timer or a background thread."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionU8Vec"
+                                },
+                                "fn_body": "object.recv()"
+                            },
+                            "is_open": {
+                                "doc": [
+                                    "Whether the socket bound successfully."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_open()"
+                            },
+                            "local_addr": {
+                                "doc": [
+                                    "The local address the socket is bound to (e.g. to learn the OS-assigned",
+                                    "port after binding to \":0\", so a peer can be told where to send). Empty",
+                                    "string if not open."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.local_addr().into()"
+                            }
+                        },
                         "repr": "C"
                     }
                 }

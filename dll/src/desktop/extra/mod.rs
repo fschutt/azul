@@ -35,6 +35,10 @@ pub mod pdf;
 /// on-device (the stub counts frames). The playback counterpart to
 /// `MicrophoneWidget` (capture). See `audio/mod.rs`.
 pub mod audio;
+/// UDP transport (P8). The `Udp` handle wraps a `std::net::UdpSocket` (no
+/// feature gate - `std::net` is always present, real on every target). The
+/// fault-tolerant packet-sharing primitive for azul-meet. See `udp/mod.rs`.
+pub mod udp;
 pub mod permission;
 /// Motion-sensor subscriptions (P6 feature 5). The dispatcher kicks the
 /// platform subscription once via [`sensors::ensure_started`] (CoreMotion on
