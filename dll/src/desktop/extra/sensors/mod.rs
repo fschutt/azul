@@ -32,6 +32,8 @@ pub mod apple;
 pub mod android;
 #[cfg(target_os = "linux")]
 pub mod linux;
+#[cfg(target_os = "windows")]
+pub mod windows;
 
 /// Start the device's motion-sensor subscription once per process. Called
 /// from `regenerate_layout` every frame; the OnceLock makes only the first
@@ -49,8 +51,9 @@ fn start() {
     android::start();
     #[cfg(target_os = "linux")]
     linux::start();
-    // Windows (and other targets): no motion sensors wired yet —
-    // `get_sensor_reading` stays `None`.
+    #[cfg(target_os = "windows")]
+    windows::start();
+    // Other targets: no motion sensors wired — `get_sensor_reading` stays `None`.
 }
 
 /// Pull the latest sample from each sensor into the async channel. Called
@@ -62,4 +65,6 @@ pub fn poll() {
     apple::poll();
     #[cfg(target_os = "linux")]
     linux::poll();
+    #[cfg(target_os = "windows")]
+    windows::poll();
 }
