@@ -138,7 +138,20 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
         if (slvLo !== 0 || slvHi !== 0) console.error('POST-TRAP: selfloop_routing_v=0x' + slvHi.toString(16) + slvLo.toString(16).padStart(8,'0') + ' (the non-zero value opt folded the loop-exit on; should be 0)');
         process.exit(1);
     }
-    if (rc !== 0) fail('solveLayoutReal rc=' + rc + ' (see status codes in eventloop.rs)');
+    if (rc !== 0) {
+        // 0x40080 = LayoutError code (0x4c45_000N) when rc=5 (layout_dom_recursive Err):
+        // 1=InvalidTree 2=SizingFailed 3=PositioningFailed 4=DisplayListFailed 5=Text
+        const le = mini.AzStartup_peekU32(0x40080);
+        if ((le >>> 16) === 0x4c45) {
+            const code = le & 0xffff, base = code & 0xff;
+            const names = {1:'InvalidTree',2:'SizingFailed',3:'PositioningFailed',4:'DisplayListFailed',5:'Text'};
+            const textNames = {1:'BidiError',2:'ShapingError',3:'FontNotFound',4:'InvalidText',5:'HyphenationError'};
+            let msg = names[base] || ('code'+base);
+            if (base === 5) msg += '(' + (textNames[(code>>8)&0xff] || ('?'+((code>>8)&0xff))) + ')';
+            console.error('POST-RC5: LayoutError = ' + msg);
+        }
+        fail('solveLayoutReal rc=' + rc + ' (see status codes in eventloop.rs)');
+    }
     console.log('[2] solveLayoutReal rc=0 (real taffy positioning ran in wasm)');
 
     const rectsLen = mini.AzStartup_getPositionedRectsLen(state);

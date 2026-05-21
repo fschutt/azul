@@ -1481,10 +1481,29 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
     // `layout_and_generate_display_list`, whose tail does virtual-view
     // scanning + scrollbar GPU registration we don't need on web).
     // Positions land in `layout_cache.calculated_positions`.
-    if lw
-        .layout_dom_recursive(styled, &ws, &rr, &sc, &mut dbg)
-        .is_err()
-    {
+    if let Err(e) = lw.layout_dom_recursive(styled, &ws, &rr, &sc, &mut dbg) {
+        // M12.7 diag: record WHICH LayoutError to 0x40080 (0x4c45_000N) so the
+        // gate can peek it (no stderr in lifted wasm).
+        let code: u32 = match e {
+            azul_layout::solver3::LayoutError::InvalidTree => 1,
+            azul_layout::solver3::LayoutError::SizingFailed => 2,
+            azul_layout::solver3::LayoutError::PositioningFailed => 3,
+            azul_layout::solver3::LayoutError::DisplayListFailed => 4,
+            azul_layout::solver3::LayoutError::Text(te) => {
+                use azul_layout::text3::cache::LayoutError as TE;
+                let inner: u32 = match te {
+                    TE::BidiError(_) => 1,
+                    TE::ShapingError(_) => 2,
+                    TE::FontNotFound(_) => 3,
+                    TE::InvalidText(_) => 4,
+                    TE::HyphenationError(_) => 5,
+                };
+                5 | (inner << 8)
+            }
+        };
+        unsafe {
+            core::ptr::write_volatile(0x40080 as *mut u32, 0x4c45_0000 | code);
+        }
         return 5;
     }
 
