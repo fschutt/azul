@@ -2184,3 +2184,11 @@ Extended `layout/tests/synthetic_events.rs` to 8 tests (all green), covering mor
 **FINDING (P9.3 todo):** wacom **PEN** events (PenDown/Move/Up) are FILTER-ONLY - they exist on Hover/Window/Focus `EventFilter` but have NO `EventType`, so `event_type_to_filters` doesn't route them and nothing dispatches them (the exact dead-filter state `GeolocationFix` had). Synthetically exercising pen needs the dispatch wired first (`EventType::Pen*` + routing/matcher arms + a wacom `EventProvider`), mirroring the SensorChanged/GamepadInput input-events wiring. Noted in the test + here.
 
 P9 now covers sensors/gamepad/geolocation/audio/video/touch synthetically (pen is the one unwired gap). NEXT: **P10** - guide docs for the new systems + the iOS/Android packaging+deploy section.
+
+### Tick — P10.1 — guide docs: realtime-media + mobile-deployment (2026-05-21)
+
+Wrote two `doc/guide/en/` guides (matching the existing frontmatter format), the two the user emphasized:
+- **realtime-media.md** (beta) - the new A/V + device stack: capture widgets + the `on_frame` hook (camera/screencap/video -> VideoFrame; MicrophoneWidget -> AudioFrame), `AudioSink` playback handle, `Udp` transport, and the **azul-meet pattern** (capture -> on_frame -> Udp.send; recv Timer -> AudioSink.play) with real code from examples/azul-meet. Documents what is on-device (real capture/playback/codec backends) + the video-codec choice (gpu-video desktop-only, openh264/VideoToolbox on Apple) + testing via the synthetic-event harness.
+- **mobile-deployment.md** (beta) - the iOS/Android packaging+deploy section the user explicitly asked for: the 5 cross-compile targets, the `link-static` + no-default-features build line, the C API (azul.h) seam, iOS (XCFramework, Xcode link, Info.plist permissions, the UIKit surface seam), Android (cargo-ndk, jniLibs, JNI/NativeActivity, AndroidManifest permissions, Gradle), on-device backends, and testing via mobile-check-all.sh + synthetic events.
+
+Both ASCII-clean. NEXT (P10.2): a device-input guide (sensors/gamepad/geolocation custom-events) + maps/PDF guides, OR consider P10 core-complete.
