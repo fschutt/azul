@@ -693,7 +693,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     };
 
     // --- Step 1.5: Early Exit Optimization ---
-    if recon_result.is_clean() {
+    // M12.7: `&& cache.tree.is_some()` — this "nothing changed, reuse cached
+    // layout" fast path REQUIRES a cached tree; on COLD layout cache.tree is
+    // None, so entering here would hit `ok_or(InvalidTree)`. recon_result must
+    // be dirty on cold (the viewport-resize dirties the root), but if
+    // is_clean() mis-evaluates we'd wrongly early-exit → InvalidTree. Guarding
+    // on a cached tree is both correct (can't reuse what isn't there) and
+    // robust. (rc=5 post-reconcile, step=2: this was the failing `?`.)
+    if recon_result.is_clean() && cache.tree.is_some() {
         debug_log!(ctx, "No changes, returning existing display list");
         let tree = cache.tree.as_ref().ok_or(LayoutError::InvalidTree)?;
 
@@ -724,6 +731,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             dom_id,
         );
     }
+
+    // M12.7 diag: step 3 = passed Step 1.5 (early-exit), entering Step 2.
+    unsafe { core::ptr::write_volatile(0x400A4 as *mut u32, 0xDD00_0003u32); }
 
     // --- Step 2: Incremental Layout Loop (handles scrollbar-induced reflows) ---
     let mut calculated_positions = cache.calculated_positions.clone();
