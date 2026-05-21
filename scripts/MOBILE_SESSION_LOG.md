@@ -2210,3 +2210,7 @@ P6 (input events/sensors/gamepad/capture hooks/PDF/MapWidget) + P7 (audio: Micro
 - Corrected the inaccurate note in `synthetic_events.rs` + replaced the inaccurate note in `device-input.md` with a proper "Pen / stylus" section (state-based, get_pen_state, the azul-paint pattern).
 
 **P9 COMPLETE**: synthetic-event harness covers all P2-P7 device-event families (sensors/gamepad/geolocation/audio/video/touch/pen) with no hardware. SUPER_PLAN_2 P4-P10 roadmap done; remaining follow-ups are optional (video-into-azul-meet chunking + on-device codec, real platform backends, maps/PDF/sqlite guides).
+
+### Tick — P10.3a — PDF guide (HTML-to-PDF) (2026-05-21)
+
+`doc/guide/en/pdf.md` (beta) - documents the standalone PDF API I uncoupled this session: `Pdf::new().from_dom(dom, page_w_px, page_h_px) -> U8Vec` (headless dom -> PDF pages, no window, no file I/O; the printpdf-WASM-style html-to-pdf). Covers page sizing (A4 794x1123 @ 96 DPI), auto-pagination, the azul-doc example, the JSON model (write_json/read_json), and the `pdf` feature gate. NEXT (optional): maps guide (MapWidget hooks+projection) + sqlite/Db guide.
