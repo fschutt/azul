@@ -3567,6 +3567,7 @@ pub trait PlatformWindow {
         if let Some(w) = self.get_layout_window_mut() {
             w.sensor_manager.clear_pending_event();
             w.gamepad_manager.clear_pending_event();
+            w.gesture_drag_manager.clear_pen_event_pending();
         }
 
         if synthetic_events.is_empty() {

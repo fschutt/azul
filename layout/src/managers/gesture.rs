@@ -480,6 +480,10 @@ pub struct GestureAndDragManager {
     pub active_drag: Option<DragContext>,
     /// Current pen/stylus state
     pub pen_state: Option<PenState>,
+    /// Pen state as of the previous determine-events pass (for diffing pen events).
+    pub previous_pen_state: Option<PenState>,
+    /// Set when pen state changed; gates one pen-event diff (cleared by the event loop).
+    pub pen_event_pending: bool,
     /// Latest Wacom tablet-pad state (ExpressKeys + touch-ring), or `None`
     /// until a pad backend delivers one.
     pub pad_state: Option<WacomPadState>,
@@ -555,6 +559,8 @@ impl GestureAndDragManager {
             next_session_id: 1,
             active_drag: None,
             pen_state: None,
+            previous_pen_state: None,
+            pen_event_pending: false,
             pad_state: None,
             long_press_callbacks_invoked: Vec::new(),
             native_gesture: None,
@@ -814,6 +820,7 @@ impl GestureAndDragManager {
         barrel_roll_rad: f32,
         tool_id: u32,
     ) {
+        self.previous_pen_state = self.pen_state.clone();
         self.pen_state = Some(PenState {
             position,
             pressure,
@@ -829,16 +836,29 @@ impl GestureAndDragManager {
             barrel_roll_rad,
             tool_id,
         });
+        self.pen_event_pending = true;
     }
 
     /// Clear pen state (when pen leaves proximity)
     pub fn clear_pen_state(&mut self) {
+        self.previous_pen_state = self.pen_state.clone();
         self.pen_state = None;
+        self.pen_event_pending = true;
     }
 
     /// Get current pen state (read-only)
     pub fn get_pen_state(&self) -> Option<&PenState> {
         self.pen_state.as_ref()
+    }
+
+    /// Get the previous pen state (for event diffing).
+    pub fn get_previous_pen_state(&self) -> Option<&PenState> {
+        self.previous_pen_state.as_ref()
+    }
+
+    /// Clear the pen-event-pending flag (called by the event loop after a pass).
+    pub fn clear_pen_event_pending(&mut self) {
+        self.pen_event_pending = false;
     }
 
     /// Set the latest Wacom tablet-pad state (called by the pad backend).

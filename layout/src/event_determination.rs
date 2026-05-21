@@ -661,6 +661,61 @@ pub fn determine_all_events(
         ));
     }
 
+    // Pen / Stylus Events (W3C PointerEvent, pointerType "pen")
+    // Diff the gesture manager's pen state; `pen_event_pending` gates one diff per
+    // update (the event loop clears it after this pass, like the sensor manager).
+    // Targets the hovered node (pen-as-pointer); full pen data via CallbackInfo.
+    if let Some(manager) = gesture_manager {
+        if manager.pen_event_pending {
+            let pen_data = make_mouse_data(MouseButton::Left);
+            match (manager.get_previous_pen_state(), manager.get_pen_state()) {
+                (None, Some(_)) => events.push(SyntheticEvent::new(
+                    EventType::PenEnter,
+                    EventSource::User,
+                    mouse_target.clone(),
+                    timestamp.clone(),
+                    pen_data.clone(),
+                )),
+                (Some(_), None) => events.push(SyntheticEvent::new(
+                    EventType::PenLeave,
+                    EventSource::User,
+                    mouse_target.clone(),
+                    timestamp.clone(),
+                    pen_data.clone(),
+                )),
+                (Some(p), Some(c)) => {
+                    if !p.in_contact && c.in_contact {
+                        events.push(SyntheticEvent::new(
+                            EventType::PenDown,
+                            EventSource::User,
+                            mouse_target.clone(),
+                            timestamp.clone(),
+                            pen_data.clone(),
+                        ));
+                    } else if p.in_contact && !c.in_contact {
+                        events.push(SyntheticEvent::new(
+                            EventType::PenUp,
+                            EventSource::User,
+                            mouse_target.clone(),
+                            timestamp.clone(),
+                            pen_data.clone(),
+                        ));
+                    }
+                    if p.position != c.position {
+                        events.push(SyntheticEvent::new(
+                            EventType::PenMove,
+                            EventSource::User,
+                            mouse_target.clone(),
+                            timestamp.clone(),
+                            pen_data.clone(),
+                        ));
+                    }
+                }
+                (None, None) => {}
+            }
+        }
+    }
+
     // Gesture Events
 
     if let Some(manager) = gesture_manager {
