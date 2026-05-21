@@ -2243,3 +2243,13 @@ NEXT (optional): wire camera -> send_chunked -> recv_chunked -> video display in
 Moved the chunk/reassembly logic out of the socket-coupled `Udp` methods into a pure, unit-tested core module `azul_core::udp_framing` (`chunk_message` + `UdpReassembler::ingest`, no_std+alloc). The dll's `Udp::send_chunked`/`recv_chunked` now call it (cleaner; the framing is no longer entangled with the socket). **5 unit tests, all green** (`cargo test -p azul-core udp_framing`): chunk->reassemble roundtrip, out-of-order delivery, incomplete-message-yields-nothing, empty-message roundtrip, two interleaved messages. Gate GREEN on all 5 targets. Updated realtime-media.md to reference the built-in send_chunked/recv_chunked.
 
 **P8 fault-tolerant packet sharing: complete + validated.** The session's reassembly logic (the most bug-prone new code) is now tested, not just compile-verified.
+
+### Tick — finding: video-display is feasible (NOT blocked on change_node_image) (2026-05-21)
+
+Correcting an earlier claim: displaying received video frames is NOT blocked on the `change_node_image` full-DL-rebuild fix. `capture_common::present_frame(info, dataset, current_id, &VideoFrame)` already uploads a frame into a STABLE external-texture `ImageRef` (the data pointer stays fixed) and re-renders via `info.update_all_image_callbacks()` -> `ShouldReRenderCurrentWindow` - no display-list rebuild. The camera widget uses this every frame today.
+
+**So video-into-azul-meet is unblocked, just unbuilt.** Design (camera-widget pattern, app drives instead of a capture worker):
+- `VideoDisplayWidget`: a `Dom::create_image(placeholder)` node + a dataset holding `gl_texture_id` (carried across relayout by a merge callback).
+- A codegen-exposed `push_frame(info, dataset, VideoFrame)` (wrapping `present_frame`) the app calls from its recv Timer (which has `CallbackInfo`) to upload each `recv_chunked` -> deserialized frame.
+- Send side: a `CameraWidget` whose `on_frame` serializes the `VideoFrame` + `Udp::send_chunked`s it.
+The remaining work is the widget + the push-API shape (a design choice) + the camera-capture send side; the GL upload itself is on-device (like the camera preview). Substantial but ready to build on green-light - this is the natural azul-meet video completion (audio works today).
