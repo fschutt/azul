@@ -171,6 +171,17 @@ pub enum FnClass {
     /// IR emits a real `@llvm.memmove` body instead — see
     /// `emit_helper_ir` BranchExternKind::LibcMemcpy.
     LibcMemcpy,
+    /// libc `memset` (X0=dest, X1=byte, X2=n; returns dest in X0). Like
+    /// `LibcMemcpy` the real symbol is out-of-image, so the default `Leaf`
+    /// stub RETURNS without writing — which silently drops every bulk fill.
+    /// CRITICAL: hashbrown initializes a freshly-allocated table's control
+    /// bytes to EMPTY (0xFF) via `ptr::write_bytes(EMPTY, n)` = `memset`. A
+    /// no-op stub leaves them at the bump allocator's zero bytes (0x00, which
+    /// reads as a FULL slot with the high bit clear), so `HashMap::insert`'s
+    /// SwissTable probe never finds an empty slot → INFINITE LOOP (the M12.7
+    /// sizing hang in `calculate_intrinsic_sizes`). Helper IR emits a real
+    /// `@llvm.memset` body — see `emit_helper_ir`.
+    LibcMemset,
     /// Server-entry-point (e.g. `AzApp_run`). Should never appear in
     /// a lifted body; if it does, the helper IR should trap loudly.
     NeverLift,
@@ -706,6 +717,9 @@ impl SymbolTable {
                     // `@llvm.memmove` body, so don't downgrade it to a
                     // no-op Leaf here.
                     | FnClass::LibcMemcpy
+                    // LibcMemset: same — out-of-image but has a synthetic
+                    // `@llvm.memset` body; don't downgrade to a no-op Leaf.
+                    | FnClass::LibcMemset
             ) {
                 continue;
             }
@@ -1697,6 +1711,12 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
         let core = stripped.strip_prefix("platform_").unwrap_or(stripped);
         if core.starts_with("memcpy") || core.starts_with("memmove") {
             return FnClass::LibcMemcpy;
+        }
+        // libc `memset` (+ `_platform_memset`, `___memset_chk`): same out-of-image
+        // problem — a no-op stub drops hashbrown's control-byte EMPTY (0xFF) init,
+        // hanging HashMap::insert. Emit a real `@llvm.memset` body.
+        if core.starts_with("memset") {
+            return FnClass::LibcMemset;
         }
     }
     // Web backend: the display-list painter surface
