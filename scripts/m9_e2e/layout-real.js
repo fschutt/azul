@@ -201,6 +201,12 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
         else console.error('POST-RC5: 3-arg get_element_font_size NOT entered (0x400DC=0x' + gef.toString(16) + ')');
     }
     console.log('[2] solveLayoutReal rc=0 (real taffy positioning ran in wasm)');
+    {   // M12.7 diag (always): where did layout_document go?
+        const step = mini.AzStartup_peekU32(0x400A4);
+        const rbr = mini.AzStartup_peekU32(0x400A8);
+        const rok = mini.AzStartup_peekU32(0x400AC);
+        console.error('  layout_document step=0x' + step.toString(16) + ' (0xDD00_000N: 1=entry 2=post-reconcile 3=entered-Step2); reconcile branch=0x' + rbr.toString(16) + ' Ok=0x' + rok.toString(16));
+    }
 
     const rectsLen = mini.AzStartup_getPositionedRectsLen(state);
     const rectsPtr = mini.AzStartup_getPositionedRectsPtr(state);
