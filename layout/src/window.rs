@@ -372,6 +372,14 @@ pub struct TextChangesetResult {
 /// - Handle window resizes efficiently
 /// - Manage multiple DOMs (for VirtualViews)
 pub struct LayoutWindow {
+    /// M12.7 web/headless: skip the GPU transform/opacity sync in
+    /// `layout_dom_recursive`. That sync only feeds the display list (which
+    /// the web backend skips), has no GPU, and `GpuValueCache::synchronize`
+    /// currently mis-lifts to wasm (out-of-bounds). Gated via this heap field
+    /// (a normal struct read — reliable in the lift, unlike the
+    /// `SKIP_DISPLAY_LIST` `__bss` static, whose store/load is inconsistent
+    /// in the lifted wasm). Default false → desktop is unaffected.
+    pub skip_gpu_sync: bool,
     /// Fragmentation context for this window (continuous for screen, paged for print)
     #[cfg(feature = "pdf")]
     pub fragmentation_context: crate::paged::FragmentationContext,
@@ -536,6 +544,7 @@ impl LayoutWindow {
     /// For full initialization with WindowInternal compatibility, use `new_full()`.
     pub fn new(fc_cache: FcFontCache) -> Result<Self, crate::solver3::LayoutError> {
         Ok(Self {
+            skip_gpu_sync: false,
             // Default width, will be updated on first layout
             #[cfg(feature = "pdf")]
             fragmentation_context: crate::paged::FragmentationContext::new_continuous(800.0),
@@ -621,6 +630,7 @@ impl LayoutWindow {
         parsed_fonts: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<rust_fontconfig::FontId, FontRef>>>,
     ) -> Result<Self, crate::solver3::LayoutError> {
         Ok(Self {
+            skip_gpu_sync: false,
             #[cfg(feature = "pdf")]
             fragmentation_context: crate::paged::FragmentationContext::new_continuous(800.0),
             layout_cache: Solver3LayoutCache {
@@ -1028,7 +1038,14 @@ impl LayoutWindow {
         // `gpu_state_manager.pending_changes` so the renderer can later push
         // matching WebRender transactions alongside scrollbar transform
         // events.
-        {
+        // The GPU transform/opacity sync only feeds the display list
+        // (reference frames + opacity stacking contexts read by
+        // display_list.rs). The web backend skips the display list
+        // (SKIP_DISPLAY_LIST) and has no GPU, so skip this too — layout
+        // geometry never depends on it (transforms are render-time). This
+        // also avoids GpuValueCache::synchronize, which currently mis-lifts
+        // to wasm (out-of-bounds access). Desktop is unaffected.
+        if !self.skip_gpu_sync {
             let mut transform_opacity_events = self
                 .gpu_state_manager
                 .get_or_create_cache(dom_id)

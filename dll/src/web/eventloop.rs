@@ -1458,6 +1458,11 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
         Ok(lw) => lw,
         Err(_) => return 4,
     };
+    // Web/headless: skip the GPU transform/opacity sync in layout_dom_recursive
+    // (display-list-only, no GPU here, and GpuValueCache::synchronize mis-lifts
+    // to wasm → OOB). Heap field, not the SKIP_DISPLAY_LIST static (whose
+    // store/load is unreliable in the lifted wasm).
+    lw.skip_gpu_sync = true;
     let mut ws = FullWindowState::default();
     ws.size.dimensions = LogicalSize::new(viewport_w as f32, viewport_h as f32);
     let rr = RendererResources::default();

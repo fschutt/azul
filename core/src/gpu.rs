@@ -131,8 +131,15 @@ impl GpuValueCache {
                 // Bit-check short-circuit: only proceed if the node might have a transform.
                 if styled_node_state.is_normal() {
                     if let Some(ref cc) = css_property_cache.compact_cache {
+                        // M12.7: short-circuit the empty-map get. hashbrown's
+                        // empty-map probe touches the static empty control-group,
+                        // which mis-lifts to wasm (out-of-bounds access); the web
+                        // headless layout uses a fresh (empty) GpuValueCache. An
+                        // empty map has no entry anyway, and is_empty() is len-based
+                        // (no probe), so the result is identical on desktop.
                         if !cc.has_transform(node_id.index())
-                            && self.css_current_transform_values.get(&node_id).is_none()
+                            && (self.css_current_transform_values.is_empty()
+                                || self.css_current_transform_values.get(&node_id).is_none())
                         {
                             return None;
                         }
@@ -166,7 +173,11 @@ impl GpuValueCache {
                         )
                     });
 
-                let existing_transform = self.css_current_transform_values.get(&node_id);
+                let existing_transform = if self.css_current_transform_values.is_empty() {
+                    None
+                } else {
+                    self.css_current_transform_values.get(&node_id)
+                };
 
                 match (existing_transform, current_transform) {
                     (None, None) => None, // no new transform, no old transform
