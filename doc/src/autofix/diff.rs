@@ -1229,13 +1229,16 @@ fn generate_diff_v2(
             // Vec types need Option types (for c_get) and Slice types (for as_c_slice)
             // These are macro-generated and not directly reachable via function signatures
             if !vec_required_types.contains(api_name) {
-                // Type is in api.json but couldn't be resolved from workspace
-                // This could mean:
-                // a) Type was deleted from workspace
-                // b) Type was renamed (different name now)
-                // c) Type is no longer reachable from any function
-                diff.removals
-                    .push(format!("{}:{}", api_name, api_info.path));
+                // Type is in api.json but wasn't matched (resolved from a function
+                // signature). Only REMOVE it if it's genuinely gone from the workspace
+                // (deleted/renamed). A type still present in source is a deliberately-
+                // exposed standalone type (e.g. MapTileId, OnAudioFrame) that just isn't
+                // reachable from a public fn signature - removing it would drop a valid
+                // binding and make `autofix apply <dir>` destructive (false-remove drift).
+                if index.resolve(api_name, None).is_none() {
+                    diff.removals
+                        .push(format!("{}:{}", api_name, api_info.path));
+                }
             }
         }
 
@@ -1378,6 +1381,12 @@ fn generate_diff_v2(
     // Add dead types that are currently in api.json to removals
     for dead_type in &dead_types {
         if !already_removed.contains(dead_type) {
+            // Same guard as the unmatched-type removal above: never auto-remove a type
+            // that still exists in the workspace source (a valid exposed standalone type),
+            // only one genuinely gone - keeps `autofix apply <dir>` non-destructive.
+            if index.resolve(dead_type, None).is_some() {
+                continue;
+            }
             if let Some(api_info) = current_api_types.get(dead_type) {
                 diff.removals.push(format!("{}:{}", dead_type, api_info.path));
             }
