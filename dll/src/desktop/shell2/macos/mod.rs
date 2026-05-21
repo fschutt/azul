@@ -3685,9 +3685,9 @@ impl MacOSWindow {
         if let Some((top, left, bottom, right)) = safe_area {
             let mk = |v: f64| {
                 if v > 0.5 {
-                    azul_css::OptionPixelValue::Some(azul_css::PixelValue::px(v as f32))
+                    azul_css::props::basic::OptionPixelValue::Some(azul_css::props::basic::PixelValue::px(v as f32))
                 } else {
-                    azul_css::OptionPixelValue::None
+                    azul_css::props::basic::OptionPixelValue::None
                 }
             };
             layout_window.safe_area_insets = azul_css::system::SafeAreaInsets {

@@ -504,8 +504,45 @@ extern "C" fn layout_subviews(this: &Object, _cmd: Sel) {
                 window.common.frame_needs_regeneration = true;
             }
         }
+        // Safe-area insets (notch / Dynamic Island / home indicator / rounded
+        // corners) from the view, so get_safe_area_insets + CSS
+        // env(safe-area-inset-*) reflect the device.
+        let insets: UIEdgeInsets =
+            unsafe { msg_send![this as *const Object as *mut Object, safeAreaInsets] };
+        if let Some(lw) = window.common.layout_window.as_mut() {
+            let mk = |v: f64| {
+                if v > 0.5 {
+                    azul_css::props::basic::OptionPixelValue::Some(azul_css::props::basic::PixelValue::px(v as f32))
+                } else {
+                    azul_css::props::basic::OptionPixelValue::None
+                }
+            };
+            lw.safe_area_insets = azul_css::system::SafeAreaInsets {
+                top: mk(insets.top),
+                bottom: mk(insets.bottom),
+                left: mk(insets.left),
+                right: mk(insets.right),
+            };
+        }
     }
     let _ = sel!(layoutSubviews);
+}
+
+/// `UIEdgeInsets` { top, left, bottom, right } (CGFloat) — for the struct-return
+/// `msg_send![view, safeAreaInsets]`, mirroring the CoreLocation coordinate
+/// pattern in geolocation/macos.rs (no UIKit-sys dependency).
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+struct UIEdgeInsets {
+    top: f64,
+    left: f64,
+    bottom: f64,
+    right: f64,
+}
+unsafe impl objc::Encode for UIEdgeInsets {
+    fn encode() -> objc::Encoding {
+        unsafe { objc::Encoding::from_str("{UIEdgeInsets=dddd}") }
+    }
 }
 
 // ─── UIKit gesture-recognizer handlers (Sprint M iOS side) ───────────

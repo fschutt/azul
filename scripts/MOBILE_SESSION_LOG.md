@@ -2358,3 +2358,11 @@ Holding on the device-tested features (Wacom/touch XInput2, mobile notch on unve
 - `device-input.md`: a "Safe-area insets (notches)" section - `CallbackInfo::get_safe_area_insets` -> css `SafeAreaInsets` (top/right/bottom/left OptionPixelValue), populated on macOS via `NSView.safeAreaInsets`.
 - `realtime-media.md`: the video encode/decode bullet now documents `VideoEncoder`/`VideoDecoder` (open/encode/decode + `backend_name()` native-per-platform selection: gpu-video / VideoToolbox / MediaCodec).
 Search keys added to both. Device-tested features still await a steer (a/b) or a device.
+
+### Tick — iOS notch population + fix macOS notch css path (2026-05-21)
+
+`shell2/ios/mod.rs::layout_subviews` now reads `UIView.safeAreaInsets` (legacy-objc struct-return via a `UIEdgeInsets` `Encode` impl, mirroring the geolocation `CLLocationCoordinate2D` pattern) -> `layout_window.safe_area_insets`. So on iOS `get_safe_area_insets` + CSS `env(safe-area-inset-*)` reflect the notch / Dynamic Island / home indicator. **Gate-verified** (the ios targets compile shell2/ios).
+
+Also fixed a path bug the iOS gate exposed: both the iOS edit *and* the committed macOS notch (41a572365) used `azul_css::OptionPixelValue`/`PixelValue`, but those live at `azul_css::props::basic::`. My earlier macOS host-check passed on a stale incremental cache (it didn't recompile shell2/macos with the new line); the fresh iOS cargo-check caught it. Fixed both -> gate GREEN x7 + macOS host check Finished clean. Lesson: a macOS-shell change needs a *fresh* host check, not just the cross-gate (no macOS target).
+
+Safe-area now populated on both Apple platforms (macOS notch + iOS); Android `WindowInsets` (JNI) remains.
