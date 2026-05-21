@@ -2237,3 +2237,9 @@ Completed P8's "fault-tolerant packet sharing" intent (the chunking I'd deferred
 This makes azul-meet video-capable (audio uses send_to; video frames would use send_chunked). Rationale for doing it now: it's P8's stated intent (AzUdp = fault-tolerant packet sharing), bounded, with a standard correct design - "keep working, don't ask" over holding.
 
 NEXT (optional): wire camera -> send_chunked -> recv_chunked -> video display into azul-meet (+ the on-device codec), and the real platform backends.
+
+### Tick — P8.udp.3 — extract + TEST the UDP framing (validated) (2026-05-21)
+
+Moved the chunk/reassembly logic out of the socket-coupled `Udp` methods into a pure, unit-tested core module `azul_core::udp_framing` (`chunk_message` + `UdpReassembler::ingest`, no_std+alloc). The dll's `Udp::send_chunked`/`recv_chunked` now call it (cleaner; the framing is no longer entangled with the socket). **5 unit tests, all green** (`cargo test -p azul-core udp_framing`): chunk->reassemble roundtrip, out-of-order delivery, incomplete-message-yields-nothing, empty-message roundtrip, two interleaved messages. Gate GREEN on all 5 targets. Updated realtime-media.md to reference the built-in send_chunked/recv_chunked.
+
+**P8 fault-tolerant packet sharing: complete + validated.** The session's reassembly logic (the most bug-prone new code) is now tested, not just compile-verified.

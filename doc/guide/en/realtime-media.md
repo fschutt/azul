@@ -118,9 +118,11 @@ udp.send_to(peer_addr, my_bytes);               // -> usize bytes sent
 if let OptionU8Vec::Some(bytes) = udp.recv() { /* deserialize + use */ }
 ```
 
-Payloads larger than the network MTU (a full video keyframe) need app-side
-chunking + sequence numbers - a small framing layer on top of `send_to`/`recv`.
-Audio chunks (a few KB) fit in a single datagram.
+Payloads larger than the network MTU (a full video keyframe) use the built-in
+chunking: `Udp::send_chunked` splits the message into sequenced datagrams and
+`Udp::recv_chunked` reassembles them, tolerating reorder + loss (an incomplete
+message is dropped, never retransmitted). Audio chunks (a few KB) fit in a
+single datagram, so use `send_to` / `recv` for those.
 
 ## Putting it together: the azul-meet pattern
 

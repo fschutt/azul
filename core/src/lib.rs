@@ -112,6 +112,10 @@ pub mod video;
 /// f32 samples). The unit captured from the mic, played back, and (P8) shared
 /// over UDP. Backend (rodio / cpal / AVAudioEngine / AAudio) lives dll-side.
 pub mod audio;
+/// UDP chunked-message framing (P8): split a >MTU payload into sequenced
+/// datagrams + reassemble them, tolerating reorder + loss. Pure logic the
+/// dll's `Udp` handle builds on; unit-tested here. See `udp_framing.rs`.
+pub mod udp_framing;
 /// Logical and physical coordinate types (`LogicalSize`, `PhysicalPosition`, etc.).
 pub mod geom;
 /// OpenGL context wrappers, shader compilation, and texture cache.

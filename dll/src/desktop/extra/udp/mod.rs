@@ -4,53 +4,38 @@
 //! non-blocking wrapper over `std::net::UdpSocket`, exposed as a C-ABI handle
 //! (`ptr` + `run_destructor`) like `Db` / `AudioSink` / the `Pdf` handle. The
 //! app holds it in its own State (no globals) and pumps it from a timer or a
-//! background thread: `recv()` to drain incoming datagrams, `send_to(...)` to
-//! push one out.
+//! background thread.
 //!
 //! Two layers:
 //!
 //! - **Byte-level** (`send_to` / `recv`): one datagram in, one datagram out.
-//!   The app frames its own small payload (an audio chunk, a chat line). Fits
-//!   in a single datagram (<= ~1200 bytes is always safe).
+//!   The app frames its own small payload. Fits in a single datagram
+//!   (<= ~1200 bytes is always safe).
 //! - **Chunked** (`send_chunked` / `recv_chunked`): for payloads larger than a
-//!   datagram (a video keyframe), splits the message into sequenced chunks and
-//!   reassembles them on the far side. UDP's loss/reorder is tolerated: a
-//!   message whose chunks never all arrive is simply dropped (no retransmit,
-//!   no head-of-line blocking) - exactly the model realtime A/V wants.
+//!   datagram (a video keyframe). The chunking + reassembly is the pure,
+//!   unit-tested [`azul_core::udp_framing`] logic; UDP's loss/reorder is
+//!   tolerated (a message whose chunks never all arrive is dropped, no
+//!   retransmit) - the model realtime A/V wants.
 //!
 //! `std::net` is always available, so - unlike the rodio/sqlite/printpdf
 //! engines - there is no feature gate and no stub: this is real on every
 //! target.
 
 use core::ffi::c_void;
-use std::collections::BTreeMap;
 use std::net::UdpSocket;
 
+use azul_core::udp_framing::{chunk_message, UdpReassembler, DEFAULT_CHUNK_PAYLOAD};
 use azul_css::{AzString, OptionU8Vec, U8Vec};
 
 /// Max single UDP datagram we'll receive into (64 KiB - the IPv4 ceiling).
 const RECV_BUF_LEN: usize = 65_536;
-/// Chunk header: msg_id (u32 LE) + chunk_idx (u16 LE) + chunk_count (u16 LE).
-const CHUNK_HEADER_LEN: usize = 8;
-/// Conservative per-datagram payload for chunked sends (leaves room under a
-/// typical ~1400-byte path MTU, so chunks don't fragment on the wire).
-const CHUNK_PAYLOAD_LEN: usize = 1200;
-/// Cap on in-flight partial messages; the oldest is evicted past this, so a
-/// lost chunk can never leak memory.
-const MAX_PARTIAL_MESSAGES: usize = 256;
 
-/// A message being reassembled from chunks.
-struct PartialMessage {
-    chunk_count: u16,
-    chunks: BTreeMap<u16, Vec<u8>>,
-}
-
-/// Engine-side state behind the `Udp` handle: the socket plus the chunking
-/// send counter + reassembly buffers.
+/// Engine-side state behind the `Udp` handle: the socket plus the chunked-send
+/// counter + the reassembly buffer.
 struct UdpInner {
     socket: UdpSocket,
     next_msg_id: u32,
-    partial: BTreeMap<u32, PartialMessage>,
+    reassembler: UdpReassembler,
 }
 
 /// A non-blocking UDP socket handle. Open with [`Udp::bind`], then
@@ -99,7 +84,7 @@ impl Udp {
                 let inner = Box::new(UdpInner {
                     socket,
                     next_msg_id: 0,
-                    partial: BTreeMap::new(),
+                    reassembler: UdpReassembler::new(),
                 });
                 Udp {
                     ptr: Box::into_raw(inner) as *mut c_void,
@@ -152,11 +137,11 @@ impl Udp {
     }
 
     /// Send a (possibly large) message to `remote_addr`, split into sequenced
-    /// chunks. Use this for payloads bigger than a datagram (a video frame).
-    /// Reassemble on the far side with [`recv_chunked`](Self::recv_chunked).
-    /// Returns the number of chunks sent (`0` if not open). Lossy by nature:
-    /// if a chunk is dropped in flight the message is discarded by the
-    /// receiver rather than stalling.
+    /// chunks via [`azul_core::udp_framing`]. Use this for payloads bigger than
+    /// a datagram (a video frame); reassemble on the far side with
+    /// [`recv_chunked`](Self::recv_chunked). Returns the number of chunks sent
+    /// (`0` if not open). Lossy by nature: a dropped chunk discards the message
+    /// at the receiver rather than stalling.
     pub fn send_chunked(&self, remote_addr: AzString, data: U8Vec) -> usize {
         let i = match self.inner() {
             Some(i) => i,
@@ -164,26 +149,9 @@ impl Udp {
         };
         let msg_id = i.next_msg_id;
         i.next_msg_id = i.next_msg_id.wrapping_add(1);
-
-        let bytes = data.as_ref();
-        let count = if bytes.is_empty() {
-            1
-        } else {
-            bytes.len().div_ceil(CHUNK_PAYLOAD_LEN)
-        };
-        let count_u16 = count.min(u16::MAX as usize) as u16;
         let addr = remote_addr.as_str();
         let mut sent = 0usize;
-        for idx in 0..count_u16 {
-            let start = idx as usize * CHUNK_PAYLOAD_LEN;
-            let end = (start + CHUNK_PAYLOAD_LEN).min(bytes.len());
-            let mut packet = Vec::with_capacity(CHUNK_HEADER_LEN + (end - start));
-            packet.extend_from_slice(&msg_id.to_le_bytes());
-            packet.extend_from_slice(&idx.to_le_bytes());
-            packet.extend_from_slice(&count_u16.to_le_bytes());
-            if start < end {
-                packet.extend_from_slice(&bytes[start..end]);
-            }
+        for packet in chunk_message(msg_id, data.as_ref(), DEFAULT_CHUNK_PAYLOAD) {
             if i.socket.send_to(&packet, addr).is_ok() {
                 sent += 1;
             }
@@ -193,8 +161,8 @@ impl Udp {
 
     /// Drain pending datagrams and return the next fully-reassembled chunked
     /// message, or `None` if none completed this poll. Out-of-order chunks are
-    /// buffered; messages whose chunks never all arrive are eventually evicted
-    /// (bounded memory). Pair with [`send_chunked`](Self::send_chunked).
+    /// buffered; incomplete messages are dropped (bounded memory). Pair with
+    /// [`send_chunked`](Self::send_chunked).
     pub fn recv_chunked(&self) -> OptionU8Vec {
         let i = match self.inner() {
             Some(i) => i,
@@ -202,38 +170,14 @@ impl Udp {
         };
         let mut buf = vec![0u8; RECV_BUF_LEN];
         loop {
-            let n = match i.socket.recv(&mut buf) {
-                Ok(n) if n >= CHUNK_HEADER_LEN => n,
-                Ok(_) => continue, // runt / malformed, skip
+            match i.socket.recv(&mut buf) {
+                Ok(n) => {
+                    if let Some(msg) = i.reassembler.ingest(&buf[..n]) {
+                        return OptionU8Vec::Some(U8Vec::from_vec(msg));
+                    }
+                    // otherwise keep draining until a message completes / WouldBlock
+                }
                 Err(_) => return OptionU8Vec::None, // WouldBlock or error: done for now
-            };
-            let msg_id = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]);
-            let idx = u16::from_le_bytes([buf[4], buf[5]]);
-            let count = u16::from_le_bytes([buf[6], buf[7]]);
-            if count == 0 || idx >= count {
-                continue;
-            }
-            let entry = i.partial.entry(msg_id).or_insert_with(|| PartialMessage {
-                chunk_count: count,
-                chunks: BTreeMap::new(),
-            });
-            entry.chunks.insert(idx, buf[CHUNK_HEADER_LEN..n].to_vec());
-
-            if entry.chunks.len() == entry.chunk_count as usize {
-                // Complete: concatenate chunks in index order.
-                let msg = i.partial.remove(&msg_id).unwrap();
-                let mut out = Vec::new();
-                for (_, chunk) in msg.chunks {
-                    out.extend_from_slice(&chunk);
-                }
-                return OptionU8Vec::Some(U8Vec::from_vec(out));
-            }
-
-            // Bound memory: evict the oldest partial message if too many pile up.
-            if i.partial.len() > MAX_PARTIAL_MESSAGES {
-                if let Some((&oldest, _)) = i.partial.iter().next() {
-                    i.partial.remove(&oldest);
-                }
             }
         }
     }
