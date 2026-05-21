@@ -79,3 +79,14 @@ wl_surface: destroy0 attach1(buf,x,y) damage2(x,y,w,h) frame3 set_opaque_region4
 `wl_fixed_t = int32_t` (24.8); listeners receive i32, not f64. Fix wl_pointer_listener.enter/motion `surface_x/y` + axis `value` from f64 -> i32 (wl_fixed_t); in pointer_enter/motion/axis handlers convert `v as f64 / 256.0`. Same rule for wl_touch (down/motion x/y = i32) + tablet tool (motion/tilt/rotation = i32 wl_fixed; pressure/distance = u32 0..65535; slider = i32).
 
 ### Then: wl_touch (op via get_touch + wl_touch_interface + listener) + zwp_tablet_v2 (manager get_tablet_seat op0 ->seat(NULL,wl_seat); hand-roll zwp_tablet_*_interface descriptors — NOT in libwayland). Feed -> touch_state / update_pen_state_full, per the protocol section above.
+
+## Wayland tablet-v2 descriptor data (researched 2026-05-21) — for hand-rolled wl_interface
+
+All 4 pen interfaces version 2. Build via the get_*_interface() Box::leak pattern (like get_text_input_v3_interface). Only new_id ('n') EVENT types must be non-NULL (libwayland creates the proxy from types[]); 'o' args + request-'n' (marshal_constructor takes the interface separately) can be NULL (tolerated, as the text-input builder does).
+
+- **zwp_tablet_manager_v2** v2: req[0] get_tablet_seat "no" (types NULL ok), req[1] destroy "". no events.
+- **zwp_tablet_seat_v2** v2: req[0] destroy "". ev[0] tablet_added "n" [&tablet_v2], ev[1] tool_added "n" [&tool_v2], ev[2] pad_added "n" [&pad_v2].
+- **zwp_tablet_v2** v2: req[0] destroy "". ev: name "s"(0), id "uu"(1), path "s"(2), done ""(3), removed ""(4), bustype "2u"(5).
+- **zwp_tablet_tool_v2** v2: req[0] set_cursor "u?oii", req[1] destroy "". ev: type "u"(0), hardware_serial "uu"(1), hardware_id_wacom "uu"(2), capability "u"(3), done(4), removed(5), proximity_in "uoo"(6), proximity_out(7), down "u"(8), up(9), motion "ff"(10), pressure "u"(11), distance "u"(12), tilt "ff"(13), rotation "f"(14), slider "i"(15), wheel "fi"(16), button "uuu"(17), frame "u"(18).
+
+Map (tool, per frame): pressure/65535 -> 0..1; tilt_x/y = wl_fixed/256 (degrees); rotation = wl_fixed/256 (deg); type==eraser(0x141) -> eraser; down/up = tip contact; motion x/y = wl_fixed/256 surface-local. Listeners only for seat/tablet/tool (the pen). **PAD:** pad_added's new_id needs zwp_tablet_pad_v2 (+ group/ring/strip/dial) descriptors too, else pad-equipped tablets crash (compositor sends pad events eagerly + pad.group is a new_id). Pad sub-objects = descriptors only, parse-and-drop (no listeners). Data being fetched.
