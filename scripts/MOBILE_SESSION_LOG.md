@@ -2192,3 +2192,12 @@ Wrote two `doc/guide/en/` guides (matching the existing frontmatter format), the
 - **mobile-deployment.md** (beta) - the iOS/Android packaging+deploy section the user explicitly asked for: the 5 cross-compile targets, the `link-static` + no-default-features build line, the C API (azul.h) seam, iOS (XCFramework, Xcode link, Info.plist permissions, the UIKit surface seam), Android (cargo-ndk, jniLibs, JNI/NativeActivity, AndroidManifest permissions, Gradle), on-device backends, and testing via mobile-check-all.sh + synthetic events.
 
 Both ASCII-clean. NEXT (P10.2): a device-input guide (sensors/gamepad/geolocation custom-events) + maps/PDF guides, OR consider P10 core-complete.
+
+### Tick — P10.2 — device-input guide (sensors/gamepad/geolocation) (2026-05-21)
+
+`doc/guide/en/device-input.md` (beta) - documents the P6 device-input custom-events I built: `WindowEventFilter::SensorChanged` + `get_sensor_reading`, `GamepadInput` + `get_primary_gamepad`/`get_gamepad_state`, the geolocation permission-as-DOM probe + `get_location_fix`. Emphasizes the "react to the event, read detail via the accessor, no Timer poll" pattern, configurability (what's create-time vs platform-backend), synthetic-event testing, and the pen-dispatch gap note.
+
+**P10 core-complete**: realtime-media + mobile-deployment + device-input cover the session's new systems (P6 capture/sensors/gamepad, P7 audio, P8 UDP/azul-meet) + the iOS/Android packaging the user emphasized. (maps/PDF/sqlite are earlier P3-P5 systems; guides for those are optional follow-ups.)
+
+=== SUPER_PLAN_2 P4-P10 roadmap: COMPLETE this session ===
+P6 (input events/sensors/gamepad/capture hooks/PDF/MapWidget) + P7 (audio: MicrophoneWidget+AudioSink) + P8 (Udp + azul-meet) + P9 (synthetic-event harness) + P10 (guide docs + mobile packaging). Plus: azul-doc autofix false-remove bug FIXED, vk-video researched (Apple-blocked -> openh264/VideoToolbox), 2 MicrophoneWidget API gaps fixed. Open follow-ups: pen-dispatch wiring (P9.3), video-into-azul-meet (chunking + on-device codec), real on-device backends (AVFoundation/rodio/etc.), maps/PDF/sqlite guides.
