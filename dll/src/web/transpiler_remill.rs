@@ -2420,6 +2420,15 @@ fn collect_synth_data_pages(
     // read back zero under precise-only mirroring (0 whole-page
     // fallbacks observed in the cascade build).
     let force_whole_page = std::env::var_os("AZ_FORCE_WHOLE_PAGE").is_some();
+    // M12.7: pages reached only INDIRECTLY via a mirrored pointer (never a
+    // direct `adrp`) — e.g. hashbrown's static EMPTY_GROUP, pointed at by the
+    // empty-table singleton's rebased `ctrl`. Such a page is not in
+    // accessed_pages, so unmirrored it reads ZERO; an all-zero control group
+    // looks ALL-FULL (EMPTY=0xFF) → RawIterRange loops forever. Collect every
+    // rebased pointer's target page below and mirror them to fixpoint.
+    let mut visited: std::collections::HashSet<usize> =
+        accessed_pages.iter().copied().collect();
+    let mut pending_targets: Vec<usize> = Vec::new();
     for native_page in accessed_pages {
         let native_page = *native_page;
         // Find which image this page belongs to.
@@ -2514,6 +2523,7 @@ fn collect_synth_data_pages(
                         let synth_bytes = (synth as u64).to_le_bytes();
                         run[chunk_start..chunk_start + 8].copy_from_slice(&synth_bytes);
                         translated_in_run += 1;
+                        pending_targets.push(value as usize & !0xFFF);
                     }
                 }
                 translated_total += translated_in_run;
@@ -2569,10 +2579,48 @@ fn collect_synth_data_pages(
                 let synth_bytes = (synth as u64).to_le_bytes();
                 bytes[chunk_start..chunk_start + 8].copy_from_slice(&synth_bytes);
                 translated_in_page += 1;
+                pending_targets.push(value as usize & !0xFFF);
             }
         }
         translated_total += translated_in_page;
         out.push((synth_page as u32, bytes));
+    }
+    // M12.7: transitively mirror the pages that mirrored pointers point INTO
+    // (see note above). Whole-page mirror each, rebasing its own pointers, and
+    // queue THEIR targets — to fixpoint, bounded so a pathological pointer
+    // graph can't explode the data section.
+    let mut transitive_pages = 0usize;
+    let mut budget = 20_000usize;
+    while let Some(tp) = pending_targets.pop() {
+        if budget == 0 {
+            break;
+        }
+        if !visited.insert(tp) {
+            continue;
+        }
+        let Some(synth_tp) = table.native_to_synth(tp) else {
+            continue;
+        };
+        budget -= 1;
+        // SAFETY: `tp` is in a tracked image's mapped range (native_to_synth
+        // returned Some) → reading its 4 KiB page is safe.
+        let mut bytes =
+            unsafe { core::slice::from_raw_parts(tp as *const u8, PAGE_SIZE).to_vec() };
+        for cs in (0..PAGE_SIZE).step_by(8) {
+            let v = u64::from_le_bytes(bytes[cs..cs + 8].try_into().unwrap());
+            if let Some(synth) = table.native_to_synth(v as usize) {
+                bytes[cs..cs + 8].copy_from_slice(&(synth as u64).to_le_bytes());
+                pending_targets.push(v as usize & !0xFFF);
+            }
+        }
+        out.push((synth_tp as u32, bytes));
+        transitive_pages += 1;
+    }
+    if transitive_pages > 0 {
+        eprintln!(
+            "[azul-web] M12.7: transitively mirrored {} pointer-target pages",
+            transitive_pages,
+        );
     }
     out.sort_by_key(|(off, _)| *off);
     if translated_total > 0 {
