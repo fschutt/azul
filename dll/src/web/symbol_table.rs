@@ -1933,10 +1933,15 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                             || name.contains("OnceCell")
                             || name.contains("once_lock")
                             || name.contains("once_cell")
+                            || name.contains("OnceBox")     // OnceLock's storage: initialize() stores the value
+                            || name.contains("once_box")
                             || name.contains("get_or_init")
                         {
                             return FnClass::Recursable;
                         }
+                        // NOTE: classifying `core::ops::function::impls` (fn-ptr Fn::call)
+                        // Recursable was tried + REVERTED — it pulled in a fn-ptr impl that
+                        // lifts to an `unreachable` trap, breaking the cascade (hydrate).
                         return FnClass::Leaf;
                     }
                     // Our own crates + 3rd party crates we want to lift
