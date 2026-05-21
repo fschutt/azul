@@ -2739,11 +2739,17 @@ fn is_proper_table_child(display: LayoutDisplay) -> bool {
 
 // Determines the display type of a node based on its tag and CSS properties.
 // Delegates to getters::get_display_property which uses the compact cache fast path.
-// M12.7: get_display_type → get_display_property_internal returns MultiValue<LayoutDisplay>
-// via the X8/sret path, which mis-lifts (the enum return processing diverges — this is
-// the geometry-chain root). #[inline(never)] (to wrap the call w/ enforce_sp_preservation)
-// did NOT fix it (reverted) — the divergence is inside the enum return decode, not the
-// frame. Needs the remill m12-q-reg-x8-sret fork's enum/sret handling.
+// M12.7 ROOT: get_display_type (and every layout enum getter) mis-lifts to wasm via the
+// remill enum-return/decode path — the geometry-chain blocker. FOUR Rust workarounds all
+// FAILED to advance (none reached collect_box_props past get_display_type):
+//   1. skip the get_css_property! enum compact-cache fast path  → no change
+//   2. replace the LayoutDisplay `match` with a branchless bitmask → no change
+//   3. #[inline(never)] (wrap the call w/ enforce_sp_preservation) → made it diverge earlier
+//   4. bypass MultiValue<LayoutDisplay> by reading cc.get_display() directly → diverges earlier
+// So it is NOT the match codegen, NOT the MultiValue wrapper, NOT a frame/SP issue — it is
+// the lift of a fn RETURNING a small fieldless enum (LayoutDisplay) corrupting control flow
+// (pixel/i16-returning getters lift fine). Needs the remill m12-q-reg-x8-sret fork's
+// enum-return handling — not fixable in Rust. (Original kept.)
 pub fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDisplay {
     use crate::solver3::getters::get_display_property;
     get_display_property(styled_dom, Some(node_id)).unwrap_or(LayoutDisplay::Inline)
