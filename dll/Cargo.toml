@@ -196,6 +196,10 @@ winapi = { version = "0.3.9", optional = true, default-features = false, feature
     "winerror",
 ] }
 clipboard-win = { version = "5.4", optional = true }
+# Camera capture (Media Foundation) for the Windows camera backend
+# (camera/windows.rs) - nokhwa owns the COM/MF ABI + gives a pull API, so we
+# don't hand-roll COM. Non-optional so the backend always compiles on windows.
+nokhwa = { version = "0.10", features = ["input-native"] }
 accesskit_windows = { version = "0.32", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]

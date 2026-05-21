@@ -8,6 +8,8 @@
 
 #[cfg(target_os = "linux")]
 mod v4l2;
+#[cfg(target_os = "windows")]
+mod windows;
 
 /// Register the platform camera backend with the capture seam, once. Called
 /// from the per-frame layout pass (like [`super::audio::ensure_mic_backend`]),
@@ -23,6 +25,19 @@ pub fn ensure_camera_backend() {
                     open: v4l2::open,
                     read: v4l2::read,
                     close: v4l2::close,
+                },
+            );
+        });
+    }
+    #[cfg(target_os = "windows")]
+    {
+        static DONE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        DONE.get_or_init(|| {
+            azul_layout::widgets::capture_common::register_camera_backend(
+                azul_layout::widgets::capture_common::CaptureVTable {
+                    open: windows::open,
+                    read: windows::read,
+                    close: windows::close,
                 },
             );
         });
