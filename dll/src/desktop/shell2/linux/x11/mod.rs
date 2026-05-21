@@ -358,6 +358,102 @@ fn init_xinput2(
     }
 }
 
+/// Decode an XI2 valuator value by valuator number. The `values` array is
+/// packed (only set-mask valuators present, ascending), so the slot is the
+/// count of set mask bits below `number`. See scripts/WACOM_TOUCH_API_RESEARCH.md.
+unsafe fn decode_valuator(ev: &defines::XIDeviceEvent, number: i32) -> Option<f64> {
+    if number < 0 {
+        return None;
+    }
+    let vs = &ev.valuators;
+    let byte = (number >> 3) as isize;
+    if vs.mask.is_null() || byte >= vs.mask_len as isize {
+        return None;
+    }
+    if *vs.mask.offset(byte) & (1 << (number & 7)) == 0 {
+        return None;
+    }
+    let mut idx = 0isize;
+    for k in 0..number {
+        if *vs.mask.offset((k >> 3) as isize) & (1 << (k & 7)) != 0 {
+            idx += 1;
+        }
+    }
+    Some(*vs.values.offset(idx))
+}
+
+/// Handle an XI2 GenericEvent: feed pen pressure/tilt + multi-touch into the
+/// window state (mirrors the iOS/Android/Windows/macOS feed). The core pointer
+/// events still drive the cursor + click; XI2 only adds pressure + touch points.
+fn handle_xi_event(win: &mut X11Window, xev: &mut defines::XEvent) {
+    let cookie = unsafe { &mut xev.xcookie };
+    if cookie.extension != win.xi_opcode {
+        return;
+    }
+    if win.xi.is_none() {
+        return;
+    }
+    unsafe {
+        if (win.xlib.XGetEventData)(win.display, cookie) == 0 {
+            return;
+        }
+        let ev = &*(cookie.data as *const defines::XIDeviceEvent);
+        let evtype = ev.evtype;
+        let dpi = win
+            .common
+            .current_window_state
+            .size
+            .get_hidpi_factor()
+            .inner
+            .get();
+        let pos = azul_core::geom::LogicalPosition::new(ev.event_x as f32 / dpi, ev.event_y as f32 / dpi);
+        if evtype == defines::XI_TouchBegin
+            || evtype == defines::XI_TouchUpdate
+            || evtype == defines::XI_TouchEnd
+        {
+            // Touch: ev.detail = touch tracking id; merge into touch_state.
+            let is_up = evtype == defines::XI_TouchEnd;
+            let id = ev.detail as u64;
+            use azul_core::window::{TouchPoint, TouchPointVec};
+            let ts = &mut win.common.current_window_state.touch_state;
+            let mut pts: Vec<TouchPoint> = ts.touch_points.clone().into_library_owned_vec();
+            pts.retain(|p| p.id != id);
+            if !is_up {
+                pts.push(TouchPoint {
+                    id,
+                    position: pos,
+                    force: 0.5,
+                });
+            }
+            ts.touch_points = TouchPointVec::from_vec(pts);
+            ts.num_touches = ts.touch_points.len();
+        } else if let Some(&(p, tx, ty, pmax)) = win.pen_valuators.get(&ev.deviceid) {
+            // Pen/tablet device: feed pressure/tilt (cursor follows via core events).
+            let pressure = decode_valuator(ev, p)
+                .map(|v| (v / pmax).clamp(0.0, 1.0) as f32)
+                .unwrap_or(0.0);
+            let tilt_x = decode_valuator(ev, tx).unwrap_or(0.0) as f32;
+            let tilt_y = decode_valuator(ev, ty).unwrap_or(0.0) as f32;
+            let in_contact = pressure > 0.0;
+            if let Some(lw) = win.common.layout_window.as_mut() {
+                lw.gesture_drag_manager.update_pen_state_full(
+                    pos,
+                    pressure,
+                    (tilt_x, tilt_y),
+                    in_contact,
+                    false, // eraser: identified via tool/button labels, not valuators
+                    false,
+                    ev.deviceid as u64,
+                    0.0,
+                    0.0,
+                    0,
+                );
+            }
+        }
+        (win.xlib.XFreeEventData)(win.display, cookie);
+    }
+}
+
 pub struct X11Window {
     pub xlib: Rc<Xlib>,
     pub egl: Rc<Egl>,
@@ -623,6 +719,10 @@ impl X11Window {
                     self.handle_mouse_button(unsafe { &event.button })
                 }
                 defines::MotionNotify => self.handle_mouse_move(unsafe { &event.motion }),
+                defines::GenericEvent => {
+                    handle_xi_event(self, &mut event);
+                    ProcessEventResult::DoNothing
+                }
                 defines::KeyPress | defines::KeyRelease => {
                     self.handle_keyboard(unsafe { &mut event.key })
                 }
