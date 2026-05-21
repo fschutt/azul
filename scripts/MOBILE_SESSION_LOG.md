@@ -2115,3 +2115,9 @@ First P7 audio widget. `layout/src/widgets/microphone.rs`: a "dumb widget" mirro
 **Codegen note:** `autofix add MicrophoneWidget.*` pulled most deps but **missed `AudioFrame`** (the callback's `extra_arg` payload isn't traced transitively); added it with `autofix add 'AudioFrame.*'`. The bare-pass "remove audio types" diffs are harmless drift (like the recurring MapTileId churn) — never applied; codegen+gate are green with the types present. Reverted one messy api.json mid-state via `git checkout` before the clean re-add.
 
 NEXT: AudioWidget (playback — push/pull design TBD) + video enc/dec (vk-video, on-device). Then P8 (UDP/azul-meet) -> P9 (e2e) -> P10 (docs).
+
+### Decision — P7 audio playback = `AudioSink` handle (not a widget) (2026-05-21)
+
+For azul-meet, audio PLAYBACK needs to consume live frames (received over UDP). A widget+pull-hook is awkward (cross-thread feeding from a background playback thread). Cleaner: an **`AudioSink` handle** (like `Db`/`Pdf`) — `AudioSink::open(AudioConfig) -> AudioSink; sink.play(AudioFrame); sink.close()` — held in the app's State (no globals), `play()` queues samples to the platform output (rodio desktop / AVAudioEngine·AAudio mobile = on-device, like the mic capture backend; stub/no-op here). Mirrors the Db handle (ptr + run_destructor).
+
+So P7 audio surface = `MicrophoneWidget` (capture, on_frame hook — DONE) + `AudioSink` (playback handle — NEXT). Then video enc/dec (vk-video, on-device) -> P8 (AzUdp + azul-meet) -> P9 (synthetic-event e2e) -> P10 (docs).
