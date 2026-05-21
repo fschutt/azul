@@ -149,6 +149,7 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
 
     const dv = new DataView(memory.buffer);
     let stubShaped = true; // stub: every rect is (0, i*30, viewportW, 30)
+    let anyNonZero = false; // a real solve produces ≥1 sized rect; all-zero = it didn't run
     for (let i = 0; i < rectsLen; i++) {
         const off = rectsPtr + i * 16;
         const x = dv.getUint32(off, true);
@@ -157,7 +158,9 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
         const hh = dv.getUint32(off + 12, true);
         console.log('  rect[' + i + ']: x=' + x + ' y=' + y + ' w=' + w + ' h=' + hh);
         if (!(x === 0 && y === i * 30 && w === viewportW && hh === 30)) stubShaped = false;
+        if (x !== 0 || y !== 0 || w !== 0 || hh !== 0) anyNonZero = true;
     }
+    if (!anyNonZero) fail('all rects are (0,0,0,0) — layout_document did not run (e.g. an early-return before it); not real geometry');
     if (stubShaped) fail('rects look exactly like the block-flow STUB — real solver not wired');
     console.log('[3] geometry is from the real solver (not the stub rows) ✓');
 
