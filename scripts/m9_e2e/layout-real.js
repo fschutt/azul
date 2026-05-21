@@ -188,7 +188,8 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
         const sA = mini.AzStartup_peekU32(0x400C0), sB = mini.AzStartup_peekU32(0x400C4), sP = mini.AzStartup_peekU32(0x400CC);
         console.error('POST-RC5: create_node steps — parent_fc=' + (((sP>>>16)===0xcd00)?('reached is_some='+((sP>>8)&1)):'NO') + ' A(collect_box_props)=' + (((sA>>>16)===0xca00)?'reached':'NO') + ' B(node push)=' + (((sB>>>16)===0xcb00)?('reached len='+((sB>>8)&0xff)):'NO'));
         const cbp = mini.AzStartup_peekU32(0x400D0);
-        if ((cbp>>>24)===0xc0) console.error('POST-RC5: collect_box_props last sub-step=' + (cbp&0xff) + ' (1=entered 2=node_state 3=after-create_resolution_context 4=after-margin_top 5=after-margin-block 6=after-padding-block 7=after-border-block)');
+        if ((cbp>>>24)===0xc0 && ((cbp>>>8)&0xff)===0x57) console.error('POST-RC5: collect_box_props — get_display_type RETURNED (dt=' + (cbp&0xff) + ') → so the LayoutDisplay MATCH diverges, not the call');
+        else if ((cbp>>>24)===0xc0) console.error('POST-RC5: collect_box_props last sub-step=' + (cbp&0xff) + ' (1=entered 2=node_state 3=after-create_resolution_context 4=after-margin_top 5=after-margin-block 0x56=before-get_display_type[CALL diverges] 6=after-padding-block 7=after-border-block)');
         else console.error('POST-RC5: collect_box_props NOT entered (0x400D0=0x' + cbp.toString(16) + ')');
         const crc = mini.AzStartup_peekU32(0x400D8);
         if ((crc>>>24)===0xc1) console.error('POST-RC5: create_resolution_context last sub-step=' + (crc&0xff) + ' (1=entered 2=after-get_element_font_size 3=after-get_parent_font_size 4=after-get_root_font_size)');
