@@ -10,6 +10,8 @@
 mod v4l2;
 #[cfg(target_os = "windows")]
 mod windows;
+#[cfg(all(target_os = "macos", feature = "objc2-av-foundation"))]
+mod avfoundation;
 
 /// Register the platform camera backend with the capture seam, once. Called
 /// from the per-frame layout pass (like [`super::audio::ensure_mic_backend`]),
@@ -38,6 +40,19 @@ pub fn ensure_camera_backend() {
                     open: windows::open,
                     read: windows::read,
                     close: windows::close,
+                },
+            );
+        });
+    }
+    #[cfg(all(target_os = "macos", feature = "objc2-av-foundation"))]
+    {
+        static DONE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        DONE.get_or_init(|| {
+            azul_layout::widgets::capture_common::register_camera_backend(
+                azul_layout::widgets::capture_common::CaptureVTable {
+                    open: avfoundation::open,
+                    read: avfoundation::read,
+                    close: avfoundation::close,
                 },
             );
         });
