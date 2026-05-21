@@ -209,6 +209,11 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
         if ((step & 0xf) === 4) console.error('  layout_document REACHED cache store (cache.tree+positions set), calculated_positions.len=' + ((step>>4)&0xfff));
         if ((step & 0xf) === 5) console.error('  layout_document: intrinsic sizing DONE (step 5) → diverges in the per-root LAYOUT PASS (calculate_layout_for_subtree)');
         if ((step & 0xf) === 6) console.error('  layout_document: per-root layout pass DONE (step 6) → diverges in reposition_clean_subtrees / the cache store');
+        if ((step & 0xff) === 0x53) console.error('  layout_document: get_containing_block_for_node RETURNED (0x53) → diverges in box_props.unpack / Vec-index');
+        if ((step & 0xff) === 0x54) console.error('  layout_document: box_props.unpack RETURNED (0x54) → diverges in the margin compare/adjust block');
+        if ((step & 0xff) === 0x56) console.error('  layout_document: margin block DONE (0x56) → diverges in the debug block / hint_purge / probe');
+        if ((step & 0xff) === 0x55) console.error('  layout_document: got containing-block (0x55) → diverges INSIDE calculate_layout_for_subtree');
+        if ((step & 0xff) === 0x57) console.error('  layout_document: calculate_layout_for_subtree RETURNED (0x57) → diverges in the root-position insert / loop tail');
         const nlr = mini.AzStartup_peekU32(0x400E4);
         if (((nlr>>>16)&0xff)===0x01) console.error('  body get_node_layout_rect=Some, width=' + (nlr&0xffff) + ' (0 → layout computed 0-wide; >0 → extraction issue)');
         else if (((nlr>>>16)&0xff)===0xff) console.error('  body get_node_layout_rect=None (no calculated position → positioning did not write node 0)');

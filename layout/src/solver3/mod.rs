@@ -775,6 +775,10 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 &calculated_positions,
                 viewport,
             );
+            // M12.7 diag: 0x53 = get_containing_block_for_node RETURNED. If step stays
+            // 0x05, the divergence is INSIDE get_containing_block_for_node (or the for-loop
+            // entry); if 0x53 but not 0x55, it's the margin logic / box_props.unpack below.
+            unsafe { core::ptr::write_volatile(0x400A4 as *mut u32, 0xDD00_0053u32); }
 
             // For ROOT nodes (no parent), we need to account for their margin.
             // The containing block position from viewport is (0, 0), but the root's
@@ -782,6 +786,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // We pass margin-adjusted position so calculate_content_box_pos works correctly.
             let root_node = &new_tree.nodes[root_idx];
             let root_bp = root_node.box_props.unpack();
+            unsafe { core::ptr::write_volatile(0x400A4 as *mut u32, 0xDD00_0054u32); }
 
             let is_root_with_margin = root_node.parent.is_none()
                 && (root_bp.margin.left != 0.0 || root_bp.margin.top != 0.0);
@@ -794,6 +799,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             } else {
                 cb_pos
             };
+            unsafe { core::ptr::write_volatile(0x400A4 as *mut u32, 0xDD00_0056u32); }
 
             // DEBUG: Log containing block info for this root
             if let Some(debug_msgs) = ctx.debug_messages.as_mut() {
@@ -829,6 +835,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             crate::probe::hint_purge_allocator();
             crate::probe::sample_peak_rss("rss:before_root_layout");
             crate::probe::reset_peak();
+            // M12.7 diag: 0x55 = about to call calculate_layout_for_subtree (got CB);
+            // 0x57 = it RETURNED. If step stays 0x55, calculate_layout_for_subtree diverges.
+            unsafe { core::ptr::write_volatile(0x400A4 as *mut u32, 0xDD00_0055u32); }
             {
                 let _p = crate::probe::Probe::span("root_layout_pass");
                 cache::calculate_layout_for_subtree(
@@ -844,6 +853,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     cache::ComputeMode::PerformLayout,
                 )?;
             }
+            unsafe { core::ptr::write_volatile(0x400A4 as *mut u32, 0xDD00_0057u32); }
             crate::probe::sample_peak_rss("rss:after_root_layout");
             crate::probe::sample_phase_peak("rss:peak_during_root_layout");
 
