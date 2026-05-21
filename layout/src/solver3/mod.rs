@@ -763,6 +763,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         }
         crate::probe::sample_peak_rss("rss:after_calc_intrinsic");
         crate::probe::sample_phase_peak("rss:peak_during_intrinsic");
+        // M12.7 diag: calculate_intrinsic_sizes returned (step 5). If step stays 3, the
+        // divergence is inside calculate_intrinsic_sizes (the SIMD/text intrinsic pass).
+        unsafe { core::ptr::write_volatile(0x400A4 as *mut u32, 0xDD00_0005u32); }
 
         for &root_idx in &recon_result.layout_roots {
             let (cb_pos, cb_size) = get_containing_block_for_node(
@@ -891,6 +894,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 pos_set(&mut calculated_positions, root_idx, root_position);
             }
         }
+        // M12.7 diag: the per-root layout pass (calculate_layout_for_subtree) finished
+        // (step 6). If step stays 5, the divergence is in calculate_layout_for_subtree.
+        unsafe { core::ptr::write_volatile(0x400A4 as *mut u32, 0xDD00_0006u32); }
 
         {
             let _p = crate::probe::Probe::span("reposition_clean_subtrees");
