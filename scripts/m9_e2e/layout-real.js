@@ -148,6 +148,13 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
             const textNames = {1:'BidiError',2:'ShapingError',3:'FontNotFound',4:'InvalidText',5:'HyphenationError'};
             let msg = names[base] || ('code'+base);
             if (base === 5) msg += '(' + (textNames[(code>>8)&0xff] || ('?'+((code>>8)&0xff))) + ')';
+            if (base === 5 && ((code>>8)&0xff) === 3) {
+                const n = mini.AzStartup_peekU32(0x40084);
+                if (n > 0 && n < 64) {
+                    const buf = new Uint8Array(memory.buffer, 0x40088, n);
+                    msg += ' requested-family="' + String.fromCharCode.apply(null, buf) + '"';
+                }
+            }
             console.error('POST-RC5: LayoutError = ' + msg);
         }
         fail('solveLayoutReal rc=' + rc + ' (see status codes in eventloop.rs)');

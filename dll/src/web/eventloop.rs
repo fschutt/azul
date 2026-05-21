@@ -1466,9 +1466,14 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
     // ask for "serif"/"sans-serif"/"monospace". One stored string containing all
     // three generics matches every such query → this one font is the universal
     // fallback. (A specific-name query falls back through its chain to a generic.)
+    // Match by BOTH name and family (substring): the default font query is
+    // StyleFontFamily::System("serif") (azul_css DEFAULT_FONT_ID), which may
+    // populate FcPattern.name OR .family. One string with all generics covers
+    // serif/sans-serif/monospace on either field.
     fc_cache.with_memory_fonts(vec![(
         rust_fontconfig::FcPattern {
-            family: Some("sans-serif monospace".to_string()),
+            name: Some("serif sans-serif monospace".to_string()),
+            family: Some("serif sans-serif monospace".to_string()),
             ..Default::default()
         },
         rust_fontconfig::FcFont {
@@ -1517,7 +1522,18 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
                 let inner: u32 = match te {
                     TE::BidiError(_) => 1,
                     TE::ShapingError(_) => 2,
-                    TE::FontNotFound(_) => 3,
+                    TE::FontNotFound(sel) => {
+                        // capture the requested family string to 0x40084(len)+0x40088(bytes)
+                        let fam = sel.family.as_bytes();
+                        let n = fam.len().min(60);
+                        unsafe {
+                            core::ptr::write_volatile(0x40084 as *mut u32, n as u32);
+                            for i in 0..n {
+                                core::ptr::write_volatile((0x40088 + i) as *mut u8, fam[i]);
+                            }
+                        }
+                        3
+                    }
                     TE::InvalidText(_) => 4,
                     TE::HyphenationError(_) => 5,
                 };
@@ -1527,6 +1543,9 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
         unsafe {
             core::ptr::write_volatile(0x40080 as *mut u32, 0x4c45_0000 | code);
         }
+        // The font error is EARLY (before the block geometry — proven: rects
+        // come back all-zero when we fall through), so there's no partial
+        // geometry to salvage. Must resolve the font instead.
         return 5;
     }
 
