@@ -30,6 +30,8 @@ use azul_core::biometric::{BiometricKind, BiometricPrompt};
 pub mod apple;
 #[cfg(target_os = "android")]
 pub mod android;
+#[cfg(target_os = "windows")]
+pub mod windows;
 
 /// Dispatch one biometric-auth request to the native prompt. Called from
 /// `regenerate_layout` for each prompt the layout pass drained from the
@@ -46,7 +48,14 @@ pub fn request(prompt: &BiometricPrompt) {
     apple::request(prompt);
     #[cfg(target_os = "android")]
     android::request(prompt);
-    #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "android")))]
+    #[cfg(target_os = "windows")]
+    windows::request(prompt);
+    #[cfg(not(any(
+        target_os = "ios",
+        target_os = "macos",
+        target_os = "android",
+        target_os = "windows"
+    )))]
     {
         let _ = prompt;
         azul_layout::managers::biometric::push_biometric_result(
@@ -70,7 +79,16 @@ pub fn probe_availability() -> BiometricKind {
     {
         android::probe_availability()
     }
-    #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "android")))]
+    #[cfg(target_os = "windows")]
+    {
+        windows::probe_availability()
+    }
+    #[cfg(not(any(
+        target_os = "ios",
+        target_os = "macos",
+        target_os = "android",
+        target_os = "windows"
+    )))]
     {
         BiometricKind::NotAvailable
     }

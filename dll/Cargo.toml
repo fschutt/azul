@@ -249,7 +249,17 @@ winapi = { version = "0.3.9", optional = true, default-features = false, feature
     "minwindef",
 ] }
 # Motion sensors (Windows.Devices.Sensors, WinRT) — accel/gyro/mag.
-windows = { version = "0.62", optional = true, features = ["Devices_Sensors"] }
+windows = { version = "0.62", optional = true, features = [
+    "Devices_Sensors",
+    "Foundation",
+    "Security_Credentials_UI",
+    "Win32_Foundation",
+    "Win32_System_WinRT",
+    "Win32_System_Com",
+] }
+# WinRT IAsyncOperation lives in windows-future (0.62 split); pollster blocks on it.
+windows-future = { version = "0.3", optional = true }
+pollster = { version = "0.4", optional = true }
 clipboard-win = { version = "5.4", optional = true }
 # Camera capture (Media Foundation) for the Windows camera backend
 # (camera/windows.rs) - nokhwa owns the COM/MF ABI + gives a pull API, so we
@@ -550,6 +560,8 @@ _internal_deps = [
     "libc",
     "winapi",
     "windows",
+    "windows-future",
+    "pollster",
 ]
 
 # -----------------------------------------------------------------------------
