@@ -174,6 +174,10 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
         const rok = mini.AzStartup_peekU32(0x400AC);
         if ((rok>>>16)===0xcc00) console.error('POST-RC5: reconcile RETURNED OK (0x400AC set) — so if step=1 the `?` mis-discriminated Ok→Err (niche-Result lift bug)');
         else console.error('POST-RC5: reconcile did NOT reach its Ok return (0x400AC=0x' + rok.toString(16) + ')');
+        // 0x400B0 = LayoutTree::build marker (0xBD00_<len><root>): node count + root idx
+        const bld = mini.AzStartup_peekU32(0x400B0);
+        if ((bld>>>16)===0xbd00) console.error('POST-RC5: tree built with ' + ((bld>>8)&0xff) + ' nodes, root=' + (bld&0xff) + ' → if >0 but InvalidTree, the get().ok_or()? mis-discriminates Some→None');
+        else console.error('POST-RC5: build marker not set (0x400B0=0x' + bld.toString(16) + ')');
         fail('solveLayoutReal rc=' + rc + ' (see status codes in eventloop.rs)');
     }
     console.log('[2] solveLayoutReal rc=0 (real taffy positioning ran in wasm)');

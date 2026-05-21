@@ -2050,6 +2050,17 @@ impl LayoutTreeBuilder {
             cold_nodes.push(cold);
         }
 
+        // M12.7 diag: 0x400B0 = 0xBD00_<len><root> — plain field reads (NOT a
+        // discriminant). If len>0 but calculate_intrinsic_recursive's
+        // `tree.get(root).ok_or(InvalidTree)?` still errors, that `?`/null-check
+        // mis-discriminates Some→None. If len==0, build's input was empty.
+        unsafe {
+            core::ptr::write_volatile(
+                0x400B0 as *mut u32,
+                0xBD00_0000u32 | (((hot_nodes.len() as u32) & 0xff) << 8) | (root_idx as u32 & 0xff),
+            );
+        }
+
         LayoutTree {
             nodes: hot_nodes,
             warm: warm_nodes,
