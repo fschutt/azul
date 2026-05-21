@@ -134,6 +134,8 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
         // 0x400F0/F4 = __remill_error faulting guest PC (set right before the diagnostic trap).
         const epcL = mini.AzStartup_peekU32(0x400F0), epcH = mini.AzStartup_peekU32(0x400F4);
         if (epcL || epcH) console.error('POST-TRAP: __remill_error faulting guest PC = 0x' + (epcH>>>0).toString(16) + (epcL>>>0).toString(16).padStart(8,'0') + ' → otool -tV libazul @ this static addr for the unlifted op');
+        const mbL = mini.AzStartup_peekU32(0x400F8), mbH = mini.AzStartup_peekU32(0x400FC);
+        if (mbL || mbH) console.error('POST-TRAP: __remill_MISSING_BLOCK guest PC = 0x' + (mbH>>>0).toString(16) + (mbL>>>0).toString(16).padStart(8,'0') + ' → a computed-branch/jump-table target the lifter could not resolve');
         // 0x40060 = AZ_FUEL tripped flag (1 = an instrumented loop exceeded AZ_FUEL_LIMIT → see STACK for the looping fn).
         if (mini.AzStartup_peekU32(0x40060) === 1) console.error('POST-TRAP: FUEL TRIPPED — infinite loop; the STACK above names the looping fn; looping_block_id=' + mini.AzStartup_peekU32(0x40070) + ' (map to Nth `call @__az_fuel(i32 N)` in <stem>.fuel.ll)');
         // 0x40078 = AZ_LOG_SELFLOOP_VAL: the i64 `v` (icmp eq v,0 operand) that routed into the live opt-folded self-loop (should be 0).
