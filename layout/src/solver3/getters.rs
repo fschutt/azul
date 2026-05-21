@@ -79,15 +79,20 @@ pub fn get_element_font_size(
     dom_id: NodeId,
     node_state: &StyledNodeState,
 ) -> f32 {
+    unsafe { core::ptr::write_volatile(0x400DC as *mut u32, 0xC2_000001u32); } // entered
     if node_state.is_normal() {
+        unsafe { core::ptr::write_volatile(0x400DC as *mut u32, 0xC2_000002u32); } // is_normal branch
         let cache = &styled_dom.css_property_cache.ptr;
         let sizes = cache
             .resolved_font_sizes_px
             .get_or_init(|| compute_all_font_sizes_px(styled_dom));
+        unsafe { core::ptr::write_volatile(0x400DC as *mut u32, 0xC2_000003u32); } // after get_or_init
         if let Some(&fs) = sizes.get(dom_id.index()) {
+            unsafe { core::ptr::write_volatile(0x400DC as *mut u32, 0xC2_000004u32); } // returning cached fs
             return fs;
         }
     }
+    unsafe { core::ptr::write_volatile(0x400DC as *mut u32, 0xC2_000005u32); } // before resolve_font_size_slow
     resolve_font_size_slow(styled_dom, dom_id, node_state)
 }
 
