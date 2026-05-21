@@ -2327,3 +2327,7 @@ Five pieces:
 Gate GREEN all 7. **The registration plumbing also unblocks the camera/screencap backends** - when their per-OS capture is written (v4l2 etc.), they register the same way (a `register_*_backend` call in the hook), zero further plumbing.
 
 Desktop extensions: #1 sensors (iio), #2 capture seam, #3 geolocation (GeoClue2), #4 audio playback (ALSA), #5 mic capture (ALSA). Remaining: macOS/Windows audio (CoreAudio/WASAPI), v4l2 camera (hand-written ABI + device), screencap (X11/DXGI), video codec FFI.
+
+### Tick — codegen-expose VideoEncoder/VideoDecoder (api.json) (2026-05-21)
+
+Per the user's autofix workflow: `autofix add 'VideoEncoder.*'`/`'VideoDecoder.*'` -> apply, then loop `autofix` + `normalize` until 0 patches (it auto-adds `custom_impl(Clone/Default/Drop)` + fixes OptionVideoFrame repr), then `autofix difficult remove` the 6 trait methods (`default`/`clone`/`drop` x2) that the `.*` add pulled (the 2 critical "Constructor 'default' should not be used directly" FFI errors). Result: 0 patches, 0 criticals. VideoEncoder = open + backend_name/is_open/encode/frames_encoded/close; VideoDecoder = open + is_open/decode/close; custom_impls [Clone,Default,Drop]. Committing api.json before `codegen all` (per the user).

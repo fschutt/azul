@@ -4855,6 +4855,53 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "DetectedPinch": {
+                        "doc": [
+                            "Result of pinch gesture detection (scale + center + travel distances + duration)."
+                        ],
+                        "external": "azul_layout::managers::gesture::DetectedPinch",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "scale": {
+                                    "type": "f32",
+                                    "doc": [
+                                        "Scale factor (< 1.0 for pinch in, > 1.0 for pinch out)"
+                                    ]
+                                },
+                                "center": {
+                                    "type": "LogicalPosition",
+                                    "doc": [
+                                        "Center point of the pinch gesture"
+                                    ]
+                                },
+                                "initial_distance": {
+                                    "type": "f32",
+                                    "doc": [
+                                        "Distance between touch points when the pinch started, in logical px"
+                                    ]
+                                },
+                                "current_distance": {
+                                    "type": "f32",
+                                    "doc": [
+                                        "Current distance between touch points, in logical px"
+                                    ]
+                                },
+                                "duration_ms": {
+                                    "type": "u64",
+                                    "doc": [
+                                        "Duration of the pinch so far, in milliseconds"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -10903,151 +10950,6 @@
                                 },
                                 "y_tilt": {
                                     "type": "f32"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "GestureDirection": {
-                        "doc": [
-                            "Dominant direction of a swipe gesture, used by `CallbackInfo::get_swipe_direction()`."
-                        ],
-                        "external": "azul_layout::managers::gesture::GestureDirection",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq",
-                            "Eq"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Up": {},
-                                "Down": {},
-                                "Left": {},
-                                "Right": {}
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "DetectedPinch": {
-                        "doc": [
-                            "Result of pinch gesture detection (scale + center + travel distances + duration)."
-                        ],
-                        "external": "azul_layout::managers::gesture::DetectedPinch",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq"
-                        ],
-                        "struct_fields": [
-                            {
-                                "scale": {
-                                    "type": "f32",
-                                    "doc": [
-                                        "Scale factor (< 1.0 for pinch in, > 1.0 for pinch out)"
-                                    ]
-                                },
-                                "center": {
-                                    "type": "LogicalPosition",
-                                    "doc": [
-                                        "Center point of the pinch gesture"
-                                    ]
-                                },
-                                "initial_distance": {
-                                    "type": "f32",
-                                    "doc": [
-                                        "Distance between touch points when the pinch started, in logical px"
-                                    ]
-                                },
-                                "current_distance": {
-                                    "type": "f32",
-                                    "doc": [
-                                        "Current distance between touch points, in logical px"
-                                    ]
-                                },
-                                "duration_ms": {
-                                    "type": "u64",
-                                    "doc": [
-                                        "Duration of the pinch so far, in milliseconds"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "DetectedRotation": {
-                        "doc": [
-                            "Result of rotation gesture detection (angle + center + duration)."
-                        ],
-                        "external": "azul_layout::managers::gesture::DetectedRotation",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq"
-                        ],
-                        "struct_fields": [
-                            {
-                                "angle_radians": {
-                                    "type": "f32",
-                                    "doc": [
-                                        "Rotation angle in radians (positive = clockwise)"
-                                    ]
-                                },
-                                "center": {
-                                    "type": "LogicalPosition",
-                                    "doc": [
-                                        "Center point of rotation"
-                                    ]
-                                },
-                                "duration_ms": {
-                                    "type": "u64",
-                                    "doc": [
-                                        "Duration of rotation so far, in milliseconds"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "DetectedLongPress": {
-                        "doc": [
-                            "Result of long-press detection (position + hold duration)."
-                        ],
-                        "external": "azul_layout::managers::gesture::DetectedLongPress",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq"
-                        ],
-                        "struct_fields": [
-                            {
-                                "position": {
-                                    "type": "LogicalPosition",
-                                    "doc": [
-                                        "Position where the long press is happening"
-                                    ]
-                                },
-                                "duration_ms": {
-                                    "type": "u64",
-                                    "doc": [
-                                        "How long the pointer has been held in place (milliseconds)"
-                                    ]
-                                },
-                                "callback_invoked": {
-                                    "type": "bool",
-                                    "doc": [
-                                        "Whether the callback has already been invoked for this long press"
-                                    ]
-                                },
-                                "session_id": {
-                                    "type": "u64",
-                                    "doc": [
-                                        "Session ID this long press belongs to"
-                                    ]
                                 }
                             }
                         ],
@@ -19776,6 +19678,15 @@
                     },
                     "OnAudioFrameCallback": {
                         "external": "azul_layout::widgets::microphone::OnAudioFrameCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "derive": [
                             "Clone",
                             "Debug",
@@ -39453,6 +39364,28 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "GestureDirection": {
+                        "doc": [
+                            "Dominant direction of a swipe gesture, used by `CallbackInfo::get_swipe_direction()`."
+                        ],
+                        "external": "azul_layout::managers::gesture::GestureDirection",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Up": {},
+                                "Down": {},
+                                "Left": {},
+                                "Right": {}
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -43288,6 +43221,15 @@
                     },
                     "OnAudioFrame": {
                         "external": "azul_layout::widgets::microphone::OnAudioFrame",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "derive": [
                             "Clone",
                             "Debug",
@@ -57448,6 +57390,205 @@
                                 }
                             }
                         ],
+                        "repr": "C"
+                    },
+                    "VideoEncoder": {
+                        "external": "azul_dll::desktop::extra::video_codec::VideoEncoder",
+                        "custom_impls": [
+                            "Clone",
+                            "Default",
+                            "Drop"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "open": {
+                                "doc": [
+                                    "Open an encoder for `width` x `height`, H.265 if `h265` else H.264, at",
+                                    "`bitrate_kbps`. Uses the platform-native backend ([`backend_name`]).",
+                                    "Returns an invalid handle (`is_open()` false) where no backend exists."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "width": "u32"
+                                    },
+                                    {
+                                        "height": "u32"
+                                    },
+                                    {
+                                        "h265": "bool"
+                                    },
+                                    {
+                                        "bitrate_kbps": "u32"
+                                    }
+                                ],
+                                "fn_body": "azul_dll::desktop::extra::video_codec::VideoEncoder::open(width, height, h265, bitrate_kbps)"
+                            }
+                        },
+                        "functions": {
+                            "backend_name": {
+                                "doc": [
+                                    "The native codec backend selected for this platform (\"VideoToolbox\",",
+                                    "\"MediaCodec\", \"gpu-video\", or \"none\")."
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "azul_dll::desktop::extra::video_codec::VideoEncoder::backend_name().into()"
+                            },
+                            "is_open": {
+                                "doc": [
+                                    "Whether the encoder opened (a backend exists for this platform)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_open()"
+                            },
+                            "encode": {
+                                "doc": [
+                                    "Encode one `VideoFrame` (RGBA), returning the encoded chunk (Annex-B for",
+                                    "H.264/H.265), or empty if buffered / not open. `force_keyframe` requests",
+                                    "an IDR. (Stub: counts frames + returns empty; the on-device backend",
+                                    "produces the bitstream.)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "frame": "VideoFrame"
+                                    },
+                                    {
+                                        "force_keyframe": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "U8Vec"
+                                },
+                                "fn_body": "object.encode(frame, force_keyframe)"
+                            },
+                            "frames_encoded": {
+                                "doc": [
+                                    "Frames submitted to [`encode`](Self::encode) so far (stub progress)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "u64"
+                                },
+                                "fn_body": "object.frames_encoded()"
+                            },
+                            "close": {
+                                "doc": [
+                                    "Release the encoder. (Drop does this too.)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.close()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "VideoDecoder": {
+                        "external": "azul_dll::desktop::extra::video_codec::VideoDecoder",
+                        "custom_impls": [
+                            "Clone",
+                            "Default",
+                            "Drop"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "open": {
+                                "doc": [
+                                    "Open a decoder (H.265 if `h265` else H.264) using the platform-native",
+                                    "backend. Invalid handle where no backend exists."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "h265": "bool"
+                                    }
+                                ],
+                                "fn_body": "azul_dll::desktop::extra::video_codec::VideoDecoder::open(h265)"
+                            }
+                        },
+                        "functions": {
+                            "is_open": {
+                                "doc": [
+                                    "Whether the decoder opened."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_open()"
+                            },
+                            "decode": {
+                                "doc": [
+                                    "Decode one encoded chunk, returning the next decoded `VideoFrame` if one",
+                                    "is ready (`None` while buffering / not open). (Stub: counts + returns",
+                                    "None; the on-device backend produces frames.)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "data": "U8Vec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionVideoFrame"
+                                },
+                                "fn_body": "object.decode(data)"
+                            },
+                            "close": {
+                                "doc": [
+                                    "Release the decoder. (Drop does this too.)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.close()"
+                            }
+                        },
                         "repr": "C"
                     }
                 }
@@ -80238,34 +80379,59 @@
                                     "type": "DbValueVec"
                                 },
                                 "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionDbValue"
+                                },
+                                "fn_body": "db_value_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `DbValueVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DbValueVecSlice"
+                                },
+                                "fn_body": "db_value_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DbValueVecSlice"
+                                },
+                                "fn_body": "db_value_vec.as_c_slice_range(start, end)"
                             }
                         },
-                        "repr": "C"
-                    },
-                    "DbValueVecSlice": {
-                        "external": "azul_core::db::DbValueVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "DbValue",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
                         "repr": "C"
                     }
                 }
@@ -84418,7 +84584,8 @@
                         "external": "azul_core::db::OptionDbValue",
                         "derive": [
                             "Debug",
-                            "Clone"
+                            "Clone",
+                            "PartialEq"
                         ],
                         "enum_fields": [
                             {
@@ -84583,6 +84750,15 @@
                     },
                     "OptionOnAudioFrame": {
                         "external": "azul_layout::widgets::microphone::OptionOnAudioFrame",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
                         "derive": [
                             "Clone",
                             "Debug",
@@ -84618,6 +84794,22 @@
                                 "None": {},
                                 "Some": {
                                     "type": "U8Vec"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionVideoFrame": {
+                        "external": "azul_core::video::OptionVideoFrame",
+                        "derive": [
+                            "Clone",
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "VideoFrame"
                                 }
                             }
                         ],
@@ -89625,6 +89817,9 @@
                     },
                     "WacomPadState": {
                         "external": "azul_layout::managers::gesture::WacomPadState",
+                        "custom_impls": [
+                            "Default"
+                        ],
                         "derive": [
                             "Debug",
                             "Clone",
@@ -89651,6 +89846,9 @@
                     },
                     "AudioConfig": {
                         "external": "azul_core::audio::AudioConfig",
+                        "custom_impls": [
+                            "Default"
+                        ],
                         "derive": [
                             "Debug",
                             "Clone",
@@ -89829,6 +90027,108 @@
                                 "fn_body": "object.recv_chunked()"
                             }
                         },
+                        "repr": "C"
+                    },
+                    "DetectedRotation": {
+                        "doc": [
+                            "Result of rotation gesture detection (angle + center + duration)."
+                        ],
+                        "external": "azul_layout::managers::gesture::DetectedRotation",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "angle_radians": {
+                                    "type": "f32",
+                                    "doc": [
+                                        "Rotation angle in radians (positive = clockwise)"
+                                    ]
+                                },
+                                "center": {
+                                    "type": "LogicalPosition",
+                                    "doc": [
+                                        "Center point of rotation"
+                                    ]
+                                },
+                                "duration_ms": {
+                                    "type": "u64",
+                                    "doc": [
+                                        "Duration of rotation so far, in milliseconds"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DetectedLongPress": {
+                        "doc": [
+                            "Result of long-press detection (position + hold duration)."
+                        ],
+                        "external": "azul_layout::managers::gesture::DetectedLongPress",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "position": {
+                                    "type": "LogicalPosition",
+                                    "doc": [
+                                        "Position where the long press is happening"
+                                    ]
+                                },
+                                "duration_ms": {
+                                    "type": "u64",
+                                    "doc": [
+                                        "How long the pointer has been held in place (milliseconds)"
+                                    ]
+                                },
+                                "callback_invoked": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "Whether the callback has already been invoked for this long press"
+                                    ]
+                                },
+                                "session_id": {
+                                    "type": "u64",
+                                    "doc": [
+                                        "Session ID this long press belongs to"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DbValueVecSlice": {
+                        "external": "azul_core::db::DbValueVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "DbValue",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
                         "repr": "C"
                     }
                 }
