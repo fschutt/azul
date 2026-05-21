@@ -1582,14 +1582,28 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
             node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(i))),
         };
         let lane = &mut rects[i * 4..i * 4 + 4];
-        match lw.get_node_layout_rect(node_id) {
-            Some(r) => {
-                lane[0] = r.origin.x.max(0.0).round() as u32;
-                lane[1] = r.origin.y.max(0.0).round() as u32;
-                lane[2] = r.size.width.max(0.0).round() as u32;
-                lane[3] = r.size.height.max(0.0).round() as u32;
+        // M12.7 FIX: get_node_layout_rect reads self.layout_cache.tree, but
+        // layout_dom_recursive stores the laid-out tree + positions in
+        // self.layout_results[dom] (get_node_layout_rect returned None → empty cache).
+        // Use get_node_position + get_node_size, which read layout_results via the
+        // dom_to_layout mapping (the correct, populated location).
+        match (lw.get_node_position(node_id), lw.get_node_size(node_id)) {
+            (Some(p), Some(sz)) => {
+                if i == 0 {
+                    let w = sz.width.max(0.0) as u32;
+                    unsafe { core::ptr::write_volatile(0x400E4 as *mut u32, 0xE4_010000u32 | (w & 0xffff)); }
+                }
+                lane[0] = p.x.max(0.0).round() as u32;
+                lane[1] = p.y.max(0.0).round() as u32;
+                lane[2] = sz.width.max(0.0).round() as u32;
+                lane[3] = sz.height.max(0.0).round() as u32;
             }
-            None => lane.fill(0),
+            _ => {
+                if i == 0 {
+                    unsafe { core::ptr::write_volatile(0x400E4 as *mut u32, 0xE4_FF0000u32); }
+                }
+                lane.fill(0);
+            }
         }
     }
 

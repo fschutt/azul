@@ -1085,15 +1085,31 @@ impl LayoutWindow {
         // drops its transient allocations (intrinsic sizing Vecs, etc.).
         crate::probe::hint_purge_allocator();
 
-        // M12.7: the headless web path only needs the per-node geometry, which
-        // `layout_document` has already written to `layout_cache.calculated_positions`
-        // (what AzStartup_solveLayoutReal reads). Everything below — scrollbar
-        // TransformKey registration, GPU-cache opacity/transform sync,
-        // update_scrollbar_transforms — is webrender/display-list bookkeeping
-        // that web doesn't use, and it contains an ARM loop whose lift to wasm
-        // never terminates (an opt-folded `br self`; routing value resolves to a
-        // webrender code pointer). Skip it for headless; desktop unchanged.
+        // M12.7: the headless web path needs the per-node geometry. Everything below —
+        // scrollbar TransformKey registration, GPU-cache opacity/transform sync,
+        // update_scrollbar_transforms — is webrender/display-list bookkeeping that web
+        // doesn't use, and it contains an ARM loop whose lift to wasm never terminates
+        // (an opt-folded `br self`; routing value resolves to a webrender code pointer).
+        // So publish the geometry (tree + calculated_positions) to `layout_results` HERE
+        // — the same DomLayoutResult the code below would store at the tail — so the
+        // headless extractor (get_node_size / get_node_position, which read
+        // layout_results via dom_to_layout) finds it; then skip the GPU bookkeeping.
+        // Desktop (skip_gpu_sync == false) is unchanged.
         if self.skip_gpu_sync {
+            if let Some(tree) = self.layout_cache.tree.clone() {
+                self.layout_results.insert(
+                    dom_id,
+                    DomLayoutResult {
+                        styled_dom,
+                        layout_tree: tree,
+                        calculated_positions: self.layout_cache.calculated_positions.clone(),
+                        viewport,
+                        display_list: DisplayList::default(),
+                        scroll_ids: self.layout_cache.scroll_ids.clone(),
+                        scroll_id_to_node_id: self.layout_cache.scroll_id_to_node_id.clone(),
+                    },
+                );
+            }
             return Ok(());
         }
 
@@ -1728,13 +1744,28 @@ impl LayoutWindow {
 
     /// Get the size of a laid-out node
     pub fn get_node_size(&self, node_id: DomNodeId) -> Option<LogicalSize> {
-        let layout_result = self.layout_results.get(&node_id.dom)?;
+        // M12.7 diag (0x400EC): pin which `?` returns None for the body size.
+        unsafe { core::ptr::write_volatile(0x400EC as *mut u32, 0xE6_000001u32 | ((self.layout_results.len() as u32 & 0xff) << 8)); }
+        let layout_result = match self.layout_results.get(&node_id.dom) {
+            Some(r) => r,
+            None => { unsafe { core::ptr::write_volatile(0x400EC as *mut u32, 0xE6_0000FAu32); } return None; }
+        };
         let nid = node_id.node.into_crate_internal()?;
+        unsafe { core::ptr::write_volatile(0x400EC as *mut u32, 0xE6_000002u32 | ((layout_result.layout_tree.dom_to_layout.len() as u32 & 0xfff) << 8)); }
         // Use dom_to_layout mapping since layout tree indices differ from DOM indices
-        let layout_indices = layout_result.layout_tree.dom_to_layout.get(&nid)?;
+        let layout_indices = match layout_result.layout_tree.dom_to_layout.get(&nid) {
+            Some(x) => x,
+            None => { unsafe { core::ptr::write_volatile(0x400EC as *mut u32, 0xE6_0000FBu32); } return None; }
+        };
         let layout_index = *layout_indices.first()?;
-        let layout_node = layout_result.layout_tree.get(layout_index)?;
-        layout_node.used_size
+        let layout_node = match layout_result.layout_tree.get(layout_index) {
+            Some(n) => n,
+            None => { unsafe { core::ptr::write_volatile(0x400EC as *mut u32, 0xE6_0000FCu32); } return None; }
+        };
+        match layout_node.used_size {
+            Some(s) => { unsafe { core::ptr::write_volatile(0x400EC as *mut u32, 0xE6_000004u32 | (((s.width as u32) & 0xffff) << 8)); } Some(s) }
+            None => { unsafe { core::ptr::write_volatile(0x400EC as *mut u32, 0xE6_0000FDu32); } None }
+        }
     }
 
     /// Get the position of a laid-out node
@@ -2881,23 +2912,33 @@ impl LayoutWindow {
     ) -> Option<azul_core::geom::LogicalRect> {
         // Get the layout tree from cache
         let layout_tree = self.layout_cache.tree.as_ref()?;
+        // M12.7 diag (0x400E8): which `?` returns None for the body rect?
+        unsafe { core::ptr::write_volatile(0x400E8 as *mut u32, 0xE5_000002u32 | ((layout_tree.nodes.len() as u32 & 0xff) << 8)); }
 
         // Find the layout node index corresponding to this DOM node
         // Convert NodeHierarchyItemId to Option<NodeId> for comparison
         let target_node_id = node_id.node.into_crate_internal();
-        let layout_idx = layout_tree
-            .nodes
-            .iter()
-            .position(|node| node.dom_node_id == target_node_id)?;
+        let layout_idx = match layout_tree.nodes.iter().position(|node| node.dom_node_id == target_node_id) {
+            Some(i) => i,
+            None => { unsafe { core::ptr::write_volatile(0x400E8 as *mut u32, 0xE5_0000FFu32); } return None; }
+        };
+        unsafe { core::ptr::write_volatile(0x400E8 as *mut u32, 0xE5_000003u32 | ((self.layout_cache.calculated_positions.len() as u32 & 0xfff) << 8)); }
 
         // Get the calculated layout position from cache (already in logical units)
-        let calc_pos = self.layout_cache.calculated_positions.get(layout_idx)?;
+        let calc_pos = match self.layout_cache.calculated_positions.get(layout_idx) {
+            Some(p) => p,
+            None => { unsafe { core::ptr::write_volatile(0x400E8 as *mut u32, 0xE5_0000FEu32); } return None; }
+        };
 
         // Get the layout node for size information
         let layout_node = layout_tree.nodes.get(layout_idx)?;
 
         // Get the used size (the actual laid-out size)
-        let used_size = layout_node.used_size?;
+        let used_size = match layout_node.used_size {
+            Some(s) => s,
+            None => { unsafe { core::ptr::write_volatile(0x400E8 as *mut u32, 0xE5_0000FDu32); } return None; }
+        };
+        unsafe { core::ptr::write_volatile(0x400E8 as *mut u32, 0xE5_000004u32); }
 
         // Convert size to logical coordinates
         let hidpi_factor = self

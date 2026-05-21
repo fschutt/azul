@@ -205,7 +205,31 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
         const step = mini.AzStartup_peekU32(0x400A4);
         const rbr = mini.AzStartup_peekU32(0x400A8);
         const rok = mini.AzStartup_peekU32(0x400AC);
-        console.error('  layout_document step=0x' + step.toString(16) + ' (0xDD00_000N: 1=entry 2=post-reconcile 3=entered-Step2); reconcile branch=0x' + rbr.toString(16) + ' Ok=0x' + rok.toString(16));
+        console.error('  layout_document step=0x' + step.toString(16) + ' (0xDD00_000N: 1=entry 2=post-reconcile 3=entered-Step2 4=reached-cache-store); reconcile branch=0x' + rbr.toString(16) + ' Ok=0x' + rok.toString(16));
+        if ((step & 0xf) === 4) console.error('  layout_document REACHED cache store (cache.tree+positions set), calculated_positions.len=' + ((step>>4)&0xfff));
+        const nlr = mini.AzStartup_peekU32(0x400E4);
+        if (((nlr>>>16)&0xff)===0x01) console.error('  body get_node_layout_rect=Some, width=' + (nlr&0xffff) + ' (0 → layout computed 0-wide; >0 → extraction issue)');
+        else if (((nlr>>>16)&0xff)===0xff) console.error('  body get_node_layout_rect=None (no calculated position → positioning did not write node 0)');
+        const glr = mini.AzStartup_peekU32(0x400E8);
+        if ((glr>>>24)===0xe5) {
+            const lo = glr&0xff;
+            if (lo===0xff) console.error('  get_node_layout_rect: .position() found NO matching layout node (tree nodes=' + ((glr>>8)&0xff) + ')');
+            else if (lo===0xfe) console.error('  get_node_layout_rect: calculated_positions.get(idx)=None (positioning empty)');
+            else if (lo===0xfd) console.error('  get_node_layout_rect: layout_node.used_size=None (sizing did not set used_size)');
+            else if (lo===0x04) console.error('  get_node_layout_rect: ALL OK (returned Some) — so the 0-rect is in the extraction/values');
+            else if ((glr&0xff)===0x03) console.error('  get_node_layout_rect: reached calc_pos, calculated_positions.len=' + ((glr>>8)&0xfff));
+        }
+        const gns = mini.AzStartup_peekU32(0x400EC);
+        if ((gns>>>24)===0xe6) {
+            const lo = gns&0xff;
+            if (lo===0xfa) console.error('  get_node_size: layout_results.get(dom)=None → DOM-ID MISMATCH (extraction uses ROOT_ID; layout stored under a different dom_id). layout_results.len=' + ((gns>>8)&0xff));
+            else if (lo===0xfb) console.error('  get_node_size: dom_to_layout.get(nid)=None (node 0 not in mapping). dom_to_layout.len=' + ((gns>>8)&0xfff));
+            else if (lo===0xfc) console.error('  get_node_size: layout_tree.get(idx)=None');
+            else if (lo===0xfd) console.error('  get_node_size: layout_node.used_size=None (sizing did not set used_size)');
+            else if (lo===0x04) console.error('  get_node_size: OK, body width=' + ((gns>>8)&0xffff));
+            else if (lo===0x01) console.error('  get_node_size: entered, layout_results.len=' + ((gns>>8)&0xff));
+            else if (lo===0x02) console.error('  get_node_size: reached dom_to_layout, len=' + ((gns>>8)&0xfff));
+        }
     }
 
     const rectsLen = mini.AzStartup_getPositionedRectsLen(state);

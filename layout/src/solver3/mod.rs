@@ -1019,6 +1019,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     cache.viewport = Some(viewport);
     cache.scroll_ids = scroll_ids;
     cache.scroll_id_to_node_id = scroll_id_to_node_id;
+    // M12.7 diag: layout_document reached the cache store (tree + positions). 0xDD00_0004
+    // + calculated_positions.len in the low bits. If step stays 3, it diverged earlier.
+    unsafe { core::ptr::write_volatile(0x400A4 as *mut u32, 0xDD00_0004u32 | ((cache.calculated_positions.len() as u32 & 0xfff) << 4)); }
     cache.counters = counter_values;
     cache.cache_map = cache_map_back;
     crate::probe::sample_peak_rss("rss:after_layout_document");
