@@ -3251,6 +3251,21 @@ impl CallbackInfo {
         self.get_layout_window().keyring_manager.last_result().cloned()
     }
 
+    /// Read the most recently observed permission state for `capability`
+    /// (Camera / Microphone / Geolocation / Sensors / Notifications / …) — e.g.
+    /// so a callback can check a capability is `Granted` before using it (show
+    /// a camera preview only once granted). Kept live by the platform
+    /// permission backend; a capability is subscribed by mounting its probe
+    /// node (CameraProbe / GeolocationProbe / …) into the DOM.
+    pub fn get_permission_status(
+        &self,
+        capability: crate::managers::permission::Capability,
+    ) -> crate::managers::permission::PermissionState {
+        self.get_layout_window()
+            .permission_manager
+            .get_status(capability)
+    }
+
     /// Get current pen pressure (0.0 to 1.0)
     /// Returns None if no pen is active, Some(0.5) for mouse
     pub fn get_pen_pressure(&self) -> Option<f32> {
