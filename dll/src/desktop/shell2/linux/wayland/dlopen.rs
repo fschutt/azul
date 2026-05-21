@@ -249,7 +249,7 @@ impl Wayland {
             "libwayland-cursor.so",
         ]).ok();
 
-        Ok(Rc::new(Self {
+        let wl = Rc::new(Self {
             wl_display_connect: load_symbol!(lib_client, _, "wl_display_connect"),
             wl_display_disconnect: load_symbol!(lib_client, _, "wl_display_disconnect"),
             wl_display_get_registry: load_symbol!(lib_client, _, "wl_display_get_registry"),
@@ -314,10 +314,8 @@ impl Wayland {
             xdg_popup_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "xdg_popup_interface") },
             xdg_positioner_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "xdg_positioner_interface") },
 
-            wl_registry_bind: unsafe { std::mem::transmute(wl_proxy_marshal_constructor_ptr) },
-            wl_compositor_create_surface: unsafe {
-                std::mem::transmute(wl_proxy_marshal_constructor_ptr)
-            },
+            wl_registry_bind: wl_registry_bind_impl,
+            wl_compositor_create_surface: wl_compositor_create_surface_impl,
             wl_subcompositor_get_subsurface: unsafe {
                 std::mem::transmute(wl_proxy_marshal_constructor_ptr)
             },
@@ -325,7 +323,7 @@ impl Wayland {
             wl_subsurface_set_desync: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             wl_subsurface_destroy: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             wl_surface_destroy: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
-            wl_surface_commit: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+            wl_surface_commit: wl_surface_commit_impl,
             wl_surface_attach: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             wl_surface_damage: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             wl_surface_frame: unsafe { std::mem::transmute(wl_proxy_marshal_constructor_ptr) },
@@ -370,7 +368,7 @@ impl Wayland {
             xdg_popup_grab: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             xdg_popup_destroy: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
 
-            wl_seat_get_pointer: unsafe { std::mem::transmute(wl_proxy_marshal_constructor_ptr) },
+            wl_seat_get_pointer: wl_seat_get_pointer_impl,
             wl_seat_get_keyboard: unsafe { std::mem::transmute(wl_proxy_marshal_constructor_ptr) },
             wl_seat_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
             wl_pointer_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
@@ -419,8 +417,120 @@ impl Wayland {
             _lib_cursor: lib_cursor,
             _lib_client: lib_client,
             _lib_egl: lib_egl,
-        }))
+        });
+        init_marshal_ctx(&wl);
+        Ok(wl)
     }
+}
+
+// ===== Wayland request marshalling (fixes the broken transmute-wrappers) =====
+// libwayland's request wrappers are inline in C; we reimplement them via the
+// real exported wl_proxy_marshal* with the correct opcode + interface (the old
+// fields dropped both -> the backend was dead at startup). A global ctx holds
+// the marshaller + interface pointers (valid for the app-lifetime Wayland Rc,
+// which owns _lib_client). See scripts/WACOM_TOUCH_API_RESEARCH.md.
+struct WlMarshalCtx {
+    marshal: *const c_void,
+    marshal_constructor: *const c_void,
+    marshal_constructor_versioned: *const c_void,
+    wl_surface: *const wl_interface,
+    wl_pointer: *const wl_interface,
+    wl_keyboard: *const wl_interface,
+    wl_touch: *const wl_interface,
+    wl_callback: *const wl_interface,
+    wl_region: *const wl_interface,
+    wl_shm_pool: *const wl_interface,
+    wl_buffer: *const wl_interface,
+    wl_subsurface: *const wl_interface,
+    xdg_surface: *const wl_interface,
+    xdg_toplevel: *const wl_interface,
+    xdg_popup: *const wl_interface,
+    xdg_positioner: *const wl_interface,
+}
+unsafe impl Send for WlMarshalCtx {}
+unsafe impl Sync for WlMarshalCtx {}
+static WL_CTX: std::sync::OnceLock<WlMarshalCtx> = std::sync::OnceLock::new();
+fn ctx() -> &'static WlMarshalCtx {
+    WL_CTX.get().expect("wayland marshal ctx not initialised")
+}
+fn init_marshal_ctx(w: &Wayland) {
+    let _ = WL_CTX.set(WlMarshalCtx {
+        marshal: w.wl_proxy_marshal,
+        marshal_constructor: w.wl_proxy_marshal_constructor,
+        marshal_constructor_versioned: w.wl_proxy_marshal_constructor_versioned,
+        wl_surface: &w.wl_surface_interface,
+        wl_pointer: &w.wl_pointer_interface,
+        wl_keyboard: &w.wl_keyboard_interface,
+        wl_touch: &w.wl_touch_interface,
+        wl_callback: &w.wl_callback_interface,
+        wl_region: &w.wl_region_interface,
+        wl_shm_pool: &w.wl_shm_pool_interface,
+        wl_buffer: &w.wl_buffer_interface,
+        wl_subsurface: &w.wl_subsurface_interface,
+        xdg_surface: &w.xdg_surface_interface,
+        xdg_toplevel: &w.xdg_toplevel_interface,
+        xdg_popup: &w.xdg_popup_interface,
+        xdg_positioner: &w.xdg_positioner_interface,
+    });
+}
+
+// Constructor requests: marshal_constructor(proxy, opcode, ret_interface, NULL new_id, ...args).
+unsafe extern "C" fn wl_registry_bind_impl(
+    registry: *mut wl_registry,
+    name: u32,
+    interface: *const wl_interface,
+    version: u32,
+) -> *mut c_void {
+    let c = ctx();
+    // wl_registry.bind op 0; varargs: name, interface->name(string), version, NULL new_id.
+    let f: unsafe extern "C" fn(
+        *mut wl_proxy,
+        u32,
+        *const wl_interface,
+        u32,
+        u32,
+        *const c_char,
+        u32,
+        *mut c_void,
+    ) -> *mut wl_proxy = std::mem::transmute(c.marshal_constructor_versioned);
+    f(
+        registry as *mut wl_proxy,
+        0,
+        interface,
+        version,
+        name,
+        (*interface).name,
+        version,
+        std::ptr::null_mut(),
+    ) as *mut c_void
+}
+unsafe extern "C" fn wl_compositor_create_surface_impl(
+    compositor: *mut wl_compositor,
+) -> *mut wl_surface {
+    let c = ctx();
+    let f: unsafe extern "C" fn(
+        *mut wl_proxy,
+        u32,
+        *const wl_interface,
+        *mut c_void,
+    ) -> *mut wl_proxy = std::mem::transmute(c.marshal_constructor);
+    f(compositor as *mut wl_proxy, 0, c.wl_surface, std::ptr::null_mut()) as *mut wl_surface
+}
+unsafe extern "C" fn wl_seat_get_pointer_impl(seat: *mut wl_seat) -> *mut wl_pointer {
+    let c = ctx();
+    let f: unsafe extern "C" fn(
+        *mut wl_proxy,
+        u32,
+        *const wl_interface,
+        *mut c_void,
+    ) -> *mut wl_proxy = std::mem::transmute(c.marshal_constructor);
+    f(seat as *mut wl_proxy, 0, c.wl_pointer, std::ptr::null_mut()) as *mut wl_pointer
+}
+// Plain requests: marshal(proxy, opcode, ...args).
+unsafe extern "C" fn wl_surface_commit_impl(surface: *mut wl_surface) {
+    let c = ctx();
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(c.marshal);
+    f(surface as *mut wl_proxy, 6);
 }
 
 // Re-export Xkb and GTK IM from X11's dlopen module
