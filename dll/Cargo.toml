@@ -169,6 +169,35 @@ objc2-core-motion = { version = "0.3.2", default-features = true, optional = tru
     "CMMagnetometer",
     "CMLogItem",
 ] }
+# Camera capture (AVFoundation) for the iOS camera backend — shares
+# camera/avfoundation.rs with macOS (same AVFoundation API). Minimal features.
+objc2-av-foundation = { version = "0.3.0", default-features = false, optional = true, features = [
+    "std",
+    "dispatch2",
+    "objc2-core-media",
+    "AVCaptureSession",
+    "AVCaptureDevice",
+    "AVCaptureInput",
+    "AVCaptureOutput",
+    "AVCaptureOutputBase",
+    "AVCaptureVideoDataOutput",
+    "AVMediaFormat",
+] }
+objc2-core-media = { version = "0.3.0", default-features = false, optional = true, features = [
+    "std",
+    "objc2-core-video",
+    "CMSampleBuffer",
+    "CMFormatDescription",
+] }
+objc2-core-video = { version = "0.3.0", default-features = false, optional = true, features = [
+    "std",
+    "CVBase",
+    "CVPixelBuffer",
+    "CVImageBuffer",
+    "CVBuffer",
+    "CVReturn",
+] }
+dispatch2 = { version = "0.3.0", default-features = false, features = ["std", "objc2"], optional = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 # NativeActivity bootstrap, event polling, soft-keyboard control, and
@@ -281,6 +310,7 @@ objc2-core-media = { version = "0.3.0", default-features = false, optional = tru
 ] }
 objc2-core-video = { version = "0.3.0", default-features = false, optional = true, features = [
     "std",
+    "CVBase",
     "CVPixelBuffer",
     "CVImageBuffer",
     "CVBuffer",

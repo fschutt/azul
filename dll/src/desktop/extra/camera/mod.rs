@@ -10,7 +10,7 @@
 mod v4l2;
 #[cfg(target_os = "windows")]
 mod windows;
-#[cfg(all(target_os = "macos", feature = "objc2-av-foundation"))]
+#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "objc2-av-foundation"))]
 mod avfoundation;
 
 /// Register the platform camera backend with the capture seam, once. Called
@@ -44,7 +44,7 @@ pub fn ensure_camera_backend() {
             );
         });
     }
-    #[cfg(all(target_os = "macos", feature = "objc2-av-foundation"))]
+    #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "objc2-av-foundation"))]
     {
         static DONE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
         DONE.get_or_init(|| {
