@@ -885,6 +885,10 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
     recon_result.layout_roots = final_layout_roots;
 
     let new_tree = new_tree_builder.build(root_idx);
+    // M12.7 diag: reconcile is about to return Ok. If 0x400AC is set but
+    // layout_document's step marker is stuck at 1 (post-`?` not reached), the
+    // lifted `?` mis-discriminated this Ok as Err (niche-Result mis-lift).
+    unsafe { core::ptr::write_volatile(0x400AC as *mut u32, 0xCC00_0001u32); }
     Ok((new_tree, recon_result))
 }
 
@@ -1019,14 +1023,21 @@ pub fn reconcile_recursive(
     };
     let is_dirty = dirty_flag >= DirtyFlag::Paint;
 
-    let new_node_idx = if dirty_flag >= DirtyFlag::Layout {
+    // M12.7: `|| old_tree.is_none()` — on COLD layout there is no old tree to
+    // clone, so we MUST create a fresh node; taking the else-branch would hit
+    // `ok_or(InvalidTree)` on a None old_tree. This is both semantically correct
+    // AND robust against a mis-lifted `dirty_flag`/Option match (the suspected
+    // niche-enum mis-discriminant) wrongly steering cold nodes into the else.
+    let new_node_idx = if dirty_flag >= DirtyFlag::Layout || old_tree.is_none() {
+        unsafe { core::ptr::write_volatile(0x400A8 as *mut u32, 0xBB00_0001u32); }
         new_tree_builder.create_node_from_dom(
             styled_dom,
             new_dom_id,
             new_parent_idx,
             debug_messages,
-        )?
+        )
     } else {
+        unsafe { core::ptr::write_volatile(0x400A8 as *mut u32, 0xBB00_0002u32); }
         // Paint-only or clean: clone the old node (preserving layout cache)
         let old_full_node = old_tree
             .and_then(|t| old_tree_idx.and_then(|idx| t.get_full_node(idx)))

@@ -157,6 +157,23 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
             }
             console.error('POST-RC5: LayoutError = ' + msg);
         }
+        // 0x4009C/0x400A0 = RAW discriminant tags (bypass the suspect match)
+        const ot = mini.AzStartup_peekU32(0x4009C), it = mini.AzStartup_peekU32(0x400A0);
+        const outerNames = {0:'InvalidTree',1:'SizingFailed',2:'PositioningFailed',3:'DisplayListFailed',4:'Text'};
+        const innerNames = {0:'BidiError',1:'ShapingError',2:'FontNotFound',3:'InvalidText',4:'HyphenationError'};
+        if ((ot>>>16)===0xda70) console.error('POST-RC5: RAW outer tag=' + (ot&0xff) + ' (' + (outerNames[ot&0xff]||'?') + ')');
+        if ((it>>>16)===0xda71) console.error('POST-RC5: RAW inner tag=' + (it&0xff) + ' (' + (innerNames[it&0xff]||'?') + ')');
+        // 0x400A4 = layout_document progress marker (0xDD00_000N): last step reached
+        const ld = mini.AzStartup_peekU32(0x400A4);
+        if ((ld>>>16)===0xdd00) console.error('POST-RC5: layout_document last step=' + (ld&0xffff) + ' (1=entry 2=post-reconcile) → the NEXT `?` errored');
+        else console.error('POST-RC5: layout_document NOT entered (0x400A4=0x' + ld.toString(16) + ')');
+        // 0x400A8 = reconcile_recursive branch (0xBB00_0001=create-new/IF, 0002=clone-old/ELSE)
+        const br = mini.AzStartup_peekU32(0x400A8);
+        if ((br>>>16)===0xbb00) console.error('POST-RC5: reconcile branch=' + (br&0xffff) + ' (1=create-new 2=clone-old)');
+        // 0x400AC = reconcile returned Ok (0xCC00_0001). If set but step stuck at 1 → the `?` mis-read Ok as Err
+        const rok = mini.AzStartup_peekU32(0x400AC);
+        if ((rok>>>16)===0xcc00) console.error('POST-RC5: reconcile RETURNED OK (0x400AC set) — so if step=1 the `?` mis-discriminated Ok→Err (niche-Result lift bug)');
+        else console.error('POST-RC5: reconcile did NOT reach its Ok return (0x400AC=0x' + rok.toString(16) + ')');
         fail('solveLayoutReal rc=' + rc + ' (see status codes in eventloop.rs)');
     }
     console.log('[2] solveLayoutReal rc=0 (real taffy positioning ran in wasm)');

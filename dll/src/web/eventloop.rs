@@ -1510,6 +1510,22 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
     // scanning + scrollbar GPU registration we don't need on web).
     // Positions land in `layout_cache.calculated_positions`.
     if let Err(e) = lw.layout_dom_recursive(styled, &ws, &rr, &sc, &mut dbg) {
+        // M12.7 ROBUST diag: read the RAW discriminant byte (the `match` below
+        // may mis-discriminate in the lift — load_from_path is never called yet
+        // we "see" FontNotFound, a contradiction). 0x4009C=0xDA70_<outer_tag>
+        // (solver3: 0=InvalidTree 1=Sizing 2=Positioning 3=DisplayList 4=Text);
+        // 0x400A0=0xDA71_<inner_tag> (text3: 0=Bidi 1=Shaping 2=FontNotFound
+        // 3=InvalidText 4=Hyphenation), only for the Text variant.
+        unsafe {
+            let outer_tag = *(&e as *const azul_layout::solver3::LayoutError as *const u8);
+            core::ptr::write_volatile(0x4009C as *mut u32, 0xDA70_0000u32 | outer_tag as u32);
+        }
+        if let azul_layout::solver3::LayoutError::Text(ref te) = e {
+            unsafe {
+                let inner_tag = *(te as *const azul_layout::text3::cache::LayoutError as *const u8);
+                core::ptr::write_volatile(0x400A0 as *mut u32, 0xDA71_0000u32 | inner_tag as u32);
+            }
+        }
         // M12.7 diag: record WHICH LayoutError to 0x40080 (0x4c45_000N) so the
         // gate can peek it (no stderr in lifted wasm).
         let code: u32 = match e {

@@ -455,6 +455,10 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // Reset IFC ID counter at the start of each layout pass
     // This ensures IFCs get consistent IDs across frames when the DOM structure is stable
     crate::solver3::layout_tree::IfcId::reset_counter();
+    // M12.7 diag: progress marker at 0x400A4 (0xDD00_000N) — pinpoints WHICH `?`
+    // in layout_document returns the rc=5 Err (the error enum can't be captured
+    // reliably in the lift). The last value seen = the step that errored next.
+    unsafe { core::ptr::write_volatile(0x400A4 as *mut u32, 0xDD00_0001u32); }
 
     if let Some(msgs) = debug_messages.as_mut() {
         msgs.push(LayoutDebugMessage::info(format!(
@@ -509,6 +513,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     crate::probe::reset_peak();
     let (mut new_tree, mut recon_result) =
         cache::reconcile_and_invalidate(&mut ctx_temp, cache, viewport)?;
+    unsafe { core::ptr::write_volatile(0x400A4 as *mut u32, 0xDD00_0002u32); }
     crate::probe::sample_peak_rss("rss:after_reconcile");
     crate::probe::sample_phase_peak("rss:peak_during_reconcile");
 
