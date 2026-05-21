@@ -753,6 +753,75 @@ pub struct zwp_tablet_pad_dial_v2 {
     _private: [u8; 0],
 }
 
+/// Listener for `zwp_tablet_seat_v2` (device hotplug). new_ids are server-created.
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct zwp_tablet_seat_v2_listener {
+    pub tablet_added:
+        extern "C" fn(data: *mut c_void, seat: *mut zwp_tablet_seat_v2, id: *mut zwp_tablet_v2),
+    pub tool_added: extern "C" fn(
+        data: *mut c_void,
+        seat: *mut zwp_tablet_seat_v2,
+        id: *mut zwp_tablet_tool_v2,
+    ),
+    pub pad_added:
+        extern "C" fn(data: *mut c_void, seat: *mut zwp_tablet_seat_v2, id: *mut zwp_tablet_pad_v2),
+}
+
+/// Listener for `zwp_tablet_v2` (physical tablet descriptive events).
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct zwp_tablet_v2_listener {
+    pub name: extern "C" fn(data: *mut c_void, tablet: *mut zwp_tablet_v2, name: *const c_char),
+    pub id: extern "C" fn(data: *mut c_void, tablet: *mut zwp_tablet_v2, vid: u32, pid: u32),
+    pub path: extern "C" fn(data: *mut c_void, tablet: *mut zwp_tablet_v2, path: *const c_char),
+    pub done: extern "C" fn(data: *mut c_void, tablet: *mut zwp_tablet_v2),
+    pub removed: extern "C" fn(data: *mut c_void, tablet: *mut zwp_tablet_v2),
+    pub bustype: extern "C" fn(data: *mut c_void, tablet: *mut zwp_tablet_v2, bustype: u32),
+}
+
+/// Listener for `zwp_tablet_tool_v2` (the pen). Coordinate args are wl_fixed_t
+/// (i32; /256.0); pressure/distance are uint 0..65535.
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct zwp_tablet_tool_v2_listener {
+    pub type_: extern "C" fn(data: *mut c_void, tool: *mut zwp_tablet_tool_v2, tool_type: u32),
+    pub hardware_serial:
+        extern "C" fn(data: *mut c_void, tool: *mut zwp_tablet_tool_v2, hi: u32, lo: u32),
+    pub hardware_id_wacom:
+        extern "C" fn(data: *mut c_void, tool: *mut zwp_tablet_tool_v2, hi: u32, lo: u32),
+    pub capability: extern "C" fn(data: *mut c_void, tool: *mut zwp_tablet_tool_v2, capability: u32),
+    pub done: extern "C" fn(data: *mut c_void, tool: *mut zwp_tablet_tool_v2),
+    pub removed: extern "C" fn(data: *mut c_void, tool: *mut zwp_tablet_tool_v2),
+    pub proximity_in: extern "C" fn(
+        data: *mut c_void,
+        tool: *mut zwp_tablet_tool_v2,
+        serial: u32,
+        tablet: *mut zwp_tablet_v2,
+        surface: *mut wl_surface,
+    ),
+    pub proximity_out: extern "C" fn(data: *mut c_void, tool: *mut zwp_tablet_tool_v2),
+    pub down: extern "C" fn(data: *mut c_void, tool: *mut zwp_tablet_tool_v2, serial: u32),
+    pub up: extern "C" fn(data: *mut c_void, tool: *mut zwp_tablet_tool_v2),
+    pub motion: extern "C" fn(data: *mut c_void, tool: *mut zwp_tablet_tool_v2, x: i32, y: i32),
+    pub pressure: extern "C" fn(data: *mut c_void, tool: *mut zwp_tablet_tool_v2, pressure: u32),
+    pub distance: extern "C" fn(data: *mut c_void, tool: *mut zwp_tablet_tool_v2, distance: u32),
+    pub tilt:
+        extern "C" fn(data: *mut c_void, tool: *mut zwp_tablet_tool_v2, tilt_x: i32, tilt_y: i32),
+    pub rotation: extern "C" fn(data: *mut c_void, tool: *mut zwp_tablet_tool_v2, degrees: i32),
+    pub slider: extern "C" fn(data: *mut c_void, tool: *mut zwp_tablet_tool_v2, position: i32),
+    pub wheel:
+        extern "C" fn(data: *mut c_void, tool: *mut zwp_tablet_tool_v2, degrees: i32, clicks: i32),
+    pub button: extern "C" fn(
+        data: *mut c_void,
+        tool: *mut zwp_tablet_tool_v2,
+        serial: u32,
+        button: u32,
+        state: u32,
+    ),
+    pub frame: extern "C" fn(data: *mut c_void, tool: *mut zwp_tablet_tool_v2, time: u32),
+}
+
 fn leak_null_types() -> *const *const wl_interface {
     let a: &'static [*const wl_interface; 8] = Box::leak(Box::new([std::ptr::null(); 8]));
     a.as_ptr()

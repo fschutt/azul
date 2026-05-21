@@ -148,6 +148,20 @@ pub struct Wayland {
     pub wl_seat_get_touch: unsafe extern "C" fn(*mut wl_seat) -> *mut wl_touch,
     pub wl_touch_add_listener:
         unsafe extern "C" fn(*mut wl_touch, *const wl_touch_listener, *mut c_void) -> i32,
+    pub zwp_tablet_manager_v2_get_tablet_seat:
+        unsafe extern "C" fn(*mut zwp_tablet_manager_v2, *mut wl_seat) -> *mut zwp_tablet_seat_v2,
+    pub zwp_tablet_seat_v2_add_listener: unsafe extern "C" fn(
+        *mut zwp_tablet_seat_v2,
+        *const zwp_tablet_seat_v2_listener,
+        *mut c_void,
+    ) -> i32,
+    pub zwp_tablet_v2_add_listener:
+        unsafe extern "C" fn(*mut zwp_tablet_v2, *const zwp_tablet_v2_listener, *mut c_void) -> i32,
+    pub zwp_tablet_tool_v2_add_listener: unsafe extern "C" fn(
+        *mut zwp_tablet_tool_v2,
+        *const zwp_tablet_tool_v2_listener,
+        *mut c_void,
+    ) -> i32,
 
     pub wl_shm_create_pool: unsafe extern "C" fn(*mut wl_shm, i32, i32) -> *mut wl_shm_pool,
     pub wl_shm_pool_create_buffer:
@@ -368,6 +382,14 @@ impl Wayland {
             wl_keyboard_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
             wl_seat_get_touch: wl_seat_get_touch_impl,
             wl_touch_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
+            zwp_tablet_manager_v2_get_tablet_seat: zwp_tablet_manager_v2_get_tablet_seat_impl,
+            zwp_tablet_seat_v2_add_listener: unsafe {
+                std::mem::transmute(wl_proxy_add_listener_ptr)
+            },
+            zwp_tablet_v2_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
+            zwp_tablet_tool_v2_add_listener: unsafe {
+                std::mem::transmute(wl_proxy_add_listener_ptr)
+            },
 
             wl_shm_create_pool: wl_shm_create_pool_impl,
             wl_shm_pool_create_buffer: wl_shm_pool_create_buffer_impl,
@@ -589,6 +611,17 @@ unsafe extern "C" fn wl_seat_get_touch_impl(seat: *mut wl_seat) -> *mut wl_touch
     let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, *mut c_void) -> *mut wl_proxy =
         std::mem::transmute(c.marshal_constructor);
     f(seat as *mut wl_proxy, 2, c.wl_touch, std::ptr::null_mut()) as *mut wl_touch
+}
+unsafe extern "C" fn zwp_tablet_manager_v2_get_tablet_seat_impl(
+    mgr: *mut zwp_tablet_manager_v2,
+    seat: *mut wl_seat,
+) -> *mut zwp_tablet_seat_v2 {
+    let c = ctx();
+    // get_tablet_seat op0; the seat interface is the hand-rolled descriptor.
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, *mut c_void, *mut wl_seat) -> *mut wl_proxy =
+        std::mem::transmute(c.marshal_constructor);
+    f(mgr as *mut wl_proxy, 0, get_tablet_seat_v2_interface() as *const _, std::ptr::null_mut(), seat)
+        as *mut zwp_tablet_seat_v2
 }
 unsafe extern "C" fn wl_shm_create_pool_impl(shm: *mut wl_shm, fd: i32, size: i32) -> *mut wl_shm_pool {
     let c = ctx();
