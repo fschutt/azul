@@ -245,6 +245,8 @@ winapi = { version = "0.3.9", optional = true, default-features = false, feature
     "wingdi",
     "commdlg",
     "winerror",
+    "wincred",
+    "minwindef",
 ] }
 # Motion sensors (Windows.Devices.Sensors, WinRT) — accel/gyro/mag.
 windows = { version = "0.62", optional = true, features = ["Devices_Sensors"] }

@@ -2545,3 +2545,10 @@ Reviewed the desktop (linux/windows/macos) sensor/device backend hookup (dll/src
 ### Tick — sensors: Windows motion-sensors backend wired (task #8 DONE) (2026-05-21)
 
 Wired the Windows motion-sensors backend (WinRT Windows.Devices.Sensors) per the research. Added `windows = "0.62"` (feat Devices_Sensors) to the windows-cfg deps + the winapi feature list; sensors/windows.rs: start() caches Accelerometer/Gyrometer/Magnetometer::GetDefault().ok() + SetReportInterval(min); poll() reads GetCurrentReading (guarded), push_sensor_reading with accel ×9.80665 (g->m/s²), gyro ×π/180 (deg/s->rad/s), mag ×1 (µT); graceful no-op on no-IMU desktops; wired the windows arm in sensors/mod.rs. **The `windows` crate cross-compiles to x86_64-pc-windows-gnu** (verified — windows-gnu cross-check clean, 13.8s; the bundled windows_x86_64_gnu import lib). get_sensor_reading now live on Windows. **Task #8 DONE.** NEXT: keyring (Windows CredMan via winapi wincred + Linux libsecret dlopen, task #9).
+
+### Tick — keyring: Windows + Linux backends (task #9 DONE) (2026-05-21)
+
+Wired both desktop keyring backends, replacing the Unavailable stubs:
+- **Windows** (keyring/windows.rs): Win32 Credential Manager via winapi wincred (+wincred,minwindef features). request->thread->push_keyring_result; Store->CredWriteW (CRED_TYPE_GENERIC, target "com.azul.keyring:<key>", secret as blob, CRED_PERSIST_LOCAL_MACHINE), Get->CredReadW (Retrieved/NotFound on ERROR_NOT_FOUND), Delete->CredDeleteW. require_biometry ignored (generic creds; Hello is separate). windows-gnu clean.
+- **Linux** (keyring/linux.rs): libsecret via dlopen (libsecret-1.so.0 + libglib-2.0.so.0 through the repo's Library/load_symbol!/load_first_available). Non-variadic secret_password_{storev,lookupv,clearv}_sync + a 1-attr "key" GHashTable (sidesteps the variadic-fn-ptr block); SecretSchema/GError repr(C); secret_password_free + g_error_free; load-fail/GError->Unavailable. linux-gnu clean.
+Wired both arms in keyring/mod.rs (Unavailable fallback now excludes windows+linux). **Task #9 DONE.** NEXT: biometric (Windows Hello UserConsentVerifier + Linux fprintd/zbus, task #10) + azul-vault fix.

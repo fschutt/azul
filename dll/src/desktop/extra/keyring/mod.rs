@@ -26,6 +26,10 @@ use azul_core::keyring::KeyringRequest;
 pub mod apple;
 #[cfg(target_os = "android")]
 pub mod android;
+#[cfg(target_os = "windows")]
+pub mod windows;
+#[cfg(target_os = "linux")]
+pub mod linux;
 
 /// Dispatch one keyring op to the native keyring. Called from
 /// `regenerate_layout` for each request the layout pass drained.
@@ -41,7 +45,17 @@ pub fn request(req: &KeyringRequest) {
     apple::request(req);
     #[cfg(target_os = "android")]
     android::request(req);
-    #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "android")))]
+    #[cfg(target_os = "windows")]
+    windows::request(req);
+    #[cfg(target_os = "linux")]
+    linux::request(req);
+    #[cfg(not(any(
+        target_os = "ios",
+        target_os = "macos",
+        target_os = "android",
+        target_os = "windows",
+        target_os = "linux"
+    )))]
     {
         let _ = req;
         azul_layout::managers::keyring::push_keyring_result(
