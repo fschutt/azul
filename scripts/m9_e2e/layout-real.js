@@ -219,6 +219,9 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
         // post-call 0x5E write in layout_document doesn't clobber it). DEEPEST reached wins.
         const clstep = mini.AzStartup_peekU32(0x400B0);
         console.error('  calc_layout deepest marker (0x400B0) = 0x' + clstep.toString(16));
+        const errpc = mini.AzStartup_peekU32(0x400B4);
+        const errpch = mini.AzStartup_peekU32(0x400B8);
+        if (errpc || errpch) console.error('  LAST __remill_error faulting RUNTIME PC = 0x' + (errpch>>>0).toString(16) + (errpc>>>0).toString(16).padStart(8,'0') + ' → grep server.log @0x<this> for the fn, then otool that fn for the unlifted op');
         if ((clstep & 0xff) === 0x5f) console.error('  calc_layout: body entered, NO further marker → returns Err in the cache-check block (1977-2075) before hit/miss');
         if ((clstep & 0xff) === 0x61) console.error('  calc_layout: cache-HIT path (0x61) → recursion over cached child_positions returns Err');
         if ((clstep & 0xff) === 0x60) console.error('  calc_layout: cache-miss entered (0x60), no 0x62 → prepare_layout_context (calculate_used_size_for_node) returns Err');

@@ -5520,7 +5520,15 @@ define linkonce_odr ptr @__remill_missing_block(ptr %state, i64 %pc, ptr %memory
   ret ptr %memory
 }}
 define linkonce_odr ptr @__remill_error(ptr %state, i64 %pc, ptr %memory) alwaysinline {{
-  ret ptr %memory
+  ; M12.7 diag: record the faulting guest PC (low 32 bits) to 0x400B4 (262324) so the
+  ; HOT unlifted instruction can be mapped. __remill_error returns early (no trap), which
+  ; silently corrupts the lifted fn's return value — this surfaces which PC hit it.
+  %az_epc = trunc i64 %pc to i32
+  %az_em = call ptr @__remill_write_memory_32(ptr %memory, i64 262324, i32 %az_epc)
+  %az_pch = lshr i64 %pc, 32
+  %az_epch = trunc i64 %az_pch to i32
+  %az_em2 = call ptr @__remill_write_memory_32(ptr %az_em, i64 262328, i32 %az_epch)
+  ret ptr %az_em2
 }}
 ; M10-B1.a alias-scope metadata for guest memory ops.
 ;
