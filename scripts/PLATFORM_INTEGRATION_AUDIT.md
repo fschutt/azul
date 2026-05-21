@@ -8,9 +8,11 @@ Legend: ✅ real native backend · 🔶 stub (test-pattern / no real backend) ·
 📝 TODO (file exists, not implemented) · ❌ missing (no-op fallthrough).
 
 > **Progress (this session):** landed Linux **sensors** (iio sysfs), Linux
-> **geolocation** (GeoClue2/zbus), and the **capture seam** (camera+screencap
-> pull frames from a registered platform backend, test-pattern fallback) — plus
-> the libudev-sys dlopen fork (cross-compile unblock) + the `video_codec` API.
+> **geolocation** (GeoClue2/zbus), Linux **audio** (ALSA playback + capture,
+> dlopen), the **capture seam** (camera+screencap pull frames from a registered
+> platform backend, test-pattern fallback), and **safe-area/notches** (core +
+> accessor + macOS `NSView` + iOS `UIView`) — plus the libudev-sys dlopen fork
+> (cross-compile unblock), the `video_codec` API, and the LayoutWindow dedup.
 > The matrix reflects these.
 
 | System (P#) | macOS | Linux | Windows | iOS | Android | Backend / notes |
@@ -26,8 +28,8 @@ Legend: ✅ real native backend · 🔶 stub (test-pattern / no real backend) ·
 | **Camera** (P6) | 🔶→seam | 🔶→seam | 🔶→seam | 🔶→seam | 🔶→seam | **capture seam landed** (worker pulls from a registered `CaptureVTable`, test-pattern fallback); per-OS backends (AVFoundation / Camera2 / v4l2 / MediaFoundation) plug in — not yet written |
 | **Screen capture** (P6) | 🔶→seam | 🔶→seam | 🔶→seam | 🔶→seam | 🔶→seam | **capture seam landed**; per-OS backends (ScreenCaptureKit / X11 / DXGI; **Wayland dummy** per the user) plug in — not yet written |
 | **Video playback** (P6) | 🔶 | 🔶 | 🔶 | 🔶 | 🔶 | `video.rs` SMPTE-bars test pattern; real vk-video/native decode not written |
-| **Mic capture** (P7) | 🔶 | 🔶 | 🔶 | 🔶 | 🔶 | `microphone.rs` 440 Hz test tone; real AVAudioEngine / cpal / AAudio not written |
-| **Audio playback `AudioSink`** (P7) | 🔶 | 🔶 | 🔶 | 🔶 | 🔶 | stub (counts frames); real rodio / AVAudioEngine / AAudio not written |
+| **Mic capture** (P7) | 🔶 | ✅ ALSA | 🔶 | 🔶 | 🔶 | **linux ALSA capture real** (dlopen `libasound`, via the mic seam); macOS/Windows/mobile still the 440 Hz test tone |
+| **Audio playback `AudioSink`** (P7) | 🔶 | ✅ ALSA | 🔶 | 🔶 | 🔶 | **linux ALSA playback real** (dlopen `libasound`); macOS/Windows/mobile still the frame-counting stub |
 | **Video codec** (P7/P8) | 🔶 VideoToolbox-sel | 🔶 gpu-video-sel | 🔶 gpu-video-sel | 🔶 | 🔶 MediaCodec-sel | `video_codec` selects the native backend per platform (`backend_name()`) but the FFI is a stub |
 
 ## What's actually solid cross-platform
@@ -69,11 +71,11 @@ SUPER_PLAN_1 (`SUPER_PLAN.md`) added touch/pen/gestures/orientation for iOS+Andr
 | **Desktop touch (multi-touch)** | ❌ | ❌ | ❌ | mouse-only; no X11 XInput2 / WM_TOUCH multitouch (mobile has `TouchPointVec`) |
 | **Desktop pen / tablet (Wacom)** | ❌ | ❌ | ❌ | `PenState` exists (mobile) but **not populated on desktop** — no XInput2 valuators / Windows Ink / NSEvent tablet |
 | **Orientation** | n/a | (iio-derivable) | n/a | desktop auto-rotate could derive from the new iio sensor backend |
-| **Notches / safe-area** | ❌ | ❌ | ❌ | **safe-area-insets not implemented anywhere** (MacBook notch, mobile notches) — SUPER_PLAN_1's stretch goal, never done |
+| **Notches / safe-area** | ✅ NSView | n/a | ❌ | **DONE this session**: core css `SafeAreaInsets` + `get_safe_area_insets` (codegen-exposed), populated on macOS (`NSView.safeAreaInsets`) **and iOS** (`UIView`); Android cutout (JNI) pending |
 
 **Solid:** multi-monitor, DPI, multi-window. **Gaps:** desktop multi-touch, desktop pen/Wacom, safe-area/notches.
 
 Fix plan (tractable-first, per the established patterns):
-1. **safe-area-insets** — core `SafeAreaInsets` type + window-state field + `CallbackInfo` accessor (cross-platform, 0 default), then macOS notch (`NSScreen.safeAreaInsets`, objc2) + iOS (`UIView.safeAreaInsets`). Addresses "notches", mostly cross-platform.
+1. ~~safe-area-insets~~ **DONE (2026-05-21)** — used the existing css `SafeAreaInsets` (not a new type); `CallbackInfo::get_safe_area_insets` codegen-exposed; populated on macOS (`NSView.safeAreaInsets`) + iOS (`UIView`). Android cutout (JNI from scratch) pending.
 2. **Linux Wacom** — XInput2 tablet valuators (pressure/tilt) via dlopen `libXi` -> `PenState` (the user's named ask). Device-tested.
 3. **Desktop multi-touch** — X11 XInput2 touch / Windows WM_TOUCH -> `TouchPointVec`. Device-tested.

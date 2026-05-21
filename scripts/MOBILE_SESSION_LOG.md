@@ -2366,3 +2366,7 @@ Search keys added to both. Device-tested features still await a steer (a/b) or a
 Also fixed a path bug the iOS gate exposed: both the iOS edit *and* the committed macOS notch (41a572365) used `azul_css::OptionPixelValue`/`PixelValue`, but those live at `azul_css::props::basic::`. My earlier macOS host-check passed on a stale incremental cache (it didn't recompile shell2/macos with the new line); the fresh iOS cargo-check caught it. Fixed both -> gate GREEN x7 + macOS host check Finished clean. Lesson: a macOS-shell change needs a *fresh* host check, not just the cross-gate (no macOS target).
 
 Safe-area now populated on both Apple platforms (macOS notch + iOS); Android `WindowInsets` (JNI) remains.
+
+### Tick — correct stale platform audit (2026-05-21)
+
+The loop surfaced the platform audit; it had gone stale vs this session's work. Corrected it to reflect what actually landed: Linux **audio** (mic capture + AudioSink) now ✅ (real ALSA via dlopen, was marked 🔶 stub everywhere); **notches/safe-area** now ✅ on macOS (`NSView`) + iOS (`UIView`) with the codegen-exposed accessor (was "not implemented anywhere / never done"); the SUPER_PLAN_1 fix-plan #1 marked DONE; the session-progress note updated (Linux audio, safe-area, LayoutWindow dedup). The audit is the reference doc, so accuracy matters. No code change.
