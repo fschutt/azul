@@ -43,6 +43,9 @@ pub struct Wayland {
     // so we store them as raw pointers and cast when calling.
     pub wl_proxy_marshal_constructor: *const c_void,
     pub wl_proxy_marshal: *const c_void,
+    pub wl_proxy_marshal_constructor_versioned: *const c_void,
+    pub wl_proxy_marshal_flags: *const c_void, // null if libwayland <1.20
+    pub wl_proxy_get_version: unsafe extern "C" fn(*mut wl_proxy) -> u32,
     pub wl_proxy_add_listener:
         unsafe extern "C" fn(*mut wl_proxy, *const c_void, *mut c_void) -> i32,
     pub wl_proxy_destroy: unsafe extern "C" fn(proxy: *mut wl_proxy),
@@ -55,6 +58,20 @@ pub struct Wayland {
     pub wl_seat_interface: wl_interface,
     pub wl_output_interface: wl_interface,
     pub xdg_wm_base_interface: wl_interface,
+    // Interfaces of constructed objects (needed to marshal constructor requests).
+    pub wl_surface_interface: wl_interface,
+    pub wl_pointer_interface: wl_interface,
+    pub wl_keyboard_interface: wl_interface,
+    pub wl_touch_interface: wl_interface,
+    pub wl_callback_interface: wl_interface,
+    pub wl_region_interface: wl_interface,
+    pub wl_shm_pool_interface: wl_interface,
+    pub wl_buffer_interface: wl_interface,
+    pub wl_subsurface_interface: wl_interface,
+    pub xdg_surface_interface: wl_interface,
+    pub xdg_toplevel_interface: wl_interface,
+    pub xdg_popup_interface: wl_interface,
+    pub xdg_positioner_interface: wl_interface,
 
     // Convenience wrappers for common operations
     pub wl_registry_bind:
@@ -215,6 +232,17 @@ impl Wayland {
             lib_client
                 .get_symbol::<*const c_void>("wl_proxy_add_listener")?
         };
+        // marshal_flags is libwayland >=1.20; null -> impl fns fall back to the constructor fns.
+        let wl_proxy_marshal_flags_ptr = unsafe {
+            lib_client
+                .get_symbol::<*const c_void>("wl_proxy_marshal_flags")
+                .unwrap_or(std::ptr::null())
+        };
+        let wl_proxy_marshal_constructor_versioned_ptr = unsafe {
+            lib_client
+                .get_symbol::<*const c_void>("wl_proxy_marshal_constructor_versioned")
+                .unwrap_or(std::ptr::null())
+        };
 
         let lib_cursor = load_first_available::<Library>(&[
             "libwayland-cursor.so.0",
@@ -243,6 +271,9 @@ impl Wayland {
 
             wl_proxy_marshal_constructor: wl_proxy_marshal_constructor_ptr,
             wl_proxy_marshal: wl_proxy_marshal_ptr,
+            wl_proxy_marshal_constructor_versioned: wl_proxy_marshal_constructor_versioned_ptr,
+            wl_proxy_marshal_flags: wl_proxy_marshal_flags_ptr,
+            wl_proxy_get_version: load_symbol!(lib_client, _, "wl_proxy_get_version"),
             wl_proxy_add_listener: load_symbol!(lib_client, _, "wl_proxy_add_listener"),
             wl_proxy_destroy: load_symbol!(lib_client, _, "wl_proxy_destroy"),
             wl_proxy_set_queue: load_symbol!(lib_client, _, "wl_proxy_set_queue"),
@@ -269,6 +300,19 @@ impl Wayland {
             xdg_wm_base_interface: unsafe {
                 *load_symbol!(lib_client, *const wl_interface, "xdg_wm_base_interface")
             },
+            wl_surface_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "wl_surface_interface") },
+            wl_pointer_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "wl_pointer_interface") },
+            wl_keyboard_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "wl_keyboard_interface") },
+            wl_touch_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "wl_touch_interface") },
+            wl_callback_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "wl_callback_interface") },
+            wl_region_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "wl_region_interface") },
+            wl_shm_pool_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "wl_shm_pool_interface") },
+            wl_buffer_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "wl_buffer_interface") },
+            wl_subsurface_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "wl_subsurface_interface") },
+            xdg_surface_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "xdg_surface_interface") },
+            xdg_toplevel_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "xdg_toplevel_interface") },
+            xdg_popup_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "xdg_popup_interface") },
+            xdg_positioner_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "xdg_positioner_interface") },
 
             wl_registry_bind: unsafe { std::mem::transmute(wl_proxy_marshal_constructor_ptr) },
             wl_compositor_create_surface: unsafe {
