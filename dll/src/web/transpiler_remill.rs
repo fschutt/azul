@@ -1094,7 +1094,7 @@ impl RemillTranspiler {
             run_tool(
                 opt,
                 &[
-                    llvm_opt_flag(),
+                    opt_flag_for(fn_name),
                     "-S",
                     linked_ir_path.to_str().expect("scratch path is utf-8"),
                     "-o",
@@ -1256,7 +1256,7 @@ impl RemillTranspiler {
                 &[
                     "-mtriple=wasm32-unknown-unknown",
                     "-filetype=obj",
-                    llvm_opt_flag(),
+                    opt_flag_for(fn_name),
                     "-o",
                     obj_path.to_str().expect("scratch path is utf-8"),
                     opt_ir_path.to_str().expect("scratch path is utf-8"),
@@ -4306,6 +4306,29 @@ fn llvm_opt_flag() -> &'static str {
         _ => "-O2".to_string(),
     })
     .as_str()
+}
+
+/// Per-fn opt level. When `AZ_LOWOPT_FNS` (comma-separated stems) matches the
+/// fn, use `-O0` instead of the global level — so an over-aggressive opt fold
+/// (e.g. proving a lifted PC-threaded loop's exit unreachable and deleting its
+/// body → infinite self-loop) is avoided for that one fn, lifting it faithfully.
+/// Bigger/slower wasm for that fn, but correct. Empty/unset → global level.
+fn opt_flag_for(fn_name: &str) -> &'static str {
+    use std::sync::OnceLock;
+    static LOW: OnceLock<Vec<String>> = OnceLock::new();
+    let low = LOW.get_or_init(|| {
+        std::env::var("AZ_LOWOPT_FNS")
+            .unwrap_or_default()
+            .split(',')
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect()
+    });
+    if low.iter().any(|s| fn_name.contains(s)) {
+        "-O0"
+    } else {
+        llvm_opt_flag()
+    }
 }
 
 fn sanitize_filename(name: &str) -> String {
