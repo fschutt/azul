@@ -268,6 +268,96 @@ fn try_create_argb_window(
     Some((window, true, Some(colormap)))
 }
 
+/// Initialise XInput2 for touch + pen/tablet. Best-effort: returns
+/// `(None, 0, empty)` if libXi or the XInputExtension is unavailable (the shell
+/// then falls back to core pointer events). Selects Button/Motion/Touch for all
+/// master devices and maps each device's pressure/tilt valuator numbers via
+/// their label atoms. ABI per scripts/WACOM_TOUCH_API_RESEARCH.md.
+fn init_xinput2(
+    xlib: &Rc<Xlib>,
+    display: *mut Display,
+    window: Window,
+) -> (
+    Option<Rc<dlopen::Xi>>,
+    c_int,
+    std::collections::HashMap<c_int, (i32, i32, i32, f64)>,
+) {
+    use std::collections::HashMap;
+    unsafe {
+        let mut opcode = 0i32;
+        let (mut first_ev, mut first_err) = (0i32, 0i32);
+        if (xlib.XQueryExtension)(
+            display,
+            b"XInputExtension\0".as_ptr() as *const _,
+            &mut opcode,
+            &mut first_ev,
+            &mut first_err,
+        ) == 0
+        {
+            return (None, 0, HashMap::new());
+        }
+        let xi = match dlopen::Xi::new() {
+            Ok(x) => x,
+            Err(_) => return (None, 0, HashMap::new()),
+        };
+        let (mut maj, mut min) = (2i32, 2i32);
+        (xi.XIQueryVersion)(display, &mut maj, &mut min);
+
+        // Select Button/Motion/Touch for all master devices.
+        let mut mask = [0u8; 3];
+        for e in [
+            defines::XI_ButtonPress,
+            defines::XI_ButtonRelease,
+            defines::XI_Motion,
+            defines::XI_TouchBegin,
+            defines::XI_TouchUpdate,
+            defines::XI_TouchEnd,
+        ] {
+            mask[(e >> 3) as usize] |= 1 << (e & 7);
+        }
+        let mut evmask = defines::XIEventMask {
+            deviceid: defines::XIAllMasterDevices,
+            mask_len: mask.len() as c_int,
+            mask: mask.as_mut_ptr(),
+        };
+        (xi.XISelectEvents)(display, window, &mut evmask, 1);
+
+        // Map deviceid -> (pressure#, tiltX#, tiltY#, pressure_max) via valuator labels.
+        let p_atom = (xlib.XInternAtom)(display, b"Abs Pressure\0".as_ptr() as *const _, 0);
+        let tx_atom = (xlib.XInternAtom)(display, b"Abs Tilt X\0".as_ptr() as *const _, 0);
+        let ty_atom = (xlib.XInternAtom)(display, b"Abs Tilt Y\0".as_ptr() as *const _, 0);
+        let mut map = HashMap::new();
+        let mut ndev = 0i32;
+        let devs = (xi.XIQueryDevice)(display, defines::XIAllDevices, &mut ndev);
+        if !devs.is_null() {
+            for i in 0..ndev as isize {
+                let dev = &*devs.offset(i);
+                let (mut p, mut tx, mut ty, mut pmax) = (-1i32, -1i32, -1i32, 1.0f64);
+                for c in 0..dev.num_classes as isize {
+                    let cls = *dev.classes.offset(c);
+                    if cls.is_null() || (*cls).type_ != defines::XIValuatorClass {
+                        continue;
+                    }
+                    let v = &*(cls as *const defines::XIValuatorClassInfo);
+                    if v.label == p_atom {
+                        p = v.number;
+                        pmax = if v.max > 0.0 { v.max } else { 1.0 };
+                    } else if v.label == tx_atom {
+                        tx = v.number;
+                    } else if v.label == ty_atom {
+                        ty = v.number;
+                    }
+                }
+                if p >= 0 || tx >= 0 || ty >= 0 {
+                    map.insert(dev.deviceid, (p, tx, ty, pmax));
+                }
+            }
+            (xi.XIFreeDeviceInfo)(devs);
+        }
+        (Some(xi), opcode, map)
+    }
+}
+
 pub struct X11Window {
     pub xlib: Rc<Xlib>,
     pub egl: Rc<Egl>,
@@ -289,6 +379,12 @@ pub struct X11Window {
     // See: https://stackoverflow.com/a/9215724 (inspired by datenwolf/FTB)
     pub has_argb_visual: bool, // True if window was created with 32-bit ARGB visual
     pub argb_colormap: Option<Colormap>, // Custom colormap for ARGB visual (needs cleanup)
+
+    // XInput2 touch+pen feed (None if libXi/the extension is unavailable).
+    xi: Option<Rc<dlopen::Xi>>,
+    xi_opcode: c_int,
+    /// deviceid -> (pressure#, tiltX#, tiltY#, pressure_max); -1 = absent valuator.
+    pen_valuators: std::collections::HashMap<c_int, (i32, i32, i32, f64)>,
 
     // Shell2 state (common fields shared with all platforms)
     pub common: event::CommonWindowState,
@@ -844,6 +940,9 @@ impl X11Window {
 
         unsafe { (xlib.XSelectInput)(display, window_handle, event_mask) };
 
+        // XInput2: select touch + pen/tablet events (best-effort; core events otherwise).
+        let (xi, xi_opcode, pen_valuators) = init_xinput2(&xlib, display, window_handle);
+
         let wm_delete_window_atom =
             unsafe { (xlib.XInternAtom)(display, b"WM_DELETE_WINDOW\0".as_ptr() as _, 0) };
         unsafe {
@@ -957,6 +1056,9 @@ impl X11Window {
             dbus_connection: None,
             has_argb_visual,
             argb_colormap,
+            xi,
+            xi_opcode,
+            pen_valuators,
             common: event::CommonWindowState {
                 layout_window: None,
                 current_window_state: FullWindowState {
