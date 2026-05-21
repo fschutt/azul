@@ -2226,3 +2226,14 @@ P6 (input events/sensors/gamepad/capture hooks/PDF/MapWidget) + P7 (audio: Micro
 `doc/guide/en/database.md` (beta) - the AzulVault P4 storage: `Db::open` + `execute`/`query` with `DbValue` (the 5 SQLite storage classes) bound as `DbValueVec`, results as the `DbRows` grid; the db-sqlite feature gate; run from a Thread.
 
 **P10 docs complete** - 6 guides now cover the P3-P8 goal-app + new systems: maps (P3), database (P4), pdf (P5), device-input (P6 sensors/gamepad/geolocation/pen), realtime-media (P6 capture / P7 audio / P8 UDP+azul-meet), and mobile-deployment (iOS/Android packaging). The entire SUPER_PLAN_2 P4-P10 roadmap + its documentation are done. Remaining items are platform/feature work, not roadmap: video-into-azul-meet (chunking + on-device codec), real on-device backends (AVFoundation/rodio/CoreMotion/Camera2/...).
+
+### Tick — P8.udp.2 — UDP framing/chunking (fault-tolerant packet sharing) (2026-05-21)
+
+Completed P8's "fault-tolerant packet sharing" intent (the chunking I'd deferred). The `Udp` inner now carries a send counter + reassembly buffers:
+- `send_chunked(remote, U8Vec) -> usize` (chunks sent): splits a >MTU payload (a video keyframe) into sequenced chunks - 8-byte header (msg_id u32 + chunk_idx u16 + chunk_count u16) + <=1200-byte payload - and sends each datagram.
+- `recv_chunked() -> OptionU8Vec`: drains datagrams, buffers out-of-order chunks by msg_id, and returns a message once all its chunks arrive. Drop-tolerant: incomplete messages are evicted past 256 in-flight (bounded memory), no retransmit, no head-of-line blocking - the realtime-A/V model.
+- Byte-level `send_to`/`recv` unchanged (small payloads). Codegen + gate GREEN on all 5.
+
+This makes azul-meet video-capable (audio uses send_to; video frames would use send_chunked). Rationale for doing it now: it's P8's stated intent (AzUdp = fault-tolerant packet sharing), bounded, with a standard correct design - "keep working, don't ask" over holding.
+
+NEXT (optional): wire camera -> send_chunked -> recv_chunked -> video display into azul-meet (+ the on-device codec), and the real platform backends.

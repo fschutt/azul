@@ -89785,6 +89785,48 @@
                                     "type": "String"
                                 },
                                 "fn_body": "object.local_addr().into()"
+                            },
+                            "send_chunked": {
+                                "doc": [
+                                    "Send a (possibly large) message to `remote_addr`, split into sequenced",
+                                    "chunks. Use this for payloads bigger than a datagram (a video frame).",
+                                    "Reassemble on the far side with [`recv_chunked`](Self::recv_chunked).",
+                                    "Returns the number of chunks sent (`0` if not open). Lossy by nature:",
+                                    "if a chunk is dropped in flight the message is discarded by the",
+                                    "receiver rather than stalling."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "remote_addr": "String"
+                                    },
+                                    {
+                                        "data": "U8Vec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.send_chunked(remote_addr, data)"
+                            },
+                            "recv_chunked": {
+                                "doc": [
+                                    "Drain pending datagrams and return the next fully-reassembled chunked",
+                                    "message, or `None` if none completed this poll. Out-of-order chunks are",
+                                    "buffered; messages whose chunks never all arrive are eventually evicted",
+                                    "(bounded memory). Pair with [`send_chunked`](Self::send_chunked)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionU8Vec"
+                                },
+                                "fn_body": "object.recv_chunked()"
                             }
                         },
                         "repr": "C"
