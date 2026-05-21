@@ -32,6 +32,8 @@ pub mod apple;
 pub mod android;
 #[cfg(target_os = "windows")]
 pub mod windows;
+#[cfg(target_os = "linux")]
+pub mod linux;
 
 /// Dispatch one biometric-auth request to the native prompt. Called from
 /// `regenerate_layout` for each prompt the layout pass drained from the
@@ -50,11 +52,14 @@ pub fn request(prompt: &BiometricPrompt) {
     android::request(prompt);
     #[cfg(target_os = "windows")]
     windows::request(prompt);
+    #[cfg(target_os = "linux")]
+    linux::request(prompt);
     #[cfg(not(any(
         target_os = "ios",
         target_os = "macos",
         target_os = "android",
-        target_os = "windows"
+        target_os = "windows",
+        target_os = "linux"
     )))]
     {
         let _ = prompt;
@@ -83,11 +88,16 @@ pub fn probe_availability() -> BiometricKind {
     {
         windows::probe_availability()
     }
+    #[cfg(target_os = "linux")]
+    {
+        linux::probe_availability()
+    }
     #[cfg(not(any(
         target_os = "ios",
         target_os = "macos",
         target_os = "android",
-        target_os = "windows"
+        target_os = "windows",
+        target_os = "linux"
     )))]
     {
         BiometricKind::NotAvailable
