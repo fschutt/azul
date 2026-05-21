@@ -1127,6 +1127,28 @@ impl RemillTranspiler {
             // trapping. In the lifted layout/cascade these are abort /
             // should-not-reach paths, so a trap is both correct and far faster
             // to debug than a hang. See `rewrite_empty_self_loops`.
+            // M12.7 (AZ_LOG_SELFLOOP_VAL=<stem>|ALL diagnostic): before the
+            // empty self-loops become traps, log the value `v` that routes INTO
+            // each (the `icmp eq i64 %v, 0` operand) to 0x40078, so a post-trap
+            // peek reveals WHAT non-zero value opt folded the loop-exit on.
+            if let Ok(target) = std::env::var("AZ_LOG_SELFLOOP_VAL") {
+                let matched = target == "ALL"
+                    || target
+                        .split(',')
+                        .any(|s| !s.is_empty() && (fn_name.contains(s) || stem.contains(s)));
+                if matched {
+                    if let Ok(opt_ir) = std::fs::read_to_string(&opt_ir_path) {
+                        let (logged, n) = inject_selfloop_value_log(&opt_ir);
+                        if n > 0 {
+                            let _ = std::fs::write(&opt_ir_path, &logged);
+                            eprintln!(
+                                "[azul-web] M12.7: logged {} self-loop routing values in {}",
+                                n, stem
+                            );
+                        }
+                    }
+                }
+            }
             if std::env::var_os("AZ_NO_TRAP_SELFLOOP").is_none() {
                 if let Ok(opt_ir) = std::fs::read_to_string(&opt_ir_path) {
                     let (fixed, n) = rewrite_empty_self_loops(&opt_ir);
@@ -4352,6 +4374,76 @@ fn sanitize_filename(name: &str) -> String {
 /// those are abort / unreachable paths, so trapping is correct and far faster to
 /// debug than a 120 s hang. Only empty self-loops are touched (a real loop has a
 /// body between its label and its back-edge). Returns (rewritten_ir, count).
+/// M12.7 diagnostic: for each conditional branch into an empty self-loop
+/// (`br i1 %c, .., %SELFLOOP` where %c = `icmp eq i64 %v, 0`), insert
+/// `store volatile i64 %v, 0x40078` before the branch. Only the LIVE branch's
+/// store executes, so a post-trap peek of 0x40078 reveals the non-zero value
+/// opt folded the loop-exit on.
+fn inject_selfloop_value_log(opt_ir: &str) -> (String, u32) {
+    let lines: Vec<&str> = opt_ir.lines().collect();
+    let is_ident = |b: u8| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'$' | b'-');
+    let mut selfloops: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for i in 0..lines.len() {
+        let l = lines[i];
+        if l.starts_with(char::is_whitespace) {
+            continue;
+        }
+        if let Some((lbl, _)) = l.split_once(':') {
+            if !lbl.is_empty()
+                && lbl.bytes().all(is_ident)
+                && i + 1 < lines.len()
+                && lines[i + 1].trim() == format!("br label %{}", lbl)
+            {
+                selfloops.insert(lbl);
+            }
+        }
+    }
+    if selfloops.is_empty() {
+        return (opt_ir.to_string(), 0);
+    }
+    let mut out = String::with_capacity(opt_ir.len() + 512);
+    let mut cmp_v: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
+    let mut n = 0u32;
+    for l in &lines {
+        let t = l.trim();
+        if let Some(eq) = t.find(" = icmp ") {
+            let cname = &t[..eq];
+            let toks: Vec<&str> = t[eq + 8..].split_whitespace().collect();
+            if toks.len() >= 3 && toks[1] == "i64" {
+                let op1 = toks[2].trim_end_matches(',');
+                if op1.starts_with('%') && cname.starts_with('%') {
+                    cmp_v.insert(cname, op1);
+                }
+            }
+        }
+        if t.starts_with("br i1 ") {
+            let after = &t[6..];
+            let c = after.split(',').next().map(str::trim).unwrap_or("");
+            let mut hit = false;
+            for (idx, _) in after.match_indices("label %") {
+                let s = &after[idx + 7..];
+                let end = s.bytes().position(|b| !is_ident(b)).unwrap_or(s.len());
+                if selfloops.contains(&s[..end]) {
+                    hit = true;
+                    break;
+                }
+            }
+            if hit {
+                if let Some(v) = cmp_v.get(c) {
+                    out.push_str(&format!(
+                        "  store volatile i64 {}, ptr inttoptr (i64 262264 to ptr), align 8\n",
+                        v
+                    ));
+                    n += 1;
+                }
+            }
+        }
+        out.push_str(l);
+        out.push('\n');
+    }
+    (out, n)
+}
+
 fn rewrite_empty_self_loops(opt_ir: &str) -> (String, u32) {
     let lines: Vec<&str> = opt_ir.lines().collect();
     let mut out = String::with_capacity(opt_ir.len());
