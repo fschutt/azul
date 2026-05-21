@@ -1185,6 +1185,27 @@ impl RemillTranspiler {
                 }
             }
 
+            // M12.7 loop-fuel hang-finder: when AZ_FUEL matches this fn's
+            // stem (or "ALL"), instrument every terminator with a fuel tick
+            // that traps after AZ_FUEL_LIMIT block-executions. Run with
+            // AZ_WASM_DEBUG=1 so the trap's named stack pinpoints the
+            // looping fn. See `inject_fuel`.
+            if let Ok(target) = std::env::var("AZ_FUEL") {
+                let is_wrapper =
+                    export_as.starts_with("AzStartup_") || export_as.contains("AzBoundary_");
+                let matched = (target == "ALL" && !is_wrapper)
+                    || target
+                        .split(',')
+                        .any(|s| !s.is_empty() && (fn_name.contains(s) || stem.contains(s)));
+                if matched {
+                    if let Ok(opt_ir) = std::fs::read_to_string(&opt_ir_path) {
+                        let (fueled, n) = inject_fuel(&opt_ir);
+                        let _ = std::fs::write(&opt_ir_path, &fueled);
+                        eprintln!("[azul-web] M12.7: fueled {} terminators in {}", n, stem);
+                    }
+                }
+            }
+
             run_tool(
                 tools.llc,
                 &[
@@ -4245,6 +4266,50 @@ fn sanitize_filename(name: &str) -> String {
 /// Rust-source-level probe). The emitted id maps each in-window store back to
 /// its exact `.opt.ll` line (saved as `<stem>.instr.ll`), which traces through
 /// SSA to the offending register (`%X27`/`%X8`/...).
+/// M12.7 loop-fuel hang-finder: insert `call void @__az_fuel()` before
+/// every terminator in the post-opt IR, and append an internal
+/// `__az_fuel` that bumps a global tick (at 0x40068) and traps
+/// (`unreachable`) once it exceeds the fuel limit (default 200M, override
+/// with AZ_FUEL_LIMIT). An infinite loop runs its block's terminator
+/// unboundedly → the tick overflows → trap; with AZ_WASM_DEBUG the trap's
+/// named stack pinpoints the looping fn. Inserted before (never after) a
+/// terminator and after any block-leading PHIs, so it is CFG/SSA-safe.
+fn inject_fuel(opt_ir: &str) -> (String, u32) {
+    let limit: u64 = std::env::var("AZ_FUEL_LIMIT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(200_000_000);
+    let mut out = String::with_capacity(opt_ir.len() + opt_ir.len() / 4);
+    let mut n: u32 = 0;
+    for line in opt_ir.lines() {
+        let t = line.trim_start();
+        let is_term = t.starts_with("br ")
+            || t.starts_with("ret ")
+            || t == "ret void"
+            || t.starts_with("switch ")
+            || t == "unreachable"
+            || t.starts_with("indirectbr ");
+        if is_term {
+            out.push_str("  call void @__az_fuel()\n");
+            n += 1;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    // 0x40068 = tick counter; 0x40060 = "fuel tripped" flag (read post-trap).
+    out.push_str(&format!(
+        "\ndefine internal void @__az_fuel() {{\nentry:\n  \
+         %v = load i64, ptr inttoptr (i64 262248 to ptr), align 8\n  \
+         %nn = add i64 %v, 1\n  \
+         store i64 %nn, ptr inttoptr (i64 262248 to ptr), align 8\n  \
+         %o = icmp ugt i64 %nn, {limit}\n  \
+         br i1 %o, label %trap, label %ok\ntrap:\n  \
+         store volatile i64 1, ptr inttoptr (i64 262240 to ptr), align 8\n  \
+         unreachable\nok:\n  ret void\n}}\n"
+    ));
+    (out, n)
+}
+
 /// M12.7: tag each `unreachable` terminator in the post-opt IR with a
 /// unique id by inserting `store volatile i64 (0x554e0000|id), ptr
 /// inttoptr(0x40050)` immediately before it. `store volatile` survives

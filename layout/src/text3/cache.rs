@@ -872,6 +872,13 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// (diff with required fonts).
     pub fn get_loaded_font_ids(&self) -> std::collections::HashSet<FontId> {
         let parsed = self.parsed_fonts.lock().unwrap();
+        // M12.7: skip hashbrown's RawIterRange on an empty map — its NEON
+        // control-byte group-scan mis-lifts to wasm and iterates forever
+        // (the headless web layout uses an empty font cache → parsed is
+        // empty here). is_empty() is len-based (no iteration), so it is safe.
+        if parsed.is_empty() {
+            return std::collections::HashSet::new();
+        }
         parsed.keys().cloned().collect()
     }
 

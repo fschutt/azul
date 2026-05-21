@@ -4084,6 +4084,13 @@ use rust_fontconfig::FontId;
 pub fn collect_font_ids_from_chains(chains: &ResolvedFontChains) -> HashSet<FontId> {
     let mut font_ids = HashSet::new();
 
+    // M12.7: hashbrown's RawIterRange (the .values() iterator below) mis-lifts
+    // to wasm and loops forever on an empty map; is_empty() is len-based, so
+    // bail out before iterating when there are no chains (web bare-body case).
+    if chains.chains.is_empty() {
+        return font_ids;
+    }
+
     for chain in chains.chains.values() {
         // Collect from CSS fallbacks
         for group in &chain.css_fallbacks {
@@ -4113,6 +4120,11 @@ pub fn compute_fonts_to_load(
     required_fonts: &HashSet<FontId>,
     already_loaded: &HashSet<FontId>,
 ) -> HashSet<FontId> {
+    // M12.7: `.difference()` drives hashbrown's RawIterRange, which mis-lifts
+    // to wasm and loops on an empty map. Nothing required → nothing to load.
+    if required_fonts.is_empty() {
+        return HashSet::new();
+    }
     required_fonts.difference(already_loaded).cloned().collect()
 }
 
