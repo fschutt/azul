@@ -17,6 +17,8 @@
 use alloc::vec::Vec;
 
 use azul_core::audio::{AudioConfig, AudioFrame};
+
+use super::capture_common::mic_backend;
 use azul_core::callbacks::Update;
 use azul_core::dom::{ComponentEventFilter, DatasetMergeCallbackType, Dom, EventFilter};
 use azul_core::refany::{OptionRefAny, RefAny};
@@ -179,7 +181,7 @@ extern "C" fn mic_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Up
                 channels,
             }),
             data.clone(),
-            ThreadCallback::new(test_tone_worker),
+            ThreadCallback::new(mic_worker),
         ),
     );
     Update::DoNothing
@@ -188,11 +190,40 @@ extern "C" fn mic_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Up
 /// Background worker (test tone): a 440 Hz sine in ~20 ms chunks until the
 /// widget unmounts. The real AVAudioEngine / AAudio / cpal capture loop
 /// replaces it (dll-side).
-extern "C" fn test_tone_worker(mut init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
+extern "C" fn mic_worker(mut init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
     let (rate, channels) = init
         .downcast_ref::<MicThreadInit>()
         .map(|i| (i.sample_rate, i.channels))
         .unwrap_or((48_000, 1));
+
+    // Real platform capture if the dll registered a mic backend (ALSA on
+    // Linux); otherwise the 440 Hz test tone below.
+    if let Some(backend) = mic_backend() {
+        let handle = (backend.open)(rate, channels);
+        if handle != 0 {
+            let mut buf: Vec<f32> = Vec::new();
+            loop {
+                let frames = (backend.read)(handle, &mut buf);
+                if frames == 0 {
+                    break;
+                }
+                let frame = AudioFrame {
+                    sample_rate: rate,
+                    channels,
+                    samples: F32Vec::from_vec(buf.clone()),
+                };
+                if !sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
+                    WriteBackCallback::new(mic_writeback),
+                    RefAny::new(frame),
+                ))) {
+                    break;
+                }
+            }
+            (backend.close)(handle);
+            return;
+        }
+    }
+
     let frames_per_chunk = (rate as usize / 50).max(1); // ~20 ms
     let step = 2.0 * core::f32::consts::PI * 440.0 / rate as f32;
     let mut phase: f32 = 0.0;

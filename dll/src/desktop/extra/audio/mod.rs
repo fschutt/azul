@@ -136,3 +136,23 @@ impl Drop for AudioSink {
         self.drop_inner();
     }
 }
+
+/// Register the platform microphone-capture backend with the layout seam, once.
+/// Called from the per-frame layout pass (like `sensors::ensure_started`) so
+/// `MicrophoneWidget` captures real audio where a backend exists (ALSA on
+/// Linux); a no-op everywhere else (the widget keeps its test tone).
+pub fn ensure_mic_backend() {
+    #[cfg(target_os = "linux")]
+    {
+        static DONE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        DONE.get_or_init(|| {
+            azul_layout::widgets::capture_common::register_mic_backend(
+                azul_layout::widgets::capture_common::AudioCaptureVTable {
+                    open: alsa::mic_open,
+                    read: alsa::mic_read,
+                    close: alsa::mic_close,
+                },
+            );
+        });
+    }
+}

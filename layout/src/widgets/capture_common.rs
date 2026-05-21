@@ -188,3 +188,31 @@ pub fn camera_backend() -> Option<CaptureVTable> {
 pub fn screen_backend() -> Option<CaptureVTable> {
     SCREEN_BACKEND.get().copied()
 }
+
+/// A platform **audio**-capture backend (microphone), registered by the dll so
+/// `MicrophoneWidget` can pull real samples instead of the test tone. Like
+/// [`CaptureVTable`] but yields interleaved `f32` audio rather than RGBA video.
+#[derive(Clone, Copy)]
+pub struct AudioCaptureVTable {
+    /// Open the default mic at `sample_rate` x `channels`. Opaque handle, or
+    /// `0` on failure.
+    pub open: fn(sample_rate: u32, channels: u16) -> u64,
+    /// Block for the next chunk, writing interleaved `f32` into `out` (resized).
+    /// Returns the frame count (`out.len() / channels`), or `0` on error / EOF
+    /// (the worker then stops + closes).
+    pub read: fn(handle: u64, out: &mut alloc::vec::Vec<f32>) -> u32,
+    /// Close + free the source.
+    pub close: fn(handle: u64),
+}
+
+static MIC_BACKEND: std::sync::OnceLock<AudioCaptureVTable> = std::sync::OnceLock::new();
+
+/// Register the platform microphone-capture backend (called once by the dll).
+pub fn register_mic_backend(vtable: AudioCaptureVTable) {
+    let _ = MIC_BACKEND.set(vtable);
+}
+
+/// The registered mic-capture backend, if the dll provided one for this platform.
+pub fn mic_backend() -> Option<AudioCaptureVTable> {
+    MIC_BACKEND.get().copied()
+}

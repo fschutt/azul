@@ -813,6 +813,10 @@ pub fn regenerate_layout(
     crate::desktop::extra::sensors::ensure_started();
     crate::desktop::extra::sensors::poll();
 
+    // Register the platform microphone-capture backend once (ALSA on Linux) so
+    // MicrophoneWidget captures real audio where available; OnceLock-guarded.
+    crate::desktop::extra::audio::ensure_mic_backend();
+
     // 7h. Drain motion-sensor readings the platform backend parked since the
     // last pass (CoreMotion / Android SensorManager fire on arbitrary
     // threads with no handle to this LayoutWindow, so they park readings in

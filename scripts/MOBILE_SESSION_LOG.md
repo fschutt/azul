@@ -2312,3 +2312,18 @@ Desktop extensions so far: #1 sensors (iio), #2 capture seam (camera+screencap),
 `dll/src/desktop/extra/audio/alsa.rs` - minimal **dlopen-ALSA** PCM playback: loads `libasound.so.2` via libloading (no link, cross-compiles, graceful if absent - the dlopen rule), binds the 6 PCM fns AudioSink needs (`snd_pcm_open`/`set_params`/`writei`/`recover`/`drain`/`close`). `AudioSink::open` opens the default device (FLOAT_LE interleaved, ~100ms latency); `play(frame)` `writei`s the f32 samples + recovers from underruns; Drop drains+closes. Wired into `AudioSink` (cfg-linux `pcm: Option<AlsaPcm>` field). So **AudioSink is real on Linux** (was a stub everywhere) - the playback leg of azul-meet. Gate GREEN all 7; device-tested on a real ALSA box.
 
 Desktop extensions: #1 sensors (iio), #2 capture seam, #3 geolocation (GeoClue2), #4 audio playback (ALSA). Remaining: macOS/Windows AudioSink (CoreAudio/WASAPI), mic *capture* (ALSA readi - same dlopen module), v4l2 camera (hand-written ABI + device), screencap (X11/DXGI), video codec FFI.
+
+### Tick — desktop extension #5: Linux mic capture (ALSA) + registration plumbing (2026-05-21)
+
+Completed Linux audio: `MicrophoneWidget` now captures **real** mic input on Linux (was a 440 Hz test tone), so azul-meet's linux audio is real end-to-end (capture + playback).
+
+Five pieces:
+1. **Audio-capture seam** (`capture_common::AudioCaptureVTable` + `register_mic_backend`/`mic_backend`) - the audio analogue of the video CaptureVTable (yields interleaved f32 + frame count).
+2. **ALSA capture** (`audio/alsa.rs`): `AlsaCapture` (snd_pcm_open CAPTURE + `readi`, recover-once) + the plain-fn vtable `mic_open`/`mic_read`/`mic_close` (handle = boxed AlsaCapture). Reuses the dlopen'd libasound from the playback backend.
+3. **Registration plumbing** (`audio::ensure_mic_backend`, OnceLock-guarded, cfg-linux registers the ALSA vtable) - **the dll->layout backend-registration hook**, now established.
+4. Called from the per-frame layout pass (`shell2/common/layout.rs`, next to `sensors::ensure_started`).
+5. `mic_worker` pulls from `mic_backend()` when registered, else the test tone.
+
+Gate GREEN all 7. **The registration plumbing also unblocks the camera/screencap backends** - when their per-OS capture is written (v4l2 etc.), they register the same way (a `register_*_backend` call in the hook), zero further plumbing.
+
+Desktop extensions: #1 sensors (iio), #2 capture seam, #3 geolocation (GeoClue2), #4 audio playback (ALSA), #5 mic capture (ALSA). Remaining: macOS/Windows audio (CoreAudio/WASAPI), v4l2 camera (hand-written ABI + device), screencap (X11/DXGI), video codec FFI.
