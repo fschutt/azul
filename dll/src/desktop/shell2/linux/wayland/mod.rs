@@ -156,6 +156,10 @@ pub struct WaylandWindow {
     event_queue: *mut defines::wl_event_queue,
     keyboard_state: events::WaylandKeyboardState,
     pointer_state: events::PointerState,
+    tablet_manager: *mut defines::zwp_tablet_manager_v2,
+    tablet_seat: *mut defines::zwp_tablet_seat_v2,
+    tablet_initialized: bool,
+    tablet_pen: events::TabletPenPending,
     is_open: bool,
     configured: bool,
 
@@ -950,6 +954,10 @@ impl WaylandWindow {
             new_frame_ready: Arc::new((Mutex::new(false), Condvar::new())),
             keyboard_state: events::WaylandKeyboardState::new(),
             pointer_state: events::PointerState::new(),
+            tablet_manager: std::ptr::null_mut(),
+            tablet_seat: std::ptr::null_mut(),
+            tablet_initialized: false,
+            tablet_pen: events::TabletPenPending::default(),
             frame_callback_pending: false,
             needs_redraw: false,
             gpu_damage_rects: Vec::new(),
@@ -1711,6 +1719,28 @@ impl WaylandWindow {
         let ts = &mut self.common.current_window_state.touch_state;
         ts.touch_points = TouchPointVec::from_vec(Vec::new());
         ts.num_touches = 0;
+    }
+
+    /// Feed the accumulated tablet pen state on the tool's `frame` event.
+    pub fn handle_tablet_frame(&mut self) {
+        let p = self.tablet_pen;
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        if let Some(lw) = self.common.layout_window.as_mut() {
+            lw.gesture_drag_manager.update_pen_state_full(
+                p.position,
+                p.pressure,
+                (p.tilt_x, p.tilt_y),
+                p.in_contact,
+                p.is_eraser,
+                false,
+                p.tool_id,
+                0.0,
+                p.rotation,
+                0,
+            );
+        }
+        let result = self.process_window_events(0);
+        self.handle_process_event_result(result);
     }
 
     pub fn handle_pointer_motion(&mut self, x: f64, y: f64) {
