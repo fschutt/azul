@@ -2453,7 +2453,12 @@ fn collect_box_props(
 
     // +spec:table-layout:038f9d - padding does not apply to table-row-group, table-header-group, table-footer-group, table-row, table-column-group, table-column
     // Non-cell internal table elements (rows, row groups, columns, column groups) do not have padding.
-    let unresolved_padding = match get_display_type(styled_dom, dom_id) {
+    // M12.7 diag: capture get_display_type's return BEFORE the match. If 0x400D0 reads
+    // 0xC0_57<dt> the CALL returned (dt = LayoutDisplay discriminant) and the MATCH below
+    // diverges; if it stays 0x56, get_display_type (the enum extraction) itself diverges.
+    let __dt_pad = get_display_type(styled_dom, dom_id);
+    unsafe { core::ptr::write_volatile(0x400D0 as *mut u32, 0xC0_005700u32 | ((__dt_pad as u32) & 0xff)); }
+    let unresolved_padding = match __dt_pad {
         LayoutDisplay::TableRow
         | LayoutDisplay::TableRowGroup
         | LayoutDisplay::TableHeaderGroup
