@@ -24,6 +24,8 @@ use azul_core::audio::{AudioConfig, AudioFrame};
 mod alsa;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod cpal_mic;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+mod cpal_sink;
 
 /// Internal playback state behind the `AudioSink` handle. The stub tracks the
 /// config + how many frames were submitted; the real backend replaces it with
@@ -35,6 +37,9 @@ struct AudioSinkInner {
     /// The live ALSA playback stream on Linux (`None` if ALSA / no device).
     #[cfg(target_os = "linux")]
     pcm: Option<alsa::AlsaPcm>,
+    /// The live cpal output stream on macOS/Windows (`None` if no device).
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    sink: Option<cpal_sink::CpalSink>,
 }
 
 /// An audio output handle. Open one with [`AudioSink::open`], feed it
@@ -77,11 +82,15 @@ impl AudioSink {
     pub fn open(config: AudioConfig) -> AudioSink {
         #[cfg(target_os = "linux")]
         let pcm = alsa::AlsaPcm::open(config.sample_rate, config.channels as u32);
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        let sink = cpal_sink::CpalSink::open(config.sample_rate, config.channels);
         let inner = Box::new(AudioSinkInner {
             config,
             frames_played: 0,
             #[cfg(target_os = "linux")]
             pcm,
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            sink,
         });
         AudioSink {
             ptr: Box::into_raw(inner) as *mut c_void,
@@ -103,6 +112,10 @@ impl AudioSink {
             #[cfg(target_os = "linux")]
             if let Some(pcm) = &inner.pcm {
                 pcm.write(frame.samples.as_ref());
+            }
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            if let Some(sink) = &inner.sink {
+                sink.play(frame.samples.as_ref());
             }
             let _ = frame;
         }
