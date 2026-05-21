@@ -1992,6 +1992,103 @@ static CACHED_DEF_WINDOW_PROC_W: std::sync::atomic::AtomicPtr<core::ffi::c_void>
     std::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 // Win32 message handler
+impl Win32Window {
+    /// Feed a WM_POINTER touch/pen sample into azul's input state. WM_POINTER
+    /// fires alongside the promoted WM_MOUSE messages (which drive cursor +
+    /// click), so this only adds the extra data Windows doesn't promote: pen
+    /// pressure/tilt/eraser -> the gesture manager's pen state, and per-finger
+    /// touch points -> the window's `touch_state`. `is_up` = WM_POINTERUP.
+    /// Mirrors the iOS/Android pen+touch feed; no-op on pre-Win8 (fns absent).
+    unsafe fn feed_pointer(&mut self, hwnd: HWND, pointer_id: u32, is_up: bool) {
+        use winapi::um::winuser::{
+            PEN_FLAG_BARREL, PEN_FLAG_ERASER, POINTER_FLAG_INCONTACT, POINTER_PEN_INFO,
+            POINTER_TOUCH_INFO, PT_PEN, PT_TOUCH,
+        };
+        let get_type = match self.win32.user32.GetPointerType {
+            Some(f) => f,
+            None => return,
+        };
+        let mut ptype: u32 = 0;
+        if get_type(pointer_id, &mut ptype) == 0 {
+            return;
+        }
+        let hf = self
+            .common
+            .current_window_state
+            .size
+            .get_hidpi_factor()
+            .inner
+            .get();
+
+        if ptype == PT_PEN {
+            let get_pen = match self.win32.user32.GetPointerPenInfo {
+                Some(f) => f,
+                None => return,
+            };
+            let mut pi: POINTER_PEN_INFO = core::mem::zeroed();
+            if get_pen(pointer_id, &mut pi) == 0 {
+                return;
+            }
+            let mut pt = dlopen::POINT {
+                x: pi.pointerInfo.ptPixelLocation.x,
+                y: pi.pointerInfo.ptPixelLocation.y,
+            };
+            (self.win32.user32.ScreenToClient)(hwnd, &mut pt);
+            let pos = azul_core::geom::LogicalPosition::new(pt.x as f32 / hf, pt.y as f32 / hf);
+            let in_contact =
+                !is_up && (pi.pointerInfo.pointerFlags & POINTER_FLAG_INCONTACT) != 0;
+            if let Some(lw) = self.common.layout_window.as_mut() {
+                // Windows pen: pressure 0..1024, tiltX/Y already in degrees, rotation degrees.
+                lw.gesture_drag_manager.update_pen_state_full(
+                    pos,
+                    pi.pressure as f32 / 1024.0,
+                    (pi.tiltX as f32, pi.tiltY as f32),
+                    in_contact,
+                    (pi.penFlags & PEN_FLAG_ERASER) != 0,
+                    (pi.penFlags & PEN_FLAG_BARREL) != 0,
+                    pointer_id as u64,
+                    0.0,
+                    (pi.rotation as f32) * core::f32::consts::PI / 180.0,
+                    0,
+                );
+            }
+        } else if ptype == PT_TOUCH {
+            let get_touch = match self.win32.user32.GetPointerTouchInfo {
+                Some(f) => f,
+                None => return,
+            };
+            let mut ti: POINTER_TOUCH_INFO = core::mem::zeroed();
+            if get_touch(pointer_id, &mut ti) == 0 {
+                return;
+            }
+            let mut pt = dlopen::POINT {
+                x: ti.pointerInfo.ptPixelLocation.x,
+                y: ti.pointerInfo.ptPixelLocation.y,
+            };
+            (self.win32.user32.ScreenToClient)(hwnd, &mut pt);
+            let pos = azul_core::geom::LogicalPosition::new(pt.x as f32 / hf, pt.y as f32 / hf);
+            let force = if ti.pressure > 0 {
+                ti.pressure as f32 / 1024.0
+            } else {
+                0.5
+            };
+            use azul_core::window::{TouchPoint, TouchPointVec};
+            let ts = &mut self.common.current_window_state.touch_state;
+            let mut pts: Vec<TouchPoint> = ts.touch_points.clone().into_library_owned_vec();
+            pts.retain(|p| p.id != pointer_id as u64);
+            if !is_up {
+                pts.push(TouchPoint {
+                    id: pointer_id as u64,
+                    position: pos,
+                    force,
+                });
+            }
+            ts.touch_points = TouchPointVec::from_vec(pts);
+            ts.num_touches = ts.touch_points.len();
+        }
+    }
+}
+
 unsafe extern "system" fn window_proc(
     hwnd: HWND,
     msg: u32,
@@ -2029,6 +2126,9 @@ unsafe extern "system" fn window_proc(
     const WM_DPICHANGED: u32 = 0x02E0;
     const WM_DROPFILES: u32 = 0x0233;
     const WM_DISPLAYCHANGE: u32 = 0x007E;
+    const WM_POINTERUPDATE: u32 = 0x0245;
+    const WM_POINTERDOWN: u32 = 0x0246;
+    const WM_POINTERUP: u32 = 0x0247;
 
     // IME (Input Method Editor) messages
     const WM_IME_SETCONTEXT: u32 = 0x0281;
@@ -2473,6 +2573,19 @@ unsafe extern "system" fn window_proc(
             }
 
             0
+        }
+
+        WM_POINTERDOWN | WM_POINTERUPDATE => {
+            // Touch + pen (Win8+). Promoted WM_MOUSE messages still drive
+            // cursor/click; this adds pressure/tilt + multi-touch state.
+            let pointer_id = (wparam & 0xFFFF) as u32;
+            window.feed_pointer(hwnd, pointer_id, false);
+            def_window_proc_w(hwnd, msg, wparam, lparam)
+        }
+        WM_POINTERUP => {
+            let pointer_id = (wparam & 0xFFFF) as u32;
+            window.feed_pointer(hwnd, pointer_id, true);
+            def_window_proc_w(hwnd, msg, wparam, lparam)
         }
 
         WM_LBUTTONDOWN => {
