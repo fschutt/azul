@@ -11278,6 +11278,25 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "OnAudioFrameCallbackType": {
+                        "external": "azul_layout::widgets::microphone::OnAudioFrameCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "AudioFrame"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        }
                     }
                 }
             },
@@ -19653,6 +19672,29 @@
                             {
                                 "cb": {
                                     "type": "MapPinTapCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OnAudioFrameCallback": {
+                        "external": "azul_layout::widgets::microphone::OnAudioFrameCallback",
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "OnAudioFrameCallbackType"
                                 },
                                 "callable": {
                                     "type": "OptionRefAny"
@@ -43148,6 +43190,122 @@
                                 }
                             }
                         ],
+                        "repr": "C"
+                    },
+                    "OnAudioFrame": {
+                        "external": "azul_layout::widgets::microphone::OnAudioFrame",
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "OnAudioFrameCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "MicrophoneWidget": {
+                        "external": "azul_layout::widgets::microphone::MicrophoneWidget",
+                        "struct_fields": [
+                            {
+                                "config": {
+                                    "type": "AudioConfig"
+                                },
+                                "on_frame": {
+                                    "type": "OptionOnAudioFrame"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "with_on_frame": {
+                                "doc": [
+                                    "Builder form of [`set_on_frame`](Self::set_on_frame)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_frame": "OnAudioFrameCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MicrophoneWidget"
+                                },
+                                "fn_body": "object.with_on_frame(data, on_frame)"
+                            },
+                            "set_on_frame": {
+                                "doc": [
+                                    "Set a hook invoked with every captured audio chunk - for saving,",
+                                    "effects, or sending over the network (azul-meet). The backreference DI",
+                                    "pattern (see `architecture.md`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_frame": "OnAudioFrameCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_frame(data, on_frame)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "AudioFrame": {
+                        "external": "azul_core::audio::AudioFrame",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "sample_rate": {
+                                    "type": "u32"
+                                },
+                                "channels": {
+                                    "type": "u16"
+                                },
+                                "samples": {
+                                    "type": "F32Vec"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "frame_count": {
+                                "doc": [
+                                    "Number of sample *frames* (samples per channel) in this chunk."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.frame_count()"
+                            }
+                        },
                         "repr": "C"
                     }
                 }
@@ -84299,6 +84457,27 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionOnAudioFrame": {
+                        "external": "azul_layout::widgets::microphone::OptionOnAudioFrame",
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "OnAudioFrame"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -89321,6 +89500,28 @@
                                 },
                                 "device_id": {
                                     "type": "u64"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "AudioConfig": {
+                        "external": "azul_core::audio::AudioConfig",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "sample_rate": {
+                                    "type": "u32"
+                                },
+                                "channels": {
+                                    "type": "u16"
                                 }
                             }
                         ],

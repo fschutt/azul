@@ -2105,3 +2105,13 @@ Part 2: wired the actual firing. `SensorManager`/`GamepadManager` now impl `azul
 Apps can now `.with_callback(EventFilter::Window(WindowEventFilter::SensorChanged), data, cb)` and read the value via `get_sensor_reading` inside — no Timer poll-loop. **P6 COMPLETE** (sensors · gamepad · camera · screencap · video · wacom · all the API fixes: capture hooks · PDF uncouple · MapWidget hooks+projection · input events).
 
 NEXT: **P7** — audio (MicrophoneWidget capture + AudioWidget playback, reusing the set_on_frame hook pattern) + video enc/dec (vk-video). Then P8 (UDP/azul-meet) -> P9 (synthetic-event e2e) -> P10 (docs).
+
+### Tick — P7.audio.b — MicrophoneWidget (capture + on_frame hook) (2026-05-21)
+
+First P7 audio widget. `layout/src/widgets/microphone.rs`: a "dumb widget" mirroring the camera pattern, audio instead of video (no GL):
+- `MicrophoneWidget::create(AudioConfig).with_on_frame(data, cb).dom()` -> an invisible node; AfterMount starts a capture thread; each `AudioFrame` flows through the writeback to the user's `on_frame` hook (`OnAudioFrame` backreference DI, FFI-exposed via `impl_widget_callback!`+`impl_managed_callback!{extra_args:[frame: AudioFrame]}`). **This is the azul-meet audio-send seam** (capture -> on_frame -> encode -> UDP), no globals. Test-tone worker (440 Hz sine, ~20 ms chunks); real AVAudioEngine/AAudio/cpal worker is dll-side/on-device.
+- Codegen-exposed: `MicrophoneWidget`, `AudioConfig`, `AudioFrame`, `OnAudioFrame`/`OptionOnAudioFrame`/`OnAudioFrameCallback`(Type). Gate GREEN on all 5; demo-buildable surface.
+
+**Codegen note:** `autofix add MicrophoneWidget.*` pulled most deps but **missed `AudioFrame`** (the callback's `extra_arg` payload isn't traced transitively); added it with `autofix add 'AudioFrame.*'`. The bare-pass "remove audio types" diffs are harmless drift (like the recurring MapTileId churn) — never applied; codegen+gate are green with the types present. Reverted one messy api.json mid-state via `git checkout` before the clean re-add.
+
+NEXT: AudioWidget (playback — push/pull design TBD) + video enc/dec (vk-video, on-device). Then P8 (UDP/azul-meet) -> P9 (e2e) -> P10 (docs).

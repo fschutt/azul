@@ -157,6 +157,10 @@ pub mod screencap;
 /// Video-playback widget (P6) — same "dumb widget" architecture, decoding a
 /// video source (vk-video) into a GL texture. See `video.rs`.
 pub mod video;
+/// Microphone-capture widget (P7) — same "dumb widget" architecture as the
+/// capture widgets, audio instead of video (no GL): a background thread feeds
+/// each `AudioFrame` to the user's `on_frame` hook. See `microphone.rs`.
+pub mod microphone;
 /// Map widget — MVT tile + MapCSS → SVG → DOM (AzulMaps goal app, P3).
 /// Cache lives in a dataset RefAny owned by a merge callback so it
 /// survives relayout. See `layout/src/widgets/map.rs` for the design.
