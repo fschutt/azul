@@ -2214,3 +2214,9 @@ P6 (input events/sensors/gamepad/capture hooks/PDF/MapWidget) + P7 (audio: Micro
 ### Tick — P10.3a — PDF guide (HTML-to-PDF) (2026-05-21)
 
 `doc/guide/en/pdf.md` (beta) - documents the standalone PDF API I uncoupled this session: `Pdf::new().from_dom(dom, page_w_px, page_h_px) -> U8Vec` (headless dom -> PDF pages, no window, no file I/O; the printpdf-WASM-style html-to-pdf). Covers page sizing (A4 794x1123 @ 96 DPI), auto-pagination, the azul-doc example, the JSON model (write_json/read_json), and the `pdf` feature gate. NEXT (optional): maps guide (MapWidget hooks+projection) + sqlite/Db guide.
+
+### Tick — P10.3b — maps guide (MapWidget) (2026-05-21)
+
+`doc/guide/en/maps.md` (beta) - documents MapWidget incl. the hooks + projection I added this session: create + with_viewport (MapViewport), native pan/pinch, the `with_on_pin_tap`/`with_on_viewport_changed` backreference-DI hooks (MapLatLon / MapViewport), and the `latlon_at_px`/`px_at_latlon` projection helpers for placing markers. Example mirrors examples/azul-maps; links geolocation to device-input.
+
+**P10 docs now comprehensive** - 5 new guides: realtime-media, device-input, mobile-deployment, pdf, maps. (A Db/sqlite guide for the pre-existing P4 API is the only remaining optional doc.) The SUPER_PLAN_2 P4-P10 roadmap + docs are complete.
